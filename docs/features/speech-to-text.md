@@ -562,6 +562,26 @@ wsi -l en
 wsi --claude-process --claude-model sonnet --claude-style corporate
 ```
 
+### Transcribing Recordings (`stt`)
+
+`stt` transcribes audio files, such as dictation recorded on a phone and synced through an
+rclone mount, into a `<recording>.stt.md` sidecar beside each recording. It uses the warm
+streaming server's model, so dictation and file transcription share one model in GPU memory;
+the server is started if it is not running, and dictation keeps working during a long file.
+
+```bash
+stt ~/mnt/<drive>/<recordings folder>          # transcribe everything without a sidecar
+stt --list ~/mnt/<drive>/<recordings folder>   # done / pending / waiting / short, per recording
+stt --short ~/mnt/<drive>/<recordings folder>  # only the accidental taps, a path a line
+```
+
+A path is a recording folder (a folder of audio parts plus the phone app's `manifest.json`),
+an audio file, or a folder of those. A recording is sent only once its manifest says
+`COMPLETE` and every part has synced with its recorded size and MD5; one shorter than
+`--min-seconds` (default 3) is skipped as an accidental recording. The sidecar has YAML front
+matter (source, length, language, model) and the text in paragraphs, each opened by its time.
+The language is the panel's setting unless `--language` names one (`auto` detects it).
+
 ---
 
 ## Claude Code Post-Processing

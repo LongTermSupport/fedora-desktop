@@ -24,6 +24,9 @@ Commands, one JSON line each way over a Unix socket:
     START {max_seconds, silence_seconds, continuous}   KEEPALIVE   PROGRESS {with_text}
     STOP (closes the microphone, drains; PROGRESS then reports the text)   ABORT   PING
     PASTED {chars} (a client pasting in chunks has pasted that much of the text)
+    FILE_START {paths, language}   FILE_PROGRESS {since}   (the `stt` command: one
+    recording's audio files transcribed by the same model, so one model is ever loaded;
+    see FileJob)
 A recording stops itself when the client's KEEPALIVEs stop (15 s), after
 silence_seconds without speech (0 = never), and at max_seconds. The client reads those
 limits from the extension's settings.
@@ -96,8 +99,10 @@ idle_timeout = DEFAULT_IDLE_TIMEOUT
 server_start_time = None
 pid_lock_fd = None  # open PID file whose flock marks this process as the running server
 transcriber = None  # WhisperTranscriber, loaded once
+model_name = None   # what --model named, reported with a file job's text
 make_vad = None     # returns a fresh frame VAD for a session
 session = None      # the current or last DictationSession
+file_job = None     # the current or last FileJob
 
 
 def log(message, level="INFO"):
@@ -134,6 +139,8 @@ def check_idle_timeout():
     hands it over, and a server that exited would forget it was owed.
     """
     if is_busy() or idle_timeout == 0 or (session is not None and session.owes_text()):
+        return False
+    if file_job is not None and file_job.running():
         return False
 
     idle_time = time.time() - last_activity_time
@@ -860,6 +867,11 @@ class WhisperTranscriber:
         self._model = model
         self._language = language
 
+    @property
+    def model(self):
+        """The faster-whisper model itself, which a file job shares."""
+        return self._model
+
     def __call__(self, samples, prompt):
         import numpy as np
         audio = np.frombuffer(samples.tobytes(), dtype=np.int16).astype(np.float32) / 32768.0
@@ -867,6 +879,90 @@ class WhisperTranscriber:
             audio, language=self._language or None, beam_size=5, vad_filter=False,
             condition_on_previous_text=False, initial_prompt=prompt or None)
         return " ".join(s.text.strip() for s in segments).strip()
+
+
+def load_audio(paths):
+    """The audio files, in order, decoded to 16 kHz mono and joined into one stream."""
+    import numpy as np
+    from faster_whisper import decode_audio
+    return np.concatenate([decode_audio(p, sampling_rate=SAMPLE_RATE) for p in paths])
+
+
+class FileJob:
+    """One recording's audio files transcribed by the warm model, on a thread of its own.
+
+    The parts are joined first, so a word cut in two at a part boundary is heard whole.
+    The settings are for accuracy on long unattended audio: voice activity detection
+    (silence never reaches the model, so it cannot become invented text), a beam of 5,
+    and no conditioning on the previous text (the cause of repetition loops). A dictation
+    shares the model meanwhile; CTranslate2 runs one call at a time, so a dictation
+    segment waits at most for the file's current 30 s window.
+    """
+
+    def __init__(self, model, paths, language):
+        self._model = model
+        self._paths = paths
+        self._language = language
+        self._lock = threading.Lock()
+        self._state = "running"
+        self._segments = []
+        self._error = None
+        self._duration = None
+        self._detected = None
+
+    def start(self):
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def running(self):
+        with self._lock:
+            return self._state == "running"
+
+    def _run(self):
+        try:
+            audio = load_audio(self._paths)
+            segments, info = self._model.transcribe(audio, language=self._language or None, beam_size=5,
+                                                    vad_filter=True, condition_on_previous_text=False)
+            with self._lock:
+                self._duration, self._detected = info.duration, info.language
+            for segment in segments:
+                text = segment.text.strip()
+                if text:
+                    with self._lock:
+                        self._segments.append({"start": segment.start, "end": segment.end, "text": text})
+            state, error = "done", None
+        except Exception as e:
+            state, error = "failed", f"{type(e).__name__}: {e}"
+            log(f"File transcription failed: {error}", "ERROR")
+        with self._lock:
+            self._state, self._error = state, error
+        update_activity()
+        log(f"File transcription {state}: {len(self._segments)} segments from {len(self._paths)} files")
+
+    def report(self, since):
+        """The state, the segments from index `since` on, and, once done, what was heard."""
+        with self._lock:
+            reply = {"status": self._state, "segments": self._segments[since:], "count": len(self._segments)}
+            if self._state == "done":
+                reply.update(duration=self._duration, language=self._detected, model=model_name)
+            if self._state == "failed":
+                reply["error"] = self._error
+            return reply
+
+
+def file_start_paths(params):
+    """FILE_START's paths: a non-empty list of absolute paths to existing files. Raises ValueError."""
+    paths = params.get("paths")
+    if not isinstance(paths, list) or not paths:
+        raise ValueError("paths must be a non-empty list of audio files")
+    for path in paths:
+        if not isinstance(path, str) or not os.path.isabs(path):
+            raise ValueError(f"paths must be absolute: {path!r}")
+        if not os.path.isfile(path):
+            raise ValueError(f"no such audio file: {path}")
+    language = params.get("language")
+    if language is not None and not isinstance(language, str):
+        raise ValueError(f"language must be a code or null, not {language!r}")
+    return paths, language
 
 
 def checked_probabilities(values, frame_count, source):
@@ -973,7 +1069,7 @@ def load_models(model_size="base", language="en", device_type="auto"):
     The VAD is loaded by the first continuous START, so a recording without
     continuous dictation never depends on it.
     """
-    global transcriber, make_vad
+    global transcriber, make_vad, model_name
 
     try:
         from faster_whisper import WhisperModel
@@ -986,6 +1082,7 @@ def load_models(model_size="base", language="en", device_type="auto"):
         return False
 
     transcriber = WhisperTranscriber(model, language)
+    model_name = model_size
     make_vad = make_silero_vad
     log("Model loaded - ready for instant recording")
     return True
@@ -1163,6 +1260,41 @@ def handle_ping_command(client_socket, params):
     })
 
 
+def handle_file_start_command(client_socket, params):
+    """FILE_START {paths, language}: transcribe one recording's files with the warm model."""
+    global file_job
+
+    update_activity()
+    if file_job is not None and file_job.running():
+        refuse(client_socket, "FILE_START", "A file is already being transcribed", busy="file")
+        return
+    if transcriber is None:
+        refuse(client_socket, "FILE_START", "Model not loaded")
+        return
+    try:
+        paths, language = file_start_paths(params)
+    except ValueError as e:
+        refuse(client_socket, "FILE_START", str(e))
+        return
+    file_job = FileJob(transcriber.model, paths, language)
+    file_job.start()
+    log(f"File transcription started: {len(paths)} files, language {language or 'detected'}")
+    send_response(client_socket, {"status": "running"})
+
+
+def handle_file_progress_command(client_socket, params):
+    """FILE_PROGRESS {since}: the file job's state and its segments from index `since`."""
+    update_activity()
+    if file_job is None:
+        refuse(client_socket, "FILE_PROGRESS", "No file is being transcribed")
+        return
+    since = params.get("since", 0)
+    if not isinstance(since, int) or isinstance(since, bool) or since < 0:
+        refuse(client_socket, "FILE_PROGRESS", f"since must be a count of segments, not {since!r}")
+        return
+    send_response(client_socket, file_job.report(since))
+
+
 def handle_shutdown_command(client_socket, params):
     """Handle SHUTDOWN command - graceful server shutdown."""
     global shutdown_requested
@@ -1184,6 +1316,8 @@ COMMANDS = {
     "ABORT": handle_abort_command,
     "PING": handle_ping_command,
     "SHUTDOWN": handle_shutdown_command,
+    "FILE_START": handle_file_start_command,
+    "FILE_PROGRESS": handle_file_progress_command,
 }
 
 

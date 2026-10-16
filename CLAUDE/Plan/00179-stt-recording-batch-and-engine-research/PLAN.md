@@ -1,6 +1,6 @@
 # Plan 00179: speech-to-text batch transcription of recordings, and engine research
 
-**Status**: Not Started
+**Status**: In Progress
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: Medium
@@ -58,7 +58,44 @@ one.
 - A second vocabulary store: Plan 00159 owns it.
 - Re-researching what 00148 Phase 7 already settled.
 
+## Owner decisions (file transcription)
+
+- **One warm model.** Files are transcribed by the warm streaming server's model
+  (`wsi-stream-server`), not a second process: a 4 GB card cannot hold a second large model
+  beside it (a `large-v3` trial beside the server ran out of GPU memory). Dictation and a
+  file job share the model; CTranslate2 runs one call at a time, so dictation waits at most
+  one 30 s window of the file.
+- **Sidecars mark done.** Each recording gets `<recording>.stt.md` beside it; a recording
+  with a sidecar is done. This is the done-marker of Task 4.1.
+- **Recordings are folders.** The phone app writes one folder per recording: numbered Opus
+  parts and a `manifest.json` (state, each part's size and MD5). The parts are joined into
+  one stream before transcription, so a word cut at a part boundary is heard whole.
+- **Accidental taps are skipped.** A recording under 3 s (`--min-seconds`) is not
+  transcribed; `stt --short` lists them for cleanup. Deleting them is left to the owner.
+- **Mounting into a project container** is configuration only: a line in that project's
+  `.claude/ccy/mounts` (docs/ccy.md, Extra Mounts). Nothing here knows the folder is rclone.
+
 ## Tasks
+
+### Phase 0: File transcription with the warm model (tests first)
+
+- [x] ✅ **Task 0.1**: `wsi-stream-server` `FILE_START {paths, language}` and
+  `FILE_PROGRESS {since}`: one recording's files joined and transcribed on a thread of
+  their own by the loaded model (VAD on, beam 5, no previous-text conditioning); one file
+  job at a time; it holds off the idle timeout and never makes a dictation START refused
+  (`tests/speech_to_text/test_server_file_job.py`).
+- [x] ✅ **Task 0.2**: `wsi-stream --ensure-server`: the server started the one way an
+  Insert starts it (`tests/speech_to_text/test_ensure_server.py`).
+- [x] ✅ **Task 0.3**: `stt` in Go (`src-go/cmd/stt`, `internal/stt`, S1-S17 in its package
+  doc): finds recordings, checks manifests (complete, synced, size, MD5), skips short ones,
+  sends each pending one to the server, writes the sidecar atomically; `--list`, `--short`.
+- [x] ✅ **Task 0.4**: `play-speech-to-text.yml` builds and installs `stt`; docs in
+  `docs/features/speech-to-text.md`.
+- [ ] ⬜ **Task 0.5**: Owner deploys the play, then transcribes the recordings folder with
+  `stt`; the first sidecars are read for accuracy before any tuning (beam, VAD settings,
+  paragraph pause).
+- [ ] ⬜ **Task 0.6**: Let a CCY container ask the desktop to transcribe (owner: "would be
+  cool", not required). Needs a narrow host bridge; nothing like it exists today.
 
 ### Phase 1: Triage and research (read-only)
 
@@ -92,8 +129,9 @@ one.
 
 ### Phase 4: Folder, done-tracking, install path
 
-- [ ] ⬜ **Task 4.1**: The recordings folder as an rclone mount, reachable in project
-  containers; a generic tool marks a recording done so it is transcribed once.
+- [x] ✅ **Task 4.1**: The recordings folder as an rclone mount, reachable in project
+  containers; a generic tool marks a recording done so it is transcribed once. Done by the
+  existing rclone mount, a project's `.claude/ccy/mounts` line, and Phase 0's sidecars.
 - [ ] ⬜ **Task 4.2**: `play-speech-to-text.yml` installs the engine Task 2.1 chose for
   hosts without NVIDIA, and the CUDA wheels only where a GPU is present.
 - [ ] ⬜ **Task 4.3**: `deploy.bash`, `acceptance.bash`, an entry in `meta-deploy.bash`, and
