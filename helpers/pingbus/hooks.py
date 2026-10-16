@@ -380,6 +380,55 @@ def tell_membership(environ: Mapping[str, str], deliver: Callable[[list[str]], b
         return True
 
 
+# ── the role notice outside the membership (Plan 00203 Task 3.8) ─────────────────────────
+
+
+def _outside_membership(environ: Mapping[str, str]) -> bool:
+    """A session ccy's membership does not hold: one agent-bus-claude starts (an LXC
+    container's agent, a host, docker or vm member), whose teams are its bundles."""
+    return environ.get(membership.MEMBERSHIP_VAR) in (None, membership.MEMBERSHIP_OFF)
+
+
+def role_notice(previous: Mapping[str, str] | None,
+                views: tuple[TeamView, ...]) -> tuple[dict[str, str], list[str]]:
+    """The roles told after this notice, and its lines: one role context for each team whose
+    role changed since previous. Nothing is said when nothing was told before (the session
+    start told every role), and a team whose record cannot be read keeps what it was told."""
+    now = {view.team: view.role for view in views if view.role in membership.ROLES}
+    if previous is None:
+        return now, []
+    active = {view.team for view in views}
+    record = {**{team: role for team, role in previous.items() if team in active}, **now}
+    changed = tuple(view for view in views if view.team in now and view.team in previous
+                    and previous[view.team] != now[view.team])
+    return record, role_lines(changed)
+
+
+def tell_roles(environ: Mapping[str, str], deliver: Callable[[list[str]], bool],
+               views: tuple[TeamView, ...] | None = None) -> bool | None:
+    """Tell a session outside the membership a change of its own role, once, as
+    tell_membership tells a ccy session: True when told (or recorded), False when `deliver`
+    could not, None for a membership session, nothing to tell, or another teller at it."""
+    if not _outside_membership(environ):
+        return None
+    home = config.resolve_home(environ)
+    with membership.telling(home) as mine:
+        if not mine:
+            return None
+        teams = survey(environ).teams if views is None else views
+        try:
+            previous = membership.read_told_roles(home)
+        except membership.MembershipError:
+            previous = None
+        record, lines = role_notice(previous, teams)
+        if record == previous:
+            return None
+        if lines and not deliver(lines):
+            return False
+        membership.write_told_roles(home, record)
+        return True
+
+
 # ── what the hooks look at ───────────────────────────────────────────────────────────────
 
 
@@ -661,6 +710,7 @@ class _Hook:
             seat_failure = "state"
         lines += about_lines(surveyed.teams)
         lines += role_lines(surveyed.teams)
+        self._role_lines(surveyed, baseline=True)
         lines += self._pending_and_failure(surveyed, seat_failure)
         return _context(self.event, lines)
 
@@ -679,6 +729,18 @@ class _Hook:
         except (OSError, ValueError, membership.MembershipError) as exc:
             self.err.write(f"pingbus: hook session-start: the membership record was not written: "
                            f"{type(exc).__name__}\n")
+
+    def _role_lines(self, surveyed: Survey, *, baseline: bool = False) -> list[str]:
+        """Outside the membership (Plan 00203 Task 3.8): a change of this session's role the
+        watcher did not deliver, told here once. At the session start (baseline) the roles it
+        told are recorded and nothing more is said."""
+        told: list[str] = []
+        try:
+            tell_roles(self.environ, lambda lines: baseline or told.extend(lines) or True, surveyed.teams)
+        except (OSError, membership.MembershipError) as exc:
+            self.err.write(f"pingbus: hook {self.event}: the role notice failed: {type(exc).__name__}\n")
+            return []
+        return told
 
     def _membership_lines(self) -> list[str]:
         """H13: a membership change the watcher did not deliver, told here once."""
@@ -763,7 +825,7 @@ class _Hook:
         surveyed = survey(self.environ)
         self._record_transcript(surveyed)
         revived = self._revive(surveyed)
-        lines = self._keeper_lines() + self._membership_lines()
+        lines = self._keeper_lines() + self._membership_lines() + self._role_lines(surveyed)
         lines += [] if revived is None else [TEMPLATES[f"watcher_{revived}"]]
         return _context(self.event, lines + self._pending_and_failure(surveyed))
 

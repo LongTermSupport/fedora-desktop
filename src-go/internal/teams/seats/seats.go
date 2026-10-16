@@ -21,6 +21,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/roles"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
@@ -41,6 +42,8 @@ type Seats struct {
 	// Exec replaces this process with the launcher, in dir.
 	Exec     func(path string, argv []string, dir string) error
 	Launcher string
+	// Roles makes a role change once it is agreed: live, and in a declared member's entry.
+	Roles *roles.Setter
 }
 
 // New is the Seats flows over a host.
@@ -48,6 +51,7 @@ func New(h *host.Host, kit *flow.Kit, o *ops.Ops) *Seats {
 	return &Seats{
 		Kit: kit, Ops: o, Tmux: h.Tmux, Git: h.Git, Bus: h.Bus, Systemd: h.Systemd, Registry: h.Registry,
 		Here: h.Here, Exec: h.Exec, Launcher: h.Launcher,
+		Roles: roles.New(h, kit, func(ctx context.Context, teams ...string) error { return o.ApplyTeams(ctx, teams) }),
 	}
 }
 

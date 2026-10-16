@@ -10,6 +10,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/roles"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 )
 
@@ -232,6 +233,103 @@ func TestTheSeatMenuActionOnTheCoordinatorStopsIt(t *testing.T) {
 	}
 	if got, want := setRoleCalls(h), []string{seatOne + " " + worker}; !slices.Equal(got, want) {
 		t.Fatalf("set-role %q, want %q", got, want)
+	}
+}
+
+// lxcRoster is roster with an LXC container's agent, the third member.
+func lxcRoster(oneIs, lxcIs string) string {
+	return roster(oneIs, "worker") + "MEMBER\t" + lxcMember + "\t" + lxcIs + "\tjoin\tactive\n"
+}
+
+const lxcMember = "proj.1+worker.lxc"
+
+// probes is the root reader of an LXC container's checkout, which roles reads to find an entry.
+type probes struct{ reads int }
+
+func (p *probes) ReadCheckout(context.Context, string, string, string, string, string) (string, error) {
+	p.reads++
+	return "{}", nil
+}
+
+// declaredRig is roleRig with the LXC member declared by an entry, which the play keeps.
+func declaredRig(t *testing.T, oneIs, lxcIs string) (rig, *[]string) {
+	t.Helper()
+	h := roleRig(t, oneIs, "worker")
+	h.On(teamtest.SudoBus+"list alpha", lxcRoster(oneIs, lxcIs), 0)
+	h.OnDeclare("lxc-members", "LXCMEMBER\talpha\tcontainer-a\tagent\t-\t"+lxcIs+"\tpresent\t/srv/agent/one\t-\n")
+	h.OnDeclare("lxc-script", "READER")
+	h.OnDeclare("lxc-identity", "IDENTITY\tproj\tworker\n")
+	h.OnDeclare("lxc-role", "CHANGED\tLXC member\n")
+	h.s.Roles.Reader = &probes{}
+	applied := &[]string{}
+	h.s.Roles.Apply = func(_ context.Context, teams ...string) error {
+		*applied = append(*applied, teams...)
+		return nil
+	}
+	return h, applied
+}
+
+// lxcRoleCalls are the declare lxc-role runs, as "<container> <role>".
+func lxcRoleCalls(h rig) []string {
+	var calls []string
+	for _, c := range h.Fake.Calls() {
+		if strings.HasPrefix(c.Line(), h.DeclarePrefix("lxc-role")) {
+			calls = append(calls, c.Args[len(c.Args)-5]+" "+c.Args[len(c.Args)-1])
+		}
+	}
+	return calls
+}
+
+func TestADeclaredLxcMemberIsMadeTheCoordinatorInItsEntryAndLiveThenApplied(t *testing.T) {
+	h, applied := declaredRig(t, "worker", "worker")
+	h.Script.Fzf = []string{"|YES"}
+	changed, err := h.s.ChangeRole(context.Background(), "alpha", lxcMember, true, nil)
+	if err != nil || !changed {
+		t.Fatalf("%v %v", changed, err)
+	}
+	if got := lxcRoleCalls(h); !slices.Equal(got, []string{"container-a coordinator"}) {
+		t.Fatalf("lxc-role %q", got)
+	}
+	if got := setRoleCalls(h); !slices.Equal(got, []string{lxcMember + " " + toCoordinator}) {
+		t.Fatalf("set-role %q", got)
+	}
+	if !slices.Equal(*applied, []string{"alpha"}) {
+		t.Fatalf("applied %v", *applied)
+	}
+}
+
+func TestATakeoverFromADeclaredLxcCoordinatorMakesItsEntryAWorkerToo(t *testing.T) {
+	h, applied := declaredRig(t, "worker", "coordinator")
+	h.Script.Fzf = []string{"|YES"}
+	changed, err := h.s.ChangeRole(context.Background(), "alpha", seatOne, true, nil)
+	if err != nil || !changed {
+		t.Fatalf("%v %v", changed, err)
+	}
+	if got := lxcRoleCalls(h); !slices.Equal(got, []string{"container-a worker"}) {
+		t.Fatalf("lxc-role %q", got)
+	}
+	if got, want := setRoleCalls(h), []string{lxcMember + " " + worker, seatOne + " " + toCoordinator}; !slices.Equal(got, want) {
+		t.Fatalf("set-role %q, want %q", got, want)
+	}
+	if !slices.Equal(*applied, []string{"alpha"}) {
+		t.Fatalf("applied %v", *applied)
+	}
+}
+
+func TestTheRoleActionOnAnLxcMemberRowChangesItsRoleAndSaysHowItsSessionLearnsIt(t *testing.T) {
+	h, applied := declaredRig(t, "worker", "worker")
+	h.Script.Fzf = []string{"|YES"}
+	snap := h.pass(t)
+	res, err := h.s.ToggleCoordinator(context.Background(), snap, h.row(t, snap, lxcMember))
+	if err != nil || res != flow.Done || len(*applied) != 1 {
+		t.Fatalf("%v %v %v", res, err, *applied)
+	}
+	if got := setRoleCalls(h); !slices.Equal(got, []string{lxcMember + " " + toCoordinator}) {
+		t.Fatalf("set-role %q", got)
+	}
+	if said := h.ErrOut.String(); !strings.Contains(said, lxcMember+" is now the coordinator of alpha.") ||
+		!strings.Contains(said, roles.Reach) {
+		t.Fatalf("stderr %q", said)
 	}
 }
 

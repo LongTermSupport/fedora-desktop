@@ -30,7 +30,7 @@ func (r *run) do(ctx context.Context, id string, row board.Row) (flow.Result, er
 		return flow.Done, nil
 	case actAttach:
 		return r.p.Seats.AttachSeat(ctx, r.snap, row)
-	case actCoordinator:
+	case actCoordinator, actDemote:
 		return r.p.Seats.ToggleCoordinator(ctx, r.snap, row)
 	case actLxc:
 		return r.addLxc(ctx, row.Team)

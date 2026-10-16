@@ -111,7 +111,7 @@ func Wire(h *host.Host) *App {
 	list := picker.New(h, kit, b, o, c, l, s, x)
 	list.Shutdown = down
 	list.Settings = settings.New(h, kit, o.ApplyTeams, s.ChangeRole)
-	session := hot.New(h, kit)
+	session := hot.New(h, kit, s.Roles)
 	o.SessionsIn, o.TakeOut = session.SessionsIn, session.TakeOut
 	list.Session = session
 	return &App{

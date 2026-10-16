@@ -213,7 +213,7 @@ Usage:
   ccy-teams session add <session> <team>[/<seat>] [--role=worker|coordinator] [--demote-current] [--yes]
   ccy-teams session remove <session> <team> [--coordinator=demote|hand-to=<seat>] [--park] [--yes]
   ccy-teams session move <session> <from-team> <to-team>[/<seat>] [--coordinator=...] [--yes]
-  ccy-teams session role <session> <team> worker|coordinator [--demote-current] [--yes]
+  ccy-teams session role <session>|<handle> <team> worker|coordinator [--demote-current] [--yes]
   ccy-teams session repair <session> [--yes]
                                    Only sessions started through ccy's tmux (listed by ccy-sessions), and cc sessions started with
                                    --teams or --bus, can be changed while they run. list shows
@@ -225,7 +225,9 @@ Usage:
                                    sync position, expires its listening status and posts its
                                    goodbye; the token stays valid (remove does not revoke). move
                                    is add then remove; role sets the seat's role and waits for
-                                   the session to be told; repair restarts a stopped seat keeper.
+                                   the session to be told, or, given a member's handle, sets the
+                                   role of a member of any kind (ccy, cc, LXC, host, docker, vm);
+                                   repair restarts a stopped seat keeper.
                                    One line per step on stderr (✓, ✗, or - for already so); asks
                                    first, --yes required with no terminal. Exit 75 for a seat
                                    held or named elsewhere, or another change in progress (one

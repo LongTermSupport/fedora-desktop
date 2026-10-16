@@ -392,6 +392,11 @@ func TestNoCoordinatorMakesTheCurrentOneAWorker(t *testing.T) {
 	if !strings.Contains(r.HeaderOf(2), "alpha has no coordinator now") {
 		t.Fatalf("header %q", r.HeaderOf(2))
 	}
+	// Making the coordinator a worker is destructive: it is the last row, not where the cursor
+	// starts (Plan 00203 Task 3.8).
+	if rows := r.rows(1); len(rows) < 2 || rows[0] == "No coordinator" || rows[len(rows)-2] != "No coordinator" {
+		t.Fatalf("rows %q", rows)
+	}
 }
 
 // S-F13: a vault-encrypted value is shown as such, and the team's entry is not edited here.

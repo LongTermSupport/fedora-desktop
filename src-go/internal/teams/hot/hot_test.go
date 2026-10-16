@@ -1,6 +1,7 @@
 package hot
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/roles"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -57,6 +59,8 @@ type rig struct {
 	storeDir string
 	store    *registry.Store
 	now      time.Time
+	// applied is every team a role change applied (a declared member's entry was written).
+	applied []string
 }
 
 // breakRecords makes every later record write fail: the registry's directory becomes a file.
@@ -135,7 +139,11 @@ func newRigAs(t *testing.T, kind, name string, seats ...membership.Seat) *rig {
 	}
 	r.m.inbound = len(seats) > 0
 	r.writeReport(t)
-	r.x = New(w.Host, flow.New(w.Host))
+	kit := flow.New(w.Host)
+	r.x = New(w.Host, kit, roles.New(w.Host, kit, func(_ context.Context, teams ...string) error {
+		r.applied = append(r.applied, teams...)
+		return nil
+	}))
 	r.x.Now = func() time.Time { return r.now }
 	r.x.Sleep = func(d time.Duration) { r.now = r.now.Add(d) }
 	r.script(t)

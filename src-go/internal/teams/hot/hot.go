@@ -35,6 +35,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/roles"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -86,23 +87,25 @@ var DefaultWaits = Waits{Poll: 250 * time.Millisecond, Apply: 10 * time.Second, 
 
 // Hot is the session command. Every dependency is a field, so a test stands in for each.
 type Hot struct {
-	Host  *host.Host
-	Kit   *flow.Kit
+	Host *host.Host
+	Kit  *flow.Kit
+	// Roles makes a role change once it is agreed, for a member of any kind.
+	Roles *roles.Setter
 	Now   func() time.Time
 	Sleep func(time.Duration)
 	Waits Waits
 }
 
-// New is the command over a host, on the wall clock.
-func New(h *host.Host, kit *flow.Kit) *Hot {
-	return &Hot{Host: h, Kit: kit, Now: time.Now, Sleep: time.Sleep, Waits: DefaultWaits}
+// New is the command over a host, on the wall clock; r changes roles.
+func New(h *host.Host, kit *flow.Kit, r *roles.Setter) *Hot {
+	return &Hot{Host: h, Kit: kit, Roles: r, Now: time.Now, Sleep: time.Sleep, Waits: DefaultWaits}
 }
 
 const helpText = `Usage: ccy-teams session list
        ccy-teams session add <session> <team>[/<seat>] [--role=worker|coordinator] [--demote-current] [--yes]
        ccy-teams session remove <session> <team> [--coordinator=demote|hand-to=<seat>] [--park] [--yes]
        ccy-teams session move <session> <from-team> <to-team>[/<seat>] [--coordinator=demote|hand-to=<seat>] [--yes]
-       ccy-teams session role <session> <team> worker|coordinator [--demote-current] [--yes]
+       ccy-teams session role <session>|<handle> <team> worker|coordinator [--demote-current] [--yes]
        ccy-teams session repair <session> [--yes]
 
 Only sessions started through ccy's tmux (listed by ccy-sessions), and cc sessions started with
@@ -139,7 +142,12 @@ finishes it. A move within one team is refused: remove, then add.
 
 role makes the session's seat in the team a worker or the coordinator (sudo agent-bus
 set-role), and waits for the session to be told. Making it the coordinator of a team that has
-one is the same takeover as add's, with the same --demote-current.
+one is the same takeover as add's, with the same --demote-current. Given a member's handle
+(<repo>.<seat>+<host>.<type>) in place of a session, it changes the role of a member of any
+kind, an LXC container's agent, a host, docker or vm member as much as a session, by the same
+question and the same path as the member's row in ccy-teams: a member whose role is declared
+(an agent_bus_lxc_members entry) has its entry changed too, then its team applied. Its running
+session is told by pingbus; there is no session record to wait on.
 
 repair starts the session's seat keeper again when it has stopped (list says unguarded), and
 waits for it to take back every seat. A cc session's keeper ends with its claude, so a cc session
@@ -178,6 +186,9 @@ func (x *Hot) Run(ctx context.Context, args []string) term.ExitCode {
 	r, err := parse(args[0], args[1:])
 	if err != nil {
 		return x.usageError(err.Error())
+	}
+	if r.verb == verbRole && roles.IsHandle(r.session) {
+		return x.memberRole(ctx, r)
 	}
 	t, code, ok := x.resolve(ctx, r)
 	if !ok {

@@ -792,6 +792,75 @@ class MembershipNoticeHookTest(MembershipHookCase):
         self.assertNotIn("Builds", told[0])
 
 
+class RoleNoticeHookTest(HookCase):
+    """Plan 00203 Task 3.8: a session started outside ccy's membership (an LXC container's
+    agent, a host, docker or vm member, started by agent-bus-claude) is told a change of its
+    own role as a ccy session is: by its watcher, or else at its next prompt, once. Before, it
+    learnt its role only when it started."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        marks = inject.Marks(self.home, self.env[notify.SOCKET_ENV])
+        marks.ensure_dir()
+        lock = inbox.acquire_lock_at(marks.watch_lock_path(), "watch")
+        self.addCleanup(lock.release)
+
+    def prompt(self) -> list[str]:
+        return [line for line in self.context(self.hook("prompt", {"prompt": "hi"})).split("\n") if line]
+
+    def start(self) -> str:
+        return self.context(self.hook("session-start", {"source": "startup"}))
+
+    def make_me(self, role: str) -> None:
+        record = self.record(TEAM, SN)
+        record["roles"] = {ME: role, ORCH: "worker" if role == "coordinator" else "coordinator"}
+        self.state.save_team_record(record)
+
+    def test_a_role_change_after_the_start_is_told_once_by_the_prompt(self):
+        self.start()
+        self.make_me("coordinator")
+        self.assertEqual(self.prompt(), [hooks.fill("role_coordinator", team=TEAM)])
+        self.assertEqual(self.prompt(), [], "told once")
+        self.make_me("worker")
+        self.assertEqual(self.prompt(), [hooks.fill("role_worker", team=TEAM, handle="orch.1+workstation.podman")])
+
+    def test_nothing_changed_nothing_is_said(self):
+        self.start()
+        self.assertEqual(self.prompt(), [])
+
+    def test_a_prompt_with_nothing_told_before_takes_the_roles_as_told(self):
+        self.make_me("coordinator")
+        self.assertEqual(self.prompt(), [])
+        self.make_me("worker")
+        self.assertEqual(len(self.prompt()), 1)
+
+    def test_the_watcher_tells_it_and_the_prompt_does_not_repeat_it(self):
+        self.start()
+        self.make_me("coordinator")
+        told: list[list[str]] = []
+        self.assertTrue(hooks.tell_roles(self.env, lambda lines: told.append(lines) or True))
+        self.assertEqual(told, [[hooks.fill("role_coordinator", team=TEAM)]])
+        self.assertEqual(self.prompt(), [])
+
+    def test_a_failed_delivery_is_told_by_the_prompt(self):
+        self.start()
+        self.make_me("coordinator")
+        self.assertFalse(hooks.tell_roles(self.env, lambda lines: False))
+        self.assertEqual(self.prompt(), [hooks.fill("role_coordinator", team=TEAM)])
+
+    def test_an_unreadable_record_of_what_was_told_is_taken_again_from_now(self):
+        self.start()
+        (self.home / membership.TOLD_ROLES_FILE).write_text("{not json", encoding="utf-8")
+        self.make_me("coordinator")
+        self.assertEqual(self.prompt(), [])
+        self.make_me("worker")
+        self.assertEqual(len(self.prompt()), 1)
+
+    def test_a_membership_session_is_told_by_the_membership_notice_not_this(self):
+        self.env[membership.MEMBERSHIP_VAR] = str(self.tmp / "membership")
+        self.assertIsNone(hooks.tell_roles(self.env, lambda lines: True))
+
+
 # ── SessionEnd: the goodbye ────────────────────────────────────────────────────────────
 
 OWN_HANDLE = "myrepo.1+workstation.podman"

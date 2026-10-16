@@ -24,10 +24,13 @@ const (
 	actHelp        = "help"
 	actAttach      = "attach"
 	actCoordinator = "coordinator"
-	actLxc         = "lxc-add"
-	actElementAll  = "element-all"
-	actShutdown    = "shutdown"
-	actSettings    = "settings"
+	// actDemote is the role action that makes a coordinator a worker: the member's own, or the
+	// takeover that replaces the team's coordinator. It is destructive, so it is listed last.
+	actDemote     = "demote"
+	actLxc        = "lxc-add"
+	actElementAll = "element-all"
+	actShutdown   = "shutdown"
+	actSettings   = "settings"
 	// actAskDescription and actAskLimit undo a never answer to an offer: menu lines of a team
 	// marked never, with no shortcut.
 	actAskDescription = "ask-description"
@@ -69,12 +72,31 @@ func (a action) footerPart() string {
 	return ui.KeyName(a.key) + " " + a.short
 }
 
-// actionsFor is everything that can be done to row, the likeliest first. Every row offers
-// adding an LXC container's agent to its team, just after starting a ccy session in it.
+// actionsFor is everything that can be done to row, the likeliest first and every destructive
+// action last (lastDestructive). Every row offers adding an LXC container's agent to its team,
+// just after starting a ccy session in it.
 func (r *run) actionsFor(row board.Row) []action {
 	acts := r.kindActions(row)
 	lxc := action{actLxc, "", "Add an LXC container's agent to " + row.Team, "add an LXC container to " + row.Team}
-	return slices.Insert(acts, slices.IndexFunc(acts, func(a action) bool { return a.id == actNew })+1, lxc)
+	return lastDestructive(slices.Insert(acts, slices.IndexFunc(acts, func(a action) bool { return a.id == actNew })+1, lxc))
+}
+
+// destructive is whether choosing a parks, removes, takes down, shuts down or makes a
+// coordinator a worker. Each still asks first, but none may be where the cursor starts.
+func (a action) destructive() bool {
+	return a.id == actRemove || a.id == actShutdown || a.id == actDemote
+}
+
+// lastDestructive is acts with every destructive action moved to the end, each group in its
+// order: a menu never starts on one, and Park, Remove or Take down is just above Back.
+func lastDestructive(acts []action) []action {
+	ordered := slices.DeleteFunc(slices.Clone(acts), action.destructive)
+	for _, a := range acts {
+		if a.destructive() {
+			ordered = append(ordered, a)
+		}
+	}
+	return ordered
 }
 
 // kindActions is what can be done to row because of what it is.
@@ -97,9 +119,8 @@ func (r *run) kindActions(row board.Row) []action {
 	case board.KindHuman:
 		return r.humanActions(row, open, start, help)
 	case board.KindCcy:
-		return r.seatActions(row, open, start, help)
 	}
-	return []action{{actRemove, keyRemove, "Park " + row.Handle, "park it"}, open, start, help}
+	return r.memberActions(row, open, start, help)
 }
 
 // askAgainActions undo a never answer to the description or limit offer of team.
@@ -126,47 +147,49 @@ func (r *run) humanActions(row board.Row, open, start, help action) []action {
 	return []action{open, password, start, help}
 }
 
-// seatActions are a ccy seat's: attaching its session, then restore, a session of the team,
-// Element, whether it is the team's coordinator, and taking the seat away.
-func (r *run) seatActions(row board.Row, open, start, help action) []action {
-	acts := []action{{actAttach, "", "Attach this terminal to the seat's session", "attach its session"}}
-	if current, recorded := r.snap.SeatRestore[row.Dir+"|"+row.Member+"@"+row.Team]; recorded {
-		restore := action{actRestore, keyRestore, "Start its session again after a reboot", "turn restore on"}
-		if current {
-			restore = action{actRestore, keyRestore, "Stop starting its session again after a reboot", "turn restore off"}
-		}
-		acts = append(acts, restore)
+// memberActions are an agent member's, whatever its kind (ccy, cc, LXC, host, docker, vm): a
+// ccy seat's own first (attaching its session, restore), then its role, Element, a session of
+// the team, help, and taking it away. Every kind gets the same role action in the same words
+// (Plan 00203 Task 3.8), and one path changes it (seats.ToggleCoordinator).
+func (r *run) memberActions(row board.Row, open, start, help action) []action {
+	remove := action{actRemove, keyRemove, "Park " + row.Handle, "park it"}
+	if row.Kind == board.KindCcy && row.Dir != "-" {
+		remove = action{actRemove, keyRemove, "Remove seat " + row.Member + " from " + row.Team, "remove seat " + row.Member}
 	}
-	role, takeover := r.coordinatorAction(row)
-	if !takeover {
-		acts = append(acts, start, open, role)
-	} else {
-		acts = append(acts, start, open)
-	}
-	remove := action{actRemove, keyRemove, "Remove seat " + row.Member + " from " + row.Team, "remove seat " + row.Member}
-	if row.Dir == "-" {
-		remove = action{actRemove, keyRemove, "Park " + row.Handle, "park it"}
-	}
-	acts = append(acts, remove)
-	if takeover {
-		acts = append(acts, role)
-	}
-	return append(acts, help)
+	return append(r.seatOwnActions(row), r.roleAction(row), open, start, help, remove)
 }
 
-// coordinatorAction is making the seat's member the team's coordinator, or, when it is, stopping it
-// being: the role is read from the pass the list was drawn from. The two paths are worded apart
-// (package coordinator); takeover is a team that has another coordinator, a rarer choice that
-// the menu lists after the ordinary ones.
-func (r *run) coordinatorAction(row board.Row) (action, bool) {
+// seatOwnActions are what only a ccy seat has, first in its menu: attaching its session, and
+// whether it is started again after a reboot.
+func (r *run) seatOwnActions(row board.Row) []action {
+	if row.Kind != board.KindCcy {
+		return nil
+	}
+	acts := []action{{actAttach, "", "Attach this terminal to the seat's session", "attach its session"}}
+	current, recorded := r.snap.SeatRestore[row.Dir+"|"+row.Member+"@"+row.Team]
+	switch {
+	case !recorded:
+	case current:
+		acts = append(acts, action{actRestore, keyRestore, "Stop starting its session again after a reboot", "turn restore off"})
+	default:
+		acts = append(acts, action{actRestore, keyRestore, "Start its session again after a reboot", "turn restore on"})
+	}
+	return acts
+}
+
+// roleAction is making the member the team's coordinator, or, when it is, a worker: the role is
+// read from the pass the list was drawn from. The two paths are worded apart (package
+// coordinator): a team with no coordinator is offered one plainly; a team that has another is a
+// takeover, which, like making the coordinator a worker, demotes someone and so is destructive.
+func (r *run) roleAction(row board.Row) action {
 	if r.snap.RoleOf(row.Team, row.Handle) == agentbus.RoleCoordinator {
-		return action{actCoordinator, "", "Stop being coordinator", "stop it being the coordinator"}, false
+		return action{actDemote, "", coordinator.WorkerChoice(row.Handle, row.Team), "make it a worker"}
 	}
 	holder := coordinator.Holding(r.snap.Members[row.Team], row.Handle, seats.SnapshotRunning(r.snap))
 	if holder.Handle != "" {
-		return action{actCoordinator, "", coordinator.TakeoverChoice(holder), "replace the coordinator"}, true
+		return action{actDemote, "", coordinator.TakeoverChoice(holder), "replace the coordinator"}
 	}
-	return action{actCoordinator, "", coordinator.NoneChoice(row.Team), "make it the coordinator"}, false
+	return action{actCoordinator, "", coordinator.MakeChoice(row.Handle, row.Team), "make it the coordinator"}
 }
 
 // menuFor is Enter on a row: everything that can be done to it, in words, each with its shortcut.

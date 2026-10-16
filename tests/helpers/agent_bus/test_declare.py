@@ -1416,9 +1416,9 @@ class LxcMemberTest(CommandCase):
     def test_listed_with_the_role_as_the_play_reads_it(self) -> None:
         code, out, _ = self.run_cmd("lxc-members")
         self.assertEqual(code, 0)
-        self.assertEqual(out, "LXCMEMBER\talpha\tcontainer-a\tagent\tworker\tcoordinator\tpresent\n"
-                              "LXCMEMBER\talpha\tcontainer-b\tagent\tother\tworker\tabsent\n"
-                              "LXCMEMBER\tbeta\tcontainer-a\tagent\tworker\tcoordinator\tabsent\n")
+        self.assertEqual(out, "LXCMEMBER\talpha\tcontainer-a\tagent\tworker\tcoordinator\tpresent\t/srv/agent/one\t-\n"
+                              "LXCMEMBER\talpha\tcontainer-b\tagent\tother\tworker\tabsent\t/srv/agent/two\t-\n"
+                              "LXCMEMBER\tbeta\tcontainer-a\tagent\tworker\tcoordinator\tabsent\t/srv/agent/one\t-\n")
         self.path.write_text(STATUS_HV, encoding="utf-8")
         self.assertEqual(self.run_cmd("lxc-members")[:2], (0, ""))
 
@@ -1426,7 +1426,19 @@ class LxcMemberTest(CommandCase):
         self.path.write_text(STATUS_HV + "agent_bus_lxc_members:\n  - team: alpha\n    container: container-a\n"
                              "    user: agent\n    checkout: /srv/agent/one\n", encoding="utf-8")
         self.assertEqual(self.run_cmd("lxc-members")[:2],
-                         (0, "LXCMEMBER\talpha\tcontainer-a\tagent\t-\tworker\tpresent\n"))
+                         (0, "LXCMEMBER\talpha\tcontainer-a\tagent\t-\tworker\tpresent\t/srv/agent/one\t-\n"))
+
+    def test_an_entry_names_its_checkout_and_its_own_seat_so_its_handle_can_be_found(self) -> None:
+        """Plan 00203 Task 3.8: ccy-teams finds which entry a live LXC handle is (to change its
+        role) by reading the checkout, and an explicit seat narrows it; an absent entry with only
+        a repo has no checkout."""
+        self.path.write_text(STATUS_HV + "agent_bus_lxc_members:\n  - team: alpha\n    container: container-a\n"
+                             "    user: agent\n    checkout: /srv/agent/one\n    seat: dev\n"
+                             "  - team: alpha\n    container: container-b\n    user: agent\n    repo: proj\n"
+                             "    state: absent\n", encoding="utf-8")
+        self.assertEqual(self.run_cmd("lxc-members")[:2],
+                         (0, "LXCMEMBER\talpha\tcontainer-a\tagent\t-\tworker\tpresent\t/srv/agent/one\tdev\n"
+                             "LXCMEMBER\talpha\tcontainer-b\tagent\t-\tworker\tabsent\t-\t-\n"))
 
     def test_a_user_already_in_one_team_is_checkable_for_a_second(self) -> None:
         """Review F1: the partial check took the template's host and called it a second host."""
@@ -1521,6 +1533,16 @@ class LxcDeriveTest(CommandCase):
 
     def test_the_file_is_not_changed(self) -> None:
         self.derive(self.probe())
+        self.assertEqual(self.path.read_text(), LXC_HV)
+
+    def test_the_identity_is_the_repo_and_host_of_the_checkouts_handles(self) -> None:
+        """Plan 00203 Task 3.8: which entry a live handle is, read from its checkout."""
+        self.assertEqual(self.run_cmd("lxc-identity", "--probe", self.probe()), (0, "IDENTITY\tproj\tworker\n", ""))
+        self.assertEqual(self.run_cmd("lxc-identity", "--probe", self.probe(env_local=None))[:2],
+                         (0, "IDENTITY\tproj\tlocal\n"))
+        code, out, err = self.run_cmd("lxc-identity", "--probe", "{")
+        self.assertEqual((code, out), (64, ""))
+        self.assertTrue(err.startswith("declare: "), err)
         self.assertEqual(self.path.read_text(), LXC_HV)
 
 

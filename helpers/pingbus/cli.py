@@ -2018,6 +2018,12 @@ def _watch(members: Sequence[config.Member], path: str, token: str, relaying: bo
                 if not seats:
                     err.write(f"{PROG}: this session is on no team now: the watcher exits\n")
                     return EXIT_OK
+            elif injector is not None:
+                try:
+                    _tell(environ, injector, rt, err, hooks.tell_roles)
+                except notify.SocketGone as gone:
+                    err.write(f"{PROG}: {gone}: the watcher exits\n")
+                    return EXIT_OK
             try:
                 if relaying:
                     _relay_pass(seats, ledger, rt, pending, err)
@@ -2133,10 +2139,12 @@ class _Following:
         return kept
 
 
-def _tell(environ: Mapping[str, str], inj: _Injector, rt: Runtime, err: TextIO) -> None:
-    """H12: tell the session, through its socket, what changed in its teams, once per change.
-    A write that fails is left to the next prompt's hook (H13); the socket gone ends the
-    watcher (`SocketGone`)."""
+def _tell(environ: Mapping[str, str], inj: _Injector, rt: Runtime, err: TextIO,
+          teller: Callable[[Mapping[str, str], Callable[[list[str]], bool]], bool | None] = hooks.tell_membership) -> None:
+    """H12: tell the session, through its socket, what changed in its teams, once per change:
+    a ccy session its membership (hooks.tell_membership), a session outside the membership a
+    change of its role (hooks.tell_roles, Plan 00203 Task 3.8). A write that fails is left to
+    the next prompt's hook (H13); the socket gone ends the watcher (`SocketGone`)."""
 
     def deliver(lines: list[str]) -> bool:
         text = envelope.render_membership(lines, secrets.token_hex(4))
@@ -2152,7 +2160,7 @@ def _tell(environ: Mapping[str, str], inj: _Injector, rt: Runtime, err: TextIO) 
         return True
 
     try:
-        hooks.tell_membership(environ, deliver)
+        teller(environ, deliver)
     except (hooks.Failure, membership.MembershipError, OSError, ValueError) as exc:
         err.write(f"{PROG}: the membership notice could not be built ({type(exc).__name__})\n")
 

@@ -174,6 +174,15 @@ Built on `fix/teams-server-robustness`; design and evidence in
   container 2.75.1. Host acceptance: the M2 leg of `acceptance.bash`, queued in meta-deploy.
   Notes: [subagent-reports/261016-name-race-opus.md](subagent-reports/261016-name-race-opus.md).
 
+- [ ] 🔄 **Task 3.8** (owner feedback): every member kind has the same roles, built on
+  `fix/teams-member-roles`. Enter on an LXC member row offered Park first and no role. Every
+  member row (ccy, cc, LXC, host, docker, vm) now offers the same role action, worded by package
+  coordinator's two paths, through one role-change path that dispatches by kind only at the
+  last step (a declared LXC member's entry is written too, then applied). No destructive
+  action is first in any picker menu: a tested rule. `ccy-teams session role` also takes a
+  member's handle. Notes:
+  [subagent-reports/261016-member-roles-opus.md](subagent-reports/261016-member-roles-opus.md).
+
 ## Decisions
 
 These were settled by the coordinator under the owner's standing "do not gate on me". **The owner

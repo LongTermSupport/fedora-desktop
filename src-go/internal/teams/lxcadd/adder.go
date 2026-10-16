@@ -28,6 +28,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/roles"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -79,8 +80,8 @@ type Adder struct {
 	ReadTimeout time.Duration
 	// Roster is "agent-bus list <team>" as root: the live coordinator is read from it.
 	Roster func(ctx context.Context, team string) (agentbus.Roster, error)
-	// SetRole is "agent-bus set-role" as root: a takeover makes a live coordinator a worker.
-	SetRole func(ctx context.Context, team, handle, role string) error
+	// Roles changes a role, as every flow does: a takeover makes the coordinator a worker.
+	Roles *roles.Setter
 	// SudoReady makes root available, saying why it is wanted; false means it has said why not.
 	SudoReady  func(ctx context.Context, why string) bool
 	ApplyTeams func(ctx context.Context, teams ...string) error
@@ -109,10 +110,11 @@ type Adder struct {
 
 // New is the Adder over a host and the flows it hands the work to: apply joins the member.
 func New(h *host.Host, kit *flow.Kit, o *ops.Ops) *Adder {
+	apply := func(ctx context.Context, teams ...string) error { return o.ApplyTeams(ctx, teams) }
 	return &Adder{
 		Declare: h.Declare, Gum: h.Gum, Picker: h.Picker, ReadTimeout: readTimeout, Lister: &lxcfreeze.Lister{Sudo: h.Sudo, LookPath: h.LookPath},
-		Roster: h.Bus.List, SetRole: h.Bus.SetRole, SudoReady: kit.SudoReady,
-		ApplyTeams: func(ctx context.Context, teams ...string) error { return o.ApplyTeams(ctx, teams) },
+		Roster: h.Bus.List, Roles: roles.New(h, kit, apply), SudoReady: kit.SudoReady,
+		ApplyTeams: apply,
 		NewTerm:    h.FreshTerm, LookPath: h.LookPath, Stdin: h.Stdin, Stdout: h.Stdout,
 		HostVars: h.HostVars, Home: h.Home,
 	}
@@ -574,34 +576,32 @@ func roleLine(ans answers) string {
 	return ans.role
 }
 
-// demote is a takeover's first step: the current coordinator made a worker, and how to put it
-// back. With no takeover it does nothing.
+// demote is a takeover's first step, through package roles as every role change is: the current
+// coordinator made a worker (its entry when it is declared, which the apply then carries out;
+// else its live role), and how to put it back. With no takeover it does nothing.
 func (a *Adder) demote(ctx context.Context, ans answers) (func(context.Context), error) {
 	held := ans.takeover
-	switch {
-	case held.holder == "":
+	if held.holder == "" {
 		return func(context.Context) {}, nil
-	case held.declared != nil:
-		if _, err := a.Declare.LxcSetRole(ctx, *held.declared, roleWorker); err != nil {
-			return nil, err
+	}
+	step := roles.Step{Entry: held.declared, From: roleCoordinator, To: roleWorker}
+	if held.declared == nil {
+		if !a.SudoReady(ctx, "A role is changed as root, by agent-bus.") {
+			return nil, a.failed("so " + held.holder + " stays the coordinator, and nothing was changed.")
 		}
-		return func(ctx context.Context) {
-			if _, err := a.Declare.LxcSetRole(ctx, *held.declared, roleCoordinator); err != nil {
-				a.term.PrintError(held.holder + " was made a worker in the host_vars and could not be put back (" + err.Error() +
-					"): ccy-teams lxc-add " + ans.team + " again, or its entry's role, makes a coordinator")
-			}
-		}, nil
+		step.Handle = held.holder
 	}
-	if !a.SudoReady(ctx, "A role is changed as root, by agent-bus.") {
-		return nil, a.failed("so " + held.holder + " stays the coordinator, and nothing was changed.")
-	}
-	if err := a.SetRole(ctx, ans.team, held.holder, roleWorker); err != nil {
+	done, err := a.Roles.Set(ctx, ans.team, func(string) {}, step)
+	switch {
+	case err != nil && held.declared != nil:
+		return nil, err
+	case err != nil:
 		return nil, a.failed(held.holder + " could not be made a worker (" + err.Error() + "); nothing was changed.")
 	}
 	return func(ctx context.Context) {
-		if err := a.SetRole(ctx, ans.team, held.holder, roleCoordinator); err != nil {
+		if err := done.Undo(ctx); err != nil {
 			a.term.PrintError(held.holder + " was made a worker and could not be made the coordinator again (" + err.Error() +
-				"): sudo agent-bus set-role " + ans.team + " " + held.holder + " --role=coordinator")
+				"): ccy-teams, the member's menu, makes a coordinator")
 		}
 	}, nil
 }

@@ -66,6 +66,15 @@ func TestTheChoicesNeverReadAsAPlainCoordinator(t *testing.T) {
 	}
 }
 
+func TestAMembersMenuNamesTheMemberInBothRoleLines(t *testing.T) {
+	if got, want := MakeChoice("proj.1+worker.lxc", team), "Make proj.1+worker.lxc the coordinator (alpha has none)"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if got, want := WorkerChoice("proj.1+worker.lxc", team), "Make proj.1+worker.lxc a worker (alpha then has no coordinator)"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
 func TestTheRefusalNamesTheCurrentCoordinatorAndTheFlag(t *testing.T) {
 	want := "alpha's coordinator is other.5+local.podman (running). A team has one coordinator: to remove " +
 		"other.5+local.podman as coordinator and make ccy-proj the coordinator instead, add --demote-current. Nothing was changed."

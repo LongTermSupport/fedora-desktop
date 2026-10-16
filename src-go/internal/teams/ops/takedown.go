@@ -176,8 +176,9 @@ func (o *Ops) backupFirst(ctx context.Context, team string) (term.ExitCode, bool
 }
 
 // chooseFate asks what happens to the team and, for deletion, makes the person type its name.
+// It starts on leaving the team running: no destructive answer is where the cursor starts.
 func (o *Ops) chooseFate(ctx context.Context, team string) (bool, term.ExitCode, bool) {
-	choice, err := o.Gum.Choose(ctx, "What happens to "+team+"?", choiceKeep, []string{choiceKeep, choicePurge, choiceStay})
+	choice, err := o.Gum.Choose(ctx, "What happens to "+team+"?", choiceStay, []string{choiceStay, choiceKeep, choicePurge})
 	if err != nil {
 		return false, o.questionFailed(err), false
 	}

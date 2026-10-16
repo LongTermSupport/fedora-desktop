@@ -243,14 +243,14 @@ func TestTheFooterFollowsTheRowUnderTheCursorInWords(t *testing.T) {
 	}
 }
 
-func TestASeatsMenuOffersMakingItTheCoordinator(t *testing.T) {
+func TestASeatsMenuOffersMakingItTheCoordinatorByName(t *testing.T) {
 	h := newRig(t)
 	r := h.run1(t)
 	labels := h.labels(r, h.row(t, r.snap, "1"))
-	if !slices.Contains(labels, "Make it the coordinator (alpha has none)") {
+	if !slices.Contains(labels, "Make proj.1+local.podman the coordinator (alpha has none)") {
 		t.Fatalf("seat menu %q", labels)
 	}
-	if slices.Contains(labels, "Stop being coordinator") {
+	if slices.ContainsFunc(labels, func(l string) bool { return strings.Contains(l, "a worker") }) {
 		t.Fatalf("a seat that is not the coordinator offers to stop being it: %q", labels)
 	}
 	footer := r.footerFor(h.row(t, r.snap, "1"))
@@ -259,18 +259,20 @@ func TestASeatsMenuOffersMakingItTheCoordinator(t *testing.T) {
 	}
 }
 
-func TestTheCoordinatorsSeatMenuOffersToStopBeingIt(t *testing.T) {
+func TestTheCoordinatorsSeatMenuOffersToMakeItAWorkerAfterTheOrdinaryChoices(t *testing.T) {
 	h := newRig(t)
 	h.On(teamtest.SudoBus+"list alpha", strings.Replace(teamtest.BusList,
 		"MEMBER\tproj.1+local.podman\tdev", "MEMBER\tproj.1+local.podman\tcoordinator", 1), 0)
 	r := h.run1(t)
 	labels := h.labels(r, h.row(t, r.snap, "1"))
-	if !slices.Contains(labels, "Stop being coordinator") || slices.ContainsFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Make it the coordinator") }) {
+	worker := slices.Index(labels, "Make proj.1+local.podman a worker (alpha then has no coordinator)")
+	help := slices.Index(labels, "What the columns and keys mean   (?)")
+	if worker < 0 || worker < help || slices.ContainsFunc(labels, func(l string) bool { return strings.Contains(l, "the coordinator (alpha has none)") }) {
 		t.Fatalf("seat menu %q", labels)
 	}
 }
 
-func TestASeatsMenuOnATeamWithACoordinatorOffersTheTakeoverLast(t *testing.T) {
+func TestASeatsMenuOnATeamWithACoordinatorOffersTheTakeoverAfterTheOrdinaryChoicesBeforeRemove(t *testing.T) {
 	h := newRig(t)
 	h.On(teamtest.SudoBus+"list alpha", strings.Replace(teamtest.BusList,
 		"MEMBER\tproj.box+role.lxc\tops", "MEMBER\tproj.box+role.lxc\tcoordinator", 1), 0)
@@ -278,11 +280,12 @@ func TestASeatsMenuOnATeamWithACoordinatorOffersTheTakeoverLast(t *testing.T) {
 	row := h.row(t, r.snap, "1")
 	labels := h.labels(r, row)
 	at := slices.IndexFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Replace the coordinator, proj.box+role.lxc (") })
-	if at < 0 || slices.ContainsFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Make it the coordinator") }) {
+	if at < 0 || slices.ContainsFunc(labels, func(l string) bool { return strings.Contains(l, "the coordinator (alpha has none)") }) {
 		t.Fatalf("seat menu %q", labels)
 	}
-	if remove := slices.IndexFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Remove seat 1 from alpha") }); remove < 0 || at < remove {
-		t.Fatalf("the takeover is less prominent than the ordinary choices, after Remove seat: %q", labels)
+	help := slices.Index(labels, "What the columns and keys mean   (?)")
+	if remove := slices.IndexFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Remove seat 1 from alpha") }); remove != len(labels)-1 || at < help || at > remove {
+		t.Fatalf("the takeover is after the ordinary choices and Remove seat is last: %q", labels)
 	}
 }
 
@@ -300,13 +303,34 @@ func TestChoosingMakeCoordinatorChangesTheRoleThroughSudo(t *testing.T) {
 	}
 }
 
-func TestEnterOnAMemberThatIsNotACcySeatOffersParkingAndTheRest(t *testing.T) {
+func TestEnterOnAnLxcMemberOffersItsRoleFirstAndParkingLast(t *testing.T) {
 	h := newRig(t)
 	r := h.run1(t)
 	labels := h.labels(r, h.row(t, r.snap, "proj.box+role.lxc"))
-	for _, want := range []string{"Park proj.box+role.lxc   (Ctrl-X)", "Open alpha in Element   (Ctrl-E)"} {
-		if !slices.Contains(labels, want) {
-			t.Fatalf("menu %q lacks %q", labels, want)
-		}
+	want := []string{
+		"Make proj.box+role.lxc the coordinator (alpha has none)",
+		"Open alpha in Element   (Ctrl-E)",
+		"Start a ccy session in alpha, in this folder   (Ctrl-N)",
+		"Add an LXC container's agent to alpha",
+		"What the columns and keys mean   (?)",
+		"Park proj.box+role.lxc   (Ctrl-X)",
+	}
+	if !slices.Equal(labels, want) {
+		t.Fatalf("menu %q,\nwant %q", labels, want)
+	}
+}
+
+func TestChoosingTheRoleOfAnLxcMemberChangesItThroughTheSharedPath(t *testing.T) {
+	h := newRig(t)
+	h.On("sudo -n -v", "", 0)
+	h.On(teamtest.SudoBus+"set-role alpha", "", 0)
+	h.OnDeclare("lxc-members", "")
+	h.Script.Fzf = []string{"|YES"}
+	r := h.run1(t)
+	if _, err := r.do(context.Background(), actCoordinator, h.row(t, r.snap, "proj.box+role.lxc")); err != nil {
+		t.Fatal(err)
+	}
+	if !h.Fake.Called(teamtest.SudoBus + "set-role alpha proj.box+role.lxc --role=coordinator") {
+		t.Fatalf("calls %v", h.Fake.Calls())
 	}
 }

@@ -28,3 +28,13 @@
 # could not be registered. THE EXTENSION CHANGED: LOG OUT AND BACK IN after this run (Wayland
 # reloads extension code only at login); the scripts and binaries apply at once.
 playbooks/imports/optional/common/play-speech-to-text.yml
+# Plan 00203 Task 3.8: every team member kind (ccy, cc, LXC, host, docker, vm) gets the same
+# role actions in ccy-teams, and no menu starts on a destructive action (Park, Remove and Take
+# down are last). Builds and installs the new ccy-teams, and ccy 3.99.12.15, whose image
+# (container 2.77.12) is rebuilt once at the next ccy launch to carry the new pingbus.
+playbooks/imports/play-claude-yolo.yml
+# Plan 00203 Task 3.8: installs the new pingbus kit and declare.py on the host and copies the
+# kit into every declared LXC member's container, so an LXC agent is told a role change from
+# ccy-teams while it runs (at its next prompt at once; by its watcher once its session has
+# restarted after this run). Applies every team as declared; no team changes otherwise.
+playbooks/imports/play-agent-bus.yml

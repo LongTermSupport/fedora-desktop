@@ -64,6 +64,12 @@ TOLD_LOCK = "told.lock"
 TOLD_KEYS = frozenset({"v", "generation", "teams", "left"})
 #: A told team whose role the session has not been told, its record not read yet.
 UNKNOWN_ROLE = "-"
+#: What a session outside the membership (one agent-bus-claude starts: an LXC container's
+#: agent, a host, docker or vm member) was last told its role is in each team, in its pingbus
+#: home, so a change is told once, as TOLD_FILE does for a ccy session (Plan 00203 Task 3.8).
+#: Its tellers take TOLD_LOCK too.
+TOLD_ROLES_FILE = "told-roles.json"
+TOLD_ROLES_KEYS = frozenset({"v", "roles"})
 
 #: The registry name grammar the host's writer uses (src-go/internal/teams/membership); never
 #: `.` or `..`, and no `/`, since it names the report's directory (3.3).
@@ -400,6 +406,30 @@ def read_told(home: pathlib.Path) -> ToldRecord | None:
 
 def write_told(home: pathlib.Path, record: ToldRecord) -> None:
     _write_json(pathlib.Path(home) / TOLD_FILE, record.to_json())
+
+
+def parse_told_roles(data: object, where: str = TOLD_ROLES_FILE) -> dict[str, str]:
+    """What a session outside the membership was last told its role is, by team."""
+    obj = _object(data, TOLD_ROLES_KEYS, where)
+    _version(obj, where)
+    roles = obj["roles"]
+    if not isinstance(roles, dict) or len(roles) > MAX_SEATS:
+        raise MembershipError(f"{where}: roles is not an object of at most {MAX_SEATS}")
+    for team, role in roles.items():
+        if not protocol.is_team_name(team) or role not in ROLES:
+            raise MembershipError(f"{where}: roles: an entry's team or role is refused")
+    return dict(roles)
+
+
+def read_told_roles(home: pathlib.Path) -> dict[str, str] | None:
+    """The roles a session outside the membership was last told; None before any was."""
+    path = pathlib.Path(home) / TOLD_ROLES_FILE
+    data = _read_json(path)
+    return None if data is None else parse_told_roles(data, str(path))
+
+
+def write_told_roles(home: pathlib.Path, roles: Mapping[str, str]) -> None:
+    _write_json(pathlib.Path(home) / TOLD_ROLES_FILE, {"v": VERSION, "roles": dict(roles)})
 
 
 @contextlib.contextmanager

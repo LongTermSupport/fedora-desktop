@@ -47,6 +47,10 @@ type LxcMember struct {
 	Host      string
 	Role      string // worker or coordinator (the legacy orchestrator is read as coordinator)
 	State     string // present or absent
+	// Checkout and Seat are the entry's own, "" where it leaves them out: an absent entry may
+	// name only its repo, and a seat is usually derived.
+	Checkout string
+	Seat     string
 }
 
 // LxcMembers is the entries of agent_bus_lxc_members, in file order.
@@ -55,19 +59,45 @@ func (c *Client) LxcMembers(ctx context.Context) ([]LxcMember, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := marker.Fields(out, "LXCMEMBER", 7)
+	rows, err := marker.Fields(out, "LXCMEMBER", 9)
 	if err != nil {
 		return nil, fmt.Errorf("declare lxc-members: %w", err)
 	}
 	found := make([]LxcMember, 0, len(rows))
 	for _, f := range rows {
-		host := f[4]
-		if host == "-" { // the entry leaves its host to be derived
-			host = ""
-		}
-		found = append(found, LxcMember{Team: f[1], Container: f[2], User: f[3], Host: host, Role: f[5], State: f[6]})
+		found = append(found, LxcMember{
+			Team: f[1], Container: f[2], User: f[3], Host: orNone(f[4]), Role: f[5], State: f[6],
+			Checkout: orNone(f[7]), Seat: orNone(f[8]),
+		})
 	}
 	return found, nil
+}
+
+// orNone is a field declare.py prints as "-" for a value the entry leaves out.
+func orNone(field string) string {
+	if field == "-" {
+		return ""
+	}
+	return field
+}
+
+// Identity is the repo and host of the handles a checkout gives: <repo>.<seat>+<host>.lxc.
+type Identity struct {
+	Repo, Host string
+}
+
+// LxcIdentity is the identity of the checkout the root-side reader printed (probe), by
+// derive.py's rule: ccy-teams finds which entry a live LXC handle is with it.
+func (c *Client) LxcIdentity(ctx context.Context, probe string) (Identity, error) {
+	out, err := c.runFile(ctx, "lxc-identity", "--probe", probe)
+	if err != nil {
+		return Identity{}, err
+	}
+	rows, err := marker.Fields(out, "IDENTITY", 3)
+	if err != nil || len(rows) != 1 {
+		return Identity{}, fmt.Errorf("declare lxc-identity: unreadable answer %q", out)
+	}
+	return Identity{Repo: rows[0][1], Host: rows[0][2]}, nil
 }
 
 // LxcCheck refuses (ErrUsage) the first value of e that the play would not accept; with team,

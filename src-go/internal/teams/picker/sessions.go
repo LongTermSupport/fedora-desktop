@@ -114,14 +114,12 @@ type sessionChoice struct {
 }
 
 // sessionChoices is everything that can be done to s, in words, each naming the team it acts
-// on; nothing is reached by a key alone.
+// on; nothing is reached by a key alone. Removing it from a team is destructive, so it is last
+// (as in every menu of the picker: lastDestructive).
 func (r *run) sessionChoices(s hot.Session) []sessionChoice {
 	var cs []sessionChoice
 	if s.Controllable {
 		cs = append(cs, sessionChoice{"Add to a team", func(ctx context.Context) (flow.Result, error) { return r.addToTeam(ctx, s) }})
-		for _, c := range s.Teams {
-			cs = append(cs, sessionChoice{"Remove from " + c.Team, func(ctx context.Context) (flow.Result, error) { return r.removeFromTeam(ctx, s, c) }})
-		}
 		for _, c := range s.Teams {
 			cs = append(cs, sessionChoice{"Change role in " + c.Team + " (now " + c.Role + ")", func(ctx context.Context) (flow.Result, error) { return r.roleInTeam(ctx, s, c) }})
 		}
@@ -138,6 +136,11 @@ func (r *run) sessionChoices(s hot.Session) []sessionChoice {
 		cs = append(cs, sessionChoice{"Repair (its seat keeper has stopped)", func(ctx context.Context) (flow.Result, error) {
 			return r.session(ctx, []string{"repair", s.Name})
 		}})
+	}
+	if s.Controllable {
+		for _, c := range s.Teams {
+			cs = append(cs, sessionChoice{"Remove from " + c.Team, func(ctx context.Context) (flow.Result, error) { return r.removeFromTeam(ctx, s, c) }})
+		}
 	}
 	return cs
 }
@@ -311,7 +314,8 @@ func (r *run) askSeat(ctx context.Context, s hot.Session, team, title string) (o
 // roleOptions is worker, the ordinary choice, first; then the coordinator's role in one of the
 // two paths (package coordinator): held now, offered plainly on a team with none, or, when
 // holder holds it, the takeover in its own words, which passes --demote-current and whose
-// question, asked by the command, defaults to no. current marks the role held now.
+// question, asked by the command, defaults to no. current marks the role held now; the
+// coordinator's question starts on the role it has, as making it a worker is destructive.
 func roleOptions(team, current string, holder coordinator.Holder) []option {
 	worker := option{line: roleWorker, value: roleWorker}
 	if current == roleWorker {
@@ -319,7 +323,7 @@ func roleOptions(team, current string, holder coordinator.Holder) []option {
 	}
 	switch {
 	case current == roleCoordinator:
-		return []option{worker, {line: roleCoordinator + " (now)", value: roleCoordinator}}
+		return []option{{line: roleCoordinator + " (now)", value: roleCoordinator}, worker}
 	case holder.Handle != "":
 		return []option{worker, {line: coordinator.TakeoverChoice(holder), value: roleTakeover}}
 	}

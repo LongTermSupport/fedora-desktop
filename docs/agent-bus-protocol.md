@@ -974,7 +974,10 @@ role; each team left with its reason; a changed role; the teams now), and a fixe
 line. A line that holds a control character, a line separator or a marker's `<<` or `>>` is
 refused. When it cannot be written, the next `UserPromptSubmit` hook adds the same lines as
 context (H13); either path records what it told in the session home's `told.json`, so the
-session is told once per change.
+session is told once per change. A session outside ccy's membership (one agent-bus-claude
+starts: an LXC container's agent, a host, docker or vm member) gets the same notice, its lines
+only the role context, when its own role in a team changes (Plan 00203 Task 3.8), by the same
+two paths; what it was told is `told-roles.json` in its pingbus home.
 
 The one exception, in relay mode only (§12), is the `SENT` echo: this member's own sent
 text, read from its container-private `sent.jsonl`, as one escaped string in a nonce-marked
