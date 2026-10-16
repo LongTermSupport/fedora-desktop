@@ -122,7 +122,7 @@ Python and are run from the directory the binary is in.
 
 - W11. With `-d`: a banner and the configuration (temp directory, audio file, the
   transcriber and its path or `NOT FOUND`, the paste mode, the session type, the log file) on
-  stderr, then the dependency check (pw-record, sox, soxi, curl; wl-copy and ydotool on
+  stderr, then the dependency check (pw-record, sox, soxi, curl; wl-copy, wl-paste and ydotool on
   Wayland, xsel and ydotool on X11; the transcriber; a writable temp directory), each missing
   one an `[ERROR]` line with its purpose and package; any missing is
   `Dependency check failed: <n> errors found` (W9), exit 1.
@@ -224,7 +224,16 @@ Python and are run from the directory the binary is in.
   `Nothing was pasted: <why>. The text is on the clipboard: Ctrl+V.`, exit 1; `<why>` is
   `the window this dictation started in was closed` or
   `the window this dictation started in would not take focus back`.
-- W32. After 0.05 s the paste keys: `ydotool key 29:1 47:1 47:0 29:0` (Ctrl+V),
+- W32. The auto-paste copy and the read-back share a 3 s deadline (a copy still running at it
+  is W27's failure). The selection is read back (`wl-paste -n` / `wl-paste -n -p`,
+  `xsel -ob` / `xsel -op`) every 0.05 s, at most 60 times, until it holds the text (one
+  trailing newline allowed): wl-copy can return or hang without the compositor giving it the
+  selection, and the keys would then paste what was there before (Plan 00208). Never held:
+  nothing is pressed; `Nothing was pasted: the <SELECTION> selection did not take the text of this dictation within 3 s (it still held <what>)`
+  (W9) and a notification that stays, the same plus
+  `. Copy Last Transcription in the panel menu has the text.`, exit 1; `<what>` is
+  `other text, <n> characters` or `nothing readable: <why>`. Held: the paste keys at once,
+  `ydotool key 29:1 47:1 47:0 29:0` (Ctrl+V),
   `29:1 42:1 47:1 47:0 42:0 29:0` (Ctrl+Shift+V), or without `--paste-with-shift`
   `42:1 110:1 110:0 42:0` (Shift+Insert), with `YDOTOOL_SOCKET` set to the socket. A failure
   is `ydotool <keys> simulation failed (exit code: <n>)` (W9), exit 1.

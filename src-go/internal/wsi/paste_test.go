@@ -53,7 +53,8 @@ func TestW30ThePanelNamesTheKeyAndTheSave(t *testing.T) {
 	}
 	k.wantStderr("[WSI] Pasting into 'org.gnome.TextEditor': Ctrl+V, then Ctrl+S")
 	k.wantStderr("[WSI] Save simulated via Ctrl+S")
-	if st := k.states(); st[len(st)-1] != "SUCCESS" || !slices.Equal(k.sleeps[len(k.sleeps)-2:], []time.Duration{50 * time.Millisecond, 300 * time.Millisecond}) {
+	// No fixed wait before the paste: the read-back is the gate (W32)
+	if st := k.states(); st[len(st)-1] != "SUCCESS" || !slices.Equal(k.sleeps[len(k.sleeps)-1:], []time.Duration{300 * time.Millisecond}) || slices.Contains(k.sleeps, 50*time.Millisecond) {
 		t.Fatalf("states %q sleeps %v", st, k.sleeps)
 	}
 	if n := k.notes(); n[len(n)-1] != "'Hello world'|'audio-input-microphone'|3000" {
@@ -219,4 +220,115 @@ func TestW29TheSocketAndTheSessionAreCheckedBeforeThePaste(t *testing.T) {
 	if strings.Contains(k.keys(), "key") {
 		t.Fatal("keys were pressed")
 	}
+}
+
+// lastReadBack is the index of the last selection read-back among the calls, -1 for none.
+func (k *kit) lastReadBack() int {
+	last := -1
+	for i, line := range k.calls() {
+		if strings.HasPrefix(line, "wl-paste ") || strings.HasPrefix(line, "xsel -o") {
+			last = i
+		}
+	}
+	return last
+}
+
+// firstKey is the index of the first ydotool chord among the calls, -1 for none.
+func (k *kit) firstKey() int {
+	return slices.IndexFunc(k.calls(), func(line string) bool { return strings.HasPrefix(line, "ydotool ") })
+}
+
+func countOf(ds []time.Duration, d time.Duration) int {
+	n := 0
+	for _, x := range ds {
+		if x == d {
+			n++
+		}
+	}
+	return n
+}
+
+func TestW32ThePasteWaitsUntilTheSelectionReadsBackAsTheText(t *testing.T) {
+	k := newKit(t)
+	k.desktop()
+	k.pasteKeys = []string{editor}
+	k.staleReads = 3 // wl-copy returned before the compositor gave it the selection
+	if code := k.exec("-a", "--paste-with-shift", "1"); code != 0 || k.keys() != ctrlV+" | "+enterKey+" | "+ctrlS {
+		t.Fatalf("exit %d keys %q: %s", code, k.keys(), k.errb.String())
+	}
+	if k.reads != 4 || k.firstKey() < k.lastReadBack() {
+		t.Fatalf("reads %d, first key at %d, last read-back at %d: %q", k.reads, k.firstKey(), k.lastReadBack(), k.calls())
+	}
+	if n := countOf(k.sleeps, clipboardPoll); n != 3 {
+		t.Fatalf("%d polls, want 3: %v", n, k.sleeps)
+	}
+}
+
+func TestW32ASelectionThatNeverTakesTheTextIsNeverPasted(t *testing.T) {
+	k := newKit(t)
+	k.desktop()
+	k.pasteKeys = []string{editor}
+	k.staleReads = 1 << 20
+	if code := k.exec("-a", "--paste-with-shift", "1"); code != 1 || k.keys() != "" {
+		t.Fatalf("exit %d keys %q", code, k.keys())
+	}
+	if k.reads != clipboardReads {
+		t.Fatalf("reads %d, want %d", k.reads, clipboardReads)
+	}
+	why := "Nothing was pasted: the CLIPBOARD selection did not take the text of this dictation within 3 s (it still held other text, 22 characters)"
+	k.wantStderr("[ERROR] " + why)
+	if n := k.notes(); n[len(n)-1] != "'"+why+". Copy Last Transcription in the panel menu has the text.'|'dialog-error'|0" {
+		t.Fatalf("notes %q", n)
+	}
+	if !slices.Contains(k.states(), "ERROR") {
+		t.Fatalf("states %q", k.states())
+	}
+}
+
+func TestW32AReadBackThatFailsIsNamed(t *testing.T) {
+	k := newKit(t)
+	k.desktop()
+	k.pasteKeys = []string{editor}
+	k.run.On([]string{"wl-paste"}, execx.Result{ExitCode: 1, Stderr: []byte("Nothing is copied\n")})
+	if code := k.exec("-a", "--paste-with-shift", "1"); code != 1 || k.keys() != "" {
+		t.Fatalf("exit %d keys %q", code, k.keys())
+	}
+	k.wantStderr("within 3 s (it still held nothing readable: wl-paste: Nothing is copied)")
+}
+
+func TestW32TheReadBackFollowsTheSelectionAndTheSession(t *testing.T) {
+	cases := []struct {
+		session, display string
+		args             []string
+		read             string
+	}{
+		{"wayland", "", []string{"--paste-with-shift", "0"}, "wl-paste -n"},
+		{"wayland", "", nil, "wl-paste -n -p"},
+		{"x11", ":1", []string{"--paste-with-shift", "0"}, "xsel -ob"},
+		{"x11", ":1", nil, "xsel -op"},
+	}
+	for _, c := range cases {
+		k := newKit(t)
+		k.env["XDG_SESSION_TYPE"] = c.session
+		k.env["WAYLAND_DISPLAY"] = "wayland-0"
+		k.env["DISPLAY"] = c.display
+		k.pasteKeys = []string{editor}
+		if code := k.exec(append([]string{"-a"}, c.args...)...); code != 0 {
+			t.Fatalf("%+v: exit %d: %s", c, code, k.errb.String())
+		}
+		if !slices.Contains(k.calls(), c.read) || k.reads != 1 {
+			t.Fatalf("%+v: reads %d calls %q", c, k.reads, k.calls())
+		}
+	}
+}
+
+func TestW27AHungCopyFailsTheAutoPaste(t *testing.T) {
+	k := newKit(t)
+	k.desktop()
+	k.pasteKeys = []string{editor}
+	k.run.OnError([]string{"wl-copy"}, fmt.Errorf("run wl-copy: %w", context.DeadlineExceeded))
+	if code := k.exec("-a", "--paste-with-shift", "1"); code != 1 || k.keys() != "" || k.reads != 0 {
+		t.Fatalf("exit %d keys %q reads %d", code, k.keys(), k.reads)
+	}
+	k.wantStderr("[ERROR] Copying the text to the CLIPBOARD selection failed: run wl-copy: context deadline exceeded")
 }
