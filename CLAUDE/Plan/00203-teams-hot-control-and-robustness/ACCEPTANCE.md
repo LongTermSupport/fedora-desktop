@@ -111,7 +111,7 @@ container ends with the session; it is M6's acceptance (b), for `cc --teams`.
 ## M3: hot add and remove
 
 After `meta-deploy.bash` has run `play-claude-yolo.yml` and `play-agent-bus.yml` (container
-2.73, CCY 3.99.6). The first ccy launch after it rebuilds the image once.
+2.73, CCY 3.99.8). The first ccy launch after it rebuilds the image once.
 
 ### What runs by itself (`_acceptance-m3.inc.bash`)
 

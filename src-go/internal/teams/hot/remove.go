@@ -33,7 +33,8 @@ func (x *Hot) remove(ctx context.Context, r request) term.ExitCode {
 		return term.ExitFailure
 	}
 	up := state == systemd.HomeserverUp
-	last := in && len(t.desired.Seats) == 1
+	// The session is on no team once this seat is out: now, or already on an owed-farewell rerun.
+	last := (in && len(t.desired.Seats) == 1) || (!in && len(t.desired.Seats) == 0)
 	if in {
 		if code, ok := x.takeOut(ctx, t, r, seat, up); !ok {
 			return code

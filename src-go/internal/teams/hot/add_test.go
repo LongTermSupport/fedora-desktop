@@ -170,6 +170,32 @@ func TestRemoveOfTheLastTeamWithdrawsAPendingRelaunch(t *testing.T) {
 	}
 }
 
+func TestTheOwedFarewellRerunWithdrawsAPendingRelaunchOnNoTeam(t *testing.T) {
+	r := newRig(t)
+	r.m.relaunch = false
+	if code := r.run(t, "add", session, "alpha/3", "--yes"); code != term.ExitFailure {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	// The first remove is cut short after the desired file dropped the seat: the goodbye fails,
+	// the farewell stays owed and the relaunch request is still there.
+	r.OnErr("/usr/local/share/agent-bus/kit/pingbus seat farewell", "pingbus: homeserver: unreachable\n", 7)
+	if code := r.run(t, "remove", session, "alpha", "--yes"); code != term.ExitFailure {
+		t.Fatalf("remove exit %d:\n%s", code, r.ErrOut.String())
+	}
+	if err := membership.WriteRelaunch(r.dir(), 3, r.now); err != nil {
+		t.Fatal(err)
+	}
+	r.On("/usr/local/share/agent-bus/kit/pingbus seat farewell", "", 0)
+	if code := r.run(t, "remove", session, "alpha", "--yes"); code != term.ExitOK {
+		t.Fatalf("rerun exit %d:\n%s", code, r.ErrOut.String())
+	}
+	wantLines(t, r.ErrOut.String(), "- session: seat 3 already released",
+		"✓ relaunch: request withdrawn (the session is on no team now)")
+	if _, err := os.Lstat(filepath.Join(r.dir(), membership.RelaunchFile)); !os.IsNotExist(err) {
+		t.Fatalf("the relaunch request is withdrawn on the rerun: %v", err)
+	}
+}
+
 func TestReachFailureStopsTheAdd(t *testing.T) {
 	r := newRig(t)
 	r.OnErr("podman exec abc123 pingbus reach", "pingbus: team alpha: http://x did not answer\n", 7)

@@ -95,7 +95,7 @@ Built on `fix/teams-server-robustness`; design and evidence in
   shared session discovery (`internal/teams/discover`, the shutdown lookup folded in), the
   watcher and waiter following the membership with the keeper starting the watcher (H11), the
   `MEMBERSHIP` kind with its hook fallback (H12, H13), the status line (H14), mid-turn removal
-  (H15, H16). CCY 3.99.6, container 2.73, lifecycle plugin 1.1.0. Host acceptance:
+  (H15, H16). CCY 3.99.8, container 2.73, lifecycle plugin 1.1.0. Host acceptance:
   [ACCEPTANCE.md](ACCEPTANCE.md) M3, `_acceptance-m3.inc.bash`. Notes:
   [subagent-reports/261016-m3-opus.md](subagent-reports/261016-m3-opus.md).
 

@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.7 — container 2.73
+## 3.99.8 — container 2.73
 
 - **Hot add and remove** (Plan 00203 M3). `ccy-teams session add <session> <team>[/<seat>]` puts
   a running ccy session into a team and `session remove` takes it out, one line per step. The
@@ -28,6 +28,8 @@ Two version numbers move independently — see
   A session launched on no team relaunches once, by itself, on its first join (the lifecycle
   supervisor plugin, now loaded in every bus session that has a supervisor); a restart takes its
   seats from the session's record (`ccy-teams internal restart-args`).
+- A supervisor restart whose relaunch arguments could not be built in full stops with the
+  reason, instead of relaunching on part of them.
 - The image also carries 3.99.4's agent-bus timer-state fix, and the launcher 3.99.4.2's
   session identity fix below.
 

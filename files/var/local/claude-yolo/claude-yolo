@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.99.7"  # Container 2.73: the owner adds a running session to a team and removes it (ccy-teams session add/remove), and the session follows. See docs/ccy-changelog.md.
+CCY_VERSION="3.99.8"  # Container 2.73: the owner adds a running session to a team and removes it (ccy-teams session add/remove), and the session follows. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -3773,7 +3773,7 @@ ccy_handle_restart_exit() {
     # its arguments with those choices taken out. Built before anything is spent on the
     # restart. A process substitution's status is not seen by mapfile, so each builder's is
     # read with `wait`: one that stopped part way could otherwise leave an argv that looks whole.
-    local choice_args=() relaunch_args=() builder_rc=0
+    local choice_args=() relaunch_args=() builder_rc=0 history_file
     mapfile -d '' -t choice_args < <(ccy_restart_choice_args "$SELECTED_TOKEN" \
         "${GITHUB_SSH_443:-0}" "$NO_NETWORK_MODE" "$AUTO_CONNECT_NETWORK" "${SSH_KEYS[@]}")
     wait "$!" || builder_rc=$?
@@ -3784,7 +3784,8 @@ ccy_handle_restart_exit() {
     # The seats come from the session's record, which ccy-teams changes while it runs (Plan
     # 00203 H5): the first team join of a session launched on no team relaunches it this way.
     # The record is the one of the session this launcher named, never of the TMUX it inherited.
-    mapfile -d '' -t relaunch_args < <(ccy_restart_relaunch_args "$session_id" "${CCY_ORIG_ARGS[@]}" \
+    # pipefail: `wait` reads the pipeline's status, so a builder that fails is not masked.
+    mapfile -d '' -t relaunch_args < <(set -o pipefail; ccy_restart_relaunch_args "$session_id" "${CCY_ORIG_ARGS[@]}" \
         | ccy-teams internal restart-args "${CCY_SESSION_NAME:-}")
     wait "$!" || builder_rc=$?
     if [ "$builder_rc" -ne 0 ] || [ "${#relaunch_args[@]}" -eq 0 ]; then
@@ -3792,7 +3793,6 @@ ccy_handle_restart_exit() {
         exit 1
     fi
 
-    local history_file
     if ! mkdir -p "$CCY_RESTART_HISTORY_DIR"; then
         ccy_restart_refuse "$session_id" "could not create the restart history directory $CCY_RESTART_HISTORY_DIR."
         exit 1

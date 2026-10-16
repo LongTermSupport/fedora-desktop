@@ -417,6 +417,10 @@ source "$HC_LIB_DIR/session-registry.bash"
 source "$HC_LIB_DIR/restart-request.bash"
 source "$HC_WORK/handler.bash"
 source "$HC_WORK/update-stub.bash"
+if [ -n "${HC_BUILDER_FAILS:-}" ]; then
+    # A relaunch-args builder that writes part of an argv, then fails.
+    ccy_restart_relaunch_args() { printf '%s\0' --no-ssh; return 1; }
+fi
 cd "$HC_PROJ"
 SELECTED_TOKEN="$HC_TOKEN"
 GITHUB_SSH_443="$HC_443"
@@ -456,6 +460,7 @@ handler_case() {
     local rc=0
     SCRIPT_DIR="$work/stub" VERSION_CHECK_CACHE="$work/cache-$name" IMAGE_NAME="img:tag" \
         CCY_RESTART_HISTORY_DIR="$hist_dir" PATH="$work/bin:$PATH" CCY_SESSION_NAME="ccy-named" \
+        HC_BUILDER_FAILS="${HC_BUILDER_FAILS:-}" \
         HC_LIB_DIR="$LIB_DIR" HC_WORK="$work" HC_PROJ="$proj" \
         HC_TOKEN="${HC_TOKEN-$TOK}" HC_KEYS="${HC_KEYS:-}" HC_NETWORK="${HC_NETWORK:-}" \
         HC_443="${HC_443:-0}" HC_NO_NETWORK="${HC_NO_NETWORK:-false}" HC_PP_FILE="${HC_PP_FILE:-}" \
@@ -554,6 +559,11 @@ check "a history directory that cannot be created stops the restart" \
 
 check "a failed image update stops the restart, no relaunch" \
     "rc=1 update=1 exec=no request=gone" "$(handler_case updfail "$GOOD" 1 0)"
+
+check "a relaunch-args builder that fails part way stops the restart, though ccy-teams passed its words on" \
+    "rc=1 update=0 exec=no request=gone" "$(HC_BUILDER_FAILS=1 handler_case builderfail "$GOOD" 0 0)"
+check "…and says it could not build the relaunch arguments" "yes" \
+    "$(grep -q 'could not build the relaunch arguments' "$work/builderfail.err" && echo yes || echo no)"
 
 echo "=== a relaunch's arguments, read by the launcher's own parser and prompt gates ==="
 
