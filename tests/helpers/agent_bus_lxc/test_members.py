@@ -354,10 +354,20 @@ class ParseMembersTest(unittest.TestCase):
             "declared twice": [entry(), entry(seat="other")],
             "one user, two hosts": [entry(), entry(team=OTHER_TEAM, host="other")],
             "one seat, two containers": [entry(seat="dev"), entry(container="box2", seat="dev")],
+            "one seat, two containers, one repo": [entry(seat="dev", repo="proj"),
+                                                   entry(container="box2", seat="dev", repo="proj")],
+            "one seat, two containers, one repo unknown": [entry(seat="dev", repo="proj"),
+                                                           entry(container="box2", seat="dev")],
         }
         for label, data in cases.items():
             with self.subTest(label), self.assertRaises(members.MemberError):
                 members.parse_members(data)
+
+    def test_one_seat_number_in_two_repos_is_two_handles_so_two_containers_may_hold_it(self) -> None:
+        # proj-a.dev+box.lxc and proj-b.dev+box.lxc: a seat is numbered within its repo and host.
+        found = members.parse_members([entry(seat="dev", repo="proj-a"),
+                                       entry(container="box2", seat="dev", repo="proj-b")])
+        self.assertEqual([m.seat for m in found], ["dev", "dev"])
 
 
 # ── the decisions ────────────────────────────────────────────────────────────────────────
@@ -666,6 +676,26 @@ class ResolveMembersTest(unittest.TestCase):
                                  entry(host=None, seat=None, container="box-b")])
         self.assertEqual((one.seat, two.seat), ("1", "2"))
 
+    def test_two_containers_one_user_two_repos_each_take_seat_one_of_their_own_repo(self) -> None:
+        # The shape lxc-add writes for a second container: no host, no seat, the same user name,
+        # a checkout of another repository. Each handle is numbered within its own repo and host.
+        identities = {"/srv/proj-a": derive.Identity("proj-a", "box"), "/srv/proj-b": derive.Identity("proj-b", "box")}
+        one, two = members.resolve_members(
+            members.parse_members([entry(host=None, seat=None, container="box-a", checkout="/srv/proj-a"),
+                                   entry(host=None, seat=None, container="box-b", checkout="/srv/proj-b")]),
+            identify=lambda member: identities[member.checkout], roster=lambda team: {},
+            bundle=lambda member: None)
+        self.assertEqual((one.handle(one.repo), two.handle(two.repo)), ("proj-a.1+box.lxc", "proj-b.1+box.lxc"))
+
+    def test_a_member_joined_first_keeps_its_seat_when_an_earlier_entry_is_added_before_it(self) -> None:
+        # Derivation never renumbers a joined member: its bundle names its seat, wherever it is in
+        # the file, and the new entry takes the next seat free of it.
+        new, joined = self.resolve([entry(host=None, seat=None, container="box-b"),
+                                    entry(host=None, seat=None, container="box-a")],
+                                   roster={"proj.1+box.lxc": False, "proj.2+box.lxc": True},
+                                   bundles={"box-a": "proj.1+box.lxc"})
+        self.assertEqual((new.seat, joined.seat), ("2", "1"))
+
     def test_an_explicit_seat_is_kept_and_not_given_to_another(self) -> None:
         one, two = self.resolve([entry(host=None, seat=None, container="box-a"),
                                  entry(host=None, seat="1", container="box-b")])
@@ -834,6 +864,55 @@ class DerivedPresentPhaseTest(Fixture):
         self.guest.suggest = "--repo=proj --host=other --type=lxc"
         with self.assertRaisesRegex(members.MemberError, "suggest-handle gives --host=other"):
             self.run_phase("present", [self.derived()])
+
+
+class SecondContainerTest(Fixture):
+    """A team given a second LXC member by `ccy-teams lxc-add`: two seatless, hostless entries of
+    one user name, in two containers, as the host_vars hold them (placeholder names)."""
+
+    ENTRIES = [
+        {"team": TEAM, "container": "container-a", "user": "agent", "checkout": "/srv/agent/repo-a"},
+        {"team": TEAM, "container": "container-b", "user": "agent", "checkout": "/srv/agent/repo-b"},
+    ]
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.origins = {"/srv/agent/repo-a": "proj-a", "/srv/agent/repo-b": "proj-b"}
+        self.guests = {"container-a": FakeGuest(self.tmp / "guest-a"),
+                       "container-b": FakeGuest(self.tmp / "guest-b")}
+
+    def host(self) -> members.Host:
+        return dataclasses.replace(super().host(), guest=lambda name: self.guests[name])
+
+    def read_checkout(self, container: str, user: str, path: str) -> str:
+        self.remote_config = f'[remote "origin"]\n\turl = https://github.com/example-org/{self.origins[path]}.git\n'
+        self.guests[container].suggest = f"--repo={self.origins[path]} --host=box --type=lxc"
+        return super().read_checkout(container, user, path)
+
+    def test_two_repos_join_each_as_its_own_seat_one_and_a_second_run_changes_nothing(self) -> None:
+        self.run_phase("present", self.ENTRIES)
+        self.assertEqual(sorted(self.bus.members), ["proj-a.1+box.lxc", "proj-b.1+box.lxc"])
+        self.assertEqual(self.run_phase("present", self.ENTRIES), [])
+        self.assertEqual(self.bus.minted, 2)
+
+    def test_the_second_container_of_one_repo_takes_the_next_seat_and_the_first_keeps_its_own(self) -> None:
+        self.origins["/srv/agent/repo-b"] = "proj-a"
+        self.run_phase("present", self.ENTRIES[:1])
+        self.assertEqual(sorted(self.bus.members), ["proj-a.1+box.lxc"])
+        self.run_phase("present", self.ENTRIES)
+        self.assertEqual(sorted(self.bus.members), ["proj-a.1+box.lxc", "proj-a.2+box.lxc"])
+        self.assertEqual(self.run_phase("present", self.ENTRIES), [])
+        self.assertEqual(self.bus.minted, 2)
+
+    def test_a_member_joined_first_is_never_renumbered_by_an_entry_written_before_it(self) -> None:
+        self.origins["/srv/agent/repo-b"] = "proj-a"
+        self.run_phase("present", self.ENTRIES[1:])
+        self.run_phase("present", self.ENTRIES)
+        held = {name: json.loads((self.tmp / name / "home" / "agent" / ".config" / "pingbus" / TEAM /
+                                  "member.json").read_text())["user_id"] for name in ("guest-a", "guest-b")}
+        self.assertEqual(held, {"guest-a": f"@proj-a.2+box.lxc:{TEAM}.agent-bus.internal",
+                                "guest-b": f"@proj-a.1+box.lxc:{TEAM}.agent-bus.internal"})
+        self.assertEqual(self.run_phase("present", self.ENTRIES), [])
 
 
 class ServiceTest(Fixture):
@@ -1044,6 +1123,106 @@ class KitSyncTest(Fixture):
         (self.kit_parent / "kit" / "link").symlink_to("pingbus")
         with self.assertRaises(members.MemberError):
             members.kit_tar(self.kit_parent)
+
+
+def mode_of(path: pathlib.Path) -> int:
+    return stat.S_IMODE(os.lstat(path).st_mode)
+
+
+class UmaskTest(Fixture):
+    """The guest scripts inherit the umask of whatever lxc-attach started, which has been 077:
+    the kit's parent was then made 0700 and the agent user could not reach `kit/pingbus`
+    (`env: pingbus: Permission denied`). What each script makes has the mode it names under
+    any inherited umask, and a secret is never readable by others under a permissive one."""
+
+    def with_umask(self, mask: int) -> None:
+        old = os.umask(mask)
+        self.addCleanup(os.umask, old)
+
+    def kit_dirs(self) -> list[pathlib.Path]:
+        parent = pathlib.Path(self.guest.kit_parent)
+        return [parent.parent, parent, parent / "kit", parent / "kit" / "plugin"]
+
+    def sync(self) -> list[str]:
+        out = self.guest.root(["python3", "-I", "-c", members.KIT_SYNC_PY, self.guest.kit_parent,
+                               self.guest.bin_dir, str(self.guest.kit_owner)], "kit",
+                              members.kit_tar(self.kit_parent))
+        return out.decode().splitlines()
+
+    def test_under_umask_077_the_kit_is_traversable(self) -> None:
+        self.with_umask(0o077)
+        self.run_phase("present", [entry()])
+        for path in self.kit_dirs():
+            self.assertEqual(mode_of(path), 0o755, path)
+        kit = pathlib.Path(self.guest.kit_parent) / "kit"
+        self.assertEqual(mode_of(kit / "pingbus"), 0o755)
+        self.assertEqual(mode_of(kit / "plugin" / "plugin.json"), 0o644)
+
+    def test_a_kit_directory_left_0700_is_repaired_and_said(self) -> None:
+        self.sync()
+        parent = pathlib.Path(self.guest.kit_parent)
+        parent.chmod(0o700)
+        (parent / "kit" / "plugin").chmod(0o700)
+        said: list[str] = []
+        changed: list[str] = []
+        members._sync_kit(self.host(), self.guest, "devbox", changed.append, said.append)
+        self.assertEqual(mode_of(parent), 0o755)
+        self.assertEqual(mode_of(parent / "kit" / "plugin"), 0o755)
+        for lines in (changed, said):
+            self.assertIn(f"container devbox: kit repaired {parent} from 0700 to 0755", lines)
+            self.assertIn(f"container devbox: kit repaired {parent / 'kit' / 'plugin'} from 0700 to 0755", lines)
+        self.assertEqual(self.sync(), [])
+
+    def test_a_kit_parent_that_is_a_symlink_is_refused_by_name(self) -> None:
+        parent = pathlib.Path(self.guest.kit_parent)
+        elsewhere = self.tmp / "elsewhere"
+        elsewhere.mkdir(mode=0o700)
+        parent.parent.mkdir(parents=True)
+        parent.symlink_to(elsewhere)
+        with self.assertRaisesRegex(members.MemberError, f"{parent} is not a directory"):
+            self.sync()
+        self.assertEqual(mode_of(elsewhere), 0o700)
+
+    def test_a_kit_parent_others_can_write_or_not_ours_is_refused_not_repaired(self) -> None:
+        parent = pathlib.Path(self.guest.kit_parent)
+        parent.mkdir(parents=True)
+        parent.chmod(0o775)
+        with self.assertRaisesRegex(members.MemberError, "writable by others"):
+            self.sync()
+        self.assertEqual(mode_of(parent), 0o775)
+        parent.chmod(0o700)
+        self.guest.kit_owner = os.getuid() + 1
+        with self.assertRaisesRegex(members.MemberError, f"{parent} is not owned by uid"):
+            self.sync()
+        self.assertEqual(mode_of(parent), 0o700)
+
+    def test_under_umask_077_the_unit_directory_is_readable(self) -> None:
+        self.with_umask(0o077)
+        self.run_phase("present", [entry(service=True)])
+        unit_dir = pathlib.Path(self.guest.unit_dir)
+        for path in (unit_dir.parent.parent, unit_dir.parent, unit_dir):
+            self.assertEqual(mode_of(path), 0o755, path)
+        self.assertEqual(mode_of(unit_dir / ServiceTest.UNIT), 0o644)
+
+    def test_secrets_stay_private_under_any_umask(self) -> None:
+        home = self.tmp / "guest" / "home" / "agent"
+        for mask in (0o000, 0o022, 0o077):
+            with self.subTest(umask=oct(mask)):
+                if home.exists():
+                    shutil.rmtree(home)
+                home.mkdir(parents=True, mode=0o700)
+                self.bus.members.clear()
+                old = os.umask(mask)
+                try:
+                    self.run_phase("present", [entry()])
+                finally:
+                    os.umask(old)
+                bundle = self.bundle_dir()
+                for path in (home / ".config", bundle.parent, bundle):
+                    self.assertEqual(mode_of(path), 0o700, path)
+                for name in ("member.json", "token", "README"):
+                    self.assertEqual(mode_of(bundle / name), 0o600, name)
+                self.assertEqual(mode_of(self.env_file()), 0o600)
 
 
 class LxcGuestTest(unittest.TestCase):

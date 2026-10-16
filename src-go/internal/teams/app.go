@@ -11,7 +11,9 @@
 //	choose  choose-seat and describe-seats: the launcher's seat and role questions
 //	chooser choose-teams: which team the launcher's session joins, then its seat through choose
 //	shutdown shutdown: every session of a team sent /exit, and the team row's menu line
+//	settings the team row's Edit settings: the team's entry edited, saved and applied
 //	membership internal membership-init: the launcher writes a session's desired membership
+//	containername internal claim-container-name: the launcher's container name, claimed atomically
 //	discover the one lookup of which session names a seat (records and desired memberships)
 //	hot     session list, add, remove, move, role and repair: a running session's teams and roles
 //
@@ -29,6 +31,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/choose"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/chooser"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/containername"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/create"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/find"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
@@ -40,6 +43,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/picker"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/settings"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/shutdown"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -66,6 +70,8 @@ type App struct {
 	Shutdown *shutdown.Shutdown
 	// Membership is `internal membership-init`, the launcher's.
 	Membership *membership.Init
+	// ContainerName is `internal claim-container-name`, the launcher's.
+	ContainerName *containername.Claim
 	// Session is `ccy-teams session ...`, hot control of a running session.
 	Session *hot.Hot
 	// Interrupted makes the run's context: Ctrl-C cancels it instead of ending the process,
@@ -104,13 +110,14 @@ func Wire(h *host.Host) *App {
 	down := shutdown.New(h, kit, b)
 	list := picker.New(h, kit, b, o, c, l, s, x)
 	list.Shutdown = down
+	list.Settings = settings.New(h, kit, o.ApplyTeams, s.ChangeRole)
 	session := hot.New(h, kit)
 	o.SessionsIn, o.TakeOut = session.SessionsIn, session.TakeOut
 	list.Session = session
 	return &App{
 		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c, Lxc: x, Find: find.New(h), Choose: pick,
 		Chooser: chooser.New(h, pick.PickSeat, c.RunForChooser, o.ApplyTeams),
-		Picker:  list, Shutdown: down, Membership: membership.New(h), Session: session,
+		Picker:  list, Shutdown: down, Membership: membership.New(h), ContainerName: containername.New(h), Session: session,
 		Interrupted: func(ctx context.Context) (context.Context, context.CancelFunc) {
 			return signal.NotifyContext(ctx, os.Interrupt)
 		},
@@ -215,9 +222,12 @@ func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 			return a.Membership.Run(ctx, rest[1:])
 		case "restart-args":
 			return a.Find.RestartArgs(ctx, rest[1:], a.Stdin, a.Payload)
+		case "claim-container-name":
+			return a.ContainerName.Run(ctx, rest[1:])
 		}
 	}
-	return a.usageError("'internal' takes a command: internal membership-init <session> <checkout> <seats>, or internal restart-args <session>.")
+	return a.usageError("'internal' takes a command: internal membership-init [--kind=cc] <session> <checkout> <seats>, " +
+		"internal restart-args <session>, or internal claim-container-name <project> <suffix> <owner-pid>.")
 }
 
 // inCheckout runs a flow that needs to be in a checkout, or fails (NeedCheckout has said why).

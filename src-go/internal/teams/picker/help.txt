@@ -41,7 +41,9 @@ listed and cannot be changed. Enter on a session lists what can be done to it:
                             and the role
   Remove from <team>        for the team's coordinator, it asks whether the role goes to
                             no one or to another member
-  Change role in <team>     worker or coordinator
+  Change role in <team>     worker or coordinator; on a team with none the choice is
+                            Make it the coordinator, and on a team that has one it is
+                            Replace the coordinator, which asks again (no first)
   Move to another team      the team it joins (with several teams: Move from <team>)
   Attach                    this terminal joins the session
   Repair                    only when its seat keeper has stopped (unguarded)
@@ -57,8 +59,23 @@ agent_bus_lxc_members entry for you and applies the team. It is the same as
 
 A seat marked "(coordinator)" is its team's coordinator: the agent that takes the humans'
 requests, dispatches them to the workers and is copied on what workers tell humans. A team
-has at most one. Enter on a seat has Make coordinator or Stop being coordinator (it asks
-first, names the current coordinator, and needs sudo).
+has one. Enter on a seat has Make it the coordinator when the team has none, Stop being
+coordinator on the coordinator's seat, or, last, Replace the coordinator when another seat
+has the role: that takeover names the current coordinator and whether it runs, says it loses
+the role, and starts on no. Each asks first and needs sudo.
+
+At its start ccy-teams offers to describe a team that has no description, and to lift an old
+folder limit: now, not now (asked again next time; Esc is the same), or never. A team you
+said never to has "Ask me to describe <team> again" (or "Ask me about <team>'s limit again")
+in its row's menu.
+
+Edit settings is in the menu of a team row (Enter; it has no key). One screen lists the team's
+description, people, GitHub owner, repositories, excluded repositories, path limit, allowed
+networks and coordinator, each with its value. Choose one to change it; each value is checked
+as you type it. Save and apply shows what changes and what applying does, then writes the
+host_vars and applies the team (as ccy-teams apply does). The coordinator changes at once.
+Name, port, listen addresses, server name, forge API and removed people are fixed, and each
+says why. A person removed from People is deactivated for good: the name can never be added back.
 
 Colours: green is working, yellow wants a look, red is not working.
 "need sudo": reading the members needs root; play-agent-bus.yml installs a rule that

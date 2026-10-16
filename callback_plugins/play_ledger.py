@@ -51,6 +51,8 @@ DOCUMENTATION = """
         executed, the outcome and the task-level changed count.
       - Records nothing for --check, --syntax-check or any --list-* run, none of which
         apply anything to the host.
+      - Records nothing for a play outside the repo root, such as a private play run from a
+        linked worktree, and prints one LEDGER-PLAY-NOT-TRACKED line to stderr naming it.
       - After the records are written, asks host-health-collect.service to run again so the
         Fedora Desktop panel stops describing the host as it was before the run. A failure
         to ask prints HEALTH-REFRESH-FAILED to stderr and never fails the run.
@@ -158,11 +160,13 @@ class CallbackModule(CallbackBase):
             running = self._ensure_collector()
             if running is None:
                 return
-            running.on_play_start(
+            not_tracked = running.on_play_start(
                 play_path=play_path,
                 name=play.get_name(),
                 at=repo.utc_now(),
             )
+            if not_tracked:
+                self._warn(not_tracked)
         except Exception as error:  # a callback may not raise; see the module docstring
             self._fail(error)
 

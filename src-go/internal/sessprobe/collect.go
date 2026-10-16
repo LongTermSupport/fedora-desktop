@@ -19,6 +19,7 @@ const (
 	defaultClockTicks = 100
 	unknownWord       = "unknown"
 	podmanEngine      = "podman"
+	dockerEngine      = "docker"
 	formatFlag        = "--format"
 	filterFlag        = "--filter"
 )
@@ -162,6 +163,30 @@ func RunningContainerNames(ctx context.Context, r execx.Runner, engines []string
 		}
 	}
 	return running, nil
+}
+
+// AllContainerNames is the name of every container engine (podman or docker) has, running or
+// not, CCY's or not: the names a new container cannot take.
+func AllContainerNames(ctx context.Context, r execx.Runner, engine string) (map[string]bool, error) {
+	args := []string{"ps", "-a", formatFlag, NamesFormat}
+	var cmd execx.Cmd
+	switch engine {
+	case podmanEngine:
+		cmd = execx.Cmd{Name: podmanEngine, Args: args}
+	case dockerEngine:
+		cmd = execx.Cmd{Name: dockerEngine, Args: args}
+	default:
+		return nil, fmt.Errorf("the container engine %q is neither podman nor docker", engine)
+	}
+	out, err := execx.Combined(ctx, r, cmd)
+	if err != nil {
+		return nil, fmt.Errorf("%s ps -a failed: %s: %w", engine, strings.TrimSpace(out), err)
+	}
+	names := map[string]bool{}
+	for name := range strings.FieldsSeq(out) {
+		names[name] = true
+	}
+	return names, nil
 }
 
 // LabelledContainers is podman's list of the containers carrying label (KEY=VALUE), one

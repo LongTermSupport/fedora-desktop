@@ -92,7 +92,8 @@ func (r *run) debugChecks(ctx context.Context) error {
 	failed := 0
 	switch r.session {
 	case sessionWayland:
-		deps = append(deps, dep{wlCopyBin, "wl-clipboard", "Clipboard management (Wayland)"}, paste)
+		deps = append(deps, dep{wlCopyBin, "wl-clipboard", "Clipboard management (Wayland)"},
+			dep{wlPasteBin, "wl-clipboard", "Clipboard read-back before a paste (Wayland)"}, paste)
 	case sessionX11:
 		deps = append(deps, dep{xselBin, xselBin, "Clipboard management (X11)"}, paste)
 	default:

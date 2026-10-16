@@ -11,9 +11,11 @@ Run from the repo root:
 
 from __future__ import annotations
 
+import errno
 import pathlib
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
@@ -51,14 +53,86 @@ class TestPlayPaths(unittest.TestCase):
         records = rc.on_end(at="2026-09-14T10:01:00Z")
         self.assertEqual(records[0]["play"], PLAY)
 
-    def test_a_play_outside_the_repo_is_refused(self):
-        # A play from somewhere else cannot be compared against this repo's HEAD,
-        # so recording it would put an unanswerable row in the ledger.
+    def test_a_play_outside_the_repo_is_skipped_not_refused(self):
+        # A private play run from a linked worktree lives in the main checkout's
+        # untracked/, outside this root. It is not a play the ledger tracks, so it
+        # gets no row; refusing it marked the whole ledger BROKEN instead.
         rc = _collector()
-        with self.assertRaises(ValueError):
-            rc.on_play_start(
-                play_path="/elsewhere/play-x.yml", name="X", at="2026-09-14T10:00:00Z"
-            )
+        notice = rc.on_play_start(
+            play_path="/elsewhere/play-x.yml:3", name="X", at="2026-09-14T10:00:00Z"
+        )
+        self.assertEqual(rc.on_end(at="2026-09-14T10:01:00Z"), [])
+        # Skipped, never silently: the operator is told which play and why.
+        self.assertIsNotNone(notice)
+        self.assertIn(collector.NOT_TRACKED_MARKER, notice)
+        self.assertIn("/elsewhere/play-x.yml", notice)
+        self.assertIn("outside the repo root", notice)
+        self.assertIn("not tracked", notice)
+        self.assertNotIn("\n", notice)
+
+    def test_a_tracked_play_gets_no_notice(self):
+        rc = _collector()
+        self.assertIsNone(
+            rc.on_play_start(play_path=f"/repo/{PLAY}", name="X", at="2026-09-14T10:00:00Z")
+        )
+
+    def test_a_sibling_sharing_the_roots_prefix_is_outside(self):
+        # "/repo-other" starts with "/repo" as a string, not as a directory.
+        rc = _collector()
+        notice = rc.on_play_start(
+            play_path="/repo-other/play-x.yml", name="X", at="2026-09-14T10:00:00Z"
+        )
+        self.assertIsNotNone(notice)
+        self.assertEqual(rc.on_end(at="2026-09-14T10:01:00Z"), [])
+
+    def test_a_skipped_play_closes_the_one_before_and_takes_none_of_its_results(self):
+        # The previous play ended where the skipped one began, and the skipped
+        # play's failures are not the previous play's.
+        rc = _collector()
+        rc.on_play_start(play_path=f"/repo/{PLAY}", name="A", at="2026-09-14T10:00:00Z")
+        rc.on_play_start(
+            play_path="/elsewhere/play-x.yml", name="X", at="2026-09-14T10:05:00Z"
+        )
+        rc.on_result(outcome="failed", changed=True)
+        records = rc.on_end(at="2026-09-14T10:10:00Z")
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["play"], PLAY)
+        self.assertEqual(records[0]["finished"], "2026-09-14T10:05:00Z")
+        self.assertEqual(records[0]["outcome"], "ok")
+        self.assertEqual(records[0]["changed"], 0)
+
+    def test_a_play_under_untracked_inside_the_root_is_still_recorded(self):
+        # The main-checkout case: inside the root, the row is answerable against
+        # this checkout (commit, dirty, play_sha256), and check_freshness drops it
+        # later as never tracked. The root, not git tracking, is the boundary.
+        rc = _collector()
+        rc.on_play_start(
+            play_path="/repo/untracked/private/play-x.yml", name="X", at="2026-09-14T10:00:00Z"
+        )
+        records = rc.on_end(at="2026-09-14T10:01:00Z")
+        self.assertEqual(records[0]["play"], "untracked/private/play-x.yml")
+
+    def test_any_other_resolve_failure_still_raises(self):
+        # Only "outside the root" is out of scope. A symlink loop, an unreadable
+        # path or anything unexpected must reach the plugin, which marks BROKEN.
+        rc = _collector()
+        loop = OSError(errno.ELOOP, "Too many levels of symbolic links")
+        with mock.patch.object(collector.os.path, "realpath", side_effect=loop):
+            with self.assertRaises(OSError):
+                rc.on_play_start(
+                    play_path=f"/repo/{PLAY}", name="X", at="2026-09-14T10:00:00Z"
+                )
+
+    def test_a_play_path_that_cannot_be_resolved_still_raises(self):
+        # A ValueError from the os layer (an embedded NUL, say) is the same type the
+        # old outside-root refusal raised; it must not be mistaken for a skip.
+        rc = _collector()
+        bad = ValueError("embedded null byte")
+        with mock.patch.object(collector.os.path, "realpath", side_effect=bad):
+            with self.assertRaises(ValueError):
+                rc.on_play_start(
+                    play_path=f"/repo/{PLAY}", name="X", at="2026-09-14T10:00:00Z"
+                )
 
 
 class TestOutcome(unittest.TestCase):

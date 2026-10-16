@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
@@ -45,6 +48,40 @@ type look struct {
 	detail string
 }
 
+// Why a session left alone is an expected outcome rather than a fault.
+const (
+	whyWaitingAtPrompt = "it waits at a launch prompt only a person can answer (an SSH key or passphrase, a token); answer it in the session"
+	whyAttached        = "a person is attached to it, so nothing is typed over them"
+	whyTyped           = "its input box holds text a person typed, so nothing is typed over it"
+	whyBusy            = "it has taken input since this boot began and is working on it, so there is nothing to set going"
+	// A launch prompt after this run typed /compact: the session restarted mid-compaction.
+	whyWaitingAfterCompaction = "it restarted during its compaction and now waits at a launch prompt only a person can answer; answer it in the session"
+)
+
+// expectedWhy is why leaving a session that looks like this alone is expected: it is a person's
+// (at a prompt, attached, text typed). Empty for every other look, which is a fault when the
+// session is left alone. Busy is not here: a spinner is no evidence of work (a launch still
+// loading, or a hung turn), so setOne asks the transcript instead.
+func (l look) expectedWhy() string {
+	switch l.kind {
+	case lookWaiting:
+		return whyWaitingAtPrompt
+	case lookAttached:
+		return whyAttached
+	case lookTyped:
+		return whyTyped
+	case lookReady, lookUnreadable, lookDead, lookNotDrawn, lookBusy:
+	}
+	return ""
+}
+
+// waitedOn is what a session not yet ready was last waited on: the reason, and why leaving it
+// alone at the deadline is expected (empty when that would be a fault).
+type waitedOn struct {
+	reason string
+	why    string
+}
+
 // afterCompactionReason is why a session is left alone when it is not ready after its
 // compaction.
 func (l look) afterCompactionReason() string {
@@ -63,16 +100,17 @@ func (l look) afterCompactionReason() string {
 	return ""
 }
 
-// goingRun is one set-going: the manifest as it now is, why each session is not yet ready, and
-// how many were left alone.
+// goingRun is one set-going: the manifest as it now is, what each session not yet ready was
+// waited on, how many were left alone as expected, and each fault ("name (reason)").
 type goingRun struct {
-	app       *App
-	store     *restore.Store
-	boot      string
-	floor     int64
-	manifest  restore.Manifest
-	waited    map[string]string
-	leftAlone int
+	app      *App
+	store    *restore.Store
+	boot     string
+	floor    int64
+	manifest restore.Manifest
+	waited   map[string]waitedOn
+	expected int
+	faults   []string
 }
 
 // setGoing types each restored session's first input once its prompt has drawn: /compact when
@@ -99,7 +137,7 @@ func (a *App) setGoing(ctx context.Context, args []string) term.ExitCode {
 			a.failErr(releaseErr)
 		}
 	}()
-	g := &goingRun{app: a, store: store, waited: map[string]string{}}
+	g := &goingRun{app: a, store: store, waited: map[string]waitedOn{}}
 	if err = g.begin(); err != nil {
 		return term.ExitFailure
 	}
@@ -114,8 +152,17 @@ func (a *App) setGoing(ctx context.Context, args []string) term.ExitCode {
 	if err = g.loop(ctx, work); err != nil {
 		return term.ExitFailure
 	}
-	if g.leftAlone > 0 {
-		a.fail(fmt.Sprintf("%d restored session(s) were not set going; each is named above, and verify-restore reports it.", g.leftAlone))
+	return g.verdict()
+}
+
+// verdict is the run's exit: a session left alone as expected is reported and is not a
+// failure; every fault is named and fails the unit.
+func (g *goingRun) verdict() term.ExitCode {
+	if g.expected > 0 {
+		g.app.sayf("%d restored session(s) were left alone as expected, each named above; that is not a fault.\n", g.expected)
+	}
+	if len(g.faults) > 0 {
+		g.app.fail(fmt.Sprintf("%d restored session(s) could not be set going: %s. verify-restore reports them.", len(g.faults), strings.Join(g.faults, ", ")))
 		return term.ExitFailure
 	}
 	return term.ExitOK
@@ -214,7 +261,8 @@ func (g *goingRun) loop(ctx context.Context, work []string) error {
 	}
 }
 
-// giveUp leaves every session still waiting alone, naming what it waited on.
+// giveUp leaves every session still waiting alone, naming what it waited on. One still at a
+// launch prompt is a person's to answer, as expected; any other wait that never ended is a fault.
 func (g *goingRun) giveUp(work []string) error {
 	waitedFor := strconv.FormatFloat(g.app.cfg.SetGoingWait.Seconds(), 'f', -1, 64)
 	for _, name := range work {
@@ -223,14 +271,14 @@ func (g *goingRun) giveUp(work []string) error {
 			continue
 		}
 		going := g.manifest.Entries[i].Going
-		why := "prompt-not-drawn"
+		w := waitedOn{reason: "prompt-not-drawn"}
 		if going == restore.GoingCompacting {
-			why = "compaction-not-finished"
+			w.reason = "compaction-not-finished"
 		}
-		if g.waited[name] != "" {
-			why = g.waited[name]
+		if g.waited[name].reason != "" {
+			w = g.waited[name]
 		}
-		if err := g.leaveAlone(name, going, why+"-after-"+waitedFor+"s"); err != nil {
+		if err := g.leave(name, going, w.reason+"-after-"+waitedFor+"s", w.why); err != nil {
 			return err
 		}
 	}
@@ -295,12 +343,29 @@ func (g *goingRun) goingSet(name string, expect, going restore.Going, at time.Ti
 	return nil
 }
 
-// leaveAlone is set-going not touching the session: recorded as untouched with the reason, and
-// named on stderr.
+// leaveAlone is set-going not touching the session because something went wrong: a fault,
+// recorded as untouched with the reason, named on stderr and in the run's failure.
 func (g *goingRun) leaveAlone(name string, expect restore.Going, reason string) error {
-	g.leftAlone++
+	g.faults = append(g.faults, name+" ("+reason+")")
 	g.app.sayf("left %s untouched: %s\n", name, reason)
 	return g.goingSet(name, expect, restore.GoingUntouched, time.Time{}, reason, "")
+}
+
+// leaveAsExpected is set-going not touching the session because that is right (a person has it,
+// or must answer it, or it needs nothing): recorded as untouched with the reason, and named on
+// stderr with why. It does not fail the run.
+func (g *goingRun) leaveAsExpected(name string, expect restore.Going, reason, why string) error {
+	g.expected++
+	g.app.sayf("left %s alone, as expected: %s; %s\n", name, reason, why)
+	return g.goingSet(name, expect, restore.GoingUntouched, time.Time{}, reason, "")
+}
+
+// leave leaves the session alone as expected when there is a why, else as a fault.
+func (g *goingRun) leave(name string, expect restore.Going, reason, why string) error {
+	if why != "" {
+		return g.leaveAsExpected(name, expect, reason, why)
+	}
+	return g.leaveAlone(name, expect, reason)
 }
 
 // typeInto types the text into the session's pane, then presses Enter on its own after the
@@ -390,21 +455,24 @@ func (g *goingRun) setOne(ctx context.Context, name string, live bool, attached 
 		return g.leaveAlone(name, restore.GoingPending, "session-not-running")
 	}
 	l := g.lookAt(ctx, name, e.Prefix, attached)
-	if reason, wait, ready := g.notReady(l); !ready {
+	if reason, wait, ready := g.notReady(l); !ready && l.kind != lookBusy {
 		if wait {
-			g.waited[name] = reason
+			g.waited[name] = waitedOn{reason: reason, why: l.expectedWhy()}
 			return nil
 		}
-		return g.leaveAlone(name, restore.GoingPending, reason)
+		return g.leave(name, restore.GoingPending, reason, l.expectedWhy())
 	}
 	file, err := g.transcriptOf(e)
 	if err != nil {
 		g.app.failErr(err)
 		return g.leaveAlone(name, restore.GoingPending, "no-transcript")
 	}
+	if l.kind == lookBusy {
+		return g.judgeBusy(name, file)
+	}
 	if owner := g.conversationOwner(file, name); owner != "" {
-		g.app.sayf("%s shares its conversation with %s, which is set going; left alone.\n", name, owner)
-		return g.leaveAlone(name, restore.GoingPending, "shares-conversation-with-"+owner)
+		return g.leaveAsExpected(name, restore.GoingPending, "shares-conversation-with-"+owner,
+			"only one session may drive a conversation, and "+owner+" is set going on it")
 	}
 	tokens, err := g.app.Transcripts.ContextTokens(file)
 	if err != nil {
@@ -428,6 +496,53 @@ func (g *goingRun) setOne(ctx context.Context, name string, live bool, attached 
 	g.app.sayf("set %s going: %s (context %d tokens, compact floor %s, supervised: %s).\n",
 		name, going, tokens, g.app.cfg.CompactFloor, term.YesNo(e.Supervised))
 	return g.goingSet(name, restore.GoingPending, going, at, strconv.FormatInt(tokens, 10), file)
+}
+
+// judgeBusy decides a pending session showing a spinner by what its transcript shows. Input
+// taken since this boot began means it is working: left alone, as expected. None means the
+// spinner is a launch still loading or a hung turn: waited on, so an idle prompt is set going
+// on a later pass and one still busy at the deadline is a fault.
+func (g *goingRun) judgeBusy(name, file string) error {
+	since, err := g.bootStart()
+	if err != nil {
+		g.app.failErr(err)
+		return g.leaveAlone(name, restore.GoingPending, "boot-time-unreadable")
+	}
+	took, err := g.app.Transcripts.TookInputSince(file, since)
+	if err != nil {
+		g.app.failErr(err)
+		return g.leaveAlone(name, restore.GoingPending, "transcript-unreadable")
+	}
+	if took {
+		return g.leaveAsExpected(name, restore.GoingPending, "busy-before-set-going", whyBusy)
+	}
+	g.waited[name] = waitedOn{reason: "busy-without-input"}
+	return nil
+}
+
+// bootStart is when this boot began (Unix seconds, btime in /proc/stat): the earliest moment a
+// restored session can have taken input, so input at or after it is work since the restore and
+// input before it is the conversation's past.
+func (g *goingRun) bootStart() (int64, error) {
+	path := g.app.cfg.ProcStatFile
+	if path == "" {
+		path = "/proc/stat"
+	}
+	unreadable := errors.New("this boot's start time could not be read from " + path)
+	raw, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		return 0, fmt.Errorf("%w: %w", unreadable, err)
+	}
+	for line := range strings.SplitSeq(string(raw), "\n") {
+		if value, found := strings.CutPrefix(line, "btime "); found {
+			start, convErr := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+			if convErr != nil || start <= 0 {
+				return 0, fmt.Errorf("%w: btime %q is not a time", unreadable, value)
+			}
+			return start, nil
+		}
+	}
+	return 0, fmt.Errorf("%w: it has no btime line", unreadable)
 }
 
 // notReady says why a pending session cannot be typed into yet: reason, and whether it is only
@@ -485,7 +600,7 @@ func (g *goingRun) continueAfterCompaction(ctx context.Context, name string, liv
 		return g.leaveAlone(name, restore.GoingCompacting, "context-unreadable")
 	}
 	if !finished {
-		g.waited[name] = "compaction-not-finished"
+		g.waited[name] = waitedOn{reason: "compaction-not-finished"}
 		return nil
 	}
 	l := g.lookAt(ctx, name, e.Prefix, attached)
@@ -497,10 +612,12 @@ func (g *goingRun) continueAfterCompaction(ctx context.Context, name string, liv
 		g.app.sayf("%s is already working after its compaction; nothing more typed.\n", name)
 		return g.goingSet(name, restore.GoingCompacting, restore.GoingCompact, e.At, e.Detail, e.Transcript)
 	case lookNotDrawn:
-		g.waited[name] = "prompt-not-back-after-compaction"
+		g.waited[name] = waitedOn{reason: "prompt-not-back-after-compaction"}
 		return nil
-	case lookAttached, lookTyped, lookDead, lookWaiting, lookUnreadable:
-		return g.leaveAlone(name, restore.GoingCompacting, l.afterCompactionReason())
+	case lookWaiting:
+		return g.leaveAsExpected(name, restore.GoingCompacting, l.afterCompactionReason(), whyWaitingAfterCompaction)
+	case lookAttached, lookTyped, lookDead, lookUnreadable:
+		return g.leave(name, restore.GoingCompacting, l.afterCompactionReason(), l.expectedWhy())
 	}
 	return nil
 }

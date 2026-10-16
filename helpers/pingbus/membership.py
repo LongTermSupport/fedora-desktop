@@ -245,7 +245,7 @@ def _told(data: object, where: str) -> Told:
 
 
 def parse_applied(data: object, where: str = APPLIED_FILE) -> Applied:
-    """Section 3.2, every key checked. `generation` 0 is a launch list (`PINGBUS_SEATS`)."""
+    """Section 3.2, every key checked. `generation` is 0 or more (a desired file's is 1 or more)."""
     obj = _object(data, APPLIED_KEYS, where, APPLIED_OPTIONAL)
     _version(obj, where)
     if not _is_int(obj["generation"], 0):

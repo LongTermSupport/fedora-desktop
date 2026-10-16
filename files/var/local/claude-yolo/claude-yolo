@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.99.10.2"  # Container 2.75.1: every picker action is a visible choice, a key only its shortcut (project_hidden_bindings). See docs/ccy-changelog.md.
+CCY_VERSION="3.99.12.10"  # Container 2.77.7: every picker action is a visible choice, a key only its shortcut (project_hidden_bindings). See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -78,7 +78,7 @@ source "$SCRIPT_DIR/lib/agent-bus-seats.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.75.1"
+REQUIRED_CONTAINER_VERSION="2.77.7"
 
 set -e
 
@@ -213,7 +213,7 @@ Options:
                          Bare --teams chooses teams from a list with what each is for
                          (Tab marks several); a team not covering this repository is
                          widened only on a yes. The launch prints each team's seat, role
-                         and description; the status line shows bus: A,B. With a team
+                         and description; the status line shows 👥 A,B. With a team
                          alone ccy asks the seat (lowest free is the default); name it
                          (--teams 1@dev-team,qa2@other-team; quote a list with spaces)
                          to skip the question, as a launch with nobody to ask must. A

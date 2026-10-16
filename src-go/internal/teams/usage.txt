@@ -49,11 +49,17 @@ too (? there shows every key, explained). The shortcuts:
 A key works only on a row whose menu has it.
 The menu of a team row also has Shut down every session of <team> (no shortcut): the same as
 `ccy-teams shutdown <team>` below.
+The menu of a team row also has Edit settings (no shortcut): every field of the team's entry
+with its value. Each editable one is checked as it is typed; Save and apply writes the changes
+to the host_vars in one edit and applies the team, as ccy-teams apply does. The coordinator
+changes at once; the name, port, listen addresses, server name, forge API and removed people
+are fixed. A person removed is deactivated for good and their name can never be added back.
 A team has at most one coordinator, an agent that takes the humans' requests, dispatches them
 to the workers and is copied on what workers tell humans. Its seat's MEMBER shows
-"(coordinator)". The menu of a seat has Make coordinator or Stop being coordinator (no
-shortcut): it asks first, names the current coordinator, who becomes a worker, and runs
-agent-bus set-role as root.
+"(coordinator)". The menu of a seat has Make it the coordinator (<team> has none), Stop
+being coordinator, or, on a team that has a coordinator, Replace the coordinator, listed
+last (no shortcut): a takeover names the current coordinator and whether it runs, says it
+loses the role, and defaults to no. Each asks first and runs agent-bus set-role as root.
   Esc, q   leave
 Every row's menu also has Add an LXC container's agent to <team> (no shortcut): the same as
 `ccy-teams lxc-add <team>` below.
@@ -99,8 +105,12 @@ Usage:
                                    running containers (as root: sudo asks), then asks, with
                                    gum, for the container, its user (the container's ordinary
                                    users are suggested), the checkout inside it (those in the
-                                   user's home with a GitHub remote are suggested) and the role
-                                   (worker; coordinator only when the team has none). The
+                                   user's home with a GitHub remote are offered, ccy projects
+                                   first; Type a path... walks the container's directories, Tab
+                                   completing a name) and the role (worker first; the
+                                   coordinator on a team with none, or on a team that has one a
+                                   takeover that names it, on No), each question naming the
+                                   team, the step, the container and the user. The
                                    handle's repo, host and seat are never asked: they come from
                                    the checkout as ccy derives them (repo from its origin, host
                                    from .claude/ccy/ccy.env.local else local, the next free
@@ -112,8 +122,10 @@ Usage:
                                    the team, which joins the member (the user must already
                                    exist and be logged in to gh in the container; the play
                                    stops, naming it, when not). It ends by printing what is
-                                   left inside the container: ccy --teams <team> as that user
-                                   in the checkout. Hand-editing agent_bus_lxc_members still works
+                                   left inside the container: the kit's agent-bus-claude as that
+                                   user in the checkout (a session already running there is
+                                   named, to be started again), and a live pingbus check.
+                                   Hand-editing agent_bus_lxc_members still works
   ccy-teams apply <team> | --all   run play-agent-bus.yml for the team (or every team
                                    out of date or not built), and play-agent-bus-element.yml
                                    for those with an Element profile, then check each now
@@ -162,6 +174,10 @@ Usage:
                                    run (exit 1); with no terminal and no valid record
                                    (yours, mode 600, in your closed folder) it exits 78
                                    before any seat is made. ccy --teams and cc --teams call it
+  ccy-teams choose-teams --type=host --bus
+                                   only that once-per-user question, for cc --bus: a session
+                                   on no team that you add to teams later (ccy-teams session
+                                   add). Prints nothing; declining ends the run (exit 1)
   ccy-teams record-seats <session> <seats>
                                    put the seats (a canonical --teams list) into the record of
                                    the session, so its restore replays them. ccy calls it, naming
@@ -173,11 +189,26 @@ Usage:
                                    private to you, and print that directory, which ccy mounts
                                    read-only into the container. ccy calls it at each launch
                                    that carries the bus kit (Plan 00203)
+  ccy-teams internal membership-init --kind=cc <session> <checkout> <seats>
+                                   the same for cc --teams and cc --bus, into
+                                   $XDG_RUNTIME_DIR/pingbus/membership/<session>/, which the
+                                   session reads directly (it runs as you, so it could write it
+                                   too); the seats also go into the session's record. cc calls
+                                   it at each such launch
   ccy-teams internal restart-args <session>
                                    read a relaunch's arguments, NUL separated, on stdin and
                                    print them with the --teams of <session>'s record ("" for an
                                    unnamed launch: unchanged), so a supervisor restart replays a
                                    membership changed while the session ran. ccy calls it
+  ccy-teams internal claim-container-name <project> <suffix> <owner-pid>
+                                   print the lowest free container name, <project>_<suffix>
+                                   then _1, _2 ..., and claim it for process <owner-pid> in
+                                   $XDG_RUNTIME_DIR/ccy/container-names/, so launches started
+                                   together never choose the same name. A name is taken while
+                                   a container has it (the engine is $CONTAINER_ENGINE, else
+                                   podman) or while another running process claimed it; the
+                                   owner's own earlier claim is given up. ccy calls it at each
+                                   launch
   ccy-teams session list
   ccy-teams session add <session> <team>[/<seat>] [--role=worker|coordinator] [--demote-current] [--yes]
   ccy-teams session remove <session> <team> [--coordinator=demote|hand-to=<seat>] [--park] [--yes]
@@ -202,8 +233,10 @@ Usage:
                                    per checkout), 78 for a session that cannot be changed while
                                    it runs. ccy-teams session --help says more
   ccy-teams choose-seat <team>     choose which seat this session takes in the team (gum), then
-                                   whether the seat is the team's coordinator, a worker, or
-                                   stops being the coordinator; prints SEAT@TEAM on stdout, the
+                                   whether the seat is the team's coordinator (offered plainly
+                                   when the team has none; when it has one, a takeover that
+                                   names it, defaulting to no), a worker, or stops being the
+                                   coordinator; prints SEAT@TEAM on stdout, the
                                    rest on stderr. Leaving the chooser prints nothing and
                                    succeeds. The role is asked only for a seat that exists, and
                                    sudo only when you change it. choose-teams uses the same
@@ -216,9 +249,6 @@ Usage:
                                    print "This session is on N teams:" and, per seat, its
                                    team, seat, role and what the team is for: the block a
                                    launch shows once its seats are taken
-  ccy-teams describe-seats --sentence <list>
-                                   print "You are <handle> in <team>, ... and <handle> in
-                                   <team>.": the line cc adds to a host session's prompt
   ccy-teams -h|--help              this text
 
 Backups stay on this machine (docs/agent-bus.md, "Backups are the root of trust").

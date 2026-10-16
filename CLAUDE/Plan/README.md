@@ -34,6 +34,10 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00208-stt-paste-uses-stale-clipboard](00208-stt-paste-uses-stale-clipboard/) - In Progress. Speech-to-text auto-paste pasted the previous dictation: the paste key now waits until the clipboard reads back as this dictation's text, or nothing is pasted and the failure is said
+
+- [00206-deployed-tools-never-run-from-checkout](00206-deployed-tools-never-run-from-checkout/) - Not Started. What the desktop runs is a deployed, versioned copy installed by its play, never the live checkout; audit (7 runtime offenders), design, a gate, and the moves riskiest first, with owner decisions D1-D7
+
 - [00196-team-coordinator-role](00196-team-coordinator-role/) - In Progress. One agent per team is the coordinator: copied on what workers tell humans, addressable with `--to-coordinator`, set from `ccy-teams` and bare `ccy --teams`
 
 - [00197-agent-bus-seat-broker-daemon](00197-agent-bus-seat-broker-daemon/) - Not Started. A host daemon that grants team seats on the owner's approval, so `ccy --teams` inside an LXC container joins with no config edit
@@ -48,9 +52,13 @@ Use these Unicode icons in plan documents:
 
 - [00203-teams-hot-control-and-robustness](00203-teams-hot-control-and-robustness/) - In Progress. Add, remove, move and re-role a running ccy session's teams from `ccy-teams` without a relaunch, and make every server-side and session-side part of the team system recover by itself
 
-- [00204-go-tui-polish](00204-go-tui-polish/) - In Progress. What the Go tools' TUI should be: a frame with a breadcrumb, a context line and a footer of visible actions, wizards that keep their answers, and Bubble Tea v2 as a vendored dependency; research and owner decisions, nothing built yet
+- [00205-ssh-team-members](00205-ssh-team-members/) - In Progress (research done; owner decisions open). Team members reached over plain ssh instead of only `lxc-attach`, with no need to know how the member is virtualised; options and a recommendation, nothing built
+
+- [00204-go-tui-polish](00204-go-tui-polish/) - In Progress. What the Go tools' TUI should be: a frame with a breadcrumb, a context line and a footer of visible actions, wizards that keep their answers, and Bubble Tea v2 as a vendored dependency; D1 and D2 decided, the dependency infrastructure (vendored, pinned, allowlisted, govulncheck) built, the UI not yet
 
 - [00202-ccy-claude-code-mod](00202-ccy-claude-code-mod/) - In Progress. Design a ccy Claude Code mod as the one place ccy extends the Claude Code UX, with its own GUI as the primary surface: a band, a ccy pane (Health, Mounts, Deploy) and a Teams pane (Status, Who, Pending, Homeserver); research and owner decisions, nothing built yet
+
+- [00207-team-roles-and-minimum-models](00207-team-roles-and-minimum-models/) - Not Started (design; owner decisions D1-D26, D19 decided). Explicit team roles (coordinator, worker, reviewer, outside collaborator, deployer) with a minimum model and effort per role, enforced at assignment, launch and run time; hub-and-spoke communication gates with a hard deployer lock, backed by homeserver-enforced channel rooms kept in sync by one reconciler; a coordinator-and-humans management room; the deployer's pre-deploy gate; per-team policy in the team settings pane
 
 - [00190-docker-podman-coexistence-on-host](00190-docker-podman-coexistence-on-host/) - Not Started. The Docker/Podman coexistence concerns left on #41 after Plan 00091
 

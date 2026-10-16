@@ -3,6 +3,7 @@ package declare
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -144,5 +145,44 @@ func TestRealRefusalsAreTyped(t *testing.T) {
 	missing := &Client{Runner: execx.OS{}, Root: c.Root, File: filepath.Join(t.TempDir(), "absent.yml")}
 	if _, err := missing.Declared(ctx); !errors.Is(err, ErrRefused) {
 		t.Fatalf("a missing host_vars: %v", err)
+	}
+}
+
+// S-F2 and S-F3 against the real declare.py, on a copy of the host_vars (set writes).
+func TestRealSettingsAndSet(t *testing.T) {
+	c := realClient(t)
+	ctx := context.Background()
+	copied := filepath.Join(t.TempDir(), "host_vars.yml")
+	text := "agent_bus_address: 192.0.2.10\nagent_bus_teams:\n  - team: alpha\n    port: 6167\n" +
+		"    description: \"Builds the example site\"\n    listen: [\"192.0.2.10\"]\n    allow_from: []\n" +
+		"    humans: [\"owner\"]\n    org: example-org\n    forge_api: https://api.github.com\n"
+	if err := os.WriteFile(copied, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c.File, c.Err = copied, io.Discard
+	settings, err := c.Settings(ctx, "alpha")
+	if err != nil || len(settings) != 13 || settings[1].Key != "description" || string(settings[1].Value) != `"Builds the example site"` {
+		t.Fatalf("settings %+v %v", settings, err)
+	}
+	if err = c.CheckSet(ctx, "alpha", []Value{{Key: "humans", JSON: "[]"}}); !errors.Is(err, ErrUsage) {
+		t.Fatalf("no humans was accepted: %v", err)
+	}
+	got, err := c.Set(ctx, "alpha", []Value{{Key: "humans", JSON: `["owner","second"]`}})
+	if err != nil || !got.Changed {
+		t.Fatalf("set %+v %v", got, err)
+	}
+	settings, err = c.Settings(ctx, "alpha")
+	if err != nil || string(settings[2].Value) != `["owner", "second"]` {
+		t.Fatalf("after set %+v %v", settings, err)
+	}
+	// S-F14: a removed person is recorded, and the name is refused from then on.
+	if _, err = c.Set(ctx, "alpha", []Value{{Key: "humans", JSON: `["second"]`}}); err != nil {
+		t.Fatal(err)
+	}
+	if err = c.CheckSet(ctx, "alpha", []Value{{Key: "humans", JSON: `["second","owner"]`}}); !errors.Is(err, ErrUsage) {
+		t.Fatalf("a removed name was accepted back: %v", err)
+	}
+	if settings, err = c.Settings(ctx, "alpha"); err != nil || string(settings[12].Value) != `["owner"]` {
+		t.Fatalf("removed_humans %+v %v", settings, err)
 	}
 }

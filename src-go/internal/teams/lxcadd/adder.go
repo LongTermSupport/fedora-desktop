@@ -13,15 +13,18 @@ package lxcadd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/lxcfreeze"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
@@ -41,6 +44,9 @@ const (
 	// rootReader is the declare.py script that reads a container's checkout from the host.
 	rootReader = "root-read"
 
+	// readTimeout bounds one read of the container's tree; the home search stops itself sooner.
+	readTimeout = 20 * time.Second
+
 	roleWorker      = "worker"
 	roleCoordinator = "coordinator"
 	usageText       = "'lxc-add' takes one team: ccy-teams lxc-add <team>."
@@ -51,6 +57,8 @@ const (
 type Containers interface {
 	Containers(ctx context.Context) (running, stopped []string, err error)
 	Users(ctx context.Context, container string) ([]string, error)
+	// LxcPath is where root's LXC keeps its containers.
+	LxcPath(ctx context.Context) (string, error)
 	// ReadCheckout runs the host-side reader script as root (see lxcfreeze.Lister.ReadCheckout).
 	ReadCheckout(ctx context.Context, script, mode, container, user, path string) (string, error)
 }
@@ -64,9 +72,15 @@ func (s *stop) Error() string { return fmt.Sprintf("stopped with exit %d", s.cod
 type Adder struct {
 	Declare *declare.Client
 	Gum     *ui.Gum
-	Lister  Containers
+	// Picker is the directory list the checkout path is walked and completed in.
+	Picker *ui.Picker
+	Lister Containers
+	// ReadTimeout bounds each read of the container's tree: the home search, a directory listing.
+	ReadTimeout time.Duration
 	// Roster is "agent-bus list <team>" as root: the live coordinator is read from it.
 	Roster func(ctx context.Context, team string) (agentbus.Roster, error)
+	// SetRole is "agent-bus set-role" as root: a takeover makes a live coordinator a worker.
+	SetRole func(ctx context.Context, team, handle, role string) error
 	// SudoReady makes root available, saying why it is wanted; false means it has said why not.
 	SudoReady  func(ctx context.Context, why string) bool
 	ApplyTeams func(ctx context.Context, teams ...string) error
@@ -90,13 +104,15 @@ type Adder struct {
 	script, roster string
 	// before is the team as it was when the questions began: what the apply is read back against.
 	before agentbus.Roster
+	// lxcPath is where root's LXC keeps its containers, for the lxc-attach hints.
+	lxcPath string
 }
 
 // New is the Adder over a host and the flows it hands the work to: apply joins the member.
 func New(h *host.Host, kit *flow.Kit, o *ops.Ops) *Adder {
 	return &Adder{
-		Declare: h.Declare, Gum: h.Gum, Lister: &lxcfreeze.Lister{Sudo: h.Sudo, LookPath: h.LookPath},
-		Roster: h.Bus.List, SudoReady: kit.SudoReady,
+		Declare: h.Declare, Gum: h.Gum, Picker: h.Picker, ReadTimeout: readTimeout, Lister: &lxcfreeze.Lister{Sudo: h.Sudo, LookPath: h.LookPath},
+		Roster: h.Bus.List, SetRole: h.Bus.SetRole, SudoReady: kit.SudoReady,
 		ApplyTeams: func(ctx context.Context, teams ...string) error { return o.ApplyTeams(ctx, teams) },
 		NewTerm:    h.FreshTerm, LookPath: h.LookPath, Stdin: h.Stdin, Stdout: h.Stdout,
 		HostVars: h.HostVars, Home: h.Home,
@@ -106,6 +122,9 @@ func New(h *host.Host, kit *flow.Kit, o *ops.Ops) *Adder {
 // answers is what the questions collect.
 type answers struct {
 	team, container, user, checkout, role string
+	// takeover is the coordinator this member replaces, when the person chose to; empty
+	// otherwise.
+	takeover holding
 	// derived is the handle the checkout gives, shown before the yes and never written: the
 	// entry carries neither a host nor a seat, so the play derives them again.
 	derived declare.Derived
@@ -138,6 +157,9 @@ func (a answers) context() string {
 	}
 	return strings.Join(parts, " · ")
 }
+
+// where2 names the container and user beside a handle, so the owner never has to look them up.
+func (a answers) where2() string { return "(container " + a.container + ", user " + a.user + ")" }
 
 // Run is ccy-teams lxc-add with the arguments after "lxc-add". It returns the exit code:
 // 0 done, 1 refused or failed, 64 usage, 130 cancelled, or declare.py's own refusal code.
@@ -193,6 +215,9 @@ func (a *Adder) add(ctx context.Context, team string) error {
 	if err != nil {
 		return err
 	}
+	if a.lxcPath, err = a.Lister.LxcPath(ctx); err != nil {
+		return a.failed(err.Error())
+	}
 	if a.script, err = a.Declare.LxcScript(ctx, rootReader); err != nil {
 		return err
 	}
@@ -205,10 +230,7 @@ func (a *Adder) add(ctx context.Context, team string) error {
 		return err
 	}
 	ans := answers{team: team, role: roleWorker}
-	a.term.Steps = 3
-	if held.holder == "" {
-		a.term.Steps = 4
-	}
+	a.term.Steps = 4
 	if err = a.ask(ctx, &ans, running, held); err != nil {
 		return err
 	}
@@ -261,10 +283,21 @@ func (a *Adder) listContainers(ctx context.Context) ([]string, error) {
 	return running, nil
 }
 
-// coordinator says who holds the team's coordinator role, from the declaration and from the
-// live team.
-type coordinator struct {
-	holder string // empty: the team has none
+// holding says who holds the team's coordinator role, from the declaration and from the live
+// team: a declared LXC member (its entry), or a member of the live team (its roster line).
+type holding struct {
+	holder   string // empty: the team has none
+	declared *declare.LxcMember
+	member   agentbus.Member
+}
+
+// named is the holder as the takeover names it.
+func (h holding) named() coordinator.Holder {
+	running := coordinator.Unknown
+	if h.declared == nil {
+		running = coordinator.FromSeats(nil)(h.member)
+	}
+	return coordinator.Holder{Handle: h.holder, Running: running}
 }
 
 // teamRoster is the running team's members, which both the role and the seat depend on: the
@@ -291,23 +324,23 @@ func (a *Adder) teamRoster(ctx context.Context, team string) (agentbus.Roster, e
 
 // coordinatorOf reads the declared LXC members first (a present coordinator there is the one
 // the play will set), then the live roster.
-func (a *Adder) coordinatorOf(ctx context.Context, team string, roster agentbus.Roster) (coordinator, error) {
+func (a *Adder) coordinatorOf(ctx context.Context, team string, roster agentbus.Roster) (holding, error) {
 	members, err := a.Declare.LxcMembers(ctx)
 	if err != nil {
-		return coordinator{}, err
+		return holding{}, err
 	}
 	for _, m := range members {
 		if m.Team == team && m.State == "present" && m.Role == agentbus.RoleCoordinator {
-			return coordinator{holder: m.User + "@" + m.Container}, nil
+			return holding{holder: m.User + "@" + m.Container, declared: &m}, nil
 		}
 	}
 	if m, ok := roster.Coordinator(); ok {
-		return coordinator{holder: m.Handle}, nil
+		return holding{holder: m.Handle, member: m}, nil
 	}
-	return coordinator{}, nil
+	return holding{}, nil
 }
 
-func (a *Adder) ask(ctx context.Context, ans *answers, running []string, held coordinator) error {
+func (a *Adder) ask(ctx context.Context, ans *answers, running []string, held holding) error {
 	if err := a.askContainer(ctx, ans, running); err != nil {
 		return err
 	}
@@ -370,49 +403,6 @@ func (a *Adder) askUser(ctx context.Context, ans *answers) error {
 	return nil
 }
 
-func (a *Adder) askCheckout(ctx context.Context, ans *answers) error {
-	suggestion, listed := a.suggestCheckouts(ctx, ans)
-	hint := "Where the agent's repository is checked out, inside the container: its top directory, an absolute path. " +
-		"The handle's repo, host and seat come from it as ccy derives them: the repo from its origin, the host from " +
-		".claude/ccy/ccy.env.local (else local), the seat the next free one." + listed
-	if err := a.step(ctx, ans, "Checkout", hint); err != nil {
-		return err
-	}
-	path, err := a.askValid(ctx, func(ctx context.Context, answer string) (bool, error) {
-		return a.checkoutOK(ctx, ans, answer)
-	}, "Checkout path in "+ans.container, "an absolute path, e.g. /srv/work/project", suggestion)
-	if err != nil {
-		return err
-	}
-	ans.checkout = path
-	a.term.Answered(path)
-	return nil
-}
-
-// suggestCheckouts is the checkout to offer first and the sentence naming the others: those in the
-// user's home with a GitHub remote, read from the host's side. A listing that cannot be read is
-// said, and the path is typed from the home.
-func (a *Adder) suggestCheckouts(ctx context.Context, ans *answers) (string, string) {
-	suggestion := "/home/" + ans.user + "/"
-	scan, err := a.Lister.ReadCheckout(ctx, a.script, "checkouts", ans.container, ans.user, "-")
-	var found []declare.Checkout
-	if err == nil {
-		found, err = a.Declare.LxcCheckouts(ctx, scan)
-	}
-	if err != nil {
-		a.term.Printf("The checkouts in the home of %s could not be listed: %s\n", ans.user, err.Error())
-		return suggestion, ""
-	}
-	if len(found) == 0 {
-		return suggestion, ""
-	}
-	names := make([]string, 0, len(found))
-	for _, c := range found {
-		names = append(names, c.Path+" ("+c.Repo+")")
-	}
-	return found[0].Path, " On GitHub, in its home: " + strings.Join(names, ", ") + "."
-}
-
 // checkoutOK judges a typed checkout: its form, then the checkout itself, read from the host's side
 // and turned into the handle it gives. Whatever cannot be read or derived is said and the path asked again.
 func (a *Adder) checkoutOK(ctx context.Context, ans *answers, path string) (bool, error) {
@@ -433,22 +423,44 @@ func (a *Adder) checkoutOK(ctx context.Context, ans *answers, path string) (bool
 	return true, nil
 }
 
-// askRole offers coordinator only when the team has none; otherwise the member is a worker and
-// the person is told why there is no question.
-func (a *Adder) askRole(ctx context.Context, ans *answers, held coordinator) error {
-	if held.holder != "" {
-		a.term.Printf("\nRole: worker. %s already has a coordinator (%s); a team has one.\n", ans.team, held.holder)
-		return nil
+// askRole asks the role in one of the two coordinator paths (package coordinator): worker, the
+// ordinary choice, first; then the coordinator's role offered plainly on a team with none, or,
+// on a team that has one, the takeover as its own choice, which asks again, on No. The role is
+// never changed without a question.
+func (a *Adder) askRole(ctx context.Context, ans *answers, held holding) error {
+	duties := "A worker does the work it is given. The coordinator takes the humans' requests, dispatches them to the workers and is copied on what workers tell humans; "
+	coord := coordinator.NoneChoice(ans.team)
+	if held.holder == "" {
+		duties += ans.team + " has none yet."
+	} else {
+		duties += ans.team + "'s coordinator is " + held.named().Named() + ", and a team has one."
+		coord = coordinator.TakeoverChoice(held.named())
 	}
-	if err := a.step(ctx, ans, "Role", "A worker does the work it is given. The coordinator takes the humans' requests, dispatches them to the workers and is copied on what workers tell humans; "+ans.team+" has none yet."); err != nil {
+	if err := a.step(ctx, ans, "Role", duties); err != nil {
 		return err
 	}
-	role, err := a.Gum.Choose(ctx, a.head, "Role", roleWorker, []string{roleWorker, roleCoordinator})
+	role, err := a.Gum.Choose(ctx, a.head, "Role", roleWorker, []string{roleWorker, coord})
 	if err != nil {
 		return a.gumErr(err)
 	}
-	ans.role = role
-	a.term.Answered(role)
+	if role != coord {
+		a.term.Answered(roleWorker)
+		return nil
+	}
+	if held.holder != "" {
+		yes, err := a.Gum.Confirm(ctx, a.head, coordinator.OfferTakeover(ans.team, ans.label(), held.named()), false)
+		if err != nil && !errors.Is(err, ui.ErrCancelled) { // Esc is No (Fable's N3)
+			return err
+		}
+		if !yes {
+			a.term.Printf("%s stays %s's coordinator; %s joins as a worker.\n", held.holder, ans.team, ans.label())
+			a.term.Answered(roleWorker)
+			return nil
+		}
+		ans.takeover = held
+	}
+	ans.role = roleCoordinator
+	a.term.Answered(roleCoordinator)
 	return nil
 }
 
@@ -504,7 +516,12 @@ func (a *Adder) checked(err error) (bool, error) {
 // summary checks the whole entry as one (a second coordinator, a duplicate), shows what will
 // be written, and asks the one yes that covers writing it and applying the team.
 func (a *Adder) summary(ctx context.Context, ans answers) error {
-	if _, err := a.Declare.LxcAddDryRun(ctx, ans.entry()); err != nil {
+	check := ans.entry()
+	if ans.takeover.declared != nil {
+		// The declared coordinator is made a worker first; until then a second one is refused.
+		check.Role = ""
+	}
+	if _, err := a.Declare.LxcAddDryRun(ctx, check); err != nil {
 		if de, ok := errors.AsType[*declare.Error](err); ok {
 			a.term.Printf("%s\nRefused; nothing was changed.\n", de.Error())
 			return &stop{term.ExitCode(de.Code)}
@@ -515,8 +532,8 @@ func (a *Adder) summary(ctx context.Context, ans answers) error {
 		line("Container", ans.container),
 		line("User", ans.user),
 		line("Checkout", ans.checkout),
-		line("Handle (expected)", ans.derived.Handle),
-		line("Role", ans.role),
+		line("Handle (expected)", ans.derived.Handle+" "+ans.where2()),
+		line("Role", roleLine(ans)),
 	}, "\n")
 	a.term.Printf("\n")
 	if err := a.Gum.Box(ctx, false, ans.label()+" joins "+ans.team, "", body); err != nil {
@@ -540,6 +557,46 @@ func (a *Adder) summary(ctx context.Context, ans answers) error {
 }
 
 func line(label, value string) string { return fmt.Sprintf("%-18s %s", label, value) }
+
+// roleLine is the summary's role: a takeover names who becomes a worker.
+func roleLine(ans answers) string {
+	if ans.takeover.holder != "" {
+		return ans.role + " (" + ans.takeover.holder + " stops being " + ans.team + "'s coordinator and becomes a worker)"
+	}
+	return ans.role
+}
+
+// demote is a takeover's first step: the current coordinator made a worker, and how to put it
+// back. With no takeover it does nothing.
+func (a *Adder) demote(ctx context.Context, ans answers) (func(context.Context), error) {
+	held := ans.takeover
+	switch {
+	case held.holder == "":
+		return func(context.Context) {}, nil
+	case held.declared != nil:
+		if _, err := a.Declare.LxcSetRole(ctx, *held.declared, roleWorker); err != nil {
+			return nil, err
+		}
+		return func(ctx context.Context) {
+			if _, err := a.Declare.LxcSetRole(ctx, *held.declared, roleCoordinator); err != nil {
+				a.term.PrintError(held.holder + " was made a worker in the host_vars and could not be put back (" + err.Error() +
+					"): ccy-teams lxc-add " + ans.team + " again, or its entry's role, makes a coordinator")
+			}
+		}, nil
+	}
+	if !a.SudoReady(ctx, "A role is changed as root, by agent-bus.") {
+		return nil, a.failed("so " + held.holder + " stays the coordinator, and nothing was changed.")
+	}
+	if err := a.SetRole(ctx, ans.team, held.holder, roleWorker); err != nil {
+		return nil, a.failed(held.holder + " could not be made a worker (" + err.Error() + "); nothing was changed.")
+	}
+	return func(ctx context.Context) {
+		if err := a.SetRole(ctx, ans.team, held.holder, roleCoordinator); err != nil {
+			a.term.PrintError(held.holder + " was made a worker and could not be made the coordinator again (" + err.Error() +
+				"): sudo agent-bus set-role " + ans.team + " " + held.holder + " --role=coordinator")
+		}
+	}, nil
+}
 
 // joined says the handle the play gave the member, read back from the team after the apply: the one
 // active handle of the derived repo and host that was not active before. The summary's handle is only
@@ -568,13 +625,20 @@ func (a *Adder) joined(ctx context.Context, ans answers) string {
 	if len(fresh) != 1 {
 		return unsure(fmt.Sprintf("%d new active members of %s on %s were found", len(fresh), d.Repo, d.Host))
 	}
-	return ans.label() + " is a member of " + ans.team + " as " + fresh[0] + "."
+	return ans.label() + " is a member of " + ans.team + " as " + fresh[0] + " " + ans.where2() + "."
 }
 
-// write declares the member, applies the team, and says what is left to do in the container.
+// write declares the member, applies the team, and says what is left to do in the container. A
+// takeover first makes the current coordinator a worker (its entry, or its live role), and puts
+// it back when the new entry cannot be written.
 func (a *Adder) write(ctx context.Context, ans answers) error {
+	undo, err := a.demote(ctx, ans)
+	if err != nil {
+		return err
+	}
 	change, err := a.Declare.LxcAdd(ctx, ans.entry())
 	if err != nil {
+		undo(ctx)
 		return err
 	}
 	marker := "UNCHANGED"
@@ -585,15 +649,77 @@ func (a *Adder) write(ctx context.Context, ans answers) error {
 		return fmt.Errorf("write the result: %w", err)
 	}
 	if err = a.ApplyTeams(ctx, ans.team); err != nil {
+		if ans.takeover.holder != "" {
+			a.term.Printf("%s is a worker now, so %s has no coordinator until ccy-teams apply %s succeeds.\n",
+				ans.takeover.holder, ans.team, ans.team)
+		}
 		return a.failed(ans.label() + " is declared in " + term.AbbrevHome(a.HostVars, a.Home) + " but not joined. " +
 			"If the cause above is about gh, log in inside the container as " + ans.user + ":\n" +
-			"  sudo lxc-attach -n " + ans.container + " -- su - " + ans.user + "     (then gh auth login, and exit)\n" +
+			"  " + a.attach(ans) + "     (then gh auth login, and exit)\n" +
 			"Once the cause is fixed, ccy-teams apply " + ans.team + " joins it.")
 	}
 	a.term.Say(a.joined(ctx, ans))
-	a.term.Printf("What is left is inside the container:\n"+
-		"  Agent    as %s, in %s: ccy --teams %s\n"+
-		"  GitHub   the play checked that %s is logged in to GitHub there; if it is ever logged out, gh auth login as %s.\n",
-		ans.user, ans.checkout, ans.team, ans.user, ans.user)
+	a.term.Say(a.session(ctx, ans))
+	a.term.Printf("Inside the container (%s):\n", a.attach(ans))
+	a.term.Printf("  Agent    in %s: %s (the kit's launcher), or your project's launcher if it supports it "+
+		"(ccy --teams, with no value)\n", ans.checkout, launcher)
+	a.term.Printf("  Check    set -a; . ~/.config/pingbus/env; set +a; pingbus config check && pingbus history --limit 1"+
+		"   (reads %s's room live, as this member)\n", ans.team)
+	a.term.Printf("  GitHub   the play checked that %s is logged in to GitHub there, and agent-bus-claude refuses to start "+
+		"until it is; if it is ever logged out: gh auth login --hostname github.com, as %s.\n", ans.user, ans.user)
 	return nil
+}
+
+// attach is the command that opens a login shell as the member user in its container.
+func (a *Adder) attach(ans answers) string {
+	return "sudo lxc-attach -P " + a.lxcPath + " -n " + ans.container + " -- su - " + ans.user
+}
+
+// launcher is the command the kit installs in every member container to start a session on the
+// bus (README.lxc). A client project's own ccy inside the container is not ours to name.
+const launcher = "agent-bus-claude"
+
+// startedLayout is how a session's start is shown.
+const startedLayout = "Mon 2 Jan 15:04"
+
+// session says whether a Claude session of the member is already running in the container: one
+// started before the add has not read the new team, so it must be started again. The processes
+// are read from the host's side, as the checkout is, never by entering the container.
+func (a *Adder) session(ctx context.Context, ans answers) string {
+	start := launcher + ", as " + ans.user + " in " + ans.checkout
+	started, err := a.sessions(ctx, ans)
+	switch {
+	case err != nil:
+		return "Whether a Claude session for " + ans.user + " is running in " + ans.container + " could not be checked (" +
+			err.Error() + "). A session started before this add must be ended and started again with " + start +
+			", to join " + ans.team + "."
+	case len(started) > 0:
+		return "A Claude session for " + ans.user + " is already running in " + ans.container + " (started " +
+			strings.Join(started, ", ") + "). End it and start it again with " + start + ", to join " + ans.team + "."
+	}
+	return "No Claude session for " + ans.user + " is running in " + ans.container + ". Start one: as " + ans.user +
+		" in " + ans.checkout + ", " + launcher + "."
+}
+
+// sessions are when each Claude session of the member started, as the reader prints them.
+func (a *Adder) sessions(ctx context.Context, ans answers) ([]string, error) {
+	bounded, cancel := context.WithTimeout(ctx, a.ReadTimeout)
+	defer cancel()
+	out, err := a.Lister.ReadCheckout(bounded, a.script, "sessions", ans.container, ans.user, "-")
+	if err != nil {
+		return nil, err
+	}
+	var read struct {
+		Sessions []int64 `json:"sessions"`
+	}
+	dec := json.NewDecoder(strings.NewReader(out))
+	dec.DisallowUnknownFields()
+	if err = dec.Decode(&read); err != nil || read.Sessions == nil {
+		return nil, fmt.Errorf("the session list is not one the reader prints (%q)", out)
+	}
+	shown := make([]string, 0, len(read.Sessions))
+	for _, at := range read.Sessions {
+		shown = append(shown, time.Unix(at, 0).Format(startedLayout))
+	}
+	return shown, nil
 }

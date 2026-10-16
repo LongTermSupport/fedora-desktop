@@ -96,6 +96,12 @@ _ENV_VALUE = r"[A-Za-z0-9,._-]*"
 _SUGGEST_RE = re.compile(r"--repo=(\S+) --host=(\S+) --type=(\S+)")
 
 # ── what runs inside the container (`python3 -I -c SCRIPT ARGS...`) ─────────────────────
+#
+# Each script that creates anything sets its own umask first: lxc-attach hands on whatever
+# umask its caller had (077 has been seen, which made the kit untraversable), and a umask also
+# governs the parents `os.makedirs` makes, which an explicit mode or chmod does not reach.
+# Root's scripts (the kit, the unit) use 022, the agent's (bundle, env file) use 077, and each
+# file and leaf directory still names its mode.
 
 #: The member's own source address towards the bus address (no packet is sent).
 SOURCE_PY = ("import socket, sys; s = socket.socket(socket.AF_INET6 if ':' in sys.argv[1] else "
@@ -103,18 +109,34 @@ SOURCE_PY = ("import socket, sys; s = socket.socket(socket.AF_INET6 if ':' in sy
 
 #: As root: the kit tar on stdin made the container's KIT_PARENT/kit (only what differs is
 #: written, what the tar lacks is removed), its two commands linked into BIN. Prints one
-#: line per change.
+#: line per change; a kit directory it repairs to 0755 is also said on stderr.
 KIT_SYNC_PY = r'''
 import os, stat, sys, tarfile
+os.umask(0o022)
 if sys.version_info < (3, 11):
     sys.exit("pingbus needs Python 3.11 or later; this container has " + sys.version.split()[0])
 parent, bindir, owner = sys.argv[1], sys.argv[2], int(sys.argv[3])
 kit = os.path.join(parent, "kit")
-def guarded(path, st):
+changed = []
+def directory(path, st):
     # Root replaces files in these directories, so nobody else may change what they hold.
-    if st.st_uid != owner or stat.S_IMODE(st.st_mode) & 0o022:
+    if not stat.S_ISDIR(st.st_mode):
+        sys.exit(path + " is not a directory (a symlink or file there is never followed or "
+                 "replaced): remove it, and the play makes the kit")
+    mode = stat.S_IMODE(st.st_mode)
+    if st.st_uid != owner or mode & 0o022:
         sys.exit(path + " is not owned by uid " + str(owner) + " or is writable by others: a kit "
                  "copied by hand must go before the play installs it (remove " + parent + ")")
+    if mode != 0o755:
+        # Ours and closed to others (made under a tight umask): the agent must traverse it.
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fchmod(fd, 0o755)
+        finally:
+            os.close(fd)
+        note = "repaired " + path + " from " + format(mode, "04o") + " to 0755"
+        print(note, file=sys.stderr)
+        changed.append(note)
 want = {}
 with tarfile.open(fileobj=sys.stdin.buffer, mode="r|") as tar:
     for m in tar:
@@ -127,9 +149,12 @@ with tarfile.open(fileobj=sys.stdin.buffer, mode="r|") as tar:
             want[m.name] = (tar.extractfile(m).read(), m.mode & 0o777)
         else:
             sys.exit("the kit tar holds " + repr(m.name) + ", not a file or directory")
-changed = []
-os.makedirs(parent, mode=0o755, exist_ok=True)
-guarded(parent, os.lstat(parent))
+try:
+    st = os.lstat(parent)
+except FileNotFoundError:
+    os.makedirs(parent, mode=0o755)
+    st = os.lstat(parent)
+directory(parent, st)
 for name in sorted(want):
     path = os.path.join(parent, name)
     try:
@@ -141,10 +166,8 @@ for name in sorted(want):
             os.mkdir(path, 0o755)
             os.chmod(path, 0o755)
             changed.append(name)
-        elif not stat.S_ISDIR(st.st_mode):
-            sys.exit(path + " is not a directory")
         else:
-            guarded(path, st)
+            directory(path, st)
         continue
     data, mode = want[name]
     if st is not None and not stat.S_ISREG(st.st_mode):
@@ -215,8 +238,9 @@ print(json.dumps({"dir": st is not None, "member": member, "token": token,
 #: As the agent: the bundle tar on stdin written as BASE/TEAM (0700), each file new, 0600.
 PLACE_PY = r'''
 import os, sys, tarfile
+os.umask(0o077)
 base, team = sys.argv[1], sys.argv[2]
-names = ("token", "README", "member.json")
+names =("token", "README", "member.json")
 files = {}
 with tarfile.open(fileobj=sys.stdin.buffer, mode="r|") as tar:
     for m in tar:
@@ -248,6 +272,7 @@ elif os.path.lexists(path):
 #: As the agent: stdin written to PATH (0600) by a rename, or PATH removed when stdin is empty.
 WRITE_ENV_PY = r'''
 import os, sys
+os.umask(0o077)
 path = sys.argv[1]
 data = sys.stdin.buffer.read()
 if not data:
@@ -267,6 +292,7 @@ os.replace(tmp, path)
 #: As root: stdin written to PATH (0644) by a rename when it differs; prints `changed` when it did.
 UNIT_WRITE_PY = r'''
 import os, sys
+os.umask(0o022)
 path = sys.argv[1]
 data = sys.stdin.buffer.read()
 try:
@@ -427,10 +453,12 @@ def parse_members(data: object) -> tuple[Member, ...]:
 
 def _check_between(found: Sequence[Member]) -> None:
     """The rules between entries. A host or seat not yet derived (None) is not judged; it is,
-    once resolve_members has given it a value."""
+    once resolve_members has given it a value. A seat is numbered within its `<repo>` and
+    `<host>` (the handle is `<repo>.<seat>+<host>.lxc`, as derive_seat counts it), so two
+    containers clash on a seat only in one repo, or when either entry's repo is not known."""
     entries: dict[tuple[str, str, str], int] = {}
     hosts: dict[tuple[str, str], str] = {}
-    seats: dict[tuple[str, str, str], str] = {}
+    seats: dict[tuple[str, str, str], list[Member]] = {}
     coordinators: dict[str, int] = {}
     sessions: dict[tuple[str, str], Member] = {}
     for position, member in enumerate(found, start=1):
@@ -450,10 +478,14 @@ def _check_between(found: Sequence[Member]) -> None:
         if member.host is not None and hosts.setdefault((member.container, member.user), member.host) != member.host:
             raise MemberError(f"agent_bus_lxc_members gives {member.label} two hosts; its env file "
                               f"sets one {ROLE_VAR}")
-        if member.host is not None and member.seat is not None and \
-                seats.setdefault((member.team, member.host, member.seat), member.container) != member.container:
-            raise MemberError(f"agent_bus_lxc_members gives seat {member.seat} of team {member.team} "
-                              f"to two containers; set seat on one")
+        if member.host is not None and member.seat is not None:
+            holders = seats.setdefault((member.team, member.host, member.seat), [])
+            if any(other.container != member.container
+                   and (other.repo is None or member.repo is None or other.repo == member.repo)
+                   for other in holders):
+                raise MemberError(f"agent_bus_lxc_members gives seat {member.seat} of team {member.team} "
+                                  f"to two containers; set seat on one")
+            holders.append(member)
         if member.state == "present" and member.role == protocol.ROLE_COORDINATOR:
             if coordinators.setdefault(member.team, position) != position:
                 raise MemberError(f"agent_bus_lxc_members entries {coordinators[member.team]} and {position} "
@@ -824,11 +856,14 @@ def _check_gh(guest, member: Member, home: str) -> None:
                 f"github.com` as {member.user}. The check, gh's token for github.com,")
 
 
-def _sync_kit(host: Host, guest, container: str, emit: Callable[[str], None]) -> None:
+def _sync_kit(host: Host, guest, container: str, emit: Callable[[str], None],
+              say: Callable[[str], None]) -> None:
     out = guest.root(_python(KIT_SYNC_PY, guest.kit_parent, guest.bin_dir, str(guest.kit_owner)),
                      f"container {container}: the member kit (README.lxc step 1)", stdin=host.kit_tar())
     for line in out.decode().splitlines():
         emit(f"container {container}: kit {line}")
+        if line.startswith("repaired "):
+            say(f"container {container}: kit {line}")
 
 
 def _check_route(host: Host, guest, members: Sequence[Member], bus: str) -> None:
@@ -1000,7 +1035,7 @@ def run_present(members: Sequence[Member], teams_present: Sequence[str], host: H
     synced: set[str] = set()
     for container, user, group, guest, home in ready:
         if container not in synced:
-            _sync_kit(host, guest, container, emit)
+            _sync_kit(host, guest, container, emit, say)
             synced.add(container)
     # Every demotion, in every container, lands before any promotion: a team has one coordinator.
     for coordinators in (False, True):

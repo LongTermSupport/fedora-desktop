@@ -446,8 +446,10 @@ def notify(state, message):
 
 
 def desktop_notification(message, expire_ms):
-    """Desktop notification with no state change (unless --no-notify was passed)."""
-    if no_notify:
+    """Desktop notification with no state change. --no-notify (the panel's default) drops
+    it, except one that stays (expire_ms 0): that reports a dictation lost or failed after
+    it was spoken, which the user must see (as wsi's W10)."""
+    if no_notify and expire_ms != 0:
         return
     show_notification(message, expire_ms)
 
@@ -476,50 +478,114 @@ def show_notification(message, expire_ms):
         pass
 
 
-def copy_to_clipboard(text, use_clipboard=False):
-    """Copy text to clipboard selection."""
+# A copy is confirmed by reading the selection back (Plan 00208): wl-copy can stay running
+# without the compositor ever giving it the selection, and a paste then pastes what was
+# there before. One copy has CLIPBOARD_COPY_ATTEMPT_SECONDS to take before it is killed and
+# copied again; past CLIPBOARD_CONFIRM_SECONDS the copy has failed.
+CLIPBOARD_CONFIRM_SECONDS = 3.0
+CLIPBOARD_COPY_ATTEMPT_SECONDS = 1.0
+CLIPBOARD_POLL_SECONDS = 0.05
+
+# The copy processes this run started, killed by their handle (never matched by name): a
+# copy still running holds its text and could take the selection later, over a newer one.
+_copies = []
+
+
+class ClipboardNotTaken(Exception):
+    """The selection never read back as the text: nothing may be pasted."""
+
+
+def clipboard_tools(use_clipboard):
+    """(copy argv, read-back argv) for this session; ClipboardNotTaken for an unknown one."""
     wm = os.environ.get("XDG_SESSION_TYPE", "unknown")
-
     if wm == "wayland":
-        cmd = ["wl-copy"] if use_clipboard else ["wl-copy", "-p"]
-    elif wm == "x11":
-        cmd = ["xsel", "-ib"] if use_clipboard else ["xsel", "-ip"]
-    else:
-        log(f"Unknown window manager: {wm}", "ERROR")
-        return False
+        return (["wl-copy"], ["wl-paste", "-n"]) if use_clipboard else \
+            (["wl-copy", "-p"], ["wl-paste", "-n", "-p"])
+    if wm == "x11":
+        return (["xsel", "-ib"], ["xsel", "-ob"]) if use_clipboard else \
+            (["xsel", "-ip"], ["xsel", "-op"])
+    raise ClipboardNotTaken(f"unknown window manager: {wm}")
 
+
+def stop_copies():
+    """Kill every copy process this run started that is still running."""
+    for proc in _copies:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+    _copies.clear()
+
+
+def start_copy(argv, text):
+    """Start one copy of `text`; '' or why it could not start."""
     try:
-        # Do NOT use communicate() - it waits for wl-copy to exit, which drops
-        # clipboard ownership before we can paste. Instead, write to stdin and
-        # leave the process running so it holds clipboard ownership until pasted.
-        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+        proc = subprocess.Popen(argv, stdin=subprocess.PIPE)
+    except OSError as e:
+        return f"{argv[0]} could not run: {e}"
+    _copies.append(proc)
+    try:
         proc.stdin.write(text.encode())
         proc.stdin.close()
+    except OSError as e:
+        return f"{argv[0]} did not take the text: {e}"
+    return ""
 
-        # Brief wait for wl-copy to register with the compositor
-        time.sleep(0.1)
 
-        # Check process status (but don't wait for it - it should stay alive)
-        rc = proc.poll()
-        if rc is not None and rc != 0:
-            log(f"Clipboard copy failed with exit code {rc}", "ERROR")
-            return False
+def read_selection(argv, timeout):
+    """(what the selection holds, '') or (None, why it could not be read)."""
+    try:
+        result = subprocess.run(argv, capture_output=True, timeout=timeout, check=False)
+    except subprocess.TimeoutExpired:
+        return None, f"{argv[0]} gave no answer within {timeout:.1f} s"
+    except OSError as e:
+        return None, f"{argv[0]} could not run: {e}"
+    if result.returncode != 0:
+        why = result.stderr.decode(errors="replace").strip()
+        return None, f"{argv[0]} exited {result.returncode}: {why}"
+    return result.stdout.decode(errors="replace"), ""
 
-        # Verify clipboard was actually set (debug only)
-        try:
-            verify = subprocess.run(["wl-paste"], capture_output=True, timeout=1)
-            if verify.returncode == 0 and verify.stdout:
-                log(f"Clipboard copy successful ({len(text)} chars to {'CLIPBOARD' if use_clipboard else 'PRIMARY'})")
-                log(f"Clipboard verified: {len(verify.stdout.decode())} chars readable")
-            else:
-                log(f"Clipboard copy: wl-copy started but clipboard empty (rc={verify.returncode})", "WARN")
-        except Exception as e:
-            log(f"Clipboard copy successful ({len(text)} chars) - verify skipped: {e}")
 
-        return True
-    except Exception as e:
+def copy_confirmed(text, use_clipboard=False):
+    """Copy `text` and return once the selection reads back as it (one trailing newline
+    allowed); ClipboardNotTaken, with no copy of this run left running, if it never does."""
+    copy, read_back = clipboard_tools(use_clipboard)
+    name = "CLIPBOARD" if use_clipboard else "PRIMARY"
+    deadline = time.monotonic() + CLIPBOARD_CONFIRM_SECONDS
+    copies, held = 0, "nothing readable"
+    while time.monotonic() < deadline:
+        stop_copies()
+        copies += 1
+        why = start_copy(copy, text)
+        if why:  # a copy that cannot start will not start on a retry either
+            stop_copies()
+            raise ClipboardNotTaken(why)
+        attempt_ends = min(deadline, time.monotonic() + CLIPBOARD_COPY_ATTEMPT_SECONDS)
+        while True:
+            got, why = read_selection(read_back, max(attempt_ends - time.monotonic(), 0.1))
+            if got in (text, text + "\n"):
+                log(f"Clipboard copy confirmed: the {name} selection holds the text "
+                    f"({len(text)} chars, copy {copies})")
+                return
+            held = f"nothing readable ({why})" if why else f"other text ({len(got)} characters)"
+            if time.monotonic() >= attempt_ends:
+                break
+            time.sleep(CLIPBOARD_POLL_SECONDS)
+        if time.monotonic() < deadline:
+            log(f"Clipboard copy {copies}: the {name} selection still holds {held}; "
+                "copying again", "WARN")
+    stop_copies()
+    raise ClipboardNotTaken(f"after {copies} copies in {CLIPBOARD_CONFIRM_SECONDS:g} s the {name} "
+                            f"selection still held {held}")
+
+
+def copy_to_clipboard(text, use_clipboard=False):
+    """copy_confirmed as a yes or no, for a caller that only says where the text is."""
+    try:
+        copy_confirmed(text, use_clipboard)
+    except ClipboardNotTaken as e:
         log(f"Clipboard copy failed: {e}", "ERROR")
         return False
+    return True
 
 
 def parse_paste_target(reply):
@@ -653,6 +719,22 @@ def report_unsent(why):
     return 1
 
 
+def report_clipboard_not_taken(why, words_pasted=0):
+    """The clipboard never took the text (ClipboardNotTaken), so nothing was pasted: a
+    notification that stays says so. Returns the exit status, 1."""
+    lines = [f"Nothing was pasted: the clipboard never took this dictation's text ({why})."]
+    if words_pasted:
+        lines.append(f"Its first {words_pasted} words were already pasted.")
+    lines.append("Copy Last Transcription in the panel menu has the text.")
+    message = "\n".join(lines)
+    log(message, "ERROR")
+    print(f"wsi-stream: {message}", file=sys.stderr)
+    emit_dbus_text("Error", "the clipboard never took the text")
+    emit_dbus_signal("StateChanged", "ERROR")
+    urgent_notification(message)  # stays, and is shown even with --no-notify
+    return 1
+
+
 def paste_and_report(text, args, shown, words_pasted=0):
     """The paste at the end of a dictation: `text` into the pinned window, then SUCCESS
     with `shown` as the preview. Returns the exit status."""
@@ -662,6 +744,8 @@ def paste_and_report(text, args, shown, words_pasted=0):
         return report_unpasted(text, str(e), words_pasted)
     except EnterNotSent as e:
         return report_unsent(str(e))
+    except ClipboardNotTaken as e:
+        return report_clipboard_not_taken(str(e), words_pasted)
     if not pasted:
         notify("ERROR", "Auto-paste failed")
         return 1
@@ -697,10 +781,9 @@ def auto_paste(text, skip_enter=False, paste_with_shift=True):
 
     try:
         if text:
-            # Copy to CLIPBOARD (Ctrl+Shift+V / Ctrl+V both read from CLIPBOARD)
-            if not copy_to_clipboard(text, use_clipboard=True):
-                return False
-            time.sleep(0.3)  # Wait for clipboard to be ready
+            # Ctrl+Shift+V and Ctrl+V both read CLIPBOARD; no key is pressed until it holds
+            # the text (ClipboardNotTaken propagates: never a paste of the previous text)
+            copy_confirmed(text, use_clipboard=True)
             if with_shift:
                 press(env, KEY_CTRL, KEY_SHIFT, KEY_V)  # terminals
                 log("Paste simulated via Ctrl+Shift+V")
@@ -724,7 +807,7 @@ def auto_paste(text, skip_enter=False, paste_with_shift=True):
         if not skip_enter:
             press(env, KEY_ENTER)
             log("Enter key sent")
-    except EnterNotSent:
+    except (EnterNotSent, ClipboardNotTaken):
         raise
     except Exception as e:
         log(f"Auto-paste failed: {e}", "ERROR")
@@ -1164,7 +1247,7 @@ def paste_chunk(chunks, text_so_far):
     log(f"Pasting a chunk ({len(chunk)} chars)")
     try:
         pasted = auto_paste(chunk, skip_enter=True)
-    except PasteTargetUnavailable as e:
+    except (PasteTargetUnavailable, ClipboardNotTaken) as e:
         log(f"The chunk was not pasted ({e}); it goes out with the next one", "WARN")
         return
     if not pasted:

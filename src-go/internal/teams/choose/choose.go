@@ -1,6 +1,7 @@
 // Package choose is what the ccy launcher asks of ccy-teams for `ccy --teams` when it has a
 // person to ask: choose-seat, which chooses the seat a session takes in a team and then offers
-// the seat's role (keep it, make it the coordinator, or stop it being one), and describe-seats,
+// the seat's role (keep it, make it the coordinator of a team that has none, replace a team's
+// coordinator, or stop it being one: package coordinator words the two paths), and describe-seats,
 // which names each seat of a saved launch with its role for Quick Launch's summary. The role is
 // changed by seats.ChangeRole, the code the seat menu of the picker calls, and sudo is used
 // only when the person changes it. The payload is on stdout and everything else on stderr, as
@@ -14,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
@@ -31,9 +33,7 @@ const stateNew = "new"
 // Words of the role question.
 const (
 	stopRole    = "Stop being coordinator"
-	makeCoord   = "Make coordinator"
 	keepPrefix  = "Keep as is: "
-	noneInTeam  = "the team has no coordinator"
 	noRoleAsked = "Its role is left as it is."
 )
 
@@ -67,14 +67,6 @@ func row(c agentbus.Choice) string {
 
 func keepRole(role string) string { return keepPrefix + role }
 
-// makeRole is the option that makes the seat the coordinator, saying who it replaces.
-func makeRole(holder agentbus.Member) string {
-	if holder.Handle == "" {
-		return makeCoord
-	}
-	return makeCoord + " (" + holder.Handle + " becomes a worker)"
-}
-
 // Seat is `ccy-teams choose-seat TEAM`: the seat this session takes in team, as SEAT@TEAM on
 // stdout. Leaving the chooser prints nothing and succeeds: the person chose not to start.
 func (c *Choose) Seat(ctx context.Context, args []string) term.ExitCode {
@@ -103,13 +95,14 @@ func (c *Choose) PickSeat(ctx context.Context, h ui.Heading, team, memberType st
 		c.say("  Or name the seat yourself: --teams " + choices.Default + "@" + team)
 		return "", exitConfig
 	}
+	c.say(h.Trail()) // the team's lines sit under its trail
 	picked, ok, code := c.pickSeat(ctx, h.AtStep(1, 2, "Seat").About("team "+team), team, choices)
 	if !ok {
 		return "", code
 	}
 	c.say("Taking seat " + picked.Seat + "@" + team + ": " + picked.Handle + " (" + picked.Words + ").")
 	head := h.AtStep(2, 2, "Role").About("team " + team + " · seat " + picked.Seat + " · " + picked.Handle)
-	if code := c.offerRole(ctx, head, team, picked); code != term.ExitOK {
+	if code := c.offerRole(ctx, head, team, picked, choices); code != term.ExitOK {
 		return "", code
 	}
 	return picked.Seat + "@" + team, term.ExitOK
@@ -121,9 +114,6 @@ func (c *Choose) PickSeat(ctx context.Context, h ui.Heading, team, memberType st
 func (c *Choose) Describe(ctx context.Context, args []string) term.ExitCode {
 	if len(args) > 0 && args[0] == "--block" {
 		return c.block(ctx, args[1:])
-	}
-	if len(args) > 0 && args[0] == "--sentence" {
-		return c.sentence(ctx, args[1:])
 	}
 	prefix := ""
 	if len(args) > 0 && args[0] == "--prefix" {
@@ -207,37 +197,6 @@ func (c *Choose) seatItems(mode string, args []string) ([]seatTeam, bool) {
 	return seats, true
 }
 
-// sentence is `describe-seats --sentence LIST`: on stdout, "You are <handle> in <team>, ... and
-// <handle> in <team>." for a session that holds those seats, which cc adds to a host session's
-// system prompt. A seat of this checkout that does not exist is a failure (the seats are taken
-// first), and nothing is printed.
-func (c *Choose) sentence(ctx context.Context, args []string) term.ExitCode {
-	seats, ok := c.seatItems("--sentence", args)
-	if !ok {
-		return term.ExitUsage
-	}
-	d := &describer{c: c, rosters: map[string]rosterResult{}}
-	parts := make([]string, len(seats))
-	for i, st := range seats {
-		handle, found, err := d.handle(ctx, st.seat, st.team)
-		if err != nil {
-			c.Kit.ReportErr(err)
-			return exitConfig
-		}
-		if !found {
-			c.say("ccy-teams: seat " + st.seat + "@" + st.team + " is not a seat of this checkout, so its handle cannot be named.")
-			return exitConfig
-		}
-		parts[i] = handle + " in " + st.team
-	}
-	text := strings.Join(parts, ", ")
-	if last := len(parts) - 1; last > 0 {
-		text = strings.Join(parts[:last], ", ") + " and " + parts[last]
-	}
-	c.Host.Print(c.Host.Stdout, "You are "+text+".\n")
-	return term.ExitOK
-}
-
 // descriptions is what each declared team is for. Descriptions that cannot be read are said on
 // stderr and left out: the launch still shows its seats.
 func (c *Choose) descriptions(ctx context.Context) map[string]string {
@@ -300,10 +259,10 @@ func (c *Choose) pickSeat(ctx context.Context, h ui.Heading, team string, choice
 
 // offerRole asks what the seat's role should be and changes it when the person says so. A seat
 // that is new has no member yet, so it cannot be given a role until the launch has made it.
-func (c *Choose) offerRole(ctx context.Context, h ui.Heading, team string, seat agentbus.Choice) term.ExitCode {
+func (c *Choose) offerRole(ctx context.Context, h ui.Heading, team string, seat agentbus.Choice, choices agentbus.Choices) term.ExitCode {
 	if seat.State == stateNew {
 		c.say("Seat " + seat.Seat + "@" + team + " is new: it joins as a worker. To make it the coordinator, " +
-			"choose Make coordinator on its row in ccy-teams, or in this chooser the next time.")
+			"choose it on its row in ccy-teams, or in this chooser the next time.")
 		return term.ExitOK
 	}
 	roster, err := c.Bus.List(ctx, team)
@@ -317,9 +276,10 @@ func (c *Choose) offerRole(ctx context.Context, h ui.Heading, team string, seat 
 		c.say("Seat " + seat.Seat + "@" + team + " has no member in " + team + " yet: it joins as a worker.")
 		return term.ExitOK
 	}
-	holder, held := roster.Coordinator()
-	options, wantCoordinator := roleOptions(member, holder, held)
-	answer, err := c.Gum.Choose(ctx, h, roleHeader(team, seat, member, holder, held), options[0], options)
+	look := running(choices)
+	holder := coordinator.Holding(roster, member.Handle, look)
+	options, wantCoordinator := roleOptions(team, member, holder)
+	answer, err := c.Gum.Choose(ctx, h, roleHeader(team, seat, member, holder), options[0], options)
 	if errors.Is(err, ui.ErrCancelled) {
 		c.say(noRoleAsked)
 		return term.ExitOK
@@ -331,7 +291,7 @@ func (c *Choose) offerRole(ctx context.Context, h ui.Heading, team string, seat 
 	if answer == options[0] {
 		return term.ExitOK
 	}
-	changed, err := c.Seats.ChangeRole(ctx, team, seat.Handle, wantCoordinator)
+	changed, err := c.Seats.ChangeRole(ctx, team, seat.Handle, wantCoordinator, look)
 	if err != nil {
 		c.Kit.Term.PrintError(err.Error())
 		return term.ExitFailure
@@ -342,27 +302,40 @@ func (c *Choose) offerRole(ctx context.Context, h ui.Heading, team string, seat 
 	return term.ExitOK
 }
 
+// running is what the chooser's seats of this checkout say of a member's session: a held seat
+// runs, a free one does not, and a member with no seat here is unknown.
+func running(choices agentbus.Choices) coordinator.Lookup {
+	var seats []agentbus.Seat
+	for _, r := range choices.Rows {
+		if r.State != stateNew {
+			seats = append(seats, agentbus.Seat{Seat: r.Seat, Handle: r.Handle, Held: r.State == "held"})
+		}
+	}
+	return coordinator.FromSeats(seats)
+}
+
 // roleOptions are the choices for a member: keeping its role first (the default), then the
-// change, and whether that change makes it the coordinator.
-func roleOptions(member, holder agentbus.Member, held bool) ([]string, bool) {
+// change, and whether that change makes it the coordinator. A team with no coordinator offers
+// the role plainly; a team that has one offers the takeover, worded as one.
+func roleOptions(team string, member agentbus.Member, holder coordinator.Holder) ([]string, bool) {
 	switch {
 	case member.Role == agentbus.RoleCoordinator:
 		return []string{keepRole(agentbus.RoleCoordinator), stopRole}, false
-	case held:
-		return []string{keepRole(agentbus.RoleWorker), makeRole(holder)}, true
+	case holder.Handle != "":
+		return []string{keepRole(agentbus.RoleWorker), coordinator.TakeoverChoice(holder)}, true
 	}
-	return []string{keepRole(agentbus.RoleWorker), makeRole(agentbus.Member{})}, true
+	return []string{keepRole(agentbus.RoleWorker), coordinator.NoneChoice(team)}, true
 }
 
-func roleHeader(team string, seat agentbus.Choice, member, holder agentbus.Member, held bool) string {
-	who := noneInTeam
+func roleHeader(team string, seat agentbus.Choice, member agentbus.Member, holder coordinator.Holder) string {
+	who := team + " has no coordinator"
 	switch {
-	case held && holder.Handle == member.Handle:
-		who = "it is the coordinator"
-	case held:
-		who = holder.Handle + " is the coordinator"
+	case member.Role == agentbus.RoleCoordinator:
+		who = "it is " + team + "'s coordinator"
+	case holder.Handle != "":
+		who = team + "'s coordinator is " + holder.Named() + ", and a team has one"
 	}
-	return "Team " + team + ", seat " + seat.Seat + ": what is its role? Now " + member.Role + "; " + who + "."
+	return "Role of seat " + seat.Seat + ": what is its role? Now " + member.Role + "; " + who + "."
 }
 
 type rosterResult struct {

@@ -279,6 +279,40 @@ func TestARecordAnswersWithoutATerminalForAFullList(t *testing.T) {
 	}
 }
 
+// Plan 00203 M6, H32: `cc --bus` starts on no team after the same consent. It names no handle,
+// prints no list, and says how the session joins a team later.
+func TestBusAsksTheConsentAloneAndPrintsNothing(t *testing.T) {
+	r := newRig(t, alphaCovers)
+	a := r.consentRig()
+	r.Script.Gum = []string{"YES"}
+	exit(t, r.run("--type=host", "--bus", ""), term.ExitOK, r)
+	r.lacksOutput(t)
+	contains(t, "stderr", r.stderr(), "This session joins the teams you add it to later", "ccy-teams session add",
+		"runs as you", "ccy --teams is the safe choice")
+	if !a.exists() || len(r.Script.GumLog) != 1 || !strings.Contains(r.Script.GumLog[0], "Accept, and start this session on the bus?") {
+		t.Fatalf("recorded %v, asked %v", a.exists(), r.Script.GumLog)
+	}
+	r.Script.GumLog = nil
+	exit(t, r.run("--type=host", "--bus"), term.ExitOK, r)
+	if len(r.Script.GumLog) != 0 {
+		t.Fatalf("an accepted consent is not asked again: %v", r.Script.GumLog)
+	}
+}
+
+func TestBusIsAHostSessionOnNoTeam(t *testing.T) {
+	r := newRig(t, alphaCovers)
+	a := r.consentRig()
+	exit(t, r.run("--type=host", "--bus", "1@alpha"), term.ExitUsage, r)
+	exit(t, r.run("--type=podman", "--bus"), term.ExitUsage, r)
+	r.Script.Gum = []string{"NO"}
+	exit(t, r.run("--type=host", "--bus"), term.ExitFailure, r)
+	contains(t, "stderr", r.stderr(), "Not started. Nothing was recorded")
+	r.lacksOutput(t)
+	if a.exists() {
+		t.Fatal("a declined consent was recorded")
+	}
+}
+
 func TestATeamAloneStillNeedsATerminal(t *testing.T) {
 	r := newRig(t, alphaCovers)
 	r.Host.IsTerminal = func(any) bool { return false }

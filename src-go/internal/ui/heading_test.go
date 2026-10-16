@@ -128,8 +128,11 @@ func TestTheHeadingIsOnTopOfEveryFzfHeader(t *testing.T) {
 	if !slices.Contains(args, "--header="+head+"for a\n") {
 		t.Errorf("the first row's header keeps the heading: %q", args)
 	}
-	bind := args[len(args)-1]
-	if strings.Count(bind, lxcStep.Trail()) != 2 {
+	at := slices.IndexFunc(args, func(a string) bool { return strings.HasPrefix(a, "--bind=focus:transform-header") })
+	if at < 0 {
+		t.Fatalf("no header bind: %q", args)
+	}
+	if bind := args[at]; strings.Count(bind, lxcStep.Trail()) != 2 {
 		t.Errorf("every header the cursor brings keeps the heading: %q", bind)
 	}
 	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("r\n")})

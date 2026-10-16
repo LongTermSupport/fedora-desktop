@@ -176,7 +176,8 @@ elif [ "$1" = call ]; then
     echo "(uint32 7,)"
 fi
 EOF
-# ydotool: records each key chord it is asked to press; wl-copy records what it is given
+# ydotool: records each key chord it is asked to press; wl-copy records what it is given,
+# and wl-paste reads it back (wsi pastes only once the selection holds the text, W32)
 cat > "$stubs/ydotool" <<'EOF'
 #!/usr/bin/bash
 printf '%s\n' "$*" >> "$STUB_EVENTS/ydotool.log"
@@ -184,6 +185,10 @@ EOF
 cat > "$stubs/wl-copy" <<'EOF'
 #!/usr/bin/bash
 cat > "$STUB_EVENTS/wl-copy.text"
+EOF
+cat > "$stubs/wl-paste" <<'EOF'
+#!/usr/bin/bash
+cat "$STUB_EVENTS/wl-copy.text"
 EOF
 chmod 755 "$stubs"/*
 
@@ -719,7 +724,9 @@ if (cd "$REPO_ROOT" && python3 -m unittest \
         tests/speech_to_text/test_server_start.py \
         tests/speech_to_text/test_model_manager_installed.py \
         tests/speech_to_text/test_paste_target.py \
+        tests/speech_to_text/test_clipboard_confirm.py \
         tests/speech_to_text/test_claude_process.py \
+        tests/speech_to_text/test_claude_failure_report.py \
         tests/speech_to_text/test_article_client.py \
         tests/speech_to_text/test_resolve_model.py \
         tests/speech_to_text/test_keep_warm.py) > "$work/unit.out" 2>&1; then

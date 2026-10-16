@@ -44,6 +44,12 @@ FILE_MAX_BYTES = 65536
 #: How many checkouts the suggestion lists, and how deep below the home it looks.
 CHECKOUTS_MAX = 30
 CHECKOUTS_DEPTH = 4
+#: How long the search may take before it stops and says so, with what it found by then.
+CHECKOUTS_SECONDS = 5.0
+#: Trees the search never enters: dependencies and build output, never a checkout of one's own.
+CHECKOUTS_SKIPPED = ("node_modules", "vendor", "venv", "__pycache__", "site-packages")
+#: How many directories one listing for the checkout path's completion gives.
+DIRS_MAX = 500
 PATH_MAX = 4096
 ORIGIN_MAX = 2048
 #: The command that names the directory LXC keeps its containers in.
@@ -57,10 +63,16 @@ class DeriveError(Exception):
 # ── what runs on the host, as root: `python3 -I -c SCRIPT MODE LXCPATH CONTAINER USER PATH` ─
 
 _ROOT_READ_TEMPLATE = r'''
-import json, os, re, stat, sys
+import json, os, re, stat, subprocess, sys, time
 mode, lxcpath, container, user, path = sys.argv[1:6]
 CAP = @CAP@
+# Stores whose rootfs is a directory on this host (a btrfs store's is a subvolume), and the
+# other stores LXC has, whose rootfs is mounted only inside the running container: those are
+# read through /proc/<init pid>/root, so the container must be running.
+HOST_DIRECTORY_STORES = ("dir", "btrfs")
+UNMOUNTED_STORES = ("overlay", "overlayfs", "zfs", "lvm", "loop", "rbd", "nbd")
 FLAGS = os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC
+SKIPPED = @SKIPPED@
 
 def die(message):
     # A name from the container's tree can be anything: no control character reaches a terminal.
@@ -92,6 +104,22 @@ def child(fd, name, shown):
         die(shown + " is a symbolic link; the container's tree is not followed through one")
     return found
 
+def real_dir(fd, name):
+    # The entry NAME of FD when it is a directory itself, never through a link; None otherwise.
+    try:
+        found = os.open(name, FLAGS, dir_fd=fd)
+    except OSError:
+        return None
+    if not stat.S_ISDIR(os.fstat(found).st_mode):
+        os.close(found)
+        return None
+    return found
+
+def subdirs(fd):
+    # The names of the directories in the directory FD, sorted; a link is not one.
+    with os.scandir(os.open("/proc/self/fd/" + str(fd), os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)) as entries:
+        return sorted(e.name for e in entries if e.is_dir(follow_symlinks=False))
+
 def walk(fd, parts, shown):
     for index, part in enumerate(parts):
         here = shown + "/" + "/".join(parts[: index + 1])
@@ -121,7 +149,61 @@ def read_regular(fd, shown):
     except UnicodeDecodeError:
         die(shown + " is not UTF-8 text")
 
-rootfs, mounts = None, []
+def init_pid():
+    # The container's init process as lxc-info names it; None when the container is not running.
+    try:
+        run = subprocess.run(["lxc-info", "-P", lxcpath, "-n", container, "-p", "-H"], capture_output=True,
+                             check=False, timeout=30)
+    except subprocess.TimeoutExpired:
+        die("lxc-info -n " + container + " did not name its init process within 30 seconds")
+    said = run.stdout.decode("utf-8", "replace").strip()
+    if run.returncode != 0:
+        die("lxc-info could not name the init process of " + container + ": " +
+            (run.stderr.decode("utf-8", "replace").strip() or said or "exit " + str(run.returncode)))
+    if not said:
+        return None
+    if not said.isdigit():
+        die("lxc-info printed " + said + " for the init process of " + container + ", which is not a process id")
+    return int(said)
+
+def running_dir(pid, name):
+    # A directory of the running container's init process (its root, its root's proc), held open.
+    # The init pid is asked again once it is held, so a container that restarted in between (and
+    # a pid given to another process) is never read.
+    try:
+        proc = os.open("/proc/" + str(pid), os.O_PATH | os.O_DIRECTORY | os.O_CLOEXEC)
+        found = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC, dir_fd=proc)
+    except OSError as exc:
+        die("the " + name + " of " + container + "'s init process " + str(pid) + " cannot be opened: " + exc.strerror)
+    if init_pid() != pid:
+        die("container " + container + " restarted while it was being read; try again")
+    return found
+
+def proc_text(procfs, name):
+    # A small file of a /proc, as text; a link is not followed.
+    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=procfs)
+    with os.fdopen(fd, "rb") as handle:
+        return handle.read(CAP).decode("utf-8", "replace")
+
+def is_claude(argv):
+    # Claude Code itself, or node or bun running it (an install's cli.js included).
+    name = lambda word: word.rsplit("/", 1)[-1]
+    if not argv or not argv[0]:
+        return False
+    if name(argv[0]) == "claude":
+        return True
+    return name(argv[0]) in ("node", "bun") and len(argv) > 1 and (name(argv[1]) == "claude" or "/claude-code/" in argv[1])
+
+def running_root(store, value):
+    # A store this host does not mount is read through the running container's own root, with its own mounts.
+    pid = init_pid()
+    if pid is None:
+        die("container " + container + " keeps its root filesystem in LXC's " + store + " store (lxc.rootfs.path = " +
+            value + "), which is mounted only inside the running container, and it is not running: start it, then " +
+            "try again")
+    return "/proc/self/fd/" + str(running_dir(pid, "root"))
+
+rootfs, mounts, running = None, [], None
 for raw in slurp(os.path.join(lxcpath, container, "config")).splitlines():
     line = raw.split("#", 1)[0].strip()
     key, _, value = line.partition("=")
@@ -129,9 +211,21 @@ for raw in slurp(os.path.join(lxcpath, container, "config")).splitlines():
     if key == "lxc.idmap":
         die("container " + container + " is unprivileged (lxc.idmap); only rootful containers are read")
     if key in ("lxc.rootfs.path", "lxc.rootfs"):
-        rootfs = value[4:] if value.startswith("dir:") else value
+        # LXC writes the backing store as a "<store>:" prefix; a bare path is the dir store.
+        store, colon, rest = ("dir", "", value) if value.startswith("/") else value.partition(":")
+        running = None
+        if colon and store in HOST_DIRECTORY_STORES:
+            rootfs = rest
+        elif not colon:
+            rootfs = value
+        elif store in UNMOUNTED_STORES:
+            rootfs, running = "/", (store, value)
+        else:
+            die("container " + container + " has a rootfs in a storage backend this does not know (" + store +
+                ", from lxc.rootfs.path = " + value + "); it reads " + ", ".join(HOST_DIRECTORY_STORES + UNMOUNTED_STORES))
         if not rootfs.startswith("/"):
-            die("container " + container + " has a rootfs that is not a directory (" + value + ")")
+            die("container " + container + " has a " + store + " rootfs that is not an absolute path (lxc.rootfs.path = " +
+                value + ")")
     elif key == "lxc.mount.entry":
         fields = value.split()
         options = fields[3].split(",") if len(fields) >= 4 else []
@@ -144,6 +238,9 @@ for raw in slurp(os.path.join(lxcpath, container, "config")).splitlines():
             mounts.append((fields[0], [p for p in fields[1].split("/") if p]))
 if rootfs is None:
     die("container " + container + " has no lxc.rootfs.path")
+if running is not None:
+    # Inside the running container its binds are mounted already, over its own root.
+    rootfs, mounts = running_root(*running), []
 
 def root_fd(base):
     try:
@@ -209,20 +306,27 @@ if mode == "probe":
         env_text, env_uid = read_regular(env, path + "/.claude/ccy/ccy.env.local")
     print(json.dumps({"path": path, "uid": uid, "git_config": text, "env_uid": env_uid, "env_local": env_text}))
 elif mode == "checkouts":
-    found = []
+    found, cut = [], []
+    deadline = time.monotonic() + @SECONDS@
     def scan(fd, shown, depth):
-        with os.scandir(os.open("/proc/self/fd/" + str(fd), os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)) as entries:
-            names = sorted(e.name for e in entries if e.is_dir(follow_symlinks=False) and not e.name.startswith("."))
+        if time.monotonic() >= deadline:
+            cut.append(shown)
+            return
+        names = subdirs(fd)
         dot = child(fd, ".git", shown + "/.git")
         if dot is not None and stat.S_ISDIR(os.fstat(dot).st_mode):
             config = child(dot, "config", shown + "/.git/config")
-            found.append({"path": shown, "git_config": None if config is None else read_regular(config, shown + "/.git/config")[0]})
+            claude = real_dir(fd, ".claude")
+            found.append({"path": shown, "git_config": None if config is None else read_regular(config, shown + "/.git/config")[0],
+                          "ccy": claude is not None and real_dir(claude, "ccy") is not None})
             return
         if depth <= 0:
             return
         for name in names:
-            if len(found) >= @MAX@:
+            if len(found) >= @MAX@ or cut:
                 return
+            if name.startswith(".") or name in SKIPPED:
+                continue
             sub = child(fd, name, shown + "/" + name)
             if sub is not None:
                 scan(sub, shown + "/" + name, depth - 1)
@@ -230,13 +334,58 @@ elif mode == "checkouts":
     start = walk(root_fd(base), rest, home) if rest else root_fd(base)
     if start is not None:
         scan(start, home.rstrip("/"), @DEPTH@)
-    print(json.dumps(found))
+    print(json.dumps({"checkouts": found, "timed_out": bool(cut)}))
+elif mode == "dirs":
+    parts = [] if path == "/" else split(path)
+    base, rest = locate(parts)
+    top = walk(root_fd(base), rest, "") if rest else root_fd(base)
+    listing = {"path": path, "exists": False, "git": False, "truncated": False, "dirs": []}
+    if top is not None and stat.S_ISDIR(os.fstat(top).st_mode):
+        names = subdirs(top)
+        listing.update(exists=True, git=real_dir(top, ".git") is not None, truncated=len(names) > @DIRS_MAX@)
+        for name in names[:@DIRS_MAX@]:
+            sub = real_dir(top, name)
+            listing["dirs"].append({"name": name, "git": sub is not None and real_dir(sub, ".git") is not None})
+    print(json.dumps(listing))
+elif mode == "sessions":
+    # When each Claude Code process of the user started (seconds since the epoch), read through
+    # the running container's own /proc: nothing is entered or run there. None when it is stopped.
+    started = []
+    pid = init_pid()
+    if pid is not None:
+        procfs = running_dir(pid, "root/proc")
+        # The host's boot time: a start time is in the kernel's ticks since boot, and a
+        # container's own /proc/stat may be rewritten (lxcfs).
+        with open("/proc/stat", encoding="utf-8") as host_stat:
+            boot = [line for line in host_stat.read().splitlines() if line.startswith("btime ")]
+        if len(boot) != 1 or not boot[0].split()[1].isdigit():
+            die("this host's /proc/stat gives no boot time")
+        btime, ticks = int(boot[0].split()[1]), os.sysconf("SC_CLK_TCK")
+        for name in os.listdir(procfs):
+            if not name.isdigit():
+                continue
+            try:
+                status = proc_text(procfs, name + "/status")
+                argv = proc_text(procfs, name + "/cmdline").split("\0")
+                stat_line = proc_text(procfs, name + "/stat")
+            except FileNotFoundError:
+                continue  # the process ended while the list was read: it is not running
+            uids = [line.split()[1] for line in status.splitlines() if line.startswith("Uid:")]
+            if uids == [str(uid)] and is_claude(argv):
+                started.append(btime + int(stat_line.rsplit(")", 1)[1].split()[19]) // ticks)
+    print(json.dumps({"sessions": sorted(started)}))
 else:
     die("unknown mode " + mode)
 '''
 
-ROOT_READ_PY = (_ROOT_READ_TEMPLATE.replace("@CAP@", str(FILE_MAX_BYTES))
-                .replace("@MAX@", str(CHECKOUTS_MAX)).replace("@DEPTH@", str(CHECKOUTS_DEPTH)))
+def root_read_script(*, seconds: float = CHECKOUTS_SECONDS, dirs_max: int = DIRS_MAX) -> str:
+    """The host-side reader with its bounds filled in (a test gives smaller ones)."""
+    return (_ROOT_READ_TEMPLATE.replace("@CAP@", str(FILE_MAX_BYTES)).replace("@MAX@", str(CHECKOUTS_MAX))
+            .replace("@DEPTH@", str(CHECKOUTS_DEPTH)).replace("@SECONDS@", repr(float(seconds)))
+            .replace("@SKIPPED@", repr(CHECKOUTS_SKIPPED)).replace("@DIRS_MAX@", str(int(dirs_max))))
+
+
+ROOT_READ_PY = root_read_script()
 SCRIPTS = {"root-read": ROOT_READ_PY}
 
 
@@ -334,24 +483,28 @@ def parse_probe(text: str) -> Probe:
     return Probe(_path(data["path"], "a checkout path"), origin_from_git_config(git_config), env_local)
 
 
-def parse_checkouts(text: str) -> list[tuple[str, str | None]]:
-    """The (path, origin) pairs `ROOT_READ_PY checkouts` printed."""
+def parse_checkouts(text: str) -> tuple[list[tuple[str, str | None, bool]], bool]:
+    """The (path, origin, is a ccy project) of each checkout `ROOT_READ_PY checkouts` printed,
+    ccy projects first, and whether the search ran out of time before it was done."""
     try:
         data = json.loads(text)
     except ValueError:
         raise DeriveError("the checkout search printed something that is not JSON") from None
-    if not isinstance(data, list) or len(data) > CHECKOUTS_MAX:
+    if not isinstance(data, dict) or set(data) != {"checkouts", "timed_out"} or type(data["timed_out"]) is not bool:
+        raise DeriveError("the checkout search printed something other than its checkouts and whether it timed out")
+    items = data["checkouts"]
+    if not isinstance(items, list) or len(items) > CHECKOUTS_MAX:
         raise DeriveError(f"the checkout search printed something other than a list of at most {CHECKOUTS_MAX}")
     found = []
-    for item in data:
-        if not isinstance(item, dict) or set(item) != {"path", "git_config"}:
-            raise DeriveError("the checkout search printed an item other than a path and a .git/config")
+    for item in items:
+        if not isinstance(item, dict) or set(item) != {"path", "git_config", "ccy"} or type(item["ccy"]) is not bool:
+            raise DeriveError("the checkout search printed an item other than a path, a .git/config and a ccy mark")
         config = item["git_config"]
         if config is not None and (not isinstance(config, str) or len(config) > FILE_MAX_BYTES):
             raise DeriveError("the checkout search printed a .git/config that is not bounded text")
         found.append((_path(item["path"], "a checkout path"),
-                      None if config is None else origin_from_git_config(config)))
-    return sorted(found)
+                      None if config is None else origin_from_git_config(config), item["ccy"]))
+    return sorted(found, key=lambda f: (not f[2], f[0])), data["timed_out"]
 
 
 # ── the rule ─────────────────────────────────────────────────────────────────────────────

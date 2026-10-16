@@ -96,6 +96,12 @@ func TestW10NotificationsReplaceTheLastAndCanBeTurnedOff(t *testing.T) {
 	if len(f.Calls()) != 3 {
 		t.Fatal("--no-notify sent a notification")
 	}
+	// A notification that stays reports a dictation that failed after it was spoken: shown
+	// even with --no-notify, as wsi-stream's urgent notification is
+	p.notify(ctx, "lost", "dialog-error", notifyStaysMS)
+	if len(f.Calls()) != 4 {
+		t.Fatal("--no-notify withheld a notification that stays")
+	}
 	p.noNotify = false
 	f.On([]string{"gdbus", "call"}, execx.Result{ExitCode: 1})
 	p.notify(ctx, "refused", "x", 1)

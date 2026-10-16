@@ -67,6 +67,12 @@ type PickSpec struct {
 	// menu pressed on the row chooses that action there; a key the row's menu does not have is
 	// a NotOfferedError.
 	Menus []Menu
+	// Typed makes the filter a line the person types into, handed back as Picked.Query:
+	// Enter or a key on text that matches no row returns it with no row instead of leaving,
+	// and q is a letter to type, not a way out (Esc and the Exit row still leave).
+	Typed bool
+	// Prompt replaces "filter > " before the typed text; Query is the text it starts with.
+	Prompt, Query string
 }
 
 // errHeaderCount is RowHeaders that do not pair up with Rows.
@@ -85,6 +91,8 @@ type Picked struct {
 	Row    string
 	Tag    string
 	Action string
+	// Query is the text typed into a Typed picker.
+	Query string
 }
 
 // errTagCount is Tags that do not pair up with Rows.
@@ -121,8 +129,11 @@ func (p *Picker) Pick(ctx context.Context, h Heading, s PickSpec) (Picked, error
 	}
 	stdin := strings.NewReader(strings.Join(append(lines, exitRow), "\n") + "\n")
 	res, err := p.Runner.Run(ctx, execx.Cmd{Name: "fzf", Args: args, Env: s.env(), Stdin: stdin, Stderr: p.Stderr})
+	out := strings.TrimSuffix(string(res.Stdout), "\n")
 	if err != nil {
 		switch code := exitCode(err); {
+		case code == fzfNoMatch && s.Typed:
+			return s.typedOnly(out)
 		case code == fzfNoMatch, code == fzfInterrupted:
 			return Picked{}, ErrLeave
 		case execx.IsNotInstalled(err):
@@ -130,25 +141,13 @@ func (p *Picker) Pick(ctx context.Context, h Heading, s PickSpec) (Picked, error
 		}
 		return Picked{}, fmt.Errorf("fzf: %w", err)
 	}
-	key, line, err := parsePicked(strings.TrimSuffix(string(res.Stdout), "\n"), len(s.keys()) > 0)
-	if err != nil {
-		return Picked{}, err
+	query := ""
+	if s.Typed {
+		query, out = splitLine(out)
 	}
-	if line == exitRow {
-		return p.chosen(ctx, h, s, key, "", -1)
-	}
-	if !s.indexed() {
-		// Rows with tags only carry the tag itself; a row fzf hands back without one keeps "".
-		if row, tag, tagged := strings.Cut(line, tagDelimiter); tagged && len(s.Tags) > 0 {
-			return Picked{Row: row, Tag: tag}, nil
-		}
-		return Picked{Row: line}, nil
-	}
-	text, at, err := placeOf(line, len(lines))
-	if err != nil {
-		return Picked{}, err
-	}
-	return p.chosen(ctx, h, s, key, text, at)
+	picked, err := p.pickedFrom(ctx, h, s, out, len(lines), exitRow)
+	picked.Query = query
+	return picked, err
 }
 
 // placeOf splits an indexed line into its text and its place among n lines.
@@ -172,8 +171,8 @@ func (s PickSpec) fzfArgs(h Heading, colour bool) ([]string, error) {
 		"--color=" + pickerColours,
 		"--border=rounded", "--border-label= " + s.Title + " ", "--border-label-pos=3",
 		"--margin=1,2", "--padding=1,2", "--header-first", "--pointer=▶",
-		"--prompt=filter > ", "--bind=q:abort",
 	}, headerArgs...)
+	args = append(args, s.typingArgs()...)
 	// fzf refuses an empty --expect, so it is passed only when there are keys.
 	if keys := s.keys(); len(keys) > 0 {
 		args = append(args, expectArg(keys))
@@ -211,6 +210,39 @@ func (s PickSpec) lines() []string {
 		lines[i] += tagDelimiter + strconv.Itoa(i)
 	}
 	return lines
+}
+
+// typingArgs is the prompt, and for a Typed picker the text it starts with, the query handed
+// back and exact matching; q leaves only a picker that is not typed into.
+func (s PickSpec) typingArgs() []string {
+	prompt := "filter > "
+	if s.Prompt != "" {
+		prompt = s.Prompt
+	}
+	if !s.Typed {
+		return []string{"--prompt=" + prompt, "--bind=q:abort"}
+	}
+	// Typed text is matched as written (a path is not a fuzzy pattern).
+	return []string{"--prompt=" + prompt, "--print-query", "--query=" + s.Query, "--exact"}
+}
+
+// typedOnly is what a Typed picker printed when nothing matched what was typed: the query, then
+// the key when keys were expected, and no row. A key is the screen action it is the shortcut of.
+func (s PickSpec) typedOnly(out string) (Picked, error) {
+	query, key := splitLine(out)
+	picked := Picked{Query: query}
+	if len(s.keys()) == 0 || key == "" {
+		return picked, nil
+	}
+	return s.byKeyAt(key, -1, picked)
+}
+
+// splitLine is text's first line and what follows it ("" when there is no second line).
+func splitLine(text string) (string, string) {
+	if head, rest, found := strings.Cut(text, "\n"); found {
+		return head, rest
+	}
+	return text, ""
 }
 
 // headerArgs is the fzf arguments that set the header, each under the heading h: the one
@@ -302,6 +334,29 @@ func (p *Picker) Confirm(ctx context.Context, h Heading, question, action string
 	return strings.HasPrefix(picked.Row, "Yes, "), nil
 }
 
+// pickedFrom is what fzf's answer chose: the key line when keys were expected, then the row.
+func (p *Picker) pickedFrom(ctx context.Context, h Heading, s PickSpec, out string, n int, exitRow string) (Picked, error) {
+	key, line, err := parsePicked(out, len(s.keys()) > 0)
+	if err != nil {
+		return Picked{}, err
+	}
+	if line == exitRow {
+		return p.chosen(ctx, h, s, key, "", -1)
+	}
+	if !s.indexed() {
+		// Rows with tags only carry the tag itself; a row fzf hands back without one keeps "".
+		if row, tag, tagged := strings.Cut(line, tagDelimiter); tagged && len(s.Tags) > 0 {
+			return Picked{Row: row, Tag: tag}, nil
+		}
+		return Picked{Row: line}, nil
+	}
+	text, at, err := placeOf(line, n)
+	if err != nil {
+		return Picked{}, err
+	}
+	return p.chosen(ctx, h, s, key, text, at)
+}
+
 // chosen is what the key, or Enter, chose on the row at place at (-1 for the Exit row).
 func (p *Picker) chosen(ctx context.Context, h Heading, s PickSpec, key, row string, at int) (Picked, error) {
 	var picked Picked
@@ -347,7 +402,10 @@ func (p *Picker) menu(ctx context.Context, h Heading, m Menu, picked Picked) (Pi
 // byKeyAt is the action key chooses on the row at place at: the screen's, else the row's menu's.
 func (s PickSpec) byKeyAt(key string, at int, picked Picked) (Picked, error) {
 	if a, ok := byKey(s.Actions, key); ok {
-		return Picked{Action: a.ID}, nil
+		// The row the cursor was on stays: a screen action may act on it (Tab completing a
+		// typed path opens the highlighted directory when nothing is typed).
+		picked.Action = a.ID
+		return picked, nil
 	}
 	if at >= 0 && at < len(s.Menus) {
 		if a, ok := byKey(s.Menus[at].Actions, key); ok {

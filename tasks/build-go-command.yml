@@ -21,6 +21,9 @@
 # Needs the Go toolchain, which playbooks/imports/play-golang.yml installs: the importing play
 # imports that play first. This file only builds and installs, as the login user.
 #
+# A command from src-go is built offline: its dependencies are the committed src-go/vendor tree
+# (GOFLAGS=-mod=vendor below; Plan 00204 decision D2), so every byte compiled is in the checkout.
+#
 # Built to a scratch path and installed with `copy`, which compares checksums, so an unchanged
 # source reports ok rather than changed (-trimpath and -buildvcs=false keep the build
 # byte-for-byte reproducible: the first drops the checkout path, the second the git revision a
@@ -87,7 +90,12 @@
   environment:
     HOME: "/home/{{ user_login }}"
     GOTOOLCHAIN: local
-    GOFLAGS: -mod=readonly
+    # A src-go build compiles its dependencies from the committed src-go/vendor and nothing else:
+    # -mod=vendor never touches the network or the module cache, and a vendor tree out of step
+    # with go.mod is a hard error. An explicit -mod=readonly would override the vendor default
+    # and fetch from the proxy instead. A pinned external module has no vendor tree here, so it
+    # keeps -mod=readonly and goes to the proxy, verified by go.sum and sum.golang.org.
+    GOFLAGS: "{{ '-mod=readonly' if (go_command_module | default('')) != '' else '-mod=vendor' }}"
     GOCACHE: "/home/{{ user_login }}/.cache/go-build"
     GOBIN: "/home/{{ user_login }}/.cache/ccy-go-build"
   become: false

@@ -108,6 +108,27 @@ func TestATeamsMenuShutsItsSessionsDown(t *testing.T) {
 	}
 }
 
+// SPEC-many-teams.md S-F1: a team row's menu has one visible "Edit settings" choice (no key),
+// which opens the team's settings screen.
+func TestATeamsMenuOpensItsSettings(t *testing.T) {
+	h := newRig(t)
+	h.OnDeclare("settings", "SETTING\tteam\t\"alpha\"\nSETTING\tdescription\t-\n")
+	h.Script.Fzf = []string{"|alpha", "|Edit settings", "|EXIT", "|ABORT"}
+	if code := h.run(); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if rows := h.menuRows(); !slices.Contains(rows, "Edit settings") {
+		t.Fatalf("menu %q", rows)
+	}
+	found := false
+	for _, a := range h.Script.FzfArgs[2] {
+		found = found || a == "--border-label= Team alpha › Settings "
+	}
+	if !found || !slices.ContainsFunc(h.Script.Rows[2], func(r string) bool { return strings.HasPrefix(r, "Description: (none)") }) {
+		t.Fatalf("the settings screen was not shown: %q %q", h.Script.FzfArgs[2], h.Script.Rows[2])
+	}
+}
+
 func TestEscInTheMenuGoesBackToTheListAndNothingIsAsked(t *testing.T) {
 	h := newRig(t)
 	h.Script.Fzf = []string{"|guest", "|ABORT", "|ABORT"}
@@ -228,7 +249,7 @@ func TestASeatsMenuOffersMakingItTheCoordinator(t *testing.T) {
 	h := newRig(t)
 	r := h.run1(t)
 	labels := h.labels(r, h.row(t, r.snap, "1"))
-	if !slices.Contains(labels, "Make coordinator") {
+	if !slices.Contains(labels, "Make it the coordinator (alpha has none)") {
 		t.Fatalf("seat menu %q", labels)
 	}
 	if slices.Contains(labels, "Stop being coordinator") {
@@ -246,8 +267,24 @@ func TestTheCoordinatorsSeatMenuOffersToStopBeingIt(t *testing.T) {
 		"MEMBER\tproj.1+local.podman\tdev", "MEMBER\tproj.1+local.podman\tcoordinator", 1), 0)
 	r := h.run1(t)
 	labels := h.labels(r, h.row(t, r.snap, "1"))
-	if !slices.Contains(labels, "Stop being coordinator") || slices.Contains(labels, "Make coordinator") {
+	if !slices.Contains(labels, "Stop being coordinator") || slices.ContainsFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Make it the coordinator") }) {
 		t.Fatalf("seat menu %q", labels)
+	}
+}
+
+func TestASeatsMenuOnATeamWithACoordinatorOffersTheTakeoverLast(t *testing.T) {
+	h := newRig(t)
+	h.On(teamtest.SudoBus+"list alpha", strings.Replace(teamtest.BusList,
+		"MEMBER\tproj.box+role.lxc\tops", "MEMBER\tproj.box+role.lxc\tcoordinator", 1), 0)
+	r := h.run1(t)
+	row := h.row(t, r.snap, "1")
+	labels := h.labels(r, row)
+	at := slices.IndexFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Replace the coordinator, proj.box+role.lxc (") })
+	if at < 0 || slices.ContainsFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Make it the coordinator") }) {
+		t.Fatalf("seat menu %q", labels)
+	}
+	if remove := slices.IndexFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Remove seat 1 from alpha") }); remove < 0 || at < remove {
+		t.Fatalf("the takeover is less prominent than the ordinary choices, after Remove seat: %q", labels)
 	}
 }
 

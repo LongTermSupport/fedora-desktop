@@ -8,7 +8,7 @@
 #            no bash suite to add.
 # A command no play deploys and no one runs by hand (a QA tool) lives under src-go/qa/cmd and has
 # no row. watchlist is run from the checkout with go run and is not deployed.
-ccy-teams	scripts/test-ccy-teams-command.bash
+ccy-teams	scripts/test-ccy-teams-command.bash scripts/test-ccy-container-name.bash
 ccy-sessions	scripts/test-ccy-sessions-reboot.bash scripts/test-ccy-sessions-take-over.bash scripts/test-ccy-tmux-targets.bash scripts/test-ccy-restore-askpass.bash
 podfreeze	qa-go
 lxcfreeze	qa-go
@@ -17,3 +17,4 @@ watchlist	qa-go
 ftp-camera	qa-go
 watermark	qa-go
 wsi	scripts/test-wsi-stop-grace.bash
+wsi-postprocess	qa-go

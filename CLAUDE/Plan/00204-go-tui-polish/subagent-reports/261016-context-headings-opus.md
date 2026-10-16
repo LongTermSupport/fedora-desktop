@@ -62,9 +62,17 @@ launch flow: `chooser.SeatFunc(ctx, team, memberType, heading string)`, `heading
 in the ui layer would take this text". This branch has `SeatFunc(ctx, h ui.Heading, team, memberType)` and `flow.LaunchTeam(i, n, team)` with the same words. Merging F44 conflicts in
 choose.go, chooser.go/\_test, consent.go, widen.go, lxcadd/adder.go, seats/role.go and
 picker/{menu,offers,sessions}.go, plus unrelated CCY version, changelog and journal files; the
-merge was tried and aborted, left to the coordinator. Resolution: keep their question wording
-and coordinator logic, pass `flow.LaunchTeam(...)` as the `ui.Heading` instead of the string,
-and drop the `heading +` prefixes from their gum headers (the heading now draws it).
+merge was first tried and aborted, then done at the coordinator's request (F44 at `7f8b1c23`).
+Resolution: their question wording and coordinator logic are kept, `flow.LaunchTeam(...)` is
+passed as the `ui.Heading` instead of the string (`chooser.heading` is gone), and the
+`heading +` prefixes are dropped from their gum headers (the heading draws it). The trail is
+still said on its own line before a team's questions, so a team's notes sit under it. F44's
+new callers got headings: the team settings pane (`Teams › <team> › Settings`, one crumb
+deeper for a field, Back and Save and apply, over the changes waiting) and the LXC checkout
+walker and Checkout choice (the step 3/4 heading replaces their own context line). After the
+merge, `qa-go.bash`, `qa-hidden-bindings.bash` and the ccy suites (teams-command,
+sessions-reboot, sessions-take-over, tmux-targets, restore-askpass, lifecycle) pass with
+`PINGBUS_*` unset. No CCY version bump: nothing under the container tree changed.
 
 ## Pre-existing QA failures (not from this change)
 

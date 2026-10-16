@@ -52,14 +52,11 @@ func (x *Hot) addTo(ctx context.Context, t *target, r request, team, given strin
 			c.seat, team, len(roster.Members)))
 		return term.ExitFailure
 	}
-	question := fmt.Sprintf("Add %s to %s as seat %s", t.session, team, c.seat)
-	if c.handle != "" {
-		question += " (" + c.handle + ")"
+	question, takeover, pathCode, ok := x.addQuestion(ctx, t, r, roster, team, c)
+	if !ok {
+		return pathCode
 	}
-	if r.role != "" {
-		question += ", " + r.role
-	}
-	if askCode, proceed := x.confirm(ctx, question+"?", r.yes); !proceed {
+	if askCode, proceed := x.confirm(ctx, question, r.yes); !proceed {
 		return askCode
 	}
 	if madeCode, made := x.makeSeat(ctx, t, team, &c); !made {
@@ -72,11 +69,32 @@ func (x *Hot) addTo(ctx context.Context, t *target, r request, team, given strin
 	if r.role != "" {
 		var roleCode term.ExitCode
 		var set bool
-		if undo, roleCode, set = x.setRoleTo(ctx, team, c.handle, r.role, r.demoteCurrent); !set {
+		if undo, roleCode, set = x.setRoleTo(ctx, team, c.handle, r.role, r.demoteCurrent || takeover); !set {
 			return roleCode
 		}
 	}
 	return x.apply(ctx, t, team, c, alloc, undo)
+}
+
+// addQuestion is the add's question, naming the coordinator path a --role=coordinator takes
+// (coordinatorPath), and whether the current coordinator is demoted.
+func (x *Hot) addQuestion(ctx context.Context, t *target, r request, roster agentbus.Roster, team string, c choice) (string, bool, term.ExitCode, bool) {
+	question := fmt.Sprintf("Add %s to %s as seat %s", t.session, team, c.seat)
+	if c.handle != "" {
+		question += " (" + c.handle + ")"
+	}
+	offer, takeover, code, ok := x.coordinatorPath(ctx, t, r, roster, team, c.handle, t.session)
+	switch {
+	case !ok:
+		return "", false, code, false
+	case offer != "":
+		question += ". " + offer
+	case r.role != "":
+		question += ", " + r.role + "?"
+	default:
+		question += "?"
+	}
+	return question, takeover, term.ExitOK, true
 }
 
 // teamUp is H22 step 2 (H26, H27): the team's homeserver is up, and its roster read.
@@ -178,7 +196,7 @@ func (x *Hot) chooseSeat(ctx context.Context, t *target, team, given string, sea
 		}
 		return c, taken(given), nil
 	}
-	offered, err := x.Host.Bus.SeatChooseIn(ctx, t.checkout(), team, memberType)
+	offered, err := x.Host.Bus.SeatChooseIn(ctx, t.checkout(), team, t.memberType())
 	if err != nil {
 		return choice{}, "", fmt.Errorf("agent-bus seat choose %s: %w", team, err)
 	}
@@ -234,16 +252,17 @@ func (x *Hot) claimsElsewhere(ctx context.Context, t *target) (claims, error) {
 	live := func(name string) bool {
 		return slices.ContainsFunc(sessions, func(s tmuxccy.Session) bool { return s.Name == name })
 	}
-	for _, d := range desired {
+	records, err := readableRecords(t.store)
+	if err != nil {
+		return c, err
+	}
+	// Only a membership its session's own launch wrote names seats (B1: a reused name).
+	for _, d := range discover.Current(desired, records) {
 		if d.Session != t.session && live(d.Session) {
 			c.live.AddDesired(d)
 		}
 	}
-	listing, err := t.store.List()
-	if err != nil {
-		return c, fmt.Errorf("the session records: %w", err)
-	}
-	for _, rec := range listing.Records {
+	for _, rec := range records {
 		if rec.Name != t.session && rec.Restore && rec.Dir == t.checkout() && !live(rec.Name) {
 			c.restored.AddRecord(rec)
 		}
@@ -258,7 +277,7 @@ func (x *Hot) makeSeat(ctx context.Context, t *target, team string, c *choice) (
 		return term.ExitOK, true
 	}
 	noPrompt := !x.Host.IsTerminal(x.Host.Stdin)
-	if err := x.Host.Bus.SeatTakeAllocated(ctx, t.checkout(), c.seat+"@"+team, memberType, noPrompt); err != nil {
+	if err := x.Host.Bus.SeatTakeAllocated(ctx, t.checkout(), c.seat+"@"+team, t.memberType(), noPrompt); err != nil {
 		x.mark(markFailed, "seat "+c.seat+": agent-bus seat take: "+lastLine(err))
 		if errors.Is(err, agentbus.ErrBusy) {
 			return exitBusy, false
@@ -275,8 +294,11 @@ func (x *Hot) makeSeat(ctx context.Context, t *target, team string, c *choice) (
 	return term.ExitOK, true
 }
 
-// reach is H22 step 5 (H30): the route from inside the container.
+// reach is H22 step 5 (H30): the route from inside the container (a cc session's, the host's).
 func (x *Hot) reach(ctx context.Context, t *target, team string) (term.ExitCode, bool) {
+	if t.cc() {
+		return x.ccReach(ctx, t, team)
+	}
 	if err := sessprobe.ExecIn(ctx, x.Host.Runner, t.container, "pingbus", "reach", "--team", team); err != nil {
 		x.mark(markFailed, "route: "+lastLine(err))
 		return term.ExitFailure, false
@@ -314,6 +336,9 @@ func (x *Hot) apply(ctx context.Context, t *target, team string, c choice, alloc
 	if inbound {
 		x.say("Done. The session is told it joined " + team + " as " + c.handle + ". Nothing restarted.")
 		return term.ExitOK
+	}
+	if t.cc() {
+		return x.ccNoInbound(t, team, c.seat)
 	}
 	if code := x.relaunch(ctx, t, team, c.seat); code != term.ExitOK {
 		return code
@@ -441,6 +466,9 @@ func (x *Hot) alreadyIn(ctx context.Context, t *target, s membership.Seat, given
 		}
 		x.say("Done. " + t.session + " is in " + s.Team + " as seat " + s.Seat + ".")
 		return term.ExitOK
+	}
+	if ccRefusing(t, rep) {
+		return x.ccNoInbound(t, s.Team, s.Seat)
 	}
 	x.mark(markSkip, "team "+s.Team+": already joined")
 	x.mark(markSkip, "seat "+s.Seat+": already this session's")

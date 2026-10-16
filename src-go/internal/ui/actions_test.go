@@ -78,7 +78,8 @@ func TestAKeyChoosesOnlyWhatTheScreenOrTheRowOffers(t *testing.T) {
 		notOffered       bool
 	}{
 		{"ctrl-e\nalpha\t0\n", "element", "alpha", false},
-		{"tab\nbeta\t1\n", "sessions", "", false},
+		// A screen action's key keeps the row the cursor was on, for an action that uses it.
+		{"tab\nbeta\t1\n", "sessions", "beta", false},
 		{"tab\nExit\n", "sessions", "", false},
 		{"ctrl-x\nalpha\t0\n", "", "alpha", true},
 		{"ctrl-e\nRunning sessions   (Tab)\t2\n", "", "", true},

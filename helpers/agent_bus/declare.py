@@ -30,6 +30,15 @@ trusted reference may name any path in the team's repositories (a team narrows i
     python3 -m helpers.agent_bus.declare describe --file <localhost.yml> --team T --description TEXT
         sets or replaces a present team's description, every other line as it was:
         CHANGED<TAB>team T description, or UNCHANGED<TAB>T; applying it restarts no homeserver
+    python3 -m helpers.agent_bus.declare settings --file <localhost.yml> --team T
+        SETTING<TAB><key><TAB><value as JSON; - none, !vaulted, !invalid> per key of SETTINGS_KEYS
+        (the ccy-teams settings screen)
+    python3 -m helpers.agent_bus.declare set --file <localhost.yml> --team T --value KEY JSON...
+            [--check]
+        changes the EDITABLE_KEYS of a present team in one write, every other line as it was;
+        the entry as it would be is judged whole by the team file's rules (64 naming the rule).
+        An empty optional value removes the key; repos are names, each keeping its branches.
+        CHANGED<TAB>team T: <keys>, or UNCHANGED<TAB>T; --check writes and prints nothing
     python3 -m helpers.agent_bus.declare undescribed --file <localhost.yml>
         UNDESCRIBED<TAB><team><TAB><what it trusts, in words> per present team with no description
     python3 -m helpers.agent_bus.declare next-steps --file <localhost.yml> --team T
@@ -76,6 +85,11 @@ trusted reference may name any path in the team's repositories (a team narrows i
             [--user U] [--host H] [--checkout PATH] [--role R] [--seat S]
         nothing when every value given is valid (team, container and user together are also
         judged against the entries there); exit 64 naming the first that is not
+    python3 -m helpers.agent_bus.declare lxc-role --file <localhost.yml> --team T --container C
+            --user U --role worker|coordinator [--dry-run]
+        sets the member's role in its entry (ccy-teams lxc-add's takeover makes the declared
+        coordinator a worker with it first): CHANGED<TAB>..., or UNCHANGED<TAB>... when it has
+        that role; an unknown member or role is refused (64)
     python3 -m helpers.agent_bus.declare lxc-members --file <localhost.yml>
         LXCMEMBER<TAB><team><TAB><container><TAB><user><TAB><host><TAB><role><TAB><state> per entry
     python3 -m helpers.agent_bus.declare lxc-remove --file <localhost.yml> --team T --container C
@@ -88,8 +102,9 @@ trusted reference may name any path in the team's repositories (a team narrows i
         by helpers/agent_bus_lxc/derive.py's rule (ccy's), from the checkout as the host-side
         reader printed it (--probe) and the team's members; exit 64 when it cannot be derived
     python3 -m helpers.agent_bus.declare lxc-checkouts --file <localhost.yml> --scan JSON
-        CHECKOUT<TAB><path in the container><TAB><owner/repo> for each checkout the reader found
-        in the user's home whose origin is on GitHub
+        CHECKOUT<TAB><path in the container><TAB><owner/repo><TAB><ccy or -> for each checkout the
+        reader found in the user's home whose origin is on GitHub, ccy projects (a .claude/ccy
+        directory) first; then TIMEDOUT when the search stopped at its time limit
     python3 -m helpers.agent_bus.declare lxc-script --name root-read
         the script the host runs as root to read a container's checkout (derive.ROOT_READ_PY)
 
@@ -110,7 +125,7 @@ import pathlib
 import re
 import subprocess
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TextIO
 
@@ -963,22 +978,11 @@ def add_repo(text: str, name: str, repo: str) -> str:
 def drop_limit(text: str, name: str) -> str:
     """The file's text with the team's path_prefixes line (and any lines nested under it)
     removed, every other line as it was; Plan 00177 Task 4.7's follow-up."""
-    team = _present(parse(text), name)
-    found = [(index, more) for key, _, index, more in team.raw if key == "path_prefixes"]
-    if not found:
+    if not any(key == "path_prefixes" for key, *_ in _present(parse(text), name).raw):
         raise UsageError(f"--team: team {name} sets no path_prefixes")
-    index, more = found[0]
-    lines = list(parse(text).lines)
-    end, left = index + 1, len(more)
-    while left:
-        if lines[end].strip() and not lines[end].lstrip().startswith("#"):
-            left -= 1
-        end += 1
-    new = "".join(lines[:index] + lines[end:])
-    after = _present(parse(new), name)
-    if any(key == "path_prefixes" for key, *_ in after.raw) or (
-            {k: v for k, v in entry_of(team).items() if k != "path_prefixes"} != entry_of(after)):
-        raise DeclareError("the edited file does not read back with only path_prefixes gone; nothing was written")
+    new = set_values(text, name, {"path_prefixes": None})
+    if new is None:
+        raise DeclareError(f"team {name}'s path_prefixes could not be removed; nothing was written")
     return new
 
 
@@ -988,26 +992,177 @@ def set_description(text: str, name: str, description: str) -> str | None:
     problem = field_error("description", description)
     if problem:
         raise UsageError(f"--description: {problem}")
+    return set_values(text, name, {"description": description})
+
+
+#: The keys of a team's entry that `settings` prints, in the order ccy-teams shows them.
+SETTINGS_KEYS = ("team", "description", "humans", "org", "repos", "exclude", "path_prefixes",
+                 "allow_from", "port", "listen", "server_name", "forge_api", "removed_humans")
+#: The keys `set` changes (Plan 00201 S-F3). A team's name and server_name never change once
+#: installed (render.check_unchanged); port and listen are in every member's bundle; forge_api
+#: has one allowed value (D66).
+EDITABLE_KEYS = ("description", "humans", "org", "repos", "exclude", "path_prefixes", "allow_from")
+_STRING_KEYS = ("description", "org")
+#: Optional keys that an empty value removes; `humans` and `allow_from` are required.
+_REMOVED_WHEN_EMPTY = ("org", "repos", "exclude", "path_prefixes")
+
+
+def settings(hv: HostVars, name: str) -> list[tuple[str, str]]:
+    """(key, value as JSON, `-` when the entry sets none, `!vaulted` or `!invalid`) per
+    SETTINGS_KEYS, for a present team. One unreadable value does not hide the rest."""
+    team = _present(hv, name)
+    rows = []
+    for key in SETTINGS_KEYS:
+        if key == "server_name":
+            rows.append((key, json.dumps(team.server_name)))
+            continue
+        try:
+            value = _raw_value(team, key)
+        except VaultedError:
+            rows.append((key, "!vaulted"))
+            continue
+        except DeclareError:
+            rows.append((key, "!invalid"))
+            continue
+        rows.append((key, "-" if value is None else json.dumps(value, ensure_ascii=False)))
+    return rows
+
+
+def parse_changes(pairs: Sequence[Sequence[str]], team: Declared) -> dict[str, object | None]:
+    """`--value KEY JSON` pairs as the changes `set_values` takes: an empty optional value is
+    None (the key removed), and `repos` is given as names, each keeping any branches it had."""
+    changes: dict[str, object | None] = {}
+    for key, raw in pairs:
+        if key not in EDITABLE_KEYS:
+            raise UsageError(f"--value: {key} cannot be changed by set (only {', '.join(EDITABLE_KEYS)})")
+        if key in changes:
+            raise UsageError(f"--value: {key} is given twice")
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError:
+            raise UsageError(f"--value {key}: not JSON") from None
+        wanted = str if key in _STRING_KEYS else list
+        if not isinstance(value, wanted) or (wanted is list and not all(isinstance(v, str) for v in value)):
+            raise UsageError(f"--value {key}: must be a JSON {'string' if wanted is str else 'list of strings'}")
+        if key in _REMOVED_WHEN_EMPTY and not value:
+            changes[key] = None
+            continue
+        if key == "repos":
+            branches = {r["repo"]: r["branches"] for r in _raw_value(team, "repos") or []
+                        if isinstance(r, dict) and "branches" in r}
+            value = [{"repo": r, **({"branches": branches[r]} if r in branches else {})} for r in value]
+        changes[key] = value
+    return changes
+
+
+def _span_end(lines: Sequence[str], index: int, nested: Sequence[str]) -> int:
+    """The index past a key's line and the lines nested under it (comment lines among them)."""
+    end, left = index + 1, len(nested)
+    while left:
+        if lines[end].strip() and not lines[end].lstrip().startswith("#"):
+            left -= 1
+        end += 1
+    return end
+
+
+def _has_comment(lines: Sequence[str], index: int, end: int) -> bool:
+    """Whether a key's lines, lines[index:end], carry a comment. A hash inside a quoted JSON
+    string is text; any other hash after a space may be a comment, and counts as one."""
+    rest = _KEY_LINE_RE.fullmatch(lines[index].strip())["rest"].strip()
+    if rest.startswith('"'):
+        try:
+            _, at = json.JSONDecoder().raw_decode(rest)
+        except json.JSONDecodeError:
+            return True
+        rest = " " + rest[at:]
+    return any(re.search(r"(^|\s)#", part) for part in (rest, *lines[index + 1:end]))
+
+
+def with_removals(entry: Mapping, changes: Mapping[str, object | None]) -> dict[str, object | None]:
+    """The changes, with every person they take off `humans` added to `removed_humans`: the
+    play deactivates a removed person's account for good, and the team file refuses the name
+    in `humans` from then on (Plan 00201 S-F14)."""
+    out = dict(changes)
+    before, after = entry.get("humans"), changes.get("humans")
+    if not isinstance(before, list) or not isinstance(after, list):
+        return out
+    removed = list(entry.get("removed_humans") or [])
+    gone = [h for h in before if h not in after and h not in removed]
+    if gone:
+        out["removed_humans"] = removed + gone
+    return out
+
+
+def set_values(text: str, name: str, changes: Mapping[str, object | None]) -> str | None:
+    """The file's text with the present team's keys set (a value) or removed (None), in one
+    edit, every other line as it was; None when nothing changes. The entry as it would be is
+    judged whole by the team file's rules first (UsageError naming the rule). Each changed key
+    becomes one flow-style line where it was, or a new line after `team:`. A comment the edit
+    would lose, or a file that does not read back with only those keys changed, is
+    DeclareError: nothing is written."""
     hv = parse(text)
     team = _present(hv, name)
-    line = f"{' ' * hv.key_indent}description: {json.dumps(description)}\n"
+    before = entry_of(team)
+    changes = with_removals(before, changes)
+    after = dict(before)
+    for key, value in changes.items():
+        if value is None:
+            after.pop(key, None)
+        else:
+            after[key] = value
+    if after == before:
+        return None
+    try:
+        teamfile.parse_team_file({k: v for k, v in after.items() if k != "purge"} | {"state": "present"})
+    except teamfile.TeamFileError as exc:
+        raise UsageError(str(exc)) from None
     lines = list(hv.lines)
-    found = [(index, more) for key, _, index, more in team.raw if key == "description"]
-    if found:
-        index, more = found[0]
-        if more:
-            raise DeclareError(f"team {name}'s description on line {index + 1} has nested lines; set it by hand")
-        if _raw_value(team, "description") == description:
-            return None
-        lines[index] = line
-    else:
-        lines.insert(next(index for key, _, index, _ in team.raw if key == "team") + 1, line)
+    edits: list[tuple[int, int, list[str]]] = []
+    inserted: list[str] = []
+    written = {key: (index, more) for key, _, index, more in team.raw}
+    for key in changes:
+        if after.get(key) == before.get(key):
+            continue
+        line = [] if key not in after else [f"{' ' * hv.key_indent}{key}: {json.dumps(after[key], ensure_ascii=False)}\n"]
+        if key not in written:
+            inserted += line
+            continue
+        index, more = written[key]
+        end = _span_end(lines, index, more)
+        if _has_comment(lines, index, end):
+            raise DeclareError(f"team {name}'s {key} on line {index + 1} carries a comment, which this edit "
+                               "would lose; change it by hand")
+        edits.append((index, end, line))
+    if inserted:
+        at = next(index for key, _, index, _ in team.raw if key == "team") + 1
+        edits.append((at, at, inserted))
+    for start, end, replacement in sorted(edits, reverse=True):
+        lines[start:end] = replacement
     new = "".join(lines)
-    after = parse(new)
-    if (entry_of(_present(after, name)) != {**entry_of(team), "description": description}
-            or [t.team for t in after.teams] != [t.team for t in hv.teams]):
-        raise DeclareError("the edited file does not read back with only the description changed; nothing was written")
+    read_back = parse(new)
+    if entry_of(_present(read_back, name)) != after or [t.team for t in read_back.teams] != [t.team for t in hv.teams]:
+        raise DeclareError("the edited file does not read back with only those keys changed; nothing was written")
     return new
+
+
+def set_command(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
+    """`set`: the changes judged together and, unless --check, written in one edit."""
+    path = pathlib.Path(args.file)
+    text = _read(path)
+    team = _present(parse(text), args.team)
+    changes = parse_changes(args.value or [], team)
+    if not changes:
+        raise UsageError("set needs at least one --value KEY JSON")
+    new = set_values(text, args.team, changes)
+    if args.check:
+        return EXIT_OK
+    if new is None:
+        out.write(f"UNCHANGED\t{args.team}\n")
+        return EXIT_OK
+    backup = write(path, new)
+    out.write(f"CHANGED\tteam {args.team}: {', '.join(with_removals(entry_of(team), changes))}\n")
+    err.write(f"The file as it was is kept at {backup}.\n")
+    return EXIT_OK
 
 
 def suggest_team(hv: HostVars, source: str) -> str | None:
@@ -1124,6 +1279,35 @@ def add_lxc(text: str, given: dict) -> tuple[str, dict]:
     return new, given
 
 
+def set_lxc_role(text: str, team: str, container: str, user: str, role: str) -> str | None:
+    """The file's text with the member's `role` set, every other line as it was; None when it
+    has that role already. A takeover of a declared LXC coordinator makes its entry a worker
+    with this before the new coordinator is added (Plan 00203 SPEC-hot-control.md H25)."""
+    if role not in protocol.ROLES:
+        raise UsageError(f"--role: {role!r} is neither {protocol.ROLE_COORDINATOR} nor {protocol.ROLE_WORKER}")
+    lxc = parse(text, LXC_KEY)
+    found = [(item, entry_of(item)) for item in lxc.teams]
+    item, entry = next(((i, e) for i, e in found if (e.get("team"), e.get("container"), e.get("user"))
+                        == (team, container, user)), (None, None))
+    if item is None:
+        raise UsageError(f"no member {user}@{container} of team {team} in {LXC_KEY}")
+    if protocol.normalise_role(entry.get("role", protocol.ROLE_WORKER)) == role:
+        return None
+    keys = {key: (index, more) for key, _, index, more in item.raw}
+    line = f"{' ' * lxc.key_indent}role: {json.dumps(role)}\n"
+    lines = list(lxc.lines)
+    if "role" in keys:
+        if keys["role"][1]:
+            raise DeclareError(f"{user}@{container}'s role has nested lines; set it by hand")
+        lines[keys["role"][0]] = line
+    else:
+        lines.insert(keys["team"][0] + 1, line)
+    new = "".join(lines)
+    if _lxc_existing(new) != [dict(e, role=role) if e is entry else e for _, e in found]:
+        raise DeclareError("the edited file does not read back with the member's new role; nothing was written")
+    return new
+
+
 def mark_lxc_absent(text: str, team: str, container: str, user: str) -> str | None:
     """The file's text with the member's `state: absent`, every other line as it was; None
     when it is absent already."""
@@ -1151,7 +1335,7 @@ def mark_lxc_absent(text: str, team: str, container: str, user: str) -> str | No
 
 
 def lxc_command(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
-    """lxc-add, lxc-check, lxc-members, lxc-remove, lxc-suggest-seat."""
+    """lxc-add, lxc-check, lxc-members, lxc-remove, lxc-role, lxc-suggest-seat."""
     path = pathlib.Path(args.file)
     text = _read(path)
     if args.command == "lxc-check":
@@ -1167,11 +1351,13 @@ def lxc_command(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
         return EXIT_OK
     if args.command == "lxc-checkouts":
         try:
-            found = derive.parse_checkouts(args.scan)
+            found, cut = derive.parse_checkouts(args.scan)
         except derive.DeriveError as exc:
             raise UsageError(str(exc)) from None
-        out.writelines(f"CHECKOUT\t{path}\t{repo}\n" for path, origin in found
+        out.writelines(f"CHECKOUT\t{path}\t{repo}\t{'ccy' if ccy else '-'}\n" for path, origin, ccy in found
                        if origin is not None and (repo := github_remote(origin)) is not None)
+        if cut:
+            out.write("TIMEDOUT\n")
         return EXIT_OK
     if args.command == "lxc-derive":
         out.write("DERIVED\t" + "\t".join(derive_lxc(text, args)) + "\n")
@@ -1184,6 +1370,16 @@ def lxc_command(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
             out.writelines(render_lxc_entry(entry, lxc.item_indent, lxc.key_indent))
             return EXIT_OK
         said = f"LXC member {label}"
+    elif args.command == "lxc-role":
+        label = f"{args.user}@{args.container} in team {args.team}"
+        new = set_lxc_role(text, args.team, args.container, args.user, args.role)
+        if new is None:
+            out.write(f"UNCHANGED\t{label}\n")
+            return EXIT_OK
+        if args.dry_run:
+            out.write(new)
+            return EXIT_OK
+        said = f"LXC member {label} is now {args.role}"
     else:
         team, container, user = args.team, args.container, args.user
         label = f"{user}@{container} in team {team}"
@@ -1352,6 +1548,15 @@ def build_parser() -> argparse.ArgumentParser:
     describing.add_argument("--file", required=True)
     describing.add_argument("--team", required=True)
     describing.add_argument("--description", required=True)
+    shown = commands.add_parser("settings", help="one SETTING line per key of a present team's entry")
+    shown.add_argument("--file", required=True)
+    shown.add_argument("--team", required=True)
+    setting = commands.add_parser("set", help="change editable keys of a present team, in one write")
+    setting.add_argument("--file", required=True)
+    setting.add_argument("--team", required=True)
+    setting.add_argument("--value", nargs=2, action="append", metavar=("KEY", "JSON"),
+                         help=f"one of {', '.join(EDITABLE_KEYS)}; an empty optional value removes the key")
+    setting.add_argument("--check", action="store_true", help="judge the changes; write nothing")
     adding = commands.add_parser("add-repo", help="add a repository to a present team's repos (any branch)")
     adding.add_argument("--file", required=True)
     adding.add_argument("--team", required=True)
@@ -1402,6 +1607,11 @@ def _lxc_parsers(commands: argparse._SubParsersAction) -> None:
     for flag in ("team", "container", "user"):
         gone.add_argument(f"--{flag}", required=True)
     gone.add_argument("--dry-run", action="store_true", help="print the edited file; write nothing")
+    roled = commands.add_parser("lxc-role", help="set an LXC member's role (a takeover makes the old coordinator a worker)")
+    roled.add_argument("--file", required=True)
+    for flag in ("team", "container", "user", "role"):
+        roled.add_argument(f"--{flag}", required=True)
+    roled.add_argument("--dry-run", action="store_true", help="print the edited file; write nothing")
     shown = commands.add_parser("lxc-derive", help="the handle the play would give an entry, from its checkout")
     shown.add_argument("--file", required=True)
     for flag in ("team", "container", "user"):
@@ -1449,6 +1659,12 @@ def main(argv: Sequence[str] | None = None, *, ss_output: Callable[[], str] = _s
         if args.command in ("describe", "element", "drop-limit", "element-teams", "limited", "teams-for", "undescribed",
                             "choices", "add-repo"):
             return _listing_or_edit(args, out, err)
+        if args.command == "settings":
+            out.writelines(f"SETTING\t{key}\t{value}\n"
+                           for key, value in settings(parse(_read(pathlib.Path(args.file))), args.team))
+            return EXIT_OK
+        if args.command == "set":
+            return set_command(args, out, err)
         if args.command == "status":
             return status(args, out, bridge_cidr)
         if args.command == "overview":

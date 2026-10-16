@@ -304,6 +304,76 @@ func TestSetTeamsToNoneDropsTheFlag(t *testing.T) {
 	}
 }
 
+// Plan 00203 M6: a cc session left on no team keeps the bus (--bus), so a restore brings it back
+// where the owner can put it in a team again; with seats, --teams says it, and cc refuses the
+// two flags together, so --bus goes.
+func TestSetCCTeamsKeepsACCSessionOnTheBus(t *testing.T) {
+	s := newStore(t)
+	rec := sample()
+	rec.Args = []string{"--model", "x", "--teams", "1@a"}
+	if err := s.Write(rec); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []struct{ seats, want string }{
+		{"", "--model x --bus"},
+		{"", "--model x --bus"},
+		{"2@b", "--model x --teams 2@b"},
+		{"", "--model x --bus"},
+	} {
+		if err := s.SetCCTeams(rec.Name, step.seats); err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.Get(rec.Name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Join(got.Args, " ") != step.want {
+			t.Fatalf("seats %q: args %v, want %s", step.seats, got.Args, step.want)
+		}
+	}
+	if err := s.SetCCTeams("nobody", ""); !errors.Is(err, ErrNoRecord) {
+		t.Fatalf("no record: %v", err)
+	}
+}
+
+// Fable's M6 re-check R1: the words after a bare "--" are claude's for ccy (the launcher stops
+// there), so the seats go before it and a --teams among claude's words is left alone; cc has no
+// terminator and reads every word as its own, so every --teams (and --bus) is cc's.
+func TestSetTeamsWritesTheSeatsBeforeTheFirstDoubleDash(t *testing.T) {
+	s := newStore(t)
+	for _, c := range []struct {
+		prefix, seats string
+		args, want    []string
+		cc            bool
+	}{
+		{"ccy", "1@a", []string{"--no-ssh", "--", "do", "it"}, []string{"--no-ssh", "--teams", "1@a", "--", "do", "it"}, false},
+		{"ccy", "1@a", []string{"--teams", "2@b", "--", "--teams", "words"}, []string{"--teams", "1@a", "--", "--teams", "words"}, false},
+		{"ccy", "", []string{"--teams", "2@b", "--", "--teams", "words"}, []string{"--", "--teams", "words"}, false},
+		{"cc", "1@a", []string{"--model", "x", "--", "--teams", "2@b"}, []string{"--model", "x", "--teams", "1@a", "--"}, true},
+		{"cc", "", []string{"--", "hi", "--teams", "2@b"}, []string{"--bus", "--", "hi"}, true},
+	} {
+		rec := sample()
+		rec.Prefix, rec.Args = c.prefix, c.args
+		if err := s.Write(rec); err != nil {
+			t.Fatal(err)
+		}
+		set := s.SetTeams
+		if c.cc {
+			set = s.SetCCTeams
+		}
+		if err := set(rec.Name, c.seats); err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.Get(rec.Name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(got.Args, c.want) {
+			t.Fatalf("%s %v with %q: got %v, want %v", c.prefix, c.args, c.seats, got.Args, c.want)
+		}
+	}
+}
+
 func TestSetTeamsWithNoRecordIsAnError(t *testing.T) {
 	if err := newStore(t).SetTeams("ghost", "a@b"); !errors.Is(err, ErrNoRecord) {
 		t.Fatalf("missing: %v", err)

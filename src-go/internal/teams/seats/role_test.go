@@ -6,16 +6,19 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 )
 
 const (
-	setRole     = teamtest.SudoBus + "set-role alpha "
-	seatOne     = "proj.1+local.podman"
-	seatTwo     = "proj.2+local.podman"
-	coordinator = "--role=coordinator"
-	worker      = "--role=worker"
+	setRole       = teamtest.SudoBus + "set-role alpha "
+	seatOne       = "proj.1+local.podman"
+	seatTwo       = "proj.2+local.podman"
+	toCoordinator = "--role=coordinator"
+	worker        = "--role=worker"
 )
 
 // roster is the team's members: seat 1 and the lxc member, each a worker or the coordinator.
@@ -49,14 +52,15 @@ func setRoleCalls(h rig) []string {
 func TestMakeCoordinatorWhenTheTeamHasNone(t *testing.T) {
 	h := roleRig(t, "worker", "worker")
 	h.Script.Fzf = []string{"|YES"}
-	changed, err := h.s.ChangeRole(context.Background(), "alpha", seatOne, true)
+	changed, err := h.s.ChangeRole(context.Background(), "alpha", seatOne, true, nil)
 	if err != nil || !changed {
 		t.Fatalf("%v %v", changed, err)
 	}
-	if got, want := setRoleCalls(h), []string{seatOne + " " + coordinator}; !slices.Equal(got, want) {
+	if got, want := setRoleCalls(h), []string{seatOne + " " + toCoordinator}; !slices.Equal(got, want) {
 		t.Fatalf("set-role %q, want %q", got, want)
 	}
-	if !strings.Contains(h.HeaderOf(0), seatOne+" will be copied on what workers tell humans") ||
+	if !strings.Contains(h.HeaderOf(0), "alpha has no coordinator. Make "+seatOne+" its coordinator?") ||
+		!strings.Contains(h.HeaderOf(0), seatOne+" will be copied on what workers tell humans") ||
 		!strings.Contains(strings.Join(h.Script.FzfArgs[0], " "), "Make "+seatOne+" the coordinator of alpha?") {
 		t.Fatalf("question %q args %q", h.HeaderOf(0), h.Script.FzfArgs[0])
 	}
@@ -65,28 +69,65 @@ func TestMakeCoordinatorWhenTheTeamHasNone(t *testing.T) {
 func TestMakeCoordinatorNamesTheHolderAndDemotesItFirst(t *testing.T) {
 	h := roleRig(t, "worker", "coordinator")
 	h.Script.Fzf = []string{"|YES"}
-	changed, err := h.s.ChangeRole(context.Background(), "alpha", seatOne, true)
+	changed, err := h.s.ChangeRole(context.Background(), "alpha", seatOne, true, nil)
 	if err != nil || !changed {
 		t.Fatalf("%v %v", changed, err)
 	}
-	want := []string{seatTwo + " " + worker, seatOne + " " + coordinator}
+	want := []string{seatTwo + " " + worker, seatOne + " " + toCoordinator}
 	if got := setRoleCalls(h); !slices.Equal(got, want) {
 		t.Fatalf("set-role %q, want %q", got, want)
 	}
-	if !strings.Contains(h.HeaderOf(0), seatTwo+" is the coordinator now and becomes a worker") {
+	takeover := "alpha's coordinator is " + seatTwo + " (whether it is running is not known here). A team has one coordinator. " +
+		"Remove " + seatTwo + " as coordinator and make " + seatOne + " the coordinator instead?"
+	args := strings.Join(h.Script.FzfArgs[0], " ")
+	if !strings.Contains(h.HeaderOf(0), takeover) || !strings.Contains(args, "Replace "+seatTwo+" as coordinator of alpha?") ||
+		!strings.Contains(args, "--bind=start:last") {
+		t.Fatalf("question %q args %q", h.HeaderOf(0), args)
+	}
+}
+
+func TestTheTakeoverSaysWhetherTheCoordinatorRuns(t *testing.T) {
+	h := roleRig(t, "worker", "coordinator")
+	h.Script.Fzf = []string{"|EXIT"}
+	running := func(agentbus.Member) coordinator.Running { return coordinator.Active }
+	if _, err := h.s.ChangeRole(context.Background(), "alpha", seatOne, true, running); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(h.HeaderOf(0), "alpha's coordinator is "+seatTwo+" (running).") {
 		t.Fatalf("question %q", h.HeaderOf(0))
+	}
+}
+
+func TestSnapshotRunningReadsTheBoardsSeatRows(t *testing.T) {
+	snap := &board.Snapshot{Rows: []board.Row{
+		{Kind: board.KindCcy, Handle: seatOne, Held: true},
+		{Kind: board.KindCcy, Handle: seatTwo},
+	}}
+	look := SnapshotRunning(snap)
+	for _, tc := range []struct {
+		m    agentbus.Member
+		want coordinator.Running
+	}{
+		{agentbus.Member{Handle: seatOne}, coordinator.Active},
+		{agentbus.Member{Handle: seatTwo}, coordinator.Stopped},
+		{agentbus.Member{Handle: seatTwo, Parked: true}, coordinator.Parked},
+		{agentbus.Member{Handle: "box.1+local.lxc"}, coordinator.Unknown},
+	} {
+		if got := look(tc.m); got != tc.want {
+			t.Errorf("%+v: got %v, want %v", tc.m, got, tc.want)
+		}
 	}
 }
 
 func TestMakeCoordinatorFailingAfterTheDemotionPutsTheHolderBack(t *testing.T) {
 	h := roleRig(t, "worker", "coordinator")
-	h.OnErr(setRole+seatOne+" "+coordinator, "agent-bus: refused", 70)
+	h.OnErr(setRole+seatOne+" "+toCoordinator, "agent-bus: refused", 70)
 	h.Script.Fzf = []string{"|YES"}
-	changed, err := h.s.ChangeRole(context.Background(), "alpha", seatOne, true)
+	changed, err := h.s.ChangeRole(context.Background(), "alpha", seatOne, true, nil)
 	if changed || err == nil {
 		t.Fatalf("%v %v", changed, err)
 	}
-	want := []string{seatTwo + " " + worker, seatOne + " " + coordinator, seatTwo + " " + coordinator}
+	want := []string{seatTwo + " " + worker, seatOne + " " + toCoordinator, seatTwo + " " + toCoordinator}
 	if got := setRoleCalls(h); !slices.Equal(got, want) {
 		t.Fatalf("set-role %q, want %q", got, want)
 	}
@@ -95,7 +136,7 @@ func TestMakeCoordinatorFailingAfterTheDemotionPutsTheHolderBack(t *testing.T) {
 func TestStopBeingCoordinator(t *testing.T) {
 	h := roleRig(t, "coordinator", "worker")
 	h.Script.Fzf = []string{"|YES"}
-	changed, err := h.s.ChangeRole(context.Background(), "alpha", seatOne, false)
+	changed, err := h.s.ChangeRole(context.Background(), "alpha", seatOne, false, nil)
 	if err != nil || !changed {
 		t.Fatalf("%v %v", changed, err)
 	}
@@ -116,7 +157,7 @@ func TestAlreadyInTheWantedRoleAsksNothingAndRunsNoSudo(t *testing.T) {
 	}{{"coordinator stays", "coordinator", true}, {"worker stays", "worker", false}} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := roleRig(t, tc.oneIs, "worker")
-			changed, err := h.s.ChangeRole(context.Background(), "alpha", seatOne, tc.wantCoordnor)
+			changed, err := h.s.ChangeRole(context.Background(), "alpha", seatOne, tc.wantCoordnor, nil)
 			if err != nil || changed {
 				t.Fatalf("%v %v", changed, err)
 			}
@@ -130,7 +171,7 @@ func TestAlreadyInTheWantedRoleAsksNothingAndRunsNoSudo(t *testing.T) {
 func TestDecliningChangesNothing(t *testing.T) {
 	h := roleRig(t, "worker", "coordinator")
 	h.Script.Fzf = []string{"|EXIT"}
-	changed, err := h.s.ChangeRole(context.Background(), "alpha", seatOne, true)
+	changed, err := h.s.ChangeRole(context.Background(), "alpha", seatOne, true, nil)
 	if err != nil || changed {
 		t.Fatalf("%v %v", changed, err)
 	}
@@ -144,7 +185,7 @@ func TestWithoutSudoNothingIsChangedAndItIsSaid(t *testing.T) {
 	h.OnErr("sudo -n -v", "sudo: a password is required", 1)
 	h.OnErr("sudo -v", "sudo: no", 1)
 	h.Script.Fzf = []string{"|YES"}
-	changed, err := h.s.ChangeRole(context.Background(), "alpha", seatOne, true)
+	changed, err := h.s.ChangeRole(context.Background(), "alpha", seatOne, true, nil)
 	if err == nil || changed || len(setRoleCalls(h)) != 0 {
 		t.Fatalf("%v %v %v", changed, err, h.Fake.Calls())
 	}
@@ -152,7 +193,7 @@ func TestWithoutSudoNothingIsChangedAndItIsSaid(t *testing.T) {
 
 func TestAMemberThatIsNotInTheTeamIsAnError(t *testing.T) {
 	h := roleRig(t, "worker", "worker")
-	if _, err := h.s.ChangeRole(context.Background(), "alpha", "proj.9+local.podman", true); err == nil ||
+	if _, err := h.s.ChangeRole(context.Background(), "alpha", "proj.9+local.podman", true, nil); err == nil ||
 		!strings.Contains(err.Error(), "proj.9+local.podman is not a member of alpha") {
 		t.Fatalf("got %v", err)
 	}
@@ -161,7 +202,7 @@ func TestAMemberThatIsNotInTheTeamIsAnError(t *testing.T) {
 func TestAnUnreadableRosterIsAnError(t *testing.T) {
 	h := roleRig(t, "worker", "worker")
 	h.OnErr(teamtest.SudoBus+"list alpha", "sudo: a password is required", 1)
-	if _, err := h.s.ChangeRole(context.Background(), "alpha", seatOne, true); err == nil {
+	if _, err := h.s.ChangeRole(context.Background(), "alpha", seatOne, true, nil); err == nil {
 		t.Fatal("changed a role without reading the team")
 	}
 	if len(setRoleCalls(h)) != 0 {
@@ -177,7 +218,7 @@ func TestTheSeatMenuActionMakesTheCoordinatorAndGoesBackToTheList(t *testing.T) 
 	if err != nil || res != flow.Done {
 		t.Fatalf("%v %v", res, err)
 	}
-	if got, want := setRoleCalls(h), []string{seatOne + " " + coordinator}; !slices.Equal(got, want) {
+	if got, want := setRoleCalls(h), []string{seatOne + " " + toCoordinator}; !slices.Equal(got, want) {
 		t.Fatalf("set-role %q, want %q", got, want)
 	}
 }

@@ -22,7 +22,7 @@ a different answer changes only the expectations it names.
 | Q4  | Choosing a team that does not cover the checkout: what are the choices?                               | Three, default **Add**: "Add example-org/proj to beta's scope", "Join without adding (beta will treat example-org/proj references as external)", "Leave beta out". Joining without adding is an explicit, named choice, not a fallback.                     | S-B7          |
 | Q5  | When does the chooser appear?                                                                         | Whenever an attended launch has `--teams` with no value or a team alone, **unless** the machine has exactly one team and it covers the checkout (then it is taken, as today). With two or more teams the owner always sees the list, covering teams on top. | S-B2          |
 | Q6  | How does `pingbus send`/`say` pick a team when the session is on several?                             | Infer it when unambiguous: from `--re` (`send` only: an event belongs to one team's room) or from `--to` (every name resolves in exactly one active team). Otherwise exit 64 listing the active teams with their descriptions. `--team` always wins.        | S-C8, S-C9    |
-| Q7  | Show the session's teams in the **status line**?                                                      | Yes (revised after review): the member kit's `pingbus status-line` shows `bus: alpha,beta` from the per-session record, after the checkout's own status line, in any checkout (S-C6). It is the one place visible during the whole session.                 | S-C6          |
+| Q7  | Show the session's teams in the **status line**?                                                      | Yes (revised after review): the member kit's `pingbus status-line` shows `👥 alpha,beta` from the per-session record, below the checkout's own status line, in any checkout (S-C6). It is the one place visible during the whole session.                   | S-C6          |
 | Q8  | Does `recv` print a ready reply command for PINGs too, or only for PEER and HUMAN items?              | PEER and HUMAN only (what was asked). A PING's answer is a verb the agent must choose; the skill already says how.                                                                                                                                          | S-D1          |
 | Q9  | `cc --teams`: does cc pick its seat silently (today) or show the seat and role chooser as ccy does?   | Show the same chooser: one flow, one behaviour. The only cc-specific step is the Element consent, shown inside the flow.                                                                                                                                    | S-E3          |
 | Q10 | `ccy-teams for-checkout --choose`: keep or remove once the launchers use the new flow?                | Remove `--choose` (YAGNI); keep `for-checkout` without it, which prints the covering teams for scripts.                                                                                                                                                     | S-B14         |
@@ -80,11 +80,19 @@ file by the play unchanged (`play-agent-bus.yml:183` passes every key, R§7).
 - **S-A14** `ccy-teams create` asks "What is this team for?" (one line, `gum input`, S-A1's
   rule checked as typed, bounded re-ask per CLAUDE/InteractiveScripts.md), shows it in the
   summary, and passes `--description`. `--yes` requires `--description` (exit 64).
-- **S-A15** The ccy-teams picker's first pass asks, once per present team without a
-  description, "Team alpha (for any repository of example-org) has no description. Write
-  one now?" Yes: the input, `declare describe`, then `Ops.ApplyTeams` for that team. No:
-  remembered under `$XDG_STATE_HOME/ccy-teams/declined/description-<team>`, as the path-limit
-  answer is (`picker/offers.go:38-104`).
+- **S-A15** The ccy-teams picker's first pass offers, per present team without a description,
+  "Team alpha (for any repository of example-org) has no description." with three visible
+  choices: "Describe alpha now" (the cursor starts there), "Not now (ask again next time)",
+  and "Never ask about alpha". Now: the input "What is team alpha for?", `declare describe`,
+  then `Ops.ApplyTeams` for that team. Not now, and Esc: nothing is kept, and the next start
+  asks again. Never: kept under `$XDG_STATE_HOME/ccy-teams/declined/description-<team>`,
+  holding `never v2`. The path-limit offer has the same three choices ("Remove alpha's limit
+  now", "Not now (ask again next time)", "Keep alpha's limit and never ask again") and its
+  marker `declined/path-limit-<team>`. A marker the old yes/no prompt kept (an empty file,
+  written for a no when there was no "later" to choose) is taken as not now, once: it is
+  removed, said, and the offer is made again, so nobody resets state by hand. A team marked
+  never has "Ask me to describe alpha again" (and "Ask me about alpha's limit again") in its
+  row's menu, which removes the marker (`picker/offers.go`). Owner feedback, Plan 00203.
 - **S-A16** Quick Launch's `Team:` line (`ccy-teams describe-seats`) shows each seat as
   `1@alpha (worker): <description>`.
 
@@ -167,6 +175,15 @@ chooser logic in bash (the bash ratchet, R§1, forbids growing `claude-yolo` or
   already handle several. What changes is choosing, showing and addressing.
 - **S-C1** Several teams are chosen at launch by S-B3's marks or by an explicit
   `--teams 1@alpha,qa2@beta` (unchanged). One seat per team (D48, unchanged).
+  Every question of a team's sequence names the team and its place among the teams being
+  joined, as the screen heading (`ui.Heading`, Plan 00204 D4): the scope question
+  ("New session › Team 2 of 3: beta › Scope"), the seat question ("New session › Team 2 of 3:
+  beta · step 1/2 Seat") and the role question ("… · step 2/2 Role"). One team is headed
+  "New session › Team beta". The trail is also said on its own line before the team's
+  questions, so a team's lines (the "references external" note, "Taking seat ...") sit under
+  its own heading and never under another team's. In a given list, the place counts every
+  item, named seats included. Owner feedback, Plan 00203. It is built once, by
+  `flow.LaunchTeam`, and handed to the seat chooser through `SeatFunc`.
 - **S-C2** A session's teams change only by a new launch; there is no join-while-running.
 - **S-C3** Restart, restore and Quick Launch replay the whole canonical list (unchanged;
   verified by a test with two teams).
@@ -176,11 +193,11 @@ chooser logic in bash (the bash ratchet, R§1, forbids growing `claude-yolo` or
   formats it.
 - **S-C5** SessionStart: S-A11's lines, plus a first line `agent-bus: this session is on teams alpha, beta.` when there are two or more.
 - **S-C6** (revised after review) Status line: in **any** checkout, a session launched with
-  the member kit shows `bus: alpha,beta`. The kit's `settings.json` sets the status line
+  the member kit shows `👥 alpha,beta`. The kit's `settings.json` sets the status line
   command `pingbus status-line` (command-line settings outrank the project's); it runs the
   status line the session would otherwise have had, then appends the segment read from the
   per-session record SessionStart writes under the session id (S-C5's hook). A session with
-  `PINGBUS_TEAMS` set and no usable record shows `bus: no record ...` in red, never nothing;
+  `PINGBUS_TEAMS` set and no usable record shows `👥 no record ...` in red, never nothing;
   a session on no team shows no segment (Q7). Not a project hooks-daemon handler: that
   existed only in this repository's checkouts.
 - **S-C7** Wake: unchanged. One watcher, one thread and lock per team; one notice with
@@ -262,6 +279,102 @@ Differences between the launchers that stay, and why (R§10):
 | cc makes `.claude/ccy/` with a seats-only ignore | a checkout never used with ccy has no `.claude/ccy/`; `seat take` needs it and P8's ignore rule  |
 | restart/restore replay (ccy only)                | cc sessions are not restored; nothing to replay                                                  |
 | `--append-system-prompt` line (cc only)          | ccy's entrypoint context and skill do it; cc has no entrypoint                                   |
+
+## F. A team's settings (Task 2.15)
+
+The owner: "In the CCY Teams menu, when looking at a specific team, I should be able to update
+config for the team as well … a single update config thing … that then opens a pane that then
+has all of the different things editable." Every key of a team's `agent_bus_teams` entry, and
+the facts kept elsewhere, as built:
+
+| Field                        | Edited here                  | What applying a change does                                                                                                                                                       | Validated by                                                                                    |
+| ---------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `team` (name)                | no (Task 2.16)               | would need a new homeserver unit, data folder, server name, accounts, room, tokens and every session's seats; the installer refuses it (`check_unchanged`)                        | `protocol.is_team_name`; `render.check_unchanged` refuses a change                              |
+| `description`                | yes                          | file and team.json only; the room topic is set by bootstrap; no restart (S-A4)                                                                                                    | `protocol.is_description` (1 to 120 characters, one line)                                       |
+| `humans`                     | yes                          | bootstrap makes and invites each added person (who then sets a password); a removed one is kicked, deactivated and added to `removed_humans` (never to return, S-F14); no restart | 1 to `HUMANS_MAX` distinct `protocol.is_human_localpart`                                        |
+| `org`, `repos`, `exclude`    | yes                          | the team record in the room, read live by running sessions' syncer; no restart                                                                                                    | `protocol.is_owner`, `is_owner_repo`, `is_repo_name`; org or repos needed; exclude needs an org |
+| `path_prefixes`              | yes                          | the team record; no restart                                                                                                                                                       | 1 to `PATH_PREFIXES_MAX` `protocol.is_path_prefix`; empty removes the key                       |
+| `allow_from`                 | yes                          | firewall rules and the unit drop-in's `IPAddressAllow`: the homeserver restarts                                                                                                   | 0 to 32 canonical CIDRs, no default route or multicast                                          |
+| `port`, `listen`             | no                           | every member's bundle carries `base_url`; a change needs every member re-issued, which nothing does                                                                               | 1024 to 65535; canonical non-wildcard addresses                                                 |
+| `server_name`                | no                           | Tuwunel cannot change it without wiping the database; the installer refuses it                                                                                                    | `check_server_name`                                                                             |
+| `forge_api`                  | no                           | one allowed value (D66)                                                                                                                                                           | must be GitHub's API                                                                            |
+| `state`, `purge`             | no: the menu's Take down     | `remove`, after its questions and backup                                                                                                                                          | `STATES`                                                                                        |
+| coordinator (registry role)  | yes, at once                 | `agent-bus set-role` as root, through `seats.ChangeRole`; no host_vars change                                                                                                     | the roster; one coordinator at most                                                             |
+| members, seats, LXC members  | no: their own rows and flows | seats come and go with sessions; Add an LXC container's agent is its own menu line                                                                                                | `members.parse_members`                                                                         |
+| Element profile (`base_url`) | no                           | derived from listen and port by `declare element`                                                                                                                                 | -                                                                                               |
+| backups                      | no                           | the daily timer and `BACKUPS_TO_KEEP` are the same for every team; `ccy-teams backup`/`restore` act on them                                                                       | -                                                                                               |
+
+- **S-F1** A team row's menu has the visible choice **Edit settings** (no shortcut, its footer
+  word "edit <team>'s settings via Enter"). It opens the settings screen.
+- **S-F2** `declare.py settings --file F --team T` prints, for a present team,
+  `SETTING<TAB><key><TAB><value>` per key of `SETTINGS_KEYS` (team, description, humans, org,
+  repos, exclude, path_prefixes, allow_from, port, listen, server_name, forge_api,
+  removed_humans): the value
+  as JSON, `-` when the entry does not set it, `!vaulted` or `!invalid` when it cannot be read
+  (one such value does not hide the rest). A team not declared present: 64.
+- **S-F3** `declare.py set --file F --team T --value KEY JSON... [--check]` changes only
+  `EDITABLE_KEYS` (description, humans, org, repos, exclude, path_prefixes, allow_from); any
+  other key, a key twice, JSON that is not a string (description, org) or a list of strings
+  (the rest): 64. An empty value of an optional key (org, repos, exclude, path_prefixes)
+  removes it. `repos` is given as names, each keeping the branches it had.
+- **S-F4** The entry as it would be is judged whole by `teamfile.parse_team_file` before
+  anything is written; a broken rule is 64 naming it (`team file: <key>: <rule>`). `--check`
+  stops there and prints nothing.
+- **S-F5** All the changes are one write (one backup), each changed key one flow-style line in
+  its place (a block list replaced whole) or a new line after `team:`, every other line byte for
+  byte; read back, else 78 and nothing written. A key whose lines carry a comment the edit would
+  lose: 78, nothing written. A vaulted entry: 78. Prints `CHANGED<TAB>team T: <keys>` or
+  `UNCHANGED<TAB>T`. `describe` and `drop-limit` are this edit with one key.
+- **S-F6** `declare.Client.Settings`, `Set` and `CheckSet` run them (Go).
+- **S-F7** The screen (headed `Teams › <team> › Settings`, over the team and the changes waiting) lists the editable fields with their
+  values, then `Coordinator: <handle or (none)>   (changed at once)`, then the fixed fields
+  marked `(fixed)`, then `Save and apply (<n> changes | nothing changed yet)`, `Discard changes` and `Back`. Each row's header says what the field is and what applying it does, or
+  why it is fixed. A pending change is shown as the row's value, marked `(changed)`.
+- **S-F8** Choosing an editable field asks for it (`gum input`, headed `Teams › <team> › Settings › <field>`, starting from its value; lists are comma-separated). The answer is judged by
+  `set --check` together with the other pending changes; refused, the reason is shown and it
+  is asked again, three times at most. Esc leaves the field as it was. The value it already has
+  is no change.
+- **S-F9** Choosing a fixed field says why it cannot be changed here, and asks nothing.
+- **S-F10** Save and apply with nothing pending says so. Otherwise it asks (title `… › Save and apply`), listing each change as `<field>: <old> → <new>` and, once each, what applying them
+  does; No is the default when a person is removed, Yes otherwise. Yes writes every change in
+  one `set` and runs `ops.ApplyTeams` for the team (play-agent-bus.yml, as `ccy-teams apply`).
+  A refused `set` (64 or 78) saves nothing and stays on the screen naming why. An apply that
+  fails says the change is saved in the host_vars but not applied, and that `ccy-teams apply <team>` applies it.
+- **S-F11** Discard changes forgets every pending change. Back with pending changes asks first
+  (title `… › Back`, No the default); No stays on the screen.
+- **S-F12** The coordinator follows the two paths of Plan 00203 SPEC-hot-control.md H25, in
+  the words of package `coordinator`. The row reads `Coordinator: <handle> (running | not running | parked | whether it is running is not known here)` or `(none)`; the running state is
+  the picker's seat rows (`seats.SnapshotRunning`), passed in. Choosing it lists every member
+  (the current one and parked ones marked), titled `… › Coordinator`. With no coordinator, the
+  header offers one plainly ("<team> has no coordinator") and there is no `No coordinator` row.
+  With one, the header names it and whether it runs, says choosing another member is a takeover
+  that makes it a worker and that the question starts on No, and `No coordinator` is offered. A
+  choice is one `seats.ChangeRole` call, given the running state: it asks the plain offer or the
+  takeover (default No) itself, and a takeover's demote and promote happen inside it, with the
+  holder put back if the promote fails. Nothing is demoted apart from a promote, except by `No coordinator`, which is that choice. It happens at once, not by Save and apply; the screen then
+  says what changed. Members that cannot be read make the row say so.
+- **S-F13** An entry with a value ccy-teams cannot read (vault-encrypted or not in the form it
+  writes) shows it as such, and choosing an editable field says to change the entry by hand.
+  Save and apply reads the settings again first: the summary's old values are those on disk
+  then, and a value that became unreadable stops the save, naming it. A `set` that changes
+  nothing says "Nothing to save: the host_vars already had these values."
+- **S-F14** A removed person can never return: bootstrap deactivates their account, and
+  `admin._ensure_humans` refuses a deactivated account. So the removal is recorded in the
+  declaration. `set` adds every name it takes off `humans` to the entry's `removed_humans`
+  (new optional team-file key, 1 to 256 human localparts, carried in team.json), and
+  `teamfile.parse_team_file` refuses a team file whose `humans` names any of them ("a removed
+  name can never return; choose another name"). That one rule is what `set --check`, `set`,
+  the play's `render check` and `declared_config` all run, so the screen refuses the name as it
+  is typed and no apply can be broken by it. `removed_humans` is shown as the fixed field
+  Removed people; `set` does not take it as a `--value`. A person removed by hand-editing the
+  host_vars before this key existed is still refused by the play's account check.
+
+**Rename (Task 2.16, not built).** The name is fixed on the screen, with the reason. A rename
+would have to make the new team (unit, data folder, server name, accounts, room), carry over
+or re-create its history, re-issue every member's token and bundle, move every seat and
+session record, re-point every running session, and take the old team down; the installer's
+`check_unchanged` refuses it today. Half of that would leave sessions on a team that no longer
+exists, so it is a task of its own.
 
 ## Milestones (each test-first: the failing test lands before the code)
 

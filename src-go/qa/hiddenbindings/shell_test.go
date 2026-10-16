@@ -23,15 +23,15 @@ func TestShellFlagsKeyOnlyActions(t *testing.T) {
 	src := `pick() {
     fzf --expect=ctrl-n
     fzf --expect ctrl-x
-    fzf --bind=ctrl-a:accept
+    fzf --bind='ctrl-a:become(x)'
     fzf --bind 'ctrl-x:execute(rm {})'
     fzf --bind "ctrl-o:become(x)"
     local -a opts=(--expect="$3")
     opts+=(--bind="$spec")
     opts+=(--bind)
-    fzf "${opts[@]}" --bind="focus:transform-header^${h}^,ctrl-a:accept"
-    fzf --bind="ctrl-a:accept${rest}"
-    fzf --bind='%s:accept'
+    fzf "${opts[@]}" --bind="focus:transform-header^${h}^,ctrl-a:become(x)"
+    fzf --bind="ctrl-a:become(x)${rest}"
+    fzf --bind='%s:become(x)'
     fzf --bind='ctrl-a'
 }
 `
@@ -56,6 +56,23 @@ func TestShellAllowsNavigationAndEvents(t *testing.T) {
 	}
 }
 
+// A scalar spread unquoted into fzf is split on whitespace, so its value is judged the same
+// way, word by word (Fable's N2).
+func TestShellJudgesScalarValuesWordByWord(t *testing.T) {
+	src := `opts="--height=40% --expect=ctrl-a"
+local more='--bind ctrl-x:execute(rm)'
+export FZF_DEFAULT_OPTS='--bind=ctrl-k:become(x)'
+keys="--bind=$spec"
+fine="--bind=q:abort --bind ctrl-a:accept"
+label="press --expect later"
+fzf $opts $more
+`
+	want := []int{1, 2, 3, 4}
+	if got := shellLines(t, src); !slices.Equal(got, want) {
+		t.Errorf("lines = %v, want %v", got, want)
+	}
+}
+
 func TestShellOnlyJudgesFilesThatRunFzf(t *testing.T) {
 	src := "some-tool --expect ctrl-a --bind=x:accept\n"
 	if got := shellLines(t, src); len(got) != 0 {
@@ -72,7 +89,7 @@ func TestShellOnlyJudgesFilesThatRunFzf(t *testing.T) {
 }
 
 func TestShellMessagesNameTheRule(t *testing.T) {
-	found, err := ShellFindings([]byte("fzf --expect=ctrl-n --bind=ctrl-a:accept\n"), "x.bash")
+	found, err := ShellFindings([]byte("fzf --expect=ctrl-n --bind='ctrl-a:become(x)'\n"), "x.bash")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +101,7 @@ func TestShellMessagesNameTheRule(t *testing.T) {
 			t.Errorf("finding %+v must name %s and the file", f, Rule)
 		}
 	}
-	if !strings.Contains(found[1].Message, "ctrl-a:accept") {
+	if !strings.Contains(found[1].Message, "ctrl-a:become") {
 		t.Errorf("message %q must name the binding", found[1].Message)
 	}
 }

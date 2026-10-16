@@ -48,12 +48,15 @@ func ShellFindings(src []byte, name string) ([]Finding, error) {
 		case *syntax.CallExpr:
 			j.judgeList(n.Args)
 		case *syntax.Assign:
-			if n.Array != nil {
+			switch {
+			case n.Array != nil:
 				words := make([]*syntax.Word, 0, len(n.Array.Elems))
 				for _, e := range n.Array.Elems {
 					words = append(words, e.Value)
 				}
 				j.judgeList(words)
+			case n.Value != nil:
+				j.judgeItems(scalarItems(n.Value))
 			}
 		}
 		return true
@@ -136,21 +139,56 @@ func (j *shellJudge) reportf(w *syntax.Word, format string, args ...any) {
 	})
 }
 
+// item is one argv word as the rule reads it: where it is, and its text.
+type item struct {
+	at   *syntax.Word
+	text wordText
+}
+
 // judgeList judges each word, with the word after a bare --bind as its binding.
 func (j *shellJudge) judgeList(words []*syntax.Word) {
-	for i := 0; i < len(words); i++ {
-		w := words[i]
-		t := readWord(w)
+	items := make([]item, 0, len(words))
+	for _, w := range words {
+		items = append(items, item{w, readWord(w)})
+	}
+	j.judgeItems(items)
+}
+
+// scalarItems is the words a scalar's value becomes when it is spread unquoted into a
+// command: its literal text split on whitespace, the last word open when an expansion
+// follows it. Only a value that starts with an option is read as options; any other text (a
+// label, a message) is not argv.
+func scalarItems(w *syntax.Word) []item {
+	t := readWord(w)
+	fields := strings.Fields(t.head)
+	if len(fields) == 0 || !strings.HasPrefix(fields[0], "-") {
+		return nil
+	}
+	items := make([]item, 0, len(fields))
+	for _, f := range fields {
+		items = append(items, item{w, wordText{head: f}})
+	}
+	if t.partial && !strings.HasSuffix(t.head, " ") {
+		last := &items[len(items)-1].text
+		last.partial, last.tail = true, t.tail
+	}
+	return items
+}
+
+// judgeItems judges each item, with the item after a bare --bind as its binding.
+func (j *shellJudge) judgeItems(items []item) {
+	for i := 0; i < len(items); i++ {
+		w, t := items[i].at, items[i].text
 		switch {
 		case t.head == expectFlag || strings.HasPrefix(t.head, expectFlag+"="):
 			j.reportf(w, "fzf --expect: a key the script acts on with no visible choice; offer the action as a row")
 		case t.head == bindFlag && !t.partial:
-			if i+1 == len(words) {
+			if i+1 == len(items) {
 				j.reportf(w, "fzf --bind with no binding beside it: the rule cannot judge it")
 				continue
 			}
 			i++
-			j.judgeSpec(words[i], readWord(words[i]), "")
+			j.judgeSpec(items[i].at, items[i].text, "")
 		case strings.HasPrefix(t.head, bindFlag+"="):
 			j.judgeSpec(w, t, bindFlag+"=")
 		}

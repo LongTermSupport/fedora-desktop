@@ -72,12 +72,15 @@ func (x *Hot) takeOut(ctx context.Context, t *target, r request, team, seat stri
 		x.mark(markFailed, "seat "+seat+": "+err.Error())
 		return term.ExitFailure, false
 	}
-	role, code, ok := x.leaveRole(ctx, r, team, seat, handle, up)
+	role, said, code, ok := x.leaveRole(ctx, r, team, seat, handle, up)
 	if !ok {
 		return code, false
 	}
-	question := fmt.Sprintf("Remove %s from %s (seat %s, %s)? Its token stays valid: remove stops this session's pingbus, it does not revoke.",
-		t.session, team, seat, handle)
+	question := fmt.Sprintf("Remove %s from %s (seat %s, %s)? ", t.session, team, seat, handle)
+	if said != "" {
+		question += said + " "
+	}
+	question += "Its token stays valid: remove stops this session's pingbus, it does not revoke."
 	if code, proceed := x.confirm(ctx, question, r.yes); !proceed {
 		return code, false
 	}

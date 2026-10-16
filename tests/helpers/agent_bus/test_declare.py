@@ -858,6 +858,140 @@ class UndescribedTest(CommandCase):
         self.assertEqual(out.count("UNDESCRIBED"), 3)
 
 
+class SettingsTest(CommandCase):
+    """S-F2: settings prints every key of a present team's entry, one SETTING line each."""
+
+    def test_every_key_in_order_as_json_or_dash(self) -> None:
+        code, out, err = self.run_cmd("settings", "--team", "alpha")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "".join(f"SETTING\t{key}\t{value}\n" for key, value in (
+            ("team", '"alpha"'), ("description", "-"), ("humans", '["owner"]'), ("org", '"example-org"'),
+            ("repos", "-"), ("exclude", "-"), ("path_prefixes", '["CLAUDE/Plan/", "docs/"]'),
+            ("allow_from", "[]"), ("port", "6167"), ("listen", '["192.0.2.10"]'),
+            ("server_name", '"alpha.agent-bus.internal"'), ("forge_api", '"https://api.github.com"'),
+            ("removed_humans", "-"))))
+
+    def test_repos_keep_their_branches_and_a_block_list_reads_as_a_list(self) -> None:
+        rows = dict(line.split("\t")[1:] for line in self.run_cmd("settings", "--team", "beta")[1].splitlines())
+        self.assertEqual(json.loads(rows["repos"]), [{"repo": "example-org/one", "branches": ["main"]}])
+        self.assertEqual(json.loads(rows["humans"]), ["owner", "second"])
+
+    def test_a_vaulted_value_is_marked_and_the_rest_still_shown(self) -> None:
+        rows = dict(line.split("\t")[1:] for line in self.run_cmd("settings", "--team", "vaulted")[1].splitlines())
+        self.assertEqual(rows["humans"], "!vaulted")
+        self.assertEqual(rows["org"], '"example-org"')
+
+    def test_a_team_not_declared_present_is_refused(self) -> None:
+        self.assertEqual(self.run_cmd("settings", "--team", "gamma")[0], 64)
+        self.assertEqual(self.run_cmd("settings", "--team", "nosuch")[0], 64)
+
+
+class SetTest(CommandCase):
+    """S-F3 to S-F6: set changes the editable keys of a present team in one write, judged
+    whole by the team file's rules, every other line as it was."""
+
+    def entry(self, index: int = 0) -> dict:
+        return declare.entry_of(declare.parse(self.path.read_text(encoding="utf-8")).teams[index])
+
+    def backups(self) -> int:
+        return len(list(self.tmp.glob("localhost.yml.backup.*")))
+
+    def test_a_flow_list_is_replaced_in_place(self) -> None:
+        before = self.entry()
+        code, out, err = self.run_cmd("set", "--team", "alpha", "--value", "humans", '["owner", "second"]')
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "CHANGED\tteam alpha: humans\n")
+        self.assertEqual(self.path.read_text(), STATUS_HV.replace('    humans: ["owner"]\n',
+                                                                  '    humans: ["owner", "second"]\n', 1))
+        self.assertEqual(self.entry(), dict(before, humans=["owner", "second"]))
+        self.assertEqual(self.backups(), 1)
+
+    def test_several_keys_are_one_write_and_a_new_key_follows_the_team_line(self) -> None:
+        code, _, err = self.run_cmd("set", "--team", "alpha", "--value", "description", '"Builds the site"',
+                                    "--value", "exclude", '["secret"]', "--value", "allow_from", '["192.0.2.0/24"]')
+        self.assertEqual(code, 0, err)
+        text = self.path.read_text()
+        self.assertIn('  - team: alpha\n    description: "Builds the site"\n    exclude: ["secret"]\n    port: 6167\n', text)
+        self.assertIn('    allow_from: ["192.0.2.0/24"]\n', text)
+        self.assertEqual(self.backups(), 1)
+        self.assertEqual([t.team for t in declare.parse(text).teams], ["alpha", "beta", "gamma", "delta", "vaulted"])
+
+    def test_a_block_list_is_replaced_whole(self) -> None:
+        code, _, err = self.run_cmd("set", "--team", "beta", "--value", "humans", '["owner"]')
+        self.assertEqual(code, 0, err)
+        self.assertIn('    allow_from: ["192.0.2.0/24"]\n    humans: ["owner"]\n    repos:\n', self.path.read_text())
+        self.assertEqual(self.entry(1)["humans"], ["owner"])
+
+    def test_an_empty_optional_value_removes_the_key(self) -> None:
+        code, _, err = self.run_cmd("set", "--team", "alpha", "--value", "path_prefixes", "[]")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.path.read_text(), STATUS_HV.replace('    path_prefixes: ["CLAUDE/Plan/", "docs/"]\n', "", 1))
+
+    def test_repos_are_given_as_names_and_keep_the_branches_they_had(self) -> None:
+        code, _, err = self.run_cmd("set", "--team", "beta", "--value", "repos", '["example-org/one", "example-org/two"]')
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.entry(1)["repos"], [{"repo": "example-org/one", "branches": ["main"]},
+                                                  {"repo": "example-org/two"}])
+
+    def test_check_judges_the_whole_entry_and_writes_nothing(self) -> None:
+        self.assertEqual(self.run_cmd("set", "--team", "alpha", "--check", "--value", "humans", '["second"]')[:2], (0, ""))
+        for argv in ((("org", '""'),),  # no org and no repos
+                     (("humans", "[]"),),
+                     (("description", '" padded"'),),
+                     (("allow_from", '["192.0.2.1"]'),),
+                     (("org", '""'), ("exclude", '["x"]'))):
+            flat = [part for key, value in argv for part in ("--value", key, value)]
+            for check in ((), ("--check",)):
+                with self.subTest(argv=argv, check=check):
+                    code, _, err = self.run_cmd("set", "--team", "alpha", *check, *flat)
+                    self.assertEqual(code, 64, err)
+                    self.assertIn("team file:", err)
+        self.assertEqual(self.path.read_text(), STATUS_HV)
+        self.assertEqual(self.backups(), 0)
+
+    def test_unchanged_when_every_value_is_already_that(self) -> None:
+        self.assertEqual(self.run_cmd("set", "--team", "alpha", "--value", "humans", '["owner"]')[:2],
+                         (0, "UNCHANGED\talpha\n"))
+        self.assertEqual(self.backups(), 0)
+
+    def test_a_key_that_is_not_editable_or_a_wrong_type_is_a_usage_mistake(self) -> None:
+        for key, value in (("port", "6200"), ("team", '"renamed"'), ("server_name", '"x.internal"'),
+                           ("humans", '"owner"'), ("org", '["a"]'), ("repos", '[{"repo": "a/b"}]'), ("humans", "not json")):
+            with self.subTest(key=key, value=value):
+                self.assertEqual(self.run_cmd("set", "--team", "alpha", "--value", key, value)[0], 64)
+        self.assertEqual(self.run_cmd("set", "--team", "gamma", "--value", "humans", '["owner"]')[0], 64)
+        self.assertEqual(self.run_cmd("set", "--team", "alpha", "--value", "humans", '["a"]', "--value", "humans", '["b"]')[0], 64)
+        self.assertEqual(self.path.read_text(), STATUS_HV)
+
+    def test_a_comment_the_edit_would_lose_is_refused(self) -> None:
+        text = STATUS_HV.replace('    humans: ["owner"]\n', '    humans: ["owner"]  # the owner\n', 1)
+        self.path.write_text(text, encoding="utf-8")
+        code, _, err = self.run_cmd("set", "--team", "alpha", "--value", "humans", '["second"]')
+        self.assertEqual(code, 78, err)
+        self.assertIn("comment", err)
+        self.assertEqual(self.path.read_text(), text)
+
+    def test_a_removed_person_is_recorded_and_can_never_return(self) -> None:
+        """S-F14: the play deactivates a removed person's account for good, so set records the
+        name in removed_humans, and the team file's rule refuses it in humans from then on."""
+        code, out, err = self.run_cmd("set", "--team", "beta", "--value", "humans", '["owner"]')
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "CHANGED\tteam beta: humans, removed_humans\n")
+        self.assertEqual(self.entry(1)["removed_humans"], ["second"])
+        for check in ((), ("--check",)):
+            with self.subTest(check=check):
+                code, _, err = self.run_cmd("set", "--team", "beta", *check, "--value", "humans", '["owner", "second"]')
+                self.assertEqual(code, 64, err)
+                self.assertIn("can never return", err)
+        self.run_cmd("set", "--team", "beta", "--value", "humans", '["third"]')
+        self.assertEqual(self.entry(1)["removed_humans"], ["second", "owner"])
+        self.assertEqual(self.run_cmd("set", "--team", "beta", "--value", "removed_humans", "[]")[0], 64)
+
+    def test_a_vaulted_entry_is_refused(self) -> None:
+        self.assertEqual(self.run_cmd("set", "--team", "vaulted", "--value", "org", '"other-org"')[0], 78)
+        self.assertEqual(self.path.read_text(), STATUS_HV)
+
+
 class ElementTest(CommandCase):
     """Task 4.2: create declares the team's Element profile itself, in
     agent_bus_element_teams, so nobody edits localhost.yml for it."""
@@ -1394,9 +1528,10 @@ class LxcCheckoutsTest(CommandCase):
     """The checkouts offered for the checkout question: those in the user's home with a GitHub
     remote, from what the host-side reader printed."""
 
-    def scan(self, *items: tuple[str, str | None]) -> str:
-        return json.dumps([{"path": path, "git_config": None if url is None else
-                            f'[remote "origin"]\n\turl = {url}\n'} for path, url in items])
+    def scan(self, *items: tuple[str, str | None], ccy: tuple[str, ...] = (), cut: bool = False) -> str:
+        return json.dumps({"checkouts": [{"path": path, "ccy": path in ccy, "git_config": None if url is None else
+                                          f'[remote "origin"]\n\turl = {url}\n'} for path, url in items],
+                           "timed_out": cut})
 
     def test_only_checkouts_with_a_github_remote_are_listed_with_their_repository(self) -> None:
         scan = self.scan(("/srv/agent/one", "git@github.com:Example-Org/One.git"),
@@ -1405,13 +1540,25 @@ class LxcCheckoutsTest(CommandCase):
                          ("/srv/agent/none", None))
         code, out, err = self.run_cmd("lxc-checkouts", "--scan", scan)
         self.assertEqual((code, err), (0, ""))
-        self.assertEqual(out, "CHECKOUT\t/srv/agent/one\texample-org/one\nCHECKOUT\t/srv/agent/two\texample-org/two\n")
+        self.assertEqual(out, "CHECKOUT\t/srv/agent/one\texample-org/one\t-\nCHECKOUT\t/srv/agent/two\texample-org/two\t-\n")
+
+    def test_a_ccy_project_comes_first_and_is_marked(self) -> None:
+        scan = self.scan(("/srv/agent/one", "git@github.com:example-org/one.git"),
+                         ("/srv/agent/two", "git@github.com:example-org/two.git"), ccy=("/srv/agent/two",))
+        code, out, _ = self.run_cmd("lxc-checkouts", "--scan", scan)
+        self.assertEqual((code, out), (0, "CHECKOUT\t/srv/agent/two\texample-org/two\tccy\n"
+                                          "CHECKOUT\t/srv/agent/one\texample-org/one\t-\n"))
+
+    def test_a_search_that_ran_out_of_time_says_so(self) -> None:
+        scan = self.scan(("/srv/agent/one", "git@github.com:example-org/one.git"), cut=True)
+        code, out, _ = self.run_cmd("lxc-checkouts", "--scan", scan)
+        self.assertEqual((code, out), (0, "CHECKOUT\t/srv/agent/one\texample-org/one\t-\nTIMEDOUT\n"))
 
     def test_nothing_found_prints_nothing(self) -> None:
-        self.assertEqual(self.run_cmd("lxc-checkouts", "--scan", "[]")[:2], (0, ""))
+        self.assertEqual(self.run_cmd("lxc-checkouts", "--scan", self.scan())[:2], (0, ""))
 
     def test_what_the_container_printed_is_judged(self) -> None:
-        for scan in ("{", self.scan(("relative", None)), self.scan(("/srv/\x1b[31m", None))):
+        for scan in ("{", "[]", self.scan(("relative", None)), self.scan(("/srv/\x1b[31m", None))):
             code, out, err = self.run_cmd("lxc-checkouts", "--scan", scan)
             self.assertEqual((code, out), (64, ""), scan)
             self.assertTrue(err.startswith("declare: "), err)
@@ -1461,6 +1608,43 @@ class LxcMemberRemoveTest(CommandCase):
         for argv in (("--team", "alpha", "--container", "nosuch", "--user", "agent"),
                      ("--team", "nosuch", "--container", "container-a", "--user", "agent")):
             self.assertEqual(self.run_cmd("lxc-remove", *argv)[0], 64, argv)
+
+
+class LxcMemberRoleTest(CommandCase):
+    """lxc-role: the takeover of a declared LXC coordinator makes its entry a worker first
+    (Plan 00203 SPEC-hot-control.md H25), every other line kept."""
+
+    TEXT = LXC_HV
+    A = ("--team", "alpha", "--container", "container-a", "--user", "agent")
+
+    def test_the_role_line_is_replaced_and_every_other_line_kept(self) -> None:
+        code, out, err = self.run_cmd("lxc-role", *self.A, "--role", "worker")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, f"CHANGED\tLXC member agent@container-a in team alpha is now worker, in {self.path}\n")
+        self.assertEqual(self.path.read_text(), LXC_HV.replace("    role: orchestrator\n", '    role: "worker"\n', 1))
+        self.assertEqual(len(list(self.tmp.glob("localhost.yml.backup.*"))), 1)
+
+    def test_a_role_line_is_added_when_there_is_none(self) -> None:
+        self.path.write_text(LXC_HV.replace("    role: orchestrator\n", ""), encoding="utf-8")
+        self.assertEqual(self.run_cmd("lxc-role", *self.A, "--role", "coordinator")[0], 0)
+        self.assertIn('  - team: alpha\n    role: "coordinator"\n    container: container-a\n', self.path.read_text())
+
+    def test_the_same_role_is_unchanged_and_bad_input_refused(self) -> None:
+        self.path.write_text(LXC_HV.replace("role: orchestrator", "role: worker"), encoding="utf-8")
+        before = self.path.read_text()
+        self.assertEqual(self.run_cmd("lxc-role", *self.A, "--role", "worker")[:2],
+                         (0, "UNCHANGED\tagent@container-a in team alpha\n"))
+        self.assertEqual(self.path.read_text(), before)
+        for argv in ((*self.A, "--role", "boss"),
+                     ("--team", "alpha", "--container", "nosuch", "--user", "agent", "--role", "worker")):
+            self.assertEqual(self.run_cmd("lxc-role", *argv)[0], 64, argv)
+        self.assertEqual(self.path.read_text(), before)
+
+    def test_dry_run_writes_nothing(self) -> None:
+        code, out, _ = self.run_cmd("lxc-role", *self.A, "--role", "worker", "--dry-run")
+        self.assertEqual(code, 0)
+        self.assertIn('role: "worker"', out)
+        self.assertEqual(self.path.read_text(), LXC_HV)
 
 
 if __name__ == "__main__":

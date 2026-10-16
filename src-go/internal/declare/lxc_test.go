@@ -85,6 +85,18 @@ func TestLxcAddDryRunReturnsTheEntryLines(t *testing.T) {
 	}
 }
 
+func TestLxcSetRoleNamesTheMemberAndTheRole(t *testing.T) {
+	f := &execx.Fake{}
+	script(f, "lxc-role", "CHANGED\tLXC member agent@container-a in team alpha is now worker, in /hv.yml\n")
+	change, err := newClient(f).LxcSetRole(context.Background(), LxcMember{Team: "alpha", Container: "container-a", User: "agent"}, "worker")
+	if err != nil || !change.Changed {
+		t.Fatalf("%+v %v", change, err)
+	}
+	if line := lastLine(t, f); line != prefix+" lxc-role --file /hv.yml --team alpha --container container-a --user agent --role worker" {
+		t.Fatalf("ran %q", line)
+	}
+}
+
 func TestLxcMembersReadsADashAsNoHost(t *testing.T) {
 	f := &execx.Fake{}
 	script(f, "lxc-members", "LXCMEMBER\talpha\tcontainer-a\tagent\t-\tworker\tpresent\n")
@@ -140,9 +152,11 @@ func TestLxcDeriveSendsAnEmptyRosterAsAnArgumentAndRefusesAnUnreadableAnswer(t *
 
 func TestLxcCheckoutsReadsThePathAndRepository(t *testing.T) {
 	f := &execx.Fake{}
-	script(f, "lxc-checkouts", "CHECKOUT\t/srv/agent/one\texample-org/one\nCHECKOUT\t/srv/agent/two\texample-org/two\n")
+	script(f, "lxc-checkouts", "CHECKOUT\t/srv/agent/one\texample-org/one\tccy\nCHECKOUT\t/srv/agent/two\texample-org/two\t-\n")
 	got, err := newClient(f).LxcCheckouts(context.Background(), "[]")
-	want := []Checkout{{Path: "/srv/agent/one", Repo: "example-org/one"}, {Path: "/srv/agent/two", Repo: "example-org/two"}}
+	want := Checkouts{Found: []Checkout{
+		{Path: "/srv/agent/one", Repo: "example-org/one", Ccy: true}, {Path: "/srv/agent/two", Repo: "example-org/two"},
+	}}
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("%+v %v", got, err)
 	}
@@ -150,9 +164,14 @@ func TestLxcCheckoutsReadsThePathAndRepository(t *testing.T) {
 		t.Fatalf("ran %q", ran)
 	}
 	g := &execx.Fake{}
-	script(g, "lxc-checkouts", "CHECKOUT\t/srv/agent/one\n")
+	script(g, "lxc-checkouts", "CHECKOUT\t/srv/agent/one\texample-org/one\n")
 	if _, err = newClient(g).LxcCheckouts(context.Background(), "[]"); err == nil {
 		t.Fatal("a short line was accepted")
+	}
+	h := &execx.Fake{}
+	script(h, "lxc-checkouts", "CHECKOUT\t/srv/agent/one\texample-org/one\t-\nTIMEDOUT\n")
+	if got, err = newClient(h).LxcCheckouts(context.Background(), "[]"); err != nil || !got.TimedOut || len(got.Found) != 1 {
+		t.Fatalf("a search past its time: %+v %v", got, err)
 	}
 }
 
@@ -275,10 +294,10 @@ func TestRealDerivedHandleFromWhatTheReaderPrinted(t *testing.T) {
 
 func TestRealCheckoutsOfferedAreThoseWithAGitHubRemote(t *testing.T) {
 	c := realCopy(t)
-	scan := `[{"path": "/srv/a", "git_config": "[remote \"origin\"]\n\turl = git@github.com:Example-Org/A.git\n"},` +
-		`{"path": "/srv/b", "git_config": null}]`
+	scan := `{"checkouts": [{"path": "/srv/a", "ccy": true, "git_config": "[remote \"origin\"]\n\turl = git@github.com:Example-Org/A.git\n"},` +
+		`{"path": "/srv/b", "ccy": false, "git_config": null}], "timed_out": false}`
 	got, err := c.LxcCheckouts(context.Background(), scan)
-	if err != nil || !reflect.DeepEqual(got, []Checkout{{Path: "/srv/a", Repo: "example-org/a"}}) {
+	if err != nil || !reflect.DeepEqual(got, Checkouts{Found: []Checkout{{Path: "/srv/a", Repo: "example-org/a", Ccy: true}}}) {
 		t.Fatalf("%+v %v", got, err)
 	}
 }

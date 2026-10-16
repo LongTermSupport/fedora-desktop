@@ -72,7 +72,12 @@ func (c *Chooser) consent(ctx context.Context, refs []string) term.ExitCode {
 		return code
 	}
 	c.say(consentWords(handles))
-	yes, err := c.Gum.Confirm(ctx, ui.Here(flow.LaunchCrumb, "Element consent").About("host seats: "+strings.Join(handles, ", ")), "Accept, and start "+strings.Join(handles, ", ")+"?", false)
+	who := strings.Join(handles, ", ")
+	if len(handles) == 0 {
+		who = "this session on the bus"
+	}
+	head := ui.Here(flow.LaunchCrumb, "Element consent").About("host seats: " + who)
+	yes, err := c.Gum.Confirm(ctx, head, "Accept, and start "+who+"?", false)
 	if errors.Is(err, ui.ErrCancelled) || (err == nil && !yes) {
 		c.say("Not started. Nothing was recorded; cc --teams asks again next time.")
 		return term.ExitFailure
@@ -88,13 +93,20 @@ func (c *Chooser) consent(ctx context.Context, refs []string) term.ExitCode {
 	return term.ExitOK
 }
 
-// consentWords are what the owner reads before answering, naming every handle that starts.
+// consentWords are what the owner reads before answering, naming every handle that starts; with
+// none (cc --bus), the teams the session is added to later.
 func consentWords(handles []string) string {
-	verb, who := "joins its team", handles[0]
-	if len(handles) > 1 {
-		verb, who = "join their teams", strings.Join(handles, ", ")
+	var opening string
+	switch len(handles) {
+	case 0:
+		opening = "This session joins the teams you add it to later (ccy-teams session add),\n" +
+			"  each as its own member, and runs as you."
+	case 1:
+		opening = handles[0] + " joins its team as its own member, and runs as you."
+	default:
+		opening = strings.Join(handles, ", ") + " join their teams as its own member, and runs as you."
 	}
-	return "\n  " + who + " " + verb + " as its own member, and runs as you.\n\n" +
+	return "\n  " + opening + "\n\n" +
 		"  That means it can reach what you can, including the Element\n" +
 		"  session you are signed in to. A misbehaving agent could use it\n" +
 		"  to post as you, and every agent on the team would obey that.\n\n" +

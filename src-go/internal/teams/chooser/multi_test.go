@@ -158,3 +158,39 @@ func TestLeavingTheSeatChooserOfOneOfTwoTeamsStartsNothing(t *testing.T) {
 	exit(t, r.run("--type=podman"), term.ExitOK, r)
 	r.lacksOutput(t)
 }
+
+// The owner's feedback: with several teams, every question says which team it is about and where
+// it stands in the sequence, and a team's lines sit under its own heading.
+func TestEachTeamsQuestionsCarryItsHeadingAndPlaceInTheSequence(t *testing.T) {
+	r := newRig(t, alphaCovers+betaWiden+deltaWiden)
+	r.Script.Fzf = []string{"|alpha&&beta&&delta"}
+	r.Script.Gum = []string{joinBeta, "CHOOSE:Join without adding (delta will treat " + repo + " references as external)"}
+	exit(t, r.run("--type=podman"), term.ExitOK, r)
+	if want := []string{"New session › Team 1 of 3: alpha", "New session › Team 2 of 3: beta", "New session › Team 3 of 3: delta"}; !slices.Equal(r.seatTrails, want) {
+		t.Fatalf("seat headings %q, want %q", r.seatTrails, want)
+	}
+	if len(r.Script.GumLog) != 2 {
+		t.Fatalf("scope questions %q", r.Script.GumLog)
+	}
+	r.Script.HeadingAt(1, "New session › Team 2 of 3: beta › Scope\nteam beta · does not cover "+repo+" (this checkout)")
+	r.Script.HeadingAt(2, "New session › Team 3 of 3: delta › Scope\nteam delta · does not cover "+repo+" (this checkout)")
+	out := r.stderr()
+	beta, note, delta := strings.Index(out, "New session › Team 2 of 3: beta › Scope\n"), strings.Index(out, "beta: "+repo+" references external"),
+		strings.Index(out, "New session › Team 3 of 3: delta › Scope\n")
+	if beta < 0 || note < beta || delta < note {
+		t.Fatalf("beta's note is not under beta's heading, before delta's:\n%s", out)
+	}
+}
+
+func TestAListOfOneTeamAloneIsHeadedByTheTeamAlone(t *testing.T) {
+	r := newRig(t, alphaCovers)
+	exit(t, r.run("--type=podman", "alpha"), term.ExitOK, r)
+	if !slices.Equal(r.seatTrails, []string{"New session › Team alpha"}) {
+		t.Fatalf("headings %q", r.seatTrails)
+	}
+	r = newRig(t, alphaCovers)
+	exit(t, r.run("--type=podman", "alpha,2@beta,delta"), term.ExitOK, r)
+	if !slices.Equal(r.seatTrails, []string{"New session › Team 1 of 3: alpha", "New session › Team 3 of 3: delta"}) {
+		t.Fatalf("headings %q", r.seatTrails)
+	}
+}

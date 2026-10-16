@@ -495,6 +495,80 @@ func (c *Client) DropLimit(ctx context.Context, team string) (Change, error) {
 	return c.edit(ctx, "drop-limit", "--team", team)
 }
 
+// Setting is a SETTING line of "declare settings": one key of a present team's entry.
+type Setting struct {
+	Key string
+	// Value is the key's value as JSON; nil when the entry does not set it or it cannot be read.
+	Value json.RawMessage
+	// State is set when the entry has a value that cannot be shown.
+	State SettingState
+}
+
+// SettingState says why a setting's value is not shown.
+type SettingState string
+
+// The two states declare.py marks with !vaulted and !invalid.
+const (
+	SettingVaulted SettingState = "vaulted"
+	SettingInvalid SettingState = "invalid"
+)
+
+// Settings is every key of the present team's entry, in the order declare.py lists them.
+func (c *Client) Settings(ctx context.Context, team string) ([]Setting, error) {
+	out, err := c.runFile(ctx, "settings", flagTeam, team)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := marker.Fields(out, "SETTING", 3)
+	if err != nil {
+		return nil, err
+	}
+	settings := make([]Setting, 0, len(rows))
+	for _, f := range rows {
+		s := Setting{Key: f[1]}
+		switch f[2] {
+		case "-":
+		case "!vaulted":
+			s.State = SettingVaulted
+		case "!invalid":
+			s.State = SettingInvalid
+		default:
+			if !json.Valid([]byte(f[2])) {
+				return nil, fmt.Errorf("SETTING %s: the value is not JSON: %q", f[1], f[2])
+			}
+			s.Value = json.RawMessage(f[2])
+		}
+		settings = append(settings, s)
+	}
+	return settings, nil
+}
+
+// Value is one key's new value for Set: JSON, as declare.py set reads it.
+type Value struct {
+	Key, JSON string
+}
+
+func setArgs(team string, values []Value) []string {
+	args := make([]string, 0, 2+3*len(values))
+	args = append(args, flagTeam, team)
+	for _, v := range values {
+		args = append(args, "--value", v.Key, v.JSON)
+	}
+	return args
+}
+
+// Set changes the present team's keys in one write, judged whole by the team file's rules
+// (ErrUsage naming the rule); Changed is false when every value was already that.
+func (c *Client) Set(ctx context.Context, team string, values []Value) (Change, error) {
+	return c.edit(ctx, "set", setArgs(team, values)...)
+}
+
+// CheckSet judges what Set would write, and writes nothing.
+func (c *Client) CheckSet(ctx context.Context, team string, values []Value) error {
+	_, err := c.runFile(ctx, "set", append(setArgs(team, values), "--check")...)
+	return err
+}
+
 // Remove declares the team absent; purge also marks its data for deletion.
 func (c *Client) Remove(ctx context.Context, team string, purge bool) (Change, error) {
 	args := []string{flagTeam, team}

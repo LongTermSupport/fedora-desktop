@@ -74,6 +74,7 @@ Built on `fix/teams-server-robustness`; design and evidence in
   merged and F44's health check fix: CCY 3.99.3, container 2.70. Host acceptance: [ACCEPTANCE.md](ACCEPTANCE.md) M1,
   `_acceptance-m1.inc.bash`. Notes:
   [subagent-reports/261016-m1-pingbus-opus.md](subagent-reports/261016-m1-pingbus-opus.md).
+
 - [x] ✅ **Task 3.1** (M2; its commits call it Task 2.3): the launcher and the entrypoint: the membership directory and its
   read-only relabelled mount, the `ccy-session` label, `PINGBUS_MEMBERSHIP`, `ccy-teams internal membership-init`, the kit in every named session under the inert contract, `--no-bus`,
   `PINGBUS_SEATS` and `ccy-seats` retired for ccy; the H34 spike (Claude Code does not re-read
@@ -92,6 +93,7 @@ Built on `fix/teams-server-robustness`; design and evidence in
   pane's own shell, never `exec`'d (with every stream redirected, tmux hung up a pane nothing
   held, before ccy started), and record its exit status; U20 M2.3 stops the supervised watcher
   (SPEC-inject E26) and proves the `watcher_failed` path to `pingbus wait`.
+
 - [x] ✅ **Task 3.2** (M3): the first end-to-end hot add and remove. `ccy-teams session add` and
   `remove` (per-step ✓/✗, idempotent, rolled back; re-baseline and goodbye on remove; the first
   join of a zero-seat session relaunches once through the supervisor's restart replay), one
@@ -101,6 +103,7 @@ Built on `fix/teams-server-robustness`; design and evidence in
   (H15, H16). CCY 3.99.8, container 2.73, lifecycle plugin 1.1.0. Host acceptance:
   [ACCEPTANCE.md](ACCEPTANCE.md) M3, `_acceptance-m3.inc.bash`. Notes:
   [subagent-reports/261016-m3-opus.md](subagent-reports/261016-m3-opus.md).
+
 - [ ] 🔄 **Task 3.3** (M4): the full non-interactive surface, built on `feat/hot-control-m4`;
   Fable's review said FIX-FIRST
   ([subagent-reports/261016-m4-review-fable.md](subagent-reports/261016-m4-review-fable.md)).
@@ -111,11 +114,12 @@ Built on `fix/teams-server-robustness`; design and evidence in
   allocation at a time per checkout, `agent-bus seat take` and `seat choose` honouring both
   (H20, H21, with Fable's N4: a stopped session's restorable record names its seats); the
   roster limit (H27), the session ending mid-change (H28), `ccy-teams remove <team>` taking its
-  sessions off first (H29); the in-session `bus: <team>(down)` status (H26). With F44's third
+  sessions off first (H29); the in-session `👥 <team>(down)` status (H26). With F44's third
   acceptance fixes merged and Fable's fixes: CCY 3.99.10.1, container 2.75.1. Host acceptance:
   [ACCEPTANCE.md](ACCEPTANCE.md) M4, `_acceptance-m4.inc.bash`. As built, and what is not:
   SPEC-hot-control.md H21. Notes:
   [subagent-reports/261016-m4-opus.md](subagent-reports/261016-m4-opus.md).
+
 - [ ] 🔄 **Task 3.4** (M5): hot control from the picker, built on `feat/hot-control-m5`. In
   `ccy-teams`, the teams list's last row, Running sessions (or Tab, printed beside it), lists
   the sessions `session list` shows. Enter on one lists what can be done to it, in words: Add
@@ -129,6 +133,46 @@ Built on `fix/teams-server-robustness`; design and evidence in
   owner's steps ([ACCEPTANCE.md](ACCEPTANCE.md) M5) are to come. As built:
   SPEC-hot-control.md, M5 as built. Notes:
   [subagent-reports/261016-m5-opus.md](subagent-reports/261016-m5-opus.md).
+
+- [ ] 🔄 **Task 3.7** (owner feedback on M5; its commits call it Task 3.5): the coordinator's
+  two paths, built on `fix/coordinator-two-paths`, merged after Fable's MERGE; host acceptance
+  to come. A team with no coordinator is offered one plainly; a team that
+  has one is a takeover that names the current coordinator and whether it runs, and starts on
+  No; with no terminal or `--yes` it needs `--demote-current`. In every place that can make a
+  coordinator (SPEC-hot-control.md H25). With it, the picker's describe and path-limit offers
+  become now, not now or never, and an old no is asked again once (Plan 00201 S-A15).
+  lxc-add gets the same two paths (a new `declare lxc-role`, which the image carries): CCY
+  3.99.12.4, container 2.77.3. Owner's steps: [ACCEPTANCE.md](ACCEPTANCE.md), the two
+  sections after M5. Notes:
+  [subagent-reports/261016-coordinator-ux-opus.md](subagent-reports/261016-coordinator-ux-opus.md).
+
+- [ ] 🔄 **Task 3.6** (M6; its commits call it Task 3.5): cc, built on `feat/hot-control-m6`,
+  merged; host acceptance to come. `cc --teams` and the new `cc --bus` sessions are hot-controlled like ccy ones (H31,
+  H32): a `kind: cc` membership under the session's tmux name, a keeper that follows it, a
+  system prompt that names no team, and `ccy-teams session add|remove|move|role|list` (and
+  the M5 picker) finding cc sessions on ccy's tmux server. `cc --bus` refuses team messages
+  until it is restarted on its first team (Decision 7). Repair is refused for cc (exit 78),
+  and the record follows each change. CCY 3.99.12.3, container 2.77.2. Host
+  acceptance: [ACCEPTANCE.md](ACCEPTANCE.md) M6, `_acceptance-m6.inc.bash`. As built, and what
+  is not: SPEC-hot-control.md H32 (Decision 7). Notes:
+  [subagent-reports/261016-m6-opus.md](subagent-reports/261016-m6-opus.md). Fable said
+  FIX-FIRST ([subagent-reports/261016-m6-review-fable.md](subagent-reports/261016-m6-review-fable.md)):
+  B1 (a membership left under a reused tmux name) is fixed, for cc and for ccy `--no-bus`, with
+  the minor points; the re-check said MERGE, with two follow-ups: R1 (a cc session hot-added
+  with a `--` in its command line is judged not on the bus) and R2 (an unreadable session
+  record is taken as not on the bus instead of failing). Both are fixed on `fix/m6-followups`
+  (Go only): a record's launcher words are ccy's up to `--` and all of cc's, `SetTeams`
+  writes the seats before the first `--` (which also fixes M3's ccy restore of a command line
+  with `--`), and an unreadable record stops `session list`, `add` and the cc listing, naming it.
+
+- [ ] 🔄 **Task 3.5**: the container name race the M2 host run found, built on
+  `fix/ccy-name-race`. Two ccy launches started together chose the same lowest free name and
+  the second failed at podman's create (exit 125). The launcher now claims its name through
+  `ccy-teams internal claim-container-name`: a per-process claim under
+  `$XDG_RUNTIME_DIR/ccy/container-names/`, written under a lock held only for the choice.
+  `scripts/test-ccy-container-name.bash` races launches over a fake engine. CCY 3.99.10.2,
+  container 2.75.1. Host acceptance: the M2 leg of `acceptance.bash`, queued in meta-deploy.
+  Notes: [subagent-reports/261016-name-race-opus.md](subagent-reports/261016-name-race-opus.md).
 
 ## Decisions
 
@@ -178,6 +222,17 @@ These are not settled. Each runs on the interim default below until the owner de
    relaunch (tmux alive, container down) can take that session's seat; the returning keeper
    is then refused `held-elsewhere`. The alternative: agent-bus applies ccy-teams' two tests,
    excluding by name the session being launched.
+
+### Open: for the owner (from M6)
+
+7. **A `cc --bus` session on no team refuses cross-session inbound until it is on a team.**
+   Interim default, set by the coordinator to match Decision 1: `cc --bus` starts with
+   `crossSessionInbound: refuse`. cc has no supervisor to do the relaunch a ccy session gets,
+   so its first `session add` keeps the seat, the desired file and the record, and exits 1
+   saying plainly that cc must be ended and started again from `ccy-sessions`, which starts it
+   in that seat, accepting. The alternative: `cc --bus` accepts from launch (cc's settings
+   already do for `--teams`), so its first join is hot with no restart, and until then any
+   process of the owner's uid can post into it.
 
 ## Success Criteria
 

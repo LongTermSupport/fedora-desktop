@@ -363,14 +363,26 @@ The floor is 150,000 tokens. Change it per machine in `host_vars`, then run the 
 ccy_restore_compact_floor_tokens: 200000
 ```
 
-A session the restore found already running is never typed into. Two sessions in one
-project that both `--continue` resume the same conversation, so only the first to draw its
-prompt is set going; the other is left alone as `shares-conversation-with-<name>`. Other
-sessions left alone, each named in the journal
-(`journalctl --user -u ccy-sessions-set-going -b --no-pager | cat`): one whose prompt never
-draws, one already busy when it does, one with someone attached or text in its input box,
-one with no readable transcript. The others still go on. If the restore wrote no manifest
-for the boot, set-going says so and fails rather than guess.
+A session the restore found already running is never typed into. Each session it leaves
+alone is named in the journal, with the reason
+(`journalctl --user -u ccy-sessions-set-going -b --no-pager | cat`). The others still go on.
+A session left alone is one of two things:
+
+- **Expected, and the unit still succeeds.** The session is still at a
+  launch prompt when the wait ends, such as a desktop's SSH passphrase. Or someone is
+  attached, or there is text in its input box. Or it is busy and its transcript shows it
+  took input after this boot began, so it is working. Or it shares its
+  conversation with a session already set going: two sessions in one project that both
+  `--continue` resume the same conversation, so only the first to draw its prompt is set
+  going. The journal says `left <name> alone, as expected: <reason>; <why>`.
+- **A fault, and the unit fails**, naming each one: the launcher exited or the session died, a
+  screen or transcript that cannot be read, keys that cannot be sent, or a prompt or
+  compaction that never comes in the time. A session that shows a spinner but took no input
+  since the boot is waited on: it is set going once its prompt goes idle, and is a fault
+  (`busy-without-input`) if it is still busy when the wait ends. A dead launcher fails the unit too, for now; see
+  Plan 00135.
+
+If the restore wrote no manifest for the boot, set-going says so and fails rather than guess.
 
 Check with `ccy-sessions verify-restore [--wait SECONDS]`. It reads the manifest the boot's
 restore wrote (`~/.local/state/ccy/last-restore`) and prints one line per session: `OK`,
@@ -1097,7 +1109,7 @@ first, and a row to create a team; Tab marks several, and each marked team gets 
 question, so one session can be on several teams. Choosing a team that does not cover this
 checkout widens its scope to the repository only when you answer yes. The launch ends with a
 block naming each team with its seat, role and description, and the status line shows
-`bus: A,B` in any checkout: the member kit makes `pingbus status-line` the session's status
+`👥 A,B` in any checkout: the member kit makes `pingbus status-line` the session's status
 line, which prints the checkout's own status line first (see
 [A session's status line](agent-bus.md#a-sessions-status-line)). The chooser's rules are step 3 of
 [Getting started in agent-bus.md](agent-bus.md#getting-started).
@@ -1108,9 +1120,15 @@ runs. For a team named alone it then asks, in a chooser, which of this checkout'
 the team to take. Each row shows the member's full handle, `ccy (podman)`, and whether the
 seat is free or held by a running session. The default is the lowest free seat, else a new
 number. ccy says the handle before it takes the seat, and the chosen `<seat>@<team>` goes
-into the launch's arguments. For a seat that exists it then asks the seat's role: keep it,
-make it the team's coordinator (naming the current one, who becomes a worker) or, for the
-coordinator, stop it being one; sudo runs only when the role changes, and the role is kept in
+into the launch's arguments. With several teams, every question is headed by its team and
+its place in the sequence (`New session › Team 2 of 3: <team> · step 1/2 Seat`). For a seat that exists it then asks the seat's role: keep it
+(the default), make it the coordinator of a team that has none, or, for the coordinator, stop
+it being one. A team has one coordinator, so on a team that has one the choice is a takeover,
+"Replace the coordinator, <current> (running): it becomes a worker...", whose question names
+the current coordinator, says whether it is running and that it loses the role, and starts on
+No. `ccy-teams session add --role=coordinator` and `session role` ask the same two ways, and
+with no terminal (or with `--yes`) a takeover needs `--demote-current`. Sudo runs only when
+the role changes, and the role is kept in
 the team record, so the Quick Launch that reuses the seat brings it back and shows it in its
 summary. Quick Launch reuses the seat only when you answer yes to that summary (end of input
 is not a yes): a headless launch, a launch with no terminal and a restore take the saved token,
@@ -1737,8 +1755,8 @@ absent supervisor and `--no-supervise`; both announce themselves at launch. See
 | Session stalls with a full context window     | Enable [the supervisor](#the-supervisor) so it compacts automatically.                                                                                                                                                                                                                                                                                                                                                      |
 | Stale/orphaned containers                     | `ccy --top` to list and stop them.                                                                                                                                                                                                                                                                                                                                                                                          |
 | Terminal died; where is my session?           | Still running, detached. `cd` to the project and run `ccy` — it offers to re-attach. `ccy-sessions` lists them all. See [Sessions Survive the Terminal](#sessions-survive-the-terminal).                                                                                                                                                                                                                                    |
-| `ccy` offers a session I do not want          | Choose `Start a new session here`, or end the old one from `ccy-sessions` (choose it, then End it).                                                                                                                                                                                                                                                                                                                                     |
-| "open in another terminal" when attaching     | A session can be attached from one terminal only. Detach it there (F12, Detach), or take it over from `ccy-sessions` (choose it, then Take it over here).                                                                                                                                                                                                                                                                              |
+| `ccy` offers a session I do not want          | Choose `Start a new session here`, or end the old one from `ccy-sessions` (choose it, then End it).                                                                                                                                                                                                                                                                                                                         |
+| "open in another terminal" when attaching     | A session can be attached from one terminal only. Detach it there (F12, Detach), or take it over from `ccy-sessions` (choose it, then Take it over here).                                                                                                                                                                                                                                                                   |
 | "tmux is not installed"                       | `play-tmux-sessions.yml` has not run on this host. It is part of `playbook-main.yml`.                                                                                                                                                                                                                                                                                                                                       |
 | Sessions did not come back after a reboot     | Restore is opt-in: `ccy_restore_sessions: true` in `host_vars`, then the play. If it is on, `ccy-sessions verify-restore` names each session's state, and `journalctl --user -u ccy-sessions-restore -b --no-pager` shows what the restore did.                                                                                                                                                                             |
 | `ccy-sessions reboot` refuses                 | logind does not let this account reboot unattended (`CanReboot: challenge`, any login outside the desktop session): use `sudo /usr/local/bin/reboot-with-update --in N`. Or a live session's project has no hooks-daemon CLI, or its CLI cannot run where it is reached (in the container for ccy, on the host for cc): every such session is named; end it or install the daemon there. Nothing was signalled or rebooted. |

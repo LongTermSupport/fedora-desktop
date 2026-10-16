@@ -89,6 +89,9 @@ type kit struct {
 	pasteKeys []string // PasteKey replies, the last repeating; none: the method is missing
 	asked     int
 	copied    map[string]string // clipboard tool line -> stdin
+	// staleReads is how many read-backs still see previousDictation: wl-copy returns
+	// before its forked child owns the selection.
+	staleReads, reads int
 }
 
 func newKit(t *testing.T) *kit {
@@ -166,9 +169,29 @@ func (k *kit) script() {
 			return execx.Result{}, nil
 		})
 	}
+	// Reading a selection back: the last copy to it, once the copy has taken (staleReads).
+	// In order: a later rule wins, so "wl-paste -n -p" must come after its prefix "wl-paste -n".
+	readers := [][2]string{
+		{"wl-paste -n", "wl-copy"}, {"wl-paste -n -p", "wl-copy -p"}, {"xsel -ob", "xsel -ib"}, {"xsel -op", "xsel -ip"},
+	}
+	for _, rw := range readers {
+		writer := rw[1]
+		f.OnFunc(strings.Fields(rw[0]), func(execx.Cmd) (execx.Result, error) {
+			k.mu.Lock()
+			defer k.mu.Unlock()
+			k.reads++
+			if k.reads <= k.staleReads {
+				return execx.Result{Stdout: []byte(previousDictation)}, nil
+			}
+			return execx.Result{Stdout: []byte(k.copied[writer])}, nil
+		})
+	}
 	f.On([]string{"ydotool"}, execx.Result{})
 	f.On([]string{"curl"}, execx.Result{Stdout: []byte("200")})
 }
+
+// previousDictation is what the selection held before this dictation copied to it.
+const previousDictation = "The previous dictation"
 
 func copyFile(from, to string) error {
 	data, err := os.ReadFile(from)

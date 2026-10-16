@@ -11,8 +11,10 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/hot"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -48,6 +50,8 @@ const (
 	questionKeyLine = "Enter choose   Esc or q back to the list"
 	roleWorker      = agentbus.RoleWorker
 	roleCoordinator = agentbus.RoleCoordinator
+	// roleTakeover is the coordinator's role taken from the member that holds it.
+	roleTakeover = "takeover"
 )
 
 // sessionsPass is one pass of the Running sessions view: list, show, do what the key asks.
@@ -160,8 +164,10 @@ func (r *run) sessionMenu(ctx context.Context, s hot.Session) (flow.Result, erro
 // that exists, and why it cannot be chosen ("" when it can). at is its place among the answers.
 type option struct {
 	line, value, refused string
-	exists               bool
-	at                   int
+	// handle is the member a seat answer names, "" for none.
+	handle string
+	exists bool
+	at     int
 }
 
 // ask is one question in the picker. A refused answer is said and the question asked again,
@@ -224,13 +230,17 @@ func (r *run) addToTeam(ctx context.Context, s hot.Session) (flow.Result, error)
 	if !ok {
 		return res, err
 	}
-	holder, held := r.snap.Members[team.value].Coordinator()
+	holder := coordinator.Holding(r.snap.Members[team.value], seat.handle, seats.SnapshotRunning(r.snap))
+	current := ""
+	if seat.handle != "" && r.snap.RoleOf(team.value, seat.handle) == roleCoordinator {
+		current = roleCoordinator // the seat's handle holds the role already (Fable's N1)
+	}
 	seatWord := "the lowest free seat"
 	if seat.value != "" {
 		seatWord = "seat " + seat.value
 	}
 	role, res, ok, err := r.ask(ctx, h.AtStep(3, 3, "Role").About("session "+s.Name+" · team "+team.value+" · "+seatWord),
-		"Role in "+team.value+":", roleOptions(team.value, "", holder.Handle, held))
+		"Role in "+team.value+":", roleOptions(team.value, current, holder))
 	if !ok {
 		return res, err
 	}
@@ -240,7 +250,7 @@ func (r *run) addToTeam(ctx context.Context, s hot.Session) (flow.Result, error)
 	}
 	args := []string{"add", s.Name, where}
 	switch {
-	case role.value == roleCoordinator && held:
+	case role.value == roleTakeover:
 		args = append(args, "--role="+roleCoordinator, "--demote-current")
 	case role.value == roleCoordinator:
 		args = append(args, "--role="+roleCoordinator)
@@ -298,25 +308,27 @@ func (r *run) askSeat(ctx context.Context, s hot.Session, team string, h ui.Head
 		if c.State == "held" {
 			continue
 		}
-		opts = append(opts, option{line: "seat " + c.Seat + " (" + c.State + ", " + c.Handle + ")", value: c.Seat, exists: c.State != "new"})
+		opts = append(opts, option{line: "seat " + c.Seat + " (" + c.State + ", " + c.Handle + ")", value: c.Seat, handle: c.Handle, exists: c.State != "new"})
 	}
 	return r.ask(ctx, h, "Seat in "+team+" ("+r.p.Kit.Abbrev(s.Checkout)+"):", opts)
 }
 
-// roleOptions is worker or coordinator; current marks the role held now, holder names the
-// coordinator a new one replaces.
-func roleOptions(team, current, holder string, held bool) []option {
+// roleOptions is worker, the ordinary choice, first; then the coordinator's role in one of the
+// two paths (package coordinator): held now, offered plainly on a team with none, or, when
+// holder holds it, the takeover in its own words, which passes --demote-current and whose
+// question, asked by the command, defaults to no. current marks the role held now.
+func roleOptions(team, current string, holder coordinator.Holder) []option {
 	worker := option{line: roleWorker, value: roleWorker}
-	coordinator := option{line: roleCoordinator, value: roleCoordinator}
 	if current == roleWorker {
 		worker.line += " (now)"
 	}
-	if current == roleCoordinator {
-		coordinator.line += " (now)"
-	} else if held {
-		coordinator.line += " (" + team + "'s is " + holder + "; it becomes a worker)"
+	switch {
+	case current == roleCoordinator:
+		return []option{worker, {line: roleCoordinator + " (now)", value: roleCoordinator}}
+	case holder.Handle != "":
+		return []option{worker, {line: coordinator.TakeoverChoice(holder), value: roleTakeover}}
 	}
-	return []option{worker, coordinator}
+	return []option{worker, {line: coordinator.NoneChoice(team), value: roleCoordinator}}
 }
 
 // removeFromTeam is section 5.3: what becomes of a coordinator's role, then `session remove`
@@ -369,15 +381,14 @@ func (r *run) askCoordinator(ctx context.Context, s hot.Session, cell hot.Cell, 
 // roleInTeam is `session role` in the team the menu line named: the role.
 func (r *run) roleInTeam(ctx context.Context, s hot.Session, cell hot.Cell) (flow.Result, error) {
 	h := sessionHeading(s, "Role in "+cell.Team).About("session " + s.Name + " · seat " + cell.Seat + " in team " + cell.Team + " · now " + cell.Role)
-	holder, held := r.snap.Members[cell.Team].Coordinator()
-	held = held && holder.Handle != r.seatHandle(s.Checkout, cell)
-	role, res, ok, err := r.ask(ctx, h, "Role of seat "+cell.Seat+" in "+cell.Team+":", roleOptions(cell.Team, cell.Role, holder.Handle, held))
+	holder := coordinator.Holding(r.snap.Members[cell.Team], r.seatHandle(s.Checkout, cell), seats.SnapshotRunning(r.snap))
+	role, res, ok, err := r.ask(ctx, h, "Role of seat "+cell.Seat+" in "+cell.Team+":", roleOptions(cell.Team, cell.Role, holder))
 	if !ok {
 		return res, err
 	}
 	args := []string{"role", s.Name, cell.Team, role.value}
-	if role.value == roleCoordinator && held {
-		args = append(args, "--demote-current")
+	if role.value == roleTakeover {
+		args = []string{"role", s.Name, cell.Team, roleCoordinator, "--demote-current"}
 	}
 	return r.session(ctx, args)
 }

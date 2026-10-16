@@ -2365,12 +2365,12 @@ def cmd_status(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO
 
 def cmd_seat_exec(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
     """Start the seat keeper, which takes every seat of the launch (the desired membership
-    `PINGBUS_MEMBERSHIP` names, or `PINGBUS_SEATS` from `cc --teams`), builds the session home
+    `PINGBUS_MEMBERSHIP` names), builds the session home
     and checks every bundle; check the forge credential source as `config check` does when a
     seat is held; then replace this process with the command. The keeper holds every seat
     lock and the command holds none (Plan 00203 D4). A membership with no seat is a session
     on no team: the home and its settings, nothing held.
-    `--root` and `--home` are for a launch on the host (`cc --teams`), where the checkout
+    `--root` and `--home` are for a launch on the host (`cc --teams`, `cc --bus`), where the checkout
     is not /workspace and /tmp is shared."""
     rt: Runtime = args.runtime
     command = list(args.command)
@@ -2379,28 +2379,22 @@ def cmd_seat_exec(args: argparse.Namespace, environ: Mapping[str, str], out: Tex
     if not command:
         raise config.UsageError(f"{PROG} seat exec: name the command to run")
     root, home = _seat_paths(args, rt, "seat exec")
-    source = seating.desired_source(environ)
-    want = source.read()
-    from_membership = isinstance(source, seating.MembershipFile)
-    if not want.refs and not from_membership:
-        raise config.ConfigError(f"{seating.SEATS_VAR} names no seat")
+    want = seating.desired_source(environ).read()
     inner, guard, warnings = None, True, []
-    if from_membership:
-        try:
-            inner = seating.inner_status_line(seating.settings_sources(environ, pathlib.Path.cwd()))
-        except seating.SettingsUnreadable as exc:
-            guard = False
-            warnings.append(f"{exc}: the session keeps Claude Code's own status line, with no bus "
-                            "segment; fix the file and relaunch to get it")
+    try:
+        inner = seating.inner_status_line(seating.settings_sources(environ, pathlib.Path.cwd()))
+    except seating.SettingsUnreadable as exc:
+        guard = False
+        warnings.append(f"{exc}: the session keeps Claude Code's own status line, with no bus "
+                        "segment; fix the file and relaunch to get it")
     if want.refs:
         forge_credential_source(environ)
     _start_keeper(rt, environ, root, home, err)
     applied = membership.read_applied(home)
     seats = () if applied is None else applied.seats
-    if from_membership:
-        # Inbound is decided here, once (H33b): a session launched on no team accepts none,
-        # whatever the keeper takes later; its first join relaunches it (M3).
-        seating.write_session_files(home, inner, seated=bool(seats), guard=guard)
+    # Inbound is decided here, once (H33b): a session launched on no team accepts none,
+    # whatever the keeper takes later; its first join relaunches it (M3).
+    seating.write_session_files(home, inner, seated=bool(seats), guard=guard)
     child_env = dict(environ)
     child_env["PINGBUS_HOME"] = str(home)
     child_env.pop("PINGBUS_TEAMS", None)
@@ -2671,14 +2665,14 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
     hook.add_argument("event", choices=hooks.EVENTS, metavar="EVENT",
                       help=" | ".join(hooks.EVENTS))
     command("status-line", cmd_status_line,
-            "the Claude Code status line: the session's own, then bus: <teams> (the kit's statusLine)")
+            "the Claude Code status line: the session's own, then 👥 <teams> on rows of their own (the kit's statusLine)")
     seat_parser = commands.add_parser("seat", help="this ccy session's seats")
     team_option(seat_parser, argparse.SUPPRESS)
     seat_commands = seat_parser.add_subparsers(dest="seat_command", metavar="SUBCOMMAND",
                                                required=True)
     seat_exec = seat_commands.add_parser(
-        "exec", help="claim the launch's seats (PINGBUS_MEMBERSHIP's desired membership, or PINGBUS_SEATS), "
-                     "then run CMD holding them (ccy's entrypoint, cc --teams)")
+        "exec", help="claim the launch's seats (PINGBUS_MEMBERSHIP's desired membership), "
+                     "then run CMD holding them (ccy's entrypoint, cc --teams, cc --bus)")
     team_option(seat_exec, argparse.SUPPRESS)
     seat_exec.add_argument("--root", metavar="DIR",
                            help="the checkout's seats (default: ccy's, under /workspace)")

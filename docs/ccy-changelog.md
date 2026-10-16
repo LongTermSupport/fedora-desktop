@@ -17,13 +17,131 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.10.2 — container 2.75.1
+## 3.99.12.10 — container 2.77.7
+
+Follows 3.99.12.9 (container 2.77.7); the image is unchanged.
 
 - **Every picker action is a visible choice, not a key alone** (Plan 00203,
-  `project_hidden_bindings`). The "a session is detached here" offer has a `Start a new session here` row where Ctrl-N was the only way; `ccy-sessions` gives each session a menu (Enter) of
+  `project_hidden_bindings`). The "a session is detached here" offer has a `Start a new session here` row where Ctrl-N was the only way. `ccy-sessions` gives each session a menu (Enter) of
   attach, take over (Ctrl-T) and end (Ctrl-X), and a row of its own to start a new session
-  (Ctrl-N); in `ccy-teams` a shortcut is accepted only where its line is listed. A key is now
-  only a shortcut, printed beside the line it chooses.
+  (Ctrl-N); its header names those keys. In `ccy-teams` a shortcut is accepted only where its
+  line is listed. A key is now only a shortcut, printed beside the line it chooses.
+## 3.99.12.9 — container 2.77.7
+
+Follows 3.99.12.8 (container 2.77.6).
+
+- **`ccy-teams lxc-add` finds the checkout and keeps its place visible** (Plan 00203). The
+  Checkout step offers the git checkouts a bounded search of the user's home found (ccy
+  projects first, `node_modules` and `vendor` skipped, a search past its time limit said), and
+  *Type a path…* walks the container's directories with the arrows and Enter, Tab completing a
+  name. Every question names the team, the step, the container and the user. A container on
+  any LXC store is read: `dir` and `btrfs` as the directory their rootfs is, the others
+  through the running container's own root.
+- **After the add, it says how the member starts and checks itself**: the kit's
+  `agent-bus-claude` (a client project's own `ccy` in the container is not ours to name), a
+  Claude session already running there named with when it started, to be started again, and
+  `pingbus config check && pingbus history --limit 1` to see the team's room live. The
+  handle is shown with its container and user.
+- **`pingbus` in a member's login shell says how to read the env file** when `PINGBUS_TEAMS`
+  is unset (the image's pingbus, hence the container bump). It never reads the file itself:
+  `agent-bus-claude` stays its one reader.
+
+## 3.99.12.8 — container 2.77.6
+
+Follows 3.99.12.5 (container 2.77.4).
+
+- **The agent-bus status line wraps instead of being cut.** `pingbus status-line` appended
+  `| bus: A,B` to the last row of the session's own status line. The hooks daemon's status line
+  already wraps its rows to the terminal's width, so that row was often full and Claude Code
+  cut it with an ellipsis (`bus: de…`). The teams now go on rows of their own below it, wrapped
+  after a comma at `COLUMNS`, and are never cut; with no `COLUMNS` they are one unbroken row.
+- **`bus:` is now 👥**, the team counterpart of the hooks daemon's 👤 account segment:
+  `👥 alpha,beta`, `👥 <team>(down)`, and `👥 no record ...` in red.
+
+## 3.99.12.5 — container 2.77.4
+
+- **A team's settings from ccy-teams** (Plan 00201 Task 2.15). Enter on a team row, then Edit
+  settings, opens one screen of the team's fields. You edit them, then save and apply them in
+  one step. A person removed from a team is recorded in its entry (`removed_humans`), and the
+  team file refuses that name ever again, because the account is deactivated for good. The
+  image changes only because `helpers/agent_bus/` (declare.py's new `settings` and `set`, the
+  team file's new key) is part of the agent_bus copy it carries. The Coordinator field follows
+  the two coordinator paths below: a plain offer on a team with none, a takeover on one that
+  has one.
+
+## 3.99.12.4 — container 2.77.3
+
+Follows 3.99.12.3 (container 2.77.2).
+
+- **Two coordinator paths** (Plan 00203, owner feedback). A team has one coordinator. On a
+  team with none, making a member the coordinator is offered plainly. On a team that has one,
+  it is a takeover: the question names the current coordinator, says whether it is running,
+  says it loses the role, and starts on No. This holds in `ccy-teams session add --role` and
+  `session role`, the picker, the launch role question and `ccy-teams lxc-add`. With no
+  terminal, or with `--yes`, a takeover needs `--demote-current`.
+- **`declare lxc-role`** (the image carries `helpers/agent_bus/declare.py`): sets one declared
+  LXC member's role. lxc-add's takeover uses it to make a declared coordinator a worker.
+- **The picker's offers** to describe a team or lift a path limit are now three choices: now,
+  not now, or never. Only never is remembered. An old "no" is asked again once.
+
+## 3.99.12.3 — container 2.77.2
+
+Includes 3.99.12 to 3.99.12.2, never deployed, and 3.99.10.2 and 3.99.10.3 below (the
+2.77.2 image carries 2.75.2's status line fix). 3.99.12.3: the image's pingbus no longer reads
+`PINGBUS_SEATS`, which no launcher sets: `pingbus seat exec` follows the desired membership
+`PINGBUS_MEMBERSHIP` names, and refuses (78) a launch without one. 3.99.12.2: a `ccy --no-bus` launch in ccy's tmux
+removes the desired membership an earlier session left under its tmux name, which tmux reuses
+once a session ends; `ccy-teams` also counts a membership only while the record of its name
+carries the bus, so a plain `cc` or a `--no-bus` ccy under a reused name is never shown on, or
+holding a claim to, the earlier session's seats (Plan 00203, Fable's M6 review B1).
+
+3.99.12.1 (container 2.77.1) makes `cc --bus` refuse team messages until it is started again on
+a team (below) and takes back the image's `pingbus seat exec --accepts-inbound`, which 3.99.12
+(container 2.77) added for the opposite choice. 3.99.12:
+
+- **cc sessions are hot-controlled too** (Plan 00203 M6). A `cc --teams` session, and one
+  started with the new `cc --bus` (on no team, after the same Element consent), can be put in
+  a team, taken out, moved and re-roled while it runs, from `ccy-teams session add|remove|move| role`, and `session list` shows it with kind `cc`. Its desired membership lives in
+  `$XDG_RUNTIME_DIR/pingbus/membership/<session>/`; it runs as you, so unlike a ccy session it
+  could write that file itself (cc's weaker authority, accepted). Its prompt line names no team:
+  its teams are in the session context and may change. A cc session is not repaired from the
+  host: end it and start it again.
+- `cc --bus` starts refusing team messages, as a ccy session on no team does. cc cannot
+  relaunch itself, so its first `ccy-teams session add` keeps the seat and exits 1, saying to
+  end cc and start it again from `ccy-sessions`, which starts it in that seat.
+- `ccy-teams describe-seats --sentence` is gone; nothing names a cc session's handles in its
+  prompt any more.
+
+## 3.99.10.3 — container 2.75.2
+
+- **A status line cancelled as it starts no longer leaves its inner command running**
+  (Plan 00203). `pingbus status-line` runs the session's own status line command in a process
+  group and kills the group when Claude Code cancels it. The inner command starts before the
+  process that runs it is known to the cancel handler, so a cancel landing in that moment ended
+  pingbus and left the inner command, and anything it started, running. Such a cancel is now
+  held until the process is known, then carried out: the group is killed and pingbus exits as
+  before.
+
+## 3.99.10.2 — container 2.75.1
+
+- **Two launches at once no longer collide on the container name** (Plan 00203). Each launch
+  chose the lowest free name (`<project>_yolo`, `_1`, `_2` ...) from the engine's container
+  list and created the container much later, so two launches started together in one project
+  (two sessions opened at once, a boot restore of several) took the same name and the second
+  failed at create: `the container name ... is already in use` (exit 125). The name is now
+  claimed as it is chosen: `ccy-teams internal claim-container-name` writes a claim for the
+  launcher's process into `$XDG_RUNTIME_DIR/ccy/container-names/` under a lock, and a name is
+  taken while a container has it or while the process that claimed it still runs. The lock is
+  held only for the choice; a relaunch (the same process, by exec) chooses again freely.
+  Docker sessions use the same claim. `scripts/test-ccy-container-name.bash` races launches
+  over a fake engine.
+- **Every launch now needs `XDG_RUNTIME_DIR`**, plain and `--no-bus` launches included (before,
+  only a launch carrying the bus kit did, through `membership-init`). Every supported context
+  has it: a desktop login, ssh with pam_systemd, the restore unit and ccy's tmux. A launch
+  without it stops before the container starts, naming the variable.
+- A claim is written in place under the lock, so a launch killed mid-claim leaves no temporary
+  file; an unfinished claim is removed by the next launch, and a malformed one is removed only
+  when its process is gone (otherwise the launch stops, naming the file).
 
 ## 3.99.10.1 — container 2.75.1
 

@@ -20,16 +20,17 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Rebuilds ccy-teams and ccy-sessions and installs CCY 3.99.10.2 (Plan 00203 M5 and the
-# hidden-bindings fix): every picker action is a visible, named choice and a key only its
-# shortcut; ccy-sessions gives each session a menu; the launcher's detached-session offer has
-# a "Start a new session here" row where Ctrl-N was the only way. Also Plan 00204's context
-# heading: every ccy-teams and ccy-sessions screen says where it is
-# (Teams › alpha › Add LXC member · step 3/4 Checkout) and what it acts on.
+# Plan 00204 D4: rebuilds ccy-teams and ccy-sessions with the context heading. Every screen
+# says where it is and what it acts on (Teams › alpha › Add LXC member · step 3/4 Checkout over
+# "into team alpha · container …"; ccy --teams heads each team "New session › Team 2 of 3: …";
+# Teams › <team> › Settings). Running sessions are not touched.
 playbooks/imports/play-claude-yolo.yml
-# Installs wsi-model-manager with on-screen buttons for download, remove, refresh, clear filter
-# and quit (the keys stay as shortcuts), and upgrades textual to 0.85 or later for them.
+# Plan 00208 Phase 3: a failed Ctrl+Insert/Alt+Insert (Claude) dictation now shows its
+# notification even with Show Notifications off, as does every failure notice that stays
+# (wsi, wsi-stream, wsi-article; an article stopped at its silence or duration limit now
+# notifies too). Builds and installs the new wsi-postprocess, and deploys the extension's new
+# menu items, Post-Process Last Transcription: Corporate and Natural (the result goes to the
+# clipboard, the transcription stays as it was), and a notification at login if a record key
+# could not be registered. THE EXTENSION CHANGED: LOG OUT AND BACK IN after this run (Wayland
+# reloads extension code only at login); the scripts and binaries apply at once.
 playbooks/imports/optional/common/play-speech-to-text.yml
-# Installs the Ctrl+R history search with its start-up binding spelt in the fzf call
-# (behaviour unchanged).
-playbooks/imports/play-basic-configs.yml

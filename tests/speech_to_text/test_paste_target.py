@@ -174,7 +174,7 @@ class AutoPasteKeysTest(unittest.TestCase):
         self.timeline = []  # presses and sleeps, in order
         for name, value in {
             "log": lambda *a, **k: None,
-            "copy_to_clipboard": lambda text, use_clipboard=False: True,
+            "copy_confirmed": lambda text, use_clipboard=False: None,
             "press": lambda env, *keys: self.pressed.append(keys) or self.timeline.append(keys),
         }.items():
             patcher = mock.patch.object(wsi_stream, name, value)
@@ -269,8 +269,8 @@ class AutoPasteKeysTest(unittest.TestCase):
             raise wsi_stream.PasteTargetUnavailable("the window this dictation started in was closed")
 
         with mock.patch.object(wsi_stream, "paste_target_now", unavailable), \
-                mock.patch.object(wsi_stream, "copy_to_clipboard",
-                                  lambda text, use_clipboard=False: copied.append(text) or True), \
+                mock.patch.object(wsi_stream, "copy_confirmed",
+                                  lambda text, use_clipboard=False: copied.append(text)), \
                 self.assertRaises(wsi_stream.PasteTargetUnavailable):
             wsi_stream.auto_paste("hello")
         self.assertEqual(self.pressed, [])

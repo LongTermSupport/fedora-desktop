@@ -285,7 +285,13 @@ def _emit(report: freshness.Report, stdout: TextIO, stderr: TextIO) -> int:
     return EXIT_FINDINGS
 
 
-def clear_broken(*, base: str, stdout: TextIO) -> int:
+def clear_broken(
+    *,
+    base: str,
+    stdout: TextIO,
+    stderr: TextIO = sys.stderr,
+    only_if_reason: str | None = None,
+) -> int:
     """Forget a recorded ledger hole, so recording can resume. The operator's route.
 
     Without this route a sentinel, once written, would leave the ledger permanently
@@ -297,6 +303,11 @@ def clear_broken(*, base: str, stdout: TextIO) -> int:
     stays incomplete — it just stops being *known-broken*, which is a weaker and
     honest claim. Reporting that difference is why this prints rather than being
     silent, and why it is a deliberate flag rather than something `run` does for you.
+
+    `only_if_reason` is for an unattended clear (a meta-deploy script) written for one
+    known cause: the sentinel is cleared only if its reason contains that text, and is
+    otherwise left in place with a [FATAL] line, because a hole with any other reason
+    has a cause nobody has said is fixed.
     """
     sentinel = ledger.sentinel_path(base)
     if not os.path.exists(sentinel):
@@ -307,9 +318,22 @@ def clear_broken(*, base: str, stdout: TextIO) -> int:
         with open(sentinel, encoding="utf-8") as handle:
             reason = handle.read().strip()
     except OSError as error:
+        if only_if_reason is not None:
+            stderr.write(
+                f"[FATAL] play-ledger: the reason in {sentinel} could not be read ({error}), "
+                f"so it cannot be shown to be {only_if_reason!r}; left in place.\n"
+            )
+            return EXIT_UNTRUSTWORTHY
         # Reported, not fatal: the operator asked to clear the sentinel, and failing
         # to quote it back is no reason to leave it in place.
         reason = f"(the reason could not be read: {error})"
+    if only_if_reason is not None and only_if_reason not in reason:
+        stderr.write(
+            f"[FATAL] play-ledger: the recorded hole is not the one this clear was written "
+            f"for ({only_if_reason!r}), so it is left in place: {reason}\n"
+            "Clear it by hand once its own cause is fixed.\n"
+        )
+        return EXIT_UNTRUSTWORTHY
     # Dated, because the CLEARED marker's whole job is to say the record set is a lower
     # bound FROM SOME POINT ON. An undated marker says a hole was cleared and not when,
     # which is the half of the fact a reader would act on.
@@ -339,10 +363,25 @@ def main(argv: list[str] | None = None) -> int:
             "this only says the CAUSE is fixed and recording may resume."
         ),
     )
+    parser.add_argument(
+        "--only-if-reason",
+        metavar="TEXT",
+        help=(
+            "with --clear-broken: clear only a hole whose recorded reason contains TEXT, "
+            "else leave it and exit 2. For an unattended clear written for one known cause."
+        ),
+    )
     arguments = parser.parse_args(argv)
+    if arguments.only_if_reason is not None and not arguments.clear_broken:
+        parser.error("--only-if-reason needs --clear-broken")
     base = ledger.ledger_dir(os.environ, os.path.expanduser("~"))
     if arguments.clear_broken:
-        return clear_broken(base=base, stdout=sys.stdout)
+        return clear_broken(
+            base=base,
+            stdout=sys.stdout,
+            stderr=sys.stderr,
+            only_if_reason=arguments.only_if_reason,
+        )
     return run(base=base, repo_root=arguments.repo_root, stdout=sys.stdout, stderr=sys.stderr)
 
 

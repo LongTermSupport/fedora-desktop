@@ -79,7 +79,7 @@ that play.
    takes them or the highlighted one), each marked team gets its own seat question, headed
    with which team it is (`New session › Team 2 of 3: beta`), and the
    launch prints which teams the session is on, with seat, role and what each is for; the status
-   line shows `bus: alpha,beta`, in any checkout (see
+   line shows `👥 alpha,beta`, in any checkout (see
    [A session's status line](#a-sessions-status-line)). With several teams, pingbus's send and say commands work out the
    team from `--re` or `--to` when only one fits, and otherwise list the teams and ask for `--team`.
    It then goes on as `ccy --teams <team>` (no seat), which shows this
@@ -95,7 +95,8 @@ that play.
    running containers, asks for the user, the checkout and the role (the handle's repo, host
    and seat are derived from the checkout, as for a ccy seat), shows the handle,
    writes the `agent_bus_lxc_members` entry and applies the team, then says what is left
-   inside the container (`gh auth login` if needed, then `ccy --teams <team>`). No hand edit
+   inside the container (`gh auth login` if needed, then the kit's `agent-bus-claude`, and
+   whether a session already running there must be started again). No hand edit
    of `localhost.yml` (writing the entry yourself and running `play-agent-bus.yml` still
    works). Nothing to declare for the network: every team admits the LXC bridge
    ([Joining a team](#joining-a-team)); [agent-bus-lxc-members.md](agent-bus-lxc-members.md)
@@ -134,6 +135,27 @@ be free. Each member is reported: exited cleanly, stopped, failed, or not shut d
 agent, a session on another machine, a `cc --teams <team>` session whose record lacks its seat:
 end those where they run). A session with unsent text in its input box, or whose screen cannot
 be read, is left alone. Local only: nothing goes on the bus. Spec: Plan 00201 `SPEC-shutdown.md`.
+
+**Change a team's settings.** Enter on the team, then **Edit settings**. One screen lists every
+field of the team's `agent_bus_teams` entry with its value. Choose a field to change it; each
+value is checked as you type it, by the same rules the play uses. Changes wait on the screen
+until **Save and apply**. It shows each change and what applying does, then writes the
+host_vars in one edit (a backup kept beside it) and applies the team, as `ccy-teams apply`
+does. **Discard changes** forgets them, and **Back** asks first when some are not saved.
+
+| Field                                                         | What applying a change does                                                                                                                                                                                                           |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Description                                                   | sets the team room's topic; no restart                                                                                                                                                                                                |
+| People (`humans`)                                             | an account and an invite for each person added (who then signs in); a person removed is put out of the room and their account deactivated for good, and is listed under Removed people: that name can never be added back; no restart |
+| GitHub owner, repositories, excluded repositories, path limit | rewrites the team record, which running sessions read on their next sync; no restart                                                                                                                                                  |
+| Allowed networks (`allow_from`)                               | rewrites the firewall and the homeserver's address filter, which restarts the homeserver                                                                                                                                              |
+| Coordinator                                                   | changed at once, not on save (the same as a seat's Make coordinator)                                                                                                                                                                  |
+
+The name, port, listen addresses, server name, forge API and removed people are shown as fixed,
+with the reason.
+A team's name is its homeserver's unit and data folder, and part of every account and room ID.
+The installer refuses to change it, so renaming a team means making a new one. Port and listen
+addresses are in every member's credentials. Spec: Plan 00201 `SPEC-many-teams.md` section F.
 
 `ccy-teams` lists each team (its homeserver up, down or not installed yet, its port, and
 APPLIED: up to date, out of date, not built, or decide), then its members. They are ccy seats, each with the session holding it and whether it is
@@ -549,7 +571,19 @@ with the same list and the same chooser as `ccy --teams`:
 cc --teams                      # choose the teams from a list (Tab marks several)
 cc --teams <team>               # a team alone: choose its seat
 cc --teams 1@<team>,2@<team2>   # name the seats
+cc --bus                        # on no team: add it to teams later, while it runs
 ```
+
+Started either way inside ccy's tmux (as `cc` always is from a terminal), the session can be
+put in a team, taken out, moved and re-roled while it runs, from `ccy-teams session add`,
+`remove`, `move` and `role`, as a ccy session can; `ccy-teams session list` shows it with
+kind `cc`. It runs as you, so unlike a ccy session it could change its own desired membership
+(`$XDG_RUNTIME_DIR/pingbus/membership/<session>/`): for cc this is guidance, not a wall, as
+below. Its prompt line names no team: its teams are in the session context and the latest
+membership notice. A `cc --bus` session refuses team messages until it is on a team, and cc
+cannot restart itself: its first `session add` keeps the seat and says to end cc and start it
+again from `ccy-sessions`, which starts it in that seat. A cc session whose seat keeper stopped is not repaired from the host: end
+it and start it again.
 
 On a terminal `ccy-teams choose-teams --type=host` asks, and prints the launch block once
 the seats are taken. With no terminal a team alone or a bare `--teams` is refused.
@@ -584,16 +618,21 @@ dedicated agent user.
 ### A session's status line
 
 Every session on a team (ccy, cc or `agent-bus-claude`, in any checkout) ends its status
-line with `bus: alpha,beta`, the teams it was launched into. The member kit's `settings.json`
+line with `👥 alpha,beta`, the teams it is on (👥 is the team counterpart of the hooks daemon's
+👤 account). The member kit's `settings.json`
 makes `pingbus status-line` the status line command, and settings given on the command line
 outrank the project's, so it applies in a checkout that has never heard of the bus. It runs
 the status line the checkout or your user settings already set (a hooks daemon's, for
-example) and adds the segment after it, so nothing you had is lost. It refreshes every second,
+example) and adds the segment on rows of its own below it, so nothing you had is lost. Claude
+Code cuts a row wider than the terminal with an ellipsis, and the hooks daemon's status line
+already fills its rows to the width, so the teams are never appended to its last row: they
+wrap at the terminal's width (`COLUMNS`, which Claude Code sets) after a comma, under the 👥,
+and are never cut. With no `COLUMNS` the segment is one unbroken row. It refreshes every second,
 as this repository's status line does (ccy `--supervise` reads what the hooks daemon's status
 line writes on each render), whatever interval the replaced status line had. A failing, hung or
 unreadable status line underneath is shown in red rather than blanking the line. The segment comes from a record the SessionStart hook
 writes for the session. If that record could not be written, the status line shows
-`bus: no record of this session's teams (pingbus status)` in red rather than nothing, and the
+`👥 no record of this session's teams (pingbus status)` in red rather than nothing, and the
 session is told; a session on no team shows no segment.
 
 ## The dedicated agent user

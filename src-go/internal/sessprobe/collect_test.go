@@ -366,6 +366,33 @@ func TestRunningContainerNamesNamesTheEngineThatFailed(t *testing.T) {
 	}
 }
 
+func TestAllContainerNamesListsEveryContainerOfTheEngine(t *testing.T) {
+	for _, engine := range []string{"podman", "docker"} {
+		fake := &execx.Fake{}
+		fake.On([]string{engine, "ps", "-a", "--format", "{{.Names}}"}, ok("a_yolo\n\nother\n"))
+		got, err := sessprobe.AllContainerNames(context.Background(), fake, engine)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 2 || !got["a_yolo"] || !got["other"] {
+			t.Errorf("%s: got %v", engine, got)
+		}
+	}
+}
+
+func TestAllContainerNamesRefusesAnotherEngineAndNamesAFailure(t *testing.T) {
+	fake := &execx.Fake{}
+	if _, err := sessprobe.AllContainerNames(context.Background(), fake, "nerdctl"); err == nil ||
+		!strings.Contains(err.Error(), "neither podman nor docker") || len(fake.Calls()) != 0 {
+		t.Fatalf("err = %v, calls %v", err, fake.Calls())
+	}
+	fake.On([]string{"podman", "ps"}, execx.Result{Stderr: []byte("Error: the engine is down"), ExitCode: 125})
+	if _, err := sessprobe.AllContainerNames(context.Background(), fake, "podman"); err == nil ||
+		!strings.Contains(err.Error(), "podman ps -a failed") || !strings.Contains(err.Error(), "the engine is down") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestLabelledContainersListsIDAndStateOfTheLabel(t *testing.T) {
 	fake := &execx.Fake{}
 	fake.On([]string{"podman", "ps", "--filter", "label=ccy-session=s1", "--format", "{{.ID}}\t{{.State}}"}, ok("abc\trunning\n"))

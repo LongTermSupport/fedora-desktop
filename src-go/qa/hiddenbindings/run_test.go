@@ -18,7 +18,7 @@ const (
 	goodShFixture = "#!/usr/bin/env bash\nfzf --bind=q:abort\nfzf --expect=ctrl-n # finding\n"
 	goodPyFixture = "from textual.app import App\nclass A(App):\n    BINDINGS = [('d', 'download')]  # finding\n"
 	cleanScript   = "#!/usr/bin/env bash\nfzf --bind=q:abort\n"
-	keyScript     = "#!/usr/bin/env bash\nfzf --bind=ctrl-a:accept\n"
+	keyScript     = "#!/usr/bin/env bash\nfzf --bind='ctrl-a:become(x)'\n"
 )
 
 // fakeRunner answers python3 from pyAnswer (given the files handed over) and runs the real
@@ -125,7 +125,7 @@ func TestFindingsInBothLanguagesFail(t *testing.T) {
 		t.Fatalf("exit %d, want 1; stderr %s", code, w.stderr.String())
 	}
 	out := w.stdout.String()
-	for _, want := range []string{"bin/tool.bash:2: fzf --bind ctrl-a:accept", "bin/keys.py:3: Textual binding d -> download"} {
+	for _, want := range []string{"bin/tool.bash:2: fzf --bind ctrl-a:become", "bin/keys.py:3: Textual binding d -> download"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("stdout %q lacks %q", out, want)
 		}

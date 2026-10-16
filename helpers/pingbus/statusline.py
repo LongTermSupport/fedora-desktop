@@ -7,10 +7,17 @@ and command-line settings outrank the project's and the user's. So it works in a
 with or without a hooks daemon: it runs the status line the session would have had without the
 kit (the first `statusLine` command in the project's .claude/settings.local.json, then its
 .claude/settings.json, then the user's settings.json) with the same stdin, prints that, and adds
-`bus: A,B` from the record the SessionStart hook wrote under the session id
+`👥 A,B` from the record the SessionStart hook wrote under the session id
 (`hooks.record_session_teams`, which writes where `sessions_dir` says).
 
-A bus session (PINGBUS_TEAMS set) with no usable record shows `bus: no record ...` in red, never
+The teams go on rows of their own below the inner status line, never appended to its last row:
+Claude Code cuts a row wider than the terminal with an ellipsis, and the hooks daemon's status
+line already wraps its own rows to the width, so its last row can be full. The teams are wrapped
+to COLUMNS (which Claude Code sets for a status line command) after a comma, and a red note
+between words; nothing is cut. A team name wider than the terminal keeps a row of its own, whole.
+With no usable COLUMNS nothing says where to break, so the segment is one unbroken row.
+
+A bus session (PINGBUS_TEAMS set) with no usable record shows `👥 no record ...` in red, never
 nothing, so a record that failed cannot pass for a session on no team. The status line runs as a
 child of this session's claude, so PINGBUS_TEAMS here is this session's own.
 
@@ -36,6 +43,7 @@ import stat
 import subprocess
 import sys
 import time
+import unicodedata
 from collections.abc import Callable, Mapping
 
 COMMAND = "pingbus status-line"
@@ -51,14 +59,20 @@ INNER_TIMEOUT_S = 10.0
 #: `run_command`'s status for an inner command that was killed at its timeout.
 TIMED_OUT = -1
 CYAN, RED, RESET = "\033[36m", "\033[31m", "\033[0m"
-NO_RECORD = "bus: no record of this session's teams (pingbus status)"
+#: The segment's label, the team counterpart of the hooks daemon's 👤 account segment.
+LABEL = "👥"
+COLUMNS_VAR = "COLUMNS"
+COLUMNS_RE = re.compile(r"[0-9]{1,6}")
+#: A colour (SGR/CSI) escape, which takes no column.
+ANSI_ESCAPE_RE = re.compile("\x1b\\[[0-9;]*[A-Za-z]")
+NO_RECORD = "no record of this session's teams (pingbus status)"
 #: Plan 00203 H14: the membership files this module reads its copy of the active teams from.
 MEMBERSHIP_VAR = "PINGBUS_MEMBERSHIP"
 MEMBERSHIP_OFF = "off"
 DESIRED_FILE = "membership.json"
 APPLIED_FILE = "applied.json"
 MAX_MEMBERSHIP_BYTES = 65536
-NO_MEMBERSHIP = "bus: this session's membership is unreadable (pingbus status)"
+NO_MEMBERSHIP = "this session's membership is unreadable (pingbus status)"
 #: Plan 00203 H26: `PINGBUS_HOME/down/<team>` is there while the watcher retries a team whose
 #: homeserver does not answer; each retry refreshes it (its backoff caps at 30 s), so a mark a
 #: killed watcher left stops counting after DOWN_FRESH_S.
@@ -70,6 +84,9 @@ Runner = Callable[[str, bytes, Mapping[str, str], "pathlib.Path | None"], tuple[
 
 #: The inner command's process while it runs, for the cancel handler.
 _running: subprocess.Popen | None = None
+#: True while Popen is starting the inner command, and a cancel that landed meanwhile.
+_starting = False
+_cancel_pending: int | None = None
 
 
 class SettingsError(Exception):
@@ -167,12 +184,23 @@ def run_command(command: str, raw: bytes, environ: Mapping[str, str], cwd: pathl
     """Run a status line command as Claude Code does: through the shell, the payload on stdin,
     stderr left to the caller's. In its own process group, killed whole at `timeout` (status
     TIMED_OUT) or when this process is cancelled (`main`)."""
-    global _running
+    global _running, _starting, _cancel_pending
     env = dict(environ, **{INNER_VAR: "1"})
     directory = cwd if cwd is not None and cwd.is_dir() else None
-    proc = subprocess.Popen(["/bin/sh", "-c", command], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                            env=env, cwd=directory, start_new_session=True)
-    _running = proc
+    # The inner command runs before Popen returns, so a cancel can land while the handler cannot
+    # name its process yet: the handler leaves it pending and it is carried out here, once known.
+    _starting = True
+    try:
+        proc = subprocess.Popen(["/bin/sh", "-c", command], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                env=env, cwd=directory, start_new_session=True)
+        _running = proc
+    finally:
+        _starting = False
+        pending, _cancel_pending = _cancel_pending, None
+    if pending is not None:
+        _kill_group(proc)
+        _running = None
+        raise SystemExit(128 + pending)
     try:
         out, _ = proc.communicate(raw, timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -259,9 +287,50 @@ def _is_down(environ: Mapping[str, str], team: str) -> bool:
     return stat.S_ISREG(found.st_mode) and time.time() - found.st_mtime < DOWN_FRESH_S
 
 
+def display_width(text: str) -> int:
+    """The terminal columns `text` takes, by the hooks daemon's measure: colour escapes take
+    none, wide and fullwidth code points (most emoji) two, combining and format code points none.
+    Its input is this module's own segment text (LABEL, team names, the fixed notes), never the
+    inner status line, so the heuristic is exact for everything it measures."""
+    width = 0
+    for char in ANSI_ESCAPE_RE.sub("", text):
+        if unicodedata.combining(char) or unicodedata.category(char) == "Cf":
+            continue
+        width += 2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
+    return width
+
+
+def terminal_columns(environ: Mapping[str, str]) -> int | None:
+    """The terminal's width from COLUMNS, or None when it is not a positive number."""
+    value = environ.get(COLUMNS_VAR, "")
+    return int(value) if COLUMNS_RE.fullmatch(value) and int(value) > 0 else None
+
+
+def _wrapped(colour: str, pieces: list[str], joiner: str, columns: int | None) -> str:
+    """`LABEL pieces` in rows no wider than `columns` (unbroken when None), each row its own
+    colour span. A row breaks only between pieces; a later row is indented under the first."""
+    indent = " " * display_width(f"{LABEL} ")
+    rows: list[str] = []
+    current = f"{LABEL} {pieces[0]}"
+    for piece in pieces[1:]:
+        candidate = f"{current}{joiner}{piece}"
+        if columns is None or display_width(candidate) <= columns:
+            current = candidate
+        else:
+            rows.append(current)
+            current = f"{indent}{piece}"
+    rows.append(current)
+    return "\n".join(f"{colour}{row}{RESET}" for row in rows)
+
+
 def _teams_text(environ: Mapping[str, str], teams: list[str]) -> str:
-    shown = (f"{team}(down)" if _is_down(environ, team) else team for team in teams)
-    return f"{CYAN}bus: {','.join(shown)}{RESET}"
+    shown = [f"{team}(down)" if _is_down(environ, team) else team for team in teams]
+    pieces = [f"{team}," for team in shown[:-1]] + shown[-1:]
+    return _wrapped(CYAN, pieces, "", terminal_columns(environ))
+
+
+def _note(environ: Mapping[str, str], text: str) -> str:
+    return _wrapped(RED, text.split(" "), " ", terminal_columns(environ))
 
 
 def _segment(environ: Mapping[str, str], payload: dict) -> str:
@@ -269,13 +338,13 @@ def _segment(environ: Mapping[str, str], payload: dict) -> str:
     if marker is not None and marker != MEMBERSHIP_OFF and marker.startswith("/"):
         found = membership_teams(environ)
         if found is None:
-            return f"{RED}{NO_MEMBERSHIP}{RESET}"
+            return _note(environ, NO_MEMBERSHIP)
         return _teams_text(environ, found) if found else ""
     teams = session_teams(environ, _session_id(payload))
     if teams is not None:
         return _teams_text(environ, teams)
     if environ.get("PINGBUS_TEAMS"):
-        return f"{RED}{NO_RECORD}{RESET}"
+        return _note(environ, NO_RECORD)
     return ""
 
 
@@ -297,7 +366,9 @@ def _inner(raw: bytes, payload: dict, environ: Mapping[str, str], run: Runner) -
 
 
 def render(raw: bytes, environ: Mapping[str, str], run: Runner = run_command) -> tuple[str, int]:
-    """The status line text (no final newline) and the exit status, always 0."""
+    """The status line text (no final newline) and the exit status, always 0. The segment
+    starts a row of its own: appended to the inner's last row it could push that row past the
+    terminal's width, where Claude Code cuts it."""
     payload = _payload(raw)
     inner = "" if environ.get(INNER_VAR) else _inner(raw, payload, environ, run)
     segment = _segment(environ, payload)
@@ -305,10 +376,14 @@ def render(raw: bytes, environ: Mapping[str, str], run: Runner = run_command) ->
         return inner, 0
     if not inner:
         return segment, 0
-    return f"{inner} | {segment}", 0
+    return f"{inner}\n{segment}", 0
 
 
 def _cancelled(signum: int, _frame: object) -> None:
+    global _cancel_pending
+    if _starting:
+        _cancel_pending = signum  # run_command carries it out once Popen has returned
+        return
     if _running is not None:
         _kill_group(_running)
     raise SystemExit(128 + signum)

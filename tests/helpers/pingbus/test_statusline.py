@@ -4,7 +4,7 @@ Run from the repo root:
 
     python3 -m unittest tests.helpers.pingbus.test_statusline
 
-Plan 00201 S-C6: a session on agent-bus teams shows `bus: A,B` in its status line, in ANY
+Plan 00201 S-C6: a session on agent-bus teams shows `👥 A,B` in its status line, in ANY
 checkout. The member kit's settings.json makes `pingbus status-line` the session's status line
 command; it runs the status line the session would otherwise have had and adds the teams the
 SessionStart hook recorded for this session id. A bus session with no usable record says so in
@@ -68,7 +68,7 @@ class StatusLineTest(unittest.TestCase):
 
     def test_a_sessions_teams_are_shown_in_order(self) -> None:
         self.record("sess-1", "alpha,beta")
-        self.assertEqual(self.render(), (f"{CYAN}bus: alpha,beta{RESET}", 0))
+        self.assertEqual(self.render(), (f"{CYAN}👥 alpha,beta{RESET}", 0))
 
     def test_another_sessions_teams_are_never_shown(self) -> None:
         self.record("sess-2", "gamma")
@@ -77,7 +77,7 @@ class StatusLineTest(unittest.TestCase):
 
     def test_a_bus_session_with_no_record_says_so_in_red(self) -> None:
         text, rc = self.render()
-        self.assertEqual(text, f"{RED}bus: no record of this session's teams (pingbus status){RESET}")
+        self.assertEqual(text, f"{RED}👥 no record of this session's teams (pingbus status){RESET}")
         self.assertEqual(rc, 0)
 
     def test_an_unusable_record_is_reported_never_shown(self) -> None:
@@ -85,22 +85,22 @@ class StatusLineTest(unittest.TestCase):
             with self.subTest(bad=bad):
                 self.record("sess-1", bad)
                 text, _ = self.render()
-                self.assertIn("bus: no record", text)
+                self.assertIn("👥 no record", text)
 
     def test_a_record_others_could_write_is_not_trusted(self) -> None:
         self.record("sess-1", "alpha", mode=0o666)
-        self.assertIn("bus: no record", self.render()[0])
+        self.assertIn("👥 no record", self.render()[0])
 
     def test_a_symlinked_record_is_not_followed(self) -> None:
         target = self.record("elsewhere", "alpha")
         (self.sessions / "sess-1").symlink_to(target)
-        self.assertIn("bus: no record", self.render()[0])
+        self.assertIn("👥 no record", self.render()[0])
 
     def test_a_session_id_that_is_not_a_plain_name_reads_no_record(self) -> None:
         self.record("sess-1", "alpha")
         for bad in ("../sess-1", "a/b", "", "x" * 129, 5, None, "sess 1"):
             with self.subTest(bad=bad):
-                self.assertIn("bus: no record", self.render(bad)[0])
+                self.assertIn("👥 no record", self.render(bad)[0])
 
     def test_a_session_on_no_team_shows_no_segment(self) -> None:
         del self.env["PINGBUS_TEAMS"]
@@ -108,32 +108,32 @@ class StatusLineTest(unittest.TestCase):
 
     def test_the_record_is_read_where_the_hook_writes_it(self) -> None:
         hooks.record_session_teams(self.env, "sess-1", ["alpha", "beta"])
-        self.assertIn("bus: alpha,beta", self.render()[0])
+        self.assertIn("👥 alpha,beta", self.render()[0])
 
     # ── the status line the session would have had ────────────────────────────────────
 
     def test_the_projects_status_line_runs_first_with_the_same_input(self) -> None:
         self.record("sess-1", "alpha")
         self.settings(self.project / ".claude/settings.json", "cat >/dev/null; printf 'model | dir'")
-        self.assertEqual(self.render(), (f"model | dir | {CYAN}bus: alpha{RESET}", 0))
+        self.assertEqual(self.render(), (f"model | dir\n{CYAN}👥 alpha{RESET}", 0))
         echo = "python3 -c 'import json,sys; print(json.load(sys.stdin)[\"session_id\"])'"
         self.settings(self.project / ".claude/settings.json", echo)
-        self.assertEqual(self.render()[0], f"sess-1 | {CYAN}bus: alpha{RESET}")
+        self.assertEqual(self.render()[0], f"sess-1\n{CYAN}👥 alpha{RESET}")
 
     def test_local_project_settings_win_then_project_then_user(self) -> None:
         self.record("sess-1", "alpha")
         self.settings(self.home / ".claude/settings.json", "echo user")
-        self.assertTrue(self.render()[0].startswith("user | "))
+        self.assertTrue(self.render()[0].startswith("user\n"))
         self.settings(self.project / ".claude/settings.json", "echo project")
-        self.assertTrue(self.render()[0].startswith("project | "))
+        self.assertTrue(self.render()[0].startswith("project\n"))
         self.settings(self.project / ".claude/settings.local.json", "echo local")
-        self.assertTrue(self.render()[0].startswith("local | "))
+        self.assertTrue(self.render()[0].startswith("local\n"))
 
     def test_settings_without_a_status_line_are_passed_over(self) -> None:
         self.record("sess-1", "alpha")
         self.settings(self.project / ".claude/settings.local.json", None, model="x")
         self.settings(self.project / ".claude/settings.json", "echo project")
-        self.assertTrue(self.render()[0].startswith("project | "))
+        self.assertTrue(self.render()[0].startswith("project\n"))
 
     def test_claude_config_dir_moves_the_user_settings(self) -> None:
         self.record("sess-1", "alpha")
@@ -141,12 +141,83 @@ class StatusLineTest(unittest.TestCase):
         moved.mkdir()
         self.settings(moved / "settings.json", "echo moved")
         self.env["CLAUDE_CONFIG_DIR"] = str(moved)
-        self.assertTrue(self.render()[0].startswith("moved | "))
+        self.assertTrue(self.render()[0].startswith("moved\n"))
 
-    def test_the_segment_goes_on_the_last_line(self) -> None:
+    def test_the_segment_goes_on_its_own_row(self) -> None:
         self.record("sess-1", "alpha")
         self.settings(self.project / ".claude/settings.json", "printf 'one\\ntwo\\n'")
-        self.assertEqual(self.render()[0], f"one\ntwo | {CYAN}bus: alpha{RESET}")
+        self.assertEqual(self.render()[0], f"one\ntwo\n{CYAN}👥 alpha{RESET}")
+
+    def test_no_row_is_wider_than_the_terminal_after_a_wrapped_inner_status_line(self) -> None:
+        """The owner's `bus: de…`: the hooks daemon's status line wraps its own segments to
+        COLUMNS, so its last row can already be the full width; Claude Code cuts a row wider than
+        the terminal with an ellipsis, and the bus segment must never be what is cut."""
+        self.record("sess-1", "alpha,beta")
+        self.env["COLUMNS"] = "40"
+        self.settings(self.project / ".claude/settings.json", "printf '%s\\n%s\\n' 'a | b' " + "'" + "x" * 40 + "'")
+        text, _ = self.render()
+        for row in text.split("\n"):
+            with self.subTest(row=row):
+                self.assertLessEqual(statusline.display_width(row), 40)
+        self.assertIn("alpha", text)
+        self.assertIn("beta", text)
+
+    def test_the_teams_wrap_at_the_width_never_cut(self) -> None:
+        """Every team is shown whole: the list breaks after a comma onto rows indented under
+        the first, each its own colour span, and nothing is ellipsised."""
+        self.record("sess-1", "alpha,beta,gamma")
+        self.env["COLUMNS"] = "12"
+        self.assertEqual(self.render()[0], f"{CYAN}👥 alpha,{RESET}\n{CYAN}   beta,{RESET}\n"
+                                           f"{CYAN}   gamma{RESET}")
+        self.env["COLUMNS"] = "18"
+        self.assertEqual(self.render()[0], f"{CYAN}👥 alpha,beta,{RESET}\n{CYAN}   gamma{RESET}")
+        self.env["COLUMNS"] = "80"
+        self.assertEqual(self.render()[0], f"{CYAN}👥 alpha,beta,gamma{RESET}")
+
+    def test_a_team_wider_than_the_width_keeps_its_own_row_whole(self) -> None:
+        self.record("sess-1", "alpha,a-very-long-team-name")
+        self.env["COLUMNS"] = "10"
+        self.assertEqual(self.render()[0], f"{CYAN}👥 alpha,{RESET}\n{CYAN}   a-very-long-team-name{RESET}")
+
+    def test_the_red_notes_wrap_between_words(self) -> None:
+        self.env["COLUMNS"] = "30"
+        rows = self.render()[0].split("\n")
+        self.assertEqual(rows[0], f"{RED}👥 no record of this session's{RESET}")
+        self.assertEqual(" ".join(row.removeprefix(RED).removesuffix(RESET).strip() for row in rows),
+                         f"👥 {statusline.NO_RECORD}")
+        for row in rows:
+            self.assertLessEqual(statusline.display_width(row), 30)
+
+    def test_an_unknown_width_puts_the_segment_on_one_row_of_its_own(self) -> None:
+        """No COLUMNS (or one that is not a positive number): nothing says where to break, so
+        the segment is one unbroken row, still below the inner status line rather than
+        appended to its last row."""
+        self.record("sess-1", "alpha,beta,gamma")
+        self.settings(self.project / ".claude/settings.json", "echo inner")
+        for columns in (None, "", "0", "abc", "-5", "²"):
+            with self.subTest(columns=columns):
+                self.env.pop("COLUMNS", None)
+                if columns is not None:
+                    self.env["COLUMNS"] = columns
+                self.assertEqual(self.render()[0], f"inner\n{CYAN}👥 alpha,beta,gamma{RESET}")
+
+    def test_the_measured_text_is_ascii_and_the_label(self) -> None:
+        """display_width only ever measures the segment: the label, team names (TEAM_NAME_RE,
+        plus `(down)`) and the fixed notes. Pinned to ASCII and the label, the one wide code
+        point, so the heuristic's approximations never meet text they could get wrong."""
+        self.assertEqual(statusline.display_width(statusline.LABEL), 2)
+        for text in (statusline.NO_RECORD, statusline.NO_MEMBERSHIP, statusline.TEAM_NAME_RE.pattern):
+            with self.subTest(text=text):
+                self.assertTrue(text.isascii())
+        self.record("sess-1", "alpha,beta")
+        self.env["COLUMNS"] = "8"
+        for row in self.render()[0].split("\n"):
+            plain = statusline.ANSI_ESCAPE_RE.sub("", row).replace(statusline.LABEL, "", 1)
+            self.assertTrue(plain.isascii(), row)
+
+    def test_the_display_width_skips_colour_and_counts_the_icon_as_two(self) -> None:
+        self.assertEqual(statusline.display_width(f"{CYAN}👥 ab{RESET}"), 5)
+        self.assertEqual(statusline.display_width("é"), 1)
 
     def test_a_failing_inner_status_line_is_shown_in_red_and_exits_0(self) -> None:
         """Claude Code blanks the whole status line on a non-zero exit, which would hide the
@@ -154,14 +225,14 @@ class StatusLineTest(unittest.TestCase):
         self.record("sess-1", "alpha")
         self.settings(self.project / ".claude/settings.json", "echo DAEMON FAILED; exit 1")
         self.assertEqual(self.render(), (
-            f"DAEMON FAILED {RED}(status line exit 1){RESET} | {CYAN}bus: alpha{RESET}", 0))
+            f"DAEMON FAILED {RED}(status line exit 1){RESET}\n{CYAN}👥 alpha{RESET}", 0))
 
     def test_unreadable_settings_are_shown_not_skipped(self) -> None:
         self.record("sess-1", "alpha")
         (self.project / ".claude/settings.json").write_text("{not json", encoding="utf-8")
         text, rc = self.render()
         self.assertIn(f"{RED}status line: {self.project}/.claude/settings.json is not valid JSON{RESET}", text)
-        self.assertIn("bus: alpha", text)
+        self.assertIn("👥 alpha", text)
         self.assertEqual(rc, 0)
 
     def test_a_hung_inner_status_line_times_out_and_its_whole_group_is_killed(self) -> None:
@@ -194,6 +265,47 @@ class StatusLineTest(unittest.TestCase):
         proc.stdout.close()
         self.assertGone(grandchild)
 
+    def test_a_cancel_that_lands_while_the_inner_is_starting_still_kills_its_group(self) -> None:
+        """The window the test above can only hit under load, forced: the inner command has
+        started (and started its own child) but Popen has not yet returned, so the cancel
+        handler cannot know the process yet. The cancel must still kill the whole group and
+        end pingbus, never leave the inner running."""
+        pidfile = self.tmp / "grandchild"
+        real_popen = subprocess.Popen
+        started: list[subprocess.Popen] = []
+
+        def popen_then_cancel(*args: object, **kwargs: object) -> subprocess.Popen:
+            proc = real_popen(*args, **kwargs)
+            started.append(proc)
+            self.addCleanup(self.kill_group_if_alive, proc)
+            deadline = time.monotonic() + 10
+            while not (pidfile.exists() and pidfile.read_text().strip()) and time.monotonic() < deadline:
+                time.sleep(0.02)
+            statusline._cancelled(signal.SIGTERM, None)  # what the signal runs, landing here
+            return proc
+
+        with mock.patch.object(statusline.subprocess, "Popen", popen_then_cancel), \
+                self.assertRaises(SystemExit) as raised:
+            statusline.run_command(f"sleep 60 & echo $! > {pidfile}; wait", b"{}", self.env, None)
+        self.assertEqual(raised.exception.code, 128 + signal.SIGTERM)
+        self.assertEqual(len(started), 1)
+        self.assertGone(int(pidfile.read_text()))
+        started[0].wait(timeout=10)
+
+    def test_a_cancel_with_no_inner_running_ends_pingbus_at_once(self) -> None:
+        with self.assertRaises(SystemExit) as raised:
+            statusline._cancelled(signal.SIGTERM, None)
+        self.assertEqual(raised.exception.code, 128 + signal.SIGTERM)
+
+    @staticmethod
+    def kill_group_if_alive(proc: subprocess.Popen) -> None:
+        if proc.poll() is None:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait(timeout=10)
+        for stream in (proc.stdin, proc.stdout):
+            if stream is not None:
+                stream.close()
+
     def assertGone(self, pid: int) -> None:
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
@@ -218,20 +330,20 @@ class StatusLineTest(unittest.TestCase):
         self.record("sess-1", "alpha")
         self.settings(self.project / ".claude/settings.json", "pingbus status-line")
         self.settings(self.home / ".claude/settings.json", "echo user")
-        self.assertEqual(self.render()[0], f"user | {CYAN}bus: alpha{RESET}")
+        self.assertEqual(self.render()[0], f"user\n{CYAN}👥 alpha{RESET}")
 
     def test_the_project_dir_falls_back_to_the_variable(self) -> None:
         self.record("sess-1", "alpha")
         self.settings(self.project / ".claude/settings.json", "echo project")
         self.env["CLAUDE_PROJECT_DIR"] = str(self.project)
         raw = json.dumps({"session_id": "sess-1"}).encode()
-        self.assertTrue(statusline.render(raw, self.env)[0].startswith("project | "))
+        self.assertTrue(statusline.render(raw, self.env)[0].startswith("project\n"))
 
     def test_input_that_is_not_a_json_object_reads_no_record(self) -> None:
         self.record("sess-1", "alpha")
         for raw in (b"", b"[]", b"\xff", b"x" * (hooks.INPUT_MAX_BYTES + 1)):
             with self.subTest(raw=raw[:8]):
-                self.assertIn("bus: no record", statusline.render(raw, self.env)[0])
+                self.assertIn("👥 no record", statusline.render(raw, self.env)[0])
 
     # ── the command ───────────────────────────────────────────────────────────────────
 
@@ -241,7 +353,7 @@ class StatusLineTest(unittest.TestCase):
         out, err = io.StringIO(), io.StringIO()
         rc = cli.main(["status-line"], environ=self.env, stdout=out, stderr=err,
                       stdin=io.BytesIO(self.payload()))
-        self.assertEqual((out.getvalue(), rc), (f"inner | {CYAN}bus: alpha{RESET}\n", 0))
+        self.assertEqual((out.getvalue(), rc), (f"inner\n{CYAN}👥 alpha{RESET}\n", 0))
 
     def test_the_kit_settings_make_it_the_status_line_refreshed_every_second(self) -> None:
         """The interval is the project's (1 s): the kit's statusLine replaces the project's whole,
@@ -300,13 +412,13 @@ class MembershipSegmentTest(unittest.TestCase):
 
     def test_the_teams_held_and_desired_in_desired_order(self) -> None:
         self.write([("beta", "2"), ("alpha", "1")], [("alpha", "1"), ("beta", "2"), ("gamma", "1")])
-        self.assertEqual(self.segment(), f"{CYAN}bus: beta,alpha{RESET}")
+        self.assertEqual(self.segment(), f"{CYAN}👥 beta,alpha{RESET}")
 
     def test_a_change_shows_on_the_next_render(self) -> None:
         self.write([("alpha", "1")], [("alpha", "1")])
-        self.assertEqual(self.segment(), f"{CYAN}bus: alpha{RESET}")
+        self.assertEqual(self.segment(), f"{CYAN}👥 alpha{RESET}")
         self.write([("alpha", "1"), ("beta", "2")], [("alpha", "1"), ("beta", "2")])
-        self.assertEqual(self.segment(), f"{CYAN}bus: alpha,beta{RESET}")
+        self.assertEqual(self.segment(), f"{CYAN}👥 alpha,beta{RESET}")
 
     def test_no_team_no_segment(self) -> None:
         self.write([], [])
@@ -314,7 +426,7 @@ class MembershipSegmentTest(unittest.TestCase):
 
     def test_an_unreadable_membership_is_said_in_red(self) -> None:
         (self.mount / membership.DESIRED_FILE).write_text("{", encoding="utf-8")
-        self.assertEqual(self.segment(), f"{RED}{statusline.NO_MEMBERSHIP}{RESET}")
+        self.assertEqual(self.segment(), f"{RED}👥 {statusline.NO_MEMBERSHIP}{RESET}")
 
     def test_the_copied_names_agree(self) -> None:
         self.assertEqual((statusline.MEMBERSHIP_VAR, statusline.MEMBERSHIP_OFF, statusline.DESIRED_FILE,
@@ -326,9 +438,9 @@ class MembershipSegmentTest(unittest.TestCase):
         """H26: the watcher keeps a team whose homeserver does not answer, and marks it down."""
         self.write([("alpha", "1"), ("beta", "2")], [("alpha", "1"), ("beta", "2")])
         statusline.set_team_down(self.home, "beta", True)
-        self.assertEqual(self.segment(), f"{CYAN}bus: alpha,beta(down){RESET}")
+        self.assertEqual(self.segment(), f"{CYAN}👥 alpha,beta(down){RESET}")
         statusline.set_team_down(self.home, "beta", False)
-        self.assertEqual(self.segment(), f"{CYAN}bus: alpha,beta{RESET}")
+        self.assertEqual(self.segment(), f"{CYAN}👥 alpha,beta{RESET}")
 
     def test_a_stale_down_mark_is_not_believed(self) -> None:
         """A watcher killed during an outage leaves its mark; one its retries stopped refreshing
@@ -337,7 +449,7 @@ class MembershipSegmentTest(unittest.TestCase):
         statusline.set_team_down(self.home, "alpha", True)
         old = time.time() - statusline.DOWN_FRESH_S - 1
         os.utime(self.home / statusline.DOWN_DIR / "alpha", (old, old))
-        self.assertEqual(self.segment(), f"{CYAN}bus: alpha{RESET}")
+        self.assertEqual(self.segment(), f"{CYAN}👥 alpha{RESET}")
 
     def test_marking_down_refreshes_and_clearing_is_idempotent(self) -> None:
         statusline.set_team_down(self.home, "alpha", True)
@@ -356,7 +468,7 @@ class MembershipSegmentTest(unittest.TestCase):
         self.write([("alpha", "1")], [("alpha", "1")])
         (self.home / statusline.DOWN_DIR).mkdir(mode=0o700)
         (self.home / statusline.DOWN_DIR / "alpha").symlink_to(self.home / membership.APPLIED_FILE)
-        self.assertEqual(self.segment(), f"{CYAN}bus: alpha{RESET}")
+        self.assertEqual(self.segment(), f"{CYAN}👥 alpha{RESET}")
 
     def test_the_copy_agrees_with_config_active_teams(self) -> None:
         cases = [

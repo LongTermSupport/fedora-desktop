@@ -94,6 +94,12 @@ tooling deployed by the UniFi play.
   runs `play-unifi-firmware.yml` with apply each night, with no catch-up for missed
   nights. Needs Task 1.11 first, else a night on a different network strands the devices.
 
+- [ ] 🔄 **Task 1.13**: The play ledger skips a private play outside the repo root (run
+  from a linked worktree) with one `LEDGER-PLAY-NOT-TRACKED` stderr line, instead of
+  marking itself BROKEN; every other path failure still marks BROKEN. Code done; the
+  BROKEN marker from 10-12 is cleared by `clear-ledger-broken.bash`, queued in
+  meta-deploy (host run pending)
+
 ### Phase 2: Durable tooling
 
 - [ ] ⬜ **Task 2.1**: Move both scripts to `files/home/.local/bin/`, deployed by

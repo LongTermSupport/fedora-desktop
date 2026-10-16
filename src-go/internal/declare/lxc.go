@@ -82,6 +82,12 @@ func (c *Client) LxcAdd(ctx context.Context, e LxcEntry) (Change, error) {
 	return c.edit(ctx, "lxc-add", e.args()...)
 }
 
+// LxcSetRole sets a declared member's role in its entry (a backup of the file is kept beside
+// it): lxc-add's takeover makes the declared coordinator a worker with it first.
+func (c *Client) LxcSetRole(ctx context.Context, m LxcMember, role string) (Change, error) {
+	return c.edit(ctx, "lxc-role", "--team", m.Team, "--container", m.Container, "--user", m.User, "--role", role)
+}
+
 // LxcAddDryRun is the entry LxcAdd would add, as the lines it would write; nothing is written.
 func (c *Client) LxcAddDryRun(ctx context.Context, e LxcEntry) (string, error) {
 	return c.runFile(ctx, "lxc-add", append(e.args(), "--dry-run")...)
@@ -125,22 +131,34 @@ func (c *Client) LxcDerive(ctx context.Context, e LxcEntry, probe, roster string
 type Checkout struct {
 	Path string // inside the container
 	Repo string // OWNER/REPO, lower case
+	Ccy  bool   // it has a .claude/ccy directory: a ccy project
+}
+
+// Checkouts is what the search of a user's home found, ccy projects first, and whether it
+// stopped at its time limit before it was done.
+type Checkouts struct {
+	Found    []Checkout
+	TimedOut bool
 }
 
 // LxcCheckouts are the checkouts with a GitHub remote among those the root-side reader found
 // (scan is what it printed, judged by declare.py).
-func (c *Client) LxcCheckouts(ctx context.Context, scan string) ([]Checkout, error) {
+func (c *Client) LxcCheckouts(ctx context.Context, scan string) (Checkouts, error) {
 	out, err := c.runFile(ctx, "lxc-checkouts", "--scan", scan)
 	if err != nil {
-		return nil, err
+		return Checkouts{}, err
 	}
-	rows, err := marker.Fields(out, "CHECKOUT", 3)
+	rows, err := marker.Fields(out, "CHECKOUT", 4)
 	if err != nil {
-		return nil, fmt.Errorf("declare lxc-checkouts: %w", err)
+		return Checkouts{}, fmt.Errorf("declare lxc-checkouts: %w", err)
 	}
-	found := make([]Checkout, 0, len(rows))
+	cut, err := marker.Fields(out, "TIMEDOUT", 1)
+	if err != nil {
+		return Checkouts{}, fmt.Errorf("declare lxc-checkouts: %w", err)
+	}
+	found := Checkouts{Found: make([]Checkout, 0, len(rows)), TimedOut: len(cut) > 0}
 	for _, f := range rows {
-		found = append(found, Checkout{Path: f[1], Repo: f[2]})
+		found.Found = append(found.Found, Checkout{Path: f[1], Repo: f[2], Ccy: f[3] == "ccy"})
 	}
 	return found, nil
 }

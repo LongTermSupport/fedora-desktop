@@ -222,7 +222,7 @@ func (c *Collector) collectSessions(ctx context.Context, s *Snapshot) error {
 	for _, rec := range listing.Records {
 		s.addRecord(rec)
 	}
-	c.addDesired(s)
+	c.addDesired(s, listing.Records)
 	if err := c.addWorkTree(ctx, s); err != nil {
 		c.Term.PrintError(err.Error())
 		return errReported
@@ -231,8 +231,9 @@ func (c *Collector) collectSessions(ctx context.Context, s *Snapshot) error {
 }
 
 // addDesired notes the seats live sessions' desired memberships name (a hot add's, before or
-// beside its record). With no runtime directory there are none to read.
-func (c *Collector) addDesired(s *Snapshot) {
+// beside its record), each only while its session's own launch wrote it (records: B1 of the M6
+// review, a reused name). With no runtime directory there are none to read.
+func (c *Collector) addDesired(s *Snapshot, records []registry.Record) {
 	runtime := ""
 	if c.Getenv != nil {
 		runtime = c.Getenv("XDG_RUNTIME_DIR")
@@ -248,7 +249,7 @@ func (c *Collector) addDesired(s *Snapshot) {
 		c.Term.PrintError(why + "; its seats show no session.")
 		s.Incomplete = "a session membership is unreadable"
 	}
-	for _, d := range desired {
+	for _, d := range discover.Current(desired, records) {
 		s.addDesired(d)
 	}
 }
