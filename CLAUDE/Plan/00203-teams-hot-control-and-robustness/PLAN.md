@@ -116,6 +116,17 @@ Built on `fix/teams-server-robustness`; design and evidence in
   [ACCEPTANCE.md](ACCEPTANCE.md) M4, `_acceptance-m4.inc.bash`. As built, and what is not:
   SPEC-hot-control.md H21. Notes:
   [subagent-reports/261016-m4-opus.md](subagent-reports/261016-m4-opus.md).
+- [ ] 🔄 **Task 3.4** (M5): hot control from the picker, built on `feat/hot-control-m5`. In
+  `ccy-teams`, Tab switches to Running sessions (the sessions `session list` shows). There:
+  Ctrl-A adds a session to a team (team, seat, role), Ctrl-X removes it (the coordinator's
+  role goes to no one or to another member), Ctrl-O changes its role, and Enter opens its menu,
+  which adds move, attach and, for an unguarded session, Repair. Every change runs the M4
+  `ccy-teams session` command with the words a person would type, so the questions, steps,
+  locks and rollback are the same. A refused answer is said and asked again, 3 times at most.
+  ccy-teams only: no launcher or container change, so no version bump. Fable review and the
+  owner's steps ([ACCEPTANCE.md](ACCEPTANCE.md) M5) are to come. As built:
+  SPEC-hot-control.md, M5 as built. Notes:
+  [subagent-reports/261016-m5-opus.md](subagent-reports/261016-m5-opus.md).
 - [ ] 🔄 **Task 3.5** (M6): cc, built on `feat/hot-control-m6`, review and host acceptance to
   come. `cc --teams` and the new `cc --bus` sessions are hot-controlled like ccy ones (H31,
   H32): a `kind: cc` membership under the session's tmux name, a keeper that follows it

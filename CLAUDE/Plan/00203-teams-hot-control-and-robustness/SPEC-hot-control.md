@@ -771,6 +771,45 @@ M1 builds on what M2 shipped in pingbus rather than beside it: `seat.parse_membe
 strict 3.1 reader), the empty membership in `seat exec`, and the claim's session files
 (`settings.json`, `statusline-inner`, the `active` flag). The keeper takes the flag over.
 
+M5 as built (sections 5.1 to 5.3), with the small gaps of the spec settled:
+
+- **One code path.** The picker makes no change itself. Each of its flows only chooses the
+  words, then runs `ccy-teams session add|remove|move|role|repair` in the same process with the
+  argv a person would type, never `--yes`. So the command asks its own confirmation and prints
+  its own steps, and takes the same locks (H20) and rollback. `session list` and the view read
+  one `hot.Sessions` and lay it out with one `hot.SessionLines`.
+- **The view.** Tab on the teams switches to Running sessions, and Tab again switches back. Esc
+  there goes back to the teams; it does not quit. Tab acts on no row, so it is named in the
+  header's key line, not in a row's menu. The view lists the sessions `session list` does. cc
+  sessions carry no `ccy-session` label, so they join the view with M6.
+- **The session menu** offers add, then (when the session is on a team) remove, move and role,
+  then attach, then Repair, but only when the session is unguarded. A session that cannot be
+  changed (old, `--no-bus`, unreadable membership) offers attach only, and its shortcuts are
+  refused with its state and "relaunch it from ccy's tmux". Attach uses the session's tmux,
+  with a seat attach's checks, and ends the picker.
+- **Add (5.2).**
+  - The team question lists every team. One the session is already in, one not installed, or
+    one whose homeserver is down is refused with the reason, and the question is asked again,
+    3 times at most (InteractiveScripts.md). Then: "Nothing was changed after 3 tries."
+  - The seat question offers the lowest free seat first (no seat word: the command chooses
+    it, H21), then each seat `agent-bus seat choose` offers that is not held. A seat that
+    another session names is refused by the command (75).
+  - The role question: worker, or coordinator. When the board's roster names a current
+    coordinator, the line says it becomes a worker, and choosing it passes `--demote-current`.
+    A worker in a chosen existing seat passes `--role=worker`, so a free seat whose handle
+    still holds the role (Decision 5's case) is made a worker explicitly. Otherwise no
+    `--role` is passed; a new member is a worker.
+- **Remove (5.3) and move.** When the board's roster says the leaving seat is the coordinator,
+  the picker asks: "The role goes to no one", the default, or "Hand it to <handle>" for each
+  active member. The answer becomes `--coordinator=demote|hand-to=<handle>`. With the roster
+  unread (sudo refused, homeserver down), nothing is passed, and the command asks its own
+  question. A move asks for the team it leaves (when there are several) and the team it
+  joins, from the same refusing team list, but not for a seat: the new team's lowest free
+  seat is taken.
+- **No host acceptance script for M5.** No tool can observe the picker without a person at it,
+  and the view's data path, `session list`, is still checked by M4's acceptance (e). The
+  owner's steps are ACCEPTANCE.md M5.
+
 ## 7. Interaction with work in flight
 
 - **fix/watcher-survives-homeserver-restart** is M0, shipped as it is. It brings:

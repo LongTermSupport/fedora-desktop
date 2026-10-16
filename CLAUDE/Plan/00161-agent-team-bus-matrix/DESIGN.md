@@ -1523,7 +1523,15 @@ replaces the throwaway `git init` checkouts.
     `git status --porcelain=v1` and `HEAD` are as recorded before M2.0. The sessions ran
     with bypass permissions in the owner's checkout; their orders forbid edits, and this
     check proves none happened. `ccy.env.local` is also checked unchanged at M2.0, since no
-    step of the design writes it.
+    step of the design writes it. Every seated session's keeper writes a report (Plan 00203
+    SPEC 3.3) that outlives it as designed: the M2.11 named session under its tmux name
+    (`sessions/u20-named-<pid>/`), the unnamed M2.0-M2.8 sessions under their container's
+    name (`ccy-teams internal membership-init "${session:-$container}"`). The teardown
+    deletes the named one with its registry record, and each container-named one whose name
+    was not in the M2.0 list (one already there belongs to an earlier session in that
+    container slot, and the listing is unchanged by its rewrite). The prerequisites delete
+    `u20-named-*` reports an earlier run left, none of a running session, before M2.0 is
+    recorded.
 - **Cleanup**, on success and through `plan_on_cleanup` on any early stop, in this order:
   copy each session's watcher log out of its container
   (`podman exec <container> cat /tmp/pingbus-home/watch.log`, since the session home dies

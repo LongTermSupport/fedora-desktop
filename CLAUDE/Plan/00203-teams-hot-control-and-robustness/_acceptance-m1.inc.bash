@@ -17,6 +17,8 @@
 #        The same with a seat held is the owner's step (ACCEPTANCE.md M1 b): it needs a team.
 
 readonly M1_NAME="m1-plain-$$"
+#: The bus-process probe, relative to the checkout, which a ccy container sees at /workspace.
+readonly M1_PROCS_REL="CLAUDE/Plan/${PLAN_SCRIPT_DIR#*/CLAUDE/Plan/}/m2_procs.py"
 
 m1_helper_tests() {
     (cd -- "${PLAN_REPO_ROOT}" && ./scripts/qa-helper-tests.bash) || return 1
@@ -28,36 +30,17 @@ m1_start() {
     m2_container_up "${M1_NAME}" || return 1
 }
 
-# m1_holders <container> — one line per process: "<pid> <locks it holds> <cmdline>", where the
-# locks are the lock files among its descriptors (keeper.lock, seat.lock), or "-".
-m1_holders() {
-    podman exec "$1" sh -c '
-        for p in /proc/[0-9]*; do
-            cmd=$(tr "\000" " " <"$p/cmdline" 2>/dev/null) || continue
-            [ -n "$cmd" ] || continue
-            locks=$(ls -l "$p/fd" 2>/dev/null | sed -n "s/.*\/\(keeper\.lock\|seat\.lock\)$/\1/p" | sort -u | tr "\n" ",")
-            printf "%s %s %s\n" "${p#/proc/}" "${locks:--}" "$cmd"
-        done'
-}
-
+# m1_keeper_only — m2_procs.py in the session's container: a bus process is its program (the
+# pingbus or agent-bus entry point), never a word in its argv, since claude's own names the
+# plugin directory .../plugin/pingbus. Its table, "<pid> <locks it holds, or -> <argv>" per
+# process, is kept as evidence.
 m1_keeper_only() {
-    local ctr="${M2_CTR[${M1_NAME}]}" table verdict
-    table="$(m1_holders "${ctr}")" || return 1
-    printf '%s\n' "${table}" >"${M2_EV}/${M1_NAME}.holders" || return 1
-    # One verdict line: pingbus processes (a pingbus subcommand; claude's own argv names the
-    # plugin directory .../plugin/pingbus, which is not one), of them keepers holding
-    # keeper.lock, and lock holders that are not the keeper.
-    verdict="$(printf '%s\n' "${table}" | awk '
-        /\/pingbus [a-z]/ { pingbus++ }
-        /pingbus seat keep --launch --parent / && $2 ~ /keeper\.lock/ { keeper++ }
-        $2 != "-" && !/pingbus seat keep/ { other++ }
-        END { printf "%d %d %d\n", pingbus, keeper, other }')" || return 1
-    if [[ "${verdict}" != "1 1 0" ]]; then
-        printf '[FAIL] pingbus processes, keepers holding keeper.lock, other lock holders: %s (want 1 1 0); the table is %s:\n%s\n' \
-            "${verdict}" "${M2_EV}/${M1_NAME}.holders" "${table}" >&2
+    local ctr="${M2_CTR[${M1_NAME}]}" holders="${M2_EV}/${M1_NAME}.holders"
+    if ! podman exec "${ctr}" python3 -I "/workspace/${M1_PROCS_REL}" keeper-only /proc >"${holders}"; then
+        printf '[FAIL] the keeper is not the session'\''s only bus process and only lock holder (above)\n' >&2
         return 1
     fi
-    printf 'the keeper is the only pingbus process and the only lock holder (table: %s)\n' "${M2_EV}/${M1_NAME}.holders"
+    printf 'the keeper is the only bus process and the only lock holder (table: %s)\n' "${holders}"
 }
 
 acceptance_m1() {

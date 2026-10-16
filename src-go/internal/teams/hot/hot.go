@@ -9,9 +9,10 @@
 // Each command prints one line per step on stderr, marked ✓ (done), ✗ (failed) or - (already
 // so), then the outcome. A step that fails after the record and the desired file were written
 // restores both. Re-running a command whose result already holds prints every step as -.
-// One change runs at a time per session (its membership directory's .change.lock) and one seat
-// allocation at a time per checkout (H20, lock.go). A cc session started with --teams or --bus is
-// changed the same way (H31, cc.go).
+// One change runs at a time per session and one seat allocation at a time per checkout, each
+// under a lock in $XDG_RUNTIME_DIR/ccy, out of every container's reach (H20, lock.go). The
+// picker's Running sessions view (M5) runs these same commands. A cc session started with
+// --teams or --bus is changed the same way (H31, cc.go).
 package hot
 
 import (
@@ -44,6 +45,8 @@ const (
 
 const (
 	memberType = "podman"
+	// kindCcy is the kind of a ccy session's membership (a cc session's is membership.KindCC).
+	kindCcy    = "ccy"
 	sessionTag = "ccy-session="
 	// stateRunning is podman's word for a running container.
 	stateRunning = "running"

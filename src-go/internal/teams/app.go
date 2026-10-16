@@ -106,6 +106,7 @@ func Wire(h *host.Host) *App {
 	list.Shutdown = down
 	session := hot.New(h, kit)
 	o.SessionsIn, o.TakeOut = session.SessionsIn, session.TakeOut
+	list.Session = session
 	return &App{
 		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c, Lxc: x, Find: find.New(h), Choose: pick,
 		Chooser: chooser.New(h, pick.PickSeat, c.RunForChooser, o.ApplyTeams),
