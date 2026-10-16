@@ -127,6 +127,14 @@ Built on `fix/teams-server-robustness`; design and evidence in
   owner's steps ([ACCEPTANCE.md](ACCEPTANCE.md) M5) are to come. As built:
   SPEC-hot-control.md, M5 as built. Notes:
   [subagent-reports/261016-m5-opus.md](subagent-reports/261016-m5-opus.md).
+- [ ] 🔄 **Task 3.5**: the container name race the M2 host run found, built on
+  `fix/ccy-name-race`. Two ccy launches started together chose the same lowest free name and
+  the second failed at podman's create (exit 125). The launcher now claims its name through
+  `ccy-teams internal claim-container-name`: a per-process claim under
+  `$XDG_RUNTIME_DIR/ccy/container-names/`, written under a lock held only for the choice.
+  `scripts/test-ccy-container-name.bash` races launches over a fake engine. CCY 3.99.10.2,
+  container 2.75.1. Host acceptance: the M2 leg of `acceptance.bash`, queued in meta-deploy.
+  Notes: [subagent-reports/261016-name-race-opus.md](subagent-reports/261016-name-race-opus.md).
 
 ## Decisions
 

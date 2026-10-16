@@ -83,7 +83,7 @@ func clientOf(args string) (engineClient, bool) {
 		return engineClient{}, false
 	}
 	engine := path.Base(fields[0])
-	if engine != podmanEngine && engine != "docker" {
+	if engine != podmanEngine && engine != dockerEngine {
 		return engineClient{}, false
 	}
 	for i := 1; i < len(fields); i++ {

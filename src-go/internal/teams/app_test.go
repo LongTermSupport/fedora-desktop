@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -203,6 +204,18 @@ func TestDispatchInternalRestartArgsPassesThroughForAnUnnamedLaunch(t *testing.T
 	}
 }
 
+func TestDispatchInternalClaimContainerNameIsTheClaimCommand(t *testing.T) {
+	h := newHarness(t)
+	h.Env["XDG_RUNTIME_DIR"] = t.TempDir()
+	h.On("podman ps -a --format {{.Names}}", "proj_yolo\n", 0)
+	if code := h.app.Run([]string{"internal", "claim-container-name", "proj", "yolo", strconv.Itoa(os.Getpid())}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if h.Out.String() != "proj_yolo_1\n" {
+		t.Fatalf("stdout %q", h.Out.String())
+	}
+}
+
 func TestDispatchSessionIsTheHotCommand(t *testing.T) {
 	h := newHarness(t)
 	if code := h.app.Run([]string{"session", "frob"}); code != term.ExitUsage ||
@@ -222,7 +235,8 @@ func TestInternalNeedsOneOfItsCommands(t *testing.T) {
 		if code := h.app.Run(args); code != term.ExitUsage {
 			t.Fatalf("%v: exit %d", args, code)
 		}
-		if !strings.Contains(h.ErrOut.String(), "internal membership-init") {
+		if !strings.Contains(h.ErrOut.String(), "internal membership-init") ||
+			!strings.Contains(h.ErrOut.String(), "internal claim-container-name") {
 			t.Fatalf("%v: stderr %q", args, h.ErrOut.String())
 		}
 	}
@@ -235,6 +249,7 @@ func TestUsageTextNamesTheLauncherSubcommandsAndTheCoordinator(t *testing.T) {
 		"choose-seat", "describe-seats", "coordinator", "ccy-teams shutdown <team> [--yes]",
 		"ccy-teams internal membership-init <session> <checkout> <seats>",
 		"ccy-teams internal restart-args <session>", "ccy-teams session list",
+		"ccy-teams internal claim-container-name <project> <suffix> <owner-pid>",
 		"ccy-teams session add <session> <team>[/<seat>] [--role=worker|coordinator] [--demote-current] [--yes]",
 		"ccy-teams session remove <session> <team> [--coordinator=demote|hand-to=<seat>] [--park] [--yes]",
 		"ccy-teams session move <session> <from-team> <to-team>[/<seat>]",

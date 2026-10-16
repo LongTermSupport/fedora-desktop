@@ -175,6 +175,15 @@ Usage:
                                    print them with the --teams of <session>'s record ("" for an
                                    unnamed launch: unchanged), so a supervisor restart replays a
                                    membership changed while the session ran. ccy calls it
+  ccy-teams internal claim-container-name <project> <suffix> <owner-pid>
+                                   print the lowest free container name, <project>_<suffix>
+                                   then _1, _2 ..., and claim it for process <owner-pid> in
+                                   $XDG_RUNTIME_DIR/ccy/container-names/, so launches started
+                                   together never choose the same name. A name is taken while
+                                   a container has it (the engine is $CONTAINER_ENGINE, else
+                                   podman) or while another running process claimed it; the
+                                   owner's own earlier claim is given up. ccy calls it at each
+                                   launch
   ccy-teams session list
   ccy-teams session add <session> <team>[/<seat>] [--role=worker|coordinator] [--demote-current] [--yes]
   ccy-teams session remove <session> <team> [--coordinator=demote|hand-to=<seat>] [--park] [--yes]

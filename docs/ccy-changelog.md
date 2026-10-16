@@ -17,6 +17,27 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.10.2 — container 2.75.1
+
+- **Two launches at once no longer collide on the container name** (Plan 00203). Each launch
+  chose the lowest free name (`<project>_yolo`, `_1`, `_2` ...) from the engine's container
+  list and created the container much later, so two launches started together in one project
+  (two sessions opened at once, a boot restore of several) took the same name and the second
+  failed at create: `the container name ... is already in use` (exit 125). The name is now
+  claimed as it is chosen: `ccy-teams internal claim-container-name` writes a claim for the
+  launcher's process into `$XDG_RUNTIME_DIR/ccy/container-names/` under a lock, and a name is
+  taken while a container has it or while the process that claimed it still runs. The lock is
+  held only for the choice; a relaunch (the same process, by exec) chooses again freely.
+  Docker sessions use the same claim. `scripts/test-ccy-container-name.bash` races launches
+  over a fake engine.
+- **Every launch now needs `XDG_RUNTIME_DIR`**, plain and `--no-bus` launches included (before,
+  only a launch carrying the bus kit did, through `membership-init`). Every supported context
+  has it: a desktop login, ssh with pam_systemd, the restore unit and ccy's tmux. A launch
+  without it stops before the container starts, naming the variable.
+- A claim is written in place under the lock, so a launch killed mid-claim leaves no temporary
+  file; an unfinished claim is removed by the next launch, and a malformed one is removed only
+  when its process is gone (otherwise the launch stops, naming the file).
+
 ## 3.99.10.1 — container 2.75.1
 
 Includes 3.99.9 (container 2.74), 3.99.9.1 (container 2.74.1, F44's refuse-inbound fix

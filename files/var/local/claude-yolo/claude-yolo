@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.99.10.1"  # Container 2.75.1: the owner re-roles, moves and repairs a running session (ccy-teams session role/move/repair/list), one change at a time; the status line marks a team whose homeserver is down. See docs/ccy-changelog.md.
+CCY_VERSION="3.99.10.2"  # Container 2.75.1: launches started together no longer choose the same container name. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

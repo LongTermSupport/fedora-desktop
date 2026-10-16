@@ -1055,42 +1055,12 @@ export -f get_project_name
 export -f command_exists
 export -f check_ccy_gitignore_safety
 
-# Function to get next available container name for a project
-# Args: $1 = project_name, $2 = suffix (e.g., "yolo" or "browser")
-# Returns: Available container name (e.g., "myproject_yolo" or "myproject_yolo_2")
+# The next free container name for a project, e.g. "myproject_yolo" or "myproject_yolo_2",
+# claimed for this launcher's process ($$) until it ends, so launches started together never
+# choose the same name (ccy-teams --help, internal claim-container-name).
+# Args: $1 = project_name, $2 = suffix (e.g., "yolo")
 get_next_container_name() {
-    local project_name="$1"
-    local suffix="$2"
-    local base_name="${project_name}_${suffix}"
-
-    # Get all containers matching this project (including stopped/dead)
-    # Using -a to prevent name collisions with stale containers from unclean shutdowns
-    local all_names
-    all_names=$(container_cmd ps -a --format '{{.Names}}')
-    local existing_containers=""
-    if echo "$all_names" | grep -q "^${base_name}"; then
-        existing_containers=$(echo "$all_names" | grep "^${base_name}")
-    fi
-
-    # If no container exists, use base name (no suffix)
-    if [ -z "$existing_containers" ]; then
-        echo "$base_name"
-        return
-    fi
-
-    # If base name (no suffix) is not in use, use it
-    if ! echo "$existing_containers" | grep -q "^${base_name}$"; then
-        echo "$base_name"
-        return
-    fi
-
-    # Find next available number
-    local max_num=1
-    while echo "$existing_containers" | grep -q "^${base_name}_${max_num}$"; do
-        max_num=$((max_num + 1))
-    done
-
-    echo "${base_name}_${max_num}"
+    ccy-teams internal claim-container-name "$1" "$2" "$$"
 }
 
 export -f validate_container_version

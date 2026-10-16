@@ -65,6 +65,7 @@ gate	ccy-gpu-device	scripts/test-ccy-gpu-device.bash	ccy gpu-device unit tests f
 gate	ccy-container-menus	scripts/test-ccy-container-menus.bash	ccy container menu tests failed	count
 gate	ccy-flag-check	scripts/test-ccy-flag-check.bash	ccy flag check tests failed	count
 gate	ccy-restart-request	scripts/test-ccy-restart-request.bash	ccy restart-request unit tests failed	count
+gate	ccy-container-name	scripts/test-ccy-container-name.bash	ccy container-name claim tests failed	count
 gate	ccy-container-version-hook	scripts/test-ccy-container-version-hook.bash	ccy container version hook tests failed	count
 gate	ccy-project-env	scripts/test-ccy-project-env.bash	ccy project env tests failed	count
 gate	ccy-git-preflight	scripts/test-ccy-git-preflight.bash	ccy entrypoint git preflight tests failed	count
