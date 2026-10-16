@@ -50,5 +50,6 @@ playbooks/imports/play-claude-yolo.yml
 # A private play run on 10-12 from a linked worktree was outside that worktree's root, and
 # the ledger marked itself BROKEN over it. The ledger now skips such a play with one
 # LEDGER-PLAY-NOT-TRACKED line on stderr, so the cause is fixed. Safe: that worktree is gone,
-# nothing else is changed, and the plays not recorded meanwhile stay unrecorded.
+# and only a marker whose reason is that outside-root refusal is cleared; a marker with any
+# other reason stays and this entry FAILS, naming it. No marker: nothing to do.
 00170-unifi-network-tooling/clear-ledger-broken.bash

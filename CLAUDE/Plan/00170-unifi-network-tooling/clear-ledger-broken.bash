@@ -3,8 +3,9 @@
 # run on 26-10-12 from a linked worktree. The ledger refused that play as outside the
 # worktree's root and marked itself BROKEN; it now skips such a play with one
 # LEDGER-PLAY-NOT-TRACKED line instead, so the cause is fixed. Safe: that worktree is gone,
-# and clearing only says recording may resume (the plays not recorded meanwhile stay
-# unrecorded). Changes only the ledger's sentinel file under $XDG_STATE_HOME.
+# only a sentinel whose reason is that outside-root refusal is cleared (any other reason
+# fails the run and stays), and clearing only says recording may resume (the plays not
+# recorded meanwhile stay unrecorded). Changes only the ledger's sentinel under $XDG_STATE_HOME.
 #
 # WHERE TO RUN: on the HOST, where the ledger lives. Enforced by plan_require_host (R2).
 #
@@ -40,9 +41,13 @@ if [[ "${PLAN_CHECK}" == 1 ]]; then
   plan_finish
 fi
 
-# python3 -m resolves the helpers package off the current directory.
+# python3 -m resolves the helpers package off the current directory. --only-if-reason
+# makes the clear exact: no sentinel is a clean no-op, and a sentinel whose reason is not
+# the old outside-root refusal is left in place and fails this leg with [FATAL], because
+# its cause is not the one fixed here (tested in test_check_freshness.TestClearBroken).
 cd "${PLAN_REPO_ROOT}"
-plan_deploy_leg "clear the play ledger BROKEN marker" \
-  python3 -m helpers.play_ledger.check_freshness --clear-broken
+plan_deploy_leg "clear the play ledger BROKEN marker (outside-root reason only)" \
+  python3 -m helpers.play_ledger.check_freshness --clear-broken \
+  --only-if-reason "is outside the repo root"
 
 plan_finish

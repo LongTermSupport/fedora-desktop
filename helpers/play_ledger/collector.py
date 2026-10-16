@@ -16,9 +16,20 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from typing import Any
+from typing import Any, NamedTuple
 
 from helpers.play_ledger import ledger
+
+
+class ResolvedPlay(NamedTuple):
+    """A play path resolved against the repo root.
+
+    `tracked` is False for a play outside the root; `relative` is then empty.
+    """
+
+    absolute: str
+    relative: str
+    tracked: bool
 
 #: Worst-wins. `unreachable` outranks `failed` because a host that could not be
 #: reached did not run the play at all, and recording "failed" would claim it ran
@@ -59,16 +70,15 @@ class RunCollector:
         opens nothing, so its results fold into no record.
         """
         self._close(at)
-        resolved = self._resolve(play_path)
-        if isinstance(resolved, str):
+        play = self._resolve(play_path)
+        if not play.tracked:
             return (
-                f"{NOT_TRACKED_MARKER}: play {resolved!r} is outside the repo root "
+                f"{NOT_TRACKED_MARKER}: play {play.absolute!r} is outside the repo root "
                 f"{self._repo_root!r}, so it is not tracked and the ledger records nothing for it"
             )
-        absolute, relative = resolved
         self._open = {
-            "absolute": absolute,
-            "relative": relative,
+            "absolute": play.absolute,
+            "relative": play.relative,
             "name": name,
             "started": at,
             "outcome": "ok",
@@ -119,11 +129,11 @@ class RunCollector:
             )
         )
 
-    def _resolve(self, play_path: str) -> tuple[str, str] | str:
-        """(absolute path, repo-relative path) from Ansible's `<file>:<line>` form.
+    def _resolve(self, play_path: str) -> ResolvedPlay:
+        """The play's real path, and whether it is tracked, from Ansible's `<file>:<line>` form.
 
-        A play outside the root comes back as its bare absolute path: not an error,
-        a play the ledger does not track. It cannot be compared against this repo's
+        A play outside the root comes back with `tracked=False`: not an error, a play
+        the ledger does not track. It cannot be compared against this repo's
         HEAD, so a row for it would be unanswerable — the same reasoning as
         `check_freshness._drop_never_tracked`. A private play run from a linked
         worktree is the usual case: it lives in the main checkout's untracked/.
@@ -131,7 +141,9 @@ class RunCollector:
         Inside the root the play is in scope even when git does not track it (a
         private play under the main checkout's untracked/): commit, dirty and
         play_sha256 still describe it, and check_freshness drops it as never
-        tracked. Every other failure here propagates, so the plugin marks BROKEN.
+        tracked. The test is on the real path, so a private directory that is a
+        symlink to somewhere outside the root is outside too. Every other failure
+        here propagates, so the plugin marks BROKEN.
         """
         path = play_path
         head, separator, tail = path.rpartition(":")
@@ -141,5 +153,5 @@ class RunCollector:
         absolute = os.path.realpath(path)
         prefix = self._repo_root + os.sep
         if not absolute.startswith(prefix):
-            return absolute
-        return absolute, absolute[len(prefix) :]
+            return ResolvedPlay(absolute=absolute, relative="", tracked=False)
+        return ResolvedPlay(absolute=absolute, relative=absolute[len(prefix) :], tracked=True)
