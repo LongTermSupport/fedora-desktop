@@ -411,6 +411,55 @@ class StatusMappingTest(TeamRoom):
         self.assertEqual(matrix.Forbidden.exit_code, cli.EXIT_UNTRUSTED)
 
 
+class TransientTest(TeamRoom):
+    """`transient` marks what a homeserver restart looks like: no connection, a 5xx (a proxy's
+    HTML 502 too) or a 429 past its retries. The watcher retries those and drops a team only
+    for the rest (SPEC-inject E25)."""
+
+    def test_a_5xx_is_transient(self) -> None:
+        for status in (500, 502, 503, 504):
+            self.fake.inject("GET", r"/whoami$", status, {"errcode": "M_UNKNOWN", "error": "restarting"})
+            with self.subTest(status=status), self.assertRaises(matrix.MatrixError) as caught:
+                self.client().whoami()
+            self.assertTrue(caught.exception.transient)
+
+    def test_a_proxys_html_502_is_transient(self) -> None:
+        with RecordingServer(502, body=b"<html>Bad Gateway</html>").running() as url:
+            with self.assertRaises(matrix.MatrixError) as caught:
+                loopback_client(url, "t0ken").whoami()
+        self.assertTrue(caught.exception.transient)
+
+    def test_connection_refused_is_transient(self) -> None:
+        dead = RecordingServer()
+        url = dead.url
+        dead._server.server_close()
+        with self.assertRaises(matrix.Unreachable) as caught:
+            loopback_client(url, "t0ken").whoami()
+        self.assertTrue(caught.exception.transient)
+
+    def test_a_429_past_its_retries_is_transient(self) -> None:
+        self.fake.inject("GET", r"/whoami$", 429, {"errcode": "M_LIMIT_EXCEEDED", "error": "slow down"},
+                         times=limits.SERVER_429_MAX_TRIES)
+        with self.assertRaises(matrix.RateLimited) as caught:
+            self.client().whoami()
+        self.assertTrue(caught.exception.transient)
+
+    def test_refusals_and_bad_answers_are_not_transient(self) -> None:
+        with self.assertRaises(matrix.AuthRefused) as caught:
+            loopback_client(self.base, "not-a-token", sleep=self.sleeps.append).whoami()
+        self.assertFalse(caught.exception.transient)
+        with self.assertRaises(matrix.Forbidden) as caught:
+            self.client(self.invited).send_message(self.room, PING)
+        self.assertFalse(caught.exception.transient)
+        with self.assertRaises(matrix.NotFound) as caught:
+            self.client().get_event(self.room, "$" + "A" * 43)
+        self.assertFalse(caught.exception.transient)
+        with RecordingServer(200, body=b"<html>").running() as url, \
+                self.assertRaises(matrix.Unreachable) as caught:
+            loopback_client(url, "t0ken").whoami()
+        self.assertFalse(caught.exception.transient)
+
+
 class TokenNeverInErrorsTest(TeamRoom):
     """Every error a client can raise, rendered every way it could be shown."""
 

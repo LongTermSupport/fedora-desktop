@@ -19,3 +19,11 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+# Plan 00194 watcher fix: deploys the ccy launcher 3.98.12, which requires container 2.67, so
+# the next ccy launch rebuilds the image once. The team watcher in ccy sessions survives a
+# homeserver restart (it waits, retries and catches up, with one log line at the start and one
+# at the end of an outage) and runs under a supervisor that starts it again if it dies.
+playbooks/imports/play-claude-yolo.yml
+# Plan 00194 watcher fix: agent-bus-install software puts the same pingbus in the kit for
+# `cc --teams` sessions and LXC members. No firewall rule changes.
+playbooks/imports/play-agent-bus.yml

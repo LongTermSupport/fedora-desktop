@@ -95,6 +95,11 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   2.63, CCY 3.98.8; Plan 00161's M2 checks read deliveries). Waiting on Fable's review of
   spec and code, then the host checks H1-H7 after `play-claude-yolo.yml` and
   `play-agent-bus.yml` (queued in meta-deploy).
+- [ ] 🔄 **Task 2.0d**: The watcher survives a homeserver restart and is supervised
+  (SPEC-inject E25, E26; Plan 00203's audit F1 and F2). Built test first on branch
+  `fix/watcher-survives-homeserver-restart` (container 2.67, CCY 3.98.12); waits on review,
+  then `play-claude-yolo.yml` and `play-agent-bus.yml` (queued in meta-deploy) and the
+  owner's check: restart a team's homeserver under an idle session, then post from Element.
 - [ ] ⬜ **Task 2.1**: The plugin, test first, shipped in the image beside `ccy_lifecycle.py`,
   enabled for a session launched with `--teams` (CCY version bump). Waits on the
   hooks-daemon release that carries plugin API 1.1 (#119); it also drops

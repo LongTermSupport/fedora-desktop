@@ -31,7 +31,7 @@ from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import cli, inbox, inject, matrix, notify, protocol
+from helpers.pingbus import cli, inbox, inject, matrix, notify, protocol, syncer
 from tests.helpers.pingbus import test_cli as bus
 
 SESSION_TOKEN = "session-token-0123456789abcdef"
@@ -218,8 +218,8 @@ class WatchCase(bus.BusCase):
         for text in self.outputs:
             self.assertNotIn(SESSION_TOKEN, text)
 
-    def start_watch(self, *, ready: bool = True) -> None:
-        self.watcher = threading.Thread(target=lambda: self.result.append(self.run_cli("watch")),
+    def start_watch(self, *argv: str, ready: bool = True) -> None:
+        self.watcher = threading.Thread(target=lambda: self.result.append(self.run_cli("watch", *argv)),
                                         daemon=True)
         self.watcher.start()
         if ready:
@@ -270,6 +270,7 @@ class WatchCase(bus.BusCase):
         rt = super().runtime(*args, **kwargs)
         rt.notice_interval_s = 0.0
         rt.delivery = self.timing
+        rt.outage_retry_s, rt.outage_retry_max_s = 0.01, 0.05
         # The test polls the lock with `probe_lock`, whose brief shared hold a starting
         # watcher rides out with real sleeps between its tries (inbox.LOCK_ATTEMPTS).
         rt.sleep = time.sleep
@@ -649,6 +650,18 @@ class WatchRefusalTest(WatchCase):
         self.assertEqual(code, cli.EXIT_UNTRUSTED)
         self.assertIn(f"team {bus.TEAM_A}", err)
 
+    def test_a_second_watcher_of_the_same_session_is_busy_even_on_a_free_team(self):
+        """The session's own watch lock (E26): a watcher the hooks start again while one
+        still runs exits at once, even where the first has no team lock to show."""
+        self.joined()
+        self.start_watch()
+        b = self.add_team()
+        b_env = dict(self.env)
+        code, _, err = self.run_cli("watch", env=b_env)
+        self.assertEqual(code, cli.EXIT_BUSY)
+        self.assertIn("this session already has a watcher", err)
+        self.assertIsNone(inbox.probe_lock(b.state), "the second watcher took a team")
+
     def test_a_stale_lock_file_is_not_a_watcher(self):
         """Liveness is the lock, never what a file says: `watch` written into an unheld lock
         file, and a PID file beside it, mean nothing."""
@@ -658,6 +671,230 @@ class WatchRefusalTest(WatchCase):
         self.assertIsNone(inbox.probe_lock(self.a.state))
         self.start_watch()
         self.assertEqual(inbox.probe_lock(self.a.state), "watch")
+
+
+class WatchOutageTest(WatchCase):
+    """SPEC-inject E25: a homeserver restart (a Tuwunel upgrade restarts each team's for a
+    few seconds) drops no team and ends no watcher, from its very first sync on. The watcher
+    retries with a bounded backoff from its stored sync token, says so once when the outage
+    starts and once when it ends, and drops a team only for a permanent refusal. Any other
+    error in one team (a full disk) is contained to that team and retried the same way."""
+
+    OUTAGE = "the homeserver does not answer"
+    RECOVERED = "the team syncs again"
+
+    def faults_spent(self) -> bool:
+        return all(fault.remaining == 0 for fault in self.a.fake._faults)
+
+    def test_a_homeserver_restart_drops_no_team_and_delivers_once(self):
+        self.joined()
+        self.start_watch()
+        for status in (502, 503):
+            self.a.fake.inject("GET", r"/sync$", status, {"errcode": "M_UNKNOWN", "error": "restarting"},
+                               times=3)
+        during = self.a.human("sent as the homeserver restarts")
+        (first,) = self.sock.wait_for(1)
+        self.assertIn(f"id: {during}", first.splitlines())
+        self.until(self.faults_spent, "the watcher stopped syncing during the outage")
+        after = self.a.human("sent once it is back")
+        _, second = self.sock.wait_for(2)
+        self.assertIn(f"id: {after}", second.splitlines())
+        self.assertTrue(self.watcher.is_alive(), f"the outage ended the watcher: {self.result}")
+        self.assertEqual(inbox.probe_lock(self.a.state), "watch")
+        self.until(lambda: self.pending() == 0, "the delivered messages were not consumed")
+        time.sleep(0.3)
+        self.assertEqual(len(self.sock.payloads), 2, "a message was delivered twice")
+        code, _, err = self.end_session()
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertNotIn("no longer watched", err)
+        self.assertEqual(err.count(self.OUTAGE), 1, err)
+        self.assertEqual(err.count(self.RECOVERED), 1, err)
+
+    def test_a_homeserver_not_answering_at_start_is_waited_for(self):
+        """The reboot race: the watcher starts before its homeserver answers."""
+        self.joined()
+        self.a.fake.inject("GET", r"/sync$", 503, {"errcode": "M_UNKNOWN", "error": "starting"}, times=4)
+        self.a.fake.inject("PUT", r"/state/", 502, {"errcode": "M_UNKNOWN", "error": "starting"}, times=2)
+        self.start_watch(ready=False)
+        self.until(self.faults_spent, "the watcher gave up while the homeserver was down")
+        self.until(lambda: self.status_event() is not None, "the status was never published")
+        event = self.a.human("sent once the homeserver is up")
+        (text,) = self.sock.wait_for(1)
+        self.assertIn(f"id: {event}", text.splitlines())
+        code, _, err = self.end_session()
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(err.count(self.RECOVERED), 1, err)
+
+    def test_an_unexpected_error_in_one_team_is_contained_and_retried(self):
+        """A full disk is not a FAILURES exception; it must not end the watcher."""
+        self.joined()
+        real = syncer.Syncer.sync_once
+        failed: list[int] = []
+
+        def flaky(engine, timeout_ms=0):
+            if len(failed) < 2:
+                failed.append(timeout_ms)
+                raise OSError(errno.ENOSPC, "No space left on device")
+            return real(engine, timeout_ms)
+
+        with mock.patch.object(syncer.Syncer, "sync_once", flaky):
+            self.start_watch(ready=False)
+            self.until(lambda: len(failed) == 2 and inbox.probe_lock(self.a.state) == "watch",
+                       "the watcher did not come up")
+            event = self.a.human("sent after the disk has room again")
+            (text,) = self.sock.wait_for(1)
+        self.assertIn(f"id: {event}", text.splitlines())
+        code, _, err = self.end_session()
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(err.count("No space left on device"), 1, err)
+        self.assertEqual(err.count(self.RECOVERED), 1, err)
+
+    def test_an_unexpected_error_in_a_delivery_pass_is_retried(self):
+        self.joined()
+        real = cli._inject_pass
+        failed: list[int] = []
+
+        def flaky(*args):
+            if not failed:
+                failed.append(1)
+                raise OSError(errno.ENOSPC, "No space left on device")
+            return real(*args)
+
+        with mock.patch.object(cli, "_inject_pass", flaky):
+            self.start_watch()
+            event = self.a.human("delivered after a failed pass")
+            (text,) = self.sock.wait_for(1)
+        self.assertIn(f"id: {event}", text.splitlines())
+        code, _, err = self.end_session()
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertIn("No space left on device", err)
+
+    def test_the_backoff_doubles_up_to_its_cap(self):
+        waits = []
+        clock = cli._Backoff(first_s=1.0, cap_s=30.0)
+        for _ in range(8):
+            waits.append(clock.next())
+        self.assertEqual(waits, [1.0, 2.0, 4.0, 8.0, 16.0, 30.0, 30.0, 30.0])
+        clock.reset()
+        self.assertEqual(clock.next(), 1.0)
+
+    def test_the_default_backoff_is_one_second_doubling_to_thirty(self):
+        rt = cli.Runtime()
+        self.assertEqual((rt.outage_retry_s, rt.outage_retry_max_s), (1.0, 30.0))
+
+    def test_a_rejected_token_still_drops_the_team(self):
+        self.joined()
+        self.start_watch()
+        self.a.fake.inject("GET", r"/sync$", 401, {"errcode": "M_UNKNOWN_TOKEN", "error": "gone"})
+        self.watcher.join(10)
+        self.assertFalse(self.watcher.is_alive(), "a rejected token did not end the watch")
+        code, _, err = self.result[0]
+        self.assertEqual(code, cli.EXIT_AUTH)
+        self.assertIn("no longer watched", err)
+        self.assertNotIn(self.OUTAGE, err)
+
+
+class WatchSuperviseTest(WatchCase):
+    """SPEC-inject E26: `watch --supervise` (what the hooks start) holds the session's watch
+    lock and runs `watch --child` until the session's socket goes, starting it again after
+    any other exit, with a backoff of 1 s doubling to 60 s, except after a permanent refusal.
+    An idle session gets no hook events, so this is what restarts a dead watcher there."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        exe = bindir / "pingbus"
+        exe.write_text("#!/bin/sh\nexit 0\n", encoding="ascii")
+        exe.chmod(0o755)
+        self.exe = str(exe)
+        self.env["PATH"] = f"{bindir}:{self.env['PATH']}"
+        self.children: list[list[str]] = []
+        self.codes: list[object] = []
+        self.waits: list[float] = []
+
+    def runtime(self, *args, **kwargs) -> cli.Runtime:
+        rt = super().runtime(*args, **kwargs)
+        rt.sleep = self.wait
+        rt.run_child = self.run_child
+        return rt
+
+    def wait(self, seconds: float) -> None:
+        """The supervisor's backoff is recorded, not slept; a lock retry sleeps a moment."""
+        self.waits.append(seconds)
+        time.sleep(min(seconds, 0.05))
+
+    def run_child(self, argv, environ) -> int:
+        self.children.append(list(argv))
+        self.assertEqual(environ[notify.SOCKET_ENV], str(self.sock.path))
+        code = self.codes.pop(0)
+        return code() if callable(code) else code
+
+    def lock_path(self) -> pathlib.Path:
+        return self.marks().watch_lock_path()
+
+    def socket_closes(self, code: int):
+        def act() -> int:
+            self.sock.close()
+            return code
+        return act
+
+    def test_a_child_that_dies_is_started_again_with_a_backoff(self):
+        self.codes = [1, cli.EXIT_UNREACHABLE, -9, self.socket_closes(cli.EXIT_OK)]
+        code, out, err = self.run_cli("watch", "--supervise")
+        self.assertEqual((code, out), (cli.EXIT_OK, ""))
+        self.assertEqual(self.children, [[self.exe, "watch", "--child"]] * 4)
+        self.assertEqual(self.waits, [1.0, 2.0, 4.0])
+        self.assertEqual(err.count("the watcher exited"), 3, err)
+
+    def test_the_default_backoff_is_one_second_doubling_to_sixty(self):
+        rt = cli.Runtime()
+        self.assertEqual((rt.supervise_retry_s, rt.supervise_retry_max_s), (1.0, 60.0))
+
+    def test_a_permanent_refusal_is_not_retried(self):
+        for refused in (cli.EXIT_AUTH, cli.EXIT_UNTRUSTED, cli.EXIT_CONFIG):
+            with self.subTest(code=refused):
+                self.children.clear()
+                self.codes = [refused]
+                self.assertEqual(self.run_cli("watch", "--supervise")[0], refused)
+                self.assertEqual(len(self.children), 1)
+
+    def test_a_socket_that_is_gone_ends_it_whatever_the_child_said(self):
+        self.codes = [self.socket_closes(1)]
+        self.assertEqual(self.run_cli("watch", "--supervise")[0], cli.EXIT_OK)
+        self.assertEqual(len(self.children), 1)
+
+    def test_it_holds_the_sessions_watch_lock_while_the_child_runs(self):
+        seen: list[object] = []
+
+        def child() -> int:
+            seen.append(inbox.probe_lock_at(self.lock_path()))
+            seen.append(self.run_cli("watch")[0])
+            self.sock.close()
+            return cli.EXIT_OK
+
+        self.codes = [child]
+        self.run_cli("watch", "--supervise")
+        self.assertEqual(seen, ["watch", cli.EXIT_BUSY])
+        self.assertIsNone(inbox.probe_lock_at(self.lock_path()))
+
+    def test_a_second_supervisor_is_busy_and_starts_nothing(self):
+        self.marks().dir.mkdir(parents=True, exist_ok=True)
+        with inbox.acquire_lock_at(self.lock_path(), "watch"):
+            code, _, err = self.run_cli("watch", "--supervise")
+        self.assertEqual(code, cli.EXIT_BUSY)
+        self.assertIn("this session already has a watcher", err)
+        self.assertEqual(self.children, [])
+
+    def test_the_child_runs_under_its_parents_lock(self):
+        self.joined()
+        self.marks().dir.mkdir(parents=True, exist_ok=True)
+        lock = inbox.acquire_lock_at(self.lock_path(), "watch")
+        self.addCleanup(lock.release)
+        self.start_watch("--child")
+        self.a.human("for the child")
+        (text,) = self.sock.wait_for(1)
+        summary(text)
 
 
 if __name__ == "__main__":

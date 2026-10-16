@@ -226,6 +226,16 @@ class TemplateTest(unittest.TestCase):
 
 
 class PromptTest(HookCase):
+    """The counts. The session's supervisor runs (its watch lock is held), so the prompt
+    starts nothing (WatcherRestartTest)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        marks = inject.Marks(self.home, self.env[notify.SOCKET_ENV])
+        marks.ensure_dir()
+        lock = inbox.acquire_lock_at(marks.watch_lock_path(), "watch")
+        self.addCleanup(lock.release)
+
     def test_pending_items_are_counted_never_shown(self):
         self.plant_human(1)
         self.plant_ping(2)
@@ -790,7 +800,100 @@ class StopTest(HookCase):
         self.assertEqual(self.hook("session-end", {"hook_event_name": "SessionEnd"}), {})
 
 
+class WatcherRestartTest(HookCase):
+    """SPEC-inject E26: the hooks start `watch --supervise`, which restarts its watcher; a
+    supervisor gone mid-session is started again by UserPromptSubmit or Stop, the way
+    SessionStart starts it, so no agent has to arm `pingbus wait` by hand. The session's
+    own watch lock decides whether one runs, so there are never two; one that dies again
+    soon after a start is not restarted in a loop but reported."""
+
+    def test_the_spawned_watcher_is_supervised(self):
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        said = self.tmp / "argv"
+        exe = bindir / "pingbus"
+        exe.write_text(f'#!/bin/sh\necho "$@" > {said}\n', encoding="ascii")
+        exe.chmod(0o755)
+        hooks.spawn_watcher(dict(self.env, PATH=f"{bindir}:/usr/bin:/bin"), self.tmp / "watch.log")
+        give_up = time.monotonic() + 10
+        while not said.exists() or not said.read_text(encoding="ascii"):
+            self.assertLess(time.monotonic(), give_up, "the spawned watcher never ran")
+            time.sleep(0.02)
+        self.assertEqual(said.read_text(encoding="ascii"), "watch --supervise\n")
+
+    def prompt(self) -> dict:
+        return self.hook("prompt", {"hook_event_name": "UserPromptSubmit"})
+
+    def marks(self) -> inject.Marks:
+        return inject.Marks(self.home, self.env[notify.SOCKET_ENV])
+
+    def test_a_prompt_restarts_a_watcher_that_is_gone_and_says_so(self):
+        result = self.prompt()
+        self.assertEqual(len(self.spawned), 1)
+        self.assertEqual(self.spawned[0][notify.SOCKET_ENV], self.env[notify.SOCKET_ENV])
+        self.assertIn(hooks.TEMPLATES["watcher_restarted"], self.context(result))
+
+    def test_stop_restarts_it_and_does_not_tell_the_agent_to_wait(self):
+        result = self.stop()
+        self.assertEqual(len(self.spawned), 1)
+        self.assertFalse(self.blocked(result), "Stop told the agent to wait by hand")
+        self.assertEqual(result.get("systemMessage"), hooks.TEMPLATES["watcher_restarted"])
+
+    def test_a_running_watcher_is_never_started_twice(self):
+        self.hold("watch")
+        self.assertNotIn("watcher", self.context(self.prompt()))
+        self.assertEqual(self.stop(), {})
+        self.assertEqual(self.spawned, [])
+
+    def test_the_sessions_watch_lock_means_one_runs_even_with_a_free_team(self):
+        self.marks().dir.mkdir(parents=True)
+        lock = inbox.acquire_lock_at(self.marks().watch_lock_path(), "watch")
+        self.addCleanup(lock.release)
+        self.prompt()
+        self.assertFalse(self.blocked(self.stop()))
+        self.assertEqual(self.spawned, [])
+
+    def test_a_watcher_still_starting_is_left_alone(self):
+        self.prompt()
+        self.now += hooks.WATCHER_START_GRACE_S - 1
+        self.assertNotIn("watcher", self.context(self.prompt()))
+        self.assertEqual(self.stop(), {})
+        self.assertEqual(len(self.spawned), 1)
+
+    def test_one_that_dies_again_is_reported_not_restarted_in_a_loop(self):
+        self.prompt()
+        self.now += hooks.WATCHER_START_GRACE_S + 1
+        self.assertIn(hooks.TEMPLATES["watcher_failed"], self.context(self.prompt()))
+        result = self.stop()
+        self.assertEqual(result["reason"], hooks.TEMPLATES["watcher_failed"])
+        self.assertEqual(len(self.spawned), 1)
+        self.now += hooks.WATCHER_RESPAWN_EVERY_S
+        self.assertIn(hooks.TEMPLATES["watcher_restarted"], self.context(self.prompt()))
+        self.assertEqual(len(self.spawned), 2)
+
+    def test_session_start_counts_as_a_start(self):
+        self.hook("session-start", {"hook_event_name": "SessionStart", "source": "startup"})
+        self.prompt()
+        self.assertEqual(len(self.spawned), 1)
+
+    def test_a_restart_that_cannot_spawn_is_reported(self):
+        self.spawn_error = FileNotFoundError("pingbus")
+        self.assertIn(hooks.TEMPLATES["watcher_failed"], self.context(self.prompt()))
+
+    def test_without_a_socket_nothing_is_started(self):
+        env = {k: v for k, v in self.env.items() if k not in (notify.SOCKET_ENV, notify.TOKEN_ENV)}
+        self.hook("prompt", {"hook_event_name": "UserPromptSubmit"}, env=env)
+        self.assertEqual(self.spawned, [])
+
+
 class NoWakerTest(HookCase):
+    """The hand-armed wake path is for a session with no inbox socket only."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        for key in (notify.SOCKET_ENV, notify.TOKEN_ENV):
+            del self.env[key]
+
     def test_no_waker_blocks_at_most_once_per_window(self):
         result = self.stop()
         self.assertTrue(self.blocked(result))
@@ -845,7 +948,8 @@ class UnwritableGuardTest(HookCase):
         (self.home / hooks.GUARD_FILE).mkdir()
 
     def test_no_waker_does_not_block_and_exits_0(self):
-        self.assertEqual(self.stop(), {})
+        env = {k: v for k, v in self.env.items() if k not in (notify.SOCKET_ENV, notify.TOKEN_ENV)}
+        self.assertEqual(self.stop(env=env), {})
 
     def test_pending_does_not_block_and_exits_0(self):
         self.hold("watch")
