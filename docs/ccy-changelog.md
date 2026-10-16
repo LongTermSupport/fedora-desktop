@@ -17,6 +17,22 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.4.2 — container 2.71
+
+- **Seats a Quick Launch brings back go into the launch's own session record only** (Plan
+  00203): `ccy-teams record-seats` takes the session from the launcher, as below, instead of
+  reading `TMUX` itself.
+
+## 3.99.4.1 — container 2.71
+
+- **A ccy started from inside another session no longer takes that session's identity**
+  (Plan 00203). A launcher run by a shell in a ccy or cc session's pane (an agent's command
+  there) inherited the pane's tmux variables and was labelled as that session, mounted its
+  membership directory and could rewrite it, and recorded its SSH key in that session's record.
+  A launcher now takes a session's name only when its pane was started for it; any other launch
+  is unnamed (`PINGBUS_MEMBERSHIP=off` with no team, a container-named membership with one).
+  Host-side only: the image is unchanged.
+
 ## 3.99.4 — container 2.71
 
 - **A new team is not reported as missing a backup it never had** (Plan 00203). The daily

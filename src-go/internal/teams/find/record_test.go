@@ -3,7 +3,6 @@ package find
 import (
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
@@ -11,9 +10,8 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-const ccyPane = "/tmp/tmux-1000/ccy,4242,0"
-
-// recorded is the rig with a scratch session registry, run from inside a ccy tmux session.
+// recorded is the rig with a scratch session registry. No tmux call is staged: record-seats
+// is told the session by the launcher, so any tmux call fails the test.
 type recorded struct {
 	rig
 
@@ -27,57 +25,49 @@ func recordRig(t *testing.T) recorded {
 	dir := t.TempDir()
 	store := registry.New(dir)
 	h.Host.Registry = func() (*registry.Store, error) { return store, nil }
-	h.Env["TMUX"] = ccyPane
-	h.On("tmux -L ccy display-message -p #S", "ccy-proj\n", 0)
+	// The TMUX of an OUTER session's pane, as a ccy run from a shell inside it inherits: it
+	// must play no part in which record is written.
+	h.Env["TMUX"] = "/tmp/tmux-1000/ccy,4242,0"
 	return recorded{rig: h, store: store, dir: dir}
 }
 
-func TestRecordSeatsPutsTheTeamsInTheCurrentSessionsOwnRecord(t *testing.T) {
-	h := recordRig(t)
-	rec := registry.Record{Name: "ccy-proj", Dir: "/x", Launcher: "/x/ccy", Prefix: "ccy", Restore: true, Args: []string{"--no-ssh"}}
+func (h recorded) write(t *testing.T, name string) {
+	t.Helper()
+	rec := registry.Record{Name: name, Dir: "/x", Launcher: "/x/ccy", Prefix: "ccy", Restore: true, Args: []string{"--no-ssh"}}
 	if err := h.store.Write(rec); err != nil {
 		t.Fatal(err)
 	}
-	if code := h.f.RecordSeats(t.Context(), []string{"dev1@team-a"}); code != term.ExitOK {
+}
+
+func TestRecordSeatsPutsTheTeamsInTheNamedSessionsOwnRecord(t *testing.T) {
+	h := recordRig(t)
+	h.write(t, "ccy-proj")
+	h.write(t, "cc-outer")
+	if code := h.f.RecordSeats(t.Context(), []string{"ccy-proj", "dev1@team-a"}); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
 	got, err := h.store.Get("ccy-proj")
 	if err != nil || !slices.Equal(got.Args, []string{"--no-ssh", "--teams", "dev1@team-a"}) {
 		t.Fatalf("record %+v, err %v", got, err)
 	}
-}
-
-func TestRecordSeatsThatCannotTellTheSessionFailsNamingIt(t *testing.T) {
-	h := recordRig(t)
-	h.OnErr("tmux -L ccy display-message -p #S", "server exited unexpectedly", 1)
-	if code := h.f.RecordSeats(t.Context(), []string{"dev1@team-a"}); code != term.ExitFailure {
-		t.Fatalf("exit %d", code)
-	}
-	if !strings.Contains(h.ErrOut.String(), "which ccy session") || !strings.Contains(h.ErrOut.String(), "server exited unexpectedly") {
-		t.Fatalf("stderr %q", h.ErrOut.String())
-	}
-}
-
-func TestRecordSeatsOutsideACcySessionIsNothingToDo(t *testing.T) {
-	h := recordRig(t)
-	h.Env["TMUX"] = ""
-	if code := h.f.RecordSeats(t.Context(), []string{"dev1@team-a"}); code != term.ExitOK {
-		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	outer, err := h.store.Get("cc-outer")
+	if err != nil || !slices.Equal(outer.Args, []string{"--no-ssh"}) {
+		t.Fatalf("the outer session's record changed: %+v, err %v", outer, err)
 	}
 }
 
 func TestRecordSeatsForASessionWithNoRecordIsNothingToDo(t *testing.T) {
 	h := recordRig(t)
-	if code := h.f.RecordSeats(t.Context(), []string{"dev1@team-a"}); code != term.ExitOK {
+	if code := h.f.RecordSeats(t.Context(), []string{"ccy-proj", "dev1@team-a"}); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
 }
 
-func TestRecordSeatsNeedsExactlyTheSeats(t *testing.T) {
+func TestRecordSeatsNeedsExactlyTheSessionAndTheSeats(t *testing.T) {
 	h := recordRig(t)
-	for _, args := range [][]string{nil, {"a@b", "c@d"}} {
+	for _, args := range [][]string{nil, {"a@b"}, {"", "a@b"}, {"ccy-proj", "a@b", "c@d"}} {
 		if code := h.f.RecordSeats(t.Context(), args); code != term.ExitUsage {
-			t.Fatalf("%v: exit %d", args, code)
+			t.Fatalf("%q: exit %d", args, code)
 		}
 	}
 }
@@ -85,7 +75,7 @@ func TestRecordSeatsNeedsExactlyTheSeats(t *testing.T) {
 func TestRecordSeatsOnAnUnreadableRecordFails(t *testing.T) {
 	h := recordRig(t)
 	teamtest.MustWrite(t, filepath.Join(h.dir, "ccy-proj"), "junk\n")
-	if code := h.f.RecordSeats(t.Context(), []string{"a@b"}); code != term.ExitFailure {
+	if code := h.f.RecordSeats(t.Context(), []string{"ccy-proj", "a@b"}); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
 	}
 }

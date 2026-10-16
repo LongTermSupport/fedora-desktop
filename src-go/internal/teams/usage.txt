@@ -154,10 +154,10 @@ Usage:
                                    run (exit 1); with no terminal and no valid record
                                    (yours, mode 600, in your closed folder) it exits 78
                                    before any seat is made. ccy --teams and cc --teams call it
-  ccy-teams record-seats <seats>   put the seats (a canonical --teams list) into the record of
-                                   the ccy session this runs in (from TMUX), so its restore
-                                   replays them. ccy calls it when Quick Launch brings a saved
-                                   team back; it fails if the session cannot be named
+  ccy-teams record-seats <session> <seats>
+                                   put the seats (a canonical --teams list) into the record of
+                                   the session, so its restore replays them. ccy calls it, naming
+                                   its own session, when Quick Launch brings a saved team back
   ccy-teams internal membership-init <session> <checkout> <seats>
                                    write generation 1 of the session's desired agent team
                                    bus membership (<seats>: the canonical --teams list, empty

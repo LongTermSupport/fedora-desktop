@@ -1426,7 +1426,9 @@ can find and group sessions without parsing container names:
 `ccy-github`, `ccy-token` and `ccy-ssh-keys` are `none` when the axis does not apply, so "no
 GitHub identity" is stated rather than looking like an unlabelled container. `ccy-session` is
 only on a session started in ccy's tmux (from CCY 3.99.0): it is the host's map from a session
-to its container. The `ccy-seats` label of earlier versions is gone; a podman label cannot
+to its container. A `ccy` run from a shell inside another session (an agent's command there)
+is not that session: it gets no `ccy-session` label and writes no session's record (from CCY
+3.99.4.2). The `ccy-seats` label of earlier versions is gone; a podman label cannot
 change while the container runs, and Plan 00203's hot control changes a session's seats while
 it runs.
 

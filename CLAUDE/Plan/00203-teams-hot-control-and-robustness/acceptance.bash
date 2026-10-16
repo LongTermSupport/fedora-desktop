@@ -7,8 +7,8 @@
 #   m1      _acceptance-m1.inc.bash      the seat keeper (M1 a-b); uses M2's session launch
 #   robust  _acceptance-robust.inc.bash  server-side robustness (gaps 3, 4, 9, 10), R1-R9
 #
-# WHERE TO RUN: on the HOST, as the desktop user (sudo for each root step), on an SELinux
-# Enforcing host, after play-claude-yolo.yml (ccy, ccy-teams, the image) and play-agent-bus.yml
+# WHERE TO RUN: on the HOST, as the desktop user (sudo for each root step), on an SELinux host
+# (Enforcing or Permissive: M2 says which it exercised), after play-claude-yolo.yml (ccy, ccy-teams, the image) and play-agent-bus.yml
 # (the units, the installer, the admin zipapp) have run. Through meta-deploy.bash.
 #
 # EXIT CODES: 0 ACCEPTED; 1 REJECTED (a check or a setup step failed, and names itself);
