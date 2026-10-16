@@ -40,12 +40,12 @@ playbooks/imports/play-claude-yolo.yml
 # units from systemctl --failed and its backup timer's last-run time.
 00203-teams-hot-control-and-robustness
 # Plan 00201 M7 acceptance again: two throwaway teams, ccy --teams on both, then all removed.
-# Its sessions are launched unnamed whatever terminal runs it, and its plain-session check takes
-# either form a plain ccy now has (PINGBUS_MEMBERSHIP=off, or a seatless membership with the
-# idle kit). This is M2's check (a) that ccy --teams works as before, and with M1 that the
+# Its sessions are launched unnamed whatever terminal runs it, so its plain session must say
+# PINGBUS_MEMBERSHIP=off. This is M2's check (a) that ccy --teams works as before, and with M1 that the
 # keeper takes the seats.
 00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/acceptance.bash
 # Plan 00161 acceptance again (U20's seated headless sessions), its sessions launched unnamed
-# the same way, each seat with a membership directory of its own: its own throwaway team,
+# the same way, each seat with a membership directory of its own, then (M2.11) seat accb once
+# more as a NAMED session in a tmux session of its own on ccy's server: its own throwaway team,
 # removed after. Also M2's check (a).
 00161-agent-team-bus-matrix/acceptance.bash
