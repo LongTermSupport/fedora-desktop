@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.0 — container 2.67
+
+- **The agent team bus kit in every session started in ccy's tmux** (Plan 00203 M2, the
+  launch half of hot control). Each such session is labelled `ccy-session=<name>` and gets
+  its desired membership (the `--teams` seats, or none) written by `ccy-teams internal membership-init` under `$XDG_RUNTIME_DIR/ccy/membership/<name>/` and mounted read-only at
+  `/run/ccy/membership`, relabelled per session on SELinux; `PINGBUS_MEMBERSHIP` names it.
+  On no team the kit is inert: every hook is a shell guard on a flag the claim keeps, and
+  the status line runs the session's own one with no Python. `ccy --no-bus` leaves the kit
+  out. `PINGBUS_SEATS` and the `ccy-seats` label are retired for ccy (cc keeps the variable
+  until its own milestone); an image older than this launcher is rebuilt, and an old launcher
+  meeting this image is refused rather than started teamless. Plugin 1.3.0.
+
 ## 3.98.11 — container 2.66
 
 - **Teams final review fixes** (Plan 00201). The agent's avatar appears under a human's

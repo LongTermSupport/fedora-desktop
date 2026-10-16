@@ -546,18 +546,22 @@ fi
 
 # ── Optional: the agent team bus (Plan 00161) ─────────────────────────────────
 #
-# A session is in a team only when its launch said so: `ccy --teams <seat>@<team>[,...]` on
-# the host passes PINGBUS_SEATS, and nothing the session can write may choose a team or seat.
-# So a launch in which ccy.env (tracked) or ccy.env.local set, changed or unset any PINGBUS_*
-# variable is refused (D62), and so is a PINGBUS_TEAMS or PINGBUS_HOME from the launcher: it passes
-# only PINGBUS_SEATS, and `pingbus seat exec` derives the other two, so either one arriving
-# means a launcher older than this image. With PINGBUS_SEATS, pingbus goes on PATH (the
-# plugin's hooks run it by name), claude gets the plugin and the settings that let the
-# watcher's wake notice start a turn, right after `claude` so they land inside a supervisor
-# wrapper's `--`, and `pingbus seat exec --` goes in front of both final exec lines: it claims
-# every seat, builds the session home and checks each bundle, and refuses to start the
-# session if any of that fails. Without it, nothing is linked or added and the image's copy
-# is inert. scripts/test-ccy-agent-bus.bash runs this block and the rest of the file after it.
+# A session's teams come only from the host: nothing the session can write may choose a team
+# or seat (Plan 00203 SPEC-hot-control.md D1, D2, H2). The launcher states the bus choice in
+# one variable. PINGBUS_MEMBERSHIP=/run/ccy/membership: the session carries the agent team bus
+# kit, and that directory, mounted read-only from the host, holds its desired membership
+# (its seats, none for a session on no team yet). PINGBUS_MEMBERSHIP=off: `ccy --no-bus`, or a
+# launch outside ccy's tmux with no --teams; nothing is linked or added. Unset, or a leftover
+# PINGBUS_SEATS, PINGBUS_TEAMS or PINGBUS_HOME (the launcher passes none of them, and
+# `pingbus seat exec` derives the last two), means a launcher older than this image, refused
+# rather than started teamless. So is a launch in which ccy.env (tracked) or ccy.env.local set,
+# changed or unset any PINGBUS_* variable (D62). With the kit, pingbus goes on PATH (the
+# plugin's hooks run it by name), claude gets the plugin and the session's own settings, which
+# `pingbus seat exec` writes into the session home (H34: the inbound accept and a shell-guarded
+# status line), right after `claude` so they land inside a supervisor wrapper's `--`, and
+# `pingbus seat exec --` goes in front of both final exec lines: it claims every desired seat,
+# builds the session home and checks each bundle, and refuses to start the session if any of
+# that fails. scripts/test-ccy-agent-bus.bash runs this block and the rest of the file after it.
 # >>> AGENT-BUS
 _ccy_agent_bus=/opt/claude-yolo/optional/agent-bus
 _ccy_seat_exec=()
@@ -566,36 +570,37 @@ if [ "$_ccy_bus_after" != "$_ccy_bus_before" ]; then
     # The names on a line in one snapshot and not the other.
     _ccy_bus_changed=$(printf '%s\n%s\n' "$_ccy_bus_before" "$_ccy_bus_after" \
         | sort | uniq -u | awk -F= 'NF { print $1 }' | sort -u | paste -sd' ' -)
-    echo "✗ CCY: .claude/ccy/ccy.env or ccy.env.local sets, changes or unsets $_ccy_bus_changed." >&2
-    echo "  Neither file may touch a PINGBUS_* variable: a session's agent team bus seats come only from its launch, ccy --teams <seat>@<team>[,...] on the host." >&2
-    echo "  Take every PINGBUS_* line out of the file." >&2
+    printf '✗ CCY: .claude/ccy/ccy.env or ccy.env.local sets, changes or unsets %s.\n  Neither file may touch a PINGBUS_* variable: a session'"'"'s agent team bus seats come only from the host (ccy --teams, ccy-teams).\n  Take every PINGBUS_* line out of the file.\n' "$_ccy_bus_changed" >&2
     exit 1
 fi
-for _ccy_bus_var in PINGBUS_TEAMS PINGBUS_HOME; do
-    if [ -n "${!_ccy_bus_var+set}" ]; then
-        echo "✗ CCY: $_ccy_bus_var came from the launcher, which passes only PINGBUS_SEATS: ccy on the host is older than this image." >&2
-        echo "  Update ccy (play-claude-yolo.yml), then launch with ccy --teams <seat>@<team>[,...]." >&2
-        exit 1
-    fi
+# A leftover variable makes the case below refuse, naming it.
+_ccy_bus_old=""
+for _ccy_bus_var in PINGBUS_SEATS PINGBUS_TEAMS PINGBUS_HOME; do
+    [ -z "${!_ccy_bus_var+set}" ] || _ccy_bus_old="$_ccy_bus_var came from the launcher, which passes only PINGBUS_MEMBERSHIP"
 done
-if [ -n "${PINGBUS_SEATS+set}" ]; then
-    for _ccy_need in pingbus settings.json plugin/pingbus/.claude-plugin/plugin.json plugin/pingbus/hooks/hooks.json; do
-        if [ ! -f "$_ccy_agent_bus/$_ccy_need" ]; then
-            echo "✗ CCY: this session was launched into agent team bus seats ($PINGBUS_SEATS), but the image has no $_ccy_agent_bus/$_ccy_need." >&2
-            echo "  The image predates the feature. Rebuild it: ccy --rebuild" >&2
+case "${_ccy_bus_old:+old:}${PINGBUS_MEMBERSHIP-}" in
+off) ;;
+/run/ccy/membership)
+    for _ccy_need in "$_ccy_agent_bus/pingbus" "$_ccy_agent_bus/plugin/pingbus/.claude-plugin/plugin.json" "$_ccy_agent_bus/plugin/pingbus/hooks/hooks.json" "$PINGBUS_MEMBERSHIP/membership.json"; do
+        if [ ! -f "$_ccy_need" ]; then
+            printf '✗ CCY: this session was launched with the agent team bus kit, but %s is missing.\n  An image older than the kit (rebuild it: ccy --rebuild), or a launch that did not mount the membership (update ccy).\n' "$_ccy_need" >&2
             exit 1
         fi
     done
     if [ "${1:-}" != claude ]; then
-        echo "✗ CCY: this session was launched into agent team bus seats, but the command is '${1:-}', not claude, so the bus plugin cannot be added." >&2
+        echo "✗ CCY: this session was launched with the agent team bus kit, but the command is '${1:-}', not claude, so the bus plugin cannot be added." >&2
         exit 1
     fi
-    export PINGBUS_SEATS
     ln -sf "$_ccy_agent_bus/pingbus" /usr/local/bin/pingbus
-    set -- "$1" --plugin-dir "$_ccy_agent_bus/plugin/pingbus" --settings "$_ccy_agent_bus/settings.json" "${@:2}"
+    set -- "$1" --plugin-dir "$_ccy_agent_bus/plugin/pingbus" --settings /tmp/pingbus-home/settings.json "${@:2}"
     _ccy_seat_exec=("$_ccy_agent_bus/pingbus" seat exec --)
-fi
-unset _ccy_bus_var _ccy_bus_before _ccy_bus_after _ccy_bus_changed
+    ;;
+*)
+    printf '✗ CCY: %s: ccy on the host is older than this image.\n  Update ccy (play-claude-yolo.yml), then launch again.\n' "${_ccy_bus_old:-PINGBUS_MEMBERSHIP is ${PINGBUS_MEMBERSHIP-unset}, not a value ccy passes}" >&2
+    exit 1
+    ;;
+esac
+unset _ccy_bus_var _ccy_bus_old _ccy_bus_before _ccy_bus_after _ccy_bus_changed
 unset -f _ccy_bus_snapshot
 # <<< AGENT-BUS
 
@@ -752,5 +757,5 @@ if ccy_lifecycle_wanted; then
     echo "  Install the hooks daemon in this project (it deploys the supervisor), or drop the option." >&2
     exit 1
 fi
-# The agent team bus seat claim, when the launch named seats (AGENT-BUS above).
+# The agent team bus claim, when the launch carries the kit (AGENT-BUS above).
 exec "${_ccy_seat_exec[@]}" "$@"

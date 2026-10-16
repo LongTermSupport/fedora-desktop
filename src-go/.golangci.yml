@@ -78,6 +78,10 @@ linters:
       # beside camelCase siblings), not ours to choose.
       - path: internal/transcript/transcript\.go
         linters: [tagliatelle]
+      # A session's membership file is pingbus's wire format (Plan 00203 SPEC-hot-control.md
+      # section 3.1, snake_case like the rest of pingbus's files), read by the session's pingbus.
+      - path: internal/teams/membership/membership\.go
+        linters: [tagliatelle]
       # The QA module cannot import execx (it is a separate module), so its process runner is
       # its own one process seam, for the same reason.
       - path: qa/internal/proc/proc\.go

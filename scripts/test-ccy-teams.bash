@@ -6,9 +6,11 @@
 # it. The launcher validates the list on the host with `agent-bus seat check` right after its
 # own argument parsing (a usage error is 64 before any prompt, SSH or token work), and just
 # before the container starts runs `agent-bus seat take`, which creates a missing seat and
-# refuses a held one; the container then gets PINGBUS_SEATS and a ccy-seats label, and a
-# restart or restore comes back in the same seats. A plain launch calls no agent-bus and
-# passes no bus variable. A headless launch never reads the Quick Launch prompt (stdin is the
+# refuses a held one, and a restart or restore comes back in the same seats. Either way the
+# container is told about the bus (Plan 00203 H1, H2): a session in ccy's tmux gets the
+# ccy-session label and, unless --no-bus, its desired membership (written by ccy-teams internal
+# membership-init) mounted read-only with the SELinux relabel, and PINGBUS_MEMBERSHIP; a plain
+# launch calls no agent-bus. A headless launch never reads the Quick Launch prompt (stdin is the
 # session's own input): with no launch-choice flag it takes the saved choices or is refused,
 # and a key that needs a passphrase refuses it, since a headless launch never unlocks one.
 #
@@ -28,16 +30,17 @@ CCY_DIR="$REPO_ROOT/files/var/local/claude-yolo"
 LAUNCHER="$CCY_DIR/claude-yolo"
 LIB_DIR="$CCY_DIR/lib"
 SEATS_LIB="$LIB_DIR/agent-bus-seats.bash"
+MEMBERSHIP_LIB="$LIB_DIR/agent-bus-membership.bash"
 PLAY="$REPO_ROOT/playbooks/imports/play-claude-yolo.yml"
 
-for f in "$LAUNCHER" "$SEATS_LIB" "$LIB_DIR/common-pure.bash" "$LIB_DIR/session-registry.bash" \
+for f in "$LAUNCHER" "$SEATS_LIB" "$MEMBERSHIP_LIB" "$LIB_DIR/common-pure.bash" "$LIB_DIR/session-registry.bash" \
     "$LIB_DIR/restart-request.bash" "$LIB_DIR/ssh-handling.bash"; do
     if [ ! -f "$f" ]; then
         echo "FAIL: not found: $f" >&2
         exit 1
     fi
 done
-unset PINGBUS_SEATS PINGBUS_TEAMS PINGBUS_HOME GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
+unset PINGBUS_SEATS PINGBUS_TEAMS PINGBUS_HOME PINGBUS_MEMBERSHIP GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -121,6 +124,12 @@ bus_calls() { if [ -s "$FAKE_BUS_LOG" ]; then paste -sd'|' "$FAKE_BUS_LOG"; else
 cat >"$bus_bin/ccy-teams" <<'FAKE'
 #!/usr/bin/env bash
 printf 'ccy-teams %s\n' "$*" >>"$FAKE_BUS_LOG"
+# `internal membership-init <session> <checkout> <seats>`: prints the directory, or fails.
+if [ "$1 $2" = "internal membership-init" ]; then
+    [ "${FAKE_INIT_RC:-0}" -eq 0 ] || { echo "ccy-teams: membership-init refused (fake)" >&2; exit "$FAKE_INIT_RC"; }
+    printf '/run/user/1000/ccy/membership/%s\n' "$3"
+    exit 0
+fi
 if [ "$1 $2" = "describe-seats --block" ]; then
     printf 'This session is on teams (fake block): %s\n' "$3"
     exit "${FAKE_BLOCK_RC:-0}"
@@ -134,10 +143,14 @@ echo "=== lib/agent-bus-seats.bash ==="
 
 # lib_run <function> [args...]: call a function with the libraries loaded and the fake on
 # PATH; prints its stdout, then "rc=<n>". stderr goes to lib.err. take_and_show runs
-# ccy_seats_take, then prints the container arguments it left, each followed by '|'.
+# ccy_seats_take, then prints the container arguments it left, each followed by '|'. The
+# session this runs in is FAKE_SESSION (empty: outside ccy's tmux); the SELinux relabel is
+# CCY_MOUNT_RELABEL, as the launcher sets it.
 cat >"$work/lib-run.bash" <<'RUN'
 . "$LIB_DIR/common-pure.bash"
+. "$LIB_DIR/agent-bus-membership.bash"
 . "$LIB_DIR/agent-bus-seats.bash"
+ccy_tmux_current_session() { [ "${FAKE_SESSION_RC:-0}" -eq 0 ] || return 1; printf '%s' "${FAKE_SESSION-ccy-proj-1}"; }
 take_and_show() {
     ccy_seats_take "$@"
     local s=$?
@@ -149,8 +162,11 @@ printf 'rc=%s' "$?"
 RUN
 lib_run() {
     : >"$FAKE_BUS_LOG"
-    LIB_DIR="$LIB_DIR" PATH="$bus_bin:$PATH" bash "$work/lib-run.bash" "$@" 2>"$work/lib.err"
+    (cd "$work" && LIB_DIR="$LIB_DIR" PATH="$bus_bin:$PATH" CCY_MOUNT_RELABEL="${CCY_MOUNT_RELABEL-z}" \
+        bash "$work/lib-run.bash" "$@" 2>"$work/lib.err")
 }
+INIT="ccy-teams internal membership-init"
+MOUNT="-v|/run/user/1000/ccy/membership/ccy-proj-1:/run/ccy/membership:ro,Z|-e|PINGBUS_MEMBERSHIP=/run/ccy/membership"
 
 check "seat check prints the canonical list" "dev1@team-a,qa2@team-b
 rc=0" "$(lib_run ccy_seats_check " dev1@team-a , qa2@team-b" true)"
@@ -169,26 +185,49 @@ rc=0" "$(lib_run ccy_seats_check team-a,qa@team-b true)"
 check "unattended, the check asks for every seat named" "rc=64" "$(lib_run ccy_seats_check team-a false)"
 check "  with --resolved" "seat check team-a --resolved" "$(bus_calls)"
 
-check "take with a list: called with it, the container's arguments filled" \
-    "-e|PINGBUS_SEATS=dev1@team-a,qa2@team-b|--label|ccy-seats=dev1@team-a,qa2@team-b|rc=0" \
-    "$(lib_run take_and_show dev1@team-a,qa2@team-b false)"
-check "take, interactive: no --no-prompt, then the launch block for the list" \
-    "seat take dev1@team-a,qa2@team-b|ccy-teams describe-seats --block dev1@team-a,qa2@team-b" "$(bus_calls)"
-check "take's CHANGED lines go to stderr, never stdout" "rc=0" "$(lib_run ccy_seats_take dev1@team-a false)"
+check "take with a list in ccy's tmux: the label, the read-only relabelled mount and the marker" \
+    "--label|ccy-session=ccy-proj-1|$MOUNT|rc=0" \
+    "$(lib_run take_and_show dev1@team-a,qa2@team-b false false yolo-1)"
+check "take, interactive: the membership first, no --no-prompt, then the launch block for the list" \
+    "$INIT ccy-proj-1 $work dev1@team-a,qa2@team-b|seat take dev1@team-a,qa2@team-b|ccy-teams describe-seats --block dev1@team-a,qa2@team-b" "$(bus_calls)"
+check "the PINGBUS_SEATS variable and the ccy-seats label are retired (H2)" "no" \
+    "$(lib_run take_and_show dev1@team-a false false yolo-1 | grep -q 'PINGBUS_SEATS\|ccy-seats' && echo yes || echo no)"
+check "take's CHANGED lines go to stderr, never stdout" "rc=0" "$(lib_run ccy_seats_take dev1@team-a false false yolo-1)"
 check "they are shown" "yes" "$(has "CHANGED seat dev1@team-a" "$work/lib.err")"
 check "the launch block is shown on stderr" "yes" "$(has "This session is on teams (fake block): dev1@team-a" "$work/lib.err")"
-lib_run ccy_seats_take dev1@team-a true >/dev/null
-check "take, unattended: --no-prompt" "seat take dev1@team-a --no-prompt|ccy-teams describe-seats --block dev1@team-a" "$(bus_calls)"
-check "take's 75 (a held seat) is passed on, no arguments for the container" "|rc=75" \
-    "$(FAKE_TAKE_RC=75 lib_run take_and_show dev1@team-a false)"
-check "  and no block is shown for seats that were not taken" "seat take dev1@team-a" "$(bus_calls)"
+lib_run ccy_seats_take dev1@team-a true false yolo-1 >/dev/null
+check "take, unattended: --no-prompt" "$INIT ccy-proj-1 $work dev1@team-a|seat take dev1@team-a --no-prompt|ccy-teams describe-seats --block dev1@team-a" "$(bus_calls)"
+check "take's 75 (a held seat) is passed on" "rc=75" \
+    "$(FAKE_TAKE_RC=75 lib_run ccy_seats_take dev1@team-a false false yolo-1)"
+check "  and no block is shown for seats that were not taken" "$INIT ccy-proj-1 $work dev1@team-a|seat take dev1@team-a" "$(bus_calls)"
 check "a launch block that cannot be made stops the launch with its code" "rc=70" \
-    "$(FAKE_BLOCK_RC=70 lib_run ccy_seats_take dev1@team-a false)"
+    "$(FAKE_BLOCK_RC=70 lib_run ccy_seats_take dev1@team-a false false yolo-1)"
 check "  and says so, with the code" "yes" "$(has "Not starting: ccy-teams describe-seats --block failed (exit 70" "$work/lib.err")"
-check "take's 78 is passed on" "rc=78" "$(FAKE_TAKE_RC=78 lib_run ccy_seats_take dev1@team-a true)"
-check "no list (a plain launch): agent-bus not called, no arguments for the container" "|rc=0" \
-    "$(lib_run take_and_show "" false)"
-check "no list: the log stays empty" "none" "$(bus_calls)"
+check "take's 78 is passed on" "rc=78" "$(FAKE_TAKE_RC=78 lib_run ccy_seats_take dev1@team-a true false yolo-1)"
+check "no list, in ccy's tmux (a plain session): the kit, idle, with an empty membership" \
+    "--label|ccy-session=ccy-proj-1|$MOUNT|rc=0" "$(lib_run take_and_show "" false false yolo-1)"
+check "  agent-bus is not called; the membership is written with no seat" "$INIT ccy-proj-1 $work " "$(bus_calls)"
+check "no list, outside ccy's tmux: no label, no kit" "-e|PINGBUS_MEMBERSHIP=off|rc=0" \
+    "$(FAKE_SESSION='' lib_run take_and_show "" false false yolo-1)"
+check "  nothing is called" "none" "$(bus_calls)"
+check "a list outside ccy's tmux: the membership is named after the container, no label" \
+    "-v|/run/user/1000/ccy/membership/yolo-1:/run/ccy/membership:ro,Z|-e|PINGBUS_MEMBERSHIP=/run/ccy/membership|rc=0" \
+    "$(FAKE_SESSION='' lib_run take_and_show dev1@team-a false false yolo-1)"
+check "no SELinux relabel (Permissive off, or a forwarded agent): the mount is plain :ro" \
+    "--label|ccy-session=ccy-proj-1|-v|/run/user/1000/ccy/membership/ccy-proj-1:/run/ccy/membership:ro|-e|PINGBUS_MEMBERSHIP=/run/ccy/membership|rc=0" \
+    "$(CCY_MOUNT_RELABEL='' lib_run take_and_show "" false false yolo-1)"
+check "--no-bus in ccy's tmux: the label, PINGBUS_MEMBERSHIP=off, no mount (H33b)" \
+    "--label|ccy-session=ccy-proj-1|-e|PINGBUS_MEMBERSHIP=off|rc=0" "$(lib_run take_and_show "" false true yolo-1)"
+check "  nothing is called" "none" "$(bus_calls)"
+check "--no-bus with seats (a Quick Launch team): refused 64 before any seat is taken" "rc=64" \
+    "$(lib_run ccy_seats_take dev1@team-a false true yolo-1)"
+check "  nothing is called" "none" "$(bus_calls)"
+check "  and it says why" "yes" "$(has "--no-bus leaves the agent team bus out" "$work/lib.err")"
+check "a membership that cannot be written stops the launch with its code, before any seat" "rc=3" \
+    "$(FAKE_INIT_RC=3 lib_run ccy_seats_take dev1@team-a false false yolo-1)"
+check "  only membership-init ran" "$INIT ccy-proj-1 $work dev1@team-a" "$(bus_calls)"
+check "a session that cannot be named stops the launch" "rc=1" \
+    "$(FAKE_SESSION_RC=1 lib_run ccy_seats_take "" false false yolo-1)"
 
 # canon <flag-pos> <value-pos> <canonical> <args...>: the rewritten arguments, '|' joined.
 canon() {
@@ -624,9 +663,16 @@ rc=0" "$(keys false "$work/locked_key")"
 
 echo "=== the launcher's wiring ==="
 
-check "the library is in CCY_LIBS" "1" "$(grep -c -E '^CCY_LIBS=\(.* agent-bus-seats( |\))' "$LAUNCHER")"
-check "the launcher sources it" "1" "$(grep -c -F "source \"\$SCRIPT_DIR/lib/agent-bus-seats.bash\"" "$LAUNCHER")"
-check "the play installs it" "1" "$(grep -c -F 'files/var/local/claude-yolo/lib/agent-bus-seats.bash' "$PLAY")"
+for bus_lib in agent-bus-seats agent-bus-membership; do
+    check "$bus_lib is in CCY_LIBS" "1" "$(grep -c -E "^CCY_LIBS=\\(.* $bus_lib( |\\))" "$LAUNCHER")"
+    check "the launcher sources $bus_lib" "1" "$(grep -c -F "source \"\$SCRIPT_DIR/lib/$bus_lib.bash\"" "$LAUNCHER")"
+    check "the play installs $bus_lib" "1" "$(grep -c -F "files/var/local/claude-yolo/lib/$bus_lib.bash" "$PLAY")"
+done
+check "--help documents --no-bus" "1" "$(grep -c -E '^  --no-bus ' "$LAUNCHER")"
+check "the did-you-mean list knows --no-bus" "yes" \
+    "$(awk '/^            ccy_flags=\(/,/^            \)/' "$LAUNCHER" | grep -q -- '--no-bus' && echo yes || echo no)"
+check "the take call passes --no-bus and the container name" "1" \
+    "$(grep -c -F '"$NO_BUS_MODE" "$CONTAINER_NAME" || exit $?' "$LAUNCHER")"
 check "--help documents --teams" "1" "$(grep -c -E '^  --teams ' "$LAUNCHER")"
 check "the did-you-mean list knows --teams" "yes" \
     "$(awk '/^            ccy_flags=\(/,/^            \)/' "$LAUNCHER" | grep -q -- '--teams' && echo yes || echo no)"

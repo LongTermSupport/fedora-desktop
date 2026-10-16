@@ -27,3 +27,16 @@
 # free, and lists what it cannot reach (LXC agents). The table also shows the cc session that
 # holds a seat when its record names the seat.
 playbooks/imports/play-claude-yolo.yml
+
+# Plan 00203 M2: rebuilds ccy, ccy-teams and the ccy image (container 2.67; the first launch
+# after it rebuilds the image once). Every ccy session started in ccy's tmux then carries the
+# agent team bus kit, idle on no team (no hooks run, its own status line), with its membership
+# mounted read-only; `ccy --no-bus` leaves the kit out. Running sessions are unaffected until
+# they are relaunched. (If the play-claude-yolo.yml entry above is still queued, this one is
+# the same run and either can go.)
+playbooks/imports/play-claude-yolo.yml
+# Plan 00203 M2 acceptance (read-only): before it runs, start three sessions in ccy's tmux and
+# leave them idle: `ccy --teams 1@<team>`, a plain `ccy`, and `ccy --no-bus` (ACCEPTANCE.md,
+# M2). It checks the seats, the read-only mount, the inert kit, idle CPU, the image version and
+# --no-bus, on an Enforcing host, and exits 2 naming any session it could not find.
+00203-teams-hot-control-and-robustness

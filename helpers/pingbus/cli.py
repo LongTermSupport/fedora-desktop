@@ -1958,9 +1958,11 @@ def cmd_status(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO
 
 
 def cmd_seat_exec(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
-    """Claim every seat of the launch (`PINGBUS_SEATS`), build the session home, check
-    every bundle and the forge credential source as `config check` does, then replace this
-    process with the command, which inherits the seat locks (DESIGN.md section 5.5).
+    """Claim every seat of the launch (the desired membership `PINGBUS_MEMBERSHIP` names, or
+    `PINGBUS_SEATS` from `cc --teams`), build the session home, check every bundle and, when a
+    seat is held, the forge credential source as `config check` does, then replace this
+    process with the command, which inherits the seat locks (DESIGN.md section 5.5). A
+    membership with no seat is a session on no team: the home and its settings, nothing held.
     `--root` and `--home` are for a launch on the host (`cc --teams`), where the checkout
     is not /workspace and /tmp is shared."""
     rt: Runtime = args.runtime
@@ -1975,12 +1977,13 @@ def cmd_seat_exec(args: argparse.Namespace, environ: Mapping[str, str], out: Tex
         if given is not None and not os.path.isabs(given):
             raise config.UsageError(f"{PROG} seat exec: {option} must be an absolute path")
         paths[option] = default if given is None else pathlib.Path(given)
-    forge_credential_source(environ)
     claimed = seating.claim(environ, root=paths["--root"], home=paths["--home"],
-                            clock_ms=rt.clock_ms, sleep=rt.sleep)
+                            clock_ms=rt.clock_ms, sleep=rt.sleep,
+                            settings_from=seating.settings_sources(environ, pathlib.Path.cwd()),
+                            before_seats=lambda: forge_credential_source(environ))
     names = ", ".join(f"{ref.text} ({member.handle})"
                       for ref, member in zip(claimed.refs, claimed.members, strict=True))
-    err.write(f"✓ agent team bus: {names}\n")
+    err.write(f"✓ agent team bus: {names or 'no team (the kit is loaded and idle)'}\n")
     err.flush()
     out.flush()
     try:
@@ -2078,7 +2081,8 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
     seat_commands = seat_parser.add_subparsers(dest="seat_command", metavar="SUBCOMMAND",
                                                required=True)
     seat_exec = seat_commands.add_parser(
-        "exec", help="claim the seats in PINGBUS_SEATS, then run CMD holding them (ccy's entrypoint)")
+        "exec", help="claim the launch's seats (PINGBUS_MEMBERSHIP's desired membership, or PINGBUS_SEATS), "
+                     "then run CMD holding them (ccy's entrypoint, cc --teams)")
     team_option(seat_exec, argparse.SUPPRESS)
     seat_exec.add_argument("--root", metavar="DIR",
                            help="the checkout's seats (default: ccy's, under /workspace)")

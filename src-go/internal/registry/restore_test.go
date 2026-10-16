@@ -92,6 +92,10 @@ func TestFlagClassAgreesWithBash(t *testing.T) {
 	words := []string{
 		"--rebuild", "--rebuild=1", "--update-token=x", "--update-token", "--teams=1@a", "--teams", "--token", "--no-ssh",
 		"--supervise", "--compose", "--no-restore", "-h", "--model", "plain", "--connect", "--engine", "--until",
+		"--no-bus",
+	}
+	if FlagClass("--no-bus") != ClassKeep {
+		t.Errorf("--no-bus is replayed: a restore keeps a session out of the bus as it was launched")
 	}
 	for _, w := range words {
 		out := strings.TrimSpace(bashWithArgs(t, `ccy_registry_flag_class "$1"`, w))

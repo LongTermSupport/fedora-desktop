@@ -714,8 +714,15 @@ hook timeout is 1500 ms, so the kit's `"timeout": 6` is load-bearing.
 
 - `PINGBUS_HOME`: default `${XDG_CONFIG_HOME:-~/.config}/pingbus`; a ccy session launched
   with `--teams` uses `/tmp/pingbus-home`, which `seat exec` builds and sets.
-- `PINGBUS_SEATS`: the session's seats, set by the ccy launcher only; read by `seat exec`
+- `PINGBUS_SEATS`: the session's seats, set by `cc --teams` only; read by `seat exec`
   alone. Missing or malformed: exit 78.
+- `PINGBUS_MEMBERSHIP` (Plan 00203 SPEC-hot-control.md section 3.1, H2): a ccy launch's
+  marker. `/run/ccy/membership` is the read-only directory whose `membership.json` (version 1;
+  an unknown key or another version is exit 78) names the session's desired seats, possibly
+  none; `seat exec` claims them as it claims `PINGBUS_SEATS`, refuses both set at once, and
+  for a membership with no seat builds the home and holds nothing. It also writes into the
+  home the session's `settings.json`, its `statusline-inner` and, while a seat is held, the
+  `active` flag that every plugin hook is guarded on. `off`: the session carries no bus kit.
 - `PINGBUS_TEAMS`: comma-separated team names, each with a bundle; the **active** teams.
   Unset or empty: pingbus refuses every command but `version`, `validate` and
   `suggest-handle` (exit 78). A listed team with no valid bundle: exit 78.
