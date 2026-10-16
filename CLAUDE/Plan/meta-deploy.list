@@ -19,3 +19,15 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Plan 00203 M5: rebuilds ccy-teams only (no launcher or image change, so no ccy version bump
+# and no image rebuild). In `ccy-teams`, Tab now shows the running sessions: add one to a team
+# (Ctrl-A), remove it (Ctrl-X), change its role (Ctrl-O), move it, attach it, or repair a
+# stopped seat keeper, each by running the `ccy-teams session` command for you. Running sessions
+# are not touched.
+playbooks/imports/play-claude-yolo.yml
+# Plan 00203 acceptance again, on the M5 ccy-teams: every milestone in turn (M2, M1, M3, M4,
+# then R1-R9; throwaway teams and headless sessions, all removed after). M4 (e) re-proves
+# `ccy-teams session list`, whose code the picker's view now shares. The picker itself is the
+# owner's steps, ACCEPTANCE.md M5 (a) to (f), on a terminal.
+00203-teams-hot-control-and-robustness

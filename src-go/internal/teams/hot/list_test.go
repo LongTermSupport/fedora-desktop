@@ -1,6 +1,7 @@
 package hot
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -86,4 +87,64 @@ func TestRepairWhoseKeeperDoesNotComeBackSaysSo(t *testing.T) {
 		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
 	}
 	wantLines(t, r.ErrOut.String(), "✗ keeper: not running after 10 s: see /tmp/pingbus-home/keeper.log in the session")
+}
+
+// M5 (section 5.1): the picker's Running sessions view reads the same sessions `session list`
+// prints, with whether each can be changed and whether its seat keeper has stopped.
+func TestSessionsAreWhatTheListShows(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
+	r.m.roles["alpha\tproj.3+local.podman"] = coord
+	r.labelled("abc123\trunning\t" + session + "\nold1\trunning\tccy-old\ngone\texited\tccy-gone\n")
+	got, err := r.x.Sessions(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Name != "ccy-old" || got[1].Name != session {
+		t.Fatalf("sessions %+v", got)
+	}
+	old := Session{Name: "ccy-old", Kind: "ccy", Checkout: "-", State: "old or --no-bus: relaunch it to change it while it runs"}
+	if !reflect.DeepEqual(got[0], old) {
+		t.Fatalf("old session %+v", got[0])
+	}
+	seated := Session{
+		Name: session, Kind: "ccy", Checkout: r.Checkout(), State: "ok", Controllable: true,
+		Teams: []Cell{{Team: "alpha", Seat: "3", Role: coord}},
+	}
+	if !reflect.DeepEqual(got[1], seated) {
+		t.Fatalf("session %+v", got[1])
+	}
+	r.m.alive, r.m.keeper = false, false
+	if got, err = r.x.Sessions(t.Context()); err != nil || !got[1].Unguarded || !got[1].Controllable {
+		t.Fatalf("unguarded: %+v %v", got, err)
+	}
+}
+
+func TestSessionsNeedAnAbsoluteRuntimeDirectory(t *testing.T) {
+	r := newRig(t)
+	r.Env["XDG_RUNTIME_DIR"] = "relative"
+	if _, err := r.x.Sessions(t.Context()); err == nil || !strings.Contains(err.Error(), "XDG_RUNTIME_DIR") {
+		t.Fatalf("err %v", err)
+	}
+}
+
+// The table `session list` prints and the picker's rows are one layout: the heading and each
+// row aligned in the same columns, the checkout shown from the home directory.
+func TestSessionLinesAlignUnderTheHeading(t *testing.T) {
+	heading, lines, err := SessionLines([]Session{
+		{Name: "ccy-a-1", Checkout: "/home/u/repo-a", State: "ok", Teams: []Cell{{"alpha", "2", coord}, {"beta", "1", worker}}},
+		{Name: "ccy-long-name-2", Checkout: "-", State: "old or --no-bus"},
+	}, "/home/u")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if heading != "SESSION          CHECKOUT  TEAMS (seat, role)                         STATE" {
+		t.Fatalf("heading %q", heading)
+	}
+	want := []string{
+		"ccy-a-1          ~/repo-a  alpha (2, coordinator) · beta (1, worker)  ok",
+		"ccy-long-name-2  -         -                                          old or --no-bus",
+	}
+	if len(lines) != 2 || lines[0] != want[0] || lines[1] != want[1] {
+		t.Fatalf("lines\n%q\nwant\n%q", lines, want)
+	}
 }

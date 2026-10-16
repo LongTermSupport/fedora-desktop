@@ -41,7 +41,7 @@ const readWhy = "Reading who is in each team, and whether its people are signed 
 const maxNoOps = 3
 
 // pickerKeys are the keys besides Enter that choose a row.
-var pickerKeys = []string{keyNew, keyRestore, keyRemove, keyElement, keyPassword, keyUpdate, keyHelp}
+var pickerKeys = []string{keyNew, keyRestore, keyRemove, keyElement, keyPassword, keyUpdate, keyHelp, keyTab}
 
 // Picker is the interactive list. Every dependency is a field so a test stands in for each.
 type Picker struct {
@@ -54,6 +54,8 @@ type Picker struct {
 	Lxc    *lxcadd.Adder
 	// Shutdown is the team row's "Shut down every session"; teams.Wire sets it.
 	Shutdown *shutdown.Shutdown
+	// Session is the Running sessions view's hot control (Tab); teams.Wire sets it.
+	Session SessionControl
 
 	Declare *declare.Client
 	Git     *gitx.Git
@@ -74,12 +76,14 @@ func New(h *host.Host, kit *flow.Kit, b *board.Collector, o *ops.Ops, c *create.
 	}
 }
 
-// run is one run of the picker: the header, built once, and the pass being shown.
+// run is one run of the picker: the header, built once, the pass being shown and which list
+// shows it.
 type run struct {
 	p     *Picker
 	frame frame
 	snap  *board.Snapshot
 	noOps int
+	view  view
 }
 
 // Run is ccy-teams with no argument: the list of teams, seats and people, and a key for
@@ -142,7 +146,7 @@ type frame struct {
 // footer is empty for the Exit row.
 func (f frame) header(footer string) string {
 	return ui.Header(
-		"Enter lists what can be done to the row   ? help   Esc or q quit",
+		"Enter lists what can be done to the row   Tab running sessions   ? help   Esc or q quit",
 		footer, f.newLine, f.restoreLine, f.heading,
 	)
 }
@@ -212,6 +216,9 @@ func (r *run) once(ctx context.Context, first bool) error {
 	if len(s.Rows) == 0 {
 		return p.offerCreate(ctx)
 	}
+	if r.view == viewSessions {
+		return r.sessionsPass(ctx)
+	}
 	if first {
 		if err = r.offerJoinHere(ctx); err != nil {
 			return err
@@ -229,6 +236,10 @@ func (r *run) once(ctx context.Context, first bool) error {
 	}
 	if err != nil {
 		return err
+	}
+	if picked.Key == keyTab {
+		r.view = viewSessions
+		return nil
 	}
 	row, ok := s.RowAt(picked.Tag)
 	if !ok {
