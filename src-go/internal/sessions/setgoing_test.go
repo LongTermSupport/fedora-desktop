@@ -174,10 +174,11 @@ func TestSetGoingTypesEachRestoredSessionItsFirstInput(t *testing.T) {
 	}
 	contains(t, "report", h.stderr(),
 		"left ccy-d untouched: launcher-exited\n",
-		"left ccy-w untouched: waiting-at-prompt-quick-launch-after-0s\n",
+		"left ccy-w alone, as expected: waiting-at-prompt-quick-launch-after-0s; "+whyWaitingAtPrompt+"\n",
 		"set ccy-a going: compact (context 208525 tokens, compact floor 150000, supervised: yes).\n",
 		"set cc-c going: continue (context 5000 tokens, compact floor 150000, supervised: no).\n",
-		"ERROR: 2 restored session(s) were not set going; each is named above, and verify-restore reports it.\n")
+		"1 restored session(s) were left alone as expected, each named above; that is not a fault.\n",
+		"ERROR: 1 restored session(s) could not be set going: ccy-d (launcher-exited). verify-restore reports them.\n")
 	at := strconv.FormatInt(h.clock.Unix(), 10)
 	wantEntries := map[string]string{
 		"ccy-a": "compact|" + at + "|208525|" + tA, "cc-c": "continue|" + at + "|5000|" + tC,
@@ -234,17 +235,20 @@ func TestSetGoingWithoutAFloorLeavesEverythingAlone(t *testing.T) {
 	}
 }
 
+// A session a person has, or must take, is an expected outcome: named with why, never a failure
+// of the unit. A prompt that never draws is a fault.
 func TestSetGoingLeavesABusyOrAttachedOrTypedOrUndrawnSessionAlone(t *testing.T) {
 	cases := []struct {
 		name     string
 		screen   string
 		attached int
 		want     string
+		exit     term.ExitCode
 	}{
-		{"busy", "✻ Thinking… (3s · esc to interrupt)\n" + promptScreen, 0, "busy-before-set-going"},
-		{"attached", promptScreen, 1, "attached"},
-		{"typed", rule + "\n❯ half a thought\n" + rule + "\n", 0, "input-box-not-empty"},
-		{"not drawn", "Building image...\n", 0, "prompt-not-drawn-after-0s"},
+		{"busy", "✻ Thinking… (3s · esc to interrupt)\n" + promptScreen, 0, "left ccy-a alone, as expected: busy-before-set-going; " + whyBusy, 0},
+		{"attached", promptScreen, 1, "left ccy-a alone, as expected: attached; " + whyAttached, 0},
+		{"typed", rule + "\n❯ half a thought\n" + rule + "\n", 0, "left ccy-a alone, as expected: input-box-not-empty; " + whyTyped, 0},
+		{"not drawn", "Building image...\n", 0, "left ccy-a untouched: prompt-not-drawn-after-0s", 1},
 	}
 	for _, c := range cases {
 		h := goingHost(t)
@@ -253,12 +257,52 @@ func TestSetGoingLeavesABusyOrAttachedOrTypedOrUndrawnSessionAlone(t *testing.T)
 		writeEntries(t, h, pending("ccy-a", "ccy", a))
 		h.sessions(fmt.Sprintf("ccy-a %d %s", c.attached, a))
 		showScreen(h, "ccy-a", c.screen)
-		exitCodeIs(t, h.run("set-going"), 1, h)
-		contains(t, c.name, h.stderr(), "left ccy-a untouched: "+c.want+"\n")
+		exitCodeIs(t, h.run("set-going"), c.exit, h)
+		contains(t, c.name, h.stderr(), c.want+"\n")
 		if typedInto(h, "ccy-a") != "" {
 			t.Fatalf("%s: nothing typed", c.name)
 		}
+		if e := entryNamed(t, h, "ccy-a"); e.Going != restore.GoingUntouched {
+			t.Fatalf("%s: recorded %+v, want untouched", c.name, e)
+		}
 	}
+}
+
+// A session still at a launch prompt when the wait runs out (a desktop's SSH passphrase nobody
+// typed) is handed to a person: the unit succeeds, and says so.
+func TestSetGoingHandsASessionAtAPromptToAPersonWithoutFailing(t *testing.T) {
+	h := goingHost(t)
+	h.env["CCY_SESSIONS_SET_GOING_WAIT"] = "1200"
+	a := realDir(t, h, "a")
+	writeEntries(t, h, pending("ccy-w", "ccy", a))
+	h.sessions("ccy-w 0 " + a)
+	showScreen(h, "ccy-w", "Enter passphrase for key 'the-key':\n")
+	exitCodeIs(t, h.run("set-going"), 0, h)
+	contains(t, "handed", h.stderr(),
+		"left ccy-w alone, as expected: waiting-at-prompt-ssh-passphrase-after-1200s; "+whyWaitingAtPrompt+"\n",
+		"1 restored session(s) were left alone as expected, each named above; that is not a fault.\n")
+	if strings.Contains(h.stderr(), "ERROR") {
+		t.Fatalf("an expected outcome is not an error: %q", h.stderr())
+	}
+	if e := entryNamed(t, h, "ccy-w"); e.Going != restore.GoingUntouched || e.Detail != "waiting-at-prompt-ssh-passphrase-after-1200s" {
+		t.Fatalf("%+v", e)
+	}
+}
+
+// Every fault is named in the failure, and an expected outcome beside them is not.
+func TestSetGoingNamesEveryFaultAndFailsForThem(t *testing.T) {
+	h := goingHost(t)
+	a := realDir(t, h, "a")
+	writeEntries(t, h, pending("ccy-d", "ccy", a), pending("ccy-g", "ccy", a), pending("ccy-w", "ccy", a))
+	h.sessions("ccy-d 0 "+a, "ccy-w 1 "+a)
+	showScreen(h, "ccy-d", "ccy exited with status 1. Press Enter to close this session.\n")
+	showScreen(h, "ccy-w", promptScreen)
+	exitCodeIs(t, h.run("set-going"), 1, h)
+	contains(t, "faults", h.stderr(),
+		"left ccy-d untouched: launcher-exited\n",
+		"left ccy-g untouched: session-not-running\n",
+		"left ccy-w alone, as expected: attached; "+whyAttached+"\n",
+		"ERROR: 2 restored session(s) could not be set going: ccy-d (launcher-exited), ccy-g (session-not-running). verify-restore reports them.\n")
 }
 
 func TestSetGoingKeepsWaitingForAPromptThatDrawsLater(t *testing.T) {
@@ -359,9 +403,9 @@ func TestSetGoingTypesIntoOneSessionPerConversation(t *testing.T) {
 	h.sessions("ccy-a 0 "+a, "ccy-a-2 0 "+a)
 	showScreen(h, "ccy-a", promptScreen)
 	showScreen(h, "ccy-a-2", promptScreen)
-	exitCodeIs(t, h.run("set-going"), 1, h)
-	contains(t, "shared", h.stderr(), "ccy-a-2 shares its conversation with ccy-a, which is set going; left alone.\n",
-		"left ccy-a-2 untouched: shares-conversation-with-ccy-a\n")
+	exitCodeIs(t, h.run("set-going"), 0, h)
+	contains(t, "shared", h.stderr(),
+		"left ccy-a-2 alone, as expected: shares-conversation-with-ccy-a; only one session may drive a conversation, and ccy-a is set going on it\n")
 	if typedInto(h, "ccy-a-2") != "" || typedInto(h, "ccy-a") != "-l continue|Enter" {
 		t.Fatal("only the first session drives the conversation")
 	}
@@ -573,23 +617,22 @@ func TestAfterACompactionWhatTheScreenShowsDecidesWhatHappens(t *testing.T) {
 		attached int
 		want     string
 		going    restore.Going
+		exit     term.ExitCode
 	}{
-		{"busy", "✻ Thinking… (3s · esc to interrupt)\n" + promptScreen, 0, "cc-c is already working after its compaction; nothing more typed.", restore.GoingCompact},
-		{"attached", promptScreen, 1, "left cc-c untouched: attached-after-compaction\n", restore.GoingUntouched},
-		{"typed", rule + "\n❯ half\n" + rule + "\n", 0, "left cc-c untouched: typed-after-compaction\n", restore.GoingUntouched},
-		{"dead", "cc exited with status 1. Press Enter to close this session.\n", 0, "left cc-c untouched: launcher-exited-after-compaction\n", restore.GoingUntouched},
-		{"waiting", "Select Claude token\n", 0, "", restore.GoingCompacting},
+		{"busy", "✻ Thinking… (3s · esc to interrupt)\n" + promptScreen, 0, "cc-c is already working after its compaction; nothing more typed.", restore.GoingCompact, 0},
+		{"attached", promptScreen, 1, "left cc-c alone, as expected: attached-after-compaction; " + whyAttached + "\n", restore.GoingUntouched, 0},
+		{"typed", rule + "\n❯ half\n" + rule + "\n", 0, "left cc-c alone, as expected: typed-after-compaction; " + whyTyped + "\n", restore.GoingUntouched, 0},
+		{"dead", "cc exited with status 1. Press Enter to close this session.\n", 0, "left cc-c untouched: launcher-exited-after-compaction\n", restore.GoingUntouched, 1},
+		{"waiting", "Select token\n", 0, "left cc-c alone, as expected: token-select-after-compaction; " + whyWaitingAtPrompt + "\n", restore.GoingUntouched, 0},
 	}
 	for _, c := range cases {
 		h := goingHost(t)
 		compacting(t, h)
 		h.sessions(fmt.Sprintf("cc-c %d %s", c.attached, filepath.Join(h.root, "b")))
 		showScreen(h, "cc-c", c.screen)
-		exitCodeIs(t, h.run("set-going"), map[bool]term.ExitCode{true: 0, false: 1}[c.going == restore.GoingCompact], h)
-		if c.want != "" {
-			contains(t, c.name, h.stderr(), c.want)
-		}
-		if got := entryNamed(t, h, "cc-c").Going; got != c.going && c.name != "waiting" {
+		exitCodeIs(t, h.run("set-going"), c.exit, h)
+		contains(t, c.name, h.stderr(), c.want)
+		if got := entryNamed(t, h, "cc-c").Going; got != c.going {
 			t.Fatalf("%s: going %s", c.name, got)
 		}
 		if typedInto(h, "cc-c") != "" {

@@ -1056,7 +1056,7 @@ printf '%s\n' "$PROMPT_SCREEN" >"$VR/screens/ccy-b"
 printf 'ccy exited with status 1. %s\n' "$CCY_SESSION_ENDED_TEXT" >"$VR/screens/ccy-d"
 printf 'Found previous launch configuration\n%s \n' "$CCY_PROMPT_QUICK_LAUNCH" >"$VR/screens/ccy-w"
 set_going
-check "a session left alone fails the run" "1" "$rc"
+check "a fault (the exited launcher) fails the run" "1" "$rc"
 check "nothing on stdout" "" "$(cat "$VR/set-going-out")"
 check "at or above the floor: /compact, typed, then Enter on its own" \
     "send-keys =ccy-a: [literal] $SET_GOING_COMPACT_EXPECTED|send-keys =ccy-a: Enter" \
@@ -1065,8 +1065,8 @@ check "below it: continue" "send-keys =cc-c: [literal] continue|send-keys =cc-c:
     "$(grep -F '=cc-c:' "$LOG" | paste -sd '|')"
 check "a session the restore found running is never typed into" "" "$(grep -F '=ccy-b:' "$LOG")"
 check "nor one whose launcher exited, or that waits at a ccy prompt" "" "$(grep -E '=ccy-(d|w):' "$LOG")"
-check "each left alone is named, with why" "yes" \
-    "$([[ "$why" == *"left ccy-d untouched: launcher-exited"* && "$why" == *"left ccy-w untouched: waiting-at-prompt-quick-launch-after-0s"* ]] && echo yes || echo "no: $why")"
+check "each left alone is named, with why: the fault, and the prompt handed to a person" "yes" \
+    "$([[ "$why" == *"left ccy-d untouched: launcher-exited"* && "$why" == *"left ccy-w alone, as expected: waiting-at-prompt-quick-launch-after-0s; "* && "$why" == *"ERROR: 1 restored session(s) could not be set going: ccy-d (launcher-exited)."* ]] && echo yes || echo "no: $why")"
 check "and each set going says what it typed and why" "yes" \
     "$([[ "$why" == *"set ccy-a going: compact (context 208525 tokens, compact floor $FLOOR, supervised: yes)"* && "$why" == *"set cc-c going: continue (context 5000 tokens"* ]] && echo yes || echo "no: $why")"
 CCY_STATE_DIR="$SCRATCH/state" ccy_restore_manifest_read
@@ -1122,8 +1122,8 @@ check "and says where the floor comes from" "yes" \
 manifest_full this-boot ccy-a ccy "$A" pending "" "" ""
 printf '%s\n' "✻ Thinking… (3s · esc to interrupt)" "$PROMPT_SCREEN" >"$VR/screens/ccy-a"
 set_going
-check "already busy when its prompt drew: left alone" "1:" "$rc:$(cat "$LOG")"
-check "and named" "yes" "$([[ "$why" == *"left ccy-a untouched: busy-before-set-going"* ]] && echo yes || echo "no: $why")"
+check "already busy when its prompt drew: left alone, as expected, and the run succeeds" "0:" "$rc:$(cat "$LOG")"
+check "and named" "yes" "$([[ "$why" == *"left ccy-a alone, as expected: busy-before-set-going; "* ]] && echo yes || echo "no: $why")"
 manifest_full this-boot ccy-a ccy "$A" pending "" "" ""
 printf 'Building image...\n' >"$VR/screens/ccy-a"
 set_going
@@ -1173,8 +1173,8 @@ manifest_full this-boot ccy-a ccy "$A" pending "" "" "" ccy-a-2 ccy "$A" pending
 set_going
 check "a second session on the same conversation is not typed into" "send-keys =ccy-a: [literal] continue|send-keys =ccy-a: Enter" \
     "$(paste -sd '|' "$LOG")"
-check "and is named, with the session that has it" "1:yes" \
-    "$rc:$([[ "$why" == *"ccy-a-2 shares its conversation with ccy-a, which is set going; left alone."* ]] && echo yes || echo "no: $why")"
+check "and is named, with the session that has it, as expected" "0:yes" \
+    "$rc:$([[ "$why" == *"left ccy-a-2 alone, as expected: shares-conversation-with-ccy-a; only one session may drive a conversation, and ccy-a is set going on it"* ]] && echo yes || echo "no: $why")"
 printf '%s\n' "ccy-a 100" "ccy-a-2 200" >"$VR/panes"
 printf '%s\n' "100 1 bash -c trampoline" "101 100 podman run --rm -it --name a_yolo_1 claude-yolo:latest" \
     "200 1 bash -c trampoline" "201 200 podman run --rm -it --name a_yolo_2 claude-yolo:latest" >"$VR/ps"
@@ -1236,14 +1236,14 @@ transcript "$T_A" 5000
 manifest_full this-boot ccy-a ccy "$A" pending "" "" ""
 printf '%s\n' "ccy-a 1 $A" >"$SESSIONS"
 set_going
-check "an attached session is left alone" "1::yes" \
-    "$rc:$(cat "$LOG"):$([[ "$why" == *"left ccy-a untouched: attached"* ]] && echo yes || echo "no: $why")"
+check "an attached session is left alone, as expected" "0::yes" \
+    "$rc:$(cat "$LOG"):$([[ "$why" == *"left ccy-a alone, as expected: attached; "* ]] && echo yes || echo "no: $why")"
 manifest_full this-boot ccy-a ccy "$A" pending "" "" ""
 printf '%s\n' "ccy-a 0 $A" >"$SESSIONS"
 printf '%s\n' "$RULE" "❯ half a thought" "$RULE" >"$VR/screens/ccy-a"
 set_going
-check "a box with text in it is left alone" "1::yes" \
-    "$rc:$(cat "$LOG"):$([[ "$why" == *"left ccy-a untouched: input-box-not-empty"* ]] && echo yes || echo "no: $why")"
+check "a box with text in it is left alone, as expected" "0::yes" \
+    "$rc:$(cat "$LOG"):$([[ "$why" == *"left ccy-a alone, as expected: input-box-not-empty; "* ]] && echo yes || echo "no: $why")"
 
 echo ""
 echo "──────────────────────────────────────────────────────────────"

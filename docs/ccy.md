@@ -359,14 +359,23 @@ The floor is 150,000 tokens. Change it per machine in `host_vars`, then run the 
 ccy_restore_compact_floor_tokens: 200000
 ```
 
-A session the restore found already running is never typed into. Two sessions in one
-project that both `--continue` resume the same conversation, so only the first to draw its
-prompt is set going; the other is left alone as `shares-conversation-with-<name>`. Other
-sessions left alone, each named in the journal
-(`journalctl --user -u ccy-sessions-set-going -b --no-pager | cat`): one whose prompt never
-draws, one already busy when it does, one with someone attached or text in its input box,
-one with no readable transcript. The others still go on. If the restore wrote no manifest
-for the boot, set-going says so and fails rather than guess.
+A session the restore found already running is never typed into. Each session it leaves
+alone is named in the journal, with the reason
+(`journalctl --user -u ccy-sessions-set-going -b --no-pager | cat`). The others still go on.
+A session left alone is one of two things:
+
+- **Expected, and the unit still succeeds.** The session is still at a
+  launch prompt when the wait ends, such as a desktop's SSH passphrase. Or someone is
+  attached, or there is text in its input box, or it is already busy. Or it shares its
+  conversation with a session already set going: two sessions in one project that both
+  `--continue` resume the same conversation, so only the first to draw its prompt is set
+  going. The journal says `left <name> alone, as expected: <reason>; <why>`.
+- **A fault, and the unit fails**, naming each one: the launcher exited or the session died, a
+  screen or transcript that cannot be read, keys that cannot be sent, or a prompt or
+  compaction that never comes in the time. A dead launcher fails the unit too, for now; see
+  Plan 00135.
+
+If the restore wrote no manifest for the boot, set-going says so and fails rather than guess.
 
 Check with `ccy-sessions verify-restore [--wait SECONDS]`. It reads the manifest the boot's
 restore wrote (`~/.local/state/ccy/last-restore`) and prints one line per session: `OK`,
