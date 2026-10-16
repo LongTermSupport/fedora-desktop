@@ -44,7 +44,9 @@ func newTree(t *testing.T) *tree {
 	tr := &tree{t: t, root: t.TempDir()}
 	tr.git("init", "-q")
 	tr.write("scripts/qa-trees.tsv", repoFile(t, "scripts", "qa-trees.tsv"))
-	tr.write("helpers/qa_environment/unittest_counts.py", repoFile(t, "helpers", "qa_environment", "unittest_counts.py"))
+	for _, name := range []string{"unittest_counts.py", "session_env.py"} {
+		tr.write("helpers/qa_environment/"+name, repoFile(t, "helpers", "qa_environment", name))
+	}
 	tr.git("add", "scripts", "helpers")
 	return tr
 }

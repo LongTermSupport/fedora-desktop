@@ -452,6 +452,17 @@ class WatchDeliveryTest(WatchCase):
         self.joined()
         self.a.human("for a")
         b.human("for b")
+        # Each team's inbox is filled by its own poll thread, and a pass delivers what is
+        # pending then (E13), so passes wait until both items are in: under load team A's
+        # first sync can otherwise land, and be delivered, before team B's.
+        real_pass = cli._inject_pass
+
+        def once_both_are_pending(*args, **kwargs):
+            if self.pending() and self.pending(b):
+                return real_pass(*args, **kwargs)
+            return None
+
+        self.enterContext(mock.patch.object(cli, "_inject_pass", side_effect=once_both_are_pending))
         self.start_watch()
         (text,) = self.sock.wait_for(1)
         self.assertEqual(summary(text), ("2", "2", "0"))
