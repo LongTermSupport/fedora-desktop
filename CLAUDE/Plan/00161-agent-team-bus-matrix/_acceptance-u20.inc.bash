@@ -15,7 +15,8 @@
 # headless Quick Launch takes this checkout's saved choices (D38, D57), and the harness reads
 # only the saved token's name, to scrub its value from the evidence afterwards. Three seats:
 # acca (made coordinator by `set-role`), accb and accc (workers). Later sessions: accb again
-# (M2.7), accc after `seat remove` (M2.8), and a plain `ccy` (M2.9). Every container is found by
+# (M2.7), accc after `seat remove` (M2.8), a plain `ccy` (M2.9), all launched with no TMUX so
+# unnamed, and accb once more as a NAMED session in a pane of its own (M2.11). Every container is found by
 # its desired membership (the read-only mount Plan 00203 M2 added), never by the project label the owner's own sessions carry too.
 #
 # WHAT IS JUDGED is what the bus, the host or Claude Code recorded, never the model's prose:
@@ -1012,6 +1013,98 @@ u20_check_plain() {
     evidence "M2.9 a plain ccy launch: pingbus not found, no pingbus plugin in its init line, no ccy-seats label, seats and members unchanged: u20/plain/"
 }
 
+# ── a named seated session (Plan 00203 M2) ───────────────────────────────────────────────
+# Every session above is launched with no TMUX, so it is unnamed. This one is started as the
+# owner starts one: `ccy --teams accb@acceptance` as the first process of a pane of its own in
+# ccy's tmux, so it IS that tmux session. Its input is a fifo this run holds; it is never sent
+# a turn.
+readonly U20_NAMED="u20-named-$$"
+readonly U20_NAMED_DIR="${XDG_RUNTIME_DIR:?}/ccy/membership/${U20_NAMED}"
+
+u20_named_launch() {
+    local ev fd command
+    ev="$(u20_ev named)"
+    mkdir -p -- "${ev}" || return 1
+    mkfifo -- "${ev}/stdin.fifo" || return 1
+    exec {fd}<>"${ev}/stdin.fifo" || return 1
+    U20_FD[named]="${fd}"
+    U20_STARTED=1
+    # tmux runs one shell command: every word quoted for it, stdin and output redirected.
+    command="$(printf '%q ' exec "${CCY_LAUNCHER}" --headless --no-restore --no-supervise --teams "accb@${TEAM}" \
+        --prompt "${U20_PROMPT}" -- --input-format stream-json --output-format stream-json --verbose --model "${U20_MODEL}")" || return 1
+    command+="<$(printf '%q' "${ev}/stdin.fifo") >$(printf '%q' "${ev}/session.out") 2>$(printf '%q' "${ev}/session.err")"
+    tmux -L ccy new-session -d -s "${U20_NAMED}" -c "${PLAN_REPO_ROOT}" "${command}" || return 1
+    U20_SEAT_OF[named]=accb
+    printf '==> session named: ccy --teams accb@%s in tmux session %s of its own\n' "${TEAM}" "${U20_NAMED}"
+}
+
+# u20_named_up — its container, found by the label naming its tmux session; 3 while none.
+u20_named_up() {
+    local id
+    id="$(podman ps --filter "label=ccy-session=${U20_NAMED}" --filter status=running --format '{{.ID}}')" || return 1
+    if [[ -n "${id}" ]]; then
+        U20_CTR[named]="${id}"
+        return 0
+    fi
+    if tmux -L ccy has-session -t "=${U20_NAMED}"; then
+        return 3
+    fi
+    printf '[FAIL] the named session ended before its container started; its stderr is %s\n' "$(u20_ev named)/session.err" >&2
+    return 1
+}
+
+# u20_named_down — its tmux session, container and membership directory gone, whatever state
+# the run left them in.
+u20_named_down() {
+    local id
+    if tmux -L ccy has-session -t "=${U20_NAMED}" 2>/dev/null; then
+        tmux -L ccy kill-session -t "=${U20_NAMED}" || return 1
+    fi
+    for id in $(podman ps -a --filter "label=ccy-session=${U20_NAMED}" --format '{{.ID}}'); do
+        podman rm -f -t 10 -- "${id}" >/dev/null || return 1
+    done
+    rm -rf -- "${U20_NAMED_DIR}"
+}
+
+# u20_named_end — its input closed, U20_EXIT_S for it to end by itself, then whatever is left
+# removed, and its transcript (if it wrote one) moved into the evidence.
+u20_named_end() {
+    local i
+    u20_keep_watch_log named || return 1
+    u20_close named || return 1
+    for ((i = 0; i < U20_EXIT_S; i++)); do
+        if ! tmux -L ccy has-session -t "=${U20_NAMED}" 2>/dev/null; then
+            break
+        fi
+        sleep 1
+    done
+    u20_named_down || return 1
+    u20_keep_transcript named
+}
+
+# M2.11 — a named seated session: its container is labelled ccy-session=<its tmux session>,
+# mounts exactly the membership directory named after it, whose membership lists its seat, and
+# holds the seat.
+u20_check_named_seated() {
+    local src seats
+    u20_refresh_sudo || return 1
+    u20_named_launch || return 1
+    u20_poll "${U20_START_S}" "the named session's container running" u20_named_up || return 1
+    u20_poll "${U20_START_S}" "seat accb@${TEAM} held by the named session" u20_seat_held accb || return 1
+    src="$(podman inspect --format '{{range .Mounts}}{{if eq .Destination "/run/ccy/membership"}}{{.Source}}{{end}}{{end}}' "${U20_CTR[named]}")" || return 1
+    if [[ "${src}" != "${U20_NAMED_DIR}" ]]; then
+        printf '[FAIL] the named session mounts %s, not its own membership directory %s\n' "${src:-nothing}" "${U20_NAMED_DIR}" >&2
+        return 1
+    fi
+    seats="$(jq -r '[.seats[] | "\(.seat)@\(.team)"] | join(",")' "${U20_NAMED_DIR}/membership.json")" || return 1
+    if [[ "${seats}" != "accb@${TEAM}" ]]; then
+        printf '[FAIL] the named session'\''s membership lists %s, want accb@%s\n' "${seats:-no seat}" "${TEAM}" >&2
+        return 1
+    fi
+    u20_named_end || return 1
+    evidence "M2.11 a named seated session (tmux session ${U20_NAMED}): labelled with its name, mounting ${U20_NAMED_DIR} (accb@${TEAM}), seat held: u20/named/"
+}
+
 # ── the way out ──────────────────────────────────────────────────────────────────────────
 
 # u20_scrub — the ccy token's value out of the evidence (a hit is a FAIL: Claude Code wrote it
@@ -1047,6 +1140,7 @@ u20_cleanup() {
     for s in "${!U20_PID[@]}"; do
         u20_end "${s}" || return 1
     done
+    u20_named_down || return 1
     u20_remove_containers || return 1
     list="$(u20_present_seats)"
     if [[ -n "${list}" ]]; then
@@ -1077,6 +1171,10 @@ u20_teardown_after_stop() {
         u20_keep_watch_log "${s}" || printf '[WARN] session %s: its watcher log was not kept\n' "${s}" >&2
         u20_close "${s}" || failed=1
     done
+    if [[ -n "${U20_FD[named]:-}" ]]; then
+        u20_close named || failed=1
+    fi
+    u20_named_down || failed=1
     for s in "${!U20_SEAT_OF[@]}"; do
         u20_keep_transcript "${s}" || failed=1
     done

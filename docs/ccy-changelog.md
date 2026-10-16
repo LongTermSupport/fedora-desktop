@@ -17,6 +17,12 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.4.2 — container 2.71
+
+- **Seats a Quick Launch brings back go into the launch's own session record only** (Plan
+  00203): `ccy-teams record-seats` takes the session from the launcher, as below, instead of
+  reading `TMUX` itself.
+
 ## 3.99.4.1 — container 2.71
 
 - **A ccy started from inside another session no longer takes that session's identity**

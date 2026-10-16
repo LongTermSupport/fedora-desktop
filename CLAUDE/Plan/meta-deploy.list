@@ -20,11 +20,11 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00203 acceptance fixes: deploys ccy 3.99.4.1 (container 2.71, unchanged: no rebuild). A
-# ccy run from a shell inside another ccy or cc session's pane (an agent's command there, or
-# meta-deploy run from one) no longer takes that session's name: before, it was labelled as
-# that session, mounted and rewrote that session's membership directory, and recorded its SSH
-# key in that session's record. That is why the last Plan 00161 run found two seat sessions in
+# Plan 00203 acceptance fixes: deploys ccy 3.99.4.2 and ccy-teams (container 2.71, unchanged: no
+# rebuild). A ccy run from a shell inside another ccy or cc session's pane (an agent's command
+# there, or meta-deploy run from one) no longer takes that session's name: before, it was
+# labelled as that session, mounted and rewrote that session's membership directory, and wrote
+# its SSH key and Quick Launch seats into that session's record. That is why the last Plan 00161 run found two seat sessions in
 # one container. Running sessions are unaffected.
 playbooks/imports/play-claude-yolo.yml
 # Plan 00203 acceptance, every milestone in turn. M2: two throwaway headless ccy sessions in

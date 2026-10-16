@@ -33,9 +33,7 @@ the model's prose. Standard library only, and only `bus-ports` imports from this
   expect-choices STDERR (TEAM DESCRIPTION)...   the "several teams are active" refusal, listing each
   expect-kit-status-line SETTINGS    the kit's settings.json makes `pingbus status-line` the status line
   expect-segment OUT TEAMS           `pingbus status-line` printed the session's own line, then | bus: TEAMS
-  expect-plain LABELS_JSON ENV_JSON MEMBERSHIP_JSON|-   a ccy session container on no team: no seat
-                                     label, no PINGBUS_ variable but its marker, PINGBUS_MEMBERSHIP=off with
-                                     nothing mounted, or the mount with a seatless membership; prints off or kit
+  expect-plain LABELS_JSON ENV_JSON  a ccy session container with no seat label or PINGBUS_ variable but PINGBUS_MEMBERSHIP=off
 
 Exit codes: 0 ok; 1 an expectation failed or the input was malformed; 3 not there yet;
 64 usage.
@@ -442,38 +440,23 @@ def expect_segment(text: str, teams: str) -> None:
         raise Failed(f"the status line ends {last!r}, want the session's own line then | bus: {teams}")
 
 
-MEMBERSHIP_MARKERS = {"PINGBUS_MEMBERSHIP=off": "off", "PINGBUS_MEMBERSHIP=/run/ccy/membership": "kit"}
-
-
-def expect_plain(labels: object, env: object, membership: object) -> str:
-    """The plain session's form, "off" or "kit"; Failed if it holds or names any seat.
-
-    Plan 00203 M2: the one bus variable a plain launch carries is its marker. An unnamed launch
-    (no pane of its own in ccy's tmux) states PINGBUS_MEMBERSHIP=off; a named one gets its
-    membership mounted, which must list no seat (<membership>, the mount's membership.json on
-    the host, or None when nothing is mounted), and carries the idle kit.
-    """
+def expect_plain(labels: object, env: object) -> None:
     if not isinstance(labels, dict) or labels.get("ccy") != "true":
         raise Failed(f"not a ccy session's labels: {labels!r}")
     problems = []
     if "ccy-seats" in labels:
         problems.append(f"the container carries ccy-seats={labels['ccy-seats']!r}")
-    items = [item for item in (env if isinstance(env, list) else []) if isinstance(item, str)]
-    markers = [MEMBERSHIP_MARKERS[item] for item in items if item in MEMBERSHIP_MARKERS]
-    bus = [item.split("=", 1)[0] for item in items if item.startswith("PINGBUS_") and item not in MEMBERSHIP_MARKERS]
+    # Plan 00203 M2: the one bus variable a plain launch carries is the marker saying it has no
+    # kit, PINGBUS_MEMBERSHIP=off (a headless launch outside ccy's tmux, no --teams).
+    bus = [
+        item.split("=", 1)[0]
+        for item in (env if isinstance(env, list) else [])
+        if isinstance(item, str) and item.startswith("PINGBUS_") and item != "PINGBUS_MEMBERSHIP=off"
+    ]
     if bus:
         problems.append(f"the container's environment sets {bus}")
-    form = markers[0] if len(markers) == 1 else "off"
-    if form == "kit":
-        if not isinstance(membership, dict):
-            problems.append("PINGBUS_MEMBERSHIP names the mount, but nothing is mounted at /run/ccy/membership")
-        elif membership.get("seats") != []:
-            problems.append(f"the session's membership lists seats: {membership.get('seats')!r}")
-    elif membership is not None:
-        problems.append("PINGBUS_MEMBERSHIP is off (or unset), yet a membership is mounted")
     if problems:
         raise Failed("; ".join(problems))
-    return form
 
 
 # ---------------------------------------------------------------- command line
@@ -559,8 +542,7 @@ COMMANDS: dict[str, tuple[int, Callable[[Sequence[str]], int | None]]] = {
     "expect-choices": (-1, lambda a: expect_choices(_read(a[0]), _groups(a[1:], 2))),
     "expect-kit-status-line": (1, lambda a: expect_kit_status_line(_json_file(a[0]))),
     "expect-segment": (2, lambda a: expect_segment(_read(a[0]), a[1])),
-    "expect-plain": (3, lambda a: print(expect_plain(
-        _json_file(a[0]), _json_file(a[1]), None if a[2] == "-" else _json_file(a[2])))),
+    "expect-plain": (2, lambda a: expect_plain(_json_file(a[0]), _json_file(a[1]))),
 }
 
 

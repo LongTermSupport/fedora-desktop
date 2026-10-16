@@ -286,6 +286,7 @@ check_leg "M2.6 the seats are free once their sessions end" u20_check_seats_free
 check_leg "M2.7 a later session in a seat is the same member and reads its history" u20_check_seat_returns
 check_leg "M2.8 a seat removed and launched into again returns as the same member, with its history" u20_check_seat_removed_and_returned
 check_leg "M2.9 a plain ccy is on no team" u20_check_plain
+check_leg "M2.11 a named seated ccy --teams (its own pane in ccy's tmux) is labelled and mounted as that session" u20_check_named_seated
 plan_deploy_leg "U20: agent-bus seat remove ${U20_SEAT_LIST}; the evidence scrubbed" u20_cleanup
 check_leg "M2.10 the checkout is as it was before M2.0" u20_check_checkout_unchanged
 plan_deploy_leg "U23: an LXC member's throwaway container" u23_prepare lxc

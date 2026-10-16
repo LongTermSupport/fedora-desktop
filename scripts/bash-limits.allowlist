@@ -63,7 +63,7 @@ files/usr/local/sbin/fedora-desktop-self-update	94	2	99	-
 files/var/local/claude-code/cc	183	2	196	-
 files/var/local/claude-code/cc-teams.bash	108	8	159	-
 files/var/local/claude-yolo/agent-browser-session-guard	123	2	113	data
-files/var/local/claude-yolo/claude-yolo	2823	12	2745	-
+files/var/local/claude-yolo/claude-yolo	2820	12	2743	-
 files/var/local/claude-yolo/entrypoint.sh	443	5	444	data
 files/var/local/claude-yolo/lib/common-pure.bash	324	15	318	-
 files/var/local/claude-yolo/lib/common.bash	719	21	752	assoc

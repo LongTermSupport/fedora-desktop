@@ -466,6 +466,7 @@ quick() {
         HEADLESS_MODE="$1" SESSION_RESTORE="${QUICK_RESTORE:-false}" NO_SSH_MODE=false SSH_KEYS=() SPECIFIED_TOKEN=""
         SPECIFIED_NETWORK="" NO_NETWORK_MODE=false NETWORK_FROM_CONFIG=false
         TEAMS_GIVEN="${QUICK_TEAMS_GIVEN:-false}" TEAMS_LIST="${QUICK_TEAMS_LIST:-}" CCY_SEATS="" CCY_ORIG_ARGS=(--orig)
+        CCY_SESSION_NAME="${QUICK_SESSION-ccy-proj-1}"
         [ "${2:-}" = --no-ssh ] && NO_SSH_MODE=true
         . "$0" >"$QUICK_OUT"
         printf "%s|%s" "$TEAMS_LIST" "${CCY_ORIG_ARGS[*]}" >"$TEAMS_END"
@@ -569,10 +570,13 @@ check "a session restore never takes the saved team: it is in a team only if its
 check "  and it records nothing" "none" "$(QUICK_RESTORE=true recorded_after false)"
 save personal /keys/id_a proj_net dev1@team-a
 check "a quick-launched team goes into the session's own record, as an explicit --teams does" \
-    "record-seats dev1@team-a" "$(QUICK_ANSWER=y recorded_after false)"
+    "record-seats ccy-proj-1 dev1@team-a" "$(QUICK_ANSWER=y recorded_after false)"
 save personal /keys/id_a proj_net dev1@team-a,qa2@team-b
 check "  two quick-launched teams go into the record together" \
-    "record-seats dev1@team-a,qa2@team-b" "$(QUICK_ANSWER=y recorded_after false)"
+    "record-seats ccy-proj-1 dev1@team-a,qa2@team-b" "$(QUICK_ANSWER=y recorded_after false)"
+save personal /keys/id_a proj_net dev1@team-a
+check "  a launch that is no session of its own (run from inside another session's pane) records nothing" \
+    "none" "$(QUICK_SESSION="" QUICK_ANSWER=y recorded_after false)"
 save personal /keys/id_a proj_net dev1@team-a
 check "  a record that cannot be written stops the launch" "yes" \
     "$(FAKE_RECORD_RC=1 QUICK_ANSWER=y quick false | grep -q 'rc=1 prompt=' && echo yes || echo no)"
@@ -672,7 +676,7 @@ check "--help documents --no-bus" "1" "$(grep -c -E '^  --no-bus ' "$LAUNCHER")"
 check "the did-you-mean list knows --no-bus" "yes" \
     "$(awk '/^            ccy_flags=\(/,/^            \)/' "$LAUNCHER" | grep -q -- '--no-bus' && echo yes || echo no)"
 check "the take call passes --no-bus and the container name" "1" \
-    "$(grep -c -F '"$NO_BUS_MODE" "$CONTAINER_NAME" || exit $?' "$LAUNCHER")"
+    "$(grep -c -F "\"\$NO_BUS_MODE\" \"\$CONTAINER_NAME\" || exit \$?" "$LAUNCHER")"
 check "--help documents --teams" "1" "$(grep -c -E '^  --teams ' "$LAUNCHER")"
 check "the did-you-mean list knows --teams" "yes" \
     "$(awk '/^            ccy_flags=\(/,/^            \)/' "$LAUNCHER" | grep -q -- '--teams' && echo yes || echo no)"

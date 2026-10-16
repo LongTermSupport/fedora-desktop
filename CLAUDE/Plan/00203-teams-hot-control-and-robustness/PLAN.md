@@ -84,9 +84,11 @@ Built on `fix/teams-server-robustness`; design and evidence in
   `acceptance.bash` (a dispatcher; `_acceptance-m2.inc.bash` starts its own throwaway
   sessions), then the Plan 00201 and 00161 acceptances, ported to the membership, all queued in
   meta-deploy. Notes: [subagent-reports/261016-m2-launcher-opus.md](subagent-reports/261016-m2-launcher-opus.md).
-  After the first host run (CCY 3.99.4.1): a ccy run from inside another session's pane is
-  unnamed (it had taken the outer session's identity: the U20 abort); the relabel is proved by
-  labels on a Permissive host too; Plan 00201's plain check takes the kit form.
+  After the first host run (CCY 3.99.4.2): a ccy run from inside another session's pane is
+  unnamed and writes no session's record, `record-seats` included (it had taken the outer
+  session's identity: the U20 abort); the relabel is proved by labels on a Permissive host too;
+  the 00201 and 00161 launches are unnamed by construction, and U20 M2.11 proves a named seated
+  session.
 
 ## Decisions
 

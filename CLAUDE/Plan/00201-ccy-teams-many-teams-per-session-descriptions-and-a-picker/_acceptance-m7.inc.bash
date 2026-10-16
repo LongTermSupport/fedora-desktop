@@ -730,31 +730,26 @@ say("removed")
     evidence "M4 SessionEnd removed the record of ${SESSION_ID} before the container ended: multi/session-end.marker"
 }
 
-# P1 — a plain `ccy` is on no team: no seat label, no PINGBUS_ variable but its marker (Plan
-# 00203 M2), no per-session record for its session ID. Launched headless with no pane of its
-# own in ccy's tmux, it is unnamed: PINGBUS_MEMBERSHIP=off, nothing mounted, no pingbus on its
-# PATH, so its status line is the checkout's own. A named plain session instead gets its
-# seatless membership mounted and the idle kit (pingbus present); m7_check takes either form.
+# P1 — a plain `ccy` is on no team: no seat label, and no PINGBUS_ variable but the marker
+# PINGBUS_MEMBERSHIP=off (Plan 00203 M2; launched with no TMUX, so unnamed), on its container, no
+# pingbus on its PATH, no per-session record for its session ID. With no pingbus there is no
+# `pingbus status-line` either, so its status line is the checkout's own, with no bus segment.
 m7_check_plain() {
-    local labels env src membership=- form want
+    local labels env
     m7_start plain "" || return 1
     labels="$(m7_ev plain/labels.json)"
     env="$(m7_ev plain/env.json)"
     podman container inspect --format '{{json .Config.Labels}}' "${SESSION_CTR}" >"${labels}" || return 1
     podman container inspect --format '{{json .Config.Env}}' "${SESSION_CTR}" >"${env}" || return 1
-    src="$(podman inspect --format '{{range .Mounts}}{{if eq .Destination "/run/ccy/membership"}}{{.Source}}{{end}}{{end}}' "${SESSION_CTR}")" || return 1
-    [[ -z "${src}" ]] || membership="${src}/membership.json"
-    form="$("${CHECK[@]}" expect-plain "${labels}" "${env}" "${membership}")" || return 1
-    want=absent
-    [[ "${form}" != kit ]] || want=present
+    "${CHECK[@]}" expect-plain "${labels}" "${env}" || return 1
     m7_exec pingbus /dev/null sh -c 'if [ -e /usr/local/bin/pingbus ]; then echo present; else echo absent; fi' || return 1
     m7_exec record /dev/null python3 -c "${M7_RECORD_PY}" exists "${SESSION_ID}" || return 1
-    if [[ "$(cat -- "$(m7_ev plain/pingbus.out)")" != "${want}" || "$(cat -- "$(m7_ev plain/record.out)")" != absent ]]; then
-        printf '[FAIL] the plain session (PINGBUS_MEMBERSHIP %s) does not have pingbus %s on its PATH, or has a per-session record\n' "${form}" "${want}" >&2
+    if [[ "$(cat -- "$(m7_ev plain/pingbus.out)")" != absent || "$(cat -- "$(m7_ev plain/record.out)")" != absent ]]; then
+        printf '[FAIL] the plain session has pingbus on its PATH or a per-session record\n' >&2
         return 1
     fi
     m7_end || return 1
-    evidence "P1 a plain ccy session (${form}): no seat label or PINGBUS_ variable but its marker, pingbus ${want}, no record: plain/"
+    evidence "P1 a plain ccy session: no seat label or PINGBUS_ variable but PINGBUS_MEMBERSHIP=off, no pingbus (so no bus status line), no record: plain/"
 }
 
 # ── the way out ──────────────────────────────────────────────────────────────────────────
