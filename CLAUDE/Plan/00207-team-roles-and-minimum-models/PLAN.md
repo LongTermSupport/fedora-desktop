@@ -1,6 +1,6 @@
 # Plan 00207: team roles and minimum models
 
-**Status**: Not Started (design done; waiting on the owner's decisions D1-D18 and D20-D25; D19 decided)
+**Status**: Not Started (design done; waiting on the owner's decisions D1-D18 and D20-D26; D19 decided)
 **Created**: 2026-10-16
 **Owner**: joseph
 **Priority**: Medium
@@ -107,10 +107,11 @@ before the code.
   - whether `qa-all.bash` leaves a per-commit run record.
 - [ ] ⬜ **Task 0.2**: Findings in `RESEARCH-observability.md`. Amend SPEC §4.4, §4.5 and §6.4
   where a fact differs.
-- [ ] ⬜ **Task 0.3**: The spike also confirms that a pingbus delivery and the supervisor's
-  typing reach `UserPromptSubmit`, and that the supervisor's sidecar records what it typed
-  (SPEC §11.4).
-- [ ] ⬜ **Task 0.4**: The owner decides D1-D18 and D20-D25 (D19 is decided).
+- [ ] ⬜ **Task 0.3**: The spike also confirms what the terminal notary needs (SPEC §11.4):
+  - what `script --log-in` captures for a tmux pane running `podman run -it`;
+  - that the supervisor's sidecar records its `send-keys` typing closely enough to subtract;
+  - how often submitted lines reconstruct cleanly.
+- [ ] ⬜ **Task 0.4**: The owner decides D1-D18 and D20-D26 (D19 is decided).
 
 ### M1: the ladder and the per-team policy (no behaviour change)
 
@@ -165,7 +166,9 @@ before the code.
 ### M5: the deployer's gate
 
 - [ ] ⬜ **Task 5.1**: Tests first, against fixture repositories, then `deploy-gate check`
-  (G1-G9 with a coverage line), `judge` and `verify`.
+  (G1-G8 with a coverage line and item ids), `judge` (every id covered, closed dispositions,
+  evidence resolving at SHA; a pass refused with any concern) and `verify`. G6 reads the host
+  transcript, never the keeper report.
 - [ ] ⬜ **Task 5.2**: The `meta-deploy.bash` guard for an agent caller. It stays within the
   bash limits.
 - [ ] ⬜ **Task 5.3**: The `deploy` verb's flow in the skill's Deployer section. The authority
@@ -193,11 +196,22 @@ before the code.
 
 ### M6b: the management room (SPEC §11)
 
-- [ ] ⬜ **Task 6b.1**: Tests first, then `pingbus brief`, `ask` and `note-terminal`, with their caps,
-  interval, duplicate refusal and open-question limit.
-- [ ] ⬜ **Task 6b.2**: Tests first, then the `UserPromptSubmit` source classification (delivery
-  nonce, supervisor record, slash command, human), the terminal-note queue, and the watcher
-  posting it. Single-team routing only.
+- [ ] ⬜ **Task 6b.1**: Tests first, then `pingbus brief` and `ask`, with their caps, interval,
+  duplicate refusal and open-question limit. The `Q<n>` counter and open set are read from the
+  room's history.
+
+- [ ] ⬜ **Task 6b.2** (if D26 says build it): tests first, against captured-input fixtures, then
+  the terminal notary:
+
+  - the launcher's host-side input tap (`script --log-in` to a FIFO);
+  - `ccy-teams notary` line reconstruction, and subtracting the supervisor's typing;
+  - the per-team `notary` account, created by `admin`, with its token in the agent-bus user's
+    store;
+  - the `NOTE` delivery kind;
+  - single-team routing only.
+
+  No coordinator-side command posts a terminal note. CCY version bump.
+
 - [ ] ⬜ **Task 6b.3**: Human replies in the room as `HUMAN` with the question beside them.
   `history --room`. The skill and `role_coordinator` guidance.
 
@@ -223,40 +237,38 @@ before the code.
 
 Each has a recommendation. M1 starts once these are answered.
 
-| #   | Decision                                                                                                                                                                                                                                        | Recommendation                                                                                                                           |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| D1  | Add the **reviewer** role now?                                                                                                                                                                                                                  | Yes. Every new role needs the same fleet-wide pingbus upgrade, so one upgrade carries all of them                                        |
-| D2  | Does a higher family meet a floor whatever its version (Fable 5 meets `opus-5.5`)?                                                                                                                                                              | Yes: family first, version only within a family                                                                                          |
-| D3  | An absolute deployer floor no team may go below?                                                                                                                                                                                                | Yes, `sonnet/medium`. Haiku never deploys. The default stays `opus-5.5/medium`                                                           |
-| D4  | A default floor for the coordinator?                                                                                                                                                                                                            | None at rollout, so no existing coordinator is suspended. Set it per team in the pane                                                    |
-| D5  | How many deployers per team?                                                                                                                                                                                                                    | Default 1, and a team may allow up to 4                                                                                                  |
-| D6  | Deployer only on a host `cc` session?                                                                                                                                                                                                           | Yes. A ccy container may never run Ansible                                                                                               |
-| D7  | Deploy authority per deploy, or standing per team?                                                                                                                                                                                              | Per deploy: a human's message naming the commit, verified in history                                                                     |
-| D8  | Who may authorise a deploy?                                                                                                                                                                                                                     | An explicit `deploy.authorisers` list, required when the deployer is enabled                                                             |
-| D9  | May the deployer answer a human who addressed it (an `re` reply, with the coordinator copied)?                                                                                                                                                  | Yes, answers only. It never starts a message to anyone but the coordinator                                                               |
-| D10 | Team allowances: offer `workers-talk`, `reviewers-talk`, `collaborators-workers` and `collaborators-humans`, all off by default?                                                                                                                | Yes, all four, off by default. None can name the deployer                                                                                |
-| D11 | Existing teams: hub and spoke at their first policy write, or keep `workers-talk` on for them?                                                                                                                                                  | Hub and spoke for every team (the safe default). The first write says so, and the toggle is one click                                    |
-| D12 | Outside collaborator: may it send `review`, and may it start messages to the team's humans?                                                                                                                                                     | `review` yes, to the coordinator. Messages to humans: answers only, unless `collaborators-humans` is on                                  |
-| D13 | Restoring a suspended role: by hand, or automatic when the model recovers?                                                                                                                                                                      | By hand, through the full assignment check                                                                                               |
-| D14 | The maximum: enforced at run time too?                                                                                                                                                                                                          | No. Enforce it at launch and assignment; at run time only report it                                                                      |
-| D15 | Gate check G3 with no `qa-all` record for the commit: the gate runs `qa-all`, or refuses?                                                                                                                                                       | The gate runs it                                                                                                                         |
-| D16 | A delivery-gate drop: tell the sender?                                                                                                                                                                                                          | No. Log and count it. An honest sender was already refused on send                                                                       |
-| D17 | An effort the status line does not report: fail the floor?                                                                                                                                                                                      | Yes, fail closed. The launcher always pins `--effort` under a floor, so it is reported                                                   |
-| D18 | The warden runs as a root system timer, or a user timer with a sudo rule?                                                                                                                                                                       | A root system timer. It only ever demotes                                                                                                |
-| D20 | The management room: create it for every team with a coordinator, with the brief format and caps of SPEC §11.2 (headline plus 4 tagged lines of at most 120 characters, at most 600 bytes; `brief_min_interval_s` 900; up to 3 open questions)? | Yes, as specified                                                                                                                        |
-| D21 | History visibility of the new rooms                                                                                                                                                                                                             | `joined` for deployment and liaison rooms, so a new deployer or collaborator does not read the past; `shared` for workers and management |
-| D22 | The terminal note: an excerpt, the full text, or no text?                                                                                                                                                                                       | The first line, at most 160 characters, after the secret-shape check                                                                     |
-| D23 | Whose terminal the coordinator runs in (`terminal_human`)                                                                                                                                                                                       | A team-file key, defaulting to the first human                                                                                           |
-| D24 | Note every terminal prompt, or only those that answer something?                                                                                                                                                                                | Only while a question is open or within `terminal_note_window_s` (1800) of the last brief or question                                    |
-| D25 | Move a cc coordinator's seat into the host-only store as well as the deployer's?                                                                                                                                                                | Yes. A ccy coordinator keeps its seat in its own checkout and should not share that checkout with workers                                |
+| #   | Decision                                                                                                                                                                                                                                                                        | Recommendation                                                                                                                                |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Add the **reviewer** role now?                                                                                                                                                                                                                                                  | Yes. Every new role needs the same fleet-wide pingbus upgrade, so one upgrade carries all of them                                             |
+| D2  | Does a higher family meet a floor whatever its version (Fable 5 meets `opus-5.5`)?                                                                                                                                                                                              | Yes: family first, version only within a family                                                                                               |
+| D3  | An absolute deployer floor no team may go below?                                                                                                                                                                                                                                | Yes, `sonnet/medium`. Haiku never deploys. The default stays `opus-5.5/medium`                                                                |
+| D4  | A default floor for the coordinator?                                                                                                                                                                                                                                            | None at rollout, so no existing coordinator is suspended. Set it per team in the pane                                                         |
+| D5  | How many deployers per team?                                                                                                                                                                                                                                                    | Default 1, and a team may allow up to 4                                                                                                       |
+| D6  | Deployer only on a host `cc` session?                                                                                                                                                                                                                                           | Yes. A ccy container may never run Ansible                                                                                                    |
+| D7  | Deploy authority per deploy, or standing per team?                                                                                                                                                                                                                              | Per deploy: a human's message naming the commit, verified in history                                                                          |
+| D8  | Who may authorise a deploy?                                                                                                                                                                                                                                                     | An explicit `deploy.authorisers` list, required when the deployer is enabled                                                                  |
+| D9  | May the deployer answer a human who addressed it (an `re` reply, with the coordinator copied)?                                                                                                                                                                                  | Yes, answers only. It never starts a message to anyone but the coordinator                                                                    |
+| D10 | Team allowances: offer `workers-talk`, `reviewers-talk`, `collaborators-workers` and `collaborators-humans`, all off by default?                                                                                                                                                | Yes, all four, off by default. None can name the deployer                                                                                     |
+| D11 | Existing teams: hub and spoke at their first policy write, or keep `workers-talk` on for them?                                                                                                                                                                                  | Hub and spoke for every team (the safe default). The first write says so, and the toggle is one click                                         |
+| D12 | Outside collaborator: may it send `review`, and may it start messages to the team's humans?                                                                                                                                                                                     | `review` yes, to the coordinator. Messages to humans: answers only, unless `collaborators-humans` is on                                       |
+| D13 | Restoring a suspended role: by hand, or automatic when the model recovers?                                                                                                                                                                                                      | By hand, through the full assignment check                                                                                                    |
+| D14 | The maximum: enforced at run time too?                                                                                                                                                                                                                                          | No. Enforce it at launch and assignment; at run time only report it                                                                           |
+| D15 | Gate check G3 with no `qa-all` record for the commit: the gate runs `qa-all`, or refuses?                                                                                                                                                                                       | The gate runs it                                                                                                                              |
+| D16 | A delivery-gate drop: tell the sender?                                                                                                                                                                                                                                          | No. Log and count it. An honest sender was already refused on send                                                                            |
+| D17 | An effort the status line does not report: fail the floor?                                                                                                                                                                                                                      | Yes, fail closed. The launcher always pins `--effort` under a floor, so it is reported                                                        |
+| D18 | The warden runs as a root system timer, or a user timer with a sudo rule?                                                                                                                                                                                                       | A root system timer. It only ever demotes                                                                                                     |
+| D20 | The management room: create it for every team with a coordinator, with the brief format and caps of SPEC §11.2 (headline plus 4 tagged lines of at most 120 characters, at most 600 bytes; `brief_min_interval_s` 900; up to 3 open questions)?                                 | Yes, as specified                                                                                                                             |
+| D21 | History visibility of the new rooms                                                                                                                                                                                                                                             | `joined` for deployment and liaison rooms, so a new deployer or collaborator does not read the past; `shared` for workers and management      |
+| D22 | The terminal note (if D26 is yes): an excerpt, the full text, or no text?                                                                                                                                                                                                       | The first line, at most 160 characters, after the secret-shape check                                                                          |
+| D26 | Build the terminal notary (SPEC §11.4)? It is a host-side input tap plus a separate `notary` account, so a ccy coordinator cannot forge a note. A host cc coordinator still can (Plan 00203 H31). Either way the note is a record, never authority, and never closes a question | Yes, for ccy coordinators. If not, there is no terminal note at all: a coordinator-posted one would be a forgeable line attributed to a human |
+| D23 | Whose terminal the coordinator runs in (`terminal_human`)                                                                                                                                                                                                                       | A team-file key, defaulting to the first human                                                                                                |
+| D24 | Note every terminal prompt, or only those that answer something?                                                                                                                                                                                                                | Only while a question is open or within `terminal_note_window_s` (1800) of the last brief or question                                         |
+| D25 | Move a cc coordinator's seat into the host-only store as well as the deployer's?                                                                                                                                                                                                | Yes. A ccy coordinator keeps its seat in its own checkout and should not share that checkout with workers                                     |
 
 ### Decided by the owner
 
-- **D19, collaborator confidentiality, and section B, rooms.** "regard matrix rooms as defense
-  in depth. We don't have it as the only mechanism, but we have it as a mechanism at a certain
-  level... a bit like private channels in Slack. That would be the model I would expect...
-  enforce things at the matrix server level and also at the ping bus level as well... belt and
-  braces... we just need to make sure everything's properly in sync."
+- **D19, collaborator confidentiality, and section B, rooms.** The owner's words are quoted
+  once, as (Q-rooms) at the top of SPEC-roles.md.
   - This means private, invite-only channel rooms enforced by the homeserver, alongside the
     pingbus gate (SPEC §12).
   - They are kept in sync by one reconciler, with loud drift detection, and deny on

@@ -14,6 +14,24 @@ The owner's request, in short:
 - All of this is **configurable per team**, in the team settings pane.
 - Later addition: **communication gates**. The deployer talks only to the coordinator; the
   default for everyone else is hub-and-spoke through the coordinator.
+- Later addition: a **management room** for the coordinator and the humans, and **rooms as
+  defence in depth**.
+
+**The owner's words**, quoted once here and referred to below by letter:
+
+- **(Q-gates)** "the deployer should only be willing to talk to the coordinator. It should not
+  even receive messages from anybody else... maybe \[everything going through the coordinator
+  is\] the safest default."
+- **(Q-mgmt)** "a separate chat room which is purely for coordinator versus human, where the
+  coordinator can post terse, human-friendly summaries of what's going on, and where questions
+  can be asked... If I respond directly in the session, a little confirmation should be posted
+  into the chat room so that it's there. A high-level, skimmable management summary, not walls
+  of text, very terse."
+- **(Q-rooms, a decision)** "regard matrix rooms as defense in depth. We don't have it as the
+  only mechanism, but we have it as a mechanism at a certain level... a bit like private
+  channels in Slack. That would be the model I would expect... enforce things at the matrix
+  server level and also at the ping bus level as well... belt and braces... we just need to
+  make sure everything's properly in sync."
 
 Terms: *record* is the admin-sent `agent_bus.team` room state (protocol §8). *Registry* is
 `/var/lib/agent-bus/<team>/registry.json` (handle → role). *Team file* is the team's entry
@@ -66,10 +84,11 @@ something only because the deployer did not direct the work.
 
 **Why a reviewer.** The project already depends on independent review (the `qa-reviewer`
 agent, Fable reviews before a merge). A reviewer role gives that a place on the bus: a
-higher floor than a worker's, and a `done` on a `review` that the coordinator, and the
-deployer's gate (§6.4 check G9, optional), can rely on. It adds nothing to the protocol that
-the other roles do not already need. Adding it now costs nothing extra: every new role
-needs the same fleet-wide pingbus upgrade (§9), so one upgrade carries all of them.
+higher floor than a worker's, and a `done` on a `review` that the coordinator can rely on.
+It adds nothing to the protocol that the other roles do not already need. Adding it now costs
+nothing extra: every new role needs the same fleet-wide pingbus upgrade (§9), so one upgrade
+carries all of them. A gate check that would require a reviewer's review is left out until D1
+is decided (YAGNI).
 
 **Rejected:**
 
@@ -132,9 +151,7 @@ coordinator relays requests, it never creates a human's authority.
 
 ## 3. Communication gates
 
-The owner: "the deployer should only be willing to talk to the coordinator. It should not
-even receive messages from anybody else... maybe \[everything going through the coordinator
-is\] the safest default."
+This section answers the owner's words (Q-gates) at the top of this document.
 
 ### 3.1 The default: hub and spoke
 
@@ -166,6 +183,14 @@ is\] the safest default."
 - **The lock is in the protocol, not in the team settings.** The allowance set (§3.4) has no
   member that names the deployer, and the team-file validator refuses one. Lowering the
   deployer's model floor for a team (§7) does not loosen the lock.
+- **The coordinator relay holds by design.** The coordinator can paraphrase anything a worker
+  said into its own `say` to the deployer. The lock narrows the deployer's inputs to one agent
+  voice and the humans. It limits *who* may speak, not *what* they say, and it does not
+  sanitise the coordinator's voice. That is acceptable because no agent's words are authority:
+  only a team human's `HUMAN` line, verified by the deployer in its own history of the
+  deployment room (G5), authorises a deploy. A coordinator account cannot produce a `HUMAN`
+  line, because the human path requires `m.text` from a listed human's user ID, and that ID is
+  set by the server.
 
 ### 3.3 Where it is enforced
 
@@ -322,12 +347,27 @@ The check refuses, naming the role, the team, the floor and what was found, when
 
 1. the role is not enabled in the team's policy, or is at its `count` (it names the holders);
 2. the session kind does not suit the role (a deployer must be a host `cc` session, D6);
-3. the target seat is held by a running session whose **observed** model or effort (its
-   keeper report, §4.5) is below the floor, or not yet observed. "Not yet observed" is
-   refused too, with "wait for the session's first status line, then retry";
+3. the target seat is held by a running session whose **host-side observation** is below the
+   floor, or missing. This is the host transcript for a cc session (§4.5). "Missing" is refused
+   too, with "wait for the session's first turn, then retry";
 4. the session's **launch** model (its registry record, §4.4) is below the floor, or was
    never set while the floor names a model;
-5. a maximum is set and either model is above it.
+5. the session's keeper report (§4.5) says `below` or `unverified`. The report can only
+   refuse. It is never a reason to grant;
+6. a maximum is set and either model is above it.
+
+**What a grant rests on.** Only host-side facts: the registry, the launch record that ccy
+itself wrote, and for a cc session the host transcript. **Nothing is granted on the session's
+self-report.**
+
+- A ccy session's transcript is written inside its container, so for a ccy session the grant
+  rests on the launch record alone (checks 1, 2, 4 and 6).
+- A ccy session that fell below its floor after launch is caught only through its own report,
+  read demotion-only. A ccy session that hides its own downgrade could keep a role it no longer
+  qualifies for. That is the stated non-goal of Plan 00203 D6: a control, not a wall, inside a
+  checkout.
+- The deployer, the role where this matters most, is a cc session (D6 of this plan), so its
+  grant and its gate (G6) always rest on the host transcript.
 
 A seat that no running session holds can be given the role. The floor is then enforced at
 the next launch (§4.4).
@@ -363,8 +403,11 @@ The launchers are on the bash-limits ratchet and must not grow. The function:
   - the user asked for a model or effort below the floor or above the maximum;
   - `--fallback-model` is given (a fallback below the floor is the silent substitution this
     plan exists to stop);
-  - `CLAUDE_CODE_EFFORT_LEVEL` or `ANTHROPIC_MODEL` in the session environment would
-    override what it passes. The M0 spike settles which of these outranks the flags.
+  - for cc and the LXC and VM member units only: `CLAUDE_CODE_EFFORT_LEVEL` or
+    `ANTHROPIC_MODEL` in the session's environment would override what it passes. The M0
+    spike settles which of these outranks the flags. A ccy container's environment is the
+    launcher's fixed `-e` list (`claude-yolo:3901-3924`), which sets neither, so ccy needs
+    no such check.
 - **Records** `launch: {model, effort, floor}` in the ccy registry record. Restore and
   restart replay it, and §4.3 check 4 reads it.
 - **LXC and VM members.** `helpers/agent_bus_lxc/members.py` writes the unit's arguments from
@@ -426,9 +469,11 @@ The state goes into `applied.json`'s `role_check` and into the host report (Plan
 
 **Host-side enforcement** (authoritative, the half other members obey).
 
-- A **role warden**, `ccy-teams warden`, run by a timer, reads every known session's keeper
-  report. It runs as root (D18) because it changes registries.
-- For a role whose state is `below`, it demotes the handle in the registry, records
+- A **role warden**, `ccy-teams warden`, is run by a timer. It runs as root (D18), because it
+  changes registries. It reads two things:
+  - for a cc session, the **host transcript** directly, evaluated with the same ladder;
+  - for every session, the keeper report, read demotion-only.
+- For a role whose state is `below` in either source, it demotes the handle in the registry, records
   `suspended: {role, why, evidence, at}` beside it, and re-sends the record. Coordinator,
   deployer and reviewer fall to `worker`. A worker below a worker floor, and a collaborator,
   are parked (no role), because there is no lower role that keeps them inside their
@@ -439,11 +484,14 @@ The state goes into `applied.json`'s `role_check` and into the host report (Plan
   would let it reach a team it was only visiting.
 - The warden also sends a desktop notification and marks the session red on the ccy-teams
   board.
-- **Reports are demotion-only.** A report saying `ok` never grants anything. A forged `below`
-  can only demote the forger. The report lives in the container-writable checkout, so
-  this is the only safe way to read it.
-- For a host `cc` session, whose transcript is a host file, the warden also reads the
-  transcript itself. It does not need to take the session's word for it.
+- **Reports are demotion-only, everywhere in this spec.**
+  - A report saying `ok` grants nothing: not at assignment (§4.3), not in the gate (G6), and not
+    to the warden.
+  - A forged `below` can only demote the forger.
+  - The report lives in the container-writable checkout, so this is the only safe way to read
+    it.
+  - The session-side refusal above is the session policing itself. It is useful against
+    honest fallbacks and grants nothing either.
 - **Restore is the owner's act** (D13): `ccy-teams session role ...` again, which runs §4.3
   in full. The ccy supervisor's automatic `/model` restore never restores a role.
 
@@ -566,33 +614,50 @@ Mechanical checks. Each is PASS, FAIL or NOT ESTABLISHABLE, and NOT ESTABLISHABL
 output carries a coverage line (`COVERAGE: n of m checks executed`), as R9 requires of
 acceptance scripts.
 
-| #   | Check                                                                                                                                                                                                                                                                                                                                             |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| G1  | The checkout's HEAD is SHA, the working tree is clean, and there is no untracked `CLAUDE/Plan/NNNNN-*` folder                                                                                                                                                                                                                                     |
-| G2  | SHA is on a trusted branch of the team and is on `origin` (pushed)                                                                                                                                                                                                                                                                                |
-| G3  | `qa-all.bash` passed for SHA, from its run record. With no record, the gate runs it (D15)                                                                                                                                                                                                                                                         |
-| G4  | `meta-deploy.list` parses, every entry exists, and every plan entry has its scripts. The list's digest is recorded                                                                                                                                                                                                                                |
-| G5  | The authority (§6.3) verifies                                                                                                                                                                                                                                                                                                                     |
-| G6  | This session holds `deployer` in T in the verified record, is not suspended, and its role check is `ok`. Every assistant turn in its transcript since the gate started meets the floor                                                                                                                                                            |
-| G7  | The request, if given, is a `deploy` ping from T's coordinator naming SHA                                                                                                                                                                                                                                                                         |
-| G8  | The range since the last deployed commit (`untracked/deploy-gate/last-deployed`) is summarised by area. Attention items are flagged: the CCY launcher changed without a version bump (fails); vault or secret paths; sudoers, PAM, SSH, firewall or system units; `state: absent`, `rm -rf`, reboots; an unannotated `failed_when: false` (fails) |
-| G9  | Optional, a team setting: a reviewer's `done` on a `review` of SHA                                                                                                                                                                                                                                                                                |
+| #   | Check                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| G1  | The checkout's HEAD is SHA, the working tree is clean, and there is no untracked `CLAUDE/Plan/NNNNN-*` folder                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| G2  | SHA is on a trusted branch of the team and is on `origin` (pushed)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| G3  | `qa-all.bash` passed for SHA, from its run record. With no record, the gate runs it (D15)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| G4  | `meta-deploy.list` parses, every entry exists, and every plan entry has its scripts. The list's digest is recorded. Each entry gets an id `E1..En` in the report, and each acceptance script it will run an id `S1..Sn`                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| G5  | The authority (§6.3) verifies                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| G6  | This session holds `deployer` in T in the verified record and is not suspended. Its **host transcript** (a cc session's transcript is a host file) shows every assistant turn since the role was granted, and since the gate started, meeting the floor. The keeper report is not consulted. It could only refuse, and the transcript already decides                                                                                                                                                                                                                                                                                           |
+| G7  | The request, if given, is a `deploy` ping from T's coordinator naming SHA                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| G8  | The range since the last deployed commit (`untracked/deploy-gate/last-deployed`) is summarised by area, each area with an id `A1..An` (playbooks, launcher, helpers, src-go, docs, and so on). Attention items are flagged, each with an id `F1..Fn` naming the file and line: the CCY launcher changed without a version bump (fails); vault or secret paths; sudoers, PAM, SSH, firewall or system units; `state: absent`, `rm -rf`, reboots; an unannotated `failed_when: false` (fails). The sessions `ccy-teams session list` reports as working, and the plays in the list that restart ccy or its sessions, are listed with ids `W1..Wn` |
 
-**Step 2. Judgement.** The deployer reads the report and answers fixed questions in a
-file, each in its own words:
+**Step 2. Judgement, tied to the checklist by id.** The deployer answers fixed questions in an
+answers file. **Each answer is a set of entries, one per checklist item it must cover, by id.**
+An answer of "no" is not an answer to anything.
 
-- **J1** Does the range do only what the queued plans say?
-- **J2** Is anything destructive or irreversible?
-- **J3** Does anything touch permissions, secrets or network exposure?
-- **J4** Does each queued acceptance exercise the change?
-- **J5** Is now a safe time? For example, would the run restart sessions that are working?
+| Question                                                 | Must cover, by id                                     | Each entry holds                                                                                                                        |
+| -------------------------------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| **J1** Does the range do only what the queued plans say? | every `E` and every `A`                               | for an `A`, the `E` (plan) it belongs to, or `unplanned` with a reason; for an `E`, the commits in the range that implement it          |
+| **J2** Is anything destructive or irreversible?          | every `F` whose kind is destructive                   | a disposition, `expected` or `concern`, and the evidence: the plan task (`<plan>:<task id>`) that calls for it, or the concern in words |
+| **J3** Permissions, secrets, network exposure?           | every `F` whose kind is permission, secret or network | the same as J2                                                                                                                          |
+| **J4** Does each queued acceptance exercise the change?  | every `S`                                             | the `A` or `F` items it exercises, and the check in the script that does it (`<script>:<line>`)                                         |
+| **J5** Is now a safe time?                               | every `W`                                             | `restarts` or `untouched`, and for `restarts`, `ok` with a reason, or `wait`                                                            |
 
-`deploy-gate judge --verdict pass|refuse --answers FILE`:
+`deploy-gate judge --verdict pass|refuse --answers FILE`.
 
-- refuses an empty or missing answer;
-- re-runs G1, G4 and G6 (nothing moved since the check);
-- writes `verdict.json` with commit, list digest, authority, model evidence, answers and an
-  expiry (`verdict_ttl_s`, 1800).
+**Checked mechanically:**
+
+- every id the check produced is covered exactly once, by the right question, and no unknown id
+  appears;
+- every disposition is from its closed set;
+- every evidence reference resolves at SHA: a plan task id exists in that plan's `PLAN.md`, and
+  a `<script>:<line>` exists and is inside the script;
+- a `pass` verdict has no `concern`, no `unplanned` and no `wait`. Any of those makes `judge`
+  refuse a pass, and the verdict can only be `refuse`;
+- G1, G4 and G6 are re-run, so nothing has moved since the check.
+
+**Not checked mechanically:** whether a disposition is *true*. That an `expected` destructive
+change really is what the plan meant, and that a cited acceptance line really exercises the
+change, are the model's judgement. That judgement is why the deployer has a floor. The
+mechanics make the judgement cover every item and point at evidence a human can follow. They
+cannot make it right.
+
+`judge` writes `verdict.json` with the commit, list digest, authority, the model evidence from
+G6, every checklist item beside its answer entry, and an expiry (`verdict_ttl_s`, 1800).
 
 A refused verdict is a `blocked` to the coordinator, quoting the reason.
 
@@ -641,7 +706,7 @@ New optional keys in the team's `agent_bus_teams` entry. They are validated by
 },
 "launch_model": {"deployer": "opus-5.5", "worker": "sonnet"},
 "comms":        {"allow": ["workers-talk"]},
-"deploy":       {"authorisers": ["alice"], "authority_max_age_s": 3600, "require_review": false}
+"deploy":       {"authorisers": ["alice"], "authority_max_age_s": 3600}
 ```
 
 **Defaults** (absent key = default):
@@ -650,7 +715,7 @@ New optional keys in the team's `agent_bus_teams` entry. They are validated by
 - `deployer`, `collaborator` and `reviewer` disabled.
 - Deployer floor `opus-5.5/medium`, count 1. Collaborator count 8.
 - `comms.allow` empty (hub and spoke).
-- `deploy.authority_max_age_s` 3600. `deploy.require_review` false.
+- `deploy.authority_max_age_s` 3600.
 
 **Validation** (exit 78, naming key and rule; unknown keys refused):
 
@@ -724,7 +789,7 @@ be tested without a terminal.
   greyed line reads "The deployer talks only to the coordinator. This cannot be changed."
 
 - **Deploy section** (visible when the deployer is enabled): the authorisers, picked from
-  `humans`, the authority age, and "require a reviewer's review".
+  `humans`, and the authority age.
 
 - Saving shows the diff in words, then the §7.3 confirmation when a live holder would be
   suspended. It then applies. Errors from validation are shown as the validator words them.
@@ -792,16 +857,13 @@ ccy-teams team policy alpha --show       # TAB-separated, one line per role and 
 
 ## 11. The management room (coordinator and humans)
 
-The owner: "a separate chat room which is purely for coordinator versus human, where the
-coordinator can post terse, human-friendly summaries of what's going on, and where questions
-can be asked... If I respond directly in the session, a little confirmation should be posted
-into the chat room so that it's there. A high-level, skimmable management summary, not walls
-of text, very terse."
+This section answers the owner's words (Q-mgmt) at the top of this document.
 
 ### 11.1 Shape
 
 - **One room per team**, named `<team> · management`.
-- **Members:** the team's humans and the coordinator's seat account, and nobody else.
+- **Members:** the team's humans, the coordinator's seat account and the team's `notary`
+  account (§11.4), and nobody else.
   - The homeserver enforces the membership (§12): it is invite-only, and only `admin`
     invites.
   - No worker, reviewer, collaborator or deployer account is ever invited, so none can read
@@ -813,14 +875,14 @@ of text, very terse."
 
 ### 11.2 What the coordinator posts
 
-There are three kinds. Each is a new agent-text form with a format key, so receivers and
-Element both show it as a plain `m.notice`.
+The coordinator posts two kinds. Each is a new agent-text form with a format key, so receivers
+and Element both show it as a plain `m.notice`. The terminal note (§11.4) is **not** one of them:
+it comes from the team's notary account, never from the coordinator.
 
-| Command                 | What it is                                   | Format and cap                                                                                                                                              |
-| ----------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pingbus brief`         | a management summary                         | 1 headline plus up to 4 lines, each at most 120 characters, each starting with one of `Done:`, `Doing:`, `Blocked:`, `Needs you:`. At most 600 bytes in all |
-| `pingbus ask`           | a question for the humans                    | one question of at most 300 characters, with up to 4 numbered choices of at most 80 characters. pingbus numbers it `Q<n>` per team                          |
-| `pingbus note-terminal` | the confirmation of a terminal reply (§11.4) | one fixed-template line: `↩ <human> answered in the terminal: <excerpt>`, the excerpt being at most 160 characters                                          |
+| Command         | What it is                | Format and cap                                                                                                                                              |
+| --------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pingbus brief` | a management summary      | 1 headline plus up to 4 lines, each at most 120 characters, each starting with one of `Done:`, `Doing:`, `Blocked:`, `Needs you:`. At most 600 bytes in all |
+| `pingbus ask`   | a question for the humans | one question of at most 300 characters, with up to 4 numbered choices of at most 80 characters. pingbus numbers it `Q<n>` per team                          |
 
 An example brief, as Element shows it:
 
@@ -839,11 +901,24 @@ is the point: a wall of text cannot be sent.
 
 - **A minimum interval between briefs**, `brief_min_interval_s` (900). A brief with a
   `Needs you:` line, or a new `Blocked:` line, may go sooner.
+
 - **No repeat.** A brief whose lines equal the last one's is refused as a duplicate
   (exit 9).
+
 - **A cap on open questions.** `ask` refuses a new question while `max_open_questions` (3)
   are unanswered, and names them.
+
+- **The question counter and the open set have no session state.** Both are read from the
+  management room's history at each `ask`:
+
+  - `n` is one more than the highest `Q<n>` among the coordinator's `ask` posts;
+  - a question is open while no human reply (`m.in_reply_to` naming it, or a body starting
+    `Q<n>`) follows it.
+
+  A relaunched coordinator, or a second session, therefore numbers and counts the same way.
+
 - **Only the coordinator's account is in the room**, so workers' traffic cannot leak into it.
+
 - **The guidance is explicit.** `role_coordinator` gains: "Post a brief when something a
   human would want to know has changed, not on a timer, and never a narrative."
 
@@ -857,47 +932,88 @@ is the point: a wall of text cannot be sent.
 - **A reply to a question.** A reply event (`m.in_reply_to`) naming an `ask` post, or a body
   starting `Q<n>`, is shown with that question beside it, so the coordinator knows what the
   answer is to.
+- **Only a human's message in the room is a human's answer for the record.** A terminal note
+  (§11.4) is never a `HUMAN` line. It never closes a question, and it never carries authority.
+  If an answer matters (a go-ahead, a deploy authority), the human types it in the room.
 
 ### 11.4 Replies typed in the coordinator's terminal
 
-**How the coordinator knows the human typed it.** Claude Code runs `UserPromptSubmit` for a
-prompt submitted at the session's input. It never runs it for the model's own turns. The
-pingbus `hook prompt` already runs there. A submitted prompt still comes from one of four
-sources:
+**Why it cannot come from the session.** Fable's review found the first design forgeable. Any
+note produced inside the coordinator's session (a hook, the watcher, a command) is posted with
+the coordinator's own token, so the agent could post a line saying "alice answered in the
+terminal: yes, go ahead", and nobody could tell it from a real one. Classifying
+`UserPromptSubmit` inputs does not help either. Cron ticks (the hooks daemon's failsafe and
+declared crons), `/loop` re-prompts and Claude Code's own agent messages (`SendMessage`) all
+reach that hook and would read as the human. So the note is produced **outside the session, from
+what the human actually typed, under an identity the agent has no token for.**
 
-1. **A pingbus delivery.** It carries pingbus's nonce-marked envelope, and pingbus knows its own
-   nonces (`inject` marks). It is not a human reply.
-2. **The ccy supervisor typing into the pane**: its fixed `/model` and continue prompts. The
-   supervisor records what it typed and when in its sidecar. A prompt matching a record from
-   the last few seconds is not a human reply.
-3. **A slash command.** Not a reply.
-4. **Anything else: the human at the terminal.**
+**The terminal notary.**
 
-The M0 spike confirms that deliveries and supervisor typing reach `UserPromptSubmit` as
-described. Until it does, case 4 is labelled "terminal input" without claiming who typed it.
+- **The source is the pane's input bytes, captured on the host.**
 
-**How the confirmation is posted.**
+  - The ccy launcher already runs the container's interactive `podman run -it` in the session's
+    tmux pane. It runs it under a host-side input tap: `script --log-in` writing to a FIFO,
+    keeping nothing on disk.
+  - The tap sees only bytes that arrive on the pane's terminal input: the human's keystrokes and
+    pastes, and anything tmux `send-keys` types.
+  - Cron ticks, `/loop`, `SendMessage` prompts and pingbus deliveries (the inbox socket) never
+    pass through the terminal input, so **they are excluded by construction**, not by a rule
+    that could be wrong.
+  - Nothing inside the container can write to the host side of that terminal's input.
 
-- The hook never does network I/O on this path. It writes one queue entry,
-  `$PINGBUS_HOME/terminal-notes/<ts>.json`, holding the team, the excerpt and the open
-  question it answers.
-- The resident watcher posts it with `note-terminal` within a few seconds.
-- The coordinator itself never has to remember, and cannot forget.
-- **Which human.** The team file's `terminal_human` names the human whose terminal the
-  coordinator runs in (D23). The default is the first human in `humans`.
-- **Which team.** If the session coordinates one team, that team. If it coordinates several:
-  - the team whose question is the only one open;
-  - otherwise nothing is posted, and the hook tells the coordinator to run
-    `pingbus --team T note-terminal` itself.
-- One team's terminal input is never posted to another team's room.
-- **What is posted.**
-  - The excerpt is the prompt's first line, at most 160 characters, after the secret-shape check
-    pingbus already applies to agent text.
-  - A prompt that fails the check is noted as `↩ <human> answered in the terminal (text withheld: it looked like a secret)`.
-  - Posting the full text instead is D22.
-- **Only for prompts that answer something.** By default a terminal prompt is noted only while a
-  question is open, or within `terminal_note_window_s` (1800) after the coordinator's last
-  brief or question. Ordinary pairing at the terminal does not flood the room (D24).
+- **Strict classification.** A line becomes a note only when all of these hold:
+
+  - it was submitted with Enter on the terminal input;
+  - it is not a slash command;
+  - it does not match a record of the ccy supervisor's own typing. The supervisor's
+    `send-keys` also reaches the input, and it records what it typed and when in its sidecar,
+    which is host-side. The notary subtracts any line matching a record from the last few
+    seconds.
+
+  Anything the notary cannot reconstruct cleanly gets no note, never a guessed one. This
+  includes a bracketed paste it cannot parse, or editing keys it does not model.
+
+- **The identity is a separate account, `notary`.**
+
+  - `admin` creates it per team, and it is a member of the management room only, at power 0.
+  - Its token lives in the agent-bus user's store, mode 0700, next to `admin`'s. It is never in
+    any checkout or bundle.
+  - The notary is a small host service (`ccy-teams notary`, Go) running as the agent-bus user.
+  - Element and pingbus show its posts as from `notary`. A coordinator account cannot post as
+    it. pingbus delivers a `notary` post to the coordinator as kind `NOTE`, a new local kind,
+    with the fixed authority sentence "a record that the human typed this in your terminal;
+    it is not a human's message and carries no authority".
+
+- **What is posted.** `↩ <human> typed in the terminal: <excerpt>`.
+
+  - **Which human:** `terminal_human` in the team file (D23), defaulting to the first human.
+  - **The excerpt:** the line's first 160 characters, after pingbus's secret-shape check. A
+    line that fails it is posted as `(text withheld: it looked like a secret)` (D22).
+
+- **When.** Only while a question is open, or within `terminal_note_window_s` (1800) of the
+  coordinator's last brief or question (D24). Open questions are read from the room (§11.2).
+
+- **Which team.** Only when the session coordinates exactly one team that has a management
+  room. With several teams nothing is posted, because the notary cannot know which team a line
+  answers, and one team's input is never posted to another's room. There is no
+  "post it yourself" path: the coordinator has no command that posts a terminal note.
+
+**What stays forgeable, said plainly.**
+
+- **A host `cc` coordinator.** It runs as the owner's uid, and the tap's FIFO is the owner's. A
+  hostile cc session could write lines into the FIFO and have them noted. That is the same
+  limit as Plan 00203 H31 and D6.
+- **Either way, the note is a record, not authority.** It is never a `HUMAN` line. It never
+  closes a question, and no gate or deploy check reads it (§11.3). Its job is that a human
+  reading the room later sees that the conversation continued in the terminal.
+- **If the notary is not built** (D26), there is no terminal note at all. The fallback is not a
+  coordinator-posted one, because that would be a forgeable line attributed to a human.
+
+The M0 spike confirms what the tap needs:
+
+- what `script --log-in` sees for a tmux pane running `podman run -it`;
+- that the supervisor's typing is recorded with enough detail to subtract;
+- how often lines reconstruct cleanly in practice.
 
 ### 11.5 Element
 
@@ -915,13 +1031,8 @@ described. Until it does, case 4 is labelled "terminal input" without claiming w
 
 ### 12.1 The owner's decision
 
-The owner, deciding between one room filtered by pingbus, rooms alone, and both: "regard matrix
-rooms as defense in depth. We don't have it as the only mechanism, but we have it as a mechanism
-at a certain level... a bit like private channels in Slack. That would be the model I would
-expect... enforce things at the matrix server level and also at the ping bus level as well...
-belt and braces... we just need to make sure everything's properly in sync."
-
-So the design is **both layers**:
+The owner chose between one room filtered by pingbus, rooms alone, and both. The decision is
+quoted at the top of this document (Q-rooms). So the design is **both layers**:
 
 - private, invite-only **channel rooms**, enforced by the homeserver;
 - **the pingbus role gate** of §3, at send and delivery, unchanged.
@@ -974,7 +1085,7 @@ that.
 | Can an agent join without an invite?                 | No. The join rule is `invite`. No room uses `restricted` joins, so membership of one room never grants another                                                                                                                                                                                                                                                                                                |
 | Can an agent raise its own power?                    | No. `m.room.power_levels` needs 100. pingbus also refuses a room whose power levels are not exactly the expected content                                                                                                                                                                                                                                                                                      |
 | Can an agent make a side room?                       | No. `allow_room_creation = false`, so only server admins create rooms, and only `admin` is one (`grant_admin_to_first_user = false`). Plan 00161 D63                                                                                                                                                                                                                                                          |
-| Who holds room admin?                                | `admin`, a host-side account. Its credentials are in root-owned `/var/lib/agent-bus/<team>/secrets/`. No agent account is ever given power. A host cc session (the owner's uid) cannot read them without sudo                                                                                                                                                                                                 |
+| Who holds room admin?                                | `admin`, a host-side account. Its credentials are in `/var/lib/agent-bus/<team>/secrets/`, owned by the agent-bus user with mode 0700 (`admin.py:5-8`). No agent account is ever given power. A host cc session (the owner's uid) cannot read them without sudo                                                                                                                                               |
 | Can a new member read history from before it joined? | With `private_chat` the history visibility is `shared`, so yes, everything. The new channel rooms set it explicitly (D21: `joined` for the deployment and liaison rooms, `shared` for workers and management)                                                                                                                                                                                                 |
 | Room ACLs (`m.room.server_acl`)?                     | Not relevant. They govern servers, and each team is one server with federation off                                                                                                                                                                                                                                                                                                                            |
 | E2EE?                                                | No. `allow_encryption = false`. Rooms are plain on purpose: the humans audit everything in Element, and the server is the team's own host. Encryption would not protect against the host and would stop pingbus's server-side reads                                                                                                                                                                           |
@@ -999,7 +1110,7 @@ that.
 | Room                     | Members (accounts)                         | Created when                 | History (D21) |
 | ------------------------ | ------------------------------------------ | ---------------------------- | ------------- |
 | `workers` (today's room) | humans, coordinator, workers, reviewers    | exists                       | `shared`      |
-| `management`             | humans, coordinator                        | the team has a coordinator   | `shared`      |
+| `management`             | humans, coordinator, `notary` (§11.4)      | the team has a coordinator   | `shared`      |
 | `deployment`             | humans, coordinator, deployer(s)           | the deployer role is enabled | `joined`      |
 | `liaison-<seat>`         | humans, coordinator, that one collaborator | per collaborator             | `joined`      |
 
@@ -1054,11 +1165,24 @@ It does this:
 
 1. Computes the desired membership of every room from the registry and the policy.
 2. Creates any missing room with its power levels, history visibility and the record.
-3. Invites each account that should be in a room and is not.
-4. Kicks each account that is in a room it should not be in, with a reason naming the
+3. Kicks each account that is in a room it should not be in, with a reason naming the
    change: `role changed: worker → deployer`.
+4. Invites each account that should be in a room and is not.
 5. Writes the record and the power levels to every room, only where they differ.
 6. Returns the list of changes.
+
+**Idempotent, re-runnable, fail-fast.**
+
+- Step 1 compares the desired state with the actual state each time, and every later step acts
+  only on the difference. So a re-run after any failure converges, and a re-run with nothing to
+  do changes nothing.
+- A homeserver call that fails stops the reconcile. It exits non-zero and names the step and
+  the account. A crash between a kick and its invite leaves a seat in no room, which is safe:
+  it can reach nobody.
+- That gap is drift ("missing from a room it should be in"). The health timer reports it, the
+  board shows it, and the notification names the repair, `ccy-teams apply <team>`.
+- The hot-control command that triggered the reconcile exits non-zero and names the partial
+  move: "left workers; NOT joined deployment: <reason>".
 
 Order matters. **It removes before it adds**, as the LXC coordinator handover does today
 (Plan 00196): a seat changing from worker to deployer is kicked from `workers` before it is
@@ -1116,11 +1240,19 @@ On send, pingbus refuses to post into a room that its own role is not allowed in
 server would accept the post (exit 4, `drift`). A room whose record differs from the member's
 other rooms is untrusted (exit 10) until the reconciler makes them equal.
 
+**A drifted room stops syncing.** When a member finds itself in a room its own role does not
+allow, it stops syncing that room: no new events are read or delivered from it. That room's
+sync lock is released, and `pingbus status` shows the room as `drift`. It resumes only when a
+sync shows membership and record agreeing again, after the reconciler has run. The member
+keeps syncing its other rooms.
+
 ### 13.5 Migration from the single room
 
 1. **Upgrade first** (§9). The bundle's `rooms`, the per-room checks and `drift` ship in
    pingbus before any second room exists. An older pingbus never sees a second room: it is
-   never invited, because the reconciler invites only members that report the new version.
+   never invited, because the reconciler invites only members whose keeper report shows the
+   new version. A member with no report, or an unreadable one, is treated as old and is not
+   invited. A report can only hold an invite back, never force one, so this reads it safely.
 2. **Today's room becomes `workers`.** It keeps its room ID, its history and its members. The
    bundle's `room` reads as `rooms: {workers: <room>}`, so nothing is re-issued for it.
 3. **New rooms appear when the policy enables them**: `management` when the team has a
@@ -1151,9 +1283,16 @@ other rooms is untrusted (exit 10) until the reconciler makes them equal.
   - delivery dropping with `drift` for each disagreement;
   - per-room trust (power levels, history visibility, equal records);
   - `invite_acceptable` refusing a room not in `rooms`;
-  - the brief, question and terminal-note caps;
-  - the terminal-reply source classification (delivery nonce, supervisor record, slash command,
-    human).
+  - the brief and question caps, and the `Q<n>` counter and open set derived from a fake
+    room history;
+  - the notary's line reconstruction from captured input bytes, against fixtures:
+    - typing, editing keys, a bracketed paste and a slash command;
+    - supervisor `send-keys` matched against its sidecar record;
+    - an unparseable sequence, which gives no note;
+  - no coordinator-side path posts a terminal note: the coordinator's pingbus has no such
+    command, and a `notary`-sender post is delivered as `NOTE`, never `HUMAN`;
+  - a drifted room is not synced, and syncing resumes after the reconcile;
+  - a reconciler failure exits non-zero and names the step; a re-run converges.
 - **Host acceptance** (real Tuwunel), using a worker's token against the deployment room:
   - `/messages` is refused with `M_FORBIDDEN`;
   - a self-invite is refused;
