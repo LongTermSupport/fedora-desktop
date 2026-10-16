@@ -52,9 +52,11 @@ The step is a gum choose of the checkouts found (`path   (owner/repo[, a ccy pro
 - **Prompt and rows.** The prompt is the directory. Rows are its subdirectories (`name/`, with
   `(a git checkout)` where one is), **Use <dir> as the checkout** (first when the directory is a
   checkout), `../` up, and **Back to the checkouts found** (or **Cancel** when none were found).
-- **Moving.** Arrows and Enter open a directory or choose. Tab on a row opens it too.
-- **Typed text that matches no row.** Tab completes it as a shell does: the one directory it
-  starts, or the prefix shared by several. Absolute paths and hidden names work. "Nothing in X
+- **Moving.** Arrows and Enter open a directory or choose. With nothing typed, Tab on a row
+  opens it too.
+- **Typed text.** Matching is exact (`--exact`), not fuzzy. Tab completes what is typed as a
+  shell does, whichever row fzf highlights: the one directory it starts, or the prefix shared
+  by several (whole characters only). Absolute paths and hidden names work. "Nothing in X
   starts with Y" is printed when nothing matches. Enter takes the text as the path; a trailing
   `/` opens it instead.
 - **Listings.** Each listing is the new `dirs` reader mode, read from the host's side and
@@ -100,10 +102,13 @@ Each step heading reads like `3/4  Checkout · Add an LXC member to <team> · <c
 
 ## Versions, deploy, QA
 
-- **Versions.** CCY 3.99.12.4 and container 2.77.3. `helpers/pingbus` and `helpers/agent_bus`
-  are baked into the image, and the other branches already hold 3.99.12.3 and 2.77.2. This
-  branch starts at 3.99.10.2 and 2.75.1, so merging it will conflict on the version lines and
-  the changelog head.
+- **Versions.** CCY 3.99.12.5 and container 2.77.4 (`helpers/pingbus` and `helpers/agent_bus`
+  are baked into the image), after F44 (`1d3c65bb`, 3.99.12.4 and 2.77.3) was merged into the
+  branch. The changelog section sits above F44's. lxc-add's takeover offer carries the Role
+  context line too.
+- **After Fable's review.** The attach hints carry `-P <lxcpath>` (read once through the new
+  `lxcfreeze.Lister.LxcPath`). An `lxc-info` that never answers is refused naming it, not a
+  traceback. The session start times use the host's boot time.
 - **Deploy.** The existing `play-claude-yolo.yml` entry in `meta-deploy.list` keeps its place;
   its comment now describes this change. LXC members get the new pingbus message from the kit
   on the next `play-agent-bus.yml` (any team apply).

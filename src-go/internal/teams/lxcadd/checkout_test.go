@@ -148,6 +148,31 @@ func TestTabCompletesTypedTextToWhatSeveralDirectoriesShare(t *testing.T) {
 	}
 }
 
+func TestTabWithTypedTextCompletesItEvenWhenARowIsHighlighted(t *testing.T) {
+	// fzf highlights the first row the text matches; Tab still completes the text, so typing
+	// "sr" beside src/ and srv/ never opens src/.
+	r := browsing(t, "tab|TYPED:s", "tab|src/", "|srv/", "|Use "+home+"/srv")
+	r.lxc.dirs[home+"/srv"] = `{"path": "` + home + `/srv", ` + emptyListing
+	if got := r.checkoutWritten(t); got != home+"/srv" {
+		t.Fatalf("declared %q", got)
+	}
+	if got := r.fzfArg(t, 2, "--query="); got != "sr" {
+		t.Fatalf("Tab on a highlighted row did not complete the text: query %q", got)
+	}
+	if got := r.fzfArg(t, 2, "--prompt="); got != home+"/" {
+		t.Fatalf("Tab on a highlighted row opened it: prompt %q", got)
+	}
+}
+
+func TestTheSharedPrefixOfNamesNeverEndsInsideACharacter(t *testing.T) {
+	if got := sharedPrefix([]string{"café-a", "caféb", "cafè"}); got != "caf" {
+		t.Fatalf("got %q", got)
+	}
+	if got := sharedPrefix([]string{"ñandú", "ñandu"}); got != "ñand" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestTabCompletesAnAbsolutePathThroughItsParent(t *testing.T) {
 	r := browsing(t, "tab|TYPED:/srv/ag", "|Use /srv/agent")
 	r.lxc.dirs["/srv"] = `{"path": "/srv", "exists": true, "git": false, "truncated": false, "dirs": [{"name": "agent", "git": false}]}`

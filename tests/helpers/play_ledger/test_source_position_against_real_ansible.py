@@ -30,7 +30,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-from helpers.play_ledger import plugin_support
+from helpers.play_ledger import collector, ledger, plugin_support
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
@@ -244,6 +244,43 @@ class TestFilelessRunsAgainstRealAnsible(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertNotIn(plugin_support.FAILURE_MARKER, result.stderr)
             self.assertEqual(os.listdir(state_home), [])
+
+
+class TestPlayOutsideTheRepoAgainstRealAnsible(unittest.TestCase):
+    """A private play run from a linked worktree lives outside that worktree's root. The
+    real callback must skip it with one stderr line and leave no BROKEN sentinel; the
+    unit tests cover the collector, and this covers the plugin wiring the notice out."""
+
+    def test_a_real_run_of_an_outside_play_is_skipped_loudly_without_breaking(self) -> None:
+        executable = shutil.which("ansible-playbook")
+        if executable is None:
+            self.fail("ansible-playbook is not on PATH — an IaC gap")
+        with tempfile.TemporaryDirectory() as scratch, tempfile.TemporaryDirectory() as state:
+            playbook = os.path.realpath(os.path.join(scratch, "private-play.yml"))
+            self.assertFalse(playbook.startswith(REPO_ROOT + os.sep))
+            with open(playbook, "w", encoding="utf-8") as handle:
+                handle.write(PLAYBOOK_TEXT)
+            vault = os.path.join(scratch, "vault-pass")
+            with open(vault, "w", encoding="utf-8") as handle:
+                handle.write("throwaway\n")
+            result = subprocess.run(
+                [executable, playbook, "-i", "localhost,", "-c", "local"],
+                capture_output=True,
+                text=True,
+                check=False,
+                cwd=REPO_ROOT,
+                stdin=subprocess.DEVNULL,
+                env={**os.environ, "XDG_STATE_HOME": state,
+                     "ANSIBLE_VAULT_PASSWORD_FILE": vault},
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            notices = [line for line in result.stderr.splitlines()
+                       if collector.NOT_TRACKED_MARKER in line]
+            self.assertEqual(len(notices), 1, result.stderr)
+            self.assertIn(playbook, notices[0])
+            self.assertNotIn(plugin_support.FAILURE_MARKER, result.stderr)
+            base = ledger.ledger_dir({"XDG_STATE_HOME": state}, os.path.expanduser("~"))
+            self.assertFalse(os.path.exists(ledger.sentinel_path(base)))
 
 
 if __name__ == "__main__":

@@ -50,6 +50,11 @@ is not a lock against a test: the token is in the same `argv` as the path, so an
 finds the file BY READING ARGV already has the token. Something that reaches it another way —
 a hardcoded path, a stale file from a previous run — does not, which is what this check buys.
 
+THE RUN IS HERMETIC AGAINST THE AGENT-BUS SESSION it was started from: the session variables
+(`session_env.py`) are removed before the first module is imported, and a run that ends with one
+back in the environment fails, naming it, because every test after the one that set it inherited
+it. The counts are still written.
+
 Read by `HelperCounts` in `src-go/qa/gates/readers.go`, which refuses a file that is
 missing, empty, short a key, or not all digits.
 """
@@ -57,9 +62,12 @@ missing, empty, short a key, or not all digits.
 from __future__ import annotations
 
 import argparse
+import os
 import pathlib
 import sys
 import unittest
+
+from helpers.qa_environment import session_env
 
 
 def counts_text(result, module_count, tracked_count, token):
@@ -126,9 +134,18 @@ def main(argv=None, stream=None):
     # helpers/CLAUDE.md warns about, so an empty invocation must never look like a run.
     args = parser.parse_args(argv)
 
+    # Before the first import: no module, not even at its top level, sees the agent-bus
+    # session this run was started from (session_env.py says why).
+    session_env.scrub(os.environ)
     suite = unittest.TestLoader().loadTestsFromNames(args.modules)
-    runner = unittest.TextTestRunner(stream=stream if stream is not None else sys.stderr)
+    out = stream if stream is not None else sys.stderr
+    runner = unittest.TextTestRunner(stream=out)
     result = runner.run(suite)
+    leaked = session_env.session_names(os.environ)
+    if leaked:
+        out.write(f"ERROR: a test left {', '.join(leaked)} in the runner's environment, so every test after it "
+                  "inherited it. A test sets a session variable for itself only: in the env= it passes, or "
+                  "with mock.patch.dict(os.environ, ...).\n")
 
     # Written AFTER the suite, which is what makes a mid-run forgery harmless: whatever a
     # test put here is overwritten by this line. See the module docstring for what that
@@ -141,7 +158,7 @@ def main(argv=None, stream=None):
     # `wasSuccessful()` rather than `failures or errors`: an unexpected success alone leaves
     # both lists empty while unittest itself reports FAILED, so checking them directly would
     # turn a red suite green.
-    return 0 if result.wasSuccessful() else 1
+    return 0 if result.wasSuccessful() and not leaked else 1
 
 
 if __name__ == "__main__":

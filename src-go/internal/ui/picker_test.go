@@ -201,7 +201,7 @@ func TestATypedPickHandsBackTheQueryAndWhatItMatched(t *testing.T) {
 		t.Fatalf("got %+v, %v", got, err)
 	}
 	c := f.Calls()[0]
-	for _, want := range []string{"--print-query", "--prompt=/srv/work/", "--query=pro", "--expect=tab"} {
+	for _, want := range []string{"--print-query", "--prompt=/srv/work/", "--query=pro", "--expect=tab", "--exact"} {
 		if !slices.Contains(c.Args, want) {
 			t.Fatalf("args lack %q: %v", want, c.Args)
 		}

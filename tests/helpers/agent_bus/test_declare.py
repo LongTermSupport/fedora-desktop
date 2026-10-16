@@ -1476,5 +1476,42 @@ class LxcMemberRemoveTest(CommandCase):
             self.assertEqual(self.run_cmd("lxc-remove", *argv)[0], 64, argv)
 
 
+class LxcMemberRoleTest(CommandCase):
+    """lxc-role: the takeover of a declared LXC coordinator makes its entry a worker first
+    (Plan 00203 SPEC-hot-control.md H25), every other line kept."""
+
+    TEXT = LXC_HV
+    A = ("--team", "alpha", "--container", "container-a", "--user", "agent")
+
+    def test_the_role_line_is_replaced_and_every_other_line_kept(self) -> None:
+        code, out, err = self.run_cmd("lxc-role", *self.A, "--role", "worker")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, f"CHANGED\tLXC member agent@container-a in team alpha is now worker, in {self.path}\n")
+        self.assertEqual(self.path.read_text(), LXC_HV.replace("    role: orchestrator\n", '    role: "worker"\n', 1))
+        self.assertEqual(len(list(self.tmp.glob("localhost.yml.backup.*"))), 1)
+
+    def test_a_role_line_is_added_when_there_is_none(self) -> None:
+        self.path.write_text(LXC_HV.replace("    role: orchestrator\n", ""), encoding="utf-8")
+        self.assertEqual(self.run_cmd("lxc-role", *self.A, "--role", "coordinator")[0], 0)
+        self.assertIn('  - team: alpha\n    role: "coordinator"\n    container: container-a\n', self.path.read_text())
+
+    def test_the_same_role_is_unchanged_and_bad_input_refused(self) -> None:
+        self.path.write_text(LXC_HV.replace("role: orchestrator", "role: worker"), encoding="utf-8")
+        before = self.path.read_text()
+        self.assertEqual(self.run_cmd("lxc-role", *self.A, "--role", "worker")[:2],
+                         (0, "UNCHANGED\tagent@container-a in team alpha\n"))
+        self.assertEqual(self.path.read_text(), before)
+        for argv in ((*self.A, "--role", "boss"),
+                     ("--team", "alpha", "--container", "nosuch", "--user", "agent", "--role", "worker")):
+            self.assertEqual(self.run_cmd("lxc-role", *argv)[0], 64, argv)
+        self.assertEqual(self.path.read_text(), before)
+
+    def test_dry_run_writes_nothing(self) -> None:
+        code, out, _ = self.run_cmd("lxc-role", *self.A, "--role", "worker", "--dry-run")
+        self.assertEqual(code, 0)
+        self.assertIn('role: "worker"', out)
+        self.assertEqual(self.path.read_text(), LXC_HV)
+
+
 if __name__ == "__main__":
     unittest.main()

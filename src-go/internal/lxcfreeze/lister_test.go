@@ -146,6 +146,20 @@ func TestListerReadCheckoutAFailureCarriesTheReadersWords(t *testing.T) {
 	}
 }
 
+func TestListerLxcPathIsWhereRootsLxcKeepsItsContainers(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n", "lxc-config", "lxc.lxcpath"}, execx.Result{Stdout: []byte("/var/lib/lxc\n")})
+	got, err := newLister(f).LxcPath(context.Background())
+	if err != nil || got != "/var/lib/lxc" {
+		t.Fatalf("%q %v", got, err)
+	}
+	g := &execx.Fake{}
+	g.On([]string{"sudo", "-n", "lxc-config", "lxc.lxcpath"}, execx.Result{Stdout: []byte("relative\n")})
+	if _, err = newLister(g).LxcPath(context.Background()); err == nil {
+		t.Fatal("a relative lxcpath was accepted")
+	}
+}
+
 func TestListerReadCheckoutAFailedHomeSearchNamesTheHomeNotADash(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"sudo", "-n", "lxc-config", "lxc.lxcpath"}, execx.Result{Stdout: []byte("/var/lib/lxc\n")})

@@ -84,14 +84,9 @@ func (l *Lister) Users(ctx context.Context, container string) ([]string, error) 
 	return users, nil
 }
 
-// ReadCheckout runs a container-reading script (members.py's, fetched by the caller so there is
-// one copy) from this host's side, as root: `python3 -I -c SCRIPT MODE LXCPATH CONTAINER USER
-// PATH`, an argument list with no shell. The container's tree is reached through its LXC config
-// on this host, not by entering it: a dir or btrfs rootfs as the directory it is (so a stopped
-// container is read too), any other store through the running container's /proc/<pid>/root.
-// What the script reads is the container's, and the script runs no git and follows no link.
-// What it printed is returned for declare.py (or, for a directory listing, the caller) to judge.
-func (l *Lister) ReadCheckout(ctx context.Context, script, mode, container, user, path string) (string, error) {
+// LxcPath is the directory root's LXC keeps its containers in (lxc-config lxc.lxcpath, as root):
+// what `lxc-attach -P` and the reader are given.
+func (l *Lister) LxcPath(ctx context.Context) (string, error) {
 	if err := l.preflight(); err != nil {
 		return "", err
 	}
@@ -103,7 +98,22 @@ func (l *Lister) ReadCheckout(ctx context.Context, script, mode, container, user
 	if !strings.HasPrefix(lxcPath, "/") || !isPlain(lxcPath) {
 		return "", fmt.Errorf("lxc-config lxc.lxcpath printed %q, which is not a path", lxcPath)
 	}
-	res, err = l.Sudo.Capture(ctx, "python3", "-I", "-c", script, mode, lxcPath, container, user, path)
+	return lxcPath, nil
+}
+
+// ReadCheckout runs a container-reading script (members.py's, fetched by the caller so there is
+// one copy) from this host's side, as root: `python3 -I -c SCRIPT MODE LXCPATH CONTAINER USER
+// PATH`, an argument list with no shell. The container's tree is reached through its LXC config
+// on this host, not by entering it: a dir or btrfs rootfs as the directory it is (so a stopped
+// container is read too), any other store through the running container's /proc/<pid>/root.
+// What the script reads is the container's, and the script runs no git and follows no link.
+// What it printed is returned for declare.py (or, for a directory listing, the caller) to judge.
+func (l *Lister) ReadCheckout(ctx context.Context, script, mode, container, user, path string) (string, error) {
+	lxcPath, err := l.LxcPath(ctx)
+	if err != nil {
+		return "", err
+	}
+	res, err := l.Sudo.Capture(ctx, "python3", "-I", "-c", script, mode, lxcPath, container, user, path)
 	if err != nil {
 		what := path
 		if path == "-" {

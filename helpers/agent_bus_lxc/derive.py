@@ -151,8 +151,11 @@ def read_regular(fd, shown):
 
 def init_pid():
     # The container's init process as lxc-info names it; None when the container is not running.
-    run = subprocess.run(["lxc-info", "-P", lxcpath, "-n", container, "-p", "-H"], capture_output=True, check=False,
-                         timeout=30)
+    try:
+        run = subprocess.run(["lxc-info", "-P", lxcpath, "-n", container, "-p", "-H"], capture_output=True,
+                             check=False, timeout=30)
+    except subprocess.TimeoutExpired:
+        die("lxc-info -n " + container + " did not name its init process within 30 seconds")
     said = run.stdout.decode("utf-8", "replace").strip()
     if run.returncode != 0:
         die("lxc-info could not name the init process of " + container + ": " +
@@ -351,9 +354,12 @@ elif mode == "sessions":
     pid = init_pid()
     if pid is not None:
         procfs = running_dir(pid, "root/proc")
-        boot = [line for line in proc_text(procfs, "stat").splitlines() if line.startswith("btime ")]
+        # The host's boot time: a start time is in the kernel's ticks since boot, and a
+        # container's own /proc/stat may be rewritten (lxcfs).
+        with open("/proc/stat", encoding="utf-8") as host_stat:
+            boot = [line for line in host_stat.read().splitlines() if line.startswith("btime ")]
         if len(boot) != 1 or not boot[0].split()[1].isdigit():
-            die("the /proc of " + container + " gives no boot time")
+            die("this host's /proc/stat gives no boot time")
         btime, ticks = int(boot[0].split()[1]), os.sysconf("SC_CLK_TCK")
         for name in os.listdir(procfs):
             if not name.isdigit():

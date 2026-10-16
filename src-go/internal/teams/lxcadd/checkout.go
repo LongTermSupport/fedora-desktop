@@ -305,6 +305,9 @@ func (a *Adder) browseSpec(ans *answers, b *browser, back string) ui.PickSpec {
 func (a *Adder) move(ctx context.Context, ans *answers, b *browser, picked ui.Picked) (string, bool) {
 	b.query = ""
 	switch {
+	case picked.Key == completeKey && picked.Query != "":
+		// Tab completes what is typed, whichever row fzf highlights for it.
+		a.complete(ctx, ans, b, picked.Query)
 	case picked.Tag == tagUse:
 		return listed(b.dir), true
 	case picked.Tag == tagUp:
@@ -312,7 +315,7 @@ func (a *Adder) move(ctx context.Context, ans *answers, b *browser, picked ui.Pi
 	case strings.HasPrefix(picked.Tag, tagDir):
 		b.dir += strings.TrimPrefix(picked.Tag, tagDir) + "/"
 	case picked.Key == completeKey:
-		a.complete(ctx, ans, b, picked.Query)
+		// Tab with nothing typed and no row: nothing to complete.
 	default:
 		typed := resolve(b.dir, picked.Query)
 		if !strings.HasSuffix(picked.Query, "/") {
@@ -383,13 +386,13 @@ func withSlash(dir string) string {
 	return dir + "/"
 }
 
-// sharedPrefix is the longest text every name starts with.
+// sharedPrefix is the longest text every name starts with, whole characters only.
 func sharedPrefix(names []string) string {
-	prefix := names[0]
+	prefix := []rune(names[0])
 	for _, n := range names[1:] {
-		for !strings.HasPrefix(n, prefix) {
+		for !strings.HasPrefix(n, string(prefix)) {
 			prefix = prefix[:len(prefix)-1]
 		}
 	}
-	return prefix
+	return string(prefix)
 }

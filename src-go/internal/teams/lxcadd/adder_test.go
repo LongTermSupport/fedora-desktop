@@ -11,6 +11,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
@@ -50,6 +51,8 @@ type lxc struct {
 	sessions    string
 	sessionsErr error
 }
+
+func (l *lxc) LxcPath(context.Context) (string, error) { return "/var/lib/lxc", nil }
 
 func (l *lxc) Containers(context.Context) ([]string, []string, error) {
 	return l.running, l.stopped, l.err
@@ -99,6 +102,8 @@ type rig struct {
 	rosterE error
 	sudoOK  bool
 	events  []string
+	// setRoles is every set-role, as "<team> <handle> <role>".
+	setRoles []string
 }
 
 func newRig(t *testing.T) *rig {
@@ -116,6 +121,11 @@ func newRig(t *testing.T) *rig {
 	r.a.Lister = r.lxc
 	r.a.Roster = func(context.Context, string) (agentbus.Roster, error) { return r.roster, r.rosterE }
 	r.a.SudoReady = func(context.Context, string) bool { return r.sudoOK }
+	r.a.SetRole = func(_ context.Context, team, handle, role string) error {
+		r.setRoles = append(r.setRoles, team+" "+handle+" "+role)
+		r.events = append(r.events, "set-role")
+		return nil
+	}
 	r.a.ApplyTeams = func(_ context.Context, teams ...string) error {
 		r.applied = append(r.applied, teams...)
 		r.events = append(r.events, "apply")
@@ -182,6 +192,7 @@ func TestHappyPathAsksOnlyTheContainerUserCheckoutAndRoleThenWritesAndAppliesAnd
 	said := r.ErrOut.String()
 	for _, want := range []string{
 		"agent@container-a", "agent-bus-claude", "/srv/agent/one", "gh auth login", "container-a", handle,
+		"sudo lxc-attach -P /var/lib/lxc -n container-a -- su - agent",
 		"set -a; . ~/.config/pingbus/env; set +a; pingbus config check && pingbus history --limit 1",
 		"agent-bus-claude refuses to start until",
 	} {
@@ -459,53 +470,136 @@ func TestOnlyRunningContainersAreOfferedAndTheStoppedOnesAreNamed(t *testing.T) 
 	}
 }
 
-func TestCoordinatorIsOfferedOnlyWhenTheTeamHasNone(t *testing.T) {
-	cases := map[string]struct {
-		members string
-		roster  agentbus.Roster
-		offered bool
-	}{
-		"none": {offered: true},
-		"declared coordinator": {
-			members: "LXCMEMBER\talpha\tcontainer-b\tagent\tworker\tcoordinator\tpresent\n",
-		},
-		"coordinator declared absent does not count": {
-			members: "LXCMEMBER\talpha\tcontainer-b\tagent\tworker\tcoordinator\tabsent\n", offered: true,
-		},
-		"another team's coordinator does not count": {
-			members: "LXCMEMBER\tbeta\tcontainer-b\tagent\tworker\tcoordinator\tpresent\n", offered: true,
-		},
-		"an entry that leaves its host to be derived": {
-			members: "LXCMEMBER\talpha\tcontainer-b\tagent\t-\tcoordinator\tpresent\n",
-		},
-		"live coordinator": {
-			roster: agentbus.Roster{Members: []agentbus.Member{{Handle: "proj.1+local.podman", Role: agentbus.RoleCoordinator}}},
-		},
+// The two coordinator paths (Plan 00203 SPEC-hot-control.md H25): a team with no coordinator
+// is offered one plainly; a team that has one offers the takeover as its own choice, which
+// names the coordinator and asks again, on No. The role is never changed silently.
+func TestTheCoordinatorIsOfferedPlainlyWhenTheTeamHasNone(t *testing.T) {
+	cases := map[string]string{
+		"none": "",
+		"coordinator declared absent does not count": "LXCMEMBER\talpha\tcontainer-b\tagent\tworker\tcoordinator\tabsent\n",
+		"another team's coordinator does not count":  "LXCMEMBER\tbeta\tcontainer-b\tagent\tworker\tcoordinator\tpresent\n",
 	}
-	for name, tc := range cases {
+	for name, members := range cases {
 		r := newRig(t)
-		r.OnDeclare("lxc-members", tc.members)
-		r.roster = tc.roster
-		r.answers(choose("container-a"), choose("agent"), choose(oneRow))
-		if tc.offered {
-			r.Script.Gum = append(r.Script.Gum, choose("coordinator"))
-		}
-		r.Script.Gum = append(r.Script.Gum, "YES")
+		r.OnDeclare("lxc-members", members)
+		r.answers(choose("container-a"), choose("agent"), choose(oneRow), choose(coordinator.NoneChoice("alpha")), "YES")
 		if code := r.run("alpha"); code != term.ExitOK {
 			t.Fatalf("%s: exit %d: %s", name, code, r.ErrOut.String())
 		}
-		asked := 0
-		for _, line := range r.Script.GumLog {
-			if strings.Contains(line, "coordinator") && strings.Contains(line, "worker") {
-				asked++
-			}
+		if q := r.roleQuestion(); !strings.Contains(q, "--selected worker worker "+coordinator.NoneChoice("alpha")) {
+			t.Fatalf("%s: role question %q", name, q)
 		}
-		if (asked == 1) != tc.offered {
-			t.Fatalf("%s: the role was asked %d times (offered %v)", name, asked, tc.offered)
-		}
-		if got := strings.Contains(r.addLine(), "--role coordinator"); got != tc.offered {
+		if !strings.Contains(r.addLine(), "--role coordinator") {
 			t.Fatalf("%s: lxc-add %q", name, r.addLine())
 		}
+	}
+}
+
+// roleQuestion is the gum call that asked the role.
+// roleContext is the context line every Role question carries, the takeover offer included.
+const roleContext = "Add an LXC member to alpha · step 4/4 Role · container-a, user agent"
+
+func (r *rig) roleQuestion() string {
+	for _, line := range r.Script.GumLog {
+		if strings.HasPrefix(line, "gum choose --header "+roleContext+"\nRole ") {
+			return line
+		}
+	}
+	return ""
+}
+
+func (r *rig) lxcRoleLine() string {
+	for _, c := range r.Fake.Calls() {
+		if strings.Contains(c.Line(), "helpers.agent_bus.declare lxc-role ") {
+			return c.Line()
+		}
+	}
+	return ""
+}
+
+const declaredCoordinator = "LXCMEMBER\talpha\tcontainer-b\tagent\tworker\tcoordinator\tpresent\n"
+
+func TestOnATeamWithACoordinatorWorkerIsTheOrdinaryChoiceAndNothingChangesSilently(t *testing.T) {
+	takeover := coordinator.TakeoverChoice(coordinator.Holder{Handle: "agent@container-b", Running: coordinator.Unknown})
+	for name, answers := range map[string][]string{
+		"worker":             {choose("worker"), "YES"},
+		"takeover, then no":  {choose(takeover), "NO", "YES"},
+		"takeover, then Esc": {choose(takeover), "CANCEL", "YES"},
+	} {
+		r := newRig(t)
+		r.OnDeclare("lxc-members", declaredCoordinator)
+		r.answers(append([]string{choose("container-a"), choose("agent"), choose(oneRow)}, answers...)...)
+		if code := r.run("alpha"); code != term.ExitOK {
+			t.Fatalf("%s: exit %d: %s", name, code, r.ErrOut.String())
+		}
+		if q := r.roleQuestion(); !strings.Contains(q, "--selected worker worker "+takeover) {
+			t.Fatalf("%s: role question %q", name, q)
+		}
+		if strings.Contains(r.addLine(), "--role coordinator") || r.lxcRoleLine() != "" || len(r.setRoles) != 0 {
+			t.Fatalf("%s: a role changed: add %q, lxc-role %q, set-role %v", name, r.addLine(), r.lxcRoleLine(), r.setRoles)
+		}
+	}
+}
+
+func TestTheTakeoverOfADeclaredCoordinatorMakesItsEntryAWorkerFirst(t *testing.T) {
+	r := newRig(t)
+	r.OnDeclare("lxc-members", declaredCoordinator)
+	r.OnDeclare("lxc-role", "CHANGED\tLXC member agent@container-b in team alpha is now worker, in "+r.Host.HostVars+"\n")
+	h := coordinator.Holder{Handle: "agent@container-b", Running: coordinator.Unknown}
+	r.answers(choose("container-a"), choose("agent"), choose(oneRow), choose(coordinator.TakeoverChoice(h)), "YES", "YES")
+	if code := r.run("alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	confirm := "gum confirm --default=false " + roleContext + "\n" + coordinator.OfferTakeover("alpha", "agent@container-a", h)
+	if !slices.Contains(r.Script.GumLog, confirm) {
+		t.Fatalf("no takeover question %q in %q", confirm, r.Script.GumLog)
+	}
+	if !strings.HasSuffix(r.lxcRoleLine(), "lxc-role --file "+r.Host.HostVars+" --team alpha --container container-b --user agent --role worker") {
+		t.Fatalf("lxc-role %q", r.lxcRoleLine())
+	}
+	calls := r.Fake.Calls()
+	at := func(want string) int {
+		return slices.IndexFunc(calls, func(c execx.Cmd) bool {
+			return strings.Contains(c.Line(), want) && !strings.HasSuffix(c.Line(), "--dry-run")
+		})
+	}
+	if role, add := at("declare lxc-role "), at("declare lxc-add "); role < 0 || add < role || !strings.Contains(r.addLine(), "--role coordinator") {
+		t.Fatalf("the old coordinator is made a worker before the new one is added: %d %d %q", role, add, r.addLine())
+	}
+}
+
+func TestTheTakeoverOfALiveCoordinatorDemotesItBeforeTheEntryIsWritten(t *testing.T) {
+	r := newRig(t)
+	r.roster = agentbus.Roster{Members: []agentbus.Member{{Handle: "proj.1+local.podman", Role: agentbus.RoleCoordinator}}}
+	h := coordinator.Holder{Handle: "proj.1+local.podman", Running: coordinator.Unknown}
+	r.answers(choose("container-a"), choose("agent"), choose(oneRow), choose(coordinator.TakeoverChoice(h)), "YES", "YES")
+	if code := r.run("alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	if !slices.Equal(r.setRoles, []string{"alpha proj.1+local.podman worker"}) {
+		t.Fatalf("set-role %v", r.setRoles)
+	}
+	if !strings.Contains(r.addLine(), "--role coordinator") || !slices.Equal(r.events, []string{"set-role", "apply"}) {
+		t.Fatalf("add %q events %v", r.addLine(), r.events)
+	}
+}
+
+func TestATakeoverWhoseEntryCannotBeWrittenPutsTheCoordinatorBack(t *testing.T) {
+	r := newRig(t)
+	r.roster = agentbus.Roster{Members: []agentbus.Member{{Handle: "proj.1+local.podman", Role: agentbus.RoleCoordinator}}}
+	r.Fake.OnFunc(strings.Fields(r.DeclarePrefix("lxc-add")), func(c execx.Cmd) (execx.Result, error) {
+		if slices.Contains(c.Args, "--dry-run") {
+			return execx.Result{}, nil
+		}
+		return execx.Result{ExitCode: 70}, &execx.ExitError{Name: "python3", Code: 70, Stderr: "declare: refused"}
+	})
+	h := coordinator.Holder{Handle: "proj.1+local.podman", Running: coordinator.Unknown}
+	r.answers(choose("container-a"), choose("agent"), choose(oneRow), choose(coordinator.TakeoverChoice(h)), "YES", "YES")
+	if code := r.run("alpha"); code == term.ExitOK {
+		t.Fatalf("a failed write succeeded: %s", r.ErrOut.String())
+	}
+	if !slices.Equal(r.setRoles, []string{"alpha proj.1+local.podman worker", "alpha proj.1+local.podman coordinator"}) {
+		t.Fatalf("set-role %v", r.setRoles)
 	}
 }
 
@@ -617,7 +711,7 @@ func TestAFailedApplyKeepsTheEntryAndSaysHowToGoOn(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	said := r.ErrOut.String()
-	for _, want := range []string{"is declared in", "ccy-teams apply alpha", "gh auth login", "lxc-attach -n container-a", "agent"} {
+	for _, want := range []string{"is declared in", "ccy-teams apply alpha", "gh auth login", "lxc-attach -P /var/lib/lxc -n container-a", "agent"} {
 		if !strings.Contains(said, want) {
 			t.Fatalf("stderr lacks %q:\n%s", want, said)
 		}
@@ -705,6 +799,11 @@ func TestLxcFailuresStopTheRunBeforeAnythingIsWritten(t *testing.T) {
 
 // minted makes the play's apply add a member to the team, as a real apply would.
 func (r *rig) minted(handles ...string) {
+	r.a.SetRole = func(_ context.Context, team, handle, role string) error {
+		r.setRoles = append(r.setRoles, team+" "+handle+" "+role)
+		r.events = append(r.events, "set-role")
+		return nil
+	}
 	r.a.ApplyTeams = func(_ context.Context, teams ...string) error {
 		r.applied = append(r.applied, teams...)
 		for _, h := range handles {
@@ -807,5 +906,20 @@ func TestRefusalFromDeclarePyThatIsNotATypedAnswerEndsTheRunWithItsCode(t *testi
 	}
 	if !strings.Contains(r.ErrOut.String(), "declare: team alpha is gone") || len(r.applied) != 0 {
 		t.Fatalf("stderr %s", r.ErrOut.String())
+	}
+}
+
+// Fable's N2: an apply that fails after a live takeover says the old coordinator is a worker now.
+func TestAnApplyThatFailsAfterATakeoverSaysTheOldCoordinatorIsAWorker(t *testing.T) {
+	r := newRig(t)
+	r.roster = agentbus.Roster{Members: []agentbus.Member{{Handle: "proj.1+local.podman", Role: agentbus.RoleCoordinator}}}
+	r.a.ApplyTeams = func(context.Context, ...string) error { return errors.New("play failed") }
+	h := coordinator.Holder{Handle: "proj.1+local.podman", Running: coordinator.Unknown}
+	r.answers(choose("container-a"), choose("agent"), choose(oneRow), choose(coordinator.TakeoverChoice(h)), "YES", "YES")
+	if code := r.run("alpha"); code != term.ExitFailure {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	if want := "proj.1+local.podman is a worker now, so alpha has no coordinator until ccy-teams apply alpha succeeds."; !strings.Contains(r.ErrOut.String(), want) {
+		t.Fatalf("stderr lacks %q:\n%s", want, r.ErrOut.String())
 	}
 }

@@ -369,6 +369,17 @@ class RunningRootfsTest(RunningContainer):
         self.assertNotEqual(run.returncode, 0)
         self.assertIn("no such container", run.stderr)
 
+    def test_lxc_info_that_never_answers_is_refused_naming_it(self) -> None:
+        self.store("zfs:lxc/devbox")
+        fake = self.bin / "lxc-info"
+        fake.write_text("#!/bin/sh\nexec sleep 60\n", encoding="utf-8")
+        script = derive.ROOT_READ_PY.replace("timeout=30", "timeout=0.2")
+        run = run_script("probe", str(self.lxc.lxcpath), CONTAINER, self.user, str(self.checkout),
+                         search_path=f"{self.bin}:{os.environ['PATH']}", script=script)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertNotIn("Traceback", run.stderr)
+        self.assertIn("lxc-info -n devbox did not name its init process", run.stderr)
+
     def test_a_pid_that_is_not_a_number_is_refused(self) -> None:
         self.store("loop:/x")
         self.lxc_info("12 34")

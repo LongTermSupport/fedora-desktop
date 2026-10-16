@@ -169,8 +169,8 @@ func (s PickSpec) picked(out string, err error, exitRow string) (Picked, error) 
 	return picked, nil
 }
 
-// typingArgs is the prompt, and for a Typed picker the text it starts with and the query handed
-// back; q leaves only a picker that is not typed into.
+// typingArgs is the prompt, and for a Typed picker the text it starts with, the query handed
+// back and exact matching; q leaves only a picker that is not typed into.
 func (s PickSpec) typingArgs() []string {
 	prompt := "filter > "
 	if s.Prompt != "" {
@@ -179,7 +179,8 @@ func (s PickSpec) typingArgs() []string {
 	if !s.Typed {
 		return []string{"--prompt=" + prompt, "--bind=q:abort"}
 	}
-	return []string{"--prompt=" + prompt, "--print-query", "--query=" + s.Query}
+	// Typed text is matched as written (a path is not a fuzzy pattern).
+	return []string{"--prompt=" + prompt, "--print-query", "--query=" + s.Query, "--exact"}
 }
 
 // typedOnly is what a Typed picker printed when nothing matched what was typed: the query, then

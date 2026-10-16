@@ -42,7 +42,8 @@ be changed. Keys there:
            and the role
   Ctrl-X   remove it from a team; for the team's coordinator, it asks whether the role
            goes to no one or to another member
-  Ctrl-O   make its seat in a team a worker or the coordinator
+  Ctrl-O   make its seat in a team a worker or the coordinator; on a team that has a
+           coordinator, the choice is Replace the coordinator, which asks again (no first)
   Esc      back to the teams
 Each change is `ccy-teams session add|remove|move|role|repair`, run for you: it asks
 before it changes anything and prints each step (✓ done, ✗ failed, - already so).
@@ -55,8 +56,15 @@ agent_bus_lxc_members entry for you and applies the team. It is the same as
 
 A seat marked "(coordinator)" is its team's coordinator: the agent that takes the humans'
 requests, dispatches them to the workers and is copied on what workers tell humans. A team
-has at most one. Enter on a seat has Make coordinator or Stop being coordinator (it asks
-first, names the current coordinator, and needs sudo).
+has one. Enter on a seat has Make it the coordinator when the team has none, Stop being
+coordinator on the coordinator's seat, or, last, Replace the coordinator when another seat
+has the role: that takeover names the current coordinator and whether it runs, says it loses
+the role, and starts on no. Each asks first and needs sudo.
+
+At its start ccy-teams offers to describe a team that has no description, and to lift an old
+folder limit: now, not now (asked again next time; Esc is the same), or never. A team you
+said never to has "Ask me to describe <team> again" (or "Ask me about <team>'s limit again")
+in its row's menu.
 
 Colours: green is working, yellow wants a look, red is not working.
 "need sudo": reading the members needs root; play-agent-bus.yml installs a rule that

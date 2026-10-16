@@ -76,6 +76,11 @@ trusted reference may name any path in the team's repositories (a team narrows i
             [--user U] [--host H] [--checkout PATH] [--role R] [--seat S]
         nothing when every value given is valid (team, container and user together are also
         judged against the entries there); exit 64 naming the first that is not
+    python3 -m helpers.agent_bus.declare lxc-role --file <localhost.yml> --team T --container C
+            --user U --role worker|coordinator [--dry-run]
+        sets the member's role in its entry (ccy-teams lxc-add's takeover makes the declared
+        coordinator a worker with it first): CHANGED<TAB>..., or UNCHANGED<TAB>... when it has
+        that role; an unknown member or role is refused (64)
     python3 -m helpers.agent_bus.declare lxc-members --file <localhost.yml>
         LXCMEMBER<TAB><team><TAB><container><TAB><user><TAB><host><TAB><role><TAB><state> per entry
     python3 -m helpers.agent_bus.declare lxc-remove --file <localhost.yml> --team T --container C
@@ -1125,6 +1130,35 @@ def add_lxc(text: str, given: dict) -> tuple[str, dict]:
     return new, given
 
 
+def set_lxc_role(text: str, team: str, container: str, user: str, role: str) -> str | None:
+    """The file's text with the member's `role` set, every other line as it was; None when it
+    has that role already. A takeover of a declared LXC coordinator makes its entry a worker
+    with this before the new coordinator is added (Plan 00203 SPEC-hot-control.md H25)."""
+    if role not in protocol.ROLES:
+        raise UsageError(f"--role: {role!r} is neither {protocol.ROLE_COORDINATOR} nor {protocol.ROLE_WORKER}")
+    lxc = parse(text, LXC_KEY)
+    found = [(item, entry_of(item)) for item in lxc.teams]
+    item, entry = next(((i, e) for i, e in found if (e.get("team"), e.get("container"), e.get("user"))
+                        == (team, container, user)), (None, None))
+    if item is None:
+        raise UsageError(f"no member {user}@{container} of team {team} in {LXC_KEY}")
+    if protocol.normalise_role(entry.get("role", protocol.ROLE_WORKER)) == role:
+        return None
+    keys = {key: (index, more) for key, _, index, more in item.raw}
+    line = f"{' ' * lxc.key_indent}role: {json.dumps(role)}\n"
+    lines = list(lxc.lines)
+    if "role" in keys:
+        if keys["role"][1]:
+            raise DeclareError(f"{user}@{container}'s role has nested lines; set it by hand")
+        lines[keys["role"][0]] = line
+    else:
+        lines.insert(keys["team"][0] + 1, line)
+    new = "".join(lines)
+    if _lxc_existing(new) != [dict(e, role=role) if e is entry else e for _, e in found]:
+        raise DeclareError("the edited file does not read back with the member's new role; nothing was written")
+    return new
+
+
 def mark_lxc_absent(text: str, team: str, container: str, user: str) -> str | None:
     """The file's text with the member's `state: absent`, every other line as it was; None
     when it is absent already."""
@@ -1152,7 +1186,7 @@ def mark_lxc_absent(text: str, team: str, container: str, user: str) -> str | No
 
 
 def lxc_command(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
-    """lxc-add, lxc-check, lxc-members, lxc-remove, lxc-suggest-seat."""
+    """lxc-add, lxc-check, lxc-members, lxc-remove, lxc-role, lxc-suggest-seat."""
     path = pathlib.Path(args.file)
     text = _read(path)
     if args.command == "lxc-check":
@@ -1187,6 +1221,16 @@ def lxc_command(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
             out.writelines(render_lxc_entry(entry, lxc.item_indent, lxc.key_indent))
             return EXIT_OK
         said = f"LXC member {label}"
+    elif args.command == "lxc-role":
+        label = f"{args.user}@{args.container} in team {args.team}"
+        new = set_lxc_role(text, args.team, args.container, args.user, args.role)
+        if new is None:
+            out.write(f"UNCHANGED\t{label}\n")
+            return EXIT_OK
+        if args.dry_run:
+            out.write(new)
+            return EXIT_OK
+        said = f"LXC member {label} is now {args.role}"
     else:
         team, container, user = args.team, args.container, args.user
         label = f"{user}@{container} in team {team}"
@@ -1405,6 +1449,11 @@ def _lxc_parsers(commands: argparse._SubParsersAction) -> None:
     for flag in ("team", "container", "user"):
         gone.add_argument(f"--{flag}", required=True)
     gone.add_argument("--dry-run", action="store_true", help="print the edited file; write nothing")
+    roled = commands.add_parser("lxc-role", help="set an LXC member's role (a takeover makes the old coordinator a worker)")
+    roled.add_argument("--file", required=True)
+    for flag in ("team", "container", "user", "role"):
+        roled.add_argument(f"--{flag}", required=True)
+    roled.add_argument("--dry-run", action="store_true", help="print the edited file; write nothing")
     shown = commands.add_parser("lxc-derive", help="the handle the play would give an entry, from its checkout")
     shown.add_argument("--file", required=True)
     for flag in ("team", "container", "user"):

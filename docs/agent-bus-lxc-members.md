@@ -113,7 +113,9 @@ Notes on the table:
    `agent-bus-claude` (the kit's launcher) as that user in the checkout. It looks, read only,
    for a Claude session of that user already running in the container: one started before
    the add has not joined, and is named with when it started, to be ended and started again.
-   It also prints the check to run there: `set -a; . ~/.config/pingbus/env; set +a; pingbus status` (a login shell has not read the env file, which only `agent-bus-claude` reads, so
+   It also prints the check to run there, which reads the team's room live as the member:
+   `set -a; . ~/.config/pingbus/env; set +a; pingbus config check && pingbus history --limit 1`
+   (a login shell has not read the env file, which only `agent-bus-claude` reads, so
    `pingbus` alone refuses, saying this). The container and user must already exist; this
    never makes either.
 

@@ -95,10 +95,38 @@ func TestAddRefusesASeatAnotherLiveSessionWants(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	other := registry.Record{Name: "ccy-other", Dir: r.Checkout(), Launcher: "/x/ccy", Prefix: "ccy", Args: []string{"--teams", "3@alpha"}}
+	if err := r.store.Write(other); err != nil {
+		t.Fatal(err)
+	}
 	if code := r.run(t, "add", session, "alpha/3", "--yes"); code != exitBusy {
 		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
 	}
 	wantLines(t, r.ErrOut.String(), "✗ seat 3: named by session ccy-other, which has not taken it yet")
+	// Fable's M6 review B1: the name now runs a ccy --no-bus, whose launch wrote that record; the
+	// membership left under the name is an earlier session's and reserves nothing.
+	other.Args = []string{"--no-bus"}
+	if err := r.store.Write(other); err != nil {
+		t.Fatal(err)
+	}
+	if code := r.run(t, "add", session, "alpha/3", "--yes"); code != term.ExitOK {
+		t.Fatalf("a stale membership under a --no-bus session's name: exit %d:\n%s", code, r.ErrOut.String())
+	}
+}
+
+// Fable's M6 review B1, the ccy half: a ccy --no-bus under the name of an ended ccy session finds
+// that session's membership; its own record says --no-bus, so it is not changed.
+func TestAddToACcyNoBusSessionUnderAReusedNameIsRefused(t *testing.T) {
+	r := newRig(t)
+	rec := registry.Record{Name: session, Dir: r.Checkout(), Launcher: "/x/ccy", Prefix: "ccy", Restore: true, Args: []string{"--no-bus"}}
+	if err := r.store.Write(rec); err != nil {
+		t.Fatal(err)
+	}
+	if code := r.run(t, "add", session, "alpha/3", "--yes"); code != exitConfig {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	wantLines(t, r.ErrOut.String(), "✗ session "+session+": it was started with --no-bus, so it is not on the agent team bus "+
+		"(the membership under its name is an earlier session's); relaunch it from ccy's tmux without --no-bus to change it while it runs")
 }
 
 func TestAddThatTheKeeperRefusesIsRolledBack(t *testing.T) {
