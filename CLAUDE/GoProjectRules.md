@@ -213,14 +213,15 @@ decide what the error means, so it must name it.
 
 **What it is about.** Every action an interactive tool offers is a visible, named choice (a
 row, or a line of the row's menu) reached with the arrows and Enter; a key is only a shortcut
-to such a choice, printed beside it. The owner's words: "TUI must be UX controls not magic keys
+to such a choice, printed beside it. The owner's words: "TUI must be UX controls not magic
+keys - keys are OK but MUST NOT BE THE ONLY CONTROL SURFACE"
+([InteractiveScripts.md](InteractiveScripts.md) rule 14).
 
-- keys are OK but MUST NOT BE THE ONLY CONTROL SURFACE" ([InteractiveScripts.md](InteractiveScripts.md)
-  rule 14). **Why it exists.** An action reachable only by a key is invisible: nobody can find
-  it, and it can be pressed by accident. It recurred ("ah youve added magical key combos again
-  instead of UX?"): the `ccy-teams` Running sessions view added a session to a team (Ctrl-A),
-  removed it (Ctrl-X) and changed its role (Ctrl-O) through fzf `--expect` keys alone, and
-  `ccy-sessions` took over (Ctrl-T), ended (Ctrl-X) and started (Ctrl-N) sessions the same way.
+**Why it exists.** An action reachable only by a key is invisible: nobody can find it, and it
+can be pressed by accident. It recurred ("ah youve added magical key combos again instead of
+UX?"): the `ccy-teams` Running sessions view added a session to a team (Ctrl-A), removed it
+(Ctrl-X) and changed its role (Ctrl-O) through fzf `--expect` keys alone, and `ccy-sessions`
+took over (Ctrl-T), ended (Ctrl-X) and started (Ctrl-N) sessions the same way.
 
 **How to fix a violation.** In Go, make the action a `ui.Action{ID, Label, Key}`: put it in
 `PickSpec.Actions` when it belongs to the screen (ui lists it as a row above Exit) or in the
