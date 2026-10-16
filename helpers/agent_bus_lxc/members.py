@@ -295,6 +295,13 @@ if os.path.lexists(sys.argv[1]):
     print("removed")
 '''
 
+#: As root: prints `systemd` when systemd is the container's init (sd_booted's own test).
+SYSTEMD_PROBE_PY = r'''
+import os
+if os.path.isdir("/run/systemd/system"):
+    print("systemd")
+'''
+
 #: As root, before any change for a `service: true` entry: systemd is the container's init, and
 #: tmux's path.
 SERVICE_NEEDS_SH = ('test -d /run/systemd/system || { echo "systemd is not the init of this container" >&2; '
@@ -924,10 +931,16 @@ def _ensure_service(guest, member: Member, home: str, tmux: str, emit: Callable[
 def _drop_service(guest, container: str, user: str, emit: Callable[[str], None]) -> None:
     """No supervised session for `user`: its unit stopped, disabled and removed, if there is one."""
     unit = service_unit(user)
+    path = f"{guest.unit_dir}/{unit}"
+    if guest.root(_python(SYSTEMD_PROBE_PY), f"container {container}: is systemd its init?").strip() != b"systemd":
+        # No systemd, so no unit can be loaded or running: only a stray file can be left.
+        if guest.root(_python(UNIT_REMOVE_PY, path), f"container {container}: removing {unit}").strip() == b"removed":
+            emit(f"container {container}: {unit} removed")
+        return
     loaded = _service_state(guest, container, unit)["LoadState"] != "not-found"
     if loaded:
         _systemctl(guest, container, "disable", "--now", unit)
-    removed = guest.root(_python(UNIT_REMOVE_PY, f"{guest.unit_dir}/{unit}"),
+    removed = guest.root(_python(UNIT_REMOVE_PY, path),
                          f"container {container}: removing {unit}").strip() == b"removed"
     if loaded or removed:
         _systemctl(guest, container, "daemon-reload")

@@ -144,6 +144,9 @@ class FakeGuest:
 
     def _systemctl(self, args: Sequence[str]) -> bytes:
         self.systemctl.append(tuple(args))
+        if not self.systemd:
+            raise members.MemberError(f"systemctl {args[0]} failed (exit 1): System has not been booted "
+                                      "with systemd as init system (PID 1). Can't operate.")
         verb, rest = args[0], [a for a in args[1:] if not a.startswith("-")]
         if verb == "daemon-reload":
             return b""
@@ -178,6 +181,8 @@ class FakeGuest:
         assert argv[3:4] not in ([s] for s in AGENT_SCRIPTS), f"{what} ran as root"
         if argv[0] == "systemctl":
             return self._systemctl(argv[1:])
+        if argv[3:4] == [members.SYSTEMD_PROBE_PY]:
+            return b"systemd\n" if self.systemd else b""
         if list(argv) == ["sh", "-c", members.SERVICE_NEEDS_SH]:
             if not self.systemd:
                 raise members.MemberError(f"{what} failed (exit 3): no systemd")
@@ -918,6 +923,22 @@ class ServiceTest(Fixture):
         self.guest.tmux = None
         self.run_phase("present", [entry()])
         self.assertEqual([call[0] for call in self.guest.systemctl], ["show"])
+
+    def test_a_container_without_systemd_is_fine_for_an_entry_without_service(self) -> None:
+        """Review B2: a member that never asked for a unit must not need systemd in its container."""
+        self.guest.systemd = False
+        self.assertIn(f"{HANDLE} joined team {TEAM} (agent@devbox)", self.run_phase("present", [entry()]))
+        self.run_phase("absent", [entry(state="absent")])
+        self.assertEqual(self.guest.systemctl, [])
+
+    def test_a_unit_file_left_in_a_container_without_systemd_is_removed(self) -> None:
+        self.guest.systemd = False
+        self.unit_file().parent.mkdir(parents=True)
+        self.unit_file().write_text("stale\n", encoding="utf-8")
+        changed = self.run_phase("present", [entry()])
+        self.assertFalse(self.unit_file().exists())
+        self.assertIn(f"container devbox: {self.UNIT} removed", changed)
+        self.assertEqual(self.guest.systemctl, [])
 
     def test_entries_of_one_user_agree_on_the_service_and_its_checkout(self) -> None:
         with self.assertRaisesRegex(members.MemberError, "service"):
