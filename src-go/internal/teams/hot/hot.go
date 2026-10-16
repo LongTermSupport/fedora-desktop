@@ -11,7 +11,8 @@
 // restores both. Re-running a command whose result already holds prints every step as -.
 // One change runs at a time per session and one seat allocation at a time per checkout, each
 // under a lock in $XDG_RUNTIME_DIR/ccy, out of every container's reach (H20, lock.go). The
-// picker's Running sessions view (M5) runs these same commands.
+// picker's Running sessions view (M5) runs these same commands. A cc session started with
+// --teams or --bus is changed the same way (H31, cc.go).
 package hot
 
 import (
@@ -30,6 +31,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessprobe"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/discover"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
@@ -44,7 +46,7 @@ const (
 
 const (
 	memberType = "podman"
-	// kindCcy is the kind of a ccy session's membership; only it is hot-controlled here.
+	// kindCcy is the kind of a ccy session's membership (a cc session's is membership.KindCC).
 	kindCcy    = "ccy"
 	sessionTag = "ccy-session="
 	// stateRunning is podman's word for a running container.
@@ -104,7 +106,9 @@ const helpText = `Usage: ccy-teams session list
        ccy-teams session repair <session> [--yes]
 
 Only sessions started through ccy's tmux (listed by ccy-sessions), and cc sessions started with
---teams or --bus, can be changed while they run.
+--teams or --bus, can be changed while they run. A cc session runs as you, not in a container, so
+it could change its own membership file: for cc this is guidance, not a wall, as its Element
+consent says.
 
 list shows every running session ccy's tmux started: its checkout, its teams (seat and the role
 it was told) and its state: ok, a team whose homeserver is down, a seat not held, unguarded (its
@@ -117,7 +121,8 @@ seat is created through agent-bus seat take, which asks for sudo), and waits for
 hold it. --role sets the seat's role on the way; a coordinator while another seat holds the role
 needs --demote-current, which makes that seat a worker first. A session started on no team
 relaunches once, at its next idle moment, to accept team messages; every later change is made
-while it runs.
+while it runs. A cc session started with --bus cannot relaunch itself: its first add keeps the
+seat and exits 1, saying to end cc and start it again from ccy-sessions.
 
 remove takes it out: the seat is released, its sync position cleared (nothing posted while it is
 out is delivered on a later add), its listening status expired and its goodbye posted. If the
@@ -134,7 +139,8 @@ role makes the session's seat in the team a worker or the coordinator (sudo agen
 set-role), and waits for the session to be told.
 
 repair starts the session's seat keeper again when it has stopped (list says unguarded), and
-waits for it to take back every seat.
+waits for it to take back every seat. A cc session's keeper ends with its claude, so a cc session
+is not repaired: end it and start it again from ccy-sessions.
 
 Each change asks first; with no terminal, --yes is required. One change runs at a time per
 session, and one seat allocation at a time per checkout: a second one is refused (exit 75),
@@ -339,15 +345,28 @@ func holderOf(r request) string {
 	return what + " (pid " + strconv.Itoa(os.Getpid()) + ")"
 }
 
-// target is a resolved, running, hot-controllable session, under its change lock.
+// target is a resolved, running, hot-controllable session, under its change lock: a ccy session
+// in its container, or a cc session in its tmux pane (kind cc, no container).
 type target struct {
 	session   string
+	kind      string
 	container string
+	pane      int
 	dir       string
 	desired   membership.Desired
 	store     *registry.Store
 	lock      *lock
 	runtime   string
+}
+
+func (t *target) cc() bool { return t.kind == membership.KindCC }
+
+// memberType is the member type of the session's seats.
+func (t *target) memberType() string {
+	if t.cc() {
+		return ccMemberType
+	}
+	return memberType
 }
 
 func (t *target) checkout() string { return t.desired.Checkout }
@@ -365,27 +384,26 @@ func (x *Hot) resolve(ctx context.Context, r request) (*target, term.ExitCode, b
 		x.mark(markFailed, "session "+session+": XDG_RUNTIME_DIR is not an absolute path, so its membership cannot be found; run from your desktop login session")
 		return nil, term.ExitFailure, false
 	}
-	id, err := x.container(ctx, session)
-	if err != nil {
-		x.mark(markFailed, "session "+session+": "+err.Error())
-		return nil, term.ExitFailure, false
-	}
-	if id == "" {
-		x.mark(markFailed, "session "+session+": no running container is labelled "+sessionTag+session+
-			": it is not running, or it was started outside ccy's tmux, so it cannot be changed while it runs")
-		return nil, exitConfig, false
+	t := &target{session: session, kind: membership.KindCcy, runtime: runtime}
+	if code, found := x.locate(ctx, t); !found {
+		return nil, code, false
 	}
 	store, err := x.Host.Registry()
 	if err != nil {
 		x.mark(markFailed, "session "+session+": "+err.Error())
 		return nil, term.ExitFailure, false
 	}
-	if _, recErr := store.Get(session); recErr != nil {
+	rec, recErr := store.Get(session)
+	if recErr != nil {
 		x.mark(markFailed, "session "+session+": "+recErr.Error()+"; only a session ccy-sessions knows can be changed while it runs")
 		return nil, exitConfig, false
 	}
-	dir := membership.Dir(runtime, session)
-	t := &target{session: session, container: id, dir: dir, store: store, runtime: runtime}
+	if !discover.LaunchedWithBus(rec) {
+		x.notOnBus(t)
+		return nil, exitConfig, false
+	}
+	dir := membership.DirOf(runtime, t.kind, session)
+	t.dir, t.store = dir, store
 	if info, statErr := os.Lstat(dir); statErr != nil || !info.IsDir() {
 		x.notKit(session, os.ErrNotExist)
 		return nil, exitConfig, false
@@ -403,7 +421,7 @@ func (x *Hot) resolve(ctx context.Context, r request) (*target, term.ExitCode, b
 		return nil, term.ExitFailure, false
 	}
 	t.desired, err = membership.Read(dir)
-	if err == nil && t.desired.Kind != kindCcy {
+	if err == nil && t.desired.Kind != t.kind {
 		err = fmt.Errorf("its membership is a %s session's", t.desired.Kind)
 	}
 	if err != nil {
@@ -413,6 +431,36 @@ func (x *Hot) resolve(ctx context.Context, r request) (*target, term.ExitCode, b
 	}
 	x.mark(markDone, "session "+session+": running, can be hot-controlled")
 	return t, term.ExitOK, true
+}
+
+// locate finds the running session: its labelled container, or else a cc session's tmux pane.
+func (x *Hot) locate(ctx context.Context, t *target) (term.ExitCode, bool) {
+	id, err := x.container(ctx, t.session)
+	if err != nil {
+		x.mark(markFailed, "session "+t.session+": "+err.Error())
+		return term.ExitFailure, false
+	}
+	if id != "" {
+		t.container = id
+		return term.ExitOK, true
+	}
+	if isCC(t.runtime, t.session) {
+		return x.locateCC(ctx, t)
+	}
+	x.mark(markFailed, "session "+t.session+": no running container is labelled "+sessionTag+t.session+
+		": it is not running, or it was started outside ccy's tmux, so it cannot be changed while it runs")
+	return exitConfig, false
+}
+
+// notOnBus says why a session whose own launch left the bus out cannot be changed, though a
+// membership is under its name: an earlier session's, left behind (Fable's M6 review B1).
+func (x *Hot) notOnBus(t *target) {
+	started, again := "with --no-bus", "relaunch it from ccy's tmux without --no-bus"
+	if t.cc() {
+		started, again = "without --teams or --bus", "start it again with cc --bus or cc --teams"
+	}
+	x.mark(markFailed, "session "+t.session+": it was started "+started+", so it is not on the agent team bus "+
+		"(the membership under its name is an earlier session's); "+again+" to change it while it runs")
 }
 
 // notKit says why a session with no readable membership cannot be changed while it runs.
@@ -453,8 +501,12 @@ func (x *Hot) container(ctx context.Context, session string) (string, error) {
 	return running[0], nil
 }
 
-// ended is whether the session's container has stopped or been replaced since it was resolved.
+// ended is whether the session's container (a cc session's pane) has stopped or been replaced
+// since it was resolved.
 func (x *Hot) ended(ctx context.Context, t *target) bool {
+	if t.cc() {
+		return x.ccEnded(ctx, t)
+	}
 	id, err := x.container(ctx, t.session)
 	return err == nil && id != t.container
 }
@@ -471,12 +523,19 @@ func (x *Hot) commit(t *target, seats []membership.Seat, farewell []membership.F
 // writeRecord makes seats the session record's --teams.
 func (x *Hot) writeRecord(t *target, seats []membership.Seat, note string) error {
 	list := membership.Canonical(seats)
-	if err := t.store.SetTeams(t.session, list); err != nil {
+	set := t.store.SetTeams
+	if t.cc() {
+		set = t.store.SetCCTeams
+	}
+	if err := set(t.session, list); err != nil {
 		x.mark(markFailed, "record: "+err.Error())
 		return err
 	}
 	words := "--teams " + list
-	if list == "" {
+	switch {
+	case list == "" && t.cc():
+		words = "no --teams (cc keeps --bus)"
+	case list == "":
 		words = "no --teams"
 	}
 	if note != "" {

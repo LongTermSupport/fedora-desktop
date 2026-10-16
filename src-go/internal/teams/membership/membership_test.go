@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -220,4 +221,74 @@ func repoRoot(t *testing.T) string {
 	}
 	t.Fatalf("repo root not found above %s", wd)
 	return ""
+}
+
+// ccRig is newRig with a session registry holding a cc session's record, as cc's tmux start
+// writes it.
+func ccRig(t *testing.T, args ...string) (rig, *registry.Store) {
+	t.Helper()
+	r := newRig(t)
+	store := registry.New(t.TempDir())
+	r.Host.Registry = func() (*registry.Store, error) { return store, nil }
+	if err := store.Write(registry.Record{Name: "cc-proj", Dir: "/c", Launcher: "/x/cc", Prefix: "cc", Restore: true, Args: args}); err != nil {
+		t.Fatal(err)
+	}
+	return r, store
+}
+
+// Plan 00203 M6, H31: a cc session's membership is kind cc, in $XDG_RUNTIME_DIR/pingbus/membership/,
+// and its record names its seats whole, so a hot change and a restore start from the same list.
+func TestInitForCCWritesKindCCUnderPingbusAndRecordsTheSeats(t *testing.T) {
+	r, store := ccRig(t, "--teams", "dev-team", "--model", "x")
+	code := r.init.Run(t.Context(), []string{"--kind=cc", "cc-proj", "/c", "2@dev-team"})
+	if code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	dir := filepath.Join(r.runtime, "pingbus", "membership", "cc-proj")
+	if got := r.Out.String(); got != dir+"\n" || CCDir(r.runtime, "cc-proj") != dir {
+		t.Fatalf("stdout %q, CCDir %q", got, CCDir(r.runtime, "cc-proj"))
+	}
+	d, err := Read(dir)
+	if err != nil || d.Kind != KindCC || Canonical(d.Seats) != "2@dev-team" {
+		t.Fatalf("desired %+v %v", d, err)
+	}
+	for _, p := range []string{filepath.Join(r.runtime, "pingbus"), filepath.Join(r.runtime, "pingbus", "membership"), dir} {
+		if got := mode(t, p); got != os.ModeDir|0o700 {
+			t.Fatalf("%s mode %v", p, got)
+		}
+	}
+	rec, err := store.Get("cc-proj")
+	if err != nil || strings.Join(rec.Args, " ") != "--model x --teams 2@dev-team" {
+		t.Fatalf("record %v %v", rec.Args, err)
+	}
+	if _, statErr := os.Stat(filepath.Join(r.runtime, "ccy")); statErr == nil {
+		t.Fatal("a cc membership was written under ccy/")
+	}
+}
+
+// A cc started on no team (cc --bus) keeps --bus in its record, so a restore brings it back on
+// the bus; an unnamed cc (no record) still gets its membership.
+func TestInitForCCOnNoTeamKeepsTheSessionOnTheBus(t *testing.T) {
+	r, store := ccRig(t, "--bus")
+	if code := r.init.Run(t.Context(), []string{"--kind=cc", "cc-proj", "/c", ""}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	if rec, err := store.Get("cc-proj"); err != nil || strings.Join(rec.Args, " ") != "--bus" {
+		t.Fatalf("record %v %v", rec.Args, err)
+	}
+	if code := r.init.Run(t.Context(), []string{"--kind=cc", "cc.4242", "/c", "1@a"}); code != term.ExitOK {
+		t.Fatalf("unnamed: exit %d: %s", code, r.ErrOut.String())
+	}
+	if d, err := Read(CCDir(r.runtime, "cc.4242")); err != nil || d.Session != "cc.4242" {
+		t.Fatalf("unnamed desired %+v %v", d, err)
+	}
+}
+
+func TestInitRefusesAKindItDoesNotKnow(t *testing.T) {
+	for _, kind := range []string{"--kind=", "--kind=lxc", "--kind"} {
+		r := newRig(t)
+		if code := r.init.Run(t.Context(), []string{kind, "s", "/c", ""}); code != term.ExitUsage {
+			t.Fatalf("%s: exit %d", kind, code)
+		}
+	}
 }

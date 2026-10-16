@@ -175,6 +175,27 @@ func TestCollectSessionsTakesALiveSessionsDesiredMembership(t *testing.T) {
 	}
 }
 
+// Fable's M6 review B1: a plain cc running under the tmux name of an ended cc --teams finds its
+// membership left behind; its own launch rewrote the record without --teams or --bus, so that
+// membership names no seat.
+func TestCollectSessionsSkipsAMembershipLeftUnderAReusedName(t *testing.T) {
+	h := populated(t)
+	runtime := t.TempDir()
+	h.Env["XDG_RUNTIME_DIR"] = runtime
+	h.On("tmux -L ccy list-sessions", "ccy-proj 0 "+h.Checkout()+"\ncc-proj 0 "+h.Checkout()+"\n", 0)
+	teamtest.MustWrite(t, filepath.Join(runtime, "pingbus", "membership", "cc-proj", "membership.json"),
+		`{"v":1,"session":"cc-proj","kind":"cc","checkout":"`+h.Checkout()+`","generation":1,"written_ms":1,"seats":[{"team":"alpha","seat":"9"}],"farewell":[]}`)
+	teamtest.MustWrite(t, filepath.Join(h.Root, "home/.local/state/ccy/sessions/cc-proj"),
+		"ccy-session-record 1\nname=cc-proj\ndir="+h.Checkout()+"\nlauncher=/x/cc\nprefix=cc\nrestore=yes\narg=--model\narg=x\n")
+	s := NewSnapshot()
+	if err := h.c.collectSessions(t.Context(), s); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := s.SeatSession[h.Checkout()+"|9@alpha"]; ok {
+		t.Fatalf("a membership left under a plain cc's name names seat 9 for %q", got)
+	}
+}
+
 func TestCollectSessionsFailures(t *testing.T) {
 	h := newRig(t)
 	h.OnErr("tmux -L ccy list-sessions", "protocol version mismatch", 1)

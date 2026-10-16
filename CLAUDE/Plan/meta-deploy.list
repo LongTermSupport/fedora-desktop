@@ -23,8 +23,12 @@
 # md-viewer: rebuild and install at main tip 22a55582735d (text on its baseline, dark mode
 # and font size settings); asserts `md-viewer --version` carries the new commit.
 playbooks/imports/optional/common/play-md-viewer.yml
-# ccy 3.99.10.3, container 2.75.2 (each project's image is rebuilt once, at its next ccy
-# launch): rebuilds ccy-teams and deploys the launcher. Two ccy launches started together in one
+# ccy 3.99.12.3, container 2.77.2 (each project's image is rebuilt once, at its next ccy
+# launch): deploys cc, cc-teams.bash and the ccy launcher, and rebuilds ccy-teams.
+# Plan 00203 M6: cc --teams and the new cc --bus sessions are hot-controlled like ccy ones, also
+# from the picker (cc --bus refuses team messages until it is restarted on its first team); a
+# membership counts only while its session record carries the bus; pingbus reads no
+# PINGBUS_SEATS. Two ccy launches started together in one
 # project no longer choose the same container name: each launch claims its name (ccy-teams
 # internal claim-container-name, under $XDG_RUNTIME_DIR/ccy/container-names/) before podman
 # creates it. The image's pingbus status line, cancelled just as it starts the session's own
@@ -34,12 +38,12 @@ playbooks/imports/optional/common/play-md-viewer.yml
 # boot for a restored session left to a person (waiting at its SSH passphrase prompt, attached,
 # or with text typed); it still fails, naming each, for a real fault such as a launcher that exited.
 playbooks/imports/play-claude-yolo.yml
-# Plan 00203 acceptance again, every milestone in turn, on ccy 3.99.10.3. M2 starts its two
+# Plan 00203 acceptance again, every milestone in turn, on ccy 3.99.12.3. M2 starts its two
 # throwaway headless sessions (plain and --no-bus) back to back; on 3.99.10.1 both chose the
-# same container name and the second failed at podman's create (exit 125). Then M1, M3, M4 and
-# R1-R9 as before, on throwaway teams acc-m3a, acc-m3b, acc-m4a, acc-m4b and acc-robust and
-# their headless sessions, all removed after. Needs ccy launched interactively here once
-# (Quick Launch).
+# same container name and the second failed at podman's create (exit 125). Then M1, M3, M4,
+# the new M6 (three throwaway cc sessions on two throwaway teams) and R1-R9, on throwaway teams
+# acc-m3a, acc-m3b, acc-m4a, acc-m4b and acc-robust and their sessions, all removed after.
+# Prompts for sudo once. Needs ccy launched interactively here once (Quick Launch).
 00203-teams-hot-control-and-robustness
 # Plan 00203: read-only triage of why team homeservers stop. Changes nothing; reads as root
 # (sudo -n): the whole journal, each team's tuwunel.toml (secret values substituted), its

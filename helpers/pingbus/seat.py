@@ -14,12 +14,12 @@ take`, run by the launcher); this module never does.
   starts it before it replaces itself with the session. It makes the session home (even
   with no seat), takes each desired seat's lock without waiting (kind `seat` and the claim
   time in the file; never a PID), links the seat into the home (D50), checks its bundle,
-  and writes the applied membership, the host's report and the flag file. With
-  `PINGBUS_MEMBERSHIP` it follows the desired file as it changes; without it, the launch's
-  `PINGBUS_SEATS`. Every lock is close-on-exec, so the session's processes hold none and a
-  detached one cannot keep a seat (audit F5); release is an explicit `LOCK_UN`. A ccy
-  launch names its seats (possibly none) in the read-only desired file (membership.py);
-  `cc --teams` still passes `PINGBUS_SEATS`.
+  and writes the applied membership, the host's report and the flag file. It follows the
+  desired file `PINGBUS_MEMBERSHIP` names as it changes. Every lock is close-on-exec, so the
+  session's processes hold none and a detached one cannot keep a seat (audit F5); release is
+  an explicit `LOCK_UN`. A ccy launch names its seats (possibly none) in the read-only
+  desired file (membership.py); so does `cc --teams` or `cc --bus`, in a directory of its own
+  on the host (Plan 00203 M6).
 - `session_settings` and its helpers: under the desired membership, `seat exec` writes the
   session's settings and its inner status line into the home (H34); the keeper keeps the
   `active` flag the plugin's hooks are guarded on (H33).
@@ -44,7 +44,6 @@ from typing import TextIO
 
 from helpers.pingbus import config, inbox, inject, membership, notify, protocol
 
-SEATS_VAR = "PINGBUS_SEATS"
 #: The keeper's lock in the session home: held while it runs (H10).
 KEEPER_LOCK = "keeper.lock"
 #: Where the keeper's diagnostics go once it is running, in the session home.
@@ -302,21 +301,6 @@ class Want:
     session: str | None = None
 
 
-class LaunchSeats:
-    """The launch's `PINGBUS_SEATS` (until Plan 00203 M2 retires it): generation 0, fixed."""
-
-    def __init__(self, refs: tuple[SeatRef | TeamRef, ...]) -> None:
-        if not all(isinstance(ref, SeatRef) for ref in refs):
-            raise config.ConfigError(f"{SEATS_VAR} names a team without its seat")
-        self._want = Want(0, tuple(refs))
-
-    def stamp(self) -> object:
-        return None
-
-    def read(self) -> Want:
-        return self._want
-
-
 class MembershipFile:
     """The host's desired file (3.1) in `directory`, read again whenever its inode, size or
     modification time changes (H9)."""
@@ -340,30 +324,17 @@ class MembershipFile:
                     desired.session)
 
 
-def desired_source(environ: Mapping[str, str]) -> LaunchSeats | MembershipFile:
-    """`PINGBUS_MEMBERSHIP` when the launcher set it, else `PINGBUS_SEATS`; never both."""
+def desired_source(environ: Mapping[str, str]) -> MembershipFile:
+    """The desired membership `PINGBUS_MEMBERSHIP` names, which every launcher sets (ccy,
+    `cc --teams`, `cc --bus`)."""
     marker = environ.get(membership.MEMBERSHIP_VAR)
     if marker is None:
-        return LaunchSeats(_launch_seats(environ))
-    if environ.get(SEATS_VAR) is not None:
-        raise config.ConfigError(f"both {SEATS_VAR} and {membership.MEMBERSHIP_VAR} are set: "
-                                 "a launcher passes one of them")
+        raise config.ConfigError(f"{membership.MEMBERSHIP_VAR} is not set: the launcher names the session's "
+                                 "desired membership (ccy, cc --teams, cc --bus)")
     try:
         return MembershipFile(membership.mount_dir(marker))
     except membership.MembershipError as exc:
         raise config.ConfigError(str(exc)) from None
-
-
-def _launch_seats(environ: Mapping[str, str]) -> tuple[SeatRef | TeamRef, ...]:
-    raw = environ.get(SEATS_VAR, "")
-    if not raw:
-        raise config.ConfigError(
-            f"{SEATS_VAR} is not set: the launch named no seat (cc --teams <seat>@<team>[,...])"
-        )
-    try:
-        return parse_seat_list(raw)
-    except SeatListError as exc:
-        raise config.ConfigError(f"{SEATS_VAR} is malformed: {exc}") from None
 
 
 class SeatRefused(Exception):
@@ -497,7 +468,7 @@ class Keeper:
     and applies what the source wants; `poll` applies it again when it changes (H9);
     `release_all` lets every lock go, as the keeper's death would."""
 
-    def __init__(self, source: LaunchSeats | MembershipFile, *, root: pathlib.Path,
+    def __init__(self, source: MembershipFile, *, root: pathlib.Path,
                  home: pathlib.Path, clock_ms: Callable[[], int], err: TextIO,
                  sleep: Callable[[float], object] = time.sleep, uid: int | None = None,
                  user_home: pathlib.Path | None = None, environ: Mapping[str, str] | None = None,

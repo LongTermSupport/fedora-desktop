@@ -223,7 +223,7 @@ func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 			return a.ContainerName.Run(ctx, rest[1:])
 		}
 	}
-	return a.usageError("'internal' takes a command: internal membership-init <session> <checkout> <seats>, " +
+	return a.usageError("'internal' takes a command: internal membership-init [--kind=cc] <session> <checkout> <seats>, " +
 		"internal restart-args <session>, or internal claim-container-name <project> <suffix> <owner-pid>.")
 }
 

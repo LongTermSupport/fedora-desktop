@@ -1,10 +1,13 @@
 // Package membership is `ccy-teams internal membership-init`: the launcher's half of a
-// session's desired membership (Plan 00203 SPEC-hot-control.md section 3.1, H1). A ccy launch
+// session's desired membership (Plan 00203 SPEC-hot-control.md section 3.1, H1, H31). A ccy launch
 // that carries the agent team bus kit calls it just before the container starts; it writes
 // generation 1 of $XDG_RUNTIME_DIR/ccy/membership/<session>/membership.json from the launch's
 // canonical --teams list (no seats for a plain launch) and prints the directory, which the
 // launcher mounts read-only at /run/ccy/membership. Only the owner's tools write there; the
-// container cannot.
+// container cannot. `cc --teams` and `cc --bus` call it with --kind=cc: the directory is
+// $XDG_RUNTIME_DIR/pingbus/membership/<session>/, which the session reads directly (it runs as
+// the owner, so it could write it too: cc's weaker authority, Decision 3), and the session's
+// record is given the seats whole, as `record-seats` gives a ccy session's.
 package membership
 
 import (
@@ -19,6 +22,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -45,6 +49,14 @@ const (
 	dirMode  = 0o700
 	fileMode = 0o600
 	sub      = "membership-init"
+	optKind  = "--kind="
+)
+
+// The two kinds of session that have a desired membership: a ccy container, and a cc session
+// on the host.
+const (
+	KindCcy = "ccy"
+	KindCC  = "cc"
 )
 
 // Seat is one seat of the desired membership.
@@ -81,9 +93,22 @@ type Init struct {
 // New is the command over a host, on the wall clock.
 func New(h *host.Host) *Init { return &Init{Host: h, Now: time.Now} }
 
-// Dir is a session's membership directory under the runtime directory.
+// Dir is a ccy session's membership directory under the runtime directory.
 func Dir(runtimeDir, session string) string {
 	return filepath.Join(runtimeDir, "ccy", "membership", session)
+}
+
+// CCDir is a cc session's membership directory under the runtime directory (H31).
+func CCDir(runtimeDir, session string) string {
+	return filepath.Join(runtimeDir, "pingbus", "membership", session)
+}
+
+// DirOf is the membership directory of a session of the kind.
+func DirOf(runtimeDir, kind, session string) string {
+	if kind == KindCC {
+		return CCDir(runtimeDir, session)
+	}
+	return Dir(runtimeDir, session)
 }
 
 // ParseSeats reads a canonical --teams list (empty: no seat), at most one seat per team.
@@ -111,7 +136,7 @@ func ParseSeats(list string) ([]Seat, error) {
 	return seats, nil
 }
 
-// Run is `ccy-teams internal membership-init <session> <checkout> <seats>`.
+// Run is `ccy-teams internal membership-init [--kind=cc] <session> <checkout> <seats>`.
 func (m *Init) Run(_ context.Context, args []string) term.ExitCode {
 	desired, err := m.desired(args)
 	if err != nil {
@@ -124,10 +149,16 @@ func (m *Init) Run(_ context.Context, args []string) term.ExitCode {
 			"), so there is nowhere to keep the session's membership. Launch from a desktop login session.")
 		return term.ExitFailure
 	}
-	dir := Dir(runtimeDir, desired.Session)
+	dir := DirOf(runtimeDir, desired.Kind, desired.Session)
 	if err := writeDesired(dir, desired); err != nil {
 		m.Host.ReportErr(err)
 		return term.ExitFailure
+	}
+	if desired.Kind == KindCC {
+		if err := m.recordSeats(desired); err != nil {
+			m.Host.ReportErr(err)
+			return term.ExitFailure
+		}
 	}
 	// A launch answers any relaunch the host asked of the session before it (H22).
 	if err := removeRelaunch(dir); err != nil {
@@ -139,8 +170,16 @@ func (m *Init) Run(_ context.Context, args []string) term.ExitCode {
 }
 
 func (m *Init) desired(args []string) (Desired, error) {
+	kind := KindCcy
+	if len(args) > 0 && strings.HasPrefix(args[0], "--kind") {
+		given, ok := strings.CutPrefix(args[0], optKind)
+		if !ok || (given != KindCcy && given != KindCC) {
+			return Desired{}, fmt.Errorf("%q: the kind is --kind=ccy or --kind=cc", args[0])
+		}
+		kind, args = given, args[1:]
+	}
 	if len(args) != 3 {
-		return Desired{}, errors.New("takes <session> <checkout> <seats> (the seats may be empty)")
+		return Desired{}, errors.New("takes [--kind=cc] <session> <checkout> <seats> (the seats may be empty)")
 	}
 	session, checkout := args[0], args[1]
 	if !sessionName.MatchString(session) {
@@ -154,7 +193,7 @@ func (m *Init) desired(args []string) (Desired, error) {
 		return Desired{}, fmt.Errorf("the seats %q: %w", args[2], err)
 	}
 	return Desired{
-		V: 1, Session: session, Kind: "ccy", Checkout: checkout, Generation: 1,
+		V: 1, Session: session, Kind: kind, Checkout: checkout, Generation: 1,
 		WrittenMS: m.Now().UnixMilli(), Seats: seats, Farewell: []Farewell{},
 	}, nil
 }
@@ -181,6 +220,21 @@ func writeDesired(dir string, desired Desired) error {
 		return fmt.Errorf("could not encode the membership: %w", err)
 	}
 	return fsx.WriteAtomic(filepath.Join(dir, File), "session membership", append(data, '\n'), fileMode)
+}
+
+// recordSeats gives a cc session's record its seats whole (what a hot change and a restore start
+// from). A session with no record (cc run outside ccy's tmux) has none to give; one on no team
+// keeps --bus, so a restore brings it back on the bus.
+func (m *Init) recordSeats(d Desired) error {
+	store, err := m.Host.Registry()
+	if err != nil {
+		return err
+	}
+	err = store.SetCCTeams(d.Session, Canonical(d.Seats))
+	if errors.Is(err, registry.ErrNoRecord) {
+		return nil
+	}
+	return err
 }
 
 func (m *Init) say(msg string) { m.Host.Print(m.Host.Stderr, msg+"\n") }

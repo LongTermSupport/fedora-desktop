@@ -304,6 +304,38 @@ func TestSetTeamsToNoneDropsTheFlag(t *testing.T) {
 	}
 }
 
+// Plan 00203 M6: a cc session left on no team keeps the bus (--bus), so a restore brings it back
+// where the owner can put it in a team again; with seats, --teams says it, and cc refuses the
+// two flags together, so --bus goes.
+func TestSetCCTeamsKeepsACCSessionOnTheBus(t *testing.T) {
+	s := newStore(t)
+	rec := sample()
+	rec.Args = []string{"--model", "x", "--teams", "1@a"}
+	if err := s.Write(rec); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []struct{ seats, want string }{
+		{"", "--model x --bus"},
+		{"", "--model x --bus"},
+		{"2@b", "--model x --teams 2@b"},
+		{"", "--model x --bus"},
+	} {
+		if err := s.SetCCTeams(rec.Name, step.seats); err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.Get(rec.Name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Join(got.Args, " ") != step.want {
+			t.Fatalf("seats %q: args %v, want %s", step.seats, got.Args, step.want)
+		}
+	}
+	if err := s.SetCCTeams("nobody", ""); !errors.Is(err, ErrNoRecord) {
+		t.Fatalf("no record: %v", err)
+	}
+}
+
 func TestSetTeamsWithNoRecordIsAnError(t *testing.T) {
 	if err := newStore(t).SetTeams("ghost", "a@b"); !errors.Is(err, ErrNoRecord) {
 		t.Fatalf("missing: %v", err)

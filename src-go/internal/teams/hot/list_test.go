@@ -44,6 +44,29 @@ func TestListSaysWhatIsWrongWithASession(t *testing.T) {
 	}
 }
 
+// Fable's M6 review B1, the ccy half: a ccy --no-bus under the name of an ended ccy session finds
+// that session's membership; the record its own launch wrote says --no-bus, so the list reads it
+// as a session off the bus, in no team.
+func TestListReadsNoMembershipForACcyNoBusUnderAReusedName(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
+	r.labelled("abc123\trunning\t" + session + "\n")
+	rec, err := r.store.Get(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec.Args = []string{"--no-bus"}
+	if err = r.store.Write(rec); err != nil {
+		t.Fatal(err)
+	}
+	if code := r.run(t, "list"); code != term.ExitOK ||
+		r.Out.String() != "SESSION\t"+session+"\tccy\t-\t-\told or --no-bus: relaunch it to change it while it runs\n" {
+		t.Fatalf("exit %d: %q", code, r.Out.String())
+	}
+	if in, err := r.x.SessionsIn(t.Context(), "alpha"); err != nil || len(in) != 0 {
+		t.Fatalf("in alpha: %v %v", in, err)
+	}
+}
+
 func TestSessionsInATeamAndTakingOneOff(t *testing.T) {
 	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
 	r.labelled("abc123\trunning\t" + session + "\nold1\trunning\tccy-old\n")
