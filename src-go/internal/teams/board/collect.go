@@ -361,8 +361,10 @@ func (c *Collector) readSeats(ctx context.Context, s *Snapshot) []seatAt {
 // addTeamRows appends the team's own row, then its seats, other members and people.
 func (c *Collector) addTeamRows(ctx context.Context, s *Snapshot, team string, seats []seatAt) {
 	state, where := c.teamState(ctx, s, team)
-	if words := healthWords(c.AppliedDir, team, c.Now()); s.Loaded[team] && words != "" {
-		where += ", " + words
+	if s.Loaded[team] {
+		if words := healthWords(c.AppliedDir, team, c.Now()); words != "" {
+			where += ", " + words
+		}
 	}
 	if s.Incomplete != "" {
 		where += ", " + s.Incomplete + " (above)"
