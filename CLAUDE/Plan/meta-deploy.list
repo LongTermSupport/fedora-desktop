@@ -30,3 +30,10 @@
 # until this runs. It installs the new zipapp and stamps each team again. No unit, firewall or
 # rendered config changes, so no homeserver is restarted.
 playbooks/imports/play-agent-bus.yml
+# Plan 00208: speech-to-text no longer pastes the previous dictation. Deploys wsi-stream and
+# rebuilds the wsi binary: the paste key is pressed only once the clipboard reads back as this
+# dictation's text; a copy that never takes is killed and retried within 3 s, then nothing is
+# pasted and a notification that stays points at Copy Last Transcription. Restarts the
+# wsi-stream-server (its handler). No extension change, so no log-out is needed. A wl-copy
+# left running by the bad dictation is not touched (each run kills only copies it started).
+playbooks/imports/optional/common/play-speech-to-text.yml
