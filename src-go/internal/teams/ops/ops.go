@@ -15,10 +15,12 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/playlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
@@ -75,6 +77,13 @@ type Ops struct {
 	// whether it did.
 	SessionsIn func(ctx context.Context, team string) ([]string, error)
 	TakeOut    func(ctx context.Context, session, team string) bool
+
+	// PlayLock takes the host's play lock, the one every play run shares; PlayLockWait bounds
+	// how long a flow waits for another run to let it go (Locked).
+	PlayLock     *playlock.Waiter
+	PlayLockWait time.Duration
+	// held is the play lock while a flow holds it: the plays it runs are handed it.
+	held *playlock.Lock
 }
 
 // ElementLauncher is the desktop file the Element play writes for a team.
@@ -89,6 +98,7 @@ func New(h *host.Host, refresh func(context.Context) (map[string]declare.Status,
 		Cfg: h.Config, Runner: h.Runner, Declare: h.Declare, Sudo: h.Sudo, Bus: h.Bus, Gum: h.Gum, Picker: h.Picker,
 		Term: h.FreshTerm(), Stdin: h.Stdin, Stdout: h.Stdout, IsTerminal: h.Term.IsTerminal,
 		Refresh: refresh, NeedCheckout: h.NeedCheckout, LookPath: h.LookPath, FileExists: exists, Changed: changed,
+		PlayLock: playlock.New(h.Getenv), PlayLockWait: DefaultPlayLockWait,
 	}
 }
 
@@ -97,66 +107,24 @@ func exists(path string) bool {
 	return err == nil
 }
 
-// RunElementPlay is play-agent-bus-element.yml, then each named team's launcher must be there.
+// RunElementPlay is play-agent-bus-element.yml, then each named team's launcher must be there,
+// in the play lock (the caller's hold, or its own).
 func (o *Ops) RunElementPlay(ctx context.Context, teams []string) error {
-	names := strings.Join(teams, " ")
-	o.Term.Say("Running play-agent-bus-element.yml: it installs Element Desktop (sudo) and writes the Element profile for " + names + ".")
-	if err := o.checkPlay(o.Cfg.ElementPlay); err != nil {
-		o.Term.PrintError(err.Error())
-		return errOpFailed
-	}
-	_, err := o.Runner.Run(ctx, execx.Cmd{
-		Name: o.Cfg.ElementPlay, Stdin: o.Stdin, Stdout: o.Stdout, Stderr: o.Term.Err,
+	return o.Locked(ctx, "set up Element for "+strings.Join(teams, " "), func(ctx context.Context) error {
+		return o.runElementPlay(ctx, teams)
 	})
-	if err != nil {
-		o.Term.PrintError("play-agent-bus-element.yml failed (above), so " + names + " has no Element profile yet.")
-		return errOpFailed
-	}
-	for _, team := range teams {
-		if !o.FileExists(o.ElementLauncher(team)) {
-			o.Term.PrintError("play-agent-bus-element.yml finished, but " + team + "'s Element launcher is not there.")
-			return errOpFailed
-		}
-	}
-	return nil
 }
 
 // ApplyTeams runs the play for those teams, then reads each one's stamp back: done only
 // when every one is up to date (its homeserver started, its room and people made). A team
-// with an Element profile declared has it written by its own play, here too. A failure has
-// already been said.
+// with an Element profile declared has it written by its own play, here too. All of it is in
+// the play lock: the caller's hold (a flow that wrote the host_vars in it), or its own. A
+// failure has already been said; a lock not taken wraps playlock.ErrNotTaken.
 func (o *Ops) ApplyTeams(ctx context.Context, teams []string) error {
 	defer o.changed()
-	if err := o.runPlay(ctx, teams); err != nil {
-		o.Term.PrintError(fmt.Sprintf("play-agent-bus.yml failed (exit %d, above).", playExit(err)))
-		return errOpFailed
-	}
-	status, err := o.Refresh(ctx)
-	if err != nil {
-		return fmt.Errorf("%w: %w", errOpFailed, err)
-	}
-	var behind []string
-	for _, team := range teams {
-		if status[team].State != declare.ApplyCurrent {
-			behind = append(behind, team+" ("+status[team].Word()+")")
-		}
-	}
-	if len(behind) > 0 {
-		o.Term.PrintError("the play finished, but these teams are still not as declared: " + strings.Join(behind, " ") + ".")
-		return errOpFailed
-	}
-	watched, err := o.elementTeams(ctx, teams)
-	if err != nil {
-		o.childExit(err)
-		return errOpFailed
-	}
-	if len(watched) > 0 && o.RunElementPlay(ctx, watched) != nil {
-		o.Term.PrintError("the homeserver side is applied, but the Element profile is not; once the cause above is fixed, ccy-teams apply " +
-			strings.Join(teams, " ") + " runs both again.")
-		return errOpFailed
-	}
-	o.Term.Say("Applied: " + strings.Join(teams, " ") + ".")
-	return nil
+	return o.Locked(ctx, "apply "+strings.Join(teams, " "), func(ctx context.Context) error {
+		return o.applyHeld(ctx, teams)
+	})
 }
 
 // Apply is "ccy-teams apply <team> | --all": bring a team, or every team out of date or not
@@ -197,7 +165,11 @@ func (o *Ops) Apply(ctx context.Context, args []string) term.ExitCode {
 			return o.usageError("team " + team + " is not declared in " + o.home(o.Cfg.HostVars) + ".")
 		}
 	}
-	if err := o.ApplyTeams(ctx, targets); err != nil {
+	if err := o.ApplyTeams(ctx, targets); errors.Is(err, playlock.ErrNotTaken) {
+		o.Term.PrintError("nothing was applied: " + strings.Join(targets, " ") + ". Once the other play run has finished, ccy-teams apply " +
+			strings.Join(targets, " ") + " applies it.")
+		return LockExit(err)
+	} else if err != nil {
 		o.Term.PrintError("not applied: " + strings.Join(targets, " ") +
 			". Their entries stay as declared; once the cause above is fixed, ccy-teams apply runs the play again.")
 		return o.signInAfter(ctx, targets, term.ExitFailure)
@@ -294,8 +266,12 @@ func (o *Ops) runPlay(ctx context.Context, teams []string) error {
 	if err := o.checkPlay(o.Cfg.Play); err != nil {
 		return err
 	}
+	files, env := o.held.Delegate()
+	if files == nil {
+		return fmt.Errorf("%w: play-agent-bus.yml", errPlayOutsideLock)
+	}
 	_, err := o.Runner.Run(ctx, execx.Cmd{
-		Name: o.Cfg.Play, Args: []string{"-e", playJSON(teams)},
+		Name: o.Cfg.Play, Args: []string{"-e", playJSON(teams)}, Env: env, ExtraFiles: files,
 		Stdin: o.Stdin, Stdout: o.Stdout, Stderr: o.Term.Err,
 	})
 	if err != nil {
@@ -368,4 +344,77 @@ func (o *Ops) allTargets(status map[string]declare.Status) ([]string, term.ExitC
 		return nil, term.ExitOK, true
 	}
 	return targets, term.ExitOK, false
+}
+
+// runElementPlay is RunElementPlay inside the hold.
+func (o *Ops) runElementPlay(ctx context.Context, teams []string) error {
+	names := strings.Join(teams, " ")
+	o.Term.Say("Running play-agent-bus-element.yml: it installs Element Desktop (sudo) and writes the Element profile for " + names + ".")
+	if err := o.checkPlay(o.Cfg.ElementPlay); err != nil {
+		o.Term.PrintError(err.Error())
+		return errOpFailed
+	}
+	files, env := o.held.Delegate()
+	if files == nil {
+		o.Term.PrintError(errPlayOutsideLock.Error() + ": play-agent-bus-element.yml.")
+		return errOpFailed
+	}
+	_, err := o.Runner.Run(ctx, execx.Cmd{
+		Name: o.Cfg.ElementPlay, Env: env, ExtraFiles: files, Stdin: o.Stdin, Stdout: o.Stdout, Stderr: o.Term.Err,
+	})
+	if err != nil && playExit(err) == playlock.ExitBusy {
+		o.Term.PrintError("play-agent-bus-element.yml did not run: it was refused the play lock (exit 75, above), which another play run took, " +
+			"so " + names + " has no Element profile yet.")
+		return errOpFailed
+	}
+	if err != nil {
+		o.Term.PrintError("play-agent-bus-element.yml failed (above), so " + names + " has no Element profile yet.")
+		return errOpFailed
+	}
+	for _, team := range teams {
+		if !o.FileExists(o.ElementLauncher(team)) {
+			o.Term.PrintError("play-agent-bus-element.yml finished, but " + team + "'s Element launcher is not there.")
+			return errOpFailed
+		}
+	}
+	return nil
+}
+
+// applyHeld is ApplyTeams inside the hold.
+func (o *Ops) applyHeld(ctx context.Context, teams []string) error {
+	if err := o.runPlay(ctx, teams); err != nil {
+		if code := playExit(err); code == playlock.ExitBusy {
+			o.Term.PrintError("play-agent-bus.yml did not run: it was refused the play lock (exit 75, above), which another play run took. " +
+				"Once that run has finished, ccy-teams apply " + strings.Join(teams, " ") + " applies it.")
+		} else {
+			o.Term.PrintError(fmt.Sprintf("play-agent-bus.yml failed (exit %d, above).", code))
+		}
+		return errOpFailed
+	}
+	status, err := o.Refresh(ctx)
+	if err != nil {
+		return fmt.Errorf("%w: %w", errOpFailed, err)
+	}
+	var behind []string
+	for _, team := range teams {
+		if status[team].State != declare.ApplyCurrent {
+			behind = append(behind, team+" ("+status[team].Word()+")")
+		}
+	}
+	if len(behind) > 0 {
+		o.Term.PrintError("the play finished, but these teams are still not as declared: " + strings.Join(behind, " ") + ".")
+		return errOpFailed
+	}
+	watched, err := o.elementTeams(ctx, teams)
+	if err != nil {
+		o.childExit(err)
+		return errOpFailed
+	}
+	if len(watched) > 0 && o.RunElementPlay(ctx, watched) != nil {
+		o.Term.PrintError("the homeserver side is applied, but the Element profile is not; once the cause above is fixed, ccy-teams apply " +
+			strings.Join(teams, " ") + " runs both again.")
+		return errOpFailed
+	}
+	o.Term.Say("Applied: " + strings.Join(teams, " ") + ".")
+	return nil
 }

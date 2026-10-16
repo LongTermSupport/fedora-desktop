@@ -13,7 +13,10 @@ func TestTheTestTagTrustsAPlayOutsideTheCheckout(t *testing.T) {
 	r := newOpsRig(t)
 	r.ops.Cfg.Play = "/tmp/stub-play"
 	r.on("/tmp/stub-play", execx.Result{})
-	if err := r.ops.runPlay(context.Background(), []string{"a"}); err != nil {
+	err := r.ops.Locked(context.Background(), "apply a", func(ctx context.Context) error {
+		return r.ops.runPlay(ctx, []string{"a"})
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 }

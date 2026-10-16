@@ -215,8 +215,24 @@ func (o *Ops) takeDownUndeclared(ctx context.Context, team string, purge bool) (
 }
 
 // takeDownDeclared declares the team absent (purge marks its data for deletion), then runs
-// the play that stops it. declare.py's own exit status is the status when it refuses.
+// the play that stops it, both in one hold of the play lock, so a wait for it that does not end
+// in the lock leaves the team declared as it was. declare.py's own exit status is the status
+// when it refuses.
 func (o *Ops) takeDownDeclared(ctx context.Context, team string, purge bool) (term.ExitCode, bool) {
+	var code term.ExitCode
+	var ok bool
+	err := o.Locked(ctx, "take team "+team+" down", func(ctx context.Context) error {
+		code, ok = o.takeDownHeld(ctx, team, purge)
+		return nil
+	})
+	if err != nil {
+		o.Term.Printf("Nothing was changed: %s is still declared present and running.\n", team)
+		return LockExit(err), false
+	}
+	return code, ok
+}
+
+func (o *Ops) takeDownHeld(ctx context.Context, team string, purge bool) (term.ExitCode, bool) {
 	change, err := o.Declare.Remove(ctx, team, purge)
 	if err != nil {
 		return o.childExit(err), false

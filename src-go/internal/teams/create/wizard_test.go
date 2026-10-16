@@ -14,6 +14,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/playlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -126,13 +127,17 @@ type wzHarness struct {
 	missing  map[string]bool
 	applied  [][]string
 	applyErr error
-	pwd      []string
-	signIn   []string // "team ask=bool", one per look at the sign-in after a failed apply
-	pwdErr   error
-	element  []string
-	elemErr  error
-	execd    [][]string
-	execErr  error
+	// locks is each hold of the play lock asked for, with whether the team was declared before
+	// and after it; lockErr, when set, is a lock not taken (and fn is not run).
+	locks   []string
+	lockErr error
+	pwd     []string
+	signIn  []string // "team ask=bool", one per look at the sign-in after a failed apply
+	pwdErr  error
+	element []string
+	elemErr error
+	execd   [][]string
+	execErr error
 }
 
 // newWzHarness is a creator in a checkout of example-org/proj, on a terminal, with an
@@ -198,6 +203,7 @@ func newWzHarness(t *testing.T) *wzHarness {
 			h.applied = append(h.applied, teams)
 			return h.applyErr
 		},
+		Locked: h.locked,
 		SignInGap: func(_ context.Context, teams []string, ask bool) error {
 			h.signIn = append(h.signIn, strings.Join(teams, " ")+" ask="+strconv.FormatBool(ask))
 			return nil
@@ -217,6 +223,20 @@ func newWzHarness(t *testing.T) *wzHarness {
 	}
 	h.c.Gum.Runner = h.run
 	return h
+}
+
+// locked is the play lock's hold: fn is run, and what was declared and applied before and after
+// it is kept; with lockErr set, the lock is not taken and fn is not run.
+func (h *wzHarness) locked(ctx context.Context, purpose string, fn func(context.Context) error) error {
+	if h.lockErr != nil {
+		h.locks = append(h.locks, purpose+" (not taken)")
+		return h.lockErr
+	}
+	before := h.run.called("env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare create")
+	err := fn(ctx)
+	after := h.run.called("env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare create")
+	h.locks = append(h.locks, fmt.Sprintf("%s: declared before %v, after %v, applied %d", purpose, before, after, len(h.applied)))
+	return err
 }
 
 func (h *wzHarness) invoke(args ...string) term.ExitCode {
@@ -804,6 +824,32 @@ func TestYesWithNoBusAddressPassesDeclaresRefusalThrough(t *testing.T) {
 	if len(h.applied) != 0 {
 		t.Error("installed")
 	}
+}
+
+// The team is declared and installed in one hold of the play lock, so no other play run comes
+// between the write and its apply.
+func TestTheTeamIsDeclaredAndInstalledInOneHoldOfThePlayLock(t *testing.T) {
+	h := newWzHarness(t)
+	h.tty = false
+	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--org", "example-org"), 0, h)
+	if want := []string{"create team beta: declared before false, after true, applied 1"}; !slices.Equal(h.locks, want) {
+		t.Fatalf("holds %q, want %q", h.locks, want)
+	}
+}
+
+// The owner's defect: a create while another play run holds the lock, and the wait for it does
+// not end in the lock. Nothing is declared, nothing is installed, and the person is told so.
+func TestAPlayLockNotTakenAddsNothing(t *testing.T) {
+	h := newWzHarness(t)
+	h.tty = false
+	h.lockErr = fmt.Errorf("gave up: %w", playlock.ErrNotTaken)
+	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--org", "example-org"), 1, h)
+	if h.run.called("env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare create") || len(h.applied) != 0 {
+		t.Fatal("declared or installed without the lock")
+	}
+	wzContain(t, "stderr", h.err(), "ERROR: nothing was added: team beta was not saved, as the play lock was not free (above). "+
+		"Once the other play run has finished, run ccy-teams create again.")
+	wzLack(t, "stderr", h.err(), "declared in")
 }
 
 func TestAFailedInstallSaysHowToRetry(t *testing.T) {

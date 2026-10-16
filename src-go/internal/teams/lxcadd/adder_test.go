@@ -721,6 +721,43 @@ func TestAFailedApplyKeepsTheEntryAndSaysHowToGoOn(t *testing.T) {
 	}
 }
 
+// The member is declared and the team applied in one hold of the play lock.
+func TestTheMemberIsDeclaredAndAppliedInOneHoldOfThePlayLock(t *testing.T) {
+	r := newRig(t)
+	r.happy()
+	heldAtAdd := false
+	r.Fake.OnFunc(strings.Fields(r.DeclarePrefix("lxc-add")), func(c execx.Cmd) (execx.Result, error) {
+		if !slices.Contains(c.Args, "--dry-run") {
+			heldAtAdd = r.PlayLockHeld(t)
+		}
+		return execx.Result{Stdout: []byte("CHANGED\tLXC member agent@container-a in team alpha\n")}, nil
+	})
+	if code := r.run("alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	if !heldAtAdd || r.PlayLockHeld(t) {
+		t.Fatalf("held at the add %v, held after %v", heldAtAdd, r.PlayLockHeld(t))
+	}
+}
+
+// The owner's defect: an add while another play run holds the lock. The wait is a screen naming
+// the holder, and stopping it declares nothing and applies nothing.
+func TestStoppingTheWaitForThePlayLockAddsNothing(t *testing.T) {
+	r := newRig(t)
+	r.happy()
+	r.HoldPlayLock(t)
+	r.Script.Fzf = []string{"|EXIT"}
+	if code := r.run("alpha"); code != term.ExitCancelled {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	if r.addLine() != "" || len(r.applied) != 0 || len(r.setRoles) != 0 {
+		t.Fatalf("add %q, applied %v, set-role %v", r.addLine(), r.applied, r.setRoles)
+	}
+	if want := "as the play lock was not free (above). Once the other play run has finished, run ccy-teams lxc-add alpha again."; !strings.Contains(r.ErrOut.String(), want) {
+		t.Fatalf("stderr lacks %q:\n%s", want, r.ErrOut.String())
+	}
+}
+
 func TestATeamNotDeclaredIsRefusedBeforeAnythingIsAsked(t *testing.T) {
 	r := newRig(t)
 	if code := r.run("nosuch"); code != term.ExitUsage {
