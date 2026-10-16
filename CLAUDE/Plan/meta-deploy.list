@@ -19,25 +19,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# Plan 00194 watcher fix and Plan 00203 board: deploys the ccy launcher 3.98.12, which requires
-# container 2.67, so the next ccy launch rebuilds the image once. The team watcher in ccy
-# sessions survives a homeserver restart (it waits, retries and catches up, with one log line at
-# the start and one at the end of an outage) and runs under a supervisor that starts it again if
-# it dies. The ccy-teams board shows each team's health problems (a stale or failed backup,
-# restarts, a health check that stopped) on the team's row. Relaunch every running team session
-# afterwards so it runs on 2.67; until then its watcher drops a team whose homeserver restarts.
-playbooks/imports/play-claude-yolo.yml
-# Plan 00203 server robustness: each team's homeserver gets readiness and a 30 s watchdog, is
-# restarted after any exit but a deliberate stop, and gets a minutely health check (client API
-# probe, restart count, backup age). Every live homeserver is backed up, then restarted once on
-# the new unit, before the acceptance below has proved that unit here. The play stops at the
-# first homeserver that does not report ready within its start timeout (the unit is Type=notify,
-# so the start waits for it), naming the team, and leaves the others as they were. Also: the
-# kit's pingbus as above, seat check waits for a starting homeserver, `agent-bus health status`,
-# and a supervised unit for any LXC member entry with service: true. No firewall rule changes.
-playbooks/imports/play-agent-bus.yml
-# Plan 00203 acceptance (ACCEPTANCE.md R1-R9), on a throwaway team acc-robust that it removes:
-# kills, ends and freezes its homeserver and times its return, shows a stale backup on the
-# board, times seat check waiting for a starting homeserver, checks any LXC member unit.
-00203-teams-hot-control-and-robustness
