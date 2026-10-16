@@ -13,7 +13,11 @@ ACTION = "erase"
 
 
 class Ask(Screen):
-    BINDINGS = [("y", "confirm", "Yes"), ("p", "purge", "Purge")]  # finding
+    BINDINGS = [
+        ("y", "confirm", "Yes"),
+        ("p", "purge", "Purge"),  # finding
+        ("escape", "dismiss", "Back"),
+    ]
 
     def compose(self):
         yield Button("Yes (y)", action="screen.confirm")
@@ -36,3 +40,6 @@ class Manager(App):
 
     def on_mount(self):
         self.bind("e", "export")  # finding
+
+    def key_z(self):  # finding
+        self.export()

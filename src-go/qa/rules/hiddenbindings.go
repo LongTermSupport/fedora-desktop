@@ -39,7 +39,8 @@ variable, an append or slices.Concat element, a Sprintf format, a folded concate
   - "--expect" or "--expect=..." outside the expectBuilders function;
   - "--bind=SPEC", or "--bind" followed by SPEC as the next argument, where SPEC binds a key
     (not an event such as start or focus) to anything but navigation: moving, selecting,
-    editing the query, changing how the rows are shown, or leaving (fzfbind's package doc);
+    editing the query, changing how the rows are shown, accepting the highlighted row (any
+    key: without --expect fzf cannot say which), or leaving (fzfbind's package doc);
   - a binding the rule cannot read: "--bind" with no constant beside it, a SPEC built at run
     time, or text after a run-time argument that closes it and adds a binding;
   - a ui.Action literal with a Key and no Label.

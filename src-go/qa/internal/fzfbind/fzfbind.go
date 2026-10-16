@@ -5,12 +5,13 @@
 //
 // Navigation, decided for this project: moving the cursor or the page, selecting and
 // deselecting rows (Tab's toggle in a multi picker), editing the query, changing only how
-// the same rows are shown (sort order, preview, wrapping), and leaving (Esc, q, abort), which
-// the pickers also offer as a visible Exit row. Enter, Ctrl-M and a double click accepting
-// the highlighted row choose the visible row, so they are navigation too. fzf events (start,
-// load, focus, change, ...) are not keys: nobody presses them. Every other action on a key
-// (accept, become, execute, reload, print, transform-*, an action fzf adds later) does
-// something the screen does not show.
+// the same rows are shown (sort order, preview and its window, prompt, header and border
+// label, wrapping, tracking), and leaving (Esc, q, abort), which the pickers also offer as a
+// visible Exit row. Any key accepting the highlighted row chooses the visible row: without
+// --expect (which only ui builds) fzf cannot tell the caller which key it was, so it is
+// Enter. fzf events (start, load, focus, change, ...) are not keys: nobody presses them. Every
+// other action on a key (become, execute, reload, print, transform-*, an action fzf adds
+// later) does something the screen does not show.
 package fzfbind
 
 import (
@@ -31,9 +32,6 @@ var events = map[string]bool{
 	"multi": true, "one": true, "zero": true, "backward-eof": true, "jump": true,
 	"jump-cancel": true, "click-header": true, "click-footer": true,
 }
-
-// chooseKeys accept the highlighted row: the visible choice itself.
-var chooseKeys = map[string]bool{"enter": true, "ctrl-m": true, "double-click": true}
 
 // navigation is the actions a key may be bound to: see the package doc.
 var navigation = setOf(
@@ -56,6 +54,11 @@ var navigation = setOf(
 	"preview-down", "preview-page-up", "preview-page-down", "preview-half-page-up",
 	"preview-half-page-down", "preview-top", "preview-bottom", "refresh-preview",
 	"show-preview", "hide-preview", "clear-screen", "ignore", "toggle-header",
+	"change-preview-window", "change-preview", "preview", "change-prompt", "change-header",
+	"change-border-label", "track", "untrack", "toggle-track", "toggle-search",
+	// choosing the highlighted row: without --expect (which only ui builds) fzf cannot tell the
+	// caller which key accepted, so any key that accepts is Enter on the visible row
+	"accept", "accept-non-empty",
 )
 
 func setOf(names ...string) map[string]bool {
@@ -192,7 +195,7 @@ func HiddenAction(b Binding) string {
 		return ""
 	}
 	for _, a := range b.Actions {
-		if navigation[a] || a == "accept" && chooseKeys[b.Trigger] {
+		if navigation[a] {
 			continue
 		}
 		return a

@@ -122,7 +122,7 @@ func (a *App) newPickState(ctx context.Context) *pickState {
 	if !st.projectHere {
 		st.newAction.Label = "Start a new ccy session here: unavailable, " + here + " is not a project folder (no git repository)"
 	}
-	st.header = ui.Header("Enter lists what can be done to the session   Esc or q quit",
+	st.header = ui.Header("Enter lists what can be done to the session   Ctrl-T take it over   Ctrl-X end it   Ctrl-N start a new one   Esc or q quit",
 		`"open elsewhere" is attached in another terminal: taking it over detaches that terminal and attaches this one; the session keeps running`,
 		`CPU: since the list last redrew ("-" until it has), 100% is one core`,
 		`network, token, SSH key: what its container is on and was started with — "no container" and "-" mean nothing to ask`)

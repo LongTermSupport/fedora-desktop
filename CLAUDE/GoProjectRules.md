@@ -238,10 +238,13 @@ binding as its shortcut.
 Navigation is not an action, decided for this project (`src-go/qa/internal/fzfbind`, which
 both checkers read): moving the cursor or the page, selecting rows (Tab's toggle in a
 multi-select list, whose screen says so), editing the query, changing only how the same rows
-are shown (sort order, preview, wrapping), and leaving (Esc, q, abort) beside the visible Exit
-row; Enter, Ctrl-M and a double click accepting the highlighted row choose the visible row.
-fzf events (`start`, `focus`, `load`, `change`, ...) are not keys. In Textual, an action named
-`focus*`, `scroll*` or `cursor*` moves focus, the cursor or the view. fzf's query editing is
+are shown (sort order, the preview, its window and its command, the prompt, header and border
+label, wrapping, tracking, search on or off), and leaving (Esc, q, abort) beside the visible
+Exit row. Any key that accepts the highlighted row chooses the visible row: without
+`--expect`, which only ui builds, fzf cannot tell the caller which key accepted, so it is the
+same as Enter. fzf events (`start`, `focus`, `load`, `change`, ...) are not keys. In Textual,
+an action named `focus*`, `scroll*` or `cursor*` moves focus, the cursor or the view, and
+`dismiss` and `pop_screen` leave the screen as fzf's abort leaves the list. fzf's query editing is
 navigation because it acts on the line being typed in, which always has the focus; a Textual
 action that clears a filter from anywhere on the screen (Esc in the model manager) changes
 what the list shows from outside the widget being typed in, so it is an action and gets its
@@ -260,14 +263,18 @@ Button.
 - Shell (`qa-hidden-bindings.bash`, every tracked shell file that runs fzf, by name, path or
   behind `command`/`env`): every `--expect` (shell has no `ui.Action`), and `--bind` judged as
   above, in any command or array assignment of the file, since fzf argv is often built in an
-  array.
+  array, and in a scalar assignment whose value starts with an option (`opts='--expect=...'`
+  spread unquoted, `FZF_DEFAULT_OPTS=...`), split on whitespace as an unquoted spread splits it.
 - Python (`qa-hidden-bindings.bash`, every tracked Python file that imports textual): each
   `BINDINGS` entry (`Binding(...)` or a tuple) and each `.bind(key, action)` must be navigation
   or the action of a `Button(..., action=...)` on the same screen: built in the `compose()` of
   the class that binds the key, with an action that runs there (no namespace, `app.` in an App,
   `screen.` in a screen). A binding or `BINDINGS` value that is not a literal is a finding.
   The Footer's list of bindings is not the visible choice: it is a hint line, not a control
-  that takes focus and Enter, so a binding the Footer shows still needs its Button.
+  that takes focus and Enter, so a binding the Footer shows still needs its Button. A
+  `key_NAME` method or an `on_key` handler takes keys with no binding, so no Button can pair
+  it: each is a finding. A Button paired only through `id=` and `on_button_pressed` does not
+  count; it pairs when it runs the action with `action=`.
 
 Every finding names `project_hidden_bindings`; this section is what it resolves to.
 
@@ -286,12 +293,13 @@ builds no fzf argv (`--expect` is a flag of other programs too). The fixtures in
 
 **Calibration recorded here** (the project had none): the sweep scope is all first-party Go,
 shell and Python git would publish, generated and vendored trees excluded (`scripts/qa-trees.tsv`),
-plus the GNOME Shell extensions read by hand; display-only toggles (fzf's `toggle-sort`) count
-as navigation.
+plus the GNOME Shell extensions read by hand; display-only actions (fzf's `toggle-sort`,
+`change-preview-window`, `toggle-track`, `preview`, ...) and any key that accepts count as
+navigation.
 
 - Red, fixture: `testdata/src/fix/internal/badbind` (`bad.go`: the originating Ctrl-A/X/O
-  `--expect`, keys bound to `accept`, `execute`, `become`, `reload`, a chained `toggle+accept`,
-  split `--expect`; navigation and events clean; `evade.go`: a constant, a variable, split
+  `--expect`, keys bound to `execute`, `become`, `reload`, a chained `toggle+execute`, split
+  `--expect`; navigation, any key accepting, display-only actions and events clean; `evade.go`: a constant, a variable, split
   `--bind` words with a literal, a run-time and no binding, `slices.Concat`, an appended
   literal slice, `Sprintf`, a run-time SPEC, a folded `"--exp" + "ect=..."`, a binding hidden
   after a run-time argument, a hidden key ahead of a run-time tail, a flag that `strings.Cut`,
@@ -300,8 +308,8 @@ as navigation.
   with a key and no label, keyed, blank and positional, flagged) and `fix/qa/rules` (clean).
   The shell and Python halves are proven against `tests/fixtures/hidden-bindings/fixture.bash`
   and `fixture.py` on every gate run (`fixture.py` includes a binding whose Button is on
-  another screen; `fixture.bash` keeps unmarked lines of what is not caught,
-  `FZF_DEFAULT_OPTS` and a `read -n1`), and by `src-go/qa/hiddenbindings` and
+  another screen, a `key_NAME` method, and Esc to `dismiss` clean; `fixture.bash` a scalar of
+  options, `FZF_DEFAULT_OPTS`, and an unmarked `read -n1`, which is not caught), and by `src-go/qa/hiddenbindings` and
   `tests/helpers/qa_environment/test_textual_bindings.py`.
 - Red, real tree (commits `8022a152` and `9e40ea6e`): Go, `internal/ui/picker.go:105`, the one
   `--expect` every keyed picker went through (`PickSpec.Keys`: the `ccy-teams` list and
@@ -316,11 +324,12 @@ as navigation.
   takes no keys; the history search spells its start-up binding in the call; the model
   manager has buttons for every action, its keys kept as shortcuts.
 - Not caught: a binding inside a shell string run by Go (`project_seam_commands` flags `sh -c`),
-  `FZF_DEFAULT_OPTS`, a binding assembled only from non-constant pieces, an action Go code runs
-  on a key it reads itself (no first-party Go reads raw keys; there is no terminal library in
-  `src-go`), an `Action` whose `Label` ui does not show (ui's tests hold that), single-key
-  `read -n1` menus in bash (every one found prints its choices), and GNOME Shell keybindings
-  (below).
+  `FZF_DEFAULT_OPTS` set in Go or in a shell file that does not run fzf, a binding assembled
+  only from non-constant pieces, an action Go code runs on a key it reads itself (no
+  first-party Go reads raw keys yet; Bubble Tea is vendored but has no key handler, and Plan
+  00204 Task 2.3 widens this rule before the first one lands), an `Action` whose `Label` ui
+  does not show (ui's tests hold that), single-key `read -n1` menus in bash (every one found
+  prints its choices), and GNOME Shell keybindings (below).
 
 **The next wider rule, not built:** every key a tool reads, by any means (`read -n1` in bash,
 GNOME Shell `Main.wm.addKeybinding`, a raw terminal read), must map to an action that is also
@@ -363,6 +372,6 @@ After the program runners were added, `sudo.Capture(ctx, "nmcli", "device")` was
 `project_hidden_bindings` was red through `scripts/qa-go.bash` at its own commit (`8022a152`:
 `internal/ui/picker.go:105:23: fzf --expect outside the ui Action builder`) and through
 `scripts/qa-hidden-bindings.bash` at `9e40ea6e` (10 findings in shell and Python), and green
-at the end of the remediation. A planted `"--bind=ctrl-a:accept"` in a package outside the
-rules package was reported by the rules step, and a planted `fzf --expect=ctrl-z` in a tracked
+at the end of the remediation. A planted `"--bind=ctrl-a:accept"` (since then counted as
+Enter) in a package outside the rules package was reported by the rules step, and a planted `fzf --expect=ctrl-z` in a tracked
 shell script by the gate; both were removed.

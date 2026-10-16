@@ -204,6 +204,44 @@ class KeyOnlyActions(unittest.TestCase):
         )
         self.assertEqual(len(found), 1)
 
+    def test_leaving_a_screen_is_navigation_like_fzf_abort(self):
+        self.assertEqual(
+            judge(
+                """
+                from textual.screen import ModalScreen
+
+                class Ask(ModalScreen):
+                    BINDINGS = [("escape", "dismiss", "Back"), ("q", "app.pop_screen", "Back")]
+                """
+            ),
+            [],
+        )
+
+    def test_a_key_method_and_a_key_handler_are_findings(self):
+        found = judge(
+            """
+            from textual.app import App
+            from textual import events
+
+            class A(App):
+                def key_d(self):
+                    self.download()
+
+                def on_key(self, event: events.Key):
+                    if event.key == "r":
+                        self.remove()
+
+                async def _on_key(self, event):
+                    pass
+
+            def key_x():
+                pass
+            """
+        )
+        self.assertEqual([line for line, _ in found], [6, 9, 13])
+        self.assertIn("key_d", found[0][1])
+        self.assertIn("on_key", found[1][1])
+
     def test_a_file_that_does_not_import_textual_is_not_judged(self):
         self.assertEqual(judge('BINDINGS = [("d", "download", "Download")]\n'), [])
 

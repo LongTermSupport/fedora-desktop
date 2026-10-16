@@ -5,8 +5,10 @@ no visible control on the screen offers.
 Every action is a visible, named choice; a key is only a shortcut to one. In a Textual app the
 visible choice is a Button that runs the same action (Button("Download (d)",
 action="app.download")), so a binding is judged by its action: it must be navigation (an action
-named focus*, scroll* or cursor*, which moves focus, the cursor or the view) or the action of a
-Button on the same screen. The same screen is the class that binds the key: the Button is built
+named focus*, scroll* or cursor*, which moves focus, the cursor or the view, or dismiss and
+pop_screen, which leave the screen as fzf's abort leaves the list) or the action of a
+Button on the same screen. A key_NAME method or an on_key handler takes keys with no binding
+at all, so nothing can pair it: each is a finding. The same screen is the class that binds the key: the Button is built
 in that class's compose(), and its action runs there (no namespace, "app." in an App class,
 "screen." in any other). A Button built anywhere else, or one compose() reaches only through
 another method, pairs nothing.
@@ -32,6 +34,10 @@ import sys
 
 RULE = "project_hidden_bindings"
 NAVIGATION_PREFIXES = ("focus", "scroll", "cursor")
+# Leaving a screen, as fzf's abort leaves the list: navigation on any key.
+LEAVING = frozenset({"dismiss", "pop_screen"})
+# Textual's catch-all key handlers.
+KEY_HANDLERS = frozenset({"on_key", "_on_key"})
 EXIT_CANNOT_RUN = 2
 
 
@@ -182,7 +188,7 @@ def judge_source(source: str, path: str) -> list[Finding]:
             )
             continue
         name = _action_name(action)
-        if name.startswith(NAVIGATION_PREFIXES) or name in buttons:
+        if name.startswith(NAVIGATION_PREFIXES) or name in LEAVING or name in buttons:
             continue
         findings.append(
             Finding(
@@ -191,7 +197,27 @@ def judge_source(source: str, path: str) -> list[Finding]:
                 f"add a Button whose action= runs {name} on its screen [{RULE}]",
             )
         )
-    return findings
+    findings += _key_handlers(tree)
+    return sorted(findings, key=lambda f: f.line)
+
+
+def _key_handlers(tree: ast.Module) -> list[Finding]:
+    """A key_NAME method or an on_key handler in a class: Textual routes keys to them with no
+    BINDINGS entry, so no Button can be paired with what they do."""
+    found = []
+    for cls in (n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)):
+        for stmt in cls.body:
+            if not isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            if stmt.name.startswith("key_") or stmt.name in KEY_HANDLERS:
+                found.append(
+                    Finding(
+                        stmt.lineno,
+                        f"Textual {stmt.name}: a key handled with no visible control; bind the "
+                        f"key in BINDINGS to an action a Button on the screen runs [{RULE}]",
+                    )
+                )
+    return found
 
 
 def main(argv: list[str]) -> int:

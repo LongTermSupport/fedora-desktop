@@ -174,7 +174,7 @@ func TestThePickerListsEveryActionAndTakesOnlyTheirKeys(t *testing.T) {
 		t.Fatalf("%v", rig.argv)
 	}
 	contains(t, "argv", rig.argv[0], "--expect=ctrl-n,ctrl-t,ctrl-x", "--border-label= CCY sessions ",
-		"Enter lists what can be done to the session   Esc or q quit",
+		"Enter lists what can be done to the session   Ctrl-T take it over   Ctrl-X end it   Ctrl-N start a new one   Esc or q quit",
 		`"open elsewhere" is attached in another terminal: taking it over detaches that terminal and attaches this one; the session keeps running`,
 		`CPU: since the list last redrew ("-" until it has), 100% is one core`,
 		`network, token, SSH key: what its container is on and was started with — "no container" and "-" mean nothing to ask`)

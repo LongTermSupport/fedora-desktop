@@ -23,18 +23,8 @@ func (r *run) do(ctx context.Context, id string, row board.Row) (flow.Result, er
 		return r.p.Seats.RemoveOrPark(ctx, r.snap, row)
 	case actElement:
 		return r.p.Login.OpenElement(ctx, r.snap, row.Team)
-	case actElementAll:
-		// Unlike one team's Ctrl-E, this can name several teams with no profile, so it waits
-		// for Enter before the list is redrawn over what it said.
-		res, err := r.p.Login.OpenEveryTeam(ctx, r.snap)
-		if err == nil {
-			r.p.Kit.BackToList(ctx)
-		}
-		return res, err
 	case actPassword:
 		return r.p.Login.PasswordRow(ctx, r.snap, row)
-	case actUpdate:
-		return r.updateAll(ctx)
 	case actHelp:
 		r.p.showHelp(ctx)
 		return flow.Done, nil
@@ -44,6 +34,23 @@ func (r *run) do(ctx context.Context, id string, row board.Row) (flow.Result, er
 		return r.p.Seats.ToggleCoordinator(ctx, r.snap, row)
 	case actLxc:
 		return r.addLxc(ctx, row.Team)
+	}
+	return r.doTeam(ctx, id, row)
+}
+
+// doTeam is one of a team row's own actions.
+func (r *run) doTeam(ctx context.Context, id string, row board.Row) (flow.Result, error) {
+	switch id {
+	case actElementAll:
+		// Unlike one team's Ctrl-E, this can name several teams with no profile, so it waits
+		// for Enter before the list is redrawn over what it said.
+		res, err := r.p.Login.OpenEveryTeam(ctx, r.snap)
+		if err == nil {
+			r.p.Kit.BackToList(ctx)
+		}
+		return res, err
+	case actUpdate:
+		return r.updateAll(ctx)
 	case actShutdown:
 		return r.p.Shutdown.Offer(ctx, row.Team)
 	case actSettings:
