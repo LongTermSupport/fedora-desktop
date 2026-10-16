@@ -102,9 +102,12 @@ Usage:
                                    running containers (as root: sudo asks), then asks, with
                                    gum, for the container, its user (the container's ordinary
                                    users are suggested), the checkout inside it (those in the
-                                   user's home with a GitHub remote are suggested) and the role
-                                   (worker first; the coordinator on a team with none, or on a
-                                   team that has one a takeover that names it, on No). The
+                                   user's home with a GitHub remote are offered, ccy projects
+                                   first; Type a path... walks the container's directories, Tab
+                                   completing a name) and the role (worker first; the
+                                   coordinator on a team with none, or on a team that has one a
+                                   takeover that names it, on No), each question naming the
+                                   team, the step, the container and the user. The
                                    handle's repo, host and seat are never asked: they come from
                                    the checkout as ccy derives them (repo from its origin, host
                                    from .claude/ccy/ccy.env.local else local, the next free
@@ -116,8 +119,10 @@ Usage:
                                    the team, which joins the member (the user must already
                                    exist and be logged in to gh in the container; the play
                                    stops, naming it, when not). It ends by printing what is
-                                   left inside the container: ccy --teams <team> as that user
-                                   in the checkout. Hand-editing agent_bus_lxc_members still works
+                                   left inside the container: the kit's agent-bus-claude as that
+                                   user in the checkout (a session already running there is
+                                   named, to be started again), and a live pingbus check.
+                                   Hand-editing agent_bus_lxc_members still works
   ccy-teams apply <team> | --all   run play-agent-bus.yml for the team (or every team
                                    out of date or not built), and play-agent-bus-element.yml
                                    for those with an Element profile, then check each now

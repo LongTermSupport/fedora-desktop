@@ -91,7 +91,8 @@ that play.
    running containers, asks for the user, the checkout and the role (the handle's repo, host
    and seat are derived from the checkout, as for a ccy seat), shows the handle,
    writes the `agent_bus_lxc_members` entry and applies the team, then says what is left
-   inside the container (`gh auth login` if needed, then `ccy --teams <team>`). No hand edit
+   inside the container (`gh auth login` if needed, then the kit's `agent-bus-claude`, and
+   whether a session already running there must be started again). No hand edit
    of `localhost.yml` (writing the entry yourself and running `play-agent-bus.yml` still
    works). Nothing to declare for the network: every team admits the LXC bridge
    ([Joining a team](#joining-a-team)); [agent-bus-lxc-members.md](agent-bus-lxc-members.md)

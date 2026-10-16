@@ -17,9 +17,29 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.12.9 — container 2.77.7
+
+Follows 3.99.12.8 (container 2.77.6).
+
+- **`ccy-teams lxc-add` finds the checkout and keeps its place visible** (Plan 00203). The
+  Checkout step offers the git checkouts a bounded search of the user's home found (ccy
+  projects first, `node_modules` and `vendor` skipped, a search past its time limit said), and
+  *Type a path…* walks the container's directories with the arrows and Enter, Tab completing a
+  name. Every question names the team, the step, the container and the user. A container on
+  any LXC store is read: `dir` and `btrfs` as the directory their rootfs is, the others
+  through the running container's own root.
+- **After the add, it says how the member starts and checks itself**: the kit's
+  `agent-bus-claude` (a client project's own `ccy` in the container is not ours to name), a
+  Claude session already running there named with when it started, to be started again, and
+  `pingbus config check && pingbus history --limit 1` to see the team's room live. The
+  handle is shown with its container and user.
+- **`pingbus` in a member's login shell says how to read the env file** when `PINGBUS_TEAMS`
+  is unset (the image's pingbus, hence the container bump). It never reads the file itself:
+  `agent-bus-claude` stays its one reader.
+
 ## 3.99.12.8 — container 2.77.6
 
-Follows 3.99.12.4 (container 2.77.3).
+Follows 3.99.12.5 (container 2.77.4).
 
 - **The agent-bus status line wraps instead of being cut.** `pingbus status-line` appended
   `| bus: A,B` to the last row of the session's own status line. The hooks daemon's status line

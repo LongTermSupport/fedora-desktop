@@ -23,10 +23,14 @@
 # md-viewer: rebuild and install at main tip 22a55582735d (text on its baseline, dark mode
 # and font size settings); asserts `md-viewer --version` carries the new commit.
 playbooks/imports/optional/common/play-md-viewer.yml
-# ccy 3.99.12.8, container 2.77.6 (each project's image is rebuilt once, at its next ccy
+# ccy 3.99.12.9, container 2.77.7 (each project's image is rebuilt once, at its next ccy
 # launch): deploys cc, cc-teams.bash and the ccy launcher, and rebuilds ccy-teams.
 # The agent-bus status line shows its teams as 👥 A,B on rows of their own, wrapped at the
 # terminal's width, instead of `bus: A,B` appended to the last row, where Claude Code cut it.
+# ccy-teams lxc-add: the Checkout step offers the checkouts found in the user's home and walks
+# the container's directories with Tab completion, every question names team, step, container
+# and user, and the end says how the member starts (agent-bus-claude), whether a running
+# session must be restarted, and how to check it live. A container on any LXC store is read.
 # Making a coordinator is one of two questions: a team with none is offered one plainly; a team
 # that has one gets a takeover naming the current coordinator, on No (lxc-add too). The picker's
 # describe offer is now, not now or never (an old no is asked again once). Launch questions are

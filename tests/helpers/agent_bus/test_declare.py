@@ -1528,9 +1528,10 @@ class LxcCheckoutsTest(CommandCase):
     """The checkouts offered for the checkout question: those in the user's home with a GitHub
     remote, from what the host-side reader printed."""
 
-    def scan(self, *items: tuple[str, str | None]) -> str:
-        return json.dumps([{"path": path, "git_config": None if url is None else
-                            f'[remote "origin"]\n\turl = {url}\n'} for path, url in items])
+    def scan(self, *items: tuple[str, str | None], ccy: tuple[str, ...] = (), cut: bool = False) -> str:
+        return json.dumps({"checkouts": [{"path": path, "ccy": path in ccy, "git_config": None if url is None else
+                                          f'[remote "origin"]\n\turl = {url}\n'} for path, url in items],
+                           "timed_out": cut})
 
     def test_only_checkouts_with_a_github_remote_are_listed_with_their_repository(self) -> None:
         scan = self.scan(("/srv/agent/one", "git@github.com:Example-Org/One.git"),
@@ -1539,13 +1540,25 @@ class LxcCheckoutsTest(CommandCase):
                          ("/srv/agent/none", None))
         code, out, err = self.run_cmd("lxc-checkouts", "--scan", scan)
         self.assertEqual((code, err), (0, ""))
-        self.assertEqual(out, "CHECKOUT\t/srv/agent/one\texample-org/one\nCHECKOUT\t/srv/agent/two\texample-org/two\n")
+        self.assertEqual(out, "CHECKOUT\t/srv/agent/one\texample-org/one\t-\nCHECKOUT\t/srv/agent/two\texample-org/two\t-\n")
+
+    def test_a_ccy_project_comes_first_and_is_marked(self) -> None:
+        scan = self.scan(("/srv/agent/one", "git@github.com:example-org/one.git"),
+                         ("/srv/agent/two", "git@github.com:example-org/two.git"), ccy=("/srv/agent/two",))
+        code, out, _ = self.run_cmd("lxc-checkouts", "--scan", scan)
+        self.assertEqual((code, out), (0, "CHECKOUT\t/srv/agent/two\texample-org/two\tccy\n"
+                                          "CHECKOUT\t/srv/agent/one\texample-org/one\t-\n"))
+
+    def test_a_search_that_ran_out_of_time_says_so(self) -> None:
+        scan = self.scan(("/srv/agent/one", "git@github.com:example-org/one.git"), cut=True)
+        code, out, _ = self.run_cmd("lxc-checkouts", "--scan", scan)
+        self.assertEqual((code, out), (0, "CHECKOUT\t/srv/agent/one\texample-org/one\t-\nTIMEDOUT\n"))
 
     def test_nothing_found_prints_nothing(self) -> None:
-        self.assertEqual(self.run_cmd("lxc-checkouts", "--scan", "[]")[:2], (0, ""))
+        self.assertEqual(self.run_cmd("lxc-checkouts", "--scan", self.scan())[:2], (0, ""))
 
     def test_what_the_container_printed_is_judged(self) -> None:
-        for scan in ("{", self.scan(("relative", None)), self.scan(("/srv/\x1b[31m", None))):
+        for scan in ("{", "[]", self.scan(("relative", None)), self.scan(("/srv/\x1b[31m", None))):
             code, out, err = self.run_cmd("lxc-checkouts", "--scan", scan)
             self.assertEqual((code, out), (64, ""), scan)
             self.assertTrue(err.startswith("declare: "), err)
