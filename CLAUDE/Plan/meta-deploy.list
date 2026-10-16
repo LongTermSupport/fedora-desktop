@@ -19,14 +19,6 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-# Plan 00208 Phase 3: a failed Ctrl+Insert/Alt+Insert (Claude) dictation now shows its
-# notification even with Show Notifications off, as does every failure notice that stays
-# (wsi, wsi-stream, wsi-article; an article stopped at its silence or duration limit now
-# notifies too). Builds and installs the new wsi-postprocess, and deploys the extension's new
-# menu items, Post-Process Last Transcription: Corporate and Natural (the result goes to the
-# clipboard, the transcription stays as it was), and a notification at login if a record key
-# could not be registered. THE EXTENSION CHANGED: LOG OUT AND BACK IN after this run (Wayland
-# reloads extension code only at login); the scripts and binaries apply at once.
 # Plan 00208 Phase 4: builds and installs wsi-claude-token, which wsi-claude-process now asks
 # for the Claude account. Settings gains "Use the token with the most allowance left" (off by
 # default, so nothing changes until it is ticked): each post-processing then runs as the token
