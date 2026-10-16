@@ -173,7 +173,9 @@ func TestEveryKeyIsInTheMenuOfTheRowsItActsOn(t *testing.T) {
 		}
 	}
 	for _, key := range pickerKeys {
-		if !seen[key] {
+		// Tab switches the list to the running sessions: it acts on no row, and the header's key
+		// line names it.
+		if !seen[key] && key != keyTab {
 			t.Fatalf("%s is in no row's menu", key)
 		}
 	}

@@ -33,6 +33,28 @@ func TestAttachSeatAttachesALiveSessionAndEndsThePicker(t *testing.T) {
 	}
 }
 
+// Plan 00203 M5: the picker's Running sessions view attaches a session by its name, through
+// the same checks as a seat's attach.
+func TestAttachSessionAttachesALiveSessionByName(t *testing.T) {
+	h := newRig(t)
+	h.attachable()
+	snap := h.pass(t)
+	res, err := h.s.AttachSession(context.Background(), snap, "ccy-proj")
+	if code, ok := flow.ExitCodeOf(err); !ok || code != 0 || res != flow.Done {
+		t.Fatalf("%v %v %v", res, err, h.ErrOut.String())
+	}
+	if !h.Fake.Called("tmux -L ccy attach-session -t =ccy-proj") {
+		t.Fatalf("calls %v", h.Fake.Calls())
+	}
+	h = newRig(t)
+	snap = h.pass(t)
+	res, err = h.s.AttachSession(context.Background(), snap, "ccy-gone")
+	if err != nil || res != flow.Refused ||
+		!strings.Contains(h.ErrOut.String(), "'ccy-gone' is not running in ccy's tmux any more, so there is nothing to attach.\n") {
+		t.Fatalf("%v %v %q", res, err, h.ErrOut.String())
+	}
+}
+
 func TestAttachSeatRefusesWhatCannotBeAttached(t *testing.T) {
 	cases := map[string]string{
 		"dev":                 "Seat dev@alpha has no running session to attach. Ctrl-N starts one.\n",

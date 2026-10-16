@@ -73,17 +73,26 @@ func (s *Seats) AttachSeat(ctx context.Context, snap *board.Snapshot, row board.
 	if row.Dir == "-" {
 		return s.Kit.Refuse(ctx, row.Handle+" is a ccy member whose checkout is not known here, so there is no session to attach.")
 	}
-	clients, live := snap.Live[row.Session]
-	if !live {
+	if _, live := snap.Live[row.Session]; !live {
 		return s.Kit.Refuse(ctx, "Seat "+row.Member+"@"+row.Team+" has no running session to attach. Ctrl-N starts one.")
 	}
-	if clients != 0 {
-		return s.Kit.Refuse(ctx, "'"+row.Session+"' is open in another terminal. ccy-sessions takes it over (Ctrl-T).")
+	return s.AttachSession(ctx, snap, row.Session)
+}
+
+// AttachSession attaches this terminal to session, a session of ccy's tmux, and ends the
+// picker; one open in another terminal, or gone, is refused.
+func (s *Seats) AttachSession(ctx context.Context, snap *board.Snapshot, session string) (flow.Result, error) {
+	clients, live := snap.Live[session]
+	if !live {
+		return s.Kit.Refuse(ctx, "'"+session+"' is not running in ccy's tmux any more, so there is nothing to attach.")
 	}
-	outcome, err := s.Tmux.Attach(ctx, row.Session)
+	if clients != 0 {
+		return s.Kit.Refuse(ctx, "'"+session+"' is open in another terminal. ccy-sessions takes it over (Ctrl-T).")
+	}
+	outcome, err := s.Tmux.Attach(ctx, session)
 	if err != nil {
 		s.Kit.Term.PrintError(err.Error())
-		return s.Kit.Refuse(ctx, "'"+row.Session+"' was taken or ended just now — the list has been refreshed.")
+		return s.Kit.Refuse(ctx, "'"+session+"' was taken or ended just now — the list has been refreshed.")
 	}
 	if outcome == tmuxccy.Kicked {
 		s.Kit.BackToList(ctx)

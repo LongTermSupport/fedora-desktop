@@ -28,7 +28,24 @@ Keys:
   Ctrl-R   restore after a reboot, on or off, for the seat's session
   Ctrl-X   remove a seat, park a member, or take a team down (after a yes/no; a
            backup first, and the data kept unless you type the team's name)
+  Tab      the running sessions (below); Tab again comes back to the teams
   ?        this help          Esc or q   leave
+
+Running sessions (Tab) lists every session ccy's tmux started (the ones ccy-sessions lists):
+its checkout, its teams (seat, and the role it was told) and its state. Its teams can be
+changed while it runs; nothing restarts, except a session started on no team, which
+relaunches once on its first join. A ccy run in a plain terminal is not listed and cannot
+be changed. Keys there:
+  Enter    its menu: add to a team, remove from one, move, change a role, attach, and
+           repair the seat keeper when it has stopped (unguarded)
+  Ctrl-A   add it to a team: the team, the seat (the lowest free one, or one you pick)
+           and the role
+  Ctrl-X   remove it from a team; for the team's coordinator, it asks whether the role
+           goes to no one or to another member
+  Ctrl-O   make its seat in a team a worker or the coordinator
+  Esc      back to the teams
+Each change is `ccy-teams session add|remove|move|role|repair`, run for you: it asks
+before it changes anything and prints each step (✓ done, ✗ failed, - already so).
 
 Add an LXC container's agent to <team> is in the menu of every row (Enter; it has no key).
 It lists the host's running LXC containers and asks for the container, its user, the
