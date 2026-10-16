@@ -72,6 +72,7 @@ class FakeHost:
         self.install_root = root / "install"
         self.health_dir = root / "applied" / "health"
         self.health_dir.parent.mkdir()
+        self.made(NOW - 30 * 24 * HOUR)
         (self.state_root / TEAM).mkdir(parents=True)
         (self.state_root / TEAM / "team.json").write_text(json.dumps({"team": TEAM, "port": 8448}), encoding="utf-8")
 
@@ -99,6 +100,12 @@ class FakeHost:
         self.slept.append(seconds)
         self.now += seconds
         self.mono += seconds
+
+    def made(self, at: float) -> None:
+        """The team's applied stamp, which agent-bus-install writes when it builds or changes the team."""
+        stamp = self.health_dir.parent / f"{TEAM}.json"
+        stamp.write_text("{}\n", encoding="utf-8")
+        os.utime(stamp, (at, at))
 
     def backup(self, number: int, age: float) -> None:
         meta = self.state_root / TEAM / "backups" / "meta"
@@ -273,6 +280,19 @@ class BackupTest(HealthTestCase):
         (self.host.install_root / TEAM / "backups" / "agent-bus-state-3.tar").unlink()
         self.check()
         self.assertIn("no backup exists, though the daily backup has run", self.problems()[0])
+
+    def test_a_last_run_from_before_the_team_was_made_is_not_a_run(self):
+        """A removed team's timer state (Persistent=true) left behind gives a new team of the
+        same name a LastTriggerUSec from before it existed; that is no backup run of this team."""
+        (self.host.install_root / TEAM / "backups" / "agent-bus-state-3.tar").unlink()
+        self.host.made(NOW - HOUR)
+        self.check()
+        self.assertEqual(self.problems(), [])
+
+    def test_a_team_with_no_applied_stamp_is_refused(self):
+        (self.host.health_dir.parent / f"{TEAM}.json").unlink()
+        with self.assertRaisesRegex(health.HealthError, r"no applied stamp .*team-a\.json"):
+            self.check()
 
     def test_no_backup_before_the_timer_first_ran_is_not(self):
         (self.host.install_root / TEAM / "backups" / "agent-bus-state-3.tar").unlink()

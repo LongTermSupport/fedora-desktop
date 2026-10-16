@@ -119,6 +119,11 @@ teardown() {
     # A failed run of a removed unit stays in systemctl --failed until reset; a pattern that
     # matches nothing is not an error.
     sudo -n systemctl reset-failed "agent-bus-*@${TEAM}.*" || return 1
+    # The backup timer's last run (Persistent=true), which the next acc-robust would inherit;
+    # remove clears it too, but not for a team an earlier, older run left half removed.
+    if sudo -n test -e "/var/lib/systemd/timers/stamp-agent-bus-backup@${TEAM}.timer"; then
+        sudo -n systemctl clean --what=state "agent-bus-backup@${TEAM}.timer" || return 1
+    fi
 }
 
 robust_cleanup() {
