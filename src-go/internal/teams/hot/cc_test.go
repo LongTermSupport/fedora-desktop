@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -139,6 +140,33 @@ func TestRepairOfACCSessionIsRefused(t *testing.T) {
 		t.Fatalf("a running keeper: exit %d:\n%s", code, r.ErrOut.String())
 	}
 	wantLines(t, r.ErrOut.String(), "- keeper: running")
+}
+
+// Fable's M6 review B1: a plain cc started under the tmux name of an ended cc --teams finds that
+// session's membership left behind. Its own start rewrote the record of the name without --teams
+// or --bus, so the membership is not its: it is not listed, not in any team, and not changed.
+func TestAPlainCCUnderTheNameOfAnEndedOneOwnsNoMembership(t *testing.T) {
+	r := newCCRig(t, membership.Seat{Team: "beta", Seat: "1"})
+	r.labelled("")
+	plain := registry.Record{Name: ccSession, Dir: r.Checkout(), Launcher: "/x/cc", Prefix: "cc", Restore: true, Args: []string{"--model", "x"}}
+	if err := r.store.Write(plain); err != nil {
+		t.Fatal(err)
+	}
+	if code := r.run(t, "list"); code != term.ExitOK || r.Out.Len() != 0 {
+		t.Fatalf("a plain cc is not listed: exit %d: %q", code, r.Out.String())
+	}
+	if in, err := r.x.SessionsIn(t.Context(), "beta"); err != nil || len(in) != 0 {
+		t.Fatalf("a plain cc is in no team: %v %v", in, err)
+	}
+	if code := r.run(t, "add", ccSession, "alpha/3", "--yes"); code != exitConfig {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	wantLines(t, r.ErrOut.String(), "✗ session "+ccSession+": it was started without --teams or --bus, so it is not on the "+
+		"agent team bus (the membership under its name is an earlier session's); start it again with cc --bus or cc --teams "+
+		"to change it while it runs")
+	if r.Fake.Called("agent-bus seat") || r.Fake.Called("sudo") {
+		t.Fatalf("nothing is taken for a session that is not on the bus: %v", r.Fake.Calls())
+	}
 }
 
 func TestListShowsRunningCCSessions(t *testing.T) {

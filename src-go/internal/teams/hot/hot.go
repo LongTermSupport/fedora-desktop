@@ -31,6 +31,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessprobe"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/discover"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
@@ -392,8 +393,13 @@ func (x *Hot) resolve(ctx context.Context, r request) (*target, term.ExitCode, b
 		x.mark(markFailed, "session "+session+": "+err.Error())
 		return nil, term.ExitFailure, false
 	}
-	if _, recErr := store.Get(session); recErr != nil {
+	rec, recErr := store.Get(session)
+	if recErr != nil {
 		x.mark(markFailed, "session "+session+": "+recErr.Error()+"; only a session ccy-sessions knows can be changed while it runs")
+		return nil, exitConfig, false
+	}
+	if !discover.LaunchedWithBus(rec) {
+		x.notOnBus(t)
 		return nil, exitConfig, false
 	}
 	dir := membership.DirOf(runtime, t.kind, session)
@@ -444,6 +450,17 @@ func (x *Hot) locate(ctx context.Context, t *target) (term.ExitCode, bool) {
 	x.mark(markFailed, "session "+t.session+": no running container is labelled "+sessionTag+t.session+
 		": it is not running, or it was started outside ccy's tmux, so it cannot be changed while it runs")
 	return exitConfig, false
+}
+
+// notOnBus says why a session whose own launch left the bus out cannot be changed, though a
+// membership is under its name: an earlier session's, left behind (Fable's M6 review B1).
+func (x *Hot) notOnBus(t *target) {
+	started, again := "with --no-bus", "relaunch it from ccy's tmux without --no-bus"
+	if t.cc() {
+		started, again = "without --teams or --bus", "start it again with cc --bus or cc --teams"
+	}
+	x.mark(markFailed, "session "+t.session+": it was started "+started+", so it is not on the agent team bus "+
+		"(the membership under its name is an earlier session's); "+again+" to change it while it runs")
 }
 
 // notKit says why a session with no readable membership cannot be changed while it runs.

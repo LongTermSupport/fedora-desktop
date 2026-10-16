@@ -161,6 +161,40 @@ func ReadDesired(runtimeDir string) ([]membership.Desired, []string, error) {
 	return found, unreadable, nil
 }
 
+// Current is the desired memberships still owned by the launch of their name (Fable's M6 review
+// B1). tmux reuses a session name once it ends, and each launch rewrites the record of its
+// name, so a membership counts only while that record carries the bus: a cc record with
+// --teams or --bus, a ccy record without --no-bus. A plain cc or a ccy --no-bus under a reused
+// name, or a session with no record, owns no membership left behind under it.
+func Current(desired []membership.Desired, records []registry.Record) []membership.Desired {
+	bus := make(map[string]bool, len(records))
+	for _, rec := range records {
+		bus[rec.Name] = LaunchedWithBus(rec)
+	}
+	return slices.DeleteFunc(slices.Clone(desired), func(d membership.Desired) bool { return !bus[d.Session] })
+}
+
+const (
+	// flagBus is cc's launch on the bus with no team; flagNoBus is ccy's launch without it.
+	flagBus   = "--bus"
+	flagNoBus = "--no-bus"
+)
+
+// LaunchedWithBus is whether a record's launch carries the agent team bus, judged on the
+// arguments before any "--" (those are claude's).
+func LaunchedWithBus(rec registry.Record) bool {
+	args := rec.Args
+	if end := slices.Index(args, "--"); end >= 0 {
+		args = args[:end]
+	}
+	if rec.Prefix != membership.KindCC {
+		return !slices.Contains(args, flagNoBus)
+	}
+	return slices.ContainsFunc(args, func(a string) bool {
+		return a == ccyenv.FlagTeams || a == flagBus || strings.HasPrefix(a, ccyenv.FlagTeams+"=")
+	})
+}
+
 // RunningCC is every cc session with a desired membership whose tmux session is live (on ccy's
 // server, where cc starts its sessions), and a line for each cc membership that could not be
 // read: the cc sessions hot control can change (H31, section 5.1).

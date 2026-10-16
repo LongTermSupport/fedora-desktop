@@ -14,6 +14,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessprobe"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/discover"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -39,12 +40,13 @@ type Cell struct{ Team, Seat, Role string }
 // OnlyTmuxLine is what the list and the picker's view say once about who can be changed (H35).
 const OnlyTmuxLine = "Only sessions started through ccy's tmux (the ones ccy-sessions lists) can be changed here."
 
-// listCache keeps what several sessions share: a checkout's seats and a team's homeserver; and
-// each running cc session's pane.
+// listCache keeps what several sessions share: a checkout's seats and a team's homeserver; each
+// running cc session's pane; and whether each session's own launch carried the bus (its record).
 type listCache struct {
 	seats map[string][]agentbus.Seat
 	up    map[string]bool
 	panes map[string]int
+	bus   map[string]bool
 }
 
 // Sessions is every running session ccy's tmux started, by name, read as `session list` reads
@@ -71,7 +73,11 @@ func (x *Hot) Sessions(ctx context.Context) ([]Session, error) {
 			running[name] = ""
 		}
 	}
-	cache := listCache{seats: map[string][]agentbus.Seat{}, up: map[string]bool{}, panes: cc}
+	bus, err := x.launchedWithBus()
+	if err != nil {
+		return nil, err
+	}
+	cache := listCache{seats: map[string][]agentbus.Seat{}, up: map[string]bool{}, panes: cc, bus: bus}
 	names := make([]string, 0, len(running))
 	for name := range running {
 		names = append(names, name)
@@ -155,7 +161,7 @@ func SessionLines(rows []Session, home string) (string, []string, error) {
 func (x *Hot) session(ctx context.Context, runtime, container, name string, cache listCache) Session {
 	kind := kindOf(container)
 	row := Session{Name: name, Kind: kind, Checkout: "-"}
-	d, err := membership.Read(membership.DirOf(runtime, kind, name))
+	d, err := ownMembership(runtime, kind, name, cache)
 	if errors.Is(err, os.ErrNotExist) {
 		row.State = "old or --no-bus: relaunch it to change it while it runs"
 		return row
@@ -195,6 +201,17 @@ func (x *Hot) session(ctx context.Context, runtime, container, name string, cach
 	row.Unguarded = aliveErr == nil && !alive && kind == kindCcy
 	row.State = rowState(name, kind, alive, aliveErr, seatsErr, down, unheld)
 	return row
+}
+
+// ownMembership is the session's desired membership, or none (os.ErrNotExist) when the record
+// its own launch wrote left the bus out: the membership under the name is then an earlier
+// session's (Fable's M6 review B1).
+func ownMembership(runtime, kind, name string, cache listCache) (membership.Desired, error) {
+	d, err := membership.Read(membership.DirOf(runtime, kind, name))
+	if err == nil && !cache.bus[name] {
+		return membership.Desired{}, os.ErrNotExist
+	}
+	return d, err
 }
 
 // stateWord is a session's STATE: what is wrong with it first, else ok.
@@ -268,15 +285,38 @@ func (x *Hot) SessionsIn(ctx context.Context, team string) ([]string, error) {
 	for name := range cc {
 		names[name] = ""
 	}
+	bus, err := x.launchedWithBus()
+	if err != nil {
+		return nil, err
+	}
 	var in []string
 	for name, container := range names {
 		d, readErr := membership.Read(membership.DirOf(runtime, kindOf(container), name))
-		if readErr == nil && slices.ContainsFunc(d.Seats, func(s membership.Seat) bool { return s.Team == team }) {
+		if readErr == nil && bus[name] && slices.ContainsFunc(d.Seats, func(s membership.Seat) bool { return s.Team == team }) {
 			in = append(in, name)
 		}
 	}
 	slices.Sort(in)
 	return in, nil
+}
+
+// launchedWithBus is, by session name, whether the record its own launch wrote carries the bus
+// (discover.LaunchedWithBus): a membership under a name whose launch left it out is an earlier
+// session's (Fable's M6 review B1).
+func (x *Hot) launchedWithBus() (map[string]bool, error) {
+	store, err := x.Host.Registry()
+	if err != nil {
+		return nil, err
+	}
+	listing, err := store.List()
+	if err != nil {
+		return nil, fmt.Errorf("the session records: %w", err)
+	}
+	bus := make(map[string]bool, len(listing.Records))
+	for _, rec := range listing.Records {
+		bus[rec.Name] = discover.LaunchedWithBus(rec)
+	}
+	return bus, nil
 }
 
 // TakeOut is `session remove <session> <team>` for a team being taken down (H29): the

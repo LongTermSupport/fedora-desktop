@@ -575,6 +575,17 @@ Two things are **not** frozen:
     - The record follows the change (`registry.SetCCTeams`): `--teams <seats>` while it has
       seats, `--bus` when it has none, so a restart from `ccy-sessions` starts where the last
       hot change left it. cc refuses `--bus` with `--teams` (64).
+    - A membership counts only while its session's own launch wrote it (Fable's M6 review B1):
+      tmux reuses a name once its session ends, and a cc membership is never removed, so a
+      plain cc reusing the name of an ended `cc --teams` would find one. Each launch rewrites
+      the record of its name, so `discover.Current` keeps a membership only while that record
+      carries the bus (a cc record with `--teams` or `--bus`; a ccy record without `--no-bus`).
+      `session list`, the picker, the board, seat allocation (`claimsElsewhere`) and every
+      `session` command use it; a command on a plain cc exits 78, "it was started without
+      --teams or --bus". The rule is in Go because cc's bash is at its allowlist record; the
+      directories left behind are inert, in the runtime directory, until logout or the next bus
+      launch under the name. A ccy `--no-bus` launch also removes its name's directory (the
+      launcher's half, within its limits).
     - The chooser's `choose-teams --type=host --bus` asks the consent alone and prints nothing;
       `describe-seats --sentence` is gone, with the system prompt that named the handles.
     - Not in M6: agent-bus's own H21 liveness (a running container) does not count a cc session,

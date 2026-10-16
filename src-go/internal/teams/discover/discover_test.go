@@ -121,6 +121,36 @@ func TestReadDesiredReadsCCSessionsToo(t *testing.T) {
 	}
 }
 
+// Fable's M6 review B1: tmux reuses a session's name once it ends, and each launch rewrites the
+// record of its name, so a membership counts only while that record's launch carries the bus. A
+// plain cc reusing the name of an ended cc --teams, or a ccy --no-bus reusing a ccy's, owns no
+// membership left behind under it; neither does a session with no record.
+func TestCurrentKeepsOnlyTheMembershipsTheirRecordsLaunchedWithTheBus(t *testing.T) {
+	d := func(name, kind string) membership.Desired { return membership.Desired{Session: name, Kind: kind} }
+	desired := []membership.Desired{
+		d("cc-teams", membership.KindCC), d("cc-teams-bare", membership.KindCC), d("cc-bus", membership.KindCC),
+		d("cc-plain", membership.KindCC), d("cc-after", membership.KindCC), d("cc.123", membership.KindCC),
+		d("ccy-a", membership.KindCcy), d("ccy-nobus", membership.KindCcy), d("ccy-norecord", membership.KindCcy),
+	}
+	records := []registry.Record{
+		{Name: "cc-teams", Prefix: "cc", Args: []string{"--model", "x", "--teams", "1@alpha"}},
+		{Name: "cc-teams-bare", Prefix: "cc", Args: []string{"--teams=1@alpha"}},
+		{Name: "cc-bus", Prefix: "cc", Args: []string{"--bus"}},
+		{Name: "cc-plain", Prefix: "cc", Args: []string{"--model", "x"}},
+		{Name: "cc-after", Prefix: "cc", Args: []string{"--", "--teams", "1@alpha"}},
+		{Name: "ccy-a", Prefix: "ccy", Args: []string{}},
+		{Name: "ccy-nobus", Prefix: "ccy", Args: []string{"--no-bus"}},
+	}
+	current := Current(desired, records)
+	got := make([]string, 0, len(current))
+	for _, c := range current {
+		got = append(got, c.Session)
+	}
+	if want := []string{"cc-teams", "cc-teams-bare", "cc-bus", "ccy-a"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("current %v, want %v", got, want)
+	}
+}
+
 func TestReadDesiredOfNoDirectoryIsNothing(t *testing.T) {
 	desired, unreadable, err := ReadDesired(t.TempDir())
 	if err != nil || len(desired) != 0 || len(unreadable) != 0 {

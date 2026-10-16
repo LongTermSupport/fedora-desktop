@@ -136,7 +136,10 @@ Built on `fix/teams-server-robustness`; design and evidence in
   and the record follows each change. CCY 3.99.12.1, container 2.77.1. Host
   acceptance: [ACCEPTANCE.md](ACCEPTANCE.md) M6, `_acceptance-m6.inc.bash`. As built, and what
   is not: SPEC-hot-control.md H32 (Decision 7). Notes:
-  [subagent-reports/261016-m6-opus.md](subagent-reports/261016-m6-opus.md).
+  [subagent-reports/261016-m6-opus.md](subagent-reports/261016-m6-opus.md). Fable said
+  FIX-FIRST ([subagent-reports/261016-m6-review-fable.md](subagent-reports/261016-m6-review-fable.md)):
+  B1 (a membership left under a reused tmux name) is fixed, for cc and for ccy `--no-bus`, with
+  the minor points; the re-check is to come.
 
 ## Decisions
 

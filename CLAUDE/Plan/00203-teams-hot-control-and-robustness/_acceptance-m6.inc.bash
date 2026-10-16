@@ -10,20 +10,12 @@
 #   - two throwaway teams, acc-m6a and acc-m6b (agent-bus-install, human `tester`), declared only
 #     in a host_vars file in the run directory (CCY_TEAMS_HOST_VARS), purged at the end, with
 #     their seat directories and the sessions' reports in this checkout;
-#   - three throwaway cc sessions in ccy's tmux, cc-acc-m6a-<pid> (A), cc-acc-m6b-<pid> (B) and
-#     cc-acc-m6c-<pid> (C), each with a registry record (restore=no) written as cc's own tmux
-#     start writes one, removed with their records and membership directories;
+#   - four throwaway cc sessions in ccy's tmux, cc-acc-m6{a,b,c,d}-<pid> (A, B, C, D), each with
+#     a registry record (restore=no) written as cc's own tmux start writes one, removed with
+#     their records, membership directories and private homes (cc-teams.XXXXXX);
 #   - the detached `sleep` that A's stand-in claude starts for (b), killed at the end.
 #
-# HOW A SESSION RUNS: as cc runs it from `--teams` or `--bus` on, through the deployed
-# /var/local/claude-code/cc-teams.bash: the pane sources it and runs cc_teams_ccy_dir,
-# cc_teams_settings and cc_teams_command (which writes the membership with `ccy-teams internal
-# membership-init --kind=cc` under the pane's own session name), then runs the command, so
-# `pingbus seat exec` and its seat keeper are the production ones. Two steps are not cc's: the
-# seats are taken here with `agent-bus seat take --type=host`, as cc_teams_take does it, because
-# sudo is primed on this terminal and not in the pane; and the command's `claude` is a stand-in
-# first on PATH (a real one needs a token and a person), which records its pid and sleeps. cc's
-# chooser and token prompt are scripts/test-cc-teams.bash's and the owner's step.
+# HOW A SESSION RUNS: m6_write_helpers says (cc's own library; seats taken here; claude stood in).
 #
 # CHECKS (each judged from what ccy-teams printed and exited, the membership files, the records,
 # agent-bus seat list and the processes; never from a model)
@@ -38,6 +30,8 @@
 #       re-run; restarted on its record's seat, C accepts and the add is "Nothing to do"; with
 #       C's keeper killed, the list says "unguarded: end it ..." and repair exits 78; `session
 #       remove C acc-m6a --yes` leaves its record on --bus
+#   (d) a reused name (Fable's B1): D, a plain cc whose record has no --teams or --bus, under a
+#       name with a cc membership left on 1@acc-m6a: not listed, in no team, add exits 78
 
 readonly M6_TEAM_A="acc-m6a"
 readonly M6_TEAM_B="acc-m6b"
@@ -45,6 +39,7 @@ readonly M6_HUMAN="tester"
 readonly M6_A="cc-acc-m6a-$$"
 readonly M6_B="cc-acc-m6b-$$"
 readonly M6_C="cc-acc-m6c-$$"
+readonly M6_D="cc-acc-m6d-$$"
 readonly M6_EV="${PLAN_RUN_DIR}/m6"
 readonly M6_HOST_VARS="${M6_EV}/host_vars.yml"
 readonly M6_STANDIN_DIR="${M6_EV}/bin"
@@ -151,6 +146,15 @@ m6_keeper_of() {
 
 # ── setup ─────────────────────────────────────────────────────────────────────────────────
 
+# m6_write_helpers — the stand-in claude and the pane's driver. A session runs as cc runs it from
+# `--teams` or `--bus` on, through the deployed /var/local/claude-code/cc-teams.bash: the driver
+# sources it and runs cc_teams_split_args, cc_teams_ccy_dir, cc_teams_settings and
+# cc_teams_command (which writes the membership with `ccy-teams internal membership-init
+# --kind=cc` under the pane's own session name), then the command, so `pingbus seat exec` and its
+# keeper are the production ones. Two steps are not cc's: the seats are taken from this terminal,
+# where sudo is primed, as cc_teams_take does it; and `claude` is a stand-in first on PATH (a real
+# one needs a token and a person). The driver notes its private home, which a tmux kill skips
+# removing, for m6_drop_home. cc's chooser and token prompt are test-cc-teams.bash's and the owner's.
 m6_write_helpers() {
     mkdir -p -- "${M6_STANDIN_DIR}" || return 1
     # The stand-in for claude: its pid where M6_STANDIN_PID says, and, with M6_DETACH, a sleep
@@ -172,6 +176,7 @@ source /var/local/claude-yolo/lib/tmux-session.bash
 source /var/local/claude-code/cc-teams.bash
 checkout="$(git rev-parse --show-toplevel)"
 tmp="$(mktemp -d "${XDG_RUNTIME_DIR:?}/cc-teams.XXXXXX")"
+printf '%s\n' "${tmp}" >"${M6_HOME_FILE:?}"
 if [[ -n "$1" ]]; then cc_teams_split_args --teams "$1"; else cc_teams_split_args --bus; fi
 CC_TEAMS_SEATS="$1"
 cc_teams_ccy_dir "${checkout}"
@@ -249,7 +254,7 @@ m6_up() {
 m6_launch() {
     local name="$1" seats="$2" command
     local -a record=(--bus) env=("M6_STANDIN_DIR=${M6_STANDIN_DIR}" "M6_STANDIN_PID=$(m6_ev "${name}.claude.pid")"
-        "M6_SETTINGS_COPY=$(m6_ev "${name}.settings.json")")
+        "M6_SETTINGS_COPY=$(m6_ev "${name}.settings.json")" "M6_HOME_FILE=$(m6_ev "${name}.home")")
     [[ -z "${seats}" ]] || record=(--teams "${seats}")
     [[ -z "${3:-}" ]] || env+=("M6_DETACH=$(m6_ev "${name}.detached.pid")")
     [[ " ${M6_NAMES[*]} " == *" ${name} "* ]] || M6_NAMES+=("${name}")
@@ -314,6 +319,7 @@ m6_restart() {
     if tmux -L ccy has-session -t "=$1"; then
         tmux -L ccy kill-session -t "=$1" || return 1
     fi
+    m6_drop_home "$1" || return 1
     m6_stop "$(m6_ev "$1.claude.pid")" || return 1
     rm -f -- "$(m6_ev "$1.status")" "$(m6_ev "$1.claude.pid")" "${M6_REPORTS:?}/$1/applied.json" || return 1
     m4_poll 20 "seat $2 free once $1 ended" m6_seat_is "${2#*@}" "${2%@*}" free || return 1
@@ -362,6 +368,27 @@ m6_check_bus() {
     fi
 }
 
+# m6_check_reused — Fable's B1: an ended cc --teams leaves its membership under its tmux name, and
+# the next cc of the checkout reuses the name. D is that next cc, started plain: its record, as
+# its own tmux start writes it, has neither --teams nor --bus, and its pane runs a stand-in. The
+# membership left on 1@acc-m6a must make D no cc session of the bus, and reserve no seat: B, a
+# live session of the checkout, still takes 1@acc-m6a.
+m6_check_reused() {
+    M6_NAMES+=("${M6_D}")
+    (cd -- "${PLAN_REPO_ROOT}" && ccy-teams internal membership-init --kind=cc "${M6_D}" "${PLAN_REPO_ROOT}" "1@${M6_TEAM_A}") >/dev/null || return 1
+    m6_record "${M6_D}" || return 1
+    tmux -L ccy new-session -d -s "${M6_D}" -c "${PLAN_REPO_ROOT}" "sleep 100000" || return 1
+    m6_teams session list </dev/null >"$(m6_ev reused-list.out)" 2>"$(m6_ev reused-list.err)" || return 1
+    if awk -F '\t' -v name="${M6_D}" '$1 == "SESSION" && $2 == name { found = 1 } END { exit !found }' "$(m6_ev reused-list.out)"; then
+        printf '[FAIL] session list shows the plain cc %s from the membership left under its name\n' "${M6_D}" >&2
+        return 1
+    fi
+    m6_run reused-add 78 add "${M6_D}" "${M6_TEAM_B}" --yes || return 1
+    m6_said reused-add "^✗ session ${M6_D}: it was started without --teams or --bus" || return 1
+    m6_run reused-claim 0 add "${M6_B}" "${M6_TEAM_A}/1" --yes || return 1
+    m6_said reused-claim "named by session ${M6_D}" no
+}
+
 # ── teardown ──────────────────────────────────────────────────────────────────────────────
 
 # m6_stop <pid file> — the process a stand-in recorded, ended if it still runs.
@@ -375,12 +402,27 @@ m6_stop() {
     fi
 }
 
+# m6_drop_home <session> — the private home its driver noted (mktemp's cc-teams. and six
+# characters, in the runtime directory), which a tmux kill ends the driver before it removes;
+# refused anywhere else.
+m6_drop_home() {
+    local home prefix="${XDG_RUNTIME_DIR:?}/cc-teams."
+    [[ -f "$(m6_ev "$1.home")" ]] || return 0
+    home="$(cat -- "$(m6_ev "$1.home")")" || return 1
+    if [[ "${home}" != "${prefix}"* || "${#home}" -ne $((${#prefix} + 6)) || "${home#"${prefix}"}" == *[!A-Za-z0-9]* ]]; then
+        printf '[FAIL] %s noted %s as its home, which is not a cc home: left in place\n' "$1" "${home}" >&2
+        return 1
+    fi
+    rm -rf -- "${home}" && rm -f -- "$(m6_ev "$1.home")"
+}
+
 m6_cleanup() {
     local status=0 name team
     for name in "${M6_NAMES[@]}"; do
         if tmux -L ccy has-session -t "=${name}"; then
             tmux -L ccy kill-session -t "=${name}" || status=1
         fi
+        m6_drop_home "${name}" || status=1
         m6_stop "$(m6_ev "${name}.claude.pid")" || status=1
         m6_stop "$(m6_ev "${name}.detached.pid")" || status=1
         rm -f -- "${M6_RECORDS:?}/${name}" || status=1
@@ -409,6 +451,7 @@ acceptance_m6() {
     check_leg "(a) move: a cc session moved between teams while it runs" m6_check_move
     check_leg "(b) audit F5: a detached process keeps no seat; the seat is free at once" m6_check_detached
     check_leg "(c) cc --bus: refuses until restarted on its first team; no repair; left on the bus" m6_check_bus
+    check_leg "(d) a reused name: a plain cc owns no membership left under its name" m6_check_reused
     plan_deploy_leg "remove the throwaway cc sessions and teams" m6_cleanup
-    m2_note "M6: (a)-(c) passed; cc's own launch (token chooser, consent, a real claude) is the owner's step in ACCEPTANCE.md"
+    m2_note "M6: (a)-(d) passed; cc's own launch (token chooser, consent, a real claude) is the owner's step in ACCEPTANCE.md"
 }

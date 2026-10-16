@@ -164,6 +164,16 @@ func (x *Hot) runningCC(ctx context.Context, runtime string) (map[string]int, []
 	if err != nil {
 		return nil, nil, err
 	}
+	store, err := x.Host.Registry()
+	if err != nil {
+		return nil, nil, err
+	}
+	listing, err := store.List()
+	if err != nil {
+		return nil, nil, fmt.Errorf("the session records: %w", err)
+	}
+	// A pane of the name whose own launch did not carry the bus owns no membership (B1).
+	desired = discover.Current(desired, listing.Records)
 	running := make(map[string]int, len(desired))
 	for _, d := range desired {
 		running[d.Session] = pane[d.Session]

@@ -234,14 +234,15 @@ func (x *Hot) claimsElsewhere(ctx context.Context, t *target) (claims, error) {
 	live := func(name string) bool {
 		return slices.ContainsFunc(sessions, func(s tmuxccy.Session) bool { return s.Name == name })
 	}
-	for _, d := range desired {
-		if d.Session != t.session && live(d.Session) {
-			c.live.AddDesired(d)
-		}
-	}
 	listing, err := t.store.List()
 	if err != nil {
 		return c, fmt.Errorf("the session records: %w", err)
+	}
+	// Only a membership its session's own launch wrote names seats (B1: a reused name).
+	for _, d := range discover.Current(desired, listing.Records) {
+		if d.Session != t.session && live(d.Session) {
+			c.live.AddDesired(d)
+		}
 	}
 	for _, rec := range listing.Records {
 		if rec.Name != t.session && rec.Restore && rec.Dir == t.checkout() && !live(rec.Name) {
