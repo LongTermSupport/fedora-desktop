@@ -348,7 +348,9 @@ hook_scan_text_for_private() {
         # YAML, in a path, in a URL, or in an email is always bounded by a non-word character.
         # What it gives up is a token glued INSIDE a longer word with no boundary, which is
         # not a shape leaked identifiers take.
-        if printf '%s' "$text" | grep -qwF -- "$token"; then
+        # A here-string, never `printf | grep -q`: grep stops at the first match, the printf
+        # still writing large text dies of SIGPIPE, and under pipefail a hit read as a miss.
+        if grep -qwF -- "$token" <<<"$text"; then
             seen[$field]=1
             printf '%s\n' "$field"
         fi

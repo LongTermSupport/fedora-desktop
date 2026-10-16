@@ -116,7 +116,7 @@ for PATTERN_INFO in "${MESSAGE_PATTERNS[@]}"; do
     echo -e "Suggestion: $SUGGESTION"
 
     # Show matching lines
-    echo "$MATCH_LINES" | head -3 | while IFS=: read -r LINE_NUM LINE_CONTENT; do
+    head -3 <<<"$MATCH_LINES" | while IFS=: read -r LINE_NUM LINE_CONTENT; do
         echo "  Line $LINE_NUM: ${LINE_CONTENT:0:80}"
     done
     echo ""
