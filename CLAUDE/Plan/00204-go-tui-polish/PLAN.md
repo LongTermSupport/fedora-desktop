@@ -166,7 +166,9 @@ the QA module's `go.mod` and runs as `go tool govulncheck`.
   - The rule's new wording in GoProjectRules.md, src-go/CLAUDE.md and QA.md.
 - [ ] ⬜ **Task 2.2**: The `project_seam_imports` rule (only `internal/ui` imports the TUI
   library), and `project_hidden_bindings` extended to `key.Binding` (RESEARCH §5.3).
-- [ ] ⬜ **Task 2.3**: Before the first Bubble Tea key handler lands (it must precede Task
+- [x] ✅ **Task 2.3** (red `727810c8`, green the next commit; the rule checks that every binding
+  has constant help, and ui's tests hold that ui draws it; Tab in a text input is navigation,
+  the owner's decision, recorded in the catalogue): Before the first Bubble Tea key handler lands (it must precede Task
   3.1), widen `project_hidden_bindings` to Bubble Tea (Fable's N4 on `dbf/hidden-bindings`):
   every `key.Binding` has help text and is rendered by the one help or menu component in
   `internal/ui`, and a `tea.KeyMsg` switch outside that component is a finding. Red first on a

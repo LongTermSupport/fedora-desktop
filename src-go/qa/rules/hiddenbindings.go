@@ -46,6 +46,13 @@ variable, an append or slices.Concat element, a Sprintf format, a folded concate
     time, or text after a run-time argument that closes it and adds a binding;
   - a ui.Action literal with a Key and no Label.
 
+Bubble Tea (teakeys.go): a key.NewBinding with no key.WithHelp, an empty one, or one whose key
+or words are not constants; a Bubble Tea key message (KeyMsg, KeyPressMsg, KeyReleaseMsg, Key)
+named outside internal/ui and its subpackages; and a key compared by hand (its String,
+Keystroke, Code or Text against a constant, in == / != or a switch case) unless the key is line
+editing or navigation: moving, editing the text, Tab completing it, accepting and leaving
+(lineKeys, lineCodes), standard UX the owner accepted with a hint line saying Tab completes.
+
 A literal compared with argv (==, a switch case, strings.HasPrefix, slices.Contains, ...) reads
 argv something else built and is not judged; test files are not judged.
 
@@ -67,6 +74,7 @@ func runHiddenBindings(pass *analysis.Pass) {
 		if isTestFile(pass, f) {
 			continue
 		}
+		judgeTeaKeys(pass, f)
 		skip := readingLiterals(pass, f)
 		for _, decl := range f.Decls {
 			s := &bindScan{pass: pass, fn: funcName(decl), skip: skip}

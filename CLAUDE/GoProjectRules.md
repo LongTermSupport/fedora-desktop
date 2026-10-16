@@ -252,7 +252,11 @@ an action named `focus*`, `scroll*` or `cursor*` moves focus, the cursor or the 
 navigation because it acts on the line being typed in, which always has the focus; a Textual
 action that clears a filter from anywhere on the screen (Esc in the model manager) changes
 what the list shows from outside the widget being typed in, so it is an action and gets its
-Button.
+Button. In a Bubble Tea text input the same holds: moving, editing the line, accepting and
+leaving are navigation, and so is **Tab completing the line**, decided by the owner: "Tab
+completion is acceptable as a magic key because it's standard UX", provided the screen shows a
+hint line saying Tab completes. Any other key a ui component takes is an action, matched
+through a `key.Binding` with help that ui draws.
 
 **What it flags.**
 
@@ -264,6 +268,13 @@ Button.
   closes it and adds a binding); and a `ui.Action` literal with a `Key` and no `Label`. The text
   is judged wherever it is spelt: a literal, a constant, a variable, an `append` or
   `slices.Concat` element, a `Sprintf` format, a folded concatenation.
+- Go, Bubble Tea (`qa/rules/teakeys.go`, same analyzer): a `key.NewBinding` with no
+  `key.WithHelp`, an empty one, or one whose key or words are not constants; a Bubble Tea key
+  message type (`KeyMsg`, `KeyPressMsg`, `KeyReleaseMsg`, `Key`) named outside `internal/ui` and
+  its subpackages (only ui's components take keys); and a key compared by hand (its `String`,
+  `Keystroke`, `Code` or `Text` against a constant, in `==`, `!=` or a switch case) unless the
+  key is line editing or navigation (`lineKeys`, `lineCodes`: arrows, Home/End, paging,
+  Backspace/Delete, the readline edits, Tab, Shift+Tab, Enter, Esc, Ctrl-C).
 - Shell (`qa-hidden-bindings.bash`, every tracked shell file that runs fzf, by name, path or
   behind `command`/`env`): every `--expect` (shell has no `ui.Action`), and `--bind` judged as
   above, in any command or array assignment of the file, since fzf argv is often built in an
@@ -329,9 +340,10 @@ navigation.
   manager has buttons for every action, its keys kept as shortcuts.
 - Not caught: a binding inside a shell string run by Go (`project_seam_commands` flags `sh -c`),
   `FZF_DEFAULT_OPTS` set in Go or in a shell file that does not run fzf, a binding assembled
-  only from non-constant pieces, an action Go code runs on a key it reads itself (no
-  first-party Go reads raw keys yet; Bubble Tea is vendored but has no key handler, and Plan
-  00204 Task 2.3 widens this rule before the first one lands), an `Action` whose `Label` ui
+  only from non-constant pieces, a key Go code reads other than through Bubble Tea
+  (a raw terminal read; none in `src-go`), whether a ui component actually draws a
+  `key.Binding`'s help (ui's tests hold that), a Bubble Tea key read through a type the rule
+  does not list, an `Action` whose `Label` ui
   does not show (ui's tests hold that), single-key `read -n1` menus in bash (every one found
   prints its choices), and GNOME Shell keybindings (below).
 
@@ -379,3 +391,9 @@ After the program runners were added, `sudo.Capture(ctx, "nmcli", "device")` was
 at the end of the remediation. A planted `"--bind=ctrl-a:accept"` (since then counted as
 Enter) in a package outside the rules package was reported by the rules step, and a planted `fzf --expect=ctrl-z` in a tracked
 shell script by the gate; both were removed.
+
+Its Bubble Tea clauses (Plan 00204 Task 2.3) were red at `727810c8` (`TestHiddenBindings`: 10
+wants unmet over the fixtures `fix/internal/ui/teakeys.go` and `fix/internal/badtea`, with
+stubs of Bubble Tea and Bubbles key under `testdata`) and green at the next commit; the
+fixture `fix/internal/ui/frame` proves a ui subpackage may read keys. The independent search
+made before the rule found no instance, and the sweep over both modules found none.
