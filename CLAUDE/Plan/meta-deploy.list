@@ -19,3 +19,7 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# md-viewer: rebuild and install at main tip 22a55582735d (text on its baseline, dark mode
+# and font size settings); asserts `md-viewer --version` carries the new commit.
+playbooks/imports/optional/common/play-md-viewer.yml
