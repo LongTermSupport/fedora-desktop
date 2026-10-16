@@ -61,7 +61,7 @@ func TestInputJSON(t *testing.T) {
 func TestEveryKeyHasAFieldAndOnlySetsKeysAreEditable(t *testing.T) {
 	keys := []string{
 		"team", "description", "humans", "org", "repos", "exclude", "path_prefixes", "allow_from",
-		"port", "listen", "server_name", "forge_api",
+		"port", "listen", "server_name", "forge_api", "removed_humans",
 	}
 	editable := []string{"description", "humans", "org", "repos", "exclude", "path_prefixes", "allow_from"}
 	if len(fields) != len(keys) {

@@ -121,3 +121,28 @@ rename as Task 2.16 (done). Reasons:
   committed separately.
 
 The owner's check is ACCEPTANCE-owner.md step 13.
+
+## After Fable's FIX-FIRST (261016-team-settings-review-fable.md)
+
+This section supersedes the version numbers and the queue notes above.
+
+- **A removed person can never return (S-F14).** `set` cannot read the homeserver, so the removal
+  is now recorded in the declaration. `set` adds every name it takes off `humans` to a new
+  optional team-file key, `removed_humans`. `teamfile.parse_team_file` refuses a `humans` list
+  that names any of them. That one rule is run by `set --check`, `set`, the play's
+  `render check` and `declared_config`, so the screen refuses the name as it is typed, and no
+  apply can be broken by it. The play's own account check stays for removals made by hand
+  before this key existed. The People text, the removal line of the summary, docs, help and
+  usage all say a removed name can never be added back. Removed people is shown as a fixed
+  field. Tests first: test_teamfile `RemovedHumansTest`, test_declare
+  `test_a_removed_person_is_recorded_and_can_never_return`, and the real-declare.py Go test.
+- **Versions.** F44 `0976d613` is merged in. The versions are now CCY 3.99.12.6 and container
+  2.77.5, with the changelog section on top.
+- **meta-deploy.list.** It holds F44's five entries, plus `play-agent-bus.yml` with its comment,
+  directly after `play-claude-yolo.yml`. The 00161 acceptance is not restored.
+- **Non-blocking fixes.**
+  - `removedPeople` returns its errors.
+  - Save and apply reads the settings again before its summary, so the old values shown are
+    those on disk at save time, and a value that became unreadable stops the save.
+  - A `set` that changes nothing now says "Nothing to save".
+  - The fake refusal in the test quotes the real limit, 16.

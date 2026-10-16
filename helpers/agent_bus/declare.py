@@ -991,7 +991,7 @@ def set_description(text: str, name: str, description: str) -> str | None:
 
 #: The keys of a team's entry that `settings` prints, in the order ccy-teams shows them.
 SETTINGS_KEYS = ("team", "description", "humans", "org", "repos", "exclude", "path_prefixes",
-                 "allow_from", "port", "listen", "server_name", "forge_api")
+                 "allow_from", "port", "listen", "server_name", "forge_api", "removed_humans")
 #: The keys `set` changes (Plan 00201 S-F3). A team's name and server_name never change once
 #: installed (render.check_unchanged); port and listen are in every member's bundle; forge_api
 #: has one allowed value (D66).
@@ -1072,6 +1072,21 @@ def _has_comment(lines: Sequence[str], index: int, end: int) -> bool:
     return any(re.search(r"(^|\s)#", part) for part in (rest, *lines[index + 1:end]))
 
 
+def with_removals(entry: Mapping, changes: Mapping[str, object | None]) -> dict[str, object | None]:
+    """The changes, with every person they take off `humans` added to `removed_humans`: the
+    play deactivates a removed person's account for good, and the team file refuses the name
+    in `humans` from then on (Plan 00201 S-F14)."""
+    out = dict(changes)
+    before, after = entry.get("humans"), changes.get("humans")
+    if not isinstance(before, list) or not isinstance(after, list):
+        return out
+    removed = list(entry.get("removed_humans") or [])
+    gone = [h for h in before if h not in after and h not in removed]
+    if gone:
+        out["removed_humans"] = removed + gone
+    return out
+
+
 def set_values(text: str, name: str, changes: Mapping[str, object | None]) -> str | None:
     """The file's text with the present team's keys set (a value) or removed (None), in one
     edit, every other line as it was; None when nothing changes. The entry as it would be is
@@ -1082,6 +1097,7 @@ def set_values(text: str, name: str, changes: Mapping[str, object | None]) -> st
     hv = parse(text)
     team = _present(hv, name)
     before = entry_of(team)
+    changes = with_removals(before, changes)
     after = dict(before)
     for key, value in changes.items():
         if value is None:
@@ -1138,7 +1154,7 @@ def set_command(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
         out.write(f"UNCHANGED\t{args.team}\n")
         return EXIT_OK
     backup = write(path, new)
-    out.write(f"CHANGED\tteam {args.team}: {', '.join(changes)}\n")
+    out.write(f"CHANGED\tteam {args.team}: {', '.join(with_removals(entry_of(team), changes))}\n")
     err.write(f"The file as it was is kept at {backup}.\n")
     return EXIT_OK
 

@@ -39,9 +39,11 @@ type machine struct {
 	inbound   bool
 	container string
 	relaunch  bool              // a relaunch request makes a new container
+	pane      int               // a cc session's tmux pane pid (0: not running); a ccy session has none
 	roles     map[string]string // team\thandle -> role, for the checkout's seats and others
 	others    map[string]int    // team -> members of other checkouts, beside roles
 	onPs      func()            // run at each podman ps, when set
+	onPanes   func()            // run at each tmux list-panes, when set
 }
 
 type rig struct {
@@ -49,6 +51,8 @@ type rig struct {
 
 	x        *Hot
 	m        *machine
+	name     string // the session's name
+	kind     string // its membership's kind: ccy or cc
 	runtime  string
 	storeDir string
 	store    *registry.Store
@@ -83,8 +87,15 @@ func seatOfRef(ref string) string { return strings.SplitN(ref, "@", 2)[0] }
 
 func newRig(t *testing.T, seats ...membership.Seat) *rig {
 	t.Helper()
+	return newRigAs(t, membership.KindCcy, session, seats...)
+}
+
+// newRigAs is a rig whose session is of the kind: a ccy session runs in container abc123, a cc
+// session on the host in tmux pane 4242.
+func newRigAs(t *testing.T, kind, name string, seats ...membership.Seat) *rig {
+	t.Helper()
 	w := teamtest.New(t)
-	r := &rig{World: w, runtime: t.TempDir(), storeDir: t.TempDir(), now: time.UnixMilli(1760000000000)}
+	r := &rig{World: w, name: name, kind: kind, runtime: t.TempDir(), storeDir: t.TempDir(), now: time.UnixMilli(1760000000000)}
 	r.store = registry.New(r.storeDir)
 	if err := os.MkdirAll(w.Checkout(), 0o700); err != nil {
 		t.Fatal(err)
@@ -97,17 +108,27 @@ func newRig(t *testing.T, seats ...membership.Seat) *rig {
 	w.Env["XDG_RUNTIME_DIR"] = r.runtime
 	w.Host.Registry = func() (*registry.Store, error) { return r.store, nil }
 	args := []string{"--no-ssh"}
+	if kind == membership.KindCC {
+		r.m.container, r.m.pane = "", 4242
+		for ref := range r.m.exists {
+			r.m.exists[ref] = strings.Replace(r.m.exists[ref], ".podman", ".host", 1)
+		}
+		args = []string{"--model", "x"}
+		if len(seats) == 0 {
+			args = append(args, "--bus")
+		}
+	}
 	if len(seats) > 0 {
 		args = append(args, "--teams", membership.Canonical(seats))
 	}
-	if err := r.store.Write(registry.Record{Name: session, Dir: w.Checkout(), Launcher: "/x/ccy", Prefix: "ccy", Restore: true, Args: args}); err != nil {
+	if err := r.store.Write(registry.Record{Name: name, Dir: w.Checkout(), Launcher: "/x/" + kind, Prefix: kind, Restore: true, Args: args}); err != nil {
 		t.Fatal(err)
 	}
 	if seats == nil {
 		seats = []membership.Seat{}
 	}
 	if err := membership.Write(r.dir(), membership.Desired{
-		V: 1, Session: session, Kind: "ccy", Checkout: w.Checkout(), Generation: 1, WrittenMS: 1,
+		V: 1, Session: name, Kind: kind, Checkout: w.Checkout(), Generation: 1, WrittenMS: 1,
 		Seats: seats, Farewell: []membership.Farewell{},
 	}); err != nil {
 		t.Fatal(err)
@@ -121,7 +142,10 @@ func newRig(t *testing.T, seats ...membership.Seat) *rig {
 	return r
 }
 
-func (r *rig) dir() string { return membership.Dir(r.runtime, session) }
+func (r *rig) dir() string { return membership.DirOf(r.runtime, r.kind, r.name) }
+
+// running is whether the session runs: its container, or a cc session's pane.
+func (m *machine) running() bool { return m.container != "" || m.pane != 0 }
 
 // role is a member's role in the fake roster, worker unless set.
 func (m *machine) role(team, handle string) string {
@@ -172,7 +196,7 @@ func (r *rig) writeReport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	teamtest.MustWrite(t, membership.ReportPath(r.Checkout(), session), string(data))
+	teamtest.MustWrite(t, membership.ReportPath(r.Checkout(), r.name), string(data))
 }
 
 func (r *rig) podmanPs(t *testing.T) execx.Result {
@@ -214,7 +238,7 @@ func (r *rig) seatList(t *testing.T) execx.Result {
 	for _, ref := range refs {
 		seat, team := refParts(ref)
 		state := "free"
-		mine := r.m.keeper && slices.Contains(d.Seats, membership.Seat{Team: team, Seat: seat}) && r.m.container != ""
+		mine := r.m.keeper && slices.Contains(d.Seats, membership.Seat{Team: team, Seat: seat}) && r.m.running()
 		if r.m.heldBy[ref] || mine {
 			state = "held"
 		}
@@ -256,8 +280,28 @@ func (r *rig) script(t *testing.T) {
 	t.Helper()
 	r.On("systemctl is-active agent-bus-hs@alpha.service", "active\n", 0)
 	r.On("systemctl is-active agent-bus-hs@beta.service", "active\n", 0)
-	r.On("tmux -L ccy list-sessions", session+" 0 "+r.Checkout()+"\n", 0)
+	r.Fake.OnFunc([]string{"tmux", "-L", "ccy", "list-sessions"}, func(execx.Cmd) (execx.Result, error) {
+		r.m.mu.Lock()
+		defer r.m.mu.Unlock()
+		if r.kind == membership.KindCC && r.m.pane == 0 {
+			return execx.Result{}, nil
+		}
+		return execx.Result{Stdout: []byte(r.name + " 0 " + r.Checkout() + "\n")}, nil
+	})
+	r.Fake.OnFunc([]string{"tmux", "-L", "ccy", "list-panes"}, func(execx.Cmd) (execx.Result, error) {
+		r.m.mu.Lock()
+		defer r.m.mu.Unlock()
+		if r.m.onPanes != nil {
+			r.m.onPanes()
+		}
+		if r.m.pane == 0 {
+			return execx.Result{Stdout: []byte("other 9\n")}, nil
+		}
+		return execx.Result{Stdout: []byte("other 9\n" + r.name + " " + strconv.Itoa(r.m.pane) + "\n")}, nil
+	})
+	r.Fake.OnFunc([]string{"ps", "-ww", "-eo"}, func(execx.Cmd) (execx.Result, error) { return r.processTable(), nil })
 	r.On("podman exec abc123 pingbus reach --team", "", 0)
+	r.On("/usr/local/share/agent-bus/kit/pingbus reach --team", "", 0)
 	r.On("/usr/local/share/agent-bus/kit/pingbus seat retire", "", 0)
 	r.On("/usr/local/share/agent-bus/kit/pingbus seat farewell", "", 0)
 	r.On("sudo -n -v", "", 0)
@@ -293,6 +337,25 @@ func (r *rig) script(t *testing.T) {
 		return execx.Result{}, nil
 	})
 	r.On("agent-bus seat choose alpha --type=podman", "CHOICE\t3\tfree\tproj.3+local.podman\tw\nCHOICE\t4\tnew\tproj.4+local.podman\tw\nDEFAULT\t3\n", 0)
+	r.On("agent-bus seat choose alpha --type=host", "CHOICE\t3\tfree\tproj.3+local.host\tw\nCHOICE\t4\tnew\tproj.4+local.host\tw\nDEFAULT\t3\n", 0)
+}
+
+// processTable is the host's ps: a cc session's pane runs cc, which runs claude, whose seat
+// keeper is its child while it is alive; a detached process and another session's keeper are
+// outside the pane's tree.
+func (r *rig) processTable() execx.Result {
+	r.m.mu.Lock()
+	defer r.m.mu.Unlock()
+	out := "    1     0 /usr/lib/systemd/systemd\n 7000     1 python3 -P /x/pingbus seat keep --launch --parent 6999\n"
+	if pane := r.m.pane; pane != 0 {
+		p := strconv.Itoa(pane)
+		out += " " + p + "     1 bash -c trampoline\n 4300 " + p + " /bin/bash /var/local/claude-code/cc --teams 1@beta\n" +
+			" 4301  4300 claude --plugin-dir /k/plugin/pingbus\n"
+		if r.m.alive {
+			out += " 4302  4301 python3 -P /usr/local/share/agent-bus/kit/pingbus seat keep --launch --parent 4301\n"
+		}
+	}
+	return execx.Result{Stdout: []byte(out)}
 }
 
 func (r *rig) run(t *testing.T, args ...string) term.ExitCode {
@@ -313,7 +376,7 @@ func (r *rig) desired(t *testing.T) membership.Desired {
 
 func (r *rig) recordArgs(t *testing.T) []string {
 	t.Helper()
-	rec, err := r.store.Get(session)
+	rec, err := r.store.Get(r.name)
 	if err != nil {
 		t.Fatal(err)
 	}

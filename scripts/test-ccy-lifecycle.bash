@@ -14,6 +14,10 @@
 # `set -e` is deliberately NOT used: every case must run so the summary reports the full
 # picture, and each result is checked explicitly.
 set -uo pipefail
+# Run inside a ccy session, the suite would inherit that session's agent-bus membership and
+# lifecycle settings: PINGBUS_MEMBERSHIP alone puts the plugin on the "no option" wrapper line.
+# Each case sets what it tests (helpers/qa_environment/session_env.py has the list and why).
+unset "${!PINGBUS_@}" "${!AGENT_BUS_@}" "${!CCY_LIFECYCLE_@}" CCY_SESSION_NAME
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -393,6 +397,10 @@ wrapper_case() {
         # with no option given; these cases are about the options alone.
         unset PINGBUS_MEMBERSHIP
         if [ "$wrapper" = "-" ]; then unset CCY_CLAUDE_WRAPPER; else export CCY_CLAUDE_WRAPPER="$wrapper"; fi
+        # A session on the agent team bus gets the plugin for its relaunch whatever the options
+        # say, and a run inside a ccy session inherits that session's PINGBUS_MEMBERSHIP: these
+        # cases are a session off the bus.
+        unset PINGBUS_MEMBERSHIP
         set -- "$@"
         # shellcheck source=/dev/null
         CCY_LIFECYCLE_MAX_AGE_SECONDS="$max_age" CCY_LIFECYCLE_DEADLINE_EPOCH="$deadline" \

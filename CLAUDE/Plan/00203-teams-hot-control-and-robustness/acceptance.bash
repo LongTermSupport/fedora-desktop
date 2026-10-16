@@ -7,6 +7,7 @@
 #   m1      _acceptance-m1.inc.bash      the seat keeper (M1 a-b); uses M2's session launch
 #   m3      _acceptance-m3.inc.bash      hot add and remove (M3 a-f); uses M2's cleanup
 #   m4      _acceptance-m4.inc.bash      role, move, locks, edge cases (M4 a-f); uses M2's and M3's
+#   m6      _acceptance-m6.inc.bash      cc sessions hot-controlled (M6 a-c); uses M2's, M3's and M4's
 #   robust  _acceptance-robust.inc.bash  server-side robustness (gaps 3, 4, 9, 10), R1-R9
 #
 # WHERE TO RUN: on the HOST, as the desktop user (sudo for each root step), on an SELinux host
@@ -43,8 +44,8 @@ ccy session, on two throwaway headless sessions in ccy's tmux (plain and --no-bu
 seat keeper (the helper tests, then a third throwaway plain session); M3, hot add and remove,
 on a throwaway headless session and the throwaway teams acc-m3a and acc-m3b; M4, role, move,
 the locks and the edge cases, on two throwaway headless sessions and the throwaway teams
-acc-m4a and acc-m4b; then server-side
-robustness, R1-R9, on the throwaway team acc-robust. Every throwaway is removed on the way
+acc-m4a and acc-m4b; M6, cc sessions moved, freed and joined from the bus, on three throwaway
+cc sessions and the throwaway teams acc-m6a and acc-m6b; then server-side robustness, R1-R9, on the throwaway team acc-robust. Every throwaway is removed on the way
 out. Exit 0 ACCEPTED, 1 REJECTED, 64 usage. Prompts for sudo once, before the run log opens."
 
 plan_mode deploy
@@ -81,6 +82,9 @@ source "${PLAN_SCRIPT_DIR}/_acceptance-m3.inc.bash"
 # shellcheck source=_acceptance-m4.inc.bash
 source "${PLAN_SCRIPT_DIR}/_acceptance-m4.inc.bash"
 # shellcheck source-path=SCRIPTDIR
+# shellcheck source=_acceptance-m6.inc.bash
+source "${PLAN_SCRIPT_DIR}/_acceptance-m6.inc.bash"
+# shellcheck source-path=SCRIPTDIR
 # shellcheck source=_acceptance-robust.inc.bash
 source "${PLAN_SCRIPT_DIR}/_acceptance-robust.inc.bash"
 
@@ -103,6 +107,7 @@ acceptance_m2
 acceptance_m1
 acceptance_m3
 acceptance_m4
+acceptance_m6
 acceptance_robust
 printf '\nACCEPTED: every milestone passed\n' | tee -a "${REPORT}"
 plan_finish

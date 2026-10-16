@@ -138,15 +138,16 @@ until **Save and apply**. It shows each change and what applying does, then writ
 host_vars in one edit (a backup kept beside it) and applies the team, as `ccy-teams apply`
 does. **Discard changes** forgets them, and **Back** asks first when some are not saved.
 
-| Field                                                         | What applying a change does                                                                                                                                    |
-| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Description                                                   | sets the team room's topic; no restart                                                                                                                         |
-| People (`humans`)                                             | an account and an invite for each person added (who then signs in); a person removed is put out of the room and their account deactivated for good; no restart |
-| GitHub owner, repositories, excluded repositories, path limit | rewrites the team record, which running sessions read on their next sync; no restart                                                                           |
-| Allowed networks (`allow_from`)                               | rewrites the firewall and the homeserver's address filter, which restarts the homeserver                                                                       |
-| Coordinator                                                   | changed at once, not on save (the same as a seat's Make coordinator)                                                                                           |
+| Field                                                         | What applying a change does                                                                                                                                                                                                           |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Description                                                   | sets the team room's topic; no restart                                                                                                                                                                                                |
+| People (`humans`)                                             | an account and an invite for each person added (who then signs in); a person removed is put out of the room and their account deactivated for good, and is listed under Removed people: that name can never be added back; no restart |
+| GitHub owner, repositories, excluded repositories, path limit | rewrites the team record, which running sessions read on their next sync; no restart                                                                                                                                                  |
+| Allowed networks (`allow_from`)                               | rewrites the firewall and the homeserver's address filter, which restarts the homeserver                                                                                                                                              |
+| Coordinator                                                   | changed at once, not on save (the same as a seat's Make coordinator)                                                                                                                                                                  |
 
-The name, port, listen addresses, server name and forge API are shown as fixed, with the reason.
+The name, port, listen addresses, server name, forge API and removed people are shown as fixed,
+with the reason.
 A team's name is its homeserver's unit and data folder, and part of every account and room ID.
 The installer refuses to change it, so renaming a team means making a new one. Port and listen
 addresses are in every member's credentials. Spec: Plan 00201 `SPEC-many-teams.md` section F.
@@ -563,7 +564,19 @@ with the same list and the same chooser as `ccy --teams`:
 cc --teams                      # choose the teams from a list (Tab marks several)
 cc --teams <team>               # a team alone: choose its seat
 cc --teams 1@<team>,2@<team2>   # name the seats
+cc --bus                        # on no team: add it to teams later, while it runs
 ```
+
+Started either way inside ccy's tmux (as `cc` always is from a terminal), the session can be
+put in a team, taken out, moved and re-roled while it runs, from `ccy-teams session add`,
+`remove`, `move` and `role`, as a ccy session can; `ccy-teams session list` shows it with
+kind `cc`. It runs as you, so unlike a ccy session it could change its own desired membership
+(`$XDG_RUNTIME_DIR/pingbus/membership/<session>/`): for cc this is guidance, not a wall, as
+below. Its prompt line names no team: its teams are in the session context and the latest
+membership notice. A `cc --bus` session refuses team messages until it is on a team, and cc
+cannot restart itself: its first `session add` keeps the seat and says to end cc and start it
+again from `ccy-sessions`, which starts it in that seat. A cc session whose seat keeper stopped is not repaired from the host: end
+it and start it again.
 
 On a terminal `ccy-teams choose-teams --type=host` asks, and prints the launch block once
 the seats are taken. With no terminal a team alone or a bare `--teams` is refused.

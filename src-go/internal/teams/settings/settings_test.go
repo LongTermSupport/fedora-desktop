@@ -25,7 +25,8 @@ const alphaSettings = "SETTING\tteam\t\"alpha\"\n" +
 	"SETTING\tport\t6167\n" +
 	"SETTING\tlisten\t[\"192.0.2.10\"]\n" +
 	"SETTING\tserver_name\t\"alpha.agent-bus.internal\"\n" +
-	"SETTING\tforge_api\t\"https://api.github.com\"\n"
+	"SETTING\tforge_api\t\"https://api.github.com\"\n" +
+	"SETTING\tremoved_humans\t-\n"
 
 // roleCall is one call of the ChangeRole the screen was given.
 type roleCall struct {
@@ -138,6 +139,7 @@ func TestTheScreenListsEveryFieldThenSaveDiscardAndBack(t *testing.T) {
 		"Listen addresses: 192.0.2.10   (fixed)",
 		"Server name: alpha.agent-bus.internal   (fixed)",
 		"Forge API: https://api.github.com   (fixed)",
+		"Removed people: (none)   (fixed)",
 		"Save and apply (nothing changed yet)",
 		"Discard changes",
 		"Back",
@@ -160,7 +162,7 @@ func TestAnEditIsCheckedShownChangedThenSavedAndAppliedOnce(t *testing.T) {
 	r := newRig(t)
 	r.Fake.OnFunc(strings.Fields(r.DeclarePrefix("set")), func(c execx.Cmd) (execx.Result, error) {
 		if slices.Contains(c.Args, "[]") {
-			return execx.Result{ExitCode: 64, Stderr: []byte("declare: team file: humans: must hold 1 to 20 entries, has 0\n")}, nil
+			return execx.Result{ExitCode: 64, Stderr: []byte("declare: team file: humans: must hold 1 to 16 entries, has 0\n")}, nil
 		}
 		if slices.Contains(c.Args, "--check") {
 			return execx.Result{}, nil
@@ -170,7 +172,7 @@ func TestAnEditIsCheckedShownChangedThenSavedAndAppliedOnce(t *testing.T) {
 	r.Script.Fzf = []string{"|People:", "|Save and apply", "|YES"}
 	r.Script.Gum = []string{"CHOOSE:", "CHOOSE:owner, second"}
 	r.edit(t)
-	if !strings.Contains(r.ErrOut.String(), "humans: must hold 1 to 20 entries") {
+	if !strings.Contains(r.ErrOut.String(), "humans: must hold 1 to 16 entries") {
 		t.Fatalf("the refusal was not shown: %s", r.ErrOut.String())
 	}
 	if len(r.Script.GumLog) != 2 || !strings.Contains(r.Script.GumLog[0], "Team alpha › Settings › People") {
@@ -179,7 +181,8 @@ func TestAnEditIsCheckedShownChangedThenSavedAndAppliedOnce(t *testing.T) {
 	if !slices.Contains(r.rows(1), "People: owner, second   (changed)") || !slices.Contains(r.rows(1), "Save and apply (1 change)") {
 		t.Fatalf("rows %q", r.rows(1))
 	}
-	r.summaryHas(t, 2, "People: owner, guest → owner, second", "deactivated", "play-agent-bus.yml")
+	r.summaryHas(t, 2, "People: owner, guest → owner, second", "deactivated", "play-agent-bus.yml",
+		"guest can never be added back")
 	if r.title(2) != "Team alpha › Settings › Save and apply" || !slices.Contains(r.Script.FzfArgs[2], "--bind=start:last") {
 		t.Fatalf("title %q args %q", r.title(2), r.Script.FzfArgs[2])
 	}
@@ -347,5 +350,52 @@ func TestUnreadableSettingsAreReported(t *testing.T) {
 	r.edit(t)
 	if !strings.Contains(r.ErrOut.String(), "not declared present") || len(r.Script.Rows) != 0 {
 		t.Fatalf("stderr %s, drawn %d times", r.ErrOut.String(), len(r.Script.Rows))
+	}
+}
+
+// settingsThen answers declare settings with first, then with later on every read after it.
+func (r *rig) settingsThen(first, later string) {
+	reads := 0
+	r.Fake.OnFunc(strings.Fields(r.DeclarePrefix("settings")), func(execx.Cmd) (execx.Result, error) {
+		reads++
+		if reads == 1 {
+			return execx.Result{Stdout: []byte(first)}, nil
+		}
+		return execx.Result{Stdout: []byte(later)}, nil
+	})
+}
+
+// S-F10: the summary's old value is the host_vars' at save time, read again then.
+func TestTheSummaryShowsTheValueOnDiskAtSaveTime(t *testing.T) {
+	r := newRig(t)
+	r.settingsThen(alphaSettings, strings.Replace(alphaSettings, "Builds the site", "Edited elsewhere", 1))
+	r.OnDeclare("set", "CHANGED\tteam alpha: description\n")
+	r.Script.Fzf = []string{"|Description:", "|Save and apply", "|YES"}
+	r.Script.Gum = []string{"CHOOSE:Runs the site"}
+	r.edit(t)
+	r.summaryHas(t, 2, "Description: Edited elsewhere → Runs the site")
+}
+
+// S-F10: a set that changes nothing says so and stays on the screen; the play does not run.
+func TestASaveThatChangesNothingSaysSo(t *testing.T) {
+	r := newRig(t)
+	r.OnDeclare("set", "UNCHANGED\talpha\n")
+	r.Script.Fzf = []string{"|Description:", "|Save and apply", "|YES", "|EXIT"}
+	r.Script.Gum = []string{"CHOOSE:Runs the site"}
+	r.edit(t)
+	if !strings.Contains(r.HeaderOf(3), "Nothing to save: the host_vars already had these values.") || r.plays() != 0 {
+		t.Fatalf("header %q plays %d", r.HeaderOf(3), r.plays())
+	}
+}
+
+// S-F13: a value that became unreadable since the screen opened stops the save, saying so.
+func TestASaveStopsWhenAValueBecameUnreadable(t *testing.T) {
+	r := newRig(t)
+	r.settingsThen(alphaSettings, strings.Replace(alphaSettings, "[\"owner\", \"guest\"]", "!vaulted", 1))
+	r.Script.Fzf = []string{"|Description:", "|Save and apply", "|EXIT", "|YES"}
+	r.Script.Gum = []string{"CHOOSE:Runs the site"}
+	r.edit(t)
+	if h := r.HeaderOf(2); !strings.Contains(h, "Nothing was saved") || !strings.Contains(h, "People") || len(r.saves()) != 0 {
+		t.Fatalf("header %q saves %q", h, r.saves())
 	}
 }

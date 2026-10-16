@@ -209,6 +209,31 @@ The process runs and sits at a prompt, so `ccy_restore_verdict` sees nothing wro
 - [ ] ⬜ **Task 10.3**: Changelog, CCY version bump, and a host check through
   `meta-deploy.bash`.
 
+### Phase 11: set-going fails only for a fault, not for a session handed to a person
+
+The desktop health notice showed `ccy-sessions-set-going.service` failed on almost every boot.
+It failed for every session left alone, including a desktop session still at its SSH
+passphrase prompt, which Phase 6 and docs/ccy.md call expected. A unit that always fails
+trains the owner to ignore it.
+
+- [x] ✅ **Task 11.1**: Tests first, then the fix (`src-go/internal/sessions/setgoing.go`):
+  each session left alone is either expected, named with why and not failing the unit (at a
+  launch prompt, attached, text typed, busy with input since the boot, sharing a
+  conversation), or a fault,
+  named in the unit's failure (dead or exited launcher, unreadable screen or transcript,
+  send failed, a prompt or compaction that never came, busy with no input at the deadline).
+  The classification table is in SPEC-ccy-sessions.md 4.7 (Plan 00191); docs/ccy.md
+  matches. Report: [261016-setgoing-exit-opus.md](subagent-reports/261016-setgoing-exit-opus.md);
+  Fable's review B1 (busy was asserted, not observed) fixed:
+  [261016-setgoing-exit-review-fable.md](subagent-reports/261016-setgoing-exit-review-fable.md).
+- [ ] ⬜ **Task 11.2**: Owner decision: should one dead launcher fail the whole unit? Interim
+  default: yes, a dead or exited launcher is a fault and fails the unit (it is named, and
+  `verify-restore` reports it too). The alternative is to report it and let the unit pass,
+  leaving `verify-restore` and `fedora-desktop-self-update verify` as the failing checks.
+- [ ] 🧑 **Task 11.3**: HOST: after `play-claude-yolo.yml` (meta-deploy) and a reboot with a
+  desktop session waiting at its passphrase, `systemctl --user status ccy-sessions-set-going --no-pager | cat` shows it succeeded, and its journal names the
+  session as left alone, as expected.
+
 ## Dependencies
 
 - `claude-code-hooks-daemon` ≥ 3.65.0 for `hooks-daemon signal` (their #39, closed).

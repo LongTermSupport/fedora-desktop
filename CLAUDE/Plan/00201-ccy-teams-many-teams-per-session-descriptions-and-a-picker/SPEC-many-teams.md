@@ -270,28 +270,29 @@ config for the team as well … a single update config thing … that then opens
 has all of the different things editable." Every key of a team's `agent_bus_teams` entry, and
 the facts kept elsewhere, as built:
 
-| Field                        | Edited here                  | What applying a change does                                                                                                                                | Validated by                                                                                    |
-| ---------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `team` (name)                | no (Task 2.16)               | would need a new homeserver unit, data folder, server name, accounts, room, tokens and every session's seats; the installer refuses it (`check_unchanged`) | `protocol.is_team_name`; `render.check_unchanged` refuses a change                              |
-| `description`                | yes                          | file and team.json only; the room topic is set by bootstrap; no restart (S-A4)                                                                             | `protocol.is_description` (1 to 120 characters, one line)                                       |
-| `humans`                     | yes                          | bootstrap makes and invites each added person (who then sets a password); a removed one is kicked and deactivated; power levels and record; no restart     | 1 to `HUMANS_MAX` distinct `protocol.is_human_localpart`                                        |
-| `org`, `repos`, `exclude`    | yes                          | the team record in the room, read live by running sessions' syncer; no restart                                                                             | `protocol.is_owner`, `is_owner_repo`, `is_repo_name`; org or repos needed; exclude needs an org |
-| `path_prefixes`              | yes                          | the team record; no restart                                                                                                                                | 1 to `PATH_PREFIXES_MAX` `protocol.is_path_prefix`; empty removes the key                       |
-| `allow_from`                 | yes                          | firewall rules and the unit drop-in's `IPAddressAllow`: the homeserver restarts                                                                            | 0 to 32 canonical CIDRs, no default route or multicast                                          |
-| `port`, `listen`             | no                           | every member's bundle carries `base_url`; a change needs every member re-issued, which nothing does                                                        | 1024 to 65535; canonical non-wildcard addresses                                                 |
-| `server_name`                | no                           | Tuwunel cannot change it without wiping the database; the installer refuses it                                                                             | `check_server_name`                                                                             |
-| `forge_api`                  | no                           | one allowed value (D66)                                                                                                                                    | must be GitHub's API                                                                            |
-| `state`, `purge`             | no: the menu's Take down     | `remove`, after its questions and backup                                                                                                                   | `STATES`                                                                                        |
-| coordinator (registry role)  | yes, at once                 | `agent-bus set-role` as root, through `seats.ChangeRole`; no host_vars change                                                                              | the roster; one coordinator at most                                                             |
-| members, seats, LXC members  | no: their own rows and flows | seats come and go with sessions; Add an LXC container's agent is its own menu line                                                                         | `members.parse_members`                                                                         |
-| Element profile (`base_url`) | no                           | derived from listen and port by `declare element`                                                                                                          | -                                                                                               |
-| backups                      | no                           | the daily timer and `BACKUPS_TO_KEEP` are the same for every team; `ccy-teams backup`/`restore` act on them                                                | -                                                                                               |
+| Field                        | Edited here                  | What applying a change does                                                                                                                                                       | Validated by                                                                                    |
+| ---------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `team` (name)                | no (Task 2.16)               | would need a new homeserver unit, data folder, server name, accounts, room, tokens and every session's seats; the installer refuses it (`check_unchanged`)                        | `protocol.is_team_name`; `render.check_unchanged` refuses a change                              |
+| `description`                | yes                          | file and team.json only; the room topic is set by bootstrap; no restart (S-A4)                                                                                                    | `protocol.is_description` (1 to 120 characters, one line)                                       |
+| `humans`                     | yes                          | bootstrap makes and invites each added person (who then sets a password); a removed one is kicked, deactivated and added to `removed_humans` (never to return, S-F14); no restart | 1 to `HUMANS_MAX` distinct `protocol.is_human_localpart`                                        |
+| `org`, `repos`, `exclude`    | yes                          | the team record in the room, read live by running sessions' syncer; no restart                                                                                                    | `protocol.is_owner`, `is_owner_repo`, `is_repo_name`; org or repos needed; exclude needs an org |
+| `path_prefixes`              | yes                          | the team record; no restart                                                                                                                                                       | 1 to `PATH_PREFIXES_MAX` `protocol.is_path_prefix`; empty removes the key                       |
+| `allow_from`                 | yes                          | firewall rules and the unit drop-in's `IPAddressAllow`: the homeserver restarts                                                                                                   | 0 to 32 canonical CIDRs, no default route or multicast                                          |
+| `port`, `listen`             | no                           | every member's bundle carries `base_url`; a change needs every member re-issued, which nothing does                                                                               | 1024 to 65535; canonical non-wildcard addresses                                                 |
+| `server_name`                | no                           | Tuwunel cannot change it without wiping the database; the installer refuses it                                                                                                    | `check_server_name`                                                                             |
+| `forge_api`                  | no                           | one allowed value (D66)                                                                                                                                                           | must be GitHub's API                                                                            |
+| `state`, `purge`             | no: the menu's Take down     | `remove`, after its questions and backup                                                                                                                                          | `STATES`                                                                                        |
+| coordinator (registry role)  | yes, at once                 | `agent-bus set-role` as root, through `seats.ChangeRole`; no host_vars change                                                                                                     | the roster; one coordinator at most                                                             |
+| members, seats, LXC members  | no: their own rows and flows | seats come and go with sessions; Add an LXC container's agent is its own menu line                                                                                                | `members.parse_members`                                                                         |
+| Element profile (`base_url`) | no                           | derived from listen and port by `declare element`                                                                                                                                 | -                                                                                               |
+| backups                      | no                           | the daily timer and `BACKUPS_TO_KEEP` are the same for every team; `ccy-teams backup`/`restore` act on them                                                                       | -                                                                                               |
 
 - **S-F1** A team row's menu has the visible choice **Edit settings** (no shortcut, its footer
   word "edit <team>'s settings via Enter"). It opens the settings screen.
 - **S-F2** `declare.py settings --file F --team T` prints, for a present team,
   `SETTING<TAB><key><TAB><value>` per key of `SETTINGS_KEYS` (team, description, humans, org,
-  repos, exclude, path_prefixes, allow_from, port, listen, server_name, forge_api): the value
+  repos, exclude, path_prefixes, allow_from, port, listen, server_name, forge_api,
+  removed_humans): the value
   as JSON, `-` when the entry does not set it, `!vaulted` or `!invalid` when it cannot be read
   (one such value does not hide the rest). A team not declared present: 64.
 - **S-F3** `declare.py set --file F --team T --value KEY JSON... [--check]` changes only
@@ -330,6 +331,19 @@ the facts kept elsewhere, as built:
   then says what changed. Members that cannot be read make the row say so.
 - **S-F13** An entry with a value ccy-teams cannot read (vault-encrypted or not in the form it
   writes) shows it as such, and choosing an editable field says to change the entry by hand.
+  Save and apply reads the settings again first: the summary's old values are those on disk
+  then, and a value that became unreadable stops the save, naming it. A `set` that changes
+  nothing says "Nothing to save: the host_vars already had these values."
+- **S-F14** A removed person can never return: bootstrap deactivates their account, and
+  `admin._ensure_humans` refuses a deactivated account. So the removal is recorded in the
+  declaration. `set` adds every name it takes off `humans` to the entry's `removed_humans`
+  (new optional team-file key, 1 to 256 human localparts, carried in team.json), and
+  `teamfile.parse_team_file` refuses a team file whose `humans` names any of them ("a removed
+  name can never return; choose another name"). That one rule is what `set --check`, `set`,
+  the play's `render check` and `declared_config` all run, so the screen refuses the name as it
+  is typed and no apply can be broken by it. `removed_humans` is shown as the fixed field
+  Removed people; `set` does not take it as a `--value`. A person removed by hand-editing the
+  host_vars before this key existed is still refused by the play's account check.
 
 **Rename (Task 2.16, not built).** The name is fixed on the screen, with the reason. A rename
 would have to make the new team (unit, data folder, server name, accounts, room), carry over

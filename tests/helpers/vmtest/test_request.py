@@ -155,9 +155,16 @@ class EndToEnd(unittest.TestCase):
                     (self.bridge / "requests" / name).rename(self.bridge / "processing" / name)
                     parsed = spool.parse_request(name, (self.bridge / "processing" / name).read_bytes())
                     time.sleep(delay)
-                    for document in answer(parsed):
-                        (self.bridge / "responses" / f"{name}.response.json").write_text(verdict.sign(document, KEY, nonce=parsed.nonce))
-                        time.sleep(delay)
+                    # Written as the watcher and run scope write it (spool.write_file: a temp name,
+                    # then rename): a plain write_text truncates first, and a poll landing between
+                    # the truncate and the write reads an empty document.
+                    responses_fd = os.open(self.bridge / "responses", os.O_RDONLY | os.O_DIRECTORY)
+                    try:
+                        for document in answer(parsed):
+                            spool.write_file(responses_fd, f"{name}.response.json", verdict.sign(document, KEY, nonce=parsed.nonce).encode())
+                            time.sleep(delay)
+                    finally:
+                        os.close(responses_fd)
                     return
                 time.sleep(0.05)
 

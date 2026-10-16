@@ -63,7 +63,8 @@ description, people, GitHub owner, repositories, excluded repositories, path lim
 networks and coordinator, each with its value. Choose one to change it; each value is checked
 as you type it. Save and apply shows what changes and what applying does, then writes the
 host_vars and applies the team (as ccy-teams apply does). The coordinator changes at once.
-Name, port, listen addresses, server name and forge API are fixed, and each says why.
+Name, port, listen addresses, server name, forge API and removed people are fixed, and each
+says why. A person removed from People is deactivated for good: the name can never be added back.
 
 Colours: green is working, yellow wants a look, red is not working.
 "need sudo": reading the members needs root; play-agent-bus.yml installs a rule that

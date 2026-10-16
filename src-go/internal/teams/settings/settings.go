@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -312,7 +313,10 @@ func (sc *screen) save(ctx context.Context) (bool, flow.Result, error) {
 		sc.notice = "Nothing has changed yet."
 		return false, flow.Done, nil
 	}
-	removed := sc.removedPeople()
+	removed, ready := sc.prepareSave(ctx)
+	if !ready {
+		return false, flow.Done, nil
+	}
 	yes, err := sc.s.Kit.Confirm(ctx, sc.title("Save and apply"), sc.summary(removed), "save and apply", len(removed) == 0)
 	if err != nil {
 		return true, flow.Done, err
@@ -332,7 +336,8 @@ func (sc *screen) save(ctx context.Context) (bool, flow.Result, error) {
 	}
 	sc.pending = map[string]string{}
 	if !change.Changed {
-		return true, flow.Done, nil
+		sc.notice = "Nothing to save: the host_vars already had these values."
+		return false, flow.Done, nil
 	}
 	if !sc.applied(ctx) {
 		sc.s.Kit.BackToList(ctx)
@@ -369,23 +374,45 @@ func (sc *screen) summary(removed []string) string {
 		lines = append(lines, "  "+a)
 	}
 	if len(removed) > 0 {
-		lines = append(lines, "Removed, their account deactivated for good: "+strings.Join(removed, ", ")+".")
+		lines = append(lines, "Removed, their account deactivated for good: "+strings.Join(removed, ", ")+". "+
+			strings.Join(removed, ", ")+" can never be added back: a removed name never returns.")
 	}
 	return strings.Join(lines, "\n")
 }
 
+// prepareSave reads the team's settings again, so the summary's old values are those on disk
+// now, and finds who the change removes; false, with the notice saying why, when it cannot.
+func (sc *screen) prepareSave(ctx context.Context) ([]string, bool) {
+	fresh, err := sc.s.Declare.Settings(ctx, sc.team)
+	if err != nil {
+		sc.notice = "Nothing was saved: the settings could not be read again: " + err.Error()
+		return nil, false
+	}
+	sc.declared = fresh
+	if names := sc.unreadable(); names != "" {
+		sc.notice = "Nothing was saved: the entry now has a value ccy-teams cannot read: " + names + "."
+		return nil, false
+	}
+	removed, err := sc.removedPeople()
+	if err != nil {
+		sc.notice = "Nothing was saved: " + err.Error()
+		return nil, false
+	}
+	return removed, true
+}
+
 // removedPeople are the people the pending change takes off the team.
-func (sc *screen) removedPeople() []string {
+func (sc *screen) removedPeople() ([]string, error) {
 	j, changed := sc.pending["humans"]
 	if !changed {
-		return nil
+		return nil, nil
 	}
 	var before, after []string
 	if err := json.Unmarshal(sc.setting("humans").Value, &before); err != nil {
-		return nil
+		return nil, fmt.Errorf("the people on disk are not a list of names: %w", err)
 	}
 	if err := json.Unmarshal([]byte(j), &after); err != nil {
-		return nil
+		return nil, fmt.Errorf("the new people are not a list of names: %w", err)
 	}
 	var gone []string
 	for _, name := range before {
@@ -393,7 +420,7 @@ func (sc *screen) removedPeople() []string {
 			gone = append(gone, name)
 		}
 	}
-	return gone
+	return gone, nil
 }
 
 // coordinator lists the team's members to make one the coordinator, or none; the change is

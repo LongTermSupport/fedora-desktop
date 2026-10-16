@@ -339,15 +339,26 @@ class SeatLinesTest(SeatCase):
 # ── the claim: `pingbus seat exec` ───────────────────────────────────────────────────────
 
 
+def desire_seats(case: SeatCase, seats: str) -> pathlib.Path:
+    """A desired membership naming the seats (`<seat>@<team>,...`) in a directory of the case's,
+    as every launcher writes one; its path, for PINGBUS_MEMBERSHIP."""
+    directory = case.tmp / "membership"
+    directory.mkdir(exist_ok=True)
+    items = [dict(zip(("seat", "team"), item.split("@"), strict=True)) for item in seats.split(",") if item]
+    (directory / membership.DESIRED_FILE).write_text(membership_text(items), encoding="utf-8")
+    return directory
+
+
 class ClaimTest(SeatCase):
-    """`seat exec` forks the seat keeper, which takes every seat (Plan 00203 D4), then
-    replaces itself with the command. The keeper here is a real process."""
+    """`seat exec` forks the seat keeper, which takes every seat of the launch's desired
+    membership (Plan 00203 D4), then replaces itself with the command. The keeper here is a
+    real process."""
 
     def setUp(self) -> None:
         super().setUp()
         self.dev1 = self.make_seat("dev1")
         self.qa2 = self.make_seat("qa2", TEAM_B)
-        self.env[seat.SEATS_VAR] = "dev1@team-a,qa2@team-b"
+        self.env[membership.MEMBERSHIP_VAR] = str(desire_seats(self, "dev1@team-a,qa2@team-b"))
 
     def claim(self, *command: str, env: dict[str, str] | None = None) -> tuple[int, str, str]:
         return self.run_cli("seat", "exec", "--", *(command or ("claude", "--resume")), env=env)
@@ -360,7 +371,7 @@ class ClaimTest(SeatCase):
         self.assertEqual((file, argv), ("claude", ["claude", "--resume"]))
         self.assertEqual(env["PINGBUS_HOME"], str(self.session_home))
         self.assertEqual(env["PINGBUS_TEAMS"], "team-a,team-b")
-        self.assertEqual(env[seat.SEATS_VAR], "dev1@team-a,qa2@team-b")
+        self.assertNotIn("PINGBUS_SEATS", env)
         self.assertEqual(env["PATH"], self.env["PATH"])
         self.assertIn(f"✓ agent team bus: dev1@team-a ({handle_of('dev1')}), "
                       f"qa2@team-b ({handle_of('qa2')})", err)
@@ -382,7 +393,7 @@ class ClaimTest(SeatCase):
     def test_the_keeper_writes_the_applied_membership_and_the_flag(self):
         self.assertEqual(self.claim()[0], 0)
         applied = membership.read_applied(self.session_home)
-        self.assertEqual(applied.generation, 0)
+        self.assertEqual(applied.generation, 1)
         self.assertEqual([(s.team, s.seat, s.handle) for s in applied.seats],
                          [(TEAM_A, "dev1", handle_of("dev1")), (TEAM_B, "qa2", handle_of("qa2"))])
         self.assertTrue((self.session_home / membership.FLAG_FILE).exists())
@@ -424,26 +435,19 @@ class ClaimTest(SeatCase):
         self.assertEqual(self.execs, [])
         self.assertIsNone(inbox.probe_lock_at(self.lock_of("dev1")))
 
-    def test_a_missing_list_is_refused_78(self):
-        env = {k: v for k, v in self.env.items() if k != seat.SEATS_VAR}
-        for value in (None, ""):
-            with self.subTest(value=value):
-                run_env = dict(env) if value is None else dict(env, **{seat.SEATS_VAR: value})
-                code, _, err = self.claim(env=run_env)
-                self.assertEqual(code, EX_CONFIG)
-                self.assertIn(seat.SEATS_VAR, err)
-        self.assertEqual(self.execs, [])
-
-    def test_a_malformed_list_is_refused_78_not_64(self):
-        for value in ("dev1@team-a,", "dev1", "dev1@t,dev2@t", "Dev@team-a"):
-            with self.subTest(value=value):
-                code, _, err = self.claim(env=dict(self.env, **{seat.SEATS_VAR: value}))
-                self.assertEqual(code, EX_CONFIG, err)
+    def test_a_launch_with_no_desired_membership_is_refused_78(self):
+        """Every launcher names one (ccy, cc --teams, cc --bus); PINGBUS_SEATS is gone, and a
+        leftover one names nothing."""
+        env = {k: v for k, v in self.env.items() if k != membership.MEMBERSHIP_VAR}
+        code, _, err = self.claim(env=dict(env, PINGBUS_SEATS="dev1@team-a"))
+        self.assertEqual(code, EX_CONFIG)
+        self.assertIn(membership.MEMBERSHIP_VAR, err)
         self.assertEqual(self.execs, [])
         self.assertFalse(self.session_home.exists())
 
     def test_a_seat_with_no_directory_is_refused_78_naming_the_host(self):
-        code, _, err = self.claim(env=dict(self.env, **{seat.SEATS_VAR: "dev1@team-a,pm@team-b"}))
+        desire_seats(self, "dev1@team-a,pm@team-b")
+        code, _, err = self.claim()
         self.assertEqual(code, EX_CONFIG)
         self.assertIn("pm@team-b", err)
         self.assertIn("ccy --teams", err)
@@ -458,12 +462,6 @@ class ClaimTest(SeatCase):
         self.assertEqual(self.execs, [])
         self.assertIsNone(inbox.probe_lock_at(self.lock_of("dev1")), "the first seat was kept")
         self.assertFalse(self.session_home.exists())
-
-    def test_both_launch_variables_at_once_are_refused_78(self):
-        code, _, err = self.claim(env=dict(self.env, **{membership.MEMBERSHIP_VAR: str(self.tmp)}))
-        self.assertEqual(code, EX_CONFIG)
-        self.assertIn(membership.MEMBERSHIP_VAR, err)
-        self.assertEqual((self.execs, self.keeper_argvs), ([], []))
 
     def test_a_bundle_that_fails_config_check_is_refused_78(self):
         self.qa2.chmod(0o750)
@@ -733,14 +731,6 @@ class KeeperTest(SeatCase):
         self.assertTrue(self.held("dev1"))
         self.assertIn(membership.DESIRED_FILE, self.log.getvalue())
 
-    def test_the_launch_list_is_generation_0_with_no_report(self):
-        keeper = self.keeper(seat.LaunchSeats(seat.parse_seat_list("dev1@team-a")))
-        keeper.start(launch=True)
-        self.assertTrue(self.held("dev1"))
-        self.assertEqual(self.applied().generation, 0)
-        self.assertFalse(keeper.poll())
-        self.assertFalse((self.root.parent / seat.SESSIONS_DIR).exists())
-
     def test_the_keeper_ends_when_its_parent_changes_and_releases_everything(self):
         self.desire("dev1@team-a")
         keeper = self.keeper()
@@ -845,17 +835,16 @@ class KeeperM3Test(KeeperTest):
 
 
 class SourceTest(unittest.TestCase):
-    """Which list the keeper follows: `PINGBUS_MEMBERSHIP` when set, else `PINGBUS_SEATS`
-    (until Plan 00203 M2 retires it); never both."""
+    """What the keeper follows: the desired membership `PINGBUS_MEMBERSHIP` names, which every
+    launcher sets; `PINGBUS_SEATS` is gone."""
 
     def test_the_choice(self):
-        self.assertIsInstance(seat.desired_source({seat.SEATS_VAR: "dev1@team-a"}), seat.LaunchSeats)
         self.assertIsInstance(seat.desired_source({membership.MEMBERSHIP_VAR: "/run/x"}),
                               seat.MembershipFile)
 
     def test_refusals(self):
-        for env, needle in (({}, seat.SEATS_VAR),
-                            ({seat.SEATS_VAR: "x@team-a", membership.MEMBERSHIP_VAR: "/run/x"}, "both"),
+        for env, needle in (({}, membership.MEMBERSHIP_VAR),
+                            ({"PINGBUS_SEATS": "x@team-a"}, membership.MEMBERSHIP_VAR),
                             ({membership.MEMBERSHIP_VAR: "off"}, "--no-bus"),
                             ({membership.MEMBERSHIP_VAR: "relative"}, "absolute")):
             with self.subTest(env=env), self.assertRaises(config.ConfigError) as caught:
@@ -904,7 +893,7 @@ class MembershipClaimTest(SeatCase):
         self.assertEqual(env["PINGBUS_HOME"], str(self.session_home))
         self.assertEqual(env["PINGBUS_TEAMS"], "team-a,team-b")
         self.assertEqual(env[seat.MEMBERSHIP_VAR], str(self.desired))
-        self.assertNotIn(seat.SEATS_VAR, env)
+        self.assertNotIn("PINGBUS_SEATS", env)
         self.assertEqual(inbox.probe_lock_at(self.lock_of("dev1")), inbox.SEAT_KIND)
         self.assertEqual(os.readlink(self.session_home / TEAM_B), str(self.qa2))
         self.assertTrue((self.session_home / seat.ACTIVE_FLAG).is_file())
@@ -1023,7 +1012,6 @@ class MembershipClaimTest(SeatCase):
             "off (a --no-bus launch never claims)": {seat.MEMBERSHIP_VAR: seat.MEMBERSHIP_OFF},
             "a relative directory": {seat.MEMBERSHIP_VAR: "run/ccy/membership"},
             "no membership file": {seat.MEMBERSHIP_VAR: str(self.tmp)},
-            "beside PINGBUS_SEATS (a mixed deploy)": {seat.SEATS_VAR: "dev1@team-a"},
         }
         for name, change in cases.items():
             with self.subTest(case=name):
@@ -1081,7 +1069,7 @@ class RealExecTest(SeatCase):
         """)
 
     def start(self, seats: str, *command: str) -> subprocess.Popen:
-        env = dict(os.environ, PATH=self.env["PATH"], **{seat.SEATS_VAR: seats})
+        env = dict(os.environ, PATH=self.env["PATH"], **{membership.MEMBERSHIP_VAR: str(desire_seats(self, seats))})
         child = subprocess.Popen([sys.executable, "-c", self.driver(*command)], cwd=REPO_ROOT,
                                  env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE, text=True)
@@ -1129,7 +1117,7 @@ class RealExecTest(SeatCase):
 
 class ProtocolDocTest(unittest.TestCase):
     """docs/agent-bus-protocol.md §12-§15 state the seat layout, the session home and its
-    links, `PINGBUS_SEATS`, `seat exec`, the `SEAT` line and exit 75 for a held seat."""
+    links, the desired membership, `seat exec`, the `SEAT` line and exit 75 for a held seat."""
 
     @staticmethod
     def section(number: int) -> str:
@@ -1140,7 +1128,7 @@ class ProtocolDocTest(unittest.TestCase):
 
     def test_section_12_states_the_layout_and_the_link_rule(self):
         body = self.section(12)
-        for phrase in (f"`{seat.SEATS_VAR}`", f"`{seat.SESSION_HOME}`", f"`{seat.LOCK_FILE}`",
+        for phrase in (f"`{membership.MEMBERSHIP_VAR}`", f"`{seat.SESSION_HOME}`", f"`{seat.LOCK_FILE}`",
                        f"`{seat.CHECKOUT_SEATS}/<team>/<seat>/`", "`seat <claim time in ms>`",
                        "a symlink is accepted only onto a real directory",
                        f"mode {config.LINKED_BUNDLE_MODE:04o}"):
@@ -1167,7 +1155,7 @@ class LayoutTest(unittest.TestCase):
         self.assertEqual(seat.checkout_seats_root(pathlib.Path("/c")),
                          pathlib.Path("/c/.claude/ccy/pingbus/seats"))
         self.assertEqual(seat.LOCK_FILE, "seat.lock")
-        self.assertEqual(seat.SEATS_VAR, "PINGBUS_SEATS")
+        self.assertFalse(hasattr(seat, "SEATS_VAR"), "PINGBUS_SEATS is gone (Plan 00203 M6)")
 
 
 if __name__ == "__main__":

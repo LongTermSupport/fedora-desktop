@@ -296,6 +296,29 @@ class DescriptionTest(unittest.TestCase):
             self.assertIn("description", str(caught.exception))
 
 
+class RemovedHumansTest(unittest.TestCase):
+    """Plan 00201 S-F14: `removed_humans` names the people taken off the team, whose accounts
+    bootstrap deactivated for good; the team file refuses any of them in `humans` again."""
+
+    def test_optional_and_carried_when_set(self) -> None:
+        tf = teamfile.parse_team_file(_with(removed_humans=["carol"]))
+        self.assertEqual(tf.removed_humans, ("carol",))
+        self.assertEqual(tf.as_dict()["removed_humans"], ["carol"])
+        self.assertNotIn("removed_humans", teamfile.parse_team_file(VALID).as_dict())
+
+    def test_a_removed_name_can_never_return(self) -> None:
+        with self.assertRaises(teamfile.TeamFileError) as caught:
+            teamfile.parse_team_file(_with(removed_humans=["bob_2"]))
+        self.assertIn("humans", str(caught.exception))
+        self.assertIn("can never return", str(caught.exception))
+
+    def test_the_names_follow_the_humans_rules(self) -> None:
+        for bad in ([], ["carol", "carol"], ["Not A Name"], "carol", ["admin"]):
+            with self.subTest(bad), self.assertRaises(teamfile.TeamFileError) as caught:
+                teamfile.parse_team_file(_with(removed_humans=bad))
+            self.assertIn("removed_humans", str(caught.exception))
+
+
 class ExcludeTest(unittest.TestCase):
     """D64: an optional `exclude`, repository names of the team's `org` it never trusts."""
 

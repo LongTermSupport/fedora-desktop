@@ -20,38 +20,49 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00203 M5: rebuilds ccy-teams only (no launcher or image change, so no ccy version bump
-# and no image rebuild). In `ccy-teams`, Tab now shows the running sessions: add one to a team
-# (Ctrl-A), remove it (Ctrl-X), change its role (Ctrl-O), move it, attach it, or repair a
-# stopped seat keeper, each by running the `ccy-teams session` command for you. Running sessions
-# are not touched. Plan 00201 Task 2.15 rides on the same play: Enter on a team, then Edit
-# settings, opens one screen of the team's fields to change, save and apply (ACCEPTANCE-owner.md
-# step 13). It does bump the launcher and image (CCY 3.99.10.2, container 2.75.2), because
-# declare.py is in the image's agent_bus copy: the next ccy launch rebuilds the image once.
-# Running sessions are not touched.
+# md-viewer: rebuild and install at main tip 22a55582735d (text on its baseline, dark mode
+# and font size settings); asserts `md-viewer --version` carries the new commit.
+playbooks/imports/optional/common/play-md-viewer.yml
+# ccy 3.99.12.3, container 2.77.2 (each project's image is rebuilt once, at its next ccy
+# launch): deploys cc, cc-teams.bash and the ccy launcher, and rebuilds ccy-teams.
+# Plan 00203 M6: cc --teams and the new cc --bus sessions are hot-controlled like ccy ones, also
+# from the picker (cc --bus refuses team messages until it is restarted on its first team); a
+# membership counts only while its session record carries the bus; pingbus reads no
+# PINGBUS_SEATS. Two ccy launches started together in one
+# project no longer choose the same container name: each launch claims its name (ccy-teams
+# internal claim-container-name, under $XDG_RUNTIME_DIR/ccy/container-names/) before podman
+# creates it. The image's pingbus status line, cancelled just as it starts the session's own
+# status line command, now still kills that command's whole group. Running sessions are not
+# touched.
+# Plan 00135: it also rebuilds ccy-sessions, so ccy-sessions-set-going.service no longer fails a
+# boot for a restored session left to a person (waiting at its SSH passphrase prompt, attached,
+# or with text typed); it still fails, naming each, for a real fault such as a launcher that exited.
+# Plan 00201 Task 2.15 (ccy 3.99.12.6, container 2.77.5): Enter on a team, then Edit settings,
+# opens one screen of the team's fields to change, save and apply (ACCEPTANCE-owner.md step 13).
 playbooks/imports/play-claude-yolo.yml
-# Plan 00201 Task 2.15: helpers/agent_bus/declare.py gained `settings` and `set`, and it is part
-# of the admin zipapp, so every team reads "out of date (software)" until this runs. It installs
-# the new zipapp and stamps each team again. No unit, firewall or rendered config changes, so no
-# homeserver is restarted.
+# Plan 00201 Task 2.15: helpers/agent_bus/ (declare.py's `settings` and `set`, the team file's
+# `removed_humans`) is part of the admin zipapp, so every team reads "out of date (software)"
+# until this runs. It installs the new zipapp and stamps each team again. No unit, firewall or
+# rendered config changes, so no homeserver is restarted.
 playbooks/imports/play-agent-bus.yml
-# Plan 00203 acceptance again, on the M5 ccy-teams: every milestone in turn (M2, M1, M3, M4,
-# then R1-R9; throwaway teams acc-m3a, acc-m3b, acc-m4a, acc-m4b, acc-robust and throwaway
-# headless sessions in ccy's tmux, all removed after). M4 (e) re-proves `ccy-teams session
-# list`, whose code the picker's view now shares; the picker itself is the owner's steps,
-# ACCEPTANCE.md M5 (a) to (f), on a terminal. A bus process is now its program (python3
-# running the pingbus or agent-bus entry point), so claude, whose argv names the plugin
-# directory .../plugin/pingbus, no longer counts as one in M2 (c), M2 (e) or M1 (b). Each run
-# removes its sessions' keeper reports (.claude/ccy/pingbus/sessions/<name>/), and first the
-# ones earlier acceptance runs left (m1-plain-, m2-plain-, m2-nobus-, m3-hot-, m4-a-, m4-b-
-# names only, never a running session's): the two m2-plain-* reports on this host go. Needs
-# ccy launched interactively here once (Quick Launch).
+# Plan 00203 acceptance again, every milestone in turn, on ccy 3.99.12.3. M2 starts its two
+# throwaway headless sessions (plain and --no-bus) back to back; on 3.99.10.1 both chose the
+# same container name and the second failed at podman's create (exit 125). Then M1, M3, M4,
+# the new M6 (three throwaway cc sessions on two throwaway teams) and R1-R9, on throwaway teams
+# acc-m3a, acc-m3b, acc-m4a, acc-m4b and acc-robust and their sessions, all removed after.
+# Prompts for sudo once. Needs ccy launched interactively here once (Quick Launch).
 00203-teams-hot-control-and-robustness
-# Plan 00161 acceptance again (U20's seated headless sessions, then M2.11's named session).
-# Its teardown now removes the keeper reports of every seated session it launched: the M2.11
-# named session's (with its registry record) and, the review's B1, the unnamed M2.0 sessions'
-# reports, which are named after their containers (each one whose name was not there before
-# M2.0). The prerequisites remove u20-named-* reports an earlier run left (none of a running
-# session) before M2.0 records the checkout, so M2.10 compares it strictly and passes on a
-# clean run, whatever container numbers the sessions get.
-00161-agent-team-bus-matrix/acceptance.bash
+# Plan 00203: read-only triage of why team homeservers stop. Changes nothing; reads as root
+# (sudo -n): the whole journal, each team's tuwunel.toml (secret values substituted), its
+# database size, filesystem and free space, the coredumps, and each running ccy container's
+# watcher log. Lists every stop of every agent-bus-hs@ unit with its cause (exit, signal,
+# watchdog, OOM, core dump) and who asked (a play, a deploy, an acceptance run, a reboot, the
+# health check), then counts deliberate against not deliberate stops per team.
+00203-teams-hot-control-and-robustness/triage-hs.bash
+# Plan 00170: clears the play ledger's BROKEN marker (runs check_freshness --clear-broken).
+# A private play run on 10-12 from a linked worktree was outside that worktree's root, and
+# the ledger marked itself BROKEN over it. The ledger now skips such a play with one
+# LEDGER-PLAY-NOT-TRACKED line on stderr, so the cause is fixed. Safe: that worktree is gone,
+# and only a marker whose reason is that outside-root refusal is cleared; a marker with any
+# other reason stays and this entry FAILS, naming it. No marker: nothing to do.
+00170-unifi-network-tooling/clear-ledger-broken.bash

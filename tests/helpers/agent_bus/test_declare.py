@@ -868,7 +868,8 @@ class SettingsTest(CommandCase):
             ("team", '"alpha"'), ("description", "-"), ("humans", '["owner"]'), ("org", '"example-org"'),
             ("repos", "-"), ("exclude", "-"), ("path_prefixes", '["CLAUDE/Plan/", "docs/"]'),
             ("allow_from", "[]"), ("port", "6167"), ("listen", '["192.0.2.10"]'),
-            ("server_name", '"alpha.agent-bus.internal"'), ("forge_api", '"https://api.github.com"'))))
+            ("server_name", '"alpha.agent-bus.internal"'), ("forge_api", '"https://api.github.com"'),
+            ("removed_humans", "-"))))
 
     def test_repos_keep_their_branches_and_a_block_list_reads_as_a_list(self) -> None:
         rows = dict(line.split("\t")[1:] for line in self.run_cmd("settings", "--team", "beta")[1].splitlines())
@@ -969,6 +970,22 @@ class SetTest(CommandCase):
         self.assertEqual(code, 78, err)
         self.assertIn("comment", err)
         self.assertEqual(self.path.read_text(), text)
+
+    def test_a_removed_person_is_recorded_and_can_never_return(self) -> None:
+        """S-F14: the play deactivates a removed person's account for good, so set records the
+        name in removed_humans, and the team file's rule refuses it in humans from then on."""
+        code, out, err = self.run_cmd("set", "--team", "beta", "--value", "humans", '["owner"]')
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "CHANGED\tteam beta: humans, removed_humans\n")
+        self.assertEqual(self.entry(1)["removed_humans"], ["second"])
+        for check in ((), ("--check",)):
+            with self.subTest(check=check):
+                code, _, err = self.run_cmd("set", "--team", "beta", *check, "--value", "humans", '["owner", "second"]')
+                self.assertEqual(code, 64, err)
+                self.assertIn("can never return", err)
+        self.run_cmd("set", "--team", "beta", "--value", "humans", '["third"]')
+        self.assertEqual(self.entry(1)["removed_humans"], ["second", "owner"])
+        self.assertEqual(self.run_cmd("set", "--team", "beta", "--value", "removed_humans", "[]")[0], 64)
 
     def test_a_vaulted_entry_is_refused(self) -> None:
         self.assertEqual(self.run_cmd("set", "--team", "vaulted", "--value", "org", '"other-org"')[0], 78)

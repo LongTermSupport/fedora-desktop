@@ -40,10 +40,11 @@ var fields = []field{
 	},
 	{
 		key: "humans", label: "People", list: true,
-		about: "The people of the team, by Element user name; at least one." + commas,
+		about: "The people of the team, by Element user name; 1 to 16. A name removed earlier can never be " +
+			"added back." + commas,
 		applies: "Applying makes an account for each person added and invites them (each then signs in: Enter on " +
-			"their name, then Sign in); a person removed is put out of the room and their account deactivated, " +
-			"which cannot be undone. No homeserver restart.",
+			"their name, then Sign in); a person removed is put out of the room and their account deactivated " +
+			"for good: that name can never be added back. No homeserver restart.",
 	},
 	{
 		key: "org", label: "GitHub owner",
@@ -78,6 +79,8 @@ var fields = []field{
 		"homeserver cannot change it without wiping its data."},
 	{key: "forge_api", label: "Forge API", fixed: "members check references only against GitHub's API " +
 		"(Plan 00161 D66), so it has one allowed value."},
+	{key: "removed_humans", label: "Removed people", fixed: "each was taken off the team and their account " +
+		"deactivated for good, so the name can never be added back; removing a person from People adds them here."},
 }
 
 // fieldOf is the field of key; the zero field when there is none.

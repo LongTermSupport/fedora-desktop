@@ -731,6 +731,82 @@ class TestClearBroken(unittest.TestCase):
             self.assertFalse(os.path.exists(ledger.sentinel_path(base)))
             self.assertIn("cleared the recorded hole", out.getvalue())
 
+    def test_only_if_reason_clears_a_sentinel_with_that_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            store.mark_broken(
+                base, error="ValueError: play '/x.yml' is outside the repo root '/r'", at=STAMP)
+            rc = check_freshness.clear_broken(
+                base=base, stdout=io.StringIO(), stderr=io.StringIO(),
+                only_if_reason="is outside the repo root")
+            self.assertEqual(rc, check_freshness.EXIT_OK)
+            self.assertFalse(os.path.exists(ledger.sentinel_path(base)))
+
+    def test_only_if_reason_refuses_a_sentinel_with_any_other_reason(self) -> None:
+        """An unattended clear (meta-deploy) is safe only for the cause it was written
+        for. A hole with another reason has a cause nobody has fixed, so it stays."""
+        with tempfile.TemporaryDirectory() as base:
+            store.mark_broken(
+                base, error="OSError: cannot write runs.jsonl: Permission denied", at=STAMP)
+            err = io.StringIO()
+            rc = check_freshness.clear_broken(
+                base=base, stdout=io.StringIO(), stderr=err,
+                only_if_reason="is outside the repo root")
+            self.assertEqual(rc, check_freshness.EXIT_UNTRUSTWORTHY)
+            self.assertTrue(os.path.exists(ledger.sentinel_path(base)))
+            self.assertFalse(os.path.exists(ledger.cleared_path(base)))
+            self.assertIn("[FATAL]", err.getvalue())
+            self.assertIn("Permission denied", err.getvalue())
+
+    def test_only_if_reason_refuses_when_the_reason_cannot_be_read(self) -> None:
+        """Unlike a plain clear, an unreadable reason cannot be shown to match."""
+        real_open = open
+        sentinel_name = os.path.basename(ledger.sentinel_path(""))
+
+        def only_the_sentinel_fails(path: Any, *args: Any, **kwargs: Any) -> Any:
+            if str(path).endswith(sentinel_name):
+                raise OSError("denied")
+            return real_open(path, *args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as base:
+            store.mark_broken(base, error="ValueError: is outside the repo root", at=STAMP)
+            err = io.StringIO()
+            with mock.patch("builtins.open", side_effect=only_the_sentinel_fails):
+                rc = check_freshness.clear_broken(
+                    base=base, stdout=io.StringIO(), stderr=err,
+                    only_if_reason="is outside the repo root")
+            self.assertEqual(rc, check_freshness.EXIT_UNTRUSTWORTHY)
+            self.assertTrue(os.path.exists(ledger.sentinel_path(base)))
+            self.assertIn("[FATAL]", err.getvalue())
+
+    def test_only_if_reason_with_no_sentinel_is_a_clean_no_op(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            out = io.StringIO()
+            rc = check_freshness.clear_broken(
+                base=base, stdout=out, stderr=io.StringIO(),
+                only_if_reason="is outside the repo root")
+            self.assertEqual(rc, check_freshness.EXIT_OK)
+            self.assertIn("no recorded hole", out.getvalue())
+
+    def test_main_wires_only_if_reason_to_the_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as home:
+            environment = {"XDG_STATE_HOME": os.path.join(home, "state")}
+            with mock.patch.dict(os.environ, environment, clear=False):
+                base = ledger.ledger_dir(os.environ, home)
+                os.makedirs(base, exist_ok=True)
+                store.mark_broken(base, error="ValueError: boom", at=STAMP)
+                with contextlib.redirect_stdout(io.StringIO()), \
+                        contextlib.redirect_stderr(io.StringIO()):
+                    rc = check_freshness.main(
+                        ["--clear-broken", "--only-if-reason", "is outside the repo root"])
+            self.assertEqual(rc, check_freshness.EXIT_UNTRUSTWORTHY)
+            self.assertTrue(os.path.exists(ledger.sentinel_path(base)))
+
+    def test_only_if_reason_without_clear_broken_is_a_usage_error(self) -> None:
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as raised:
+                check_freshness.main(["--only-if-reason", "x"])
+        self.assertNotEqual(raised.exception.code, 0)
+
     def test_main_without_the_flag_does_not_clear(self) -> None:
         """The discrimination control: proves the case above passes because the FLAG
         was honoured, not because `main` clears unconditionally."""

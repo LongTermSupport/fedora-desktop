@@ -553,6 +553,47 @@ Two things are **not** frozen:
   - A cc session launched without `--teams` or `--bus` is not hot-controllable (the plugin is
     not loaded). `cc --bus` starts one with an empty membership, after the same Element
     consent.
+  - As built in M6 (H31, H32):
+    - The directory is named for the session's own name in ccy's tmux (`cc-<id>`, as its
+      registry record is), written by `ccy-teams internal membership-init --kind=cc`; its
+      `membership.json` says `kind: cc`, and every reader refuses a kind that does not match its
+      directory. A cc started outside ccy's tmux has no name, so its directory is `cc.<pid>`: it
+      follows the file, but no host command can find it (H35).
+    - Liveness is the session's pane on ccy's tmux server; the keeper is found in the process
+      tree under that pane (`pingbus ... seat keep`). The route check runs on the host:
+      `pingbus reach --team T`, "this host reaches T's homeserver".
+    - Inbound follows Decision 1, as for ccy (PLAN.md Decision 7): a cc launched with seats
+      accepts cross-session inbound; `cc --bus` adds `crossSessionInbound: refuse` to its
+      settings, and its keeper reports no inbound, as a ccy keeper on no team does. cc has no
+      supervisor to relaunch it, so its first `session add` keeps the seat, the desired file
+      and the record, asks no relaunch, and exits 1 saying cc must be ended and started again
+      from `ccy-sessions`, which starts it in that seat, accepting. A re-run says the same,
+      never "Nothing to do", until it has been restarted.
+    - `session repair` refuses a cc session (exit 78): its keeper ends with its claude, and one
+      started from the host would outlive the session. The list's state for a cc session with
+      no keeper is `unguarded: end it and start it again from ccy-sessions`.
+    - The record follows the change (`registry.SetCCTeams`): `--teams <seats>` while it has
+      seats, `--bus` when it has none, so a restart from `ccy-sessions` starts where the last
+      hot change left it. cc refuses `--bus` with `--teams` (64).
+    - A membership counts only while its session's own launch wrote it (Fable's M6 review B1):
+      tmux reuses a name once its session ends, and a cc membership is never removed, so a
+      plain cc reusing the name of an ended `cc --teams` would find one. Each launch rewrites
+      the record of its name, so `discover.Current` keeps a membership only while that record
+      carries the bus (a cc record with `--teams` or `--bus`; a ccy record without `--no-bus`).
+      `session list`, the picker, the board, seat allocation (`claimsElsewhere`) and every
+      `session` command use it; a command on a plain cc exits 78, "it was started without
+      --teams or --bus". The rule is in Go because cc's bash is at its allowlist record; the
+      directories left behind are inert, in the runtime directory, until logout or the next bus
+      launch under the name. A ccy `--no-bus` launch also removes its name's directory (the
+      launcher's half, within its limits).
+    - The chooser's `choose-teams --type=host --bus` asks the consent alone and prints nothing;
+      `describe-seats --sentence` is gone, with the system prompt that named the handles.
+    - Not in M6: agent-bus's own H21 liveness (a running container) does not count a cc session,
+      so `agent-bus seat take` from another launcher does not see a cc session's desired seat
+      until its keeper locks it; `ccy-teams` does. pingbus no longer reads `PINGBUS_SEATS`:
+      every launcher names a desired membership, and `seat exec` refuses a launch without one. The picker (M5) shows cc sessions through `hot.Sessions`, which adds
+      the running cc sessions (`discover.RunningCC`), with no change to its UI: a cc row is
+      controllable, and never `Unguarded`, so the picker offers no Repair for it.
 
 ### The inert contract, and who can be hot-controlled
 

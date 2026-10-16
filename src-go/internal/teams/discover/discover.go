@@ -2,7 +2,8 @@
 // SPEC-hot-control.md section 7). A seat's identity is (checkout, team, seat): seat 1 of a team
 // exists once per checkout. Two sources name a seat's session: a session record's --teams (what
 // a restore or restart replays) and a session's desired membership under
-// $XDG_RUNTIME_DIR/ccy/membership/<session>/ (what a hot add wrote, live). The board, shutdown and
+// $XDG_RUNTIME_DIR/ccy/membership/<session>/, or a cc session's under
+// $XDG_RUNTIME_DIR/pingbus/membership/<session>/ (what a hot add wrote, live). The board, shutdown and
 // `ccy-teams session add` all ask this package, so they cannot disagree.
 package discover
 
@@ -142,13 +143,75 @@ func compare(a, b Key) int {
 	return cmp.Or(strings.Compare(a.Dir, b.Dir), strings.Compare(a.Team, b.Team), strings.Compare(a.Seat, b.Seat))
 }
 
-// ReadDesired is every session's desired membership under runtimeDir, and a line for each one
-// that could not be read. No membership directory is none.
+// ReadDesired is every session's desired membership under runtimeDir, ccy's then cc's (H31),
+// and a line for each one that could not be read. No membership directory is none.
 func ReadDesired(runtimeDir string) ([]membership.Desired, []string, error) {
 	if !filepath.IsAbs(runtimeDir) {
 		return nil, nil, fmt.Errorf("XDG_RUNTIME_DIR %q is not an absolute path", runtimeDir)
 	}
-	top := filepath.Dir(membership.Dir(runtimeDir, "x"))
+	var found []membership.Desired
+	var unreadable []string
+	for _, kind := range []string{membership.KindCcy, membership.KindCC} {
+		some, bad, err := readKind(runtimeDir, kind)
+		if err != nil {
+			return nil, nil, err
+		}
+		found, unreadable = append(found, some...), append(unreadable, bad...)
+	}
+	return found, unreadable, nil
+}
+
+// Current is the desired memberships still owned by the launch of their name (Fable's M6 review
+// B1). tmux reuses a session name once it ends, and each launch rewrites the record of its
+// name, so a membership counts only while that record carries the bus: a cc record with
+// --teams or --bus, a ccy record without --no-bus. A plain cc or a ccy --no-bus under a reused
+// name, or a session with no record, owns no membership left behind under it.
+func Current(desired []membership.Desired, records []registry.Record) []membership.Desired {
+	bus := make(map[string]bool, len(records))
+	for _, rec := range records {
+		bus[rec.Name] = LaunchedWithBus(rec)
+	}
+	return slices.DeleteFunc(slices.Clone(desired), func(d membership.Desired) bool { return !bus[d.Session] })
+}
+
+const (
+	// flagBus is cc's launch on the bus with no team; flagNoBus is ccy's launch without it.
+	flagBus   = "--bus"
+	flagNoBus = "--no-bus"
+)
+
+// LaunchedWithBus is whether a record's launch carries the agent team bus, judged on the
+// arguments before any "--" (those are claude's).
+func LaunchedWithBus(rec registry.Record) bool {
+	args := rec.Args
+	if end := slices.Index(args, "--"); end >= 0 {
+		args = args[:end]
+	}
+	if rec.Prefix != membership.KindCC {
+		return !slices.Contains(args, flagNoBus)
+	}
+	return slices.ContainsFunc(args, func(a string) bool {
+		return a == ccyenv.FlagTeams || a == flagBus || strings.HasPrefix(a, ccyenv.FlagTeams+"=")
+	})
+}
+
+// RunningCC is every cc session with a desired membership whose tmux session is live (on ccy's
+// server, where cc starts its sessions), and a line for each cc membership that could not be
+// read: the cc sessions hot control can change (H31, section 5.1).
+func RunningCC(runtimeDir string, live func(string) bool) ([]membership.Desired, []string, error) {
+	if !filepath.IsAbs(runtimeDir) {
+		return nil, nil, fmt.Errorf("XDG_RUNTIME_DIR %q is not an absolute path", runtimeDir)
+	}
+	all, unreadable, err := readKind(runtimeDir, membership.KindCC)
+	if err != nil {
+		return nil, nil, err
+	}
+	return slices.DeleteFunc(all, func(d membership.Desired) bool { return !live(d.Session) }), unreadable, nil
+}
+
+// readKind reads the membership directories of one kind of session, each by its name.
+func readKind(runtimeDir, kind string) ([]membership.Desired, []string, error) {
+	top := filepath.Dir(membership.DirOf(runtimeDir, kind, "x"))
 	entries, err := os.ReadDir(top)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil, nil
@@ -169,6 +232,8 @@ func ReadDesired(runtimeDir string) ([]membership.Desired, []string, error) {
 			unreadable = append(unreadable, err.Error())
 		case d.Session != e.Name():
 			unreadable = append(unreadable, "the membership in "+filepath.Join(top, e.Name())+" names another session, "+d.Session)
+		case d.Kind != kind:
+			unreadable = append(unreadable, "the membership in "+filepath.Join(top, e.Name())+" is a "+d.Kind+" session's, among "+kind+"'s")
 		default:
 			found = append(found, d)
 		}

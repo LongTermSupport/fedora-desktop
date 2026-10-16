@@ -44,7 +44,10 @@ ccy_membership_args() {
     [ -z "$session" ] || CCY_SEAT_RUN_ARGS+=(--label "ccy-session=$session")
     if [ "$no_bus" = true ] || [ -z "$session$canonical" ]; then
         CCY_SEAT_RUN_ARGS+=(-e PINGBUS_MEMBERSHIP=off)
-        return 0
+        # tmux reuses a name once its session ends: the membership an earlier session left under
+        # this one is not this launch's (Plan 00203, Fable's M6 review B1).
+        [ -z "$session" ] || rm -rf -- "${XDG_RUNTIME_DIR:?}/ccy/membership/$session"
+        return
     fi
     dir=$(ccy-teams internal membership-init "${session:-$container}" "$PWD" "$canonical") || {
         rc=$?
