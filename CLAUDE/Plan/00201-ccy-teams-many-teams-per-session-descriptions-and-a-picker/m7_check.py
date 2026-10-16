@@ -33,7 +33,7 @@ the model's prose. Standard library only, and only `bus-ports` imports from this
   expect-choices STDERR (TEAM DESCRIPTION)...   the "several teams are active" refusal, listing each
   expect-session-settings SETTINGS   a seated ccy session's own settings.json: inbound accepted, the guarded status line
   session-status-line PROC           IN THE SESSION'S CONTAINER: the status line its claude draws, the payload on stdin
-  expect-segment OUT TEAMS           the status line printed the session's own line, then | bus: TEAMS
+  expect-segment OUT TEAMS           the status line printed the session's own line, then 👥 TEAMS on rows of its own
   expect-plain LABELS_JSON ENV_JSON  a ccy session container with no seat label or PINGBUS_ variable but PINGBUS_MEMBERSHIP=off
 
 Exit codes: 0 ok; 1 an expectation failed or the input was malformed; 3 not there yet;
@@ -73,6 +73,9 @@ _GITHUB_RE = re.compile(
     r"(?P<owner>[A-Za-z0-9-]+)/[A-Za-z0-9._-]+?(?:\.git)?/?"
 )
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+#: How `pingbus status-line` starts its teams row, and indents a wrapped one under it.
+SEGMENT_LABEL = "👥 "
+SEGMENT_INDENT = "   "
 #: pingbus cli.py, word for word: the refusal when several teams are active and none is inferred.
 CHOICES_TEXT = "several teams are active and --to/--re fit more than one (or none): name one with --team:"
 
@@ -487,12 +490,18 @@ def session_status_line(proc: pathlib.Path, payload: bytes) -> str:
 
 
 def expect_segment(text: str, teams: str) -> None:
-    """`pingbus status-line`'s last line is the session's own status line, then `| bus: TEAMS`."""
-    lines = _ANSI_RE.sub("", text).strip().splitlines()
-    last = lines[-1] if lines else ""
-    inner, sep, segment = last.rpartition(" | ")
-    if not sep or not inner.strip() or segment != f"bus: {teams}":
-        raise Failed(f"the status line ends {last!r}, want the session's own line then | bus: {teams}")
+    """`pingbus status-line` prints the session's own status line, then `👥 TEAMS` on rows of its
+    own: the first row starts with the label, later rows are indented under it (it wraps after a
+    comma at COLUMNS)."""
+    lines = _ANSI_RE.sub("", text).strip("\n").splitlines()
+    starts = [index for index, line in enumerate(lines) if line.startswith(SEGMENT_LABEL)]
+    first = starts[-1] if starts else len(lines)
+    inner, rows = lines[:first], lines[first:]
+    shown = None
+    if rows and all(row.startswith(SEGMENT_INDENT) and row.strip() for row in rows[1:]):
+        shown = rows[0].removeprefix(SEGMENT_LABEL) + "".join(row.removeprefix(SEGMENT_INDENT) for row in rows[1:])
+    if not any(line.strip() for line in inner) or shown != teams:
+        raise Failed(f"the status line is {lines!r}, want the session's own line then {SEGMENT_LABEL}{teams}")
 
 
 def expect_plain(labels: object, env: object) -> None:

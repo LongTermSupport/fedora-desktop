@@ -88,7 +88,7 @@ a repository is no longer offered for a checkout of it. Report:
   `ccy_seats_resolve` deleted. Report: `subagent-reports/261015-m4-chooser-sonnet.md`.
 - [x] ✅ **Task 2.5**: M5, several teams per session (S-B3 `--multi`, S-C1 to S-C9), CCY 3.97.8 /
   container 2.58. `choose-teams` list is a multi-select with kept marks across rounds; `describe-seats --block` prints the launch block after `seat take`; SessionStart's first line names the teams; a
-  status line shows `bus: A,B`; `pingbus send` infers the team from `--re` or `--to`, `say` from
+  status line shows `👥 A,B`; `pingbus send` infers the team from `--re` or `--to`, `say` from
   `--to`, or they fail with the choices. The segment reads a per-session record the pingbus
   SessionStart hook writes. It was first a hooks-daemon handler in this repository only; after the
   final review it is the kit's `pingbus status-line` (Task 2.8). M6 must also print the launch
@@ -124,12 +124,12 @@ a repository is no longer offered for a checkout of it. Report:
   `feat/bus-inject-message`; check the reply line is there when it merges, else add it here
   (tests first). Found in `subagent-reports/261015-bus-bugs-opus.md`.
 - [x] ✅ **Task 2.9**: the final qa-reviewer's findings
-  (`subagent-reports/261015-final-qa-reviewer.md`), CCY 3.98.7 / container 2.62. The `bus: A,B`
+  (`subagent-reports/261015-final-qa-reviewer.md`), CCY 3.98.7 / container 2.62. The `👥 A,B`
   status line works in any checkout: the member kit's `settings.json` makes `pingbus status-line`
   the status line (command-line settings outrank the project's), which runs the session's own
   status line first; the hooks-daemon handler is gone, and the tests are pingbus's, in the
   helper-tests gate. A record SessionStart could not write is told to the session and shown in red
-  (`bus: no record ...`), never as nothing. S-C6, S-C8 and Q6/Q7 match what was built; `cc --teams`
+  (`👥 no record ...`), never as nothing. S-C6, S-C8 and Q6/Q7 match what was built; `cc --teams`
   makes `.claude/ccy/` only after the consent (S-E4). Report:
   `subagent-reports/261015-qa-review-fixes-opus.md`.
 - [x] ✅ **Task 2.10**: UX fixes before the owner's first day with teams (branch

@@ -22,7 +22,7 @@ a different answer changes only the expectations it names.
 | Q4  | Choosing a team that does not cover the checkout: what are the choices?                               | Three, default **Add**: "Add example-org/proj to beta's scope", "Join without adding (beta will treat example-org/proj references as external)", "Leave beta out". Joining without adding is an explicit, named choice, not a fallback.                     | S-B7          |
 | Q5  | When does the chooser appear?                                                                         | Whenever an attended launch has `--teams` with no value or a team alone, **unless** the machine has exactly one team and it covers the checkout (then it is taken, as today). With two or more teams the owner always sees the list, covering teams on top. | S-B2          |
 | Q6  | How does `pingbus send`/`say` pick a team when the session is on several?                             | Infer it when unambiguous: from `--re` (`send` only: an event belongs to one team's room) or from `--to` (every name resolves in exactly one active team). Otherwise exit 64 listing the active teams with their descriptions. `--team` always wins.        | S-C8, S-C9    |
-| Q7  | Show the session's teams in the **status line**?                                                      | Yes (revised after review): the member kit's `pingbus status-line` shows `bus: alpha,beta` from the per-session record, after the checkout's own status line, in any checkout (S-C6). It is the one place visible during the whole session.                 | S-C6          |
+| Q7  | Show the session's teams in the **status line**?                                                      | Yes (revised after review): the member kit's `pingbus status-line` shows `👥 alpha,beta` from the per-session record, below the checkout's own status line, in any checkout (S-C6). It is the one place visible during the whole session.                 | S-C6          |
 | Q8  | Does `recv` print a ready reply command for PINGs too, or only for PEER and HUMAN items?              | PEER and HUMAN only (what was asked). A PING's answer is a verb the agent must choose; the skill already says how.                                                                                                                                          | S-D1          |
 | Q9  | `cc --teams`: does cc pick its seat silently (today) or show the seat and role chooser as ccy does?   | Show the same chooser: one flow, one behaviour. The only cc-specific step is the Element consent, shown inside the flow.                                                                                                                                    | S-E3          |
 | Q10 | `ccy-teams for-checkout --choose`: keep or remove once the launchers use the new flow?                | Remove `--choose` (YAGNI); keep `for-checkout` without it, which prints the covering teams for scripts.                                                                                                                                                     | S-B14         |
@@ -176,11 +176,11 @@ chooser logic in bash (the bash ratchet, R§1, forbids growing `claude-yolo` or
   formats it.
 - **S-C5** SessionStart: S-A11's lines, plus a first line `agent-bus: this session is on teams alpha, beta.` when there are two or more.
 - **S-C6** (revised after review) Status line: in **any** checkout, a session launched with
-  the member kit shows `bus: alpha,beta`. The kit's `settings.json` sets the status line
+  the member kit shows `👥 alpha,beta`. The kit's `settings.json` sets the status line
   command `pingbus status-line` (command-line settings outrank the project's); it runs the
   status line the session would otherwise have had, then appends the segment read from the
   per-session record SessionStart writes under the session id (S-C5's hook). A session with
-  `PINGBUS_TEAMS` set and no usable record shows `bus: no record ...` in red, never nothing;
+  `PINGBUS_TEAMS` set and no usable record shows `👥 no record ...` in red, never nothing;
   a session on no team shows no segment (Q7). Not a project hooks-daemon handler: that
   existed only in this repository's checkouts.
 - **S-C7** Wake: unchanged. One watcher, one thread and lock per team; one notice with

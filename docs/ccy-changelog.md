@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.12.7 — container 2.77.6
+## 3.99.12.9 — container 2.77.7
 
 - **The agent-bus status line wraps instead of being cut.** `pingbus status-line` appended
   `| bus: A,B` to the last row of the session's own status line. The hooks daemon's status line

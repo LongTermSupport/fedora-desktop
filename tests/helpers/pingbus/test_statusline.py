@@ -201,6 +201,20 @@ class StatusLineTest(unittest.TestCase):
                     self.env["COLUMNS"] = columns
                 self.assertEqual(self.render()[0], f"inner\n{CYAN}👥 alpha,beta,gamma{RESET}")
 
+    def test_the_measured_text_is_ascii_and_the_label(self) -> None:
+        """display_width only ever measures the segment: the label, team names (TEAM_NAME_RE,
+        plus `(down)`) and the fixed notes. Pinned to ASCII and the label, the one wide code
+        point, so the heuristic's approximations never meet text they could get wrong."""
+        self.assertEqual(statusline.display_width(statusline.LABEL), 2)
+        for text in (statusline.NO_RECORD, statusline.NO_MEMBERSHIP, statusline.TEAM_NAME_RE.pattern):
+            with self.subTest(text=text):
+                self.assertTrue(text.isascii())
+        self.record("sess-1", "alpha,beta")
+        self.env["COLUMNS"] = "8"
+        for row in self.render()[0].split("\n"):
+            plain = statusline.ANSI_ESCAPE_RE.sub("", row).replace(statusline.LABEL, "", 1)
+            self.assertTrue(plain.isascii(), row)
+
     def test_the_display_width_skips_colour_and_counts_the_icon_as_two(self) -> None:
         self.assertEqual(statusline.display_width(f"{CYAN}👥 ab{RESET}"), 5)
         self.assertEqual(statusline.display_width("é"), 1)

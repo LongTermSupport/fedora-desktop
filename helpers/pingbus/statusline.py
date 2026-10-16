@@ -289,7 +289,9 @@ def _is_down(environ: Mapping[str, str], team: str) -> bool:
 
 def display_width(text: str) -> int:
     """The terminal columns `text` takes, by the hooks daemon's measure: colour escapes take
-    none, wide and fullwidth code points (most emoji) two, combining and format code points none."""
+    none, wide and fullwidth code points (most emoji) two, combining and format code points none.
+    Its input is this module's own segment text (LABEL, team names, the fixed notes), never the
+    inner status line, so the heuristic is exact for everything it measures."""
     width = 0
     for char in ANSI_ESCAPE_RE.sub("", text):
         if unicodedata.combining(char) or unicodedata.category(char) == "Cf":
