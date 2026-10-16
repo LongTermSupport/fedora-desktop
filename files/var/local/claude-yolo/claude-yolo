@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.99.0"  # Container 2.67: every session in ccy's tmux carries the bus kit idle (membership mount, ccy-session label, --no-bus). See docs/ccy-changelog.md.
+CCY_VERSION="3.99.1"  # Container 2.68: every session in ccy's tmux carries the bus kit idle (membership mount, ccy-session label, --no-bus). See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -78,7 +78,7 @@ source "$SCRIPT_DIR/lib/agent-bus-seats.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.67"
+REQUIRED_CONTAINER_VERSION="2.68"
 
 set -e
 
@@ -221,7 +221,7 @@ Options:
                          by one session. Needs play-agent-bus.yml; Quick Launch keeps both.
   --no-bus               Leave the agent team bus kit out. Without --teams a session started
                          in ccy's tmux is on no team but carries the kit idle (no hooks run,
-                         its own status line; only the read-only membership mount differs).
+                         its own status line, no inbox socket; joining a team relaunches it).
   --supervise            Force the PTY supervisor on and ARMED — it injects a
                          real /compact when context goes red while idle. The
                          supervisor already runs UNARMED by default whenever the

@@ -665,7 +665,10 @@ class Runtime:
     `execvpe` replaces the process with the session once its seats are claimed;
     `upstream` is the working directory's checkout and the branch it tracks (`send`);
     `stopping`, once set, ends a relay-mode `watch` (the plugin that owns it otherwise
-    stops it by signal)."""
+    stops it by signal); `outage_retry_s` to `outage_retry_max_s` is a watcher team's backoff
+    through a transient fault (SPEC-inject E25), and `supervise_retry_s` to
+    `supervise_retry_max_s` the supervisor's between restarts of the watcher it runs with
+    `run_child(argv, environ)` (E26)."""
 
     forge_for: Callable[
         [config.Member, Mapping[str, str]], Callable[[protocol.TeamRecord], forge.Forge]
@@ -686,6 +689,35 @@ class Runtime:
     stopping: threading.Event = dataclasses.field(default_factory=threading.Event)
     #: Posts a session-end goodbye `(team, text)`; None is the real one (`post_goodbye`).
     post: Callable[[str, str], object] | None = None
+    outage_retry_s: float = 1.0
+    outage_retry_max_s: float = 30.0
+    supervise_retry_s: float = 1.0
+    supervise_retry_max_s: float = 60.0
+    run_child: Callable[[Sequence[str], Mapping[str, str]], int] = (
+        lambda argv, environ: _run_child(argv, environ))
+
+
+def _run_child(argv: Sequence[str], environ: Mapping[str, str]) -> int:
+    """The supervised watcher, its stderr this process's own (`watch.log`). Descriptors
+    made inheritable (the session's watch lock) pass to it; every other one is close-on-exec.
+    Its exit code is the result the supervisor acts on, so `check=False`."""
+    return subprocess.run(list(argv), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                          env=dict(environ), close_fds=False, check=False).returncode
+
+
+class _Backoff:
+    """A retry wait that doubles from `first_s` up to `cap_s`, until `reset`."""
+
+    def __init__(self, first_s: float, cap_s: float) -> None:
+        self.first_s, self.cap_s = first_s, cap_s
+        self._next = first_s
+
+    def next(self) -> float:
+        wait, self._next = self._next, min(self._next * 2, self.cap_s)
+        return min(wait, self.cap_s)
+
+    def reset(self) -> None:
+        self._next = self.first_s
 
 
 class _LockedStream:
@@ -1342,23 +1374,65 @@ WATCH_STATUS_TTL_MS = 600_000
 WATCH_STATUS_REFRESH_MS = 300_000
 
 
-def _watch_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting, status_ms: int) -> None:
-    """One team's watcher thread: long-poll until stopped, waking the main thread on every
-    batch that stored an item, and renewing the `listening` status. It owns `lock` and
-    releases it when it ends; a failure is handed to the main thread."""
+def _permanent(exc: Exception) -> bool:
+    """Whether a watcher team's failure is an answer that retrying cannot change (SPEC-inject
+    E25): a refusal, a lost trust, a broken bundle or state. A homeserver restart (a
+    transient `MatrixError`) and any other error, a full disk among them, are retried."""
+    if isinstance(exc, matrix.MatrixError):
+        return not exc.transient
+    return isinstance(exc, FAILURES)
+
+
+def _describe(exc: Exception) -> str:
+    """One line for `watch.log`: a reported failure's message, else the error's type and
+    its OS reason (never a lower-level message, which may carry anything)."""
+    if isinstance(exc, FAILURES):
+        return failure(exc)[1]
+    if isinstance(exc, OSError) and exc.strerror:
+        return f"{type(exc).__name__}: {exc.strerror}"
+    return type(exc).__name__
+
+
+def _watch_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting, err: TextIO) -> None:
+    """One team's watcher thread: a first sync, then long-poll until stopped, waking the
+    main thread on every batch that stored an item, and keeping the `listening` status
+    fresh. A transient fault, from the very first sync on, is retried with a backoff from
+    the stored sync token, said once when it starts and once when it ends (E25); only a
+    permanent one is handed to the main thread. It owns `lock` and releases it when it ends."""
+    team = seat.member.team
+    backoff = _Backoff(rt.outage_retry_s, rt.outage_retry_max_s)
+    status_ms: int | None = None
+    timeout_ms = 0
+    outage: str | None = None
     try:
         while not waiting.stop.is_set():
-            batch = seat.syncer.sync_once(rt.long_poll_ms)
-            if batch.drops:
-                waiting.drops.put((seat.member.team, batch.drops))
-            if batch.accepted:
-                waiting.woke.set()
-            now = rt.clock_ms()
-            if now - status_ms >= WATCH_STATUS_REFRESH_MS:
-                seat.syncer.publish_status(now + WATCH_STATUS_TTL_MS)
-                status_ms = now
+            try:
+                batch = seat.syncer.sync_once(timeout_ms)
+                timeout_ms = rt.long_poll_ms
+                if batch.drops:
+                    waiting.drops.put((team, batch.drops))
+                now = rt.clock_ms()
+                if status_ms is None or now - status_ms >= WATCH_STATUS_REFRESH_MS:
+                    seat.syncer.publish_status(now + WATCH_STATUS_TTL_MS)
+                    status_ms = now
+                if outage is not None:
+                    err.write(f"{PROG}: team {team}: the team syncs again\n")
+                    outage = None
+                    backoff.reset()
+                if batch.accepted:
+                    waiting.woke.set()
+            except Exception as exc:
+                if _permanent(exc):
+                    raise
+                if outage is None:
+                    outage = _describe(exc)
+                    what = ("the homeserver does not answer" if isinstance(exc, matrix.MatrixError)
+                            else "this team's sync failed")
+                    err.write(f"{PROG}: team {team}: {what} ({outage}): retrying, the team stays "
+                              "watched\n")
+                waiting.stop.wait(backoff.next())
     except Exception as exc:
-        waiting.failures.append((seat.member.team, exc))
+        waiting.failures.append((team, exc))
         waiting.woke.set()
     finally:
         lock.release()
@@ -1655,21 +1729,87 @@ def _session_socket(environ: Mapping[str, str]) -> tuple[str, str]:
     return session
 
 
+#: A supervised watcher's exits that a restart cannot change: the supervisor ends with them.
+#: 0 is only ever "the session socket is gone" (missing, or refusing connections when a
+#: killed session left its file behind), so it is final too.
+SUPERVISE_FINAL = (EXIT_OK, EXIT_AUTH, EXIT_UNTRUSTED, EXIT_CONFIG, EXIT_USAGE)
+
+
+def _session_watch_lock(environ: Mapping[str, str], path: str, err: TextIO) -> inbox.Lock | None:
+    """The session's own watch lock (SPEC-inject E26), or None, said, when it is held:
+    one supervisor or watcher per session socket, whatever team locks it holds."""
+    marks = inject.Marks(config.resolve_home(environ), path)
+    marks.ensure_dir()
+    try:
+        return inbox.acquire_lock_at(marks.watch_lock_path(), "watch")
+    except inbox.Busy as busy:
+        err.write(f"{PROG}: this session already has a watcher (a {busy.holder} holds its watch lock)\n")
+        return None
+
+
+def _supervise(environ: Mapping[str, str], path: str, lock: inbox.Lock, rt: Runtime, err: TextIO) -> int:
+    """Run `watch --child` until the session's socket goes, starting it again after any
+    other exit with a backoff, except a final one (SPEC-inject E26). The child inherits the
+    session's watch lock, so a supervisor killed on its own leaves its watcher counted."""
+    try:
+        argv = [*hooks.watch_argv(environ), "--child"]
+    except FileNotFoundError as exc:
+        raise config.ConfigError(f"watch --supervise: {exc}") from None
+    lock.set_inheritable()
+    backoff = _Backoff(rt.supervise_retry_s, rt.supervise_retry_max_s)
+    while True:
+        started = rt.monotonic()
+        code = rt.run_child(argv, environ)
+        if code == EXIT_OK or not notify.socket_present(path):
+            err.write(f"{PROG}: the session socket is gone: the supervisor exits\n")
+            return EXIT_OK
+        if code in SUPERVISE_FINAL:
+            err.write(f"{PROG}: the watcher was refused (exit {code}), which a restart cannot change: "
+                      "the supervisor exits\n")
+            return code
+        if rt.monotonic() - started >= rt.supervise_retry_max_s:
+            backoff.reset()
+        wait = backoff.next()
+        err.write(f"{PROG}: the watcher exited (exit {code}): starting it again in {wait:g} s\n")
+        rt.sleep(wait)
+
+
 def cmd_watch(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
-    """Hold every active team's lock as a watcher (a busy team is reported and skipped;
-    exit 75 only when every team is busy), keep the inbox filled, and write each pending item
-    to the session's socket as a delivery envelope (SPEC-inject.md), consuming what was
-    written. Exits 0 when the socket
-    goes (the session ended). A team that fails is reported and dropped, and the others go
-    on; once no team is left, it exits with the first failure's code."""
+    """`watch`: one watcher per session socket, by the session's watch lock. `--supervise`
+    holds that lock and runs `watch --child`, which runs under it, restarting it (E26)."""
     rt: Runtime = args.runtime
     err = _LockedStream(err)
     relaying = relay.enabled(environ)
+    if relaying and (args.supervise or args.child):
+        raise config.UsageError("watch --supervise and --child are for socket delivery; in relay "
+                                "mode the plugin owns the watcher")
     path, token = ("", "") if relaying else _session_socket(environ)
     members = config.load_active(environ, team=args.team)
     if not relaying and not notify.socket_present(path):
         err.write(f"{PROG}: the session socket is gone: nothing to wake\n")
         return EXIT_OK
+    lock = None
+    if not relaying and not args.child:
+        lock = _session_watch_lock(environ, path, err)
+        if lock is None:
+            return EXIT_BUSY
+    try:
+        if args.supervise:
+            return _supervise(environ, path, lock, rt, err)
+        return _watch(members, path, token, relaying, environ, rt, out, err)
+    finally:
+        if lock is not None:
+            lock.release()
+
+
+def _watch(members: Sequence[config.Member], path: str, token: str, relaying: bool,
+           environ: Mapping[str, str], rt: Runtime, out: TextIO, err: TextIO) -> int:
+    """Hold every active team's lock as a watcher (a busy team is reported and skipped;
+    exit 75 only when every team is busy), keep the inbox filled, and write each pending item
+    to the session's socket as a delivery envelope (SPEC-inject.md), consuming what was
+    written. Exits 0 when the socket goes (the session ended). A transient fault or any
+    other error is retried (E25); a team with a permanent failure is reported and dropped,
+    and the others go on; once no team is left, it exits with the first failure's code."""
     waiting = _Waiting(float("inf"))
     held: list[tuple[_Seat, inbox.Lock]] = []
     pending: _Drops = {}
@@ -1686,14 +1826,6 @@ def cmd_watch(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO,
             err.write(f"{PROG}: every active team is busy: another watcher or waiter holds the seat\n")
             return EXIT_BUSY
         seats = [seat for seat, _ in held]
-        for seat in seats:
-            batch = seat.syncer.sync_once(0)
-            if batch.drops:
-                pending.setdefault(seat.member.team, collections.Counter()).update(batch.drops)
-        _emit_drops(pending, out, err)
-        status_ms = rt.clock_ms()
-        for seat in seats:
-            seat.syncer.publish_status(status_ms + WATCH_STATUS_TTL_MS)
         home = config.resolve_home(environ)
         ledger = _RelayLedger(relay.Spool(home), relay.Stall(rt.monotonic))
         marks = inject.Marks(home, path)
@@ -1706,13 +1838,14 @@ def cmd_watch(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO,
                                  give_up_s=rt.delivery.missing_give_up_s),
             envelope.SenderBudget(rt.monotonic))
         for seat, lock in held:
-            thread = threading.Thread(target=_watch_poll, args=(seat, lock, rt, waiting, status_ms),
+            thread = threading.Thread(target=_watch_poll, args=(seat, lock, rt, waiting, err),
                                       daemon=True, name=f"pingbus-watch-{seat.member.team}")
             rt.threads.append(thread)
             handed_over.add(seat.member.team)
             thread.start()
         reported = 0
         first_failure: int | None = None
+        pass_failing = False
         while True:
             if relaying:
                 if rt.stopping.is_set():
@@ -1723,14 +1856,22 @@ def cmd_watch(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO,
             waiting.woke.wait(rt.tick_s)
             waiting.woke.clear()
             _collect_drops(waiting, pending)
-            if relaying:
-                _relay_pass(seats, ledger, rt, pending, err)
-            else:
-                try:
+            try:
+                if relaying:
+                    _relay_pass(seats, ledger, rt, pending, err)
+                else:
                     _inject_pass(seats, injector, rt, pending, err)
-                except notify.SocketGone as gone:
-                    err.write(f"{PROG}: {gone}: the watcher exits\n")
-                    return EXIT_OK
+            except notify.SocketGone as gone:
+                err.write(f"{PROG}: {gone}: the watcher exits\n")
+                return EXIT_OK
+            except Exception as exc:  # contained (E25): the next tick tries again
+                if not pass_failing:
+                    err.write(f"{PROG}: a delivery pass failed ({_describe(exc)}): trying again\n")
+                pass_failing = True
+            else:
+                if pass_failing:
+                    err.write(f"{PROG}: delivery passes work again\n")
+                pass_failing = False
             _emit_drops(pending, out, err)
             while len(waiting.failures) > reported:
                 team, exc = waiting.failures[reported]
@@ -1983,6 +2124,8 @@ def cmd_seat_exec(args: argparse.Namespace, environ: Mapping[str, str], out: Tex
                             before_seats=lambda: forge_credential_source(environ))
     names = ", ".join(f"{ref.text} ({member.handle})"
                       for ref, member in zip(claimed.refs, claimed.members, strict=True))
+    for warning in claimed.warnings:
+        err.write(f"⚠ agent team bus: {warning}\n")
     err.write(f"✓ agent team bus: {names or 'no team (the kit is loaded and idle)'}\n")
     err.flush()
     out.flush()
@@ -2063,7 +2206,11 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
     wait = command("wait", cmd_wait, "long-poll every active team until an item arrives")
     wait.add_argument("--timeout", type=int, metavar="S",
                       help="seconds (default: the member's wait_timeout_s)")
-    command("watch", cmd_watch, "fill the inbox and notify the session socket (SessionStart starts it)")
+    watch = command("watch", cmd_watch, "fill the inbox and notify the session socket (SessionStart starts it)")
+    watch_mode = watch.add_mutually_exclusive_group()
+    watch_mode.add_argument("--supervise", action="store_true",
+                            help="run the watcher and start it again until the session ends (what the hooks start)")
+    watch_mode.add_argument("--child", action="store_true", help=argparse.SUPPRESS)
     history = command("history", cmd_history,
                       "what this member received and sent, newest first, read from the room")
     history.add_argument("--limit", type=int, default=syncer.HISTORY_DEFAULT_ITEMS, metavar="N",

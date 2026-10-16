@@ -25,6 +25,24 @@ func TestArgumentsAreCheckedBeforeAnythingIsRead(t *testing.T) {
 	}
 }
 
+func TestHelpPrintsTheUsageAndExitsZero(t *testing.T) {
+	for _, flag := range []string{"-h", "--help"} {
+		m := newMachine(t)
+		if got := m.run(flag); got != term.ExitOK {
+			t.Fatalf("%s: exit %d, want 0", flag, got)
+		}
+		out := m.Out.String()
+		for _, want := range []string{"ccy-teams shutdown <team> [--yes]", "/exit", "  0  ", "  1  ", "  64  "} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("%s: stdout lacks %q: %q", flag, want, out)
+			}
+		}
+		if m.ErrOut.Len() != 0 || len(m.Fake.Calls()) != 0 {
+			t.Fatalf("%s: stderr %q calls %v", flag, m.ErrOut.String(), m.Fake.Calls())
+		}
+	}
+}
+
 func TestAnUnknownTeamIsRefused(t *testing.T) {
 	m := newMachine(t)
 	if got := m.run("omega", "--yes"); got != term.ExitFailure {

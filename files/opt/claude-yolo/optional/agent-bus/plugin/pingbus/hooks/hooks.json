@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ -z \"$PINGBUS_MEMBERSHIP\" ] || [ -e \"$PINGBUS_HOME/active\" ] || { [ -z \"$CLAUDE_CODE_MESSAGING_SOCKET\" ] || (umask 077 && jq -n 'env | {v: 1, socket: .CLAUDE_CODE_MESSAGING_SOCKET, token: .CLAUDE_CODE_MESSAGING_TOKEN}' > \"$PINGBUS_HOME/.socket.json.tmp\" && mv -f \"$PINGBUS_HOME/.socket.json.tmp\" \"$PINGBUS_HOME/socket.json\") || exit 1; exit 0; }; exec pingbus hook session-start"
+            "command": "[ -z \"$PINGBUS_MEMBERSHIP\" ] || [ -e \"$PINGBUS_HOME/active\" ] || exit 0; exec pingbus hook session-start"
           }
         ]
       }

@@ -293,6 +293,7 @@ class Claimed:
     refs: tuple[SeatRef, ...]
     environ: dict[str, str]
     members: tuple[config.Member, ...]
+    warnings: tuple[str, ...] = ()
 
 
 def _membership_error(why: str) -> config.ConfigError:
@@ -393,22 +394,27 @@ def settings_sources(environ: Mapping[str, str], project: pathlib.Path) -> tuple
     return tuple(sources)
 
 
+class SettingsUnreadable(config.ConfigError):
+    """A settings file whose status line cannot be read; the claim names it and leaves the
+    status line to Claude Code, so a broken file never stops a session starting."""
+
+
 def inner_status_line(sources: Sequence[pathlib.Path]) -> dict[str, object] | None:
     """The status line the session would have had without the kit: the `statusLine` of the
     first source that has one, when it is a command; None when there is none. A source that
-    cannot be read or parsed is refused (78): guessing would hide the owner's status line."""
+    cannot be read or parsed raises `SettingsUnreadable`: guessing would hide the owner's
+    status line."""
     for path in sources:
         try:
             text = path.read_text(encoding="utf-8")
         except FileNotFoundError:
             continue
         except OSError as exc:
-            raise config.ConfigError(f"cannot read {path}: {exc.strerror or exc}") from None
+            raise SettingsUnreadable(f"cannot read {path}: {exc.strerror or exc}") from None
         try:
             data = json.loads(text)
         except json.JSONDecodeError as exc:
-            raise config.ConfigError(f"{path} is not JSON ({exc.msg}), so the status line it "
-                                     "sets cannot be kept beside the agent team bus kit") from None
+            raise SettingsUnreadable(f"{path} is not JSON ({exc.msg})") from None
         if not isinstance(data, dict) or "statusLine" not in data:
             continue
         line = data["statusLine"]
@@ -419,12 +425,19 @@ def inner_status_line(sources: Sequence[pathlib.Path]) -> dict[str, object] | No
     return None
 
 
-def session_settings(inner: Mapping[str, object] | None, *, seated: bool) -> dict[str, object]:
-    """The settings the session is launched with (H34). Claude Code reads a `--settings` file
-    once, at start (the M2 spike), so inbound is accepted from the start and the watcher, which
-    runs only while a seat is held, is its only writer. The status line is a shell guard: the
-    inner one with no `active` flag, `pingbus status-line` with it. A seated session refreshes
-    each second as before; a plain one keeps the inner line's own interval and padding."""
+def session_settings(inner: Mapping[str, object] | None, *, seated: bool, guard: bool = True) -> dict[str, object]:
+    """The settings the session is launched with (H33b, H34). Claude Code reads a `--settings`
+    file once, at start (the M2 spike), so the inbound accept is decided at launch: a session
+    launched with a seat accepts (the watcher, which runs only while a seat is held, is the
+    only writer the kit starts); a session launched on no team does not, so it has no inbox
+    socket at all (Decision 1), and its first join relaunches it once. The status line is a
+    shell guard: the inner one with no `active` flag, `pingbus status-line` with it. A seated
+    session refreshes each second as before; a plain one keeps the inner line's own interval
+    and padding. Without `guard` (a settings file could not be read) no status line is set,
+    so Claude Code's own applies and there is no bus segment."""
+    settings: dict[str, object] = {"crossSessionInbound": "accept"} if seated else {}
+    if not guard:
+        return settings
     line: dict[str, object] = {"type": "command", "command": STATUS_LINE_GUARD}
     if seated:
         line["refreshInterval"] = 1
@@ -432,7 +445,8 @@ def session_settings(inner: Mapping[str, object] | None, *, seated: bool) -> dic
         line["refreshInterval"] = inner["refreshInterval"]
     if inner is not None and "padding" in inner:
         line["padding"] = inner["padding"]
-    return {"crossSessionInbound": "accept", "statusLine": line}
+    settings["statusLine"] = line
+    return settings
 
 
 def _write_private(path: pathlib.Path, text: str) -> None:
@@ -441,8 +455,9 @@ def _write_private(path: pathlib.Path, text: str) -> None:
         handle.write(text)
 
 
-def _write_session_files(home: pathlib.Path, inner: Mapping[str, object] | None, *, seated: bool) -> None:
-    settings = session_settings(inner, seated=seated)
+def _write_session_files(home: pathlib.Path, inner: Mapping[str, object] | None, *, seated: bool,
+                         guard: bool) -> None:
+    settings = session_settings(inner, seated=seated, guard=guard)
     _write_private(home / SESSION_SETTINGS, json.dumps(settings, indent=2) + "\n")
     _write_private(home / STATUS_LINE_INNER, "" if inner is None else f"{inner['command']}\n")
     if seated:
@@ -510,7 +525,14 @@ def claim(
         raise config.ConfigError(f"{SEATS_VAR} names no seat")
     for ref in refs:
         _check_seat_dir(root, ref)
-    inner = inner_status_line(settings_from) if from_membership else None
+    inner, guard, warnings = None, True, ()
+    if from_membership:
+        try:
+            inner = inner_status_line(settings_from)
+        except SettingsUnreadable as exc:
+            guard = False
+            warnings = (f"{exc}: the session keeps Claude Code's own status line, with no bus "
+                        "segment; fix the file and relaunch to get it",)
     if refs:
         before_seats()
     locks: list[inbox.Lock] = []
@@ -532,7 +554,7 @@ def claim(
             child_env["PINGBUS_TEAMS"] = ",".join(ref.team for ref in refs)
             members = config.load_active(child_env)
         if from_membership:
-            _write_session_files(home, inner, seated=bool(refs))
+            _write_session_files(home, inner, seated=bool(refs), guard=guard)
     except BaseException:
         for lock in locks:
             lock.release()
@@ -542,7 +564,7 @@ def claim(
     for lock in locks:
         lock.set_inheritable()
     _HELD.extend(locks)
-    return Claimed(refs, child_env, members)
+    return Claimed(refs, child_env, members, warnings)
 
 
 # ── what the SessionStart hook says ──────────────────────────────────────────────────────

@@ -117,3 +117,55 @@ guard is in place from launch. The spec records the consequence for M3: the stat
   - The age restart reading the record (H5) is M4.
   - The status line `bus:` from `applied.json` (H14) is M3.
   - qa-all and the qa-reviewer agent were not run, as sub-agents may not.
+
+## After the Fable review (FIX-FIRST)
+
+The review is `261016-m2-review-fable.md`.
+
+- **Inbound.** A session launched on no team is now launched without `crossSessionInbound`:
+  `seat.session_settings` sets it only when the session is seated. So the session has no inbox
+  socket, and Decision 1 holds.
+  - Its first join relaunches it once through the restart path. The spec's H22 states this, and
+    so does the ccy-teams per-step report line M3 must print.
+  - The keeper's report gains `inbound`.
+  - SessionStart's inert branch no longer writes `socket.json`, since there is no socket. It is
+    now the same guard as every other hook, which also removes `jq` from the hooks.
+- **Socket path, probed here on Claude Code 2.1.301.** The socket is
+  `$XDG_RUNTIME_DIR/cc-socks/<pid>.sock`, on the container's own overlay root. It is not under
+  `/root/.claude` and not on any mount, so a sibling container of the same checkout cannot reach
+  it. Recorded in the spec's H34.
+- **Settings that are not JSON.** They no longer refuse the launch. The claim names the file on
+  stderr (⚠) and launches with no `statusLine` of its own, so Claude Code's own status line
+  applies and there is no bus segment. This holds for seated and plain sessions alike.
+- **Versions.**
+  - F44 (M0) is merged in.
+  - CCY 3.99.1 and container 2.68. The version line, the label and `REQUIRED_CONTAINER_VERSION`
+    are the conflicts, resolved.
+  - The changelog keeps both entries.
+- **Plan 00201 and Plan 00161 acceptances** are ported.
+  - `m7_seat_listing` and `u20_membership_listing` build `ID<TAB>seats` from each ccy
+    container's `/run/ccy/membership` mount source, reading the host's `membership.json`. This
+    replaces the `ccy-seats` label, and it works for unlabelled headless launches too.
+  - `expect-plain` allows exactly `PINGBUS_MEMBERSHIP=off`. Its test was red first, then green.
+  - Both are queued in meta-deploy after M2's acceptance, as `<plan>/acceptance.bash` entries,
+    so 00161's `deploy.bash` does not run.
+- **acceptance.bash** is now the robustness branch's dispatcher shape: `check_leg`, `REPORT`,
+  and one literal `source` per milestone.
+  - The coordinator's merge adds the `_acceptance-robust.inc.bash` source and its
+    `acceptance_robust` call beside M2's.
+  - `_acceptance-m2.inc.bash` starts its own throwaway sessions, `m2-plain-<pid>` and
+    `m2-nobus-<pid>`. They run with `tmux -L ccy new-session -d` and `ccy --headless
+    --no-restore --no-supervise`, with stdin a fifo held open, so no turn is sent.
+  - It cleans up on any exit: tmux, containers, registry records, membership directories and
+    transcripts.
+  - It no longer picks the owner's live sessions. Check (a) is covered by the ported 00201 and
+    00161 runs.
+- **`--no-bus` restored with a saved Quick Launch team.** This cannot reach the 64 refusal. A
+  restore, a restart and a headless launch never take the saved team: the existing
+  test-ccy-teams cases "a session restore never takes the saved team" and "headless, a saved
+  team: not launched into" pin it.
+- **Smaller fixes.**
+  - The Dockerfile comment says the kit's `settings.json` is agent-bus-claude's.
+  - A membership test refuses the session names `..` and `../s`.
+  - The "differ only by the mount" sentence is corrected in H33b, docs/ccy.md and `--help`.
+  - The spec section 6 says M1 builds on `parse_membership` and the claim's session files.

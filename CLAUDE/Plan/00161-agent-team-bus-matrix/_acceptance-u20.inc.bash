@@ -16,7 +16,7 @@
 # only the saved token's name, to scrub its value from the evidence afterwards. Three seats:
 # acca (made coordinator by `set-role`), accb and accc (workers). Later sessions: accb again
 # (M2.7), accc after `seat remove` (M2.8), and a plain `ccy` (M2.9). Every container is found by
-# its `ccy-seats` label, never by the project label the owner's own sessions carry too.
+# its desired membership (the read-only mount Plan 00203 M2 added), never by the project label the owner's own sessions carry too.
 #
 # WHAT IS JUDGED is what the bus, the host or Claude Code recorded, never the model's prose:
 # the room's ping events, read as the human by `curl`; `agent-bus seat list` and `sudo agent-bus
@@ -129,10 +129,29 @@ u20_sessions_alive() {
 
 # ── before M1: what the owner must have, and what an interrupted run left ─────────────────
 
-# u20_seat_label_listing <file> — every container labelled with seats, running or not, and its
-# label, sorted.
+# u20_membership_listing [running] — "ID<TAB><seat>@<team>[,...]" for every ccy container launched with a
+# desired membership (Plan 00203 M2: PINGBUS_MEMBERSHIP, the read-only mount at
+# /run/ccy/membership), its seats read from the host's own membership.json, the mount's source;
+# every container, or with `running` the running ones. It replaces the ccy-seats label M2 retired.
+u20_membership_listing() {
+    local id src seats
+    local filter=()
+    [[ "${1:-}" != running ]] || filter=(--filter status=running)
+    while read -r id; do
+        [[ -n "${id}" ]] || continue
+        src="$(podman inspect --format '{{range .Mounts}}{{if eq .Destination "/run/ccy/membership"}}{{.Source}}{{end}}{{end}}' "${id}")" || return 1
+        [[ -n "${src}" ]] || continue
+        seats="$(jq -r '[.seats[] | "\(.seat)@\(.team)"] | join(",")' "${src}/membership.json")" || return 1
+        [[ -z "${seats}" ]] || printf '%s\t%s\n' "${id}" "${seats}"
+    done < <(podman ps -a --filter label=ccy=true "${filter[@]}" --format '{{.ID}}')
+}
+
+# u20_seat_label_listing <file> — every container holding seats, running or not, and its
+# seats, sorted.
 u20_seat_label_listing() {
-    podman ps -a --filter label=ccy-seats --format '{{.ID}}\t{{index .Labels "ccy-seats"}}' | LC_ALL=C sort >"$1"
+    local listing
+    listing="$(u20_membership_listing)" || return 1
+    if [[ -n "${listing}" ]]; then printf '%s\n' "${listing}"; fi | LC_ALL=C sort >"$1"
 }
 
 # u20_remove_containers — every container holding an acceptance seat, running or not (a
@@ -360,7 +379,8 @@ u20_ccy_containers() {
 u20_container_up() {
     local s="$1" seat="${U20_SEAT_OF[$1]}" ids count
     if [[ -n "${seat}" ]]; then
-        ids="$(podman ps --filter "label=ccy-seats=${seat}@${TEAM}" --filter status=running --format '{{.ID}}')" || return 1
+        ids="$(u20_membership_listing running)" || return 1
+        ids="$(awk -F'\t' -v want="${seat}@${TEAM}" '$2 == want { print $1 }' <<<"${ids}")" || return 1
     else
         ids="$(u20_ccy_containers | LC_ALL=C comm -13 "$(u20_ev "${s}")/containers-before" -)" || return 1
     fi

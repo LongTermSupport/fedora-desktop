@@ -1,33 +1,16 @@
 #!/usr/bin/env bash
-# Plan 00203 — acceptance.bash: the automated part of milestone M2 (SPEC-hot-control.md section
-# 6, M2 a-f), the launcher and entrypoint half of hot control. The owner's part (what the
-# screen shows, the sessions to start) is ACCEPTANCE.md, "M2".
+# acceptance.bash — Plan 00203's host acceptance, one milestone per sourced file. This is the
+# dispatcher: bootstrap, flags, the run log, the report and check_leg. Each milestone's
+# _acceptance-<milestone>.inc.bash holds its own constants, legs, checks, cleanup and runner;
+# ACCEPTANCE.md has a section per milestone.
+#   m2      _acceptance-m2.inc.bash      the bus kit in every ccy session (M2 a-f)
 #
-# RUN ON THE HOST, as the desktop user, on an SELinux Enforcing host, after play-claude-yolo.yml
-# (which the meta-deploy entry for this plan runs first), through CLAUDE/Plan/meta-deploy.bash or
-#   ./CLAUDE/Plan/00203-teams-hot-control-and-robustness/acceptance.bash
+# WHERE TO RUN: on the HOST, as the desktop user, on an SELinux Enforcing host, after
+# play-claude-yolo.yml (ccy, ccy-teams, the image) has run. Through meta-deploy.bash.
 #
-# WHAT IT CHANGES: nothing. It inspects three running ccy sessions the owner started in ccy's
-# tmux (ACCEPTANCE.md): a plain `ccy`, a `ccy --teams <seat>@<team>` and a `ccy --no-bus`. The
-# only writes it attempts are into the plain session's read-only membership mount, which must
-# fail (H3).
-#
-# EXIT CODES: 0 ACCEPTED; 1 REJECTED (a leg failed, and names itself); 2 COULD NOT ESTABLISH
-# (a session to inspect is not running; nothing was looked at); 64 usage.
+# EXIT CODES: 0 ACCEPTED; 1 REJECTED (a check or a setup step failed, and names itself);
+# 64 usage.
 set -euo pipefail
-
-# CHECKS (each a gather leg; m2-check.bash holds the probes):
-#   SELinux    the host is Enforcing
-#   (a)        the --teams session holds every desired seat; its active flag is up
-#   (b)        the plain session reads /run/ccy/membership/membership.json (no seat); a touch,
-#              a write and a remount there fail (H3); no active flag; the guarded status line
-#   (c)        a prompt's hook in the plain session ends in the shell (no python3, no pingbus);
-#              at most one pingbus process (the keeper); idle CPU as the --no-bus session's
-#   (d)        the session image is the launcher's REQUIRED_CONTAINER_VERSION, with the M2
-#              entrypoint
-#   (e)        the --no-bus session: PINGBUS_MEMBERSHIP=off, no mount, no pingbus, no plugin or
-#              settings
-#   (f)        the H34 spike's result is in the spec
 
 # ── R1 bootstrap: script-relative, filesystem-only, bounded at the repo boundary ──────────
 scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -50,38 +33,49 @@ plan_init "${BASH_SOURCE[0]}"
 
 PLAN_USAGE="usage: acceptance.bash [-h|--help]
 
-Plan 00203 M2, the automated acceptance of the bus kit in every ccy session: inspects a plain
-ccy, a ccy --teams and a ccy --no-bus session, each started in ccy's tmux and left running
-(ACCEPTANCE.md, M2). Changes nothing.
-Exit 0 ACCEPTED, 1 REJECTED, 2 COULD NOT ESTABLISH (a session is not running), 64 usage."
+Plan 00203's host acceptance, each milestone in turn (ACCEPTANCE.md): M2, the bus kit in every
+ccy session, on two throwaway headless sessions in ccy's tmux (plain and --no-bus), removed on
+the way out. Exit 0 ACCEPTED, 1 REJECTED, 64 usage."
 
-plan_mode gather
+plan_mode deploy
 plan_parse_common_flags "$@"
-if [[ "${#PLAN_REMAINING_ARGS[@]}" -ne 0 ]]; then
-    printf '%s\n' "${PLAN_USAGE}" >&2
+if [[ "${#PLAN_REMAINING_ARGS[@]}" -gt 0 ]]; then
+    printf '[FATAL] unknown argument: %s\n%s\n' "${PLAN_REMAINING_ARGS[0]}" "${PLAN_USAGE}" >&2
     exit 64
 fi
-
-plan_require_host "it inspects the host's running ccy containers and its SELinux mode"
-CHECK=("${PLAN_SCRIPT_DIR}/m2-check.bash")
-
-sessions_rc=0
-sessions="$("${CHECK[@]}" find)" || sessions_rc=$?
-if [[ "${sessions_rc}" -ne 0 ]]; then
-    exit "${sessions_rc}"
+if [[ "${PLAN_CHECK}" == "1" ]]; then
+    printf '[FATAL] --check has nothing to rehearse here: the checks need real sessions\n' >&2
+    exit 64
+fi
+plan_require_host "it starts ccy sessions and inspects their containers and the host's SELinux mode"
+if [[ "${EUID}" -eq 0 ]]; then
+    printf '[FATAL] run this as the desktop user, not root\n' >&2
+    exit 1
 fi
 plan_start_log auto
 
-plain="$(awk '$1 == "plain" { print $2 }' <<<"${sessions}")"
-seated="$(awk '$1 == "seated" { print $2 }' <<<"${sessions}")"
-nobus="$(awk '$1 == "nobus" { print $2 }' <<<"${sessions}")"
-printf '==> sessions inspected:\n%s\n' "${sessions}" | tee "${PLAN_RUN_DIR}/m2-sessions-report.txt"
+readonly REPORT="${PLAN_RUN_DIR}/acceptance-report.md"
+printf '# Plan 00203 acceptance\n\nRun directory: %s\n\n' "${PLAN_RUN_DIR}" >"${REPORT}"
 
-plan_gather_leg "SELinux Enforcing" "${CHECK[@]}" selinux
-plan_gather_leg "(a) ccy --teams holds its seats" "${CHECK[@]}" seated "${seated}"
-plan_gather_leg "(b)(c) a plain ccy carries an inert kit and a read-only membership" "${CHECK[@]}" plain "${plain}"
-plan_gather_leg "(c) idle CPU unchanged" "${CHECK[@]}" cpu "${plain}" "${nobus}"
-plan_gather_leg "(d) the image the launcher requires" "${CHECK[@]}" image "${plain}"
-plan_gather_leg "(e) --no-bus loads nothing" "${CHECK[@]}" nobus "${nobus}"
-plan_gather_leg "(f) the spike's result is recorded" "${CHECK[@]}" spike "${PLAN_SCRIPT_DIR}/SPEC-hot-control.md"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=_acceptance-m2.inc.bash
+source "${PLAN_SCRIPT_DIR}/_acceptance-m2.inc.bash"
+
+check_leg() {
+    local name="$1" status=0
+    shift
+    printf '\n==> [check] %s\n' "${name}"
+    "$@" || status=$?
+    if [[ "${status}" -eq 0 ]]; then
+        printf 'PASS  %s\n' "${name}"
+        printf '## PASS %s\n\n' "${name}" >>"${REPORT}"
+        return 0
+    fi
+    printf 'FAIL  %s\n' "${name}" >&2
+    printf '## FAIL %s\n' "${name}" >>"${REPORT}"
+    exit 1
+}
+
+acceptance_m2
+printf '\nACCEPTED: every milestone passed\n' | tee -a "${REPORT}"
 plan_finish

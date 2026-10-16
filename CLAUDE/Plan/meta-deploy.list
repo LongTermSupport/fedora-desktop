@@ -19,24 +19,31 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# Plan 00201 Task 2.14: rebuilds ccy-teams only (no ccy launcher or image change, so no image
-# rebuild and no session relaunch). Adds `ccy-teams shutdown <team>` and, on a team row's menu,
-# "Shut down every session of <team>": it types /exit into each of the team's sessions on this
-# host after a yes/no (default No), stops one that has not ended in 60 s, checks each seat is
-# free, and lists what it cannot reach (LXC agents). The table also shows the cc session that
-# holds a seat when its record names the seat.
+# Plan 00194 watcher fix: deploys the ccy launcher 3.98.12, which requires container 2.67, so
+# the next ccy launch rebuilds the image once. The team watcher in ccy sessions survives a
+# homeserver restart (it waits, retries and catches up, with one log line at the start and one
+# at the end of an outage) and runs under a supervisor that starts it again if it dies.
 playbooks/imports/play-claude-yolo.yml
+# Plan 00194 watcher fix: agent-bus-install software puts the same pingbus in the kit for
+# `cc --teams` sessions and LXC members. No firewall rule changes.
+playbooks/imports/play-agent-bus.yml
 
-# Plan 00203 M2: rebuilds ccy, ccy-teams and the ccy image (container 2.67; the first launch
-# after it rebuilds the image once). Every ccy session started in ccy's tmux then carries the
-# agent team bus kit, idle on no team (no hooks run, its own status line), with its membership
-# mounted read-only; `ccy --no-bus` leaves the kit out. Running sessions are unaffected until
-# they are relaunched. (If the play-claude-yolo.yml entry above is still queued, this one is
-# the same run and either can go.)
+# Plan 00203 M2: rebuilds ccy, ccy-teams and the ccy image (CCY 3.99.1, container 2.68; the
+# first launch after it rebuilds the image once). Every ccy session started in ccy's tmux then
+# carries the agent team bus kit, idle on no team (no hooks run, its own status line, no inbox
+# socket), with its membership mounted read-only; `ccy --no-bus` leaves the kit out. Running
+# sessions are unaffected until they are relaunched. (If the play-claude-yolo.yml entry above
+# is still queued, this one is the same run and either can go.)
 playbooks/imports/play-claude-yolo.yml
-# Plan 00203 M2 acceptance (read-only): before it runs, start three sessions in ccy's tmux and
-# leave them idle: `ccy --teams 1@<team>`, a plain `ccy`, and `ccy --no-bus` (ACCEPTANCE.md,
-# M2). It checks the seats, the read-only mount, the inert kit, idle CPU, the image version and
-# --no-bus, on an Enforcing host, and exits 2 naming any session it could not find.
+# Plan 00203 M2 acceptance: starts two throwaway headless ccy sessions in ccy's tmux in this
+# checkout (plain and --no-bus, idle, no turn sent) and removes them after. Checks the
+# read-only mount, the inert kit, no inbound on no team, idle CPU, the image version and
+# --no-bus, on an Enforcing host. Needs ccy launched interactively here once (Quick Launch).
 00203-teams-hot-control-and-robustness
+# Plan 00201 M7 acceptance again, ported to the M2 launcher (seated sessions found by their
+# membership, not the retired ccy-seats label): two throwaway teams, ccy --teams on both, then
+# all removed. This is M2's check (a) that ccy --teams works as before.
+00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/acceptance.bash
+# Plan 00161 acceptance again, ported the same way (U20's seated headless sessions): its own
+# throwaway team, removed after. Also M2's check (a).
+00161-agent-team-bus-matrix/acceptance.bash

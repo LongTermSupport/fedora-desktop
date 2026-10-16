@@ -173,10 +173,27 @@ m7_prerequisites() {
     printf '==> ccy, agent-bus, ccy-teams and the hooks daemon are here; %s and %s are not declared by the owner\n' "${TEAM_A}" "${TEAM_B}"
 }
 
+# m7_seat_listing [running] — "ID<TAB><seat>@<team>[,...]" for every ccy container launched with a
+# desired membership (Plan 00203 M2: PINGBUS_MEMBERSHIP, the read-only mount at
+# /run/ccy/membership), its seats read from the host's own membership.json, the mount's source;
+# every container, or with `running` the running ones. It replaces the ccy-seats label M2 retired.
+m7_seat_listing() {
+    local id src seats
+    local filter=()
+    [[ "${1:-}" != running ]] || filter=(--filter status=running)
+    while read -r id; do
+        [[ -n "${id}" ]] || continue
+        src="$(podman inspect --format '{{range .Mounts}}{{if eq .Destination "/run/ccy/membership"}}{{.Source}}{{end}}{{end}}' "${id}")" || return 1
+        [[ -n "${src}" ]] || continue
+        seats="$(jq -r '[.seats[] | "\(.seat)@\(.team)"] | join(",")' "${src}/membership.json")" || return 1
+        [[ -z "${seats}" ]] || printf '%s\t%s\n' "${id}" "${seats}"
+    done < <(podman ps -a --filter label=ccy=true "${filter[@]}" --format '{{.ID}}')
+}
+
 # m7_remove_containers — every container holding a seat of the acceptance teams, running or not.
 m7_remove_containers() {
     local listing ids id
-    listing="$(podman ps -a --filter label=ccy-seats --format '{{.ID}}	{{index .Labels "ccy-seats"}}')" || return 1
+    listing="$(m7_seat_listing)" || return 1
     ids="$("${CHECK[@]}" seat-containers "${TEAM_A},${TEAM_B}" <<<"${listing}")" || return 1
     for id in ${ids}; do
         podman rm -f -t 10 -- "${id}" >/dev/null || return 1
@@ -469,7 +486,7 @@ m7_ccy_containers() { podman ps -a --filter label=ccy=true --format '{{.ID}}' | 
 m7_container_up() {
     local ids count listing
     if [[ "$1" == seated ]]; then
-        listing="$(podman ps --filter label=ccy-seats --filter status=running --format '{{.ID}}	{{index .Labels "ccy-seats"}}')" || return 1
+        listing="$(m7_seat_listing running)" || return 1
         ids="$("${CHECK[@]}" seat-containers "${TEAM_A},${TEAM_B}" <<<"${listing}")" || return 1
     else
         ids="$(m7_ccy_containers | LC_ALL=C comm -13 "$(m7_ev plain/containers-before)" -)" || return 1
@@ -712,7 +729,8 @@ say("removed")
     evidence "M4 SessionEnd removed the record of ${SESSION_ID} before the container ended: multi/session-end.marker"
 }
 
-# P1 — a plain `ccy` is on no team: no seat label or PINGBUS_ variable on its container, no
+# P1 — a plain `ccy` is on no team: no seat label, and no PINGBUS_ variable but the marker
+# PINGBUS_MEMBERSHIP=off (Plan 00203 M2; a headless launch outside ccy's tmux), on its container, no
 # pingbus on its PATH, no per-session record for its session ID. With no pingbus there is no
 # `pingbus status-line` either, so its status line is the checkout's own, with no bus segment.
 m7_check_plain() {
@@ -730,7 +748,7 @@ m7_check_plain() {
         return 1
     fi
     m7_end || return 1
-    evidence "P1 a plain ccy session: no ccy-seats label or PINGBUS_ variable, no pingbus (so no bus status line), no record: plain/"
+    evidence "P1 a plain ccy session: no seat label or PINGBUS_ variable but PINGBUS_MEMBERSHIP=off, no pingbus (so no bus status line), no record: plain/"
 }
 
 # ── the way out ──────────────────────────────────────────────────────────────────────────

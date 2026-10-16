@@ -8,7 +8,9 @@ socket path (`CLAUDE_CODE_MESSAGING_SOCKET`), which the watcher and the hooks bo
 
 - `<key>.stalled`: deliveries have failed for `relay.STALL_AFTER_S`;
 - `<key>.missing`: a delivery was written to the socket and is not in the transcript;
-- `<key>.transcript`: the session's transcript path, written by the hooks from their payload.
+- `<key>.transcript`: the session's transcript path, written by the hooks from their payload;
+- `<key>.watch`: the session's watch lock, held by its one supervisor or watcher (E26);
+- `<key>.spawned`: when the hooks last started the watcher, in ms (E26).
 
 A delivery is found when its first line's prefix, `agent-bus delivery <nonce>:` (ASCII, with no
 character JSON escapes), appears in what the transcript gained after the send. Claude Code
@@ -60,6 +62,31 @@ class Marks:
     def _path(self, name: str) -> pathlib.Path:
         return self.dir / f"{self.key}.{name}"
 
+    def ensure_dir(self) -> None:
+        os.makedirs(self.dir, mode=DIR_MODE, exist_ok=True)
+
+    def watch_lock_path(self) -> pathlib.Path:
+        """The session's watch lock (E26): held by its one supervisor or watcher. It is never
+        removed, so a holder and a newcomer always lock the same file."""
+        return self._path("watch")
+
+    def spawned_ms(self) -> int | None:
+        """When the hooks last started this session's watcher, or None."""
+        try:
+            text = self._path("spawned").read_text(encoding="ascii")
+        except (OSError, UnicodeDecodeError):
+            return None
+        return int(text) if text.isdigit() and len(text) <= 16 else None
+
+    def set_spawned(self, now_ms: int) -> None:
+        self.ensure_dir()
+        path = self._path("spawned")
+        tmp = self.dir / f".{path.name}.{secrets.token_hex(8)}.tmp"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, FILE_MODE)
+        with os.fdopen(fd, "w", encoding="ascii") as handle:
+            handle.write(str(now_ms))
+        os.replace(tmp, path)
+
     def _set(self, name: str, value: bool) -> None:
         path = self._path(name)
         if not value:
@@ -82,7 +109,7 @@ class Marks:
 
     def forget(self) -> None:
         """Remove this session's files: it ended, and its socket path may be reused."""
-        for name in ("stalled", "missing", "transcript"):
+        for name in ("stalled", "missing", "transcript", "spawned"):
             self._path(name).unlink(missing_ok=True)
 
     def record_transcript(self, path: object) -> None:

@@ -1128,13 +1128,18 @@ membership (its seats, or none) through `ccy-teams internal membership-init` int
 mounts it read-only at `/run/ccy/membership` (relabelled per session on SELinux), with
 `PINGBUS_MEMBERSHIP=/run/ccy/membership`. On no team the kit is idle: every hook and the status
 line stay in the shell, no Python runs, and the session shows its own status line. Claude
-Code reads a `--settings` file once, at start, so the session is launched with
-`crossSessionInbound: accept` whether or not it is on a team. In a container that lets the
-agent write into its own session through its inbox socket, which it can already do; the
-watcher, which runs only while a seat is held, is the only writer the kit starts.
-`ccy --no-bus` leaves the kit out entirely (no plugin, no settings, no mount;
-`PINGBUS_MEMBERSHIP=off`) and cannot be combined with a team. Apart from that mount (and,
-later, the seat keeper process), a plain session and a `--no-bus` one behave the same. A `ccy`
+Code reads `crossSessionInbound` only at start, so it is decided at launch: a session launched
+with a seat accepts it (its inbox socket, `$XDG_RUNTIME_DIR/cc-socks/<pid>.sock` on the
+container's own filesystem, lets the watcher wake it; anything running in that container could
+use it too); a session launched on no team does not, so it has no inbox socket and nothing in
+the container can write a turn into it. Putting such a session in a team relaunches it once,
+resumed in the same tmux session (Plan 00203 M3); later changes need no relaunch. A settings
+file ccy cannot read the status line from is named at launch, and the session then shows
+Claude Code's own status line with no bus segment. `ccy --no-bus` leaves the kit out entirely
+(no plugin, no settings, no mount; `PINGBUS_MEMBERSHIP=off`) and cannot be combined with a
+team. A plain session and a `--no-bus` one both accept no inbound; they differ by the mount,
+the plugin (its hooks end in the shell), the status line wrapper and, later, the seat keeper
+process. A `ccy`
 run in a plain terminal has no session name: without `--teams` it carries no kit, and with
 `--teams` its membership is named after its container and cannot be changed while it runs. `agent-bus` comes from `play-agent-bus.yml`. Seats, their
 names and their reuse are in [agent-bus.md](agent-bus.md); the protocol is in
