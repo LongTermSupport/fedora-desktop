@@ -309,7 +309,8 @@ Every instance was examined and fixed individually. None was fixed by pattern.
   - "Start a new ccy session in HERE" (Ctrl-N) is a row. Outside a project it says why it is
     unavailable.
 - **A2:** `ccy_tmux_offer` lists a "Start a new session here" row, and `ccy_tmux_pick` takes no
-  keys. CCY was bumped to 3.99.10.2.
+  keys. It ships as CCY 3.99.12.9 (container 2.77.6, unchanged). The branch first used
+  3.99.10.2, which F44 had already used; it was renumbered when F44 was merged.
 - **History search:** the start-up binding is spelt in the call. Ctrl-R `toggle-sort` stays, as
   navigation.
 - **wsi-model-manager (A6, A7):**
@@ -429,13 +430,43 @@ The reviewer reproduced both reds (`8022a152` through `qa-go.bash`; `9e40ea6e` t
 checkouts. It also showed the rule active in the green tree: a binding planted with
 `go vet -overlay` was reported. Its findings and their resolutions:
 
-| Finding                                                     | Resolution                                                                      |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| F1: original defect fixed before the sweep, not recorded    | recorded under "The original defect" as a deviation; history is not rewritten  |
-| F2: Python Buttons matched per file, not per screen         | fixed in `8f32c584` (tests first, and a fixture line)                          |
-| F3: `Cut`, `CutPrefix`, `TrimPrefix` let a flag through     | fixed in `8f32c584` (`evade.go` red first)                                      |
-| F4: clearing a filter flagged, though query editing is navigation | sentence recorded in the catalogue and above                              |
-| F5: no sentence on Footer hints                             | sentence recorded in the catalogue and above                                    |
-| F6: JavaScript recorded as a toolchain gap                  | reworded as an achievable rule pending the owner's decision (referral 1)        |
-| F7: no fixture of what is not caught                        | unmarked lines in `fixture.bash` (`8f32c584`)                                   |
-| F8: count, harness path, spec copy, saturation              | corrected above                                                                 |
+| Finding                                                           | Resolution                                                                    |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| F1: original defect fixed before the sweep, not recorded          | recorded under "The original defect" as a deviation; history is not rewritten |
+| F2: Python Buttons matched per file, not per screen               | fixed in `8f32c584` (tests first, and a fixture line)                         |
+| F3: `Cut`, `CutPrefix`, `TrimPrefix` let a flag through           | fixed in `8f32c584` (`evade.go` red first)                                    |
+| F4: clearing a filter flagged, though query editing is navigation | sentence recorded in the catalogue and above                                  |
+| F5: no sentence on Footer hints                                   | sentence recorded in the catalogue and above                                  |
+| F6: JavaScript recorded as a toolchain gap                        | reworded as an achievable rule pending the owner's decision (referral 1)      |
+| F7: no fixture of what is not caught                              | unmarked lines in `fixture.bash` (`8f32c584`)                                 |
+| F8: count, harness path, spec copy, saturation                    | corrected above                                                               |
+
+## After Fable's review (FIX-FIRST, `2f09f717`)
+
+F44 was merged twice, following Fable's resolution: `0020be0d` (F44 at `f01d993a`) and
+`c0f9476e` (F44 at `2e4c9103`, which brought the team settings line and the bus status line).
+The qa-changed routing deviation became B49, because F44 took B48.
+
+- **B1, version:** CCY 3.99.12.9 with container 2.77.6 unchanged. The coordinator asked for
+  3.99.12.6, but F44 reached 3.99.12.8 before the second merge.
+- **B2, deploy queue:** every F44 entry is kept. Our text is folded into the
+  `play-claude-yolo.yml` comment, and `play-speech-to-text.yml` and `play-basic-configs.yml`
+  are appended.
+
+`3b6c4c27` widens the rule, each part test first:
+
+- **N1:** display-only fzf actions are navigation, and so is any key that accepts.
+- **N2:** a scalar of options in shell is read word by word.
+- **N3:** a Textual `key_NAME` method or `on_key` handler is a finding, and
+  `dismiss`/`pop_screen` count as leaving.
+- **N5:** the ccy-sessions header names Ctrl-T, Ctrl-X and Ctrl-N.
+- **N4:** Plan 00204 Task 2.3 widens the rule to Bubble Tea key handlers before the first one
+  lands.
+
+**Green on the merged tree, with `PINGBUS_*` unset:**
+
+- `qa-go.bash`: GO-OK, 62 packages; qa module 60.
+- `qa-hidden-bindings.bash`: 446 shell files, 338 Python files.
+- `qa-changed.bash`
+- Suites: teams 191, take-over 82, reboot 286, tmux-targets 24, teams-command 371, lifecycle
+  215, history 23 and 9, qa-changed 121.
