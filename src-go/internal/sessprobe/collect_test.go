@@ -387,6 +387,41 @@ func TestLabelledContainersSaysPodmanFailed(t *testing.T) {
 	}
 }
 
+func TestLabelledSessionsListsIDStateAndTheSessionLabel(t *testing.T) {
+	fake := &execx.Fake{}
+	fake.On([]string{"podman", "ps", "--filter", "label=ccy-session", "--format", "{{.ID}}\t{{.State}}\t{{index .Labels \"ccy-session\"}}"},
+		ok("abc\trunning\tccy-a\n"))
+	got, err := sessprobe.LabelledSessions(context.Background(), fake)
+	if err != nil || got != "abc\trunning\tccy-a\n" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	fake.OnError([]string{"podman", "ps"}, errors.New("cannot connect"))
+	if _, err := sessprobe.LabelledSessions(context.Background(), fake); err == nil {
+		t.Fatal("a podman that fails must fail")
+	}
+}
+
+func TestContainerProcessesIsPodmanTopsArguments(t *testing.T) {
+	fake := &execx.Fake{}
+	fake.On([]string{"podman", "top", "abc", "args"}, ok("COMMAND\npython3 -m pingbus seat keep\n"))
+	got, err := sessprobe.ContainerProcesses(context.Background(), fake, "abc")
+	if err != nil || got != "COMMAND\npython3 -m pingbus seat keep\n" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
+func TestExecDetachedStartsTheCommandInTheBackground(t *testing.T) {
+	fake := &execx.Fake{}
+	fake.On([]string{"podman", "exec", "-d", "abc", "pingbus", "seat", "keep"}, ok(""))
+	if err := sessprobe.ExecDetached(context.Background(), fake, "abc", "pingbus", "seat", "keep"); err != nil {
+		t.Fatal(err)
+	}
+	fake.OnError([]string{"podman", "exec", "-d", "abc", "false"}, errors.New("exit 125"))
+	if err := sessprobe.ExecDetached(context.Background(), fake, "abc", "false"); err == nil {
+		t.Fatal("a failing podman exec must fail")
+	}
+}
+
 func TestExecInRunsTheCommandInTheContainer(t *testing.T) {
 	fake := &execx.Fake{}
 	fake.On([]string{"podman", "exec", "abc", "pingbus", "reach", "--team", "t"}, ok(""))

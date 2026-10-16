@@ -13,7 +13,7 @@
 //	shutdown shutdown: every session of a team sent /exit, and the team row's menu line
 //	membership internal membership-init: the launcher writes a session's desired membership
 //	discover the one lookup of which session names a seat (records and desired memberships)
-//	hot     session add and remove: a running session put into a team or taken out
+//	hot     session list, add, remove, move, role and repair: a running session's teams and roles
 //
 // App only wires them over one host.Host and dispatches.
 package teams
@@ -66,7 +66,7 @@ type App struct {
 	Shutdown *shutdown.Shutdown
 	// Membership is `internal membership-init`, the launcher's.
 	Membership *membership.Init
-	// Session is `session add` and `session remove`.
+	// Session is `ccy-teams session ...`, hot control of a running session.
 	Session *hot.Hot
 	// Interrupted makes the run's context: Ctrl-C cancels it instead of ending the process,
 	// so the sudo credential is still dropped (review L-A).
@@ -104,10 +104,12 @@ func Wire(h *host.Host) *App {
 	down := shutdown.New(h, kit, b)
 	list := picker.New(h, kit, b, o, c, l, s, x)
 	list.Shutdown = down
+	session := hot.New(h, kit)
+	o.SessionsIn, o.TakeOut = session.SessionsIn, session.TakeOut
 	return &App{
 		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c, Lxc: x, Find: find.New(h), Choose: pick,
 		Chooser: chooser.New(h, pick.PickSeat, c.RunForChooser, o.ApplyTeams),
-		Picker:  list, Shutdown: down, Membership: membership.New(h), Session: hot.New(h, kit),
+		Picker:  list, Shutdown: down, Membership: membership.New(h), Session: session,
 		Interrupted: func(ctx context.Context) (context.Context, context.CancelFunc) {
 			return signal.NotifyContext(ctx, os.Interrupt)
 		},

@@ -17,6 +17,24 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.9 — container 2.74
+
+- **The full non-interactive hot-control surface** (Plan 00203 M4). `ccy-teams session role`
+  makes a running session's seat a worker or the coordinator and waits for the session to be
+  told; `session move` adds it to one team, then takes it out of another; `remove` and `move`
+  of a coordinator say what becomes of the role (`--coordinator=demote|hand-to=<seat>`), and
+  `remove --park` parks the handle; `add --role` sets the role on the way; `session list` shows
+  every running session, its teams, roles and state (ok, a homeserver down, a seat not held,
+  unguarded); `session repair` restarts a stopped seat keeper.
+- **One change at a time.** A second change to the same session is refused (exit 75), naming
+  the first; a seat allocation holds a per-checkout lock under the runtime directory, which
+  `agent-bus seat take` waits for (container 2.74: its `helpers/agent_bus`). A seat a running
+  session's desired membership names, or a stopped session's record that a restore replays,
+  is never handed to another session; `agent-bus seat choose` offers it as held.
+- A team's roster at 64 agents refuses a new member; a session that ends while an add waits
+  leaves its record restored and no desired membership; `ccy-teams remove <team>` first
+  offers to take the team's running sessions off it.
+
 ## 3.99.8 — container 2.73
 
 - **Hot add and remove** (Plan 00203 M3). `ccy-teams session add <session> <team>[/<seat>]` puts

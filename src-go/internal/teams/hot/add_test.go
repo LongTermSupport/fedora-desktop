@@ -1,6 +1,7 @@
 package hot
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -19,7 +21,7 @@ func TestAddToAPlainSessionRelaunchesItOnce(t *testing.T) {
 	}
 	wantLines(t, r.ErrOut.String(),
 		"✓ session "+session+": running, can be hot-controlled",
-		"✓ team alpha: homeserver up",
+		"✓ team alpha: homeserver up, 1 of 64 agents",
 		"✓ seat 3: free, not named by any session in "+r.Checkout(),
 		"- seat 3: exists (no sudo needed)",
 		"✓ route: the container reaches alpha's homeserver",
@@ -49,11 +51,7 @@ func TestAddToASeatedSessionIsHotAndTheRerunChangesNothing(t *testing.T) {
 	if code := r.run(t, "add", session, "alpha/3", "--yes"); code != term.ExitOK {
 		t.Fatalf("rerun exit %d:\n%s", code, r.ErrOut.String())
 	}
-	for line := range strings.Lines(r.ErrOut.String()) {
-		if (strings.HasPrefix(line, "✓") && !strings.Contains(line, "can be hot-controlled")) || strings.HasPrefix(line, "✗") {
-			t.Fatalf("a rerun does nothing, every step '-':\n%s", r.ErrOut.String())
-		}
-	}
+	onlySkips(t, r.ErrOut.String())
 	wantLines(t, r.ErrOut.String(), "Nothing to do: "+session+" is already in alpha as seat 3.")
 	if r.desired(t).Generation != 2 {
 		t.Fatal("a rerun writes nothing")
@@ -127,9 +125,146 @@ func TestAddWhenTheSessionEndsMidwayIsRolledBack(t *testing.T) {
 	if code := r.run(t, "add", session, "alpha/3", "--yes"); code != term.ExitFailure {
 		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
 	}
-	wantLines(t, r.ErrOut.String(), "✗ session: session ended during the add; seat 3 left free")
-	if len(r.desired(t).Seats) != 0 {
-		t.Fatal("restored")
+	wantLines(t, r.ErrOut.String(), "✗ session: session ended during the add; seat 3 left free",
+		"✓ record: restored (no --teams)",
+		"✓ membership: removed (the session is not running; its next launch writes it)")
+	if _, err := membership.Read(r.dir()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("an ended session keeps no desired membership (H28): %v", err)
+	}
+	if got := r.recordArgs(t); !slices.Equal(got, []string{"--no-ssh"}) {
+		t.Fatalf("record %v", got)
+	}
+}
+
+func TestAddAsCoordinatorNeedsDemoteCurrentWhenAnotherHoldsTheRole(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "beta", Seat: "1"})
+	r.m.roles["alpha\tother.5+local.podman"] = coord
+	if code := r.run(t, "add", session, "alpha/3", "--role=coordinator", "--yes"); code != term.ExitUsage {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	if r.desired(t).Generation != 1 || len(r.setRoles()) != 0 {
+		t.Fatal("nothing is changed without --demote-current")
+	}
+	if code := r.run(t, "add", session, "alpha/3", "--role=coordinator", "--demote-current", "--yes"); code != term.ExitOK {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	if got, want := r.setRoles(), []string{
+		"alpha other.5+local.podman --role=worker", "alpha proj.3+local.podman --role=coordinator",
+	}; !slices.Equal(got, want) {
+		t.Fatalf("set-role %q, want %q", got, want)
+	}
+	wantLines(t, r.ErrOut.String(),
+		"✓ role: other.5+local.podman set to worker (it was alpha's coordinator)",
+		"✓ role: proj.3+local.podman set to coordinator")
+}
+
+func TestAddAsWorkerOfAWorkerChangesNoRole(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "beta", Seat: "1"})
+	if code := r.run(t, "add", session, "alpha/3", "--role=worker", "--yes"); code != term.ExitOK {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	wantLines(t, r.ErrOut.String(), "- role: proj.3+local.podman is a worker already")
+	if len(r.setRoles()) != 0 {
+		t.Fatal("no role change")
+	}
+}
+
+func TestAddThatIsRolledBackPutsTheRolesBack(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "beta", Seat: "1"})
+	r.m.keeper = false
+	r.m.roles["alpha\tother.5+local.podman"] = coord
+	if code := r.run(t, "add", session, "alpha/3", "--role=coordinator", "--demote-current", "--yes"); code != term.ExitFailure {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	if r.m.role("alpha", "other.5+local.podman") != coord || r.m.role("alpha", "proj.3+local.podman") != worker {
+		t.Fatalf("roles not put back: %v", r.setRoles())
+	}
+	wantLines(t, r.ErrOut.String(), "✓ role: put back as it was")
+}
+
+func TestAddRefusesANewMemberWhenTheRosterIsFull(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "beta", Seat: "1"})
+	r.m.heldBy["3@alpha"] = true
+	r.m.others["alpha"] = 63
+	if code := r.run(t, "add", session, "alpha", "--yes"); code != term.ExitFailure {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	wantLines(t, r.ErrOut.String(), "✓ team alpha: homeserver up, 64 of 64 agents",
+		"✗ seat 4: alpha has 64 agents, the most a team can have: park or remove a member first (ccy-teams, Ctrl-X on a member)")
+	if r.Fake.Called("agent-bus seat take") || r.desired(t).Generation != 1 {
+		t.Fatal("nothing is created or written for a full roster")
+	}
+}
+
+func TestAddRefusesASeatAStoppedSessionsRecordRestores(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "beta", Seat: "1"})
+	if err := r.store.Write(registry.Record{
+		Name: "ccy-old", Dir: r.Checkout(), Launcher: "/x/ccy", Prefix: "ccy", Restore: true,
+		Args: []string{"--teams", "3@alpha"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if code := r.run(t, "add", session, "alpha/3", "--yes"); code != exitBusy {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	wantLines(t, r.ErrOut.String(), "✗ seat 3: named by session ccy-old's record, which a restore starts again")
+	if code := r.run(t, "add", session, "alpha", "--yes"); code != term.ExitOK {
+		t.Fatalf("the chooser passes over it: exit %d:\n%s", code, r.ErrOut.String())
+	}
+	if !slices.Equal(r.desired(t).Seats, []membership.Seat{{Team: "beta", Seat: "1"}, {Team: "alpha", Seat: "4"}}) {
+		t.Fatalf("desired %+v", r.desired(t).Seats)
+	}
+}
+
+func TestAddTakesASeatThatOnlyAnotherCheckoutOrAnUnrestoredRecordNames(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "beta", Seat: "1"})
+	for _, rec := range []registry.Record{
+		{Name: "ccy-elsewhere", Dir: "/elsewhere", Launcher: "/x/ccy", Prefix: "ccy", Restore: true, Args: []string{"--teams", "3@alpha"}},
+		{Name: "ccy-done", Dir: r.Checkout(), Launcher: "/x/ccy", Prefix: "ccy", Restore: false, Args: []string{"--teams", "3@alpha"}},
+	} {
+		if err := r.store.Write(rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r.On("tmux -L ccy list-sessions", session+" 0 /x\nccy-far 0 /x\n", 0)
+	if err := membership.Write(membership.Dir(r.runtime, "ccy-far"), membership.Desired{
+		V: 1, Session: "ccy-far", Kind: "ccy", Checkout: "/elsewhere", Generation: 1, WrittenMS: 1,
+		Seats: []membership.Seat{{Team: "alpha", Seat: "3"}}, Farewell: []membership.Farewell{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if code := r.run(t, "add", session, "alpha/3", "--yes"); code != term.ExitOK {
+		t.Fatalf("the same seat of another checkout is another seat: exit %d:\n%s", code, r.ErrOut.String())
+	}
+}
+
+func TestASeatAllocationInProgressInTheCheckoutRefusesTheAdd(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "beta", Seat: "1"})
+	path, err := allocPath(r.runtime, r.Checkout())
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, err := takeLock(path, "agent-bus seat take 3@alpha (pid 9)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := r.run(t, "add", session, "alpha", "--yes"); code != exitBusy {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	wantLines(t, r.ErrOut.String(), "✗ seat: another seat allocation in "+r.Checkout()+" is in progress: agent-bus seat take 3@alpha (pid 9)")
+	if r.desired(t).Generation != 1 {
+		t.Fatal("nothing written")
+	}
+	if releaseErr := held.release(); releaseErr != nil {
+		t.Fatal(releaseErr)
+	}
+	if code := r.run(t, "add", session, "alpha", "--yes"); code != term.ExitOK {
+		t.Fatalf("free again: exit %d:\n%s", code, r.ErrOut.String())
+	}
+	if again, err := takeLock(path, "x"); err != nil {
+		t.Fatalf("the add let the allocation lock go: %v", err)
+	} else if err := again.release(); err != nil {
+		t.Fatal(err)
 	}
 }
 

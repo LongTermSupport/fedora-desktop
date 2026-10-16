@@ -20,18 +20,19 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00203 M3: rebuilds ccy 3.99.8, ccy-teams and the ccy image (container 2.73; the first
-# launch after it rebuilds the image once). `ccy-teams session add` and `remove` change a running
-# ccy session's teams without a restart (a session started on no team relaunches once, by
-# itself, on its first join), and the session is told in its conversation and on its status
-# line. Running sessions are unaffected until they are relaunched: relaunch every team session
-# after.
+# Plan 00203 M3 and M4: rebuilds ccy 3.99.9, ccy-teams and the ccy image (container 2.74; the
+# first launch after it rebuilds the image once). `ccy-teams session add` and `remove` change a
+# running ccy session's teams without a restart (a session started on no team relaunches once,
+# by itself, on its first join); M4 adds `session role`, `move`, `list` and `repair`, the
+# coordinator options, one change at a time per session and one seat allocation at a time per
+# checkout. Running sessions are unaffected until they are relaunched: relaunch every team
+# session after.
 playbooks/imports/play-claude-yolo.yml
-# Plan 00203 M3, the agent team bus kit's pingbus for `cc --teams` and LXC members: the watcher
-# follows a session's teams as the owner changes them (a busy team is retried, a removed one let
-# go with nothing it fetched after the remove delivered), the membership notice and its hook
-# fallback, `seat farewell`, and `seat retire` waiting for the sync lock. No unit or firewall
-# changes; homeservers are not restarted by this change.
+# Plan 00203 M3 and M4, the agent team bus kit's pingbus and agent-bus: the watcher follows a
+# session's teams as the owner changes them, the membership notice and its hook fallback,
+# `seat farewell`, `seat retire` waiting for the sync lock; and (M4) `agent-bus seat take` and
+# `seat choose` refusing a seat a running session's desired membership names, under the
+# checkout's allocation lock. No unit or firewall changes; homeservers are not restarted.
 playbooks/imports/play-agent-bus.yml
 # Plan 00203 acceptance, every milestone in turn. M2: two throwaway headless ccy sessions in
 # ccy's tmux in this checkout (plain and --no-bus, idle, no turn sent), removed after; checks
@@ -43,7 +44,10 @@ playbooks/imports/play-agent-bus.yml
 # acc-m3b and a throwaway headless session on acc-m3a: hot add of acc-m3b, the notice, a human
 # message, hot remove with its goodbye, no backlog on re-add, an idempotent re-run; all removed
 # after (the first-join relaunch of an interactive session is the owner's step M3 (g) in
-# ACCEPTANCE.md). Then the server robustness checks (ACCEPTANCE.md R1-R9), on a throwaway team
+# ACCEPTANCE.md). M4: two throwaway teams acc-m4a and acc-m4b and two throwaway headless
+# sessions: re-role, move handing the coordinator role on, two changes at once (75), a stopped
+# homeserver (it stops and starts acc-m4b's), a killed seat keeper repaired, a session killed
+# mid-add; all removed after. Then the server robustness checks (ACCEPTANCE.md R1-R9), on a throwaway team
 # acc-robust it removes: kills, ends and freezes its homeserver and times its return, shows a
 # stale backup on the board, times seat check waiting for a starting homeserver, checks any LXC
 # member unit; its teardown also clears acc-robust's units from systemctl --failed and its

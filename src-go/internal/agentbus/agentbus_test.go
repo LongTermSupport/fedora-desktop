@@ -368,3 +368,14 @@ func TestSeatTakeRunsAsTheUserInTheCheckout(t *testing.T) {
 		t.Fatalf("a held seat: %v", err)
 	}
 }
+
+func TestSeatTakeAllocatedSaysTheCallerHoldsTheAllocationLock(t *testing.T) {
+	r := newRig()
+	r.fake.On([]string{"agent-bus", "seat", "take"}, execx.Result{})
+	if err := r.c.SeatTakeAllocated(context.Background(), "/co", "2@alpha", "podman", true); err != nil {
+		t.Fatal(err)
+	}
+	if c := r.last(t); c.Line() != "agent-bus seat take 2@alpha --type=podman --no-prompt --alloc-held" {
+		t.Fatalf("ran %q", c.Line())
+	}
+}

@@ -42,3 +42,27 @@ func TestReadReportRefusesAnUnknownKey(t *testing.T) {
 		t.Fatalf("path %q", ReportPath(checkout, "s"))
 	}
 }
+
+func TestToldRoleIsWhatTheSessionWasToldOfItsRole(t *testing.T) {
+	checkout := t.TempDir()
+	teamtest.MustWrite(t, ReportPath(checkout, "s"),
+		`{"v":1,"generation":2,"seats":[],"refused":[],"told":{"generation":2,"roles":[{"team":"alpha","handle":"proj.3+local.podman","role":"coordinator"}]}}`)
+	r, err := ReadReport(checkout, "s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := r.ToldRole("alpha", "proj.3+local.podman"); got != "coordinator" {
+		t.Fatalf("told %q", got)
+	}
+	if got := r.ToldRole("beta", "proj.3+local.podman"); got != "" {
+		t.Fatalf("a team it was not told of: %q", got)
+	}
+	teamtest.MustWrite(t, ReportPath(checkout, "s"), `{"v":1,"generation":2,"seats":[],"refused":[]}`)
+	if r, err = ReadReport(checkout, "s"); err != nil || r.ToldRole("alpha", "proj.3+local.podman") != "" {
+		t.Fatalf("no told: %v", err)
+	}
+	teamtest.MustWrite(t, ReportPath(checkout, "s"), `{"v":1,"generation":2,"seats":[],"refused":[],"told":{"roles":7}}`)
+	if r, err = ReadReport(checkout, "s"); err != nil || r.ToldRole("alpha", "proj.3+local.podman") != "" {
+		t.Fatalf("a told it cannot read is nothing told: %v", err)
+	}
+}

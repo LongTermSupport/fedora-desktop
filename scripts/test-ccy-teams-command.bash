@@ -298,6 +298,14 @@ cat >"$BIN/launcher" <<'EOF'
 #!/usr/bin/env bash
 printf 'launcher %s (in %s)\n' "$*" "$(basename "$PWD")" >>"$TEST_LOG"
 EOF
+# podman: no ccy session's container runs (ccy-teams remove asks which sessions are in the team
+# before it takes one down, Plan 00203 H29); anything else asked of it is a test defect.
+cat >"$BIN/podman" <<'EOF'
+#!/usr/bin/env bash
+[ "${1:-} ${2:-} ${3:-}" = "ps --filter label=ccy-session" ] && exit 0
+echo "podman stub: unexpected: $*" >&2
+exit 99
+EOF
 # id: the desktop login is "owner".
 cat >"$BIN/id" <<'EOF'
 #!/usr/bin/env bash

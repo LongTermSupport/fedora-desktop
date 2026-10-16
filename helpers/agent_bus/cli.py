@@ -221,7 +221,7 @@ def _emitter(io: _Io) -> Callable[[str], None]:
 
 def cmd_seat_take(args: argparse.Namespace, system: checkout.System, io: _Io) -> int:
     checkout.take(args.seats, system, no_prompt=args.no_prompt, say=io.say, emit=_emitter(io),
-                  member_type=args.type)
+                  member_type=args.type, alloc_held=args.alloc_held)
     return EXIT_OK
 
 
@@ -355,6 +355,8 @@ def build_parser(stdout: BinaryIO) -> argparse.ArgumentParser:
     seat_take.add_argument("--no-prompt", action="store_true",
                            help="run sudo with -n: only its cached credential (a headless launch)")
     seat_take.add_argument("--type", choices=("podman", "host"), default=checkout.MEMBER_TYPE, help=type_help)
+    seat_take.add_argument("--alloc-held", action="store_true",
+                           help="the caller holds this checkout's seat allocation lock (ccy-teams session add)")
     seat_take.set_defaults(seat_handler=cmd_seat_take)
     seats.add_parser("list", help="this checkout's seats: SEAT lines, or a table on a terminal").set_defaults(
         seat_handler=cmd_seat_list)

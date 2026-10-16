@@ -28,7 +28,10 @@ everything this host or checkout cannot do (`CheckoutError`).
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
+import fcntl
+import hashlib
 import io
 import json
 import os
@@ -40,10 +43,10 @@ import subprocess
 import sys
 import tarfile
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 
 from helpers.agent_bus import registry
-from helpers.pingbus import config, inbox, protocol, seat
+from helpers.pingbus import config, inbox, membership, protocol, seat
 
 ROLE_VAR = "HOOKS_DAEMON_HOSTNAME"
 #: A seat's `<host>` when the checkout assigns no role (D49): names no machine.
@@ -446,6 +449,12 @@ class System:
     monotonic: Callable[[], float]
     #: A progress line for the person or log watching the launch (stderr).
     progress: Callable[[str], None]
+    #: The owner's XDG_RUNTIME_DIR, where each session's desired membership and each
+    #: checkout's allocation lock live (Plan 00203); None: there are none to consult.
+    runtime_dir: str | None = None
+    #: The registry names of the sessions whose ccy container is running (their
+    #: `ccy-session` label), asked only when a desired membership names a seat here.
+    running_sessions: Callable[[], frozenset[str]] = frozenset
 
     def team_active(self, team: str) -> bool:
         return self.team_state(team) == ACTIVE
@@ -515,12 +524,26 @@ def sudo_forget() -> None:
         )
 
 
+def _running_sessions() -> frozenset[str]:
+    """The `ccy-session` label of every running ccy container (podman, as the owner)."""
+    try:
+        run = subprocess.run(["podman", "ps", "--filter", "label=ccy-session", "--filter", "status=running",
+                              "--format", '{{index .Labels "ccy-session"}}'],
+                             capture_output=True, text=True, check=False)
+    except FileNotFoundError:
+        raise CheckoutError("podman is not installed: which sessions run cannot be read") from None
+    if run.returncode != 0:
+        raise CheckoutError(f"podman ps failed, so which sessions run cannot be read: {run.stderr.strip()}")
+    return frozenset(line.strip() for line in run.stdout.splitlines() if line.strip())
+
+
 def real_system(cwd: pathlib.Path | None = None) -> System:
     return System(cwd=pathlib.Path.cwd() if cwd is None else cwd, uid=os.getuid(),
                   team_state=_systemctl_state, teams_here=_stamped_teams, bus_address=_ip_bus_address,
                   agent_bus=_sudo_agent_bus, forget_sudo=sudo_forget,
                   clock_ms=lambda: time.time_ns() // 1_000_000, sleep=time.sleep,
-                  monotonic=time.monotonic, progress=_progress)
+                  monotonic=time.monotonic, progress=_progress,
+                  runtime_dir=os.environ.get("XDG_RUNTIME_DIR"), running_sessions=_running_sessions)
 
 
 def _git(cwd: pathlib.Path, *args: str) -> subprocess.CompletedProcess:
@@ -697,6 +720,108 @@ def _parse_and_check_teams(text: str, system: System, *, one_per_team: bool = Tr
     return refs
 
 
+# ── allocation authority (Plan 00203 SPEC-hot-control.md H20, H21) ───────────────────────
+
+#: How long `take` waits for another allocation in the checkout (`ccy-teams session add`
+#: holds the lock from choosing a seat to writing the session's desired membership).
+ALLOC_WAIT_SECONDS = 15
+ALLOC_POLL_SECONDS = 0.5
+#: What a refused taker reads of the holder's line.
+ALLOC_HOLDER_MAX = 512
+
+
+class SeatNamed(inbox.Busy):
+    """A seat a running session's desired membership names, its keeper yet to take it (75)."""
+
+    def __init__(self, ref: seat.SeatRef, session: str) -> None:
+        Exception.__init__(self, f"seat `{ref.text}` is named by session {session}, which has not taken it "
+                                 "yet: choose another seat")
+        self.holder = "membership"
+        self.ref = ref
+
+
+class AllocationBusy(inbox.Busy):
+    """Another seat allocation in the checkout is in progress (75)."""
+
+    def __init__(self, top: pathlib.Path, holder: str) -> None:
+        Exception.__init__(self, f"another seat allocation in {top} is in progress: {holder}; "
+                                 "try again once it has finished")
+        self.holder = holder
+
+
+def alloc_lock_name(resolved: str) -> str:
+    """A checkout's allocation lock's file name: the first 32 hex digits of the sha256 of its
+    resolved path, as ccy-teams computes it (src-go/internal/teams/hot/lock.go)."""
+    return hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:32] + ".lock"
+
+
+@contextlib.contextmanager
+def allocation(top: pathlib.Path, system: System, what: str) -> Iterator[None]:
+    """Hold the checkout's seat allocation lock, under the owner's runtime directory (never in
+    the checkout, which every session of it can write), waiting a bounded time for another
+    allocation; the holder's line says what holds it. No runtime directory: no lock to share."""
+    if not system.runtime_dir or not os.path.isabs(system.runtime_dir):
+        yield
+        return
+    directory = pathlib.Path(system.runtime_dir, "ccy", "alloc")
+    os.makedirs(directory, mode=DIR_MODE, exist_ok=True)
+    fd = os.open(directory / alloc_lock_name(os.path.realpath(top)),
+                 os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
+        started = system.monotonic()
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if system.monotonic() - started >= ALLOC_WAIT_SECONDS:
+                    holder = os.pread(fd, ALLOC_HOLDER_MAX, 0).decode("utf-8", "replace").strip()
+                    raise AllocationBusy(top, holder or "another ccy-teams that has not said what it is yet") from None
+                system.sleep(ALLOC_POLL_SECONDS)
+        os.ftruncate(fd, 0)
+        os.pwrite(fd, f"{what} (pid {os.getpid()})\n".encode(), 0)
+        try:
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+
+
+def named_elsewhere(top: pathlib.Path, team: str | None, system: System) -> dict[tuple[str, str], str]:
+    """`(team, seat) -> session` for each seat of this checkout (of `team`, when given) that a
+    running session's desired membership names (H21): its keeper may not have taken the lock
+    yet. A seat's identity is (checkout, team, seat), so another checkout's seat is another
+    seat. A membership that cannot be read is said, and its seats are not counted."""
+    if not system.runtime_dir or not os.path.isabs(system.runtime_dir):
+        return {}
+    base = pathlib.Path(system.runtime_dir, "ccy", "membership")
+    try:
+        entries = sorted(os.scandir(base), key=lambda entry: entry.name)
+    except FileNotFoundError:
+        return {}
+    here = os.path.realpath(top)
+    found: dict[tuple[str, str], str] = {}
+    for entry in entries:
+        directory = pathlib.Path(entry.path)
+        if not entry.is_dir(follow_symlinks=False) or not os.path.lexists(membership.desired_path(directory)):
+            continue
+        try:
+            desired = membership.read_desired(directory)
+        except membership.MembershipError as exc:
+            system.progress(f"{exc}; its seats are not counted")
+            continue
+        if desired.session != entry.name or os.path.realpath(desired.checkout) != here:
+            continue
+        for item in desired.seats:
+            if team is None or item.team == team:
+                found.setdefault((item.team, item.seat), desired.session)
+    if not found:
+        return {}
+    running = system.running_sessions()
+    return {key: session for key, session in found.items() if session in running}
+
+
 def check(text: str, system: System, *, resolved: bool = True) -> str:
     """`seat check`: the canonical list, when every team runs here. Changes nothing. Unless
     `resolved`, an item may be a team alone, kept as it is for the chooser (`seat choose`)."""
@@ -707,24 +832,41 @@ def check(text: str, system: System, *, resolved: bool = True) -> str:
 
 
 def take(text: str, system: System, *, no_prompt: bool, say: Callable[[str], None],
-         emit: Callable[[str], None], member_type: str = MEMBER_TYPE) -> None:
-    """`seat take`: create every named seat that has no directory; refuse a held one, and
-    one that exists for another member type. However it ends, sudo's cached credential is
+         emit: Callable[[str], None], member_type: str = MEMBER_TYPE, alloc_held: bool = False) -> None:
+    """`seat take`: create every named seat that has no directory; refuse a held one, one a
+    running session's desired membership names (H21), and one that exists for another member
+    type. It holds the checkout's allocation lock throughout (H20), unless its caller
+    (`ccy-teams session add`) already does. However it ends, sudo's cached credential is
     dropped last: the session the launcher starts next runs on this terminal."""
     try:
-        _take(text, system, no_prompt=no_prompt, say=say, emit=emit, member_type=member_type)
+        refs = _parse_and_check_teams(text, system)
+        top = find_checkout(system)
+        if alloc_held:
+            _take(refs, top, system, no_prompt=no_prompt, say=say, emit=emit, member_type=member_type)
+        else:
+            with allocation(top, system, f"agent-bus seat take {seat.canonical(refs)}"):
+                _take(refs, top, system, no_prompt=no_prompt, say=say, emit=emit, member_type=member_type)
     finally:
         system.forget_sudo()
 
 
-def _take(text: str, system: System, *, no_prompt: bool, say: Callable[[str], None],
-          emit: Callable[[str], None], member_type: str) -> None:
-    refs = _parse_and_check_teams(text, system)
-    top = find_checkout(system)
+def _refuse_named(observed: Sequence[Observed], top: pathlib.Path, system: System) -> None:
+    """A seat that is free but a running session's desired membership names is refused."""
+    named = named_elsewhere(top, None, system)
+    for seen in observed:
+        session = named.get((seen.ref.team, seen.ref.seat))
+        if session is not None and not seen.held:
+            raise SeatNamed(seen.ref, session)
+
+
+def _take(refs: tuple[seat.SeatRef, ...], top: pathlib.Path, system: System, *, no_prompt: bool,
+          say: Callable[[str], None], emit: Callable[[str], None], member_type: str) -> None:
     _seat_tree(top, system.uid, [ref.team for ref in refs])
     _check_ignored(top)
     root = seat.checkout_seats_root(top)
     observed = _observe(root, refs, system.uid)
+    _refuse_held(observed)
+    _refuse_named(observed, top, system)
 
     def needs() -> tuple[Identity, str]:
         return Identity(_repo(top), checkout_host(top, system.uid), member_type), system.bus_address()
@@ -775,8 +917,9 @@ def _team_members(team: str, system: System) -> tuple[tuple[str, str], ...]:
 
 def choose(team: str, system: System, *, member_type: str = MEMBER_TYPE) -> list[str]:
     """`seat choose`: what a chooser offers for `team` in this checkout, as `CHOICE` lines
-    (seat, free|held|new, handle, the type in words) and one `DEFAULT` line. Changes
-    nothing; a checkout ccy has not used yet (no `.claude/ccy/`) simply has no seats."""
+    (seat, free|held|new, handle, the type in words) and one `DEFAULT` line. A seat a running
+    session's desired membership names is offered as held (H21). Changes nothing; a checkout
+    ccy has not used yet (no `.claude/ccy/`) simply has no seats."""
     refs = seat.parse_seat_list(team, allow_bare=True)
     if len(refs) != 1 or not isinstance(refs[0], seat.TeamRef):
         raise seat.SeatListError(f"seat choose takes one team alone, not {seat.canonical(refs)}")
@@ -789,7 +932,9 @@ def choose(team: str, system: System, *, member_type: str = MEMBER_TYPE) -> list
         root = seat.checkout_seats_root(top)
         observed = _observe(root, seat.list_seats(root, team=team), system.uid)
         _refuse_unbundled(observed)
-        found = [(seen.ref.seat, seen.held, seen.handle or "") for seen in observed]
+        named = named_elsewhere(top, team, system)
+        found = [(seen.ref.seat, seen.held or (team, seen.ref.seat) in named, seen.handle or "")
+                 for seen in observed]
     identity = Identity(_repo(top), checkout_host(top, system.uid), member_type)
     rows, default = seat_choices(found, _team_members(team, system), identity)
     return [*(f"CHOICE\t{row.seat}\t{row.state}\t{row.handle}\t{type_words(row.handle)}" for row in rows),

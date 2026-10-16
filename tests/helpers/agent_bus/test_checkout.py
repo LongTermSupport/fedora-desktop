@@ -14,6 +14,8 @@ wrapper does, so the seat's files are placed by the code under test (D61).
 
 from __future__ import annotations
 
+import dataclasses
+import fcntl
 import io
 import json
 import os
@@ -977,6 +979,91 @@ class RemoveCommandTest(CheckoutTestCase):
         self.assertEqual(code, EX_CONFIG)
         self.assertEqual(out, "")
         self.assertTrue((self.seats / TEAM_A / "dev1" / "member.json").exists())
+
+
+# ── allocation authority and the allocation lock (Plan 00203 H20, H21) ───────────────────
+
+
+class AllocationAuthorityTest(CheckoutTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        runtime = tempfile.TemporaryDirectory()
+        self.addCleanup(runtime.cleanup)
+        self.runtime = pathlib.Path(runtime.name)
+        self.running: set[str] = set()
+
+    def system(self, cwd: pathlib.Path | None = None, uid: int | None = None) -> checkout.System:
+        return dataclasses.replace(super().system(cwd, uid), runtime_dir=str(self.runtime),
+                                   running_sessions=lambda: frozenset(self.running))
+
+    def desire(self, session: str, seats: str, checkout_dir: pathlib.Path | None = None) -> None:
+        directory = self.runtime / "ccy" / "membership" / session
+        directory.mkdir(parents=True)
+        entries = [{"team": item.split("@")[1], "seat": item.split("@")[0]} for item in seats.split(",")]
+        (directory / "membership.json").write_text(json.dumps(
+            {"v": 1, "session": session, "kind": "ccy", "checkout": str(checkout_dir or self.top), "generation": 2,
+             "written_ms": 1, "seats": entries, "farewell": []}), encoding="utf-8")
+
+    def test_the_lock_name_is_the_one_ccy_teams_computes(self):
+        # src-go/internal/teams/hot/lock_test.go pins the same value.
+        self.assertEqual(checkout.alloc_lock_name("/srv/proj"), "6b9af143446a411aefa3edb76e469379.lock")
+
+    def test_take_refuses_a_seat_a_running_sessions_membership_names(self):
+        self.desire("ccy-other", "dev1@team-a")
+        self.running = {"ccy-other"}
+        code, out, err = self.run_cli("seat", "take", "dev1@team-a")
+        self.assertEqual(code, EX_BUSY, err)
+        self.assertIn("named by session ccy-other, which has not taken it yet", err)
+        self.assertEqual((out, self.host.calls), ("", []))
+
+    def test_take_creates_a_seat_only_a_stopped_session_or_another_checkout_names(self):
+        self.desire("ccy-stopped", "dev1@team-a")
+        self.desire("ccy-far", "dev1@team-a", checkout_dir=self.top.parent)
+        self.running = {"ccy-far"}
+        code, out, err = self.run_cli("seat", "take", "dev1@team-a")
+        self.assertEqual(code, 0, err)
+        self.assertIn("CHANGED\tseat dev1@team-a", out)
+
+    def test_choose_offers_a_named_seat_as_held(self):
+        self.run_cli("seat", "take", "1@team-a")
+        self.run_cli("seat", "take", "2@team-a")
+        self.desire("ccy-other", "1@team-a")
+        self.running = {"ccy-other"}
+        code, out, err = self.run_cli("seat", "choose", TEAM_A)
+        self.assertEqual(code, 0, err)
+        self.assertIn("CHOICE\t1\theld\t", out)
+        self.assertIn("DEFAULT\t2\n", out)
+
+    def test_an_allocation_in_progress_refuses_take_naming_it(self):
+        directory = self.runtime / "ccy" / "alloc"
+        directory.mkdir(parents=True)
+        path = directory / checkout.alloc_lock_name(os.path.realpath(self.top))
+        fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+        self.addCleanup(os.close, fd)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        os.write(fd, b"ccy-teams session add ccy-x (pid 9)\n")
+        code, out, err = self.run_cli("seat", "take", "dev1@team-a")
+        self.assertEqual(code, EX_BUSY, err)
+        self.assertIn("another seat allocation in", err)
+        self.assertIn("ccy-teams session add ccy-x (pid 9)", err)
+        self.assertEqual(self.host.calls, [])
+        self.assertGreaterEqual(sum(self.host.slept), checkout.ALLOC_WAIT_SECONDS)
+        code, out, err = self.run_cli("seat", "take", "dev1@team-a", "--alloc-held")
+        self.assertEqual(code, 0, err)
+
+    def test_take_holds_the_lock_while_it_allocates_and_names_itself(self):
+        def during_add() -> None:
+            path = self.runtime / "ccy" / "alloc" / checkout.alloc_lock_name(os.path.realpath(self.top))
+            fd = os.open(path, os.O_RDONLY)
+            try:
+                with self.assertRaises(BlockingIOError):
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                self.assertTrue(os.pread(fd, 100, 0).startswith(b"agent-bus seat take dev1@team-a (pid "))
+            finally:
+                os.close(fd)
+        self.host.during_add = during_add
+        code, _, err = self.run_cli("seat", "take", "dev1@team-a")
+        self.assertEqual(code, 0, err)
 
 
 if __name__ == "__main__":

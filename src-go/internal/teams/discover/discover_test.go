@@ -69,8 +69,19 @@ func TestDesiredFilesNameSeatsTooAndARecordWins(t *testing.T) {
 	if ix.SessionOf(Key{"/h", "alpha", "3"}) != "ccy-hot" {
 		t.Fatal("a desired file names its seat")
 	}
-	if ix.SessionOf(Key{"/h", "alpha", "4"}) != "ccy-rec" {
-		t.Fatal("a record wins over another session's desired file")
+	// Fable's M3 note N4: the live session that wants the seat is its session; the record that
+	// would replay it elsewhere is kept, so the conflict can be named.
+	if ix.SessionOf(Key{"/h", "alpha", "4"}) != "ccy-other" {
+		t.Fatal("a live desired file wins over another session's record")
+	}
+	if got := ix.RecordedBy(Key{"/h", "alpha", "4"}); got != "ccy-rec" {
+		t.Fatalf("recorded by %q", got)
+	}
+	if restores, recorded := ix.Restore(Key{"/h", "alpha", "4"}); recorded || restores {
+		t.Fatal("the other record's restore is not the live session's")
+	}
+	if got := ix.RecordedBy(Key{"/h", "alpha", "3"}); got != "" {
+		t.Fatalf("no record names seat 3: %q", got)
 	}
 	if got := ix.DesiredBy(Key{"/h", "alpha", "4"}); !reflect.DeepEqual(got, []string{"ccy-other"}) {
 		t.Fatalf("desired by %v", got)

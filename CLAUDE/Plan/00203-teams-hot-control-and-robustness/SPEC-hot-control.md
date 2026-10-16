@@ -377,6 +377,31 @@ Two things are **not** frozen:
 
   - Tests: a seat named in another session's desired file whose keeper has not locked it yet
     is refused. The same `team, seat` in a different checkout is not refused.
+  - As built in M4 (H20, H21):
+    - The allocation lock is `$XDG_RUNTIME_DIR/ccy/alloc/<first 32 hex of sha256(resolved checkout path)>.lock`, not `seats/.alloc.lock`: pingbus's `list_seats` refuses any entry
+      of `seats/` that is not a team (so every deployed image would break on it), and the
+      checkout is writable by every session of it (a symlink there would redirect the host's
+      write; a container could hold it for good). `ccy-teams session add` holds it from
+      choosing the seat to writing the desired file and runs `agent-bus seat take --alloc-held`; `seat take` otherwise waits for it up to 15 s, then exits 75 naming the
+      holder. `.change.lock` is in the membership directory, as specified.
+    - "Live" is, for ccy-teams, a session on ccy's tmux server (as the board has it), and for
+      agent-bus a session whose container runs (its `ccy-session` label). So a launcher's own
+      desired file, written just before its `seat take`, is never counted against it.
+    - A stopped session's record that a restore replays (`restore=yes`, same checkout) also
+      names its seats (Fable's M3 note N4): `session add` refuses them, and the board's
+      discovery gives a seat to the live session that wants it over another session's record.
+    - `hand-to=<seat>` is resolved in the team's roster: a full handle, or the one active
+      member other than the leaving seat whose handle has that seat; several is exit 64,
+      asking for the handle. `add --role=coordinator` over another coordinator needs
+      `--demote-current`, as `role` does. Interactively, a coordinator's remove asks
+      demote-or-not (yes by default); handing over is by the option.
+    - `session list` reads a session's roles from its keeper's report (what it was told), so it
+      needs no sudo; "unguarded" is no `pingbus seat keep` process in `podman top`.
+    - `ccy-teams remove <team>` stays terminal-only (never `--yes`, its own rule): H29's offer
+      is a question in that flow, and each session is taken off with `--coordinator=demote`.
+    - Not built in M4: the in-session `bus: <team>(down)` status (H26; it needs the watcher to
+      publish a team's health, in pingbus), and docker-engine sessions (H30; only podman
+      sessions carry the `ccy-session` label hot control finds them by).
 
 - **H22. Add.** The steps, in order:
 

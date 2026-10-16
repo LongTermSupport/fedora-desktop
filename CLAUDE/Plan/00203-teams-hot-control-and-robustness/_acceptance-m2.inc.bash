@@ -71,8 +71,10 @@ m2_launch() {
     # never `exec`: the pane's shell stays ccy's parent, keeps the pane's terminal open and
     # records ccy's exit status. With all three streams redirected an exec'd ccy holds no
     # descriptor on the terminal, so tmux reads end of file, takes the pane as exited and sends
-    # SIGHUP before ccy writes a byte. ccy, the child of the pane's first process, is still that
-    # session (the registry trampoline's shape).
+    # SIGHUP before ccy writes a byte. The trailing status write is load-bearing, not only a
+    # record: a shell given one lone command execs it implicitly (dash does, and bash can),
+    # so dropping the `; echo` brings the SIGHUP back. ccy, the child of the pane's first
+    # process, is still that session (the registry trampoline's shape).
     command="$(printf '%q ' "${M2_LAUNCHER}" --headless --no-restore --no-supervise "$@" \
         --prompt "${M2_PROMPT}" -- --input-format stream-json --output-format stream-json --verbose --model haiku)" || return 1
     command+="<$(printf '%q' "${fifo}") >$(printf '%q' "${M2_EV}/${name}.out") 2>$(printf '%q' "${M2_EV}/${name}.err")"

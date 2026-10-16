@@ -74,6 +74,30 @@ func (r Report) Holds(team, seat string) bool {
 	return false
 }
 
+// told is section 3.2's told: the generation and the roles the session was told.
+type told struct {
+	Roles []struct {
+		Team   string `json:"team"`
+		Handle string `json:"handle"`
+		Role   string `json:"role"`
+	} `json:"roles"`
+}
+
+// ToldRole is the role the session was told it has in team as handle; "" when it was told
+// none, or its told cannot be read (it explains, it is never authority).
+func (r Report) ToldRole(team, handle string) string {
+	var t told
+	if len(r.Told) == 0 || json.Unmarshal(r.Told, &t) != nil {
+		return ""
+	}
+	for _, x := range t.Roles {
+		if x.Team == team && x.Handle == handle {
+			return x.Role
+		}
+	}
+	return ""
+}
+
 // Why is the keeper's reason for not holding a desired seat, in words; "" when it gave none.
 func (r Report) Why(team, seat string) string {
 	for _, x := range r.Refused {

@@ -101,6 +101,17 @@ Built on `fix/teams-server-robustness`; design and evidence in
   (H15, H16). CCY 3.99.8, container 2.73, lifecycle plugin 1.1.0. Host acceptance:
   [ACCEPTANCE.md](ACCEPTANCE.md) M3, `_acceptance-m3.inc.bash`. Notes:
   [subagent-reports/261016-m3-opus.md](subagent-reports/261016-m3-opus.md).
+- [ ] 🔄 **Task 3.3** (M4): the full non-interactive surface, built on `feat/hot-control-m4`;
+  Fable review and host acceptance to come. `ccy-teams session role`, `move`, `list` and
+  `repair`, the coordinator options of remove and move (`--coordinator=demote|hand-to=<seat>`),
+  `add --role`, `remove --park` (H23-H25, H10); one change at a time per session and one seat
+  allocation at a time per checkout, `agent-bus seat take` and `seat choose` honouring both
+  (H20, H21, with Fable's N4: a stopped session's restorable record names its seats); the
+  roster limit (H27), the session ending mid-change (H28), `ccy-teams remove <team>` taking its
+  sessions off first (H29). CCY 3.99.9, container 2.74. Host acceptance:
+  [ACCEPTANCE.md](ACCEPTANCE.md) M4, `_acceptance-m4.inc.bash`. As built, and what is not:
+  SPEC-hot-control.md H21. Notes:
+  [subagent-reports/261016-m4-opus.md](subagent-reports/261016-m4-opus.md).
 
 ## Decisions
 
