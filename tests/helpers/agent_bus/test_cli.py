@@ -231,6 +231,13 @@ class HumanCommandsTest(CliTestCase):
         self.assertEqual(self.fake.users[f"@alice:{self.fake.server_name}"].password, password)
         self.assertNotIn(password, run.err)
 
+    def test_a_new_password_says_the_sign_in_limits(self) -> None:
+        """Plan 00203 gap 10: a person signing in on several devices after a new password can
+        reach the per-account limit, which only Element would show; the issuer is told first."""
+        err = self.ok(["human", "password", "team-a", "alice"]).err
+        self.assertIn("5 sign-ins, then one every 6 min", err)
+        self.assertIn("Too many login attempts", err)
+
     def test_other_human_commands(self) -> None:
         self.assertEqual(self.ok(["human", "lock", "team-a", "alice"]).out, b"")
         self.assertEqual(self.ok(["human", "unlock", "team-a", "alice"]).out, b"")

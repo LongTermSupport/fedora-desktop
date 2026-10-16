@@ -100,14 +100,30 @@ class FakeHost:
         #: How many `sudo agent-bus` calls had run each time sudo's credential was dropped.
         self.forgot_after: list[int] = []
         self.forget_fails = False
+        #: Each team's ActiveState in turn, one per poll, the last kept: a homeserver that
+        #: is starting. A team not here is `active` when in `active`, else `inactive`.
+        self.states: dict[str, list[str]] = {}
+        self.now = 0.0
+        self.slept: list[float] = []
+        self.progress: list[str] = []
 
     def forget_sudo(self) -> None:
         self.forgot_after.append(len(self.calls))
         if self.forget_fails:
             raise checkout.CheckoutError("sudo -k exited 1")
 
-    def team_active(self, team: str) -> bool:
-        return team in self.active
+    def team_state(self, team: str) -> str:
+        script = self.states.get(team)
+        if script:
+            return script.pop(0) if len(script) > 1 else script[0]
+        return "active" if team in self.active else "inactive"
+
+    def sleep(self, seconds: float) -> None:
+        self.slept.append(seconds)
+        self.now += seconds
+
+    def monotonic(self) -> float:
+        return self.now
 
     def teams_here(self) -> list[str]:
         return list(self.built)
@@ -169,10 +185,11 @@ class CheckoutTestCase(unittest.TestCase):
 
     def system(self, cwd: pathlib.Path | None = None, uid: int | None = None) -> checkout.System:
         return checkout.System(cwd=cwd or self.top, uid=os.getuid() if uid is None else uid,
-                               team_active=self.host.team_active, teams_here=self.host.teams_here,
+                               team_state=self.host.team_state, teams_here=self.host.teams_here,
                                bus_address=self.host.bus_address,
                                agent_bus=self.host.agent_bus, forget_sudo=self.host.forget_sudo,
-                               clock_ms=lambda: T0_MS)
+                               clock_ms=lambda: T0_MS, sleep=self.host.sleep,
+                               monotonic=self.host.monotonic, progress=self.host.progress.append)
 
     def run_cli(self, *argv: str, system: checkout.System | None = None) -> tuple[int, str, str]:
         out, err = io.BytesIO(), io.StringIO()
@@ -543,6 +560,51 @@ class RefusalsAlikeTest(CheckoutTestCase):
         self.assertIn("ccy-teams apply team-b starts it", err)
         self.assertNotIn("agent-bus-install team", err)
         self.assertNotIn("ccy-teams create", err)
+
+    def test_a_starting_homeserver_is_waited_for(self):
+        """Plan 00203 gap 3: a session restored at boot names a team whose homeserver is still
+        starting (Type=notify: `activating` until its database is open, or in auto-restart
+        while its interface is not up). The launch waits for it instead of being refused."""
+        for command in ("check", "take"):
+            with self.subTest(command=command):
+                self.host.states[TEAM_B] = ["activating", "activating", "deactivating", "activating", "active"]
+                self.host.slept.clear()
+                self.host.progress.clear()
+                code, out, err = self.run_cli("seat", command, "qa@team-b")
+                self.assertEqual(code, 0, err)
+                self.assertEqual(len(self.host.slept), 4)
+                self.assertTrue(self.host.progress, "the wait says so on stderr")
+                self.assertIn("agent-bus-hs@team-b.service is starting", self.host.progress[0])
+                self.assertIn("is up", self.host.progress[-1])
+
+    def test_progress_is_said_at_the_start_and_then_now_and_again(self):
+        self.host.states[TEAM_B] = ["activating"] * 20 + ["active"]
+        code, _, err = self.run_cli("seat", "check", "qa@team-b")
+        self.assertEqual(code, 0, err)
+        waiting = [line for line in self.host.progress if "is starting" in line]
+        self.assertGreaterEqual(len(waiting), 2)
+        self.assertLess(len(waiting), 20, "not a line per poll")
+
+    def test_a_homeserver_that_never_comes_up_is_refused_at_the_bound(self):
+        self.host.states[TEAM_B] = ["activating"]
+        code, out, err = self.run_cli("seat", "check", "qa@team-b")
+        self.assertEqual(code, EX_CONFIG, err)
+        self.assertEqual(out, "")
+        self.assertAlmostEqual(self.host.now, checkout.START_WAIT_SECONDS, delta=checkout.START_POLL_SECONDS)
+        self.assertIn(f"still activating after {checkout.START_WAIT_SECONDS} s", err)
+        self.assertIn("journalctl -u agent-bus-hs@team-b.service", err)
+
+    def test_a_homeserver_that_fails_while_starting_is_refused_at_once(self):
+        self.host.states[TEAM_B] = ["activating", "failed"]
+        code, _, err = self.run_cli("seat", "check", "qa@team-b")
+        self.assertEqual(code, EX_CONFIG, err)
+        self.assertEqual(len(self.host.slept), 1)
+        self.assertIn("its homeserver is not running", err)
+
+    def test_a_stopped_homeserver_is_not_waited_for(self):
+        self.host.active = {TEAM_A}
+        self.run_cli("seat", "check", "qa@team-b")
+        self.assertEqual(self.host.slept, [])
 
     def test_the_teams_here_are_the_installers_stamps(self):
         applied = self.top.parent / "applied"
