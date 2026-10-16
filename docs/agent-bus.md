@@ -135,13 +135,15 @@ be read, is left alone. Local only: nothing goes on the bus. Spec: Plan 00201 `S
 APPLIED: up to date, out of date, not built, or decide), then its members. They are ccy seats, each with the session holding it and whether it is
 restored after a reboot; LXC and other members, active or parked; and the people, in the
 room or not and how many Element sessions they are signed in with. Enter on any row opens a
-menu of what can be done to it, in words, each with its shortcut beside it. The shortcuts
-are Ctrl-N (start a session), Ctrl-U (apply every team out of date), Ctrl-R (toggle a
-restore), Ctrl-X (remove a seat, park a member after a yes/no, or take a team down, as
-`remove`), Ctrl-P (a person's new password), Ctrl-E (open Element), and `?` explains
-every key. Tab switches to the running sessions, where a session is added to a team,
-removed, moved, re-roled or its seat keeper repaired while it runs: each is the
-`ccy-teams session` command, run for you. Status words are in colour on a terminal, but
+menu of what can be done to it, in words, each with its shortcut beside it; a shortcut works
+only on a row whose menu has it. The shortcuts are Ctrl-N (start a session), Ctrl-U (on a
+team row: apply every team out of date), Ctrl-R (toggle a restore), Ctrl-X (remove a seat,
+park a member after a yes/no, or take a team down, as `remove`), Ctrl-P (a person's new
+password), Ctrl-E (open Element), and `?` explains every key. The last row, Running sessions
+(or Tab), lists the running sessions. Enter on one lists, in words, what can be done to it
+while it runs: Add to a team, Remove from `<team>`, Change role in `<team>`, Move to another
+team, Attach, and Repair when its seat keeper has stopped. Each is the `ccy-teams session`
+command, run for you. Status words are in colour on a terminal, but
 not with `NO_COLOR`. `ccy-teams --list` prints the same table, plain when piped. Reading
 the members needs root: `play-agent-bus.yml` installs a sudoers rule for exactly the two
 read-only `agent-bus` commands involved, so no password is asked. Until it has run, the

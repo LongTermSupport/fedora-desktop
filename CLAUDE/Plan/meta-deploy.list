@@ -19,3 +19,7 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Rebuilds ccy-teams (Plan 00203 M5 rework): every picker action is a visible, named choice;
+# Running sessions is the teams list's last row; Ctrl-A/X/O are gone; a key acts only where shown.
+playbooks/imports/play-claude-yolo.yml

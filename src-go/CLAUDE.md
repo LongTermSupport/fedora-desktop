@@ -60,6 +60,10 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
 
 - **Secrets never in argv.** A password goes to its consumer on stdin.
 
+- **Pickers and menus: visible choices, not magic keys.** Every action in a `ui` picker is
+  a named row or menu line; a key is only an accelerator, printed beside its action
+  ([InteractiveScripts.md](../CLAUDE/InteractiveScripts.md) rule 14).
+
 - **Project rules.** `qa/` is a nested module (so this `go.mod` stays dependency-free) of
   `go/analysis` rules for the defect classes the ports hit: one process seam, owned programs,
   tmux target forms, no wall clock in tests, one home abbreviation, a `WaitDelay` that names

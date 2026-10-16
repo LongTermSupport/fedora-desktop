@@ -742,8 +742,9 @@ ccy_registry_read "$CCY_STATE_DIR/sessions/ccy-proj"
 check "  and on again" "yes" "$REC_RESTORE"
 
 reset
+# A key acts only on a row whose menu shows it (CLAUDE/InteractiveScripts.md rule 14).
 out="$(run_picker "$OUTSIDE" "ctrl-r|proj.box+role.lxc" "|ABORT")"
-check_has "Ctrl-R on a row with no session says so" "has no session" "$out"
+check_has "Ctrl-R on a row whose menu has no restore does nothing, saying so" "That key does nothing on this row" "$out"
 
 reset
 out="$(run_picker "$OUTSIDE" "ctrl-x|ccy-proj" "|YES" "|ABORT")"
@@ -907,7 +908,7 @@ check "a password needs sudo; refused, none is set" "no" "$(logged 'agent-bus hu
 check_has "  saying so" "No password was set for owner." "$out"
 reset
 out="$(run_picker "$OUTSIDE" "ctrl-p|ccy-proj" "|ABORT")"
-check_has "Ctrl-P on another row says where the people are" "KIND human" "$out"
+check_has "Ctrl-P on a row whose menu has no password does nothing, saying so" "That key does nothing on this row" "$out"
 
 echo "== help and repositories"
 reset

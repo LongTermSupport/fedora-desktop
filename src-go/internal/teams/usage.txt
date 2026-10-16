@@ -36,14 +36,17 @@ too (? there shows every key, explained). The shortcuts:
            own Element window, because each team is its own Matrix server and an Element
            window holds one account; the menu of a team row has Open every team in
            Element, a window each (no shortcut), which opens every team with a profile
-  Ctrl-U   update every team that is out of date or not built (never one to take down)
+  Ctrl-U   on a team row: update every team that is out of date or not built (never one
+           to take down)
   Ctrl-R   turn the seat's session's restore after a reboot off or on
   Ctrl-X   remove a seat, park a member, or take a team down (each after a yes/no)
-  Tab      the running sessions: every session ccy's tmux started, its teams (seat, role)
-           and its state. Enter on one is its menu; Ctrl-A adds it to a team, Ctrl-X removes
-           it from one, Ctrl-O changes its role; the menu also moves it, attaches it and
-           repairs a stopped seat keeper. Each is `ccy-teams session ...` below, run for you,
-           with its question and its steps. Tab or Esc comes back to the teams
+  Tab      the last row, Running sessions: every session ccy's tmux started, its teams
+           (seat, role) and its state. Enter on one lists, in words, what can be done to
+           it: Add to a team, Remove from <team>, Change role in <team>, Move to another
+           team, Attach, and Repair when its seat keeper has stopped. Each is
+           `ccy-teams session ...` below, run for you, with its question and its steps.
+           Back to the teams, or Esc, comes back
+A key works only on a row whose menu has it.
 The menu of a team row also has Shut down every session of <team> (no shortcut): the same as
 `ccy-teams shutdown <team>` below.
 A team has at most one coordinator, an agent that takes the humans' requests, dispatches them

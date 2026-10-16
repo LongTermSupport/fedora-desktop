@@ -2,18 +2,28 @@ package picker
 
 import (
 	"context"
+	"slices"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
 )
 
+// nothingOnThisRow is what a key that is not one of the row's shortcuts says.
+const nothingOnThisRow = "That key does nothing on this row. Enter lists what can be done to it, each with its key."
+
 // act does what key asks of row: the key that was pressed, or "" for Enter, and the row it
 // was pressed on. Enter opens the menu of what can be done to the row; a key is a shortcut to
-// one entry of that menu.
+// one entry of that menu, shown beside it there and in the row's footer, and does nothing on a
+// row whose menu does not have it (CLAUDE/InteractiveScripts.md).
 func (r *run) act(ctx context.Context, key string, row board.Row) (flow.Result, error) {
 	if key == "" {
 		return r.menu(ctx, row)
+	}
+	if !slices.ContainsFunc(r.actionsFor(row), func(a action) bool { return a.key == key }) {
+		r.p.Kit.Tell(nothingOnThisRow)
+		r.p.Kit.BackToList(ctx)
+		return flow.Done, nil
 	}
 	return r.do(ctx, key, row)
 }
@@ -53,7 +63,7 @@ func (r *run) do(ctx context.Context, key string, row board.Row) (flow.Result, e
 	case keyShutdown:
 		return r.p.Shutdown.Offer(ctx, row.Team)
 	}
-	r.p.Kit.Tell("That key does nothing here. Enter lists what can be done to a row. ? shows every key.")
+	r.p.Kit.Tell(nothingOnThisRow)
 	r.p.Kit.BackToList(ctx)
 	return flow.Done, nil
 }
