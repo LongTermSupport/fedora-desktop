@@ -19,8 +19,9 @@
 #
 # CHECKS
 #   (b)(c)  the plain session: membership.json reads (no seat); a touch, a write and a remount
-#           in the mount fail (H3); no active flag; the guarded status line; no inbound and no
-#           inbox socket (Decision 1); a prompt's hook ends in the shell; at most one pingbus
+#           in the mount fail (H3); no active flag; the guarded status line; inbound refused by
+#           the settings claude was started with (Decision 1; the inbox socket Claude Code
+#           binds in every session is only reported); a prompt's hook ends in the shell; at most one pingbus
 #           process (the keeper, once M1 ships)
 #   (c)     idle CPU over a minute: the plain session as the --no-bus one, within a point
 #   (d)     the image is the launcher's REQUIRED_CONTAINER_VERSION, with the M2 entrypoint

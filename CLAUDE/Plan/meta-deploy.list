@@ -19,3 +19,29 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+# Plan 00203 acceptance fixes (host run 3): rebuilds ccy 3.99.8.1 and the ccy image (container
+# 2.73.1; the first launch after it rebuilds the image once). A ccy session launched on no team
+# is now started with crossSessionInbound: refuse: Claude Code binds its inbox socket in every
+# session, and with no setting a bypass-mode session held a message on it for review instead of
+# dropping it. Seated sessions are unchanged. Running sessions keep their old settings until they
+# are relaunched.
+playbooks/imports/play-claude-yolo.yml
+# The same pingbus source for cc --teams and LXC members on the host. Nothing changes for them
+# (they never write the plain-session settings); this keeps the host's pingbus the checkout's.
+# No unit or firewall changes; homeservers are not restarted.
+playbooks/imports/play-agent-bus.yml
+# Plan 00203 acceptance, every milestone in turn, as last time: M2's two throwaway headless
+# sessions (plain and --no-bus), whose check (b) now proves inbound by what the plain session's
+# claude was started with (its --settings say refuse, and no managed settings outrank them), and
+# only reports Claude Code's own inbox socket; then M1, M3 on throwaway teams acc-m3a and
+# acc-m3b, and R1-R9 on a throwaway team acc-robust. Everything it starts is removed after.
+00203-teams-hot-control-and-robustness
+# Plan 00201 M7 acceptance again: two throwaway teams, ccy --teams on both, then all removed.
+# M3 now runs the status line the session's claude was started with, in claude's own
+# environment, instead of a bare pingbus status-line from podman exec (which lacked the
+# PINGBUS_HOME that pingbus seat exec gives claude, and so said the membership was unreadable).
+00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/acceptance.bash
+# Plan 00161 acceptance again (U20's seated headless sessions, then M2.11's named session).
+# M2.3's idle turn no longer forbids every command, so the session can follow its rule 3 and
+# start pingbus wait when the hooks say the watcher could not be started.
+00161-agent-team-bus-matrix/acceptance.bash

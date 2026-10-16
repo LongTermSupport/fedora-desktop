@@ -1131,8 +1131,9 @@ line stay in the shell, no Python runs, and the session shows its own status lin
 Code reads `crossSessionInbound` only at start, so it is decided at launch: a session launched
 with a seat accepts it (its inbox socket, `$XDG_RUNTIME_DIR/cc-socks/<pid>.sock` on the
 container's own filesystem, lets the watcher wake it; anything running in that container could
-use it too); a session launched on no team does not, so it has no inbox socket and nothing in
-the container can write a turn into it. Putting such a session in a team relaunches it once,
+use it too); a session launched on no team refuses it. Claude Code binds that socket in every
+session, so refusing is what keeps anything in the container from writing a turn into it, and a
+`--settings` value outranks the user's settings, which the session could change. Putting such a session in a team relaunches it once,
 resumed in the same tmux session (Plan 00203 M3); later changes need no relaunch. A settings
 file ccy cannot read the status line from is named at launch, and the session then shows
 Claude Code's own status line with no bus segment. `ccy --no-bus` leaves the kit out entirely

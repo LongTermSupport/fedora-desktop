@@ -450,15 +450,17 @@ def inner_status_line(sources: Sequence[pathlib.Path]) -> dict[str, object] | No
 
 def session_settings(inner: Mapping[str, object] | None, *, seated: bool, guard: bool = True) -> dict[str, object]:
     """The settings the session is launched with (H33b, H34). Claude Code reads a `--settings`
-    file once, at start (the M2 spike), so the inbound accept is decided at launch: a session
-    launched with a seat accepts (the watcher, which runs only while a seat is held, is the
-    only writer the kit starts); a session launched on no team does not, so it has no inbox
-    socket at all (Decision 1), and its first join relaunches it once. The status line is a
+    file once, at start (the M2 spike), so inbound is decided at launch: a session launched
+    with a seat accepts (the watcher, which runs only while a seat is held, is the only writer
+    the kit starts); a session launched on no team refuses (Decision 1). Claude Code binds its
+    inbox socket in every session whatever this says, so `refuse` is what keeps a message on
+    it from becoming a turn or a review for the human; a `--settings` value outranks the
+    user's settings, which the session can write. Its first join relaunches it once. The status line is a
     shell guard: the inner one with no `active` flag, `pingbus status-line` with it. A seated
     session refreshes each second as before; a plain one keeps the inner line's own interval
     and padding. Without `guard` (a settings file could not be read) no status line is set,
     so Claude Code's own applies and there is no bus segment."""
-    settings: dict[str, object] = {"crossSessionInbound": "accept"} if seated else {}
+    settings: dict[str, object] = {"crossSessionInbound": "accept" if seated else "refuse"}
     if not guard:
         return settings
     line: dict[str, object] = {"type": "command", "command": STATUS_LINE_GUARD}

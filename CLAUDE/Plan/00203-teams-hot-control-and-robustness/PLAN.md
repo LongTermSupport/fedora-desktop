@@ -112,7 +112,8 @@ may reverse any of them.** Full detail: SPEC-hot-control.md section 8.
    - a flag-file guard in `hooks.json`;
    - no per-second Python status line;
    - no `crossSessionInbound` accept unless the session is on a team. Claude Code reads it only
-     at launch (the M2 spike), so a session launched on no team has no inbox socket, and its
+     at launch (the M2 spike), and binds its inbox socket in every session, so a session
+     launched on no team is launched with `refuse`: the socket drops every message. Its
      first join relaunches it once, automatically, through the restart path; every later
      change is hot (SPEC H22, H34);
    - exactly one resident process, the keeper.

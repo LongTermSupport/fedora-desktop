@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.8.1 — container 2.73.1
+
+- **A session on no team refuses inbound** (Plan 00203 H34). Claude Code binds its inbox
+  socket (`$XDG_RUNTIME_DIR/cc-socks/<pid>.sock`) in every session, so a plain ccy session is
+  now launched with `crossSessionInbound: refuse` instead of no setting. Unset, a
+  bypass-permissions session held a message on the socket for the human to review; refused, it
+  is dropped and never becomes a turn. The value comes from the session's `--settings`, which
+  outranks the user's settings, so the session cannot loosen it. A seated session still
+  accepts. The launcher change is the container version only.
+
 ## 3.99.8 — container 2.73
 
 - **Hot add and remove** (Plan 00203 M3). `ccy-teams session add <session> <team>[/<seat>]` puts
