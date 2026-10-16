@@ -33,6 +33,11 @@ func TestRecordsNameTheirSeatsByCheckout(t *testing.T) {
 	if ix.SessionOf(Key{"/c", "alpha", "2"}) != "cc-c" {
 		t.Fatal("a cc record names its seats")
 	}
+	// cc has no option terminator (Fable's M6 re-check R1): its --teams after "--" is still cc's.
+	ix.AddRecord(rec("cc-d", "/d", "cc", false, "--", "hi", "--teams", "5@alpha"))
+	if ix.SessionOf(Key{"/d", "alpha", "5"}) != "cc-d" {
+		t.Fatal("a cc record's --teams after -- names its seats")
+	}
 	restores, recorded := ix.Restore(Key{"/a", "beta", "dev"})
 	if !restores || !recorded {
 		t.Fatal("restore flag of a recorded seat")
@@ -124,29 +129,33 @@ func TestReadDesiredReadsCCSessionsToo(t *testing.T) {
 // Fable's M6 review B1: tmux reuses a session's name once it ends, and each launch rewrites the
 // record of its name, so a membership counts only while that record's launch carries the bus. A
 // plain cc reusing the name of an ended cc --teams, or a ccy --no-bus reusing a ccy's, owns no
-// membership left behind under it; neither does a session with no record.
+// membership left behind under it; neither does a session with no record. cc has no option
+// terminator (it reads every word as its own, Fable's M6 re-check R1), so its --teams after a
+// "--" is still cc's; ccy stops at "--", so a --no-bus after it is claude's word, not ccy's.
 func TestCurrentKeepsOnlyTheMembershipsTheirRecordsLaunchedWithTheBus(t *testing.T) {
 	d := func(name, kind string) membership.Desired { return membership.Desired{Session: name, Kind: kind} }
 	desired := []membership.Desired{
 		d("cc-teams", membership.KindCC), d("cc-teams-bare", membership.KindCC), d("cc-bus", membership.KindCC),
 		d("cc-plain", membership.KindCC), d("cc-after", membership.KindCC), d("cc.123", membership.KindCC),
 		d("ccy-a", membership.KindCcy), d("ccy-nobus", membership.KindCcy), d("ccy-norecord", membership.KindCcy),
+		d("ccy-claude-words", membership.KindCcy),
 	}
 	records := []registry.Record{
 		{Name: "cc-teams", Prefix: "cc", Args: []string{"--model", "x", "--teams", "1@alpha"}},
 		{Name: "cc-teams-bare", Prefix: "cc", Args: []string{"--teams=1@alpha"}},
 		{Name: "cc-bus", Prefix: "cc", Args: []string{"--bus"}},
-		{Name: "cc-plain", Prefix: "cc", Args: []string{"--model", "x"}},
-		{Name: "cc-after", Prefix: "cc", Args: []string{"--", "--teams", "1@alpha"}},
+		{Name: "cc-plain", Prefix: "cc", Args: []string{"--model", "x", "--", "plain"}},
+		{Name: "cc-after", Prefix: "cc", Args: []string{"--", "prompt", "--teams", "1@alpha"}},
 		{Name: "ccy-a", Prefix: "ccy", Args: []string{}},
 		{Name: "ccy-nobus", Prefix: "ccy", Args: []string{"--no-bus"}},
+		{Name: "ccy-claude-words", Prefix: "ccy", Args: []string{"--", "--no-bus"}},
 	}
 	current := Current(desired, records)
 	got := make([]string, 0, len(current))
 	for _, c := range current {
 		got = append(got, c.Session)
 	}
-	if want := []string{"cc-teams", "cc-teams-bare", "cc-bus", "ccy-a"}; !reflect.DeepEqual(got, want) {
+	if want := []string{"cc-teams", "cc-teams-bare", "cc-bus", "cc-after", "ccy-a", "ccy-claude-words"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("current %v, want %v", got, want)
 	}
 }
@@ -161,8 +170,18 @@ func TestReadDesiredOfNoDirectoryIsNothing(t *testing.T) {
 	}
 }
 
-func TestTeamsListIsTheLastBeforeDoubleDash(t *testing.T) {
-	if got := TeamsList([]string{"--teams", "1@a", "--teams=2@a", "--", "--teams", "3@a"}); got != "2@a" {
+// Fable's M6 re-check R1: a record's --teams is its launcher's, ccy's up to "--", cc's anywhere.
+func TestRecordTeamsReadsEachLaunchersOwnWords(t *testing.T) {
+	if got := RecordTeams(rec("ccy-a", "/a", "ccy", false, "--teams", "1@a", "--", "--teams", "9@a")); got != "1@a" {
+		t.Fatalf("ccy: %q", got)
+	}
+	if got := RecordTeams(rec("cc-a", "/a", "cc", false, "--", "hi", "--teams", "2@a")); got != "2@a" {
+		t.Fatalf("cc: %q", got)
+	}
+}
+
+func TestRecordTeamsIsTheLastBeforeDoubleDash(t *testing.T) {
+	if got := RecordTeams(rec("ccy-a", "/a", "ccy", false, "--teams", "1@a", "--teams=2@a", "--", "--teams", "3@a")); got != "2@a" {
 		t.Fatalf("got %q", got)
 	}
 }
