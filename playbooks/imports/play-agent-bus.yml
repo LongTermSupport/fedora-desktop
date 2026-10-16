@@ -322,6 +322,24 @@
           when: agent_bus_team_dir.path is defined
           changed_when: false
 
+    # A live team's next good health check run clears its failed state, but a removed team's
+    # failed run is never run again and would stay in systemctl --failed for ever. Cleared after
+    # the software above is installed, so a live team's next run uses the installed check.
+    - name: Find failed homeserver health check runs
+      ansible.builtin.command:
+        argv: [systemctl, list-units, --failed, --plain, --no-legend, --full, "agent-bus-hs-health@*"]
+      register: agent_bus_health_failed
+      changed_when: false
+      check_mode: false
+      tags: [agent-bus]
+
+    - name: Clear the failed homeserver health check runs
+      ansible.builtin.command:
+        argv: [systemctl, reset-failed, "agent-bus-hs-health@*"]
+      when: agent_bus_health_failed.stdout | trim | length > 0
+      changed_when: true
+      tags: [agent-bus]
+
     # README.lxc's steps for each present entry; a member already joined is left alone.
     - name: Join the LXC members declared present to their teams
       ansible.builtin.command:

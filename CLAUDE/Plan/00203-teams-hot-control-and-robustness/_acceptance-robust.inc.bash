@@ -116,6 +116,9 @@ teardown() {
     if [[ "${enabled}" == enabled ]] || sudo -n test -e "/var/lib/agent-bus/${TEAM}"; then
         sudo -n "${INSTALLER}" remove --team "${TEAM}" --purge || return 1
     fi
+    # A failed run of a removed unit stays in systemctl --failed until reset; a pattern that
+    # matches nothing is not an error.
+    sudo -n systemctl reset-failed "agent-bus-*@${TEAM}.*" || return 1
 }
 
 robust_cleanup() {

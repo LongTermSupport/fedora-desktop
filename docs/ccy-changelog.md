@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.98.13 — container 2.68
+
+- **The agent-bus health check works** (Plan 00203). The image carries the agent-bus helpers,
+  and their health check asked the homeserver service for the backup timer's properties, so
+  every run failed. It now asks each unit only for properties its type has. The image is
+  rebuilt once to carry the fixed copy.
+
 ## 3.98.12 — container 2.67
 
 - **The team watcher survives a homeserver restart** (Plan 00194). A Tuwunel upgrade, or a

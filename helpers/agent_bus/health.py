@@ -68,8 +68,11 @@ EVENT_KEEP = 24 * 3600.0
 RECORD_LIFETIME = 300
 EXIT_PROBLEM = 1
 
-_SHOW = ("ActiveState", "SubState", "Result", "InvocationID", "ActiveEnterTimestampMonotonic",
-         "NRestarts", "LastTriggerUSec", "NextElapseUSecRealtime")
+#: What `systemctl show` is asked of each unit: only what that unit's type has, since systemctl
+#: leaves out any other property and parse_show refuses a missing one.
+_HS_SHOW = ("ActiveState", "SubState", "Result", "InvocationID", "ActiveEnterTimestampMonotonic", "NRestarts")
+_BACKUP_SHOW = ("ActiveState", "Result")
+_TIMER_SHOW = ("ActiveState", "LastTriggerUSec", "NextElapseUSecRealtime")
 
 
 class HealthError(Exception):
@@ -308,7 +311,7 @@ def _liveness(team: str, system: HealthSystem, hs: Mapping[str, str], now: float
     if _answers(url, system):
         return []
     unit = hs_unit(team)
-    again = system.show(unit, _SHOW)
+    again = system.show(unit, _HS_SHOW)
     if again["InvocationID"] != hs["InvocationID"] or again["ActiveState"] != "active":
         system.say(f"{unit}: {url} did not answer, but the unit restarted meanwhile; leaving it")
         return []
@@ -377,13 +380,13 @@ def check(team: str, system: HealthSystem) -> None:
         previous = _read_record(team, system)
     except HealthError as exc:
         system.say(f"the last record is unreadable and is replaced: {exc}")
-    hs = system.show(hs_unit(team), _SHOW)
+    hs = system.show(hs_unit(team), _HS_SHOW)
     events, nrestarts = restart_events(previous, hs, now)
     events += _liveness(team, system, hs, now)
-    timer = system.show(backup_timer(team), _SHOW)
+    timer = system.show(backup_timer(team), _TIMER_SHOW)
     newest = newest_backup(_meta_names(team, system), _tar_times(team, system))
     problems = event_problems(team, events)
-    problems += backup_problems(team, newest, system.show(backup_service(team), _SHOW), timer, now)
+    problems += backup_problems(team, newest, system.show(backup_service(team), _BACKUP_SHOW), timer, now)
     for problem in problems:
         system.say(f"team {team}: {problem.what} (do: {problem.fix})")
     record = build_record(team, now, problems, newest, unix_time(timer["NextElapseUSecRealtime"]), events,
@@ -421,7 +424,13 @@ def _systemctl(*args: str) -> str:
 
 
 def _show(unit: str, props: Sequence[str]) -> dict[str, str]:
-    out = _systemctl("show", "--timestamp=unix", *(f"--property={prop}" for prop in props), unit)
+    return parse_show(unit, props, _systemctl("show", "--timestamp=unix",
+                                              *(f"--property={prop}" for prop in props), unit))
+
+
+def parse_show(unit: str, props: Sequence[str], out: str) -> dict[str, str]:
+    """`systemctl show`'s answer; systemctl leaves out, without an error, a property the unit's
+    type does not have, so a missing one is refused here by name."""
     found = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
     missing = [prop for prop in props if prop not in found]
     if missing:
