@@ -84,6 +84,15 @@ Built on `fix/teams-server-robustness`; design and evidence in
   `acceptance.bash` (a dispatcher; `_acceptance-m2.inc.bash` starts its own throwaway
   sessions), then the Plan 00201 and 00161 acceptances, ported to the membership, all queued in
   meta-deploy. Notes: [subagent-reports/261016-m2-launcher-opus.md](subagent-reports/261016-m2-launcher-opus.md).
+- [x] ✅ **Task 3.2** (M3): the first end-to-end hot add and remove. `ccy-teams session add` and
+  `remove` (per-step ✓/✗, idempotent, rolled back; re-baseline and goodbye on remove; the first
+  join of a zero-seat session relaunches once through the supervisor's restart replay), one
+  shared session discovery (`internal/teams/discover`, the shutdown lookup folded in), the
+  watcher and waiter following the membership with the keeper starting the watcher (H11), the
+  `MEMBERSHIP` kind with its hook fallback (H12, H13), the status line (H14), mid-turn removal
+  (H15, H16). CCY 3.99.5, container 2.72, lifecycle plugin 1.1.0. Host acceptance:
+  [ACCEPTANCE.md](ACCEPTANCE.md) M3, `_acceptance-m3.inc.bash`. Notes:
+  [subagent-reports/261016-m3-opus.md](subagent-reports/261016-m3-opus.md).
 
 ## Decisions
 

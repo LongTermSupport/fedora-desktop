@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.99.3"  # Container 2.70: one seat keeper holds every agent-bus seat, the bus kit is idle in every ccy session, and the health check is fixed. See docs/ccy-changelog.md.
+CCY_VERSION="3.99.5"  # Container 2.72: the owner adds a running session to a team and removes it (ccy-teams session add/remove), and the session follows. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -78,7 +78,7 @@ source "$SCRIPT_DIR/lib/agent-bus-seats.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.70"
+REQUIRED_CONTAINER_VERSION="2.72"
 
 set -e
 
@@ -563,9 +563,8 @@ load_launch_config() {
         echo "Saved hash:    ${SAVED_CCY_HASH:-unknown}" >&2
         echo "Current hash:  ${CCY_HASH}" >&2
         echo "" >&2
-        echo "The CCY script has been modified but CCY_VERSION was not updated." >&2
-        echo "This is a developer error - version numbers must be incremented" >&2
-        echo "when the script changes." >&2
+        printf '%s\n' "The CCY script has been modified but CCY_VERSION was not updated." \
+            "This is a developer error - version numbers must be incremented" "when the script changes." >&2
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
         echo "" >&2
     fi
@@ -3783,7 +3782,9 @@ ccy_handle_restart_exit() {
         ccy_restart_refuse "$session_id" "could not work out the launch choices to relaunch with (see above)."
         exit 1
     fi
-    mapfile -d '' -t relaunch_args < <(ccy_restart_relaunch_args "$session_id" "${CCY_ORIG_ARGS[@]}")
+    # The seats come from the session's record, which ccy-teams changes while it runs (Plan
+    # 00203 H5): the first team join of a session launched on no team relaunches it this way.
+    mapfile -d '' -t relaunch_args < <(ccy_restart_relaunch_args "$session_id" "${CCY_ORIG_ARGS[@]}" | ccy-teams internal restart-args)
     wait "$!" || builder_rc=$?
     if [ "$builder_rc" -ne 0 ] || [ "${#relaunch_args[@]}" -eq 0 ]; then
         ccy_restart_refuse "$session_id" "could not build the relaunch arguments (see above)."

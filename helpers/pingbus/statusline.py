@@ -51,6 +51,13 @@ INNER_TIMEOUT_S = 10.0
 TIMED_OUT = -1
 CYAN, RED, RESET = "\033[36m", "\033[31m", "\033[0m"
 NO_RECORD = "bus: no record of this session's teams (pingbus status)"
+#: Plan 00203 H14: the membership files this module reads its copy of the active teams from.
+MEMBERSHIP_VAR = "PINGBUS_MEMBERSHIP"
+MEMBERSHIP_OFF = "off"
+DESIRED_FILE = "membership.json"
+APPLIED_FILE = "applied.json"
+MAX_MEMBERSHIP_BYTES = 65536
+NO_MEMBERSHIP = "bus: this session's membership is unreadable (pingbus status)"
 CANCEL_SIGNALS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
 
 Runner = Callable[[str, bytes, Mapping[str, str], "pathlib.Path | None"], tuple[str, int]]
@@ -171,7 +178,62 @@ def run_command(command: str, raw: bytes, environ: Mapping[str, str], cwd: pathl
     return out.decode("utf-8", errors="replace"), proc.returncode
 
 
+def _read_object(path: pathlib.Path) -> dict | None:
+    """A JSON object from a regular file never followed through a symlink; None otherwise."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except OSError:
+        return None
+    with os.fdopen(fd, "rb") as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            return None
+        raw = handle.read(MAX_MEMBERSHIP_BYTES + 1)
+    try:
+        data = json.loads(raw.decode("utf-8")) if len(raw) <= MAX_MEMBERSHIP_BYTES else None
+    except (UnicodeDecodeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _pairs(data: dict | None, held_only: bool) -> list[tuple[str, str]] | None:
+    seats = None if data is None or data.get("v") != 1 else data.get("seats")
+    if not isinstance(seats, list):
+        return None
+    pairs = []
+    for seat in seats:
+        if not isinstance(seat, dict) or not isinstance(seat.get("team"), str) or not isinstance(seat.get("seat"), str):
+            return None
+        if not TEAM_NAME_RE.fullmatch(seat["team"]):
+            return None
+        if not held_only or seat.get("state") == "held":
+            pairs.append((seat["team"], seat["seat"]))
+    return pairs
+
+
+def membership_teams(environ: Mapping[str, str]) -> list[str] | None:
+    """Plan 00203 H14, this module's copy of `config.active_teams` under PINGBUS_MEMBERSHIP:
+    the seats held in the session home's applied file that the desired file names, in desired
+    order. None when a file cannot be read; [] before the keeper wrote the applied file."""
+    desired = _pairs(_read_object(pathlib.Path(environ[MEMBERSHIP_VAR]) / DESIRED_FILE), held_only=False)
+    home = environ.get("PINGBUS_HOME", "")
+    if desired is None or not home.startswith("/"):
+        return None
+    applied_path = pathlib.Path(home) / APPLIED_FILE
+    if not os.path.lexists(applied_path):
+        return []
+    held = _pairs(_read_object(applied_path), held_only=True)
+    if held is None:
+        return None
+    return [team for team, seat in desired if (team, seat) in set(held)]
+
+
 def _segment(environ: Mapping[str, str], payload: dict) -> str:
+    marker = environ.get(MEMBERSHIP_VAR)
+    if marker is not None and marker != MEMBERSHIP_OFF and marker.startswith("/"):
+        found = membership_teams(environ)
+        if found is None:
+            return f"{RED}{NO_MEMBERSHIP}{RESET}"
+        return f"{CYAN}bus: {','.join(found)}{RESET}" if found else ""
     teams = session_teams(environ, _session_id(payload))
     if teams is not None:
         return f"{CYAN}bus: {','.join(teams)}{RESET}"

@@ -105,3 +105,35 @@ lock. The seated half of (b) needs a team, so it is yours, below.
 
 The audit F5 case (a detached process keeping a seat) matters only on the host, where no
 container ends with the session; it is M6's acceptance (b), for `cc --teams`.
+
+## M3: hot add and remove
+
+After `meta-deploy.bash` has run `play-claude-yolo.yml` and `play-agent-bus.yml` (container
+2.72, CCY 3.99.5). The first ccy launch after it rebuilds the image once.
+
+### What runs by itself (`_acceptance-m3.inc.bash`)
+
+After M1, `acceptance.bash` builds two throwaway teams, `acc-m3a` and `acc-m3b` (human
+`tester`), declared only in a host_vars file in the run directory, and starts one throwaway
+headless session on `acc-m3a` in ccy's tmux. It removes the session, both teams and their seat
+directories on the way out, however the run ends. Each check is judged from what a tool printed
+or recorded (the session's transcript, `agent-bus seat list`, the room), never from the
+model's prose.
+
+| Step | What passes                                                                                                                                                                                                                      |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| (a)  | `ccy-teams session add <session> acc-m3b --yes` exits 0, every step `✓` or `-`, and no relaunch (the session was launched on a team).                                                                                            |
+| (b)  | The transcript has the `kind: MEMBERSHIP` notice, "you joined team acc-m3b"; the status line says `bus: acc-m3a,acc-m3b`.                                                                                                        |
+| (c)  | A message from the human in `acc-m3b` reaches the conversation as a `kind: HUMAN` delivery.                                                                                                                                      |
+| (d)  | `session remove <session> acc-m3b --yes` exits 0 with `✓ re-baseline`; the transcript says "you left team acc-m3b"; the room has the goodbye; the seat is `free`; `pingbus --team acc-m3b say` exits 64, "removed by the owner". |
+| (e)  | A message posted while the seat is out is not delivered when it is added again (H23a).                                                                                                                                           |
+| (f)  | The same add again changes neither the record nor the membership (every step `-`).                                                                                                                                               |
+
+### The owner's step
+
+| Step | What to do                                                                                                                                                                                        | What passes                                                                                                                                                                                                                      |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| (g)  | In ccy's tmux, in a checkout of a team on this machine, start a plain `ccy` and leave it idle. From another terminal: `ccy-teams session add <session> <team> --yes`. Then post to it in Element. | The add prints its own line, "relaunched once to accept team messages (it started on no team)", and exits 0. The session resumes the same conversation, says it joined, shows `bus: <team>`, and the Element message reaches it. |
+
+A headless acceptance session runs without the supervisor, so it cannot exercise the relaunch:
+that is why (g) is yours.

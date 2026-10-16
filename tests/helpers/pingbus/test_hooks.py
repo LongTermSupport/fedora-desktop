@@ -34,7 +34,7 @@ from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import cli, hooks, inbox, inject, notify, protocol, relay, seat
+from helpers.pingbus import cli, hooks, inbox, inject, membership, notify, protocol, relay, seat
 
 TEAM, SN = "team-a", "team-a.agent-bus.internal"
 TEAM_B, SN_B = "team-b", "team-b.agent-bus.internal"
@@ -65,6 +65,7 @@ FIELD_RES = {
     "team_list": rf"{protocol.TEAM_NAME_PATTERN}(?:, {protocol.TEAM_NAME_PATTERN})*",
     "lock": "(?:held|free)",
     "reason": "(?:exit|logout|other)",
+    "why": "(?:removed by the owner)",
     "description": r"[^\x00-\x1f\x7f\u200b-\u200f\u202a-\u202e]{1,120}",
 }
 
@@ -668,6 +669,112 @@ class SessionStartSeatTest(SeatCase):
         self.start()  # the socket module is replaced: any network use fails the test
 
 
+class MembershipHookCase(HookCase):
+    """A ccy session under PINGBUS_MEMBERSHIP (Plan 00203): the desired file in a mount, the
+    applied file in the home, the bundles in the home as the keeper's links would serve them."""
+
+    HANDLE_A = "myrepo.1+workstation.podman"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.mount = self.tmp / "membership"
+        self.mount.mkdir()
+        del self.env["PINGBUS_TEAMS"]
+        self.env[membership.MEMBERSHIP_VAR] = str(self.mount)
+        self.generation = 0
+        self.bundle(TEAM_B, SN_B)
+        self.seats([(TEAM, "1")])
+        marks = inject.Marks(self.home, self.env[notify.SOCKET_ENV])
+        marks.ensure_dir()
+        lock = inbox.acquire_lock_at(marks.watch_lock_path(), "watch")
+        self.addCleanup(lock.release)
+
+    def seats(self, pairs: list[tuple[str, str]], farewell: tuple[tuple[str, str], ...] = ()) -> None:
+        """The host's write, then the keeper's: the desired file and the applied one."""
+        self.generation += 1
+        desired = {"v": 1, "session": "ccy-myrepo-1", "kind": "ccy", "checkout": "/srv/myrepo",
+                   "generation": self.generation, "written_ms": 1,
+                   "seats": [{"team": t, "seat": s} for t, s in pairs],
+                   "farewell": [{"team": t, "seat": s, "reason": "removed"} for t, s in farewell]}
+        (self.mount / membership.DESIRED_FILE).write_text(json.dumps(desired), encoding="utf-8")
+        applied = membership.Applied(self.generation, tuple(
+            membership.AppliedSeat(t, s, self.HANDLE_A) for t, s in pairs), ())
+        membership.write_applied(self.home / membership.APPLIED_FILE, applied)
+
+    def told(self) -> membership.ToldRecord | None:
+        return membership.read_told(self.home)
+
+    def prompt(self) -> list[str]:
+        lines = self.context(self.hook("prompt", {"prompt": "hi"})).split("\n")
+        return [line for line in lines if line]
+
+    def start(self) -> str:
+        return self.context(self.hook("session-start", {"source": "startup"}))
+
+
+class MembershipNoticeHookTest(MembershipHookCase):
+    """H12, H13: the notice's lines, and the prompt hook as its fallback: a change the watcher
+    did not deliver is added as context once, and a delivered one never again."""
+
+    def test_session_start_records_what_it_told_and_the_socket(self):
+        self.assertNotIn("you joined", self.start())
+        told = self.told()
+        self.assertEqual(told.generation, 1)
+        self.assertEqual(told.teams, (membership.ToldTeam(TEAM, "1", self.HANDLE_A, "worker"),))
+        self.assertEqual(notify.recorded_socket(self.home),
+                         (self.env[notify.SOCKET_ENV], self.env[notify.TOKEN_ENV]))
+        self.assertEqual(stat.S_IMODE((self.home / notify.SOCKET_RECORD).stat().st_mode), 0o600)
+
+    def test_a_join_the_watcher_did_not_deliver_is_told_once_by_the_prompt(self):
+        self.start()
+        self.seats([(TEAM, "1"), (TEAM_B, "2")])
+        lines = self.prompt()
+        self.assertIn(hooks.fill("joined", team=TEAM_B, seat="2", handle=self.HANDLE_A), lines)
+        self.assertIn(hooks.fill("role_worker", team=TEAM_B, handle="orch.1+workstation.podman"), lines)
+        self.assertIn(hooks.fill("teams_now", team_list=f"{TEAM}, {TEAM_B}"), lines)
+        self.assertEqual(self.told().generation, 2)
+        self.assertEqual(self.prompt(), [], "told once per generation")
+
+    def test_a_removal_is_told_with_its_reason(self):
+        self.start()
+        self.seats([(TEAM, "1"), (TEAM_B, "2")])
+        self.prompt()
+        self.seats([(TEAM, "1")], farewell=((TEAM_B, "2"),))
+        self.assertEqual(self.prompt(), [hooks.fill("left", team=TEAM_B, why="removed by the owner"),
+                                         hooks.fill("teams_now", team_list=TEAM)])
+        self.assertEqual(self.told().left, ((TEAM_B, "removed"),))
+
+    def test_a_change_already_told_by_the_watcher_is_not_repeated(self):
+        self.start()
+        self.seats([(TEAM, "1"), (TEAM_B, "2")])
+        self.assertTrue(hooks.tell_membership(self.env, lambda lines: True))
+        self.assertEqual(self.prompt(), [])
+
+    def test_a_failed_delivery_is_told_by_the_prompt(self):
+        self.start()
+        self.seats([(TEAM, "1"), (TEAM_B, "2")])
+        self.assertFalse(hooks.tell_membership(self.env, lambda lines: False))
+        self.assertIn(hooks.fill("teams_now", team_list=f"{TEAM}, {TEAM_B}"), self.prompt())
+
+    def test_while_another_teller_holds_the_lock_the_prompt_says_nothing(self):
+        self.start()
+        self.seats([(TEAM, "1"), (TEAM_B, "2")])
+        with membership.telling(self.home):
+            self.assertEqual(self.prompt(), [])
+        self.assertNotEqual(self.prompt(), [])
+
+    def test_a_role_change_in_a_synced_record_is_told(self):
+        self.start()
+        record = self.record(TEAM, SN)
+        record["roles"] = {ME: "coordinator", ORCH: "worker"}
+        self.state.save_team_record(record)
+        self.assertEqual(self.prompt(), [hooks.fill("role_coordinator", team=TEAM)])
+
+    def test_nothing_changed_nothing_is_said(self):
+        self.start()
+        self.assertEqual(self.prompt(), [])
+
+
 # ── SessionEnd: the goodbye ────────────────────────────────────────────────────────────
 
 OWN_HANDLE = "myrepo.1+workstation.podman"
@@ -789,6 +896,24 @@ class GoodbyeTest(SeatCase):
 
 
 # ── Stop ───────────────────────────────────────────────────────────────────────────────
+
+
+class RemovedSeatGoodbyeTest(GoodbyeTest):
+    """H16: the SessionEnd goodbye covers only the seats still applied: a removed seat, whose
+    goodbye the host posts, is never said goodbye from twice."""
+
+    def test_a_seat_no_longer_desired_gets_no_goodbye(self):
+        mount = self.tmp / "membership"
+        mount.mkdir()
+        desired = {"v": 1, "session": "ccy-myrepo-1", "kind": "ccy", "checkout": "/srv/myrepo",
+                   "generation": 2, "written_ms": 1, "seats": [],
+                   "farewell": [{"team": TEAM, "seat": "dev1", "reason": "removed"}]}
+        (mount / membership.DESIRED_FILE).write_text(json.dumps(desired), encoding="utf-8")
+        membership.write_applied(self.home / membership.APPLIED_FILE, membership.Applied(2, (), ()))
+        env = {k: v for k, v in self.env.items() if k != "PINGBUS_TEAMS"}
+        env[membership.MEMBERSHIP_VAR] = str(mount)
+        self.end(env=env)
+        self.assertEqual(self.posted, [])
 
 
 class StopTest(HookCase):

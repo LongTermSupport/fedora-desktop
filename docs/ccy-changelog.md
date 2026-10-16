@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.5 — container 2.72
+
+- **Hot add and remove** (Plan 00203 M3). `ccy-teams session add <session> <team>[/<seat>]` puts
+  a running ccy session into a team and `session remove` takes it out, one line per step. The
+  session's watcher starts and stops teams as they come and go, and the session is told in its
+  own conversation (a `MEMBERSHIP` notice), or by the next prompt's hook when the notice cannot
+  be delivered. The status line follows within 2 s. A removed seat's sync position is cleared, so
+  nothing posted while it was out arrives on a re-add, and its goodbye is posted from the host.
+  A session launched on no team relaunches once, by itself, on its first join (the lifecycle
+  supervisor plugin, now loaded in every bus session that has a supervisor); a restart takes its
+  seats from the session's record (`ccy-teams internal restart-args`).
+
 ## 3.99.3 — container 2.70
 
 - **Plan 00203 M1 and M2 together with the health check fix of 3.98.13.** The image carries all

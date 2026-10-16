@@ -18,6 +18,7 @@ import json
 import os
 import pathlib
 import shutil
+import socket
 import stat
 import subprocess
 import sys
@@ -29,7 +30,7 @@ import unittest
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
-from helpers.pingbus import cli, config, inbox, membership, protocol, seat
+from helpers.pingbus import cli, config, inbox, inject, membership, notify, protocol, seat
 from tests.helpers.pingbus import fake_gh
 
 TEAM_A, SN_A = "team-a", "team-a.agent-bus.internal"
@@ -750,6 +751,97 @@ class KeeperTest(SeatCase):
         self.assertEqual(code, 0)
         self.assertFalse(self.held("dev1"))
         self.assertIsNone(inbox.probe_lock_at(self.session_home / seat.KEEPER_LOCK))
+
+
+class KeeperM3Test(KeeperTest):
+    """Plan 00203 M3: the keeper's report says whether the session accepts team messages
+    (H22), carries the roles the session was told (3.2, from `told.json`), and the keeper
+    starts the watcher when a seat is applied to a session that has a socket (H11)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.spawned: list[dict[str, str]] = []
+
+    def keeper(self, source: object = None) -> seat.Keeper:
+        keeper = seat.Keeper(source or seat.MembershipFile(self.mount), root=self.root,
+                             home=self.session_home, clock_ms=lambda: T0_MS, sleep=lambda _s: None,
+                             err=self.log, environ={"PATH": "/usr/bin"},
+                             spawn_watcher=lambda env, log: self.spawned.append(dict(env)))
+        self.addCleanup(keeper.release_all)
+        return keeper
+
+    def socket(self) -> pathlib.Path:
+        """A live session socket, recorded as the SessionStart hook records it."""
+        path = self.tmp / "s.sock"
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(str(path))
+        self.addCleanup(server.close)
+        notify.record_socket(self.session_home, str(path), "tok-123")
+        return path
+
+    def test_a_seated_launch_accepts_and_a_plain_one_does_not(self):
+        self.desire("dev1@team-a")
+        self.keeper().start(launch=True)
+        self.assertIs(self.report().inbound, True)
+        self.end_and_clear()
+        self.desire()
+        self.keeper().start(launch=True)
+        self.assertIs(self.report().inbound, False)
+
+    def end_and_clear(self) -> None:
+        for name in os.listdir(self.session_home):
+            os.unlink(self.session_home / name)
+        self.session_home.rmdir()
+
+    def test_inbound_stays_what_the_launch_was_after_a_join(self):
+        self.desire()
+        keeper = self.keeper()
+        keeper.start(launch=True)
+        self.desire("dev1@team-a")
+        keeper.poll()
+        self.assertIs(self.report().inbound, False, "the settings are fixed at launch (H34)")
+
+    def test_the_told_roles_reach_the_report(self):
+        self.desire("dev1@team-a")
+        keeper = self.keeper()
+        keeper.start(launch=True)
+        membership.write_told(self.session_home, membership.ToldRecord(
+            1, (membership.ToldTeam(TEAM_A, "dev1", handle_of("dev1"), "worker"),)))
+        self.assertTrue(keeper.poll(), "a new told record is published")
+        self.assertEqual(self.report().told, membership.Told(1, ((TEAM_A, handle_of("dev1"), "worker"),)))
+
+    def test_a_first_seat_starts_the_watcher_with_the_recorded_socket(self):
+        self.desire()
+        keeper = self.keeper()
+        keeper.start(launch=True)
+        path = self.socket()
+        self.desire("dev1@team-a")
+        keeper.poll()
+        self.assertEqual(len(self.spawned), 1)
+        env = self.spawned[0]
+        self.assertEqual((env[notify.SOCKET_ENV], env[notify.TOKEN_ENV]), (str(path), "tok-123"))
+        self.assertEqual(env["PINGBUS_HOME"], str(self.session_home))
+
+    def test_no_socket_no_watcher_and_a_running_watcher_is_left_alone(self):
+        self.desire()
+        keeper = self.keeper()
+        keeper.start(launch=True)
+        self.desire("dev1@team-a")
+        keeper.poll()
+        self.assertEqual(self.spawned, [], "no socket recorded: nothing to wake")
+        path = self.socket()
+        marks = inject.Marks(self.session_home, str(path))
+        marks.ensure_dir()
+        lock = inbox.acquire_lock_at(marks.watch_lock_path(), "watch")
+        self.addCleanup(lock.release)
+        self.desire("dev1@team-a", "qa2@team-b")
+        keeper.poll()
+        self.assertEqual(self.spawned, [], "the session's watcher runs already")
+
+    def test_the_launch_starts_no_watcher(self):
+        self.desire("dev1@team-a")
+        self.keeper().start(launch=True)
+        self.assertEqual(self.spawned, [], "the SessionStart hook starts it")
 
 
 class SourceTest(unittest.TestCase):

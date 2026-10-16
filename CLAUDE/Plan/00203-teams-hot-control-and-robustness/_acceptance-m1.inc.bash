@@ -35,7 +35,7 @@ m1_holders() {
         for p in /proc/[0-9]*; do
             cmd=$(tr "\000" " " <"$p/cmdline" 2>/dev/null) || continue
             [ -n "$cmd" ] || continue
-            locks=$(ls -l "$p/fd" 2>/dev/null | sed -n "s/.*\/\([a-z]*\.lock\)$/\1/p" | sort -u | tr "\n" ",")
+            locks=$(ls -l "$p/fd" 2>/dev/null | sed -n "s/.*\/\(keeper\.lock\|seat\.lock\)$/\1/p" | sort -u | tr "\n" ",")
             printf "%s %s %s\n" "${p#/proc/}" "${locks:--}" "$cmd"
         done'
 }

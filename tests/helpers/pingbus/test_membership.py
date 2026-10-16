@@ -319,6 +319,109 @@ class ForgedAppliedCliTest(bus.BusCase):
         self.assertEqual([member.team for member in members], [bus.TEAM_A])
 
 
+class InboundTest(unittest.TestCase):
+    """H22: the keeper's report says whether the session accepts team messages, so the host
+    knows which sessions need their one relaunch on a first join."""
+
+    def test_inbound_is_optional_and_round_trips(self) -> None:
+        self.assertIsNone(membership.parse_applied(applied()).inbound)
+        for value in (True, False):
+            got = membership.parse_applied(applied(inbound=value))
+            self.assertIs(got.inbound, value)
+            self.assertEqual(membership.parse_applied(got.to_json()), got)
+
+    def test_inbound_is_a_boolean(self) -> None:
+        for value in (1, "true", None):
+            with self.subTest(value=value), self.assertRaises(membership.MembershipError):
+                membership.parse_applied(applied(inbound=value))
+
+
+def told(**changes: object) -> dict:
+    data: dict[str, object] = {
+        "v": 1, "generation": 4,
+        "teams": [{"team": "team-a", "seat": "1", "handle": "myrepo.1+local.podman", "role": "worker"},
+                  {"team": "team-b", "seat": "2", "handle": "myrepo.2+local.podman", "role": "-"}],
+        "left": [{"team": "team-c", "reason": "removed"}],
+    }
+    data.update(changes)
+    return data
+
+
+class ToldFileTest(unittest.TestCase):
+    """H12, H13: what the session was last told about its teams, kept in its own file
+    (`told.json`) so the watcher and the prompt hook never race the keeper's `applied.json`;
+    the keeper copies the roles it says into `applied.json`'s `told` (3.2)."""
+
+    def setUp(self) -> None:
+        self.home = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+
+    def test_a_record_parses_writes_privately_and_reads_back(self) -> None:
+        record = membership.parse_told(told())
+        self.assertEqual(record.generation, 4)
+        self.assertEqual(record.teams[1], membership.ToldTeam("team-b", "2", "myrepo.2+local.podman", "-"))
+        self.assertEqual(record.left, (("team-c", "removed"),))
+        membership.write_told(self.home, record)
+        path = self.home / membership.TOLD_FILE
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        self.assertEqual(membership.read_told(self.home), record)
+
+    def test_no_file_is_none(self) -> None:
+        self.assertIsNone(membership.read_told(self.home))
+
+    def test_the_roles_said_are_the_known_ones(self) -> None:
+        self.assertEqual(membership.parse_told(told()).said(),
+                         membership.Told(4, (("team-a", "myrepo.1+local.podman", "worker"),)))
+
+    def test_refusals(self) -> None:
+        bad = [told(v=2), told(extra=1), told(generation=-1),
+               told(teams=[{"team": "Team", "seat": "1", "handle": "myrepo.1+local.podman", "role": "worker"}]),
+               told(teams=[{"team": "team-a", "seat": "1", "handle": "myrepo.1+local.podman", "role": "admin"}]),
+               told(left=[{"team": "team-c", "reason": "bored"}])]
+        for data in bad:
+            with self.subTest(data=data), self.assertRaises(membership.MembershipError):
+                membership.parse_told(data)
+
+    def test_the_lock_is_held_by_one_teller_at_a_time(self) -> None:
+        with membership.telling(self.home) as first:
+            self.assertTrue(first)
+            with membership.telling(self.home) as second:
+                self.assertFalse(second, "a second teller does not wait: the first is telling")
+        with membership.telling(self.home) as again:
+            self.assertTrue(again)
+
+
+class RemovedReasonTest(unittest.TestCase):
+    """H15: a command against a team this session was removed from is refused, 64, with the
+    reason: "not a member of `<team>` (removed by the owner)"."""
+
+    def setUp(self) -> None:
+        tmp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.mount = tmp / "membership"
+        self.mount.mkdir()
+        self.home = tmp / "home"
+        self.home.mkdir()
+        self.env = {membership.MEMBERSHIP_VAR: str(self.mount), "PINGBUS_HOME": str(self.home)}
+        (self.home / membership.APPLIED_FILE).write_text(json.dumps(applied()), encoding="utf-8")
+
+    def refusal(self, team: str) -> str:
+        with self.assertRaises(config.UsageError) as caught:
+            config.load_active(self.env, team=team)
+        return str(caught.exception)
+
+    def test_a_farewell_names_the_reason(self) -> None:
+        (self.mount / membership.DESIRED_FILE).write_text(json.dumps(desired()), encoding="utf-8")
+        self.assertIn("not a member of `team-c` (removed by the owner)", self.refusal("team-c"))
+
+    def test_a_team_the_session_was_told_it_left_names_the_reason(self) -> None:
+        (self.mount / membership.DESIRED_FILE).write_text(json.dumps(desired(farewell=[])), encoding="utf-8")
+        membership.write_told(self.home, membership.parse_told(told(left=[{"team": "team-d", "reason": "removed"}])))
+        self.assertIn("not a member of `team-d` (removed by the owner)", self.refusal("team-d"))
+
+    def test_a_team_never_joined_has_no_reason(self) -> None:
+        (self.mount / membership.DESIRED_FILE).write_text(json.dumps(desired()), encoding="utf-8")
+        self.assertNotIn("removed by the owner", self.refusal("team-x"))
+
+
 class ConstantsTest(unittest.TestCase):
     def test_the_names(self) -> None:
         self.assertEqual(membership.MEMBERSHIP_VAR, "PINGBUS_MEMBERSHIP")

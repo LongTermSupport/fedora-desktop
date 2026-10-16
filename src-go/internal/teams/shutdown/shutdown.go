@@ -243,15 +243,12 @@ func (p *plan) addSeat(snap *board.Snapshot, team string, row board.Row) {
 	}
 }
 
-// seatsOf is every seat the session's record names: the team's first, then the others by team.
+// seatsOf is every seat the session names (discover): the team's first, then the others by team.
 func seatsOf(snap *board.Snapshot, name, team string) []seatRef {
-	var refs []seatRef
-	for key, session := range snap.SeatSession {
-		dir, ref, keyed := strings.Cut(key, "|")
-		seat, of, named := strings.Cut(ref, "@")
-		if session == name && keyed && named {
-			refs = append(refs, seatRef{dir: dir, seat: seat, team: of})
-		}
+	keys := snap.Seats.SeatsOf(name)
+	refs := make([]seatRef, 0, len(keys))
+	for _, k := range keys {
+		refs = append(refs, seatRef{dir: k.Dir, seat: k.Seat, team: k.Team})
 	}
 	slices.SortFunc(refs, func(a, b seatRef) int {
 		if (a.team == team) != (b.team == team) {

@@ -20,8 +20,11 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plans 00194 and 00203 (M0, M1, M2, the board, the health check fix): rebuilds ccy 3.99.3, ccy-teams and the ccy
-# image (container 2.70; the first launch after it rebuilds the image once). The team watcher
+# Plans 00194 and 00203 (M0, M1, M2, M3, the board, the health check fix): rebuilds ccy 3.99.5, ccy-teams and the ccy
+# image (container 2.72; the first launch after it rebuilds the image once). M3: `ccy-teams
+# session add` and `remove` change a running ccy session's teams without a restart (a session
+# started on no team relaunches once, by itself, on its first join), and the session is told
+# in its conversation and on its status line. The team watcher
 # survives a homeserver restart and runs supervised. Every ccy session started in ccy's tmux
 # carries the agent team bus kit, idle on no team (no hooks run, its own status line, no inbox
 # socket), with its membership mounted read-only; `ccy --no-bus` leaves the kit out. Each
@@ -47,7 +50,11 @@ playbooks/imports/play-agent-bus.yml
 # the read-only mount, the inert kit, no inbound on no team, idle CPU, the image version and
 # --no-bus, on an Enforcing host. Needs ccy launched interactively here once (Quick Launch).
 # M1: the helper tests, then a third throwaway plain session: the seat keeper is its only
-# pingbus process and only lock holder. Then the server robustness checks (ACCEPTANCE.md
+# pingbus process and only lock holder. M3: two throwaway teams acc-m3a and acc-m3b and a
+# throwaway headless session on acc-m3a: hot add of acc-m3b, the notice, a human message, hot
+# remove with its goodbye, no backlog on re-add, an idempotent re-run; all removed after (the
+# first-join relaunch of an interactive session is the owner's step M3 (g) in ACCEPTANCE.md).
+# Then the server robustness checks (ACCEPTANCE.md
 # R1-R9), on a throwaway team acc-robust it removes: kills, ends and freezes its homeserver and
 # times its return, shows a stale backup on the board, times seat check waiting for a starting
 # homeserver, checks any LXC member unit; its teardown also clears acc-robust's units from

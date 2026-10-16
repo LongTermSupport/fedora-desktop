@@ -31,7 +31,7 @@ from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import cli, inbox, inject, matrix, notify, protocol, syncer
+from helpers.pingbus import cli, inbox, inject, matrix, membership, notify, protocol, syncer
 from tests.helpers.pingbus import test_cli as bus
 
 SESSION_TOKEN = "session-token-0123456789abcdef"
@@ -796,6 +796,102 @@ class WatchOutageTest(WatchCase):
         self.assertEqual(code, cli.EXIT_AUTH)
         self.assertIn("no longer watched", err)
         self.assertNotIn(self.OUTAGE, err)
+
+
+class WatchMembershipTest(WatchCase):
+    """Plan 00203 H11, H12, H15: under PINGBUS_MEMBERSHIP the watcher follows the session's
+    teams as the owner changes them (the keeper's applied file and the host's desired file),
+    and tells the session in its own conversation, as a MEMBERSHIP envelope, once."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.add_team()
+        self.mount = self.tmp / "membership"
+        self.mount.mkdir()
+        self.generation = 0
+        self.member(bus.TEAM_A, bus.TEAM_B)
+        self.joined()
+        self.member(bus.TEAM_A)
+        del self.env["PINGBUS_TEAMS"]
+        self.env[membership.MEMBERSHIP_VAR] = str(self.mount)
+        membership.write_told(self.home, membership.ToldRecord(self.generation, (
+            membership.ToldTeam(bus.TEAM_A, "1", bus.ME_LP, "worker"),)))
+
+    def member(self, *teams: str, farewell: tuple[str, ...] = ()) -> None:
+        """The host writes the desired file, then the keeper takes the seats: seat 1 of each."""
+        self.generation += 1
+        desired = {"v": 1, "session": "ccy-myrepo-1", "kind": "ccy", "checkout": "/srv/myrepo",
+                   "generation": self.generation, "written_ms": 1,
+                   "seats": [{"team": t, "seat": "1"} for t in teams],
+                   "farewell": [{"team": t, "seat": "1", "reason": "removed"} for t in farewell]}
+        (self.mount / membership.DESIRED_FILE).write_text(json.dumps(desired), encoding="utf-8")
+        membership.write_applied(self.home / membership.APPLIED_FILE, membership.Applied(
+            self.generation, tuple(membership.AppliedSeat(t, "1", bus.ME_LP) for t in teams), ()))
+
+    def notices(self) -> list[str]:
+        return [text for text in self.sock.texts() if "kind: MEMBERSHIP" in text]
+
+    def test_a_team_added_is_watched_and_the_session_is_told(self):
+        self.start_watch()
+        self.assertIsNone(inbox.probe_lock(self.b.state))
+        self.member(bus.TEAM_A, bus.TEAM_B)
+        self.until(lambda: inbox.probe_lock(self.b.state) == "watch", "the added team was never watched")
+        self.until(lambda: self.notices(), "no membership notice")
+        (notice,) = self.notices()
+        self.assertIn(f"agent-bus: you joined team {bus.TEAM_B} as seat 1, {bus.ME_LP}.", notice)
+        self.assertIn(f"agent-bus: this session's teams are now: {bus.TEAM_A}, {bus.TEAM_B}.", notice)
+        self.until(lambda: membership.read_told(self.home).generation == self.generation, "not recorded")
+        self.b.ping(self.b.orch, "review", ref=bus.PATH_REF)
+        self.until(lambda: any(f"team: {bus.TEAM_B}" in t and "kind: PING" in t for t in self.sock.texts()),
+                   "a message from the added team was not delivered")
+
+    def test_a_team_removed_is_let_go_and_its_items_are_not_delivered(self):
+        self.member(bus.TEAM_A, bus.TEAM_B)
+        membership.write_told(self.home, membership.ToldRecord(self.generation, (
+            membership.ToldTeam(bus.TEAM_A, "1", bus.ME_LP, "worker"),
+            membership.ToldTeam(bus.TEAM_B, "1", bus.ME_LP, "worker"))))
+        self.start_watch()
+        self.until(lambda: inbox.probe_lock(self.b.state) == "watch", "team b was not watched")
+        self.member(bus.TEAM_A, farewell=(bus.TEAM_B,))
+        self.until(lambda: inbox.probe_lock(self.b.state) is None, "the removed team's lock was kept")
+        self.until(lambda: self.notices(), "no membership notice")
+        self.assertIn(f"agent-bus: you left team {bus.TEAM_B}: removed by the owner.", self.notices()[0])
+        self.b.ping(self.b.orch, "review", ref=bus.PATH_REF)
+        self.a.ping(self.a.orch, "review", ref=bus.PATH_REF)
+        self.until(lambda: any(f"team: {bus.TEAM_A}" in t and "kind: PING" in t for t in self.sock.texts()),
+                   "team a stopped delivering")
+        self.assertFalse(any(f"team: {bus.TEAM_B}" in t and "kind: PING" in t for t in self.sock.texts()))
+
+    def test_the_last_team_removed_is_told_then_the_watcher_exits_0(self):
+        self.start_watch()
+        self.member(farewell=(bus.TEAM_A,))
+        self.watcher.join(10)
+        self.assertFalse(self.watcher.is_alive(), "the watcher kept running on no team")
+        self.assertEqual(self.result[0][0], cli.EXIT_OK, self.result)
+        self.assertEqual(len(self.notices()), 1)
+        self.assertIn("agent-bus: this session is on no team now", self.notices()[0])
+        self.watcher = None
+        self.settle()  # its team's thread lets the lock go after the long poll in flight
+        self.assertIsNone(inbox.probe_lock(self.a.state))
+
+    def test_a_removed_team_is_refused_64_with_the_reason(self):
+        self.member(farewell=(bus.TEAM_A,))
+        code, _, err = self.run_cli("--team", bus.TEAM_A, "say", stdin="hi")
+        self.assertEqual(code, cli.EXIT_USAGE, err)
+        self.assertIn(f"not a member of `{bus.TEAM_A}` (removed by the owner)", err)
+
+    def test_wait_lets_a_removed_team_go_and_ends_0_on_no_team(self):
+        waiter: list[tuple[int, str, str]] = []
+        thread = threading.Thread(target=lambda: waiter.append(self.run_cli("wait", "--timeout", "30")),
+                                  daemon=True)
+        thread.start()
+        self.until(lambda: inbox.probe_lock(self.a.state) == "wait", "wait never held the lock")
+        self.member(farewell=(bus.TEAM_A,))
+        thread.join(10)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(waiter[0][0], cli.EXIT_OK, waiter)
+        self.settle()
+        self.assertIsNone(inbox.probe_lock(self.a.state))
 
 
 class WatchSuperviseTest(WatchCase):

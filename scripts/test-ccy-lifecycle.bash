@@ -298,6 +298,10 @@ cat >"$work/stub/claude-yolo" <<'STUB'
 } >"$STUB_RECORD"
 STUB
 chmod +x "$work/stub/claude-yolo"
+# ccy-teams' restart-args (the record's seats, Go-tested) passes the argv through here.
+mkdir -p "$work/bin"
+printf '#!/usr/bin/env bash\ncat\n' >"$work/bin/ccy-teams"
+chmod +x "$work/bin/ccy-teams"
 # Besides the update stub, the launch state the handler turns into the relaunch's choices: a
 # token file, no keys, no network, and a restart history inside the case's own cache.
 cat >"$work/update-stub.bash" <<STUB
@@ -329,7 +333,7 @@ relaunch_case() {
         # shellcheck source=/dev/null
         source "$work/handler.bash"
         export SCRIPT_DIR="$work/stub" VERSION_CHECK_CACHE="$work/cache-$name" IMAGE_NAME="img:tag"
-        export STUB_RECORD="$work/$name.record"
+        export STUB_RECORD="$work/$name.record" PATH="$work/bin:$PATH"
         CCY_ORIG_ARGS=("$@")
         export CCY_ORIG_ARGS
         # shellcheck source=/dev/null

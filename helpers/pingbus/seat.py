@@ -42,13 +42,15 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from typing import TextIO
 
-from helpers.pingbus import config, inbox, membership, protocol
+from helpers.pingbus import config, inbox, inject, membership, notify, protocol
 
 SEATS_VAR = "PINGBUS_SEATS"
 #: The keeper's lock in the session home: held while it runs (H10).
 KEEPER_LOCK = "keeper.lock"
 #: Where the keeper's diagnostics go once it is running, in the session home.
 KEEPER_LOG = "keeper.log"
+#: The watcher's log in the session home; the hooks append to the same file.
+WATCH_LOG = "watch.log"
 #: Beside a checkout's seats: the keeper's report for the host, per session (3.3).
 SESSIONS_DIR = "sessions"
 #: How often the keeper looks at the desired file and at its parent (H9: within 2 s).
@@ -496,14 +498,18 @@ class Keeper:
     def __init__(self, source: LaunchSeats | MembershipFile, *, root: pathlib.Path,
                  home: pathlib.Path, clock_ms: Callable[[], int], err: TextIO,
                  sleep: Callable[[float], object] = time.sleep, uid: int | None = None,
-                 user_home: pathlib.Path | None = None) -> None:
+                 user_home: pathlib.Path | None = None, environ: Mapping[str, str] | None = None,
+                 spawn_watcher: Callable[[Mapping[str, str], pathlib.Path], object] | None = None) -> None:
         self.source, self.root, self.home = source, pathlib.Path(root), pathlib.Path(home)
         self._clock_ms, self._sleep, self._err = clock_ms, sleep, err
         self._uid, self._user_home = uid, user_home
+        self._environ, self._spawn_watcher = environ, spawn_watcher
         self._held: dict[SeatRef, tuple[inbox.Lock, config.Member]] = {}
         self._keeper_lock: inbox.Lock | None = None
         self._stamp: object = None
+        self._told_stamp: object = None
         self._want: Want | None = None
+        self._inbound: bool | None = None
 
     # The life of the keeper.
 
@@ -520,6 +526,9 @@ class Keeper:
             except inbox.Busy:
                 raise KeeperBusy(self.home) from None
             self._stamp = self.source.stamp()
+            self._told_stamp = _stamp_of(self.home / membership.TOLD_FILE)
+            if not launch:
+                self._inbound = self._settings_inbound()
             self._apply(self.source.read(), strict=launch)
         except BaseException:
             self.release_all()
@@ -530,6 +539,11 @@ class Keeper:
     def poll(self) -> bool:
         """Apply the desired membership again if it changed since it was last read; whether
         anything was applied. A file that is refused leaves the seats as they are."""
+        told = _stamp_of(self.home / membership.TOLD_FILE)
+        if told != self._told_stamp and self._want is not None:
+            self._told_stamp = told
+            self._apply(self._want, strict=False)
+            return True
         stamp = self.source.stamp()
         if stamp == self._stamp:
             return False
@@ -583,10 +597,14 @@ class Keeper:
             raise
         self._clear_stray_links()
         self._want = want
+        if strict and self._inbound is None:
+            self._inbound = bool(self._held)
         seats = tuple(membership.AppliedSeat(ref.team, ref.seat, self._held[ref][1].handle)
                       for ref in want.refs if ref in self._held)
-        self._publish(membership.Applied(want.generation, seats, tuple(refused), self._told()),
-                      want.session, strict)
+        self._publish(membership.Applied(want.generation, seats, tuple(refused), self._told(),
+                                         self._inbound), want.session, strict)
+        if seats and not strict:
+            self._wake()
 
     def _take(self, ref: SeatRef) -> None:
         check_seat_dir(self.root, ref)
@@ -636,12 +654,44 @@ class Keeper:
                 os.unlink(entry.path)
 
     def _told(self) -> membership.Told | None:
-        """`told` is not the keeper's (H12, H13): carried over from the file as it is."""
+        """`told` is not the keeper's (H12, H13): the watcher and the prompt hook write
+        `told.json`, and the keeper copies the roles it says into what it publishes."""
         try:
-            current = membership.read_applied(self.home)
-        except membership.MembershipError:
+            current = membership.read_told(self.home)
+        except membership.MembershipError as exc:
+            self._say(f"what the session was told is unreadable: {exc}")
             return None
-        return None if current is None else current.told
+        return None if current is None else current.said()
+
+    def _settings_inbound(self) -> bool | None:
+        """For a keeper that adopts a home (Repair): whether the session's settings, written
+        once at launch, accept team messages; None when they cannot be read."""
+        try:
+            data = json.loads((self.home / SESSION_SETTINGS).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return isinstance(data, dict) and data.get("crossSessionInbound") == "accept"
+
+    def _wake(self) -> None:
+        """H11: a seat is applied, so start the session's watcher when it has a socket (the
+        SessionStart hook recorded it) and no watcher holds its watch lock. The hooks' revive
+        stays the backstop; a failure here is one log line."""
+        if self._spawn_watcher is None:
+            return
+        session = notify.recorded_socket(self.home)
+        if session is None or not notify.socket_present(session[0]):
+            return
+        marks = inject.Marks(self.home, session[0])
+        try:
+            if inbox.probe_lock_at(marks.watch_lock_path()) is not None:
+                return
+            env = dict(self._environ or {})
+            env.update({"PINGBUS_HOME": str(self.home), notify.SOCKET_ENV: session[0],
+                        notify.TOKEN_ENV: session[1]})
+            self._spawn_watcher(env, self.home / WATCH_LOG)
+            marks.set_spawned(self._clock_ms())
+        except (OSError, inbox.StateError) as exc:
+            self._say(f"the watcher was not started: {exc}")
 
     def _publish(self, applied: membership.Applied, session: str | None, strict: bool) -> None:
         """The applied file and the flag file; then, when the host named the session, the
@@ -694,6 +744,15 @@ class Keeper:
     def _say(self, text: str) -> None:
         self._err.write(f"pingbus seat keep: {text}\n")
         self._err.flush()
+
+
+def _stamp_of(path: pathlib.Path) -> object:
+    """A file's inode, modification time and size: what tells a rewrite; None when absent."""
+    try:
+        info = os.stat(path, follow_symlinks=False)
+    except FileNotFoundError:
+        return None
+    return (info.st_ino, info.st_mtime_ns, info.st_size)
 
 
 def keep(keeper: Keeper, *, parent: int | None, getppid: Callable[[], int] = os.getppid,

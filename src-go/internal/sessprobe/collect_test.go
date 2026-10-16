@@ -365,3 +365,36 @@ func TestRunningContainerNamesNamesTheEngineThatFailed(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestLabelledContainersListsIDAndStateOfTheLabel(t *testing.T) {
+	fake := &execx.Fake{}
+	fake.On([]string{"podman", "ps", "--filter", "label=ccy-session=s1", "--format", "{{.ID}}\t{{.State}}"}, ok("abc\trunning\n"))
+	got, err := sessprobe.LabelledContainers(context.Background(), fake, "ccy-session=s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "abc\trunning\n" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestLabelledContainersSaysPodmanFailed(t *testing.T) {
+	fake := &execx.Fake{}
+	fake.OnError([]string{"podman", "ps"}, errors.New("cannot connect"))
+	_, err := sessprobe.LabelledContainers(context.Background(), fake, "ccy-session=s1")
+	if err == nil || !strings.Contains(err.Error(), "cannot connect") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestExecInRunsTheCommandInTheContainer(t *testing.T) {
+	fake := &execx.Fake{}
+	fake.On([]string{"podman", "exec", "abc", "pingbus", "reach", "--team", "t"}, ok(""))
+	if err := sessprobe.ExecIn(context.Background(), fake, "abc", "pingbus", "reach", "--team", "t"); err != nil {
+		t.Fatal(err)
+	}
+	fake.OnError([]string{"podman", "exec", "abc", "false"}, errors.New("exit 1"))
+	if err := sessprobe.ExecIn(context.Background(), fake, "abc", "false"); err == nil {
+		t.Fatal("a failing command inside the container must fail")
+	}
+}

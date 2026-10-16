@@ -340,3 +340,31 @@ func TestIsCommandErrorIsAToolThatRanAndRefused(t *testing.T) {
 		t.Fatal("only a CommandError is one")
 	}
 }
+
+func TestSeatChooseInRunsInTheCheckout(t *testing.T) {
+	r := newRig()
+	r.fake.On([]string{"agent-bus", "seat", "choose", "alpha", "--type=podman"},
+		execx.Result{Stdout: []byte("CHOICE\t2\tnew\th.2+b.podman\tw\nDEFAULT\t2\n")})
+	got, err := r.c.SeatChooseIn(context.Background(), "/co", "alpha", "podman")
+	if err != nil || got.Default != "2" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if c := r.last(t); c.Dir != "/co" {
+		t.Fatalf("ran in %q", c.Dir)
+	}
+}
+
+func TestSeatTakeRunsAsTheUserInTheCheckout(t *testing.T) {
+	r := newRig()
+	r.fake.On([]string{"agent-bus", "seat", "take"}, execx.Result{})
+	if err := r.c.SeatTake(context.Background(), "/co", "2@alpha", "podman", true); err != nil {
+		t.Fatal(err)
+	}
+	if c := r.last(t); c.Line() != "agent-bus seat take 2@alpha --type=podman --no-prompt" || c.Dir != "/co" {
+		t.Fatalf("ran %q in %q", c.Line(), c.Dir)
+	}
+	r.fake.On([]string{"agent-bus", "seat", "take"}, execx.Result{ExitCode: 75})
+	if err := r.c.SeatTake(context.Background(), "/co", "2@alpha", "podman", false); !errors.Is(err, ErrBusy) {
+		t.Fatalf("a held seat: %v", err)
+	}
+}

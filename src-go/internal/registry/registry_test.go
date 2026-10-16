@@ -285,6 +285,25 @@ func TestSetTeamsReplacesTheRecordedTeamsAndKeepsTheRest(t *testing.T) {
 	}
 }
 
+func TestSetTeamsToNoneDropsTheFlag(t *testing.T) {
+	s := newStore(t)
+	rec := sample()
+	rec.Args = []string{"--no-ssh", "--teams", "old@x"}
+	if err := s.Write(rec); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTeams(rec.Name, ""); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Get(rec.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got.Args, []string{"--no-ssh"}) {
+		t.Fatalf("a session on no team replays no --teams: %v", got.Args)
+	}
+}
+
 func TestSetTeamsWithNoRecordIsAnError(t *testing.T) {
 	if err := newStore(t).SetTeams("ghost", "a@b"); !errors.Is(err, ErrNoRecord) {
 		t.Fatalf("missing: %v", err)

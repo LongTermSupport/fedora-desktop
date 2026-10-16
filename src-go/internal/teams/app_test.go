@@ -182,6 +182,30 @@ func TestDispatchInternalMembershipInitIsTheMembershipCommand(t *testing.T) {
 	}
 }
 
+func TestDispatchInternalRestartArgsPassesThroughOutsideTmux(t *testing.T) {
+	h := newHarness(t)
+	h.app.Stdin = strings.NewReader("--no-ssh\x00")
+	if code := h.app.Run([]string{"internal", "restart-args"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if h.Out.String() != "--no-ssh\x00" {
+		t.Fatalf("stdout %q", h.Out.String())
+	}
+}
+
+func TestDispatchSessionIsTheHotCommand(t *testing.T) {
+	h := newHarness(t)
+	if code := h.app.Run([]string{"session", "frob"}); code != term.ExitUsage ||
+		!strings.Contains(h.ErrOut.String(), "unknown session command 'frob'") {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	h = newHarness(t)
+	if code := h.app.Run([]string{"session", "--help"}); code != term.ExitOK ||
+		!strings.Contains(h.Out.String(), "Only sessions started through ccy's tmux") {
+		t.Fatalf("help: exit %d: %s", code, h.Out.String())
+	}
+}
+
 func TestInternalNeedsOneOfItsCommands(t *testing.T) {
 	for _, args := range [][]string{{"internal"}, {"internal", "nope"}} {
 		h := newHarness(t)
@@ -200,6 +224,9 @@ func TestUsageTextNamesTheLauncherSubcommandsAndTheCoordinator(t *testing.T) {
 	wants := []string{
 		"choose-seat", "describe-seats", "coordinator", "ccy-teams shutdown <team> [--yes]",
 		"ccy-teams internal membership-init <session> <checkout> <seats>",
+		"ccy-teams internal restart-args", "ccy-teams session add <session> <team>[/<seat>] [--yes]",
+		"ccy-teams session remove <session> <team> [--yes]",
+		"Only sessions started through ccy's tmux (listed by ccy-sessions), and cc sessions started with",
 	}
 	for _, want := range wants {
 		if !strings.Contains(h.Out.String(), want) {

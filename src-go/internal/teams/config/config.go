@@ -18,6 +18,9 @@ type Config struct {
 	AppliedDir  string
 	StateDir    string // <XDG_STATE_HOME or ~/.local/state>/ccy-teams
 	Home        string
+	// Pingbus is the host's pingbus, the agent team bus kit's (a hot remove re-baselines a seat
+	// and posts its goodbye with it).
+	Pingbus string
 }
 
 // Load resolves the configuration from root and the environment (getenv).
@@ -39,5 +42,6 @@ func Load(root string, getenv func(string) string) Config {
 		AppliedDir:  or("CCY_TEAMS_APPLIED_DIR", "/var/lib/agent-bus-applied"),
 		StateDir:    filepath.Join(or("XDG_STATE_HOME", filepath.Join(home, ".local/state")), "ccy-teams"),
 		Home:        home,
+		Pingbus:     or("CCY_TEAMS_PINGBUS", "/usr/local/share/agent-bus/kit/pingbus"),
 	}
 }

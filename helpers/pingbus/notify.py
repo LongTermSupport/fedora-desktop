@@ -16,6 +16,7 @@ from __future__ import annotations
 import errno
 import json
 import os
+import pathlib
 import socket
 import stat
 from collections.abc import Mapping
@@ -44,6 +45,49 @@ def session_socket(environ: Mapping[str, str]) -> tuple[str, str] | None:
     if not token:
         raise ValueError(f"{SOCKET_ENV} is set but {TOKEN_ENV} is not")
     return path, token
+
+
+#: Plan 00203 H11: where the SessionStart hook records the session's socket and token, in the
+#: container-private session home, so the seat keeper can start the watcher on a later join.
+SOCKET_RECORD = "socket.json"
+
+
+def record_socket(home: pathlib.Path, path: str, token: str) -> None:
+    """Write `{v, socket, token}` to the home's socket record, mode 0600, atomically."""
+    target = pathlib.Path(home) / SOCKET_RECORD
+    temp = target.with_name(f".{SOCKET_RECORD}.{os.getpid()}.tmp")
+    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="ascii") as handle:
+            handle.write(json.dumps({"v": 1, "socket": path, "token": token}, ensure_ascii=True))
+        os.replace(temp, target)
+    except BaseException:
+        temp.unlink(missing_ok=True)
+        raise
+
+
+def recorded_socket(home: pathlib.Path) -> tuple[str, str] | None:
+    """The recorded socket path and token, or None when there is no usable record: absent, not
+    a regular file only this user can read, or not the object `record_socket` writes."""
+    target = pathlib.Path(home) / SOCKET_RECORD
+    try:
+        fd = os.open(target, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError:
+        return None
+    with os.fdopen(fd, "rb") as handle:
+        info = os.fstat(handle.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077 or info.st_uid != os.getuid():
+            return None
+        raw = handle.read(8192)
+    try:
+        data = json.loads(raw.decode("ascii"))
+    except (UnicodeDecodeError, ValueError):
+        return None
+    if (not isinstance(data, dict) or set(data) != {"v", "socket", "token"} or data["v"] != 1
+            or not isinstance(data["socket"], str) or not os.path.isabs(data["socket"])
+            or not isinstance(data["token"], str) or not data["token"]):
+        return None
+    return data["socket"], data["token"]
 
 
 def socket_present(path: str) -> bool:

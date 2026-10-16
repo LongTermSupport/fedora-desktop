@@ -18,6 +18,8 @@ const (
 	defaultSampleFor  = time.Second
 	defaultClockTicks = 100
 	unknownWord       = "unknown"
+	podmanEngine      = "podman"
+	formatFlag        = "--format"
 )
 
 // Paner lists the panes of the tmux server (tmuxccy.Tmux does).
@@ -139,7 +141,7 @@ func ProcessTable(ctx context.Context, r execx.Runner) (string, error) {
 // enginePS is what one engine lists of its running CCY containers. Every CCY container carries
 // `--label ccy=true`, so this asks about those and nothing else on the host.
 func enginePS(ctx context.Context, r execx.Runner, engine, format string) (string, error) {
-	return execx.Combined(ctx, r, execx.Cmd{Name: engine, Args: []string{"ps", "--filter", "label=ccy=true", "--format", format}})
+	return execx.Combined(ctx, r, execx.Cmd{Name: engine, Args: []string{"ps", "--filter", "label=ccy=true", formatFlag, format}})
 }
 
 // RunningContainerNames is the names of the running CCY containers of each engine. The engines
@@ -159,6 +161,21 @@ func RunningContainerNames(ctx context.Context, r execx.Runner, engines []string
 		}
 	}
 	return running, nil
+}
+
+// LabelledContainers is podman's list of the containers carrying label (KEY=VALUE), one
+// "<id>\t<state>" line each, running or not, for a caller that finds a session's container
+// by its ccy-session label.
+func LabelledContainers(ctx context.Context, r execx.Runner, label string) (string, error) {
+	res, err := r.Run(ctx, execx.Cmd{Name: podmanEngine, Args: []string{"ps", "--filter", "label=" + label, formatFlag, "{{.ID}}\t{{.State}}"}})
+	return string(res.Stdout), err
+}
+
+// ExecIn runs argv inside a running podman container, probing it from within (the route from a
+// session's container to a homeserver).
+func ExecIn(ctx context.Context, r execx.Runner, container string, argv ...string) error {
+	_, err := r.Run(ctx, execx.Cmd{Name: podmanEngine, Args: append([]string{"exec", container}, argv...)})
+	return err
 }
 
 // listEngines asks each engine in use for its CCY containers: every listed container's words,
@@ -194,7 +211,7 @@ func (p *Probe) inspectRunning(ctx context.Context, owners []Owner, running map[
 		if len(names) == 0 {
 			continue
 		}
-		out, err := execx.Combined(ctx, p.Runner, execx.Cmd{Name: engine, Args: append([]string{"inspect", "--format", PIDFormat}, names...)})
+		out, err := execx.Combined(ctx, p.Runner, execx.Cmd{Name: engine, Args: append([]string{"inspect", formatFlag, PIDFormat}, names...)})
 		if err != nil {
 			return nil, fmt.Errorf("%s inspect failed: %s: %w", engine, strings.TrimSpace(out), err)
 		}
