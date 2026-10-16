@@ -19,30 +19,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# Plan 00203 M5: rebuilds ccy-teams only (no launcher or image change, so no ccy version bump
-# and no image rebuild). In `ccy-teams`, Tab now shows the running sessions: add one to a team
-# (Ctrl-A), remove it (Ctrl-X), change its role (Ctrl-O), move it, attach it, or repair a
-# stopped seat keeper, each by running the `ccy-teams session` command for you. Running sessions
-# are not touched.
-playbooks/imports/play-claude-yolo.yml
-# Plan 00203 acceptance again, on the M5 ccy-teams: every milestone in turn (M2, M1, M3, M4,
-# then R1-R9; throwaway teams acc-m3a, acc-m3b, acc-m4a, acc-m4b, acc-robust and throwaway
-# headless sessions in ccy's tmux, all removed after). M4 (e) re-proves `ccy-teams session
-# list`, whose code the picker's view now shares; the picker itself is the owner's steps,
-# ACCEPTANCE.md M5 (a) to (f), on a terminal. A bus process is now its program (python3
-# running the pingbus or agent-bus entry point), so claude, whose argv names the plugin
-# directory .../plugin/pingbus, no longer counts as one in M2 (c), M2 (e) or M1 (b). Each run
-# removes its sessions' keeper reports (.claude/ccy/pingbus/sessions/<name>/), and first the
-# ones earlier acceptance runs left (m1-plain-, m2-plain-, m2-nobus-, m3-hot-, m4-a-, m4-b-
-# names only, never a running session's): the two m2-plain-* reports on this host go. Needs
-# ccy launched interactively here once (Quick Launch).
-00203-teams-hot-control-and-robustness
-# Plan 00161 acceptance again (U20's seated headless sessions, then M2.11's named session).
-# Its teardown now removes the keeper reports of every seated session it launched: the M2.11
-# named session's (with its registry record) and, the review's B1, the unnamed M2.0 sessions'
-# reports, which are named after their containers (each one whose name was not there before
-# M2.0). The prerequisites remove u20-named-* reports an earlier run left (none of a running
-# session) before M2.0 records the checkout, so M2.10 compares it strictly and passes on a
-# clean run, whatever container numbers the sessions get.
-00161-agent-team-bus-matrix/acceptance.bash
