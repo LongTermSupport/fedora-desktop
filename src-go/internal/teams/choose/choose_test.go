@@ -7,6 +7,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
@@ -88,6 +89,21 @@ func TestChoosingASeatKeepingItsRolePrintsTheSeatAndChangesNothing(t *testing.T)
 	}
 }
 
+func TestTheSeatAndRoleQuestionsCarryTheHeadingTheyAreGiven(t *testing.T) {
+	h := newRig(t)
+	h.Script.Gum = []string{h.pickSeatOne(), "CHOOSE:" + keepRole("worker")}
+	if ref, code := h.c.PickSeat(t.Context(), "alpha", "", "Team 2 of 3: alpha"); ref != "1@alpha" || code != term.ExitOK {
+		t.Fatalf("%q %d: %s", ref, code, h.ErrOut.String())
+	}
+	if !strings.Contains(h.gumHeader(0), "--header Team 2 of 3: alpha · seat: which seat does this session take?") ||
+		!strings.Contains(h.gumHeader(1), "--header Team 2 of 3: alpha · role of seat 1: ") {
+		t.Fatalf("gum %q", h.Script.GumLog)
+	}
+	if !strings.HasPrefix(h.ErrOut.String(), "Team 2 of 3: alpha\n") {
+		t.Fatalf("the team's lines are not under its heading: %q", h.ErrOut.String())
+	}
+}
+
 func TestTheDefaultSeatIsTheOneTheWrapperNames(t *testing.T) {
 	h := newRig(t)
 	h.Script.Gum = []string{h.pickSeatOne(), "CHOOSE:" + keepRole("worker")}
@@ -99,7 +115,7 @@ func TestTheDefaultSeatIsTheOneTheWrapperNames(t *testing.T) {
 
 func TestChoosingMakeCoordinatorChangesTheRoleThroughTheSharedPath(t *testing.T) {
 	h := newRig(t)
-	h.Script.Gum = []string{h.pickSeatOne(), "CHOOSE:" + makeRole(agentbus.Member{})}
+	h.Script.Gum = []string{h.pickSeatOne(), "CHOOSE:" + coordinator.NoneChoice("alpha")}
 	h.Script.Fzf = []string{"|YES"}
 	if code := h.c.Seat(t.Context(), []string{"alpha"}); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
@@ -115,17 +131,44 @@ func TestChoosingMakeCoordinatorChangesTheRoleThroughTheSharedPath(t *testing.T)
 func TestMakeCoordinatorNamesTheHolderWhoBecomesAWorker(t *testing.T) {
 	h := newRig(t)
 	h.On(teamtest.SudoBus+"list alpha", roster("worker", "coordinator"), 0)
-	holder := agentbus.Member{Handle: handleDev}
-	h.Script.Gum = []string{h.pickSeatOne(), "CHOOSE:" + makeRole(holder)}
+	holder := coordinator.Holder{Handle: handleDev, Running: coordinator.Active}
+	h.Script.Gum = []string{h.pickSeatOne(), "CHOOSE:" + coordinator.TakeoverChoice(holder)}
 	h.Script.Fzf = []string{"|YES"}
 	if code := h.c.Seat(t.Context(), []string{"alpha"}); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
-	if !strings.Contains(h.gumHeader(1), handleDev+" is the coordinator") {
-		t.Fatalf("the role question does not name the holder: %q", h.gumHeader(1))
+	if !strings.Contains(h.gumHeader(1), "alpha's coordinator is "+handleDev+" (running)") {
+		t.Fatalf("the role question does not name the holder and whether it runs: %q", h.gumHeader(1))
+	}
+	takeover := "alpha's coordinator is " + handleDev + " (running). A team has one coordinator. Remove " + handleDev +
+		" as coordinator and make " + handleOne + " the coordinator instead?"
+	if !strings.Contains(h.HeaderOf(0), takeover) || !strings.Contains(strings.Join(h.Script.FzfArgs[0], " "), "--bind=start:last") {
+		t.Fatalf("the confirmation is not the takeover, defaulting to no: %q", h.HeaderOf(0))
 	}
 	if !h.Fake.Called(setRole+handleDev+" --role=worker") || !h.Fake.Called(setRole+handleOne+" --role=coordinator") {
 		t.Fatalf("calls %v", h.Fake.Calls())
+	}
+}
+
+func TestTheRoleChoicesKeepWorkerFirstAndNeverOfferAPlainCoordinator(t *testing.T) {
+	for _, tc := range []struct {
+		name, roster, want string
+	}{
+		{"none", roster("worker", "worker"), coordinator.NoneChoice("alpha")},
+		{"takeover", roster("worker", "coordinator"), coordinator.TakeoverChoice(coordinator.Holder{Handle: handleDev, Running: coordinator.Active})},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newRig(t)
+			h.On(teamtest.SudoBus+"list alpha", tc.roster, 0)
+			h.Script.Gum = []string{h.pickSeatOne(), "CHOOSE:" + keepRole("worker")}
+			if code := h.c.Seat(t.Context(), []string{"alpha"}); code != term.ExitOK {
+				t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+			}
+			q := h.gumHeader(1)
+			if !strings.Contains(q, "--selected "+keepRole("worker")) || !strings.HasSuffix(q, keepRole("worker")+" "+tc.want) {
+				t.Fatalf("question %q, want the worker first and selected, then %q", q, tc.want)
+			}
+		})
 	}
 }
 
@@ -158,7 +201,7 @@ func TestEscAtTheRoleQuestionLeavesTheRoleAndStillTakesTheSeat(t *testing.T) {
 
 func TestDecliningTheConfirmationLeavesTheRole(t *testing.T) {
 	h := newRig(t)
-	h.Script.Gum = []string{h.pickSeatOne(), "CHOOSE:" + makeRole(agentbus.Member{})}
+	h.Script.Gum = []string{h.pickSeatOne(), "CHOOSE:" + coordinator.NoneChoice("alpha")}
 	h.Script.Fzf = []string{"|EXIT"}
 	if code := h.c.Seat(t.Context(), []string{"alpha"}); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
@@ -171,7 +214,7 @@ func TestDecliningTheConfirmationLeavesTheRole(t *testing.T) {
 func TestAChangeThatFailsFailsTheLaunchAndPrintsNoSeat(t *testing.T) {
 	h := newRig(t)
 	h.OnErr(setRole, "agent-bus: refused", 70)
-	h.Script.Gum = []string{h.pickSeatOne(), "CHOOSE:" + makeRole(agentbus.Member{})}
+	h.Script.Gum = []string{h.pickSeatOne(), "CHOOSE:" + coordinator.NoneChoice("alpha")}
 	h.Script.Fzf = []string{"|YES"}
 	if code := h.c.Seat(t.Context(), []string{"alpha"}); code != term.ExitFailure {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())

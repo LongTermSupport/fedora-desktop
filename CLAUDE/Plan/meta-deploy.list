@@ -23,3 +23,9 @@
 # md-viewer: rebuild and install at main tip 22a55582735d (text on its baseline, dark mode
 # and font size settings); asserts `md-viewer --version` carries the new commit.
 playbooks/imports/optional/common/play-md-viewer.yml
+
+# ccy 3.99.12.2 (container 2.77.2: the image's declare.py gains lxc-role; the next ccy launch
+# rebuilds it) and ccy-teams: rebuild and install with the two coordinator paths (no coordinator: offered
+# plainly; a coordinator already: a takeover naming it, on No; lxc-add too) and the picker offers of
+# now, not now or never (an old no is asked again once). Plan 00203.
+playbooks/imports/play-claude-yolo.yml

@@ -363,7 +363,8 @@ Two things are **not** frozen:
 - **H19.** Idempotent. Re-running a command whose result already holds changes nothing,
   prints every step as `-`, and exits 0. Re-running after a partial failure finishes the
   remaining steps. A goodbye or a re-baseline still owed stays as a farewell entry (3.1) and
-  is done on the re-run.
+  is done on the re-run. A role that already holds asks nothing: the coordinator paths of
+  H25, and a takeover's `--demote-current`, matter only when the role would change.
 
 - **H20.** One change at a time per session, and one allocation at a time per checkout.
 
@@ -398,8 +399,8 @@ Two things are **not** frozen:
       discovery gives a seat to the live session that wants it over another session's record.
     - `hand-to=<seat>` is resolved in the team's roster: a full handle, or the one active
       member other than the leaving seat whose handle has that seat; several is exit 64,
-      asking for the handle. `add --role=coordinator` over another coordinator needs
-      `--demote-current`, as `role` does. Interactively, a coordinator's remove asks
+      asking for the handle. `add --role=coordinator` over another coordinator is H25's
+      takeover, as `role` is. Interactively, a coordinator's remove asks
       demote-or-not (yes by default); handing over is by the option.
     - `session list` reads a session's roles from its keeper's report (what it was told), so it
       needs no sudo; "unguarded" is no `pingbus seat keep` process in `podman top`.
@@ -481,9 +482,43 @@ Two things are **not** frozen:
 
 - **H25. Role.** Runs `sudo agent-bus set-role` for the seat's handle.
 
-  - Making a seat coordinator while another holds the role needs `--demote-current`.
-    Interactively it is asked, naming the current coordinator. The current one is demoted
-    first, as `seats.ChangeRole` does.
+  - A team has one coordinator, so making a member the coordinator takes one of two paths,
+    decided before anything changes and worded in one place (package `teams/coordinator`),
+    which every place that can make a coordinator uses: `session add --role` and `session role`, the picker's seat menu and its Running sessions view, the launch role question of
+    `ccy --teams`, `cc --teams` and a ccy-sessions restart (`choose-seat`), and
+    `seats.ChangeRole` (owner feedback on M5, 2026-10).
+    - **The team has no coordinator.** Offered plainly: "<team> has no coordinator. Make
+      <session> its coordinator?" In a list of roles it is "Make it the coordinator (<team>
+      has none)".
+    - **The team has one: a takeover.** A different, rarer proposition: "<team>'s coordinator
+      is <current> (running). A team has one coordinator. Remove <current> as coordinator and
+      make <session> the coordinator instead?" The words after the handle say what is known of
+      it: `running` (a live process holds its seat), `not running` (no process holds it),
+      `parked`, or `whether it is running is not known here` (no seat list here names it, as
+      for an LXC member). The question starts on No. In a list of roles, worker stays first and
+      the takeover is its own item, "Replace the coordinator, <current> (running): it becomes a
+      worker...", never a plain "coordinator"; the seat menu lists it after the ordinary
+      actions.
+    - With no terminal, or with `--yes`, a takeover needs `--demote-current`; without it,
+      exit 64 with "<team>'s coordinator is <current> (running). A team has one coordinator:
+      to remove <current> as coordinator and make <session> the coordinator instead, add
+      --demote-current. Nothing was changed." `add` refuses it before the seat is made or the
+      route checked. On a terminal the takeover is asked once, `--demote-current` or not,
+      unless `--yes` is given with it.
+    - The current one is demoted first, as `seats.ChangeRole` does.
+  - A remove of the coordinator says in its question where the role goes: "Seat <n> is
+    <team>'s coordinator: it becomes a worker, and <team> has no coordinator." or "...:
+    <heir> becomes <team>'s coordinator instead."
+  - `agent-bus set-role` and `add-member` keep their own refusal of a second coordinator
+    ("team <team> already has a coordinator: <current>; it must stop being coordinator
+    first"): it cannot take the role silently.
+  - `ccy-teams lxc-add` asks the role the same two ways: worker first, then the plain offer, or
+    the takeover of `<user>@<container>` (a declared LXC coordinator) or `<handle>` (a member
+    of the live team), whose question names it and starts on No. A takeover makes the
+    declared coordinator's entry a worker (`declare lxc-role`), or the live one a worker
+    (`sudo agent-bus set-role`), before the new entry is written, and puts it back if that
+    write fails; the summary's Role line names who becomes a worker. Before, lxc-add made
+    the member a worker without asking when the team had a coordinator.
   - Every session on the team whose role changed gets the notice (H12) from its own watcher's
     next sync.
   - The command waits up to 10 s for the target session's report (3.3) to show the new role in
@@ -680,7 +715,7 @@ Two things are **not** frozen:
    beta    "<description>"   up     3 agents
    gamma   "<description>"   down   (cannot add: homeserver down)
  Seat in alpha:   3 (free)  ·  6 (new)            [lowest free]
- Role:            worker  ·  coordinator (alpha's is <handle>; it becomes a worker)
+ Role:            worker  ·  Replace the coordinator, <handle> (running): it becomes a worker...
  ─────────────────────────────────────────
  Add ccy-<project-a>-2 to alpha as seat 3 (<repo-a>.3+<host>.podman), worker? [y/N]
  ✓ session running, can be hot-controlled
@@ -769,8 +804,10 @@ M5 as built (sections 5.1 to 5.3), with the small gaps of the spec settled:
   - The seat question offers the lowest free seat first (no seat word: the command chooses
     it, H21), then each seat `agent-bus seat choose` offers that is not held. A seat that
     another session names is refused by the command (75).
-  - The role question: worker, or coordinator. When the board's roster names a current
-    coordinator, the line says it becomes a worker, and choosing it passes `--demote-current`.
+  - The role question: worker first, then the coordinator's role in one of H25's two paths:
+    "Make it the coordinator (<team> has none)", or, when the board's roster names a current
+    coordinator, "Replace the coordinator, <current> (running): it becomes a worker...",
+    which passes `--demote-current`; the command then asks the takeover, starting on No.
     A worker in a chosen existing seat passes `--role=worker`, so a free seat whose handle
     still holds the role (Decision 5's case) is made a worker explicitly. Otherwise no
     `--role` is passed; a new member is a worker.

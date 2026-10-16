@@ -114,8 +114,10 @@ state), tab-separated.
 
 add puts the running session into the team, in the seat given or the lowest free one (a new
 seat is created through agent-bus seat take, which asks for sudo), and waits for the session to
-hold it. --role sets the seat's role on the way; a coordinator while another seat holds the role
-needs --demote-current, which makes that seat a worker first. A session started on no team
+hold it. --role sets the seat's role on the way. A team has one coordinator: --role=coordinator
+on a team with none is offered plainly; on a team that has one it is a takeover, which names the
+current coordinator and whether it runs, asks with no as the default, and with no terminal (or
+with --yes) needs --demote-current, which makes that seat a worker first. A session started on no team
 relaunches once, at its next idle moment, to accept team messages; every later change is made
 while it runs.
 
@@ -131,7 +133,8 @@ old team is untouched; if the remove fails, the session is in both, and the same
 finishes it. A move within one team is refused: remove, then add.
 
 role makes the session's seat in the team a worker or the coordinator (sudo agent-bus
-set-role), and waits for the session to be told.
+set-role), and waits for the session to be told. Making it the coordinator of a team that has
+one is the same takeover as add's, with the same --demote-current.
 
 repair starts the session's seat keeper again when it has stopped (list says unguarded), and
 waits for it to take back every seat.

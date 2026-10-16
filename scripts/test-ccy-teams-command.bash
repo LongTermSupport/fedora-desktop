@@ -1195,8 +1195,8 @@ agent_bus_teams:
     path_prefixes: ["CLAUDE/Plan/", "docs/"]
 EOF
 printf '|ABORT\n' >"$TEST_ANSWERS"
-out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$OUTSIDE" "$(printf '%s\n' YES)")"
-check_has "a path limit is offered for removal" "gum confirm --default=true Remove the limit, so any path in its repositories can be named?" "$(cat "$LOG")"
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$OUTSIDE" "$(printf '%s\n' "=Remove legacy's limit now")")"
+check_has "a path limit is offered for removal: now, not now or never" "gum choose --header Remove legacy's limit, so any path in its repositories can be named? --selected Remove legacy's limit now Remove legacy's limit now Not now (ask again next time) Keep legacy's limit and never ask again" "$(cat "$LOG")"
 check_has "  saying what it does" "may only point each other at files under" "$out"
 check_has "  naming what the team covers" "Team legacy (for any repository of example-org)" "$out"
 check_has "  and that it is about a team already here, not this checkout" "a team already on this machine" "$out"
@@ -1218,12 +1218,17 @@ agent_bus_teams:
     path_prefixes: ["CLAUDE/Plan/", "docs/"]
 EOF
 printf '|ABORT\n' >"$TEST_ANSWERS"
-out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$OUTSIDE" "$(printf '%s\n' NO NO)")"
-check_has "  declined, the limit stays" "path_prefixes" "$(cat "$NO_TEAMS")"
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$OUTSIDE" "$(printf '%s\n' ESC NO)")"
+check_has "  not now (Esc), the limit stays" "path_prefixes" "$(cat "$NO_TEAMS")"
 printf '|ABORT\n' >"$TEST_ANSWERS"
 : >"$LOG" # not reset: that clears the declined marker too
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$OUTSIDE" "$(printf '%s\n' "=Keep legacy's limit and never ask again" NO)")"
+check "  and offered again next time" "yes" "$(logged "limit, so any path")"
+check_has "  never, the limit stays" "path_prefixes" "$(cat "$NO_TEAMS")"
+printf '|ABORT\n' >"$TEST_ANSWERS"
+: >"$LOG"
 out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$OUTSIDE" "$(printf '%s\n' NO)")"
-check "  and not offered again" "no" "$(logged 'Remove the limit, so any path')"
+check "  and after never, not offered again" "no" "$(logged "limit, so any path")"
 
 echo "== a checkout no team covers"
 fresh_no_teams

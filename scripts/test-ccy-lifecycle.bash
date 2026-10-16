@@ -390,6 +390,9 @@ wrapper_case() {
         # shellcheck source=/dev/null
         source "$work/exec-stub.bash"
         if [ "$wrapper" = "-" ]; then unset CCY_CLAUDE_WRAPPER; else export CCY_CLAUDE_WRAPPER="$wrapper"; fi
+        # A run from inside a bus session inherits its membership, which adds the plugin for
+        # the first-join relaunch: these cases are about a session on no team.
+        unset PINGBUS_MEMBERSHIP
         set -- "$@"
         # shellcheck source=/dev/null
         CCY_LIFECYCLE_MAX_AGE_SECONDS="$max_age" CCY_LIFECYCLE_DEADLINE_EPOCH="$deadline" \

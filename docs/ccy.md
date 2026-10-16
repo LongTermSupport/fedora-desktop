@@ -1104,9 +1104,15 @@ runs. For a team named alone it then asks, in a chooser, which of this checkout'
 the team to take. Each row shows the member's full handle, `ccy (podman)`, and whether the
 seat is free or held by a running session. The default is the lowest free seat, else a new
 number. ccy says the handle before it takes the seat, and the chosen `<seat>@<team>` goes
-into the launch's arguments. For a seat that exists it then asks the seat's role: keep it,
-make it the team's coordinator (naming the current one, who becomes a worker) or, for the
-coordinator, stop it being one; sudo runs only when the role changes, and the role is kept in
+into the launch's arguments. With several teams, every question is headed by its team and
+its place in the sequence (`Team 2 of 3: <team> · seat`). For a seat that exists it then asks the seat's role: keep it
+(the default), make it the coordinator of a team that has none, or, for the coordinator, stop
+it being one. A team has one coordinator, so on a team that has one the choice is a takeover,
+"Replace the coordinator, <current> (running): it becomes a worker...", whose question names
+the current coordinator, says whether it is running and that it loses the role, and starts on
+No. `ccy-teams session add --role=coordinator` and `session role` ask the same two ways, and
+with no terminal (or with `--yes`) a takeover needs `--demote-current`. Sudo runs only when
+the role changes, and the role is kept in
 the team record, so the Quick Launch that reuses the seat brings it back and shows it in its
 summary. Quick Launch reuses the seat only when you answer yes to that summary (end of input
 is not a yes): a headless launch, a launch with no terminal and a restore take the saved token,

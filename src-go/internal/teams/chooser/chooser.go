@@ -37,8 +37,19 @@ const (
 )
 
 // SeatFunc chooses the seat for a team and offers its role: the SEAT@TEAM ref, or "" with ExitOK
-// when the person left a question.
-type SeatFunc func(ctx context.Context, team, memberType string) (string, term.ExitCode)
+// when the person left a question. heading names the team and its place in the sequence
+// ("Team 2 of 3: alpha"); every question of the team carries it.
+type SeatFunc func(ctx context.Context, team, memberType, heading string) (string, term.ExitCode)
+
+// heading is the context line of a team's questions: which team, and where it stands among the
+// n the launch joins (the owner's feedback: with several teams it was not clear which one a
+// question was about). A shared screen heading in the ui layer would take this text.
+func heading(at, n int, team string) string {
+	if n <= 1 {
+		return "Team " + team
+	}
+	return fmt.Sprintf("Team %d of %d: %s", at+1, n, team)
+}
 
 // CreateFunc runs the create wizard for this checkout: the team it made, or "" and the code.
 type CreateFunc func(ctx context.Context) (string, term.ExitCode)
@@ -151,14 +162,15 @@ func (c *Chooser) printList(refs []string) term.ExitCode {
 // person chooses for it, in order.
 func (c *Chooser) resolve(ctx context.Context, memberType, list string) term.ExitCode {
 	var refs []string
-	for item := range strings.SplitSeq(list, ",") {
+	items := strings.Split(list, ",")
+	for at, item := range items {
 		item = strings.TrimSpace(item)
 		if item == "" {
 			c.usage("the list '" + list + "' has an empty item.")
 			return term.ExitUsage
 		}
 		if !strings.Contains(item, "@") {
-			ref, code := c.Seat(ctx, item, memberType)
+			ref, code := c.Seat(ctx, item, memberType, heading(at, len(items), item))
 			if code != term.ExitOK {
 				return code
 			}

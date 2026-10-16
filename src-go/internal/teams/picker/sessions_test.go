@@ -147,16 +147,37 @@ func TestAddOfAChosenSeatAsCoordinatorDemotesTheCurrentOne(t *testing.T) {
 	h.seatsOfAlpha()
 	h.coordinatorOfAlpha("proj.box+role.lxc")
 	h.ses.list = []hot.Session{h.plain()}
-	h.Script.Fzf = []string{"tab|alpha", "ctrl-a|ccy-proj", "|alpha", "|seat dev", "|coordinator", "|ABORT", "|ABORT"}
+	h.Script.Fzf = []string{"tab|alpha", "ctrl-a|ccy-proj", "|alpha", "|seat dev", "|Replace the coordinator", "|ABORT", "|ABORT"}
 	if code := h.run(); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
-	if !slices.ContainsFunc(h.Script.Rows[4], func(r string) bool {
-		return strings.HasPrefix(r, "coordinator (alpha's is proj.box+role.lxc; it becomes a worker)")
-	}) {
-		t.Fatalf("role rows %q", h.Script.Rows[4])
-	}
+	wantTakeoverRows(t, h.Script.Rows[4], "proj.box+role.lxc")
 	h.wantRuns(t, []string{"add", proj, "alpha/dev", "--role=coordinator", "--demote-current"})
+}
+
+// wantTakeoverRows is a role question on a team whose coordinator is holder: worker first, then
+// the takeover in its own words, never a plain "coordinator" row.
+func wantTakeoverRows(t *testing.T, rows []string, holder string) {
+	t.Helper()
+	if !strings.HasPrefix(rows[0], "worker") ||
+		!slices.ContainsFunc(rows, func(r string) bool { return strings.HasPrefix(r, "Replace the coordinator, "+holder+" (") }) ||
+		slices.ContainsFunc(rows, func(r string) bool { return strings.HasPrefix(r, "coordinator") }) {
+		t.Fatalf("role rows %q", rows)
+	}
+}
+
+func TestAddAsCoordinatorOfATeamWithNoneIsOfferedPlainly(t *testing.T) {
+	h := newRig(t)
+	h.seatsOfAlpha()
+	h.ses.list = []hot.Session{h.plain()}
+	h.Script.Fzf = []string{"tab|alpha", "ctrl-a|ccy-proj", "|alpha", "|seat dev", "|alpha has none", "|ABORT", "|ABORT"}
+	if code := h.run(); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if rows := h.Script.Rows[4]; !strings.HasPrefix(rows[0], "worker") || !slices.ContainsFunc(rows, func(r string) bool { return strings.HasPrefix(r, "Make it the coordinator (alpha has none)") }) {
+		t.Fatalf("role rows %q", rows)
+	}
+	h.wantRuns(t, []string{"add", proj, "alpha/dev", "--role=coordinator"})
 }
 
 func TestAddAsWorkerOfAnExistingSeatSaysTheRole(t *testing.T) {
@@ -239,13 +260,14 @@ func TestRoleOfTheSessionInATeam(t *testing.T) {
 	h := newRig(t)
 	h.coordinatorOfAlpha("proj.box+role.lxc")
 	h.ses.list = []hot.Session{h.seated()}
-	h.Script.Fzf = []string{"tab|alpha", "ctrl-o|ccy-proj", "|coordinator", "|ABORT", "|ABORT"}
+	h.Script.Fzf = []string{"tab|alpha", "ctrl-o|ccy-proj", "|Replace the coordinator", "|ABORT", "|ABORT"}
 	if code := h.run(); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
 	if !slices.ContainsFunc(h.Script.Rows[2], func(r string) bool { return strings.HasPrefix(r, "worker (now)") }) {
 		t.Fatalf("role rows %q", h.Script.Rows[2])
 	}
+	wantTakeoverRows(t, h.Script.Rows[2], "proj.box+role.lxc")
 	h.wantRuns(t, []string{"role", proj, "alpha", "coordinator", "--demote-current"})
 }
 
