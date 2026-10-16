@@ -29,7 +29,9 @@ Transcription", and the run exits non-zero.
 
 - No paste key is pressed until the selection reads back as this dictation's text
 - A copy that never takes is a loud failure that pastes nothing, never a stale paste
-- No copy process this tool started is left running holding old text
+- No copy process this tool started and gave up on is left running holding its text (a real
+  wl-copy forks once it has the selection; that detached server child is legitimate and stays)
+- A copy that cannot start at all (wl-copy missing, exec failure) fails at once, with no retry
 
 ## Non-Goals
 
@@ -48,13 +50,16 @@ Transcription", and the run exits non-zero.
 - [x] ✅ **Task 1.2**: `wsi-stream`: `copy_confirmed` reads the selection back with
   `wl-paste -n` until it holds the text; a copy that has not taken in 1 s is killed by its
   process handle and copied again; past 3 s, `ClipboardNotTaken`, with every copy this run
-  started killed. `auto_paste` presses nothing before it; `paste_and_report` reports it
-  (stays, ERROR, exit 1); a chunk not taken is not counted. Tests:
+  started killed; a copy that cannot start raises at once (review B1: it had busy-looped).
+  `auto_paste` presses nothing before it; `paste_and_report` reports it (an urgent
+  notification, shown even with `--no-notify`; ERROR; exit 1); a chunk not taken is not
+  counted. Tests:
   `tests/speech_to_text/test_clipboard_confirm.py`, through fake `wl-copy`/`wl-paste`
   executables that take at once, late, never, or on the second copy
 - [x] ✅ **Task 1.3**: `wsi` (Go): the auto-paste copy and the read-back share a 3 s deadline;
   the read-back (`wl-paste -n [-p]`, `xsel -o[bp]`) replaces the fixed 0.05 s sleep (spec W32
-  in `00192-.../SPEC-wsi-watermark.md`; tests in `src-go/internal/wsi/paste_test.go`)
+  in `00192-.../SPEC-wsi-watermark.md`; tests in `src-go/internal/wsi/paste_test.go`). No
+  recopy in Go, unlike Python: a copy that has not taken by the deadline is a hard failure
 - [ ] ⬜ **Task 1.4**: Deploy through meta-deploy (`play-speech-to-text.yml`) and confirm on
   the host: the next dictations log `Clipboard copy confirmed`, and no `wl-copy` started by
   `wsi-stream` stays running after a dictation

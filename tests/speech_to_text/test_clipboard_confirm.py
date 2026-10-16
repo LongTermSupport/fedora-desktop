@@ -159,6 +159,26 @@ class CopyConfirmedTest(FakeClipboardCase):
         wsi_stream.copy_confirmed(TEXT, use_clipboard=True)
         self.assertIsNotNone(earlier.poll(), "killed by its handle, not matched by name")
 
+    def test_a_copy_that_cannot_start_fails_at_once_and_is_not_retried(self):
+        """Review B1: wl-copy missing spun the retry loop with no sleep (32,316 starts in 3 s)."""
+        (self.dir / "bin" / "wl-copy").unlink()
+        starts = []
+        real_popen = subprocess.Popen
+
+        def counting_popen(*args, **kwargs):
+            starts.append(args[0])
+            return real_popen(*args, **kwargs)
+
+        started = time.monotonic()
+        with mock.patch.object(wsi_stream.subprocess, "Popen", counting_popen), \
+                mock.patch.dict(os.environ, {"PATH": str(self.dir / "bin")}), \
+                self.assertRaises(wsi_stream.ClipboardNotTaken) as raised:
+            wsi_stream.copy_confirmed(TEXT, use_clipboard=True)
+        self.assertLess(time.monotonic() - started, 0.5, "no wait for the deadline")
+        self.assertEqual(len(starts), 1, "one start, no retry")
+        self.assertIn("could not run", str(raised.exception))
+        self.assertFalse(any("copying again" in m for _, m in self.logged), self.logged)
+
     def test_copy_to_clipboard_is_false_when_the_copy_never_takes(self):
         self.mode("never")
         self.assertFalse(wsi_stream.copy_to_clipboard(TEXT, use_clipboard=True))
@@ -204,7 +224,8 @@ class ClipboardNotTakenReportTest(unittest.TestCase):
                 mock.patch.object(wsi_stream, "log", lambda *a, **k: None), \
                 mock.patch.object(wsi_stream, "emit_dbus_text", lambda *a: signals.append(a)), \
                 mock.patch.object(wsi_stream, "emit_dbus_signal", lambda *a: signals.append(a)), \
-                mock.patch.object(wsi_stream, "desktop_notification",
+                mock.patch.object(wsi_stream, "no_notify", True), \
+                mock.patch.object(wsi_stream, "show_notification",
                                   lambda message, timeout: notified.append((message, timeout))), \
                 mock.patch.object(wsi_stream.sys, "stderr"):
             rc = wsi_stream.paste_and_report(TEXT, args, TEXT, words_pasted)
@@ -218,7 +239,7 @@ class ClipboardNotTakenReportTest(unittest.TestCase):
         self.assertIn("Nothing was pasted", message)
         self.assertIn("785 characters", message)
         self.assertIn("Copy Last Transcription", message)
-        self.assertEqual(timeout, 0, "the notification stays")
+        self.assertEqual(timeout, 0, "the notification stays, even with --no-notify (review N4)")
         self.assertIn(("StateChanged", "ERROR"), signals)
 
     def test_words_already_pasted_in_chunks_are_said(self):

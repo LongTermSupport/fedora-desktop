@@ -232,7 +232,11 @@ Python and are run from the directory the binary is in.
   nothing is pressed; `Nothing was pasted: the <SELECTION> selection did not take the text of this dictation within 3 s (it still held <what>)`
   (W9) and a notification that stays, the same plus
   `. Copy Last Transcription in the panel menu has the text.`, exit 1; `<what>` is
-  `other text, <n> characters` or `nothing readable: <why>`. Held: the paste keys at once,
+  `other text, <n> characters` or `nothing readable: <why>`. There is no recopy here (wsi-stream
+  kills a copy that has not taken in 1 s and copies again; wsi fails at the deadline). Limits:
+  the selection can still change in the tens of milliseconds between the matching read and
+  the keys, and the focus answer (W30) is taken before the copy, so it can be up to 3 s old
+  when the keys are pressed. Held: the paste keys at once,
   `ydotool key 29:1 47:1 47:0 29:0` (Ctrl+V),
   `29:1 42:1 47:1 47:0 42:0 29:0` (Ctrl+Shift+V), or without `--paste-with-shift`
   `42:1 110:1 110:0 42:0` (Shift+Insert), with `YDOTOOL_SOCKET` set to the socket. A failure

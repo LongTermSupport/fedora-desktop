@@ -554,8 +554,11 @@ def copy_confirmed(text, use_clipboard=False):
         stop_copies()
         copies += 1
         why = start_copy(copy, text)
+        if why:  # a copy that cannot start will not start on a retry either
+            stop_copies()
+            raise ClipboardNotTaken(why)
         attempt_ends = min(deadline, time.monotonic() + CLIPBOARD_COPY_ATTEMPT_SECONDS)
-        while not why:
+        while True:
             got, why = read_selection(read_back, max(attempt_ends - time.monotonic(), 0.1))
             if got in (text, text + "\n"):
                 log(f"Clipboard copy confirmed: the {name} selection holds the text "
@@ -564,10 +567,7 @@ def copy_confirmed(text, use_clipboard=False):
             held = f"nothing readable ({why})" if why else f"other text ({len(got)} characters)"
             if time.monotonic() >= attempt_ends:
                 break
-            why = ""
             time.sleep(CLIPBOARD_POLL_SECONDS)
-        if why:
-            held = f"nothing readable ({why})"
         if time.monotonic() < deadline:
             log(f"Clipboard copy {copies}: the {name} selection still holds {held}; "
                 "copying again", "WARN")
@@ -729,7 +729,7 @@ def report_clipboard_not_taken(why, words_pasted=0):
     print(f"wsi-stream: {message}", file=sys.stderr)
     emit_dbus_text("Error", "the clipboard never took the text")
     emit_dbus_signal("StateChanged", "ERROR")
-    desktop_notification(message, 0)  # 0: stays until dismissed
+    urgent_notification(message)  # stays, and is shown even with --no-notify
     return 1
 
 
