@@ -19,19 +19,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# Plan 00203 health check fix: deploys the ccy launcher 3.98.13, which requires container 2.68
-# (the image carries the agent-bus helpers, now with the fixed health check), so the next ccy
-# launch rebuilds the image once. Nothing a running session uses changes.
-playbooks/imports/play-claude-yolo.yml
-# Plan 00203 health check fix: installs the agent-bus admin zipapp whose minutely health check
-# asks each unit only for properties its type has (it asked the homeserver service for the
-# backup timer's, so every run failed with exit 78 and no hung homeserver was restarted). Then
-# clears the failed health check runs from systemctl --failed, including the one the removed
-# acc-robust team left. The homeserver units are unchanged. No firewall rule changes.
-playbooks/imports/play-agent-bus.yml
-# Plan 00203 acceptance (ACCEPTANCE.md R1-R9), on a throwaway team acc-robust that it removes:
-# kills, ends and freezes its homeserver and times its return, shows a stale backup on the
-# board, times seat check waiting for a starting homeserver, checks any LXC member unit. Its
-# teardown now also clears acc-robust's units from systemctl --failed.
-00203-teams-hot-control-and-robustness
