@@ -25,6 +25,9 @@ from helpers.play_ledger import ledger
 #: and did not work.
 _SEVERITY = {"ok": 0, "failed": 1, "unreachable": 2}
 
+#: Opens the stderr line for a play skipped because it is outside the repo root.
+NOT_TRACKED_MARKER = "LEDGER-PLAY-NOT-TRACKED"
+
 
 class RunCollector:
     """Accumulates per-play state across one `ansible-playbook` run."""
@@ -44,15 +47,25 @@ class RunCollector:
         self._records: list[dict[str, Any]] = []
         self._open: dict[str, Any] | None = None
 
-    def on_play_start(self, *, play_path: str, name: str, at: str) -> None:
+    def on_play_start(self, *, play_path: str, name: str, at: str) -> str | None:
         """Close the play in progress, if any, and open a new one.
 
         One record per PLAY, never per playbook run: `playbook-main.yml` imports
         many plays, and a single record saying "everything ran" would lose exactly
         the axis Phase 2 needs.
+
+        Returns None, or the one line the caller must print to stderr when the play
+        is outside the repo root and so is not tracked (see `_resolve`). Such a play
+        opens nothing, so its results fold into no record.
         """
         self._close(at)
-        absolute, relative = self._resolve(play_path)
+        resolved = self._resolve(play_path)
+        if isinstance(resolved, str):
+            return (
+                f"{NOT_TRACKED_MARKER}: play {resolved!r} is outside the repo root "
+                f"{self._repo_root!r}, so it is not tracked and the ledger records nothing for it"
+            )
+        absolute, relative = resolved
         self._open = {
             "absolute": absolute,
             "relative": relative,
@@ -61,6 +74,7 @@ class RunCollector:
             "outcome": "ok",
             "changed": 0,
         }
+        return None
 
     def on_result(self, *, outcome: str, changed: bool) -> None:
         """Fold one task result into the play in progress."""
@@ -105,8 +119,20 @@ class RunCollector:
             )
         )
 
-    def _resolve(self, play_path: str) -> tuple[str, str]:
-        """(absolute path, repo-relative path) from Ansible's `<file>:<line>` form."""
+    def _resolve(self, play_path: str) -> tuple[str, str] | str:
+        """(absolute path, repo-relative path) from Ansible's `<file>:<line>` form.
+
+        A play outside the root comes back as its bare absolute path: not an error,
+        a play the ledger does not track. It cannot be compared against this repo's
+        HEAD, so a row for it would be unanswerable — the same reasoning as
+        `check_freshness._drop_never_tracked`. A private play run from a linked
+        worktree is the usual case: it lives in the main checkout's untracked/.
+
+        Inside the root the play is in scope even when git does not track it (a
+        private play under the main checkout's untracked/): commit, dirty and
+        play_sha256 still describe it, and check_freshness drops it as never
+        tracked. Every other failure here propagates, so the plugin marks BROKEN.
+        """
         path = play_path
         head, separator, tail = path.rpartition(":")
         if separator and tail.isdigit():
@@ -115,11 +141,5 @@ class RunCollector:
         absolute = os.path.realpath(path)
         prefix = self._repo_root + os.sep
         if not absolute.startswith(prefix):
-            # A play from outside this checkout cannot be compared against this
-            # repo's HEAD, so a row for it would be unanswerable by every Phase 2
-            # check — better refused here than recorded and puzzled over later.
-            raise ValueError(
-                f"play {absolute!r} is outside the repo root {self._repo_root!r}; "
-                "the ledger records plays this repo owns"
-            )
+            return absolute
         return absolute, absolute[len(prefix) :]

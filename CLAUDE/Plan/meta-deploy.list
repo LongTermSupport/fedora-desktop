@@ -46,3 +46,9 @@ playbooks/imports/play-claude-yolo.yml
 # session) before M2.0 records the checkout, so M2.10 compares it strictly and passes on a
 # clean run, whatever container numbers the sessions get.
 00161-agent-team-bus-matrix/acceptance.bash
+# Plan 00170: clears the play ledger's BROKEN marker (runs check_freshness --clear-broken).
+# A private play run on 10-12 from a linked worktree was outside that worktree's root, and
+# the ledger marked itself BROKEN over it. The ledger now skips such a play with one
+# LEDGER-PLAY-NOT-TRACKED line on stderr, so the cause is fixed. Safe: that worktree is gone,
+# nothing else is changed, and the plays not recorded meanwhile stay unrecorded.
+00170-unifi-network-tooling/clear-ledger-broken.bash
