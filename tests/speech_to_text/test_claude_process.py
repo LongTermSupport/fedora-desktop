@@ -1,12 +1,12 @@
-"""wsi-claude-process fails loudly, and runs as the token Settings name (Plan 00148).
+"""wsi-claude-process fails loudly, and runs as the token wsi-claude-token names (Plans 00148, 00208).
 
 Ctrl+Insert pasted raw transcripts for a whole session: claude answered "Not logged in"
 (cc parks the desktop login while a named-token session runs), and the script printed
 its input as if it were Claude's output and exited 0, so every caller reported success.
 
-The real script is run from a temporary bin directory, beside a stub wsi-setting (the
-claude-token value) and a stub claude (which records the token it was given), with
-HOME pointing at a temporary tree holding the token files.
+The real script is run from a temporary bin directory, beside a stub wsi-claude-token
+(which chooses the account; its own tests are src-go/internal/wsitoken's) and a stub
+claude (which records the token it was given), with HOME pointing at a temporary tree.
 
 Stdlib only. Run by scripts/test-wsi-stop-grace.bash.
 """
@@ -27,11 +27,13 @@ TOKEN = "sk-ant-oat01-" + "x" * 95
 STUB_CLAUDE = """#!/bin/bash
 # Records the token it ran with, then answers as $STUB_CLAUDE_MODE says
 printf '%s' "${CLAUDE_CODE_OAUTH_TOKEN:-}" > "$HOME/claude-saw-token"
-cat > /dev/null
+prompt=$(cat)
 case "$STUB_CLAUDE_MODE" in
+    echo-prompt) printf '%s\\n' "$prompt" ;;
     ok) echo "Rewritten by Claude." ;;
     logged-out) echo "Not logged in · Please run /login"; exit 1 ;;
     empty) ;;
+    slow) sleep 10; echo "Too late." ;;
 esac
 """
 
@@ -54,62 +56,122 @@ class ClaudeProcessTest(unittest.TestCase):
         (prompts / "claude-prompt-corporate.txt").write_text("Rewrite: {TRANSCRIPTION}")
         (self.home / ".local/share/speech-to-text").mkdir(parents=True)
 
-    def setting(self, value):
-        reader = self.bin / "wsi-setting"
-        reader.write_text(f"#!/bin/bash\n[[ $1 == claude-token ]] || exit 3\nprintf '%s\\n' '{value}'\n")
-        reader.chmod(0o755)
+    def chooser(self, token_file="", fail="", seconds=0):
+        """The stub wsi-claude-token: takes `seconds`, then prints token_file, or fails
+        saying `fail`."""
+        stub = self.bin / "wsi-claude-token"
+        if fail:
+            stub.write_text(f"#!/bin/bash\necho 'wsi-claude-token: {fail}' >&2\nexit 1\n")
+        else:
+            stub.write_text(f"#!/bin/bash\nsleep {seconds}\necho 'using the stub account' >&2\n"
+                            f"printf '%s' '{token_file}'\n")
+        stub.chmod(0o755)
 
-    def run_script(self, mode="ok"):
+    def run_script(self, mode="ok", budget=None, args=()):
         env = {"HOME": str(self.home), "PATH": f"{self.bin}:/usr/bin:/bin",
                "STUB_CLAUDE_MODE": mode}
-        return subprocess.run([str(self.bin / "wsi-claude-process"), "raw words"],
+        if budget is not None:
+            env["WSI_CLAUDE_TIMEOUT_SECONDS"] = str(budget)
+        return subprocess.run([str(self.bin / "wsi-claude-process"), *args, "raw words"],
                               capture_output=True, text=True, env=env, timeout=30, check=False)
 
     def saw_token(self):
         return (self.home / "claude-saw-token").read_text()
 
+    def token_file(self):
+        path = self.token_dir / "work.2099-01-01.token"
+        path.write_text(TOKEN + "\n")
+        return path
+
     def test_a_logged_out_claude_fails_with_its_reason_and_prints_nothing(self):
-        self.setting("")
+        self.chooser()
         result = self.run_script("logged-out")
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stdout, "", "the raw text must never stand in for Claude's")
         self.assertIn("Not logged in", result.stderr)
+        self.assertIn("as the desktop login", result.stderr)
 
     def test_an_empty_answer_fails(self):
-        self.setting("")
+        self.chooser()
         result = self.run_script("empty")
         self.assertEqual((result.returncode, result.stdout), (1, ""))
         self.assertIn("empty", result.stderr)
 
-    def test_the_desktop_login_is_used_when_no_token_is_named(self):
-        self.setting("")
+    def test_the_desktop_login_is_used_when_the_chooser_names_no_file(self):
+        self.chooser()
         result = self.run_script()
         self.assertEqual((result.returncode, result.stdout.strip()), (0, "Rewritten by Claude."))
         self.assertEqual(self.saw_token(), "")
 
-    def test_the_newest_unexpired_file_of_the_named_token_is_used(self):
-        (self.token_dir / "work.2099-01-01.token").write_text(TOKEN)
-        (self.token_dir / "work.2000-01-01.token").write_text("sk-ant-oat01-expired" + "y" * 90)
-        (self.token_dir / "other.2099-06-01.token").write_text("sk-ant-oat01-other" + "z" * 90)
-        self.setting("work")
+    def test_the_token_in_the_chosen_file_is_used(self):
+        self.chooser(str(self.token_file()))
         result = self.run_script()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.saw_token(), TOKEN)
+        self.assertNotIn(TOKEN, result.stdout + result.stderr)
 
-    def test_a_named_token_with_only_expired_files_fails_before_claude_runs(self):
-        (self.token_dir / "work.2000-01-01.token").write_text(TOKEN)
-        self.setting("work")
+    def test_a_failed_run_names_the_token_it_ran_as(self):
+        self.chooser(str(self.token_file()))
+        result = self.run_script("logged-out")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("claude failed as the token 'work' (exit 1)", result.stderr)
+        self.assertNotIn(TOKEN, result.stdout + result.stderr)
+
+    def test_a_chooser_that_fails_stops_the_run_before_claude_with_its_reason(self):
+        self.chooser(fail="no Claude token has allowance left: work: 5-hour 3%, 7-day 100%")
         result = self.run_script()
         self.assertEqual((result.returncode, result.stdout), (1, ""))
-        self.assertIn("no unexpired token named 'work'", result.stderr)
+        self.assertEqual(result.stderr.strip(), "wsi-claude-process: no Claude token has allowance "
+                         "left: work: 5-hour 3%, 7-day 100%")
         self.assertFalse((self.home / "claude-saw-token").exists())
 
-    def test_a_file_that_is_not_a_token_is_refused(self):
-        (self.token_dir / "work.2099-01-01.token").write_text("not a token")
-        self.setting("work")
-        result = self.run_script()
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("not a Claude Code OAuth token", result.stderr)
+    def test_claude_gets_only_the_time_choosing_the_token_left(self):
+        # The callers stop waiting at 180 s; the script's own limit (170 s) covers the
+        # chooser too, so a slow usage read cannot push claude past the callers' limit and
+        # turn the real reason into the caller's generic timeout.
+        # The reason names the budget claude was given: 4 s undeducted, 1-2 s after a chooser
+        # that took 2 s. No wall-clock bound, so a loaded machine cannot fail it.
+        self.chooser(seconds=2)
+        result = self.run_script("slow", budget=4)
+        self.assertEqual((result.returncode, result.stdout), (1, ""))
+        self.assertRegex(result.stderr, r"claude failed as the desktop login \(exit 124\): "
+                         r"no answer within [12] s of the 4 s this run has")
+
+    def test_a_limit_outside_1_to_170_seconds_is_refused_before_anything_runs(self):
+        # The callers pass the session environment through: a limit above 170 s would let
+        # claude run past their own 180 s, and 0 or below would fail for a wrong reason.
+        self.chooser()
+        for value in ("abc", "0", "-5", "171", "999999", "", "1.5", "07x"):
+            with self.subTest(value=value):
+                result = self.run_script(budget=value)
+                self.assertEqual((result.returncode, result.stdout), (1, ""))
+                self.assertEqual(result.stderr.strip(), "wsi-claude-process: WSI_CLAUDE_TIMEOUT_SECONDS "
+                                 f"must be a whole number of seconds from 1 to 170, not '{value}'")
+                self.assertFalse((self.home / "claude-saw-token").exists())
+
+    def test_the_prompt_carries_the_transcription_and_any_tweak_on_a_line_of_its_own(self):
+        self.chooser()
+        (self.home / ".config/speech-to-text/claude-prompt-corporate.txt").write_text(
+            "Rewrite: {TRANSCRIPTION}{TWEAK}")
+        result = self.run_script("echo-prompt", args=("--tweak", "be brief"))
+        self.assertEqual(result.stdout.strip(), "Rewrite: raw words\nAdditional instruction: be brief")
+        result = self.run_script("echo-prompt")
+        self.assertEqual(result.stdout.strip(), "Rewrite: raw words")
+
+    def test_a_limit_inside_1_to_170_seconds_is_used(self):
+        self.chooser()
+        for value in ("1", "170"):
+            with self.subTest(value=value):
+                result = self.run_script(budget=value)
+                self.assertEqual((result.returncode, result.stdout.strip()), (0, "Rewritten by Claude."))
+
+    def test_a_chooser_that_used_up_the_limit_leaves_claude_unrun(self):
+        self.chooser(seconds=3)
+        result = self.run_script(budget=2)
+        self.assertEqual((result.returncode, result.stdout), (1, ""))
+        self.assertRegex(result.stderr, r"choosing the token took [3-9] s of the 2 s this run has; "
+                         r"claude was not run")
+        self.assertFalse((self.home / "claude-saw-token").exists())
 
 
 if __name__ == "__main__":

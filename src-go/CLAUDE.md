@@ -45,6 +45,9 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
 - `internal/wsipost/` — `wsi-postprocess`, the panel menu's Post-Process Last Transcription
   items (Plan 00208, P1-P8 in its package doc): Claude post-processing of the last
   transcription, through the sibling `wsi-claude-process`.
+- `internal/wsitoken/` — `wsi-claude-token`, the one chooser of the Claude account
+  post-processing runs as (Plan 00208, K1-K8 in its package doc): the named token, or the one
+  with the most allowance left by `ccy --token-usage --json`; `wsi-claude-process` runs it.
   Reuse these; a second way to run a command or prompt the user is a defect.
 
 ## Rules

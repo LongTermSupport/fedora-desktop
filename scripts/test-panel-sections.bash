@@ -43,6 +43,7 @@ TEST_FILES=(
     tests/extensions/test-stt-panel-session.mjs
     tests/extensions/test-stt-panel-look.mjs
     tests/extensions/test-stt-post-process.mjs
+    tests/extensions/test-stt-token-warning.mjs
 )
 
 if ! command -v node >/dev/null; then

@@ -100,6 +100,34 @@ way it can fail unseen, and the host commands to find which: `subagent-reports/2
   processing" switch gates nothing) and on a visible control to start a recording in each
   mode (today only the keys start one; rule 14)
 
+### Phase 4: Post-process with the token that has the most allowance left
+
+Task 3.5's cause, proven on the host: the token named in `claude-token` had hit its weekly
+limit. The owner asked for a box to tick that picks the token with the most allowance, and for
+a fail-fast with a warning on the panel icon when every token is out. Research, the measure
+(`ccy --token-usage --json`, Plan 00101), why there is no rotation on a limit error, and the
+owner's decisions D1-D5: `subagent-reports/261016-stt-token-auto-research.md`.
+
+- [x] ✅ **Task 4.1**: Research written before building (the report above)
+- [x] ✅ **Task 4.2**: `wsi-claude-token` (Go, `src-go/internal/wsitoken`, K1-K8): the one
+  chooser of the post-processing account; the named token as before, or with
+  `claude-token-auto` on, the token with the most room by `ccy --token-usage --json`; none
+  with room: every token's state and reset in the reason, and the warning file
+- [x] ✅ **Task 4.3**: `wsi-claude-process` calls it in place of its own token code (the
+  bash shrinks, 125 to 104 code lines), and names the account in its debug log and failure
+  reason. Its 170 s limit covers the chooser too: claude gets what is left, so a slow usage
+  read never pushes the run past the callers' 180 s. Tests:
+  `tests/speech_to_text/test_claude_process.py`, over a stub chooser
+- [x] ✅ **Task 4.6**: Fable review fixes (`subagent-reports/261016-token-auto-review-fable.md`):
+  the queue merged with F44's; the time limit above; ccy's first stderr line in the K5 reason.
+  Re-review: `WSI_CLAUDE_TIMEOUT_SECONDS` accepted only as 1-170 (it arrives from the session
+  environment); a usage read past its 60 s deadline says it timed out (bash now 99 code lines)
+- [x] ✅ **Task 4.4**: Settings switch "Use the token with the most allowance left"; the
+  panel's warning icon and its clearing menu item while the warning file exists
+  (`tokenWarning.js`; tests: `tests/extensions/test-stt-token-warning.mjs`)
+- [ ] ⬜ **Task 4.5**: Deploy through meta-deploy (`play-speech-to-text.yml`), log out and in,
+  tick the box and post-process once; record the owner's answers to D1-D5
+
 ## Success Criteria
 
 - [x] A selection that never takes the text pastes nothing and fails loudly (both recorders, tested)
