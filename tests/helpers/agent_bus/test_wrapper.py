@@ -350,6 +350,22 @@ class WrapperTest(unittest.TestCase):
         else:
             self.assertEqual(run.stdout, "ran\n")
 
+    def test_health_status_runs_as_the_caller(self) -> None:
+        """Plan 00203: the health record is the stamps' group's, which the agent-bus user is
+        not in, so `agent-bus health` runs as the desktop user, never dropped to agent-bus."""
+        stub = 'run_user_tool() { printf "%s\\n" "$@"; }'
+        run = self.run_unprivileged("health", "status", "team-a", stub=stub)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(run.stdout.splitlines(), ["health", "status", "team-a"])
+
+    def test_health_is_refused_as_root(self) -> None:
+        stub = 'run_user_tool() { echo ran; }; run_admin_tool() { echo ran; }'
+        run = self.run_wrapper("health", "status", stub=stub)
+        if ROOT:
+            self.assertEqual(run.returncode, 77)
+            self.assertIn("agent-bus health as yourself", run.stderr)
+            self.assertEqual(run.stdout, "")
+
     def test_the_user_tool_runs_the_zipapp_without_a_privilege_change(self) -> None:
         text = WRAPPER.read_text()
         body = text[text.index("run_user_tool() {"):]

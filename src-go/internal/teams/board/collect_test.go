@@ -333,10 +333,15 @@ func TestCollectNotInstalledAndDownTeams(t *testing.T) {
 			wheres = append(wheres, r.Team+"|"+r.State+"|"+r.Applied+"|"+r.Where)
 		}
 	}
+	// An installed team with no health record says so (Plan 00203); one not installed has none to have.
+	never := func(team string) string {
+		return ", health: never checked: ccy-teams apply " + team + " starts agent-bus-hs-health@" + team + ".timer"
+	}
 	want := []string{
-		"alpha|down (inactive)|decide: absent|port 6167, members: homeserver down",
+		"alpha|down (inactive)|decide: absent|port 6167, members: homeserver down" + never("alpha"),
 		"beta|not installed|not built|port 6168, install it: ccy-teams apply beta",
-		"gamma|down (failed)|unreadable|port unknown (not declared), members: homeserver down, entry unreadable: bad",
+		"gamma|down (failed)|unreadable|port unknown (not declared), members: homeserver down" + never("gamma") +
+			", entry unreadable: bad",
 	}
 	if !reflect.DeepEqual(wheres, want) {
 		t.Fatalf("got\n%s\nwant\n%s", strings.Join(wheres, "\n"), strings.Join(want, "\n"))

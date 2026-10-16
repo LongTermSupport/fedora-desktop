@@ -37,6 +37,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tarfile
 import time
 from collections.abc import Callable, Sequence
@@ -55,6 +56,16 @@ WRAPPER = "/usr/local/bin/agent-bus"
 #: Where the installer stamps each team it built (`ccy-teams`' CCY_TEAMS_APPLIED_DIR default).
 APPLIED_DIR = pathlib.Path("/var/lib/agent-bus-applied")
 DIR_MODE = 0o700
+ACTIVE = "active"
+#: A unit on its way between states (systemd's ActiveState words): a homeserver in one is
+#: waited for. `activating` covers both the start up to READY=1 and auto-restart.
+TRANSITIONAL = frozenset({"activating", "deactivating", "reloading", "refreshing"})
+#: How long a launch waits for a starting homeserver (Plan 00203 gap 3): at boot the user
+#: manager restores sessions while the system's homeservers start, and a homeserver whose
+#: interface is late retries with a delay that grows to 60 s.
+START_WAIT_SECONDS = 180
+START_POLL_SECONDS = 2
+START_SAY_EVERY_SECONDS = 20
 
 CCY_DIR = pathlib.PurePosixPath(".claude/ccy")
 ENV_LOCAL = CCY_DIR / "ccy.env.local"
@@ -419,7 +430,8 @@ class System:
 
     cwd: pathlib.Path
     uid: int
-    team_active: Callable[[str], bool]
+    #: The ActiveState of a team's homeserver unit (`systemctl show -P ActiveState`).
+    team_state: Callable[[str], str]
     #: The teams built on this host, running or not (the installer's stamps).
     teams_here: Callable[[], Sequence[str]]
     bus_address: Callable[[], str]
@@ -430,18 +442,32 @@ class System:
     #: cannot run root commands with it (security audit H1).
     forget_sudo: Callable[[], None]
     clock_ms: Callable[[], int]
+    sleep: Callable[[float], None]
+    monotonic: Callable[[], float]
+    #: A progress line for the person or log watching the launch (stderr).
+    progress: Callable[[str], None]
+
+    def team_active(self, team: str) -> bool:
+        return self.team_state(team) == ACTIVE
 
 
 def hs_unit(team: str) -> str:
     return f"agent-bus-hs@{team}.service"
 
 
-def _systemctl_active(team: str) -> bool:
+def _systemctl_state(team: str) -> str:
     try:
-        run = subprocess.run(["systemctl", "is-active", "--quiet", hs_unit(team)], check=False)
+        run = subprocess.run(["systemctl", "show", "-P", "ActiveState", hs_unit(team)],
+                             capture_output=True, text=True, check=False)
     except FileNotFoundError:
         raise CheckoutError("systemctl is not installed: a team's homeserver cannot be checked") from None
-    return run.returncode == 0
+    if run.returncode != 0:
+        raise CheckoutError(f"systemctl show {hs_unit(team)} failed: {run.stderr.strip()}")
+    return run.stdout.strip()
+
+
+def _progress(text: str) -> None:
+    print(f"agent-bus: {text}", file=sys.stderr, flush=True)
 
 
 def _stamped_teams(applied: pathlib.Path = APPLIED_DIR) -> list[str]:
@@ -491,9 +517,10 @@ def sudo_forget() -> None:
 
 def real_system(cwd: pathlib.Path | None = None) -> System:
     return System(cwd=pathlib.Path.cwd() if cwd is None else cwd, uid=os.getuid(),
-                  team_active=_systemctl_active, teams_here=_stamped_teams, bus_address=_ip_bus_address,
+                  team_state=_systemctl_state, teams_here=_stamped_teams, bus_address=_ip_bus_address,
                   agent_bus=_sudo_agent_bus, forget_sudo=sudo_forget,
-                  clock_ms=lambda: time.time_ns() // 1_000_000)
+                  clock_ms=lambda: time.time_ns() // 1_000_000, sleep=time.sleep,
+                  monotonic=time.monotonic, progress=_progress)
 
 
 def _git(cwd: pathlib.Path, *args: str) -> subprocess.CompletedProcess:
@@ -616,10 +643,39 @@ def _observe(root: pathlib.Path, refs: Sequence[seat.SeatRef], uid: int) -> tupl
     return tuple(found)
 
 
+def _wait_while_starting(team: str, system: System) -> str:
+    """The homeserver's ActiveState once it is out of every in-between state, waiting
+    up to START_WAIT_SECONDS for one that is, and saying so: a session restored at boot names
+    a team whose homeserver may not be up yet. Refused when it is still starting at the bound."""
+    unit = hs_unit(team)
+    state = system.team_state(team)
+    if state not in TRANSITIONAL:
+        return state
+    started = system.monotonic()
+    said = None
+    while state in TRANSITIONAL:
+        waited = system.monotonic() - started
+        if waited >= START_WAIT_SECONDS:
+            raise CheckoutError(
+                f"team `{team}`: its homeserver ({unit}) is still {state} after {START_WAIT_SECONDS} s; "
+                f"see why with: journalctl -u {unit} -n 40 --no-pager"
+            )
+        if said is None or waited - said >= START_SAY_EVERY_SECONDS:
+            system.progress(f"{unit} is starting ({state}); waiting up to {START_WAIT_SECONDS} s "
+                            f"({int(waited)} s so far)")
+            said = waited
+        system.sleep(START_POLL_SECONDS)
+        state = system.team_state(team)
+    if state == ACTIVE:
+        system.progress(f"{unit} is up after {int(system.monotonic() - started)} s")
+    return state
+
+
 def _check_team(team: str, system: System) -> None:
-    """A team named for a seat must run here. A team built here but stopped is started by
-    `ccy-teams apply`; a name this host has no team of is answered with those it has."""
-    if system.team_active(team):
+    """A team named for a seat must run here, waiting for one whose homeserver is starting. A
+    team built here but stopped is started by `ccy-teams apply`; a name this host has no team
+    of is answered with those it has."""
+    if _wait_while_starting(team, system) == ACTIVE:
         return
     here = list(system.teams_here())
     if team in here:

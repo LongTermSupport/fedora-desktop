@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccyenv"
@@ -43,6 +44,8 @@ type Collector struct {
 	Stderr io.Writer
 	// NeedCheckout refuses, saying why, when the checkout ccy-teams was built from has gone.
 	NeedCheckout func() error
+	// Now is the clock a health record's age is judged by.
+	Now func() time.Time
 
 	// devices is who is signed in to Element, by "<team>|<person>", read once and kept until
 	// ForgetDevices: one sudo process per person is too much to pay on every redraw.
@@ -59,7 +62,7 @@ func New(h *host.Host) *Collector {
 	return &Collector{
 		Config: h.Config, Systemd: h.Systemd, Declare: h.Declare, Tmux: h.Tmux, Git: h.Git, Bus: h.Bus,
 		Registry: h.Registry, Term: h.Term, Out: h.Out, Stdout: h.Stdout, Stderr: h.Stderr,
-		NeedCheckout: h.NeedCheckout,
+		NeedCheckout: h.NeedCheckout, Now: time.Now,
 	}
 }
 
@@ -358,6 +361,9 @@ func (c *Collector) readSeats(ctx context.Context, s *Snapshot) []seatAt {
 // addTeamRows appends the team's own row, then its seats, other members and people.
 func (c *Collector) addTeamRows(ctx context.Context, s *Snapshot, team string, seats []seatAt) {
 	state, where := c.teamState(ctx, s, team)
+	if words := healthWords(c.AppliedDir, team, c.Now()); s.Loaded[team] && words != "" {
+		where += ", " + words
+	}
 	if s.Incomplete != "" {
 		where += ", " + s.Incomplete + " (above)"
 	}
