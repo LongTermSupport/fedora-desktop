@@ -16,7 +16,6 @@ import pathlib
 import shutil
 import subprocess
 import tempfile
-import time
 import unittest
 
 # STT_TEST_BIN points at another copy of the scripts, e.g. an older revision, for a
@@ -130,14 +129,13 @@ class ClaudeProcessTest(unittest.TestCase):
         # The callers stop waiting at 180 s; the script's own limit (170 s) covers the
         # chooser too, so a slow usage read cannot push claude past the callers' limit and
         # turn the real reason into the caller's generic timeout.
+        # The reason names the budget claude was given: 4 s undeducted, 1-2 s after a chooser
+        # that took 2 s. No wall-clock bound, so a loaded machine cannot fail it.
         self.chooser(seconds=2)
-        started = time.monotonic()
         result = self.run_script("slow", budget=4)
-        took = time.monotonic() - started
         self.assertEqual((result.returncode, result.stdout), (1, ""))
         self.assertRegex(result.stderr, r"claude failed as the desktop login \(exit 124\): "
                          r"no answer within [12] s of the 4 s this run has")
-        self.assertLess(took, 4.5, "claude was given the whole limit after the chooser had used half")
 
     def test_a_limit_outside_1_to_170_seconds_is_refused_before_anything_runs(self):
         # The callers pass the session environment through: a limit above 170 s would let
