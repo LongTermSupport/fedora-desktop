@@ -20,8 +20,16 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Rebuilds ccy-teams (Plan 00203 M5 rework): every picker action is a visible, named choice;
-# Running sessions is the teams list's last row; Ctrl-A/X/O are gone; a key acts only where shown.
-# Also rebuilds ccy-teams and ccy-sessions with Plan 00204's context heading: every screen says
-# where it is (Teams › alpha › Add LXC member · step 3/4 Checkout) and what it acts on.
+# Rebuilds ccy-teams and ccy-sessions and installs CCY 3.99.10.2 (Plan 00203 M5 and the
+# hidden-bindings fix): every picker action is a visible, named choice and a key only its
+# shortcut; ccy-sessions gives each session a menu; the launcher's detached-session offer has
+# a "Start a new session here" row where Ctrl-N was the only way. Also Plan 00204's context
+# heading: every ccy-teams and ccy-sessions screen says where it is
+# (Teams › alpha › Add LXC member · step 3/4 Checkout) and what it acts on.
 playbooks/imports/play-claude-yolo.yml
+# Installs wsi-model-manager with on-screen buttons for download, remove, refresh, clear filter
+# and quit (the keys stay as shortcuts), and upgrades textual to 0.85 or later for them.
+playbooks/imports/optional/common/play-speech-to-text.yml
+# Installs the Ctrl+R history search with its start-up binding spelt in the fzf call
+# (behaviour unchanged).
+playbooks/imports/play-basic-configs.yml

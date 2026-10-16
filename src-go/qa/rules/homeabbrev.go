@@ -13,7 +13,7 @@ import (
 // tildeFuncs are the package functions a hand-rolled home abbreviation is built from: the
 // prefix, trim and replace forms of strings, the fmt formatters, and path joins.
 var tildeFuncs = map[string][]string{
-	stringsPkg: {"Replace", "ReplaceAll", "NewReplacer", "TrimPrefix", "HasPrefix", "CutPrefix", "TrimLeft", "Trim"},
+	stringsPkg: {"Replace", "ReplaceAll", "NewReplacer", trimPrefixFn, "HasPrefix", cutPrefixFn, "TrimLeft", "Trim"},
 	"fmt":      {"Sprintf", "Sprint", "Sprintln", "Errorf", "Fprintf", "Fprint", "Fprintln", "Appendf", "Printf", "Print", "Println"},
 	"path":     {"Join"},
 	"path/filepath": {

@@ -25,24 +25,15 @@ type SessionControl interface {
 	Run(ctx context.Context, args []string) term.ExitCode
 }
 
-// keyTab is the shortcut for the teams list's Running sessions row, shown beside it.
-const keyTab = "tab"
+// actSessions is the teams list's own row that shows the running sessions.
+const actSessions = "sessions"
 
-// The rows of the lists that are choices, not teams or sessions, by their hidden tags.
-const (
-	tagSessions = "sessions"
-	tagHelp     = "help"
+// The rows of the lists that are choices, not teams or sessions, each with its shortcut, which
+// ui prints beside it.
+var (
+	sessionsAction     = ui.Action{ID: actSessions, Label: "Running sessions: change a session's teams while it runs", Key: "tab"}
+	sessionsHelpAction = ui.Action{ID: actHelp, Label: "What this list shows", Key: keyHelp}
 )
-
-// The lines of those rows, each with its shortcut beside it.
-const (
-	sessionsRow     = "Running sessions: change a session's teams while it runs   (Tab)"
-	sessionsHelpRow = "What this list shows   (?)"
-)
-
-// sessionKeys are the keys besides Enter that choose a row of the Running sessions: only ?, the
-// shortcut of the help row.
-var sessionKeys = []string{keyHelp}
 
 // view is which list the picker shows: the teams, or the running sessions.
 type view int
@@ -76,22 +67,26 @@ func (r *run) sessionsPass(ctx context.Context) error {
 		}
 		return r.count(res)
 	}
-	tags := make([]string, 0, len(lines)+1)
+	tags := make([]string, 0, len(lines))
 	for i := range lines {
 		tags = append(tags, strconv.Itoa(i))
 	}
 	picked, err := p.Kit.Choose(ctx, flow.Here(runningCrumb).About(plural(len(sessions), "session")+" running"), ui.PickSpec{
 		Title: "Running sessions", Header: ui.Header(sessionsKeyLine, hot.OnlyTmuxLine, heading),
-		Keys: sessionKeys, Rows: append(lines, sessionsHelpRow), Tags: append(tags, tagHelp), ExitLabel: "Back to the teams",
+		Rows: lines, Tags: tags, Actions: []ui.Action{sessionsHelpAction}, ExitLabel: "Back to the teams",
 	})
-	if errors.Is(err, ui.ErrLeave) {
+	var notOffered *ui.NotOfferedError
+	switch {
+	case errors.Is(err, ui.ErrLeave):
 		r.view = viewTeams
 		return p.Kit.Interrupted(ctx)
-	}
-	if err != nil {
+	case errors.As(err, &notOffered):
+		p.Kit.Tell(nothingOnThisRow)
+		p.Kit.BackToList(ctx)
+		return nil
+	case err != nil:
 		return err
-	}
-	if picked.Key == keyHelp || picked.Tag == tagHelp {
+	case picked.Action == actHelp:
 		p.showHelp(ctx)
 		return nil
 	}

@@ -4,14 +4,14 @@ them all before a reboot; bring them back after one.
 ccy and cc run each interactive session inside tmux on CCY's own server (see
 docs/ccy.md "Sessions Survive the Terminal"), so a session outlives the terminal that
 showed it. This is the way back: the same picker ccy and cc show themselves, over every
-session at once. Arrow keys move; Enter attaches; Ctrl-T takes over a session open in
-another terminal; Ctrl-X ends a session; Ctrl-N starts a new ccy session in the current
-project folder (by running ccy the normal way); Esc or q leaves. Nothing needs Enter
-after it.
+session at once. Arrow keys move; Enter on a session lists what can be done to it:
+attach it here, take it over (Ctrl-T), end it (Ctrl-X). A row of its own starts a new ccy
+session in the current project folder (Ctrl-N; by running ccy the normal way). Each key is
+a shortcut printed beside the line it chooses. Esc or q leaves.
 
 A session can be attached from ONE terminal only. One that is open elsewhere is shown
-as such and Enter on it is refused — the tmux server enforces the same rule, so even a
-race cannot mirror one claude into two terminals. Ctrl-T takes it over: after a yes/no
+as such and its menu does not offer attaching — the tmux server enforces the same rule, so
+even a race cannot mirror one claude into two terminals. Taking it over does: after a yes/no
 naming the other terminal and how long it has been idle, that terminal is detached (the
 way out of a dropped SSH connection still holding the session) and this one attached.
 The session and everything in it keep running. It can also be ended from here.

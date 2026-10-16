@@ -141,6 +141,29 @@ func TestTheHeadingIsOnTopOfEveryFzfHeader(t *testing.T) {
 	}
 }
 
+// A row's menu is headed by its own Heading when it has one, else by the list's heading with
+// the menu's title as one more crumb.
+func TestARowMenuIsHeadedByItsOwnHeadingOrTheListsPlusItsTitle(t *testing.T) {
+	for _, c := range []struct {
+		menu Heading
+		want string
+	}{
+		{Heading{}, "--header=Teams › team alpha\n"},
+		{Here("Teams", "alpha").About("team alpha · up"), "--header=Teams › alpha\nteam alpha · up\n"},
+	} {
+		f := &execx.Fake{}
+		fzfSays(f, "\nalpha\t0\n", "\nShut down alpha\t1\n")
+		spec := teamsSpec()
+		spec.Menus[0].Heading = c.menu
+		if _, err := (&Picker{Runner: f, Plain: true}).Pick(context.Background(), Here("Teams"), spec); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.ContainsFunc(f.Calls()[1].Args, func(a string) bool { return strings.HasPrefix(a, c.want) }) {
+			t.Errorf("menu args %q, want a header starting %q", f.Calls()[1].Args, c.want)
+		}
+	}
+}
+
 func TestPickerHeadingIsColouredUnlessPlain(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("Exit\n")})

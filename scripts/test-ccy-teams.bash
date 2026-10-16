@@ -287,7 +287,10 @@ ccy_tmux_pick() {
     cat >"$OFFER_DIR/picker.rows"
     printf '%s\n' "$2" >"$OFFER_DIR/picker.header"
     [ -n "$PICK" ] || return 1
-    printf '\n%s  detached\n' "$PICK"
+    case "$PICK" in
+    Start*) printf '%s\n' "$PICK" ;;
+    *) printf '%s  detached\n' "$PICK" ;;
+    esac
 }
 ccy_tmux_offer app "$1"
 printf 'rc=%s' "$?"
@@ -298,13 +301,16 @@ offer() {
         bash "$work/offer.bash" "$1" 2>"$work/offer.err")
 }
 offered() {
-    if [ -f "$offer_dir/picker.rows" ]; then awk '{print $1}' "$offer_dir/picker.rows" | paste -sd' '; else echo none; fi
+    if [ -f "$offer_dir/picker.rows" ]; then awk '!/^Start a new session here$/ {print $1}' "$offer_dir/picker.rows" | paste -sd' '; else echo none; fi
 }
 
 check "no --teams: every detached session is offered, as before" "attach ccy-app-3
 rc=0" "$(offer "" ccy-app-3)"
 check "  all four" "ccy-app ccy-app-2 ccy-app-3 ccy-app-4" "$(offered)"
 check "  no seats column" "no" "$(has "seats " "$offer_dir/picker.rows")"
+check "  starting a new session is a row of its own, not a key" "yes" "$(has "Start a new session here" "$offer_dir/picker.rows")"
+check "choosing that row starts a new session" "create
+rc=0" "$(offer "" "Start a new session here")"
 check "--teams 2@team-a: only the session holding it" "attach ccy-app-2
 rc=0" "$(offer 2@team-a ccy-app-2)"
 check "  it alone is offered" "ccy-app-2" "$(offered)"

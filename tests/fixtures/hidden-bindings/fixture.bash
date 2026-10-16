@@ -19,4 +19,13 @@ pick() {
     fzf --bind="focus:transform-header^${header};; esac^"
 }
 
+# Not caught, kept as the record of what the rule leaves out (CLAUDE/GoProjectRules.md): fzf's
+# options from the environment, and a single-key read that is not fzf.
+not_caught() {
+    export FZF_DEFAULT_OPTS='--bind=ctrl-a:accept'
+    local choice
+    read -r -n1 choice
+    printf '%s\n' "${choice}"
+}
+
 pick "$@"

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
@@ -38,23 +39,34 @@ var ErrFzfMissing error = fzfMissingError{}
 // errNoRow is fzf printing a key line with no row under it.
 var errNoRow = errors.New("fzf: no row after the key line")
 
+// errNotInList is fzf handing back a row the picker did not show.
+var errNotInList = errors.New("fzf: a row that is not in the list")
+
 // PickSpec is one picker: a bordered box titled on its frame, the header (key legend and
-// context) above the rows, and the keys besides Enter that choose a row.
+// context) above the rows, and the actions it offers. There is no bare key: a key exists only
+// as the Key of an Action, listed in words on this screen or in the menu of the row it acts on.
 type PickSpec struct {
 	Title      string
 	Header     string
-	Keys       []string
 	Rows       []string
 	CursorLast bool // start on the Exit row: the safe default for a yes/no
 	// Tags, when set, is one hidden tag per row: fzf shows only the row, and hands the tag back
 	// with the choice, so rows that read the same are still told apart.
 	Tags []string
-	// RowHeaders, when set, is one header per row: the header shown follows the row under the
-	// cursor, and Header is the one shown on the Exit row. It needs an fzf that has
-	// transform-header (0.45 or later).
+	// RowHeaders, when set, is one header per row (and, optionally, one more per action row):
+	// the header shown follows the row under the cursor, and Header is the one shown on the
+	// Exit row. It needs an fzf that has transform-header (0.45 or later).
 	RowHeaders []string
 	// ExitLabel names the last row; it is ExitRow when empty.
 	ExitLabel string
+	// Actions are the screen's own choices, listed as rows after Rows, above the Exit row,
+	// each with its key beside it; choosing one, or pressing its key anywhere in the list, is
+	// Picked.Action.
+	Actions []Action
+	// Menus, when set, is one menu per row: Enter on a row lists its menu, and a key of the
+	// menu pressed on the row chooses that action there; a key the row's menu does not have is
+	// a NotOfferedError.
+	Menus []Menu
 }
 
 // errHeaderCount is RowHeaders that do not pair up with Rows.
@@ -67,18 +79,18 @@ const maxBindingBytes = 100_000
 // errHeadersTooLarge is row headers that do not fit in one fzf argument.
 var errHeadersTooLarge = errors.New("picker: the row headers are too large for fzf")
 
-// Picked is the chosen row and the key that chose it ("" for Enter). A row comes back as
-// plain text, without the colour it was shown in; Tag is the hidden tag it was given.
+// Picked is what was chosen: the row (as plain text, without the colour it was shown in) and
+// its hidden Tag, and the ID of the Action chosen, "" when Enter chose a row with no menu.
 type Picked struct {
-	Key string
-	Row string
-	Tag string
+	Row    string
+	Tag    string
+	Action string
 }
 
 // errTagCount is Tags that do not pair up with Rows.
 var errTagCount = errors.New("picker: tags and rows differ in number")
 
-// tagDelimiter separates a row from its hidden tag.
+// tagDelimiter separates a row from its hidden place in the list.
 const tagDelimiter = "\t"
 
 // Picker runs fzf in the house style shared by ccy, ccy-sessions and ccy-teams.
@@ -89,45 +101,26 @@ type Picker struct {
 	Plain bool
 }
 
-// Pick shows the rows under the heading h and returns the one chosen. Esc, q and the Exit row
-// are ErrLeave.
+// Pick shows the rows and the actions under the heading h and returns what was chosen. Esc, q
+// and the Exit row are ErrLeave; leaving a row's menu is ErrBack.
 func (p *Picker) Pick(ctx context.Context, h Heading, s PickSpec) (Picked, error) {
-	headerArgs, err := s.headerArgs(h, !p.Plain)
+	if err := s.checkActions(); err != nil {
+		return Picked{}, err
+	}
+	if len(s.Tags) > 0 && len(s.Tags) != len(s.Rows) {
+		return Picked{}, errTagCount
+	}
+	args, err := s.fzfArgs(h, !p.Plain)
 	if err != nil {
 		return Picked{}, err
 	}
-	args := append([]string{
-		"--ansi", "--height=~70%", "--layout=reverse", "--no-multi", "--no-sort", "--no-info",
-		"--color=" + pickerColours,
-		"--border=rounded", "--border-label= " + s.Title + " ", "--border-label-pos=3",
-		"--margin=1,2", "--padding=1,2", "--header-first", "--pointer=▶",
-		"--prompt=filter > ", "--bind=q:abort",
-	}, headerArgs...)
-	// fzf refuses an empty --expect, so it is passed only when there are keys.
-	if len(s.Keys) > 0 {
-		args = append(args, "--expect="+strings.Join(s.Keys, ","))
-	}
-	if s.CursorLast {
-		args = append(args, "--bind=start:last")
-	}
-	shown := append([]string(nil), s.Rows...)
-	if len(s.Tags) > 0 {
-		if len(s.Tags) != len(s.Rows) {
-			return Picked{}, errTagCount
-		}
-		for i, tag := range s.Tags {
-			shown[i] += tagDelimiter + tag
-		}
-		args = append(args, "--delimiter="+tagDelimiter, "--with-nth=1")
-	}
+	lines := s.lines()
 	exitRow := ExitRow
 	if s.ExitLabel != "" {
 		exitRow = s.ExitLabel
 	}
-	rows := strings.Join(append(shown, exitRow), "\n") + "\n"
-	res, err := p.Runner.Run(ctx, execx.Cmd{
-		Name: "fzf", Args: args, Env: s.env(), Stdin: strings.NewReader(rows), Stderr: p.Stderr,
-	})
+	stdin := strings.NewReader(strings.Join(append(lines, exitRow), "\n") + "\n")
+	res, err := p.Runner.Run(ctx, execx.Cmd{Name: "fzf", Args: args, Env: s.env(), Stdin: stdin, Stderr: p.Stderr})
 	if err != nil {
 		switch code := exitCode(err); {
 		case code == fzfNoMatch, code == fzfInterrupted:
@@ -137,19 +130,87 @@ func (p *Picker) Pick(ctx context.Context, h Heading, s PickSpec) (Picked, error
 		}
 		return Picked{}, fmt.Errorf("fzf: %w", err)
 	}
-	picked, err := parsePicked(strings.TrimSuffix(string(res.Stdout), "\n"), len(s.Keys) > 0)
+	key, line, err := parsePicked(strings.TrimSuffix(string(res.Stdout), "\n"), len(s.keys()) > 0)
 	if err != nil {
 		return Picked{}, err
 	}
-	if len(s.Tags) > 0 {
-		if row, tag, tagged := strings.Cut(picked.Row, tagDelimiter); tagged {
-			picked.Row, picked.Tag = row, tag
+	if line == exitRow {
+		return p.chosen(ctx, h, s, key, "", -1)
+	}
+	if !s.indexed() {
+		// Rows with tags only carry the tag itself; a row fzf hands back without one keeps "".
+		if row, tag, tagged := strings.Cut(line, tagDelimiter); tagged && len(s.Tags) > 0 {
+			return Picked{Row: row, Tag: tag}, nil
 		}
+		return Picked{Row: line}, nil
 	}
-	if picked.Row == exitRow {
-		return Picked{}, ErrLeave
+	text, at, err := placeOf(line, len(lines))
+	if err != nil {
+		return Picked{}, err
 	}
-	return picked, nil
+	return p.chosen(ctx, h, s, key, text, at)
+}
+
+// placeOf splits an indexed line into its text and its place among n lines.
+func placeOf(line string, n int) (string, int, error) {
+	text, place, tagged := strings.Cut(line, tagDelimiter)
+	at, err := strconv.Atoi(place)
+	if !tagged || err != nil || at < 0 || at >= n {
+		return "", 0, fmt.Errorf("%w: %q", errNotInList, line)
+	}
+	return text, at, nil
+}
+
+// fzfArgs is the house style, the header under the heading h, and the keys the screen declares.
+func (s PickSpec) fzfArgs(h Heading, colour bool) ([]string, error) {
+	headerArgs, err := s.headerArgs(h, colour)
+	if err != nil {
+		return nil, err
+	}
+	args := append([]string{
+		"--ansi", "--height=~70%", "--layout=reverse", "--no-multi", "--no-sort", "--no-info",
+		"--color=" + pickerColours,
+		"--border=rounded", "--border-label= " + s.Title + " ", "--border-label-pos=3",
+		"--margin=1,2", "--padding=1,2", "--header-first", "--pointer=▶",
+		"--prompt=filter > ", "--bind=q:abort",
+	}, headerArgs...)
+	// fzf refuses an empty --expect, so it is passed only when there are keys.
+	if keys := s.keys(); len(keys) > 0 {
+		args = append(args, expectArg(keys))
+	}
+	if s.CursorLast {
+		args = append(args, "--bind=start:last")
+	}
+	if s.indexed() || len(s.Tags) > 0 {
+		args = append(args, "--delimiter="+tagDelimiter, "--with-nth=1")
+	}
+	return args, nil
+}
+
+// indexed is whether each line carries its hidden place in the list: when there are actions,
+// so a row and an action row are told apart and a key is judged against the right row's menu.
+// Rows with tags only carry the tag itself.
+func (s PickSpec) indexed() bool {
+	return len(s.Actions) > 0 || len(s.Menus) > 0
+}
+
+// lines is the rows and then the action rows, each with its place when indexed, else with its
+// tag when tagged.
+func (s PickSpec) lines() []string {
+	lines := append([]string(nil), s.Rows...)
+	for _, a := range s.Actions {
+		lines = append(lines, a.Line())
+	}
+	if !s.indexed() {
+		for i, tag := range s.Tags {
+			lines[i] += tagDelimiter + tag
+		}
+		return lines
+	}
+	for i := range lines {
+		lines[i] += tagDelimiter + strconv.Itoa(i)
+	}
+	return lines
 }
 
 // headerArgs is the fzf arguments that set the header, each under the heading h: the one
@@ -163,10 +224,11 @@ func (s PickSpec) headerArgs(h Heading, colour bool) ([]string, error) {
 	if len(s.RowHeaders) == 0 {
 		return []string{"--header=" + headed(s.Header) + "\n"}, nil
 	}
-	if len(s.RowHeaders) != len(s.Rows) {
+	n := len(s.RowHeaders)
+	if n != len(s.Rows) && (len(s.Actions) == 0 || n != len(s.Rows)+len(s.Actions)) {
 		return nil, errHeaderCount
 	}
-	rowHeaders := make([]string, len(s.RowHeaders))
+	rowHeaders := make([]string, n)
 	for i, rh := range s.RowHeaders {
 		rowHeaders[i] = headed(rh)
 	}
@@ -207,16 +269,17 @@ func printLine(text string) string {
 	return "printf '%s\\n' '" + strings.ReplaceAll(text, "'", `'\''`) + "'"
 }
 
-// parsePicked reads fzf's output: "<key>\n<row>" when --expect was given, else the row.
-func parsePicked(out string, withKey bool) (Picked, error) {
+// parsePicked reads fzf's output, the key and the row: "<key>\n<row>" when --expect was given,
+// else the row.
+func parsePicked(out string, withKey bool) (string, string, error) {
 	if !withKey {
-		return Picked{Row: out}, nil
+		return "", out, nil
 	}
 	key, row, found := strings.Cut(out, "\n")
 	if !found {
-		return Picked{}, errNoRow
+		return "", "", errNoRow
 	}
-	return Picked{Key: key, Row: row}, nil
+	return key, row, nil
 }
 
 // Confirm is a yes/no in the picker under the heading h, so no prompt is a bare read: one
@@ -237,6 +300,62 @@ func (p *Picker) Confirm(ctx context.Context, h Heading, question, action string
 		return false, err
 	}
 	return strings.HasPrefix(picked.Row, "Yes, "), nil
+}
+
+// chosen is what the key, or Enter, chose on the row at place at (-1 for the Exit row).
+func (p *Picker) chosen(ctx context.Context, h Heading, s PickSpec, key, row string, at int) (Picked, error) {
+	var picked Picked
+	onRow := at >= 0 && at < len(s.Rows)
+	if onRow {
+		picked.Row = row
+		if len(s.Tags) > 0 {
+			picked.Tag = s.Tags[at]
+		}
+	}
+	if key != "" {
+		return s.byKeyAt(key, at, picked)
+	}
+	switch {
+	case at < 0:
+		return Picked{}, ErrLeave
+	case !onRow:
+		return Picked{Action: s.Actions[at-len(s.Rows)].ID}, nil
+	case len(s.Menus) > 0:
+		return p.menu(ctx, h, s.Menus[at], picked)
+	}
+	return picked, nil
+}
+
+// menu is Enter on a row: its actions, each with its key, under the menu's own heading, or the
+// list's heading with the menu's title as one more crumb; leaving it is ErrBack.
+func (p *Picker) menu(ctx context.Context, h Heading, m Menu, picked Picked) (Picked, error) {
+	mh := m.Heading
+	if len(mh.Crumbs) == 0 {
+		mh = h.Push(m.Title)
+	}
+	got, err := p.Pick(ctx, mh, PickSpec{Title: m.Title, Header: m.Header, Actions: m.Actions, ExitLabel: menuBack})
+	if errors.Is(err, ErrLeave) {
+		return Picked{}, ErrBack
+	}
+	if err != nil {
+		return Picked{}, err
+	}
+	picked.Action = got.Action
+	return picked, nil
+}
+
+// byKeyAt is the action key chooses on the row at place at: the screen's, else the row's menu's.
+func (s PickSpec) byKeyAt(key string, at int, picked Picked) (Picked, error) {
+	if a, ok := byKey(s.Actions, key); ok {
+		return Picked{Action: a.ID}, nil
+	}
+	if at >= 0 && at < len(s.Menus) {
+		if a, ok := byKey(s.Menus[at].Actions, key); ok {
+			picked.Action = a.ID
+			return picked, nil
+		}
+	}
+	return picked, &NotOfferedError{Key: key}
 }
 
 // Header is a picker header: the key legend first, then the context lines that are not

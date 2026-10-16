@@ -42,9 +42,6 @@ const readWhy = "Reading who is in each team, and whether its people are signed 
 // every key with nothing would otherwise loop for ever.
 const maxNoOps = 3
 
-// pickerKeys are the keys besides Enter that choose a row.
-var pickerKeys = []string{keyNew, keyRestore, keyRemove, keyElement, keyPassword, keyUpdate, keyHelp, keyTab}
-
 // Picker is the interactive list. Every dependency is a field so a test stands in for each.
 type Picker struct {
 	Kit    *flow.Kit
@@ -242,30 +239,50 @@ func (r *run) once(ctx context.Context, first bool) error {
 			return err
 		}
 	}
+	return r.listPass(ctx)
+}
+
+// listPass shows the teams list once and does what was chosen: a row's action, from its menu
+// or by the shortcut shown beside it there, or the list's own Running sessions row.
+func (r *run) listPass(ctx context.Context) error {
+	p := r.p
+	menus := make([]ui.Menu, len(r.snap.Rows))
+	for i, row := range r.snap.Rows {
+		menus[i] = r.menuFor(row)
+	}
 	picked, err := p.Kit.Choose(ctx, r.listHeading(), ui.PickSpec{
-		Title: "Agent teams", Header: r.frame.header(""), RowHeaders: r.rowHeaders(), Keys: pickerKeys,
-		Rows: r.shownRows(), Tags: r.tags(),
+		Title: "Agent teams", Header: r.frame.header(""), RowHeaders: r.rowHeaders(),
+		Rows: r.shownRows(), Tags: r.tags(), Actions: []ui.Action{sessionsAction}, Menus: menus,
 	})
-	if errors.Is(err, ui.ErrLeave) {
+	var notOffered *ui.NotOfferedError
+	switch {
+	case errors.Is(err, ui.ErrLeave):
 		if err = p.Kit.Interrupted(ctx); err != nil {
 			return err
 		}
 		return flow.Leave(term.ExitOK)
-	}
-	if err != nil {
+	case errors.Is(err, ui.ErrBack):
+		if err = p.Kit.Interrupted(ctx); err != nil {
+			return err
+		}
+		return r.count(flow.Done)
+	case errors.As(err, &notOffered):
+		p.Kit.Tell(nothingOnThisRow)
+		p.Kit.BackToList(ctx)
+		return r.count(flow.Done)
+	case err != nil:
 		return err
-	}
-	if picked.Key == keyTab || picked.Tag == tagSessions {
+	case picked.Action == actSessions:
 		r.view = viewSessions
 		return nil
 	}
-	row, ok := s.RowAt(picked.Tag)
+	row, ok := r.snap.RowAt(picked.Tag)
 	if !ok {
 		p.Kit.Tell("That row has changed; the list has been refreshed.")
 		p.Kit.BackToList(ctx)
 		return nil
 	}
-	res, err := r.act(ctx, picked.Key, row)
+	res, err := r.do(ctx, picked.Action, row)
 	if err != nil {
 		return err
 	}
@@ -286,11 +303,10 @@ func (r *run) count(res flow.Result) error {
 	return flow.Leave(term.ExitFailure)
 }
 
-// shownRows is the rows as fzf shows them, in colour where colour is on, then the Running
-// sessions row.
+// shownRows is the rows as fzf shows them, in colour where colour is on.
 func (r *run) shownRows() []string {
 	colour := r.p.Kit.Term.ColourOn(r.p.Stdout)
-	rows := make([]string, 0, len(r.snap.Rows)+1)
+	rows := make([]string, 0, len(r.snap.Rows))
 	for _, row := range r.snap.Rows {
 		if colour {
 			rows = append(rows, row.Painted())
@@ -298,17 +314,16 @@ func (r *run) shownRows() []string {
 			rows = append(rows, row.Text())
 		}
 	}
-	return append(rows, sessionsRow)
+	return rows
 }
 
-// tags number the rows, so two rows that read the same are still two rows to choose from; the
-// Running sessions row is tagged by name.
+// tags number the rows, so two rows that read the same are still two rows to choose from.
 func (r *run) tags() []string {
-	tags := make([]string, 0, len(r.snap.Rows)+1)
+	tags := make([]string, 0, len(r.snap.Rows))
 	for i := range r.snap.Rows {
 		tags = append(tags, strconv.Itoa(i))
 	}
-	return append(tags, tagSessions)
+	return tags
 }
 
 // collectWithSudo is a pass over the machine; when the members can only be read as root it asks

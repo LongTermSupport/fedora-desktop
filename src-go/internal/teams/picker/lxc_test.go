@@ -36,8 +36,10 @@ func TestEveryRowsMenuOffersAddingAnLxcContainerWithNoHiddenKey(t *testing.T) {
 			t.Fatalf("%s: footer %q", row.Member, footer)
 		}
 	}
-	if slices.Contains(pickerKeys, keyLxc) {
-		t.Fatalf("%s must be reached from the menu, not a hidden key", keyLxc)
+	for _, a := range r.actionsFor(h.row(t, r.snap, board.NoDescription)) {
+		if a.id == actLxc && a.key != "" {
+			t.Fatalf("%s is a menu line only, with no shortcut: %+v", actLxc, a)
+		}
 	}
 }
 
@@ -47,7 +49,7 @@ func TestChoosingTheLxcActionRunsLxcAddForTheRowsTeam(t *testing.T) {
 	h.p.Lxc.Lister = noLxc{}
 	h.p.Lxc.SudoReady = func(context.Context, string) bool { return true }
 	r := h.run1(t)
-	if _, err := r.do(context.Background(), keyLxc, h.row(t, r.snap, board.NoDescription)); err != nil {
+	if _, err := r.do(context.Background(), actLxc, h.row(t, r.snap, board.NoDescription)); err != nil {
 		t.Fatal(err)
 	}
 	said := h.ErrOut.String()
