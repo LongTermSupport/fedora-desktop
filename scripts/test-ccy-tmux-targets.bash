@@ -232,6 +232,48 @@ if [ -n "$pane_template" ]; then
 fi
 
 echo ""
+echo "== which session a launcher IS, from inside real panes (ccy_tmux_current_session)"
+# A launcher takes a session's name (its label, membership and record) only when its pane was
+# started for it. One run from a shell inside another session's pane, as an agent's command
+# there is, inherits that pane's TMUX and TMUX_PANE and must come out nameless.
+WHO="$SOCK_DIR/who.bash"
+cat >"$WHO" <<'EOF'
+source "$1/common-pure.bash"
+source "$1/tmux-session.bash"
+CCY_TMUX_SOCKET=ccy
+out=$(ccy_tmux_current_session 2>&1)
+printf '%s rc=%s\n' "$out" "$?" >"$2.tmp"
+mv "$2.tmp" "$2"
+EOF
+# The registry's own trampoline, which every ccy session's pane runs the launcher under.
+tramp="$(
+    # shellcheck source=/dev/null
+    source "$LIB_DIR/session-registry.bash"
+    ccy_registry_trampoline "$SOCK_DIR/who-record" ccy
+)"
+check "the registry built its trampoline" "yes" "$([[ "$tramp" == '"$@";'* ]] && echo yes || echo "no: $tramp")"
+# who <session> <pane command...> — what the probe printed from a pane running the command.
+who() {
+    local name="$1" got=""
+    shift
+    ccy_tmux new-session -d -s "$name" -c "$WORK" -- "$@"
+    for _ in $(seq 50); do
+        if [ -f "$SOCK_DIR/$name.out" ]; then
+            got="$(cat "$SOCK_DIR/$name.out")"
+            break
+        fi
+        sleep 0.1
+    done
+    printf '%s\n' "${got:-no answer in 5 s}"
+}
+check "the launcher is the pane's own process: that session's name" "who-direct rc=0" \
+    "$(who who-direct bash "$WHO" "$LIB_DIR" "$SOCK_DIR/who-direct.out")"
+check "the launcher is the registry trampoline's child: that session's name" "who-tramp rc=0" \
+    "$(who who-tramp bash -c "$tramp" ccy-tmux bash "$WHO" "$LIB_DIR" "$SOCK_DIR/who-tramp.out")"
+check "a launcher run by a shell inside the pane (an agent's command): no name" " rc=0" \
+    "$(who who-nested bash -c "bash -c 'bash $WHO $LIB_DIR $SOCK_DIR/who-nested.out; :'; :")"
+
+echo ""
 echo "== the Go binary, on this real server"
 TOOL="$BUILD_DIR/ccy-sessions"
 check "the Go binary builds" "" "$(cd "$REPO_ROOT/src-go" && go build -trimpath -buildvcs=false -o "$TOOL" ./cmd/ccy-sessions 2>&1)"

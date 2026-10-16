@@ -17,13 +17,15 @@ import (
 // maxRestartArgs bounds what restart-args reads: a launcher's argv is a few kilobytes.
 const maxRestartArgs = 1 << 20
 
-// RestartArgs is `ccy-teams internal restart-args` (Plan 00203 H5, H22): the launcher pipes the
-// arguments of a supervisor-requested relaunch through it, NUL separated, and gets them back with
-// the --teams of the record of the ccy session it runs in, which a hot add or remove changed
-// while the session ran. Outside a ccy tmux session, or with no record, they pass unchanged.
-func (f *Find) RestartArgs(ctx context.Context, args []string, in io.Reader, out io.Writer) term.ExitCode {
-	if len(args) > 0 {
-		f.say("ccy-teams: 'internal restart-args' takes no arguments; it reads them NUL separated on stdin. See ccy-teams --help.")
+// RestartArgs is `ccy-teams internal restart-args <session>` (Plan 00203 H5, H22): the launcher
+// pipes the arguments of a supervisor-requested relaunch through it, NUL separated, and gets them
+// back with the --teams of <session>'s record, which a hot add or remove changed while the
+// session ran. The launcher names the session (its one rule for which session it IS; "" for an
+// unnamed launch), so the TMUX it inherited plays no part. Unnamed, or with no record, they
+// pass unchanged.
+func (f *Find) RestartArgs(_ context.Context, args []string, in io.Reader, out io.Writer) term.ExitCode {
+	if len(args) != 1 {
+		f.say("ccy-teams: 'internal restart-args' takes the session (\"\" for none); it reads the arguments NUL separated on stdin. See ccy-teams --help.")
 		return term.ExitUsage
 	}
 	data, err := io.ReadAll(io.LimitReader(in, maxRestartArgs+1))
@@ -35,7 +37,7 @@ func (f *Find) RestartArgs(ctx context.Context, args []string, in io.Reader, out
 	if len(data) > 0 {
 		words = strings.Split(string(data[:len(data)-1]), "\x00")
 	}
-	teams, found, code := f.recordTeams(ctx)
+	teams, found, code := f.recordTeams(args[0])
 	if code != term.ExitOK {
 		return code
 	}
@@ -51,14 +53,9 @@ func (f *Find) RestartArgs(ctx context.Context, args []string, in io.Reader, out
 	return term.ExitOK
 }
 
-// recordTeams is the --teams of the current ccy session's record; found is false outside one or
-// with no record.
-func (f *Find) recordTeams(ctx context.Context) (string, bool, term.ExitCode) {
-	session, err := f.Host.Tmux.CurrentSession(ctx, f.Host.Getenv("TMUX"))
-	if err != nil {
-		f.Host.ReportErr(err)
-		return "", false, term.ExitFailure
-	}
+// recordTeams is the --teams of the session's record; found is false for no session or no
+// record.
+func (f *Find) recordTeams(session string) (string, bool, term.ExitCode) {
 	if session == "" {
 		return "", false, term.ExitOK
 	}

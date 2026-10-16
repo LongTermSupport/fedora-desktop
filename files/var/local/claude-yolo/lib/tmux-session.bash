@@ -157,10 +157,7 @@ ccy_tmux_attach() {
 # ccy_tmux_idle_words <seconds> — "idle 40 s", "idle 12 min", "idle 3 h", "idle 2 d",
 # rounded down. PURE. A negative age (the clock moved back) reads as 0.
 ccy_tmux_idle_words() {
-    local s="$1"
-    if [[ "$s" -lt 0 ]]; then
-        s=0
-    fi
+    local s=$(($1 < 0 ? 0 : $1))
     if [[ "$s" -lt 60 ]]; then
         printf 'idle %s s' "$s"
     elif [[ "$s" -lt 3600 ]]; then
@@ -568,14 +565,18 @@ ccy_tmux_start_detached() {
         set-hook -g client-attached "$(ccy_tmux_single_attach_hook)"
 }
 
-# ccy_tmux_current_session — the name of the CCY session this process runs in, printed;
-# nothing when it runs in none (a user's own tmux, or no tmux at all), and tmux is then not
-# asked. tmux finds the session from the TMUX this process inherited from its pane.
+# ccy_tmux_current_session — the name of the CCY session this launcher IS, printed: the pane
+# it runs in is on ccy's server and was started for it, so the pane's first process is this
+# one (tmux ran it) or its parent (the registry's trampoline). Nothing otherwise: no tmux, a
+# user's own tmux, or a launch from a shell inside another session's pane (an agent's
+# command there), which inherits that pane's TMUX and must not take that session's name,
+# label, membership or record. tmux is asked only on ccy's server.
 ccy_tmux_current_session() {
-    [[ -n "${TMUX:-}" ]] || return 0
-    local socket="${TMUX%%,*}"
-    [[ "$(basename "$socket")" == "$CCY_TMUX_SOCKET" ]] || return 0
-    tmux display-message -p '#S'
+    local socket="${TMUX:-}"
+    socket="${socket%%,*}"
+    if [[ -n "${TMUX_PANE:-}" && "${socket##*/}" == "$CCY_TMUX_SOCKET" ]]; then
+        tmux display-message -p -t "$TMUX_PANE" "#{?#{==:#{pane_pid},$$},#S,#{?#{==:#{pane_pid},$PPID},#S,}}"
+    fi
 }
 
 # ccy_tmux_banner — inside a CCY session, one line on how to leave and come back. Silent in

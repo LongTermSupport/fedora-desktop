@@ -214,7 +214,7 @@ func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
 			return a.Find.RestartArgs(ctx, rest[1:], a.Stdin, a.Payload)
 		}
 	}
-	return a.usageError("'internal' takes a command: internal membership-init <session> <checkout> <seats>, or internal restart-args.")
+	return a.usageError("'internal' takes a command: internal membership-init <session> <checkout> <seats>, or internal restart-args <session>.")
 }
 
 // inCheckout runs a flow that needs to be in a checkout, or fails (NeedCheckout has said why).

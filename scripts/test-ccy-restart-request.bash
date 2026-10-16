@@ -455,7 +455,7 @@ handler_case() {
     [ "$body" = "-" ] || printf '%s' "$body" >"$proj/.claude/ccy/state/restart-request.json"
     local rc=0
     SCRIPT_DIR="$work/stub" VERSION_CHECK_CACHE="$work/cache-$name" IMAGE_NAME="img:tag" \
-        CCY_RESTART_HISTORY_DIR="$hist_dir" PATH="$work/bin:$PATH" \
+        CCY_RESTART_HISTORY_DIR="$hist_dir" PATH="$work/bin:$PATH" CCY_SESSION_NAME="ccy-named" \
         HC_LIB_DIR="$LIB_DIR" HC_WORK="$work" HC_PROJ="$proj" \
         HC_TOKEN="${HC_TOKEN-$TOK}" HC_KEYS="${HC_KEYS:-}" HC_NETWORK="${HC_NETWORK:-}" \
         HC_443="${HC_443:-0}" HC_NO_NETWORK="${HC_NO_NETWORK:-false}" HC_PP_FILE="${HC_PP_FILE:-}" \
@@ -478,8 +478,8 @@ check "a valid request: updates, execs the launcher, consumes the file" \
 check "…the relaunch carries the token file the session used, not the name it was given" \
     "--token|$TOK|--no-ssh|--resume|$SID" "$(paste -sd'|' "$work/ok.argv")"
 check "…the update was of the launcher's image" "img:tag" "$(cat "$work/ok.updates")"
-check "…the relaunch arguments went through ccy-teams' restart-args (the record's seats)" \
-    "internal restart-args" "$(cat "$work/ok.argv.teams")"
+check "…the relaunch arguments went through ccy-teams' restart-args for the session the launcher named" \
+    "internal restart-args ccy-named" "$(cat "$work/ok.argv.teams")"
 check "…the relaunch is marked unattended, with its stdin closed here" \
     "marker=$SID passphrase-file=unset stdin-is-null=yes" "$(cat "$work/ok.argv.env")"
 check "…this launch's staged files are cleaned up before the exec (exec skips the EXIT trap)" \

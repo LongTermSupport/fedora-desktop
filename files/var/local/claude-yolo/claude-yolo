@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.99.6"  # Container 2.73: the owner adds a running session to a team and removes it (ccy-teams session add/remove), and the session follows. See docs/ccy-changelog.md.
+CCY_VERSION="3.99.7"  # Container 2.73: the owner adds a running session to a team and removes it (ccy-teams session add/remove), and the session follows. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1171,6 +1171,9 @@ if [ "$HEADLESS_MODE" != true ] && [ "$CREATE_TOKEN_MODE" != true ] && [ "$UPDAT
     ccy_tmux_insulate "$PROJECT_NAME" "$SCRIPT_DIR/$(basename "$0")" "$@" || exit 1
     ccy_tmux_banner || exit 1
 fi
+# The session this launch IS, or none (lib/tmux-session.bash): the one answer every record
+# write below uses, so a ccy run from inside another session's pane writes no session's record.
+CCY_SESSION_NAME=$(ccy_tmux_current_session) || exit 1
 
 # Is this launch a session restore (ccy-sessions restore, after a reboot)? The restore sets
 # CCY_SESSION_RESTORE=1 on the pane's command and nothing else sets it. Read once and
@@ -1272,7 +1275,7 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
                         TEAMS_LIST="$LAST_TEAMS"
                         ccy_launch_teams
                         CCY_ORIG_ARGS+=(--teams "$CCY_SEATS")
-                        ccy-teams record-seats "$CCY_SEATS" || exit 1
+                        [ -z "$CCY_SESSION_NAME" ] || ccy-teams record-seats "$CCY_SESSION_NAME" "$CCY_SEATS" || exit 1
                     fi
                     # Headless, an empty saved choice is that choice (no key, no network),
                     # never the picker it would otherwise fall through to; a saved launch
@@ -1335,11 +1338,8 @@ if [ "$NO_SSH_MODE" = false ] && [ ${#SSH_KEYS[@]} -eq 0 ]; then
     # restore still stops at the menu, and verify-restore reports it there. A session with
     # no launch flags is left to Quick Launch, whose saved settings survive a CCY_VERSION
     # change while their format (CONFIG_VERSION) is unchanged (load_launch_config).
-    if [ ${#SSH_KEYS[@]} -eq 1 ] && [ "${SSH_KEYS[0]}" != "$SSH_AGENT_SENTINEL" ]; then
-        ccy_session_name=$(ccy_tmux_current_session) || exit 1
-        if [ -n "$ccy_session_name" ]; then
-            ccy_registry_record_ssh_key "$ccy_session_name" "${SSH_KEYS[0]}" || exit 1
-        fi
+    if [ ${#SSH_KEYS[@]} -eq 1 ] && [ "${SSH_KEYS[0]}" != "$SSH_AGENT_SENTINEL" ] && [ -n "$CCY_SESSION_NAME" ]; then
+        ccy_registry_record_ssh_key "$CCY_SESSION_NAME" "${SSH_KEYS[0]}" || exit 1
     fi
 fi
 
@@ -1383,11 +1383,10 @@ if [ "${SSH_AGENT_FORWARDED:-0}" = "1" ]; then
 fi
 
 if [ -n "$CCY_MOUNT_RELABEL" ]; then
-    echo ""
-    echo "🔒 SELinux ${CCY_SELINUX_MODE}: the workspace is mounted with a shared relabel (:z) and"
-    echo "   key files are staged into a private tmpfs directory (:Z) so the container can read"
-    echo "   them. Extra project mounts and display sockets are NOT relabelled: Enforcing blocks"
-    echo "   them, Permissive logs every access — see docs/ccy.md."
+    printf '%s\n' "" "🔒 SELinux ${CCY_SELINUX_MODE}: the workspace is mounted with a shared relabel (:z) and" \
+        "   key files are staged into a private tmpfs directory (:Z) so the container can read" \
+        "   them. Extra project mounts and display sockets are NOT relabelled: Enforcing blocks" \
+        "   them, Permissive logs every access — see docs/ccy.md."
 fi
 
 # Banner: make 443 mode impossible to miss. Fires whenever GitHub SSH ends up
@@ -3784,7 +3783,9 @@ ccy_handle_restart_exit() {
     fi
     # The seats come from the session's record, which ccy-teams changes while it runs (Plan
     # 00203 H5): the first team join of a session launched on no team relaunches it this way.
-    mapfile -d '' -t relaunch_args < <(ccy_restart_relaunch_args "$session_id" "${CCY_ORIG_ARGS[@]}" | ccy-teams internal restart-args)
+    # The record is the one of the session this launcher named, never of the TMUX it inherited.
+    mapfile -d '' -t relaunch_args < <(ccy_restart_relaunch_args "$session_id" "${CCY_ORIG_ARGS[@]}" \
+        | ccy-teams internal restart-args "${CCY_SESSION_NAME:-}")
     wait "$!" || builder_rc=$?
     if [ "$builder_rc" -ne 0 ] || [ "${#relaunch_args[@]}" -eq 0 ]; then
         ccy_restart_refuse "$session_id" "could not build the relaunch arguments (see above)."

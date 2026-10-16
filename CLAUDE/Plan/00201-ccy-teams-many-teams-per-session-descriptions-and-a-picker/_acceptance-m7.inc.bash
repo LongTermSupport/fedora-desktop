@@ -471,7 +471,8 @@ m7_launch() {
     args+=(--prompt "${M7_PROMPT}" -- --input-format stream-json --output-format stream-json --verbose --model "${M7_MODEL}")
     SESSION_STARTED=1
     SESSION_NAME="$1" SESSION_CTR="" SESSION_ID=""
-    (cd -- "${PLAN_REPO_ROOT}" && CCY_TEAMS_HOST_VARS="${HOST_VARS_FILE}" exec "${CCY_LAUNCHER}" "${args[@]}") \
+    # Unnamed whatever tmux pane this run is in: without TMUX a launch takes no session identity.
+    (cd -- "${PLAN_REPO_ROOT}" && unset TMUX TMUX_PANE && CCY_TEAMS_HOST_VARS="${HOST_VARS_FILE}" exec "${CCY_LAUNCHER}" "${args[@]}") \
         <"${ev}/stdin.fifo" >"${ev}/session.out" 2>"${ev}/session.err" &
     SESSION_PID=$!
     exec {fd}<>"${ev}/stdin.fifo" || return 1
@@ -730,7 +731,7 @@ say("removed")
 }
 
 # P1 — a plain `ccy` is on no team: no seat label, and no PINGBUS_ variable but the marker
-# PINGBUS_MEMBERSHIP=off (Plan 00203 M2; a headless launch outside ccy's tmux), on its container, no
+# PINGBUS_MEMBERSHIP=off (Plan 00203 M2; launched with no TMUX, so unnamed), on its container, no
 # pingbus on its PATH, no per-session record for its session ID. With no pingbus there is no
 # `pingbus status-line` either, so its status line is the checkout's own, with no bus segment.
 m7_check_plain() {

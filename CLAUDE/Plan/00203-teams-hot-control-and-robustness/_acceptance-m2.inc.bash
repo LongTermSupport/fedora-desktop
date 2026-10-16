@@ -26,7 +26,9 @@
 #   (d)     the image is the launcher's REQUIRED_CONTAINER_VERSION, with the M2 entrypoint
 #   (e)     --no-bus: PINGBUS_MEMBERSHIP=off, no mount, no pingbus, no plugin, no settings
 #   (f)     the H34 spike's result is recorded in the spec
-#   SELinux the host is Enforcing
+#   (H1)    the membership bind asks for Z, and its files carry container_file_t at the
+#           container's level (both SELinux modes); Enforcing: the container reads them;
+#           Permissive: one line says enforcement was not exercised
 #   (a), `ccy --teams` as before, is the Plan 00201 and Plan 00161 acceptances, which meta-deploy
 #   runs after this one against the M2 launcher.
 
@@ -106,7 +108,7 @@ m2_plain() { "${M2_CHECK}" plain "${M2_CTR[${M2_NAMES[0]}]}"; }
 m2_nobus() { "${M2_CHECK}" nobus "${M2_CTR[${M2_NAMES[1]}]}"; }
 m2_cpu() { "${M2_CHECK}" cpu "${M2_CTR[${M2_NAMES[0]}]}" "${M2_CTR[${M2_NAMES[1]}]}"; }
 m2_image() { "${M2_CHECK}" image "${M2_CTR[${M2_NAMES[0]}]}"; }
-m2_selinux() { "${M2_CHECK}" selinux; }
+m2_selinux() { "${M2_CHECK}" selinux "${M2_CTR[${M2_NAMES[0]}]}"; }
 m2_spike() { "${M2_CHECK}" spike "${PLAN_SCRIPT_DIR}/SPEC-hot-control.md"; }
 
 # m2_cleanup — every throwaway this run made, whether or not it got that far; never fails
@@ -145,9 +147,9 @@ m2_cleanup() {
 acceptance_m2() {
     plan_on_cleanup m2_cleanup
     printf '## M2: the bus kit in every ccy session\n\n' >>"${REPORT}"
-    check_leg "SELinux Enforcing" m2_selinux
     plan_deploy_leg "two throwaway ccy sessions in ccy's tmux: plain and --no-bus" m2_prepare
     plan_deploy_leg "start them and wait for their containers" m2_start
+    check_leg "(H1) the membership mount is relabelled for the container" m2_selinux
     check_leg "(b)(c) a plain ccy carries an inert kit, no inbound and a read-only membership" m2_plain
     check_leg "(c) idle CPU unchanged" m2_cpu
     check_leg "(d) the image the launcher requires" m2_image

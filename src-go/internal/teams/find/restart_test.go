@@ -30,42 +30,47 @@ func TestReplaceTeams(t *testing.T) {
 	}
 }
 
-func TestRestartArgsTakesTheTeamsFromTheSessionsRecord(t *testing.T) {
+func TestRestartArgsTakesTheTeamsFromTheNamedSessionsRecord(t *testing.T) {
 	h := recordRig(t)
-	rec := registry.Record{Name: "ccy-proj", Dir: "/x", Launcher: "/x/ccy", Prefix: "ccy", Restore: true, Args: []string{"--no-ssh", "--teams", "3@alpha"}}
-	if err := h.store.Write(rec); err != nil {
-		t.Fatal(err)
+	for _, rec := range []registry.Record{
+		{Name: "ccy-proj", Dir: "/x", Launcher: "/x/ccy", Prefix: "ccy", Restore: true, Args: []string{"--no-ssh", "--teams", "3@alpha"}},
+		{Name: "cc-outer", Dir: "/x", Launcher: "/x/ccy", Prefix: "ccy", Restore: true, Args: []string{"--no-ssh", "--teams", "9@other"}},
+	} {
+		if err := h.store.Write(rec); err != nil {
+			t.Fatal(err)
+		}
 	}
 	var out bytes.Buffer
-	if code := h.f.RestartArgs(t.Context(), nil, strings.NewReader(nul("--token", "t", "--resume", "id")), &out); code != term.ExitOK {
+	if code := h.f.RestartArgs(t.Context(), []string{"ccy-proj"}, strings.NewReader(nul("--token", "t", "--resume", "id")), &out); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
 	if out.String() != nul("--teams", "3@alpha", "--token", "t", "--resume", "id") {
-		t.Fatalf("got %q", out.String())
+		t.Fatalf("the named session's record, never the TMUX it inherited: got %q", out.String())
 	}
 }
 
-func TestRestartArgsPassesThroughWithNoSessionOrRecord(t *testing.T) {
+func TestRestartArgsPassesThroughForAnUnnamedLaunchOrNoRecord(t *testing.T) {
 	h := recordRig(t)
 	in := nul("--token", "t", "--teams", "1@a")
 	var out bytes.Buffer
-	if code := h.f.RestartArgs(t.Context(), nil, strings.NewReader(in), &out); code != term.ExitOK || out.String() != in {
+	if code := h.f.RestartArgs(t.Context(), []string{"ccy-proj"}, strings.NewReader(in), &out); code != term.ExitOK || out.String() != in {
 		t.Fatalf("no record: exit %d out %q", code, out.String())
 	}
-	h.Env["TMUX"] = ""
 	out.Reset()
-	if code := h.f.RestartArgs(t.Context(), nil, strings.NewReader(in), &out); code != term.ExitOK || out.String() != in {
-		t.Fatalf("no tmux: exit %d out %q", code, out.String())
+	if code := h.f.RestartArgs(t.Context(), []string{""}, strings.NewReader(in), &out); code != term.ExitOK || out.String() != in {
+		t.Fatalf("an unnamed launch: exit %d out %q", code, out.String())
 	}
 }
 
-func TestRestartArgsRefusesArgumentsAndAnUnterminatedList(t *testing.T) {
+func TestRestartArgsRefusesAWrongArgumentCountAndAnUnterminatedList(t *testing.T) {
 	h := recordRig(t)
 	var out bytes.Buffer
-	if code := h.f.RestartArgs(t.Context(), []string{"x"}, strings.NewReader(""), &out); code != term.ExitUsage {
-		t.Fatalf("an argument: exit %d", code)
+	for _, args := range [][]string{nil, {"a", "b"}} {
+		if code := h.f.RestartArgs(t.Context(), args, strings.NewReader(""), &out); code != term.ExitUsage {
+			t.Fatalf("%q: exit %d", args, code)
+		}
 	}
-	if code := h.f.RestartArgs(t.Context(), nil, strings.NewReader("--token"), &out); code != term.ExitFailure || out.Len() != 0 {
+	if code := h.f.RestartArgs(t.Context(), []string{"ccy-proj"}, strings.NewReader("--token"), &out); code != term.ExitFailure || out.Len() != 0 {
 		t.Fatalf("unterminated: exit %d out %q", code, out.String())
 	}
 }

@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.6 — container 2.73
+## 3.99.7 — container 2.73
 
 - **Hot add and remove** (Plan 00203 M3). `ccy-teams session add <session> <team>[/<seat>]` puts
   a running ccy session into a team and `session remove` takes it out, one line per step. The
@@ -28,7 +28,24 @@ Two version numbers move independently — see
   A session launched on no team relaunches once, by itself, on its first join (the lifecycle
   supervisor plugin, now loaded in every bus session that has a supervisor); a restart takes its
   seats from the session's record (`ccy-teams internal restart-args`).
-- The image also carries 3.99.4's agent-bus timer-state fix.
+- The image also carries 3.99.4's agent-bus timer-state fix, and the launcher 3.99.4.2's
+  session identity fix below.
+
+## 3.99.4.2 — container 2.71
+
+- **Seats a Quick Launch brings back go into the launch's own session record only** (Plan
+  00203): `ccy-teams record-seats` takes the session from the launcher, as below, instead of
+  reading `TMUX` itself.
+
+## 3.99.4.1 — container 2.71
+
+- **A ccy started from inside another session no longer takes that session's identity**
+  (Plan 00203). A launcher run by a shell in a ccy or cc session's pane (an agent's command
+  there) inherited the pane's tmux variables and was labelled as that session, mounted its
+  membership directory and could rewrite it, and recorded its SSH key in that session's record.
+  A launcher now takes a session's name only when its pane was started for it; any other launch
+  is unnamed (`PINGBUS_MEMBERSHIP=off` with no team, a container-named membership with one).
+  Host-side only: the image is unchanged.
 
 ## 3.99.4 — container 2.71
 

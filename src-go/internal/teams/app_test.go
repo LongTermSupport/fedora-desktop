@@ -145,7 +145,7 @@ func TestAChooseTeamsAppKeepsStdoutForThePayloadAlone(t *testing.T) {
 
 func TestDispatchRecordSeatsIsTheFindFlow(t *testing.T) {
 	h := world(t)
-	if code := h.app.Run([]string{"record-seats", "one", "two"}); code != term.ExitUsage {
+	if code := h.app.Run([]string{"record-seats", "one", "two", "three"}); code != term.ExitUsage {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
 	if !strings.Contains(h.ErrOut.String(), "record-seats") {
@@ -182,10 +182,10 @@ func TestDispatchInternalMembershipInitIsTheMembershipCommand(t *testing.T) {
 	}
 }
 
-func TestDispatchInternalRestartArgsPassesThroughOutsideTmux(t *testing.T) {
+func TestDispatchInternalRestartArgsPassesThroughForAnUnnamedLaunch(t *testing.T) {
 	h := newHarness(t)
 	h.app.Stdin = strings.NewReader("--no-ssh\x00")
-	if code := h.app.Run([]string{"internal", "restart-args"}); code != term.ExitOK {
+	if code := h.app.Run([]string{"internal", "restart-args", ""}); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
 	if h.Out.String() != "--no-ssh\x00" {
@@ -224,7 +224,7 @@ func TestUsageTextNamesTheLauncherSubcommandsAndTheCoordinator(t *testing.T) {
 	wants := []string{
 		"choose-seat", "describe-seats", "coordinator", "ccy-teams shutdown <team> [--yes]",
 		"ccy-teams internal membership-init <session> <checkout> <seats>",
-		"ccy-teams internal restart-args", "ccy-teams session add <session> <team>[/<seat>] [--yes]",
+		"ccy-teams internal restart-args <session>", "ccy-teams session add <session> <team>[/<seat>] [--yes]",
 		"ccy-teams session remove <session> <team> [--yes]",
 		"Only sessions started through ccy's tmux (listed by ccy-sessions), and cc sessions started with",
 	}
