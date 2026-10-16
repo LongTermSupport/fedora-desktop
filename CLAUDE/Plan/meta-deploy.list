@@ -23,8 +23,12 @@
 # md-viewer: rebuild and install at main tip 22a55582735d (text on its baseline, dark mode
 # and font size settings); asserts `md-viewer --version` carries the new commit.
 playbooks/imports/optional/common/play-md-viewer.yml
-# ccy 3.99.12.3, container 2.77.2 (each project's image is rebuilt once, at its next ccy
+# ccy 3.99.12.4, container 2.77.3 (each project's image is rebuilt once, at its next ccy
 # launch): deploys cc, cc-teams.bash and the ccy launcher, and rebuilds ccy-teams.
+# Making a coordinator is one of two questions: a team with none is offered one plainly; a team
+# that has one gets a takeover naming the current coordinator, on No (lxc-add too). The picker's
+# describe offer is now, not now or never (an old no is asked again once). Launch questions are
+# headed by their team ("Team 2 of 3: <team> · ...").
 # Plan 00203 M6: cc --teams and the new cc --bus sessions are hot-controlled like ccy ones, also
 # from the picker (cc --bus refuses team messages until it is restarted on its first team); a
 # membership counts only while its session record carries the bus; pingbus reads no

@@ -152,3 +152,38 @@ func TestLeavingTheSeatChooserOfOneOfTwoTeamsStartsNothing(t *testing.T) {
 	exit(t, r.run("--type=podman"), term.ExitOK, r)
 	r.lacksOutput(t)
 }
+
+// The owner's feedback: with several teams, every question says which team it is about and where
+// it stands in the sequence, and a team's lines sit under its own heading.
+func TestEachTeamsQuestionsCarryItsHeadingAndPlaceInTheSequence(t *testing.T) {
+	r := newRig(t, alphaCovers+betaWiden+deltaWiden)
+	r.Script.Fzf = []string{"|alpha&&beta&&delta"}
+	r.Script.Gum = []string{joinBeta, "CHOOSE:Join without adding (delta will treat " + repo + " references as external)"}
+	exit(t, r.run("--type=podman"), term.ExitOK, r)
+	if want := []string{"Team 1 of 3: alpha", "Team 2 of 3: beta", "Team 3 of 3: delta"}; !slices.Equal(r.headings, want) {
+		t.Fatalf("seat headings %q, want %q", r.headings, want)
+	}
+	if len(r.Script.GumLog) != 2 || !strings.Contains(r.Script.GumLog[0], "Team 2 of 3: beta · scope") ||
+		!strings.Contains(r.Script.GumLog[1], "Team 3 of 3: delta · scope") {
+		t.Fatalf("scope questions %q", r.Script.GumLog)
+	}
+	out := r.stderr()
+	beta, note, delta := strings.Index(out, "Team 2 of 3: beta · scope\n"), strings.Index(out, "beta: "+repo+" references external"),
+		strings.Index(out, "Team 3 of 3: delta · scope\n")
+	if beta < 0 || note < beta || delta < note {
+		t.Fatalf("beta's note is not under beta's heading, before delta's:\n%s", out)
+	}
+}
+
+func TestAListOfOneTeamAloneIsHeadedByTheTeamAlone(t *testing.T) {
+	r := newRig(t, alphaCovers)
+	exit(t, r.run("--type=podman", "alpha"), term.ExitOK, r)
+	if !slices.Equal(r.headings, []string{"Team alpha"}) {
+		t.Fatalf("headings %q", r.headings)
+	}
+	r = newRig(t, alphaCovers)
+	exit(t, r.run("--type=podman", "alpha,2@beta,delta"), term.ExitOK, r)
+	if !slices.Equal(r.headings, []string{"Team 1 of 3: alpha", "Team 3 of 3: delta"}) {
+		t.Fatalf("headings %q", r.headings)
+	}
+}

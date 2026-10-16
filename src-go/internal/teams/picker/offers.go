@@ -37,13 +37,72 @@ func (p *Picker) offerCreate(ctx context.Context) error {
 	return flow.Leave(p.Create.Run(ctx, nil))
 }
 
-// pathLimitMarker is the file whose presence says the person declined to lift team's limit.
+// pathLimitMarker is the file that says the person chose never to be asked about team's limit.
 func (p *Picker) pathLimitMarker(team string) string {
 	return filepath.Join(p.StateDir, "declined", "path-limit-"+team)
 }
 
-// offerPathLimits asks, once per team and whichever checkout this is, whether to lift a limit
-// to some folders that a team was made with.
+// neverRecord is what a never answer writes in its marker. The yes/no prompt these offers had
+// before kept an empty file for a no, chosen with no "later" to choose instead; such a marker is
+// taken as not now, once (oldNo), so the person is asked again (the owner's feedback, Plan 00201
+// SPEC-many-teams.md S-A15).
+const neverRecord = "never v2\n"
+
+// notNowWords is the middle answer of every offer, and what Esc means.
+const notNowWords = "Not now (ask again next time)"
+
+// answer is how a person answered a three-way offer.
+type answer int
+
+const (
+	answerNow answer = iota
+	answerLater
+	answerNever
+)
+
+// askedBefore says whether the person chose never for marker. A marker the old yes/no prompt
+// kept is removed and said, and the offer is made again; anything unreadable stops the picker.
+func (p *Picker) askedBefore(marker, about string) (bool, error) {
+	body, err := os.ReadFile(filepath.Clean(marker))
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return false, nil
+	case err != nil:
+		p.Kit.Term.PrintError("the marker " + marker + " could not be read: " + err.Error())
+		return false, flow.Leave(term.ExitFailure)
+	case string(body) == neverRecord:
+		return true, nil
+	}
+	if err := os.Remove(marker); err != nil {
+		p.Kit.Term.PrintError("the old marker " + marker + " could not be removed: " + err.Error())
+		return false, flow.Leave(term.ExitFailure)
+	}
+	p.Kit.Tell("An earlier no to " + about + ", asked when there was no \"not now\", is taken as not now, so it is asked again.")
+	return false, nil
+}
+
+// offer is one three-way question: now (the cursor starts there), not now, or never. Esc is
+// not now: only the explicit never is kept.
+func (p *Picker) offer(ctx context.Context, header, now, never string) (answer, error) {
+	picked, err := p.Kit.Gum.Choose(ctx, header, now, []string{now, notNowWords, never})
+	switch {
+	case errors.Is(err, ui.ErrCancelled) || picked == notNowWords:
+		p.Kit.Tell("Not now: ccy-teams asks again next time.")
+		return answerLater, nil
+	case err != nil:
+		p.Kit.ReportErr(err)
+		return answerLater, flow.Leave(term.ExitFailure)
+	case picked == never:
+		return answerNever, nil
+	case picked == now:
+		return answerNow, nil
+	}
+	p.Kit.Term.PrintError("gum returned a choice that was not offered: " + picked)
+	return answerLater, flow.Leave(term.ExitFailure)
+}
+
+// offerPathLimits asks, per team and whichever checkout this is, whether to lift a limit to
+// some folders that a team was made with, until it is lifted or the person says never.
 func (p *Picker) offerPathLimits(ctx context.Context) error {
 	limits, err := p.Declare.Limited(ctx)
 	if err != nil {
@@ -52,13 +111,12 @@ func (p *Picker) offerPathLimits(ctx context.Context) error {
 	}
 	for _, limit := range limits {
 		marker := p.pathLimitMarker(limit.Team)
-		_, statErr := os.Stat(marker)
-		if statErr == nil {
-			continue
+		never, err := p.askedBefore(marker, "lifting "+limit.Team+"'s limit")
+		if err != nil {
+			return err
 		}
-		if !errors.Is(statErr, os.ErrNotExist) {
-			p.Kit.Term.PrintError("the marker " + marker + " could not be looked for: " + statErr.Error())
-			return flow.Leave(term.ExitFailure)
+		if never {
+			continue
 		}
 		if err := p.askPathLimit(ctx, limit.Team, limit.Prefixes, limit.Trusts, marker); err != nil {
 			return err
@@ -71,15 +129,18 @@ func (p *Picker) askPathLimit(ctx context.Context, team, prefixes, trusts, marke
 	if err := p.Kit.NeedGum(); err != nil {
 		return err
 	}
-	p.Kit.Term.Say("One question about a team already on this machine, asked once, whichever checkout you are in.")
+	p.Kit.Term.Say("One question about a team already on this machine, whichever checkout you are in.")
 	p.Kit.Term.Say("Team " + team + " (for " + trusts + ") was made when teams were limited to some folders: " +
 		"its agents may only point each other at files under " + prefixes + ".")
-	yes, err := p.Kit.AskYes(ctx, "Remove the limit, so any path in its repositories can be named?", true)
-	if err != nil {
+	got, err := p.offer(ctx, "Remove "+team+"'s limit, so any path in its repositories can be named?",
+		"Remove "+team+"'s limit now", "Keep "+team+"'s limit and never ask again")
+	switch {
+	case err != nil || got == answerLater:
 		return err
-	}
-	if !yes {
-		return p.keepLimit(team, marker)
+	case got == answerNever:
+		return p.keepAnswer(marker, "Kept. ccy-teams will not ask about "+team+"'s limit again; the menu of "+team+
+			"'s row has "+askLimitLabel(team)+".")
+	case got == answerNow:
 	}
 	if _, err := p.Declare.DropLimit(ctx, team); err != nil {
 		p.Kit.ReportErr(err)
@@ -91,18 +152,13 @@ func (p *Picker) askPathLimit(ctx context.Context, team, prefixes, trusts, marke
 	return nil
 }
 
-// keepLimit remembers that the person kept team's limit, so it is not asked about again.
-func (p *Picker) keepLimit(team, marker string) error {
-	return p.keepAnswer(marker, "Kept. ccy-teams will not ask about "+team+"'s limit again.")
-}
-
-// keepAnswer records a declined offer in marker, so it is not made again, and says so.
+// keepAnswer records a never answer in marker, so the offer is not made again, and says so.
 func (p *Picker) keepAnswer(marker, said string) error {
 	if err := os.MkdirAll(filepath.Dir(marker), 0o750); err != nil {
 		p.Kit.Term.PrintError("the answer could not be kept: " + err.Error())
 		return flow.Leave(term.ExitFailure)
 	}
-	if err := os.WriteFile(marker, nil, 0o600); err != nil {
+	if err := os.WriteFile(marker, []byte(neverRecord), 0o600); err != nil {
 		p.Kit.Term.PrintError("the answer could not be kept: " + err.Error())
 		return flow.Leave(term.ExitFailure)
 	}
@@ -110,7 +166,36 @@ func (p *Picker) keepAnswer(marker, said string) error {
 	return nil
 }
 
-// descriptionMarker is the file whose presence says the person declined to describe team.
+// saidNever is whether marker records a never answer; a marker that cannot be read is not one.
+func saidNever(marker string) bool {
+	body, err := os.ReadFile(filepath.Clean(marker))
+	return err == nil && string(body) == neverRecord
+}
+
+// askAgain is a team row's undo of a never answer: the marker goes, and the offer is made at the
+// next start of ccy-teams.
+func (r *run) askAgain(ctx context.Context, marker, what string) (flow.Result, error) {
+	if err := os.Remove(marker); err != nil && !errors.Is(err, os.ErrNotExist) {
+		r.p.Kit.Term.PrintError("the answer could not be forgotten: " + err.Error())
+		return r.p.Kit.Note(ctx, "Nothing was changed.")
+	}
+	return r.p.Kit.Note(ctx, "ccy-teams asks "+what+" again the next time it starts.")
+}
+
+// askAgainOf is askAgain for the key of a team row's undo line.
+func (r *run) askAgainOf(ctx context.Context, key, team string) (flow.Result, error) {
+	if key == keyAskLimit {
+		return r.askAgain(ctx, r.p.pathLimitMarker(team), "about "+team+"'s limit")
+	}
+	return r.askAgain(ctx, r.p.descriptionMarker(team), "to describe "+team)
+}
+
+// askDescriptionLabel and askLimitLabel are the team row's undo lines.
+func askDescriptionLabel(team string) string { return "Ask me to describe " + team + " again" }
+
+func askLimitLabel(team string) string { return "Ask me about " + team + "'s limit again" }
+
+// descriptionMarker is the file that says the person chose never to be asked to describe team.
 func (p *Picker) descriptionMarker(team string) string {
 	return filepath.Join(p.StateDir, "declined", "description-"+team)
 }
@@ -118,8 +203,9 @@ func (p *Picker) descriptionMarker(team string) string {
 // maxDescriptionTries is how often a refused description is asked again.
 const maxDescriptionTries = 3
 
-// offerDescriptions asks, once per team and whichever checkout this is, to write the
-// description of a team that has none: shown wherever teams are listed or chosen.
+// offerDescriptions asks, per team and whichever checkout this is, to write the description of
+// a team that has none (shown wherever teams are listed or chosen), until it has one or the
+// person says never.
 func (p *Picker) offerDescriptions(ctx context.Context) error {
 	missing, err := p.Declare.Undescribed(ctx)
 	if err != nil {
@@ -128,13 +214,12 @@ func (p *Picker) offerDescriptions(ctx context.Context) error {
 	}
 	for _, team := range missing {
 		marker := p.descriptionMarker(team.Team)
-		_, statErr := os.Stat(marker)
-		if statErr == nil {
-			continue
+		never, err := p.askedBefore(marker, "describing "+team.Team)
+		if err != nil {
+			return err
 		}
-		if !errors.Is(statErr, os.ErrNotExist) {
-			p.Kit.Term.PrintError("the marker " + marker + " could not be looked for: " + statErr.Error())
-			return flow.Leave(term.ExitFailure)
+		if never {
+			continue
 		}
 		if err := p.askDescription(ctx, team, marker); err != nil {
 			return err
@@ -147,14 +232,17 @@ func (p *Picker) askDescription(ctx context.Context, team declare.Undescribed, m
 	if err := p.Kit.NeedGum(); err != nil {
 		return err
 	}
-	yes, err := p.Kit.AskYes(ctx, "Team "+team.Team+" (for "+team.Trusts+") has no description. Write one now?", true)
-	if err != nil {
+	got, err := p.offer(ctx, "Team "+team.Team+" (for "+team.Trusts+") has no description.",
+		"Describe "+team.Team+" now", "Never ask about "+team.Team)
+	switch {
+	case err != nil || got == answerLater:
 		return err
+	case got == answerNever:
+		return p.keepAnswer(marker, "Kept. ccy-teams will not ask about "+team.Team+"'s description again; the menu of "+
+			team.Team+"'s row has "+askDescriptionLabel(team.Team)+".")
+	case got == answerNow:
 	}
-	if !yes {
-		return p.keepAnswer(marker, "Kept. ccy-teams will not ask about "+team.Team+"'s description again.")
-	}
-	text, err := p.inputDescription(ctx)
+	text, err := p.inputDescription(ctx, team.Team)
 	if err != nil || text == "" {
 		return err
 	}
@@ -170,12 +258,12 @@ func (p *Picker) askDescription(ctx context.Context, team declare.Undescribed, m
 	return nil
 }
 
-// inputDescription asks for one line until declare.py accepts it, maxDescriptionTries at most; ""
-// with no error is a person who gave up, and nothing is written.
-func (p *Picker) inputDescription(ctx context.Context) (string, error) {
+// inputDescription asks for team's one line until declare.py accepts it, maxDescriptionTries at
+// most; "" with no error is a person who gave up, and nothing is written.
+func (p *Picker) inputDescription(ctx context.Context, team string) (string, error) {
 	value := ""
 	for range maxDescriptionTries {
-		answer, err := p.Kit.Gum.Input(ctx, "What is this team for?", "e.g. Builds and reviews the example site", value)
+		answer, err := p.Kit.Gum.Input(ctx, "What is team "+team+" for?", "e.g. Builds and reviews the example site", value)
 		if errors.Is(err, ui.ErrCancelled) {
 			return "", p.Kit.Cancelled()
 		}

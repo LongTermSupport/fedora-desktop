@@ -132,6 +132,18 @@ Built on `fix/teams-server-robustness`; design and evidence in
   SPEC-hot-control.md, M5 as built. Notes:
   [subagent-reports/261016-m5-opus.md](subagent-reports/261016-m5-opus.md).
 
+- [ ] 🔄 **Task 3.7** (owner feedback on M5; its commits call it Task 3.5): the coordinator's
+  two paths, built on `fix/coordinator-two-paths`, merged after Fable's MERGE; host acceptance
+  to come. A team with no coordinator is offered one plainly; a team that
+  has one is a takeover that names the current coordinator and whether it runs, and starts on
+  No; with no terminal or `--yes` it needs `--demote-current`. In every place that can make a
+  coordinator (SPEC-hot-control.md H25). With it, the picker's describe and path-limit offers
+  become now, not now or never, and an old no is asked again once (Plan 00201 S-A15).
+  lxc-add gets the same two paths (a new `declare lxc-role`, which the image carries): CCY
+  3.99.12.4, container 2.77.3. Owner's steps: [ACCEPTANCE.md](ACCEPTANCE.md), the two
+  sections after M5. Notes:
+  [subagent-reports/261016-coordinator-ux-opus.md](subagent-reports/261016-coordinator-ux-opus.md).
+
 - [ ] 🔄 **Task 3.6** (M6; its commits call it Task 3.5): cc, built on `feat/hot-control-m6`,
   merged; host acceptance to come. `cc --teams` and the new `cc --bus` sessions are hot-controlled like ccy ones (H31,
   H32): a `kind: cc` membership under the session's tmux name, a keeper that follows it, a
