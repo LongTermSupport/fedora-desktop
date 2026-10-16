@@ -28,8 +28,12 @@
 # could not be registered. THE EXTENSION CHANGED: LOG OUT AND BACK IN after this run (Wayland
 # reloads extension code only at login); the scripts and binaries apply at once.
 playbooks/imports/optional/common/play-speech-to-text.yml
-# Plan 00203: ccy-teams lxc-add's Checkout step becomes a typed line with Tab completion from
-# the container's tree, and the checkout search also covers /var/www, /srv and /opt. Rebuilds
-# and installs ccy-teams and the ccy launcher (3.99.12.14); the image (2.77.8) is rebuilt at
-# the next ccy start. Then try: ccy-teams lxc-add <team>.
+# Plan 00204 D4 and Plan 00203 Task 3.8: rebuilds and installs ccy-teams, ccy-sessions and the
+# ccy launcher (3.99.12.14; the image, 2.77.8, is rebuilt at the next ccy start). Every screen
+# says where it is and what it acts on (Teams › alpha › Add LXC member · step 3/4 Checkout over
+# "into team alpha · container …"; ccy --teams heads each team "New session › Team 2 of 3: …";
+# Teams › <team> › Settings), wrapped to the terminal, never cut off. ccy-teams lxc-add's
+# Checkout step becomes a typed line with Tab completion from the container's tree, and its
+# checkout search also covers /var/www, /srv and /opt. Running sessions are not touched. Then
+# try: ccy-teams lxc-add <team>.
 playbooks/imports/play-claude-yolo.yml

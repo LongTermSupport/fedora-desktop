@@ -5,10 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -37,9 +39,15 @@ func sample() *tree {
 	}}
 }
 
+// head is the heading the tests' line is asked under.
+var head = ui.Here("Teams", "alpha", "Add member").AtStep(3, 4, "Checkout").About("into team alpha")
+
 func spec(t *tree) Spec {
-	return Spec{Heading: "Add a member · step 3/4 Checkout", Prompt: "Checkout: ", List: t.list}
+	return Spec{Heading: head, Plain: true, Prompt: "Checkout: ", List: t.list}
 }
+
+// longPath is a suggestion wider than the narrow windows the wrapping tests use.
+const longPath = "/var/www/vhosts/example.test/httpdocs/current"
 
 // typed is the key presses that type the text.
 func typed(text string) []tea.KeyPressMsg {
@@ -109,8 +117,82 @@ func TestTypingComesFirstIntoTheLineWithThePrefilledValueEditable(t *testing.T) 
 
 func TestTheHeadingAndAHintLineSayingTabCompletesAreShown(t *testing.T) {
 	v := view(New(context.Background(), spec(sample())))
-	if !strings.HasPrefix(v, "Add a member · step 3/4 Checkout\n") || !strings.Contains(v, "Tab completes") {
+	if !strings.HasPrefix(v, "Teams › alpha › Add member · step 3/4 Checkout\ninto team alpha\n") ||
+		!strings.Contains(v, "Tab completes a directory name") || !strings.Contains(v, "Esc cancels") {
 		t.Fatalf("view\n%s", v)
+	}
+}
+
+func TestEveryLineIsWrappedToTheWindowNeverCut(t *testing.T) {
+	s := spec(sample())
+	s.Suggestions = []Suggestion{{Path: longPath, Note: "example-org/site"}}
+	s.Notes = []string{"A note that is longer than the narrow window it is drawn in."}
+	m := settle(t, New(context.Background(), s), tea.WindowSizeMsg{Width: 20, Height: 40})
+	m = drive(t, m, ctrlU)
+	m = drive(t, m, typed(longPath)...)
+	v := view(m)
+	var joined strings.Builder
+	for l := range strings.SplitSeq(v, "\n") {
+		if w := lipgloss.Width(l); w > 20 {
+			t.Fatalf("a line %d wide at width 20: %q\n%s", w, l, v)
+		}
+		// A suggestion's rows are under its two-column mark.
+		joined.WriteString(strings.TrimPrefix(l, "  "))
+	}
+	for _, want := range []string{
+		"Checkout: " + longPath, longPath + "   (example-org/site)",
+		"A note that is longer than the narrow window it is drawn in.", "Tab completes a directory name",
+	} {
+		if !strings.Contains(joined.String(), want) {
+			t.Fatalf("%q was cut:\n%s", want, v)
+		}
+	}
+	// The cursor is at the end of the typed line, on its last wrapped row.
+	lines := strings.Split(v, "\n")
+	c := m.View().Cursor
+	if c == nil || c.Y >= len(lines) || !strings.HasSuffix(lines[c.Y], "current") || c.X != lipgloss.Width(lines[c.Y]) {
+		t.Fatalf("cursor %+v over\n%s", c, v)
+	}
+}
+
+func TestTheCursorStaysOnItsWrappedRowWhenMovedBack(t *testing.T) {
+	m := settle(t, New(context.Background(), spec(sample())), tea.WindowSizeMsg{Width: 20, Height: 40})
+	m = drive(t, m, typed("/var/www/vhosts/abcdefgh")...)
+	m = drive(t, m, tea.KeyPressMsg{Code: tea.KeyHome})
+	v := view(m)
+	lines := strings.Split(v, "\n")
+	c := m.View().Cursor
+	if c == nil || !strings.HasPrefix(lines[c.Y], "Checkout: ") || c.X != len("Checkout: ") {
+		t.Fatalf("cursor %+v over\n%s", c, v)
+	}
+}
+
+// visible is what a terminal shows of Bubble Tea's output, roughly: the escape sequences and
+// line breaks removed, so text a narrow window wrapped reads as one run again.
+var escapes = regexp.MustCompile(`\x1b\[[0-9;?<>=$ ]*[A-Za-z~]|\x1b\][^\x07]*\x07|\x1b[=>]|[\r\n]`)
+
+func TestTheRenderedScreenAtANarrowWidthLosesNothing(t *testing.T) {
+	var out bytes.Buffer
+	s := spec(sample())
+	s.Value = longPath
+	a := &Asker{In: strings.NewReader("\r"), Out: &out, Width: 24, Height: 40}
+	if path, err := a.Ask(context.Background(), s); err != nil || path != longPath {
+		t.Fatalf("ask %q %v", path, err)
+	}
+	shown := escapes.ReplaceAllString(out.String(), "")
+	for _, want := range []string{"Checkout: " + longPath, "completes a directory name", "Esc cancels"} {
+		if !strings.Contains(shown, want) {
+			t.Fatalf("%q is not on the screen:\n%q", want, shown)
+		}
+	}
+}
+
+func TestALineWithNoHeadingIsRefusedBeforeItRuns(t *testing.T) {
+	s := spec(sample())
+	s.Heading = ui.Heading{}
+	a := &Asker{In: strings.NewReader("\r"), Out: &bytes.Buffer{}}
+	if _, err := a.Ask(context.Background(), s); !errors.Is(err, ui.ErrNoHeading) {
+		t.Fatalf("ask: %v", err)
 	}
 }
 
@@ -291,9 +373,9 @@ func TestTheArrowsDoNothingWithoutSuggestionsAndTheHintLineLeavesThemOut(t *test
 	}
 }
 
-func TestEscLeavesAndCtrlCCancels(t *testing.T) {
+func TestEscAndCtrlCCancel(t *testing.T) {
 	m := drive(t, New(context.Background(), spec(sample())), esc)
-	if _, err := m.Result(); !errors.Is(err, ui.ErrLeave) {
+	if _, err := m.Result(); !errors.Is(err, ui.ErrCancelled) {
 		t.Fatalf("esc: %v", err)
 	}
 	m = drive(t, New(context.Background(), spec(sample())), ctrlC)

@@ -111,6 +111,16 @@ the former, fail fast on the latter.
     reaches fzf only as the `Key` of a `ui.Action` (a row, or a line of the row's menu);
     shell fzf and Python Textual apps are held by `scripts/qa-hidden-bindings.bash`.
 
+15. **Every screen says where it is and what it acts on.** A question, list or confirmation
+    starts with a heading: the path that led to it, and a wizard's step
+    (`Teams › alpha › Add LXC member · step 3/4 Checkout`), then a line naming what it acts
+    on, with the answers given so far (`into team alpha · container container-a · user agent`). When one run asks the same questions for several things in turn, the heading
+    names which one, and which of how many (`New session › Team 2 of 3: beta`). In `src-go/`
+    the heading is `ui.Heading`, a required argument of every `ui` question and pick, drawn
+    the same way by fzf and gum; a screen without one is refused (`ui.ErrNoHeading`). fzf and
+    gum cut off a header line that is too wide, so a long heading is wrapped at its `›` and
+    `·` separators to the terminal's width: wrap, never truncate.
+
 ## Canonical patterns
 
 Reuse these shapes verbatim so every script behaves identically.

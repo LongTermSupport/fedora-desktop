@@ -196,16 +196,19 @@ func TestAnEditIsCheckedShownChangedThenSavedAndAppliedOnce(t *testing.T) {
 	if !strings.Contains(r.ErrOut.String(), "humans: must hold 1 to 16 entries") {
 		t.Fatalf("the refusal was not shown: %s", r.ErrOut.String())
 	}
-	if len(r.Script.GumLog) != 2 || !strings.Contains(r.Script.GumLog[0], "Team alpha › Settings › People") {
+	if len(r.Script.GumLog) != 2 {
 		t.Fatalf("gum %q", r.Script.GumLog)
 	}
+	r.Script.HeadingAt(0, "Teams › alpha › Settings\nteam alpha · no changes waiting")
+	r.Script.HeadingAt(1, "Teams › alpha › Settings › People\nteam alpha · no changes waiting")
+	r.Script.HeadingAt(4, "Teams › alpha › Settings › Save and apply\nteam alpha · 1 change waiting for Save and apply")
 	if !slices.Contains(r.rows(1), "People: owner, second   (changed)") || !slices.Contains(r.rows(1), "Save and apply (1 change)") {
 		t.Fatalf("rows %q", r.rows(1))
 	}
 	r.summaryHas(t, 2, "People: owner, guest → owner, second", "deactivated", "play-agent-bus.yml",
 		"guest can never be added back")
-	if r.title(2) != "Team alpha › Settings › Save and apply" || !slices.Contains(r.Script.FzfArgs[2], "--bind=start:last") {
-		t.Fatalf("title %q args %q", r.title(2), r.Script.FzfArgs[2])
+	if !slices.Contains(r.Script.FzfArgs[2], "--bind=start:last") {
+		t.Fatalf("args %q", r.Script.FzfArgs[2])
 	}
 	want := r.DeclarePrefix("set") + ` --file ` + r.Host.HostVars + ` --team alpha --value humans ["owner","second"]`
 	if saves := r.saves(); len(saves) != 1 || saves[0] != want {
@@ -257,9 +260,10 @@ func TestBackWithUnsavedChangesAsksFirst(t *testing.T) {
 	r.Script.Fzf = []string{"|Description:", "|EXIT", "|EXIT", "|EXIT", "|YES"}
 	r.Script.Gum = []string{"CHOOSE:Runs the site"}
 	r.edit(t)
-	if r.title(2) != "Team alpha › Settings › Back" || !strings.Contains(r.HeaderOf(2), "1 change is not saved") {
-		t.Fatalf("title %q header %q", r.title(2), r.HeaderOf(2))
+	if !strings.Contains(r.HeaderOf(2), "1 change is not saved") {
+		t.Fatalf("header %q", r.HeaderOf(2))
 	}
+	r.Script.HeadingAt(3, "Teams › alpha › Settings › Back\nteam alpha · 1 change waiting for Save and apply")
 	if !slices.Contains(r.Script.FzfArgs[2], "--bind=start:last") {
 		t.Fatal("leaving without saving must not be the default")
 	}

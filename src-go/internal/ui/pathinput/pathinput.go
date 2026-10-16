@@ -40,8 +40,10 @@ type Suggestion struct{ Path, Note string }
 
 // Spec is what the line asks.
 type Spec struct {
-	// Heading is the first line: where in its flow the question is.
-	Heading string
+	// Heading is drawn first: where in its flow the question is, as every ui screen says it.
+	Heading ui.Heading
+	// Plain draws without colour.
+	Plain bool
 	// Notes are lines under the heading.
 	Notes []string
 	// Prompt is drawn before the line.
@@ -60,13 +62,16 @@ var errNotDone = errors.New("pathinput: no path was given")
 // maxShown is how many of an ambiguous Tab's directories are listed.
 const maxShown = 20
 
+// defaultWidth is the width drawn to until Bubble Tea says the window's.
+const defaultWidth = 80
+
 // The keys the line takes as actions, each drawn on the hint line. The rest are line editing.
+// Esc and Ctrl+C both cancel: there is no step to go back to inside the line.
 var (
 	completeKey = key.NewBinding(key.WithKeys("tab"), key.WithHelp("Tab", "completes a directory name"))
 	suggestKey  = key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("↑/↓", "puts a suggestion in the line"))
 	acceptKey   = key.NewBinding(key.WithKeys("enter"), key.WithHelp("Enter", "uses the path"))
-	leaveKey    = key.NewBinding(key.WithKeys("esc"), key.WithHelp("Esc", "back"))
-	cancelKey   = key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("Ctrl+C", "cancel"))
+	cancelKey   = key.NewBinding(key.WithKeys("esc", "ctrl+c"), key.WithHelp("Esc", "cancels"))
 )
 
 // picked marks the suggestion in the line.
@@ -97,6 +102,8 @@ type Model struct {
 	path    string
 	err     error
 	help    help.Model
+	// width is the window's, every drawn line wrapped to it (Bubble Tea cuts a wider one off).
+	width int
 }
 
 // New is the line asking s; ctx bounds every listing.
@@ -106,7 +113,7 @@ func New(ctx context.Context, s Spec) Model {
 	value := []rune(s.Value)
 	return Model{
 		spec: s, list: func(dir string) (Listing, error) { return s.List(ctx, dir) },
-		line: value, cursor: len(value), help: h,
+		line: value, cursor: len(value), help: h, width: defaultWidth,
 		pick: slices.IndexFunc(s.Suggestions, func(g Suggestion) bool { return g.Path == s.Value }),
 	}
 }
@@ -114,7 +121,7 @@ func New(ctx context.Context, s Spec) Model {
 // Line is the text in the line.
 func (m Model) Line() string { return string(m.line) }
 
-// Result is the path given, ui.ErrLeave for Esc, ui.ErrCancelled for Ctrl+C.
+// Result is the path given, or ui.ErrCancelled for Esc or Ctrl+C.
 func (m Model) Result() (string, error) {
 	if m.err != nil {
 		return "", m.err
@@ -136,27 +143,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case listedMsg:
 		m.listing = ""
 		return m.completed(msg).replay()
+	case tea.WindowSizeMsg:
+		if msg.Width > 0 {
+			m.width = msg.Width
+		}
 	}
 	return m, nil
 }
 
 // View is the heading, the notes, the line, what the last Tab or Enter said, the suggestions
-// and the hint line.
+// and the hint line, every line wrapped to the window, never cut; the cursor is on the line's
+// wrapped row where it is.
 func (m Model) View() tea.View {
-	lines := append([]string{m.spec.Heading}, m.spec.Notes...)
+	head, err := m.spec.Heading.Draw(!m.spec.Plain, m.width)
+	if err != nil {
+		head = err.Error()
+	}
+	lines := strings.Split(head, "\n")
+	for _, n := range m.spec.Notes {
+		lines = append(lines, wrapped(n, m.width)...)
+	}
 	lines = append(lines, "")
-	row := len(lines)
-	lines = append(lines, m.spec.Prompt+string(m.line))
-	lines = append(lines, m.said()...)
+	input := wrapAt(m.spec.Prompt, string(m.line), m.cursor, m.width)
+	row, col := len(lines)+input.row, input.col
+	lines = append(lines, input.rows...)
+	for _, s := range m.said() {
+		lines = append(lines, wrapped(s, m.width)...)
+	}
 	if len(m.spec.Suggestions) > 0 {
 		lines = append(lines, "", "Suggestions:")
 		for i, s := range m.spec.Suggestions {
-			lines = append(lines, m.suggestionRow(i, s))
+			lines = append(lines, m.suggestionRows(i, s)...)
 		}
 	}
-	lines = append(lines, "", m.help.ShortHelpView(m.keys()))
+	lines = append(lines, "")
+	lines = append(lines, wrapped(m.help.ShortHelpView(m.keys()), m.width)...)
 	v := tea.NewView(strings.Join(lines, "\n"))
-	v.Cursor = tea.NewCursor(lipgloss.Width(m.spec.Prompt+string(m.line[:m.cursor])), row)
+	v.Cursor = tea.NewCursor(col, row)
 	return v
 }
 
@@ -164,9 +187,6 @@ func (m Model) press(k tea.KeyPressMsg) (Model, tea.Cmd) {
 	switch {
 	case key.Matches(k, cancelKey):
 		m.err = ui.ErrCancelled
-		return m, tea.Quit
-	case key.Matches(k, leaveKey):
-		m.err = ui.ErrLeave
 		return m, tea.Quit
 	case m.listing != "":
 		m.queue = append(m.queue, k)
@@ -356,15 +376,27 @@ func (m Model) said() []string {
 	return lines
 }
 
-func (m Model) suggestionRow(i int, s Suggestion) string {
+// suggestionRows is a suggestion wrapped under its two-column mark, the one in the line marked
+// and in the accent.
+func (m Model) suggestionRows(i int, s Suggestion) []string {
 	row := s.Path
 	if s.Note != "" {
 		row += "   (" + s.Note + ")"
 	}
-	if i == m.pick {
-		return "› " + picked.Render(row)
+	rows := wrapped(row, max(m.width-2, 1))
+	for j, r := range rows {
+		lead := "  "
+		if i == m.pick {
+			if j == 0 {
+				lead = "› "
+			}
+			if !m.spec.Plain {
+				r = picked.Render(r)
+			}
+		}
+		rows[j] = lead + r
 	}
-	return "  " + row
+	return rows
 }
 
 // keys are the keys the hint line shows: the arrows only when there are suggestions.
@@ -373,7 +405,7 @@ func (m Model) keys() []key.Binding {
 	if len(m.spec.Suggestions) > 0 {
 		keys = append(keys, suggestKey)
 	}
-	return append(keys, acceptKey, leaveKey, cancelKey)
+	return append(keys, acceptKey, cancelKey)
 }
 
 func entryRow(e Entry) string {
@@ -381,6 +413,51 @@ func entryRow(e Entry) string {
 		return e.Name + "/"
 	}
 	return e.Name + "/  (" + e.Note + ")"
+}
+
+// wrapping is text laid out in rows, and where a cursor in it is.
+type wrapping struct {
+	rows     []string
+	row, col int
+}
+
+// wrapped is text in rows of at most width cells, cut anywhere (a path has no spaces to break
+// at), nothing left out. Empty text is one empty row.
+func wrapped(text string, width int) []string { return wrapAt("", text, 0, width).rows }
+
+// wrapAt is prompt then text in rows of at most width cells, and the row and column of a
+// cursor before text's rune at cursor. A cursor at the very end of a full row is at the start
+// of a row of its own, as a terminal puts it.
+func wrapAt(prompt, text string, cursor, width int) wrapping {
+	width = max(width, 1)
+	var out wrapping
+	var cur strings.Builder
+	used := 0
+	runes := append([]rune(prompt), []rune(text)...)
+	at := len([]rune(prompt)) + cursor
+	for i, r := range runes {
+		w := lipgloss.Width(string(r))
+		if used+w > width && used > 0 {
+			out.rows = append(out.rows, cur.String())
+			cur.Reset()
+			used = 0
+		}
+		if i == at {
+			out.row, out.col = len(out.rows), used
+		}
+		cur.WriteRune(r)
+		used += w
+	}
+	if at >= len(runes) {
+		out.row, out.col = len(out.rows), used
+		if used >= width {
+			out.rows = append(out.rows, cur.String())
+			cur.Reset()
+			out.row, out.col = len(out.rows), 0
+		}
+	}
+	out.rows = append(out.rows, cur.String())
+	return out
 }
 
 // componentStart is where the path component before the cursor starts, its slash kept.
@@ -406,16 +483,25 @@ func sharedPrefix(names []string) string {
 	return string(prefix)
 }
 
-// Asker asks for a path on a terminal: In is read for the keys, Out drawn on.
+// Asker asks for a path on a terminal: In is read for the keys, Out drawn on. Width and Height,
+// when set, stand in for the terminal's size.
 type Asker struct {
-	In  io.Reader
-	Out io.Writer
+	In            io.Reader
+	Out           io.Writer
+	Width, Height int
 }
 
-// Ask runs the line until a path is given (ui.ErrLeave for Esc, ui.ErrCancelled for Ctrl+C or
-// an interrupt).
+// Ask runs the line until a path is given (ui.ErrCancelled for Esc, Ctrl+C or an interrupt).
+// A heading that names no place is ui.ErrNoHeading, and nothing is drawn.
 func (a *Asker) Ask(ctx context.Context, s Spec) (string, error) {
-	p := tea.NewProgram(New(ctx, s), tea.WithContext(ctx), tea.WithInput(a.In), tea.WithOutput(a.Out))
+	if _, err := s.Heading.Draw(false, defaultWidth); err != nil {
+		return "", err
+	}
+	opts := []tea.ProgramOption{tea.WithContext(ctx), tea.WithInput(a.In), tea.WithOutput(a.Out)}
+	if a.Width > 0 {
+		opts = append(opts, tea.WithWindowSize(a.Width, a.Height))
+	}
+	p := tea.NewProgram(New(ctx, s), opts...)
 	final, err := p.Run()
 	if errors.Is(err, tea.ErrInterrupted) {
 		return "", ui.ErrCancelled

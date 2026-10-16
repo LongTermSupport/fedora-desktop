@@ -86,24 +86,14 @@ func TestEveryQuestionShowsTheTeamTheStepTheContainerAndTheUser(t *testing.T) {
 	if code := r.run("alpha"); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
 	}
-	wants := []string{
-		"--header Add an LXC member to alpha · step 1/4 Container\n",
-		"--header Add an LXC member to alpha · step 2/4 User · container-a\n",
-		"--header Add an LXC member to alpha · step 4/4 Role · container-a, user agent\n",
-	}
-	for i, want := range wants {
-		if !strings.Contains(r.Script.GumLog[i], want) {
-			t.Fatalf("question %d lacks its context %q: %q", i+1, want, r.Script.GumLog[i])
-		}
-	}
-	if got := r.paths.specs[0].Heading; got != "Add an LXC member to alpha · step 3/4 Checkout · container-a, user agent" {
-		t.Fatalf("the checkout line's heading %q", got)
+	r.Script.HeadingAt(1, "Teams › alpha › Add LXC member · step 2/4 User\ninto team alpha · container container-a")
+	r.Script.HeadingAt(2, "Teams › alpha › Add LXC member · step 4/4 Role\ninto team alpha · container container-a · user agent · checkout /srv/agent/one")
+	h := r.paths.specs[0].Heading
+	if h.Trail() != "Teams › alpha › Add LXC member · step 3/4 Checkout" || h.Context != "into team alpha · container container-a · user agent" {
+		t.Fatalf("the checkout line's heading %q / %q", h.Trail(), h.Context)
 	}
 	said := r.ErrOut.String()
-	for _, want := range []string{
-		"1/4  Container · Add an LXC member to alpha\n",
-		"3/4  Checkout · Add an LXC member to alpha · container-a, user agent\n",
-	} {
+	for _, want := range []string{"1/4  Container\n", "3/4  Checkout\n"} {
 		if !strings.Contains(said, want) {
 			t.Fatalf("the step heading lacks %q:\n%s", want, said)
 		}

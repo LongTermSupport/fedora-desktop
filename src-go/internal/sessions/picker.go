@@ -139,19 +139,39 @@ func (a *App) choose(ctx context.Context, st *pickState, rows []tableRow) (ui.Pi
 	for i, r := range rows {
 		texts[i], tags[i], menus[i] = r.text(home), strconv.Itoa(i), sessionMenu(r)
 	}
-	picked, err := a.Picker.Pick(ctx, ui.PickSpec{
+	picked, err := a.Picker.Pick(ctx, st.heading(len(rows)), ui.PickSpec{
 		Title: "CCY sessions", Header: st.header, Rows: texts, Tags: tags,
 		Actions: []ui.Action{st.newAction}, Menus: menus,
 	})
 	return picked, err
 }
 
+// sessionsCrumb is the first crumb of every ccy-sessions screen.
+const sessionsCrumb = "Sessions"
+
+// heading is the list's heading: how many sessions run, and where a new one would start.
+func (st *pickState) heading(running int) ui.Heading {
+	where := "new sessions start in " + st.here
+	if !st.projectHere {
+		where = st.here + " is not a project folder"
+	}
+	return ui.Here(sessionsCrumb).About(strconv.Itoa(running) + " running · " + where)
+}
+
+// sessionHeading is the heading of a question about the session name.
+func sessionHeading(name, question, context string) ui.Heading {
+	return ui.Here(sessionsCrumb, name, question).About(context)
+}
+
 // sessionMenu is what Enter on a session offers: attaching it here when no other terminal has
 // it, taking it over, and ending it.
 func sessionMenu(r tableRow) ui.Menu {
 	var acts []ui.Action
+	state := "detached"
 	if !r.elsewhere() {
 		acts = append(acts, ui.Action{ID: actAttach, Label: "Attach it here"})
+	} else {
+		state = "open elsewhere"
 	}
 	acts = append(acts,
 		ui.Action{ID: actTakeOver, Label: "Take it over here (any other terminal on it is detached; the session keeps running)", Key: "ctrl-t"},
@@ -160,6 +180,7 @@ func sessionMenu(r tableRow) ui.Menu {
 		Title:   r.Name,
 		Header:  ui.Header("Enter choose   Esc or q back to the list", r.Name+": what to do"),
 		Actions: acts,
+		Heading: ui.Here(sessionsCrumb, r.Name).About("session " + r.Name + " · " + state),
 	}
 }
 
@@ -170,7 +191,7 @@ func (a *App) noSessions(ctx context.Context, st *pickState) term.ExitCode {
 		a.sayf("No CCY or cc sessions are running. Start one with ccy or cc in a project directory.\n")
 		return term.ExitOK
 	}
-	yes, err := a.Picker.Confirm(ctx, "CCY sessions", "No sessions are running. Start ccy in "+st.here+"?", "start ccy here", false)
+	yes, err := a.Picker.Confirm(ctx, ui.Here(sessionsCrumb, "Start ccy").About("0 running · in "+st.here), "No sessions are running. Start ccy in "+st.here+"?", "start ccy here", false)
 	if err != nil {
 		a.failErr(err)
 		return term.ExitFailure
@@ -240,7 +261,7 @@ func (a *App) startHere(st *pickState) step {
 // kill-session never lets the pane's trampoline remove it. A session that ended since the list
 // was drawn is just as ended.
 func (a *App) confirmEnd(ctx context.Context, name string) step {
-	yes, err := a.Picker.Confirm(ctx, "End "+name+"?", "Everything running in it will be killed.", "end '"+name+"'", false)
+	yes, err := a.Picker.Confirm(ctx, sessionHeading(name, "End", "session "+name), "End "+name+"? Everything running in it will be killed.", "end '"+name+"'", false)
 	if err != nil {
 		a.failErr(err)
 		return leave(term.ExitFailure)
@@ -314,8 +335,8 @@ func (a *App) confirmTakeOver(ctx context.Context, st *pickState, name string) s
 		}
 		return tried
 	}
-	yes, err := a.Picker.Confirm(ctx, "Take over "+name+"?",
-		"It is open on "+others+". That terminal is detached, not closed, and the session keeps running.",
+	yes, err := a.Picker.Confirm(ctx, sessionHeading(name, "Take over", "session "+name+" · open on "+others),
+		"Take over "+name+"? It is open on "+others+". That terminal is detached, not closed, and the session keeps running.",
 		"take over '"+name+"'", false)
 	if err != nil {
 		a.failErr(err)

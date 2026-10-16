@@ -45,9 +45,9 @@ func fzfSays(f *execx.Fake, outs ...string) {
 
 func TestEveryActionIsAVisibleRowOrMenuLineWithItsKeyBesideIt(t *testing.T) {
 	f := &execx.Fake{}
-	p := &Picker{Runner: f}
+	p := &Picker{Runner: f, Plain: true}
 	fzfSays(f, "\nalpha\t0\n", "\nShut down alpha\t1\n")
-	got, err := p.Pick(context.Background(), teamsSpec())
+	got, err := p.Pick(context.Background(), testHead, teamsSpec())
 	if err != nil || got.Action != "shutdown" || got.Row != "alpha" {
 		t.Fatalf("Enter on a row then a menu line: got %+v, %v", got, err)
 	}
@@ -64,7 +64,7 @@ func TestEveryActionIsAVisibleRowOrMenuLineWithItsKeyBesideIt(t *testing.T) {
 	if err != nil || string(in) != "Open alpha in Element   (Ctrl-E)\t0\nShut down alpha\t1\nBack to the list\n" {
 		t.Fatalf("menu rows fed %q, %v", in, err)
 	}
-	if !slices.Contains(menu.Args, "--border-label= team alpha ") || !slices.Contains(menu.Args, "--header=What to do with alpha:\n") {
+	if !slices.Contains(menu.Args, "--border-label= team alpha ") || !slices.Contains(menu.Args, "--header=Test › team alpha\n────────────────────────\nWhat to do with alpha:\n") {
 		t.Fatalf("menu args %v", menu.Args)
 	}
 	if !slices.Contains(menu.Args, "--expect=ctrl-e") {
@@ -90,7 +90,7 @@ func TestAKeyChoosesOnlyWhatTheScreenOrTheRowOffers(t *testing.T) {
 	for _, c := range cases {
 		f := &execx.Fake{}
 		fzfSays(f, c.out)
-		got, err := (&Picker{Runner: f}).Pick(context.Background(), teamsSpec())
+		got, err := (&Picker{Runner: f}).Pick(context.Background(), testHead, teamsSpec())
 		no, isNo := errors.AsType[*NotOfferedError](err)
 		if isNo != c.notOffered || got.Action != c.action || got.Row != c.row {
 			t.Errorf("%q: got %+v, %v", c.out, got, err)
@@ -104,19 +104,19 @@ func TestAKeyChoosesOnlyWhatTheScreenOrTheRowOffers(t *testing.T) {
 func TestLeavingARowMenuIsBackNotLeave(t *testing.T) {
 	f := &execx.Fake{}
 	fzfSays(f, "\nbeta\t1\n", "\nBack to the list\n")
-	_, err := (&Picker{Runner: f}).Pick(context.Background(), teamsSpec())
+	_, err := (&Picker{Runner: f}).Pick(context.Background(), testHead, teamsSpec())
 	if !errors.Is(err, ErrBack) || errors.Is(err, ErrLeave) {
 		t.Fatalf("got %v", err)
 	}
 	f = &execx.Fake{}
 	fzfSays(f, "\nbeta\t1\n", "ctrl-x\nBack to the list\n")
-	got, err := (&Picker{Runner: f}).Pick(context.Background(), teamsSpec())
+	got, err := (&Picker{Runner: f}).Pick(context.Background(), testHead, teamsSpec())
 	if err != nil || got.Action != "remove" || got.Row != "beta" {
 		t.Fatalf("a menu's own key chooses its line wherever the cursor is: %+v, %v", got, err)
 	}
 	f = &execx.Fake{}
 	fzfSays(f, "\nbeta\t1\n", fzfFails)
-	if _, err := (&Picker{Runner: f}).Pick(context.Background(), teamsSpec()); err == nil || errors.Is(err, ErrBack) {
+	if _, err := (&Picker{Runner: f}).Pick(context.Background(), testHead, teamsSpec()); err == nil || errors.Is(err, ErrBack) {
 		t.Fatalf("a failing menu is a failure: %v", err)
 	}
 }
@@ -139,7 +139,7 @@ func TestActionsThatCannotBeShownAreRefused(t *testing.T) {
 	}
 	for name, spec := range bad {
 		spec.Title = "t"
-		if _, err := (&Picker{Runner: &execx.Fake{}}).Pick(context.Background(), spec); !errors.Is(err, ErrBadAction) {
+		if _, err := (&Picker{Runner: &execx.Fake{}}).Pick(context.Background(), testHead, spec); !errors.Is(err, ErrBadAction) {
 			t.Errorf("%s: got %v", name, err)
 		}
 	}
@@ -148,14 +148,14 @@ func TestActionsThatCannotBeShownAreRefused(t *testing.T) {
 func TestActionRowsCanHaveHeadersOfTheirOwn(t *testing.T) {
 	f := &execx.Fake{}
 	fzfSays(f, "\nExit\n")
-	_, err := (&Picker{Runner: f}).Pick(context.Background(), PickSpec{
+	_, err := (&Picker{Runner: f, Plain: true}).Pick(context.Background(), testHead, PickSpec{
 		Title: "t", Header: "base", Rows: []string{"a"}, Actions: []Action{{ID: "s", Label: "S", Key: "tab"}},
 		RowHeaders: []string{"for a", "for S"},
 	})
 	if !errors.Is(err, ErrLeave) {
 		t.Fatal(err)
 	}
-	if !slices.ContainsFunc(f.Calls()[0].Args, func(a string) bool { return strings.Contains(a, "1) printf '%s\\n' 'for S'") }) {
+	if !slices.ContainsFunc(f.Calls()[0].Args, func(a string) bool { return strings.Contains(a, "1) printf '%s\\n' '"+testHeadText+"for S'") }) {
 		t.Fatalf("args %q", f.Calls()[0].Args)
 	}
 }
@@ -178,7 +178,7 @@ func TestAnAnswerThatIsNotInTheListIsAnError(t *testing.T) {
 	for _, out := range []string{"ctrl-e", "\nalpha\t9\n", "\nalpha\tx\n", "\nnot a row\n"} {
 		f := &execx.Fake{}
 		fzfSays(f, out)
-		if _, err := (&Picker{Runner: f}).Pick(context.Background(), teamsSpec()); err == nil || errors.Is(err, ErrLeave) {
+		if _, err := (&Picker{Runner: f}).Pick(context.Background(), testHead, teamsSpec()); err == nil || errors.Is(err, ErrLeave) {
 			t.Errorf("%q: want an error, got %v", out, err)
 		}
 	}
@@ -187,14 +187,14 @@ func TestAnAnswerThatIsNotInTheListIsAnError(t *testing.T) {
 func TestAPlainScreenActionNeedsNoMenus(t *testing.T) {
 	f := &execx.Fake{}
 	fzfSays(f, "?\nr\t0\n")
-	got, err := (&Picker{Runner: f}).Pick(context.Background(), PickSpec{
+	got, err := (&Picker{Runner: f}).Pick(context.Background(), testHead, PickSpec{
 		Title: "t", Rows: []string{"r"}, Tags: []string{"row-r"}, Actions: []Action{{ID: "help", Label: "Help", Key: "?"}},
 	})
 	if err != nil || got.Action != "help" {
 		t.Fatalf("got %+v, %v", got, err)
 	}
 	fzfSays(f, "\nr\t0\n")
-	got, err = (&Picker{Runner: f}).Pick(context.Background(), PickSpec{
+	got, err = (&Picker{Runner: f}).Pick(context.Background(), testHead, PickSpec{
 		Title: "t", Rows: []string{"r"}, Tags: []string{"row-r"}, Actions: []Action{{ID: "help", Label: "Help", Key: "?"}},
 	})
 	if err != nil || got.Row != "r" || got.Tag != "row-r" || got.Action != "" {

@@ -111,7 +111,7 @@ func (a *Adder) pathSpec(ans *answers, found []declare.Checkout, value string) p
 		suggestions = append(suggestions, pathinput.Suggestion{Path: c.Path, Note: note})
 	}
 	return pathinput.Spec{
-		Heading: a.context(ans, "Checkout"), Prompt: "Checkout in " + ans.container + ": ",
+		Heading: a.head, Prompt: "Checkout in " + ans.container + ": ",
 		Value: value, Suggestions: suggestions,
 		List: func(ctx context.Context, dir string) (pathinput.Listing, error) { return a.listing(ctx, ans, dir) },
 	}

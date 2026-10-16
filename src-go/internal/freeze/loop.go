@@ -81,7 +81,7 @@ func (s *Session[R]) choose(ctx context.Context) ([]string, error) {
 		s.stderr.Printf("Nothing in that group.\n\n")
 		return nil, errAgain
 	}
-	picked, err := s.drill(ctx, group)
+	picked, err := s.drill(ctx, s.groupLine(key), group)
 	if errors.Is(err, ErrBack) {
 		s.stderr.Printf("\n")
 		return nil, errAgain
@@ -113,11 +113,11 @@ func (s *Session[R]) pickTarget(ctx context.Context) (string, error) {
 
 // drill narrows a group to the names the person wants: the whole group for the "all" row, or
 // ErrBack. An empty group is back without asking anything.
-func (s *Session[R]) drill(ctx context.Context, group []string) ([]string, error) {
+func (s *Session[R]) drill(ctx context.Context, line string, group []string) ([]string, error) {
 	if len(group) == 0 {
 		return nil, ErrBack
 	}
-	choice, err := s.Chooser.Members(ctx, s.screen(group))
+	choice, err := s.Chooser.Members(ctx, s.screen(line, group))
 	if err != nil {
 		return nil, err
 	}

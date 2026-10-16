@@ -133,6 +133,7 @@ func TestNewSessionOffersFreeSeatsAndANewOneAndExecsTheLauncherInTheTop(t *testi
 		!strings.Contains(header, "Runs ccy --teams <seat>@alpha in "+h.Checkout()+"; a new seat is created by that launch (sudo).") {
 		t.Fatalf("header %q", header)
 	}
+	h.Script.HeadingAt(0, "Teams › alpha › New session\nteam alpha · in "+h.Checkout())
 }
 
 func TestNewSessionTakesAFreeSeat(t *testing.T) {
@@ -300,6 +301,7 @@ func TestRemoveSeatAsksThenRemovesInItsCheckout(t *testing.T) {
 	if !strings.Contains(h.HeaderOf(0), "proj.1+local.podman is parked (its token revoked; its history kept) and the seat's directory in "+h.Checkout()+" deleted. Launching into 1@alpha again brings it back.") {
 		t.Fatalf("header %q", h.HeaderOf(0))
 	}
+	h.Script.HeadingAt(0, "Teams › alpha › seat 1 › Remove\nseat 1@alpha · proj.1+local.podman · in "+h.Checkout())
 }
 
 func TestRemoveSeatNoRemovesNothingAndFailureIsSaid(t *testing.T) {

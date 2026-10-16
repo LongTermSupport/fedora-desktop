@@ -123,9 +123,9 @@ var (
 )
 
 const (
-	modeHeader    = "Step 1/3 — pick a primary mode  (viewer + hotspot offered next for server modes)"
-	viewerHeader  = "Step 2/3 — viewer?  (rare; usually leave 'no viewer')"
-	hotspotHeader = "Step 3/3 — hotspot?  (skips public WiFi; rare unless on an untrusted network)"
+	modeHeader    = "Pick a primary mode  (viewer + hotspot offered next for server modes)"
+	viewerHeader  = "Viewer?  (rare; usually leave 'no viewer')"
+	hotspotHeader = "Hotspot?  (skips public WiFi; rare unless on an untrusted network)"
 )
 
 // modeDefault is the launcher's word for the default FTP-server mode.
@@ -161,8 +161,15 @@ func launcherFlags(mode, viewer, hotspot string) []string {
 	return flags
 }
 
-// ask is one launcher question: a header, the row to start on, the rows, the fzf height.
-type ask func(ctx context.Context, header, selected string, rows []string, height string) (string, error)
+// ask is one launcher question under a heading: a header, the row to start on, the rows, the fzf
+// height.
+type ask func(ctx context.Context, h ui.Heading, header, selected string, rows []string, height string) (string, error)
+
+// launchCrumb is the crumb of the launcher's questions, and launchSteps how many it asks at most.
+const (
+	launchCrumb = "ftp-camera"
+	launchSteps = 3
+)
 
 // launch asks the launcher's questions (E8). ok false ends the run with code.
 func (c *cli) launch(ctx context.Context) ([]string, term.ExitCode, bool) {
@@ -173,12 +180,14 @@ func (c *cli) launch(ctx context.Context) ([]string, term.ExitCode, bool) {
 		c.err.f("  for the full flag list, or install gum/fzf to get the picker.\n")
 		return nil, term.ExitOK, true
 	}
-	mode, err := q(ctx, modeHeader, modeLines[0], modeLines, "40%")
+	mode, err := q(ctx, ui.Here(launchCrumb).AtStep(1, launchSteps, "Mode"), modeHeader, modeLines[0], modeLines, "40%")
 	viewer, hotspot := "", ""
 	if err == nil && serverKeyword(firstWord(mode)) {
-		viewer, err = q(ctx, viewerHeader, viewerLines[0], viewerLines, "20%")
+		viewer, err = q(ctx, ui.Here(launchCrumb).AtStep(2, launchSteps, "Viewer").About("mode "+firstWord(mode)),
+			viewerHeader, viewerLines[0], viewerLines, "20%")
 		if err == nil {
-			hotspot, err = q(ctx, hotspotHeader, hotspotLines[0], hotspotLines, "20%")
+			hotspot, err = q(ctx, ui.Here(launchCrumb).AtStep(3, launchSteps, "Hotspot").About("mode "+firstWord(mode)+" · "+viewer),
+				hotspotHeader, hotspotLines[0], hotspotLines, "20%")
 		}
 	}
 	switch {
@@ -194,15 +203,15 @@ func (c *cli) launch(ctx context.Context) ([]string, term.ExitCode, bool) {
 // chooser is gum when installed, else fzf, else nil (E8, D4).
 func (c *cli) chooser() ask {
 	if c.onPath("gum") {
-		g := &ui.Gum{Runner: c.env.Runner, Stdin: c.env.Stdin, Stderr: c.env.Stderr}
-		return func(ctx context.Context, header, selected string, rows []string, _ string) (string, error) {
-			return g.Choose(ctx, header, selected, rows)
+		g := &ui.Gum{Runner: c.env.Runner, Stdin: c.env.Stdin, Stderr: c.env.Stderr, Plain: !c.t.ColourOn(c.env.Stderr)}
+		return func(ctx context.Context, h ui.Heading, header, selected string, rows []string, _ string) (string, error) {
+			return g.Choose(ctx, h, header, selected, rows)
 		}
 	}
 	if c.onPath("fzf") {
 		p := &ui.Picker{Runner: c.env.Runner, Stderr: c.env.Stderr}
-		return func(ctx context.Context, header, _ string, rows []string, height string) (string, error) {
-			got, err := p.Choose(ctx, ui.ChooseSpec{Prompt: "> ", Header: header, Height: height, Rows: rows})
+		return func(ctx context.Context, h ui.Heading, header, _ string, rows []string, height string) (string, error) {
+			got, err := p.Choose(ctx, h, ui.ChooseSpec{Prompt: "> ", Header: header, Height: height, Rows: rows})
 			if err != nil {
 				return "", err
 			}

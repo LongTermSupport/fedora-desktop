@@ -216,6 +216,20 @@ func TestHappyPathAsksOnlyTheContainerUserCheckoutAndRoleThenWritesAndAppliesAnd
 		t.Fatalf("%d gum questions and %d checkout lines were asked, want 4 and 1:\n%s",
 			len(r.Script.GumLog), len(r.paths.specs), strings.Join(r.Script.GumLog, "\n"))
 	}
+	// Each question names the team it adds to, its step, and the answers so far; the last is
+	// the review of what joins which team. The checkout's line (step 3) is not gum's.
+	if h := r.paths.specs[0].Heading; h.Trail() != "Teams › alpha › Add LXC member · step 3/4 Checkout" ||
+		h.Context != "into team alpha · container container-a · user agent" {
+		t.Fatalf("the checkout line's heading %q / %q", h.Trail(), h.Context)
+	}
+	for i, want := range []string{
+		"Teams › alpha › Add LXC member · step 1/4 Container\ninto team alpha",
+		"Teams › alpha › Add LXC member · step 2/4 User\ninto team alpha · container container-a",
+		"Teams › alpha › Add LXC member · step 4/4 Role\ninto team alpha · container container-a · user agent · checkout /srv/agent/one",
+		"Teams › alpha › Add LXC member › Review\nagent@container-a joins team alpha · role worker",
+	} {
+		r.Script.HeadingAt(i, want)
+	}
 }
 
 func TestAClaudeSessionAlreadyRunningIsToldToBeStartedAgainToJoin(t *testing.T) {
@@ -489,13 +503,13 @@ func TestTheCoordinatorIsOfferedPlainlyWhenTheTeamHasNone(t *testing.T) {
 	}
 }
 
-// roleQuestion is the gum call that asked the role.
-// roleContext is the context line every Role question carries, the takeover offer included.
-const roleContext = "Add an LXC member to alpha · step 4/4 Role · container-a, user agent"
+// roleHeading is the heading every Role question carries, the takeover offer included.
+const roleHeading = "Teams › alpha › Add LXC member · step 4/4 Role\ninto team alpha · container container-a · user agent · checkout /srv/agent/one"
 
+// roleQuestion is the gum call that asked the role.
 func (r *rig) roleQuestion() string {
 	for _, line := range r.Script.GumLog {
-		if strings.HasPrefix(line, "gum choose --header "+roleContext+"\nRole ") {
+		if strings.HasPrefix(line, "gum choose --header Role ") {
 			return line
 		}
 	}
@@ -544,7 +558,9 @@ func TestTheTakeoverOfADeclaredCoordinatorMakesItsEntryAWorkerFirst(t *testing.T
 	if code := r.run("alpha"); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
 	}
-	confirm := "gum confirm --default=false " + roleContext + "\n" + coordinator.OfferTakeover("alpha", "agent@container-a", h)
+	confirm := "gum confirm --default=false " + coordinator.OfferTakeover("alpha", "agent@container-a", h)
+	r.Script.HeadingAt(2, roleHeading)
+	r.Script.HeadingAt(3, roleHeading)
 	if !slices.Contains(r.Script.GumLog, confirm) {
 		t.Fatalf("no takeover question %q in %q", confirm, r.Script.GumLog)
 	}
