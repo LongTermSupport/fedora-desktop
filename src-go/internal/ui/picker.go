@@ -55,6 +55,12 @@ type PickSpec struct {
 	RowHeaders []string
 	// ExitLabel names the last row; it is ExitRow when empty.
 	ExitLabel string
+	// Typed makes the filter a line the person types into, handed back as Picked.Query:
+	// Enter or a key on text that matches no row returns it with no row instead of leaving,
+	// and q is a letter to type, not a way out (Esc and the Exit row still leave).
+	Typed bool
+	// Prompt replaces "filter > " before the typed text; Query is the text it starts with.
+	Prompt, Query string
 }
 
 // errHeaderCount is RowHeaders that do not pair up with Rows.
@@ -73,6 +79,8 @@ type Picked struct {
 	Key string
 	Row string
 	Tag string
+	// Query is the text typed into a Typed picker.
+	Query string
 }
 
 // errTagCount is Tags that do not pair up with Rows.
@@ -98,8 +106,8 @@ func (p *Picker) Pick(ctx context.Context, s PickSpec) (Picked, error) {
 		"--color=" + pickerColours,
 		"--border=rounded", "--border-label= " + s.Title + " ", "--border-label-pos=3",
 		"--margin=1,2", "--padding=1,2", "--header-first", "--pointer=▶",
-		"--prompt=filter > ", "--bind=q:abort",
 	}, headerArgs...)
+	args = append(args, s.typingArgs()...)
 	// fzf refuses an empty --expect, so it is passed only when there are keys.
 	if len(s.Keys) > 0 {
 		args = append(args, "--expect="+strings.Join(s.Keys, ","))
@@ -125,8 +133,15 @@ func (p *Picker) Pick(ctx context.Context, s PickSpec) (Picked, error) {
 	res, err := p.Runner.Run(ctx, execx.Cmd{
 		Name: "fzf", Args: args, Env: s.env(), Stdin: strings.NewReader(rows), Stderr: p.Stderr,
 	})
+	return s.picked(strings.TrimSuffix(string(res.Stdout), "\n"), err, exitRow)
+}
+
+// picked reads what fzf printed, and how it ended, as the row chosen and the key that chose it.
+func (s PickSpec) picked(out string, err error, exitRow string) (Picked, error) {
 	if err != nil {
 		switch code := exitCode(err); {
+		case code == fzfNoMatch && s.Typed:
+			return typedOnly(out, len(s.Keys) > 0), nil
 		case code == fzfNoMatch, code == fzfInterrupted:
 			return Picked{}, ErrLeave
 		case execx.IsNotInstalled(err):
@@ -134,10 +149,15 @@ func (p *Picker) Pick(ctx context.Context, s PickSpec) (Picked, error) {
 		}
 		return Picked{}, fmt.Errorf("fzf: %w", err)
 	}
-	picked, err := parsePicked(strings.TrimSuffix(string(res.Stdout), "\n"), len(s.Keys) > 0)
+	query := ""
+	if s.Typed {
+		query, out = splitLine(out)
+	}
+	picked, err := parsePicked(out, len(s.Keys) > 0)
 	if err != nil {
 		return Picked{}, err
 	}
+	picked.Query = query
 	if len(s.Tags) > 0 {
 		if row, tag, tagged := strings.Cut(picked.Row, tagDelimiter); tagged {
 			picked.Row, picked.Tag = row, tag
@@ -147,6 +167,37 @@ func (p *Picker) Pick(ctx context.Context, s PickSpec) (Picked, error) {
 		return Picked{}, ErrLeave
 	}
 	return picked, nil
+}
+
+// typingArgs is the prompt, and for a Typed picker the text it starts with and the query handed
+// back; q leaves only a picker that is not typed into.
+func (s PickSpec) typingArgs() []string {
+	prompt := "filter > "
+	if s.Prompt != "" {
+		prompt = s.Prompt
+	}
+	if !s.Typed {
+		return []string{"--prompt=" + prompt, "--bind=q:abort"}
+	}
+	return []string{"--prompt=" + prompt, "--print-query", "--query=" + s.Query}
+}
+
+// typedOnly is what a Typed picker printed when nothing matched what was typed: the query, then
+// the key when keys were expected, and no row.
+func typedOnly(out string, withKey bool) Picked {
+	query, key := splitLine(out)
+	if !withKey {
+		key = ""
+	}
+	return Picked{Query: query, Key: key}
+}
+
+// splitLine is text's first line and what follows it ("" when there is no second line).
+func splitLine(text string) (string, string) {
+	if head, rest, found := strings.Cut(text, "\n"); found {
+		return head, rest
+	}
+	return text, ""
 }
 
 // headerArgs is the fzf arguments that set the header: the one given, or the first row's when

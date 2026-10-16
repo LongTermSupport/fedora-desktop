@@ -91,9 +91,17 @@ Notes on the table:
 
    It asks for sudo (LXC is rootful), lists the host's running containers and asks for the
    container, the agent user (the container's ordinary users are suggested; a user already
-   in another team is fine), the checkout inside it (those in the user's home with a GitHub
-   remote are suggested) and the role (`worker`; `coordinator` only while the team has
-   none). It never asks for the handle's repo, host or seat: they are derived from the
+   in another team is fine), the checkout inside it and the role (`worker`; `coordinator`
+   only while the team has none). Every question shows the team, the step, and the container
+   and user once chosen. The checkout is chosen among the git checkouts with a GitHub remote
+   that a bounded search of the user's home found (ccy projects, those with a `.claude/ccy`
+   directory, first; dependency trees such as `node_modules` and `vendor` are skipped, and a
+   search past its time limit says so), or *Type a path…* opens the container's directories:
+   walk them with the arrows and Enter, or type, with Tab completing a directory name. Every
+   listing is read from the host's side. A container on LXC's `dir` or `btrfs` store is read
+   as the directory its rootfs is; one on `overlay`, `zfs`, `lvm`, `loop`, `rbd` or `nbd`
+   through the running container's own root (`/proc/<init pid>/root`); any other store is
+   refused, naming it. It never asks for the handle's repo, host or seat: they are derived from the
    checkout, as for a ccy seat (below). Each answer is checked as it is
    given by the rules the play applies, and asked again when refused (a duplicate, a second
    coordinator, a relative checkout, a path that is not a git checkout). It then shows a
@@ -102,8 +110,12 @@ Notes on the table:
    `localhost.yml.backup.<time>`) and applies the team, which is step 3. It ends by saying
    what is left inside the container: `gh auth login` as the agent user if gh is not logged
    in (the play stops naming it when it is not; fix that, then `ccy-teams apply <team>`), and
-   `ccy --teams <team>` as that user in the checkout. The container and user must already
-   exist; this never makes either.
+   `agent-bus-claude` (the kit's launcher) as that user in the checkout. It looks, read only,
+   for a Claude session of that user already running in the container: one started before
+   the add has not joined, and is named with when it started, to be ended and started again.
+   It also prints the check to run there: `set -a; . ~/.config/pingbus/env; set +a; pingbus status` (a login shell has not read the env file, which only `agent-bus-claude` reads, so
+   `pingbus` alone refuses, saying this). The container and user must already exist; this
+   never makes either.
 
    **Or declare the member by hand** in `agent_bus_lxc_members` in the same file, which is
    what the command writes:
@@ -159,11 +171,14 @@ own `pingbus suggest-handle` is only held to the same answer: if it names anothe
 host, the play refuses and mints nothing.
 
 The checkout is read from the host's side, as root, through the container's LXC config (its
-rootfs and the bind mounts the config declares), so it also works for a container that is
-stopped. Nothing is run there: `.git/config` and `ccy.env.local` are read as plain files, no
+rootfs and the bind mounts the config declares). A `dir` or `btrfs` rootfs is a directory on
+the host, so a stopped container is read too; the other stores (`overlay`, `overlayfs`, `zfs`,
+`lvm`, `loop`, `rbd`, `nbd`) are mounted only inside the running container, so they are read
+through its init process's root (`/proc/<pid>/root`, the pid from `lxc-info`), which needs it
+running; any other store is refused, naming it. Nothing is run there: `.git/config` and `ccy.env.local` are read as plain files, no
 git is started (a repository config can name programs to run), every path component is opened
 without following a link and a link anywhere is refused, and each file is capped at 64 KiB. A
-container with an `lxc.idmap` (unprivileged) or a rootfs that is not a directory is refused.
+container with an `lxc.idmap` (unprivileged) is refused.
 Git section names are read without regard to case (`[Remote "origin"]`), and a url may be
 quoted as a whole. `git` would apply a `url.<base>.insteadOf` rewrite to the origin, which
 can change the repository's name; this does not apply it, so a checkout whose `.git/config`

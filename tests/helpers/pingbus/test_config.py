@@ -526,6 +526,24 @@ class TestEnvironment(unittest.TestCase):
                 config.active_teams(env)
             self.assertIn("PINGBUS_TEAMS", str(caught.exception))
 
+    def test_unset_teams_beside_a_member_env_file_says_how_to_read_it(self) -> None:
+        # A login shell in an agent member has not read the env file agent-bus-claude reads;
+        # pingbus never reads it itself (one reader), it says exactly how to.
+        with tempfile.TemporaryDirectory() as tmp:
+            env_file = pathlib.Path(tmp, ".config", "pingbus", "env")
+            env_file.parent.mkdir(parents=True)
+            env_file.write_text("PINGBUS_TEAMS=team-a\n", encoding="utf-8")
+            for env in ({"HOME": tmp}, {"HOME": "/nowhere", "PINGBUS_ENV": str(env_file)},
+                        {"HOME": "/nowhere", "XDG_CONFIG_HOME": str(env_file.parent.parent)}):
+                with self.subTest(env=env), self.assertRaises(config.ConfigError) as caught:
+                    config.active_teams(env)
+                self.assertIn(f"set -a; . {env_file}; set +a", str(caught.exception))
+                self.assertIn("agent-bus-claude", str(caught.exception))
+            env_file.unlink()
+            with self.assertRaises(config.ConfigError) as caught:
+                config.active_teams({"HOME": tmp})
+            self.assertNotIn("set -a", str(caught.exception))
+
     def test_active_teams_malformed_refused(self) -> None:
         for value in ("team-a,", ",team-a", "team-a,,team-b", "team-a, team-b", "Team", "a,a"):
             with self.subTest(value=value), self.assertRaises(config.ConfigError):

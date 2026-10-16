@@ -23,11 +23,13 @@
 # md-viewer: rebuild and install at main tip 22a55582735d (text on its baseline, dark mode
 # and font size settings); asserts `md-viewer --version` carries the new commit.
 playbooks/imports/optional/common/play-md-viewer.yml
-# ccy 3.99.10.2 (container 2.75.1 unchanged, so no image rebuild): rebuilds ccy-teams and
-# deploys the launcher. Two ccy launches started together in one project no longer choose the
-# same container name: each launch claims its name (ccy-teams internal claim-container-name,
-# under $XDG_RUNTIME_DIR/ccy/container-names/) before podman creates it. Running sessions are
-# not touched.
+# ccy 3.99.12.4 (container 2.77.3, so each ccy user's image rebuilds once on next launch):
+# rebuilds ccy-teams and deploys the launcher. Two ccy launches started together in one project
+# no longer choose the same container name (3.99.10.2). ccy-teams lxc-add: the Checkout step
+# offers the checkouts found in the user's home and walks the container's directories with Tab
+# completion, every question names team, step, container and user, and the end says how the
+# member starts (agent-bus-claude), whether a running session must be restarted, and how to
+# check it live. Running sessions are not touched.
 playbooks/imports/play-claude-yolo.yml
 # Plan 00203 acceptance again, every milestone in turn, on ccy 3.99.10.2. M2 starts its two
 # throwaway headless sessions (plain and --no-bus) back to back; on 3.99.10.1 both chose the

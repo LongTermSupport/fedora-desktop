@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
@@ -21,6 +22,8 @@ const (
 	probeOutput = `{"path": "/srv/agent/one", "uid": 1000}`
 	derivedLine = "DERIVED\tproj\tworker\t1\tproj.1+worker.lxc\n"
 	handle      = "proj.1+worker.lxc"
+	// oneRow is the checkout found in the user's home as the Checkout question offers it.
+	oneRow = "/srv/agent/one   (example-org/one)"
 )
 
 // lxc is the host's LXC as the flow sees it: which containers there are, who lives in one, and
@@ -36,6 +39,16 @@ type lxc struct {
 	probeErr, scanErr error
 	reads             []string
 	scriptsRun        []string
+
+	// dirs is what the reader prints for a directory listing, by path; dirsErr its failures.
+	dirs    map[string]string
+	dirsErr map[string]error
+	// hang makes the home search wait until it is stopped, as one too slow to finish would.
+	hang bool
+
+	// sessions is what the reader prints for the user's Claude sessions; sessionsErr a failed look.
+	sessions    string
+	sessionsErr error
 }
 
 func (l *lxc) Containers(context.Context) ([]string, []string, error) {
@@ -47,11 +60,29 @@ func (l *lxc) Users(_ context.Context, container string) ([]string, error) {
 	return l.users, l.usersErr
 }
 
-func (l *lxc) ReadCheckout(_ context.Context, script, mode, container, user, path string) (string, error) {
+func (l *lxc) ReadCheckout(ctx context.Context, script, mode, container, user, path string) (string, error) {
 	l.reads = append(l.reads, strings.Join([]string{mode, container, user, path}, " "))
 	l.scriptsRun = append(l.scriptsRun, script)
-	if mode == "probe" {
+	switch mode {
+	case "probe":
 		return l.probe, l.probeErr
+	case "sessions":
+		if l.sessions == "" && l.sessionsErr == nil {
+			return `{"sessions": []}`, nil
+		}
+		return l.sessions, l.sessionsErr
+	case "dirs":
+		if err := l.dirsErr[path]; err != nil {
+			return "", err
+		}
+		if out, ok := l.dirs[path]; ok {
+			return out, nil
+		}
+		return `{"path": "` + path + `", "exists": false, "git": false, "truncated": false, "dirs": []}`, nil
+	}
+	if l.hang {
+		<-ctx.Done()
+		return "", ctx.Err()
 	}
 	return l.scan, l.scanErr
 }
@@ -93,7 +124,7 @@ func newRig(t *testing.T) *rig {
 	w.On(w.DeclarePrefix("declared"), teamtest.DeclaredAlpha, 0)
 	w.OnDeclare("lxc-members", "")
 	w.OnDeclare("lxc-script", theScript)
-	w.OnDeclare("lxc-checkouts", "CHECKOUT\t/srv/agent/one\texample-org/one\n")
+	w.OnDeclare("lxc-checkouts", "CHECKOUT\t/srv/agent/one\texample-org/one\t-\n")
 	w.OnDeclare("lxc-derive", derivedLine)
 	w.OnDeclare("lxc-check", "")
 	w.OnDeclare("lxc-add", "CHANGED\tLXC member agent@container-a in team alpha, in "+w.Host.HostVars+"\n")
@@ -110,7 +141,7 @@ func choose(s string) string { return "CHOOSE:" + s }
 // happy is every question answered for container-a, then the yes: the container, the user, the
 // checkout and the role, and nothing else.
 func (r *rig) happy() {
-	r.answers(choose("container-a"), choose("agent"), choose("/srv/agent/one"), choose("worker"), "YES")
+	r.answers(choose("container-a"), choose("agent"), choose(oneRow), choose("worker"), "YES")
 }
 
 func (r *rig) addLine() string {
@@ -149,16 +180,78 @@ func TestHappyPathAsksOnlyTheContainerUserCheckoutAndRoleThenWritesAndAppliesAnd
 		t.Fatalf("stdout %q", got)
 	}
 	said := r.ErrOut.String()
-	for _, want := range []string{"agent@container-a", "ccy --teams alpha", "/srv/agent/one", "gh auth login", "container-a", handle} {
+	for _, want := range []string{
+		"agent@container-a", "agent-bus-claude", "/srv/agent/one", "gh auth login", "container-a", handle,
+		"set -a; . ~/.config/pingbus/env; set +a; pingbus config check && pingbus history --limit 1",
+		"agent-bus-claude refuses to start until",
+	} {
 		if !strings.Contains(said, want) {
 			t.Fatalf("stderr lacks %q:\n%s", want, said)
 		}
+	}
+	if strings.Contains(said, "ccy --teams alpha") {
+		t.Fatalf("the client project's ccy is named, which refuses a team value in a container:\n%s", said)
 	}
 	if !slices.Equal(r.lxc.readUsersOf, []string{"container-a"}) {
 		t.Fatalf("users read of %v", r.lxc.readUsersOf)
 	}
 	if len(r.Script.GumLog) != 5 {
 		t.Fatalf("%d questions were asked, want 5:\n%s", len(r.Script.GumLog), strings.Join(r.Script.GumLog, "\n"))
+	}
+}
+
+func TestAClaudeSessionAlreadyRunningIsToldToBeStartedAgainToJoin(t *testing.T) {
+	r := newRig(t)
+	r.happy()
+	const started = 1792144800
+	r.lxc.sessions = `{"sessions": [1792144800]}`
+	if code := r.run("alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	want := "A Claude session for agent is already running in container-a (started " +
+		time.Unix(started, 0).Format(startedLayout) + "). " +
+		"End it and start it again with agent-bus-claude, as agent in /srv/agent/one, to join alpha."
+	if said := r.ErrOut.String(); !strings.Contains(said, want) {
+		t.Fatalf("stderr lacks %q:\n%s", want, said)
+	}
+	if !slices.Contains(r.lxc.reads, "sessions container-a agent -") {
+		t.Fatalf("sessions not looked for from the host's side: %v", r.lxc.reads)
+	}
+}
+
+func TestASessionListThatIsNotWhatTheReaderPrintsIsSaidAsAFailedLook(t *testing.T) {
+	r := newRig(t)
+	r.happy()
+	r.lxc.sessions = `{"sessions": ["soon"]}`
+	if code := r.run("alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	if said := r.ErrOut.String(); !strings.Contains(said, "could not be checked") {
+		t.Fatalf("stderr:\n%s", said)
+	}
+}
+
+func TestWithNoSessionRunningItSaysHowToStartOne(t *testing.T) {
+	r := newRig(t)
+	r.happy()
+	if code := r.run("alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	if said := r.ErrOut.String(); !strings.Contains(said, "No Claude session for agent is running in container-a. Start one: as agent in /srv/agent/one, agent-bus-claude") {
+		t.Fatalf("stderr:\n%s", said)
+	}
+}
+
+func TestASessionLookThatFailsIsSaidWithWhatToDoEitherWay(t *testing.T) {
+	r := newRig(t)
+	r.happy()
+	r.lxc.sessionsErr = errors.New("the processes of agent@container-a could not be read: ps: not found")
+	if code := r.run("alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	said := r.ErrOut.String()
+	if !strings.Contains(said, "ps: not found") || !strings.Contains(said, "started before this add must be ended and started again") {
+		t.Fatalf("stderr:\n%s", said)
 	}
 }
 
@@ -187,7 +280,7 @@ func TestTheCheckoutIsReadFromTheHostSideNeverByEnteringTheContainer(t *testing.
 	if code := r.run("alpha"); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
 	}
-	want := []string{"checkouts container-a agent -", "probe container-a agent /srv/agent/one"}
+	want := []string{"checkouts container-a agent -", "probe container-a agent /srv/agent/one", "sessions container-a agent -"}
 	if !slices.Equal(r.lxc.reads, want) {
 		t.Fatalf("reads %v, want %v", r.lxc.reads, want)
 	}
@@ -205,7 +298,7 @@ func TestTheCheckoutIsReadFromTheHostSideNeverByEnteringTheContainer(t *testing.
 
 func TestTheDerivedHandleIsShownInTheSummaryBeforeTheYes(t *testing.T) {
 	r := newRig(t)
-	r.answers(choose("container-a"), choose("agent"), choose("/srv/agent/one"), choose("worker"), "NO")
+	r.answers(choose("container-a"), choose("agent"), choose(oneRow), choose("worker"), "NO")
 	if code := r.run("alpha"); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
 	}
@@ -223,7 +316,7 @@ func TestTheDerivationIsGivenWhatWasReadAndTheTeamsMembers(t *testing.T) {
 	r.roster = agentbus.Roster{Members: []agentbus.Member{
 		{Handle: "proj.1+worker.lxc"}, {Handle: "proj.2+worker.lxc", Parked: true}, {Handle: "proj.3+local.podman"},
 	}}
-	r.answers(choose("container-a"), choose("agent"), choose("/srv/agent/one"), choose("worker"), "YES")
+	r.answers(choose("container-a"), choose("agent"), choose(oneRow), choose("worker"), "YES")
 	if code := r.run("alpha"); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
 	}
@@ -234,50 +327,44 @@ func TestTheDerivationIsGivenWhatWasReadAndTheTeamsMembers(t *testing.T) {
 	}
 }
 
-func TestACheckoutWithAGitHubRemoteInTheUsersHomeIsSuggested(t *testing.T) {
+func TestTheCheckoutsInTheUsersHomeAreOfferedAsChoicesCcyProjectsFirstWithATypedPath(t *testing.T) {
 	r := newRig(t)
-	r.OnDeclare("lxc-checkouts", "CHECKOUT\t/srv/agent/one\texample-org/one\nCHECKOUT\t/srv/agent/two\texample-org/two\n")
+	r.OnDeclare("lxc-checkouts", "CHECKOUT\t/srv/agent/two\texample-org/two\tccy\nCHECKOUT\t/srv/agent/one\texample-org/one\t-\n")
 	r.happy()
 	if code := r.run("alpha"); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
 	}
 	question := r.Script.GumLog[2]
-	if !strings.Contains(question, "--value /srv/agent/one") {
-		t.Fatalf("the checkout question did not suggest the first: %q", question)
-	}
-	if hint := strings.Join(r.Script.Styled, "\n"); !strings.Contains(hint, "/srv/agent/two (example-org/two)") {
-		t.Fatalf("the others are not named:\n%s", hint)
-	}
-}
-
-func TestWithNoCheckoutFoundTheCheckoutIsTypedFromTheUsersHome(t *testing.T) {
-	r := newRig(t)
-	r.OnDeclare("lxc-checkouts", "")
-	r.happy()
-	if code := r.run("alpha"); code != term.ExitOK {
-		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
-	}
-	if question := r.Script.GumLog[2]; !strings.Contains(question, "--value /home/"+"agent/") {
-		t.Fatalf("the checkout question was %q", question)
+	want := "gum choose --header Add an LXC member to alpha · step 3/4 Checkout · container-a, user agent\n" +
+		"Checkout in container-a --selected /srv/agent/two   (example-org/two, a ccy project) " +
+		"/srv/agent/two   (example-org/two, a ccy project) " + oneRow + " Type a path…"
+	if question != want {
+		t.Fatalf("the checkout question was\n%q\nwant\n%q", question, want)
 	}
 }
 
 func TestACheckoutListThatCannotBeReadIsSaidAndTheCheckoutIsTyped(t *testing.T) {
 	r := newRig(t)
 	r.lxc.scanErr = errors.New("/srv/agent/x/.git/config is a symbolic link")
-	r.happy()
+	r.lxc.dirs = map[string]string{home: homeListing}
+	r.answers(choose("container-a"), choose("agent"), choose("worker"), "YES")
+	r.Script.Fzf = []string{"|TYPED:/srv/agent/one"}
 	if code := r.run("alpha"); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
 	}
-	if !strings.Contains(r.ErrOut.String(), "is a symbolic link") {
-		t.Fatalf("stderr %s", r.ErrOut.String())
+	said := r.ErrOut.String()
+	if !strings.Contains(said, "could not be listed: /srv/agent/x/.git/config is a symbolic link") ||
+		!strings.Contains(r.addLine(), "--checkout /srv/agent/one") {
+		t.Fatalf("stderr %s; add %q", said, r.addLine())
 	}
 }
 
 func TestACheckoutThatCannotBeReadIsRefusedWithTheReasonAndAskedAgain(t *testing.T) {
 	r := newRig(t)
 	calls := 0
-	r.answers(choose("container-a"), choose("agent"), choose("/srv/agent/bad"), choose("/srv/agent/one"), choose("worker"), "YES")
+	r.lxc.dirs = map[string]string{home: homeListing}
+	r.answers(choose("container-a"), choose("agent"), choose(typePath), choose(oneRow), choose("worker"), "YES")
+	r.Script.Fzf = []string{"|TYPED:/srv/agent/bad"}
 	r.a.Lister = readerFunc{r.lxc, func(path string) error {
 		calls++
 		if path == "/srv/agent/bad" {
@@ -314,8 +401,8 @@ func (r readerFunc) ReadCheckout(ctx context.Context, script, mode, container, u
 
 func TestACheckoutThatCannotBeReadThreeTimesEndsTheRunWithNothingWritten(t *testing.T) {
 	r := newRig(t)
-	r.lxc.probeErr = errors.New("/srv/agent/bad is not a git checkout")
-	r.answers(choose("container-a"), choose("agent"), choose("/srv/agent/bad"), choose("/srv/agent/bad"), choose("/srv/agent/bad"))
+	r.lxc.probeErr = errors.New("/srv/agent/one is not a git checkout")
+	r.answers(choose("container-a"), choose("agent"), choose(oneRow), choose(oneRow), choose(oneRow))
 	if code := r.run("alpha"); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
 	}
@@ -334,7 +421,7 @@ func TestADerivationDeclarePyRefusesIsSaidAndTheCheckoutAskedAgain(t *testing.T)
 		}
 		return execx.Result{Stdout: []byte(derivedLine)}, nil
 	})
-	r.answers(choose("container-a"), choose("agent"), choose("/srv/agent/one"), choose("/srv/agent/one"), choose("worker"), "YES")
+	r.answers(choose("container-a"), choose("agent"), choose(oneRow), choose(oneRow), choose("worker"), "YES")
 	if code := r.run("alpha"); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
 	}
@@ -399,7 +486,7 @@ func TestCoordinatorIsOfferedOnlyWhenTheTeamHasNone(t *testing.T) {
 		r := newRig(t)
 		r.OnDeclare("lxc-members", tc.members)
 		r.roster = tc.roster
-		r.answers(choose("container-a"), choose("agent"), choose("/srv/agent/one"))
+		r.answers(choose("container-a"), choose("agent"), choose(oneRow))
 		if tc.offered {
 			r.Script.Gum = append(r.Script.Gum, choose("coordinator"))
 		}
@@ -425,7 +512,7 @@ func TestCoordinatorIsOfferedOnlyWhenTheTeamHasNone(t *testing.T) {
 func TestTheUserIsSuggestedFromTheContainerAndAskedAgainWhenRefused(t *testing.T) {
 	r := newRig(t)
 	r.lxc.users = []string{"agent", "other"}
-	r.answers(choose("container-a"), choose("Bad User"), choose("agent"), choose("/srv/agent/one"), choose("worker"), "YES")
+	r.answers(choose("container-a"), choose("Bad User"), choose("agent"), choose(oneRow), choose("worker"), "YES")
 	r.Fake.OnFunc(strings.Fields(r.DeclarePrefix("lxc-check")), func(c execx.Cmd) (execx.Result, error) {
 		if slices.Contains(c.Args, "Bad User") {
 			return execx.Result{ExitCode: 64, Stderr: []byte("declare: user must be a user name\n")}, nil
@@ -476,7 +563,7 @@ func TestAUserAlreadyInOneTeamIsAddedToASecond(t *testing.T) {
 
 func TestARefusedAnswerIsAskedThreeTimesThenTheRunEndsWithNothingWritten(t *testing.T) {
 	r := newRig(t)
-	r.answers(choose("container-a"), choose("agent"), choose("rel/path"), choose("rel/path"), choose("rel/path"))
+	r.answers(choose("container-a"), choose("agent"), choose(oneRow), choose(oneRow), choose(oneRow))
 	r.Fake.OnFunc(strings.Fields(r.DeclarePrefix("lxc-check")), func(c execx.Cmd) (execx.Result, error) {
 		if slices.Contains(c.Args, "--checkout") {
 			return execx.Result{ExitCode: 64, Stderr: []byte("declare: checkout must be an absolute path inside the container\n")}, nil
@@ -496,7 +583,7 @@ func TestARefusedAnswerIsAskedThreeTimesThenTheRunEndsWithNothingWritten(t *test
 
 func TestDecliningTheSummaryWritesNothing(t *testing.T) {
 	r := newRig(t)
-	r.answers(choose("container-a"), choose("agent"), choose("/srv/agent/one"), choose("worker"), "NO")
+	r.answers(choose("container-a"), choose("agent"), choose(oneRow), choose("worker"), "NO")
 	if code := r.run("alpha"); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
 	}
@@ -535,7 +622,7 @@ func TestAFailedApplyKeepsTheEntryAndSaysHowToGoOn(t *testing.T) {
 			t.Fatalf("stderr lacks %q:\n%s", want, said)
 		}
 	}
-	if strings.Contains(said, "ccy --teams alpha") {
+	if strings.Contains(said, "agent-bus-claude") || slices.Contains(r.lxc.reads, "sessions container-a agent -") {
 		t.Fatalf("the sessions step is offered before the member is applied:\n%s", said)
 	}
 }
@@ -636,7 +723,8 @@ func TestTheHandleSaidAfterTheApplyIsTheOneThePlayMintedNotThePreview(t *testing
 		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
 	}
 	said := r.ErrOut.String()
-	if !strings.Contains(said, "is a member of alpha as proj.2+worker.lxc.") || strings.Contains(said, "as "+handle+".") {
+	if !strings.Contains(said, "is a member of alpha as proj.2+worker.lxc (container container-a, user agent).") ||
+		strings.Contains(said, "as "+handle+" ") {
 		t.Fatalf("the handle said is not the one the play minted:\n%s", said)
 	}
 }
@@ -652,7 +740,7 @@ func TestAParkedHandleTheApplyBroughtBackIsTheOneReported(t *testing.T) {
 	if code := r.run("alpha"); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
 	}
-	if said := r.ErrOut.String(); !strings.Contains(said, "is a member of alpha as proj.2+worker.lxc.") {
+	if said := r.ErrOut.String(); !strings.Contains(said, "is a member of alpha as proj.2+worker.lxc (container container-a, user agent).") {
 		t.Fatalf("the returned handle is not reported:\n%s", said)
 	}
 }
@@ -700,12 +788,13 @@ func TestSeveralNewMembersMeanTheHandleCannotBeTold(t *testing.T) {
 
 func TestTheSummaryCallsTheHandleExpectedBecauseThePlayMintsIt(t *testing.T) {
 	r := newRig(t)
-	r.answers(choose("container-a"), choose("agent"), choose("/srv/agent/one"), choose("worker"), "NO")
+	r.answers(choose("container-a"), choose("agent"), choose(oneRow), choose("worker"), "NO")
 	if code := r.run("alpha"); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
 	}
-	if shown := strings.Join(r.Script.Styled, "\n"); !strings.Contains(shown, "Handle (expected)") {
-		t.Fatalf("the summary does not say the handle is expected:\n%s", shown)
+	if shown := strings.Join(r.Script.Styled, "\n"); !strings.Contains(shown, "Handle (expected)") ||
+		!strings.Contains(shown, handle+" (container container-a, user agent)") {
+		t.Fatalf("the summary does not say the handle is expected, with its container and user:\n%s", shown)
 	}
 }
 

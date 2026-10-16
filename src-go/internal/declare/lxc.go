@@ -125,22 +125,34 @@ func (c *Client) LxcDerive(ctx context.Context, e LxcEntry, probe, roster string
 type Checkout struct {
 	Path string // inside the container
 	Repo string // OWNER/REPO, lower case
+	Ccy  bool   // it has a .claude/ccy directory: a ccy project
+}
+
+// Checkouts is what the search of a user's home found, ccy projects first, and whether it
+// stopped at its time limit before it was done.
+type Checkouts struct {
+	Found    []Checkout
+	TimedOut bool
 }
 
 // LxcCheckouts are the checkouts with a GitHub remote among those the root-side reader found
 // (scan is what it printed, judged by declare.py).
-func (c *Client) LxcCheckouts(ctx context.Context, scan string) ([]Checkout, error) {
+func (c *Client) LxcCheckouts(ctx context.Context, scan string) (Checkouts, error) {
 	out, err := c.runFile(ctx, "lxc-checkouts", "--scan", scan)
 	if err != nil {
-		return nil, err
+		return Checkouts{}, err
 	}
-	rows, err := marker.Fields(out, "CHECKOUT", 3)
+	rows, err := marker.Fields(out, "CHECKOUT", 4)
 	if err != nil {
-		return nil, fmt.Errorf("declare lxc-checkouts: %w", err)
+		return Checkouts{}, fmt.Errorf("declare lxc-checkouts: %w", err)
 	}
-	found := make([]Checkout, 0, len(rows))
+	cut, err := marker.Fields(out, "TIMEDOUT", 1)
+	if err != nil {
+		return Checkouts{}, fmt.Errorf("declare lxc-checkouts: %w", err)
+	}
+	found := Checkouts{Found: make([]Checkout, 0, len(rows)), TimedOut: len(cut) > 0}
 	for _, f := range rows {
-		found = append(found, Checkout{Path: f[1], Repo: f[2]})
+		found.Found = append(found.Found, Checkout{Path: f[1], Repo: f[2], Ccy: f[3] == "ccy"})
 	}
 	return found, nil
 }

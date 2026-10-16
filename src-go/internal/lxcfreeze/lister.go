@@ -87,9 +87,10 @@ func (l *Lister) Users(ctx context.Context, container string) ([]string, error) 
 // ReadCheckout runs a container-reading script (members.py's, fetched by the caller so there is
 // one copy) from this host's side, as root: `python3 -I -c SCRIPT MODE LXCPATH CONTAINER USER
 // PATH`, an argument list with no shell. The container's tree is reached through its LXC config
-// on this host, not by entering it, so it works while the container is stopped; what the script
-// reads is the container's, and the script runs no git and follows no link. What it printed is
-// returned for declare.py to judge.
+// on this host, not by entering it: a dir or btrfs rootfs as the directory it is (so a stopped
+// container is read too), any other store through the running container's /proc/<pid>/root.
+// What the script reads is the container's, and the script runs no git and follows no link.
+// What it printed is returned for declare.py (or, for a directory listing, the caller) to judge.
 func (l *Lister) ReadCheckout(ctx context.Context, script, mode, container, user, path string) (string, error) {
 	if err := l.preflight(); err != nil {
 		return "", err
@@ -104,7 +105,11 @@ func (l *Lister) ReadCheckout(ctx context.Context, script, mode, container, user
 	}
 	res, err = l.Sudo.Capture(ctx, "python3", "-I", "-c", script, mode, lxcPath, container, user, path)
 	if err != nil {
-		return "", fmt.Errorf("%s of %s@%s could not be read from the host: %s", path, user, container,
+		what := path
+		if path == "-" {
+			what = "the home" // the search of the user's home takes no path
+		}
+		return "", fmt.Errorf("%s of %s@%s could not be read from the host: %s", what, user, container,
 			plain(failureWords(string(res.Stderr), err)))
 	}
 	return string(res.Stdout), nil

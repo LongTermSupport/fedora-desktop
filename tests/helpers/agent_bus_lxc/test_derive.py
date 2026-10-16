@@ -35,11 +35,12 @@ USER = "agent"
 CHECKOUT = f"/home/{USER}/work"
 
 
-def run_script(*args: str, search_path: str | None = None) -> subprocess.CompletedProcess:
+def run_script(*args: str, search_path: str | None = None,
+               script: str = derive.ROOT_READ_PY) -> subprocess.CompletedProcess:
     environment = dict(os.environ)
     if search_path is not None:
         environment["PATH"] = search_path
-    return subprocess.run([sys.executable, "-I", "-c", derive.ROOT_READ_PY, *args], capture_output=True,
+    return subprocess.run([sys.executable, "-I", "-c", script, *args], capture_output=True,
                           text=True, check=False, env=environment)
 
 
@@ -80,8 +81,11 @@ class FakeLxc:
     def probe(self, path: str = CHECKOUT, *, user: str = USER, search_path: str | None = None) -> subprocess.CompletedProcess:
         return run_script("probe", str(self.lxcpath), CONTAINER, user, path, search_path=search_path)
 
-    def checkouts(self) -> subprocess.CompletedProcess:
-        return run_script("checkouts", str(self.lxcpath), CONTAINER, USER, "-")
+    def checkouts(self, script: str = derive.ROOT_READ_PY) -> subprocess.CompletedProcess:
+        return run_script("checkouts", str(self.lxcpath), CONTAINER, USER, "-", script=script)
+
+    def dirs(self, path: str, script: str = derive.ROOT_READ_PY) -> subprocess.CompletedProcess:
+        return run_script("dirs", str(self.lxcpath), CONTAINER, USER, path, script=script)
 
 
 class ProbeScriptTest(unittest.TestCase):
@@ -232,7 +236,7 @@ class ProbeScriptTest(unittest.TestCase):
         self.assertEqual(self.probed().origin, REMOTE)
         run = self.lxc.checkouts()
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertEqual(derive.parse_checkouts(run.stdout), [(CHECKOUT, REMOTE)])
+        self.assertEqual(derive.parse_checkouts(run.stdout), ([(CHECKOUT, REMOTE, False)], False))
 
     def test_a_bare_rootfs_path_is_a_directory(self) -> None:
         self.lxc.config_lines = [f"lxc.rootfs.path = {self.lxc.rootfs}"]
@@ -243,16 +247,6 @@ class ProbeScriptTest(unittest.TestCase):
         self.lxc.config_lines = ["lxc.rootfs.path = btrfs:relative/rootfs"]
         self.lxc.write_config()
         self.refused("btrfs rootfs that is not an absolute path")
-
-    def test_a_store_the_host_does_not_mount_is_refused_naming_it(self) -> None:
-        for value in ("overlay:/var/lib/lxc/base/rootfs:/var/lib/lxc/devbox/delta0", "overlayfs:/a:/b",
-                      "zfs:lxc/devbox", "lvm:/dev/lxc/devbox", "loop:/var/lib/lxc/devbox/rootdev"):
-            with self.subTest(value):
-                self.lxc.config_lines = [f"lxc.rootfs.path = {value}"]
-                self.lxc.write_config()
-                store = value.split(":", 1)[0]
-                self.refused(f"keeps its root filesystem in LXC's {store} store")
-                self.refused(f"lxc.rootfs.path = {value}")
 
     def test_a_store_lxc_does_not_have_is_refused_naming_it(self) -> None:
         self.lxc.config_lines = ["lxc.rootfs.path = ceph:/pool/devbox"]
@@ -304,6 +298,128 @@ class ProbeScriptTest(unittest.TestCase):
         self.lxc.config_lines.append(f"lxc.mount.entry = tmpfs home/{USER}/work tmpfs defaults 0 0")
         self.lxc.write_config()
         self.assertEqual(self.lxc.probe().returncode, 0)
+
+
+class RunningContainer(unittest.TestCase):
+    """A running "container": a child process of this test, named by a fake lxc-info, whose root
+    is this machine's, so the user is this test's own and the checkout a real path here."""
+
+    def setUp(self) -> None:
+        import pwd
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self._tmp.name).resolve()
+        self.lxc = FakeLxc(self.root)
+        self.user = pwd.getpwuid(os.getuid()).pw_name
+        self.checkout = self.root / "work"
+        (self.checkout / ".git").mkdir(parents=True)
+        (self.checkout / ".git" / "config").write_text(f'[remote "origin"]\n\turl = {REMOTE}\n', encoding="utf-8")
+        self.init = subprocess.Popen(["sleep", "300"])
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        self.calls = self.root / "lxc-info-calls"
+        self.lxc_info(str(self.init.pid))
+
+    def tearDown(self) -> None:
+        self.init.kill()
+        self.init.wait()
+        self._tmp.cleanup()
+
+    def lxc_info(self, prints: str, code: int = 0) -> None:
+        fake = self.bin / "lxc-info"
+        fake.write_text(f'#!/bin/sh\necho "$@" >> {self.calls}\nprintf "%s" "{prints}"\nexit {code}\n',
+                        encoding="utf-8")
+        fake.chmod(0o755)
+
+    def store(self, value: str) -> None:
+        self.lxc.config_lines = [f"lxc.rootfs.path = {value}"]
+        self.lxc.write_config()
+
+
+class RunningRootfsTest(RunningContainer):
+    """A store whose rootfs the host does not mount (overlay, zfs, lvm, loop, ...) is read
+    through the running container's own root, /proc/<init pid>/root, the pid named by lxc-info."""
+
+    def probe(self) -> subprocess.CompletedProcess:
+        return run_script("probe", str(self.lxc.lxcpath), CONTAINER, self.user, str(self.checkout),
+                          search_path=f"{self.bin}:{os.environ['PATH']}")
+
+    def test_every_store_the_host_does_not_mount_is_read_through_the_running_container(self) -> None:
+        for value in ("overlay:/var/lib/lxc/base/rootfs:/var/lib/lxc/devbox/delta0",
+                      "overlayfs:/a:/b", "zfs:lxc/devbox", "lvm:/dev/lxc/devbox",
+                      "loop:/var/lib/lxc/devbox/rootdev", "rbd:lxc/devbox", "nbd:/srv/devbox.qcow2"):
+            with self.subTest(value):
+                self.store(value)
+                run = self.probe()
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertEqual(derive.parse_probe(run.stdout).origin, REMOTE)
+        self.assertIn(f"-P {self.lxc.lxcpath} -n {CONTAINER} -p -H", self.calls.read_text(encoding="utf-8"))
+
+    def test_a_stopped_container_is_refused_saying_why_it_must_run(self) -> None:
+        self.store("zfs:lxc/devbox")
+        self.lxc_info("")
+        run = self.probe()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn("zfs", run.stderr)
+        self.assertIn("not running", run.stderr)
+
+    def test_lxc_info_failing_is_refused_with_its_words(self) -> None:
+        self.store("lvm:/dev/lxc/devbox")
+        self.lxc_info("no such container", code=1)
+        run = self.probe()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn("no such container", run.stderr)
+
+    def test_a_pid_that_is_not_a_number_is_refused(self) -> None:
+        self.store("loop:/x")
+        self.lxc_info("12 34")
+        run = self.probe()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn("not a process id", run.stderr)
+
+    def test_the_binds_of_the_config_are_not_applied_over_the_container_root(self) -> None:
+        # Inside the running container its binds are already mounted; the config's sources
+        # are host paths and are not laid over its root a second time.
+        self.lxc.config_lines = ["lxc.rootfs.path = overlayfs:/a:/b",
+                                 f"lxc.mount.entry = {self.lxc.outside} {str(self.checkout).lstrip('/')} none bind 0 0"]
+        self.lxc.write_config()
+        run = self.probe()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(derive.parse_probe(run.stdout).origin, REMOTE)
+
+
+class SessionsScriptTest(RunningContainer):
+    """The Claude sessions of the user in the running container, read from the host through its
+    init process's /proc, never by entering it. The "container" is this machine (see above)."""
+
+    def sessions(self) -> subprocess.CompletedProcess:
+        self.store("overlayfs:/a:/b")  # the user is read from this machine's passwd, as the test's own
+        return run_script("sessions", str(self.lxc.lxcpath), CONTAINER, self.user, "-",
+                          search_path=f"{self.bin}:{os.environ['PATH']}")
+
+    def test_a_claude_process_of_the_user_is_found_with_when_it_started(self) -> None:
+        import time
+        claude = self.bin / "claude"
+        claude.symlink_to(pathlib.Path(subprocess.run(["which", "sleep"], capture_output=True, text=True,
+                                                      check=True).stdout.strip()))
+        before = time.time()
+        session = subprocess.Popen([str(claude), "301"])
+        try:
+            run = self.sessions()
+        finally:
+            session.kill()
+            session.wait()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        started = json.loads(run.stdout)["sessions"]
+        self.assertTrue(any(abs(when - before) < 30 for when in started), (started, before))
+        self.assertTrue(all(isinstance(when, int) for when in started), started)
+
+    def test_a_stopped_container_has_no_session(self) -> None:
+        # A btrfs container's users are read while it is stopped; it has no session then.
+        self.lxc_info("")
+        self.store(f"btrfs:{self.lxc.rootfs}")
+        run = run_script("sessions", str(self.lxc.lxcpath), CONTAINER, USER, "-",
+                         search_path=f"{self.bin}:{os.environ['PATH']}")
+        self.assertEqual((run.returncode, json.loads(run.stdout)), (0, {"sessions": []}), run.stderr)
 
 
 class ParseProbeTest(unittest.TestCase):
@@ -473,7 +589,9 @@ class CheckoutsScriptTest(unittest.TestCase):
     def found(self) -> dict[str, str | None]:
         run = self.lxc.checkouts()
         self.assertEqual(run.returncode, 0, run.stderr)
-        return dict(derive.parse_checkouts(run.stdout))
+        found, cut = derive.parse_checkouts(run.stdout)
+        self.assertFalse(cut)
+        return {path: origin for path, origin, _ in found}
 
     def test_checkouts_in_the_home_are_found_with_their_origin_and_the_container_path(self) -> None:
         self.repo("proj", REMOTE)
@@ -522,18 +640,109 @@ class CheckoutsScriptTest(unittest.TestCase):
         self.assertIn("symbolic link", run.stderr)
         self.assertNotIn("\x1b", run.stderr)
 
+    def test_heavy_trees_are_not_searched(self) -> None:
+        for heavy in derive.CHECKOUTS_SKIPPED:
+            self.repo(f"proj-{heavy}/{heavy}/inner", REMOTE)
+        self.repo("plain/inner", REMOTE)
+        self.assertEqual(list(self.found()), [f"/home/{USER}/plain/inner"])
+
+    def test_a_ccy_project_is_marked_and_listed_first(self) -> None:
+        self.repo("aaa", REMOTE)
+        self.repo("zzz", REMOTE)
+        (self.home / "zzz" / ".claude" / "ccy").mkdir(parents=True)
+        (self.home / "aaa" / ".claude").mkdir()
+        (self.home / "aaa" / ".claude" / "ccy").symlink_to(self.lxc.outside)
+        run = self.lxc.checkouts()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        found, _ = derive.parse_checkouts(run.stdout)
+        self.assertEqual([(path, ccy) for path, _, ccy in found],
+                         [(f"/home/{USER}/zzz", True), (f"/home/{USER}/aaa", False)])
+
+    def test_a_search_past_its_time_says_so_with_what_it_found(self) -> None:
+        self.repo("proj", REMOTE)
+        run = self.lxc.checkouts(derive.root_read_script(seconds=0))
+        self.assertEqual(run.returncode, 0, run.stderr)
+        found, cut = derive.parse_checkouts(run.stdout)
+        self.assertTrue(cut)
+        self.assertEqual(found, [])
+
     def test_what_the_script_printed_is_validated(self) -> None:
-        good = json.dumps([{"path": "/home/a/p", "git_config": '[remote "origin"]\n\turl = ' + REMOTE + "\n"}])
-        self.assertEqual(derive.parse_checkouts(good), [("/home/a/p", REMOTE)])
-        cases = {"not json": "[", "not a list": "{}",
-                 "a relative path": json.dumps([{"path": "p", "git_config": None}]),
-                 "a control character": json.dumps([{"path": "/p\x07", "git_config": None}]),
-                 "an extra key": json.dumps([{"path": "/p", "git_config": None, "x": 1}]),
-                 "too many": json.dumps([{"path": f"/p{n}", "git_config": None}
-                                         for n in range(derive.CHECKOUTS_MAX + 1)])}
+        def scan(items: list[object], cut: object = False) -> str:
+            return json.dumps({"checkouts": items, "timed_out": cut})
+
+        good = scan([{"path": "/home/a/p", "git_config": '[remote "origin"]\n\turl = ' + REMOTE + "\n", "ccy": False},
+                     {"path": "/home/a/q", "git_config": None, "ccy": True}], True)
+        self.assertEqual(derive.parse_checkouts(good), ([("/home/a/q", None, True), ("/home/a/p", REMOTE, False)], True))
+        cases = {"not json": "[", "not an object": "[]", "an extra key": json.dumps({"checkouts": [], "timed_out": False, "x": 1}),
+                 "a cut that is not true or false": scan([], "yes"),
+                 "a relative path": scan([{"path": "p", "git_config": None, "ccy": False}]),
+                 "a control character": scan([{"path": "/p\x07", "git_config": None, "ccy": False}]),
+                 "an extra item key": scan([{"path": "/p", "git_config": None, "ccy": False, "x": 1}]),
+                 "a ccy mark that is not true or false": scan([{"path": "/p", "git_config": None, "ccy": 1}]),
+                 "too many": scan([{"path": f"/p{n}", "git_config": None, "ccy": False}
+                                   for n in range(derive.CHECKOUTS_MAX + 1)])}
         for label, text in cases.items():
             with self.subTest(label), self.assertRaises(derive.DeriveError):
                 derive.parse_checkouts(text)
+
+
+class DirsScriptTest(unittest.TestCase):
+    """The directories of one directory in the container, for the checkout path's completion."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.lxc = FakeLxc(pathlib.Path(self._tmp.name))
+        self.home = self.lxc.rootfs / "home" / USER
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def listed(self, path: str, script: str = derive.ROOT_READ_PY) -> dict[str, object]:
+        run = self.lxc.dirs(path, script)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return json.loads(run.stdout)
+
+    def test_the_directories_are_listed_sorted_with_whether_each_is_a_checkout(self) -> None:
+        (self.home / ".config").mkdir()
+        (self.home / "notes.txt").write_text("x", encoding="utf-8")
+        (self.home / "link").symlink_to(self.lxc.outside)
+        (self.home / "empty").mkdir()
+        self.assertEqual(self.listed(f"/home/{USER}"), {
+            "path": f"/home/{USER}", "exists": True, "git": False, "truncated": False,
+            "dirs": [{"name": ".config", "git": False}, {"name": "empty", "git": False}, {"name": "work", "git": True}]})
+
+    def test_a_checkout_says_it_is_one(self) -> None:
+        self.assertTrue(self.listed(CHECKOUT)["git"])
+
+    def test_a_missing_directory_is_said_not_to_exist(self) -> None:
+        self.assertEqual(self.listed(f"/home/{USER}/nowhere"),
+                         {"path": f"/home/{USER}/nowhere", "exists": False, "git": False, "truncated": False, "dirs": []})
+
+    def test_a_file_is_not_a_directory_to_list(self) -> None:
+        (self.home / "notes.txt").write_text("x", encoding="utf-8")
+        self.assertFalse(self.listed(f"/home/{USER}/notes.txt")["exists"])
+
+    def test_the_root_is_listed(self) -> None:
+        self.assertEqual([d["name"] for d in self.listed("/")["dirs"]], ["etc", "home"])
+
+    def test_a_bind_mounted_directory_is_listed_from_its_source(self) -> None:
+        source = self.lxc.outside / "projects"
+        (source / "app" / ".git").mkdir(parents=True)
+        self.lxc.config_lines.append(f"lxc.mount.entry = {source} home/{USER}/projects none bind,create=dir 0 0")
+        self.lxc.write_config()
+        self.assertEqual(self.listed(f"/home/{USER}/projects")["dirs"], [{"name": "app", "git": True}])
+
+    def test_the_listing_is_bounded_and_says_it_was_cut(self) -> None:
+        for name in ("a", "b", "c"):
+            (self.home / name).mkdir()
+        got = self.listed(f"/home/{USER}", derive.root_read_script(dirs_max=2))
+        self.assertEqual(([d["name"] for d in got["dirs"]], got["truncated"]), (["a", "b"], True))
+
+    def test_a_path_through_a_link_is_refused(self) -> None:
+        (self.home / "link").symlink_to(self.lxc.outside)
+        run = self.lxc.dirs(f"/home/{USER}/link")
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn("symbolic link", run.stderr)
 
 
 if __name__ == "__main__":

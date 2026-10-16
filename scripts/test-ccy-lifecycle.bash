@@ -389,6 +389,9 @@ wrapper_case() {
         exec 2>"$work/wrapper.err"
         # shellcheck source=/dev/null
         source "$work/exec-stub.bash"
+        # A bus session's own membership would add the plugin for its first-join relaunch, so a
+        # run of this suite inside one must not carry it into the no-option cases.
+        unset PINGBUS_MEMBERSHIP
         if [ "$wrapper" = "-" ]; then unset CCY_CLAUDE_WRAPPER; else export CCY_CLAUDE_WRAPPER="$wrapper"; fi
         set -- "$@"
         # shellcheck source=/dev/null

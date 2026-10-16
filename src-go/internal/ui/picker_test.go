@@ -187,3 +187,49 @@ func TestHeaderJoinsLegendAndContextDroppingEmpty(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestATypedPickHandsBackTheQueryAndWhatItMatched(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("pro\ntab\nproject/\n")})
+	p := &Picker{Runner: f}
+	spec := PickSpec{
+		Title: "t", Header: "h", Keys: []string{"tab"}, Rows: []string{"project/", "other/"},
+		Prompt: "/srv/work/", Query: "pro", Typed: true,
+	}
+	got, err := p.Pick(context.Background(), spec)
+	if err != nil || got != (Picked{Query: "pro", Key: "tab", Row: "project/"}) {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	c := f.Calls()[0]
+	for _, want := range []string{"--print-query", "--prompt=/srv/work/", "--query=pro", "--expect=tab"} {
+		if !slices.Contains(c.Args, want) {
+			t.Fatalf("args lack %q: %v", want, c.Args)
+		}
+	}
+	if slices.Contains(c.Args, "--bind=q:abort") {
+		t.Fatal("q leaves a picker that is typed into, so a path with a q could not be typed")
+	}
+}
+
+func TestATypedPickThatMatchesNoRowHandsBackWhatWasTyped(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"fzf"}, execx.Result{ExitCode: 1, Stdout: []byte("/srv/wo\ntab\n")})
+	p := &Picker{Runner: f}
+	got, err := p.Pick(context.Background(), PickSpec{Title: "t", Keys: []string{"tab"}, Rows: []string{"a/"}, Typed: true})
+	if err != nil || got != (Picked{Query: "/srv/wo", Key: "tab"}) {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	f.On([]string{"fzf"}, execx.Result{ExitCode: 1, Stdout: []byte("/srv/work\n")})
+	got, err = p.Pick(context.Background(), PickSpec{Title: "t", Rows: []string{"a/"}, Typed: true})
+	if err != nil || got != (Picked{Query: "/srv/work"}) {
+		t.Fatalf("Enter on what matches nothing: %+v, %v", got, err)
+	}
+	f.On([]string{"fzf"}, execx.Result{ExitCode: 130})
+	if _, err = p.Pick(context.Background(), PickSpec{Title: "t", Rows: []string{"a/"}, Typed: true}); !errors.Is(err, ErrLeave) {
+		t.Fatalf("Esc still leaves: %v", err)
+	}
+	f.On([]string{"fzf"}, execx.Result{ExitCode: 1})
+	if _, err = p.Pick(context.Background(), PickSpec{Title: "t", Rows: []string{"a/"}}); !errors.Is(err, ErrLeave) {
+		t.Fatalf("an untyped pick that matches nothing leaves: %v", err)
+	}
+}
