@@ -88,7 +88,7 @@ a repository is no longer offered for a checkout of it. Report:
   `ccy_seats_resolve` deleted. Report: `subagent-reports/261015-m4-chooser-sonnet.md`.
 - [x] ✅ **Task 2.5**: M5, several teams per session (S-B3 `--multi`, S-C1 to S-C9), CCY 3.97.8 /
   container 2.58. `choose-teams` list is a multi-select with kept marks across rounds; `describe-seats --block` prints the launch block after `seat take`; SessionStart's first line names the teams; a
-  status line shows `bus: A,B`; `pingbus send` infers the team from `--re` or `--to`, `say` from
+  status line shows `👥 A,B`; `pingbus send` infers the team from `--re` or `--to`, `say` from
   `--to`, or they fail with the choices. The segment reads a per-session record the pingbus
   SessionStart hook writes. It was first a hooks-daemon handler in this repository only; after the
   final review it is the kit's `pingbus status-line` (Task 2.8). M6 must also print the launch
@@ -124,12 +124,12 @@ a repository is no longer offered for a checkout of it. Report:
   `feat/bus-inject-message`; check the reply line is there when it merges, else add it here
   (tests first). Found in `subagent-reports/261015-bus-bugs-opus.md`.
 - [x] ✅ **Task 2.9**: the final qa-reviewer's findings
-  (`subagent-reports/261015-final-qa-reviewer.md`), CCY 3.98.7 / container 2.62. The `bus: A,B`
+  (`subagent-reports/261015-final-qa-reviewer.md`), CCY 3.98.7 / container 2.62. The `👥 A,B`
   status line works in any checkout: the member kit's `settings.json` makes `pingbus status-line`
   the status line (command-line settings outrank the project's), which runs the session's own
   status line first; the hooks-daemon handler is gone, and the tests are pingbus's, in the
   helper-tests gate. A record SessionStart could not write is told to the session and shown in red
-  (`bus: no record ...`), never as nothing. S-C6, S-C8 and Q6/Q7 match what was built; `cc --teams`
+  (`👥 no record ...`), never as nothing. S-C6, S-C8 and Q6/Q7 match what was built; `cc --teams`
   makes `.claude/ccy/` only after the consent (S-E4). Report:
   `subagent-reports/261015-qa-review-fixes-opus.md`.
 - [x] ✅ **Task 2.10**: UX fixes before the owner's first day with teams (branch
@@ -172,6 +172,26 @@ a repository is no longer offered for a checkout of it. Report:
   busy), stop one that has not ended in time, check each seat is released, and report each
   member. Local only: nothing on the bus. Host run pending (meta-deploy:
   play-claude-yolo.yml); the owner's check is in ACCEPTANCE-owner.md.
+- [ ] 🔄 **Task 2.15**: a team's settings from ccy-teams (the owner: "a single update config
+  thing … that then opens a pane that then has all of the different things editable"), branch
+  `feat/team-settings`, CCY 3.99.12.5 / container 2.77.4 (helpers/agent_bus is in the image). A removed person
+  is recorded in `removed_humans` and the team file refuses the name for good (S-F14, Fable's
+  FIX-FIRST, `subagent-reports/261016-team-settings-review-fable.md`). Spec: [SPEC-many-teams.md](SPEC-many-teams.md) section
+  F (S-F1 to S-F14, with the field table). A team row's **Edit settings** opens one screen of
+  every field with its value: description, people, GitHub owner, repositories, excluded
+  repositories, path limit and allowed networks are edited in place and judged by the new
+  `declare.py set --check`; Save and apply shows each change and what applying does, writes
+  them in one `declare.py set` and applies through `ops.ApplyTeams`. The coordinator changes at
+  once through `seats.ChangeRole`; name, port, listen, server name and forge API are fixed,
+  each saying why. `describe` and `drop-limit` are now `set` with one key. Host run pending
+  (meta-deploy: play-claude-yolo.yml); the owner's check is in ACCEPTANCE-owner.md step 13.
+  Report: `subagent-reports/261016-team-settings-opus.md`.
+- [ ] ⬜ **Task 2.16**: rename a team, end to end. Not built: the settings screen shows the name
+  as fixed, with the reason. A rename must make the new team (homeserver unit, data folder,
+  server name, accounts, room), carry over or re-create its history, re-issue every member's
+  token and bundle, move every seat and session record, re-point every running session, then
+  take the old team down; today the installer refuses a changed name (`render.check_unchanged`).
+  Needs its own research and spec first (SPEC-many-teams.md section F, "Rename").
 
 ## Success Criteria
 

@@ -6,6 +6,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
 )
 
 // nothingOnThisRow is what a key that is not one of the row's shortcuts says.
@@ -45,6 +46,8 @@ func (r *run) do(ctx context.Context, id string, row board.Row) (flow.Result, er
 		return r.addLxc(ctx, row.Team)
 	case actShutdown:
 		return r.p.Shutdown.Offer(ctx, row.Team)
+	case actSettings:
+		return r.p.Settings.Edit(ctx, row.Team, seats.SnapshotRunning(r.snap))
 	case actAskDescription, actAskLimit:
 		return r.askAgainOf(ctx, id, row.Team)
 	}

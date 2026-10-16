@@ -27,6 +27,7 @@ const (
 	actLxc         = "lxc-add"
 	actElementAll  = "element-all"
 	actShutdown    = "shutdown"
+	actSettings    = "settings"
 	// actAskDescription and actAskLimit undo a never answer to an offer: menu lines of a team
 	// marked never, with no shortcut.
 	actAskDescription = "ask-description"
@@ -88,6 +89,7 @@ func (r *run) kindActions(row board.Row) []action {
 			open,
 			{actElementAll, "", "Open every team in Element, a window each", "open every team in Element"},
 			start,
+			{actSettings, "", "Edit settings", "edit " + team + "'s settings"},
 			{actUpdate, keyUpdate, "Update every team that is out of date or not built", "update out-of-date teams"},
 			{actShutdown, "", "Shut down every session of " + team, "shut down " + team + "'s sessions"},
 			{actRemove, keyRemove, "Take " + team + " down", "take " + team + " down"},

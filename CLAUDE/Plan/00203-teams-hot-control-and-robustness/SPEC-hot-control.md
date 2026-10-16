@@ -406,7 +406,7 @@ Two things are **not** frozen:
       needs no sudo; "unguarded" is no `pingbus seat keep` process in `podman top`.
     - `ccy-teams remove <team>` stays terminal-only (never `--yes`, its own rule): H29's offer
       is a question in that flow, and each session is taken off with `--coordinator=demote`.
-    - The in-session `bus: <team>(down)` (H26): while a team's homeserver does not answer, the
+    - The in-session `👥 <team>(down)` (H26): while a team's homeserver does not answer, the
       watcher keeps `PINGBUS_HOME/down/<team>` (0600), refreshed on each retry and removed when
       the team syncs again or its thread ends; the status line appends `(down)` for a mark
       younger than 300 s, so one a killed watcher left stops counting. Another kind of sync
@@ -535,7 +535,7 @@ Two things are **not** frozen:
   - Remove still releases the seat (the change is local) and exits 1 with "goodbye and status
     not sent: homeserver down". They stay owed (H19).
   - In the session, the watcher keeps the team and retries it. The status line shows
-    `bus: <team>(down)`.
+    `👥 <team>(down)`.
 
 - **H27. Seat limits.** A roster at 64 agents refuses add (exit 1). It names the limit and
   offers `ccy-teams` Ctrl-X (park or remove a member). A second seat in a team the session is

@@ -49,7 +49,7 @@ Do these in order, once. Each step names what you should see.
    coordinator**, then Yes.
 6. **Check the session.** The launch prints "This session is on 1 team:" (or "on N teams:"),
    one line per seat with its role and the team's description. The status line ends
-   `bus: <team>` (several teams: `bus: <team>,<team>`); a red `bus: no record ...` is a
+   `👥 <team>` (several teams: `👥 <team>,<team>`); a red `👥 no record ...` is a
    fault (below). Next time in that checkout, plain `ccy` shows the seats on the **Team:**
    line under **Quick Launch Available**, and Enter takes them again.
 7. **Talk to an agent.** In the team's Element window type `@`, **pick the agent from the
@@ -66,7 +66,7 @@ If something is off:
 
 - No avatar under your message: you did not pick the agent from the `@` list, or its session is
   not running (`ccy-teams` shows the seat as held when it is), or it was not relaunched.
-- Status line `bus: no record ...` in red, or the agent says a delivery is "missing" or
+- Status line `👥 no record ...` in red, or the agent says a delivery is "missing" or
   "stalled": type `! pingbus status` in that session and send the output.
 - "is built on this host but its homeserver is not running": `ccy-teams apply <team>`. "there
   is no team ...": the message lists the teams here; check the name.
@@ -93,8 +93,8 @@ team covers, whose own status line is a hooks daemon's.
     a homeserver), and that both timestamps are unchanged afterwards.
 04. Each team asks for its seat; an existing seat then asks its role (choose **Keep as is**).
     The launch block reads "This session is on 2 teams:", with each seat and description.
-05. In the session, the status line ends with `bus: A,B`, after the checkout's own status line.
-    A red `bus: no record ...` fails this step. Type `! pingbus status`: two `TEAM` lines, and
+05. In the session, the status line shows `👥 A,B` on its own row, below the checkout's own status line.
+    A red `👥 no record ...` fails this step. Type `! pingbus status`: two `TEAM` lines, and
     an `ABOUT` line for each team that has a description.
 06. Ask the other agent on A to ping this session, then the one on B. The session is woken once
     for each, and its reply to each, inferred from `--re`, appears in the right team's room in
@@ -105,7 +105,7 @@ team covers, whose own status line is a hooks daemon's.
     consent question again, rename `~/.config/pingbus/element-accepted` first. The question
     names both handles: answer No once (nothing is started or recorded, and a checkout that had
     no `.claude/ccy/` still has none), then run it again and answer Yes.
-09. The cc session shows the launch block, and its status line ends with `bus: A,B`. While it
+09. The cc session shows the launch block, and its status line shows `👥 A,B` on its own row. While it
     runs, `ls /tmp/pingbus-sessions-$(id -u)/` (or `$PINGBUS_SESSIONS_DIR` when set) shows one
     file for it; after you end it, that file is gone. A file still there means SessionEnd did
     not remove it: this step fails.
@@ -129,6 +129,20 @@ team covers, whose own status line is a hooks daemon's.
     line reads `exited cleanly; seat N@<team> released`. The list then shows those seats
     **free**, and the team row still **up**. A line saying `stopped` or `failed` fails this
     step: send it.
+13. A team's settings (Task 2.15, SPEC-many-teams.md section F). In `ccy-teams`, press Enter on
+    a team's row and choose **Edit settings**. The screen's title reads `Team <team> › Settings`, and it lists the description, people, GitHub owner, repositories, excluded
+    repositories, path limit, allowed networks and coordinator with their values. Below them
+    are the name, port, listen addresses, server name and forge API marked `(fixed)`, then
+    **Save and apply**, **Discard changes** and **Back**. Moving the cursor changes the header
+    to say what each field is and what applying it does. Choose the name: the header says why
+    it cannot be changed. Choose **Path limit** and type `docs/, ../up`. The second item is
+    refused, the reason is shown and you are asked again. Type `docs/` and the row reads
+    `Path limit: docs/   (changed)`. Choose **Discard changes** and the row is back as it was.
+    Choose **Description**, change one word and choose **Save and apply**. The question lists
+    `Description: <old> → <new>` and says the room's topic is set with no restart. Answer Yes:
+    the play runs for that team alone, `systemctl show -P ActiveEnterTimestamp agent-bus-hs@<team>` is unchanged, the room's topic in Element is the new text, and the
+    team row reads **up to date**. A homeserver restart, a second play, or a description that
+    did not change fails this step.
 
 **Messages from Element (Plan 00194 SPEC-inject.md section 7).** In a relaunched `ccy --teams`
 session on A and B (the one from step 01 will do):

@@ -25,7 +25,7 @@
 # CHECKS (each judged from what a tool printed or recorded, never from the model's prose)
 #   (a) `ccy-teams session add <s> acc-m3b --yes` exits 0, every step ✓ or -, no relaunch
 #   (b) the session's transcript has the MEMBERSHIP notice naming acc-m3b; its status line
-#       says bus: acc-m3a,acc-m3b
+#       says 👥 acc-m3a,acc-m3b
 #   (c) a message from the human in acc-m3b reaches the conversation (a HUMAN delivery)
 #   (d) `session remove <s> acc-m3b --yes` exits 0 with the re-baseline; the transcript has the
 #       notice that it left; the room has the goodbye; agent-bus seat list shows the seat free;
@@ -232,7 +232,7 @@ m3_status_line() {
     line="$(podman exec -i -e PINGBUS_HOME=/tmp/pingbus-home -e PINGBUS_STATUS_LINE_INNER=1 "${M2_CTR[${M3_NAME}]}" \
         pingbus status-line <<<'{}')" || return 1
     printf '%s\n' "${line}" >"$(m3_ev status-line)"
-    [[ "${line}" == *"bus: ${M3_TEAM_A},${M3_TEAM_B}"* ]] || return 3
+    [[ "${line}" == *"👥 ${M3_TEAM_A},${M3_TEAM_B}"* ]] || return 3
 }
 
 m3_check_notice_and_status() {

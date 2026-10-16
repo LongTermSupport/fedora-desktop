@@ -17,15 +17,38 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.12.6 — container 2.77.3
+## 3.99.12.9 — container 2.77.6
 
-Follows 3.99.12.4 (container 2.77.3); the image is unchanged.
+Follows 3.99.12.8 (container 2.77.6); the image is unchanged.
 
 - **Every picker action is a visible choice, not a key alone** (Plan 00203,
   `project_hidden_bindings`). The "a session is detached here" offer has a `Start a new session here` row where Ctrl-N was the only way. `ccy-sessions` gives each session a menu (Enter) of
   attach, take over (Ctrl-T) and end (Ctrl-X), and a row of its own to start a new session
   (Ctrl-N); its header names those keys. In `ccy-teams` a shortcut is accepted only where its
   line is listed. A key is now only a shortcut, printed beside the line it chooses.
+
+## 3.99.12.8 — container 2.77.6
+
+Follows 3.99.12.4 (container 2.77.3).
+
+- **The agent-bus status line wraps instead of being cut.** `pingbus status-line` appended
+  `| bus: A,B` to the last row of the session's own status line. The hooks daemon's status line
+  already wraps its rows to the terminal's width, so that row was often full and Claude Code
+  cut it with an ellipsis (`bus: de…`). The teams now go on rows of their own below it, wrapped
+  after a comma at `COLUMNS`, and are never cut; with no `COLUMNS` they are one unbroken row.
+- **`bus:` is now 👥**, the team counterpart of the hooks daemon's 👤 account segment:
+  `👥 alpha,beta`, `👥 <team>(down)`, and `👥 no record ...` in red.
+
+## 3.99.12.5 — container 2.77.4
+
+- **A team's settings from ccy-teams** (Plan 00201 Task 2.15). Enter on a team row, then Edit
+  settings, opens one screen of the team's fields. You edit them, then save and apply them in
+  one step. A person removed from a team is recorded in its entry (`removed_humans`), and the
+  team file refuses that name ever again, because the account is deactivated for good. The
+  image changes only because `helpers/agent_bus/` (declare.py's new `settings` and `set`, the
+  team file's new key) is part of the agent_bus copy it carries. The Coordinator field follows
+  the two coordinator paths below: a plain offer on a team with none, a takeover on one that
+  has one.
 
 ## 3.99.12.4 — container 2.77.3
 

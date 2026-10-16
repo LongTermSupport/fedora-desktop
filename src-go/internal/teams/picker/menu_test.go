@@ -106,6 +106,27 @@ func TestATeamsMenuShutsItsSessionsDown(t *testing.T) {
 	}
 }
 
+// SPEC-many-teams.md S-F1: a team row's menu has one visible "Edit settings" choice (no key),
+// which opens the team's settings screen.
+func TestATeamsMenuOpensItsSettings(t *testing.T) {
+	h := newRig(t)
+	h.OnDeclare("settings", "SETTING\tteam\t\"alpha\"\nSETTING\tdescription\t-\n")
+	h.Script.Fzf = []string{"|alpha", "|Edit settings", "|EXIT", "|ABORT"}
+	if code := h.run(); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if rows := h.menuRows(); !slices.Contains(rows, "Edit settings") {
+		t.Fatalf("menu %q", rows)
+	}
+	found := false
+	for _, a := range h.Script.FzfArgs[2] {
+		found = found || a == "--border-label= Team alpha › Settings "
+	}
+	if !found || !slices.ContainsFunc(h.Script.Rows[2], func(r string) bool { return strings.HasPrefix(r, "Description: (none)") }) {
+		t.Fatalf("the settings screen was not shown: %q %q", h.Script.FzfArgs[2], h.Script.Rows[2])
+	}
+}
+
 func TestEscInTheMenuGoesBackToTheListAndNothingIsAsked(t *testing.T) {
 	h := newRig(t)
 	h.Script.Fzf = []string{"|guest", "|ABORT", "|ABORT"}
