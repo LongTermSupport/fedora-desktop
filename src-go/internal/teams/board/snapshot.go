@@ -175,9 +175,11 @@ func (s *Snapshot) addCheckout(dir string) {
 	s.Checkouts = append(s.Checkouts, dir)
 }
 
-// addRecord notes the checkout of a ccy session record and the seats its launcher was given.
+// addRecord notes the checkout of a ccy or cc session record and the seats its launcher was
+// given. A cc record names its seats only when cc was given them whole: cc chooses a team named
+// alone after tmux has recorded its arguments.
 func (s *Snapshot) addRecord(rec registry.Record) {
-	if rec.Prefix != "ccy" {
+	if !isLauncherPrefix(rec.Prefix) {
 		return
 	}
 	s.addCheckout(rec.Dir)
@@ -188,6 +190,9 @@ func (s *Snapshot) addRecord(rec registry.Record) {
 		}
 	}
 }
+
+// isLauncherPrefix is whether a session prefix is one of the two launchers that hold seats.
+func isLauncherPrefix(prefix string) bool { return prefix == "ccy" || prefix == "cc" }
 
 // addMemberRows appends a team's seats, its other members and its people.
 func (s *Snapshot) addMemberRows(c *Collector, team string, seats []seatAt) {

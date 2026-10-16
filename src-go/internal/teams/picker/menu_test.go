@@ -11,9 +11,9 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-// menuRows are the rows of the menu fzf call n was shown, without the Back row.
-func (h rig) menuRows(n int) []string {
-	rows := h.Script.Rows[n]
+// menuRows are the rows of the menu (the second fzf call, after the list), without the Back row.
+func (h rig) menuRows() []string {
+	rows := h.Script.Rows[1]
 	shown := make([]string, len(rows)-1)
 	for i, row := range rows[:len(rows)-1] {
 		shown[i] = strings.SplitN(row, "\t", 2)[0]
@@ -27,7 +27,7 @@ func TestEnterOnAPersonWhoHasNeverSignedInOffersSigningInFirst(t *testing.T) {
 	if code := h.run(); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
-	rows := h.menuRows(1)
+	rows := h.menuRows()
 	if len(rows) == 0 || rows[0] != "Sign in: set a password (shown once)   (Ctrl-P)" {
 		t.Fatalf("menu %q", rows)
 	}
@@ -48,7 +48,7 @@ func TestEnterOnAPersonWithSessionsOffersElementFirstAndNamesWhatAPasswordEnds(t
 	if code := h.run(); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
-	rows := h.menuRows(1)
+	rows := h.menuRows()
 	want := []string{
 		"Open alpha in Element   (Ctrl-E)",
 		"New password — signs out guest's 2 Element sessions   (Ctrl-P)",
@@ -77,11 +77,32 @@ func TestATeamsMenuOpensEveryTeamInElement(t *testing.T) {
 	if code := h.run(); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
-	if rows := h.menuRows(1); !slices.Contains(rows, "Open every team in Element, a window each") {
+	if rows := h.menuRows(); !slices.Contains(rows, "Open every team in Element, a window each") {
 		t.Fatalf("menu %q", rows)
 	}
 	if !strings.Contains(h.ErrOut.String(), "alpha has no Element profile on this desktop yet") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+}
+
+// SPEC-shutdown.md SD2: a team row's menu shuts the team's sessions down, after a question
+// whose default is No.
+func TestATeamsMenuShutsItsSessionsDown(t *testing.T) {
+	h := newRig(t)
+	h.Script.Fzf = []string{"|alpha", "|Shut down every session of alpha", "|EXIT", "|ABORT"}
+	if code := h.run(); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if rows := h.menuRows(); !slices.Contains(rows, "Shut down every session of alpha") {
+		t.Fatalf("menu %q", rows)
+	}
+	for _, want := range []string{"Team alpha: 1 session to shut down.", "Nothing was shut down.", "Press Enter to go back to the list."} {
+		if !strings.Contains(h.ErrOut.String(), want) {
+			t.Fatalf("stderr lacks %q: %s", want, h.ErrOut.String())
+		}
+	}
+	if h.Fake.Called("tmux -L ccy send-keys") {
+		t.Fatal("something was typed after a no")
 	}
 }
 

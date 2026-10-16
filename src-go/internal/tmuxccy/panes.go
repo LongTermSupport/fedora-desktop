@@ -78,6 +78,14 @@ func (t *Tmux) SendEnter(ctx context.Context, name string) error {
 	return nil
 }
 
+// SendEscape presses Escape in the session's pane: how a person interrupts claude's turn.
+func (t *Tmux) SendEscape(ctx context.Context, name string) error {
+	if _, err := t.Run(ctx, "send-keys", "-t", paneTarget(name), "Escape"); err != nil {
+		return fmt.Errorf("pressing Escape in %s failed: %s", name, reason(err))
+	}
+	return nil
+}
+
 // KillSession ends the session and everything running in it. A session that is already gone is
 // ErrSessionGone, so a caller can treat it as ended rather than as a failure.
 func (t *Tmux) KillSession(ctx context.Context, name string) error {
