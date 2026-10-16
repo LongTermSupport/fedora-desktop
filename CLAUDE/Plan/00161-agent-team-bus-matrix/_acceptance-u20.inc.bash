@@ -423,16 +423,27 @@ u20_note_report() {
 
 # u20_remove_launch_reports — the reports of the seated sessions this run launched, each only
 # when its name was not in .claude/ccy/pingbus/ before M2.0 (a report already there is from an
-# earlier session in the same container slot; this run's rewrite leaves the listing unchanged).
+# earlier session in the same container slot; this run's rewrite leaves the listing unchanged),
+# and never while a container of that name runs (M2.10 then fails, naming it, honestly).
 u20_remove_launch_reports() {
-    local name before
+    local name before ids rc
     before="$(u20_ev before)/pingbus.list"
     [[ "${#U20_REPORT_NAMES[@]}" -gt 0 ]] || return 0
-    [[ -f "${before}" ]] || { printf '[FAIL] sessions were launched but %s was never recorded\n' "${before}" >&2; return 1; }
+    [[ -f "${before}" && -r "${before}" ]] || { printf '[FAIL] sessions were launched but %s was never recorded, or cannot be read\n' "${before}" >&2; return 1; }
     for name in "${U20_REPORT_NAMES[@]}"; do
-        if ! grep -qxF "sessions/${name}"$'\t'"d" "${before}"; then
-            rm -rf -- "${U20_REPORTS:?}/${name}" || return 1
+        rc=0
+        grep -qxF "sessions/${name}"$'\t'"d" "${before}" || rc=$?
+        [[ "${rc}" -le 1 ]] || { printf '[FAIL] %s could not be read (grep exit %d)\n' "${before}" "${rc}" >&2; return 1; }
+        [[ "${rc}" -eq 1 ]] || continue
+        # The containers are --rm and take the lowest free slot, so a session started after
+        # this run's ended (an owner's) may run under the same name: its report is its own.
+        ids="$(podman ps --filter "name=^${name}\$" --filter status=running --format '{{.ID}}')" || return 1
+        if [[ -n "${ids}" ]]; then
+            printf '==> %s is running (another session in that container slot), so its report stays: %s\n' \
+                "${name}" "${U20_REPORTS}/${name}"
+            continue
         fi
+        rm -rf -- "${U20_REPORTS:?}/${name}" || return 1
     done
     if [[ "${U20_REPORTS_FOUND}" -eq 0 && -d "${U20_REPORTS}" ]]; then
         rmdir --ignore-fail-on-non-empty -- "${U20_REPORTS}" || return 1

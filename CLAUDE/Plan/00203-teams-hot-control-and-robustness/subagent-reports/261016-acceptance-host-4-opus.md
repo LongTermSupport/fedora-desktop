@@ -88,6 +88,21 @@ M2.10 passed on those only because the container numbers repeated from earlier r
 - A scratch run with a stub podman checked it: a name in the before list was kept, two new
   ones were removed, and an owner's report was kept.
 
+**Fable B3 (re-check):** the containers are `--rm` and take the lowest free slot, so a session
+started after acca, accb and accc ended (an owner's) can run under a freed container name.
+`u20_remove_launch_reports` now skips, with a message, any name whose container is running
+(`podman ps --filter name=^<name>$ --filter status=running`), as the stale sweep does. M2.10
+then fails and names it, rather than the teardown deleting a live session's report. The same
+check covers the names recorded in `u20_remove_containers`, since both feed the same list.
+
+- The M2.0 list must now be readable, and a read error from `grep` (exit 2) fails the
+  teardown instead of counting as "not there".
+- Stub runs:
+  - a running `proj_yolo_6` was kept, with `proj_yolo_4` and `proj_yolo_5` removed and
+    `proj_yolo_1` and the owner's report kept;
+  - a stubbed `grep` exit 2 failed and kept the report;
+  - a missing list failed.
+
 All 00203 sessions (M1, M2, M3, M4) are launched inside ccy's tmux, so they are named and
 `m2_cleanup` covers them. The `--no-bus` session has no keeper. The 00161 M2.9 plain session
 is unnamed with no team, so it gets `PINGBUS_MEMBERSHIP=off` and has no keeper either.
