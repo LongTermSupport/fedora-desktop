@@ -133,3 +133,80 @@ conflict marker is denied by the daemon, but a wrongly resolved duplicate entry 
   find.
 - `m2_procs.py` docstring: say that a bus process started from a source tree
   (`python3 -c …`) is out of scope, so a future dev-mode run does not read a pass as proof.
+
+## Re-check (fix/acceptance-host-4 at 4d009e79: 9d76fc8a, 42d9176a)
+
+Verdict: **FIX-FIRST**, one blocking finding (B3), B2 is done.
+
+### B1 as implemented
+
+- Recording: `_acceptance-u20.inc.bash:409-411` (`u20_container_up`, once the seated container
+  is running) and `:173` (`u20_remove_containers`, before each `podman rm`) call
+  `u20_note_report`, which takes the basename of the `/run/ccy/membership` mount source
+  (`:417-422`). That basename is the `membership-init` first argument
+  (`agent-bus-membership.bash:49`, `${session:-$container}`), which is the `Want.session` the
+  keeper publishes under, so the recorded name is the report's. Correct.
+- Deleting: `u20_remove_launch_reports` (`:427-440`) runs in `u20_cleanup` (`:1280`) and
+  `u20_teardown_after_stop` (`:1318`), each name absent from `before/pingbus.list`.
+- Before list: `u20_record_checkout` (`:313`) writes `find -mindepth 1 -maxdepth 3 -printf '%P\t%y'` from `.claude/ccy/pingbus/`, sorted, before M2.0 (`u20_record`, `:338`) and after
+  `u20_remove_stale_reports` (`:296`); `grep -qxF "sessions/<name>\td"` (`:433`) is the exact
+  line that listing produces for a report directory. With no `pingbus/` the file says `absent`,
+  so everything recorded is deleted, which is right. `acceptance.bash:110` sets `pipefail`, so a
+  failing `find` fails the record. Reliable.
+- Failure: `rm -rf … || return 1` (`:434`) is `return 1` in `u20_cleanup` and `failed=1` in
+  `u20_teardown_after_stop`; a launched run with no before list is a named `[FAIL]` (`:431`).
+  A delete failure fails the run.
+- The 00203 claim holds: M1 (`_acceptance-m1.inc.bash:29` via `m2_launch`), M2
+  (`_acceptance-m2.inc.bash:129`), M3 (`_acceptance-m3.inc.bash:132`) and M4
+  (`_acceptance-m4.inc.bash:214`) all start their sessions with `tmux -L ccy new-session -s <name>`, so each reports under its tmux name and `m2_cleanup` (`:200`) removes exactly those;
+  the robust slice launches no session of its own. No step needed there.
+
+### B3 (blocking). `u20_remove_launch_reports` deletes a live session's report when a slot is reused
+
+`_acceptance-u20.inc.bash:432-435`.
+
+Scenario. A ccy container is `--rm` (`claude-yolo:3887`) and is named by the lowest free slot
+(`common.bash:1061-1094`: `<project>_yolo`, then `_1`, `_2`, …). acca, accb and accc end at
+M2.5 (`u20_end_seats`), freeing their names, and the run goes on through M2.7 (accb relaunch),
+M2.9 (plain) and M2.11 (named). The owner starts a session in the checkout in that window (the
+design allows it; DESIGN M2.10 says the owner's sessions are untouched). It takes the lowest free
+slot, which is one of the three just freed, so its keeper rewrites `sessions/<that name>/` at
+start. At teardown the name is in `U20_REPORT_NAMES` and absent from `before`, so `:434`
+removes the owner's running session's report. Reports are rewritten only at keeper start, and
+the M5 picker's running-sessions view reads a running container's report, so that session is
+gone from hot control for the rest of its life. The same happens for names recorded at `:294`
+(leftover containers of an interrupted run, removed before M2.0): their slots are free for the
+whole run.
+
+The journal's stub-podman check ("an owner's report kept") covers only the owner whose report
+was already in `before`, which is not this case.
+
+Fix. Before `rm -rf` at `:434`, keep the report when a running container holds the name, as
+`u20_remove_stale_reports` already does for `u20-named-*` (`:1131-1135`), with the mount check
+so a same-named non-ccy container is not mistaken for one:
+
+```bash
+if podman ps --filter "name=^${name}$" --filter status=running --format '{{.ID}}' | grep -q .; then
+    printf '==> %s is running (another session took that container name), so its report stays\n' "${name}"
+    continue
+fi
+```
+
+M2.10 then reports the surviving entry honestly and the run fails with a diff that names the
+reason, instead of passing by deleting another session's record. Add that case to the stub run
+(a name absent before, a running container of that name at teardown: the report stays).
+
+### B2 verified
+
+`CLAUDE/Plan/meta-deploy.list` has exactly three entries, in order:
+`playbooks/imports/play-claude-yolo.yml`, `00203-teams-hot-control-and-robustness`,
+`00161-agent-team-bus-matrix/acceptance.bash`. Each has a comment; the first matches M5's
+scope (src-go only, so no ccy version bump or image rebuild); the second joins M5's text with the
+bus-process-is-a-program rule and the stale `m1-plain-`/`m2-plain-`/`m2-nobus-`/`m3-hot-`/
+`m4-a-`/`m4-b-` removal, which is `M2_OWN_NAMES` in `m2_remove_stale_reports`
+(`_acceptance-m2.inc.bash:81-97`); the third describes B1 as coded. "No play" is gone. Done.
+
+### Minor, non-blocking
+
+- `grep -qxF` at `:433` returns 2 on a read error as well as 1 on no match, and both paths
+  delete. `[[ -r "${before}" ]]` beside the `-f` check at `:431` closes it.
