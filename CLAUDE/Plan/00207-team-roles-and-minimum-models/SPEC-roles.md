@@ -862,8 +862,8 @@ This section answers the owner's words (Q-mgmt) at the top of this document.
 ### 11.1 Shape
 
 - **One room per team**, named `<team> · management`.
-- **Members:** the team's humans, the coordinator's seat account and the team's `notary`
-  account (§11.4), and nobody else.
+- **Members:** the team's humans and the coordinator's seat account, plus the team's `notary`
+  account only if D26 chooses option (b) (§11.4). Nobody else.
   - The homeserver enforces the membership (§12): it is invite-only, and only `admin`
     invites.
   - No worker, reviewer, collaborator or deployer account is ever invited, so none can read
@@ -876,8 +876,8 @@ This section answers the owner's words (Q-mgmt) at the top of this document.
 ### 11.2 What the coordinator posts
 
 The coordinator posts two kinds. Each is a new agent-text form with a format key, so receivers
-and Element both show it as a plain `m.notice`. The terminal note (§11.4) is **not** one of them:
-it comes from the team's notary account, never from the coordinator.
+and Element both show it as a plain `m.notice`. The terminal note is a third, `NOTE`, covered in
+§11.4. Its source depends on D26. Creating the room with these formats and caps is **D20**.
 
 | Command         | What it is                | Format and cap                                                                                                                                              |
 | --------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -938,16 +938,58 @@ is the point: a wall of text cannot be sent.
 
 ### 11.4 Replies typed in the coordinator's terminal
 
-**Why it cannot come from the session.** Fable's review found the first design forgeable. Any
-note produced inside the coordinator's session (a hook, the watcher, a command) is posted with
-the coordinator's own token, so the agent could post a line saying "alice answered in the
-terminal: yes, go ahead", and nobody could tell it from a real one. Classifying
-`UserPromptSubmit` inputs does not help either. Cron ticks (the hooks daemon's failsafe and
-declared crons), `/loop` re-prompts and Claude Code's own agent messages (`SendMessage`) all
-reach that hook and would read as the human. So the note is produced **outside the session, from
-what the human actually typed, under an identity the agent has no token for.**
+The owner asked for "a little confirmation posted into the chat room so that it's there"
+(Q-mgmt). That is a **record, not authority**. Two designs are possible, and **D26** chooses
+between them. Under either one:
 
-**The terminal notary.**
+- **The note is kind `NOTE`, and `NOTE` is never `HUMAN`.**
+  - `envelope.py` gains an explicit `NOTE` branch beside the `HUMAN`/`PEER` one (today at
+    `envelope.py:216`). It requires a sender that is not a human localpart, and its authority
+    sentence is fixed.
+  - A `NOTE` never closes a question as answered by a human, and no gate, deploy check or
+    authority check reads it (§11.3).
+  - If the owner wants their answer to carry authority, they answer in the room.
+- **One team only.** A note goes only to the management room of the team whose open question
+  it answers. With several possible teams nothing is posted automatically, and one team's
+  terminal input is never posted to another's room.
+- **When:** only while a question is open, or within `terminal_note_window_s` (1800) of the
+  coordinator's last brief or question (D24).
+
+Fable's review found two things wrong with inferring "the human typed this" inside the
+session:
+
+- anything posted with the coordinator's token is forgeable by the coordinator;
+- `UserPromptSubmit` also fires for cron ticks, `/loop` re-prompts and `SendMessage` prompts.
+
+Option (a) accepts both openly, because the note claims nothing it cannot back. Option (b) tries
+to remove them, at a cost.
+
+#### Option (a), recommended: the coordinator's own note
+
+- The coordinator posts it with `pingbus note`, sent as kind `NOTE` from its own account:
+  `↩ (coordinator's note) the owner answered Q<n> in the terminal: <terse paraphrase>`.
+  - The paraphrase is at most 160 characters.
+  - "The owner" is the team file's `terminal_human` (D23), defaulting to the first human.
+- **It is plainly the coordinator's own claim.** Element shows it from the coordinator's
+  handle, and its fixed prefix says so. It is not a quote of the human, and nothing treats it as
+  the human's words.
+- `note` refuses unless a question `Q<n>` is open in that room, read from the room's history
+  (§11.2). It refuses over the cap.
+- The guidance (`role_coordinator`) says: "When the owner answers one of your questions in the
+  terminal, post `pingbus note` with the question number and a terse paraphrase. Never post one
+  for anything else."
+- **What it does not give:** proof that the human typed it. That is acceptable because the note
+  claims and grants nothing. A coordinator that lies in a note is visible to the humans reading
+  the room, as any lie in a brief would be.
+- **It fails no requirement.** The owner asked for the confirmation to be there, and it is. The
+  owner did not ask for proof of who typed it. It needs no host tap and no new account, and it
+  sees no secrets beyond what the coordinator already reads.
+
+#### Option (b): the terminal notary
+
+The idea is to produce the note outside the session, from what the human actually typed, under
+an identity the agent has no token for. It is heavier, and it is riskier for secrets (see its
+mitigations below).
 
 - **The source is the pane's input bytes, captured on the host.**
 
@@ -986,34 +1028,46 @@ what the human actually typed, under an identity the agent has no token for.**
 
 - **What is posted.** `↩ <human> typed in the terminal: <excerpt>`.
 
-  - **Which human:** `terminal_human` in the team file (D23), defaulting to the first human.
-  - **The excerpt:** the line's first 160 characters, after pingbus's secret-shape check. A
-    line that fails it is posted as `(text withheld: it looked like a secret)` (D22).
+  - **Which human:** `terminal_human` (D23).
+  - **The excerpt:** the line's first 160 characters, after pingbus's secret-shape check. A line
+    that fails it is posted as `(text withheld: it looked like a secret)` (D22).
+  - With (b) the coordinator has no `note` command at all.
 
-- **When.** Only while a question is open, or within `terminal_note_window_s` (1800) of the
-  coordinator's last brief or question (D24). Open questions are read from the room (§11.2).
+- **Reserved name.** `notary` is added to `protocol.RESERVED_LOCALPARTS` (today
+  `("admin", "conduit")`, `protocol.py:60`). Without that, a team human could be called
+  `notary`, pass validation, and have their posts delivered as `HUMAN`, or the reverse. The
+  team-file validator refuses `notary` in `humans`.
 
-- **Which team.** Only when the session coordinates exactly one team that has a management
-  room. With several teams nothing is posted, because the notary cannot know which team a line
-  answers, and one team's input is never posted to another's room. There is no
-  "post it yourself" path: the coordinator has no command that posts a terminal note.
+- **Mitigations for secrets.** The tap wraps `podman run -it`, so it sees everything a human
+  types inside the container: a `/login` OAuth paste, a token paste, anything read with
+  `read -s`. A passphrase has no recognisable shape, so the secret-shape check cannot be relied
+  on. (b) is acceptable only with all of the following:
 
-**What stays forgeable, said plainly.**
+  - **raw bytes exist only in the FIFO and in the notary's memory.** Nothing is written to disk,
+    to a log or to the journal;
+  - **the notary logs nothing but counts**: lines seen, noted, discarded, and why, by class;
+  - **lines typed while the pty has echo off are discarded**, whatever their shape. The notary
+    reads the pty's echo state (`termios` `ECHO`) at each Enter, and `read -s`, password
+    prompts and most credential pastes run with echo off;
+  - **a line that fails the secret-shape check is discarded**, not posted as "withheld", so
+    nothing about it reaches the room;
+  - **the host-side ssh-add prompt is outside the tap.** `lib/ssh-handling.bash`
+    `_probe_agent_add_key` runs on the host before `podman run`, so its passphrase never
+    crosses the tap.
 
-- **A host `cc` coordinator.** It runs as the owner's uid, and the tap's FIFO is the owner's. A
-  hostile cc session could write lines into the FIFO and have them noted. That is the same
-  limit as Plan 00203 H31 and D6.
-- **Either way, the note is a record, not authority.** It is never a `HUMAN` line. It never
-  closes a question, and no gate or deploy check reads it (§11.3). Its job is that a human
-  reading the room later sees that the conversation continued in the terminal.
-- **If the notary is not built** (D26), there is no terminal note at all. The fallback is not a
-  coordinator-posted one, because that would be a forgeable line attributed to a human.
+  **What remains:** a secret typed with echo on, with no recognisable shape, and inside the
+  note window, would be posted. A token pasted at Claude Code's own prompt is one example.
+  Nothing can remove that from a keystroke tap. It is the main reason (a) is recommended.
 
-The M0 spike confirms what the tap needs:
+- **What stays forgeable.** A host `cc` coordinator runs as the owner's uid, and the tap's FIFO
+  is the owner's, so a hostile cc session could write lines into it (Plan 00203 H31, D6).
 
-- what `script --log-in` sees for a tmux pane running `podman run -it`;
-- that the supervisor's typing is recorded with enough detail to subtract;
-- how often lines reconstruct cleanly in practice.
+- **The M0 spike**, only if (b) is chosen, confirms:
+
+  - what `script --log-in` captures for a tmux pane running `podman run -it`;
+  - that the echo state can be read at each Enter;
+  - that the supervisor's typing is recorded closely enough to subtract;
+  - how often lines reconstruct cleanly.
 
 ### 11.5 Element
 
@@ -1110,7 +1164,7 @@ that.
 | Room                     | Members (accounts)                         | Created when                 | History (D21) |
 | ------------------------ | ------------------------------------------ | ---------------------------- | ------------- |
 | `workers` (today's room) | humans, coordinator, workers, reviewers    | exists                       | `shared`      |
-| `management`             | humans, coordinator, `notary` (§11.4)      | the team has a coordinator   | `shared`      |
+| `management`             | humans, coordinator (`notary` if D26 (b))  | the team has a coordinator   | `shared`      |
 | `deployment`             | humans, coordinator, deployer(s)           | the deployer role is enabled | `joined`      |
 | `liaison-<seat>`         | humans, coordinator, that one collaborator | per collaborator             | `joined`      |
 
@@ -1285,12 +1339,17 @@ keeps syncing its other rooms.
   - `invite_acceptable` refusing a room not in `rooms`;
   - the brief and question caps, and the `Q<n>` counter and open set derived from a fake
     room history;
-  - the notary's line reconstruction from captured input bytes, against fixtures:
-    - typing, editing keys, a bracketed paste and a slash command;
-    - supervisor `send-keys` matched against its sidecar record;
-    - an unparseable sequence, which gives no note;
-  - no coordinator-side path posts a terminal note: the coordinator's pingbus has no such
-    command, and a `notary`-sender post is delivered as `NOTE`, never `HUMAN`;
+  - under either D26 option: a `NOTE` is parsed only by the explicit `NOTE` branch, a `NOTE`
+    from a human localpart is rejected, and a `NOTE` never closes a question or satisfies G5;
+  - option (a): `pingbus note` refuses without an open `Q<n>`, refuses over the cap, and posts
+    with the fixed "coordinator's note" prefix;
+  - option (b) only, against captured-input fixtures:
+    - line reconstruction (typing, editing keys, a bracketed paste, a slash command);
+    - supervisor `send-keys` subtracted;
+    - an echo-off line discarded;
+    - a secret-shaped line discarded with nothing posted;
+    - the logs hold counts only;
+    - `notary` refused as a human localpart;
   - a drifted room is not synced, and syncing resumes after the reconcile;
   - a reconciler failure exits non-zero and names the step; a re-run converges.
 - **Host acceptance** (real Tuwunel), using a worker's token against the deployment room:
