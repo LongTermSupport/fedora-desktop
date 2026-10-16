@@ -338,6 +338,8 @@ check "server-idle-timeout-minutes: int, default 20, range 0..1440" "i 20 0 1440
 check "server-start-at-login: boolean, default off" "b false" "$(schema_key server-start-at-login)"
 check "continuous-dictation: boolean, default off until verified" "b false" \
     "$(schema_key continuous-dictation)"
+check "claude-token-auto: boolean, default off (each read of usage costs allowance)" "b false" \
+    "$(schema_key claude-token-auto)"
 check "max-recording-minutes: int, default 60, range 1..480" "i 60 1 480" \
     "$(schema_key max-recording-minutes)"
 check "silence-autostop-seconds: int, default 120, range 0..3600" "i 120 0 3600" \

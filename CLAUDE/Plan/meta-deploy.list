@@ -19,3 +19,12 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+# Plan 00208 Phase 4: builds and installs wsi-claude-token, which wsi-claude-process now asks
+# for the Claude account. Settings gains "Use the token with the most allowance left" (off by
+# default, so nothing changes until it is ticked): each post-processing then runs as the token
+# with the most 5-hour and weekly allowance left, read with ccy --token-usage (one small request
+# per token, cached 15 minutes). When none has any left it fails, the notification names each
+# token and its reset, and the panel shows an amber warning icon and a menu item to clear it.
+# THE EXTENSION CHANGED AGAIN (extension.js, prefs.js, the schema, the new tokenWarning.js):
+# LOG OUT AND BACK IN after this run.
+playbooks/imports/optional/common/play-speech-to-text.yml
