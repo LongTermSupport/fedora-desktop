@@ -375,7 +375,7 @@ check "a plain session (no seat desired): claude with the plugin, on no team" \
     "claude=$PLUGIN_ARGS|--x;home=$work/session-home;teams=" "$(replay)"
 check "  no active flag, so every hook and the status line stay in the shell" "no" \
     "$(yes_no test -e "$work/session-home/active")"
-check "  the plain session accepts no inbound, so it has no inbox socket (Decision 1)" "null" \
+check "  the plain session refuses inbound on the inbox socket Claude Code always binds (Decision 1)" "refuse" \
     "$(jq -r .crossSessionInbound "$work/session-home/settings.json")"
 check "  the plain session keeps the project's status line interval" "5" \
     "$(jq -r .statusLine.refreshInterval "$work/session-home/settings.json")"

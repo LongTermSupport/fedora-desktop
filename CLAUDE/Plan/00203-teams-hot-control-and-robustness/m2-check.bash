@@ -11,8 +11,9 @@
 #                            at the container's level; Enforcing: the container reads them;
 #                            Permissive: says enforcement was not exercised
 #   plain <container>        (b) (c) the membership reads; a write and a remount fail; the kit is
-#                            idle: no active flag, the guarded status line, a hook that starts no
-#                            process; at most one pingbus process (the keeper, once M1 ships)
+#                            idle: no active flag, the guarded status line, inbound refused by
+#                            what claude was started with (m2_inbound.py, in the container), a
+#                            hook that starts no process; at most one pingbus process (the keeper)
 #   nobus <container>        (e) PINGBUS_MEMBERSHIP=off, no mount, no pingbus, no plugin or settings
 #   cpu <plain> <nobus>      (c) the plain session's idle CPU is the --no-bus one's, within a point
 #   image <container>        (d) the session's image carries the M2 entrypoint, at the launcher's
@@ -23,6 +24,9 @@ set -euo pipefail
 readonly MOUNT=/run/ccy/membership
 readonly HOME_IN=/tmp/pingbus-home
 readonly LAUNCHER=/var/local/claude-yolo/claude-yolo
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+#: The inbound probe, relative to the checkout, which a ccy container sees at /workspace.
+readonly PROBE_REL="CLAUDE/Plan/${HERE#*/CLAUDE/Plan/}/m2_inbound.py"
 
 fail() {
     printf '[FAIL] %s\n' "$*" >&2
@@ -107,13 +111,14 @@ cmd_plain() {
     jq -e '.statusLine.command | startswith("[ -e \"$PINGBUS_HOME/active\" ] || exec sh")' <<<"${settings}" >/dev/null \
         || fail "the session's status line is not the shell guard (H34): ${settings}"
     ok "(b) no active flag; the status line is the guard, so it runs the session's own: $(podman exec "${ctr}" cat "${HOME_IN}/statusline-inner")"
-    # Decision 1: a session on no team accepts no inbound, so Claude Code binds no inbox
-    # socket (it would be $XDG_RUNTIME_DIR/cc-socks/<pid>.sock, on the container's own root).
-    jq -e 'has("crossSessionInbound") | not' <<<"${settings}" >/dev/null \
-        || fail "(b) the plain session's settings accept inbound: ${settings}"
+    # Decision 1 (H34): Claude Code binds its inbox socket in every session, so the socket
+    # proves nothing; what claude was started with decides whether a message on it is a turn.
+    # m2_inbound.py reads that from /proc in the container (the checkout is /workspace there).
+    out="$(podman exec "${ctr}" python3 -I "/workspace/${PROBE_REL}" inbound /proc /etc/claude-code "${HOME_IN}/settings.json")" \
+        || fail "(b) the plain session can be written a turn through its inbox socket (the reason is above)"
+    ok "(b) inbound refused at launch: ${out//$'\n'/; }"
     out="$(podman exec "${ctr}" sh -c 'd="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/cc-socks"; [ ! -d "$d" ] || find "$d" -name "*.sock"')"
-    [[ -z "${out}" ]] || fail "(b) the plain session has an inbox socket: ${out}"
-    ok "(b) no crossSessionInbound and no inbox socket: nothing in the container can write a turn into it"
+    ok "(b) Claude Code's own inbox socket, present in every session and refusing here: ${out:-none}"
     # (c) the UserPromptSubmit hook as the plugin registers it, with nothing on PATH: had the
     # guard not ended it in the shell, `exec pingbus` would fail (127).
     local hook

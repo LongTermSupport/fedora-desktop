@@ -168,6 +168,11 @@ class OrdersTest(unittest.TestCase):
         text = uc.orders("idle")
         self.assertIn("nothing to do", text)
         self.assertNotIn("READY", text)
+        # M2.3 sends it to a session whose watcher was stopped, and its hooks answer with
+        # watcher_failed; rule 3 must stay in force for that turn. The host run of 9367bf64 told
+        # it "run no command", and the model, rightly, armed no `pingbus wait`.
+        self.assertNotIn("run no command", text)
+        self.assertIn("rule 3", text)
 
     def test_history_and_plain_orders_run_one_command(self) -> None:
         self.assertIn("`pingbus history`", uc.orders("history"))
