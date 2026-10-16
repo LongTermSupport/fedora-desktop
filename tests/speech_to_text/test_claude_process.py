@@ -28,8 +28,9 @@ TOKEN = "sk-ant-oat01-" + "x" * 95
 STUB_CLAUDE = """#!/bin/bash
 # Records the token it ran with, then answers as $STUB_CLAUDE_MODE says
 printf '%s' "${CLAUDE_CODE_OAUTH_TOKEN:-}" > "$HOME/claude-saw-token"
-cat > /dev/null
+prompt=$(cat)
 case "$STUB_CLAUDE_MODE" in
+    echo-prompt) printf '%s\\n' "$prompt" ;;
     ok) echo "Rewritten by Claude." ;;
     logged-out) echo "Not logged in · Please run /login"; exit 1 ;;
     empty) ;;
@@ -67,12 +68,12 @@ class ClaudeProcessTest(unittest.TestCase):
                             f"printf '%s' '{token_file}'\n")
         stub.chmod(0o755)
 
-    def run_script(self, mode="ok", budget=None):
+    def run_script(self, mode="ok", budget=None, args=()):
         env = {"HOME": str(self.home), "PATH": f"{self.bin}:/usr/bin:/bin",
                "STUB_CLAUDE_MODE": mode}
         if budget is not None:
             env["WSI_CLAUDE_TIMEOUT_SECONDS"] = str(budget)
-        return subprocess.run([str(self.bin / "wsi-claude-process"), "raw words"],
+        return subprocess.run([str(self.bin / "wsi-claude-process"), *args, "raw words"],
                               capture_output=True, text=True, env=env, timeout=30, check=False)
 
     def saw_token(self):
@@ -137,6 +138,34 @@ class ClaudeProcessTest(unittest.TestCase):
         self.assertRegex(result.stderr, r"claude failed as the desktop login \(exit 124\): "
                          r"no answer within [12] s of the 4 s this run has")
         self.assertLess(took, 4.5, "claude was given the whole limit after the chooser had used half")
+
+    def test_a_limit_outside_1_to_170_seconds_is_refused_before_anything_runs(self):
+        # The callers pass the session environment through: a limit above 170 s would let
+        # claude run past their own 180 s, and 0 or below would fail for a wrong reason.
+        self.chooser()
+        for value in ("abc", "0", "-5", "171", "999999", "", "1.5", "07x"):
+            with self.subTest(value=value):
+                result = self.run_script(budget=value)
+                self.assertEqual((result.returncode, result.stdout), (1, ""))
+                self.assertEqual(result.stderr.strip(), "wsi-claude-process: WSI_CLAUDE_TIMEOUT_SECONDS "
+                                 f"must be a whole number of seconds from 1 to 170, not '{value}'")
+                self.assertFalse((self.home / "claude-saw-token").exists())
+
+    def test_the_prompt_carries_the_transcription_and_any_tweak_on_a_line_of_its_own(self):
+        self.chooser()
+        (self.home / ".config/speech-to-text/claude-prompt-corporate.txt").write_text(
+            "Rewrite: {TRANSCRIPTION}{TWEAK}")
+        result = self.run_script("echo-prompt", args=("--tweak", "be brief"))
+        self.assertEqual(result.stdout.strip(), "Rewrite: raw words\nAdditional instruction: be brief")
+        result = self.run_script("echo-prompt")
+        self.assertEqual(result.stdout.strip(), "Rewrite: raw words")
+
+    def test_a_limit_inside_1_to_170_seconds_is_used(self):
+        self.chooser()
+        for value in ("1", "170"):
+            with self.subTest(value=value):
+                result = self.run_script(budget=value)
+                self.assertEqual((result.returncode, result.stdout.strip()), (0, "Rewritten by Claude."))
 
     def test_a_chooser_that_used_up_the_limit_leaves_claude_unrun(self):
         self.chooser(seconds=3)

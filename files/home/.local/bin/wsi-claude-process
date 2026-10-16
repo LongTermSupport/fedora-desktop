@@ -29,7 +29,7 @@ LOG_FILE="${LOG_DIR}/debug.log"
 TOKEN_CHOOSER="$(dirname "$(readlink -f "$0")")/wsi-claude-token"
 # The whole run, choosing the token included, stays below the callers' own limits
 # (180 s), so this script reports a timeout itself; claude gets what is left of it
-CLAUDE_TIMEOUT_SECONDS="${WSI_CLAUDE_TIMEOUT_SECONDS:-170}"
+CLAUDE_TIMEOUT_SECONDS="${WSI_CLAUDE_TIMEOUT_SECONDS-170}"
 DEBUG_MODE=false
 CLAUDE_MODEL="sonnet"
 STYLE="corporate"
@@ -79,15 +79,13 @@ error_exit() {
 # Preflight checks
 log "Starting Claude Code post-processing: model $CLAUDE_MODEL, style $STYLE, ${#TRANSCRIPTION} chars"
 
-# Check if transcription is provided
-if [[ -z "$TRANSCRIPTION" ]]; then
-    error_exit "No transcription text provided"
+# The limit comes from the session environment the callers pass on: above 170 s claude
+# could outlast their own 180 s, and 0 or less is not a limit at all
+if ! [[ "$CLAUDE_TIMEOUT_SECONDS" =~ ^([1-9][0-9]?|1[0-6][0-9]|170)$ ]]; then
+    error_exit "WSI_CLAUDE_TIMEOUT_SECONDS must be a whole number of seconds from 1 to 170, not '$CLAUDE_TIMEOUT_SECONDS'"
 fi
-
-# Check if claude is available
-if ! command -v claude &>/dev/null; then
-    error_exit "claude CLI not found in PATH"
-fi
+[[ -n "$TRANSCRIPTION" ]] || error_exit "No transcription text provided"
+command -v claude &>/dev/null || error_exit "claude CLI not found in PATH"
 
 # claude's stderr, and before it the chooser's, are kept apart: a failed run's reason
 # (e.g. "Not logged in") is what the caller must show.
@@ -128,13 +126,9 @@ PROMPT_TEMPLATE=$(cat "$PROMPT_FILE")
 FULL_PROMPT="${PROMPT_TEMPLATE//\{TRANSCRIPTION\}/$TRANSCRIPTION}"
 
 # Replace {TWEAK} placeholder (used by article prompt; no-op for others)
-TWEAK_LINE=""
-if [[ -n "$TWEAK" ]]; then
-    TWEAK_LINE=$'\nAdditional instruction: '"$TWEAK"
-fi
+TWEAK_LINE="${TWEAK:+$'\n'Additional instruction: $TWEAK}"
 FULL_PROMPT="${FULL_PROMPT//\{TWEAK\}/$TWEAK_LINE}"
 
-log "Constructed full prompt (${#FULL_PROMPT} chars, from a ${#PROMPT_TEMPLATE}-char template)"
 
 # Call Claude CLI in headless mode, within what choosing the token left (SECONDS counts
 # from the start of this script; `timeout 0` would mean no limit at all)
@@ -142,7 +136,7 @@ CLAUDE_BUDGET=$((CLAUDE_TIMEOUT_SECONDS - SECONDS))
 if (( CLAUDE_BUDGET < 1 )); then
     error_exit "choosing the token took ${SECONDS} s of the ${CLAUDE_TIMEOUT_SECONDS} s this run has; claude was not run"
 fi
-log "Calling claude with model=$CLAUDE_MODEL as the $ACCOUNT, within ${CLAUDE_BUDGET} s"
+log "Calling claude with model=$CLAUDE_MODEL as the $ACCOUNT, within ${CLAUDE_BUDGET} s (prompt ${#FULL_PROMPT} chars, from a ${#PROMPT_TEMPLATE}-char template)"
 claude_rc=0
 RESULT=$(printf '%s\n' "$FULL_PROMPT" |
     timeout "$CLAUDE_BUDGET" claude -p --model "$CLAUDE_MODEL" 2>"$CLAUDE_ERR") || claude_rc=$?

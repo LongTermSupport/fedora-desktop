@@ -23,10 +23,11 @@ var (
 const ccyPath = "/opt/stub/claude-yolo"
 
 type kit struct {
-	t         *testing.T
-	run       *execx.Fake
-	home, bin string
-	out, errb bytes.Buffer
+	t            *testing.T
+	run          *execx.Fake
+	home, bin    string
+	out, errb    bytes.Buffer
+	usageTimeout time.Duration
 }
 
 func newKit(t *testing.T) *kit {
@@ -75,7 +76,7 @@ func (k *kit) exec(args ...string) term.ExitCode {
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 	app := App{Env: Env{
 		Runner: k.run, Stdout: &k.out, Stderr: &k.errb, Home: k.home, BinDir: k.bin, CCY: ccyPath,
-		Now: func() time.Time { return now },
+		Now: func() time.Time { return now }, UsageTimeout: k.usageTimeout,
 	}}
 	return app.Run(context.Background(), args)
 }
@@ -267,6 +268,29 @@ func TestK5CcysOwnFirstLineOfStderrIsInTheReason(t *testing.T) {
 	k.wantStderr("(" + ccyPath + " --token-usage --json: exit 2: ccy: the token library is missing; re-run play-claude-yolo.yml)")
 	if strings.Contains(k.errb.String(), "second line") {
 		t.Fatalf("stderr %q carries more than ccy's first line", k.errb.String())
+	}
+}
+
+func TestK5AUsageReadPastItsDeadlineSaysItTimedOut(t *testing.T) {
+	k := newKit(t)
+	k.auto(true)
+	k.usageTimeout = time.Nanosecond
+	// What a killed ccy looks like to execx: an exit with no code, as a signal ends it
+	k.run.OnFunc([]string{ccyPath, "--token-usage", "--json"}, func(execx.Cmd) (execx.Result, error) {
+		time.Sleep(time.Millisecond)
+		return execx.Result{ExitCode: -1}, nil
+	})
+	k.want(k.exec(), term.ExitFailure, "")
+	k.wantStderr("cannot read the tokens' usage: " + ccyPath + " --token-usage --json did not answer within 1ns " +
+		"(the API or the network is slow; try again, or untick Use the token with the most allowance left)")
+	if strings.Contains(k.errb.String(), "exit -1") || strings.Contains(k.errb.String(), "play-claude-yolo") {
+		t.Fatalf("stderr %q names an exit or a play for a timeout", k.errb.String())
+	}
+}
+
+func TestK5TheProductionDeadlineIsSpokenInSeconds(t *testing.T) {
+	if got := (&timedOutError{limit: usageTimeout}).spoken(); got != "60 s" {
+		t.Fatalf("spoken %q, want 60 s", got)
 	}
 }
 

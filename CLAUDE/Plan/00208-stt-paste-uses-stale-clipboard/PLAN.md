@@ -119,7 +119,9 @@ owner's decisions D1-D5: `subagent-reports/261016-stt-token-auto-research.md`.
   read never pushes the run past the callers' 180 s. Tests:
   `tests/speech_to_text/test_claude_process.py`, over a stub chooser
 - [x] ✅ **Task 4.6**: Fable review fixes (`subagent-reports/261016-token-auto-review-fable.md`):
-  the queue merged with F44's; the time limit above; ccy's first stderr line in the K5 reason
+  the queue merged with F44's; the time limit above; ccy's first stderr line in the K5 reason.
+  Re-review: `WSI_CLAUDE_TIMEOUT_SECONDS` accepted only as 1-170 (it arrives from the session
+  environment); a usage read past its 60 s deadline says it timed out (bash now 99 code lines)
 - [x] ✅ **Task 4.4**: Settings switch "Use the token with the most allowance left"; the
   panel's warning icon and its clearing menu item while the warning file exists
   (`tokenWarning.js`; tests: `tests/extensions/test-stt-token-warning.mjs`)

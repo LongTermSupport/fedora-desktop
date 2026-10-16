@@ -19,7 +19,8 @@
 //     small Haiku request per token unless read in the last 15 minutes). Exit 0 or 1 with a
 //     schema 1 document are figures; anything else: `cannot read the tokens' usage (...: exit
 //     N: <ccy's first stderr line>; re-run play-claude-yolo.yml)`, exit 1, the warning file
-//     left as it was (a broken reader says nothing about the tokens).
+//     left as it was (a broken reader says nothing about the tokens). Past the 60 s deadline:
+//     `... did not answer within 60 s (...; try again, or untick ...)`.
 //   - K6. A token has room when its status is `ok`, at least one of its 5-hour and 7-day
 //     percentages is reported, and each reported one is below 100; its room is 100 less the
 //     larger. The most room wins; a tie goes to the lower 7-day figure, then the name. Its
@@ -86,6 +87,8 @@ type Env struct {
 	CCY string
 	// Now is the clock; reset times are shown in its location.
 	Now func() time.Time
+	// UsageTimeout bounds the usage read; zero is the production 60 s.
+	UsageTimeout time.Duration
 }
 
 // DefaultCCY is where play-claude-yolo.yml installs ccy's launcher.
@@ -205,6 +208,12 @@ func (a App) check(path string) error {
 // mostRoom is K5-K7.
 func (a App) mostRoom(ctx context.Context) (string, error) {
 	rep, err := a.readUsage(ctx)
+	if timeout, ok := errors.AsType[*timedOutError](err); ok {
+		a.say(fmt.Sprintf("cannot read the tokens' usage: %s --token-usage --json did not answer within %s "+
+			"(the API or the network is slow; try again, or untick Use the token with the most allowance left)",
+			a.Env.CCY, timeout.spoken()))
+		return "", errFailed
+	}
 	if err != nil {
 		a.say(fmt.Sprintf("cannot read the tokens' usage (%s --token-usage --json: %v; re-run play-claude-yolo.yml)", a.Env.CCY, err))
 		return "", errFailed
@@ -240,12 +249,16 @@ func (a App) mostRoom(ctx context.Context) (string, error) {
 }
 
 func (a App) readUsage(ctx context.Context) (report, error) {
-	ctx, cancel := context.WithTimeout(ctx, usageTimeout)
+	limit := cmp.Or(a.Env.UsageTimeout, usageTimeout)
+	ctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 	var stdout bytes.Buffer
 	res, err := a.Env.Runner.Run(ctx, execx.Cmd{
 		Name: a.Env.CCY, Args: []string{"--token-usage", "--json"}, Stdout: &stdout,
 	})
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return report{}, &timedOutError{limit: limit} // ccy was killed: its exit says nothing
+	}
 	exit, isExit := errors.AsType[*execx.ExitError](err)
 	if isExit && exit.Code == 1 {
 		err = nil // no token's usage was read: still a document, and K7's to say why
@@ -269,6 +282,21 @@ func (a App) readUsage(ctx context.Context) (report, error) {
 		return report{}, errors.New("not a schema 1 report")
 	}
 	return rep, nil
+}
+
+// timedOutError is a usage read the deadline ended.
+type timedOutError struct {
+	limit time.Duration
+}
+
+func (e *timedOutError) Error() string { return "no answer within " + e.spoken() }
+
+// spoken is the limit as a person reads it: "60 s", or Go's form below a second.
+func (e *timedOutError) spoken() string {
+	if e.limit >= time.Second {
+		return fmt.Sprintf("%d s", int(e.limit.Seconds()))
+	}
+	return e.limit.String()
 }
 
 // firstLine is the first line of text that is not blank, trimmed; "" when there is none.
