@@ -79,7 +79,12 @@
     <key name="claude-token" type="s">
       <default>''</default>
       <summary>Claude Token</summary>
-      <description>The account Claude post-processing runs as: the name of a token in ~/.claude-tokens/ccy/tokens/ (NAME.YYYY-MM-DD.token, made by ccy --create-token, as cc and ccy use), of which the newest unexpired file is used. Empty uses the desktop login, which cc parks aside while a named-token session runs, so post-processing fails then. Read by wsi-claude-process at each run.</description>
+      <description>The account Claude post-processing runs as: the name of a token in ~/.claude-tokens/ccy/tokens/ (NAME.YYYY-MM-DD.token, made by ccy --create-token, as cc and ccy use), of which the newest unexpired file is used. Empty uses the desktop login, which cc parks aside while a named-token session runs, so post-processing fails then. Read by wsi-claude-token at each run. Not used while claude-token-auto is on.</description>
+    </key>
+    <key name="claude-token-auto" type="b">
+      <default>false</default>
+      <summary>Use the Claude Token with the Most Allowance Left</summary>
+      <description>On: each post-processing runs as the token in ~/.claude-tokens/ccy/tokens/ with the most 5-hour and weekly allowance left, read with ccy --token-usage (one small request per token, unless read in the last 15 minutes). When no token has any left, post-processing fails and the panel icon shows a warning until a token has room again or the warning is cleared from the menu. Read by wsi-claude-token at each run.</description>
     </key>
     <key name="stop-grace-seconds" type="i">
       <range min="0" max="30"/>
