@@ -67,12 +67,30 @@ m2_launch() {
     mkfifo -- "${fifo}" || return 1
     exec {fd}<>"${fifo}" || return 1
     M2_FD[${name}]="${fd}"
-    # tmux runs one shell command: every word quoted for it, stdin and output redirected.
-    command="$(printf '%q ' exec "${M2_LAUNCHER}" --headless --no-restore --no-supervise "$@" \
+    # tmux runs one shell command: every word quoted for it, stdin and output redirected, and
+    # never `exec`: the pane's shell stays ccy's parent, keeps the pane's terminal open and
+    # records ccy's exit status. With all three streams redirected an exec'd ccy holds no
+    # descriptor on the terminal, so tmux reads end of file, takes the pane as exited and sends
+    # SIGHUP before ccy writes a byte. ccy, the child of the pane's first process, is still that
+    # session (the registry trampoline's shape).
+    command="$(printf '%q ' "${M2_LAUNCHER}" --headless --no-restore --no-supervise "$@" \
         --prompt "${M2_PROMPT}" -- --input-format stream-json --output-format stream-json --verbose --model haiku)" || return 1
     command+="<$(printf '%q' "${fifo}") >$(printf '%q' "${M2_EV}/${name}.out") 2>$(printf '%q' "${M2_EV}/${name}.err")"
+    command+="; echo \"\$?\" >$(printf '%q' "${M2_EV}/${name}.status")"
     tmux -L ccy new-session -d -s "${name}" -c "${PLAN_REPO_ROOT}" "${command}" || return 1
     printf '==> started %s: ccy --headless %s\n' "${name}" "$*"
+}
+
+# m2_ended_early <name> — say how a session ended before its container started: ccy's exit
+# status as the pane's shell recorded it (none: the shell itself was killed) and its stderr.
+m2_ended_early() {
+    local name="$1" status="not written (the pane's shell was killed)"
+    if [[ -s "${M2_EV}/${name}.status" ]]; then
+        status="$(<"${M2_EV}/${name}.status")"
+    fi
+    printf '[FAIL] the session %s ended before its container started: ccy exit status %s; its stderr (%s):\n' \
+        "${name}" "${status}" "${M2_EV}/${name}.err" >&2
+    cat -- "${M2_EV}/${name}.err" >&2
 }
 
 # m2_container_up <name> — the running container labelled ccy-session=<name>; 120 s at most.
@@ -87,8 +105,8 @@ m2_container_up() {
             printf '==> %s runs in container %s\n' "${name}" "${id}"
             return 0
         fi
-        if ! tmux -L ccy has-session -t "=${name}"; then
-            printf '[FAIL] the session %s ended before its container started\n' "${name}" >&2
+        if ! tmux -L ccy has-session -t "=${name}" 2>/dev/null; then
+            m2_ended_early "${name}"
             return 1
         fi
         sleep 1

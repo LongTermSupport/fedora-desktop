@@ -156,6 +156,14 @@ class OrdersTest(unittest.TestCase):
         self.assertIn("run_in_background", text)
         self.assertIn("READY", text)
 
+    def test_bus_orders_wait_when_the_watcher_could_not_be_started(self) -> None:
+        # A session with a socket is never told "nothing will wake": its hooks start the
+        # watcher again, and one that keeps dying is reported as watcher_failed (SPEC-inject E26).
+        text = uc.orders("bus")
+        self.assertIn("nothing will wake this session", text)
+        self.assertIn("the watcher could not be started", text)
+        self.assertIn("watcher could not be started", uc.hooks.TEMPLATES["watcher_failed"])
+
     def test_idle_orders_give_nothing_to_do(self) -> None:
         text = uc.orders("idle")
         self.assertIn("nothing to do", text)
@@ -330,12 +338,35 @@ class NoticesTest(unittest.TestCase):
                     bash_use("pingbus send ack --re '$x' --to orch.1+workstation.podman")]
         self.assertEqual(uc.expect_notice_before_recv(answered), [])
 
-    def test_the_no_waker_block_is_found_in_any_entry(self) -> None:
-        block = ("Stop hook feedback:\nagent-bus: 1 of 1 active teams have no watcher or waiter, so "
-                 "nothing will wake this session. Run `pingbus wait` with run_in_background.")
-        self.assertEqual(uc.expect_no_waker_block([typed_line("x"), typed_line(block)]), [])
-        self.assertEqual(uc.expect_no_waker_block([json.dumps({"type": "system", "content": block})]), [])
-        self.assertTrue(uc.expect_no_waker_block([typed_line(notice(1, 0, 1, 1))]))
+    def test_a_hook_text_is_found_in_any_entry(self) -> None:
+        failed = uc.hooks.TEMPLATES["watcher_failed"]
+        block = "Stop hook feedback:\n" + failed
+        self.assertEqual(uc.expect_hook_text([typed_line("x"), typed_line(block)], [], "watcher_failed"), [])
+        self.assertEqual(uc.expect_hook_text([json.dumps({"type": "system", "content": block})], [],
+                                             "watcher_failed"), [])
+        self.assertTrue(uc.expect_hook_text([typed_line(notice(1, 0, 1, 1))], [], "watcher_failed"))
+        self.assertTrue(uc.expect_hook_text([typed_line(block)], [], "watcher_restarted"))
+
+    def test_a_hook_text_is_found_in_a_saved_hook_output(self) -> None:
+        # Claude Code keeps a long hook output in a file beside the transcript.
+        restarted = uc.hooks.TEMPLATES["watcher_restarted"]
+        self.assertEqual(uc.expect_hook_text([typed_line("x")], ["a\n" + restarted], "watcher_restarted"), [])
+
+    def test_only_a_fixed_hook_text_is_looked_for(self) -> None:
+        with self.assertRaises(ValueError):
+            uc.expect_hook_text([], [], "no_waker")
+
+    def test_cli_reads_the_saved_hook_outputs_beside_a_transcript(self) -> None:
+        failed = uc.hooks.TEMPLATES["watcher_failed"]
+        for kept in (False, True):
+            with self.subTest(kept=kept), tempfile.TemporaryDirectory() as tmp:
+                stem = "transcript" if kept else "3f9c2a71-0000-0000-0000-000000000000"
+                path = write(tmp, f"{stem}.jsonl", typed_line("x") + "\n")
+                self.assertEqual(run_main("expect-hook-text", str(path), "watcher_failed")[0], 1)
+                saved = pathlib.Path(tmp) / (f"{stem}.d" if kept else stem) / "tool-results"
+                saved.mkdir(parents=True)
+                (saved / "hook-1-2-additionalContext.txt").write_text(failed + "\n", encoding="utf-8")
+                self.assertEqual(run_main("expect-hook-text", str(path), "watcher_failed")[0], 0)
 
     def test_cli_reads_one_transcript(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -347,7 +378,7 @@ class NoticesTest(unittest.TestCase):
             self.assertEqual(run_main("expect-no-notices", str(path), "humans")[0], 0)
             self.assertEqual(run_main("expect-human-notice", str(path))[0], 1)
             self.assertEqual(run_main("expect-notice-before-recv", str(path))[0], 0)
-            self.assertEqual(run_main("expect-no-waker-block", str(path))[0], 1)
+            self.assertEqual(run_main("expect-hook-text", str(path), "watcher_failed")[0], 1)
 
 
 class ToolResultsTest(unittest.TestCase):
@@ -598,16 +629,40 @@ class MembersTest(unittest.TestCase):
 
 
 class ContainerTest(unittest.TestCase):
-    def test_the_watcher_by_its_argv(self) -> None:
+    SUPERVISOR = "216\t1\tpython3 /usr/local/bin/pingbus watch --supervise"
+    CHILD = "217\t216\tpython3 /usr/local/bin/pingbus watch --child"
+
+    def test_the_supervised_watcher_by_its_argv_and_parent(self) -> None:
+        # As the host's 00161 run listed a seated session's container (SPEC-inject E26).
         listing = "\n".join([
-            "1\t/usr/bin/tini -- /usr/local/bin/entrypoint.sh claude",
-            "57\tpython3 /usr/local/bin/pingbus watch ",
-            "58\t/usr/local/bin/pingbus watch",
-            "60\tpython3 /usr/local/bin/pingbus wait --timeout 1500",
-            "61\tbash -c grep pingbus watch",
-            "62\t",
+            "1\t0\t/usr/bin/tini -- /usr/local/bin/entrypoint.sh claude",
+            "100\t1\t/usr/bin/python3 /opt/claude-yolo/optional/agent-bus/pingbus seat keep --launch --parent 2",
+            "2\t1\tclaude --plugin-dir /opt/claude-yolo/optional/agent-bus/plugin/pingbus",
+            self.SUPERVISOR,
+            self.CHILD,
+            "60\t2\tpython3 /usr/local/bin/pingbus wait --timeout 1500",
+            "61\t2\tbash -c grep pingbus watch --supervise",
+            "62\t2\t",
         ])
-        self.assertEqual(uc.watcher_pids(listing), ["57", "58"])
+        self.assertEqual(uc.supervised_watcher(listing), ("216", "217"))
+        self.assertEqual(uc.supervised_watcher(listing.replace("python3 /usr/local/bin/", "/usr/local/bin/")),
+                         ("216", "217"))
+
+    def test_anything_but_one_supervisor_and_its_child_is_refused(self) -> None:
+        cases = {
+            "no watcher": "",
+            "a supervisor in its backoff": self.SUPERVISOR,
+            "a child with no supervisor": self.CHILD,
+            "a child of another process": "\n".join([self.SUPERVISOR, self.CHILD.replace("\t216\t", "\t1\t")]),
+            "a second supervisor": "\n".join([self.SUPERVISOR, self.CHILD,
+                                              "300\t1\tpython3 /usr/local/bin/pingbus watch --supervise"]),
+            "an unsupervised watcher too": "\n".join([self.SUPERVISOR, self.CHILD,
+                                                      "301\t1\t/usr/local/bin/pingbus watch --team x"]),
+            "the old one-watcher form": "57\t1\tpython3 /usr/local/bin/pingbus watch",
+        }
+        for name, listing in cases.items():
+            with self.subTest(name), self.assertRaises(ValueError):
+                uc.supervised_watcher(listing)
 
     def test_containers_holding_a_seat_of_the_team(self) -> None:
         listing = "\n".join([
@@ -629,7 +684,9 @@ class ContainerTest(unittest.TestCase):
     def test_cli_reads_stdin(self) -> None:
         self.assertEqual(run_main("expect-no-seats-label", stdin='{"ccy": "true"}\n')[0], 0)
         self.assertEqual(run_main("expect-no-seats-label", stdin='{"ccy": "true", "ccy-seats": "x@y"}\n')[0], 1)
-        self.assertEqual(run_main("watcher-pids", stdin="9\tpython3 /usr/local/bin/pingbus watch\n")[:2], (0, "9\n"))
+        self.assertEqual(run_main("supervised-watcher", stdin=f"{self.SUPERVISOR}\n{self.CHILD}\n")[:2],
+                         (0, "216 217\n"))
+        self.assertEqual(run_main("supervised-watcher", stdin=f"{self.SUPERVISOR}\n")[0], 1)
         self.assertEqual(run_main("seat-containers", TEAM, stdin="x\taccb@acceptance\n")[:2], (0, "x\n"))
 
 

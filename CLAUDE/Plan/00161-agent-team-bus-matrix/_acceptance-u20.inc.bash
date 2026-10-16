@@ -728,39 +728,85 @@ u20_check_same_count() {
     evidence "M2.2 review ${REVIEW2_ID} sent $(((REVIEW2_TS - REVIEW1_TS) / 1000)) s after the first, a second delivery of 1 ping with a new nonce, ack ${ack2}: u20/accb/"
 }
 
-# u20_stop_watcher <session> — a signal to the `pingbus watch` process in its container, found
-# by its argv; exactly one must be there.
+#: The hooks give a watcher they started this long to take its lock before they would start
+#: it again (pingbus hooks.WATCHER_START_GRACE_S, SPEC-inject E26), plus a margin.
+readonly U20_WATCHER_GRACE_S=40
+
+# u20_stop_watcher <session> — the session's supervised watcher (SPEC-inject E26) stopped: TERM
+# to `pingbus watch --supervise` first, so nothing starts the watcher again, then to its
+# `watch --child`, which holds the session's watch lock it inherited. Both are found in its
+# container by argv and parent; exactly that pair must be there.
 u20_stop_watcher() {
-    local s="$1" listing pids
+    local s="$1" listing pids supervisor child
     listing="$(podman exec "${U20_CTR[${s}]}" python3 -c '
 import os
 for pid in sorted(p for p in os.listdir("/proc") if p.isdigit()):
     try:
         with open(f"/proc/{pid}/cmdline", "rb") as f:
             argv = f.read()
-    except OSError:
+        with open(f"/proc/{pid}/stat", "rb") as f:
+            ppid = f.read().rsplit(b")", 1)[1].split()[1].decode()
+    except (OSError, IndexError):
         continue
-    print(pid, argv.replace(b"\0", b" ").decode("utf-8", "replace").strip(), sep="\t")
+    print(pid, ppid, argv.replace(b"\0", b" ").decode("utf-8", "replace").strip(), sep="\t")
 ')" || return 1
-    pids="$(printf '%s\n' "${listing}" | "${U20[@]}" watcher-pids)" || return 1
-    if [[ "$(wc -w <<<"${pids}")" -ne 1 ]]; then
-        printf '[FAIL] session %s: want one pingbus watch process, found "%s"; its processes:\n%s\n' "${s}" "${pids}" "${listing}" >&2
+    if ! pids="$(printf '%s\n' "${listing}" | "${U20[@]}" supervised-watcher)"; then
+        printf '[FAIL] session %s: its processes:\n%s\n' "${s}" "${listing}" >&2
         return 1
     fi
-    podman exec "${U20_CTR[${s}]}" kill -TERM "${pids}" || return 1
-    printf '==> session %s: stopped its watcher (pid %s in its container)\n' "${s}" "${pids}"
+    read -r supervisor child <<<"${pids}" || return 1
+    podman exec "${U20_CTR[${s}]}" kill -TERM "${supervisor}" "${child}" || return 1
+    printf '==> session %s: stopped its watcher supervisor (pid %s) and its child (pid %s)\n' "${s}" "${supervisor}" "${child}"
 }
 
-# M2.3 — the watcher lost (D39, D59). accc idles with a watcher after its orders; the harness
-# stops the watcher and gives accc a turn with nothing to do. At its end the Stop guard blocks
-# once ("no waker") and accc starts `pingbus wait` in the background; M1's member a sends it a
-# review; the waiter ends and accc acks, with no notice ever reaching it.
+# u20_wake_after_restart <session> — once the turn after a stop has ended: 0 with U20_WAKE set to
+# `watcher` (the hooks started it again) or `waiter` (they reported it failed and the session
+# armed `pingbus wait`); 3 while neither.
+u20_wake_after_restart() {
+    local wake
+    wake="$(u20_status_field "$1" wake)" || return 3
+    [[ "${wake}" == watcher || "${wake}" == waiter ]] || return 3
+    U20_WAKE="${wake}"
+}
+
+# u20_idle_turn <session> — one input with nothing to do, and its turn ended.
+u20_idle_turn() {
+    local turns
+    turns="$(u20_turns "$1")" || return 1
+    u20_tell "$1" frame-orders idle || return 1
+    u20_poll "${U20_TURN_S}" "session $1's idle turn ended" u20_turns_above "$1" "${turns}" || return 1
+}
+
+# M2.3 — a session with no live watcher is woken by `pingbus wait` (D39, D59; SPEC-inject E26).
+# A session with a socket is never told to arm `wait` while its watcher can be started: the
+# UserPromptSubmit and Stop hooks start the supervisor again, and only one that died again
+# within 300 s of their last start is reported (`watcher_failed`, which says to run `pingbus
+# wait` meanwhile). So the harness stops accc's supervisor and watcher and gives it a turn
+# with nothing to do. When the hooks' last start was long enough ago they start it again
+# (`watcher_restarted`); the harness then waits out their 30 s grace, stops it again and gives
+# a second such turn, inside the 300 s. Either way accc is told the watcher failed and starts
+# `pingbus wait` in the background; M1's member a sends it a review; the waiter ends and accc
+# acks, with no delivery ever reaching it.
 u20_check_wait_fallback() {
-    local found turns status=0 m1a="@${A_HANDLE}:${SERVER_NAME}"
+    local found turns inputs=2 restarted="" status=0 m1a="@${A_HANDLE}:${SERVER_NAME}"
+    U20_WAKE=""
     u20_stop_watcher accc || return 1
     u20_poll "${U20_TURN_S}" "accc's seat with no waker (wake=none)" u20_wake_is accc none || return 1
-    u20_tell accc frame-orders idle || return 1
+    u20_idle_turn accc || return 1
+    u20_poll "${U20_TURN_S}" "accc's watcher started again, or a background waiter (wake=watcher|waiter)" \
+        u20_wake_after_restart accc || return 1
+    if [[ "${U20_WAKE}" == watcher ]]; then
+        "${U20[@]}" expect-hook-text "${U20_TRANSCRIPT[accc]}" watcher_restarted || return 1
+        restarted=" (the hooks first started it again, watcher_restarted; it was stopped a second time inside their 300 s)"
+        printf '==> the hooks started accc'\''s watcher again; stopping it again after their %d s grace\n' "${U20_WATCHER_GRACE_S}"
+        sleep "${U20_WATCHER_GRACE_S}"
+        u20_stop_watcher accc || return 1
+        u20_poll "${U20_TURN_S}" "accc's seat with no waker (wake=none)" u20_wake_is accc none || return 1
+        u20_idle_turn accc || return 1
+        inputs=3
+    fi
     u20_poll "${U20_TURN_S}" "accc's background waiter (pingbus status wake=waiter)" u20_wake_is accc waiter || return 1
+    "${U20[@]}" expect-hook-text "${U20_TRANSCRIPT[accc]}" watcher_failed || return 1
     turns="$(u20_turns accc)" || return 1
     send_ping a u20-send-review-3 review "${REF_PATH}" --branch "${REF_BRANCH}" --to "${U20_HANDLE[accc]}" || status=$?
     if [[ "${status}" -ne 0 ]]; then
@@ -771,10 +817,9 @@ u20_check_wait_fallback() {
         u20_find_ping found "${U20_UID[accc]}" ack "${m1a}" - "${U20_REVIEW3}" || return 1
     U20_ACK3="${found%%$'\t'*}"
     u20_poll "${U20_TURN_S}" "accc's woken turn ended" u20_turns_above accc "${turns}" || return 1
-    "${U20[@]}" expect-no-waker-block "${U20_TRANSCRIPT[accc]}" || return 1
     "${U20[@]}" expect-no-notices "${U20_TRANSCRIPT[accc]}" any || return 1
-    u20_stdin_lines accc 2 || return 1
-    evidence "M2.3 accc's watcher stopped; the Stop guard's no-waker block, a background pingbus wait; review ${U20_REVIEW3} from M1's a, ack ${U20_ACK3}, no notice in accc's transcript: u20/accc/"
+    u20_stdin_lines accc "${inputs}" || return 1
+    evidence "M2.3 accc's watcher supervisor and watcher stopped${restarted}; the hooks' watcher_failed, a background pingbus wait; review ${U20_REVIEW3} from M1's a, ack ${U20_ACK3}, no delivery in accc's transcript: u20/accc/"
 }
 
 # M2.4 — the human posts a message mentioning acca only, asking for an ack. acca, woken by a
@@ -1015,9 +1060,9 @@ u20_check_plain() {
 
 # ── a named seated session (Plan 00203 M2) ───────────────────────────────────────────────
 # Every session above is launched with no TMUX, so it is unnamed. This one is started as the
-# owner starts one: `ccy --teams accb@acceptance` as the first process of a pane of its own in
-# ccy's tmux, so it IS that tmux session. Its input is a fifo this run holds; it is never sent
-# a turn.
+# owner starts one: `ccy --teams accb@acceptance` as the child of the first process of a pane of
+# its own in ccy's tmux (the registry trampoline's shape), so it IS that tmux session. Its input
+# is a fifo this run holds; it is never sent a turn.
 readonly U20_NAMED="u20-named-$$"
 readonly U20_NAMED_DIR="${XDG_RUNTIME_DIR:?}/ccy/membership/${U20_NAMED}"
 
@@ -1029,10 +1074,15 @@ u20_named_launch() {
     exec {fd}<>"${ev}/stdin.fifo" || return 1
     U20_FD[named]="${fd}"
     U20_STARTED=1
-    # tmux runs one shell command: every word quoted for it, stdin and output redirected.
-    command="$(printf '%q ' exec "${CCY_LAUNCHER}" --headless --no-restore --no-supervise --teams "accb@${TEAM}" \
+    # tmux runs one shell command: every word quoted for it, stdin and output redirected, and
+    # never `exec`: the pane's shell stays ccy's parent, keeps the pane's terminal open and
+    # records ccy's exit status. With all three streams redirected an exec'd ccy holds no
+    # descriptor on the terminal, so tmux reads end of file, takes the pane as exited and sends
+    # SIGHUP before ccy writes a byte.
+    command="$(printf '%q ' "${CCY_LAUNCHER}" --headless --no-restore --no-supervise --teams "accb@${TEAM}" \
         --prompt "${U20_PROMPT}" -- --input-format stream-json --output-format stream-json --verbose --model "${U20_MODEL}")" || return 1
     command+="<$(printf '%q' "${ev}/stdin.fifo") >$(printf '%q' "${ev}/session.out") 2>$(printf '%q' "${ev}/session.err")"
+    command+="; echo \"\$?\" >$(printf '%q' "${ev}/session.status")"
     tmux -L ccy new-session -d -s "${U20_NAMED}" -c "${PLAN_REPO_ROOT}" "${command}" || return 1
     U20_SEAT_OF[named]=accb
     printf '==> session named: ccy --teams accb@%s in tmux session %s of its own\n' "${TEAM}" "${U20_NAMED}"
@@ -1040,16 +1090,22 @@ u20_named_launch() {
 
 # u20_named_up — its container, found by the label naming its tmux session; 3 while none.
 u20_named_up() {
-    local id
+    local id ev status="not written (the pane's shell was killed)"
     id="$(podman ps --filter "label=ccy-session=${U20_NAMED}" --filter status=running --format '{{.ID}}')" || return 1
     if [[ -n "${id}" ]]; then
         U20_CTR[named]="${id}"
         return 0
     fi
-    if tmux -L ccy has-session -t "=${U20_NAMED}"; then
+    if tmux -L ccy has-session -t "=${U20_NAMED}" 2>/dev/null; then
         return 3
     fi
-    printf '[FAIL] the named session ended before its container started; its stderr is %s\n' "$(u20_ev named)/session.err" >&2
+    ev="$(u20_ev named)"
+    if [[ -s "${ev}/session.status" ]]; then
+        status="$(<"${ev}/session.status")"
+    fi
+    printf '[FAIL] the named session ended before its container started: ccy exit status %s; its stderr (%s):\n' \
+        "${status}" "${ev}/session.err" >&2
+    cat -- "${ev}/session.err" >&2
     return 1
 }
 
