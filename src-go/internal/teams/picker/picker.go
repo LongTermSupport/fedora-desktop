@@ -26,6 +26,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcadd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/settings"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/shutdown"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
@@ -54,6 +55,8 @@ type Picker struct {
 	Lxc    *lxcadd.Adder
 	// Shutdown is the team row's "Shut down every session"; teams.Wire sets it.
 	Shutdown *shutdown.Shutdown
+	// Settings is the team row's "Edit settings"; teams.Wire sets it.
+	Settings *settings.Settings
 	// Session is the Running sessions view's hot control (Tab); teams.Wire sets it.
 	Session SessionControl
 

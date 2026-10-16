@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.99.12.4"  # Container 2.77.3: making a coordinator asks one of two questions, the plain offer or a takeover that names the current one (lxc-add too). See docs/ccy-changelog.md.
+CCY_VERSION="3.99.12.5"  # Container 2.77.4: the image's agent_bus copy carries declare.py's settings and set and the team file's removed_humans (ccy-teams Edit settings on a team row). See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -78,7 +78,7 @@ source "$SCRIPT_DIR/lib/agent-bus-seats.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.77.3"
+REQUIRED_CONTAINER_VERSION="2.77.4"
 
 set -e
 

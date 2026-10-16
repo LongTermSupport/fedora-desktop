@@ -131,6 +131,27 @@ agent, a session on another machine, a `cc --teams <team>` session whose record 
 end those where they run). A session with unsent text in its input box, or whose screen cannot
 be read, is left alone. Local only: nothing goes on the bus. Spec: Plan 00201 `SPEC-shutdown.md`.
 
+**Change a team's settings.** Enter on the team, then **Edit settings**. One screen lists every
+field of the team's `agent_bus_teams` entry with its value. Choose a field to change it; each
+value is checked as you type it, by the same rules the play uses. Changes wait on the screen
+until **Save and apply**. It shows each change and what applying does, then writes the
+host_vars in one edit (a backup kept beside it) and applies the team, as `ccy-teams apply`
+does. **Discard changes** forgets them, and **Back** asks first when some are not saved.
+
+| Field                                                         | What applying a change does                                                                                                                                                                                                           |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Description                                                   | sets the team room's topic; no restart                                                                                                                                                                                                |
+| People (`humans`)                                             | an account and an invite for each person added (who then signs in); a person removed is put out of the room and their account deactivated for good, and is listed under Removed people: that name can never be added back; no restart |
+| GitHub owner, repositories, excluded repositories, path limit | rewrites the team record, which running sessions read on their next sync; no restart                                                                                                                                                  |
+| Allowed networks (`allow_from`)                               | rewrites the firewall and the homeserver's address filter, which restarts the homeserver                                                                                                                                              |
+| Coordinator                                                   | changed at once, not on save (the same as a seat's Make coordinator)                                                                                                                                                                  |
+
+The name, port, listen addresses, server name, forge API and removed people are shown as fixed,
+with the reason.
+A team's name is its homeserver's unit and data folder, and part of every account and room ID.
+The installer refuses to change it, so renaming a team means making a new one. Port and listen
+addresses are in every member's credentials. Spec: Plan 00201 `SPEC-many-teams.md` section F.
+
 `ccy-teams` lists each team (its homeserver up, down or not installed yet, its port, and
 APPLIED: up to date, out of date, not built, or decide), then its members. They are ccy seats, each with the session holding it and whether it is
 restored after a reboot; LXC and other members, active or parked; and the people, in the

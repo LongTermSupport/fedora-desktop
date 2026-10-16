@@ -11,6 +11,7 @@
 //	choose  choose-seat and describe-seats: the launcher's seat and role questions
 //	chooser choose-teams: which team the launcher's session joins, then its seat through choose
 //	shutdown shutdown: every session of a team sent /exit, and the team row's menu line
+//	settings the team row's Edit settings: the team's entry edited, saved and applied
 //	membership internal membership-init: the launcher writes a session's desired membership
 //	containername internal claim-container-name: the launcher's container name, claimed atomically
 //	discover the one lookup of which session names a seat (records and desired memberships)
@@ -42,6 +43,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/picker"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/settings"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/shutdown"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -108,6 +110,7 @@ func Wire(h *host.Host) *App {
 	down := shutdown.New(h, kit, b)
 	list := picker.New(h, kit, b, o, c, l, s, x)
 	list.Shutdown = down
+	list.Settings = settings.New(h, kit, o.ApplyTeams, s.ChangeRole)
 	session := hot.New(h, kit)
 	o.SessionsIn, o.TakeOut = session.SessionsIn, session.TakeOut
 	list.Session = session

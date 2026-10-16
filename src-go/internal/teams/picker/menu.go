@@ -37,6 +37,8 @@ const (
 	// keyShutdown, shutting every session of the team down, is a team row's menu line with no
 	// shortcut: a key that ends sessions is too easy to press by mistake.
 	keyShutdown = "shutdown"
+	// keySettings, a team's settings screen, is a team row's menu line with no shortcut.
+	keySettings = "settings"
 	// keyAskDescription and keyAskLimit undo a never answer to an offer: a team row's menu
 	// lines, with no shortcut, shown only on a team marked never.
 	keyAskDescription = "ask-description"
@@ -57,7 +59,7 @@ type action struct {
 // shown is the shortcut as a person reads it ("Ctrl-E"); empty when there is none.
 func (a action) shown() string {
 	switch a.key {
-	case keyAttach, keyCoordinator, keyLxc, keyElementAll, keyShutdown, keyAskDescription, keyAskLimit:
+	case keyAttach, keyCoordinator, keyLxc, keyElementAll, keyShutdown, keySettings, keyAskDescription, keyAskLimit:
 		return ""
 	case keyHelp:
 		return "?"
@@ -101,6 +103,7 @@ func (r *run) kindActions(row board.Row) []action {
 			open,
 			{keyElementAll, "Open every team in Element, a window each", "open every team in Element"},
 			start,
+			{keySettings, "Edit settings", "edit " + team + "'s settings"},
 			{keyUpdate, "Update every team that is out of date or not built", "update out-of-date teams"},
 			{keyShutdown, "Shut down every session of " + team, "shut down " + team + "'s sessions"},
 			{keyRemove, "Take " + team + " down", "take " + team + " down"},
