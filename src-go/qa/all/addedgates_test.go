@@ -16,6 +16,7 @@ import (
 // comparison. This is not a deviation: it is not a bash bug, only a gate the bash never had.
 var addedAfterPort = []struct{ name, reason string }{
 	{"meta-deploy-queue", "Plan 00192, meta-deploy.list: the queue suite gets its own row instead of running inside the planlib suite"},
+	{"hidden-bindings", "Plan 00203, Defence Before Fix: project_hidden_bindings outside Go (shell fzf and Python Textual)"},
 }
 
 func isAddedAfterPort(name string) bool {

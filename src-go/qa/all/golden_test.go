@@ -181,6 +181,9 @@ func replay(t *testing.T, defaults map[string]stubReply, sc goldenScenario) gold
 	for _, g := range gs {
 		if isAddedAfterPort(g.Name) {
 			passing := "passed: 1\n"
+			if slices.ContainsFunc(g.Readers, func(r gates.Reader) bool { return r.Detail != nil }) {
+				passing = realWording(t, g.Name)
+			}
 			runner.replies[g.Name] = stubReply{Out: &passing}
 			continue
 		}

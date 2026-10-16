@@ -1,5 +1,5 @@
 {
- "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: bad.bash\ncheck shellcheck: bad.bash\ncheck shell-directives: bad.bash\ncheck semgrep: bad.bash\ncheck ready-wait-files: bad.bash\ncheck bash-limits\n✓ toolchain: QA tool versions match .qa-versions\n✗ bash-syntax: 1 file(s)\n✓ shellcheck: 1 file(s)\n✓ shell-directives: 1 file(s)\n✓ semgrep: 1 file(s)\n✓ ready-wait-files: 1 file(s)\n✓ bash-limits: whole gate (tooling is Go; allowlist ratchet)\n✗ qa-changed FAILED: bash-syntax\n",
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: bad.bash\ncheck shellcheck: bad.bash\ncheck shell-directives: bad.bash\ncheck semgrep: bad.bash\ncheck ready-wait-files: bad.bash\ncheck bash-limits\ncheck hidden-bindings\n✓ toolchain: QA tool versions match .qa-versions\n✗ bash-syntax: 1 file(s)\n✓ shellcheck: 1 file(s)\n✓ shell-directives: 1 file(s)\n✓ semgrep: 1 file(s)\n✓ ready-wait-files: 1 file(s)\n✓ bash-limits: whole gate (tooling is Go; allowlist ratchet)\n✓ hidden-bindings: whole gate (no action reachable only by a key)\n✗ qa-changed FAILED: bash-syntax\n",
  "stderr": "bad.bash: line 1: syntax error near unexpected token `then'\nbad.bash: line 1: `if then'\n",
  "status": 1,
  "log": [
@@ -8,6 +8,7 @@
   "gate:qa-bash.bash json=",
   "semgrep --config \u003cROOT\u003e/.semgrep/bash-conventions.yml --json-output \u003cJSON\u003e --metrics=off --quiet . | mirror: ./bad.bash ",
   "gate:qa-ready-wait-rules.bash json=",
-  "gate:qa-bash-limits.bash json="
+  "gate:qa-bash-limits.bash json=",
+  "gate:qa-hidden-bindings.bash json="
  ]
 }
