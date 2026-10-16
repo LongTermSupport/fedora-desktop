@@ -138,7 +138,7 @@ cc_teams_command() {
     dir=$("$CC_TEAMS_CCY_TEAMS" internal membership-init --kind=cc "${session:-cc.$$}" "$checkout" "$CC_TEAMS_SEATS") || return
     CC_TEAMS_CMD=()
     CC_TEAMS_CMD+=(
-        env -u PINGBUS_SEATS "PINGBUS_MEMBERSHIP=$dir" "$CC_TEAMS_KIT/pingbus" seat exec
+        env "PINGBUS_MEMBERSHIP=$dir" "$CC_TEAMS_KIT/pingbus" seat exec
         --root "$checkout/$CC_TEAMS_SEATS_DIR" --home "$tmp/pingbus-home" --
         claude --plugin-dir "$CC_TEAMS_KIT/plugin/pingbus" --settings "$tmp/settings.json"
         --append-system-prompt "$CC_TEAMS_PROMPT" "$@"

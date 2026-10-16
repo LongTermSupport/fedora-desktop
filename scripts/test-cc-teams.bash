@@ -272,7 +272,7 @@ echo "=== the command line ==="
 CC_TEAMS_SEATS="2@dev-team,1@other"
 cc_teams_command "$work/tmp" "$checkout" --resume abc 2>"$work/err"
 got=$(printf '%s\n' "${CC_TEAMS_CMD[@]}")
-want=$(printf '%s\n' env -u PINGBUS_SEATS "PINGBUS_MEMBERSHIP=$work/membership/cc-proj" "$KIT_SRC/pingbus" seat exec \
+want=$(printf '%s\n' env "PINGBUS_MEMBERSHIP=$work/membership/cc-proj" "$KIT_SRC/pingbus" seat exec \
     --root "$checkout/.claude/ccy/pingbus/seats" --home "$work/tmp/pingbus-home" -- claude --plugin-dir "$KIT_SRC/plugin/pingbus" \
     --settings "$work/tmp/settings.json" --append-system-prompt "$CC_TEAMS_PROMPT" --resume abc)
 check "the keeper follows the membership; claude gets the plugin, the settings and the prompt (H31)" "$want" "$got"
@@ -313,7 +313,7 @@ CC_TEAMS_LIST=""
 : >"$work/agent-bus.calls"
 : >"$work/ccy-teams.calls"
 rc=0
-(cd "$prep_repo" && cc_teams_prepare "$work/prep-tmp" --resume x && printf '%s\n' "${CC_TEAMS_CMD[3]}" >"$work/cmd1") >"$work/out" 2>"$work/err" || rc=$?
+(cd "$prep_repo" && cc_teams_prepare "$work/prep-tmp" --resume x && printf '%s\n' "${CC_TEAMS_CMD[1]}" >"$work/cmd1") >"$work/out" 2>"$work/err" || rc=$?
 check "prepare succeeds" "0" "$rc"
 check "chooser first, then agent-bus check, then take, then the membership" \
     "choose-teams --type=host |describe-seats --block 1@dev-team|internal membership-init --kind=cc cc-proj $prep_repo 1@dev-team" \

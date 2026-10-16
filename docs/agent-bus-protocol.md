@@ -694,8 +694,8 @@ pair (§3 seat and team grammars): a member of one team, whose bundle and state 
 launch that first names it. `seat.lock` beside the bundle is held with `flock` by the one
 session in that seat, which writes `seat <claim time in ms>` into it; as with `lock`, the
 seat is held exactly when a non-blocking `flock` fails, and no PID is recorded. The
-launcher passes the session's seats as `PINGBUS_SEATS`, a list of `<seat>@<team>` items
-joined by `,` with at most one seat per team. `seat exec` (§13) starts the **seat keeper**
+launcher names the session's seats, at most one per team, in its desired membership
+(`PINGBUS_MEMBERSHIP`, below). `seat exec` (§13) starts the **seat keeper**
 (`seat keep`, Plan 00203 D4), which takes every seat's lock without waiting and builds the
 session home `/tmp/pingbus-home` (mode 0700, private to the container), holding one symlink
 per seat, `<team>` onto that seat's directory, its own `keeper.lock`, `keeper.log` and
@@ -719,14 +719,12 @@ hook timeout is 1500 ms, so the kit's `"timeout": 6` is load-bearing.
 
 - `PINGBUS_HOME`: default `${XDG_CONFIG_HOME:-~/.config}/pingbus`; a ccy session launched
   with `--teams` uses `/tmp/pingbus-home`, which `seat exec` builds and sets.
-- `PINGBUS_SEATS`: a fixed launch list of seats, read by `seat exec` alone; no launcher sets
-  it any more (cc moved to `PINGBUS_MEMBERSHIP` in Plan 00203 M6). Missing or malformed: exit 78.
 - `PINGBUS_MEMBERSHIP` (Plan 00203 SPEC-hot-control.md section 3.1, H2, H31): a ccy or cc
   launch's marker. `/run/ccy/membership` (a cc session's own directory on the host) is the
   read-only directory whose `membership.json` (version 1;
   an unknown key or another version is exit 78) names the session's desired seats, possibly
-  none; the keeper takes them as it takes `PINGBUS_SEATS`, `seat exec` refuses both set at
-  once, and for a membership with no seat the keeper builds the home and holds nothing.
+  none; the keeper takes them, `seat exec` refuses a launch without it (exit 78), and for a
+  membership with no seat the keeper builds the home and holds nothing.
   The keeper re-reads the file when it changes and takes or lets go of seats to match;
   `seat exec` writes into the home the session's `settings.json` and its `statusline-inner`,
   and the keeper keeps, while a seat is held, the `active` flag that every plugin hook is

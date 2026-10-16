@@ -17,9 +17,11 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.12.2 — container 2.77.1
+## 3.99.12.3 — container 2.77.2
 
-Includes 3.99.12 and 3.99.12.1, never deployed. 3.99.12.2: a `ccy --no-bus` launch in ccy's tmux
+Includes 3.99.12 to 3.99.12.2, never deployed. 3.99.12.3: the image's pingbus no longer reads
+`PINGBUS_SEATS`, which no launcher sets: `pingbus seat exec` follows the desired membership
+`PINGBUS_MEMBERSHIP` names, and refuses (78) a launch without one. 3.99.12.2: a `ccy --no-bus` launch in ccy's tmux
 removes the desired membership an earlier session left under its tmux name, which tmux reuses
 once a session ends; `ccy-teams` also counts a membership only while the record of its name
 carries the bus, so a plain `cc` or a `--no-bus` ccy under a reused name is never shown on, or

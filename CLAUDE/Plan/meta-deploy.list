@@ -22,7 +22,7 @@
 
 # Plan 00203 M6: cc (and cc-teams.bash) and ccy-teams, so cc --teams and the new cc --bus
 # sessions are hot-controlled, also from the picker (cc --bus refuses team messages until it
-# is restarted on its first team); CCY 3.99.12.2, and the image is rebuilt to 2.77.1 on the first
+# is restarted on its first team); CCY 3.99.12.3, and the image is rebuilt to 2.77.2 on the first
 # ccy launch after it.
 playbooks/imports/play-claude-yolo.yml
 # Plan 00203's host acceptance, M2, M1, M3, M4, the new M6 (three throwaway cc sessions on two

@@ -590,8 +590,8 @@ Two things are **not** frozen:
       `describe-seats --sentence` is gone, with the system prompt that named the handles.
     - Not in M6: agent-bus's own H21 liveness (a running container) does not count a cc session,
       so `agent-bus seat take` from another launcher does not see a cc session's desired seat
-      until its keeper locks it; `ccy-teams` does. pingbus still reads `PINGBUS_SEATS`, which no
-      launcher now sets. The picker (M5) shows cc sessions through `hot.Sessions`, which adds
+      until its keeper locks it; `ccy-teams` does. pingbus no longer reads `PINGBUS_SEATS`:
+      every launcher names a desired membership, and `seat exec` refuses a launch without one. The picker (M5) shows cc sessions through `hot.Sessions`, which adds
       the running cc sessions (`discover.RunningCC`), with no change to its UI: a cc row is
       controllable, and never `Unguarded`, so the picker offers no Repair for it.
 

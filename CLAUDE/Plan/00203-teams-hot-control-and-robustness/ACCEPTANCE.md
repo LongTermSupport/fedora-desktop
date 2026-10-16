@@ -199,7 +199,7 @@ checkout of a team on this machine, and a terminal outside them.
 
 ## M6: cc sessions
 
-After `meta-deploy.bash` has run `play-claude-yolo.yml` (CCY 3.99.12.2, container 2.77.1; it
+After `meta-deploy.bash` has run `play-claude-yolo.yml` (CCY 3.99.12.3, container 2.77.2; it
 deploys cc, `cc-teams.bash`, `ccy-teams` and the host's pingbus kit). M6 changes nothing
 `play-agent-bus.yml` deploys, so that play need only have run once, as for M3 and M4. M6 runs on
 the host only: a cc session has no container. It needs the Element
