@@ -1,5 +1,5 @@
 {
- "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck ready-wait-files: helpers/pkg/mod.py\ncheck stt-rules-files: helpers/pkg/mod.py\ncheck ruff: helpers/pkg/mod.py\ncheck unit-tests: tests.helpers.pkg.test_mod\n",
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck ready-wait-files: helpers/pkg/mod.py\ncheck stt-rules-files: helpers/pkg/mod.py\ncheck ruff: helpers/pkg/mod.py\ncheck unit-tests: tests.helpers.pkg.test_mod\ncheck hidden-bindings\n",
  "stderr": "",
  "status": 0,
  "log": []

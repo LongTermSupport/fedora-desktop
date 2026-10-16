@@ -13,16 +13,16 @@ import (
 // tildeFuncs are the package functions a hand-rolled home abbreviation is built from: the
 // prefix, trim and replace forms of strings, the fmt formatters, and path joins.
 var tildeFuncs = map[string][]string{
-	"strings": {"Replace", "ReplaceAll", "NewReplacer", "TrimPrefix", "HasPrefix", "CutPrefix", "TrimLeft", "Trim"},
-	"fmt":     {"Sprintf", "Sprint", "Sprintln", "Errorf", "Fprintf", "Fprint", "Fprintln", "Appendf", "Printf", "Print", "Println"},
-	"path":    {"Join"},
+	stringsPkg: {"Replace", "ReplaceAll", "NewReplacer", trimPrefixFn, "HasPrefix", cutPrefixFn, "TrimLeft", "Trim"},
+	"fmt":      {"Sprintf", "Sprint", "Sprintln", "Errorf", "Fprintf", "Fprint", "Fprintln", "Appendf", "Printf", "Print", "Println"},
+	"path":     {"Join"},
 	"path/filepath": {
 		"Join",
 	},
 }
 
 // tildeWriters are the buffer types whose Write methods build a string piece by piece.
-var tildeWriters = map[string]string{"strings": "Builder", "bytes": "Buffer"}
+var tildeWriters = map[string]string{stringsPkg: "Builder", "bytes": "Buffer"}
 
 // HomeAbbrev routes every home abbreviation through term.AbbrevHome.
 var HomeAbbrev = &analysis.Analyzer{

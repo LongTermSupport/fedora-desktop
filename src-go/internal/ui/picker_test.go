@@ -11,19 +11,16 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
-func TestPickReturnsKeyAndRowAndTreatsExitAsLeave(t *testing.T) {
+func TestPickReturnsTheRowAndTreatsExitAsLeave(t *testing.T) {
 	f := &execx.Fake{}
-	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("ctrl-e\nalpha   up\n")})
+	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("alpha   up\n")})
 	p := &Picker{Runner: f}
-	got, err := p.Pick(context.Background(), PickSpec{
-		Title: "Agent teams", Header: "legend", Keys: []string{"ctrl-e", "?"},
-		Rows: []string{"alpha   up"},
-	})
-	if err != nil || got.Key != "ctrl-e" || got.Row != "alpha   up" {
+	got, err := p.Pick(context.Background(), PickSpec{Title: "Agent teams", Header: "legend", Rows: []string{"alpha   up"}})
+	if err != nil || got.Row != "alpha   up" || got.Action != "" {
 		t.Fatalf("got %+v, %v", got, err)
 	}
 	c := f.Calls()[0]
-	if !slices.Contains(c.Args, "--expect=ctrl-e,?") || !slices.Contains(c.Args, "--border-label= Agent teams ") {
+	if !slices.Contains(c.Args, "--border-label= Agent teams ") || slices.ContainsFunc(c.Args, func(a string) bool { return strings.HasPrefix(a, "--expect") }) {
 		t.Fatalf("args %v", c.Args)
 	}
 	if slices.Contains(c.Args, "--bind=start:last") {
@@ -188,16 +185,19 @@ func TestHeaderJoinsLegendAndContextDroppingEmpty(t *testing.T) {
 	}
 }
 
+// completeAction is a typed picker's own action with its shortcut, as a path box has.
+var completeAction = Action{ID: "complete", Label: "Complete what is typed", Key: "tab"}
+
 func TestATypedPickHandsBackTheQueryAndWhatItMatched(t *testing.T) {
 	f := &execx.Fake{}
-	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("pro\ntab\nproject/\n")})
+	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("pro\ntab\nproject/\t0\n")})
 	p := &Picker{Runner: f}
 	spec := PickSpec{
-		Title: "t", Header: "h", Keys: []string{"tab"}, Rows: []string{"project/", "other/"},
+		Title: "t", Header: "h", Actions: []Action{completeAction}, Rows: []string{"project/", "other/"},
 		Prompt: "/srv/work/", Query: "pro", Typed: true,
 	}
 	got, err := p.Pick(context.Background(), spec)
-	if err != nil || got != (Picked{Query: "pro", Key: "tab", Row: "project/"}) {
+	if err != nil || got != (Picked{Query: "pro", Action: "complete", Row: "project/"}) {
 		t.Fatalf("got %+v, %v", got, err)
 	}
 	c := f.Calls()[0]
@@ -215,8 +215,8 @@ func TestATypedPickThatMatchesNoRowHandsBackWhatWasTyped(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"fzf"}, execx.Result{ExitCode: 1, Stdout: []byte("/srv/wo\ntab\n")})
 	p := &Picker{Runner: f}
-	got, err := p.Pick(context.Background(), PickSpec{Title: "t", Keys: []string{"tab"}, Rows: []string{"a/"}, Typed: true})
-	if err != nil || got != (Picked{Query: "/srv/wo", Key: "tab"}) {
+	got, err := p.Pick(context.Background(), PickSpec{Title: "t", Actions: []Action{completeAction}, Rows: []string{"a/"}, Typed: true})
+	if err != nil || got != (Picked{Query: "/srv/wo", Action: "complete"}) {
 		t.Fatalf("got %+v, %v", got, err)
 	}
 	f.On([]string{"fzf"}, execx.Result{ExitCode: 1, Stdout: []byte("/srv/work\n")})

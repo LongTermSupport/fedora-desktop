@@ -323,7 +323,7 @@ ccy_tmux_offer() {
 
     if [[ -z "$rows" ]]; then
         if [[ -n "$in_use" ]]; then
-            echo "Open in other terminals: ${in_use} (ccy-sessions, Ctrl-T, takes one over). Starting a new session." >&2
+            echo "Open in other terminals: ${in_use} (ccy-sessions takes one over: choose it, then Take it over here). Starting a new session." >&2
         elif [[ "$skipped" -gt 0 ]]; then
             echo "No detached session here holds ${want} (${skipped} detached in other seats or none), so a new session is starting in it." >&2
         fi
@@ -331,22 +331,21 @@ ccy_tmux_offer() {
         return 0
     fi
 
-    local header picked key row
-    header="$(ccy_tmux_header "Enter attach   Ctrl-N new session   Esc or q quit" \
+    # Starting a new session is a row of its own, never only a key (InteractiveScripts rule 14).
+    local header picked
+    header="$(ccy_tmux_header "Enter attach the session, or start a new one   Esc or q quit" \
         "Detached sessions started from ${PWD/#${HOME}/\~}${want:+ that hold a seat of ${want}}" \
-        "${in_use:+Open in other terminals: ${in_use} — ccy-sessions, Ctrl-T, takes one over}")"
-    if ! picked="$(ccy_tmux_pick "${CCY_TMUX_SESSION_PREFIX}: a session is detached here" "$header" "ctrl-n" <<<"${rows%$'\n'}")"; then
+        "${in_use:+Open in other terminals: ${in_use} — ccy-sessions takes one over}")"
+    if ! picked="$(ccy_tmux_pick "${CCY_TMUX_SESSION_PREFIX}: a session is detached here" "$header" <<<"${rows}${CCY_TMUX_NEW_ROW}")"; then
         echo "Nothing started." >&2
         printf 'quit\n'
         return 0
     fi
-    key="${picked%%$'\n'*}"
-    row="${picked#*$'\n'}"
-    if [[ "$key" == "ctrl-n" ]]; then
+    if [[ "$picked" == "$CCY_TMUX_NEW_ROW" ]]; then
         printf 'create\n'
         return 0
     fi
-    printf 'attach %s\n' "${row%% *}"
+    printf 'attach %s\n' "${picked%% *}"
 }
 
 # ── the shared picker: one look for ccy, cc and ccy-sessions ─────────────────────────────
@@ -378,26 +377,16 @@ ccy_tmux_header() {
     printf '%s' "$out"
 }
 
-# ccy_tmux_pick <title> <header> <expect-keys> [cursor] — run fzf over the rows on stdin
-# with the house style: a bordered, padded box with the title on its frame, the legend
-# above the rows, one keystroke per action (q quits as well as Esc, so nothing needs
-# Enter after it), and an "Exit" row always present as the last row so leaving is a
-# visible choice, not only a key. [cursor]="last" starts on that Exit row — the safe
-# default for a yes/no. Prints "<key>\n<row>" (key empty for Enter); non-zero on Esc, q
-# or Exit.
+# ccy_tmux_pick <title> <header> — run fzf over the rows on stdin with the house style: a
+# bordered, padded box with the title on its frame, the legend above the rows, and an "Exit"
+# row always present as the last row so leaving is a visible choice, not only a key (q
+# quits as well as Esc). Every action is a row: no key does anything a row does not offer
+# (project_hidden_bindings, CLAUDE/GoProjectRules.md). Prints the row chosen; non-zero on
+# Esc, q or Exit.
 ccy_tmux_pick() {
     if [[ -z "$(command -v fzf)" ]]; then
         print_error "fzf is not installed; playbooks/imports/play-claude-yolo.yml installs it."
         return 1
-    fi
-    # fzf refuses an empty --expect ("key names required"), so the flag is only passed when
-    # there are keys; the "<key>\n<row>" shape is kept either way.
-    local -a opts=()
-    if [[ -n "$3" ]]; then
-        opts+=(--expect="$3")
-    fi
-    if [[ "${4:-}" == "last" ]]; then
-        opts+=(--bind='start:last')
     fi
     local rows out
     rows=$(cat -)
@@ -409,16 +398,14 @@ ccy_tmux_pick() {
         --color='16,fg:-1,bg:-1,fg+:-1:bold,bg+:-1,hl:3,hl+:3:bold,gutter:-1,pointer:3,marker:3,prompt:3,spinner:3,info:-1,header:-1,border:-1,label:3:bold' \
         --border=rounded --border-label=" $1 " --border-label-pos=3 \
         --margin=1,2 --padding=1,2 --header-first --pointer='▶' \
-        --prompt="filter > " --header="$2"$'\n' --bind='q:abort' "${opts[@]}") || return $?
-    if [[ -z "$3" ]]; then
-        out=$'\n'"$out"
-    fi
-    if [[ "${out#*$'\n'}" == "$CCY_TMUX_EXIT_ROW" ]]; then
+        --prompt="filter > " --header="$2"$'\n' --bind='q:abort') || return $?
+    if [[ "$out" == "$CCY_TMUX_EXIT_ROW" ]]; then
         return 1
     fi
     printf '%s\n' "$out"
 }
 CCY_TMUX_EXIT_ROW="Exit"
+CCY_TMUX_NEW_ROW="Start a new session here"
 
 # ccy_tmux_insulate <project> <command> [args...] — the launcher's entry point.
 #

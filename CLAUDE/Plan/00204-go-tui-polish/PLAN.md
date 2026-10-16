@@ -141,7 +141,7 @@ the QA module's `go.mod` and runs as `go tool govulncheck`.
 
 ### Phase 1: The seam, on fzf and gum (D4)
 
-- [ ] ⬜ **Task 1.1**: `ui.Action{ID, Label, Key}` lands with `project_hidden_bindings`
+- [x] ✅ **Task 1.1**: `ui.Action{ID, Label, Key}` lands with `project_hidden_bindings`
   (branch `dbf/hidden-bindings`). `ccy-sessions`' Ctrl-T, Ctrl-X and Ctrl-N, and `ccy-teams`'
   Tab, become visible choices.
 - [ ] ⬜ **Task 1.2**: The semantic API in `internal/ui` (`Screen`, `Wizard`, `Confirm`,
@@ -166,6 +166,13 @@ the QA module's `go.mod` and runs as `go tool govulncheck`.
   - The rule's new wording in GoProjectRules.md, src-go/CLAUDE.md and QA.md.
 - [ ] ⬜ **Task 2.2**: The `project_seam_imports` rule (only `internal/ui` imports the TUI
   library), and `project_hidden_bindings` extended to `key.Binding` (RESEARCH §5.3).
+- [ ] ⬜ **Task 2.3**: Before the first Bubble Tea key handler lands (it must precede Task
+  3.1), widen `project_hidden_bindings` to Bubble Tea (Fable's N4 on `dbf/hidden-bindings`):
+  every `key.Binding` has help text and is rendered by the one help or menu component in
+  `internal/ui`, and a `tea.KeyMsg` switch outside that component is a finding. Red first on a
+  fixture with a key-only `KeyMsg` case. In the same commit, the catalogue sentence in
+  GoProjectRules.md that excuses Go key reads ("no first-party Go reads raw keys; there is no
+  terminal library in `src-go`") changes: it stops being true when Bubble Tea is a dependency.
 
 ### Phase 3: The frame, `ccy-sessions` first (D1, D5)
 

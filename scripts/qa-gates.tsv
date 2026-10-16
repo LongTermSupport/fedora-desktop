@@ -61,6 +61,7 @@ gate	ccy-browser-session-guard	scripts/test-agent-browser-session-guard.bash	ccy
 gate	gh-scope-outside-ssot	scripts/qa-gh-scopes.bash	GitHub scopes named outside vars/github-required-scopes.yml	count
 gate	speech-to-text-rules	scripts/qa-speech-to-text-rules.bash	speech-to-text rules: a model judged present without its weights, or a dropdown label that explains itself	count
 gate	ready-wait-rules	scripts/qa-ready-wait-rules.bash	a ready-wait that ignores its child's exit (Python and bash)	count
+gate	hidden-bindings	scripts/qa-hidden-bindings.bash	an action reachable only by a key, with no visible choice (shell fzf, Python Textual)	detail:HIDDEN-BINDINGS-OK .+
 gate	pause-without-register	scripts/qa-ansible-pause.bash	an ansible pause with no register and no PAUSE-OK reason	count
 gate	ccy-selinux-verdict	scripts/test-ccy-selinux-verdict.bash	ccy selinux-verdict unit tests failed	count
 gate	ccy-relabel-preflight	scripts/test-ccy-relabel-preflight.bash	ccy relabel-preflight tests failed	count

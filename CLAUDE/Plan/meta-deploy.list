@@ -30,10 +30,22 @@
 # until this runs. It installs the new zipapp and stamps each team again. No unit, firewall or
 # rendered config changes, so no homeserver is restarted.
 playbooks/imports/play-agent-bus.yml
+# ccy 3.99.12.10 (container 2.77.7 unchanged, so no image rebuild): rebuilds ccy-teams and
+# ccy-sessions and deploys the launcher. Every picker action is a visible, named choice and a key
+# only its shortcut (project_hidden_bindings): ccy-sessions gives each session a menu and names
+# its keys in the header, the launcher's detached-session offer has a "Start a new session here"
+# row where Ctrl-N was the only way, and lxc-add's Tab completion is a listed row with Tab beside
+# it. Running sessions are not touched.
+playbooks/imports/play-claude-yolo.yml
 # Plan 00208: speech-to-text no longer pastes the previous dictation. Deploys wsi-stream and
 # rebuilds the wsi binary: the paste key is pressed only once the clipboard reads back as this
 # dictation's text; a copy that never takes is killed and retried within 3 s, then nothing is
 # pasted and a notification that stays points at Copy Last Transcription. Restarts the
 # wsi-stream-server (its handler). No extension change, so no log-out is needed. A wl-copy
 # left running by the bad dictation is not touched (each run kills only copies it started).
+# It also installs wsi-model-manager with on-screen buttons for download, remove, refresh, clear
+# filter and quit (the keys stay as shortcuts), and upgrades textual to 0.85 or later for them.
 playbooks/imports/optional/common/play-speech-to-text.yml
+# Installs the Ctrl+R history search with its start-up binding spelt in the fzf call
+# (behaviour unchanged).
+playbooks/imports/play-basic-configs.yml

@@ -46,12 +46,27 @@ func TestWaitDelay(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), WaitDelay, "fix/internal/badwait")
 }
 
+func TestHiddenBindings(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), HiddenBindings, "fix/internal/ui", "fix/internal/badbind", "fix/qa/rules", "fix/qa/hiddenbindings")
+}
+
 func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 6 {
-		t.Fatalf("want 6 rules, got %d", got)
+	if got := len(All()); got != 7 {
+		t.Fatalf("want 7 rules, got %d", got)
+	}
+}
+
+func TestEveryExpectBuilderHasAReason(t *testing.T) {
+	if len(expectBuilders) == 0 {
+		t.Fatal("no function may build --expect: the ui seam has nowhere to declare its keys")
+	}
+	for _, a := range expectBuilders {
+		if a.reason == "" || a.pkg == "" || a.fn == "" {
+			t.Errorf("allowance %+v needs a package, a function and a reason", a)
+		}
 	}
 }
 

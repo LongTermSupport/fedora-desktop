@@ -67,7 +67,7 @@ func (r *scriptedRunner) argv() []string {
 func TestEveryRegisteredCheckIsKnownAndOrdered(t *testing.T) {
 	want := []string{
 		"toolchain", "bash-syntax", "shellcheck", "shell-directives", "semgrep", "ready-wait-files", "stt-rules-files", "ruff", "unit-tests", "ansible-syntax",
-		"ansible-patterns", "ansible-syntax-gate", "patterns", "bash", "python", "js", "docs", "go", "bash-limits", "nokill-containerwatch", "ansible-pause", "gh-scopes", "ready-wait", "plan-script-logging", "stt-rules", "version-pins", "go-deps", "go-vuln", "vmtest-manifest", "deployed-drift", "node-check", "eslint",
+		"ansible-patterns", "ansible-syntax-gate", "patterns", "bash", "python", "js", "docs", "go", "bash-limits", "nokill-containerwatch", "ansible-pause", "gh-scopes", "ready-wait", "hidden-bindings", "plan-script-logging", "stt-rules", "version-pins", "go-deps", "go-vuln", "vmtest-manifest", "deployed-drift", "node-check", "eslint",
 	}
 	got := make([]string, 0, len(checkDefs))
 	for _, d := range checkDefs {

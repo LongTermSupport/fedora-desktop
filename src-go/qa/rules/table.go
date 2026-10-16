@@ -187,6 +187,22 @@ var dynamicNames = []allowance{
 	},
 }
 
+// bindingSubjects are not judged by project_hidden_bindings: the rules package and the
+// shell gate of the same rule name the fzf flags as the text they look for and build no fzf
+// argv (neither starts fzf).
+var bindingSubjects = []string{"qa/rules", "qa/hiddenbindings"}
+
+// expectBuilders are the only functions that may build fzf's --expect: the keys fzf hands
+// back for the caller to act on. Each takes its keys from ui.Action values, whose Label ui
+// shows as a row or a menu line, so no key is the only way to its action.
+var expectBuilders = []allowance{
+	{
+		pkg:    uiPkg,
+		fn:     "expectArg",
+		reason: "the keys are the Key fields of the screen's Actions and row Menus, each listed by ui with its Label",
+	},
+}
+
 // clockAllowance excuses one test function from the fixed-clock rule.
 type clockAllowance = allowance
 
@@ -213,7 +229,7 @@ func perPass(run func(*analysis.Pass)) func(*analysis.Pass) (any, error) {
 
 // All is every rule, in the order the driver registers them.
 func All() []*analysis.Analyzer {
-	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay}
+	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings}
 }
 
 // ownedBy is whether the package path (the test variants of it included) is owner, matched

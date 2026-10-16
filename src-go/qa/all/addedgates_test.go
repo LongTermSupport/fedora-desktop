@@ -16,6 +16,7 @@ import (
 // comparison. This is not a deviation: it is not a bash bug, only a gate the bash never had.
 var addedAfterPort = []struct{ name, reason string }{
 	{"meta-deploy-queue", "Plan 00192, meta-deploy.list: the queue suite gets its own row instead of running inside the planlib suite"},
+	{"hidden-bindings", "Plan 00203, Defence Before Fix: project_hidden_bindings outside Go (shell fzf and Python Textual)"},
 	{"ccy-container-name", "Plan 00203, the container name race: ccy's name claim (ccy-teams internal claim-container-name) gets its own suite"},
 	{"go-deps", "Plan 00204 D2: src-go may have dependencies, vendored, pinned and allowlisted, and this gate holds them to that"},
 	{"go-vuln", "Plan 00204 D2: govulncheck over src-go's vendored dependencies"},

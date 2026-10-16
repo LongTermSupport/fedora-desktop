@@ -17,34 +17,37 @@ Under it, its members and people:
 Keys:
   Enter    a menu of everything that can be done to the row, in words, each with its
            shortcut beside it (Esc goes back to the list). The keys below are those
-           shortcuts: nothing needs a key you have not been shown
+           shortcuts, and each works only on a row whose menu has it: nothing needs a key
   Ctrl-N   start a ccy session in a free or new seat of the team, in this folder
   Ctrl-P   a new Element password for the person on the row (shown once). If they are
            signed in to Element it asks first, saying how many sessions it signs out
   Ctrl-E   open the team in Element; it starts apart, and you stay on the list. Each
            team is its own Element window (each is its own Matrix server); Enter on a
            team row has Open every team in Element, a window each
-  Ctrl-U   update every team out of date or not built (never takes one down)
+  Ctrl-U   on a team row: update every team out of date or not built (never takes one
+           down)
   Ctrl-R   restore after a reboot, on or off, for the seat's session
   Ctrl-X   remove a seat, park a member, or take a team down (after a yes/no; a
            backup first, and the data kept unless you type the team's name)
-  Tab      the running sessions (below); Tab again comes back to the teams
+  Tab      the last row, Running sessions (below)
   ?        this help          Esc or q   leave
 
-Running sessions (Tab) lists every session ccy's tmux started (the ones ccy-sessions lists):
-its checkout, its teams (seat, and the role it was told) and its state. Its teams can be
-changed while it runs; nothing restarts, except a session started on no team, which
-relaunches once on its first join. A ccy run in a plain terminal is not listed and cannot
-be changed. Keys there:
-  Enter    its menu: add to a team, remove from one, move, change a role, attach, and
-           repair the seat keeper when it has stopped (unguarded)
-  Ctrl-A   add it to a team: the team, the seat (the lowest free one, or one you pick)
-           and the role
-  Ctrl-X   remove it from a team; for the team's coordinator, it asks whether the role
-           goes to no one or to another member
-  Ctrl-O   make its seat in a team a worker or the coordinator; on a team that has a
-           coordinator, the choice is Replace the coordinator, which asks again (no first)
-  Esc      back to the teams
+Running sessions, the last row of the teams (or Tab), lists every session ccy's tmux started
+(the ones ccy-sessions lists): its checkout, its teams (seat, and the role it was told) and
+its state. Its teams can be changed while it runs; nothing restarts, except a session started
+on no team, which relaunches once on its first join. A ccy run in a plain terminal is not
+listed and cannot be changed. Enter on a session lists what can be done to it:
+  Add to a team             the team, the seat (the lowest free one, or one you pick)
+                            and the role
+  Remove from <team>        for the team's coordinator, it asks whether the role goes to
+                            no one or to another member
+  Change role in <team>     worker or coordinator; on a team with none the choice is
+                            Make it the coordinator, and on a team that has one it is
+                            Replace the coordinator, which asks again (no first)
+  Move to another team      the team it joins (with several teams: Move from <team>)
+  Attach                    this terminal joins the session
+  Repair                    only when its seat keeper has stopped (unguarded)
+"What this list shows" (or ?) is this help; "Back to the teams" (or Esc) goes back.
 Each change is `ccy-teams session add|remove|move|role|repair`, run for you: it asks
 before it changes anything and prints each step (✓ done, ✗ failed, - already so).
 

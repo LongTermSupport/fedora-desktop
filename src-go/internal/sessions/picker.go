@@ -14,8 +14,14 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
-// pickerKeys are the keys besides Enter that choose a row.
-var pickerKeys = []string{"ctrl-t", "ctrl-x", "ctrl-n"}
+// The actions, by ID: every one is a visible line, of a session's menu or of the list itself,
+// and ui prints the shortcut beside those that have one.
+const (
+	actAttach   = "attach"
+	actTakeOver = "take-over"
+	actEnd      = "end"
+	actNew      = "new"
+)
 
 // step is how an action ended: the picker is done (with an exit code), or goes round again,
 // having used a try or not.
@@ -39,6 +45,8 @@ type pickState struct {
 	here        string
 	projectHere bool
 	header      string
+	// newAction is the list's own row that starts ccy here, unavailable outside a project.
+	newAction ui.Action
 	// detachedFrom is the sessions a take-over was tried on without attaching here: it may have
 	// detached their other terminal, so after the tries run out "Nothing changed" would not be true.
 	detachedFrom []string
@@ -67,14 +75,22 @@ func (a *App) picker(ctx context.Context) term.ExitCode {
 			return a.noSessions(ctx, st)
 		}
 		picked, err := a.choose(ctx, st, rows)
-		if errors.Is(err, ui.ErrLeave) {
+		var notOffered *ui.NotOfferedError
+		var s step
+		switch {
+		case errors.Is(err, ui.ErrLeave):
 			return term.ExitOK
-		}
-		if err != nil {
+		case errors.Is(err, ui.ErrBack):
+			s = redraw
+		case errors.As(err, &notOffered):
+			a.sayf("%s\n", notOffered.Error())
+			s = tried
+		case err != nil:
 			a.failErr(err)
 			return term.ExitFailure
+		default:
+			s = a.act(ctx, st, picked, rows)
 		}
-		s := a.act(ctx, st, picked, rows)
 		if s.done {
 			return s.code
 		}
@@ -91,7 +107,7 @@ func (a *App) picker(ctx context.Context) term.ExitCode {
 // newPickState works out where the picker was started and what its header says. A new session
 // is only ever started the normal way, by running ccy itself, which does every check and prompt
 // it always does, and only from a project folder, which for ccy means a git work tree. Anywhere
-// else the key is shown as unavailable rather than hidden.
+// else its row says it is unavailable rather than being hidden.
 func (a *App) newPickState(ctx context.Context) *pickState {
 	pwd := a.Getenv("PWD")
 	if pwd == "" {
@@ -102,13 +118,12 @@ func (a *App) newPickState(ctx context.Context) *pickState {
 	here := term.AbbrevHome(pwd, a.Getenv("HOME"))
 	project, err := a.Git.ProjectHere(ctx, "")
 	st := &pickState{here: here, projectHere: err == nil && project}
-	newLine := "Ctrl-N starts a new ccy session in " + here
+	st.newAction = ui.Action{ID: actNew, Label: "Start a new ccy session in " + here, Key: "ctrl-n"}
 	if !st.projectHere {
-		newLine = "Ctrl-N unavailable: " + here + " is not a project folder (no git repository)"
+		st.newAction.Label = "Start a new ccy session here: unavailable, " + here + " is not a project folder (no git repository)"
 	}
-	st.header = ui.Header("Enter attach   Ctrl-T take over   Ctrl-X end   Ctrl-N new   Esc or q quit",
-		newLine,
-		`"open elsewhere" is attached in another terminal: Ctrl-T detaches that terminal and attaches this one; the session keeps running`,
+	st.header = ui.Header("Enter lists what can be done to the session   Ctrl-T take it over   Ctrl-X end it   Ctrl-N start a new one   Esc or q quit",
+		`"open elsewhere" is attached in another terminal: taking it over detaches that terminal and attaches this one; the session keeps running`,
 		`CPU: since the list last redrew ("-" until it has), 100% is one core`,
 		`network, token, SSH key: what its container is on and was started with — "no container" and "-" mean nothing to ask`)
 	return st
@@ -120,13 +135,32 @@ func (a *App) choose(ctx context.Context, st *pickState, rows []tableRow) (ui.Pi
 	home := a.Getenv("HOME")
 	texts := make([]string, len(rows))
 	tags := make([]string, len(rows))
+	menus := make([]ui.Menu, len(rows))
 	for i, r := range rows {
-		texts[i], tags[i] = r.text(home), strconv.Itoa(i)
+		texts[i], tags[i], menus[i] = r.text(home), strconv.Itoa(i), sessionMenu(r)
 	}
 	picked, err := a.Picker.Pick(ctx, ui.PickSpec{
-		Title: "CCY sessions", Header: st.header, Keys: pickerKeys, Rows: texts, Tags: tags,
+		Title: "CCY sessions", Header: st.header, Rows: texts, Tags: tags,
+		Actions: []ui.Action{st.newAction}, Menus: menus,
 	})
 	return picked, err
+}
+
+// sessionMenu is what Enter on a session offers: attaching it here when no other terminal has
+// it, taking it over, and ending it.
+func sessionMenu(r tableRow) ui.Menu {
+	var acts []ui.Action
+	if !r.elsewhere() {
+		acts = append(acts, ui.Action{ID: actAttach, Label: "Attach it here"})
+	}
+	acts = append(acts,
+		ui.Action{ID: actTakeOver, Label: "Take it over here (any other terminal on it is detached; the session keeps running)", Key: "ctrl-t"},
+		ui.Action{ID: actEnd, Label: "End it, and everything running in it", Key: "ctrl-x"})
+	return ui.Menu{
+		Title:   r.Name,
+		Header:  ui.Header("Enter choose   Esc or q back to the list", r.Name+": what to do"),
+		Actions: acts,
+	}
 }
 
 // noSessions is what the picker does when nothing is running: offer to start ccy in a project
@@ -158,27 +192,27 @@ func (a *App) outOfTries(st *pickState) {
 	a.sayf("Nothing attached after %d tries. Nothing changed.\n", maxTries)
 }
 
-// act does what the key asked of the row.
+// act does what was chosen: the list's new-session row, or an action on a session.
 func (a *App) act(ctx context.Context, st *pickState, picked ui.Picked, rows []tableRow) step {
+	if picked.Action == actNew {
+		return a.newHere(st)
+	}
 	i, err := strconv.Atoi(picked.Tag)
 	if err != nil || i < 0 || i >= len(rows) {
 		a.fail("the picker returned a row that is not in the list: " + picked.Row)
 		return leave(term.ExitFailure)
 	}
 	row := rows[i]
-	switch picked.Key {
-	case "ctrl-n":
-		return a.newHere(st)
-	case "ctrl-x":
+	switch picked.Action {
+	case actEnd:
 		return a.confirmEnd(ctx, row.Name)
-	case "ctrl-t":
+	case actTakeOver:
 		return a.confirmTakeOver(ctx, st, row.Name)
+	case actAttach:
+		return a.attachHere(ctx, row.Name)
 	}
-	if row.elsewhere() {
-		a.sayf("'%s' is open in another terminal. Ctrl-T takes it over here; Ctrl-X ends it.\n", row.Name)
-		return tried
-	}
-	return a.attachHere(ctx, row.Name)
+	a.fail("the picker returned an action that is not offered: " + picked.Action)
+	return leave(term.ExitFailure)
 }
 
 // newHere starts ccy in this folder, when it is a project.

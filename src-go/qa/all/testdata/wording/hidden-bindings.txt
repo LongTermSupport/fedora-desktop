@@ -1,0 +1,1 @@
+HIDDEN-BINDINGS-OK 446 shell file(s), 338 Python file(s)

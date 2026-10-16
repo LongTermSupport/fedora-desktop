@@ -140,7 +140,10 @@ func (k *Kit) Choose(ctx context.Context, spec ui.PickSpec) (ui.Picked, error) {
 		return ui.Picked{}, err
 	}
 	picked, err := k.Picker.Pick(ctx, spec)
-	if err != nil && !errors.Is(err, ui.ErrLeave) {
+	// Leaving the list, leaving a row's menu and a key the row does not offer are the person's
+	// choices, for the caller to answer; anything else is a failure.
+	var notOffered *ui.NotOfferedError
+	if err != nil && !errors.Is(err, ui.ErrLeave) && !errors.Is(err, ui.ErrBack) && !errors.As(err, &notOffered) {
 		k.ReportErr(err)
 		return ui.Picked{}, Leave(term.ExitFailure)
 	}

@@ -182,9 +182,9 @@ func (r *run) askAgain(ctx context.Context, marker, what string) (flow.Result, e
 	return r.p.Kit.Note(ctx, "ccy-teams asks "+what+" again the next time it starts.")
 }
 
-// askAgainOf is askAgain for the key of a team row's undo line.
-func (r *run) askAgainOf(ctx context.Context, key, team string) (flow.Result, error) {
-	if key == keyAskLimit {
+// askAgainOf is askAgain for the action ID of a team row's undo line.
+func (r *run) askAgainOf(ctx context.Context, id, team string) (flow.Result, error) {
+	if id == actAskLimit {
 		return r.askAgain(ctx, r.p.pathLimitMarker(team), "about "+team+"'s limit")
 	}
 	return r.askAgain(ctx, r.p.descriptionMarker(team), "to describe "+team)

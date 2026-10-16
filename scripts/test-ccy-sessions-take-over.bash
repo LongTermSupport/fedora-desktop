@@ -181,13 +181,14 @@ esac
 EOF
 
 # fzf: answers from $TEST_ANSWERS, one line per call, "<key>|<choice>": <choice> is a session
-# name (the row starting with it), YES (the "Yes, " row), EXIT (the Exit row) or ABORT (Esc).
-# Each call's arguments are appended to $TEST_FZF_LOG, so a test can read the header shown.
+# name (the row starting with it), LINE:<text> (the row beginning with that text, a menu line),
+# YES (the "Yes, " row), EXIT (the Exit row), BACK (a menu's last row) or ABORT (Esc).
+# Each call's arguments and rows are appended to $TEST_FZF_LOG, so a test can read what was shown.
 cat >"$BIN/fzf" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 rows="$(cat -)"
-printf '%s\n' "$*" >>"$TEST_FZF_LOG"
+printf '%s\n' "$*" "$rows" >>"$TEST_FZF_LOG"
 n=$(($(cat "$TEST_STATE/fzf-calls") + 1))
 printf '%s\n' "$n" >"$TEST_STATE/fzf-calls"
 answer="$(awk -v n="$n" 'NR == n' "$TEST_ANSWERS")"
@@ -196,6 +197,8 @@ choice="${answer#*|}"
 case "$choice" in
 ABORT) exit 130 ;;
 EXIT) row="Exit" ;;
+BACK) row="Back to the list" ;;
+LINE:*) row="$(awk -v want="${choice#LINE:}" 'index($0, want) == 1 { print; exit }' <<<"$rows")" ;;
 YES) row="$(awk '/^Yes, / { print; exit }' <<<"$rows")" ;;
 "") echo "fake fzf: no answer queued for call $n" >&2; exit 2 ;;
 *) row="$(awk -v want="$choice" '$1 == want { print; exit }' <<<"$rows")" ;;
@@ -392,11 +395,12 @@ run_picker() {
 }
 rc_of() { awk '/^rc=/ { rc = $0 } END { print rc }' <<<"$1"; }
 
-echo "== ccy-sessions: the header offers Ctrl-T"
+echo "== ccy-sessions: taking over is a line of the session's menu, with Ctrl-T beside it"
 reset "ccy-a:/dev/pts/3"
-out="$(run_picker "|ABORT")"
+out="$(run_picker "|ccy-a" "|BACK" "|ABORT")"
 check "Esc leaves" "rc=0" "$(rc_of "$out")"
-check_has "the key legend names Ctrl-T" "Ctrl-T take over" "$(cat "$TEST_FZF_LOG")"
+check_has "the legend says Enter lists what can be done" "Enter lists what can be done to the session" "$(cat "$TEST_FZF_LOG")"
+check_has "the menu lists taking over with its key" "(Ctrl-T)" "$(cat "$TEST_FZF_LOG")"
 check_has "the picker listens for ctrl-t" "ctrl-t" "$(cat "$TEST_FZF_LOG")"
 
 echo "== ccy-sessions: Ctrl-T on an open-elsewhere session, confirmed"
@@ -418,11 +422,18 @@ check "the list was shown again" "3" "$(cat "$STATE/fzf-calls")"
 check "nothing is detached" "0" "$(detaches)"
 check "nothing is attached" "0" "$(grep -c 'attach-session' "$LOG")"
 
-echo "== ccy-sessions: Enter on an open-elsewhere session points at Ctrl-T"
+echo "== ccy-sessions: an open-elsewhere session's menu offers taking it over, not attaching"
 reset "ccy-a:/dev/pts/3"
-out="$(run_picker "|ccy-a" "|ABORT")"
-check_has "the refusal names Ctrl-T" "Ctrl-T takes it over" "$out"
+out="$(run_picker "|ccy-a" "|BACK" "|ABORT")"
+check_has "the menu offers taking it over" "Take it over here" "$(cat "$TEST_FZF_LOG")"
+check "the menu does not offer attaching" "no" "$(grep -q 'Attach it here' "$TEST_FZF_LOG" && echo yes || echo no)"
 check "nothing is attached" "0" "$(grep -c 'attach-session' "$LOG")"
+
+echo "== ccy-sessions: taking over chosen from the menu, confirmed"
+reset "ccy-a:/dev/pts/3"
+out="$(run_picker "|ccy-a" "|LINE:Take it over here" "|YES")"
+check "it exits 0 after attaching" "rc=0" "$(rc_of "$out")"
+check "the other terminal is detached" "1" "$(grep -cx 'detach-client -s =ccy-a' "$LOG")"
 
 echo "== ccy-sessions: Ctrl-T on a detached session just attaches it"
 reset "ccy-b"
@@ -446,7 +457,8 @@ check "this terminal is the one left on the session" "yes" "$(cat "$STATE/attach
 
 echo "== ccy-sessions: after three failed tries, the last word is true"
 reset "ccy-a:/dev/pts/3"
-out="$(run_picker "|ccy-a" "|ccy-a" "|ccy-a")"
+# A key that nothing on the screen offers does nothing, and uses a try.
+out="$(run_picker "ctrl-z|ccy-a" "ctrl-z|ccy-a" "ctrl-z|ccy-a")"
 check "it exits 1" "rc=1" "$(rc_of "$out")"
 check_has "nothing was tried, so it says nothing changed" "Nothing changed" "$out"
 reset "ccy-a:/dev/pts/3" "ccy-b:/dev/pts/4" "ccy-c:/dev/pts/5" "ccy-d:/dev/pts/6"

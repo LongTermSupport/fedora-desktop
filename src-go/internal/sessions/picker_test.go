@@ -161,7 +161,9 @@ func TestThePickerNeedsATerminalAndSaysWhyOnStderr(t *testing.T) {
 	exitCodeIs(t, h.run(""), 1, h) // an empty first word is the picker too
 }
 
-func TestThePickerOffersCtrlTAndListensForTheKeys(t *testing.T) {
+// Every action is a visible line (CLAUDE/InteractiveScripts.md rule 14): the list's own row starts
+// ccy here, each session's menu attaches, takes over or ends it, and fzf takes no key but theirs.
+func TestThePickerListsEveryActionAndTakesOnlyTheirKeys(t *testing.T) {
 	h := newHarness(t)
 	s := newServer(h)
 	s.listSessions("/srv/a", "ccy-a:/dev/pts/3")
@@ -171,12 +173,13 @@ func TestThePickerOffersCtrlTAndListensForTheKeys(t *testing.T) {
 	if len(rig.argv) != 1 {
 		t.Fatalf("%v", rig.argv)
 	}
-	contains(t, "argv", rig.argv[0], "--expect=ctrl-t,ctrl-x,ctrl-n", "--border-label= CCY sessions ",
-		"Enter attach   Ctrl-T take over   Ctrl-X end   Ctrl-N new   Esc or q quit",
-		"Ctrl-N unavailable: ~/proj is not a project folder (no git repository)",
-		`"open elsewhere" is attached in another terminal: Ctrl-T detaches that terminal and attaches this one; the session keeps running`,
+	contains(t, "argv", rig.argv[0], "--expect=ctrl-n,ctrl-t,ctrl-x", "--border-label= CCY sessions ",
+		"Enter lists what can be done to the session   Ctrl-T take it over   Ctrl-X end it   Ctrl-N start a new one   Esc or q quit",
+		`"open elsewhere" is attached in another terminal: taking it over detaches that terminal and attaches this one; the session keeps running`,
 		`CPU: since the list last redrew ("-" until it has), 100% is one core`,
 		`network, token, SSH key: what its container is on and was started with — "no container" and "-" mean nothing to ask`)
+	contains(t, "rows", rig.shown[0],
+		"Start a new ccy session here: unavailable, ~/proj is not a project folder (no git repository)   (Ctrl-N)")
 }
 
 // A redraw must not wait out a CPU sampling interval, so the picker measures against its last draw.
@@ -195,14 +198,14 @@ func TestThePickerKeepsItsCPUSamplesBetweenRedraws(t *testing.T) {
 	}
 }
 
-func TestThePickerHeaderOffersCtrlNInAProject(t *testing.T) {
+func TestThePickerOffersANewSessionRowInAProject(t *testing.T) {
 	h := newHarness(t)
 	s := newServer(h)
 	s.listSessions("/srv/a", "ccy-a")
 	inProject(h)
 	rig := newPickerRig(h, "|ABORT")
 	exitCodeIs(t, h.run(), 0, h)
-	contains(t, "header", rig.argv[0], "Ctrl-N starts a new ccy session in ~/proj")
+	contains(t, "rows", rig.shown[0], "Start a new ccy session in ~/proj   (Ctrl-N)")
 }
 
 func TestEnterAttachesADetachedSessionAndExitsWhenTheUserLeavesIt(t *testing.T) {
@@ -210,8 +213,9 @@ func TestEnterAttachesADetachedSessionAndExitsWhenTheUserLeavesIt(t *testing.T) 
 	s := newServer(h)
 	s.listSessions("/srv/a", "ccy-a", "ccy-b")
 	notInProject(h)
-	newPickerRig(h, "|ccy-b")
+	rig := newPickerRig(h, "|ccy-b", "|Attach")
 	exitCodeIs(t, h.run(), 0, h)
+	contains(t, "menu", rig.shown[1], "Attach it here", "Take it over here", "(Ctrl-T)", "End it, and everything running in it   (Ctrl-X)")
 	if len(s.attached) != 1 || s.attached[0] != "ccy-b" || s.did("set-hook") != 1 {
 		t.Fatalf("attached %v, ran %v", s.attached, h.ran())
 	}
@@ -223,21 +227,21 @@ func TestEnterOnASessionThatEndedWhileAttachedExitsZero(t *testing.T) {
 	s := newServer(h)
 	s.listSessions("/srv/a", "ccy-a")
 	notInProject(h)
-	newPickerRig(h, "|ccy-a")
+	newPickerRig(h, "|ccy-a", "|Attach")
 	s.onAttach = func(name string) { delete(s.clients, name) }
 	exitCodeIs(t, h.run(), 0, h)
 	contains(t, "ended", h.stderr(), "'ccy-a' has ended.")
 }
 
-func TestEnterOnAnOpenElsewhereRowPointsAtCtrlTAndCountsATry(t *testing.T) {
+func TestAnOpenElsewhereRowsMenuOffersTakingItOverNotAttaching(t *testing.T) {
 	h := newHarness(t)
 	s := newServer(h)
 	s.listSessions("/srv/a", "ccy-a:/dev/pts/3")
 	notInProject(h)
-	rig := newPickerRig(h, "|ccy-a", "|ccy-a", "|ccy-a")
-	exitCodeIs(t, h.run(), 1, h)
-	contains(t, "refusal", h.stderr(), "'ccy-a' is open in another terminal. Ctrl-T takes it over here; Ctrl-X ends it.",
-		"Nothing attached after 3 tries. Nothing changed.")
+	rig := newPickerRig(h, "|ccy-a", "|Back", "|ABORT")
+	exitCodeIs(t, h.run(), 0, h)
+	contains(t, "menu", rig.shown[1], "Take it over here", "End it", "Back to the list")
+	lacks(t, "menu", rig.shown[1], "Attach it here")
 	if len(s.attached) != 0 || rig.n != 3 {
 		t.Fatalf("attached %v after %d picks", s.attached, rig.n)
 	}
@@ -249,7 +253,7 @@ func TestARowIsOpenElsewhereByItsDataNotByItsText(t *testing.T) {
 	s := newServer(h)
 	s.listSessions("/srv/open elsewhere", "ccy-open")
 	notInProject(h)
-	newPickerRig(h, "|ccy-open")
+	newPickerRig(h, "|ccy-open", "|Attach")
 	exitCodeIs(t, h.run(), 0, h)
 	if len(s.attached) != 1 {
 		t.Fatalf("attached %v", s.attached)
@@ -587,7 +591,7 @@ func TestAnAttachThatFailsToStartIsReportedAsThatNotAsATakenSession(t *testing.T
 	s.listSessions("/srv/a", "ccy-a")
 	notInProject(h)
 	h.fake.On([]string{"tmux", "-L", "ccy", "set-hook"}, execx.Result{ExitCode: 1, Stderr: []byte("no server running")})
-	newPickerRig(h, "|ccy-a", "|ABORT")
+	newPickerRig(h, "|ccy-a", "|Attach", "|ABORT")
 	exitCodeIs(t, h.run(), 0, h)
 	contains(t, "hook", h.stderr(), "no server running", "The list has been refreshed.")
 	lacks(t, "hook", h.stderr(), "was taken or ended just now")
@@ -606,7 +610,7 @@ func TestAnAttachRefusedBecauseSomeoneGotThereFirstSaysSo(t *testing.T) {
 		}
 		return execx.Result{}, nil
 	})
-	newPickerRig(h, "|ccy-a", "|ABORT")
+	newPickerRig(h, "|ccy-a", "|Attach", "|ABORT")
 	exitCodeIs(t, h.run(), 0, h)
 	contains(t, "refused", h.stderr(), "ERROR: 'ccy-a' is open in another terminal, or gone. It can be attached from one terminal only.",
 		"'ccy-a' was taken or ended just now — the list has been refreshed.")
@@ -618,7 +622,7 @@ func TestAnAttachKickedByTheHookIsATry(t *testing.T) {
 	s.listSessions("/srv/a", "ccy-a")
 	notInProject(h)
 	s.onAttach = func(name string) { s.clients[name] = []string{"/dev/pts/9 1"} }
-	newPickerRig(h, "|ccy-a", "|ABORT")
+	newPickerRig(h, "|ccy-a", "|Attach", "|ABORT")
 	exitCodeIs(t, h.run(), 0, h)
 	contains(t, "kicked", h.stderr(), "ERROR: 'ccy-a' is open in another terminal, so this terminal was not attached to it.")
 	lacks(t, "kicked", h.stderr(), "was taken or ended just now")
