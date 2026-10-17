@@ -5,8 +5,11 @@ Documentation=https://github.com/LongTermSupport/fedora-desktop
 # host_vars/localhost.yml. stt itself decides what is ready: a recording whose manifest is
 # not COMPLETE, or whose parts have not all synced, is waiting and left for the next run; a
 # part whose size or MD5 is not the manifest's fails the run. Audio with no manifest is sent
-# as it is. The warm server is started only when something is pending.
+# once it has gone a minute unchanged. The warm server is started only when something is pending.
 After=graphical-session.target
+# Lingering (play-rclone.yml) starts the user manager at boot; before login there is no one
+# to show a failure to, so the run waits for a graphical session.
+ConditionEnvironment=WAYLAND_DISPLAY
 OnFailure=stt-watch-failed.service
 
 [Service]

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 )
 
 const (
@@ -150,7 +151,13 @@ type check struct {
 	verify bool
 	// minMillis is the shortest recording worth transcribing (a manifest's length only).
 	minMillis int64
+	// now is when the run began: a loose file changed within settleTime of it waits (S18).
+	now time.Time
 }
+
+// settleTime is how long a loose audio file must go unchanged before it is sent: with no
+// manifest, nothing else says that a copy into the folder has finished.
+const settleTime = time.Minute
 
 // state is S4-S7 and S17: done, waiting, short, corrupt or pending, with the reason.
 func (r *recording) state(c check) (state, string) {
@@ -158,7 +165,7 @@ func (r *recording) state(c check) (state, string) {
 		return st, reason
 	}
 	if !r.manifest {
-		return statePending, ""
+		return settled(r.path, c.now)
 	}
 	m, reason := readManifest(filepath.Join(r.path, manifestName))
 	if reason != "" {
@@ -205,6 +212,18 @@ func (r *recording) sidecarState() (state, string, bool) {
 			"move it aside to transcribe again", true
 	}
 	return stateDone, "", true
+}
+
+// settled is S18: a loose file changed less than settleTime before now waits.
+func settled(path string, now time.Time) (state, string) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return stateCorrupt, "cannot be read: " + err.Error()
+	}
+	if age := now.Sub(info.ModTime()); age < settleTime {
+		return stateWaiting, fmt.Sprintf("changed %d s ago; it may still be being written", int(age.Seconds()))
+	}
+	return statePending, ""
 }
 
 // checkPart is one part against its manifest entry: there yet, its size, and with verify its MD5.

@@ -577,7 +577,8 @@ stt --short ~/mnt/<drive>/<recordings folder>  # only the accidental taps, a pat
 
 A path is a recording folder (a folder of audio parts plus the phone app's `manifest.json`),
 an audio file, or a folder of those. A recording is sent only once its manifest says
-`COMPLETE` and every part has synced with its recorded size and MD5; one shorter than
+`COMPLETE` and every part has synced with its recorded size and MD5, and an audio file with
+no manifest once it has gone a minute unchanged; one shorter than
 `--min-seconds` (default 3) is skipped as an accidental recording. The sidecar has YAML front
 matter (source, length, language, model) and the text in paragraphs, each opened by its time.
 The language is the panel's setting unless `--language` names one (`auto` detects it).
@@ -594,14 +595,18 @@ stt_watch_folders:
 
 Nothing is sent early. A recording with a `manifest.json` waits until the manifest says
 `COMPLETE` and every part has synced, and a part whose size or MD5 is not the manifest's is a
-failure. An audio file with no manifest is sent as it is: through an rclone mount of Google
-Drive a file only appears once its upload has finished. The warm server is started only when
-something is pending, so a run with nothing new costs no GPU memory.
+failure. An audio file with no manifest is sent once it has gone a minute unchanged, so a
+file still being copied in is left for a later run. Any folder can be watched. For an rclone
+mount, name the folder inside the mount, never the mountpoint (the play refuses one listed in
+`rclone_mounts`): a mount that is down then makes the folder missing, and the run fails instead
+of finding nothing. The warm server is started only when
+something is pending, so a run with nothing new costs no GPU memory. Runs happen only while you
+are logged in to the desktop.
 
-A failed run raises a desktop notification that stays. `stt` stops at the first failure, so a
-corrupt recording holds back the ones after it until it is moved aside. Why it failed:
-`journalctl --user -u stt-watch.service -n 30 --no-pager`. Removing the list (or emptying it)
-and re-running the play stops the timer.
+A failed run raises a desktop notification that stays, at most once an hour. `stt` stops at the
+first failure, so a corrupt recording holds back the ones after it until it is moved aside. Why
+it failed: `journalctl --user -u stt-watch.service -n 30 --no-pager`. Removing the list (or
+emptying it) and re-running the play stops the timer.
 
 ---
 

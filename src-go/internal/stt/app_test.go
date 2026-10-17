@@ -224,7 +224,16 @@ func (w *world) write(rel, content string) string {
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		w.t.Fatal(err)
 	}
+	// Written long before the run, so a loose file has settled (S18) unless a test says not.
+	w.touch(path, fixedNow.Add(-time.Hour))
 	return path
+}
+
+func (w *world) touch(path string, mtime time.Time) {
+	w.t.Helper()
+	if err := os.Chtimes(path, mtime, mtime); err != nil {
+		w.t.Fatal(err)
+	}
 }
 
 // recording writes a phone recording folder: its parts and a manifest that describes them.
@@ -481,6 +490,32 @@ func TestALooseAudioFileIsARecordingOfOnePart(t *testing.T) {
 	}
 	if !strings.Contains(w.read(memo+".stt.md"), "parts: 1\n") {
 		t.Fatal("the loose file's sidecar is missing")
+	}
+}
+
+// S18. A loose audio file changed less than a minute ago may still be being written (a copy
+// into a watched folder): it waits, a line on stderr, and is sent on a later run. A recording
+// folder needs no such wait: its manifest's sizes and MD5s say when it is whole.
+func TestALooseFileStillBeingWrittenWaits(t *testing.T) {
+	w := newWorld(t)
+	memo := w.write("memo.m4a", "half an m4a")
+	w.touch(memo, fixedNow.Add(-10*time.Second))
+	rec := w.recording("dictation-1", "COMPLETE", "aaa")
+	w.touch(filepath.Join(rec, "dictation-1-001.ogg"), fixedNow.Add(-time.Second))
+	wantCode(t, w.run(w.root), term.ExitOK, w)
+	if starts := w.starts(); len(starts) != 1 || w.pathsOf(starts[0])[0] == memo {
+		t.Fatalf("FILE_STARTs: %v (only the folder may be sent)", starts)
+	}
+	if exists(memo + ".stt.md") {
+		t.Fatal("a file still being written got a sidecar")
+	}
+	if !strings.Contains(w.stderr.String(), "waiting: "+memo+" (changed 10 s ago; it may still be being written)") {
+		t.Fatalf("stderr:\n%s", w.stderr.String())
+	}
+	w.stdout.Reset()
+	wantCode(t, w.run("--list", memo), term.ExitOK, w)
+	if got := w.stdout.String(); !strings.HasPrefix(got, "waiting\t"+memo+"\t") {
+		t.Fatalf("--list: %q", got)
 	}
 }
 

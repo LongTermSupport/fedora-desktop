@@ -46,6 +46,9 @@
 //     durations) is under --min-seconds (default 3; accidental taps) is short: nothing is
 //     sent and no sidecar is written. --short prints only those paths, a line each, so they
 //     can be reviewed and removed. A loose audio file has no manifest length and is never short.
+//   - S18. A loose audio file changed less than a minute before the run may still be being
+//     copied in: it is waiting (as S5), so any folder can be watched. A recording folder's
+//     manifest already says when it is whole.
 package stt
 
 import (
@@ -232,7 +235,7 @@ func value(args []string, i int) string {
 func (a App) list(recs []recording, o options) term.ExitCode {
 	var out strings.Builder
 	for _, r := range recs {
-		state, reason := r.state(check{minMillis: o.minMillis})
+		state, reason := r.state(check{minMillis: o.minMillis, now: a.Env.Now()})
 		if o.short {
 			if state == stateShort {
 				out.WriteString(r.dir() + "\n")
@@ -254,7 +257,7 @@ func (a App) transcribeAll(ctx context.Context, o options, recs []recording) ter
 	ready := false
 	language := ""
 	for _, r := range recs {
-		state, reason := r.state(check{verify: true, minMillis: o.minMillis})
+		state, reason := r.state(check{verify: true, minMillis: o.minMillis, now: a.Env.Now()})
 		switch state {
 		case stateDone:
 			already++

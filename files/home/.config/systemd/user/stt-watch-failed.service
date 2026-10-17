@@ -3,6 +3,10 @@ Description=Speech-to-text: say that transcribing the watched folders failed
 Documentation=https://github.com/LongTermSupport/fedora-desktop
 # stt-watch.service's OnFailure. stt stops at the first failure, so a corrupt recording
 # holds back the ones after it until it is moved aside; this keeps that from being silent.
+# Once an hour at most: a recording that stays corrupt fails every 5-minute run, and each
+# notice stays on screen. The journal has every failure.
+StartLimitIntervalSec=1h
+StartLimitBurst=1
 
 [Service]
 Type=oneshot

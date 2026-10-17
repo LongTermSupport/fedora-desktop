@@ -103,8 +103,9 @@ one.
   `stt-watch.timer` runs `stt` over them every 5 minutes (polled: inotify on an rclone mount
   misses remote arrivals); a failed run raises a desktop notification
   (`stt-watch-failed.service`). Readiness is stt's own: manifest `COMPLETE`, parts synced,
-  size and MD5; no manifest, sent as it is. Built; still to deploy, set the folder in
-  host_vars, and see a new recording transcribed by the timer.
+  size and MD5; no manifest, sent once a minute unchanged (S18), so any folder works, not
+  only an rclone mount. Built; still to deploy, set the folder in host_vars, and see a new
+  recording transcribed by the timer.
 
 ### Phase 1: Triage and research (read-only)
 

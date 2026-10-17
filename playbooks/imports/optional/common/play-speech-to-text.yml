@@ -656,12 +656,20 @@
         that:
           - stt_watch_folders is sequence
           - stt_watch_folders is not string
+          - stt_watch_folders is not mapping
           - stt_watch_folders | select('match', '^/') | list | length == stt_watch_folders | length
           # Hex escapes: Jinja unescapes \\ itself, so a literal backslash would not reach re.
           - stt_watch_folders | select('search', '[\\x22\\x5c\\x0a]') | list | length == 0
+          # A mount that is down leaves its mountpoint an empty folder, which stt would read
+          # as nothing to do; a folder inside the mount is missing instead, and the run fails.
+          - >-
+            stt_watch_folders | map('regex_replace', '/+$', '') | intersect(rclone_mounts
+            | default([]) | map(attribute='mountpoint') | map('regex_replace', '/+$', ''))
+            | length == 0
         fail_msg: >-
           stt_watch_folders must be a list of absolute folder paths without a double quote,
-          a backslash or a newline (they are written into a systemd ExecStart). Got:
+          a backslash or a newline (they are written into a systemd ExecStart), and none may
+          be an rclone mountpoint itself: name the recordings folder inside the mount. Got:
           {{ stt_watch_folders }}
       when: stt_watch_folders is defined
 
@@ -672,6 +680,7 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: '0644'
+      register: stt_watch_service_unit
 
     - name: Deploy The Recording Folder Watch Timer And Its Failure Notice
       ansible.builtin.copy:
@@ -683,10 +692,12 @@
       loop:
         - stt-watch.timer
         - stt-watch-failed.service
+      register: stt_watch_other_units
 
     - name: Reload The User Manager For The Watch Units
       become: true
       become_user: "{{ user_login }}"
+      when: stt_watch_service_unit is changed or stt_watch_other_units is changed
       ansible.builtin.systemd:
         scope: user
         daemon_reload: true
