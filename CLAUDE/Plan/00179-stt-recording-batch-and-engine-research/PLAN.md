@@ -104,7 +104,8 @@ one.
   misses remote arrivals); a failed run raises a desktop notification
   (`stt-watch-failed.service`). Readiness is stt's own: manifest `COMPLETE`, parts synced,
   size and MD5; no manifest, sent once a minute unchanged (S18), so any folder works, not
-  only an rclone mount. Built; still to deploy, set the folder in host_vars, and see a new
+  only an rclone mount. Each sidecar's front matter records its audio (sizes, MD5s; S19), and
+  a recording whose audio changed is transcribed again. Built; still to deploy, set the folder in host_vars, and see a new
   recording transcribed by the timer.
 
 ### Phase 1: Triage and research (read-only)

@@ -333,6 +333,7 @@ duration: "00:00:12"
 language: "en"
 model: "distil-large-v3.5"
 transcribed: "2026-10-16T19:40:00Z"
+audio: [{"name":"dictation-1-001.ogg","bytes":3,"md5":"` + md5hex("aaa") + `"},{"name":"dictation-1-002.ogg","bytes":3,"md5":"` + md5hex("bbb") + `"}]
 ---
 
 **[00:00:00]** Hello there. Same paragraph.
@@ -369,6 +370,79 @@ func TestADoneRecordingIsNotTranscribedAgain(t *testing.T) {
 	}
 	if w.read(rec+".stt.md") != earlierSidecar {
 		t.Fatal("the sidecar was overwritten")
+	}
+}
+
+func md5hex(s string) string {
+	sum := md5.Sum([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
+
+// S19. A recording folder's sidecar records each part's name, size and MD5 from the manifest;
+// when the manifest no longer agrees (the recording was replaced), the transcript is stale and
+// the recording is transcribed again, over it. No audio is read to tell.
+func TestARecordingWhoseAudioChangedIsTranscribedAgain(t *testing.T) {
+	w := newWorld(t)
+	rec := w.recording("dictation-1", "COMPLETE", "aaa")
+	wantCode(t, w.run(w.root), term.ExitOK, w)
+	first := w.read(rec + ".stt.md")
+
+	w.stdout.Reset()
+	wantCode(t, w.run("--list", w.root), term.ExitOK, w)
+	if got := w.stdout.String(); got != "done\t"+rec+"\n" {
+		t.Fatalf("--list after the first run: %q", got)
+	}
+
+	w.recording("dictation-1", "COMPLETE", "a new take")
+	w.stdout.Reset()
+	wantCode(t, w.run("--list", w.root), term.ExitOK, w)
+	if got := w.stdout.String(); got != "stale\t"+rec+"\tthe audio has changed since its transcript\n" {
+		t.Fatalf("--list after the change: %q", got)
+	}
+	w.server.finish = func([]string) map[string]any { return done(seg{0, 1, "The new take."}) }
+	wantCode(t, w.run(w.root), term.ExitOK, w)
+	got := w.read(rec + ".stt.md")
+	if got == first || !strings.Contains(got, "The new take.") || !strings.Contains(got, md5hex("a new take")) {
+		t.Fatalf("sidecar not replaced:\n%s", got)
+	}
+	if !strings.Contains(w.stderr.String(), rec+": the audio has changed since its transcript; transcribing it again") {
+		t.Fatalf("stderr:\n%s", w.stderr.String())
+	}
+}
+
+// S19. A loose file's sidecar records its size, modification time and MD5. While size and
+// time agree it is done without reading the audio; when they differ the MD5 decides: the same
+// audio is still done, other audio is transcribed again.
+func TestALooseFileWhoseAudioChangedIsTranscribedAgain(t *testing.T) {
+	w := newWorld(t)
+	memo := w.write("memo.m4a", "first take")
+	wantCode(t, w.run(w.root), term.ExitOK, w)
+	if got := w.read(memo + ".stt.md"); !strings.Contains(got,
+		`audio: [{"name":"memo.m4a","bytes":10,"md5":"`+md5hex("first take")+`","modified":"2026-10-16T18:40:00Z"}]`) {
+		t.Fatalf("sidecar:\n%s", got)
+	}
+
+	if err := os.Chmod(memo, 0); err != nil {
+		t.Fatal(err)
+	}
+	wantCode(t, w.run(w.root), term.ExitOK, w)
+	if len(w.starts()) != 1 {
+		t.Fatal("an unchanged file was sent again")
+	}
+	if err := os.Chmod(memo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	w.touch(memo, fixedNow.Add(-30*time.Minute))
+	wantCode(t, w.run(w.root), term.ExitOK, w)
+	if len(w.starts()) != 1 {
+		t.Fatal("a file only touched was sent again")
+	}
+
+	w.write("memo.m4a", "second take")
+	wantCode(t, w.run(w.root), term.ExitOK, w)
+	if len(w.starts()) != 2 || !strings.Contains(w.read(memo+".stt.md"), md5hex("second take")) {
+		t.Fatalf("a changed file was not transcribed again: %d starts", len(w.starts()))
 	}
 }
 

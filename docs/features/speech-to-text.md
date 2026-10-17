@@ -580,7 +580,11 @@ an audio file, or a folder of those. A recording is sent only once its manifest 
 `COMPLETE` and every part has synced with its recorded size and MD5, and an audio file with
 no manifest once it has gone a minute unchanged; one shorter than
 `--min-seconds` (default 3) is skipped as an accidental recording. The sidecar has YAML front
-matter (source, length, language, model) and the text in paragraphs, each opened by its time.
+matter (source, length, language, model, and the audio it was made from: each part's size and
+MD5) and the text in paragraphs, each opened by its time. When a recording's audio no longer
+matches its sidecar (replaced or re-synced), `stt --list` shows it as `stale` and `stt`
+transcribes it again over the old sidecar; a folder is checked against its manifest without
+reading the audio.
 The language is the panel's setting unless `--language` names one (`auto` detects it).
 
 #### Watching folders (`stt-watch.timer`)

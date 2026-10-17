@@ -35,7 +35,7 @@
 //   - S12. The language: --language, else the panel's `language` setting through
 //     `<dir>/wsi-setting` ("system" is the locale's, from LANG); "auto" is detection.
 //   - S13. Each new segment's time and text go to stderr as they arrive.
-//   - S14. --list prints `done|pending|waiting|short|corrupt<TAB>path[<TAB>reason]` and runs
+//   - S14. --list prints `done|pending|stale|waiting|short|corrupt<TAB>path[<TAB>reason]` and runs
 //     nothing; it does not read the audio, so a part with a bad checksum shows as pending.
 //   - S15. No PATH, an unknown flag, a flag without its value, or --list with --short, is exit
 //     64 and runs nothing; a PATH that is missing or not audio is exit 1 before anything
@@ -49,6 +49,12 @@
 //   - S18. A loose audio file changed less than a minute before the run may still be being
 //     copied in: it is waiting (as S5), so any folder can be watched. A recording folder's
 //     manifest already says when it is whole.
+//   - S19. The sidecar's front matter records the audio it was made from (`audio:`, JSON flow):
+//     each part's name, size and MD5 from the manifest, or a loose file's size, MD5 and
+//     modification time. A recording whose audio does not match is stale and is transcribed
+//     again over its sidecar; a folder is judged by its manifest alone, and a loose file is
+//     read for its MD5 only when its size or time differ. A sidecar with no `audio:` line is
+//     done as before.
 package stt
 
 import (
@@ -272,6 +278,8 @@ func (a App) transcribeAll(ctx context.Context, o options, recs []recording) ter
 		case stateCorrupt:
 			a.say(r.dir() + ": " + reason)
 			return term.ExitFailure
+		case stateStale:
+			a.say(r.dir() + ": " + reason + "; transcribing it again")
 		case statePending:
 		}
 		if !ready {

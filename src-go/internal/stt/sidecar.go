@@ -30,6 +30,8 @@ func render(r recording, done reply, segments []segment, now time.Time) string {
 		{languageKey, done.Language},
 		{"model", done.Model},
 		{"transcribed", now.UTC().Format(time.RFC3339)},
+		// JSON flow, which YAML reads as the same list; stt reads it back with encoding/json.
+		{audioKey, r.audio},
 	} {
 		fmt.Fprintf(&b, "%s: %s\n", field.key, yamlScalar(field.value))
 	}
