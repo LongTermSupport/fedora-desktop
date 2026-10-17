@@ -19,3 +19,7 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Plan 00179 Task 0.7: deploys stt-watch.timer, which runs stt over stt_watch_folders every
+# 5 minutes, and its failure notification. Set stt_watch_folders in host_vars first.
+playbooks/imports/optional/common/play-speech-to-text.yml

@@ -582,6 +582,27 @@ an audio file, or a folder of those. A recording is sent only once its manifest 
 matter (source, length, language, model) and the text in paragraphs, each opened by its time.
 The language is the panel's setting unless `--language` names one (`auto` detects it).
 
+#### Watching folders (`stt-watch.timer`)
+
+List the folders in `host_vars/localhost.yml` and re-run `play-speech-to-text.yml`; every 5
+minutes `stt` then runs over them by itself:
+
+```yaml
+stt_watch_folders:
+  - "/home/{{ user_login }}/mnt/<drive>/<recordings folder>"
+```
+
+Nothing is sent early. A recording with a `manifest.json` waits until the manifest says
+`COMPLETE` and every part has synced, and a part whose size or MD5 is not the manifest's is a
+failure. An audio file with no manifest is sent as it is: through an rclone mount of Google
+Drive a file only appears once its upload has finished. The warm server is started only when
+something is pending, so a run with nothing new costs no GPU memory.
+
+A failed run raises a desktop notification that stays. `stt` stops at the first failure, so a
+corrupt recording holds back the ones after it until it is moved aside. Why it failed:
+`journalctl --user -u stt-watch.service -n 30 --no-pager`. Removing the list (or emptying it)
+and re-running the play stops the timer.
+
 ---
 
 ## Claude Code Post-Processing

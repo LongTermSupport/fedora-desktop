@@ -1,0 +1,9 @@
+[Unit]
+Description=Speech-to-text: say that transcribing the watched folders failed
+Documentation=https://github.com/LongTermSupport/fedora-desktop
+# stt-watch.service's OnFailure. stt stops at the first failure, so a corrupt recording
+# holds back the ones after it until it is moved aside; this keeps that from being silent.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/notify-send --urgency=critical --app-name=Speech-to-text "Recordings not transcribed" "stt-watch failed. Why: journalctl --user -u stt-watch.service -n 30 --no-pager"
