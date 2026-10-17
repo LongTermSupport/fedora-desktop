@@ -4,7 +4,9 @@ FILE_START hands the server one recording's audio files, in order. They are join
 one stream and transcribed on a thread of their own by the same model dictation uses, so
 one model is ever in GPU memory; CTranslate2 serialises the two callers. FILE_PROGRESS
 reports the segments so far, then done or failed. A dictation START is never refused
-because a file is being transcribed, and the idle timeout waits for the file job.
+because a file is being transcribed: the file job pauses between windows while a dictation
+is active, and a marker file tells the panel a job is running. The idle timeout waits for
+the file job.
 
 Stdlib only; the model and the audio decoder are stubs. Run by
 scripts/test-wsi-stop-grace.bash.
@@ -87,6 +89,7 @@ class FileJobCase(unittest.TestCase):
                    mock.patch.object(server, "file_job", None),
                    mock.patch.object(server, "session", None),
                    mock.patch.object(server, "load_audio", joined),
+                   mock.patch.object(server, "FILE_JOB_MARKER", self.dir / "wsi-file-job"),
                    mock.patch.object(server, "log", lambda *a, **k: None)]
         for patch in patches:
             patch.start()
@@ -185,6 +188,35 @@ class FileJobTest(FileJobCase):
         # Polling is activity; idle long after, a finished job no longer holds the timeout off
         with mock.patch.object(server, "idle_timeout", 1), mock.patch.object(server, "last_activity_time", 0):
             self.assertTrue(server.check_idle_timeout())
+
+    def test_a_dictation_pauses_the_file_job_until_it_ends(self):
+        dictating = mock.Mock()
+        dictating.busy.return_value = True
+        with mock.patch.object(server, "session", dictating), \
+                mock.patch.object(server, "DICTATION_POLL_SECONDS", 0.01):
+            self.start({"paths": self.parts, "language": "en"})
+            time.sleep(0.2)
+            reply = self.progress(0)
+            self.assertEqual((reply["status"], reply["count"], reply["paused"]), ("running", 0, True),
+                             "no window of the file may run while a dictation is active")
+            dictating.busy.return_value = False
+            reply = self.finished()
+        self.assertEqual(reply["count"], 2)
+        self.assertNotIn("paused", reply)
+
+    def test_a_running_job_is_marked_for_the_panel_and_unmarked_when_it_ends(self):
+        marker = server.FILE_JOB_MARKER
+        self.model.gate = threading.Semaphore(0)
+        self.start({"paths": self.parts, "language": "en"})
+        self.assertTrue(marker.exists(), "the panel shows a file job by this file")
+        for _ in self.model.segments:
+            self.model.gate.release()
+        self.finished()
+        self.assertFalse(marker.exists())
+        self.model.gate, self.model.fail_after = None, 1
+        self.start({"paths": self.parts, "language": "en"})
+        self.assertEqual(self.finished()["status"], "failed")
+        self.assertFalse(marker.exists(), "a failed job is unmarked too")
 
     def test_bad_requests_are_refused_and_start_nothing(self):
         for params in ({}, {"paths": []}, {"paths": "x.ogg"}, {"paths": [str(self.dir / "gone.ogg")]},

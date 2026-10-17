@@ -12,7 +12,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-const {lookFor, isKnownState, recordingBadgeColor, articleBadgeColor, COLOURS} = await import(
+const {lookFor, isKnownState, recordingBadgeColor, articleBadgeColor, shownState, COLOURS} = await import(
     new URL('../../extensions/speech-to-text@fedora-desktop/panelLook.js', import.meta.url).href);
 
 const STATES = ['IDLE', 'LAUNCHING', 'WAITING', 'FINISHING', 'BLOCKED', 'CANCELLING', 'UNOWNED',
@@ -32,6 +32,22 @@ test('an unknown state never looks ready (Decision 2): it is the please-wait hou
     assert.equal(isKnownState('SOMETHING-NEW'), false);
     for (const state of STATES)
         assert.equal(isKnownState(state), true, state);
+});
+
+// Plan 00179: while the server transcribes recordings, the resting panel says so with a look
+// of its own; Insert still dictates (the file job pauses), so every dictation state wins.
+test('a file job shows its own look in place of the idle mic, and nothing else changes', () => {
+    assert.equal(shownState('IDLE', true), 'FILES');
+    assert.equal(shownState('IDLE', false), 'IDLE');
+    for (const state of STATES.filter(s => s !== 'IDLE'))
+        assert.equal(shownState(state, true), state, state);
+    assert.equal(isKnownState('FILES'), true);
+    const files = lookFor('FILES');
+    for (const state of STATES) {
+        assert.notEqual(files.icon, lookFor(state).icon, `FILES shares ${state}'s icon`);
+        assert.notEqual(files.colour, lookFor(state).colour || 'default', `FILES shares ${state}'s colour`);
+    }
+    assert.notEqual(files.colour, COLOURS.green);
 });
 
 test('green is SUCCESS and nothing else', () => {

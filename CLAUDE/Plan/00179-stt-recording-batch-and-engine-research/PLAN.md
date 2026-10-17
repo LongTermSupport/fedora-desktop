@@ -63,8 +63,8 @@ one.
 - **One warm model.** Files are transcribed by the warm streaming server's model
   (`wsi-stream-server`), not a second process: a 4 GB card cannot hold a second large model
   beside it (a `large-v3` trial beside the server ran out of GPU memory). Dictation and a
-  file job share the model; CTranslate2 runs one call at a time, so dictation waits at most
-  one 30 s window of the file.
+  file job share the model, and dictation comes first: the file job pulls no further window
+  while a dictation is active, so dictation waits at most for the window already running.
 - **Sidecars mark done.** Each recording gets `<recording>.stt.md` beside it; a recording
   with a sidecar is done. This is the done-marker of Task 4.1.
 - **Recordings are folders.** The phone app writes one folder per recording: numbered Opus
@@ -105,7 +105,9 @@ one.
   (`stt-watch-failed.service`). Readiness is stt's own: manifest `COMPLETE`, parts synced,
   size and MD5; no manifest, sent once a minute unchanged (S18), so any folder works, not
   only an rclone mount. Each sidecar's front matter records its audio (sizes, MD5s; S19), and
-  a recording whose audio changed is transcribed again. Built; still to deploy, set the folder in host_vars, and see a new
+  a recording whose audio changed is transcribed again. Owner decision: dictation comes
+  first; a file job pauses between windows while a dictation is active, and the idle panel
+  shows a blue document (FILES) while one runs. Built; still to deploy, set the folder in host_vars, and see a new
   recording transcribed by the timer.
 
 ### Phase 1: Triage and research (read-only)

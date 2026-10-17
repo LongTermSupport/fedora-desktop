@@ -431,6 +431,7 @@ by itself afterwards. Ctrl+Insert and Alt+Insert follow the same rules.
 | The icon shows                                                    | Insert                                                                       | Escape                 |
 | ----------------------------------------------------------------- | ---------------------------------------------------------------------------- | ---------------------- |
 | Ready (default colour, or the green/red of the last one)          | Starts a recording (the purple hourglass shows until the microphone is open) | Nothing                |
+| Blue document: ready, and transcribing recordings (`stt`)         | Starts a recording; the recordings pause until it is done                    | Nothing                |
 | Purple hourglass: starting, or waiting for the server             | Cancels the start (grey crossed-out microphone until it has stopped)         | Nothing                |
 | Orange microphone: preparing (batch and pre-buffer are capturing) | Stops; what was already heard is transcribed                                 | Nothing                |
 | Red badge with the time: recording                                | Stops, after the [stop grace](#stop-grace)                                   | Discards the dictation |
@@ -567,7 +568,9 @@ wsi --claude-process --claude-model sonnet --claude-style corporate
 `stt` transcribes audio files, such as dictation recorded on a phone and synced through an
 rclone mount, into a `<recording>.stt.md` sidecar beside each recording. It uses the warm
 streaming server's model, so dictation and file transcription share one model in GPU memory;
-the server is started if it is not running, and dictation keeps working during a long file.
+the server is started if it is not running. Dictation comes first: while you dictate, the
+file job pauses after the window it is on, then carries on. While recordings are being
+transcribed, the idle panel icon is a blue document instead of the microphone.
 
 ```bash
 stt ~/mnt/<drive>/<recordings folder>          # transcribe everything without a sidecar
@@ -733,19 +736,20 @@ The extension icon indicates current status:
 The panel shows a single microphone icon whose **colour** carries the state (it swaps to
 a loading icon while transcribing):
 
-| Appearance                      | Status      | Meaning                                                          |
-| ------------------------------- | ----------- | ---------------------------------------------------------------- |
-| Default colour                  | Idle        | Ready: Insert starts a recording                                 |
-| Purple hourglass                | Please wait | The press was taken; the recording is starting                   |
-| Orange hourglass                | Finishing   | The last dictation is still finishing; Insert does nothing       |
-| Red no-entry sign (a moment)    | Blocked     | Insert did nothing: the last dictation is not finished yet       |
-| Grey crossed-out microphone     | Cancelling  | Insert cancelled a start; ready once the recorder has stopped    |
-| Orange                          | Preparing   | Starting up                                                      |
-| Red badge with the elapsed time | Recording   | Listening to your voice (Insert to stop); amber when behind      |
-| Red record dot                  | Not ours    | A recording the panel did not start is running (Insert stops it) |
-| Orange, loading icon            | Processing  | Transcribing audio                                               |
-| Green (2 seconds)               | Success     | Transcription delivered (the only green)                         |
-| Red microphone (2 seconds)      | Error       | The panel menu says why; check the debug log                     |
+| Appearance                      | Status      | Meaning                                                           |
+| ------------------------------- | ----------- | ----------------------------------------------------------------- |
+| Default colour                  | Idle        | Ready: Insert starts a recording                                  |
+| Blue document                   | Idle, files | Ready; recordings are being transcribed and pause for a dictation |
+| Purple hourglass                | Please wait | The press was taken; the recording is starting                    |
+| Orange hourglass                | Finishing   | The last dictation is still finishing; Insert does nothing        |
+| Red no-entry sign (a moment)    | Blocked     | Insert did nothing: the last dictation is not finished yet        |
+| Grey crossed-out microphone     | Cancelling  | Insert cancelled a start; ready once the recorder has stopped     |
+| Orange                          | Preparing   | Starting up                                                       |
+| Red badge with the elapsed time | Recording   | Listening to your voice (Insert to stop); amber when behind       |
+| Red record dot                  | Not ours    | A recording the panel did not start is running (Insert stops it)  |
+| Orange, loading icon            | Processing  | Transcribing audio                                                |
+| Green (2 seconds)               | Success     | Transcription delivered (the only green)                          |
+| Red microphone (2 seconds)      | Error       | The panel menu says why; check the debug log                      |
 
 The ready icon is shown only when no recorder the panel started is still running, so a
 press on it always starts a recording. In Claude post-processing modes the panel

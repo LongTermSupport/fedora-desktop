@@ -70,6 +70,11 @@ PID_FILE = Path(f"/run/user/{os.getuid()}/wsi-stream-server.pid")
 # Journal and kept audio: per-user tmpfs, cleared at logout. Dictated text is not kept
 # across logins, so never ~/.cache.
 DICTATION_DIR = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}") / "wsi-dictation"
+# Present while a file job runs: the panel shows "transcribing files" by it (a stat, as it
+# watches the PID file and socket).
+FILE_JOB_MARKER = DICTATION_DIR.parent / "wsi-file-job"
+# How often a file job paused for a dictation looks again.
+DICTATION_POLL_SECONDS = 0.2
 CAPTURE_CMD = ["pw-record", "--rate", "16000", "--channels", "1", "--format", "s16", "-"]
 
 # Configuration
@@ -894,9 +899,10 @@ class FileJob:
     The parts are joined first, so a word cut in two at a part boundary is heard whole.
     The settings are for accuracy on long unattended audio: voice activity detection
     (silence never reaches the model, so it cannot become invented text), a beam of 5,
-    and no conditioning on the previous text (the cause of repetition loops). A dictation
-    shares the model meanwhile; CTranslate2 runs one call at a time, so a dictation
-    segment waits at most for the file's current 30 s window.
+    and no conditioning on the previous text (the cause of repetition loops). Dictation
+    comes first: the segments are decoded one window at a time as they are pulled, and
+    none is pulled while a dictation is active, so a dictation waits at most for the
+    window already running. FILE_JOB_MARKER exists while the job runs.
     """
 
     def __init__(self, model, paths, language):
@@ -911,22 +917,41 @@ class FileJob:
         self._error = None
         self._duration = None
         self._detected = None
+        self._paused = False
 
     def start(self):
+        FILE_JOB_MARKER.touch()
         threading.Thread(target=self._run, daemon=True).start()
 
     def running(self):
         with self._lock:
             return self._state == "running"
 
+    def _wait_for_dictation(self):
+        """Hold the next window back while a dictation is active."""
+        while is_busy():
+            with self._lock:
+                if not self._paused:
+                    log("File transcription paused for a dictation")
+                self._paused = True
+            time.sleep(DICTATION_POLL_SECONDS)
+        with self._lock:
+            self._paused = False
+
     def _run(self):
         try:
+            self._wait_for_dictation()
             audio = load_audio(self._paths)
             segments, info = self._model.transcribe(audio, language=self._language or None, beam_size=5,
                                                     vad_filter=True, condition_on_previous_text=False)
             with self._lock:
                 self._duration, self._detected = info.duration, info.language
-            for segment in segments:
+            windows = iter(segments)
+            while True:
+                self._wait_for_dictation()
+                segment = next(windows, None)
+                if segment is None:
+                    break
                 text = segment.text.strip()
                 if text:
                     with self._lock:
@@ -937,6 +962,7 @@ class FileJob:
             log(f"File transcription failed: {error}", "ERROR")
         with self._lock:
             self._state, self._error = state, error
+        FILE_JOB_MARKER.unlink(missing_ok=True)
         update_activity()
         log(f"File transcription {state}: {len(self._segments)} segments from {len(self._paths)} files")
 
@@ -944,6 +970,8 @@ class FileJob:
         """The state, the segments from index `since` on, and, once done, what was heard."""
         with self._lock:
             reply = {"status": self._state, "segments": self._segments[since:], "count": len(self._segments)}
+            if self._state == "running":
+                reply["paused"] = self._paused
             if self._state == "done":
                 reply.update(duration=self._duration, language=self._detected, model=model_name)
             if self._state == "failed":
@@ -1423,6 +1451,9 @@ def cleanup():
 
     transcriber = None
     make_vad = None
+
+    # A file job dies with the server; its marker must not keep the panel saying otherwise
+    FILE_JOB_MARKER.unlink(missing_ok=True)
 
     # Remove socket
     if SOCKET_PATH.exists():
