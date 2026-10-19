@@ -15,11 +15,19 @@ the agent working against the wind-down.
   ccy's tmux server: `tmuxccy.Tmux.SendKeys`, then `SendEnter` after a submit pause, read back
   with `CapturePane` and judged with `screen.ClaudeState` and `restore.Judge`. `ccy-teams shutdown` types `/exit` this way (package `shutdown`), `ccy-sessions` types its lines this way
   (`sessions.typeInto`). Covers ccy sessions and cc sessions on ccy's tmux server.
-- F3. There is no path from the host into an LXC member's input box. Its sessions are started
-  inside the container by the provisioning repository's own launcher
-  (`docs/agent-bus-lxc-members.md`), not on ccy's tmux; `lxc-attach` is used only by the play,
-  to install the kit. `shutdown` and `restart` both leave LXC members out for this reason. The
-  same holds for a member on another machine, and for a held seat no session record names.
+- F3. An LXC member this repository installs with `service: true` runs in the container under
+  the unit play-agent-bus.yml writes (`helpers/agent_bus_lxc/members.py`
+  `render_member_unit`): `tmux -L agent-bus-claude new-session -d -s agent-bus-claude agent-bus-claude`, as the member's user. The host reaches that pane as
+  `docs/agent-bus-lxc-members.md` documents for a person: `sudo lxc-attach -n <container> -- runuser -u <user> -- tmux -L agent-bus-claude ...`. The play's LXC member record
+  (`lxcrecord`) names each member's container and user and whether the last apply joined it,
+  and `lxcfreeze.Lister` already runs `lxc-attach` through `sudo`. So the F2 path is the same
+  for an LXC member, with `tmuxccy.Tmux` given a runner that runs tmux in the container
+  (`lxcfreeze.Lister.InContainer`, `-P <lxcpath> --clear-env`, `env -i PATH=...`). Out of
+  reach: a member whose container is stopped, or which the last apply held back; a member the
+  record does not name (a container on another machine, or one joined by hand); a member
+  started by hand rather than by the unit (no `agent-bus-claude` session on that server); any
+  member when sudo is not ready. A member on another machine and a held seat no session record
+  names are out of reach too.
 - F4. Typed into a busy session, a line can be lost or garbled: the ccy supervisor records that
   an Enter mid-turn did not submit a pasted `/goal`, and only injects at an idle moment with an
   empty input box (`.claude/ccy/claude-supervise.py`). Text already in the box would be joined
@@ -44,10 +52,13 @@ the agent working against the wind-down.
   progress the wind-down asks to be saved half done.
 - D3. **Text in the box is never typed over.** A member whose box holds text before anything is
   typed fails, naming why (as `shutdown` does).
-- D4. **A member out of reach is a failure, not a skip** (exit 1): LXC members (F3), members on
-  another machine, a held seat no record names, a team whose members could not be read. Each is
-  named with how to wind it down by hand, and the instruction text is printed once so it can be
-  pasted. A stopped session, a free seat and a parked member have no agent to tell: each is
+- D4. **A member out of reach is a failure, not a skip** (exit 1): an LXC member whose container
+  is stopped or was held back, or that no LXC member record of this host names, or any LXC
+  member when sudo is not ready (F3); members on another machine; a held seat no record names; a
+  team whose members could not be read. An LXC member in a running container whose service
+  session is missing is a failed job. Each is named with how to wind it down by hand, and the
+  instruction text is printed once so it can be pasted. sudo is asked for only when the team
+  has an LXC member that can be reached. A stopped session, a free seat and a parked member have no agent to tell: each is
   named on its own line and is not a failure.
 
 ## 3. Expectations
@@ -64,7 +75,7 @@ the agent working against the wind-down.
   64\. With no job at all nothing is asked; the report follows.
 - W5. For each job, in order, through the pane (F2): wait for idle with an empty box (W6); type
   `/goal clear`, pause, press Enter; read the pane again until the box is empty and idle (if
-  the text is still in the box, Enter once more); only then type the wind-down text (W8), pause,
+  the text is still in the box after one more poll of grace, Enter once more); only then type the wind-down text (W8), pause,
   press Enter, and see the box empty (busy or idle) once more (again one more Enter at most).
   `/goal clear` is always typed, whether a goal is set or not: with none, Claude Code only says
   so.
@@ -88,7 +99,8 @@ the agent working against the wind-down.
 - W9. The report: `✓ <session>: /goal clear and the wind-down typed` per job done, `✗ <session>: <why>` per job failed, `- <member>: not running: <why>` and `✗ <member>: not reached: <why>` for the rest; then `<team>: N wound down, N failed, N not running; N members not reachable from here.` (the last clause only when there are any). With any member out of
   reach, the text is printed once after `To wind them down by hand, type /goal clear in each one's session, then:`.
 - W10. Exit 0 only when every job was wound down and no member was out of reach; else 1.
-- W11. Local only: tmux, the session registry and the reads the table makes. Nothing goes on the
+- W11. Local only: tmux (in a container through `sudo lxc-attach`), the session registry, the
+  LXC member record, `lxc-config` and `lxc-ls`, and the reads the table makes. Nothing goes on the
   bus, no session is ended or killed, no record is changed.
 - W12. The picker: a team row's menu has `Wind down the team's sessions (clear goals, save and push work, stop)`, no shortcut, after Restart and before Shut down; it runs the same flow with
   the picker's yes/no, then returns to the list once the report has been read. It is not first
@@ -101,5 +113,13 @@ the agent working against the wind-down.
   `/goal` into a session after the wind-down, when the daemon's goal ledger still owes one for
   a plan in progress. The text says to set none and to stop anyway; the supervisor is
   daemon-owned and is not changed here.
-- LXC members get no keystrokes (F3). Closing that needs a launcher that runs the container's
-  sessions on a known tmux server, which is the provisioning repository's, not this one's.
+- **The supervisor types at the same moments.** The ccy supervisor injects (`/compact`,
+  `continue`, `/goal`, `/goal clear`) only at an idle moment with an empty box, which is when
+  the wind-down types too. Two typists on one pane can interleave within one poll (1 s): a
+  supervisor line can land between the wind-down's text and its Enter, or the reverse. The
+  read-back after each Enter catches a line left in the box (W5, W7), not one joined to the
+  supervisor's and submitted. The supervisor is daemon-owned; a lock both honour would close it.
+- An LXC member started by hand, not by the play's unit, is not on the `agent-bus-claude`
+  server and fails (F3).
+- `ccy-teams shutdown` still leaves LXC members out; the same path would reach them (a plan
+  task of its own).

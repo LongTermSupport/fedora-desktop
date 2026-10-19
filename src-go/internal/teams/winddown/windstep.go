@@ -8,6 +8,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/screen"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 )
 
 // goalClear is the clearing form of Claude Code's /goal: a bare /goal only prints its status.
@@ -42,9 +43,17 @@ type job struct {
 	name, dir, seat, handle, team string
 	coordinator                   bool
 	others                        []seatRef
+	// tmux is the server the session's pane is on, pane its tmux session, prefix the launcher
+	// restore.Judge reads it as; where, for an LXC member, says where it runs, and missing is
+	// why a session not there before anything was typed failed.
+	tmux           *tmuxccy.Tmux
+	pane, prefix   string
+	where, missing string
 
-	phase     phase
-	reentered bool
+	phase phase
+	// graced is the one poll a line still in the box is given before Enter is pressed again,
+	// reentered whether it has been.
+	graced, reentered bool
 	// idleBy bounds the wait for an idle session, settleBy the wait for a typed line to go.
 	idleBy, settleBy time.Time
 	result           result
@@ -70,21 +79,23 @@ func (w *WindDown) windAll(ctx context.Context, jobs []*job) {
 		j.idleBy = start.Add(w.Waits.Idle)
 	}
 	for {
-		live, err := w.liveSessions(ctx)
-		if err != nil {
-			for _, j := range jobs {
-				if j.result == resultPending {
-					j.fail(j.after(err.Error() + "; the sessions could not be watched any further"))
-				}
-			}
-			return
-		}
+		lists := map[*tmuxccy.Tmux]listing{}
 		left := false
 		for _, j := range jobs {
-			if j.result == resultPending {
-				w.step(ctx, j, live)
-				left = left || j.result == resultPending
+			if j.result != resultPending {
+				continue
 			}
+			list, read := lists[j.tmux]
+			if !read {
+				list.live, list.err = liveSessions(ctx, j.tmux)
+				lists[j.tmux] = list
+			}
+			if list.err != nil {
+				j.fail(j.after(list.err.Error() + "; the sessions could not be watched any further"))
+				continue
+			}
+			w.step(ctx, j, list.live)
+			left = left || j.result == resultPending
 		}
 		if !left {
 			return
@@ -93,8 +104,14 @@ func (w *WindDown) windAll(ctx context.Context, jobs []*job) {
 	}
 }
 
-func (w *WindDown) liveSessions(ctx context.Context) (map[string]bool, error) {
-	list, err := w.Tmux.List(ctx)
+// listing is one pass's read of a tmux server's sessions.
+type listing struct {
+	live map[string]bool
+	err  error
+}
+
+func liveSessions(ctx context.Context, t *tmuxccy.Tmux) (map[string]bool, error) {
+	list, err := t.List(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -107,11 +124,11 @@ func (w *WindDown) liveSessions(ctx context.Context) (map[string]bool, error) {
 
 // step is one look at a session and what follows from it.
 func (w *WindDown) step(ctx context.Context, j *job, live map[string]bool) {
-	if !live[j.name] {
+	if !live[j.pane] {
 		w.ended(j)
 		return
 	}
-	pane, err := w.Tmux.CapturePane(ctx, j.name, true)
+	pane, err := j.tmux.CapturePane(ctx, j.pane, true)
 	if err != nil {
 		// A session that ended since the list was read is seen gone on the next pass.
 		if !strings.Contains(err.Error(), "can't find") {
@@ -119,11 +136,7 @@ func (w *WindDown) step(ctx context.Context, j *job, live map[string]bool) {
 		}
 		return
 	}
-	prefix, _, found := strings.Cut(j.name, "-")
-	if !found {
-		prefix = j.name
-	}
-	verdict := restore.Judge(prefix, true, screen.Plain(pane), restore.ContainerUp, restore.GoingOutcome{})
+	verdict := restore.Judge(j.prefix, true, screen.Plain(pane), restore.ContainerUp, restore.GoingOutcome{})
 	switch verdict.State {
 	case restore.StateDead, restore.StateWaitingAtPrompt:
 		j.fail(j.after("claude is not running in it (" + verdict.Detail + ")"))
@@ -143,7 +156,7 @@ func (w *WindDown) ended(j *job) {
 	case phaseGoal:
 		j.fail(j.after("the session ended before the wind-down was typed"))
 	case phaseIdle:
-		j.fail("the session ended before anything was typed")
+		j.fail(j.missing)
 	}
 }
 
@@ -196,12 +209,17 @@ func (w *WindDown) waitIdle(j *job, state screen.State, now time.Time) {
 	j.fail(j.after("its input box was not drawn within " + seconds(w.Waits.Idle)))
 }
 
-// reenter presses Enter once more on a line left in the box, then fails the job once the line
-// is still there past the bound.
+// reenter gives a line left in the box one poll of grace (a line slow to clear is not entered
+// twice), then presses Enter once more, then fails the job once the line is still there past
+// the bound.
 func (w *WindDown) reenter(ctx context.Context, j *job, now time.Time, note string) error {
+	if !j.graced {
+		j.graced = true
+		return nil
+	}
 	if !j.reentered {
 		j.reentered = true
-		return w.Tmux.SendEnter(ctx, j.name)
+		return j.tmux.SendEnter(ctx, j.pane)
 	}
 	if !now.Before(j.settleBy) {
 		j.fail(note)
@@ -213,15 +231,15 @@ func (w *WindDown) reenter(ctx context.Context, j *job, now time.Time, note stri
 // types a line: an Enter arriving with the text is read as part of it. The job moves to next,
 // with fresh bounds.
 func (w *WindDown) typeLine(ctx context.Context, j *job, text string, next phase) error {
-	if err := w.Tmux.SendKeys(ctx, j.name, text); err != nil {
+	if err := j.tmux.SendKeys(ctx, j.pane, text); err != nil {
 		return err
 	}
 	w.Sleep(w.Waits.Submit)
-	if err := w.Tmux.SendEnter(ctx, j.name); err != nil {
+	if err := j.tmux.SendEnter(ctx, j.pane); err != nil {
 		return fmt.Errorf("%w (the line was typed, not entered)", err)
 	}
 	now := w.Now()
-	j.phase, j.reentered = next, false
+	j.phase, j.graced, j.reentered = next, false, false
 	j.settleBy, j.idleBy = now.Add(w.Waits.Settle), now.Add(w.Waits.Idle)
 	return nil
 }

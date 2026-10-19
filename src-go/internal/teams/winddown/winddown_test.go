@@ -60,7 +60,7 @@ func TestGoalClearLandsBeforeTheWindDownText(t *testing.T) {
 	if got := m.run("alpha", "--yes"); got != term.ExitOK {
 		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
 	}
-	s := m.find("ccy-proj")
+	s := m.proj()
 	if len(s.entered) != 2 || s.entered[0] != "/goal clear" {
 		t.Fatalf("entered %q", s.entered)
 	}
@@ -96,24 +96,6 @@ func TestGoalClearLandsBeforeTheWindDownText(t *testing.T) {
 	m.errLacks(t, "To wind them down by hand")
 }
 
-// W2, D4, W9, W10: the LXC member is out of reach, so the run fails, naming it with the text to
-// give it by hand.
-func TestAnLxcMemberIsNotReachedAndFailsTheRun(t *testing.T) {
-	m := newMachine(t)
-	if got := m.run("--yes", "alpha"); got != term.ExitFailure {
-		t.Fatalf("exit %d: an unreachable member is not wound down", got)
-	}
-	m.errHas(t,
-		"Not reachable from here:",
-		"  proj.box+role.lxc   its session runs inside the LXC container, out of reach of this host's tmux",
-		"✓ ccy-proj: /goal clear and the wind-down typed",
-		"✗ proj.box+role.lxc: not reached: its session runs inside the LXC container",
-		"alpha: 1 wound down, 0 failed, 2 not running; 1 member not reachable from here.",
-		"To wind them down by hand, type /goal clear in each one's session, then:",
-		"wind-down of team alpha",
-	)
-}
-
 // D4: a parked member and a stopped session are named, not failures.
 func TestStoppedAndParkedMembersAreNamedAndDoNotFail(t *testing.T) {
 	m := newMachine(t)
@@ -147,7 +129,7 @@ func TestTheCoordinatorIsToldItsWorkersAreToo(t *testing.T) {
 	if got := m.run("alpha", "--yes"); got != term.ExitOK {
 		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
 	}
-	s := m.find("ccy-proj")
+	s := m.proj()
 	if len(s.entered) != 2 || !strings.Contains(s.entered[1], "You are the team's coordinator") {
 		t.Fatalf("entered %q", s.entered)
 	}
@@ -168,7 +150,7 @@ func TestASessionOnOtherTeamsIsNamedWithThem(t *testing.T) {
 func TestABusySessionIsWaitedForNotInterrupted(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
-	s := m.find("ccy-proj")
+	s := m.proj()
 	s.busyLooks = 5
 	if got := m.run("alpha", "--yes"); got != term.ExitOK {
 		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
@@ -181,7 +163,7 @@ func TestABusySessionIsWaitedForNotInterrupted(t *testing.T) {
 func TestASessionBusyPastTheBoundFailsWithNothingTyped(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
-	s := m.find("ccy-proj")
+	s := m.proj()
 	s.busyLooks = 100000
 	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
 		t.Fatalf("exit %d", got)
@@ -196,7 +178,7 @@ func TestASessionBusyPastTheBoundFailsWithNothingTyped(t *testing.T) {
 func TestTextInTheBoxIsNeverTypedOver(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
-	m.find("ccy-proj").box = "half a thought"
+	m.proj().box = "half a thought"
 	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
 		t.Fatalf("exit %d", got)
 	}
@@ -210,7 +192,7 @@ func TestTextInTheBoxIsNeverTypedOver(t *testing.T) {
 func TestALineLeftInTheBoxGetsOneMoreEnter(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
-	s := m.find("ccy-proj")
+	s := m.proj()
 	s.dropEnters = 1
 	if got := m.run("alpha", "--yes"); got != term.ExitOK {
 		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
@@ -224,7 +206,7 @@ func TestALineLeftInTheBoxGetsOneMoreEnter(t *testing.T) {
 func TestGoalClearStuckInTheBoxStopsTheJob(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
-	s := m.find("ccy-proj")
+	s := m.proj()
 	s.dropEnters = 1000
 	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
 		t.Fatalf("exit %d", got)
@@ -239,7 +221,7 @@ func TestGoalClearStuckInTheBoxStopsTheJob(t *testing.T) {
 func TestTheWindDownStuckInTheBoxSaysTheGoalWentIn(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
-	s := m.find("ccy-proj")
+	s := m.proj()
 	m.Fake.OnFunc([]string{"tmux", "-L", "ccy", "send-keys"}, func(c execx.Cmd) (execx.Result, error) {
 		if strings.Contains(strings.Join(c.Args, " "), "wind-down of team") {
 			s.dropEnters = 1000
@@ -257,7 +239,7 @@ func TestTheWindDownStuckInTheBoxSaysTheGoalWentIn(t *testing.T) {
 func TestASessionEndingAfterGoalClearFails(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
-	m.find("ccy-proj").endAfterGoal = true
+	m.proj().endAfterGoal = true
 	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
 		t.Fatalf("exit %d", got)
 	}
@@ -267,7 +249,7 @@ func TestASessionEndingAfterGoalClearFails(t *testing.T) {
 func TestAnEndedLauncherFails(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
-	m.find("ccy-proj").pane = paneEnded
+	m.proj().pane = paneEnded
 	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
 		t.Fatalf("exit %d", got)
 	}
@@ -281,7 +263,7 @@ func TestAnEndedLauncherFails(t *testing.T) {
 func TestBusyAfterTheWindDownIsDone(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
-	m.find("ccy-proj").busyAfterEntered = true
+	m.proj().busyAfterEntered = true
 	if got := m.run("alpha", "--yes"); got != term.ExitOK {
 		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
 	}
@@ -312,7 +294,7 @@ func TestYesWindsDown(t *testing.T) {
 	if got := m.run("alpha"); got != term.ExitOK {
 		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
 	}
-	if len(m.find("ccy-proj").entered) != 2 {
+	if len(m.proj().entered) != 2 {
 		t.Fatal("not wound down")
 	}
 }
@@ -369,8 +351,8 @@ func TestOtherKindsAreNotReachedAndASessionIsOneJob(t *testing.T) {
 	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
 		t.Fatalf("exit %d", got)
 	}
-	if len(m.find("ccy-proj").entered) != 2 {
-		t.Fatalf("entered %q", m.find("ccy-proj").entered)
+	if len(m.proj().entered) != 2 {
+		t.Fatalf("entered %q", m.proj().entered)
 	}
 	m.errHas(t, "Team alpha: 1 session to wind down.", "also on beta (seat 2), gamma (seat 3)",
 		"✗ other.1+box.host: not reached: not a session on this host's ccy tmux")

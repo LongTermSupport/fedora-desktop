@@ -78,8 +78,9 @@ Wind down the team's sessions is in a team row's menu too (`ccy-teams wind-down 
 running session of the team on this desktop, its coordinator included, gets /goal clear typed in
 at an idle moment, then the wind-down: we are about to shut down, the work is not done, so
 commit it, stop sub-agents, push what passes its QA gate, write down where unfinished work
-stands, and stop. Nothing is ended. LXC members cannot be typed into from here: they are named,
-with the text to give them. It asks first.
+stands, and stop. Nothing is ended. An LXC member in a running container gets the same in its
+session there (through sudo lxc-attach); one whose container is stopped, or a member on another
+machine, is named, with the text to give it. It asks first.
 
 A seat marked "(coordinator)" is its team's coordinator: the agent that takes the humans'
 requests, dispatches them to the workers and is copied on what workers tell humans. A team

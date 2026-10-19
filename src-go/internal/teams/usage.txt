@@ -174,9 +174,12 @@ Usage:
                                    the instruction to commit work in progress, stop
                                    sub-agents, push what passes its QA gate, write down
                                    where unfinished work stands, and stop. It is your turn
-                                   in the session, not a team message. It lists what it
-                                   will do, and the members it cannot type into (an LXC
-                                   container's agent, another machine), and asks (default
+                                   in the session, not a team message. An LXC member in a
+                                   running container gets the same in its service unit's
+                                   agent-bus-claude tmux session, through sudo lxc-attach
+                                   as its user. It lists what it will do, and the members
+                                   it cannot type into (a stopped or held-back container,
+                                   another machine), and asks (default
                                    No; with no terminal, --yes is required). One line per
                                    member; exit 1 unless every running session got both
                                    lines and none was out of reach, whose text it prints

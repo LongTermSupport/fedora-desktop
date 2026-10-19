@@ -27,7 +27,7 @@ func TestAPaneThatCannotBeReadFails(t *testing.T) {
 func TestABoxNeverDrawnFailsAtTheBound(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
-	m.find("ccy-proj").pane = "Building image...\n"
+	m.proj().pane = "Building image...\n"
 	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
 		t.Fatalf("exit %d", got)
 	}
@@ -68,11 +68,25 @@ func TestAKeystrokeThatFailsStopsTheJob(t *testing.T) {
 	m.errHas(t, "✗ ccy-proj: typing into ccy-proj failed: no space left")
 }
 
+// W5: a line slow to leave the box gets one poll of grace, so it is not submitted twice.
+func TestALineSlowToClearIsNotEnteredTwice(t *testing.T) {
+	m := newMachine(t)
+	m.noLxc()
+	s := m.proj()
+	s.slowClear = true
+	if got := m.run("alpha", "--yes"); got != term.ExitOK {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+	if s.enters != 2 || len(s.entered) != 2 {
+		t.Fatalf("enters %d entered %q: a slow line was entered twice", s.enters, s.entered)
+	}
+}
+
 // W5: a session busy after /goal clear is waited for before the wind-down is typed.
 func TestBusyAfterGoalClearIsWaitedFor(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
-	s := m.find("ccy-proj")
+	s := m.proj()
 	s.busyAfterGoal = 4
 	if got := m.run("alpha", "--yes"); got != term.ExitOK {
 		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
@@ -85,7 +99,7 @@ func TestBusyAfterGoalClearIsWaitedFor(t *testing.T) {
 func TestBusyPastTheBoundAfterGoalClearFails(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
-	m.find("ccy-proj").busyAfterGoal = 100000
+	m.proj().busyAfterGoal = 100000
 	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
 		t.Fatalf("exit %d", got)
 	}
@@ -96,7 +110,7 @@ func TestBusyPastTheBoundAfterGoalClearFails(t *testing.T) {
 func TestASessionEndingAfterTheWindDownIsDone(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
-	m.find("ccy-proj").endAfterText = true
+	m.proj().endAfterText = true
 	if got := m.run("alpha", "--yes"); got != term.ExitOK {
 		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
 	}
@@ -105,7 +119,7 @@ func TestASessionEndingAfterTheWindDownIsDone(t *testing.T) {
 func TestABoxNotDrawnAgainAfterTheWindDownFails(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
-	m.find("ccy-proj").paneAfterText = "Building image...\n"
+	m.proj().paneAfterText = "Building image...\n"
 	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
 		t.Fatalf("exit %d", got)
 	}
@@ -116,7 +130,7 @@ func TestABoxNotDrawnAgainAfterTheWindDownFails(t *testing.T) {
 func TestAnEnterThatFailsSaysTheLineIsInTheBox(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
-	s := m.find("ccy-proj")
+	s := m.proj()
 	m.Fake.OnFunc([]string{"tmux", "-L", "ccy", "send-keys"}, func(c execx.Cmd) (execx.Result, error) {
 		if c.Args[len(c.Args)-1] == "Enter" {
 			return execx.Result{ExitCode: 1, Stderr: []byte("lost")}, nil
