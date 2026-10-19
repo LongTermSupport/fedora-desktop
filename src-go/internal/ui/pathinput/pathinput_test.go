@@ -311,6 +311,82 @@ func TestKeysPressedWhileAListingIsReadAreAppliedAfterIt(t *testing.T) {
 	}
 }
 
+func TestAPasteGoesInAtTheCursorAsTypedTextAndTheCursorEndsAfterIt(t *testing.T) {
+	m := drive(t, New(context.Background(), spec(sample())), typed("/x")...)
+	m = drive(t, m, left)
+	m = settle(t, m, tea.PasteMsg{Content: "/srv/pasted" + family})
+	if m.Line() != "//srv/pasted"+family+"x" {
+		t.Fatalf("line %q", m.Line())
+	}
+	// The cursor is after the paste, before the x: the family is one cluster.
+	if m.cursor != len(ui.Clusters("//srv/pasted"+family)) {
+		t.Fatalf("cursor %d after the paste in %q", m.cursor, m.Line())
+	}
+	m = settle(t, New(context.Background(), spec(sample())), tea.PasteMsg{Content: "/srv/pasted"})
+	if m.Line() != "/srv/pasted" || m.cursor != len(m.Line()) {
+		t.Fatalf("line %q cursor %d", m.Line(), m.cursor)
+	}
+}
+
+// refused is text the line refuses whole: control characters (ESC, newline, tab, DEL) and the
+// bidirectional controls, which reorder what is drawn so that a path can look like another.
+var refused = []string{
+	"/srv/a\x1b[2J", "/srv/a\n", "/srv/a\r", "/srv/\ta", "/srv/a\x7f",
+	// The right-to-left override, a left-to-right isolate, the right-to-left mark and the
+	// Arabic letter mark.
+	"/srv/" + string(rune(0x202E)) + "exe.txt", "/srv/" + string(rune(0x2066)) + "a",
+	"/srv/" + string(rune(0x200F)) + "a", "/srv/" + string(rune(0x061C)) + "a",
+}
+
+func TestAPasteWithAControlOrBidiCharacterIsRefusedWholeAndSaid(t *testing.T) {
+	for _, text := range refused {
+		m := drive(t, New(context.Background(), spec(sample())), typed("/a")...)
+		m = settle(t, m, tea.PasteMsg{Content: text})
+		if m.Line() != "/a" || m.cursor != 2 {
+			t.Fatalf("paste %q left line %q cursor %d", text, m.Line(), m.cursor)
+		}
+		if !strings.Contains(view(m), "The paste was not put in the line") {
+			t.Fatalf("paste %q refused unsaid:\n%s", text, view(m))
+		}
+	}
+}
+
+func TestTypedTextWithAControlOrBidiCharacterIsRefusedWhole(t *testing.T) {
+	for _, text := range refused {
+		m := drive(t, New(context.Background(), spec(sample())), typed("/a")...)
+		m = drive(t, m, tea.KeyPressMsg{Text: text})
+		if m.Line() != "/a" {
+			t.Fatalf("typed %q left line %q", text, m.Line())
+		}
+	}
+	// A joiner is not a control: the family cluster is typed whole.
+	m := drive(t, New(context.Background(), spec(sample())), tea.KeyPressMsg{Text: family})
+	if m.Line() != family {
+		t.Fatalf("the family typed as %q", m.Line())
+	}
+}
+
+func TestAPasteWhileAListingIsReadIsAppliedAfterItInOrder(t *testing.T) {
+	m := drive(t, New(context.Background(), spec(sample())), typed("/va")...)
+	next, cmd := m.Update(tab)
+	m = asModel(t, next)
+	// A paste that reads as a key name is still text, not the key.
+	for _, msg := range []tea.Msg{tea.PasteMsg{Content: "enter"}, tea.KeyPressMsg{Code: 'z', Text: "z"}} {
+		next, more := m.Update(msg)
+		m = asModel(t, next)
+		if more != nil {
+			t.Fatalf("%v while listing ran %v", msg, more)
+		}
+	}
+	m = settle(t, m, cmd())
+	if m.Line() != "/var/enterz" {
+		t.Fatalf("line %q", m.Line())
+	}
+	if _, err := m.Result(); !errors.Is(err, errNotDone) {
+		t.Fatalf("the pasted word was taken as Enter: %v", err)
+	}
+}
+
 func TestEnterTakesTheLineAsTypedWithoutItsTrailingSlash(t *testing.T) {
 	m := drive(t, New(context.Background(), spec(sample())), append(typed("/var/www/site-a/"), enter)...)
 	if path, err := m.Result(); err != nil || path != "/var/www/site-a" {

@@ -1,7 +1,9 @@
 // Package pathinput is a line a path is typed in, with Tab completing a directory name as a
 // shell does: the one directory the typed name starts, or what several share, with those
 // listed. Typing comes first: the line has the focus from the start, and anything it is given
-// (a starting value, a suggestion put in it with the arrows) is edited like typed text. The
+// (a starting value, a suggestion put in it with the arrows) is edited like typed text. A
+// paste goes in as typed text does; typed or pasted text holding a control character or a
+// bidirectional control is refused whole, never stripped (a refused paste is said). The
 // directories are read through the caller's List, so the tree can be anywhere (a container's,
 // read from the host's side). A hint line says what the keys do, Tab included: Tab completing
 // a line is standard UX, so it is a key with no row of its own, but never an unsaid one.
@@ -96,10 +98,11 @@ type Model struct {
 	// note is what the last Tab or Enter said; shown, an ambiguous Tab's directories.
 	note  string
 	shown []string
-	// listing is the directory being read for a Tab, "" when none; keys pressed meanwhile wait
-	// in queue and are applied after it, as a shell applies typed-ahead keys.
+	// listing is the directory being read for a Tab, "" when none; keys pressed and text
+	// pasted meanwhile wait in queue and are applied after it, as a shell applies typed-ahead
+	// keys.
 	listing string
-	queue   []tea.KeyPressMsg
+	queue   []tea.Msg
 	path    string
 	err     error
 	help    help.Model
@@ -142,11 +145,17 @@ func (m Model) Result() (string, error) {
 // Init starts nothing.
 func (m Model) Init() tea.Cmd { return nil }
 
-// Update takes a key or a listing.
+// Update takes a key, a paste or a listing.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		return m.press(msg)
+	case tea.PasteMsg:
+		if m.listing != "" {
+			m.queue = append(m.queue, msg)
+			return m, nil
+		}
+		return m.paste(msg.Content), nil
 	case listedMsg:
 		m.listing = ""
 		return m.completed(msg).replay()
@@ -208,13 +217,19 @@ func (m Model) press(k tea.KeyPressMsg) (Model, tea.Cmd) {
 	return m.edit(k), nil
 }
 
-// replay applies the keys pressed while a listing was read, until one starts another.
+// replay applies the keys pressed and the text pasted while a listing was read, until a key
+// starts another.
 func (m Model) replay() (Model, tea.Cmd) {
 	queue := m.queue
 	m.queue = nil
-	for i, k := range queue {
+	for i, msg := range queue {
 		var cmd tea.Cmd
-		m, cmd = m.press(k)
+		switch msg := msg.(type) {
+		case tea.KeyPressMsg:
+			m, cmd = m.press(msg)
+		case tea.PasteMsg:
+			m = m.paste(msg.Content)
+		}
 		if cmd != nil {
 			m.queue = append(m.queue, queue[i+1:]...)
 			return m, cmd
@@ -315,17 +330,48 @@ func (m Model) edit(k tea.KeyPressMsg) Model {
 	}
 	before := m.Line()
 	m = m.delete(k.String())
-	// A joiner or a variation selector is part of a cluster, not a control: only controls are
-	// refused.
-	if k.Text != "" && !strings.ContainsFunc(k.Text, unicode.IsControl) {
-		typed := ui.Clusters(k.Text)
-		m.line = slices.Insert(slices.Clone(m.line), m.cursor, typed...)
-		m.cursor += len(typed)
+	if typeable(k.Text) {
+		m = m.insert(k.Text)
 	}
 	if m.Line() != before {
 		m.pick, m.note, m.shown = -1, "", nil
 	}
 	return m
+}
+
+// paste is pasted text put in the line at the cursor as typed text is, the cursor after it.
+// Text holding a character typed text may not hold is refused whole, and said: a paste is
+// never cut down to what could be kept, so the line holds what was pasted or nothing of it.
+func (m Model) paste(text string) Model {
+	if text == "" {
+		return m
+	}
+	if !typeable(text) {
+		m.note = "The paste was not put in the line: it holds a control character (a newline, " +
+			"a tab, an escape) or a direction mark, which a path here may not hold."
+		return m
+	}
+	m = m.insert(text)
+	m.pick, m.note, m.shown = -1, "", nil
+	return m
+}
+
+// insert is text put in the line at the cursor, by grapheme cluster, the cursor after it.
+func (m Model) insert(text string) Model {
+	typed := ui.Clusters(text)
+	m.line = slices.Insert(slices.Clone(m.line), m.cursor, typed...)
+	m.cursor += len(typed)
+	return m
+}
+
+// typeable is whether text may go in the line: something, with no control character (a
+// newline, a tab, an escape, DEL) and no bidirectional control (an override, an isolate, a
+// direction mark), which reorders what a terminal draws so that one path can look like
+// another. A joiner or a variation selector is part of a cluster and is typeable.
+func typeable(text string) bool {
+	return text != "" && !strings.ContainsFunc(text, func(r rune) bool {
+		return unicode.IsControl(r) || unicode.Is(unicode.Bidi_Control, r)
+	})
 }
 
 // move moves the cursor for a movement key, and is whether the key was one.
