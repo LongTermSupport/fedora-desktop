@@ -371,13 +371,15 @@ gb_tmux_start() {
 # ── a session ───────────────────────────────────────────────────────────────────────────
 
 # gb_has_session <session> — 0 the run's tmux server has it, 1 not, 2 tmux could not say.
+# Once its last session has ended, the server (kept by exit-empty off) has no target to
+# resolve and says exactly "no current target", which is also "not".
 gb_has_session() {
     local out
     if out="$(gb_tmux has-session -t "=$1" 2>&1)"; then
         return 0
     fi
     case "${out}" in
-        *"can't find session"* | *"no server running"* | *"error connecting"*) return 1 ;;
+        *"can't find session"* | *"no server running"* | *"error connecting"* | "no current target") return 1 ;;
     esac
     printf '[FAIL] tmux has-session %s: %s\n' "$1" "${out}" >&2
     return 2

@@ -254,6 +254,44 @@ class CommandLineTest(unittest.TestCase):
         self.assertEqual(run_main("expect", "f", HANDLE, "one", "0", "exit")[0], 64)
 
 
+class HasSessionTest(unittest.TestCase):
+    """gb_has_session over a stub tmux that answers has-session as tmux 3.3a was seen to."""
+
+    def has_session(self, status: int, message: str) -> tuple[int, str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = pathlib.Path(tmp) / "tmux"
+            stub.write_text(f"#!/bin/bash\nprintf '%s\\n' {json.dumps(message)} >&2\nexit {status}\n")
+            stub.chmod(0o755)
+            script = 'source "$1" && GB_SOCKET="$2/ccy" && status=0 && { gb_has_session accept194-window || status=$?; } && exit "${status}"'
+            env = {key: value for key, value in os.environ.items() if not key.startswith(("PLAN_", "TMUX"))}
+            env.update(PATH=f"{tmp}:{env['PATH']}", TEAM_A="accept194a", TEAM_B="accept194b", PLAN_REPO_ROOT=tmp)
+            run = subprocess.run(
+                ["bash", "-c", script, "has-session", str(_HERE / "_acceptance-goodbye.inc.bash"), tmp],
+                check=False, capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL, timeout=60,
+            )
+        return run.returncode, run.stderr
+
+    def test_a_session_tmux_has(self) -> None:
+        self.assertEqual(self.has_session(0, ""), (0, ""))
+
+    def test_each_way_tmux_says_the_session_is_gone(self) -> None:
+        for message in (
+            "can't find session: accept194-window",
+            "no server running on /tmp/x/ccy",
+            "error connecting to /tmp/x/ccy (No such file or directory)",
+            "no current target",  # a server with no session left, kept alive by exit-empty off
+        ):
+            with self.subTest(message=message):
+                self.assertEqual(self.has_session(1, message), (1, ""))
+
+    def test_anything_else_is_unknown_and_reported(self) -> None:
+        for message in ("server exited unexpectedly", "no current target window"):
+            with self.subTest(message=message):
+                code, err = self.has_session(1, message)
+                self.assertEqual(code, 2)
+                self.assertIn(f"[FAIL] tmux has-session accept194-window: {message}", err)
+
+
 class FakeRunTest(unittest.TestCase):
     """acceptance.bash --fake: the bash judgement legs over fixture rooms, no host needed."""
 
