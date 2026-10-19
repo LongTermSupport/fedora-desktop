@@ -36,3 +36,10 @@ playbooks/imports/play-claude-yolo.yml
 # created ccy container on the host (as any ccy launch does). The team purge relies on sudo
 # staying cached (it does on this host). One sudo prompt.
 00194-agent-bus-live-delivery-supervisor-plugin
+# Plan 00187 (#100): builds and installs wsi and deploys wsi-stream (restarting the warm
+# speech server) and the panel extension, so that while Claude post-processes a Ctrl+Insert
+# dictation the panel icon is 🤖, and 💬 for Alt+Insert, instead of the orange loading icon;
+# Insert during it flashes the no-entry sign. The extension changed: LOG OUT and back in
+# before it shows. Then look: dictate with Ctrl+Insert, then Alt+Insert, and watch the icon
+# after the orange loading icon (the debug log says "Display: CLAUDE_PROCESSING").
+playbooks/imports/optional/common/play-speech-to-text.yml
