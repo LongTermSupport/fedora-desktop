@@ -12,6 +12,7 @@
 //	chooser choose-teams: which team the launcher's session joins, then its seat through choose
 //	shutdown shutdown: every session of a team sent /exit, and the team row's menu line
 //	restart restart: a team's desktop sessions resume their conversations, and the menu line
+//	winddown wind-down: a team's desktop sessions sent /goal clear and the wind-down, and the menu line
 //	settings the team row's Edit settings: the team's entry edited, saved and applied
 //	membership internal membership-init: the launcher writes a session's desired membership
 //	containername internal claim-container-name: the launcher's container name, claimed atomically
@@ -47,6 +48,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/settings"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/shutdown"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/winddown"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -72,6 +74,8 @@ type App struct {
 	Shutdown *shutdown.Shutdown
 	// Restart restarts a team's desktop sessions, each resuming its conversation.
 	Restart *restart.Restart
+	// WindDown tells every desktop session of a team to wind down, its goal cleared first.
+	WindDown *winddown.WindDown
 	// Membership is `internal membership-init`, the launcher's.
 	Membership *membership.Init
 	// ContainerName is `internal claim-container-name`, the launcher's.
@@ -116,6 +120,8 @@ func Wire(h *host.Host) *App {
 	list.Shutdown = down
 	again := restart.New(h, kit, b)
 	list.Restart = again
+	calm := winddown.New(h, kit, b)
+	list.WindDown = calm
 	list.Settings = settings.New(h, kit, o.ApplyTeams, o.Locked, s.ChangeRole)
 	session := hot.New(h, kit, s.Roles)
 	o.SessionsIn, o.TakeOut = session.SessionsIn, session.TakeOut
@@ -123,7 +129,7 @@ func Wire(h *host.Host) *App {
 	return &App{
 		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c, Lxc: x, Find: find.New(h), Choose: pick,
 		Chooser: chooser.New(h, pick.PickSeat, c.RunForChooser, o.ApplyTeams, o.Locked),
-		Picker:  list, Shutdown: down, Restart: again, Membership: membership.New(h), ContainerName: containername.New(h), Session: session,
+		Picker:  list, Shutdown: down, Restart: again, WindDown: calm, Membership: membership.New(h), ContainerName: containername.New(h), Session: session,
 		Interrupted: func(ctx context.Context) (context.Context, context.CancelFunc) {
 			return signal.NotifyContext(ctx, os.Interrupt)
 		},
@@ -156,7 +162,7 @@ func (a *App) run(ctx context.Context, args []string) term.ExitCode {
 		sub = args[0]
 	}
 	switch sub {
-	case "", "create", "lxc-add", "apply", "remove", "backup", "restore", "shutdown", subRestart, "for-checkout", "record-seats",
+	case "", "create", "lxc-add", "apply", "remove", "backup", "restore", "shutdown", subRestart, subWindDown, "for-checkout", "record-seats",
 		"choose-seat", "describe-seats", subChooseTeams, subInternal, subSession:
 	case "-l", "--list":
 		if len(args) > 1 {
@@ -195,7 +201,7 @@ func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.Exit
 		return a.Ops.Backup(ctx, rest)
 	case "restore":
 		return a.Ops.Restore(ctx, rest)
-	case "shutdown", subRestart:
+	case "shutdown", subRestart, subWindDown:
 		return a.teamSessions(ctx, sub, rest)
 	case "for-checkout":
 		return a.Find.Run(ctx, rest)
@@ -214,13 +220,19 @@ func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.Exit
 	}
 }
 
-// subRestart is `ccy-teams restart`.
-const subRestart = "restart"
+// subRestart is `ccy-teams restart`, subWindDown `ccy-teams wind-down`.
+const (
+	subRestart  = "restart"
+	subWindDown = "wind-down"
+)
 
-// teamSessions is the two commands that act on every desktop session of a team.
+// teamSessions is the three commands that act on every desktop session of a team.
 func (a *App) teamSessions(ctx context.Context, sub string, rest []string) term.ExitCode {
-	if sub == subRestart {
+	switch sub {
+	case subRestart:
 		return a.Restart.Run(ctx, rest)
+	case subWindDown:
+		return a.WindDown.Run(ctx, rest)
 	}
 	return a.Shutdown.Run(ctx, rest)
 }

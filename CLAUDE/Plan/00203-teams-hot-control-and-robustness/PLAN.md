@@ -250,6 +250,24 @@ Built on `fix/teams-server-robustness`; design and evidence in
   measurement to come. Next, separately: one agent-bus call for the whole board
   ([report](subagent-reports/261019-teams-open-speed-opus.md)).
 
+- [ ] 🔄 **Task 3.14** (owner request): wind a team down.
+  `ccy-teams wind-down <team> [--yes]` and the team menu's Wind down the team's sessions: every
+  running desktop session of the team, the coordinator included, gets `/goal clear` typed into
+  its pane at an idle moment, then the wind-down instruction (save and push work in progress,
+  stop sub-agents, record where unfinished work stands, then stop), typed too, so it is the
+  owner's own turn and never a bus message. An LXC member in a running container gets the same
+  in its service unit's `agent-bus-claude` tmux session, through `sudo lxc-attach` as its user
+  (`lxcfreeze.Lister.InContainer` under `tmuxccy`). A stopped or held-back container, members
+  elsewhere and unnamed held seats are out of reach and fail the run, named with the text to give
+  them by hand ([SPEC-team-wind-down.md](SPEC-team-wind-down.md) W1-W13). Fable's FIX-FIRST
+  (the LXC route, the supervisor interleave named, a poll of grace before a second Enter) fixed.
+  ccy-teams only: no CCY or image change. Host acceptance to come. Known limits (SPEC section
+  4): the ccy supervisor can type a new `/goal` afterwards, and types at the same idle moments.
+
+- [ ] ⬜ **Task 3.15** (follow-up from 3.14's review): `ccy-teams shutdown` reaches LXC members
+  the way wind-down does: `/exit` typed into a running container's `agent-bus-claude` session
+  through `lxcfreeze.Lister.InContainer`, instead of naming every LXC member as not reachable.
+
 ## Decisions
 
 These were settled by the coordinator under the owner's standing "do not gate on me". **The owner

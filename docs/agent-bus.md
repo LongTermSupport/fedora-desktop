@@ -131,6 +131,18 @@ that play.
    keeps the team's data (its whole room history); deleting the data as well needs the
    team's name typed.
 
+**Wind a team down** before shutting it down. `ccy-teams wind-down <team>` (or Enter on the
+team, then **Wind down the team's sessions**) types `/goal clear` into each running session's
+tmux pane on this desktop, the coordinator's included, then one instruction: we are about to
+shut down, the work is not done, so commit work in progress, stop sub-agents, push what passes
+its QA gate, write down where unfinished work stands, and stop. It waits for each session to be
+idle (up to 300 s, never interrupting a turn) and never types over unsent text. It is typed, so
+it is your own turn in the session, not a team message. An LXC agent run with `service: true`
+gets the same in its `agent-bus-claude` tmux session in the container, through `sudo lxc-attach` as its user. One whose container is stopped, and sessions elsewhere, are named and
+fail the run, with the text to give them by hand. The ccy supervisor types at the same idle
+moments, so its line and the wind-down's can interleave. Nothing is ended. Spec: Plan 00203
+`SPEC-team-wind-down.md`.
+
 **Shut down a team's sessions** (the team stays up). `ccy-teams shutdown <team>` (or Enter on
 the team, then **Shut down every session of `<team>`**) lists the team's sessions on this host
 and the members it cannot reach, asks (default No; `--yes` where there is no terminal), then

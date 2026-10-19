@@ -19,6 +19,11 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+# Plan 00203 Task 3.14: builds and installs ccy-teams with `ccy-teams wind-down <team>` and the
+# team menu's Wind down the team's sessions (/goal clear, then the wind-down instruction, typed
+# into each running session of the team, desktop and LXC). Nothing is wound down by the run.
+# ccy itself stays at 3.99.12.17, already installed. Before the 00194 acceptance.
+playbooks/imports/play-claude-yolo.yml
 # Plan 00194 Task 2.0b: the goodbye host checks, automated (acceptance.bash; the plan has no
 # triage.bash or deploy.bash), run again for G3 (window closed). The last run passed G1 (Ctrl-C)
 # and G2 (podman stop), then stopped in the harness at G3: with its only session gone, the run's

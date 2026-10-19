@@ -143,6 +143,7 @@ func TestHelpDescribesTheAddLinesAndTheRestart(t *testing.T) {
 	for _, want := range []string{
 		"Add a running session to <team>", "Add this\nsession to another team",
 		"Restart the team's desktop sessions", "`ccy-teams restart <team>`", "LXC members",
+		"Wind down the team's sessions", "`ccy-teams wind-down <team>`", "/goal clear",
 	} {
 		if !strings.Contains(helpText, want) {
 			t.Fatalf("help lacks %q", want)
