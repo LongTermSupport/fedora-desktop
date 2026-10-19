@@ -1,5 +1,5 @@
-github.com/LongTermSupport/go-qa-ci v0.0.0-20261019182226-8e17b432bfd3 h1:KZxv50Q4RuYC9GvCCQ0eWuLLn0Yo3R4aqxugQ5hbXYk=
-github.com/LongTermSupport/go-qa-ci v0.0.0-20261019182226-8e17b432bfd3/go.mod h1:26/w3SvV3bNlVHL7WFssC13MpFauFnqOu/VN6yxmLSg=
+github.com/LongTermSupport/go-qa-ci v0.0.0-20261019185407-ccf4c1751f05 h1:elLGPnu/YxIMnORMSCTVtBNgdteA4CFzZrj8rzt0A0U=
+github.com/LongTermSupport/go-qa-ci v0.0.0-20261019185407-ccf4c1751f05/go.mod h1:26/w3SvV3bNlVHL7WFssC13MpFauFnqOu/VN6yxmLSg=
 github.com/go-quicktest/qt v1.102.0 h1:HSQxCeh5YZH3EL3W39ixjtyaEhcWSXQHtHnMBzSs474=
 github.com/go-quicktest/qt v1.102.0/go.mod h1:p4lGIVX+8Wa6ZPNDvqcxq36XpUDLh42FLetFU7odllI=
 github.com/google/go-cmdtest v0.4.1-0.20220921163831-55ab3332a786 h1:rcv+Ippz6RAtvaGgKxc+8FQIpxHgsF+HBzPyYL2cyVU=

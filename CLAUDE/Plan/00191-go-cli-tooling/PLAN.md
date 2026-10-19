@@ -111,7 +111,7 @@ today; rewriting them is out of scope.
   minor items are in `subagent-reports/261014-go-qa-ci-deferred-run*.md`, for a polish pass.
 
 - [x] ✅ **Task 3.3**: This repository's Go QA runs go-qa-ci, pinned. `scripts/qa-go-qa.bash`
-  runs `go-qa run --no-fix` over both modules; go-qa is pinned at go-qa-ci `8e17b432bfd3` (Task 3.10) by the
+  runs `go-qa run --no-fix` over both modules; go-qa is pinned at go-qa-ci `ccf4c1751f05` (Task 3.11) by the
   `tool` directive of `src-go/qa/go.mod` (one pin for the driver import and the binary) and
   configured by `src-go/qa/go-qa.toml`; it installs its own pinned tools (Task 3.7).
   `scripts/qa-go.bash` is deleted. qa-all runs the gate whole, qa-changed in diff mode for a
@@ -154,14 +154,24 @@ today; rewriting them is out of scope.
     (reverted), the narrowed go-qa run scoped `./internal/freeze/golden` and its `build` and
     `test` steps passed. The same run failed `coverage`, a separate defect: Task 3.11.
 
-- [ ] ⬜ **Task 3.11**: A narrowed go-qa run fails the coverage floor that the full run meets.
+- [x] ✅ **Task 3.11**: A narrowed go-qa run fails the coverage floor that the full run meets.
   With only an lxcfreeze file changed, the diff-mode coverage step measured the 11 affected
   packages at 88.8% statements, which is under the module floor of 90 (`src-go/qa/go-qa.toml`).
   The uncovered functions are in packages the change did not touch (the two `main`s,
   `teams/hot`, `teams/lxcadd`). So until this is fixed, `qa-changed.bash` still fails the go
-  stage for a change to lxcfreeze. Decide where the fix belongs: go-qa-ci (in diff mode, judge
-  only the changed packages against the floor, or report coverage without enforcing it), or
-  this repository's floor (Task 3.9).
+  stage for a change to lxcfreeze. The fix belongs in go-qa-ci.
+
+  - Fixed test first in go-qa-ci (`6a352d6`, Fable-approved, merged to its main as `ccf4c17`):
+    in diff mode `-coverpkg` names only the changed packages (less test-only ones); the
+    importers are still tested, since their tests may reach the changed code. Full mode is
+    unchanged.
+  - Pinned at `v0.0.0-20261019185407-ccf4c1751f05` in `src-go/qa/go.mod`, `go mod tidy`;
+    `qa-changed.bash` passes on the bump.
+  - Evidence: with the bump committed and a throwaway edit to `src-go/internal/lxcfreeze`
+    (reverted), `qa-changed.bash` passed its go stage, and `qa-go-qa.bash --changed --base HEAD`
+    scoped 12 packages (now including `teams/winddown`) and passed `build`, `test` and
+    `coverage`.
+  - Possible follow-up, not this task: judge each changed package against the floor on its own.
 
 - [x] ✅ **Task 3.4**: go-qa-ci diff mode, `go-qa run --changed [--base <ref>]` (M13):
   per-package engines on the affected packages and their importers, repo-wide defences always,
