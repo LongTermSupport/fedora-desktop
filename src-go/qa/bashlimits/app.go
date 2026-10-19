@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 )
 
 // Exit codes. ExitUsage matches the main module's ExitUsage, so the gate speaks as the other tools do.
@@ -180,21 +181,38 @@ func (s *session) check(ctx context.Context, root string) (int, error) {
 	if s.opts.seed {
 		return s.seedList(scan)
 	}
+	unshipped, err := s.verifyDaemonOwned(ctx, root, &scan)
+	if err != nil {
+		return 0, err
+	}
 	list, err := s.loadAllowlist()
 	if err != nil {
 		return 0, err
 	}
 	list, refused, err := s.apply(list, scan)
 	if err != nil || len(refused) > 0 {
-		s.report(refused)
+		s.report(append(unshipped, refused...))
 		return ExitFailure, err
 	}
-	findings := Evaluate(list.Records, scan)
+	findings := slices.Concat(unshipped, Evaluate(list.Records, scan))
 	more, err := s.againstBase(ctx, root, list, scan)
 	if err != nil {
 		return 0, err
 	}
 	return s.verdict(append(findings, more...), list, scan), nil
+}
+
+// verifyDaemonOwned holds each daemon-owned file in the scan to an upgrade commit that shipped
+// it; git is asked only when there is one to prove.
+func (s *session) verifyDaemonOwned(ctx context.Context, root string, scan *Scan) ([]Finding, error) {
+	if len(scan.DaemonOwned) == 0 {
+		return nil, nil
+	}
+	shipped, err := gitRepo{s.git, root}.upgradeShippedFiles(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("reading hooks-daemon upgrade commits to prove the daemon-owned files: %w", err)
+	}
+	return VerifyDaemonOwned(scan, shipped), nil
 }
 
 // apply runs the rewriting mode, if any, and returns the allowlist to judge. Findings mean

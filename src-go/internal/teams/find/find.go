@@ -53,14 +53,17 @@ func (f *Find) Run(ctx context.Context, args []string) term.ExitCode {
 
 // repo is the lower-case OWNER/REPO of this checkout's origin; when there is none it has said why.
 func (f *Find) repo(ctx context.Context) (string, bool) {
-	inTree, err := f.Git.ProjectHere(ctx, "")
-	if err != nil {
+	here, err := f.Host.Checkouts.Find(ctx, "")
+	switch {
+	case err != nil:
 		f.Host.ReportErr(err)
 		return "", false
-	}
-	if !inTree {
+	case here.Top == "":
 		f.say("ccy-teams: " + f.Host.Here() + " is not a git checkout, so no team can be found for it. " +
 			"Name the team: ccy --teams <team>.")
+		return "", false
+	case !here.Host():
+		f.say("ccy-teams: " + here.Refusal(term.AbbrevHome(here.Top, f.Host.Home)))
 		return "", false
 	}
 	url, err := f.Git.RemoteURL(ctx, "")

@@ -15,7 +15,7 @@ func TestListPrintsTheHeadingBlankLineAndRowsWhenNotColoured(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
 	lines := strings.Split(h.Out.String(), "\n")
-	if lines[0] != HeadingText() || lines[1] != "" {
+	if !strings.HasPrefix(lines[0], "TEAM ") || !strings.HasSuffix(lines[0], "WHERE") || lines[1] != "" {
 		t.Fatalf("heading and blank line: %q", lines[:2])
 	}
 	if !strings.HasPrefix(lines[2], "alpha ") || !strings.Contains(lines[2], "up to date") || !strings.Contains(lines[2], "port 6167") {
@@ -39,7 +39,7 @@ func TestListInColourHasNoBlankLine(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	lines := strings.Split(h.Out.String(), "\n")
-	if lines[0] != term.Bold+HeadingText()+term.Reset {
+	if !strings.HasPrefix(lines[0], term.Bold+"TEAM ") || !strings.HasSuffix(lines[0], "WHERE"+term.Reset) {
 		t.Fatalf("heading %q", lines[0])
 	}
 	if lines[1] == "" || !strings.Contains(lines[1], cGreen+"up ") {
@@ -47,6 +47,31 @@ func TestListInColourHasNoBlankLine(t *testing.T) {
 	}
 	if got := ansi.ReplaceAllString(lines[1], ""); !strings.HasPrefix(got, "alpha") {
 		t.Fatalf("row %q", got)
+	}
+}
+
+func TestListOnANarrowTerminalPutsTheRestOfEachRowOnTheLineBelow(t *testing.T) {
+	h := populated(t)
+	h.c.Term.IsTerminal = func(any) bool { return true }
+	h.Env["NO_COLOR"] = "1"
+	h.c.Columns = func(any) int { return 70 }
+	if code := h.c.List(t.Context()); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	lines := strings.Split(strings.TrimSuffix(h.Out.String(), "\n"), "\n")
+	if strings.Contains(lines[0], "APPLIED") || !strings.HasSuffix(lines[0], "STATE") {
+		t.Fatalf("heading %q", lines[0])
+	}
+	if len(lines) != 2+2*8 || lines[1] != "" {
+		t.Fatalf("%d lines: %q", len(lines), h.Out.String())
+	}
+	for i := 2; i < len(lines); i += 2 {
+		if !strings.HasPrefix(lines[i], "alpha ") || !strings.HasPrefix(lines[i+1], restIndent) || !strings.Contains(lines[i+1], "APPLIED ") {
+			t.Fatalf("row %q, then %q", lines[i], lines[i+1])
+		}
+	}
+	if !strings.Contains(h.Out.String(), "proj.1+local.podman") {
+		t.Fatalf("the seat's handle is shown: %q", h.Out.String())
 	}
 }
 

@@ -1,8 +1,10 @@
 package board
 
 import (
+	"io/fs"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -147,6 +149,39 @@ func TestCollectSessionsGathersLiveRecordsAndCheckouts(t *testing.T) {
 	}
 	if s.Incomplete != "a session record is unreadable" || !strings.Contains(h.ErrOut.String(), "ccy-bad could not be read; its seats show no session.") {
 		t.Fatalf("incomplete %q stderr %q", s.Incomplete, h.ErrOut.String())
+	}
+}
+
+func TestCollectSessionsLeavesOutAContainersCheckout(t *testing.T) {
+	h := populated(t)
+	top := h.InLxcCheckout()
+	s := NewSnapshot()
+	if err := h.c.collectSessions(t.Context(), s); err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(s.Checkouts, top) {
+		t.Fatalf("a container's checkout is read as the host's: %v", s.Checkouts)
+	}
+	if !slices.Contains(s.Checkouts, h.Checkout()) {
+		t.Fatalf("the sessions' checkouts are still read: %v", s.Checkouts)
+	}
+}
+
+func TestCollectSessionsSaysOnceWhenItCannotTellWhoseCheckoutThisIs(t *testing.T) {
+	h := populated(t)
+	top := h.InLxcCheckout()
+	h.Host.Checkouts.ReadFile = func(string) ([]byte, error) { return nil, fs.ErrPermission }
+	for range 2 {
+		s := NewSnapshot()
+		if err := h.c.collectSessions(t.Context(), s); err != nil {
+			t.Fatal(err)
+		}
+		if slices.Contains(s.Checkouts, top) || s.Incomplete == "" {
+			t.Fatalf("checkouts %v incomplete %q", s.Checkouts, s.Incomplete)
+		}
+	}
+	if strings.Count(h.ErrOut.String(), "/etc/lxc/lxc.conf could not be read") != 1 {
+		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 }
 
@@ -311,8 +346,8 @@ func TestATeamRowsMemberCellIsItsDescription(t *testing.T) {
 	if got := s.Rows[0]; got.Kind != KindTeam || got.Member != "Builds the example site" {
 		t.Fatalf("team row %+v", got)
 	}
-	if !strings.Contains(s.Rows[0].Text(), "Builds the example site") {
-		t.Fatalf("the plain row shows it: %q", s.Rows[0].Text())
+	if text := Layout(s.Rows, 0).Text(s.Rows[0]); !strings.Contains(text, "Builds the example site") {
+		t.Fatalf("the plain row shows it: %q", text)
 	}
 }
 
@@ -341,11 +376,12 @@ func TestCollectGivesASeatRowItsMembersRole(t *testing.T) {
 	if got := s.Rows[1].Role; got != "coordinator" {
 		t.Fatalf("seat 1 has role %q", got)
 	}
-	if !strings.Contains(s.Rows[1].Text(), "1 (coordinator)") {
-		t.Fatalf("the seat row does not say it is the coordinator: %q", s.Rows[1].Text())
+	table := Layout(s.Rows, 0)
+	if text := table.Text(s.Rows[1]); !strings.Contains(text, "alpha  proj.1+local.podman (coordinator)  ") {
+		t.Fatalf("the seat row does not show its handle and that it is the coordinator: %q", text)
 	}
-	if strings.Contains(s.Rows[2].Text(), "coordinator") {
-		t.Fatalf("a seat that is not the coordinator says so: %q", s.Rows[2].Text())
+	if text := table.Text(s.Rows[2]); strings.Contains(text, "coordinator") || !strings.Contains(text, "alpha  proj.dev+local.podman ") {
+		t.Fatalf("a seat that is not the coordinator: %q", text)
 	}
 }
 

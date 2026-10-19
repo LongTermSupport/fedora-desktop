@@ -155,7 +155,7 @@ func TestRemoveOfTheCoordinatorSaysWhereTheRoleGoes(t *testing.T) {
 	if code := r.run(t, "remove", session, "alpha", "--coordinator=hand-to=5"); code != term.ExitOK {
 		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
 	}
-	want := "Seat 3 is alpha's coordinator: repo.5+local.podman becomes alpha's coordinator instead."
+	want := "proj.3+local.podman is alpha's coordinator: repo.5+local.podman becomes alpha's coordinator instead."
 	if len(c.Script.GumLog) != 1 || !strings.Contains(c.Script.GumLog[0], want) {
 		t.Fatalf("questions %q, want %q", c.Script.GumLog, want)
 	}
@@ -163,7 +163,7 @@ func TestRemoveOfTheCoordinatorSaysWhereTheRoleGoes(t *testing.T) {
 	if code := r.run(t, "remove", session, "alpha", "--coordinator=demote"); code != term.ExitOK {
 		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
 	}
-	if want := "Seat 3 is alpha's coordinator: it becomes a worker, and alpha has no coordinator."; !strings.Contains(c.Script.GumLog[1], want) {
+	if want := "proj.3+local.podman is alpha's coordinator: it becomes a worker, and alpha has no coordinator."; !strings.Contains(c.Script.GumLog[1], want) {
 		t.Fatalf("question %q, want %q", c.Script.GumLog[1], want)
 	}
 }

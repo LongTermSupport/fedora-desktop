@@ -19,12 +19,14 @@ type fzfAnswer struct {
 
 // fakeFzf records the screens it was asked for and answers from a script.
 type fakeFzf struct {
-	specs   []ui.ChooseSpec
-	answers []fzfAnswer
+	specs    []ui.ChooseSpec
+	headings []ui.Heading
+	answers  []fzfAnswer
 }
 
-func (f *fakeFzf) Choose(_ context.Context, s ui.ChooseSpec) ([]string, error) {
+func (f *fakeFzf) Choose(_ context.Context, h ui.Heading, s ui.ChooseSpec) ([]string, error) {
 	f.specs = append(f.specs, s)
+	f.headings = append(f.headings, h)
 	if len(f.answers) == 0 {
 		return nil, errors.New("fakeFzf: unscripted")
 	}
@@ -95,7 +97,7 @@ func TestNewChoosersOpenTheTerminalAtTheGuard(t *testing.T) {
 func TestAnEmptyGroupReturnsBackBeforeLookingForATerminal(t *testing.T) {
 	h := newHarness(t, vocabs[0])
 	h.s.Chooser = dieChooser{}
-	_, err := h.s.drill(context.Background(), nil)
+	_, err := h.s.drill(context.Background(), "all CCY", nil)
 	if !errors.Is(err, ErrBack) {
 		t.Fatalf("got %v", err)
 	}

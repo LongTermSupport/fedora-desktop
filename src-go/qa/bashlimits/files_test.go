@@ -103,7 +103,7 @@ func TestExemptionFor(t *testing.T) {
 		"CLAUDE/Plan/Cancelled/00066-z/triage.bash":      true,
 		".claude/init.sh":                                true,
 		"scripts/qa-all.bash":                            false,
-		"CLAUDE/Plan/mkplan.bash":                        false,
+		"CLAUDE/Plan/mkplan.bash":                        true,
 		"CLAUDE/Plan/_planlib.inc.bash":                  false,
 		"files/home/.local/bin/vmtest":                   false,
 		"scripts/lib/go-tool.bash":                       false,

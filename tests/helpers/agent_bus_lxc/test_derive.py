@@ -236,7 +236,7 @@ class ProbeScriptTest(unittest.TestCase):
         self.assertEqual(self.probed().origin, REMOTE)
         run = self.lxc.checkouts()
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertEqual(derive.parse_checkouts(run.stdout), ([(CHECKOUT, REMOTE, False)], False))
+        self.assertEqual(derive.parse_checkouts(run.stdout), ([(CHECKOUT, REMOTE, False)], False, []))
 
     def test_a_bare_rootfs_path_is_a_directory(self) -> None:
         self.lxc.config_lines = [f"lxc.rootfs.path = {self.lxc.rootfs}"]
@@ -597,12 +597,53 @@ class CheckoutsScriptTest(unittest.TestCase):
         (path / ".git" / "config").write_text(
             "" if remote is None else f'[remote "origin"]\n\turl = {remote}\n', encoding="utf-8")
 
+    def repo_at(self, container_path: str, remote: str | None = REMOTE) -> None:
+        path = self.lxc.rootfs / container_path.lstrip("/")
+        (path / ".git").mkdir(parents=True)
+        (path / ".git" / "config").write_text(
+            "" if remote is None else f'[remote "origin"]\n\turl = {remote}\n', encoding="utf-8")
+
     def found(self) -> dict[str, str | None]:
         run = self.lxc.checkouts()
         self.assertEqual(run.returncode, 0, run.stderr)
-        found, cut = derive.parse_checkouts(run.stdout)
-        self.assertFalse(cut)
+        found, partial, skipped = derive.parse_checkouts(run.stdout)
+        self.assertFalse(partial)
+        self.assertEqual(skipped, [])
         return {path: origin for path, origin, _ in found}
+
+    def test_the_web_and_service_roots_are_searched_beside_the_home(self) -> None:
+        self.repo("proj", REMOTE)
+        for path in ("/var/www/vhosts/example.test/httpdocs", "/srv/app", "/opt/tool"):
+            self.repo_at(path)
+        self.assertEqual(sorted(self.found()), [f"/home/{USER}/proj", "/opt/tool", "/srv/app",
+                                                "/var/www/vhosts/example.test/httpdocs"])
+
+    def test_a_home_inside_a_searched_root_is_listed_once(self) -> None:
+        (self.lxc.rootfs / "etc" / "passwd").write_text(
+            f"{USER}:x:{os.getuid()}:{os.getgid()}::/srv/{USER}:/bin/bash\n", encoding="utf-8")
+        self.repo_at(f"/srv/{USER}/proj")
+        self.assertEqual(list(self.found()), [f"/srv/{USER}/proj"])
+
+    def test_a_root_that_is_a_link_is_named_not_searched_and_a_missing_one_is_passed_over(self) -> None:
+        target = self.lxc.outside / "www"
+        (target / "site" / ".git").mkdir(parents=True)
+        (self.lxc.rootfs / "var").mkdir()
+        (self.lxc.rootfs / "var" / "www").symlink_to(target)
+        self.repo_at("/opt/tool")
+        run = self.lxc.checkouts()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(json.loads(run.stdout)["skipped"], ["/var/www"])
+        found, partial, skipped = derive.parse_checkouts(run.stdout)
+        self.assertEqual(([path for path, _, _ in found], partial, skipped), (["/opt/tool"], False, ["/var/www"]))
+
+    def test_the_count_limit_makes_the_search_partial(self) -> None:
+        for number in range(derive.CHECKOUTS_MAX + 5):
+            self.repo_at(f"/srv/r{number:03d}")
+        run = self.lxc.checkouts()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        found, partial, _ = derive.parse_checkouts(run.stdout)
+        self.assertTrue(partial)
+        self.assertEqual(len(found), derive.CHECKOUTS_MAX)
 
     def test_checkouts_in_the_home_are_found_with_their_origin_and_the_container_path(self) -> None:
         self.repo("proj", REMOTE)
@@ -627,8 +668,8 @@ class CheckoutsScriptTest(unittest.TestCase):
         self.repo(".cache/thing", REMOTE)
         self.assertEqual(self.found(), {})
 
-    def test_the_search_is_bounded(self) -> None:
-        for number in range(derive.CHECKOUTS_MAX + 5):
+    def test_exactly_the_limit_is_not_partial(self) -> None:
+        for number in range(derive.CHECKOUTS_MAX):
             self.repo(f"r{number:03d}", REMOTE)
         self.assertEqual(len(self.found()), derive.CHECKOUTS_MAX)
 
@@ -665,7 +706,7 @@ class CheckoutsScriptTest(unittest.TestCase):
         (self.home / "aaa" / ".claude" / "ccy").symlink_to(self.lxc.outside)
         run = self.lxc.checkouts()
         self.assertEqual(run.returncode, 0, run.stderr)
-        found, _ = derive.parse_checkouts(run.stdout)
+        found, _, _ = derive.parse_checkouts(run.stdout)
         self.assertEqual([(path, ccy) for path, _, ccy in found],
                          [(f"/home/{USER}/zzz", True), (f"/home/{USER}/aaa", False)])
 
@@ -673,18 +714,24 @@ class CheckoutsScriptTest(unittest.TestCase):
         self.repo("proj", REMOTE)
         run = self.lxc.checkouts(derive.root_read_script(seconds=0))
         self.assertEqual(run.returncode, 0, run.stderr)
-        found, cut = derive.parse_checkouts(run.stdout)
+        found, cut, _ = derive.parse_checkouts(run.stdout)
         self.assertTrue(cut)
         self.assertEqual(found, [])
 
     def test_what_the_script_printed_is_validated(self) -> None:
         def scan(items: list[object], cut: object = False) -> str:
-            return json.dumps({"checkouts": items, "timed_out": cut})
+            return json.dumps({"checkouts": items, "partial": cut, "skipped": []})
 
         good = scan([{"path": "/home/a/p", "git_config": '[remote "origin"]\n\turl = ' + REMOTE + "\n", "ccy": False},
                      {"path": "/home/a/q", "git_config": None, "ccy": True}], True)
-        self.assertEqual(derive.parse_checkouts(good), ([("/home/a/q", None, True), ("/home/a/p", REMOTE, False)], True))
-        cases = {"not json": "[", "not an object": "[]", "an extra key": json.dumps({"checkouts": [], "timed_out": False, "x": 1}),
+        self.assertEqual(derive.parse_checkouts(good), ([("/home/a/q", None, True), ("/home/a/p", REMOTE, False)], True, []))
+        skipping = json.dumps({"checkouts": [], "partial": False, "skipped": ["/var/www"]})
+        self.assertEqual(derive.parse_checkouts(skipping), ([], False, ["/var/www"]))
+        cases = {"not json": "[", "not an object": "[]", "an extra key": json.dumps({"checkouts": [], "partial": False, "skipped": [], "x": 1}),
+                 "the old key": json.dumps({"checkouts": [], "timed_out": False, "skipped": []}),
+                 "no skipped list": json.dumps({"checkouts": [], "partial": False}),
+                 "a skipped root that is not a path": json.dumps({"checkouts": [], "partial": False, "skipped": ["www"]}),
+                 "a skipped list that is not a list": json.dumps({"checkouts": [], "partial": False, "skipped": "/srv"}),
                  "a cut that is not true or false": scan([], "yes"),
                  "a relative path": scan([{"path": "p", "git_config": None, "ccy": False}]),
                  "a control character": scan([{"path": "/p\x07", "git_config": None, "ccy": False}]),

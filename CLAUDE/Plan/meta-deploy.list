@@ -23,3 +23,22 @@
 # Plan 00179 Task 0.7: deploys stt-watch.timer, which runs stt over stt_watch_folders every
 # 5 minutes, and its failure notification. Set stt_watch_folders in host_vars first.
 playbooks/imports/optional/common/play-speech-to-text.yml
+# CCY 3.99.12.11: deploys the launcher whose compose start question is asked once per launch,
+# a no kept (it used to be asked again straight after).
+# Plan 00204 D4, Plan 00201 Task 2.17 and Plan 00203 Task 3.8: rebuilds and installs ccy-teams,
+# ccy-sessions and the ccy launcher (CCY 3.99.12.12; the image, container 2.77.8, is rebuilt
+# once at the next ccy start, because it carries the changed checkout-search helper). Running
+# sessions are not touched. Every screen has a context heading saying where it
+# is and what it acts on (Teams › alpha › Add LXC member · step 3/4 Checkout over "into team
+# alpha · container …"; ccy --teams heads each team "New session › Team 2 of 3: …"; Teams ›
+# <team> › Settings), wrapped at its › and · separators on a narrow terminal, never cut off.
+# Every seat is shown by its whole handle (<repo>.<seat>+<host>.<type>, the coordinator's with
+# (coordinator) beside it) in the list, --list, the menus and the headings; the table's columns
+# are sized to their longest value and nothing is cut short, and on a narrow terminal TEAM,
+# MEMBER, KIND and STATE stay on the row and the rest shows above the headings. ccy-teams and
+# ccy-sessions no longer offer a host or podman session in a checkout inside an LXC container's
+# files (read from /etc/lxc/lxc.conf, no root needed); they point to ccy-teams lxc-add instead.
+# ccy-teams lxc-add's Checkout step is a typed path line with Tab completion from the
+# container's tree (a paste works too), its hint line says "Tab completes a directory name",
+# and its checkout search also covers /var/www, /srv and /opt. Then try: ccy-teams lxc-add <team>.
+playbooks/imports/play-claude-yolo.yml

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -39,15 +40,14 @@ func (c *Chooser) settle(ctx context.Context, repo string, taken []entry) ([]ent
 		"(sudo may ask for your password). There is no homeserver restart, and every member of the team then trusts " + repo + ".")
 	var kept []entry
 	var adds []string
-	for at, e := range taken {
+	for i, e := range taken {
 		if e.Standing != declare.StandingWiden {
 			kept = append(kept, e)
 			continue
 		}
 		o := scopeOptions(repo, e.Team)
-		head := heading(at, len(taken), e.Team) + " · scope"
-		c.say(head)
-		answer, err := c.Gum.Choose(ctx, head+": "+e.Team+" does not trust "+repo+". Add "+repo+" (any branch) to it?", o.add, []string{o.add, o.join, o.leave})
+		head := flow.LaunchTeam(i+1, len(taken), e.Team).Push("Scope").About("team " + e.Team + " · does not cover " + repo + " (this checkout)")
+		answer, err := c.Gum.Choose(ctx, head, e.Team+" does not trust "+repo+". Add "+repo+" (any branch) to it?", o.add, []string{o.add, o.join, o.leave})
 		if errors.Is(err, ui.ErrCancelled) {
 			c.say(nothingChosen)
 			return nil, term.ExitOK, false
@@ -109,8 +109,8 @@ func (c *Chooser) widen(ctx context.Context, repo string, teams []string) term.E
 // starts nothing.
 func (c *Chooser) seats(ctx context.Context, memberType string, taken []entry) term.ExitCode {
 	refs := make([]string, 0, len(taken))
-	for at, e := range taken {
-		ref, code := c.Seat(ctx, e.Team, memberType, heading(at, len(taken), e.Team))
+	for i, e := range taken {
+		ref, code := c.Seat(ctx, flow.LaunchTeam(i+1, len(taken), e.Team), e.Team, memberType)
 		if code != term.ExitOK {
 			return code
 		}

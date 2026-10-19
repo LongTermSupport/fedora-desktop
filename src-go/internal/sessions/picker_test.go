@@ -174,6 +174,7 @@ func TestThePickerListsEveryActionAndTakesOnlyTheirKeys(t *testing.T) {
 		t.Fatalf("%v", rig.argv)
 	}
 	contains(t, "argv", rig.argv[0], "--expect=ctrl-n,ctrl-t,ctrl-x", "--border-label= CCY sessions ",
+		"--header=Sessions\n1 running · ~/proj is not a project folder\n───",
 		"Enter lists what can be done to the session   Ctrl-T take it over   Ctrl-X end it   Ctrl-N start a new one   Esc or q quit",
 		`"open elsewhere" is attached in another terminal: taking it over detaches that terminal and attaches this one; the session keeps running`,
 		`CPU: since the list last redrew ("-" until it has), 100% is one core`,
@@ -271,7 +272,8 @@ func TestCtrlTTakesOverAnOpenSessionAfterAYes(t *testing.T) {
 		t.Fatalf("%v", h.ran())
 	}
 	contains(t, "question", rig.argv[1], "It is open on /dev/pts/3 (idle 3 h). That terminal is detached, not closed, and the session keeps running.",
-		"--border-label= Take over ccy-a? ", "--bind=start:last")
+		"--border-label= Sessions ", "--bind=start:last",
+		"--header=Sessions › ccy-a › Take over\nsession ccy-a · open on /dev/pts/3 (idle 3 h)\n───", "Take over ccy-a? It is open")
 	contains(t, "yes row", rig.shown[1], "Yes, take over 'ccy-a'")
 	if h.count("tmux -L ccy kill") != 0 {
 		t.Fatal("no session is killed")
@@ -428,7 +430,8 @@ func TestCtrlXEndsASessionAndItsRecordAfterAYesAndCostsNoTry(t *testing.T) {
 		t.Fatal("the record goes with the session")
 	}
 	contains(t, "ended", h.stderr(), "Ended 'ccy-a'.", "Kept 'ccy-b'.")
-	contains(t, "question", rig.argv[7], "Everything running in it will be killed.", "--border-label= End ccy-a? ")
+	contains(t, "question", rig.argv[7], "End ccy-a? Everything running in it will be killed.", "--border-label= Sessions ",
+		"--header=Sessions › ccy-a › End\nsession ccy-a\n───")
 }
 
 func TestCtrlXOnASessionThatAlreadyEndedRemovesItsRecordAndGoesOn(t *testing.T) {
@@ -520,7 +523,8 @@ func TestWithNoSessionsInAProjectItOffersToStartCcy(t *testing.T) {
 	inProject(h)
 	rig := newPickerRig(h, "|YES")
 	exitCodeIs(t, h.run(), 0, h)
-	contains(t, "offer", rig.argv[0], "No sessions are running. Start ccy in ~/proj?", "--border-label= CCY sessions ")
+	contains(t, "offer", rig.argv[0], "No sessions are running. Start ccy in ~/proj?", "--border-label= Sessions ",
+		"--header=Sessions › Start ccy\n0 running · in ~/proj\n───")
 	contains(t, "yes row", rig.shown[0], "Yes, start ccy here")
 	if len(h.fake.Execs()) != 1 {
 		t.Fatalf("execs %v", h.fake.Execs())
@@ -535,6 +539,43 @@ func TestWithNoSessionsInAProjectItOffersToStartCcy(t *testing.T) {
 	if len(h.fake.Execs()) != 0 {
 		t.Fatal("declined")
 	}
+}
+
+// inLxcCheckout makes the working directory a checkout inside LXC container box's root
+// filesystem (under the default LXC path), seen from the host; it returns the top as shown.
+func inLxcCheckout(h *harness) string {
+	top := "/var/lib/lxc/box/rootfs/srv/proj"
+	h.fake.On([]string{"git", "rev-parse", "--is-inside-work-tree"}, execx.Result{Stdout: []byte("true\n")})
+	h.fake.On([]string{"git", "rev-parse", "--show-toplevel"}, execx.Result{Stdout: []byte(top + "\n")})
+	return top
+}
+
+func TestThePickerNeverStartsASessionInAContainersCheckout(t *testing.T) {
+	h := newHarness(t)
+	s := newServer(h)
+	s.listSessions("/srv/a", "ccy-a")
+	top := inLxcCheckout(h)
+	rig := newPickerRig(h, "ctrl-n|ccy-a", "ctrl-n|ccy-a", "ctrl-n|ccy-a")
+	exitCodeIs(t, h.run(), 1, h)
+	contains(t, "rows", rig.shown[0], "Start a new ccy session here: unavailable, "+top+" is LXC container box's checkout")
+	contains(t, "argv", rig.argv[0], "--header=Sessions\n1 running · no new session can start in ~/proj\n───")
+	contains(t, "stderr", h.stderr(), top+" is LXC container box's checkout", "ccy-teams lxc-add", "Nothing attached after 3 tries.")
+	if len(h.fake.Execs()) != 0 {
+		t.Fatalf("started %v", h.fake.Execs())
+	}
+}
+
+func TestWithNoSessionsInAContainersCheckoutItOffersNothingThere(t *testing.T) {
+	h := newHarness(t)
+	s := newServer(h)
+	s.listSessions("/srv/a")
+	top := inLxcCheckout(h)
+	rig := newPickerRig(h, "|YES")
+	exitCodeIs(t, h.run(), 0, h)
+	if len(rig.argv) != 0 || len(h.fake.Execs()) != 0 {
+		t.Fatalf("offered %v started %v", rig.argv, h.fake.Execs())
+	}
+	contains(t, "stderr", h.stderr(), "No CCY or cc sessions are running.", top+" is LXC container box's checkout")
 }
 
 func TestWithNoSessionsOutsideAProjectItSaysHowToStartOne(t *testing.T) {

@@ -131,6 +131,24 @@ func TestFileIsTerminal(t *testing.T) {
 	}
 }
 
+func TestFileColumnsIsZeroForWhatIsNotATerminal(t *testing.T) {
+	if FileColumns(&bytes.Buffer{}) != 0 {
+		t.Error("a buffer has no width")
+	}
+	f, err := os.CreateTemp(t.TempDir(), "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := f.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	if FileColumns(f) != 0 {
+		t.Error("a regular file has no width")
+	}
+}
+
 func TestFileIsTerminalIsFalseForDevNullAndPipes(t *testing.T) {
 	if FileIsTerminal("not a file") {
 		t.Fatal("only a file can be a terminal")

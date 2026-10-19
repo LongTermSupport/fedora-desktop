@@ -371,6 +371,19 @@ cat >"$GUMBIN/gum" <<'EOF'
 set -euo pipefail
 sub="$1"
 shift
+# ui draws a heading (its lines, then a rule of ─) on top of a question's header or prompt: it
+# is logged on a line of its own, "heading <lines joined by |>", and the call without it.
+rule=$'\n─'
+args=()
+for arg in "$@"; do
+    if [[ "$arg" == *"$rule"* ]]; then
+        heading="${arg%%"$rule"*}"
+        printf 'heading %s\n' "${heading//$'\n'/ | }" >>"$TEST_LOG"
+        arg="${arg#*─$'\n'}"
+    fi
+    args+=("$arg")
+done
+set -- "${args[@]}"
 printf 'gum %s %s\n' "$sub" "$*" >>"$TEST_LOG"
 env | awk '/^GUM_/' | sort >"$TEST_STATE/gum-env"
 next() {
@@ -468,6 +481,16 @@ git -C "$CHECKOUT" init -q
 git -C "$CHECKOUT" remote add origin git@github.com:Example-Org/proj.git
 OUTSIDE="$SCRATCH/not-a-project"
 mkdir -p "$OUTSIDE"
+# Where LXC keeps its containers, set in a stand-in for /etc/lxc/lxc.conf (the binary built
+# with the ccyteamstest tag reads it instead), and a checkout in container box's files seen from
+# the host.
+LXC_PATH="$SCRATCH/lxc"
+printf '# root LXC configuration\nlxc.lxcpath = %s\n' "$LXC_PATH" >"$SCRATCH/lxc.conf"
+export CCY_TEAMS_TEST_LXC_CONF="$SCRATCH/lxc.conf"
+IN_CONTAINER="$LXC_PATH/box/rootfs/srv/proj"
+mkdir -p "$IN_CONTAINER/.claude/ccy/pingbus/seats"
+git -C "$IN_CONTAINER" init -q
+git -C "$IN_CONTAINER" remote add origin git@github.com:Example-Org/proj.git
 
 export TEST_LOG="$LOG" TEST_STATE="$STATE" TEST_ANSWERS="$SCRATCH/answers" TEST_FZF_ROWS="$SCRATCH/fzf-rows"
 export TEST_FZF_RAW="$SCRATCH/fzf-raw"
@@ -584,15 +607,15 @@ check_has "alpha's homeserver is up" " up " "$alpha"
 check_has "  on its declared port" "port 6167" "$alpha"
 check_has "  applied as declared (D65)" "up to date" "$alpha"
 check_has "  with what the team is for in the MEMBER column, whole when piped" "Builds the example site" "$alpha"
-seat="$(grep -E '^alpha +1 +ccy' <<<"$out")"
-check_has "seat 1 is an active ccy seat" "active" "$seat"
+seat="$(grep -E '^alpha +proj\.1\+local\.podman +ccy' <<<"$out")"
+check_has "seat 1 is an active ccy seat, shown by its whole handle" "active" "$seat"
 check_has "  held by ccy-proj" "ccy-proj" "$seat"
 check_has "  which is restored after a reboot" " yes " "$seat"
 check_has "  in its checkout" "$CHECKOUT" "$seat"
-check_has "a free seat says free" "free" "$(grep -E '^alpha +dev +ccy' <<<"$out")"
+check_has "a free seat says free" "free" "$(grep -E '^alpha +proj\.dev\+local\.podman +ccy' <<<"$out")"
 check_has "a ccy member whose checkout is not known is listed by handle, parked" "parked" \
     "$(grep -E '^alpha +proj\.2\+local\.podman +ccy' <<<"$out")"
-check "  and seat 1's handle is not listed twice" "0" "$(grep -c 'proj\.1+local\.podman' <<<"$out")"
+check "  and seat 1's handle is listed once" "1" "$(grep -c 'proj\.1+local\.podman' <<<"$out")"
 check_has "the LXC member" "active" "$(grep -E '^alpha +proj\.box\+role\.lxc +lxc' <<<"$out")"
 human="$(grep -E '^alpha +owner +human' <<<"$out")"
 check_has "the person, in the room in words" "in room" "$human"
@@ -634,14 +657,14 @@ out="$(cd "$OUTSIDE" && "$TOOL" --list 2>"$SCRATCH/err")"
 check "--list with no sudo credential prints the table, but exits 1: part of it is unread" "1" "$?"
 check_has "  says why the members are not shown" "members of alpha are not shown" "$(cat "$SCRATCH/err")"
 check_has "  and the two ways to show them" "play-agent-bus.yml" "$(cat "$SCRATCH/err")"
-check_has "  the seat's state is need sudo" "need sudo" "$(grep -E '^alpha +1 +ccy' <<<"$out")"
+check_has "  the seat's state is need sudo" "need sudo" "$(grep -E '^alpha +proj\.1\+local\.podman +ccy' <<<"$out")"
 check_has "  and so is the team row's" "members: need sudo" "$(grep -E '^alpha +.+ +team ' <<<"$out")"
 
 reset
 rm -f "$STATE/sudo-cached"
 out="$(cd "$OUTSIDE" && TEST_SUDO_RULE=1 "$TOOL" --list 2>"$SCRATCH/err")"
 check_has "with the sudoers rule and no credential, the members are read" "active" \
-    "$(grep -E '^alpha +1 +ccy' <<<"$out")"
+    "$(grep -E '^alpha +proj\.1\+local\.podman +ccy' <<<"$out")"
 check_lacks "  with nothing said about sudo" "sudo" "$(cat "$SCRATCH/err")"
 
 reset
@@ -650,7 +673,7 @@ printf 'SEAT\talpha\t3\tfree\t-\tproj.3+local.podman\n' >"$STATE/seats/proj"
 rm -rf "$CCY_STATE_DIR"
 out="$(cd "$CHECKOUT" && "$TOOL" --list 2>"$SCRATCH/err")"
 check_has "the current checkout's seats are listed with no session anywhere" "free" \
-    "$(grep -E '^alpha +3 +ccy' <<<"$out")"
+    "$(grep -E '^alpha +proj\.3\+local\.podman +ccy' <<<"$out")"
 
 reset
 : >"$STATE/units"
@@ -668,7 +691,7 @@ reset
 touch "$STATE/seats/proj.unreadable"
 out="$(cd "$OUTSIDE" && "$TOOL" --list 2>"$SCRATCH/err")"
 check "a seat that cannot be read: the checkout's other seats are still listed" "1" \
-    "$(grep -cE '^alpha +1 +ccy' <<<"$out")"
+    "$(grep -cE '^alpha +proj\.1\+local\.podman +ccy' <<<"$out")"
 check_has "  and every team row says something is unreadable" "a seat is unreadable" \
     "$(grep -E '^alpha +.+ +team ' <<<"$out")"
 out="$(run_picker "$OUTSIDE" "ctrl-x|proj.2+local.podman" "|ABORT")"
@@ -702,7 +725,7 @@ check "no credential: sudo asks, once the reason is given" "yes" "$(logged 'sudo
 check_has "  the reason comes first" "done as root" "$out"
 check_has "  with what installs the rule that removes the need" "play-agent-bus.yml" "$out"
 check "  and with the password, the picker shows the members" "rc=0" "$(rc_of "$out")"
-check_has "    seat 1 active" "active" "$(grep -E '^alpha +1 +ccy' "$TEST_FZF_ROWS")"
+check_has "    seat 1 active" "active" "$(grep -E '^alpha +proj\.1\+local\.podman +ccy' "$TEST_FZF_ROWS")"
 check "  and the credential is dropped as ccy-teams ends (an agent may start here next)" "sudo -k" \
     "$(grep '^sudo ' "$TEST_LOG" | awk 'END { print }')"
 check "    so none is left cached" "no" "$([ -e "$STATE/sudo-cached" ] && echo yes || echo no)"
@@ -720,7 +743,7 @@ reset
 rm -f "$STATE/sudo-cached"
 out="$(TEST_SUDO_RULE=1 run_picker "$OUTSIDE" "|ABORT")"
 check "the sudoers rule installed: no password is asked" "no" "$(logged 'sudo -v')"
-check_has "  and the members are shown" "active" "$(grep -E '^alpha +1 +ccy' "$TEST_FZF_ROWS")"
+check_has "  and the members are shown" "active" "$(grep -E '^alpha +proj\.1\+local\.podman +ccy' "$TEST_FZF_ROWS")"
 check_has "  and whether the person is signed in, through the rule's second command" "never signed in" \
     "$(grep -E '^alpha +owner +human' "$TEST_FZF_ROWS")"
 check "  which ccy-teams called as the rule names it" "yes" \
@@ -750,7 +773,7 @@ ccy_registry_read "$CCY_STATE_DIR/sessions/ccy-proj"
 check "Ctrl-R turns the seat's session's restore off" "no" "$REC_RESTORE"
 check "  keeping its seats" "--teams 1@alpha" "${REC_ARGS[*]}"
 check_has "  and the refreshed list shows it" " no " \
-    "$(grep -E '^alpha +1 +ccy' "$TEST_FZF_ROWS" | awk 'NR == 2')"
+    "$(grep -E '^alpha +proj\.1\+local\.podman +ccy' "$TEST_FZF_ROWS" | awk 'NR == 2')"
 out="$(run_picker "$OUTSIDE" "ctrl-r|ccy-proj" "|ABORT")"
 ccy_registry_read "$CCY_STATE_DIR/sessions/ccy-proj"
 check "  and on again" "yes" "$REC_RESTORE"
@@ -788,7 +811,7 @@ check "  and starts nothing" "no" "$(logged 'launcher')"
 reset
 out="$(run_picker "$CHECKOUT" "ctrl-n|port 6167" "|new")"
 check "Ctrl-N offers the free seat, and a new one numbered after every numbered seat" "yes" \
-    "$(grep -q 'Seat dev@alpha   free' "$TEST_FZF_ROWS" && grep -q 'Seat 3@alpha   new' "$TEST_FZF_ROWS" && echo yes || echo no)"
+    "$(grep -q 'proj\.dev+local\.podman   free' "$TEST_FZF_ROWS" && grep -q 'Seat 3@alpha   new' "$TEST_FZF_ROWS" && echo yes || echo no)"
 check "  and starts ccy --teams in the new one" "yes" "$(logged 'launcher --teams 3@alpha')"
 reset
 out="$(run_picker "$CHECKOUT" "ctrl-n|owner" "|free")"
@@ -801,6 +824,20 @@ mkdir -p "$CHECKOUT/sub/dir"
 out="$(run_picker "$CHECKOUT/sub/dir" "ctrl-n|port 6167" "|new")"
 check "Ctrl-N from a subdirectory starts ccy at the checkout's top, where its seats are" "yes" \
     "$(logged 'launcher --teams 3@alpha (in proj)')"
+# A checkout in an LXC container's files, seen from the host, is the container's: no host or
+# podman session is offered or started there, whatever its origin covers.
+reset
+out="$(run_picker "$IN_CONTAINER" "ctrl-n|port 6167" "|ABORT")"
+check_has "in an LXC container's checkout the header says Ctrl-N is unavailable, and why" \
+    "Ctrl-N unavailable: $IN_CONTAINER is LXC container box's checkout" "$(cat "$TEST_FZF_RAW")"
+check_has "  Ctrl-N there says so" "is LXC container box's checkout" "$out"
+check_has "  and points to lxc-add" "ccy-teams lxc-add" "$out"
+check "  and starts nothing" "no" "$(logged 'launcher')"
+out="$(cd "$IN_CONTAINER" && "$TOOL" for-checkout 2>&1)"
+check "for-checkout there names no team" "1" "$?"
+check_has "  saying whose checkout it is" "is LXC container box's checkout" "$out"
+out="$(cd "$IN_CONTAINER" && "$TOOL" --list 2>&1)"
+check "--list there lists no seat of that checkout" "0" "$(grep -c "$IN_CONTAINER" <<<"$out")"
 
 gum_queue() {
     printf '%s\n' "$@" >"$TEST_GUM_ANSWERS"
@@ -1113,6 +1150,10 @@ check_has "  then the repository, defaulting to this checkout's remote, lower-ca
 check "    checked on GitHub for push access" "yes" "$(logged 'gh api repos/example-org/proj --jq .permissions.push')"
 check_has "  then the name, defaulting to the repository's" "--value proj" "$(grep -F -- '--header Team name' <<<"$inputs")"
 check_has "  the login name is offered as the people's default" "--value owner" "$(grep -F -- '--header People' <<<"$inputs")"
+headings="$(grep '^heading ' "$LOG")"
+check_has "  each question is headed with where it is: the wizard and its step" "New team" "$headings"
+check_has "    the step, numbered" " · step 3/6 Team name" "$headings"
+check_has "    and the answers so far" " · step 5/6 People | works on example-org/proj · team proj" "$headings"
 check_has "  each explanation is printed, wrapped, before its question" "installer creates the accounts" \
     "$(grep -F 'gum style --width' "$LOG")"
 check "  and every header is one short line" "0" \

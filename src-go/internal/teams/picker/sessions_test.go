@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/hot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
@@ -217,6 +218,20 @@ func TestAddToATeamRunsSessionAdd(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
 	h.wantRuns(t, []string{"add", proj, "alpha"})
+	// Every screen names where it is; the wizard's steps carry the team chosen so far, so the
+	// seat and the role are never asked without saying which team they are in.
+	for i, want := range []string{
+		"Teams\n1 team",
+		"Teams › Running sessions\n1 session running",
+		"Teams › Running sessions › ccy-proj\nsession ccy-proj · ok · in no team",
+		// At the fake terminal's 80 columns the trail is wider than the 66 fzf draws whole, so
+		// the step wraps onto a line of its own.
+		"Teams › Running sessions › ccy-proj › Add to a team\n· step 1/3 Team\nsession ccy-proj",
+		"Teams › Running sessions › ccy-proj › Add to a team\n· step 2/3 Seat\nsession ccy-proj · team alpha",
+		"Teams › Running sessions › ccy-proj › Add to a team\n· step 3/3 Role\nsession ccy-proj · team alpha · the lowest free seat",
+	} {
+		h.Script.HeadingAt(i, want)
+	}
 	if !slices.ContainsFunc(h.Script.Rows[3], func(r string) bool {
 		return strings.HasPrefix(r, "alpha ") && strings.Contains(r, "up") && strings.Contains(r, "3 agents")
 	}) {
@@ -290,7 +305,7 @@ func TestAddOfATeamThatCannotBeJoinedAsksAgainThenGivesUp(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
 	h.wantRuns(t)
-	h.wantErr(t, "ccy-proj is already in alpha as seat 1: one seat per team per session.\n",
+	h.wantErr(t, "ccy-proj is already in alpha as proj.1+local.podman: one seat per team per session.\n",
 		"Nothing was changed after 3 tries.\n", "Press Enter to go back to the list.\n")
 	if strings.Count(h.ErrOut.String(), "already in alpha") != 3 {
 		t.Fatalf("asked three times: %s", h.ErrOut.String())
@@ -339,7 +354,8 @@ func TestRemoveOfTheCoordinatorAsksWhereTheRoleGoes(t *testing.T) {
 		if code := h.run(); code != term.ExitOK {
 			t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 		}
-		if !strings.Contains(h.HeaderOf(3), "Its seat 1 is alpha's coordinator. After it leaves:") ||
+		if !strings.Contains(h.HeaderOf(3), "Its seat proj.1+local.podman is alpha's coordinator. After it leaves:") ||
+			!strings.HasPrefix(h.Script.Rows[3][0], "The role goes to no one (proj.1+local.podman becomes a worker)") ||
 			slices.ContainsFunc(h.Script.Rows[3], func(r string) bool { return strings.Contains(r, "proj.2+local.podman") }) {
 			t.Fatalf("header %q rows %q (a parked member is not offered)", h.HeaderOf(3), h.Script.Rows[3])
 		}
@@ -370,8 +386,29 @@ func TestChangeRoleInATeamRunsSessionRole(t *testing.T) {
 	if !slices.ContainsFunc(h.Script.Rows[3], func(r string) bool { return strings.HasPrefix(r, "worker (now)") }) {
 		t.Fatalf("role rows %q", h.Script.Rows[3])
 	}
+	if !strings.Contains(h.HeaderOf(3), "Role of proj.1+local.podman in alpha:") {
+		t.Fatalf("the role question names the member by its full handle: %q", h.HeaderOf(3))
+	}
 	wantTakeoverRows(t, h.Script.Rows[3], "proj.box+role.lxc")
 	h.wantRuns(t, []string{"role", proj, "alpha", "coordinator", "--demote-current"})
+	h.Script.HeadingAt(3, "Teams › Running sessions › ccy-proj › Role in alpha\nsession ccy-proj · proj.1+local.podman in team alpha · now worker")
+}
+
+// A seat the board has no row for (ccy has not made its member yet) has no handle to show, so
+// it is named by its seat.
+func TestTheRoleOfASeatWithNoHandleYetNamesTheSeat(t *testing.T) {
+	h := newRig(t)
+	s := h.seated()
+	s.Teams = []hot.Cell{{Team: "alpha", Seat: "9", Role: "worker"}}
+	h.ses.list = []hot.Session{s}
+	h.Script.Fzf = []string{toSessions, "|ccy-proj", "|Change role in alpha", "|ABORT", "|ABORT", "|ABORT"}
+	if code := h.run(); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if !strings.Contains(h.HeaderOf(3), "Role of seat 9 in alpha:") {
+		t.Fatalf("header %q", h.HeaderOf(3))
+	}
+	h.wantRuns(t)
 }
 
 func TestRepairIsInTheMenuOfAnUnguardedSession(t *testing.T) {
@@ -427,6 +464,28 @@ func TestMoveOfTheCoordinatorAsksWhereTheRoleGoes(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
 	h.wantRuns(t, []string{"move", proj, "alpha", "beta", "--coordinator=demote"})
+	h.Script.HeadingAt(3, "Teams › Running sessions › ccy-proj › Move from alpha\nsession ccy-proj · proj.1+local.podman in team alpha")
+	h.Script.HeadingAt(4, "Teams › Running sessions › ccy-proj › Move from alpha\n› Coordinator role\nsession ccy-proj · from team alpha to team beta")
+}
+
+// On a 40-column terminal the framed picker draws 26 cells of a header line whole (one more is
+// cut to ".."): the Move coordinator heading wraps to fit, and keeps the team just chosen.
+func TestTheMoveCoordinatorHeadingWrapsOnANarrowTerminalAndKeepsTheAnswer(t *testing.T) {
+	h := newRig(t)
+	h.Script.Columns = 40
+	h.withBeta()
+	h.coordinatorOfAlpha("proj.1+local.podman")
+	h.ses.list = []hot.Session{h.seated()}
+	h.Script.Fzf = []string{toSessions, "|ccy-proj", "|Move to another team", "|beta", "|goes to no one", "|ABORT", "|ABORT"}
+	if code := h.run(); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	h.Script.HeadingAt(4, "Teams › Running sessions\n› ccy-proj\n› Move from alpha\n› Coordinator role\nsession ccy-proj\n· from team alpha to team\nbeta")
+	for l := range strings.SplitSeq(h.Script.Headings[4], "\n") {
+		if n := utf8.RuneCountInString(l); n > 26 {
+			t.Fatalf("a heading line of %d is cut by fzf at 40 columns: %q", n, l)
+		}
+	}
 }
 
 // Change role on a team with no coordinator: worker (now), then the plain offer, which passes

@@ -7,6 +7,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/login"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
@@ -143,7 +144,7 @@ func (r *run) seatActions(row board.Row, open, start, help action) []action {
 	} else {
 		acts = append(acts, start, open)
 	}
-	remove := action{actRemove, keyRemove, "Remove seat " + row.Member + " from " + row.Team, "remove seat " + row.Member}
+	remove := action{actRemove, keyRemove, "Remove seat " + row.Label() + " from " + row.Team, "remove seat " + row.Label()}
 	if row.Dir == "-" {
 		remove = action{actRemove, keyRemove, "Park " + row.Handle, "park it"}
 	}
@@ -177,7 +178,7 @@ func (r *run) menuFor(row board.Row) ui.Menu {
 	for i, a := range acts {
 		items[i] = a.ui()
 	}
-	subject := row.Member + " in " + row.Team
+	subject := row.Label() + " in " + row.Team
 	if row.Kind == board.KindTeam {
 		subject = "team " + row.Team
 	}
@@ -185,7 +186,17 @@ func (r *run) menuFor(row board.Row) ui.Menu {
 		Title:   subject,
 		Header:  ui.Header("Enter choose   Esc or q back to the list", "What to do with "+subject+":", aboutLine(row)),
 		Actions: items,
+		Heading: rowHeading(row),
 	}
+}
+
+// rowHeading is the heading of a row's menu: Teams › team, and the member for a member's row,
+// with what the row is as its context.
+func rowHeading(row board.Row) ui.Heading {
+	if row.Kind == board.KindTeam {
+		return flow.Here(row.Team).About("team " + row.Team + " · " + row.State)
+	}
+	return flow.Here(row.Team, row.Crumb()).About(string(row.Kind) + " " + row.Member + " in team " + row.Team + " · " + row.State)
 }
 
 // aboutLine is a team row's description, whole, for the header of its menu; "" for any other row.

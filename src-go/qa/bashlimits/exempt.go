@@ -29,12 +29,14 @@ func IsTestCode(p string) bool {
 }
 
 // Exemptions is the one place a kind of file is exempted: test suites, test fixtures and
-// testdata (test code is not tooling, so the limits do not judge it), plan-folder scripts and
-// vendored trees. Everything else, user-shell snippets and run.bash included, is measured
-// and, if over a limit, held on the allowlist at its size. A tool is never exempt for being
-// named for tests (scripts/qa-helper-tests.bash) or sitting beside test files: each test
-// entry names the files that ARE tests, by location or by the prefix the test files carry.
-// Keep each entry narrow, its reason true, and delete one that matches no file.
+// testdata (test code is not tooling, so the limits do not judge it), plan-folder scripts,
+// vendored trees and the daemon-owned trees; single daemon-owned files are DaemonOwnedFiles,
+// which ExemptionFor also consults. Everything else, user-shell snippets and run.bash
+// included, is measured and, if over a limit, held on the allowlist at its size. A tool is
+// never exempt for being named for tests (scripts/qa-helper-tests.bash) or sitting beside
+// test files: each test entry names the files that ARE tests, by location or by the prefix
+// the test files carry. Keep each entry narrow, its reason true, and delete one that matches
+// no file.
 var Exemptions = []Exemption{
 	{"scripts/test-*.bash", "test suites drive a command or library; a Go port retires its suite rather than porting it", true},
 	{"tests/", "test suites and fixtures drive a command or library; a Go port retires them", true},
@@ -53,6 +55,9 @@ var Exemptions = []Exemption{
 
 // ExemptionFor is the reason p is exempt, and whether it is.
 func ExemptionFor(p string) (string, bool, error) {
+	if reason := daemonOwnedReason(p); reason != "" {
+		return reason, true, nil
+	}
 	for _, e := range Exemptions {
 		hit, err := matchPattern(e.Pattern, p)
 		if err != nil {

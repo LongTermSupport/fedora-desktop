@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 
@@ -143,6 +144,13 @@ func TestRemoveDeclaredKeepsDataAfterBackup(t *testing.T) {
 			t.Errorf("call %d:\n%q\nwant\n%q", i, got[i], want[i])
 		}
 	}
+	wantHeadings := []string{
+		"Teams › alpha › Take down · step 1/2 Backup\nteam alpha",
+		"Teams › alpha › Take down · step 2/2 Its data\nteam alpha",
+	}
+	if got := r.headings(); !slices.Equal(got, wantHeadings) {
+		t.Errorf("headings:\n got %q\nwant %q", got, wantHeadings)
+	}
 	if r.out.String() != "CHANGED\tteam alpha declared absent\n" {
 		t.Errorf("stdout %q", r.out.String())
 	}
@@ -172,6 +180,9 @@ func TestRemoveTakesTheTeamsLiveSessionsOffItFirst(t *testing.T) {
 	}
 	if got := r.lines(); got[0] != "gum confirm --default=true Take ccy-a, ccy-b off alpha first? They keep running." {
 		t.Fatalf("first call %q", got[0])
+	}
+	if got := r.headings()[0]; got != "Teams › alpha › Take down › Sessions in it\nteam alpha · running in it: ccy-a, ccy-b" {
+		t.Fatalf("first heading %q", got)
 	}
 }
 
@@ -636,7 +647,8 @@ func TestRestoreConfirmYes(t *testing.T) {
 		}
 	}
 	for _, s := range []string{
-		"--border-label= Restore alpha ",
+		"--border-label= Teams ",
+		"--header=Teams › alpha › Restore · step 2/2 Confirm\nteam alpha · backup 2\n───",
 		"Restore backup 2 of alpha? Its homeserver stops, and every message and change since that backup is lost.",
 		"--bind=start:last",
 	} {
@@ -771,6 +783,9 @@ type fzfScript struct {
 }
 
 func (f *fzfScript) Run(_ context.Context, c execx.Cmd) (execx.Result, error) {
+	if c.Name == "tput" { // ui reading the terminal's width for a heading
+		return execx.Result{Stdout: []byte("80\n")}, nil
+	}
 	f.n++
 	f.args = append(f.args, strings.Join(c.Args, "|"))
 	if f.n == 1 {

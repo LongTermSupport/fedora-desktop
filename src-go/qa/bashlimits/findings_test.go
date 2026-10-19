@@ -241,6 +241,7 @@ func TestOnlyTestSuitesPlansAndVendoredTreesAreExempt(t *testing.T) {
 		".claude/skills/hooks-daemon/scripts/x.sh",
 		".claude/skills/docs-qa/scripts/x.sh",
 		"src-go/vendor/golang.org/x/sys/unix/mkall.sh",
+		"CLAUDE/Plan/mkplan.bash",
 	}
 	checked := []string{
 		"run.bash",
@@ -248,7 +249,6 @@ func TestOnlyTestSuitesPlansAndVendoredTreesAreExempt(t *testing.T) {
 		"files/etc/profile.d/zz_lts-fedora-desktop.bash",
 		"files/var/local/ps1-prompt",
 		"files/var/local/colours",
-		"CLAUDE/Plan/mkplan.bash",
 		"CLAUDE/Plan/_planlib.inc.bash",
 		".claude/skills/other/scripts/x.sh",
 		"scripts/qa-all.bash",

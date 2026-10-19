@@ -11,16 +11,17 @@ import (
 
 // Finding kinds.
 const (
-	KindBreach  = "breach"  // an unlisted file breaks a limit
-	KindGrew    = "grew"    // a listed file passed its record
-	KindTighten = "tighten" // a listed file is under its record
-	KindWithin  = "within"  // a listed file is now within every limit
-	KindStale   = "stale"   // a listed file is gone
-	KindOrphan  = "orphan"  // a listed file exists but is not a checked bash file
-	KindAdded   = "added"   // an entry the base ref does not have
-	KindRaised  = "raised"  // a record higher than the base ref's
-	KindDropped = "dropped" // an entry the base ref has, removed while its file lives on
-	KindMeasure = "measure" // the measurer version went backwards
+	KindBreach    = "breach"    // an unlisted file breaks a limit
+	KindGrew      = "grew"      // a listed file passed its record
+	KindTighten   = "tighten"   // a listed file is under its record
+	KindWithin    = "within"    // a listed file is now within every limit
+	KindStale     = "stale"     // a listed file is gone
+	KindOrphan    = "orphan"    // a listed file exists but is not a checked bash file
+	KindAdded     = "added"     // an entry the base ref does not have
+	KindRaised    = "raised"    // a record higher than the base ref's
+	KindDropped   = "dropped"   // an entry the base ref has, removed while its file lives on
+	KindMeasure   = "measure"   // the measurer version went backwards
+	KindUnshipped = "unshipped" // a DaemonOwnedFiles entry no hooks-daemon upgrade shipped
 )
 
 // Finding is one thing the gate objects to.
@@ -217,12 +218,15 @@ func shrankBelow(m, rec Measurement) string {
 }
 
 // removalProblem says why a listed path may not simply disappear from the allowlist, or ""
-// when it may: its file was measured (it is within limits, or is judged on its own), or it is
+// when it may: its file was measured (it is within limits, or is judged on its own), it is a
+// daemon-owned file an upgrade shipped (VerifyDaemonOwned), it is test code exempt where it
+// stands (IsTestCode: only a change to the reviewed exemption table put it there), or it is
 // gone and nothing exempt looks like its new home. A file that still exists but is not a
-// checked bash file, or that went away next to an exempt file of the same name, has been
-// moved out of the gate's sight, not ported.
+// checked bash file has been moved out of the gate's sight, not ported; so has one that went
+// away next to an exempt file of the same name (exemptTwin catches same-name moves only, not
+// a move that also renames the file).
 func removalProblem(p string, scan Scan) string {
-	if _, measured := scan.Measured[p]; measured {
+	if _, measured := scan.Measured[p]; measured || scan.DaemonOwned[p] {
 		return ""
 	}
 	switch {
@@ -264,6 +268,10 @@ func Evaluate(list Allowlist, scan Scan) []Finding {
 		}
 		if why := removalProblem(p, scan); why != "" {
 			out = append(out, Finding{p, KindOrphan, "allowlisted, but " + why + ": an entry stays until its file is ported or within limits"})
+			continue
+		}
+		if scan.DaemonOwned[p] {
+			out = append(out, Finding{p, KindStale, p + ": allowlisted, but daemon-owned and so exempt (DaemonOwnedFiles): remove the entry (scripts/qa-bash-limits.bash --update)"})
 			continue
 		}
 		out = append(out, Finding{p, KindStale, p + ": allowlisted, but the file is gone: remove the entry (scripts/qa-bash-limits.bash --update)"})

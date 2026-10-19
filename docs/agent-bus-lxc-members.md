@@ -93,12 +93,18 @@ Notes on the table:
    container, the agent user (the container's ordinary users are suggested; a user already
    in another team is fine), the checkout inside it and the role (`worker`; `coordinator`
    only while the team has none). Every question shows the team, the step, and the container
-   and user once chosen. The checkout is chosen among the git checkouts with a GitHub remote
-   that a bounded search of the user's home found (ccy projects, those with a `.claude/ccy`
-   directory, first; dependency trees such as `node_modules` and `vendor` are skipped, and a
-   search past its time limit says so), or *Type a path…* opens the container's directories:
-   walk them with the arrows and Enter, or type, with Tab completing a directory name. Every
-   listing is read from the host's side. A container on LXC's `dir` or `btrfs` store is read
+   and user once chosen. The checkout is typed on an editable line, with Tab completing a
+   directory name from the container's tree as a shell does (the one directory a name starts,
+   or what several share, with those listed), and a hint line under it saying so. The git
+   checkouts with a GitHub remote that a bounded search found are suggested under the line,
+   and it starts with the first: the search looks in the user's home and in `/var/www`, `/srv`
+   and `/opt` (for example a site under `/var/www/vhosts/<site>/`), up to four directories
+   deep, ccy projects (those with a `.claude/ccy` directory) first; dependency trees such as
+   `node_modules` and `vendor` are skipped, a root that is missing is passed over, one with a
+   symbolic link on its way is named and not followed, and a search stopped by its time or
+   count limit says it may have missed some. Every line wraps to the terminal, never cut off.
+   The arrows put a suggestion in the line; Enter takes the line, Esc cancels the run. Every listing
+   is read from the host's side. A container on LXC's `dir` or `btrfs` store is read
    as the directory its rootfs is; one on `overlay`, `zfs`, `lvm`, `loop`, `rbd` or `nbd`
    through the running container's own root (`/proc/<init pid>/root`); any other store is
    refused, naming it. It never asks for the handle's repo, host or seat: they are derived from the
