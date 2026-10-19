@@ -169,7 +169,11 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   teams made by Plan 00201's acceptance legs, in a scratch checkout, on a tmux server of its
   own. It counts what each team's human sees in the room. Every session sits on both seats.
   The verdicts are in `goodbye_check.py`, tested by `test_goodbye_check.py`, which also runs
-  `acceptance.bash --fake` over fixture rooms. Step 5 is still done by hand.
+  `acceptance.bash --fake` over fixture rooms. Step 5 is still done by hand. The first host
+  run stopped in setup at ccy's commit-signing check; the scratch checkout now turns signing
+  off in its own config (launched `--no-ssh`, no key goes in), a launcher that ends early is
+  reported by its ERROR lines, and one waiting at a question no flag answers fails at once by
+  name. Queued again in meta-deploy.
 
 - [ ] A message sent to a busy session is typed mid-turn and run when the turn ends.
 

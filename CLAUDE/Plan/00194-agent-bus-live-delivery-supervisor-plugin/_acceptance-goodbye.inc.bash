@@ -50,6 +50,9 @@ readonly GB_GONE_S=60
 readonly GB_SETTLE_S=5
 readonly GB_POLL_S=2
 readonly GB_MAX_PAGES=40
+#: The launcher's libraries, as this checkout deploys them: its signing check and the text of
+#: every question a launch can wait at (ccy_known_prompts).
+readonly GB_CCY_LIB="${PLAN_REPO_ROOT}/files/var/local/claude-yolo/lib"
 GB_CHECKOUT=""
 GB_SEATS_DIR=""
 GB_SOCKET=""
@@ -261,8 +264,18 @@ gb_leftovers() {
 
 # ── the scratch checkout, the seats and the human ───────────────────────────────────────
 
-# gb_make_checkout — a git repository with this checkout's origin (the teams trust its owner)
-# and the tracked .claude/ccy files a session runs on: the ignore rule and the supervisor.
+# gb_signing_off <checkout> — the checkout's own config says its commits and tags are not
+# signed. The scratch checkout never commits, and ccy reads these from the project's local
+# config before ~/.gitconfig (configure_git_signing), so a session launched there with
+# --no-ssh needs no key: no key of the owner's is mounted or forwarded into it.
+gb_signing_off() {
+    git -C "$1" config --local commit.gpgsign false || return 1
+    git -C "$1" config --local tag.gpgsign false
+}
+
+# gb_make_checkout — a git repository with this checkout's origin (the teams trust its owner),
+# signing off, and the tracked .claude/ccy files a session runs on: the ignore rule and the
+# supervisor.
 gb_make_checkout() {
     local url file
     url="$(git -C "${PLAN_REPO_ROOT}" remote get-url origin)" || return 1
@@ -270,6 +283,7 @@ gb_make_checkout() {
     mkdir -p -- "${GB_CHECKOUT}/.claude/ccy" || return 1
     git -c init.defaultBranch=main init -q -- "${GB_CHECKOUT}" || return 1
     git -C "${GB_CHECKOUT}" remote add origin "${url}" || return 1
+    gb_signing_off "${GB_CHECKOUT}" || return 1
     for file in "${GB_CCY_FILES[@]}"; do
         cp -p -- "${PLAN_REPO_ROOT}/.claude/ccy/${file}" "${GB_CHECKOUT}/.claude/ccy/${file}" || return 1
     done
@@ -398,6 +412,71 @@ gb_container_up() {
     GB_CTR="${ids}"
 }
 
+# gb_waiting_prompt <screen-file> — the name of the launch question the screen's last non-blank
+# line starts with (ccy_known_prompts, the same text the launcher asks with), else nothing.
+gb_waiting_prompt() {
+    local last="" line name text prompts
+    # In a bash of its own: the library's names stay out of this run's.
+    prompts="$(bash -c 'source "$1" && ccy_known_prompts' gb-prompts "${GB_CCY_LIB}/common-pure.bash")" || return 1
+    while IFS= read -r line; do
+        line="${line%"${line##*[![:space:]]}"}"
+        [[ -z "${line}" ]] || last="${line#"${line%%[![:space:]]*}"}"
+    done <"$1" || return 1
+    while IFS=$'\t' read -r name text; do
+        if [[ -n "${name}" && -n "${last}" && "${last}" == "${text}"* ]]; then
+            printf '%s\n' "${name}"
+            return 0
+        fi
+    done <<<"${prompts}"
+}
+
+# gb_starting <session> — gb_container_up, and while the container is not up a FAIL when the
+# launcher is waiting at a question: every one a flag can answer is given one (gb_launch), so
+# one that stops it here has no flag, and nobody is at the run's tmux to answer it.
+gb_starting() {
+    local status=0 screen prompt
+    gb_container_up "$1" || status=$?
+    [[ "${status}" -eq 3 ]] || return "${status}"
+    screen="$(gb_ev "$1/pane.screen")"
+    gb_tmux capture-pane -p -t "=$1:" >"${screen}" || return 1
+    prompt="$(gb_waiting_prompt "${screen}")" || return 1
+    if [[ -n "${prompt}" ]]; then
+        printf '[FAIL] session %s: the ccy launcher is waiting at its %s question, which no launch flag answers and nobody here can (its screen is below). Deal with what it asks about, then run this again\n' \
+            "$1" "${prompt}" >&2
+        gb_evidence "$1: the launcher stopped at its ${prompt} question"
+        return 1
+    fi
+    return 3
+}
+
+# gb_launch_reason <session> — the launcher's own ERROR lines from what its pane showed (the
+# recorded log, else the dead pane's capture), and nothing else of the pane: see pane-errors.
+gb_launch_reason() {
+    local file reason=""
+    for file in "$(gb_ev "$1/pane.log")" "$(gb_ev "$1/pane.capture")"; do
+        if [[ -f "${file}" ]]; then
+            reason="$("${GB_CHECK[@]}" pane-errors "${file}")" || return 1
+            [[ -z "${reason}" ]] || break
+        fi
+    done
+    printf '%s\n' "${reason}"
+}
+
+# gb_launcher_ended <session> — the FAIL for a launcher that ended before its session was up,
+# with its ERROR lines as the reason.
+gb_launcher_ended() {
+    local reason
+    reason="$(gb_launch_reason "$1")" || return 1
+    if [[ -z "${reason}" ]]; then
+        printf '[FAIL] session %s: the ccy launcher ended before its session was up, and printed no ERROR line (its pane is above)\n' "$1" >&2
+        gb_evidence "$1: the launcher ended before its session was up, with no ERROR line"
+        return 0
+    fi
+    printf '[FAIL] session %s: the ccy launcher ended before its session was up. It said:\n' "$1" >&2
+    printf '    %s\n' "${reason}" >&2
+    gb_evidence "$1: the launcher ended before its session was up: ${reason//$'\n'/ / }"
+}
+
 gb_seats_held() {
     (cd -- "${GB_CHECKOUT}" && "${AGENT_BUS}" seat list) >"$(gb_ev "$1/seat-list")" || return 1
     "${CHECK[@]}" expect-held "$(gb_ev "$1/seat-list")" "${SEAT_LIST}"
@@ -408,8 +487,12 @@ gb_session_started() { podman exec "${GB_CTR}" python3 -c "${GB_RECORD_PY}"; }
 # gb_launch <session> — ccy on both seats in its own tmux session in the scratch checkout, its
 # terminal recorded to pane.log; back once its container runs, both seats are held and the
 # pingbus SessionStart hook has run (Claude Code is up), plus GB_SETTLE_S for its prompt.
-# Every choice a launch would ask is given (--token, --no-ssh, --no-network); the Quick Launch
-# record it writes is the scratch checkout's.
+# Every choice a launch would ask that has a flag is given: --teams with the seats, --token,
+# --no-ssh (the checkout's signing is off, gb_signing_off), --no-network, --compose skip,
+# --no-restore. A question with no flag (ccy's menu of containers left with no terminal, an
+# expired or failing token) is caught by gb_starting, and a launcher that ends before its
+# session is up is reported by its ERROR lines. The Quick Launch record it writes is the
+# scratch checkout's.
 gb_launch() {
     local name="$1" ev pid
     ev="$(gb_ev "${name}")"
@@ -417,16 +500,19 @@ gb_launch() {
     date +%s%3N >"${ev}/start-ms" || return 1
     gb_tmux new-session -d -s "${name}" -x 200 -y 50 -c "${GB_CHECKOUT}" \
         -e "CCY_TEAMS_HOST_VARS=${HOST_VARS_FILE}" -- \
-        "${CCY_LAUNCHER}" --teams "${SEAT_LIST}" --token "${GB_TOKEN}" --no-ssh --no-network --no-restore \; \
+        "${CCY_LAUNCHER}" --teams "${SEAT_LIST}" --token "${GB_TOKEN}" --no-ssh --no-network --compose skip --no-restore \; \
         pipe-pane -o "cat >>$(printf '%q' "${ev}/pane.log")" || return 1
     pid="$(gb_tmux display-message -p -t "=${name}:" '#{pane_pid}')" || return 1
     printf '%s\n' "${pid}" >"${ev}/launcher.pid" || return 1
     GB_LIVE_PIDS+=("${pid}")
     printf '==> session %s: ccy --teams %s started (launcher pid %s)\n' "${name}" "${SEAT_LIST}" "${pid}"
-    if ! gb_poll "${GB_START_S}" "session ${name}: its container running" "${pid}" gb_container_up "${name}" \
+    if ! gb_poll "${GB_START_S}" "session ${name}: its container running" "${pid}" gb_starting "${name}" \
         || ! gb_poll "${GB_UP_S}" "session ${name}: seats ${SEAT_LIST} held" "${pid}" gb_seats_held "${name}" \
         || ! gb_poll "${GB_UP_S}" "session ${name}: the pingbus SessionStart hook ran" "${pid}" gb_session_started; then
         gb_show_pane "${name}"
+        if ! gb_alive "${pid}"; then
+            gb_launcher_ended "${name}"
+        fi
         return 1
     fi
     printf '==> session %s: container %s, seats held, Claude Code started\n' "${name}" "${GB_CTR}"
@@ -737,3 +823,56 @@ gb_fake_case() {
 }
 
 gb_fake_pane() { gb_pane_clean "fake-panes/$1"; }
+
+# gb_fake_signing <off|inherited> — ccy's own signing check (configure_git_signing, as the
+# launcher calls it with --no-ssh) on a checkout made as the scratch one is (off) or without
+# gb_signing_off (inherited), under a ~/.gitconfig that signs every commit and tag with SSH as
+# the owner's does. Only the fixture's config is read: never this host's.
+gb_fake_signing() {
+    local dir gitconfig setting
+    dir="$(gb_ev "fake-signing/$1")"
+    gitconfig="${dir}/gitconfig"
+    mkdir -p -- "${dir}/project" || return 1
+    git -c init.defaultBranch=main init -q -- "${dir}/project" || return 1
+    if [[ "$1" == off ]]; then
+        gb_signing_off "${dir}/project" || return 1
+    fi
+    : >"${gitconfig}" || return 1
+    for setting in gpg.format=ssh "user.signingkey=${dir}/id" commit.gpgsign=true tag.gpgsign=true; do
+        git config --file "${gitconfig}" "${setting%%=*}" "${setting#*=}" || return 1
+    done
+    env -u GIT_CONFIG_COUNT -u GIT_CONFIG_PARAMETERS HOME="${dir}" GIT_CONFIG_GLOBAL="${gitconfig}" GIT_CONFIG_NOSYSTEM=1 \
+        bash -c "source \"\$1/common-pure.bash\" && source \"\$1/ssh-handling.bash\" && configure_git_signing \"\$2\" \"\$3\" '' '' 0" \
+        gb-signing "${GB_CCY_LIB}" "${gitconfig}" "${dir}/project"
+}
+
+# gb_fake_launcher_died — a pane where the launcher refused to start: the reason given is its
+# ERROR line, and nothing else the pane showed.
+gb_fake_launcher_died() {
+    local name=fake-panes/died reason want
+    want="ERROR: Commit signing is on in ~/.gitconfig, but the session has no SSH identity to sign with."
+    mkdir -p -- "$(gb_ev "${name}")" || return 1
+    printf 'Validating token...\r\n\033[0;31mERROR:\033[0m %s\r\n  Every commit in the container would fail.\r\n' "${want#ERROR: }" \
+        >"$(gb_ev "${name}/pane.log")" || return 1
+    reason="$(gb_launch_reason "${name}")" || return 1
+    if [[ "${reason}" != "${want}" ]]; then
+        printf '[FAIL] the reason read %q, want %q\n' "${reason}" "${want}" >&2
+        return 1
+    fi
+    printf '==> the reason given: %s\n' "${reason}"
+}
+
+# gb_fake_prompt <waiting|starting> — a screen at ccy's menu of containers left with no
+# terminal is named as waiting at it; one still starting is not.
+gb_fake_prompt() {
+    local screen prompt
+    screen="$(gb_ev "fake-panes/prompt-$1.screen")"
+    mkdir -p -- "${screen%/*}" || return 1
+    case "$1" in
+        waiting) printf 'Found 1 container(s) with no terminal attached\n\n  [i] Ignore\n\nChoice [a/s/i/q]:\n\n\n' >"${screen}" ;;
+        *) printf 'Validating token...\n✓ Token validated successfully\n\n' >"${screen}" ;;
+    esac || return 1
+    prompt="$(gb_waiting_prompt "${screen}")" || return 1
+    printf '==> waiting at: %s\n' "${prompt:-nothing}"
+    [[ "${prompt}" == zombie-containers ]]
+}

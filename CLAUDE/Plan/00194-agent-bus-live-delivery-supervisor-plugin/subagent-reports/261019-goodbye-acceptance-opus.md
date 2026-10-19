@@ -82,3 +82,82 @@ The real run has not happened.
 
 `CLAUDE/Plan/meta-deploy.list` has the plan folder as its one entry. The header lines 1-21
 are unchanged.
+
+## First host run: stopped in setup at commit signing; fixed
+
+Branch `fix/goodbye-acceptance-signing`, from F44 at 4f4cc87a.
+
+### What happened
+
+The first session, accept194-ctrlc, ended before its container started. No goodbye was
+tested, and clean-up was complete. The dead pane said:
+
+```
+ERROR: Commit signing is on in ~/.gitconfig, but the session has no SSH identity to sign with.
+```
+
+The owner's `~/.gitconfig` signs every commit and tag with SSH (Plan 00139). The run already
+launched with `--no-ssh`, and `configure_git_signing` (lib/ssh-handling.bash) refuses a
+launch that would sign with no key. The harness only said "the ccy launcher ended first".
+The real reason was only in the dead pane.
+
+### Fix
+
+1. **Signing off in the scratch checkout.** The new `gb_signing_off` sets
+   `commit.gpgsign false` and `tag.gpgsign false` with `git config --local`. That is enough:
+   `configure_git_signing` reads each setting from the project's local config first, and
+   falls back to the `~/.gitconfig` copy only when the project leaves it unset. With both
+   off, it returns before it looks for a key. The launcher's own test proves this too
+   (`scripts/test-ccy-git-signing.bash`, case `local-off`). The checkout never commits. The
+   sessions still launch `--no-ssh`: no key is mounted, and no agent is forwarded.
+
+2. **Flags for every question that has one.** `--teams` with the seats, `--token`,
+   `--no-ssh`, `--no-network` and `--no-restore` were there already; `--compose skip` is new.
+   I checked every `read -p` in the launcher. With these flags, the questions still left
+   have no flag:
+
+   - ccy's menu of containers with no terminal (zombie containers), which is host-wide;
+   - an expired token, or one that fails validation;
+   - SELinux relabel-fix.
+
+   A tmux pane is a terminal, so these questions wait. The project-containers menu cannot
+   come up: the scratch project's sessions run one at a time, and each one's container is
+   gone before the next starts. The Quick Launch and migration questions cannot come up
+   either. The new `gb_starting` polls the container start. While the container is not up,
+   it reads the screen's last line against `ccy_known_prompts`, the same strings the
+   launcher prompts with, from lib/common-pure.bash. A question ends the run at once, by
+   name, not after the 600 s bound.
+
+3. **The reason, when the launcher ends early.** When the launcher has ended, `gb_launch`
+   prints the pane, then `[FAIL] session <name>: the ccy launcher ended before its session was up. It said:` followed by its ERROR lines, and writes them to the report. The new
+   `goodbye_check.py pane-errors` gives only the lines that start with `ERROR:` once the
+   colour codes and terminal sequences are removed, the last 5 of them. Nothing else the
+   pane showed is repeated, so no token or secret can get in. It reads the pane log, else
+   the capture of the dead pane.
+
+4. **Queue.** `00194-agent-bus-live-delivery-supervisor-plugin` is queued again in
+   `CLAUDE/Plan/meta-deploy.list`, after the 2.0f entries `play-agent-bus.yml` and
+   `play-claude-yolo.yml`, which are kept. Header lines 1-21 are unchanged.
+
+There is no ccy change and no version bump.
+
+### Tests, written first (red, then green)
+
+- `test_goodbye_check.py` `PaneErrorsTest` (5 tests): the ERROR line without its colour
+  codes; never a line that only contains ERROR, never a token line; the last 5 only; nothing
+  when there is no ERROR line; the command's output. All 31 tests pass, including the fake
+  run.
+- `acceptance.bash --fake` has five new legs, and gives FAKE ACCEPTED:
+  - the scratch checkout's settings pass ccy's real `configure_git_signing`, under a
+    fixture `~/.gitconfig` that signs with SSH and with no identity;
+  - the same checkout without `gb_signing_off` is refused;
+  - a dead pane's reason is exactly its ERROR line;
+  - a screen at the zombie-containers menu is caught by name;
+  - a screen that is still starting is not.
+- `shellcheck -x` is clean on both bash files. `scripts/qa-changed.bash` was run.
+
+### Still host-only
+
+The real run. If the host has a ccy container left with no terminal, or the saved token has
+expired, the run now stops at once and names that question. The owner then deals with it
+and runs the script again.

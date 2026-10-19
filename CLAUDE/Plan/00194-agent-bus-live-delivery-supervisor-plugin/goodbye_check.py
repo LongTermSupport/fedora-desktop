@@ -14,6 +14,7 @@ and prints a value or a verdict, so test_goodbye_check.py covers it without a ho
     next-from <page>                              the next page's `from` token; nothing at the end
     last-token <last-launch.conf>                 the token name a Quick Launch saved
     pane-clean <pane.log>                         no traceback, no failed disconnect notice
+    pane-errors <pane.log>                        the launcher's last ERROR: lines, nothing else
     fake-page <end|''> [<ts> <sender> <text>]...  a fixture page for `acceptance.bash --fake`
 
 Exit 0 OK, 1 FAIL (the reason on stderr), 64 usage.
@@ -43,6 +44,13 @@ PANE_FAILURES = (
     "pingbus seat disconnected failed",
     "pingbus seat disconnected was stopped",
 )
+#: How the launcher starts an error line (lib/common-pure.bash print_error), and how many of
+#: the last ones a launch that ended early is reported by.
+ERROR_PREFIX = "ERROR:"
+PANE_ERRORS_MAX = 5
+#: A terminal control sequence in a pane log: CSI (colours, cursor), OSC (the title) and the
+#: two-byte escapes.
+_TERMINAL_SEQUENCE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])")
 _USER_ID = re.compile(r"@([^:@\s]+):(\S+)")
 _TOKEN_LINE = re.compile(r'LAST_TOKEN=(?:"([^"]*)"|(\S*))')
 _TOKEN_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -146,6 +154,18 @@ def pane_clean(text: str) -> None:
             raise Failed(f"the session's terminal shows {failure!r}")
 
 
+def pane_errors(text: str) -> list[str]:
+    """The launcher's own error lines (print_error's `ERROR:` prefix, colour codes and terminal
+    sequences removed), the last PANE_ERRORS_MAX of them. Only those: the rest of a pane is
+    never repeated as a reason, so nothing else it showed can reach the run's output."""
+    found = []
+    for raw in _TERMINAL_SEQUENCE.sub("", text).replace("\r", "\n").split("\n"):
+        line = raw.strip()
+        if line.startswith(ERROR_PREFIX):
+            found.append(line)
+    return found[-PANE_ERRORS_MAX:]
+
+
 def fake_page(end: str, triples: Sequence[str]) -> dict:
     if len(triples) % 3:
         raise UsageError("fake-page takes <ts> <sender> <text> triples")
@@ -208,6 +228,7 @@ COMMANDS: dict[str, tuple[int, Callable[[Sequence[str]], None]]] = {
     "next-from": (1, lambda a: _print(next_from(_json(a[0])))),
     "last-token": (1, lambda a: _print(last_token(_read(a[0])))),
     "pane-clean": (1, lambda a: pane_clean(_read(a[0]))),
+    "pane-errors": (1, lambda a: _print("\n".join(pane_errors(_read(a[0]))) or None)),
     "fake-page": (-1, lambda a: print(json.dumps(fake_page(a[0], a[1:])))),
 }
 
