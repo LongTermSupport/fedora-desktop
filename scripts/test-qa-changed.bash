@@ -251,7 +251,7 @@ plan="$(plan_for src-go/internal/ui/ui.go)"
 expect_has "teams: a shared package it imports picks the suite" "$plan" "suite scripts/test-ccy-teams-command.bash"
 plan="$(plan_for src-go/go.mod)"
 expect_has "teams: go.mod picks the suite" "$plan" "suite scripts/test-ccy-teams-command.bash"
-plan="$(plan_for src-go/internal/transcript/transcript.go)"
+plan="$(plan_for src-go/internal/ftpcamera/app.go)"
 expect_lacks "teams: a package it does not import leaves the suite out" "$plan" "test-ccy-teams-command.bash"
 
 echo
@@ -266,7 +266,7 @@ plan="$(plan_for src-go/internal/tmuxccy/panes.go)"
 expect_has "sessions: a package it imports picks the suites" "$plan" "suite scripts/test-ccy-sessions-take-over.bash"
 plan="$(plan_for src-go/go.mod)"
 expect_has "sessions: go.mod picks the suites" "$plan" "suite scripts/test-ccy-sessions-reboot.bash"
-plan="$(plan_for src-go/internal/agentbus/agentbus.go)"
+plan="$(plan_for src-go/internal/watermark/app.go)"
 expect_lacks "sessions:a package it does not import leaves the suites out" "$plan" "test-ccy-sessions-reboot.bash"
 
 echo
