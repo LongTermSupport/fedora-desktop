@@ -66,5 +66,41 @@ class ClaudeFailureReportTest(unittest.TestCase):
         self.assertEqual(self.shown, [("The dictation was lost", 0)])
 
 
+class ClaudeProcessingStateTest(unittest.TestCase):
+    """Plan 00187 (#100): the panel is told, with this client's token, that the transcript
+    is done and Claude is working on it, before wsi-claude-process runs."""
+
+    def setUp(self):
+        self.events = []
+        self.args = mock.Mock(claude_model="sonnet", claude_style="natural", debug=False)
+
+        def run(cmd, **_kwargs):
+            self.events.append(("run", cmd[0]))
+            return mock.Mock(returncode=0, stdout="Polished.\n", stderr="")
+
+        for name, value in {
+            "session_token": "tok-5",
+            "ended_with": None,
+            "send_dbus_signal": lambda name, value, token: self.events.append((name, value, token)),
+            "log": lambda message, level="INFO": None,
+        }.items():
+            patcher = mock.patch.object(wsi_stream, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(wsi_stream.subprocess, "run", run)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_claude_processing_is_signalled_with_the_token_before_claude_runs(self):
+        self.assertEqual(wsi_stream.run_claude_processing("the raw words", self.args), "Polished.")
+        self.assertEqual(self.events, [
+            ("StateChanged", "CLAUDE_PROCESSING", "tok-5"),
+            ("run", "wsi-claude-process"),
+        ])
+
+    def test_claude_processing_does_not_end_the_session(self):
+        self.assertNotIn("CLAUDE_PROCESSING", wsi_stream.ENDING_STATES)
+
+
 if __name__ == "__main__":
     unittest.main()

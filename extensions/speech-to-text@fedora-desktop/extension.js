@@ -24,7 +24,7 @@ import { FocusOutline } from './focusOutline.js';
 import { PasteTargetPin } from './pasteTarget.js';
 import { PanelSession } from './panelSession.js';
 import { spawnWatched, killArgv, discardSignal } from './recorderLaunch.js';
-import { lookFor, isKnownState, recordingBadgeColor, articleBadgeColor, shownState, COLOURS } from './panelLook.js';
+import { lookFor, isKnownState, recordingBadgeColor, articleBadgeColor, shownState, claudeEmoji, COLOURS } from './panelLook.js';
 import { POST_PROCESS_STYLES, LastTranscriptPostProcessor, unusableKeybindings } from './postProcess.js';
 import { TOKEN_WARNING_FILE, tokenWarning } from './tokenWarning.js';
 
@@ -82,6 +82,7 @@ export default class SpeechToTextExtension extends Extension {
         // The one recorder the panel follows, and what each key does (panelSession.js)
         this._panel = null;
         this._hourglassIcon = null;
+        this._lookLabel = null;           // a look's text, shown in place of the icon
         this._iconState = null;           // the state the icon shows
         this._stateUnderBlocked = null;   // the state a BLOCKED flash is shown over
         this._articleSpinner = false;
@@ -156,6 +157,14 @@ export default class SpeechToTextExtension extends Extension {
             style_class: 'system-status-icon'
         });
         this._iconBox.add_child(this._icon);
+
+        // A look with text (Claude post-processing's emoji) is shown here, in place of the icon
+        this._lookLabel = new St.Label({
+            text: '',
+            y_align: 2,  // Clutter.ActorAlign.CENTER
+            visible: false
+        });
+        this._iconBox.add_child(this._lookLabel);
 
         // Add server status indicator dot (initially hidden)
         this._serverStatusDot = new St.Icon({
@@ -754,7 +763,7 @@ export default class SpeechToTextExtension extends Extension {
 
         // Outline the window the text will be pasted into, for as long as a paste can come;
         // the pin taken at Insert lasts until the dictation has ended
-        const pasteCanCome = ['RECORDING', 'STOPPING', 'TRANSCRIBING'].includes(state);
+        const pasteCanCome = ['RECORDING', 'STOPPING', 'TRANSCRIBING', 'CLAUDE_PROCESSING'].includes(state);
         if (pasteCanCome && this._autoPaste && !this._isArticleMode)
             this._focusOutline?.show(this._pasteTarget?.window ?? null);
         else
@@ -813,12 +822,15 @@ export default class SpeechToTextExtension extends Extension {
     _showLook(state) {
         if (!isKnownState(state))
             this._log(`Unknown state "${state}": shown as please-wait, never as ready`);
-        const look = lookFor(shownState(state, this._filesRunning));
+        const look = lookFor(shownState(state, this._filesRunning), this._claudeStyle);
         if (look.icon === 'hourglass')
             this._icon.gicon = this._hourglassIcon;
         else
             this._icon.icon_name = look.icon;
         this._icon.style = look.colour ? `color: ${look.colour};` : '';
+        this._lookLabel.text = look.text ?? '';
+        this._lookLabel.visible = Boolean(look.text);
+        this._icon.visible = !look.text;
     }
 
     /** m:ss */
@@ -844,10 +856,8 @@ export default class SpeechToTextExtension extends Extension {
         let text = this._formatSeconds(left === null ? this._recordingSeconds : left);
         if (this._dictationPending > 0)
             text += ` ·${this._dictationPending}`;
-        if (this._isClaudeMode) {
-            const emoji = this._claudeStyle === 'natural' ? '💬' : '🤖';
-            return `${emoji} ${text}`;
-        }
+        if (this._isClaudeMode)
+            return `${claudeEmoji(this._claudeStyle)} ${text}`;
         return text;
     }
 

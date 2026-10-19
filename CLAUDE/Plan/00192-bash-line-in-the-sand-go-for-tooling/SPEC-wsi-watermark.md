@@ -186,7 +186,8 @@ Python and are run from the directory the binary is in.
   removed; the first letter upper-cased. Empty: `No transcription result (empty string)` (W9)
   then `ERROR` with `No speech detected` and the icon `dialog-warning`, exit 1.
 - W23. `--claude-process`: `wsi-claude-process` on PATH (else
-  `wsi-claude-process not found (re-run play-speech-to-text.yml)`, exit 1) is run as
+  `wsi-claude-process not found (re-run play-speech-to-text.yml)`, exit 1), after the state
+  `CLAUDE_PROCESSING` (Plan 00187), is run as
   `wsi-claude-process --model <m> --style <s> [--debug] <text>`; exit 0 with output replaces
   the text. Otherwise the reason is its stderr, newlines as spaces, less a leading
   `wsi-claude-process: ` (empty: `exit <n>, no output`): `Claude: <reason>` (W9), the raw text

@@ -437,6 +437,7 @@ by itself afterwards. Ctrl+Insert and Alt+Insert follow the same rules.
 | Red badge with the time: recording                                | Stops, after the [stop grace](#stop-grace)                                   | Discards the dictation |
 | Orange "…": the stop grace (microphone still open)                | Nothing (no-entry flash)                                                     | Discards the dictation |
 | Orange "…" transcribing, or orange hourglass: finishing           | Nothing (no-entry flash); press again once the icon is ready                 | Nothing                |
+| 🤖 or 💬: Claude is post-processing the transcript                | Nothing (no-entry flash); press again once the icon is ready                 | Nothing                |
 | Red record dot: a recording the panel did not start               | Stops it after the grace, once (starts nothing; press again once ready)      | Nothing                |
 
 A recording the panel did not start is one that outlived its panel: GNOME turns
@@ -748,12 +749,14 @@ a loading icon while transcribing):
 | Red badge with the elapsed time | Recording   | Listening to your voice (Insert to stop); amber when behind       |
 | Red record dot                  | Not ours    | A recording the panel did not start is running (Insert stops it)  |
 | Orange, loading icon            | Processing  | Transcribing audio                                                |
+| 🤖 or 💬 in place of the icon   | Claude      | Claude is post-processing the transcript (Ctrl+ or Alt+Insert)    |
 | Green (2 seconds)               | Success     | Transcription delivered (the only green)                          |
 | Red microphone (2 seconds)      | Error       | The panel menu says why; check the debug log                      |
 
 The ready icon is shown only when no recorder the panel started is still running, so a
 press on it always starts a recording. In Claude post-processing modes the panel
-**label** is additionally prefixed with 🤖 (corporate) or 💬 (natural).
+**label** is additionally prefixed with 🤖 (corporate, Ctrl+Insert) or 💬 (natural,
+Alt+Insert), and the same emoji replaces the icon while Claude post-processes.
 
 **Desktop notifications** also show:
 
