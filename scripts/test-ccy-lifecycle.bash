@@ -490,8 +490,9 @@ check "an interpreter named by path is judged the same" "rc=1" \
 printf '#!/usr/bin/env bash\necho hi\n' >"$work/sh-launcher/other-script"
 check "python3 on any bash script is refused" "rc=1" \
     "$(wrapper_case "python3 $work/sh-launcher/other-script --" '' '' claude)"
-printf 'MIN_MAJOR=3\n' >"$work/sh-launcher/claude-supervise"
-check "python3 on a file whose .py sibling exists is refused, shebang or not" "rc=1" \
+printf '#!/usr/bin/env python3\nMIN_MAJOR = 3\n' >"$work/sh-launcher/claude-supervise"
+check "python3 on a python-shebang file beside a .py sibling still runs" \
+    "python3|$work/sh-launcher/claude-supervise|--|claude" \
     "$(wrapper_case "python3 $work/sh-launcher/claude-supervise --" '' '' claude)"
 check "python3 on the .py itself still runs" \
     "python3|$work/sh-launcher/claude-supervise.py|--arm|--|claude" \

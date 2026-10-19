@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.12.13 — container 2.77.9
+## 3.99.12.14 — container 2.77.10
 
 Follows 3.99.12.12 (container 2.77.8). The entrypoint changed, so the image is rebuilt once.
 
@@ -27,8 +27,8 @@ Follows 3.99.12.12 (container 2.77.8). The entrypoint changed, so the image is r
   `claude-supervise.py` to `claude-supervise` without removing a `python3` in front of it. A
   project wrapper of the form `python3 /workspace/.claude/ccy/claude-supervise --arm --` then
   died at launch on a bare Python `SyntaxError` at the launcher's first function. When the
-  wrapper's first word is a python interpreter and the next is a file with a `.py` sibling,
-  or a script whose shebang names sh, bash or dash, the entrypoint now stops before exec with
+  wrapper's first word is a python interpreter and the next is a script whose shebang names
+  sh, bash or dash, the entrypoint now stops before exec with
   "Point CCY_CLAUDE_WRAPPER at claude-supervise (no python3) or claude-supervise.py". The
   wrapper is never rewritten; the fix belongs in the project's `.claude/ccy/ccy.env` (or
   `ccy.env.local`).

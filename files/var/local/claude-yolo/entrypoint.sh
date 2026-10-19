@@ -741,7 +741,7 @@ if [[ -n "${CCY_CLAUDE_WRAPPER:-}" ]]; then
     # Python handed a shell script dies on a SyntaxError that names no fix. The daemon's
     # .claude/ccy/claude-supervise is a #!/bin/sh launcher beside claude-supervise.py, so a
     # python word before a file with a .py sibling, or before a sh/bash script, is refused.
-    if [[ "${_ccy_wrapper[0]##*/}" == python* && -f "${_ccy_wrapper[1]:-}" ]] && [[ -f "${_ccy_wrapper[1]}.py" || "$(head -n1 -- "${_ccy_wrapper[1]}")" =~ ^#!.*[/\ ](ba|da)?sh( |$) ]]; then
+    if [[ "${_ccy_wrapper[0]##*/}" == python* && -f "${_ccy_wrapper[1]:-}" ]] && [[ "$(head -n1 -- "${_ccy_wrapper[1]}")" =~ ^#!.*[/\ ](ba|da)?sh( |$) ]]; then
         printf '✗ CCY: CCY_CLAUDE_WRAPPER runs a shell script through Python: %s\n  Point CCY_CLAUDE_WRAPPER at claude-supervise (no python3) or claude-supervise.py, in .claude/ccy/ccy.env (or ccy.env.local).\n' "$CCY_CLAUDE_WRAPPER" >&2
         exit 1
     fi
