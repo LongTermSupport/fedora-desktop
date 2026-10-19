@@ -384,7 +384,6 @@ func TestPreflightKnowsEveryToolAChecksNeeds(t *testing.T) {
 		"node":             "play-nvm-install.yml",
 		"python3":          "play-python.yml",
 		"go":               "play-golang.yml",
-		"golangci-lint":    "play-python.yml",
 		"bash":             "bash",
 	}
 	for tool, fix := range cases {

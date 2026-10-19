@@ -168,9 +168,14 @@ install a binary by hand: the play is the only route
 
 ## QA
 
-`scripts/qa-go.bash` (fmt, vet, `go test -race` with a coverage floor, golangci-lint) is the
-interim gate, run by `qa-all.bash` and by `qa-changed.bash` for a `src-go/` change, until the
-go-qa-ci toolchain replaces it. Details: [QA.md](../CLAUDE/QA.md).
+`scripts/qa-go-qa.bash` is the Go gate: go-qa-ci's `go-qa`, pinned by the `tool` directive of
+`qa/go.mod` and configured by `qa/go-qa.toml`, over both modules (format, golangci-lint, vet with
+its bundled analyzers and the project rules, dead code, govulncheck, module files, build,
+`go test -race -shuffle=on`, a 90% coverage floor per module). `qa-all.bash` runs it whole and
+`qa-changed.bash` in go-qa's diff mode for a `src-go/` change. A test that re-runs its own binary
+(the closed-stdout checks) does it through `qa/internal/cmdmaintest`, whose `Main` is the
+package's `TestMain`: the process ends only in a `main` or a `TestMain`. Details:
+[QA.md](../CLAUDE/QA.md).
 
 `qa/bashlimits` + `qa/cmd/qa-bash-limits` (in the nested `qa` module, which holds the
 `mvdan.cc/sh` parser dependency) are the QA gate that holds every bash file to the tooling-is-Go
@@ -184,7 +189,7 @@ of a changed file to checks is data (`scripts/qa-routing.tsv`, `scripts/qa-trees
 checks are a registry in `changed/checks.go`, and the proofs are its Go tests, a golden replay of
 the bash it replaced (`changed/golden_test.go`, difference only as a numbered bug pinned in
 `testdata/deviations.json`) and the black-box suite `scripts/test-qa-changed.bash`. The project
-rules run over this nested module too (`qa-go.bash` runs the driver a second time over it):
+rules run over this nested module too (go-qa runs the driver over both modules):
 every process it starts goes through the one seam `qa/internal/proc` (shared with
 `qa/bashlimits`' git runner), faked in tests, and its tests read no wall clock.
 
@@ -239,7 +244,7 @@ tests over real temporary git repositories with a fake validator and by the real
 `qa/cmd/qa-vmtest-manifest`.
 
 `qa/toolchain` + `qa/cmd/qa-toolchain` (same nested module) are `scripts/qa-toolchain.bash`, the
-gate that the QA tools are the versions `.qa-versions` pins (go: not older than `src-go/go.mod`):
+gate that the QA tools are the versions `.qa-versions` pins (go: not older than the higher go directive of `src-go/go.mod` and `qa/go.mod`):
 the script only builds and runs the command. The pin file is parsed with the `mvdan.cc/sh` parser
 and `go.mod` with `x/mod/modfile`, never sourced or awk-ed; tool drift is exit 1 (the machine is
 wrong), an unreadable pin file or go.mod exit 2 (the gate cannot judge). Version runs go through `qa/internal/proc`, faked in the
@@ -374,4 +379,6 @@ that writes a machine report wires `cmdmain.WriteReport` (mode 0644, read by oth
 stdout or stderr. `rootargs` is the `-h`/`--root DIR`/`--scripts DIR` grammar (a missing, empty or
 `-`-leading value is refused, an unknown argument is a typed error answered with the usage text);
 a gate with more flags keeps its own parser. `rootpath` (above) resolves what `rootargs` read.
-`cmdmaintest` is the test side: `RefusesClosedStdout` and `WritesReportWithMode`.
+`cmdmaintest` is the test side: `RefusesClosedStdout` (through `Child`, which re-runs the test
+binary; the package declares `func TestMain(m *testing.M) { os.Exit(cmdmaintest.Main(m)) }`) and
+`WritesReportWithMode`.

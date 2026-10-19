@@ -202,7 +202,7 @@ plan="$(plan_for src-go/internal/ui/ui.go src-go/go.mod)"
 expect_has "go: gate planned" "$plan" "check go"
 expect_lacks "go: a Go file is covered" "$plan" "not covered by qa-changed: src-go/internal/ui/ui.go"
 expect_lacks "go: go.mod is covered" "$plan" "not covered by qa-changed: src-go/go.mod"
-expect_lacks "go: qa-go is not also picked as a suite" "$plan" "suite scripts/qa-go.bash"
+expect_lacks "go: the Go gate is not also picked as a suite" "$plan" "suite scripts/qa-go-qa.bash"
 
 plan="$(plan_for src-go/qa/rules/seamexec.go src-go/qa/go.mod src-go/qa/rules/testdata/src/fix/internal/badexec/bad.go)"
 expect_has "go: a project-rules file plans the gate" "$plan" "check go"
@@ -283,7 +283,7 @@ for cmd_dir in "$SCRIPT_DIR"/../src-go/cmd/*/; do
     entry="$(awk -F'\t' -v c="$cmd_name" '$1 == c {print $2}' "$SCRIPT_DIR/go-binary-suites.tsv")"
     plan="$(plan_for "src-go/cmd/$cmd_name/main.go")"
     if [[ "$entry" == "qa-go" ]]; then
-        # Its oracle is a Go test: the whole Go gate is the check, and no bash suite is picked.
+        # Its oracle is a Go test: the Go gate is the check, and no bash suite is picked.
         expect_has "binaries: $cmd_name's oracle is a Go test, which the Go gate runs" "$plan" "check go"
         expect_lacks "binaries: $cmd_name picks no bash suite for its build closure" "$plan" "builds from"
     else

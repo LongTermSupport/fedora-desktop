@@ -83,7 +83,6 @@ scripts/lib/run-log-scrub.bash	130	4	70	data
 scripts/lint	257	6	246	data
 scripts/mark-branches-superseded.bash	236	12	223	-
 scripts/nvidia-status.bash	430	4	502	-
-scripts/qa-go.bash	72	2	81	-
 scripts/release.bash	227	8	271	data
 scripts/setup-rclone.bash	442	9	444	data
 scripts/setup.bash	74	5	107	-

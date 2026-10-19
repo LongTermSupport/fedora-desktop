@@ -24,8 +24,9 @@
 # Toolchain first: every verdict below is a property of the binary that produced it. It does
 # not abort, because a drifted toolchain makes the verdicts unreliable, not unrunnable.
 gate	toolchain	scripts/qa-toolchain.bash	QA tool versions do not match .qa-versions — verdicts below are not comparable	detail:TOOLCHAIN-OK .+
-# src-go/: format, vet, race tests, golangci-lint, project rules.
-gate	go	scripts/qa-go.bash	Go format, vet, tests or golangci-lint failed (or go/golangci-lint missing)	detail:GO-OK [0-9]+ package[(]s[)]
+# src-go/, both modules: go-qa-ci's go-qa (format, golangci-lint, vet with the bundled analyzers and
+# the project rules, dead code, govulncheck, module files, build, race tests, coverage floor).
+gate	go	scripts/qa-go-qa.bash	go-qa found a defect in src-go, or could not run (go missing, a pinned tool not installed)	detail:coverage +passed
 # src-go's dependencies (Plan 00204 D2): allowlisted, pinned and vendored in step; then no known
 # vulnerability the code reaches.
 gate	go-deps	scripts/qa-go-deps.bash	src-go's dependencies are not all allowlisted, pinned and vendored in step with go.mod	detail:GO-DEPS-OK [0-9]+ module[(]s[)] allowlisted .+

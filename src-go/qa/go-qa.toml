@@ -11,7 +11,7 @@ modules = ["qa"]
 # The project record is the owner's to sign (decided_by must be a decider the owner names, and
 # the trust tier of an agent-written entry is the owner's choice), so there is no record yet,
 # and without one every exclusion in .golangci.yml would fail the suppression detector. Both
-# are switched on together when the owner has signed a record (Plan 00191 Task 3.5).
+# are switched on together when the owner has signed a record (Plan 00191 Task 3.8).
 record = false
 suppression = false
 

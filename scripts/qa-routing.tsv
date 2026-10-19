@@ -69,6 +69,8 @@ also	src-go/qa/deployeddrift/*,src-go/qa/cmd/qa-deployed-drift/*,scripts/qa-depl
 also	scripts/shellcheck-disable.allowlist	bash	covered
 # The tables that route files and list the gates are read by the Go tests (which run the real ones).
 also	scripts/qa-routing.tsv,scripts/qa-trees.tsv,scripts/qa-gates.tsv	go	covered
+# The Go gate's wrapper, and .qa-versions, whose golangci-lint pin a Go test holds equal to go-qa-ci's.
+also	scripts/qa-go-qa.bash,.qa-versions	go	-
 also	CLAUDE/Watchlist.tsv	go	covered
 also	@listed:bash-limits.allowlist	bash-limits	-
 # The no-kill gate judges the container-watch watchdog and the two panel files that show it, and
@@ -82,11 +84,11 @@ also	playbooks/*.yml,playbooks/*.yaml,tasks/*.yml,tasks/*.yaml	ansible-pause	-
 also	scripts/qa-ansible-pause.bash,src-go/qa/ansiblepause/*,src-go/qa/cmd/qa-ansible-pause/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv,src-go/qa/internal/emit/*,src-go/qa/internal/cmdmain/*	ansible-pause	-
 also	tests/fixtures/ansible-pause/*	go	covered
 # The toolchain gate judges the installed tools against .qa-versions (which it covers) and the Go
-# floor of src-go/go.mod; it runs whole when either, its wrapper, its Go package or command, or the
+# floor of src-go/go.mod and src-go/qa/go.mod; it runs whole when one, its wrapper, its Go package or command, or the
 # wrapper library change. It also runs after any changed shell or Python file (the post row below).
 # It reads no fixtures: its Go tests run on fakes.
 also	.qa-versions	toolchain	covered
-also	src-go/go.mod,scripts/qa-toolchain.bash,src-go/qa/toolchain/*,src-go/qa/cmd/qa-toolchain/*,scripts/lib/go-tool.bash,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	toolchain	-
+also	src-go/go.mod,src-go/qa/go.mod,scripts/qa-toolchain.bash,src-go/qa/toolchain/*,src-go/qa/cmd/qa-toolchain/*,scripts/lib/go-tool.bash,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	toolchain	-
 # The docs gate runs whole after any Markdown change (the *.md row below), any playbook or playbook
 # support file (the YAML logic in classify.go), and when anything it reads changes: the gate table
 # and the trees table (the inventory check and the scan), the shared discovery and gate loader, the
@@ -166,4 +168,4 @@ first	@sh	bash-syntax,shellcheck,shell-directives,semgrep,ready-wait-files	cover
 post	any:@sh	bash-limits	-
 post	any:@sh,any:@py	toolchain	-
 post	any:@sh,any:@py	hidden-bindings	-
-perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-ansible-pause qa-gh-scopes qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings
+perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go-qa qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-ansible-pause qa-gh-scopes qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings

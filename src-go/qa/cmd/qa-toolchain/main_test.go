@@ -30,7 +30,7 @@ func fakeTool(t *testing.T, dir, name, body string) {
 func machine(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	for rel, text := range map[string]string{".qa-versions": pins, "src-go/go.mod": "module m\n\ngo 1.1\n"} {
+	for rel, text := range map[string]string{".qa-versions": pins, "src-go/go.mod": "module m\n\ngo 1.1\n", "src-go/qa/go.mod": "module m\n\ngo 1.1\n"} {
 		path := filepath.Join(root, rel)
 		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 			t.Fatal(err)

@@ -214,6 +214,7 @@ var explicitPlanHeader = regexp.MustCompile(`plan: ([0-9]+) changed file\(s\) \(
 // diffed against nothing (SPEC-qa-changed.md bug B16, fixed on purpose), so the Go's
 // "(explicit)" is mapped to it here rather than pinned in a deviation file for each scenario.
 func normaliseGolden(text, root string, explicit bool) string {
+	text = strings.ReplaceAll(text, goCheckSummary(), goGateAsRecorded.summary)
 	if explicit {
 		text = explicitPlanHeader.ReplaceAllString(text, "plan: $1 changed file(s) vs HEAD")
 	}
@@ -245,6 +246,40 @@ func applySetup(t *testing.T, root string, s goldenSetup) {
 	}
 	if s.Commit {
 		gitIn(t, root, "commit", "-q", "-m", "second")
+	}
+}
+
+// goGateAsRecorded is the Go gate as the bash knew it. It was replaced after the recording (Plan
+// 00191 Task 3.3: scripts/qa-go.bash gave way to go-qa-ci's go-qa, run by scripts/qa-go-qa.bash),
+// so the replay logs and answers the new script under the recorded name and prints the recorded
+// summary. This is not a deviation: no bash bug, only a gate the bash ran under another name.
+var goGateAsRecorded = struct{ now, script, summary string }{
+	now:     "qa-go-qa.bash",
+	script:  "qa-go.bash",
+	summary: "whole gate (interim qa-go.bash)",
+}
+
+// goCheckSummary is the go check's summary today.
+func goCheckSummary() string {
+	d, ok := checkByID("go")
+	if !ok {
+		panic("no go check")
+	}
+	return d.fixed
+}
+
+// The mapping is rot once it maps nothing: the go check must still differ from the recording.
+func TestTheGoGateMappedBackToTheRecordingStillDiffersFromIt(t *testing.T) {
+	if goCheckSummary() == goGateAsRecorded.summary || goGateAsRecorded.now == goGateAsRecorded.script {
+		t.Fatal("the go check is as recorded again: drop goGateAsRecorded")
+	}
+	runner := &scriptedRunner{}
+	s := newTestSession(t, runner)
+	if _, err := lookupCheck("go").run(context.Background(), s, &checkPlan{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := filepath.Base(runner.calls[0].Argv[1]); got != goGateAsRecorded.now {
+		t.Fatalf("the go check runs %s, not %s: update goGateAsRecorded", got, goGateAsRecorded.now)
 	}
 }
 
@@ -325,6 +360,9 @@ func (r *goldenRunner) exit(c proc.Cmd, name string) proc.Result {
 
 func (r *goldenRunner) script(c proc.Cmd) proc.Result {
 	name := filepath.Base(c.Argv[1])
+	if name == goGateAsRecorded.now {
+		name = goGateAsRecorded.script
+	}
 	if !strings.HasPrefix(name, "test-") {
 		jsonFlag := ""
 		if envOf(c.Env, "QA_JSON_OUT") != "" {

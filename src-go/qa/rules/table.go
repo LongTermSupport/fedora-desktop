@@ -231,13 +231,8 @@ var expectBuilders = []allowance{
 // clockAllowance excuses one test function from the fixed-clock rule.
 type clockAllowance = allowance
 
-var clockAllowances = []clockAllowance{
-	{
-		pkg:    "internal/tmuxccy",
-		fn:     "TestTakeOverDefaultsToTheRealClockAndSleep",
-		reason: "proves the default Sleep really sleeps; only the wall clock can show that",
-	},
-}
+// No test reads the wall clock: a real sleep is shown by a timer that fires first.
+var clockAllowances = []clockAllowance{}
 
 // noResult is what every rule hands the analysis framework: the rules only report.
 type noResult struct{}

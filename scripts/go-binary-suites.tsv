@@ -4,8 +4,8 @@
 # command <TAB> suites
 #   suites   the scripts/test-*.bash suites that build and drive the binary, space separated; they
 #            run when a file in the command's build closure changes. Or qa-go: the command's oracle
-#            is a Go test, which scripts/qa-go.bash runs whole on any src-go/ change, so there is
-#            no bash suite to add.
+#            is a Go test, which the Go gate (scripts/qa-go-qa.bash) runs on any src-go/ change
+#            that reaches the command, so there is no bash suite to add.
 # A command no play deploys and no one runs by hand (a QA tool) lives under src-go/qa/cmd and has
 # no row. watchlist is run from the checkout with go run and is not deployed.
 ccy-teams	scripts/test-ccy-teams-command.bash scripts/test-ccy-container-name.bash

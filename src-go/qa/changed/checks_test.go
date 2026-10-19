@@ -102,7 +102,7 @@ func TestSummaries(t *testing.T) {
 		"python":              "compile and ruff, whole gate",
 		"js":                  "node --check and ESLint, whole gate",
 		"docs":                "whole gate",
-		"go":                  "whole gate (interim qa-go.bash)",
+		"go":                  "go-qa, both modules (diff mode on a git change)",
 		"bash-limits":         "whole gate (tooling is Go; allowlist ratchet)",
 		"eslint":              "2 file(s)",
 
@@ -351,7 +351,7 @@ func TestGatesRunTheirScriptFromTheScriptsDirectory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for i, name := range []string{"qa-toolchain.bash", "qa-go.bash", "qa-bash-limits.bash", "qa-ansible.bash", "qa-docs.bash", "qa-nokill-containerwatch.bash", "qa-ansible-syntax.bash", "qa-deployed-drift.bash", "qa-ansible-pause.bash", "qa-gh-scopes.bash", "qa-ready-wait-rules.bash", "qa-plan-script-logging.bash", "qa-speech-to-text-rules.bash", "qa-version-pins.bash", "qa-vmtest-manifest.bash", "qa-go-deps.bash", "qa-go-vuln.bash"} {
+	for i, name := range []string{"qa-toolchain.bash", "qa-go-qa.bash", "qa-bash-limits.bash", "qa-ansible.bash", "qa-docs.bash", "qa-nokill-containerwatch.bash", "qa-ansible-syntax.bash", "qa-deployed-drift.bash", "qa-ansible-pause.bash", "qa-gh-scopes.bash", "qa-ready-wait-rules.bash", "qa-plan-script-logging.bash", "qa-speech-to-text-rules.bash", "qa-version-pins.bash", "qa-vmtest-manifest.bash", "qa-go-deps.bash", "qa-go-vuln.bash"} {
 		argv := runner.calls[i].Argv
 		if argv[0] != "bash" || argv[1] != filepath.Join(s.scripts, name) {
 			t.Fatalf("call %d: %v", i, argv)
@@ -369,6 +369,33 @@ func TestGatesRunTheirScriptFromTheScriptsDirectory(t *testing.T) {
 	s.cleanup()
 	if _, err := os.Stat(strings.TrimPrefix(runner.calls[3].Env[0], "QA_JSON_OUT=")); !os.IsNotExist(err) {
 		t.Fatalf("the report file must be removed on cleanup: %v", err)
+	}
+}
+
+// The Go gate is scoped to the same change qa-changed collected: go-qa's diff mode against the
+// same base, which sees only src-go/. A file outside it that routes to the go check (a parity
+// reference or a table the Go tests read) selects no package there, so it gets the full run; so
+// does an explicit file list, which is no diff.
+func TestTheGoGateRunsGoQaOverTheSameChange(t *testing.T) {
+	for _, c := range []struct {
+		opts  options
+		items []string
+		want  []string
+	}{
+		{options{base: "origin/F44"}, []string{"src-go/internal/ui/ui.go", "src-go/qa/go.mod"}, []string{"--changed", "--base", "origin/F44"}},
+		{options{base: "HEAD"}, []string{"src-go/internal/ui/ui.go", "scripts/qa-gates.tsv"}, nil},
+		{options{base: "HEAD", explicit: true, files: []string{"src-go/x.go"}}, []string{"src-go/x.go"}, nil},
+	} {
+		runner := &scriptedRunner{}
+		s := newTestSession(t, runner)
+		s.opts = c.opts
+		if _, err := lookupCheck("go").run(context.Background(), s, &checkPlan{items: c.items}); err != nil {
+			t.Fatal(err)
+		}
+		want := append([]string{"bash", filepath.Join(s.scripts, "qa-go-qa.bash")}, c.want...)
+		if got := runner.calls[0].Argv; !reflect.DeepEqual(got, want) {
+			t.Fatalf("%+v %v: argv %v, want %v", c.opts, c.items, got, want)
+		}
 	}
 }
 
