@@ -1,0 +1,25 @@
+# go-qa-ci over this Go tree (CLAUDE/QA.md, the go gate). go-qa is pinned by the tool directive
+# of src-go/qa/go.mod (its version there, its content in go.sum) and runs as `go tool go-qa` from
+# this module; it installs the external tools it runs at the pins it carries (its tools.lock).
+# The root is src-go; the nested module qa (this directory) holds the project rules
+# (src-go/qa/rules, CLAUDE/GoProjectRules.md), which run through the driver below beside go-qa-ci's
+# bundled analyzers. The gate passes --no-fix: outside CI go-qa's fmt rewrites files by default,
+# and a gate that rewrites what it judges passes the defect it ran to find.
+modules = ["qa"]
+
+[tools]
+# The project record is the owner's to sign (decided_by must be a decider the owner names, and
+# the trust tier of an agent-written entry is the owner's choice), so there is no record yet,
+# and without one every exclusion in .golangci.yml would fail the suppression detector. Both
+# are switched on together when the owner has signed a record (Plan 00191 Task 3.8).
+record = false
+suppression = false
+
+[analyzers]
+module = "qa"
+driver = "./driver"
+
+# The floor sits a few points under the measured total, so it catches untested code landing,
+# not ordinary drift. Raise it as coverage rises; never lower it to let a change in.
+[coverage]
+fail_under_statements = 90

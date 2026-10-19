@@ -71,7 +71,7 @@ starts: `git ls-files` (through `qa/discovery`) and `semgrep`.
 
 ### The Python half
 
-- R10. With one or more Python files, `semgrep --metrics=off --disable-version-check --config <rules> --no-rewrite-rule-ids --scan-unknown-extensions --json --quiet <files>` runs in the root. An exit
+- R10. With one or more Python files, `semgrep --metrics=off --disable-version-check --config <rules> --no-rewrite-rule-ids --scan-unknown-extensions --json --timeout=120 --quiet <files>` runs in the root (`--timeout=120` is `semgrepreport.TimeoutFlag`: semgrep's 5 s default is wall time, and a loaded host turns a clean file into a Timeout error). An exit
   of 2 or more, or an empty report, is exit 2 `ERROR: semgrep failed on the Python files (exit N):`
   and its stderr.
 - R11. Any entry in the report's `errors` is exit 2 `ERROR: semgrep could not parse some Python files, so the rule did not run on them:` and one `    <path>: <message>` line each.
@@ -150,17 +150,17 @@ text.
 
 ## 3. Departures from the bash and Python
 
-| Id  | The legacy                                                                                               | Now                                                                                 |
-| --- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| B1  | the shell half was a Python module with its own unit tests                                               | Go package; the Python module and its tests are removed, the cases ported (R14-R24) |
-| B2  | an unreadable or non-UTF-8 shell file was a Python traceback | unreadable or unparseable is exit 2 naming it (R9, R14, R24) |
-| B3  | the helper had a `--fixture` command line                                                                | in-process proof (R7)                                                               |
-| B4  | the same line found twice was printed twice before `sort -u`                                             | one finding per line (R23)                                                          |
-| B5  | scratch files in a temp directory                                                                        | captured in memory                                                                  |
-| B6  | an explicit PATH was relative to whatever directory the script `cd`'d to                                 | relative to the root, stated (R1)                                                   |
+| Id  | The legacy                                                                                                                                                                        | Now                                                                                                 |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| B1  | the shell half was a Python module with its own unit tests                                                                                                                        | Go package; the Python module and its tests are removed, the cases ported (R14-R24)                 |
+| B2  | an unreadable or non-UTF-8 shell file was a Python traceback                                                                                                                      | unreadable or unparseable is exit 2 naming it (R9, R14, R24)                                        |
+| B3  | the helper had a `--fixture` command line                                                                                                                                         | in-process proof (R7)                                                                               |
+| B4  | the same line found twice was printed twice before `sort -u`                                                                                                                      | one finding per line (R23)                                                                          |
+| B5  | scratch files in a temp directory                                                                                                                                                 | captured in memory                                                                                  |
+| B6  | an explicit PATH was relative to whatever directory the script `cd`'d to                                                                                                          | relative to the root, stated (R1)                                                                   |
 | B7  | the hand lexer: a here-string, a delimiter that is not an identifier, `"a"#b`, `$!` in double quotes and a bit-and in arithmetic were misread, silently hiding or inventing waits | the syntax tree of the bash parser decides what is code (R14-R16); a file it cannot parse is exit 2 |
-| B8  | a backgrounded loop in an armed scope was reported, against the rule's own statement | not reported (R22) |
-| B9  | `function name {` was not a function; `sudo -u user` hid a manager start | both read (R16, R17) |
+| B8  | a backgrounded loop in an armed scope was reported, against the rule's own statement                                                                                              | not reported (R22)                                                                                  |
+| B9  | `function name {` was not a function; `sudo -u user` hid a manager start                                                                                                          | both read (R16, R17)                                                                                |
 
 ## 4. Seams
 

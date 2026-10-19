@@ -54,7 +54,6 @@ const (
 	toolAnsible    = "ansible-playbook"
 	toolNode       = "node"
 	toolGo         = "go"
-	toolGolangci   = "golangci-lint"
 	nounFiles      = "file(s)"
 )
 
@@ -77,7 +76,7 @@ var checkDefs = []checkDef{
 	{id: "python", fixed: "compile and ruff, whole gate", gate: true, tools: []string{toolBash, toolGo, toolRuff, toolPython}, run: runPython},
 	{id: "js", fixed: "node --check and ESLint, whole gate", gate: true, tools: []string{toolBash, toolGo, toolNode}, run: runJS},
 	{id: "docs", fixed: "whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runDocs},
-	{id: "go", fixed: "whole gate (interim qa-go.bash)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolGolangci}, run: runGoGate},
+	{id: "go", fixed: "go-qa, both modules (diff mode on a git change)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runGoGate},
 	{id: "bash-limits", fixed: "whole gate (tooling is Go; allowlist ratchet)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runBashLimits},
 	{id: "nokill-containerwatch", fixed: "whole gate (the container-watch watchdog never signals a process)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runNoKillContainerWatch},
 	{id: "ansible-pause", fixed: "whole gate (every pause registers its answer or says why it waits)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runAnsiblePause},
@@ -135,9 +134,20 @@ func runToolchain(ctx context.Context, s *session, _ *checkPlan) (checkResult, e
 	return s.script(ctx, nil, "qa-toolchain.bash")
 }
 
-func runGoGate(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
-	return s.script(ctx, nil, "qa-go.bash")
+// runGoGate runs go-qa over the change qa-changed collected: its diff mode against the same base
+// (the changed packages, their importers, and everything when a module or rule file changed).
+// Diff mode sees only src-go/, so a file outside it that routes here (a parity reference, a table
+// the Go tests read) gets the full run, as does an explicit file list, which is no diff.
+func runGoGate(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
+	outside := slices.ContainsFunc(cp.items, func(rel string) bool { return !strings.HasPrefix(rel, "src-go/") })
+	if s.opts.explicit || outside {
+		return s.script(ctx, nil, goGateScript)
+	}
+	return s.exec(ctx, nil, toolBash, filepath.Join(s.scripts, goGateScript), "--changed", "--base", s.opts.base)
 }
+
+// goGateScript runs go-qa-ci's go-qa over both modules of src-go.
+const goGateScript = "qa-go-qa.bash"
 
 func runBashLimits(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.script(ctx, nil, "qa-bash-limits.bash")
@@ -388,7 +398,7 @@ func runSemgrep(ctx context.Context, s *session, cp *checkPlan) (checkResult, er
 	res, err := s.runCmd(ctx, proc.Cmd{
 		Argv: []string{
 			"semgrep", configFlag, filepath.Join(s.root, ".semgrep", "bash-conventions.yml"),
-			"--json-output", report, "--metrics=off", "--quiet", ".",
+			"--json-output", report, "--metrics=off", "--quiet", semgrepreport.TimeoutFlag, ".",
 		},
 		Dir:   mirror,
 		Merge: true,

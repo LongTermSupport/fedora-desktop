@@ -51,12 +51,18 @@ func TestHiddenBindings(t *testing.T) {
 		"fix/qa/hiddenbindings", "fix/internal/badtea", "fix/internal/ui/frame")
 }
 
+// A package with no test file is flagged; a test file of its own package or of an external test
+// package (x_test) satisfies the rule.
+func TestPackageTests(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), PackageTests, "fix/internal/notests", "fix/internal/withtests", "fix/internal/externaltests")
+}
+
 func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 7 {
-		t.Fatalf("want 7 rules, got %d", got)
+	if got := len(All()); got != 8 {
+		t.Fatalf("want 8 rules, got %d", got)
 	}
 }
 

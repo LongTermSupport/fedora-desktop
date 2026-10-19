@@ -3,9 +3,13 @@ package toolchain
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	goqaci "github.com/LongTermSupport/go-qa-ci"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
@@ -113,13 +117,56 @@ func TestT6TheGoFloorComesFromGoMod(t *testing.T) {
 		"unparseable":  {true, "module m\ngo\n"},
 		"bad version":  {true, "module m\ngo one.two\n"},
 	}
-	for name, c := range cases {
-		w := goodWorld()
-		delete(w.files, "src-go/go.mod")
-		if c.set {
-			w.files["src-go/go.mod"] = c.text
+	for _, file := range []string{"src-go/go.mod", "src-go/qa/go.mod"} {
+		for name, c := range cases {
+			w := goodWorld()
+			delete(w.files, file)
+			if c.set {
+				w.files[file] = c.text
+			}
+			t.Run(file+" "+name, func(t *testing.T) { cannotRun(t, w, file) })
 		}
-		t.Run(name, func(t *testing.T) { cannotRun(t, w, "src-go/go.mod") })
+	}
+}
+
+// T6: both modules are built by the same go, so the floor is the higher of their go directives,
+// named with the file that sets it.
+func TestT6TheGoFloorIsTheHigherOfTheTwoModules(t *testing.T) {
+	for file, other := range map[string]string{"src-go/qa/go.mod": "src-go/go.mod", "src-go/go.mod": "src-go/qa/go.mod"} {
+		w := goodWorld()
+		w.files[file] = "module m\n\ngo 1.26.9\n"
+		w.files[other] = "module m\n\ngo 1.26.4\n"
+		w.replies["go env GOVERSION"] = reply{stdout: "go1.26.5\n"}
+		if code := w.run(); code != ExitFailed {
+			t.Fatalf("%s: 1.26.5 satisfied 1.26.9: exit %d", file, code)
+		}
+		mustContain(t, "stderr", w.err.String(), "go is older than "+file+" requires", "need >= : 1.26.9  ("+file+")")
+	}
+}
+
+// The golangci-lint pinned here (for the hooks daemon's lint of every Go edit) and the one
+// go-qa-ci installs for the Go gate are one version: a bump of either alone fails here.
+func TestTheGolangciLintPinIsTheOneGoQaCiInstalls(t *testing.T) {
+	pins, err := readPins(os.DirFS(filepath.Join("..", "..", "..")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	section, lock := "", ""
+	for line := range strings.SplitSeq(goqaci.ToolsLock, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "[") {
+			section = line
+			continue
+		}
+		if value, ok := strings.CutPrefix(line, `golangci-lint = "`); ok && section == "[release]" {
+			lock = strings.TrimSuffix(value, `"`)
+		}
+	}
+	if lock == "" {
+		t.Fatal("go-qa-ci's tools.lock names no [release] golangci-lint")
+	}
+	if pins["GOLANGCI_LINT"] != lock {
+		t.Fatalf(".qa-versions pins golangci-lint %s, go-qa-ci installs %s: bump them together", pins["GOLANGCI_LINT"], lock)
 	}
 }
 
@@ -128,7 +175,7 @@ func TestT6TheGoFloorComesFromGoMod(t *testing.T) {
 // today, so this pins the accepted forms; the branch itself is defence.
 func TestT6TheFloorIsValidatedWhereItIsRead(t *testing.T) {
 	for _, floor := range []string{"1.26", "1.26.4", "1.26rc1"} {
-		got, err := readGoFloor(fstest.MapFS{goModFile: {Data: []byte("module m\n\ngo " + floor + "\n")}})
+		got, err := readGoDirective(fstest.MapFS{goModFiles[0]: {Data: []byte("module m\n\ngo " + floor + "\n")}}, goModFiles[0])
 		if err != nil || got != floor {
 			t.Errorf("%s: got %q, %v", floor, got, err)
 		}
@@ -140,5 +187,26 @@ func TestT6AGoLineInsideABlockIsNotTheDirective(t *testing.T) {
 	w.files["src-go/go.mod"] = "module m\n\ngo 1.26\n\nrequire (\n\tgo.example/x v1.0.0\n)\n"
 	if code := w.run(); code != ExitOK {
 		t.Fatalf("exit %d\n%s", code, w.err.String())
+	}
+}
+
+// go-qa looks for .golangci.yml only in a module's own directory and writes its own baseline when
+// there is none, so the qa module is linted against the project's rules only through this link.
+func TestTheQaModuleLintsAgainstTheProjectGolangciConfig(t *testing.T) {
+	srcGo := filepath.Join("..", "..")
+	link := filepath.Join(srcGo, "qa", ".golangci.yml")
+	if _, err := os.Lstat(link); err != nil {
+		t.Fatalf("src-go/qa/.golangci.yml is gone, so go-qa lints the qa module with its own baseline: %v", err)
+	}
+	got, err := filepath.EvalSymlinks(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(filepath.Join(srcGo, ".golangci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("src-go/qa/.golangci.yml resolves to %s, want %s", got, want)
 	}
 }

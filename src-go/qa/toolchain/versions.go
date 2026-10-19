@@ -136,11 +136,12 @@ func (a *assertion) pinned(t pinnedTool, expected string) {
 }
 
 // goFloor asserts go is present and not older than the floor.
-func (a *assertion) goFloor(floor string) {
+func (a *assertion) goFloor(want goFloor) {
 	a.checked++
+	floor := want.version
 	path, err := a.env.LookPath("go")
 	if err != nil {
-		a.fail(fmt.Sprintf("✗ toolchain: go is not installed (need >= %s, %s)", floor, goModFile))
+		a.fail(fmt.Sprintf("✗ toolchain: go is not installed (need >= %s, %s)", floor, want.file))
 		return
 	}
 	got := a.read(path, "env", "GOVERSION")
@@ -154,8 +155,8 @@ func (a *assertion) goFloor(floor string) {
 		return
 	}
 	if version.Compare("go"+floor, "go"+found) > 0 {
-		a.fail("✗ toolchain: go is older than "+goModFile+" requires",
-			fmt.Sprintf("    need >= : %s  (%s)", floor, goModFile),
+		a.fail("✗ toolchain: go is older than "+want.file+" requires",
+			fmt.Sprintf("    need >= : %s  (%s)", floor, want.file),
 			fmt.Sprintf("    found   : %s  (%s)", found, path))
 	}
 }

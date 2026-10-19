@@ -696,6 +696,17 @@ real tree: every `src-go/cmd/*` has a tsv row; every tsv suite is in the real po
    runs the new `qa-changed.bash` on the working tree. This tool is not deployed, so it does not
    go into `meta-deploy.bash`.
 
+Sections 7.2 and 8.2 give the `go` check as recorded: `bash scripts/qa-go.bash`, summary
+`whole gate (interim qa-go.bash)`. Plan 00191 Task 3.3 replaced it with `scripts/qa-go-qa.bash`
+(go-qa-ci's `go-qa`), run with `--changed --base <base>` when every file routed to the check is
+under `src-go/` and whole otherwise, summary `go-qa, both modules (diff mode on a git change)`.
+The replay maps the new script and summary back to the recorded ones (`goGateAsRecorded` in
+`changed/golden_test.go`), so there is no deviation; a test fails once that mapping changes
+nothing. The `semgrep` check now also passes `--timeout=120` (`semgrepreport.TimeoutFlag`, shared
+with the semgrep gates: semgrep's 5 s default is wall time, and a loaded host turned clean files
+into Timeout errors); the replay drops it from the logged argv (`semgrepArgvAsRecorded`), and
+`TestSemgrepMirrorsFilesWithABashExtensionAndReadsItsJSON` requires the check to pass it.
+
 ### 12.2 Cut-over (one feature branch, one merge, after full QA and review)
 
 1. Add the package, command, tests, the two data files; `scripts/qa-go.bash` green (the nested

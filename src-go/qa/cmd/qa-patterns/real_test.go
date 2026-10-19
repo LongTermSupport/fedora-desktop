@@ -110,9 +110,21 @@ func TestRealSemgrepMatchesDollarAnchoredRulesInACRLFScript(t *testing.T) {
 	}
 }
 
+// semgrepDefaultMaxTargetBytes is the size above which semgrep skips a file unless told otherwise
+// (`--max-target-bytes`, absent=1000000).
+const semgrepDefaultMaxTargetBytes = 1_000_000
+
 // P10, P11: semgrep's own ignore list and size limit do not drop a script the gate discovered.
+//
+// The large script is padded with comment lines, just over semgrep's default size limit: that is
+// all the size filter looks at, and a comment is the cheapest bash to parse. Semgrep counts the
+// parse against its per-rule timeout on the file (5 s); padding of commands took 2 to 4.5 s to
+// parse on a loaded host and timed out, comments take under 0.5 s.
 func TestRealSemgrepScansTestsDirectoriesAndLargeScripts(t *testing.T) {
-	big := "#!/usr/bin/bash\n" + strings.Repeat("echo padding to make this script larger than one megabyte of text\n", 17000) + "cmd || true\n"
+	big := "#!/usr/bin/bash\n" + strings.Repeat("# padding to make this script larger than semgrep's default size limit\n", 14100) + "cmd || true\n"
+	if len(big) <= semgrepDefaultMaxTargetBytes {
+		t.Fatalf("the large script is %d bytes, not over semgrep's default limit of %d", len(big), semgrepDefaultMaxTargetBytes)
+	}
 	got := realRun(t, map[string]string{
 		"tests/clean.bash":        "#!/usr/bin/bash\nset -e\n",
 		"scripts/tests/bad.bash":  "#!/usr/bin/bash\ncmd || true\n",

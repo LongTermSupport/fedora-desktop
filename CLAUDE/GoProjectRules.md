@@ -1,9 +1,10 @@
 # src-go project rules (Defence Before Fix)
 
 Defect classes the `ccy-teams` and `ccy-sessions` ports actually hit, each held by a
-`go/analysis` analyzer in `src-go/qa/rules`. They run from `scripts/qa-go.bash` as a hard
-step: the driver (`src-go/qa/driver`) is built once and used as `go vet -vettool` over
-`src-go`. Every finding fails the gate. There is no inline suppression: the only excuse is a
+`go/analysis` analyzer in `src-go/qa/rules`. They run in the Go gate (`scripts/qa-go-qa.bash`:
+go-qa-ci's `analyzers` tool, configured by `src-go/qa/go-qa.toml`) as a hard step: the driver
+(`src-go/qa/driver`) is built once and used as `go vet -vettool` over both modules, beside
+go-qa-ci's bundled analyzers. Every finding fails the gate. There is no inline suppression: the only excuse is a
 row in a table in `src-go/qa/rules/table.go`, with its reason.
 
 **A new defect class found in `src-go` gets a rule here before its fix.** Write the rule, prove
@@ -16,32 +17,32 @@ The rules live in their own module (`src-go/qa`, its own `go.mod`, depending on
 `golang.org/x/tools`) so that the QA tooling's dependencies never enter the shipped binaries.
 `src-go/go.mod` itself takes only the dependencies the binaries need, vendored, pinned and
 allowlisted (Plan 00204 decision D2; [src-go/CLAUDE.md](../src-go/CLAUDE.md#dependencies)), so
-the host build stays a plain, offline `go build`. `qa-go.bash` checks the `qa` module too
-(format, vet, test, coverage, lint). This file is under `CLAUDE/` because the markdown guard
+the host build stays a plain, offline `go build`. go-qa checks the `qa` module too
+(format, lint, vet, the bundled analyzers and these rules, dead code, vulnerabilities, test,
+coverage). This file is under `CLAUDE/` because the markdown guard
 allows no `.md` beside the Go code.
 
 ## Fit with go-qa-ci
 
-go-qa-ci documents project analyzers as a project driver package, analyzers proven with
-`analysistest`, and one page per analyzer under its `docs_dir`. The analyzers and their
-`analysistest` proofs match, and the names are identifier-only (`project_*`), so adopting it is
-a change of driver (`driver.Main(rules.All()...)` in place of `unitchecker.Main`). Gaps, because
-the analyzers' `golang.org/x/tools` is kept out of `src-go/go.mod`: go-qa-ci expects the driver in the
-project's own module (`[analyzers] driver`) and here it sits in the nested `src-go/qa` module,
-which its per-module run (`modules` in `qa/go-qa.toml`) must be told about; and the per-rule
-pages are not written, this catalogue stands in until adoption.
+go-qa-ci runs these rules: `src-go/qa/driver` calls its `driver.Main(rules.All()...)`, which
+registers go-qa-ci's bundled analyzers beside them, and `src-go/qa/go-qa.toml` names the nested
+module (`[analyzers] module = "qa"`, `driver = "./driver"`, and `modules = ["qa"]` so the
+per-module tools run over it too). The analyzers are proven with `analysistest`, and the names are
+identifier-only (`project_*`). Gap: go-qa-ci expects one page per analyzer under its `docs_dir`
+and the per-rule pages are not written; this catalogue stands in for them.
 
 ## The rules
 
-| Rule                      | Defect class                                                                                                                              | Found in                                                                       |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `project_seam_exec`       | a process started outside the runner, so no fake sees it                                                                                  | `teams`: `syscall.Exec` in the launcher hand-over                              |
-| `project_seam_commands`   | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`)       | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style` |
-| `project_tmux_targets`    | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                                  | the bash library, before the port                                              |
-| `project_testclock`       | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                        | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                   |
-| `project_waitdelay`       | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped                  | `qa/internal/proc`: bug B25 of the qa-all port                                 |
-| `project_homeabbrev`      | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                              | `teams` tests: `strings.Replace(..., "~", 1)` twice                            |
-| `project_hidden_bindings` | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`) | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N     |
+| Rule                      | Defect class                                                                                                                              | Found in                                                                        |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `project_seam_exec`       | a process started outside the runner, so no fake sees it                                                                                  | `teams`: `syscall.Exec` in the launcher hand-over                               |
+| `project_seam_commands`   | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`)       | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style`  |
+| `project_tmux_targets`    | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                                  | the bash library, before the port                                               |
+| `project_testclock`       | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                        | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                    |
+| `project_waitdelay`       | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped                  | `qa/internal/proc`: bug B25 of the qa-all port                                  |
+| `project_package_tests`   | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                       | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it |
+| `project_homeabbrev`      | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                              | `teams` tests: `strings.Replace(..., "~", 1)` twice                             |
+| `project_hidden_bindings` | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`) | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N      |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -161,9 +162,10 @@ checked.
 
 Any reference to `time.Now`, `time.Since` or `time.Until` in a `_test.go` file: a call, a function
 value (`n := time.Now`), an argument (`stamp(time.Now)`), a struct field, a package-level
-initialiser. Excuse: a `clockAllowances` row (package, test function, reason). One row exists,
-`TestTakeOverDefaultsToTheRealClockAndSleep`, which proves the default `Sleep` really sleeps and
-can only do that against the wall clock. A package-level declaration cannot be excused.
+initialiser. Excuse: a `clockAllowances` row (package, test function, reason). There is none: a
+test that must show a real sleep ran (`TestTakeOverDefaultsToTheRealClockAndSleep`) runs the
+call in a goroutine and requires a timer (`time.After`) to fire first. A package-level
+declaration cannot be excused. go-qa-ci's bundled `gqaci_test_clock` judges the same reads.
 
 - Red, fixture: `testdata/src/fix/internal/badclock` (the three calls; the function value,
   argument, field, package-level `var` and closure forms in `evade_test.go`; `time.Date` and
@@ -171,6 +173,16 @@ can only do that against the wall clock. A package-level declaration cannot be e
 - Red, real tree: 23 findings in `transcript_test.go` and `sessprobe/join_test.go`.
 - Green: fixed instants (`fixedMtime`, `sampledAt`).
 - Not caught: a clock read in a non-test helper; production takes its clock through a seam.
+
+### project_package_tests
+
+A package whose directory holds no `_test.go` file (external `package x_test` files count). The
+module-wide coverage floor can hide an untested package behind the rest of the module; this keeps
+the every-package-has-tests check of the retired `scripts/qa-go.bash`. A directory that cannot be
+read is reported, never skipped.
+
+- Red, fixture: `testdata/src/fix/internal/notests` flagged; `withtests` and `externaltests` clean.
+- Not caught: a test file with no `Test` function; only the presence of a test file is checked.
 
 ### project_homeabbrev
 

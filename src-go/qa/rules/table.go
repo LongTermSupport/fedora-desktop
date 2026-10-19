@@ -1,6 +1,6 @@
 // Package rules holds this module's project rules (Defence Before Fix): go/analysis analyzers
 // for the defect classes the ccy-teams and ccy-sessions ports actually hit. Each is proven on
-// a fixture reproducing the defect (testdata) and run over src-go by scripts/qa-go.bash.
+// a fixture reproducing the defect (testdata) and run over src-go by go-qa (scripts/qa-go-qa.bash).
 // CLAUDE/GoProjectRules.md is the catalogue.
 //
 // The tables below are the rules' data: which package owns which seam, and the narrow,
@@ -236,13 +236,8 @@ var expectBuilders = []allowance{
 // clockAllowance excuses one test function from the fixed-clock rule.
 type clockAllowance = allowance
 
-var clockAllowances = []clockAllowance{
-	{
-		pkg:    "internal/tmuxccy",
-		fn:     "TestTakeOverDefaultsToTheRealClockAndSleep",
-		reason: "proves the default Sleep really sleeps; only the wall clock can show that",
-	},
-}
+// No test reads the wall clock: a real sleep is shown by a timer that fires first.
+var clockAllowances = []clockAllowance{}
 
 // noResult is what every rule hands the analysis framework: the rules only report.
 type noResult struct{}
@@ -259,7 +254,7 @@ func perPass(run func(*analysis.Pass)) func(*analysis.Pass) (any, error) {
 
 // All is every rule, in the order the driver registers them.
 func All() []*analysis.Analyzer {
-	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings}
+	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests}
 }
 
 // ownedBy is whether the package path (the test variants of it included) is owner, matched
