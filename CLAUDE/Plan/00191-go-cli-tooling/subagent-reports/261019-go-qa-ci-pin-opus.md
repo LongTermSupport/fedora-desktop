@@ -66,8 +66,9 @@ the bash-limits allowlist.
   `cmd/qa-patterns TestRealSemgrepScansTestsDirectoriesAndLargeScripts`.
   - semgrep's per-file timeout fires on its 1 MB fixture under host load (load average about 37
     on 22 cores).
-  - It passes when run alone.
-  - It needs a rerun on a quieter host.
+  - It passes when run alone, but it failed the same way on a second full go-qa run. It is
+    therefore a finding to triage, not a flake to rerun: go-qa may run more test binaries at
+    once than `qa-go.bash` did, or the patterns gate may need a semgrep `--timeout` of its own.
 - **Coverage did not run**, because a test failed.
 - **Unfinished:**
   - the real `go` wording capture;
