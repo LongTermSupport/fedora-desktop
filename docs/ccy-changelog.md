@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.12.19 — container 2.77.15
+
+Follows 3.99.12.18 (container 2.77.14). The image carries the pingbus kit, which changed, so
+it is rebuilt once.
+
+- **A second disconnect within a minute is told too** (Plan 00194). pingbus refused the
+  `disconnected` notice of a seat that had already sent the same one in the last 60 s as a
+  duplicate (`rate limited: duplicate`), so a crash, relaunch and crash again lost the second
+  one. pingbus's own notices (`disconnected`, the session-end goodbye, the removal goodbye)
+  are told once per claim or session by the seat, and are no longer held to the duplicate
+  window; the send rate limit still applies to them.
+
 ## Host cc — starts only in a git repository
 
 Host `cc` has no version number of its own; this entry is not a CCY release.

@@ -89,6 +89,22 @@ class DisconnectedTest(DisconnectedCase):
         self.assertEqual(self.disconnected()[0], cli.EXIT_OK)
         self.assertEqual(len(self.notices()), 1)
 
+    def test_a_seat_that_disconnects_twice_inside_the_duplicate_window_is_told_twice(self):
+        """Plan 00194 Task 2.0i: crash, relaunch, crash again within 60 s. Each claim is told
+        once by the seat lock and the claim check; the send gate's duplicate window must not
+        swallow the second (the host's G3 lost it as `rate limited: duplicate`)."""
+        self.joined()
+        self.died_holding(CLAIM)
+        self.assertEqual(self.disconnected()[0], cli.EXIT_OK)
+        self.now += 19
+        self.died_holding(CLAIM + 19_000)
+        code, _, err = self.disconnected()
+        self.assertEqual(code, cli.EXIT_OK, err)
+        notices = self.notices()
+        self.assertEqual(len(notices), 2)
+        for body in notices:
+            self.assertIn(NOTICE, body)
+
     def test_a_goodbye_said_for_that_claim_posts_nothing(self):
         self.joined()
         self.died_holding()

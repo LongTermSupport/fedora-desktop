@@ -255,14 +255,18 @@ class SendGate:
     def fresh(cls, limits: Limits, now_ms: int) -> SendGate:
         return cls(TokenBucket.full(limits, now_ms), DuplicateWindow())
 
-    def admit(self, verb: str, ref: str | None, re_: str | None, to: Iterable[str], now_ms: int) -> None:
-        """Record the send, or raise `RateLimited` having recorded nothing."""
+    def admit(self, verb: str, ref: str | None, re_: str | None, to: Iterable[str], now_ms: int,
+              deduplicate: bool = True) -> None:
+        """Record the send, or raise `RateLimited` having recorded nothing. With `deduplicate`
+        false (pingbus's own notices, told once per claim or session by the seat) only the
+        bucket applies, and the send does not enter the window."""
         key = duplicate_key(verb, ref, re_, to)
-        if self.recent.seen(key, now_ms):
+        if deduplicate and self.recent.seen(key, now_ms):
             raise RateLimited("duplicate")
         if not self.bucket.take(now_ms):
             raise RateLimited("rate")
-        self.recent.record(key, now_ms)
+        if deduplicate:
+            self.recent.record(key, now_ms)
 
     def to_dict(self) -> dict[str, object]:
         return {"bucket": self.bucket.to_dict(), "recent": self.recent.to_dict()}

@@ -1080,9 +1080,10 @@ def cmd_say(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, e
 
 
 def _send_text(seat: _Seat, ctx: protocol.Context, to: list[str], text: str, rt: Runtime,
-               re: str | None = None) -> tuple[str, int, list[str]]:
+               re: str | None = None, deduplicate: bool = True) -> tuple[str, int, list[str]]:
     """§9 steps from the build of an agent text to its send; the event ID, the send time
-    and the validated addressees. With `re`, the text answers that event (§7)."""
+    and the validated addressees. With `re`, the text answers that event (§7). Without
+    `deduplicate`, the duplicate window (§10) is not applied: see `_post_to_humans_and_coordinators`."""
     member = seat.member
     content = protocol.build_text(to, text, re=re)
     said = protocol.validate_text_content(content, ctx)
@@ -1091,7 +1092,7 @@ def _send_text(seat: _Seat, ctx: protocol.Context, to: list[str], text: str, rt:
     protocol.check_text_sender(member.user_id, ctx)
     digest = "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
     now = rt.clock_ms()
-    seat.state.admit_send(member.limits, SAY_GATE_VERB, digest, None, said.to, now)
+    seat.state.admit_send(member.limits, SAY_GATE_VERB, digest, None, said.to, now, deduplicate)
     return seat.client.send_message(member.room, content), now, said.to
 
 
@@ -1109,12 +1110,15 @@ def post_goodbye(rt: Runtime, environ: Mapping[str, str], err: TextIO, team: str
 
 def _post_to_humans_and_coordinators(member: config.Member, environ: Mapping[str, str], rt: Runtime,
                                      err: TextIO, text: str) -> None:
+    """pingbus's own fixed-text notice (goodbye, farewell, disconnected). Each is told once per
+    session or claim by the seat, so the duplicate window, which stops an agent repeating
+    itself, could only lose a second, true one (Plan 00194 Task 2.0i); the bucket still applies."""
     seat = _seat(member, environ, rt, err)
     record = seat.syncer.verify_room()
     ctx = record.context(member.server_name)
     coordinators = [user for user in protocol.coordinators(ctx.roles) if user != member.user_id]
     to = list(dict.fromkeys([*sorted(ctx.humans), *coordinators]))[:protocol.MAX_TEXT_TO]
-    _send_text(seat, ctx, to, text, rt)
+    _send_text(seat, ctx, to, text, rt, deduplicate=False)
 
 
 def _refetch(seat: _Seat, ctx: protocol.Context, event_id: str) -> tuple[protocol.Outcome, object]:

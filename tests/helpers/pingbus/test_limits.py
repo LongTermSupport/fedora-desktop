@@ -392,6 +392,23 @@ class SendGateTest(unittest.TestCase):
             again.admit("halt", None, None, [A], T0 + 1)
         self.assertEqual(ctx.exception.reason, "duplicate")
 
+    def test_a_notice_is_not_a_duplicate_but_still_spends_a_token(self):
+        """Plan 00194 Task 2.0i: pingbus's own fixed-text notices (goodbye, farewell,
+        disconnected) are told once per claim by the seat, so the window would only lose one."""
+        limits = lim.parse_limits({"send_per_minute": 1, "send_burst": 2})
+        gate = lim.SendGate.fresh(limits, T0)
+        gate.admit("text", REF, None, [A], T0, deduplicate=False)
+        gate.admit("text", REF, None, [A], T0 + 1, deduplicate=False)
+        with self.assertRaises(lim.RateLimited) as ctx:
+            gate.admit("text", REF, None, [A], T0 + 2, deduplicate=False)
+        self.assertEqual(ctx.exception.reason, "rate")
+
+    def test_a_notice_does_not_enter_the_window_of_a_later_say(self):
+        limits = lim.parse_limits({"send_per_minute": 1, "send_burst": 2})
+        gate = lim.SendGate.fresh(limits, T0)
+        gate.admit("text", REF, None, [A], T0, deduplicate=False)
+        gate.admit("text", REF, None, [A], T0 + 1)
+
     def test_rate_limited_is_not_a_value_error(self):
         # A refusal by limit is exit 9, never confused with a validator refusal (exit 4).
         self.assertFalse(issubclass(lim.RateLimited, ValueError))

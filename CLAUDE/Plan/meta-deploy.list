@@ -19,21 +19,28 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-# Plan 00167 (#90): builds cc-project-dir beside cc and installs the new cc, which starts at the
-# top of a git repository and, typed outside one, offers this checkout [Y/n] (refusing on no,
-# or with no terminal). ccy stays at 3.99.12.18, already installed. Afterwards type cc in ~
-# twice (accept once, decline once) and once in a project subfolder.
-# Plan 00135 Task 10.1 (#86): it also rebuilds ccy-sessions, whose verify-restore now reports a
-# session sitting at Claude Code's conversation picker as WAITING-AT-PROMPT thread-picker, not
-# OK, so fedora-desktop-self-update verify fails on it.
+# Plan 00194 Task 2.0i: installs the pingbus kit on the host and copies it into every declared
+# LXC member's running container. pingbus's own notices (disconnected, the session-end goodbye,
+# the removal goodbye) are no longer refused as duplicates when the same seat sent the same one
+# in the last minute, which lost G3's notice in the last acceptance. Before play-claude-yolo.yml.
+playbooks/imports/play-agent-bus.yml
+# Plan 00194 Task 2.0i: installs ccy 3.99.12.19, container 2.77.15, whose image carries the same
+# pingbus, so it is rebuilt once at the next ccy launch. Running sessions are not touched.
+# The same run deploys Plan 00167 (#90): it builds cc-project-dir beside cc and installs the new
+# cc, which starts at the top of a git repository and, typed outside one, offers this checkout
+# [Y/n] (refusing on no, or with no terminal); afterwards type cc in ~ twice (accept once,
+# decline once) and once in a project subfolder. And Plan 00135 Task 10.1 (#86): it rebuilds
+# ccy-sessions, whose verify-restore now reports a session sitting at Claude Code's
+# conversation picker as WAITING-AT-PROMPT thread-picker, not OK, so
+# fedora-desktop-self-update verify fails on it. Before the 00194 acceptance.
 playbooks/imports/play-claude-yolo.yml
-# Plan 00194 Tasks 2.0b, 2.0h and 2.0i: the goodbye host checks, automated (acceptance.bash; the
-# plan has no triage.bash or deploy.bash), run again for G3 (window closed). The last run passed
-# G1 (Ctrl-C) and G2 (podman stop); in G3 the launcher now stops the container and runs the
-# disconnect notice (Task 2.0h, deployed), but pingbus dropped it as a duplicate of G2's notice
-# sent 19 s earlier (Task 2.0i, to be fixed and queued above this entry). G3 keeps the launcher's
-# stderr and the checkout's disconnect.log as evidence. The whole script runs again, so G1 and
-# G2 are repeated. It makes two throwaway teams,
+# Plan 00194 Tasks 2.0b, 2.0h and 2.0i: the goodbye host checks, automated (acceptance.bash;
+# the plan has no triage.bash or deploy.bash), run again for G3 (window closed). An earlier run
+# failed G3 because the launcher's exit ran while its container still held the seats (Task
+# 2.0h). The run at F44 96454752 proved that fix, but pingbus refused G3's notice as a
+# duplicate of G2's, sent 19 s earlier from the same seat (Task 2.0i, fixed by the two plays
+# just above). G3 also keeps the launcher's stderr and the checkout's disconnect.log as
+# evidence. The whole script runs again, so G1 and G2 are repeated. It makes two throwaway teams,
 # starts three idle ccy sessions on them in a scratch checkout on its own tmux server, ends one
 # with Ctrl-C, one with podman stop and one by closing its window, counts the goodbye and
 # disconnected messages each team gets, then removes all of it. No SSH key or agent goes into
@@ -66,3 +73,8 @@ playbooks/imports/optional/common/play-cli-tools.yml
 # block, in a scratch directory, and reads the DOCX back with pandoc to confirm each survived.
 # Read-only apart from the scratch directory; no prompts.
 00210-convert-cli-markdown-to-docx
+# The ftp-camera follow-up (140f79809, merged long ago but never deployed: its queue entry was
+# lost in a merge): the ssh-suspend guard play now restarts the running ssh-suspend-guard
+# service whenever its script or unit changes, so the first run restarts the guard once. Host
+# behaviour is otherwise unchanged.
+playbooks/imports/play-prevent-ssh-suspend.yml

@@ -600,13 +600,13 @@ class TeamState:
 
     def admit_send(
         self, member_limits: limits.Limits, verb: str, ref: str | None, re_: str | None,
-        to: Iterable[str], now_ms: int,
+        to: Iterable[str], now_ms: int, deduplicate: bool = True,
     ) -> None:
         """§9 send step 5 in its own transaction, saved before returning, so a send refused
         or failing later has still spent its token and entered the duplicate window (§10).
         `RateLimited` propagates having recorded nothing."""
         with self.outbox() as box:
-            box.send_gate(member_limits, now_ms).admit(verb, ref, re_, to, now_ms)
+            box.send_gate(member_limits, now_ms).admit(verb, ref, re_, to, now_ms, deduplicate)
 
     def _load_json(self, path: pathlib.Path) -> object | None:
         return read_json_file(path)

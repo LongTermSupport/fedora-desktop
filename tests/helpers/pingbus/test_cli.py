@@ -488,6 +488,23 @@ class GoodbyePostTest(BusCase):
         (content,) = self.a.messages_from_me()
         self.assertNotIn(self.a.peer, json.dumps(content))
 
+    def test_two_sessions_ending_alike_inside_the_duplicate_window_both_say_goodbye(self):
+        """Plan 00194 Task 2.0i: each session says goodbye once (its own record); a relaunch
+        that ends again within 60 s is a second session, and its goodbye is posted too."""
+        self.joined()
+        self.post()
+        self.now += 19
+        self.post()
+        self.assertEqual(len(self.a.messages_from_me()), 2)
+
+    def test_a_goodbye_still_spends_a_send_token(self):
+        self.joined()
+        self.a.write_bundle(member_limits={"send_burst": 1})
+        self.post()
+        with self.assertRaises(hooks.GoodbyeFailed) as caught:
+            self.post()
+        self.assertIn("rate limited: rate", str(caught.exception))
+
     def test_a_homeserver_that_cannot_be_reached_is_a_goodbye_failure(self):
         self.joined()
         self.a.write_bundle(base_url="http://127.0.0.1:1")
