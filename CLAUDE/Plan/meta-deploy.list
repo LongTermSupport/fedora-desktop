@@ -19,29 +19,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-# Plan 00192 Task 3.3: `open` becomes a Go binary (src-go/cmd/open). The play installs the Go
-# toolchain, builds the command from this checkout and installs it at ~/.local/bin/open in place
-# of the bash script; the MIME and viewer packages are unchanged. Afterwards the owner checks
-# SPEC-open.md section 7, H1-H5: `open --help`, a PDF opening in its default viewer, `open -a`
-# showing the chooser with a Cancel row, `open -d` registering a default, and over SSH (or
-# `open -t`) text, a directory, an image and a PDF opening in the terminal, Ctrl-C in less or
-# mpv belonging to that program.
-playbooks/imports/optional/common/play-cli-tools.yml
-
-
-# Plan 00203 Task 3.13: rebuilds and installs ccy-teams, which now opens faster: the board's
-# agent-bus calls (each checkout's seat list, each team's members, each person's Element
-# sessions) run together instead of one after another, and the declare helper runs on
-# /usr/bin/python3 instead of through the pyenv shim. The table and messages are unchanged. No
-# ccy or image change; running sessions are not touched.
-playbooks/imports/play-claude-yolo.yml
-
-# Plan 00194 Task 2.0b: the goodbye host checks, automated (acceptance.bash; the plan has no
-# triage.bash or deploy.bash). After play-claude-yolo.yml, so the sessions run the deployed
-# image. It makes two throwaway teams, starts three idle ccy sessions on them in a scratch
-# checkout on its own tmux server, ends one with Ctrl-C, one with podman stop and one by
-# closing its window, counts the goodbye and disconnected messages each team gets, then removes
-# all of it. Each launch runs ccy's normal startup clean-up, which removes every exited or
-# created ccy container on the host (as any ccy launch does). The team purge relies on sudo
-# staying cached (it does on this host). One sudo prompt.
-00194-agent-bus-live-delivery-supervisor-plugin
