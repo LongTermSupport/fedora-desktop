@@ -480,7 +480,8 @@ pipx install ruff
 
 - **Claude Code CLI**: installs the native `claude` binary on the `latest` channel and
   deploys the `cc` wrapper, which shares CCY's token pool and lib
-- Tightens the host `~/.claude` session store to owner-only permissions
+- Tightens the host `~/.claude` session store and the `~/.claude.json` state file beside it to
+  owner-only permissions
 - Installs Go through the `play-golang.yml` it imports, then builds and installs the
   `ccy-teams` and `ccy-sessions` Go binaries from the checkout
 - **CCY (YOLO Mode)**: General-purpose development container with browser automation built in
