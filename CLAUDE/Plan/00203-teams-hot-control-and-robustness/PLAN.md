@@ -201,13 +201,18 @@ Built on `fix/teams-server-robustness`; design and evidence in
   transcript by the recorded id. Pingbus plugin 1.4.0. Built and tested; review and host
   acceptance to come.
 
-- [ ] ⬜ **Task 3.11** (was 3.9's restore and 3.11): restore after a reboot and the new
+- [ ] 🔄 **Task 3.11** (was 3.9's restore and 3.11): restore after a reboot and the new
   `ccy-teams restart <team>` (with the team menu's Restart the team's desktop sessions)
   resume each session by its recorded id, never `--continue` (SPEC C5, C6, B1-B11,
-  Decisions 8, 9 and 10).
+  Decisions 8, 9 and 10), on `feat/teams-restart-2`. `registry.ResumeArgs`;
+  `internal/teams/restart`; `membership.WriteRestart`/`WithdrawRestart` (only a restart's
+  request is withdrawn); lifecycle plugin 1.2.0 names the restart. The uncalled bash restore
+  is deleted. Built and tested; review and host acceptance to come.
 
-- [ ] ⬜ **Task 3.12** (was 3.10): Claude Code's agent view off in the ccy image (SPEC C7,
-  Decision 11). CCY 3.99.12.16, container 2.77.12 (placeholders).
+- [ ] 🔄 **Task 3.12** (was 3.10): Claude Code's agent view off in the ccy image (SPEC C7,
+  Decision 11): `ENV CLAUDE_CODE_DISABLE_AGENT_VIEW=1`, the name confirmed in the Claude Code
+  2.1.303 build. CCY 3.99.12.16, container 2.77.12 (placeholders). Built and tested; host
+  acceptance to come.
 
 ## Decisions
 
