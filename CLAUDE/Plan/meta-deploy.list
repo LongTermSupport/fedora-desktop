@@ -19,12 +19,18 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+# Plan 00167 (#90): builds cc-project-dir beside cc and installs the new cc, which starts at the
+# top of a git repository and, typed outside one, offers this checkout [Y/n] (refusing on no,
+# or with no terminal). ccy stays at 3.99.12.18, already installed. Afterwards type cc in ~
+# twice (accept once, decline once) and once in a project subfolder.
+playbooks/imports/play-claude-yolo.yml
 # Plan 00194 Tasks 2.0b, 2.0h and 2.0i: the goodbye host checks, automated (acceptance.bash; the
 # plan has no triage.bash or deploy.bash), run again for G3 (window closed). The last run passed
 # G1 (Ctrl-C) and G2 (podman stop); in G3 the launcher now stops the container and runs the
 # disconnect notice (Task 2.0h, deployed), but pingbus dropped it as a duplicate of G2's notice
 # sent 19 s earlier (Task 2.0i, to be fixed and queued above this entry). G3 keeps the launcher's
-# stderr and the checkout's disconnect.log as evidence. The whole script runs again, so G1 and G2 are repeated. It makes two throwaway teams,
+# stderr and the checkout's disconnect.log as evidence. The whole script runs again, so G1 and
+# G2 are repeated. It makes two throwaway teams,
 # starts three idle ccy sessions on them in a scratch checkout on its own tmux server, ends one
 # with Ctrl-C, one with podman stop and one by closing its window, counts the goodbye and
 # disconnected messages each team gets, then removes all of it. No SSH key or agent goes into

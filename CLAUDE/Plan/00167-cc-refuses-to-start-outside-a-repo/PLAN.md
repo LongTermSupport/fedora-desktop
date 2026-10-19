@@ -1,6 +1,6 @@
 # Plan 00167: cc refuses to start outside a repo
 
-**Status**: Not Started
+**Status**: In Progress
 **Created**: 2026-10-09
 **Owner**: joseph
 **Priority**: Medium
@@ -44,32 +44,34 @@ clear message.
 
 ### Phase 1: Settle the open questions
 
-- [ ] ⬜ **Task 1.1**: Establish from Claude Code's documentation whether a session started
+- [x] ✅ **Task 1.1**: Establish from Claude Code's documentation whether a session started
   in a **subdirectory** of a repository loads that repository's `.claude/settings.json`.
   If it does, a subdirectory needs nothing more. If it does not, decide between `cd`-ing to
   the repository root and refusing. Record the answer and its source as Decision 2.
-- [ ] ⬜ **Task 1.2**: Establish what a reboot restore (`ccy-sessions restore`, Plan 00135)
+- [x] ✅ **Task 1.2**: Establish what a reboot restore (`ccy-sessions restore`, Plan 00135)
   does when a recorded `cc` session's directory is no longer a repository, and how
   `verify-restore` reports that `cc` exiting. Record it in the journal; no behaviour change
   is planned for it unless it would hang or be reported as success. A restore has no
   terminal answer to give, so it must take the no-terminal path, never the offer.
-- [ ] ⬜ **Task 1.3**: Decide how `cc` finds the fedora-desktop checkout. `cc` is copied, not
+- [x] ✅ **Task 1.3**: Decide how `cc` finds the fedora-desktop checkout. `cc` is copied, not
   templated, so the path has to reach it from the play, for example as a small file the
   play writes beside `cc` from its `root_dir`. Nothing install-specific is hardcoded in the
   repo. Record it as Decision 3.
 
 ### Phase 2: Implement
 
-- [ ] ⬜ **Task 2.1**: In `cc`, after `umask 077` and **before** the interactive-terminal check,
+- [x] ✅ **Task 2.1**: In `cc`, after `umask 077` and **before** the interactive-terminal check,
   run `git rev-parse --show-toplevel`. Here `git rev-parse` asking about the cwd is the
   point, unlike in plan scripts. `git` absent is its own error, not a refusal for the wrong
   reason. Outside a repository with no terminal: refuse on stderr and exit 1. With a
   terminal: name the directory and offer the fedora-desktop checkout, `[Y/n]`. Validate the
   answer strictly, re-prompt a bounded number of times on anything else
   (`InteractiveScripts.md`), `cd` there on yes, and refuse on no. The `cd` happens before the
-  tmux re-exec, so the session name and the restore record both use the checkout.
-- [ ] ⬜ **Task 2.2**: Apply Decision 2 for subdirectories, if Task 1.1 calls for anything.
-- [ ] ⬜ **Task 2.3**: Document the behaviour in `docs/ccy.md` (the `cc` paragraph near line
+  tmux re-exec, so the session name and the restore record both use the checkout. Done in
+  `cc-project-dir` (Decision 3), which `cc` runs and `cd`s to; `cc` itself stays in its
+  bash-limits record.
+- [x] ✅ **Task 2.2**: Apply Decision 2 for subdirectories, if Task 1.1 calls for anything.
+- [x] ✅ **Task 2.3**: Document the behaviour in `docs/ccy.md` (the `cc` paragraph near line
   198\) and add a `cc` entry to `docs/ccy-changelog.md`. No `CCY_VERSION` bump: `cc` is not
   under `files/var/local/claude-yolo/`.
 - [ ] ⬜ **Task 2.4**: Run QA: `./scripts/qa-all.bash`; fix any findings.
@@ -83,8 +85,10 @@ clear message.
   stop at the terminal check instead. A tmux session list taken before and after shows no
   new `cc-` session. Prints `COVERAGE: n of m`. The offer itself needs a terminal and is
   listed as NOT ESTABLISHABLE for the owner's check.
-- [ ] ⬜ **Task 3.3**: Add the plan to `meta-deploy.bash`. The owner runs it, then types `cc`
-  in `~` (accepts the offer once and declines it once) and once in a project.
+- [ ] 🔄 **Task 3.3**: Add the plan to `meta-deploy.bash`. The owner runs it, then types `cc`
+  in `~` (accepts the offer once and declines it once) and once in a project. Queued for now
+  as the `play-claude-yolo.yml` entry already in `meta-deploy.list` (one run deploys both),
+  with this plan named in its description; becomes the plan entry once Tasks 3.1 and 3.2 exist.
 
 ### Phase 4: Review and close
 
@@ -116,11 +120,31 @@ all the offer needs.
 
 ### Decision 2: Subdirectories of a repository
 
-To be settled by Task 1.1.
+**Context**: Claude Code's settings page (code.claude.com/docs/en/settings) says: "Claude
+Code reads the shared `.claude/settings.json` from the session's primary working directory,
+so to use a file committed at the repository root, start Claude Code there." A session
+started in a subdirectory loads none of the repository's hooks or status line.
+**Options considered**: (A) `cd` to the repository's top. (B) refuse in a subdirectory.
+**Decision**: A. Inside a work tree `cc` starts at `git rev-parse --show-toplevel`, wherever
+it was typed. Refusing would only make the person type the `cd`, and the top is always the
+answer. In a linked worktree the top is the worktree's own.
+**Date**: 2026-10-19
 
 ### Decision 3: How `cc` finds the checkout
 
-To be settled by Task 1.3.
+**Context**: `cc` is copied, not templated, and sits at its bash-limits ratchet record (it
+may not grow), so the check cannot be written in it either.
+**Options considered**: (A) a file the play writes beside `cc` naming the checkout. (B) a Go
+command with the checkout baked in at build time, as `ccy-teams` has it.
+**Decision**: B. `src-go/cmd/cc-project-dir` (package `internal/ccproject`, expectations
+P1-P7 in its package doc) is built by `play-claude-yolo.yml` with
+`-X main.RootDir={{ root_dir }}` and installed root-owned at
+`/var/local/claude-code/cc-project-dir`, before `cc` itself, so a failed build never leaves
+a `cc` that calls a missing binary. It makes the whole decision (inside a repository, the
+offer, the refusal) and prints the directory on stdout; `cc` gains only
+`CC_PROJECT_DIR=$(.../cc-project-dir)` and `cd "$CC_PROJECT_DIR"`, and sheds statements
+elsewhere to stay within its record. No install-specific path is in the repository.
+**Date**: 2026-10-19
 
 ## Success Criteria
 
@@ -139,3 +163,4 @@ To be settled by Task 1.3.
      JOURNAL/00167-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
 - Plan written from the handover
+- Phases 1 and 2 implemented: `cc-project-dir` and its call in `cc`; deploy pending

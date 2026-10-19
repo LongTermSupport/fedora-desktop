@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## Host cc — starts only in a git repository
+
+Host `cc` has no version number of its own; this entry is not a CCY release.
+
+- **`cc` starts at the top of a git repository, or offers the fedora-desktop checkout**
+  (Plan 00167, issue #90). In a subdirectory it starts at the repository's top, so the
+  project's settings load. Outside any repository it offers the checkout `[Y/n]` at a
+  terminal and refuses on no, or with no terminal (a reboot restore). `claude` still starts
+  anywhere.
+
 ## 3.99.12.18 — container 2.77.14
 
 Follows 3.99.12.17 (container 2.77.13). The image carries the pingbus kit, which changed, so
