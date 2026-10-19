@@ -355,15 +355,15 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   go-qa-ci toolchain is to replace. Owner's decision (2026-10-15): not ported; the owner makes
   `go-qa-ci` public, then Plan 00191 Task 3.3 pins it and retires `scripts/qa-go.bash`, which
   closes this task. Blocked on that owner action.
-  `vmtest` (P5) on `go-port/vmtest`: ported and cut over, not merged; spec
+  `vmtest` (P5) on `go-port/vmtest`: ported and cut over, merged into F44 (`3474744f`); spec
   [SPEC-vmtest.md](SPEC-vmtest.md) (E1-E60, B1-B17), `src-go/cmd/vmtest` and
   `src-go/internal/vmtest`, the Python helpers kept behind one seam; the lab play builds the
   binary, the bash CLI and its four suites are gone (their cases are Go tests), and the qa-all
   golden restores their rows (`retiredAfterPort`). Booting is proven only on the host (SPEC
   section 7, H1-H6, queued in `meta-deploy.list`); report
   `subagent-reports/261015-vmtest-port-opus.md`.
-  `ftp-camera` (P8, the ftp-camera part; `wsi` and `watermark` not started) on
-  `go-port/ftp-camera`: ported and cut over, not merged; spec
+  `ftp-camera` (P8, the ftp-camera part) on
+  `go-port/ftp-camera`: ported and cut over, merged into F44 (`a069fd96`); spec
   [SPEC-ftp-camera.md](SPEC-ftp-camera.md) (E1-E66, B1-B25), `src-go/cmd/ftp-camera` and
   `src-go/internal/ftpcamera`, with `internal/rclonerc` (the Go twin of `rclone-rc-auth.bash`,
   which stays for the bash rclone helpers) and root systemctl verbs in `internal/systemd`;
@@ -379,7 +379,9 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   Lows; two are fixed: a name collision no longer halts `--sort` (identical bytes are a
   reported duplicate, a different file a per-file refusal, exit 1 at the end), and the
   not-sorted count holds only distinct files still in the upload root.
-  `watermark` and `wsi` (P8, the rest after ftp-camera) on `go-port/wsi-watermark`: spec
+  `watermark` and `wsi` (P8, the rest after ftp-camera) on `go-port/wsi-watermark`: merged
+  into F44 (`8c2ec4cc`), its review follow-ups on `go-port/wsi-watermark-lows` too
+  (`df5b3b2f`); spec
   [SPEC-wsi-watermark.md](SPEC-wsi-watermark.md) (W1-W35, M1-M14, B1-B30). `watermark` ported
   and cut over: `src-go/cmd/watermark`, `internal/watermark` (config files read as data, never
   sourced), shared `internal/shellword`; the play builds it root-owned into `/usr/local/bin`
