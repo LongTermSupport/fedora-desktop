@@ -228,6 +228,11 @@ linters:
       - path: internal/wsi/.*_test\.go
         linters: [gosec]
         text: "G304|G306|G703"
+      # git-fetch-age reads the git directory of the checkout the prompt is in, by the paths git
+      # itself writes there: a .git file's gitdir line and a worktree's commondir (Plan 00183).
+      - path: internal/fetchage/fetchage\.go
+        linters: [gosec]
+        text: "G304|G703"
   settings:
     cyclop:
       max-complexity: 15

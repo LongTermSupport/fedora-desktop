@@ -74,7 +74,7 @@ Use these Unicode icons in plan documents:
 
 - [00184-deployed-tools-menu](00184-deployed-tools-menu/) - Not Started (low priority). One launcher and panel item for the deployed user tools (#81)
 
-- [00183-prompt-shows-stale-tracking-ref](00183-prompt-shows-stale-tracking-ref/) - Not Started. The git prompt never shows up-to-date against a stale tracking ref (#52)
+- [00183-prompt-shows-stale-tracking-ref](00183-prompt-shows-stale-tracking-ref/) - In Progress. The git prompt never shows up-to-date against a stale tracking ref (#52): a stale-fetch mark (`git-fetch-age`), awaiting deploy
 
 - [00182-run-bash-private-plays-and-config-clone](00182-run-bash-private-plays-and-config-clone/) - Not Started. `run.bash` runs private plays from a local clone of the config repo (#49, #97)
 

@@ -131,7 +131,8 @@ These playbooks are executed automatically by `playbook-main.yml` during initial
   automation is a ladder to root (headless runs get their credential from the preflight
   contract instead — see [headless-provisioning.md](headless-provisioning.md))
 - Sets up Vim with Deus colorscheme
-- Configures bash environment and custom PS1 prompt
+- Configures bash environment and custom PS1 prompt, with its stale-fetch mark
+  (`git-fetch-age`, a Go binary built from `src-go/`, so this play imports `play-golang.yml`)
 - Moves bash history (user and root) to a private `~/.local/state/bash/history`, written at
   every prompt and never truncated, and gives the desktop user a Ctrl+R that ranks the
   current directory's commands first, with up-arrow kept to the current terminal — see
