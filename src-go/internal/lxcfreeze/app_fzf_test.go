@@ -62,11 +62,11 @@ func TestFzfGroupAndDrillDownUseTheLegacyArgvAndTheChoiceIsActedOn(t *testing.T)
 	got := *runs
 	eqStrings(t, "group argv", got[0].args, []string{
 		"--height=50%", "--reverse", "--prompt=lxcfreeze: ",
-		"--header=ENTER acts on the chosen group — ESC to quit",
+		"--header=lxcfreeze\n3 groups\n────────────────────────\nENTER acts on the chosen group — ESC to quit",
 	})
 	eqStrings(t, "drill-down argv", got[1].args, []string{
 		"--multi", "--height=60%", "--reverse", "--prompt=In this group: ",
-		"--header=ENTER on the first row acts on all — TAB picks specific ones, ESC goes back",
+		"--header=lxcfreeze › bridge: lxcbr0\n2 containers\n──────────────────────────\nENTER on the first row acts on all — TAB picks specific ones, ESC goes back",
 	})
 	if len(got[0].rows) != 3 || got[0].rows[0] != menuLabel("all LXC containers", "FREEZE 2") {
 		t.Fatalf("the labels, one per line, go on stdin: %q", got[0].rows)

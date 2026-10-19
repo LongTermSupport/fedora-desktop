@@ -63,7 +63,9 @@ func TestExplainWrapsToTheTerminalWidthLessFour(t *testing.T) {
 		want   string
 	}{
 		{execx.Result{Stdout: []byte("100\n")}, 5, "gum style --width 96 --padding 0 0 0 5 hint"},
-		{execx.Result{Stdout: []byte("43\n")}, 0, "gum style --width 76 --padding 0 0 0 0 hint"},
+		// A narrow terminal is believed: an explanation wider than it would be cut.
+		{execx.Result{Stdout: []byte("43\n")}, 0, "gum style --width 39 --padding 0 0 0 0 hint"},
+		{execx.Result{Stdout: []byte("0\n")}, 0, "gum style --width 76 --padding 0 0 0 0 hint"},
 		{execx.Result{Stdout: []byte("wide\n")}, 0, "gum style --width 76 --padding 0 0 0 0 hint"},
 		{execx.Result{ExitCode: 1}, 0, "gum style --width 76 --padding 0 0 0 0 hint"},
 	}

@@ -180,7 +180,7 @@ func (s *Seats) NewSession(ctx context.Context, snap *board.Snapshot, team strin
 		s.Kit.Term.PrintError(err.Error())
 		return flow.Refused, flow.Leave(term.ExitFailure)
 	}
-	picked, err := s.Kit.Choose(ctx, ui.PickSpec{
+	picked, err := s.Kit.Choose(ctx, flow.Here(team, "New session").About("team "+team+" · in "+s.Kit.Abbrev(top)), ui.PickSpec{
 		Title: "New ccy session in " + team,
 		Header: ui.Header("Enter start   Esc or q back", "Runs ccy --teams <seat>@"+team+" in "+s.Kit.Abbrev(top)+
 			"; a new seat is created by that launch (sudo)."),
@@ -245,8 +245,8 @@ func (s *Seats) RemoveOrPark(ctx context.Context, snap *board.Snapshot, row boar
 
 func (s *Seats) removeSeat(ctx context.Context, row board.Row) (flow.Result, error) {
 	ref := row.Member + "@" + row.Team
-	yes, err := s.Kit.Confirm(ctx, "Remove seat "+ref+"?",
-		row.Handle+" is parked (its token revoked; its history kept) and the seat's directory in "+s.Kit.Abbrev(row.Dir)+
+	yes, err := s.Kit.Confirm(ctx, flow.Here(row.Team, row.Crumb(), "Remove").About("seat "+ref+" · "+row.Handle+" · in "+s.Kit.Abbrev(row.Dir)),
+		"Remove seat "+ref+"? "+row.Handle+" is parked (its token revoked; its history kept) and the seat's directory in "+s.Kit.Abbrev(row.Dir)+
 			" deleted. Launching into "+ref+" again brings it back.",
 		"remove "+ref, false)
 	if err != nil || !yes {
@@ -263,8 +263,8 @@ func (s *Seats) removeSeat(ctx context.Context, row board.Row) (flow.Result, err
 }
 
 func (s *Seats) park(ctx context.Context, row board.Row) (flow.Result, error) {
-	yes, err := s.Kit.Confirm(ctx, "Park "+row.Handle+"?",
-		"Its token is revoked; its account, role and room are kept. add-member --seat returns it, "+
+	yes, err := s.Kit.Confirm(ctx, flow.Here(row.Team, row.Crumb(), "Park").About(row.Handle+" in team "+row.Team+" · "+row.State),
+		"Park "+row.Handle+"? Its token is revoked; its account, role and room are kept. add-member --seat returns it, "+
 			"and an agent_bus_lxc_members entry is returned by the next play run unless set absent.",
 		"park "+row.Handle, false)
 	if err != nil || !yes {

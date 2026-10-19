@@ -204,3 +204,22 @@ func TestAHandleWiderThanEvenTheNarrowTableIsStillWhole(t *testing.T) {
 		t.Fatalf("got %q", tb.Text(rows[1]))
 	}
 }
+
+// A crumb names a member by its whole handle, never its bare seat, and leaves the role to the
+// heading's context line; a person by its name.
+func TestACrumbNamesAMemberByItsWholeHandleAndAPersonByName(t *testing.T) {
+	for _, c := range []struct {
+		row  Row
+		want string
+	}{
+		{Row{Kind: KindCcy, Member: "1", Handle: "proj.1+local.podman", Dir: "/srv/proj", Role: "coordinator"}, "proj.1+local.podman"},
+		{Row{Kind: KindCcy, Member: "proj.1+local.podman", Handle: "proj.1+local.podman", Dir: "-"}, "proj.1+local.podman"},
+		{Row{Kind: KindCcy, Member: "1", Handle: "-", Dir: "/srv/proj"}, "seat 1"},
+		{Row{Kind: KindHuman, Member: "owner"}, "owner"},
+		{Row{Kind: "lxc", Member: "proj.box+role.lxc"}, "proj.box+role.lxc"},
+	} {
+		if got := c.row.Crumb(); got != c.want {
+			t.Errorf("%+v: crumb %q, want %q", c.row, got, c.want)
+		}
+	}
+}

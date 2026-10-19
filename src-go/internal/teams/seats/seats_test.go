@@ -15,6 +15,10 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
+// wideTerminal keeps a heading on one line when its context holds the test's temporary path,
+// whose length varies with the test and the machine (wrapping is tested in ui and picker).
+const wideTerminal = 400
+
 func (h rig) attachable() {
 	h.On("tmux -L ccy list-clients", "", 0)
 	h.On("tmux -L ccy set-hook", "", 0)
@@ -113,6 +117,7 @@ func newSessionHarness(t *testing.T) rig {
 
 func TestNewSessionOffersFreeSeatsAndANewOneAndExecsTheLauncherInTheTop(t *testing.T) {
 	h := newSessionHarness(t)
+	h.Script.Columns = wideTerminal
 	h.Script.Fzf = []string{"|new"}
 	snap := h.pass(t)
 	res, err := h.s.NewSession(context.Background(), snap, "alpha")
@@ -134,6 +139,7 @@ func TestNewSessionOffersFreeSeatsAndANewOneAndExecsTheLauncherInTheTop(t *testi
 		!strings.Contains(header, "Runs ccy --teams <seat>@alpha in "+h.Checkout()+"; a new seat is created by that launch (sudo).") {
 		t.Fatalf("header %q", header)
 	}
+	h.Script.HeadingAt(0, "Teams › alpha › New session\nteam alpha · in "+h.Checkout())
 }
 
 func TestNewSessionTakesAFreeSeat(t *testing.T) {
@@ -310,6 +316,7 @@ func TestToggleRestoreReportsAnUnlocatableRegistry(t *testing.T) {
 
 func TestRemoveSeatAsksThenRemovesInItsCheckout(t *testing.T) {
 	h := newRig(t)
+	h.Script.Columns = wideTerminal
 	h.On("agent-bus seat remove", "", 0)
 	h.Script.Fzf = []string{"|YES"}
 	snap := h.pass(t)
@@ -329,6 +336,7 @@ func TestRemoveSeatAsksThenRemovesInItsCheckout(t *testing.T) {
 	if !strings.Contains(h.HeaderOf(0), "proj.1+local.podman is parked (its token revoked; its history kept) and the seat's directory in "+h.Checkout()+" deleted. Launching into 1@alpha again brings it back.") {
 		t.Fatalf("header %q", h.HeaderOf(0))
 	}
+	h.Script.HeadingAt(0, "Teams › alpha › proj.1+local.podman › Remove\nseat 1@alpha · proj.1+local.podman · in "+h.Checkout())
 }
 
 func TestRemoveSeatNoRemovesNothingAndFailureIsSaid(t *testing.T) {

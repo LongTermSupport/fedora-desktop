@@ -87,20 +87,21 @@ func TestChoosingASeatKeepingItsRolePrintsTheSeatAndChangesNothing(t *testing.T)
 	if !strings.Contains(h.ErrOut.String(), "Taking seat 1@alpha: "+handleOne+" (a ccy seat).") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
+	h.Script.HeadingAt(0, "New session › Team alpha · step 1/2 Seat\nteam alpha")
+	h.Script.HeadingAt(1, "New session › Team alpha · step 2/2 Role\nteam alpha · seat 1 · "+handleOne)
 }
 
 func TestTheSeatAndRoleQuestionsCarryTheHeadingTheyAreGiven(t *testing.T) {
 	h := newRig(t)
 	h.Script.Gum = []string{h.pickSeatOne(), "CHOOSE:" + keepRole("worker")}
-	if ref, code := h.c.PickSeat(t.Context(), "alpha", "", "Team 2 of 3: alpha"); ref != "1@alpha" || code != term.ExitOK {
+	if ref, code := h.c.PickSeat(t.Context(), flow.LaunchTeam(2, 3, "alpha"), "alpha", ""); ref != "1@alpha" || code != term.ExitOK {
 		t.Fatalf("%q %d: %s", ref, code, h.ErrOut.String())
 	}
-	if !strings.Contains(h.gumHeader(0), "--header Team 2 of 3: alpha · seat: which seat does this session take?") ||
-		!strings.Contains(h.gumHeader(1), "--header Team 2 of 3: alpha · role of seat 1: ") {
+	h.Script.HeadingAt(0, "New session › Team 2 of 3: alpha · step 1/2 Seat\nteam alpha")
+	h.Script.HeadingAt(1, "New session › Team 2 of 3: alpha · step 2/2 Role\nteam alpha · seat 1 · "+handleOne)
+	if !strings.Contains(h.gumHeader(0), "--header Team alpha: which seat does this session take?") ||
+		!strings.Contains(h.gumHeader(1), "--header Role of seat 1: ") {
 		t.Fatalf("gum %q", h.Script.GumLog)
-	}
-	if !strings.HasPrefix(h.ErrOut.String(), "Team 2 of 3: alpha\n") {
-		t.Fatalf("the team's lines are not under its heading: %q", h.ErrOut.String())
 	}
 }
 

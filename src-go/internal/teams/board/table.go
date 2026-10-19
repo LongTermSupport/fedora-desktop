@@ -34,7 +34,7 @@ type Kind string
 
 // Row is one line of the table. Member is the seat (a ccy seat with a checkout), the handle (a
 // member with none) or the person, as keys and flows name it; the MEMBER column shows a member's
-// whole handle instead (memberCell). Handle and Dir are what a key pressed on the row acts on;
+// whole handle instead (Label). Handle and Dir are what a key pressed on the row acts on;
 // "-" stands for none, as in the printed table.
 type Row struct {
 	Team, Member, State, Applied, Session, Restore, Where string
@@ -84,6 +84,20 @@ func (r Row) Label() string {
 		return r.Member
 	}
 	return agentbus.Label(r.Handle, r.Role)
+}
+
+// Crumb is how a screen's heading names the row's member: a member by its whole handle
+// (agentbus.Label, the role left to the heading's context), a person by its name. A seat with no
+// handle yet (ccy has not made its member) is "seat <name>".
+func (r Row) Crumb() string {
+	noHandle := r.Handle == "" || r.Handle == "-"
+	switch {
+	case r.Kind == KindCcy && noHandle && r.Dir != "-":
+		return "seat " + r.Member
+	case r.Kind == KindTeam || r.Kind == KindHuman || noHandle:
+		return r.Member
+	}
+	return agentbus.Label(r.Handle, "")
 }
 
 // cells are the row's columns as words.

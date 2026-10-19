@@ -209,8 +209,11 @@ a repository is no longer offered for a checkout of it. Report:
   the row and shows the rest (a team's description as ABOUT) in the row's header (`--list`:
   on the line below). Fable's FIX-FIRST
   (`subagent-reports/261016-teams-full-handles-review-fable.md`): the sudoers rule dropped,
-  the description no longer cut, the last bare seats labelled. Host run pending
-  (meta-deploy: play-claude-yolo.yml). Report: `subagent-reports/261016-teams-full-handles-opus.md`.
+  the description no longer cut, the last bare seats labelled. Re-review's FIX-FIRST
+  (`subagent-reports/261019-teams-full-handles-rereview-fable.md`): the session menus' last
+  bare seats labelled; `fix/context-headings` merged in, its headings' crumbs and context lines
+  naming seats by handle and its truncation dropped. Host run pending (meta-deploy:
+  play-claude-yolo.yml, one block for both branches). Report: `subagent-reports/261016-teams-full-handles-opus.md`.
 
 ## Success Criteria
 

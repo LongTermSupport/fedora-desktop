@@ -64,24 +64,29 @@ func TestEveryQuestionShowsTheTeamTheStepTheContainerAndTheUser(t *testing.T) {
 	if code := r.run("alpha"); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
 	}
-	wants := []string{
-		"--header Add an LXC member to alpha · step 1/4 Container\n",
-		"--header Add an LXC member to alpha · step 2/4 User · container-a\n",
-		"--header Add an LXC member to alpha · step 3/4 Checkout · container-a, user agent\n",
-		"--header Add an LXC member to alpha · step 4/4 Role · container-a, user agent\n",
-	}
-	for i, want := range wants {
-		if !strings.Contains(r.Script.GumLog[i], want) {
-			t.Fatalf("question %d lacks its context %q: %q", i+1, want, r.Script.GumLog[i])
-		}
-	}
+	r.Script.HeadingAt(1, "Teams › alpha › Add LXC member · step 2/4 User\ninto team alpha · container container-a")
+	r.Script.HeadingAt(2, "Teams › alpha › Add LXC member · step 3/4 Checkout\ninto team alpha · container container-a · user agent")
 	said := r.ErrOut.String()
-	for _, want := range []string{
-		"1/4  Container · Add an LXC member to alpha\n",
-		"3/4  Checkout · Add an LXC member to alpha · container-a, user agent\n",
-	} {
+	for _, want := range []string{"1/4  Container\n", "3/4  Checkout\n"} {
 		if !strings.Contains(said, want) {
 			t.Fatalf("the step heading lacks %q:\n%s", want, said)
+		}
+	}
+}
+
+// On a 40-column terminal step 4's heading, the longest of the run, wraps to the 38 columns a
+// gum header has and keeps every answer given so far.
+func TestStepFoursHeadingWrapsOnANarrowTerminalAndKeepsEveryAnswer(t *testing.T) {
+	r := newRig(t)
+	r.Script.Columns = 40
+	r.happy()
+	if code := r.run("alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	r.Script.HeadingAt(3, "Teams › alpha › Add LXC member\n· step 4/4 Role\ninto team alpha\n· container container-a · user agent\n· checkout /srv/agent/one")
+	for l := range strings.SplitSeq(r.Script.Headings[3], "\n") {
+		if len([]rune(l)) > 38 || strings.HasSuffix(l, "..") {
+			t.Fatalf("a heading line does not fit 40 columns: %q", l)
 		}
 	}
 }
@@ -103,9 +108,10 @@ func TestTypeAPathOpensTheContainersDirectoriesToWalkWithArrowsAndEnter(t *testi
 	if got := r.fzfArg(t, 0, "--prompt="); got != home+"/" {
 		t.Fatalf("prompt %q", got)
 	}
-	if got := r.fzfArg(t, 0, "--border-label="); !strings.Contains(got, "Add an LXC member to alpha · step 3/4 Checkout · container-a, user agent") {
+	if got := r.fzfArg(t, 0, "--border-label="); got != " Checkout in container-a " {
 		t.Fatalf("title %q", got)
 	}
+	r.Script.HeadingAt(3, "Teams › alpha › Add LXC member · step 3/4 Checkout\ninto team alpha · container container-a · user agent")
 	if got := r.HeaderOf(0); !strings.Contains(got, "Tab complete") || !strings.Contains(got, "Enter open or choose") {
 		t.Fatalf("header %q", got)
 	}
