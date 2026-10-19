@@ -17,6 +17,25 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.12.14 — container 2.77.10
+
+Follows 3.99.12.13 (container 2.77.9). The entrypoint changed, so the image is rebuilt once.
+
+- **A wrapper that runs a shell script through Python is refused, naming the fix.** From
+  hooks-daemon 3.69.0, `.claude/ccy/claude-supervise` is a `#!/bin/sh` launcher beside
+  `claude-supervise.py`, and the daemon's upgrade repoints a `ccy.env` line from
+  `claude-supervise.py` to `claude-supervise` without removing a `python3` in front of it. A
+  project wrapper of the form `python3 /workspace/.claude/ccy/claude-supervise --arm --` then
+  died at launch on a bare Python `SyntaxError` at the launcher's first function. When the
+  wrapper's first word is a python interpreter and the next is a script whose shebang names
+  sh, bash or dash, the entrypoint now stops before exec with
+  "Point CCY_CLAUDE_WRAPPER at claude-supervise (no python3) or claude-supervise.py". The
+  wrapper is never rewritten; the fix belongs in the project's `.claude/ccy/ccy.env` (or
+  `ccy.env.local`).
+- The "could not verify which account this token belongs to" message is printed by one
+  `printf` instead of a run of `echo` lines, with the same text, so the entrypoint stays
+  within its bash-limits record.
+
 ## 3.99.12.13 — container 2.77.9
 
 Follows 3.99.12.12 (container 2.77.8).

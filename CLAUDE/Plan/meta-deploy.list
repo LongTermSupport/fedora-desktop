@@ -30,7 +30,9 @@ playbooks/imports/play-agent-bus.yml
 # to 30 min, with a visible Stop waiting) instead of failing with exit 75, and never leaves a
 # saved-but-unapplied edit. The playwright-tests distrobox cleanup now reports changed only when
 # it removes a container. Running sessions are not touched.
-# Plan 00194 Task 2.0b: ccy 3.99.12.13, container 2.77.9, so the image IS rebuilt on the next
+# Plan 00194 Task 2.0b: ccy 3.99.12.14, container 2.77.10, so the image IS rebuilt on the next
 # launch: the goodbye is no longer cut off when a session ends with Ctrl-C, and a session ended
 # without it (podman stop, a closed terminal, a crash) is told "disconnected" by the launcher.
+# ccy also refuses, with a clear message, a wrapper that runs a shell launcher through Python,
+# instead of failing with a bare traceback.
 playbooks/imports/play-claude-yolo.yml
