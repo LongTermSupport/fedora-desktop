@@ -172,7 +172,7 @@ menu_case() {
         printf '  FAIL  %-54s -> rc=%s (want %s)\n' "$desc" "$rc" "$wantRc"
         printf '        output for this case is in %s\n' "$BANNERS"
         FAILED=$((FAILED + 1))
-    elif ! printf '%s' "$out" | grep -qF "$wantMsg"; then
+    elif ! grep -qF "$wantMsg" <<<"$out"; then
         printf '  FAIL  %-54s -> rc=%s but never said "%s"\n' "$desc" "$rc" "$wantMsg"
         printf '        the OTHER defence ended this run; this one is not working\n'
         FAILED=$((FAILED + 1))
