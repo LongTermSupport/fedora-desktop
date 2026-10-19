@@ -29,7 +29,7 @@
 # LOG OUT AND BACK IN after this run.
 playbooks/imports/optional/common/play-speech-to-text.yml
 # Plan 00204 D4 and Plan 00203 Task 3.8: rebuilds and installs ccy-teams, ccy-sessions and the
-# ccy launcher (3.99.12.14; the image, 2.77.8, is rebuilt at the next ccy start). Every screen
+# ccy launcher (3.99.12.15; the image, 2.77.9, is rebuilt at the next ccy start). Every screen
 # says where it is and what it acts on (Teams › alpha › Add LXC member · step 3/4 Checkout over
 # "into team alpha · container …"; ccy --teams heads each team "New session › Team 2 of 3: …";
 # Teams › <team> › Settings), wrapped to the terminal, never cut off. ccy-teams lxc-add's

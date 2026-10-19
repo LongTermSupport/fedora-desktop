@@ -104,8 +104,9 @@ trusted reference may name any path in the team's repositories (a team narrows i
     python3 -m helpers.agent_bus.declare lxc-checkouts --file <localhost.yml> --scan JSON
         CHECKOUT<TAB><path in the container><TAB><owner/repo><TAB><ccy or -> for each checkout the
         reader found (in the user's home, /var/www, /srv and /opt) whose origin is on GitHub, ccy
-        projects (a .claude/ccy directory) first; then PARTIAL when the search stopped at its
-        time or count limit
+        projects (a .claude/ccy directory) first; then SKIPPED<TAB><root> for each search root
+        not searched because a symbolic link is on its way, and PARTIAL when the search stopped
+        at its time or count limit
     python3 -m helpers.agent_bus.declare lxc-script --name root-read
         the script the host runs as root to read a container's checkout (derive.ROOT_READ_PY)
 
@@ -1352,11 +1353,12 @@ def lxc_command(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
         return EXIT_OK
     if args.command == "lxc-checkouts":
         try:
-            found, cut = derive.parse_checkouts(args.scan)
+            found, cut, skipped = derive.parse_checkouts(args.scan)
         except derive.DeriveError as exc:
             raise UsageError(str(exc)) from None
         out.writelines(f"CHECKOUT\t{path}\t{repo}\t{'ccy' if ccy else '-'}\n" for path, origin, ccy in found
                        if origin is not None and (repo := github_remote(origin)) is not None)
+        out.writelines(f"SKIPPED\t{root}\n" for root in skipped)
         if cut:
             out.write("PARTIAL\n")
         return EXIT_OK

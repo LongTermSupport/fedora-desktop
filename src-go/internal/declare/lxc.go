@@ -135,10 +135,12 @@ type Checkout struct {
 }
 
 // Checkouts is what the search of a container (the user's home, /var/www, /srv, /opt) found,
-// ccy projects first, and whether it is partial: it stopped at its time or count limit.
+// ccy projects first, whether it is partial (it stopped at its time or count limit), and the
+// search roots it did not search because a symbolic link is on their way.
 type Checkouts struct {
 	Found   []Checkout
 	Partial bool
+	Skipped []string
 }
 
 // LxcCheckouts are the checkouts with a GitHub remote among those the root-side reader found
@@ -156,7 +158,14 @@ func (c *Client) LxcCheckouts(ctx context.Context, scan string) (Checkouts, erro
 	if err != nil {
 		return Checkouts{}, fmt.Errorf("declare lxc-checkouts: %w", err)
 	}
+	skipped, err := marker.Fields(out, "SKIPPED", 2)
+	if err != nil {
+		return Checkouts{}, fmt.Errorf("declare lxc-checkouts: %w", err)
+	}
 	found := Checkouts{Found: make([]Checkout, 0, len(rows)), Partial: len(cut) > 0}
+	for _, f := range skipped {
+		found.Skipped = append(found.Skipped, f[1])
+	}
 	for _, f := range rows {
 		found.Found = append(found.Found, Checkout{Path: f[1], Repo: f[2], Ccy: f[3] == "ccy"})
 	}

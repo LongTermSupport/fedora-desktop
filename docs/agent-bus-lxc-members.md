@@ -100,9 +100,10 @@ Notes on the table:
    and it starts with the first: the search looks in the user's home and in `/var/www`, `/srv`
    and `/opt` (for example a site under `/var/www/vhosts/<site>/`), up to four directories
    deep, ccy projects (those with a `.claude/ccy` directory) first; dependency trees such as
-   `node_modules` and `vendor` are skipped, a root that is missing or a symbolic link is not
-   searched, and a search stopped by its time or count limit says it may have missed some.
-   The arrows put a suggestion in the line; Enter takes the line, Esc cancels. Every listing
+   `node_modules` and `vendor` are skipped, a root that is missing is passed over, one with a
+   symbolic link on its way is named and not followed, and a search stopped by its time or
+   count limit says it may have missed some. Every line wraps to the terminal, never cut off.
+   The arrows put a suggestion in the line; Enter takes the line, Esc cancels the run. Every listing
    is read from the host's side. A container on LXC's `dir` or `btrfs` store is read
    as the directory its rootfs is; one on `overlay`, `zfs`, `lvm`, `loop`, `rbd` or `nbd`
    through the running container's own root (`/proc/<init pid>/root`); any other store is

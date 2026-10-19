@@ -341,14 +341,26 @@ elif mode == "checkouts":
             sub = child(fd, name, shown + "/" + name)
             if sub is not None:
                 scan(sub, shown + "/" + name, depth - 1)
+    skipped = []
     def search_root(root):
-        # A root that is missing, or a link anywhere on its way, is not searched.
+        # A root that is missing (or not a directory) is passed over; one with a link on its
+        # way is not followed, and is named in skipped so the person is told.
         base, rest = locate(split(root))
         fd = root_fd(base)
         for part in rest:
-            sub = real_dir(fd, part)
-            os.close(fd)
+            try:
+                sub = os.open(part, FLAGS, dir_fd=fd)
+            except FileNotFoundError:
+                sub = None
+            finally:
+                os.close(fd)
             if sub is None:
+                return None
+            mode = os.fstat(sub).st_mode
+            if stat.S_ISLNK(mode):
+                skipped.append(root.rstrip("/"))
+                return None
+            if not stat.S_ISDIR(mode):
                 return None
             fd = sub
         return fd
@@ -356,7 +368,7 @@ elif mode == "checkouts":
         start = None if cut else search_root(root)
         if start is not None:
             scan(start, root.rstrip("/"), @DEPTH@)
-    print(json.dumps({"checkouts": found, "partial": bool(cut)}))
+    print(json.dumps({"checkouts": found, "partial": bool(cut), "skipped": skipped}))
 elif mode == "dirs":
     parts = [] if path == "/" else split(path)
     base, rest = locate(parts)
@@ -505,16 +517,20 @@ def parse_probe(text: str) -> Probe:
     return Probe(_path(data["path"], "a checkout path"), origin_from_git_config(git_config), env_local)
 
 
-def parse_checkouts(text: str) -> tuple[list[tuple[str, str | None, bool]], bool]:
+def parse_checkouts(text: str) -> tuple[list[tuple[str, str | None, bool]], bool, list[str]]:
     """The (path, origin, is a ccy project) of each checkout `ROOT_READ_PY checkouts` printed,
-    ccy projects first, and whether the search is partial: it reached its time or count limit
-    before it was done."""
+    ccy projects first; whether the search is partial (it reached its time or count limit before
+    it was done); and the search roots not searched because a symbolic link is on their way."""
     try:
         data = json.loads(text)
     except ValueError:
         raise DeriveError("the checkout search printed something that is not JSON") from None
-    if not isinstance(data, dict) or set(data) != {"checkouts", "partial"} or type(data["partial"]) is not bool:
-        raise DeriveError("the checkout search printed something other than its checkouts and whether it is partial")
+    if (not isinstance(data, dict) or set(data) != {"checkouts", "partial", "skipped"}
+            or type(data["partial"]) is not bool or not isinstance(data["skipped"], list)
+            or len(data["skipped"]) > len(CHECKOUTS_ROOTS) + 1):
+        raise DeriveError("the checkout search printed something other than its checkouts, whether it is partial "
+                          "and the roots it skipped")
+    skipped = [_path(root, "a skipped search root") for root in data["skipped"]]
     items = data["checkouts"]
     if not isinstance(items, list) or len(items) > CHECKOUTS_MAX:
         raise DeriveError(f"the checkout search printed something other than a list of at most {CHECKOUTS_MAX}")
@@ -527,7 +543,7 @@ def parse_checkouts(text: str) -> tuple[list[tuple[str, str | None, bool]], bool
             raise DeriveError("the checkout search printed a .git/config that is not bounded text")
         found.append((_path(item["path"], "a checkout path"),
                       None if config is None else origin_from_git_config(config), item["ccy"]))
-    return sorted(found, key=lambda f: (not f[2], f[0])), data["partial"]
+    return sorted(found, key=lambda f: (not f[2], f[0])), data["partial"], skipped
 
 
 # ── the rule ─────────────────────────────────────────────────────────────────────────────

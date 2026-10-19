@@ -250,6 +250,20 @@ func TestAHomeSearchPastItsTimeIsSaidAndThePathIsTyped(t *testing.T) {
 	}
 }
 
+func TestASearchRootThatIsASymbolicLinkIsNamed(t *testing.T) {
+	r := newRig(t)
+	r.OnDeclare("lxc-checkouts", "CHECKOUT\t/srv/agent/one\texample-org/one\t-\nSKIPPED\t/var/www\n")
+	r.happy()
+	if got := r.checkoutWritten(t); got != "/srv/agent/one" {
+		t.Fatalf("declared %q", got)
+	}
+	want := "/var/www in container-a was not searched: a symbolic link is on its way, which the search does not follow; " +
+		"type a path under it, or under its target."
+	if !strings.Contains(r.ErrOut.String(), want) {
+		t.Fatalf("stderr %s", r.ErrOut.String())
+	}
+}
+
 func TestASearchStoppedAtALimitSaysItMayHaveMissedSome(t *testing.T) {
 	r := newRig(t)
 	r.OnDeclare("lxc-checkouts", "CHECKOUT\t/srv/agent/one\texample-org/one\t-\nPARTIAL\n")

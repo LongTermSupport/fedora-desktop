@@ -81,6 +81,10 @@ func (a *Adder) findCheckouts(ctx context.Context, ans *answers) []declare.Check
 	if err == nil {
 		found, err = a.Declare.LxcCheckouts(ctx, scan)
 	}
+	for _, root := range found.Skipped {
+		a.term.Printf("%s in %s was not searched: a symbolic link is on its way, which the search does not follow; "+
+			"type a path under it, or under its target.\n", root, ans.container)
+	}
 	switch {
 	case err != nil && errors.Is(bounded.Err(), context.DeadlineExceeded):
 		a.term.Printf("The search for checkouts in %s took too long and was stopped (after %s); type the checkout's path.\n",
