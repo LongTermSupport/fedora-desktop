@@ -60,7 +60,7 @@ func (g *gate) proveRules(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	res, err := g.runTool(ctx, semgrepTimeout, "semgrep", "--test", "--metrics=off", "--disable-version-check",
+	res, err := g.runTool(ctx, semgrepTimeout, "semgrep", "--test", "--metrics=off", semgrepreport.TimeoutFlag, "--disable-version-check",
 		"--config", g.path(rulesPath), g.path(pyFixturePath))
 	if err != nil {
 		return err

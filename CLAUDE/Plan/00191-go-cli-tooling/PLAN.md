@@ -129,6 +129,15 @@ today; rewriting them is out of scope.
   Both are off until then: without a record every `.golangci.yml` exclusion would fail the
   suppression detector. `qa-go.bash` had neither check, so nothing was lost by Task 3.3.
 
+- [ ] ⬜ **Task 3.9**: Re-derive the coverage floor from go-qa's measurement (Fable's review of
+  Task 3.3, finding 4; `subagent-reports/261019-go-qa-ci-pin-review-fable.md`). `qa-go.bash`
+  measured each package by its own tests (no `-coverpkg`); go-qa measures `-coverpkg=./...`
+  across the module, so statements one package's tests execute in another now count. The floor
+  stayed at 90 and passes, but it is compared to a different, generally higher number (the old
+  gate printed 94.8% and 94.4%). Measure the module total the new way, choose the floor from
+  it, and record the choice. go-qa prints the percentage only when the floor is missed, so the
+  measurement needs a run with a deliberately high floor or a profile of its own.
+
 - [x] ✅ **Task 3.4**: go-qa-ci diff mode, `go-qa run --changed [--base <ref>]` (M13):
   per-package engines on the affected packages and their importers, repo-wide defences always,
   and a change to `go.mod`, `go.sum`, the golangci config, `qa/` or the tool lock widens it to

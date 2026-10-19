@@ -299,7 +299,7 @@ func TestAPythonRuleThatFailsItsFixtureIsExitOneWithSemgrepsOutput(t *testing.T)
 	}
 	for _, argv := range w.fake.argvs {
 		if slices.Contains(argv, "--test") {
-			for _, want := range []string{"--metrics=off", "--disable-version-check", "--config", filepath.Join(w.root, ".semgrep/ready-wait.yml"), filepath.Join(w.root, ".semgrep/ready-wait.py")} {
+			for _, want := range []string{"--metrics=off", semgrepreport.TimeoutFlag, "--disable-version-check", "--config", filepath.Join(w.root, ".semgrep/ready-wait.yml"), filepath.Join(w.root, ".semgrep/ready-wait.py")} {
 				if !slices.Contains(argv, want) {
 					t.Fatalf("semgrep --test lacks %q: %v", want, argv)
 				}

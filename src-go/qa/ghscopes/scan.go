@@ -38,7 +38,7 @@ func (g *gate) proveRule(ctx context.Context) (ExitCode, error) {
 	if len(semgrepreport.Annotated(string(fixture))) == 0 {
 		return ExitCannotRun, fmt.Errorf("%s marks no ruleid line; the self-test proves nothing", fixtureFile)
 	}
-	res, err := g.runTool(ctx, semgrepTimeout, "semgrep", "--test", "--config", g.path(ruleFile), g.path(fixtureFile), "--metrics=off")
+	res, err := g.runTool(ctx, semgrepTimeout, "semgrep", "--test", "--config", g.path(ruleFile), g.path(fixtureFile), "--metrics=off", semgrepreport.TimeoutFlag)
 	if err != nil {
 		return ExitCannotRun, err
 	}

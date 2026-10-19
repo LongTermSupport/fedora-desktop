@@ -202,8 +202,8 @@ func TestTheSelfTestRunsTheRulesOverEachFixtureWithMetricsOff(t *testing.T) {
 	got := w.fake.tests()
 	rules := filepath.Join(w.root, ruleFile)
 	want := [][]string{
-		{"semgrep", "--test", "--metrics=off", "--disable-version-check", "--config", rules, filepath.Join(w.root, jsFixtureFile)},
-		{"semgrep", "--test", "--metrics=off", "--disable-version-check", "--config", rules, filepath.Join(w.root, pyFixtureFile)},
+		{"semgrep", "--test", "--metrics=off", semgrepreport.TimeoutFlag, "--disable-version-check", "--config", rules, filepath.Join(w.root, jsFixtureFile)},
+		{"semgrep", "--test", "--metrics=off", semgrepreport.TimeoutFlag, "--disable-version-check", "--config", rules, filepath.Join(w.root, pyFixtureFile)},
 	}
 	if !slices.EqualFunc(got, want, slices.Equal) {
 		t.Fatalf("self-test argv\n%v\nwant\n%v", got, want)

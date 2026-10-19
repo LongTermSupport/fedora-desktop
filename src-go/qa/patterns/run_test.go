@@ -194,6 +194,9 @@ func TestP5SelfTestRunsOnRulesAndFixtureAndItsFailureIsExit2WithItsOutput(t *tes
 		!strings.Contains(strings.Join(argv, " "), filepath.Join(w.root, ".semgrep/bash-conventions.bash")) {
 		t.Fatalf("self-test argv: %v", argv)
 	}
+	if !slices.Contains(argv, semgrepreport.TimeoutFlag) {
+		t.Fatalf("self-test argv lacks %s: %v", semgrepreport.TimeoutFlag, argv)
+	}
 	if w.run.mirror != "" {
 		t.Fatal("scanned after the self-test failed")
 	}

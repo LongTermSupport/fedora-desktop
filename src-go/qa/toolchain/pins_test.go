@@ -189,3 +189,24 @@ func TestT6AGoLineInsideABlockIsNotTheDirective(t *testing.T) {
 		t.Fatalf("exit %d\n%s", code, w.err.String())
 	}
 }
+
+// go-qa looks for .golangci.yml only in a module's own directory and writes its own baseline when
+// there is none, so the qa module is linted against the project's rules only through this link.
+func TestTheQaModuleLintsAgainstTheProjectGolangciConfig(t *testing.T) {
+	srcGo := filepath.Join("..", "..")
+	link := filepath.Join(srcGo, "qa", ".golangci.yml")
+	if _, err := os.Lstat(link); err != nil {
+		t.Fatalf("src-go/qa/.golangci.yml is gone, so go-qa lints the qa module with its own baseline: %v", err)
+	}
+	got, err := filepath.EvalSymlinks(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(filepath.Join(srcGo, ".golangci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("src-go/qa/.golangci.yml resolves to %s, want %s", got, want)
+	}
+}

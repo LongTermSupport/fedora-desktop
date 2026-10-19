@@ -130,3 +130,25 @@ All green:
 - `go test` of the touched packages.
 
 qa-all was not run; that is the coordinator's.
+
+## Follow-up: Fable's non-blocking findings (feat/pin-go-qa-ci-4)
+
+Review: `261019-go-qa-ci-pin-review-fable.md` (verdict MERGE). Applied:
+
+- **Finding 1**: the four `semgrep --test` self-tests (patterns, ghscopes, readywait, sttrules)
+  now pass `semgrepreport.TimeoutFlag`. The argv tests were changed first and failed, then passed.
+- **Finding 2**: `TestTheQaModuleLintsAgainstTheProjectGolangciConfig` (toolchain package) requires
+  `src-go/qa/.golangci.yml` to exist and resolve to `src-go/.golangci.yml`; red with the link moved
+  away.
+- **Finding 3**: the `CLAUDE/QA.md` qa-changed row says any change under `src-go/qa` widens to a
+  whole run, and that a narrowed root-module run judges the 90% floor over the changed packages'
+  `-coverpkg` subset.
+- **Finding 5**: not restored. go-qa-ci (pinned version) prints the coverage percentage only in
+  the failure message (`statement coverage N% is below ...`); on a pass its summary says `passed`
+  and no profile is kept, so the wrapper has nothing to parse without running the tests a second
+  time.
+- **Finding 6**: the `.qa-versions` header now says why golangci-lint is pinned (the hooks daemon
+  runs it on every Go edit) and that it must equal go-qa-ci's `tools.lock`.
+- **Finding 7**: the wrapper comment and the `CLAUDE/QA.md` row no longer say a gate never rewrites
+  the tree; they say what `CI` does.
+- **Finding 4**: left as the new Plan 00191 Task 3.9, with Fable's reasoning.

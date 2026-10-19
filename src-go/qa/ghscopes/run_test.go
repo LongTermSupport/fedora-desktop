@@ -117,7 +117,7 @@ func TestTheSelfTestRunsTheRuleOverTheFixtureWithMetricsOff(t *testing.T) {
 			test = c
 		}
 	}
-	want := []string{"semgrep", "--test", "--config", filepath.Join(w.root, ruleFile), filepath.Join(w.root, fixtureFile), "--metrics=off"}
+	want := []string{"semgrep", "--test", "--config", filepath.Join(w.root, ruleFile), filepath.Join(w.root, fixtureFile), "--metrics=off", semgrepreport.TimeoutFlag}
 	if !slices.Equal(test, want) {
 		t.Fatalf("self-test argv %v, want %v", test, want)
 	}

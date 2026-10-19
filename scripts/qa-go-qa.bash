@@ -4,7 +4,7 @@
 # go-qa is pinned by the tool directive of src-go/qa/go.mod (one require, the same that gives the
 # project rules driver its driver.Main; nothing installed system-wide) and configured by
 # src-go/qa/go-qa.toml. It installs its own pinned tools into its cache on the first run. It
-# checks formatting (--no-fix: a gate never rewrites the tree), golangci-lint, go vet with the
+# checks formatting (--no-fix; with CI set go-qa formats its checkout and then fails on the change), golangci-lint, go vet with the
 # bundled analyzers and the project rules (CLAUDE/GoProjectRules.md), dead code, govulncheck, the
 # module files, the build, go test -race and the coverage floor. Arguments are passed on
 # (qa-changed adds --changed --base REF).

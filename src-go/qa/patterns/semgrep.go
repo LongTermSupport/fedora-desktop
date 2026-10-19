@@ -45,7 +45,7 @@ func (g *gate) proveRules(ctx context.Context) error {
 	if len(semgrepreport.Annotated(string(body))) == 0 {
 		return fmt.Errorf("%s marks no ruleid line; the self-test proves nothing", fixturePath)
 	}
-	res, err := g.runTool(ctx, semgrepTimeout, g.root, "semgrep", "--test", "--config", rules, fixture, "--metrics=off")
+	res, err := g.runTool(ctx, semgrepTimeout, g.root, "semgrep", "--test", "--config", rules, fixture, "--metrics=off", semgrepreport.TimeoutFlag)
 	if err != nil {
 		return err
 	}
