@@ -846,6 +846,13 @@ CLI Tools — the one home for small command-line utilities (rule:
   delegates to (`xdg-utils`, `perl-File-MimeInfo`, `fzf`, `chafa`, `w3m`,
   `poppler-utils`, `bsdtar`, `jq`, `tree` and others). Fedora ships no `/usr/bin/open`,
   so nothing is masked
+- **`convert FILE --to FORMAT[,FORMAT...]`** writes FILE in each format beside it
+  (`convert notes.md --to docx` makes `notes.docx`); `convert FILE` lists what FILE can
+  become. It calls a proven converter for each pair and converts nothing itself: Markdown
+  to DOCX through `pandoc`, which the play installs. An existing output is kept unless
+  `--force`, and a failed conversion leaves no half-written file. A Go binary built from
+  `src-go/cmd/convert`. In the login user's shells it shadows ImageMagick's legacy
+  `/usr/bin/convert` alias; run ImageMagick as `magick`
 - **`reclaim`** is a bash menu that reports what is using disk and runs targeted cleanups
   (dnf autoremove/clean, old kernels, journal vacuum, container prune,
   flatpak/cache/trash), **each behind an explicit confirmation**. Installs `ncdu`, `duf`
@@ -855,8 +862,8 @@ CLI Tools — the one home for small command-line utilities (rule:
   any supported archive into `./NAME/`. The play refuses to run while the `ncompress`
   package is installed, because its legacy `/usr/bin/compress` would shadow the wrappers
 
-Run one tool alone with `--tags imgpaste`, `open-command`, `disk-reclaim` or
-`compression-helpers`. The play is `scope: general` and in the `server-recommended` bundle.
+Run one tool alone with `--tags imgpaste`, `open-command`, `convert-command`,
+`disk-reclaim` or `compression-helpers`. The play is `scope: general` and in the `server-recommended` bundle.
 
 #### play-cloudflare-dns.yml
 

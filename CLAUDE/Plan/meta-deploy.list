@@ -55,3 +55,14 @@ playbooks/imports/optional/common/play-speech-to-text.yml
 # in a checkout whose last fetch is an hour old or more. It never fetches. Open terminals keep
 # the old prompt until a new shell is started. Asks for the PS1 colour only if none is set.
 playbooks/imports/play-basic-configs.yml
+# Plan 00210 (#102): installs pandoc and builds ~/.local/bin/convert from src-go/cmd/convert.
+# Afterwards `convert notes.md` lists what a Markdown file can become (docx) and
+# `convert notes.md --to docx` writes notes.docx beside it. In the login user's shells it
+# shadows ImageMagick's legacy /usr/bin/convert (use magick). The other CLI tools are re-run
+# unchanged. Before the 00210 acceptance.
+playbooks/imports/optional/common/play-cli-tools.yml
+# Plan 00210 Task 2.2: acceptance.bash (no triage.bash or deploy.bash) runs the installed
+# convert on a fixture Markdown file with headings, a list, a table, bold/italic and a code
+# block, in a scratch directory, and reads the DOCX back with pandoc to confirm each survived.
+# Read-only apart from the scratch directory; no prompts.
+00210-convert-cli-markdown-to-docx

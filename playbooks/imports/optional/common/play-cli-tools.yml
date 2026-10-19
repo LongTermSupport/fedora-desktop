@@ -9,6 +9,7 @@
 #
 # Tools (run one alone with --tags <tag>):
 #   open                 tag open-command         open anything, desktop or over SSH
+#   convert              tag convert-command      a file into other formats (md -> docx)
 #   reclaim              tag disk-reclaim         disk-usage report and guarded cleanups
 #   compress/uncompress  tag compression-helpers  archive wrappers over a pinned ouch
 #   imgpaste             tag imgpaste             image -> self-decoding block for an agent
@@ -23,11 +24,13 @@
 # Standalone / opt-in play — run directly:
 #   ./playbooks/imports/optional/common/play-cli-tools.yml
 #
-# open is a Go binary built from this checkout (src-go/cmd/open), so the Go toolchain is
-# installed first. play-golang.yml stays its one source of truth; the tag makes
-# --tags open-command install the toolchain too.
+# open and convert are Go binaries built from this checkout (src-go/cmd/<name>), so the Go
+# toolchain is installed first. play-golang.yml stays its one source of truth; the tags make
+# --tags open-command or --tags convert-command install the toolchain too.
 - import_playbook: ../../play-golang.yml
-  tags: open-command
+  tags:
+    - open-command
+    - convert-command
 
 - hosts: desktop
   name: CLI Tools - small command-line utilities
@@ -107,6 +110,36 @@
         go_command_dest: "{{ user_bin_dir }}/open"
         go_command_mode: "0755"
       tags: open-command
+
+    # ── convert ──────────────────────────────────────────────────────────────────
+    # convert (src-go/cmd/convert, Plan 00210) owns a table of conversions and calls a proven
+    # converter for each; it converts nothing itself. pandoc is its engine for document
+    # formats, so it is declared here and convert refuses to run a pair whose engine is
+    # missing, naming this play. ~/.local/bin/convert shadows ImageMagick's legacy
+    # /usr/bin/convert alias for the login user; this repository runs ImageMagick as magick.
+    - name: Install the convert engines
+      ansible.builtin.dnf:
+        name:
+          - pandoc               # Markdown -> DOCX
+        state: present
+      tags:
+        - packages
+        - convert-command
+
+    - name: Verify pandoc runs
+      ansible.builtin.command:
+        argv: [pandoc, --version]
+      changed_when: false
+      check_mode: false
+      tags: convert-command
+
+    - name: Build and Install the convert Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: convert
+        go_command_dest: "{{ user_bin_dir }}/convert"
+        go_command_mode: "0755"
+      tags: convert-command
 
     # ── reclaim ──────────────────────────────────────────────────────────────────
     # A dependency-light bash menu that reports what is using disk and runs targeted
@@ -273,6 +306,7 @@
           - "CLI Tools installed"
           - "============================================"
           - "  open FILE          - default app, or a chooser (open --help for -a -d -l -t)"
+          - "  convert FILE --to docx - write FILE.docx beside a Markdown file (convert FILE lists formats)"
           - "  reclaim             - interactive disk cleanup menu (reclaim report: non-interactive)"
           - "  compress PATH       - e.g. myfolder -> myfolder.tar.xz (--zip, --7z)"
           - "  uncompress ARCHIVE  - extract anything ouch supports into ./NAME/"

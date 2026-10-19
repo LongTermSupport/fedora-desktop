@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00210-convert-cli-markdown-to-docx](00210-convert-cli-markdown-to-docx/) - In Progress. A Go `convert` command that turns a file into the formats its type supports, through proven engines; Markdown to DOCX through pandoc first (#102)
+
 - [00208-stt-paste-uses-stale-clipboard](00208-stt-paste-uses-stale-clipboard/) - In Progress. Speech-to-text auto-paste pasted the previous dictation: the paste key now waits until the clipboard reads back as this dictation's text, or nothing is pasted and the failure is said
 
 - [00206-deployed-tools-never-run-from-checkout](00206-deployed-tools-never-run-from-checkout/) - Not Started. What the desktop runs is a deployed, versioned copy installed by its play, never the live checkout; audit (7 runtime offenders), design, a gate, and the moves riskiest first, with owner decisions D1-D7
