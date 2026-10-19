@@ -123,7 +123,17 @@ measurement after deploy will show which. Either way, nothing waits on a call it
 - `scripts/test-ccy-teams-command.bash`: 383 passed, 0 failed
 - `scripts/test-ccy-teams.bash`: 214 passed, 0 failed
 - `scripts/qa-bash-limits.bash`: BASH-LIMITS-OK
-- `scripts/qa-changed.bash`: see the commit (run before it)
+- `scripts/qa-changed.bash` before the first commit: docs and the seven Go command suites
+  passed. The go gate failed in the nested `src-go/qa` module, which this branch does not
+  touch: `qa/cmd/qa-patterns` `TestRealSemgrepScansTestsDirectoriesAndLargeScripts` hit a
+  semgrep per-file `Timeout` on its `scripts/big.bash` fixture at load 39.9. It failed again on
+  its own at that load and passed (10.8 s) at load 35.7. That test is sensitive to host load,
+  and the problem should be followed up in the qa module. The gate's later steps over the main
+  module, which stop after that failure, were run by hand: fmt diff empty, build, vet,
+  `go test -race` with coverage 91.3% (floor 90), golangci-lint 0 issues. `qa-changed.bash --base 98cbe962` was then run over the whole branch.
+- `scripts/qa-changed.bash --base 98cbe962` over the committed branch, at load 16-28: passed, 18
+  changed files. The docs gate, the whole go gate (`qa-go.bash`, the qa module included) and all
+  seven Go command suites passed.
 
 ## Deploy
 
