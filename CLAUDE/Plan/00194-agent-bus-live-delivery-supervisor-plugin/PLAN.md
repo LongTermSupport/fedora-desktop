@@ -115,11 +115,13 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   ccy session within seconds, with the agent running nothing, framed as the human's.
 - [ ] Another agent's message appears in the same envelope with its own kind and no
   authority.
-- [ ] Host: `ccy stop` on a running `--teams` session sends the goodbye (to the team's
-  humans and coordinator, not to the other agents). SIGTERM reaches Claude Code's SessionEnd
-  in 2.1.299, but whether the supervisor dies fast enough inside the container's stop grace
-  is only known on the host. If it does not, set `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS`
-  in the entrypoint.
+- [ ] Host, after `play-agent-bus.yml` and `play-claude-yolo.yml` (branch
+  `fix/goodbye-ctrl-c`, journal 2026-10-19): ending a `--teams` session with Ctrl-C posts
+  `left the team` once (to the team's humans and coordinator); `podman stop` on one, and
+  closing its tmux window, each post `disconnected: session ended without a goodbye` once
+  instead, from the launcher; neither posts both. Before the fix no goodbye was ever sent:
+  Claude Code's 1.5 s SessionEnd bound, which a plugin hook's `timeout` does not raise, cut
+  it off; a stop or a closed terminal ends the container at once, so no hook runs at all.
 - [ ] A message sent to a busy session is typed mid-turn and run when the turn ends.
 
 ## Delivery & Milestones

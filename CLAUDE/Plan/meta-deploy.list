@@ -23,3 +23,12 @@
 # Plan 00179 Task 0.7: deploys stt-watch.timer, which runs stt over stt_watch_folders every
 # 5 minutes, and its failure notification. Set stt_watch_folders in host_vars first.
 playbooks/imports/optional/common/play-speech-to-text.yml
+
+# Plan 00194 Task 2.0b: the host's pingbus kit (seat disconnected) for the ccy launcher's exit,
+# and the member kit's settings with the longer SessionEnd bound. Before play-claude-yolo.yml.
+playbooks/imports/play-agent-bus.yml
+
+# Plan 00194 Task 2.0b: ccy 3.99.12.11, container 2.77.8 (rebuilt on next launch): the goodbye
+# is no longer cut off when a session ends with Ctrl-C, and a session ended without it
+# (podman stop, a closed terminal, a crash) is told "disconnected" by the launcher.
+playbooks/imports/play-claude-yolo.yml

@@ -17,6 +17,21 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.12.11 — container 2.77.8
+
+Follows 3.99.12.10 (container 2.77.7).
+
+- **The goodbye is sent when a session is ended with Ctrl-C** (Plan 00194 Task 2.0b). Claude
+  Code gave every SessionEnd hook 1.5 s together, and the plugin hook's own `timeout` did not
+  raise that, so the goodbye was cut off before it was posted. The session's settings (and the
+  member kit's) now set `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` to 8 s, and the hook ignores
+  SIGINT and SIGHUP while it posts. Each goodbye posted is recorded in its seat.
+- **A session that ends without its goodbye is told "disconnected"**. `podman stop`, a closed
+  terminal or tmux window, or a crash ends the container at once, so no hook runs. The
+  launcher's exit now runs `pingbus seat disconnected` on the host, which posts
+  `<handle> disconnected: session ended without a goodbye` for each seat the session held with
+  no goodbye recorded, at most once per seat (needs `play-agent-bus.yml` for the host pingbus).
+
 ## 3.99.12.10 — container 2.77.7
 
 Follows 3.99.12.9 (container 2.77.7); the image is unchanged.
@@ -26,6 +41,7 @@ Follows 3.99.12.9 (container 2.77.7); the image is unchanged.
   attach, take over (Ctrl-T) and end (Ctrl-X), and a row of its own to start a new session
   (Ctrl-N); its header names those keys. In `ccy-teams` a shortcut is accepted only where its
   line is listed. A key is now only a shortcut, printed beside the line it chooses.
+
 ## 3.99.12.9 — container 2.77.7
 
 Follows 3.99.12.8 (container 2.77.6).
