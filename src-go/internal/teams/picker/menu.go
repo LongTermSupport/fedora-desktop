@@ -144,7 +144,7 @@ func (r *run) seatActions(row board.Row, open, start, help action) []action {
 	} else {
 		acts = append(acts, start, open)
 	}
-	remove := action{actRemove, keyRemove, "Remove seat " + row.Member + " from " + row.Team, "remove seat " + row.Member}
+	remove := action{actRemove, keyRemove, "Remove seat " + row.Label() + " from " + row.Team, "remove seat " + row.Label()}
 	if row.Dir == "-" {
 		remove = action{actRemove, keyRemove, "Park " + row.Handle, "park it"}
 	}
@@ -178,7 +178,7 @@ func (r *run) menuFor(row board.Row) ui.Menu {
 	for i, a := range acts {
 		items[i] = a.ui()
 	}
-	subject := row.Member + " in " + row.Team
+	subject := row.Label() + " in " + row.Team
 	if row.Kind == board.KindTeam {
 		subject = "team " + row.Team
 	}

@@ -43,7 +43,7 @@ Hooks Daemon — Environment Check
 
 Claude Code configuration: 4/6 optimal
   [OK  ] Agent Teams: CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS='1'
-  [OK  ] Effort Source: per-model levels come from settings.json modelSettings
+  [OK  ] Effort Source: no model has an explicit effort level, so each runs at its own default
   [OK  ] Extended Thinking: alwaysThinkingEnabled=True
   [MISS] Max Output Tokens: Not set (default: 32000)
          Why:   ...

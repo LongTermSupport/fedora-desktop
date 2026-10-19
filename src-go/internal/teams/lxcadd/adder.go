@@ -31,6 +31,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui/pathinput"
 )
 
 const (
@@ -73,8 +74,8 @@ func (s *stop) Error() string { return fmt.Sprintf("stopped with exit %d", s.cod
 type Adder struct {
 	Declare *declare.Client
 	Gum     *ui.Gum
-	// Picker is the directory list the checkout path is walked and completed in.
-	Picker *ui.Picker
+	// Paths is the line the checkout's path is typed in, Tab completing it.
+	Paths  PathAsker
 	Lister Containers
 	// ReadTimeout bounds each read of the container's tree: the home search, a directory listing.
 	ReadTimeout time.Duration
@@ -115,7 +116,7 @@ type Adder struct {
 // New is the Adder over a host and the flows it hands the work to: apply joins the member.
 func New(h *host.Host, kit *flow.Kit, o *ops.Ops) *Adder {
 	return &Adder{
-		Declare: h.Declare, Gum: h.Gum, Picker: h.Picker, ReadTimeout: readTimeout, Lister: &lxcfreeze.Lister{Sudo: h.Sudo, LookPath: h.LookPath},
+		Declare: h.Declare, Gum: h.Gum, Paths: &pathinput.Asker{In: h.Stdin, Out: h.Stderr}, ReadTimeout: readTimeout, Lister: &lxcfreeze.Lister{Sudo: h.Sudo, LookPath: h.LookPath},
 		Roster: h.Bus.List, SetRole: h.Bus.SetRole, SudoReady: kit.SudoReady,
 		ApplyTeams: func(ctx context.Context, teams ...string) error { return o.ApplyTeams(ctx, teams) },
 		Locked:     o.Locked,

@@ -240,7 +240,8 @@ func (o *Ops) lockScreen(w lockWait, s seenHolder) (ui.Heading, ui.PickSpec) {
 			"ccy-teams is waiting for the play lock before it can "+w.purpose+".",
 			"Held by "+s.holder.Describe(s.at)+".",
 			"It waits "+o.until(w)+", and goes on by itself the moment the lock is free."),
-		ExitLabel: "Stop waiting (nothing is changed)",
+		ExitLabel:  "Stop waiting (nothing is changed)",
+		WrapHeader: true,
 	}
 }
 

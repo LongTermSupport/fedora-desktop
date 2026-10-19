@@ -40,6 +40,13 @@ _HOOKS_DAEMON_UNPROVISIONED_MODE="warn"
 _HOOKS_DAEMON_UNPROVISIONED_MODE_NOTE=""
 _HOOKS_DAEMON_STATUS_DOWN_TEXT=""
 
+# The status-line texts for the other daemon-down states ensure_daemon can name
+# (Plan 00488, GitHub #72). Each is one short line for a status bar; the
+# canonical list is CLAUDE/Architecture/StatusLine.md.
+_HOOKS_DAEMON_STATUS_TEXT_VENV_BUILDING="⏳ HOOKS DAEMON VENV BUILDING - wait, no action needed"
+_HOOKS_DAEMON_STATUS_TEXT_VENV_MISSING="⚠️ HOOKS DAEMON VENV MISSING - see the session notice"
+_HOOKS_DAEMON_STATUS_TEXT_VERSION_MISMATCH="⚠️ HOOKS DAEMON VERSION MISMATCH - upgrade needed"
+
 # Set by ensure_daemon when the installed clone and the project's TRACKED
 # deployed assets name different daemon versions (Plan 00386, GitHub issue #38).
 # The two version globals are only meaningful while the flag is true.
@@ -782,13 +789,18 @@ certain no other environment's venv lives there."
         fi
 
         local _hd_venv_state_note=""
+        # Tool calls are not judged while the build runs (RULING-3.2, Plan 00488).
+        local _hd_build_window_guidance="Until the status line clears, keep to reads and ordinary edits. Do not commit,
+push, delete branches or touch protected files meanwhile: no guard is judging
+these calls."
         case "$_HOOKS_DAEMON_BOOTSTRAP_STATE" in
             started)
                 _hd_venv_missing_remedy="A BUILD HAS STARTED — nothing to do but wait.
 The missing venv is being built in the background for this project path only,
 under the venv build lock. Other environments' venvs are not touched.
 Build log: $_HOOKS_DAEMON_BOOTSTRAP_LOG
-When it finishes, the next hook starts the daemon on its own."
+When it finishes, the next hook starts the daemon on its own.
+$_hd_build_window_guidance"
                 _hd_venv_state_note=" - a venv build is running in the background"
                 ;;
             running)
@@ -801,7 +813,8 @@ Build process: pid $_HOOKS_DAEMON_BOOTSTRAP_PID, running for ${_HOOKS_DAEMON_BOO
 Build log: ${_HOOKS_DAEMON_BOOTSTRAP_LOG:-not recorded here (another process, such as an upgrade or a repair, holds the venv build lock)}${_hd_build_who}
 When it finishes, the next hook starts the daemon, or starts this path's own
 build if the one running belonged to another environment. A background build
-is stopped and reported as failed if it outlives its bound."
+is stopped and reported as failed if it outlives its bound.
+$_hd_build_window_guidance"
                 _hd_venv_state_note=" - a venv build is running in the background"
                 ;;
             failed)
@@ -892,24 +905,33 @@ $_hd_venv_missing_remedy")
         # daemon.expected_version config key (a pull changed it), a clone ahead
         # of it is a DOWNGRADE the project asked for, not a stale header, and the
         # message says so; the regenerate remedy stays for the header source.
+        #
+        # Plan 00477 Task 5.2a: the clone being at another version than the one
+        # the repository expects is a SYNC, and the remedy is provision, which
+        # checks out exactly the expected tag, runs that release's pre-deploy
+        # gate, rebuilds the venv and restarts. Upgrade stays the route for
+        # moving the PROJECT itself to a new version, so the message says which
+        # case this is.
         local _hd_remedy_1 _hd_remedy_2 _hd_headline _hd_expected_from
-        local _hd_upgrade_cmd="  Use the hooks-daemon skill to upgrade (Skill tool: skill=hooks-daemon, args=upgrade $_HOOKS_DAEMON_TRACKED_VERSION)"
+        local _hd_sync_cmd="  bash .claude/provision.sh
+It checks out exactly v$_HOOKS_DAEMON_TRACKED_VERSION, runs that release's pre-deploy gate, rebuilds the venv and restarts the daemon. It refuses a clone with local changes, writes no tracked file, and a failed sync puts v$_HOOKS_DAEMON_CLONE_VERSION back.
+To move the PROJECT to another version instead (and change daemon.expected_version), use the hooks-daemon skill to upgrade (Skill tool: skill=hooks-daemon, args=upgrade <version>)."
         if [[ "${_HOOKS_DAEMON_EXPECTED_VERSION_SOURCE:-}" == "config" ]]; then
             _hd_headline="HOOKS DAEMON: version drift — installed clone v$_HOOKS_DAEMON_CLONE_VERSION, this project expects v$_HOOKS_DAEMON_TRACKED_VERSION"
             _hd_expected_from="Expected version: v$_HOOKS_DAEMON_TRACKED_VERSION (daemon.expected_version in .claude/hooks-daemon.yaml)"
             if _version_lt "$_HOOKS_DAEMON_CLONE_VERSION" "$_HOOKS_DAEMON_TRACKED_VERSION"; then
-                _hd_remedy_1="TO SYNC, this is an UPGRADE — a human runs:"
+                _hd_remedy_1="TO SYNC, this is an UPGRADE of the clone — a person or an agent runs, from the project root:"
             else
-                _hd_remedy_1="TO SYNC, this is a DOWNGRADE — v$_HOOKS_DAEMON_TRACKED_VERSION is OLDER than the installed v$_HOOKS_DAEMON_CLONE_VERSION. Confirm it is intended (the commit may have come from an older checkout; if not, correct daemon.expected_version). A human runs:"
+                _hd_remedy_1="TO SYNC, this is a DOWNGRADE — v$_HOOKS_DAEMON_TRACKED_VERSION is OLDER than the installed v$_HOOKS_DAEMON_CLONE_VERSION. Confirm it is intended (the commit may have come from an older checkout; if not, correct daemon.expected_version). A person or an agent runs, from the project root:"
             fi
-            _hd_remedy_2="$_hd_upgrade_cmd
+            _hd_remedy_2="$_hd_sync_cmd
 Nothing has been changed: hooks never move the daemon to another version themselves."
         else
             _hd_headline="HOOKS DAEMON: version mismatch — installed clone v$_HOOKS_DAEMON_CLONE_VERSION, tracked assets v$_HOOKS_DAEMON_TRACKED_VERSION"
             _hd_expected_from="Expected version: v$_HOOKS_DAEMON_TRACKED_VERSION (the .claude/HOOKS-DAEMON.md header)"
             if _version_lt "$_HOOKS_DAEMON_CLONE_VERSION" "$_HOOKS_DAEMON_TRACKED_VERSION"; then
-                _hd_remedy_1="TO FIX — upgrade the clone to the version this repository expects:"
-                _hd_remedy_2="$_hd_upgrade_cmd"
+                _hd_remedy_1="TO FIX — sync the clone to the version this repository expects, from the project root:"
+                _hd_remedy_2="$_hd_sync_cmd"
             else
                 _hd_remedy_1="TO FIX — the TRACKED assets are the stale half here; regenerate and commit them:"
                 _hd_remedy_2="  Run generate-docs from the installed clone, then commit the resulting diff."
@@ -1211,11 +1233,51 @@ fi
 
 # Load environment overrides if present (for self-installation or custom setups)
 if [[ -f "$PROJECT_PATH/.claude/hooks-daemon.env" ]]; then
+    # The env file is the project's own and is not in this repository, so shellcheck cannot follow it.
     # shellcheck disable=SC1091
     source "$PROJECT_PATH/.claude/hooks-daemon.env"
 fi
 
-# Set daemon root directory (defaults to .claude/hooks-daemon, can be overridden)
+#
+# _is_raw_self_install_clone() - Is this a fresh clone of the daemon's OWN repository?
+#
+# Plan 00488 Task 3.4. .claude/hooks-daemon.env is gitignored, so a fresh clone
+# of this repository has none, and without it the daemon is looked for in
+# .claude/hooks-daemon/ (the client layout) and never found. The env file's
+# whole content is "the root is the project itself", which a raw clone can
+# derive instead of waiting for a human to run scripts/bootstrap-self-install.sh.
+#
+# Every marker must hold, so that no client project can match: the daemon's
+# source package, the client installer, the two self-install scripts, a
+# pyproject.toml that names this project, and NO real clone under
+# .claude/hooks-daemon (its own pyproject.toml; the self-install daemon's bare
+# bin/ link has none). Plain greps and file tests only: no venv exists yet.
+#
+# Returns 0 if so, 1 otherwise.
+#
+_is_raw_self_install_clone() {
+    [[ ! -f "$PROJECT_PATH/.claude/hooks-daemon.env" ]] || return 1
+    [[ ! -f "$PROJECT_PATH/.claude/hooks-daemon/pyproject.toml" ]] || return 1
+    # The one shell self-install test lives in mode_guard.sh. A client project
+    # has no such file, so its absence is itself a "no".
+    local guard="$PROJECT_PATH/scripts/install/mode_guard.sh"
+    [[ -f "$guard" ]] || return 1
+    # shellcheck source=scripts/install/mode_guard.sh
+    source "$guard"
+    is_self_install_checkout "$PROJECT_PATH" || return 1
+    [[ -f "$PROJECT_PATH/install.py" ]] || return 1
+    [[ -f "$PROJECT_PATH/scripts/bootstrap-self-install.sh" ]] || return 1
+    [[ -f "$PROJECT_PATH/scripts/venv_bootstrap.sh" ]] || return 1
+    [[ -f "$PROJECT_PATH/pyproject.toml" ]] || return 1
+    grep -qE '^name = "claude-code-hooks-daemon"' "$PROJECT_PATH/pyproject.toml"
+}
+
+# Set daemon root directory (defaults to .claude/hooks-daemon, can be overridden).
+# A raw clone of the daemon's own repository supplies the root its missing env
+# file would have, so it reaches the venv self-heal with no manual step.
+if [[ -z "${HOOKS_DAEMON_ROOT_DIR:-}" ]] && _is_raw_self_install_clone; then
+    HOOKS_DAEMON_ROOT_DIR="$PROJECT_PATH"
+fi
 HOOKS_DAEMON_ROOT_DIR="${HOOKS_DAEMON_ROOT_DIR:-$PROJECT_PATH/.claude/hooks-daemon}"
 
 #
@@ -1914,6 +1976,15 @@ start_daemon() {
         return 0
     fi
 
+    # Plan 00477 Task 5.2: provision is switching the clone to another version
+    # and starts the new daemon itself. Not starting one from a half-switched
+    # clone, this hook answers as for a daemon that is still starting.
+    if _daemon_switch_in_progress; then
+        _HOOKS_DAEMON_STARTING=true
+        echo "HOOKS DAEMON: provision is switching the daemon to another version; no daemon is started mid-switch" >&2
+        return 1
+    fi
+
     # Validate venv before attempting startup (fail-fast with actionable error)
     if ! validate_venv; then
         echo "ERROR: Venv validation failed: $VENV_ERROR" >&2
@@ -2183,6 +2254,29 @@ _daemon_orphan_venv_present() {
     return 1
 }
 
+# The marker provision.sh holds (its pid) while it switches the clone to another
+# version: from stopping the old daemon until it starts the new one.
+_HOOKS_DAEMON_SWITCH_MARKER_NAME=".provision-switching"
+
+#
+# _daemon_switch_in_progress() - Is provision switching the clone right now?
+#
+# Plan 00477 Task 5.2. Between the stop and the start, the checkout and the venv
+# are mid-change, and a daemon started then would load a half-switched clone.
+# Asked only on the start path, so a running daemon pays nothing. A marker
+# whose process is gone (a sync that was killed) does not count.
+#
+# Returns:
+#   0 while the marker names a live process, 1 otherwise
+#
+_daemon_switch_in_progress() {
+    local marker="$HOOKS_DAEMON_ROOT_DIR/untracked/$_HOOKS_DAEMON_SWITCH_MARKER_NAME" holder=""
+    [[ -f "$marker" ]] || return 1
+    IFS= read -r holder < "$marker" || [[ -n "$holder" ]] || return 1
+    [[ "$holder" =~ ^[0-9]+$ ]] || return 1
+    kill -0 "$holder" 2> /dev/null
+}
+
 #
 # _clone_version() - Version of the INSTALLED (gitignored) daemon clone
 #
@@ -2224,13 +2318,48 @@ _clone_version() {
 # 00454 message stands. Sets the _HOOKS_DAEMON_BOOTSTRAP_* globals. Returns 0.
 #
 _venv_self_heal() {
+    _venv_driver_verb hook
+}
+
+#
+# _venv_build_running() - Is a venv build holding the build lock right now?
+#
+# Plan 00488 Task 3.5. Read-only (the driver's `probe` verb starts nothing).
+# For a venv that RESOLVES but cannot start the daemon: the first moments of a
+# build leave an interpreter that cannot import the package yet, and that must
+# read as "building", not as a broken venv. A clone too old to ship `probe`
+# answers with a usage error, which is "not known to be building".
+#
+# Sets the _HOOKS_DAEMON_BOOTSTRAP_* globals when it is. Returns 0 if a build
+# is running, 1 otherwise.
+#
+_venv_build_running() {
+    _venv_driver_verb probe
+    if [[ "$_HOOKS_DAEMON_BOOTSTRAP_STATE" == "running" ]]; then
+        return 0
+    fi
+    _HOOKS_DAEMON_BOOTSTRAP_STATE=""
+    return 1
+}
+
+#
+# _venv_driver_verb() - Run one verb of the clone's venv_bootstrap.sh, keep its answer.
+#
+# Args:
+#   $1 - the verb (hook or probe)
+#
+# Sets the _HOOKS_DAEMON_BOOTSTRAP_* globals from the driver's key=value
+# protocol. Returns 0.
+#
+_venv_driver_verb() {
+    local verb="$1"
     local driver="$HOOKS_DAEMON_ROOT_DIR/scripts/venv_bootstrap.sh"
     [[ -f "$driver" ]] || return 0
 
     # stdout is the driver's key=value protocol; its stderr is left on this
     # hook's stderr, where Claude Code's debug log keeps it.
     local output rc=0
-    output="$(bash "$driver" hook "$HOOKS_DAEMON_ROOT_DIR")" || rc=$?
+    output="$(bash "$driver" "$verb" "$HOOKS_DAEMON_ROOT_DIR")" || rc=$?
     if [[ "$rc" -ne 0 ]]; then
         _HOOKS_DAEMON_BOOTSTRAP_STATE="error"
         _HOOKS_DAEMON_BOOTSTRAP_DETAIL="$driver exited $rc (its output is on the hook's stderr)"
@@ -2561,6 +2690,7 @@ _passthrough_flag_path() {
 # silently pass through with no blocking and no context injection.
 #
 _enter_passthrough_mode() {
+    # Exported with `export -f` and called by the forwarder, so shellcheck sees the body as unreachable.
     # shellcheck disable=SC2317
     send_request_stdin() {
         cat > /dev/null
@@ -2670,6 +2800,7 @@ ensure_daemon() {
         # Plan 00156: jq-free. The event name arrives as $1 (the wrapper passes
         # it); the hook_input payload on stdin is drained (this advisory is a
         # fixed template with no user-derived content).
+        # Exported with `export -f` and called by the forwarder, so shellcheck sees the body as unreachable.
         # shellcheck disable=SC2317
         send_request_stdin() {
             local event_name="${1:-Unknown}"
@@ -2728,8 +2859,13 @@ ensure_daemon() {
     # tries to heal itself (_venv_self_heal). A damaged clone or a lone
     # leftover venv never gets an automatic build, for the same reason it
     # never gets a version-pinned upgrade.
+    #
+    # Plan 00488 (GitHub #72): each state also names itself for the status
+    # line, whose forwarder prints _HOOKS_DAEMON_STATUS_DOWN_TEXT. Without
+    # this a normal, self-healing build would read as a generic failure.
     if _detect_stale_clone; then
         _HOOKS_DAEMON_VERSION_MISMATCH=true
+        _HOOKS_DAEMON_STATUS_DOWN_TEXT="$_HOOKS_DAEMON_STATUS_TEXT_VERSION_MISMATCH"
     elif ! _is_daemon_installed; then
         if _daemon_clone_present; then
             _HOOKS_DAEMON_VENV_MISSING=true
@@ -2739,13 +2875,33 @@ ensure_daemon() {
             if [[ -n "$_HOOKS_DAEMON_VENV_MISSING_VERSION" ]]; then
                 _venv_self_heal
             fi
+            case "$_HOOKS_DAEMON_BOOTSTRAP_STATE" in
+                started | running)
+                    _HOOKS_DAEMON_STATUS_DOWN_TEXT="$_HOOKS_DAEMON_STATUS_TEXT_VENV_BUILDING"
+                    ;;
+                *)
+                    _HOOKS_DAEMON_STATUS_DOWN_TEXT="$_HOOKS_DAEMON_STATUS_TEXT_VENV_MISSING"
+                    ;;
+            esac
         elif _daemon_orphan_venv_present; then
             _HOOKS_DAEMON_VENV_MISSING=true
             _HOOKS_DAEMON_VENV_MISSING_VERSION=""
+            _HOOKS_DAEMON_STATUS_DOWN_TEXT="$_HOOKS_DAEMON_STATUS_TEXT_VENV_MISSING"
         else
             _HOOKS_DAEMON_NOT_INSTALLED=true
             _detect_needs_provision
         fi
+    elif _daemon_clone_present && _venv_build_running; then
+        # Plan 00488 Task 3.5: a venv resolves, yet the daemon cannot start,
+        # and a build holds the lock. The build has made the interpreter but
+        # not yet installed the package, so this is the build window, not a
+        # broken venv: same state, same status text and same fail-open as the
+        # moments before the interpreter existed (RULING-3.2).
+        _HOOKS_DAEMON_VENV_MISSING=true
+        if ! _HOOKS_DAEMON_VENV_MISSING_VERSION="$(_clone_version)"; then
+            _HOOKS_DAEMON_VENV_MISSING_VERSION=""
+        fi
+        _HOOKS_DAEMON_STATUS_DOWN_TEXT="$_HOOKS_DAEMON_STATUS_TEXT_VENV_BUILDING"
     fi
     return 1
 }
@@ -2797,6 +2953,18 @@ send_request_stdin() {
     # baked value — an operator's own override always wins.
     local events_dir_override="${4:-}"
 
+    # Plan 00512: how long this client waits for the daemon when
+    # CLAUDE_HOOKS_SOCKET_TIMEOUT is unset. The worktree events run git and
+    # report a path, so their chain deadline is longer than a guard's and this
+    # wait must outlast it. Mirrors Timeout.EVENT_CLIENT_WAIT in
+    # constants/timeout.py (pinned equal by tests/unit/constants/test_event_budgets.py).
+    local _event_socket_wait
+    case "$event_name" in
+        WorktreeCreate) _event_socket_wait=60;;
+        WorktreeRemove) _event_socket_wait=70;;
+        *) _event_socket_wait=30;;
+    esac
+
     # nc rung (rung 2): only for the plain passthrough shape (no response_mode
     # translation needed — "status"/"worktree" always go through the python3
     # rung's render_status/print_worktree, so that logic is never duplicated
@@ -2829,7 +2997,7 @@ send_request_stdin() {
             # observed as a ~30s hang on every nc-rung call (Plan 00290
             # Phase 6 measurement). With -N, -w's "final net reads" role
             # becomes the correct overall response-wait budget.
-            nc -U -N -w "${CLAUDE_HOOKS_SOCKET_TIMEOUT:-30}" "$_nc_sock" \
+            nc -U -N -w "${CLAUDE_HOOKS_SOCKET_TIMEOUT:-$_event_socket_wait}" "$_nc_sock" \
                 < "$_nc_payload" > "$_nc_response" 2> "$_nc_stderr" || _nc_rc=$?
             if [[ "$_nc_rc" -eq 0 && -s "$_nc_response" ]]; then
                 cat "$_nc_response"
@@ -2886,20 +3054,24 @@ context_events = '$_HOOKS_DAEMON_CONTEXT_EVENTS'.split()
 # The status line's baseline while the daemon is starting (_HOOKS_DAEMON_STATUS_LOADING_TEXT).
 status_loading_text = '$_HOOKS_DAEMON_STATUS_LOADING_TEXT'
 
-# Socket budget for the whole connect+send+recv exchange. Default 30s; operators
-# can raise it via CLAUDE_HOOKS_SOCKET_TIMEOUT (also lets tests drive the timeout
-# path fast). A non-numeric or non-positive value falls back to the default.
+# Socket budget for the whole connect+send+recv exchange. Default 30s, or the
+# event's own wait (_event_socket_wait, set above: the worktree events outlast a
+# guard's chain deadline); operators can raise it via CLAUDE_HOOKS_SOCKET_TIMEOUT
+# (also lets tests drive the timeout path fast). A non-numeric or non-positive
+# value falls back to the default.
 # Defined up-front (not inside the try) so emit_error_json can name it even when
 # a failure fires before the socket is opened (Plan 00177).
+DEFAULT_SOCKET_TIMEOUT = float('$_event_socket_wait')
+
 def _resolve_socket_timeout():
     raw = os.environ.get('CLAUDE_HOOKS_SOCKET_TIMEOUT', '').strip()
     if not raw:
-        return 30.0
+        return DEFAULT_SOCKET_TIMEOUT
     try:
         value = float(raw)
     except ValueError:
-        return 30.0
-    return value if value > 0 else 30.0
+        return DEFAULT_SOCKET_TIMEOUT
+    return value if value > 0 else DEFAULT_SOCKET_TIMEOUT
 
 SOCKET_TIMEOUT_SECONDS = _resolve_socket_timeout()
 

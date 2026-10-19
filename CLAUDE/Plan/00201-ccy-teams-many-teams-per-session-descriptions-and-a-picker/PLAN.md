@@ -192,7 +192,29 @@ a repository is no longer offered for a checkout of it. Report:
   token and bundle, move every seat and session record, re-point every running session, then
   take the old team down; today the installer refuses a changed name (`render.check_unchanged`).
   Needs its own research and spec first (SPEC-many-teams.md section F, "Rename").
-- [ ] 🔄 **Task 2.17**: ccy-teams waits for the play lock instead of dying on it (the owner:
+- [ ] 🔄 **Task 2.17**: three picker defects the owner reported (branch `fix/teams-full-handles`,
+  ccy-teams and ccy-sessions only, no CCY or container bump). (1) Every member is shown by its
+  whole handle, the coordinator's with `(coordinator)` beside it, through one renderer
+  (`agentbus.Label`, `board.Row.Label`): the list, `--list`, the menus, the seat messages,
+  `choose-seat` and `session remove`; a bare seat number, which two checkouts can share, is
+  never shown where the handle is known. (2) A checkout inside an
+  LXC container's files seen from the host (the folder ccy-teams was started in) was offered
+  for a host session by Ctrl-N, the start-up offer and `for-checkout`. The new
+  `internal/hostcheckout` answers whose checkout a folder is (git's top, against root's LXC path,
+  `lxc.lxcpath` in the world-readable `/etc/lxc/lxc.conf`, else `/var/lib/lxc`; no root, and an
+  unparseable file is a refusal); every place ccy-teams and ccy-sessions take the folder as a
+  checkout asks it and refuses a container's, pointing to `ccy-teams lxc-add`. No host_vars
+  held such a path. (3) The table's columns are as wide as their longest value in terminal
+  cells and nothing is cut short; a terminal too narrow keeps TEAM, MEMBER, KIND and STATE on
+  the row and shows the rest (a team's description as ABOUT) in the row's header (`--list`:
+  on the line below). Fable's FIX-FIRST
+  (`subagent-reports/261016-teams-full-handles-review-fable.md`): the sudoers rule dropped,
+  the description no longer cut, the last bare seats labelled. Re-review's FIX-FIRST
+  (`subagent-reports/261019-teams-full-handles-rereview-fable.md`): the session menus' last
+  bare seats labelled; `fix/context-headings` merged in, its headings' crumbs and context lines
+  naming seats by handle and its truncation dropped. Host run pending (meta-deploy:
+  play-claude-yolo.yml, one block for both branches). Report: `subagent-reports/261016-teams-full-handles-opus.md`.
+- [ ] 🔄 **Task 2.18**: ccy-teams waits for the play lock instead of dying on it (the owner:
   "hits the lock then just chokes and dies"; a description applied while a meta-deploy unit
   held the lock, exit 75). Branch `fix/teams-wait-play-lock`, ccy-teams only, no CCY or
   container bump. Spec: [SPEC-many-teams.md](SPEC-many-teams.md) section G (S-G1 to S-G11). New
@@ -201,10 +223,14 @@ a repository is no longer offered for a checkout of it. Report:
   terminal, stderr otherwise, 30 minutes at most) and holds it across the host_vars write and
   every play, handed to each play as run.bash's delegation. Every flow writes inside the hold,
   so a wait that does not end in the lock changes nothing; exit 75 is said as a refused lock.
-  Host run pending (meta-deploy: play-claude-yolo.yml). Report:
+  F44 merged after `fix/context-headings`' final: the wait screen is headed through `ui.Heading`
+  at the width `tput cols` gives through the runner, and its lines (the holder's play and pid)
+  wrap to the window (`ui.PickSpec.WrapHeader`), never cut. Numbered 2.17 until F44's
+  full-handles task took that number. Host run pending (meta-deploy: play-claude-yolo.yml, one
+  block with F44's). Report:
   `subagent-reports/261016-teams-wait-play-lock-opus.md`. Spec section G was written after the
   code (journal correction); Fable's review: `subagent-reports/` on `review/teams-wait-play-lock`.
-- [ ] ⬜ **Task 2.18**: run.bash waits on the play lock (`lock.py acquire --wait`, bounded,
+- [ ] ⬜ **Task 2.19**: run.bash waits on the play lock (`lock.py acquire --wait`, bounded,
   naming the holder) instead of exiting 75, so meta-deploy, the panel's run-play and a play run
   by hand wait for a ccy-teams hold as ccy-teams now waits for theirs. Pending the owner's
   decision: it changes how every caller of run.bash behaves, and run.bash is on the bash-limits

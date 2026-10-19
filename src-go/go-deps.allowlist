@@ -34,4 +34,4 @@ module	github.com/muesli/cancelreader	A cancellable terminal read, so Bubble Tea
 module	github.com/rivo/uniseg	Unicode grapheme clusters and widths (Lip Gloss).
 module	github.com/xo/terminfo	Reads the terminfo database to learn the terminal's colour support (colorprofile).
 module	golang.org/x/sync	errgroup, from the Go project (Ultraviolet).
-module	golang.org/x/sys	The ioctl and system calls of terminal handling, from the Go project (Bubble Tea, x/term, Ultraviolet; ui reads the terminal width a heading wraps to).
+module	golang.org/x/sys	The ioctl and system calls of terminal handling, from the Go project (Bubble Tea, x/term, Ultraviolet), and directly the window-size ioctl of term.FileColumns, which ccy-teams lays its table out to.

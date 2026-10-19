@@ -5,6 +5,7 @@ import (
 	"io"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,16 +16,14 @@ import (
 const (
 	gumProgram = "gum"
 	fzfProgram = "fzf"
-	// wideTerminal is the width the fake terminal reports: wide enough that no heading wraps,
-	// so a test asserts a heading as one trail and one context line (ui tests the wrapping).
-	wideTerminal = 400
+	// defaultColumns is the width the fake terminal reports when a test names none.
+	defaultColumns = 80
 )
 
 var colourCodes = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
 // Script stands in for fzf and gum: each fzf call takes the next answer of Fzf, "<key>|<choice>"
-// where choice is text the chosen row contains, YES, EXIT, ABORT, or TYPED:<text> (text typed
-// into a --print-query picker that matches no row: exit 1 with the text); each gum call takes the
+// where choice is text the chosen row contains, YES, EXIT or ABORT; each gum call takes the
 // next of Gum, "YES", "NO" or "CANCEL".
 type Script struct {
 	T       *testing.T
@@ -41,6 +40,8 @@ type Script struct {
 	// Headings is the heading of every screen asked (fzf, and gum but its style), in order: the
 	// lines above the heading's rule, colour stripped.
 	Headings []string
+	// Columns is the terminal's width, as tput cols answers it; 0 is defaultColumns.
+	Columns int
 }
 
 // HeadingOf is the heading ui draws on top of a screen's header or prompt: its lines above the
@@ -125,7 +126,11 @@ func (s *Script) Run(_ context.Context, c execx.Cmd) (execx.Result, error) {
 	case gumProgram:
 		return s.runGum(c)
 	case "tput":
-		return execx.Result{Stdout: []byte("80\n")}, nil
+		cols := s.Columns
+		if cols == 0 {
+			cols = defaultColumns
+		}
+		return execx.Result{Stdout: []byte(strconv.Itoa(cols) + "\n")}, nil
 	}
 	s.T.Fatalf("scripted runner asked for %s", c.Line())
 	return execx.Result{}, nil
@@ -150,9 +155,6 @@ func (s *Script) runFzf(c execx.Cmd) (execx.Result, error) {
 		s.T.Fatalf("fzf answer %q has no |", answer)
 	}
 	expects := slices.ContainsFunc(c.Args, func(a string) bool { return strings.HasPrefix(a, "--expect") })
-	if typed, ok := strings.CutPrefix(choice, "TYPED:"); ok {
-		return typedAnswer(typed, key, expects), &execx.ExitError{Name: fzfProgram, Code: 1}
-	}
 	if choice == "ABORT" {
 		return execx.Result{ExitCode: 130}, &execx.ExitError{Name: fzfProgram, Code: 130}
 	}
@@ -166,9 +168,6 @@ func (s *Script) runFzf(c execx.Cmd) (execx.Result, error) {
 	}
 	if expects {
 		out = key + "\n" + out
-	}
-	if slices.Contains(c.Args, "--print-query") {
-		out = queryOf(c.Args) + "\n" + out
 	}
 	return execx.Result{Stdout: []byte(out)}, nil
 }
@@ -196,26 +195,6 @@ func (s *Script) chosenRow(choice string, rows []string) string {
 		marked = append(marked, rows[at])
 	}
 	return strings.Join(marked, "\n")
-}
-
-// typedAnswer is fzf's output when what was typed matches no row: the text, then the key when
-// keys are expected (exit 1).
-func typedAnswer(typed, key string, expects bool) execx.Result {
-	out := typed + "\n"
-	if expects {
-		out += key + "\n"
-	}
-	return execx.Result{ExitCode: 1, Stdout: []byte(out)}
-}
-
-// queryOf is the text a typed fzf call started with, which a row answer leaves as it was.
-func queryOf(args []string) string {
-	for _, a := range args {
-		if v, ok := strings.CutPrefix(a, "--query="); ok {
-			return v
-		}
-	}
-	return ""
 }
 
 func (s *Script) runGum(c execx.Cmd) (execx.Result, error) {
@@ -274,8 +253,8 @@ func Interactive(t *testing.T, w *World) *Console {
 	h := w.Host
 	h.IsTerminal = func(any) bool { return true }
 	h.Term.IsTerminal = h.IsTerminal
-	h.Gum = &ui.Gum{Runner: c.Script, Stdin: h.Stdin, Stderr: w.ErrOut, Plain: true, Columns: wideTerminal}
-	h.Picker = &ui.Picker{Runner: c.Script, Stderr: w.ErrOut, Plain: true, Columns: wideTerminal}
+	h.Gum = &ui.Gum{Runner: c.Script, Stdin: h.Stdin, Stderr: w.ErrOut, Plain: true}
+	h.Picker = &ui.Picker{Runner: c.Script, Stderr: w.ErrOut, Plain: true}
 	h.LookPath = func(name string) (string, error) { return "/usr/bin/" + name, nil }
 	h.OpenTTY = func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader(c.TTY)), nil }
 	h.Exec = func(path string, argv []string, dir string) error {

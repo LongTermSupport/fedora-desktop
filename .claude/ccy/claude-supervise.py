@@ -232,7 +232,7 @@ if TYPE_CHECKING:
 # (see CLAUDE/development/RELEASING.md). Display-only for the banner and the
 # runtime status file; staleness detection (Plan 00164 Phase 3) uses a content
 # hash of THIS file so it is correct even between version bumps.
-__version__ = "3.69.0"
+__version__ = "3.70.0"
 
 # Absolute path to THIS running script — hashed for staleness detection so the
 # daemon can tell when the on-disk supervisor differs from the running one.
@@ -520,6 +520,15 @@ _LINE_WORD_DELETE_BYTES = frozenset({0x17})
 # non-empty forever) nor treated as a clear (which could silently drop content
 # still genuinely in the real box).
 _LINE_KILL_TO_END_BYTES = frozenset({0x0B})
+# Claude Code keys that toggle a view and add nothing to the box, so they are
+# consumed as no-ops (neither content nor a clear):
+#   0x0F Ctrl-O -- transcript / full-summary view; Claude Code prints "ctrl+o to
+#        see full summary" right after a compact, so a human opening it must not
+#        defer the post-compact resume.
+#   0x14 Ctrl-T -- todo-list view.
+# Ctrl-V (can paste an image into the box) and Ctrl-R (history search can fill
+# the box) are deliberately NOT here: they may add content.
+_LINE_NON_CONTENT_CONTROL_BYTES = frozenset({0x0F, 0x14})
 # A submitted line whose (whitespace-stripped) text starts with this is a human
 # `/compact` — the supervisor detects it to avoid stacking its own /compact on
 # top (Claude Code aborts the duplicate). Covers `/compact` and `/compact <args>`.
@@ -683,6 +692,8 @@ class HumanInputLine:
     permanent poison: a single focus switch left the box "non-empty" for the
     rest of the session and every injection tick was deferred forever.
 
+    View-toggle keys (Ctrl-O, Ctrl-T) are consumed as no-ops too.
+
     Still conservative where it matters: any printable byte, unrecognised
     control byte, or UTF-8 content counts, and a malformed/aborted escape
     sequence falls back to ground without silently swallowing later content.
@@ -774,6 +785,9 @@ class HumanInputLine:
             # No cursor tracking -- see `_LINE_KILL_TO_END_BYTES`. Consumed as
             # a no-op: neither appended (which wedged the box permanently
             # non-empty) nor a clear (which could drop real content).
+            pass
+        elif byte in _LINE_NON_CONTENT_CONTROL_BYTES:
+            # View toggle -- see `_LINE_NON_CONTENT_CONTROL_BYTES`. No-op.
             pass
         elif byte in _LINE_CLEAR_BYTES:
             # Only Enter SUBMITS the line; Ctrl-U/Ctrl-C discard it. A submitted

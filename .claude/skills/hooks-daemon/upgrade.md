@@ -29,13 +29,16 @@ Upgrade the Claude Code Hooks Daemon and commit the result atomically.
      `--skip-reading-confirmation=<digest>`, the digest the stop printed. Pass
      it only after doing this. The digest belongs to that listing: a bare flag,
      or the digest of another listing, stops again.
-   - **Exit 4: the owner must approve.** The upgrade needs the project owner:
-     a MAJOR version, a manifest declaring `breaking: true`, a `critical`
-     pre-upgrade task that found call sites, or an installed version the gate
-     cannot read. Report the reasons and the approval command the gate printed
-     to the user and STOP. The approval needs the owner's own terminal and a
-     typed phrase, so you cannot record it; do not try. After the owner has
-     approved, re-run with the same `--skip-reading-confirmation=<digest>`.
+   - **Read `READ THIS FIRST` before anything else in the listing.** It names
+     what is likely to break the project: a MAJOR version, a manifest declaring
+     `breaking: true`, a `critical` pre-upgrade task that found call sites, or
+     an installed version the gate cannot read. Nothing but the exit 3
+     confirmation stands between you and the upgrade, so do not pass the
+     digest until you have acted on it.
+   - **`ADVICE:` to upgrade in phases.** A jump across a MAJOR boundary, or
+     over 10 minor releases, prints advice to go through an intermediate
+     release first (it names one), check the project, and continue. Advice
+     only: it never stops the upgrade.
 
    Any other non-zero exit is an upgrade failure; report it with the printed
    error (exit 1 before deploying can also mean no Python 3.11+ in a system
@@ -44,12 +47,11 @@ Upgrade the Claude Code Hooks Daemon and commit the result atomically.
    block is emitted on any stop. If the output says `THE UPGRADE DID NOT COMPLETE`, the upgrade stopped even though the command exited 0: an old
    installed upgrade script ran it. Run the command printed below that line.
 
-   Run the upgrade with no environment variable set in front of it. An
-   agent that sets `PATH`, `HOOKS_DAEMON_PYTHON` or another variable the
-   upgrade reads on an upgrade command is denied (`upgrade_approval_guard`),
-   and so is checking out, pulling or resetting `.claude/hooks-daemon` by
-   hand. If the upgrade genuinely needs `HOOKS_DAEMON_PYTHON` (no Python
-   3.11+ it can find), ask the user to run it themselves.
+   Run the upgrade with no environment variable set in front of it, and do not
+   check out, pull or reset `.claude/hooks-daemon` by hand: either one steers
+   the upgrade away from what the gate read. If the upgrade genuinely needs
+   `HOOKS_DAEMON_PYTHON` (no Python 3.11+ it can find), ask the user to run it
+   themselves.
 
 2. **Parse the metadata block** emitted on stdout between the
    `<<<UPGRADE_METADATA` and `UPGRADE_METADATA>>>` sentinels. Fields:

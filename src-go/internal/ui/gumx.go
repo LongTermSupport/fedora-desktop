@@ -3,17 +3,16 @@ package ui
 import (
 	"context"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
-// The width explanations wrap to when the terminal's cannot be read, and the narrowest
-// terminal width worth trusting.
+// The terminal width assumed when it cannot be read.
 const (
 	fallbackColumns = 80
-	narrowestColumn = 44
 	// explainMargin is what an explanation leaves free at the right edge.
 	explainMargin = 4
 
@@ -50,19 +49,23 @@ func (g *Gum) Box(ctx context.Context, bold bool, lines ...string) error {
 
 // Explain prints text wrapped to the terminal, indent columns in. A header gum prints is
 // never wrapped, so the longer explanation before a question goes through here. The
-// width is only layout: when the terminal's cannot be read (no terminal, tput missing, a
-// width under 44) a common one serves.
+// width is only layout: when the terminal's cannot be read (no terminal, tput missing) a common
+// one serves.
 func (g *Gum) Explain(ctx context.Context, text string, indent int) error {
 	return g.Style(ctx, text, g.columns(ctx)-explainMargin, indent)
 }
 
-func (g *Gum) columns(ctx context.Context) int {
-	res, err := g.Runner.Run(ctx, execx.Cmd{Name: "tput", Args: []string{"cols"}, Stdin: g.Stdin})
+func (g *Gum) columns(ctx context.Context) int { return columns(ctx, g.Runner, g.Stdin, g.Stderr) }
+
+// columns is the terminal's width, the one reader of it: tput cols through the runner, which
+// finds the terminal on stdin or stderr. A width that cannot be read is fallbackColumns.
+func columns(ctx context.Context, r execx.Runner, stdin io.Reader, stderr io.Writer) int {
+	res, err := r.Run(ctx, execx.Cmd{Name: "tput", Args: []string{"cols"}, Stdin: stdin, Stderr: stderr})
 	if err != nil {
 		return fallbackColumns
 	}
 	cols, err := strconv.Atoi(strings.TrimSpace(string(res.Stdout)))
-	if err != nil || cols < narrowestColumn {
+	if err != nil || cols <= 0 {
 		return fallbackColumns
 	}
 	return cols

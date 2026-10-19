@@ -48,7 +48,6 @@ func (c *Chooser) settle(ctx context.Context, repo string, taken []entry) ([]ent
 		}
 		o := scopeOptions(repo, e.Team)
 		head := flow.LaunchTeam(i+1, len(taken), e.Team).Push("Scope").About("team " + e.Team + " · does not cover " + repo + " (this checkout)")
-		c.say(head.Trail()) // the team's notes after the question sit under its trail
 		answer, err := c.Gum.Choose(ctx, head, e.Team+" does not trust "+repo+". Add "+repo+" (any branch) to it?", o.add, []string{o.add, o.join, o.leave})
 		if errors.Is(err, ui.ErrCancelled) {
 			c.say(nothingChosen)

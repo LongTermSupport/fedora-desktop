@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os/exec"
 	"slices"
 	"strconv"
@@ -14,6 +15,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/hostcheckout"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/playlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -241,6 +243,8 @@ func newWzHarness(t *testing.T) *wzHarness {
 		},
 	}
 	h.c.Gum.Runner = h.run
+	// Root's LXC configuration is absent: LXC keeps its containers in the default path.
+	h.c.Checkouts = &hostcheckout.Finder{Git: h.c.Git, ReadFile: func(string) ([]byte, error) { return nil, fs.ErrNotExist }}
 	return h
 }
 
@@ -257,6 +261,9 @@ func (h *wzHarness) locked(ctx context.Context, purpose string, fn func(context.
 	h.locks = append(h.locks, fmt.Sprintf("%s: declared before %v, after %v, applied %d", purpose, before, after, len(h.applied)))
 	return err
 }
+
+// wzLxcPath is where the harness's root LXC keeps its containers.
+const wzLxcPath = hostcheckout.DefaultLxcPath
 
 func (h *wzHarness) invoke(args ...string) term.ExitCode {
 	return h.c.Run(context.Background(), args)
@@ -393,6 +400,18 @@ func TestWizardInACheckoutAcceptsEveryDefault(t *testing.T) {
 
 // S-B11: the chooser runs the wizard for this checkout and takes the team it made; the wizard
 // neither offers a session of its own nor prints on stdout, which is the chooser's payload.
+func TestWizardInAContainersCheckoutOffersNoSessionThere(t *testing.T) {
+	h := newWzHarness(t)
+	top := wzLxcPath + "/box/rootfs/srv/proj"
+	h.fake.On([]string{"git", "rev-parse", "--show-toplevel"}, wzOK(top+"\n"))
+	h.happyAnswers()
+	wzCode(t, h.invoke(), 0, h)
+	if len(h.execd) != 0 || h.run.called("gum confirm --default=true Start a ccy session") {
+		t.Errorf("a session was offered or started: %v", h.execd)
+	}
+	wzContain(t, "stderr", h.err(), top+" is LXC container box's checkout", "ccy-teams lxc-add")
+}
+
 func TestWizardForTheChooserReturnsTheTeamAndStartsNothing(t *testing.T) {
 	h := newWzHarness(t)
 	h.run.queue("gum choose", wzOK(scopeRepos+", starting with example-org/proj\n"))

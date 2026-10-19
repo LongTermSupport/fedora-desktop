@@ -316,6 +316,7 @@ func TestStoppingTheWaitForThePlayLockLeavesTheDescriptionUnwritten(t *testing.T
 	h.HoldPlayLock(t)
 	h.Script.Gum = []string{"CHOOSE:Describe alpha now", "CHOOSE:Builds the example site"}
 	h.Script.Fzf = []string{"|EXIT"}
+	h.Script.Columns = 200 // the holder on one line; ops tests the wrap on a narrow terminal
 	if err := h.p.offerDescriptions(context.Background()); err != nil {
 		t.Fatalf("stopping the wait ends the picker: %v", err)
 	}

@@ -179,9 +179,9 @@ chooser logic in bash (the bash ratchet, R§1, forbids growing `claude-yolo` or
   joined, as the screen heading (`ui.Heading`, Plan 00204 D4): the scope question
   ("New session › Team 2 of 3: beta › Scope"), the seat question ("New session › Team 2 of 3:
   beta · step 1/2 Seat") and the role question ("… · step 2/2 Role"). One team is headed
-  "New session › Team beta". The trail is also said on its own line before the team's
-  questions, so a team's lines (the "references external" note, "Taking seat ...") sit under
-  its own heading and never under another team's. In a given list, the place counts every
+  "New session › Team beta". The heading draws the trail, so it is not said again; a team's
+  lines after its questions (the "references external" note, "Taking seat 1@beta ...") name
+  the team themselves. In a given list, the place counts every
   item, named seats included. Owner feedback, Plan 00203. It is built once, by
   `flow.LaunchTeam`, and handed to the seat chooser through `SeatFunc`.
 - **S-C2** A session's teams change only by a new launch; there is no join-while-running.
@@ -376,7 +376,7 @@ session record, re-point every running session, and take the old team down; the 
 `check_unchanged` refuses it today. Half of that would leave sessions on a team that no longer
 exists, so it is a task of its own.
 
-## G. The play lock (Task 2.17)
+## G. The play lock (Task 2.18)
 
 The owner's defect: a description applied from ccy-teams while a meta-deploy unit held the
 host's play lock. run.bash refused the play with exit 75 ("another play run is in progress"),
@@ -402,7 +402,8 @@ descriptor named by `FEDORA_DESKTOP_PLAY_LOCK_FD`, which run.bash proves with `l
 - **S-G5** On a terminal (stdin and stderr both, fzf installed) the wait is a screen titled
   `Waiting for the play lock`, with one visible choice, `Stop waiting (nothing is changed)`
   (Esc and q too, rule 14). It is drawn again when the holder changes or has held the lock
-  another minute, and closes by itself the moment the lock is taken.
+  another minute, and closes by itself the moment the lock is taken. Its lines, the holder's
+  play and pid among them, wrap to the window under its heading; none is cut.
 - **S-G6** With no terminal the wait is said on stderr, with a line each time another run takes
   the lock in turn; Ctrl-C stops it.
 - **S-G7** The wait ends only in the lock taken on ccy-teams' own descriptor (flock), never in a

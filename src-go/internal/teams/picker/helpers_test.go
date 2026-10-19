@@ -91,6 +91,12 @@ func (h rig) row(t *testing.T, snap *board.Snapshot, member string) board.Row {
 	return board.Row{}
 }
 
+// text is the row of member as the list shows it, laid out with the rest of the pass.
+func (h rig) text(t *testing.T, snap *board.Snapshot, member string) string {
+	t.Helper()
+	return board.Layout(snap.Rows, 0).Text(h.row(t, snap, member))
+}
+
 // inProject makes the working directory a work tree whose top is the checkout.
 func (h rig) inProject() {
 	h.On("git rev-parse --is-inside-work-tree", "true\n", 0)

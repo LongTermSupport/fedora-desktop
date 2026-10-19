@@ -253,6 +253,7 @@ func TestStoppingTheWaitForThePlayLockSavesNothingAndKeepsTheChanges(t *testing.
 	r.HoldPlayLock(t)
 	r.Script.Fzf = []string{"|Description:", "|Save and apply", "|YES", "|EXIT", "|EXIT", "|YES"}
 	r.Script.Gum = []string{"CHOOSE:Runs the site"}
+	r.Script.Columns = 200 // the holder on one line; ops tests the wrap on a narrow terminal
 	r.edit(t)
 	if len(r.saves()) != 0 || r.plays() != 0 {
 		t.Fatalf("saves %q, plays %d", r.saves(), r.plays())

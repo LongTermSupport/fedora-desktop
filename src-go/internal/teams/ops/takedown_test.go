@@ -783,6 +783,9 @@ type fzfScript struct {
 }
 
 func (f *fzfScript) Run(_ context.Context, c execx.Cmd) (execx.Result, error) {
+	if c.Name == "tput" { // ui reading the terminal's width for a heading
+		return execx.Result{Stdout: []byte("80\n")}, nil
+	}
 	f.n++
 	f.args = append(f.args, strings.Join(c.Args, "|"))
 	if f.n == 1 {

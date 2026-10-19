@@ -19,6 +19,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/hostcheckout"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/create"
@@ -61,11 +62,14 @@ type Picker struct {
 
 	Declare *declare.Client
 	Git     *gitx.Git
+	// Checkouts says whether the folder the picker runs in is a checkout a session may start in.
+	Checkouts *hostcheckout.Finder
 
 	Stdin  io.Reader
 	Stdout io.Writer
-	// Here is the folder the command was run in.
+	// Here is the folder the command was run in; Columns is how wide its terminal is (0 unknown).
 	Here     func() string
+	Columns  func() int
 	Home     string
 	StateDir string
 }
@@ -74,16 +78,19 @@ type Picker struct {
 func New(h *host.Host, kit *flow.Kit, b *board.Collector, o *ops.Ops, c *create.Wizard, l *login.Login, s *seats.Seats, x *lxcadd.Adder) *Picker {
 	return &Picker{
 		Kit: kit, Board: b, Ops: o, Create: c, Login: l, Seats: s, Lxc: x, Declare: h.Declare, Git: h.Git,
-		Stdin: h.Stdin, Stdout: h.Stdout, Here: h.Here, Home: h.Home, StateDir: h.StateDir,
+		Checkouts: h.Checkouts,
+		Stdin:     h.Stdin, Stdout: h.Stdout, Here: h.Here, Home: h.Home, StateDir: h.StateDir,
+		Columns: func() int { return h.Columns(h.Stdout) },
 	}
 }
 
-// run is one run of the picker: the header, built once, the pass being shown and which list
-// shows it.
+// run is one run of the picker: the header lines built once, the pass being shown, its rows
+// laid out, and which list shows it.
 type run struct {
 	p     *Picker
 	frame frame
 	snap  *board.Snapshot
+	table board.Table
 	noOps int
 	view  view
 }
@@ -139,17 +146,24 @@ func (p *Picker) pickerSession(ctx context.Context) error {
 }
 
 // frame is what stays above the rows whichever row the cursor is on: where Ctrl-N would start a
-// session, what RESTORE means, and the column headings. It is built once.
+// session and what RESTORE means. It is built once; the column headings are each pass's.
 type frame struct {
-	newLine, restoreLine, heading string
+	newLine, restoreLine string
 }
 
-// header is the picker's header with footer, the line naming the row's actions, among the rest;
-// footer is empty for the Exit row.
-func (f frame) header(footer string) string {
+// header is the picker's header with footer, the line naming the row's actions, and rest, the
+// row's columns a narrow table moved off it, among the rest; both are empty for the Exit row.
+func (r *run) header(footer, rest string) string {
+	heading := r.table.Heading()
+	if r.p.Kit.Term.ColourOn(r.p.Stdout) {
+		heading = term.Bold + heading + term.Reset
+	}
+	if rest != "" {
+		rest = "This row: " + rest
+	}
 	return ui.Header(
 		"Enter lists what can be done to the row   Tab running sessions (the last row)   ? help   Esc or q quit",
-		footer, f.newLine, f.restoreLine, f.heading,
+		footer, rest, r.frame.newLine, r.frame.restoreLine, heading,
 	)
 }
 
@@ -161,27 +175,21 @@ func (p *Picker) pickerFrame(ctx context.Context) (frame, error) {
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return frame{}, fmt.Errorf("look for the restore service: %w", err)
 	}
-	project, err := p.Git.ProjectHere(ctx, "")
-	if err != nil {
-		return frame{}, fmt.Errorf("ask git where this is: %w", err)
-	}
-	newLine := "Ctrl-N unavailable: " + p.Kit.Abbrev(p.Here()) + " is not a project folder (no git repository)"
-	if project {
-		top, err := p.Git.TopLevel(ctx, "")
-		if err != nil {
-			return frame{}, fmt.Errorf("ask git where this checkout is: %w", err)
-		}
-		newLine = "Ctrl-N starts a new ccy session in the row's team, in " + p.Kit.Abbrev(top)
-	}
-	heading := board.HeadingText()
-	if p.Kit.Term.ColourOn(p.Stdout) {
-		heading = term.Bold + heading + term.Reset
+	newLine := "Ctrl-N starts a new ccy session in the row's team, in "
+	switch here, err := p.Checkouts.Find(ctx, ""); {
+	case err != nil:
+		newLine = "Ctrl-N unavailable: " + err.Error()
+	case here.Top == "":
+		newLine = "Ctrl-N unavailable: " + p.Kit.Abbrev(p.Here()) + " is not a project folder (no git repository)"
+	case !here.Host():
+		newLine = "Ctrl-N unavailable: " + here.Refusal(p.Kit.Abbrev(here.Top))
+	default:
+		newLine += p.Kit.Abbrev(here.Top)
 	}
 	return frame{
 		newLine: newLine,
 		restoreLine: "RESTORE: whether the seat's session is started again after a reboot; session restore on this machine is " +
 			restore + " (ccy_restore_sessions)",
-		heading: heading,
 	}, nil
 }
 
@@ -190,9 +198,9 @@ func (p *Picker) pickerFrame(ctx context.Context) (frame, error) {
 func (r *run) rowHeaders() []string {
 	headers := make([]string, 0, len(r.snap.Rows)+1)
 	for _, row := range r.snap.Rows {
-		headers = append(headers, r.frame.header(r.footerFor(row)))
+		headers = append(headers, r.header(r.footerFor(row), r.table.Rest(row)))
 	}
-	return append(headers, r.frame.header("This row: Enter or Tab shows the running sessions, and what can be done to each"))
+	return append(headers, r.header("This row: Enter or Tab shows the running sessions, and what can be done to each", ""))
 }
 
 // listHeading is the teams list's heading: how many teams there are, and which are not up.
@@ -249,12 +257,13 @@ func (r *run) once(ctx context.Context, first bool) error {
 // or by the shortcut shown beside it there, or the list's own Running sessions row.
 func (r *run) listPass(ctx context.Context) error {
 	p := r.p
+	r.table = board.Layout(r.snap.Rows, p.rowWidth())
 	menus := make([]ui.Menu, len(r.snap.Rows))
 	for i, row := range r.snap.Rows {
 		menus[i] = r.menuFor(row)
 	}
 	picked, err := p.Kit.Choose(ctx, r.listHeading(), ui.PickSpec{
-		Title: "Agent teams", Header: r.frame.header(""), RowHeaders: r.rowHeaders(),
+		Title: "Agent teams", Header: r.header("", ""), RowHeaders: r.rowHeaders(),
 		Rows: r.shownRows(), Tags: r.tags(), Actions: []ui.Action{sessionsAction}, Menus: menus,
 	})
 	var notOffered *ui.NotOfferedError
@@ -312,12 +321,21 @@ func (r *run) shownRows() []string {
 	rows := make([]string, 0, len(r.snap.Rows))
 	for _, row := range r.snap.Rows {
 		if colour {
-			rows = append(rows, row.Painted())
+			rows = append(rows, r.table.Painted(row))
 		} else {
-			rows = append(rows, row.Text())
+			rows = append(rows, r.table.Text(row))
 		}
 	}
 	return rows
+}
+
+// rowWidth is how wide a row of the list can be: the terminal less the frame around it; 0 when
+// the terminal does not say, which lays the rows out with no limit.
+func (p *Picker) rowWidth() int {
+	if columns := p.Columns(); columns > ui.RowChrome {
+		return columns - ui.RowChrome
+	}
+	return 0
 }
 
 // tags number the rows, so two rows that read the same are still two rows to choose from.

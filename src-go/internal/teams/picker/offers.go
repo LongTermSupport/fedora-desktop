@@ -358,14 +358,18 @@ func (p *Picker) checkoutRepo(ctx context.Context) (string, error) {
 // the making of one when none does.
 func (r *run) offerJoinHere(ctx context.Context) error {
 	p := r.p
-	here, err := p.Git.ProjectHere(ctx, "")
-	if err != nil {
+	here, err := p.Checkouts.Find(ctx, "")
+	switch {
+	case err != nil:
 		p.Kit.ReportErr(err)
-		return flow.Leave(term.ExitFailure)
-	}
-	if !here {
+		return nil
+	case here.Top == "":
+		return nil
+	case !here.Host():
+		p.Kit.Tell(here.Refusal(p.Kit.Abbrev(here.Top)))
 		return nil
 	}
+	top := here.Top
 	repo, err := p.checkoutRepo(ctx)
 	if err != nil {
 		p.Kit.ReportErr(err)
@@ -378,11 +382,6 @@ func (r *run) offerJoinHere(ctx context.Context) error {
 	if err != nil {
 		p.Kit.ReportErr(err)
 		return nil
-	}
-	top, err := p.Git.TopLevel(ctx, "")
-	if err != nil {
-		p.Kit.ReportErr(err)
-		return flow.Leave(term.ExitFailure)
 	}
 	if len(teams) == 0 {
 		return p.offerCreateHere(ctx, repo, top)
