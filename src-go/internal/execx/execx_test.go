@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -40,6 +42,29 @@ func TestOSRunnerPassesStdinEnvAndDir(t *testing.T) {
 	}
 	if got, want := string(res.Stdout), "set|"+dir+"|piped"; got != want {
 		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestOSRunnerHandsExtraFilesFromDescriptorThree(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "extra")
+	if err := os.WriteFile(path, []byte("inherited"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(filepath.Clean(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil {
+			t.Error(cerr)
+		}
+	}()
+	res, err := OS{}.Run(context.Background(), Cmd{Name: "sh", Args: []string{"-c", "cat <&3"}, ExtraFiles: []*os.File{f}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(res.Stdout) != "inherited" {
+		t.Fatalf("descriptor 3 read %q", res.Stdout)
 	}
 }
 

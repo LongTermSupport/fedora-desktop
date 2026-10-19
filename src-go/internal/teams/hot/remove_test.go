@@ -84,6 +84,24 @@ func TestRemoveOfTheCoordinatorNeedsToBeToldWhatBecomesOfTheRole(t *testing.T) {
 	}
 }
 
+// Plan 00203 Task 3.8 (Fable's F6): making the coordinator a worker is destructive, so the
+// question a remove asks about it starts on No.
+func TestRemoveOfTheCoordinatorAsksAboutItsRoleDefaultingToNo(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
+	r.m.roles["alpha\tproj.3+local.podman"] = coord
+	c := r.interactive(t, "NO")
+	if code := r.run(t, "remove", session, "alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	if len(c.Script.GumLog) != 1 || !strings.Contains(c.Script.GumLog[0], "Make it a worker as it leaves") ||
+		!strings.Contains(c.Script.GumLog[0], "--default=false") {
+		t.Fatalf("questions %q, want the role question defaulting to no", c.Script.GumLog)
+	}
+	if len(r.setRoles()) != 0 || r.desired(t).Generation != 1 {
+		t.Fatal("no is nothing changed")
+	}
+}
+
 func TestRemoveOfTheCoordinatorCanHandTheRoleToAnotherSeat(t *testing.T) {
 	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
 	r.m.roles["alpha\tproj.3+local.podman"] = coord

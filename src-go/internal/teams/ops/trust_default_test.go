@@ -4,6 +4,7 @@ package ops
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -43,8 +44,27 @@ func TestARefusedPlayNamesItselfAndHowToTrustIt(t *testing.T) {
 func TestThePlayInsideTheCheckoutRuns(t *testing.T) {
 	r := newOpsRig(t)
 	r.on(opsPlay, execx.Result{})
-	if err := r.ops.runPlay(context.Background(), []string{"a"}); err != nil {
+	err := r.ops.Locked(context.Background(), "apply a", func(ctx context.Context) error {
+		return r.ops.runPlay(ctx, []string{"a"})
+	})
+	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A play is run only inside the play lock, handed down to it: run without one, it is refused
+// and never started.
+func TestAPlayOutsideThePlayLockIsRefusedAndNotRun(t *testing.T) {
+	r := newOpsRig(t)
+	r.on(opsPlay, execx.Result{})
+	if err := r.ops.runPlay(context.Background(), []string{"a"}); !errors.Is(err, errPlayOutsideLock) {
+		t.Fatalf("got %v", err)
+	}
+	if err := r.ops.runElementPlay(context.Background(), []string{"a"}); err == nil {
+		t.Fatal("the Element play ran outside the lock")
+	}
+	if len(r.fake.Calls()) != 0 {
+		t.Errorf("ran %v", r.fake.Calls())
 	}
 }
 

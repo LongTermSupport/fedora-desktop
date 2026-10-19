@@ -17,9 +17,15 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.12.15 — container 2.77.12
+## 3.99.12.16 — container 2.77.13
 
 Follows 3.99.12.10 (container 2.77.7). The image carries the new pingbus and declare.py.
+3.99.12.15 (container 2.77.12) was this release before the role change took one play-lock hold
+(below); it was never merged.
+
+- **A role change waits for the play lock before it writes anything**: the declared entry, the
+  live role and the apply happen under one hold, so a wait that is stopped or times out changes
+  nothing.
 
 - **Every member kind has the same roles** (Plan 00203 Task 3.8, owner feedback). In
   `ccy-teams`, the row of any member (a ccy or cc session, an LXC container's agent, a host,
@@ -30,9 +36,11 @@ Follows 3.99.12.10 (container 2.77.7). The image carries the new pingbus and dec
   for an LXC member declared in `agent_bus_lxc_members` its entry too (`declare lxc-role`),
   then the team is applied, so the next apply keeps it. `ccy-teams session role` takes a
   member's handle in place of a session.
+
 - **A running agent of any kind is told its new role**: a session started by
   agent-bus-claude (LXC, host, docker, vm) now gets the same role context a ccy session's
   membership notice gives, from its watcher or at its next prompt. No restart.
+
 - **No menu starts on a destructive action.** Park, Remove seat and Take down are last, just
   above Back; making a coordinator a worker and the takeover come after the ordinary actions;
   Remove from a team is last in a session's menu; the take-down question starts on "Leave it

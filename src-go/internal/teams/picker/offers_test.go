@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
@@ -283,6 +284,75 @@ func TestADescriptionWhoseApplyFailsFailsTheFlowAndNamesTheRetry(t *testing.T) {
 	}
 	if !strings.Contains(h.ErrOut.String(), "ccy-teams apply alpha") {
 		t.Fatalf("stderr %q lacks the retry", h.ErrOut.String())
+	}
+}
+
+// The description is written and applied in one hold of the play lock.
+func TestADescriptionIsWrittenAndAppliedInOneHoldOfThePlayLock(t *testing.T) {
+	h := newRig(t)
+	h.OnDeclare("undescribed", undescribedAlpha)
+	h.OnDeclare("check", "")
+	heldAtWrite := false
+	h.Fake.OnFunc(strings.Fields(h.DeclarePrefix("describe")), func(execx.Cmd) (execx.Result, error) {
+		heldAtWrite = h.PlayLockHeld(t)
+		return execx.Result{Stdout: []byte("CHANGED\tteam alpha description\n")}, nil
+	})
+	h.Script.Gum = []string{"CHOOSE:Describe alpha now", "CHOOSE:Builds the example site"}
+	if err := h.p.offerDescriptions(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !heldAtWrite || h.plays() != 1 || h.PlayLockHeld(t) {
+		t.Fatalf("held at the write %v, plays %d, held after %v", heldAtWrite, h.plays(), h.PlayLockHeld(t))
+	}
+}
+
+// The owner's defect: a description given while another play run holds the lock. The wait is a
+// screen naming the holder; stopping it writes nothing, so nothing is left saved but not applied.
+func TestStoppingTheWaitForThePlayLockLeavesTheDescriptionUnwritten(t *testing.T) {
+	h := newRig(t)
+	h.OnDeclare("undescribed", undescribedAlpha)
+	h.OnDeclare("check", "")
+	h.OnDeclare("describe", "CHANGED\tteam alpha description\n")
+	h.HoldPlayLock(t)
+	h.Script.Gum = []string{"CHOOSE:Describe alpha now", "CHOOSE:Builds the example site"}
+	h.Script.Fzf = []string{"|EXIT"}
+	if err := h.p.offerDescriptions(context.Background()); err != nil {
+		t.Fatalf("stopping the wait ends the picker: %v", err)
+	}
+	if h.Fake.Called(h.DeclarePrefix("describe")) || h.plays() != 0 {
+		t.Fatal("the description was written, or the play ran, without the lock")
+	}
+	if !strings.Contains(h.HeaderOf(0), "Held by run.bash playbooks/imports/play-basic-configs.yml (pid 999)") {
+		t.Fatalf("the wait screen does not name the holder: %s", h.HeaderOf(0))
+	}
+	for _, want := range []string{
+		"Stopped waiting for the play lock; nothing was changed.",
+		"Team alpha has no description yet: what you typed (Builds the example site) was not saved. ccy-teams asks again the next time it starts.",
+	} {
+		if !strings.Contains(h.ErrOut.String(), want) {
+			t.Errorf("stderr %q lacks %q", h.ErrOut.String(), want)
+		}
+	}
+	if strings.Contains(h.ErrOut.String(), "in the host_vars") {
+		t.Errorf("a description never written is said to be in the host_vars: %q", h.ErrOut.String())
+	}
+}
+
+func TestStoppingTheWaitForThePlayLockKeepsThePathLimit(t *testing.T) {
+	h := newRig(t)
+	h.OnDeclare("limited", limitedLegacy)
+	h.OnDeclare("drop-limit", "CHANGED\talpha\n")
+	h.HoldPlayLock(t)
+	h.Script.Gum = []string{"CHOOSE:Remove alpha's limit now"}
+	h.Script.Fzf = []string{"|EXIT"}
+	if err := h.p.offerPathLimits(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if h.Fake.Called(h.DeclarePrefix("drop-limit")) || h.plays() != 0 {
+		t.Fatal("the limit was dropped, or the play ran, without the lock")
+	}
+	if !strings.Contains(h.ErrOut.String(), "Team alpha keeps its limit for now; ccy-teams asks again the next time it starts.") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 }
 

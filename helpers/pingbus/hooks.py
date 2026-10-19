@@ -50,6 +50,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -405,10 +406,13 @@ def role_notice(previous: Mapping[str, str] | None,
 
 
 def tell_roles(environ: Mapping[str, str], deliver: Callable[[list[str]], bool],
-               views: tuple[TeamView, ...] | None = None) -> bool | None:
+               views: tuple[TeamView, ...] | None = None, *, err: TextIO | None = None) -> bool | None:
     """Tell a session outside the membership a change of its own role, once, as
     tell_membership tells a ccy session: True when told (or recorded), False when `deliver`
-    could not, None for a membership session, nothing to tell, or another teller at it."""
+    could not, None for a membership session, nothing to tell, or another teller at it. An
+    unreadable record of what was told is said on `err` (stderr by default) and taken again
+    from now: a change since it was written is recorded, not told."""
+    err = sys.stderr if err is None else err
     if not _outside_membership(environ):
         return None
     home = config.resolve_home(environ)
@@ -418,7 +422,9 @@ def tell_roles(environ: Mapping[str, str], deliver: Callable[[list[str]], bool],
         teams = survey(environ).teams if views is None else views
         try:
             previous = membership.read_told_roles(home)
-        except membership.MembershipError:
+        except membership.MembershipError as exc:
+            err.write(f"pingbus: the record of the roles this session was told is unreadable ({exc}): "
+                      f"it is written again from now, so a role change since is not told\n")
             previous = None
         record, lines = role_notice(previous, teams)
         if record == previous:
@@ -736,7 +742,7 @@ class _Hook:
         told are recorded and nothing more is said."""
         told: list[str] = []
         try:
-            tell_roles(self.environ, lambda lines: baseline or told.extend(lines) or True, surveyed.teams)
+            tell_roles(self.environ, lambda lines: baseline or told.extend(lines) or True, surveyed.teams, err=self.err)
         except (OSError, membership.MembershipError) as exc:
             self.err.write(f"pingbus: hook {self.event}: the role notice failed: {type(exc).__name__}\n")
             return []

@@ -531,11 +531,16 @@ Two things are **not** frozen:
     (`seats.ChangeRole`), `session role` and `add --role` (hot), and `lxc-add`'s takeover. By
     kind only at the last step: every member with a handle is set live (`sudo agent-bus set-role`); a member declared by an `agent_bus_lxc_members` entry also has its entry set
     first (`declare lxc-role`), else the next apply would put the old role back or refuse a
-    second coordinator, and the team is then applied (`ops.ApplyTeams`, with its play lock).
+    second coordinator, and the team is then applied (`ops.ApplyTeams`). Such a change runs in
+    one hold of the play lock (`ops.Locked`, Plan 00201 Task 2.17): the entry, the live role and
+    the apply all inside it, so a wait for the lock that is stopped or reaches its bound writes
+    nothing, entry or live role. A change with no entry to write is live only and takes no lock.
     Which entry a live LXC handle is is read from each candidate entry's checkout as root
-    (`declare lxc-identity` over the root reader's probe); an entry that cannot be read (its
-    container stopped) stops the change before anything changes. A step that fails puts back
-    those before it.
+    (`declare lxc-identity` over the root reader's probe), before the lock is waited for; an
+    entry that cannot be read (its container stopped) stops the change before anything changes,
+    and the error names that entry and says to start it or give the team's entries their seats.
+    A step that fails puts back those before it. A remove's question whether the coordinator
+    becomes a worker starts on No.
     - The picker's member menu, for every kind: the role line first ("Make <handle> the
       coordinator (<team> has none)"), then Element, a session, adding an LXC agent, help; a
       ccy seat's own attach and restore come before it. "Make <handle> a worker (<team> then has

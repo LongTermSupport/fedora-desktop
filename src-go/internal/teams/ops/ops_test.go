@@ -5,14 +5,18 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/playlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
@@ -40,6 +44,12 @@ type opsRig struct {
 	checkout  error
 	files     map[string]bool
 	tools     map[string]bool
+	// The play lock: its runtime directory, the clock only the fake sleep moves, the sleeps
+	// taken, and a hook run at each (where a test lets another holder go).
+	runDir string
+	now    time.Time
+	sleeps int
+	onNap  func(n int)
 }
 
 func newOpsRig(t *testing.T) *opsRig {
@@ -49,6 +59,11 @@ func newOpsRig(t *testing.T) *opsRig {
 		files: map[string]bool{}, tools: map[string]bool{"gum": true, "fzf": true},
 	}
 	r.statuses = []map[string]declare.Status{{}}
+	r.runDir = filepath.Join(t.TempDir(), "run")
+	if err := os.Mkdir(r.runDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	r.now = lockStart
 	tm := &term.Term{
 		Err:        r.err,
 		IsTerminal: func(any) bool { return r.tty },
@@ -92,6 +107,22 @@ func newOpsRig(t *testing.T) *opsRig {
 		},
 		FileExists: func(p string) bool { return r.files[p] },
 		Width:      func(context.Context) int { return 80 },
+		PlayLock: &playlock.Waiter{
+			RuntimeDir: r.runDir, UID: os.Getuid(), GID: os.Getgid(), PID: 4321,
+			Now: func() time.Time { return r.now },
+			Sleep: func(ctx context.Context, d time.Duration) error {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				r.sleeps++
+				r.now = r.now.Add(d)
+				if r.onNap != nil {
+					r.onNap(r.sleeps)
+				}
+				return nil
+			},
+		},
+		PlayLockWait: DefaultPlayLockWait,
 	}
 	return r
 }

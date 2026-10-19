@@ -143,7 +143,7 @@ func newRigAs(t *testing.T, kind, name string, seats ...membership.Seat) *rig {
 	r.x = New(w.Host, kit, roles.New(w.Host, kit, func(_ context.Context, teams ...string) error {
 		r.applied = append(r.applied, teams...)
 		return nil
-	}))
+	}, nil))
 	r.x.Now = func() time.Time { return r.now }
 	r.x.Sleep = func(d time.Duration) { r.now = r.now.Add(d) }
 	r.script(t)

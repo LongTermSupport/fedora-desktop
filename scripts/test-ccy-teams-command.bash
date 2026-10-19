@@ -333,13 +333,20 @@ case "$1 ${2:-}" in
 *) echo "fake gh: unexpected call: $*" >&2; exit 97 ;;
 esac
 EOF
-# play-agent-bus.yml, run by ccy-teams through its shebang: logs its arguments; unless
-# TEST_PLAY_FAIL, each team in agent_bus_only_teams is applied as declared (its stamp
-# written by the real functions the installer uses), or, declared absent, taken down.
+# play-agent-bus.yml, run by ccy-teams through its shebang: logs its arguments, and whether
+# the play lock was handed to it as run.bash proves it (lock.py held), so the real play would
+# run inside ccy-teams' hold instead of exiting 75; unless TEST_PLAY_FAIL, each team in
+# agent_bus_only_teams is applied as declared (its stamp written by the real functions the
+# installer uses), or, declared absent, taken down.
 cat >"$BIN/play" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'play %s\n' "$*" >>"$TEST_LOG"
+if (cd "$TEST_REPO_ROOT" && python3 -m helpers.play_lock.lock held --user "$(command -p id -un)") 2>>"$TEST_LOG"; then
+    echo "play-lock handed down" >>"$TEST_LOG"
+else
+    echo "play-lock NOT handed down" >>"$TEST_LOG"
+fi
 [ "$1" = -e ] || { echo "fake play: expected -e JSON" >&2; exit 97; }
 if [ -n "${TEST_PLAY_FAIL:-}" ]; then echo "fatal: [localhost]: FAILED!" >&2; exit 2; fi
 cd "$TEST_REPO_ROOT" && python3 -m tests.helpers.agent_bus.ccy_teams_play "$2" "$CCY_TEAMS_HOST_VARS" "$TEST_STATE/applied"
@@ -495,6 +502,10 @@ export PATH="$BIN:$GUMBIN:$PATH" HOME="$HOME_DIR" CCY_STATE_DIR="$SCRATCH/ccy-st
 export CCY_TEAMS_HOST_VARS="$HOST_VARS" CCY_TEAMS_LAUNCHER="$BIN/launcher"
 export CCY_TEAMS_PLAY="$BIN/play" CCY_TEAMS_APPLIED_DIR="$STATE/applied" TEST_REPO_ROOT="$REPO_ROOT"
 export CCY_TEAMS_ELEMENT_PLAY="$BIN/element-play"
+# The play lock (and every other runtime lock) is taken in a runtime directory of the suite's
+# own: never the real one, where a play run on this machine would make an apply wait.
+export XDG_RUNTIME_DIR="$SCRATCH/run"
+mkdir -m 0700 "$XDG_RUNTIME_DIR"
 mkdir -p "$STATE/applied"
 # alpha as built from this host_vars: the stamp the fake play writes, kept for every reset.
 (cd "$REPO_ROOT" && python3 -m tests.helpers.agent_bus.ccy_teams_play '{"agent_bus_only_teams": ["alpha"]}' \
@@ -1342,6 +1353,8 @@ check_has "  beta is up to date afterwards" "up to date" "$(grep -E '^beta +.+ +
 fresh_states
 CCY_TEAMS_HOST_VARS="$STATES" "$TOOL" apply delta >"$SCRATCH/out" 2>"$SCRATCH/err"
 check "apply <team> runs the play for that team" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["delta"]}')"
+check "  inside ccy-teams' hold of the play lock, handed down as run.bash proves it" "yes" "$(logged 'play-lock handed down')"
+check "  and never outside it" "no" "$(logged 'play-lock NOT handed down')"
 fresh_states
 CCY_TEAMS_HOST_VARS="$STATES" TEST_PLAY_FAIL=1 "$TOOL" apply delta >"$SCRATCH/out" 2>"$SCRATCH/err"
 check "a failed play is a failure" "1" "$?"

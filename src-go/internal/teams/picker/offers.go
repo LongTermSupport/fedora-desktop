@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/playlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
@@ -142,14 +143,23 @@ func (p *Picker) askPathLimit(ctx context.Context, team, prefixes, trusts, marke
 			"'s row has "+askLimitLabel(team)+".")
 	case got == answerNow:
 	}
-	if _, err := p.Declare.DropLimit(ctx, team); err != nil {
-		p.Kit.ReportErr(err)
-		return flow.Leave(term.ExitFailure)
+	// The limit is dropped and applied in one hold of the play lock: a wait for it that does not
+	// end in the lock drops nothing.
+	err = p.Ops.Locked(ctx, "remove team "+team+"'s limit", func(ctx context.Context) error {
+		if _, dropErr := p.Declare.DropLimit(ctx, team); dropErr != nil {
+			p.Kit.ReportErr(dropErr)
+			return flow.Leave(term.ExitFailure)
+		}
+		if p.Ops.ApplyTeams(ctx, []string{team}) != nil {
+			p.Kit.Tell("(ccy-teams apply " + team + " failed: see above.)")
+		}
+		return nil
+	})
+	if errors.Is(err, playlock.ErrNotTaken) {
+		p.Kit.Tell("Team " + team + " keeps its limit for now; ccy-teams asks again the next time it starts.")
+		return nil
 	}
-	if err := p.Ops.ApplyTeams(ctx, []string{team}); err != nil {
-		p.Kit.Tell("(ccy-teams apply " + team + " failed: see above.)")
-	}
-	return nil
+	return err
 }
 
 // keepAnswer records a never answer in marker, so the offer is not made again, and says so.
@@ -246,16 +256,26 @@ func (p *Picker) askDescription(ctx context.Context, team declare.Undescribed, m
 	if err != nil || text == "" {
 		return err
 	}
-	if _, err := p.Declare.Describe(ctx, team.Team, text); err != nil {
-		p.Kit.ReportErr(err)
-		return flow.Leave(term.ExitFailure)
+	// The description is written and applied in one hold of the play lock: a wait for it that
+	// does not end in the lock writes nothing, so nothing is left saved but not applied.
+	err = p.Ops.Locked(ctx, "describe team "+team.Team, func(ctx context.Context) error {
+		if _, descErr := p.Declare.Describe(ctx, team.Team, text); descErr != nil {
+			p.Kit.ReportErr(descErr)
+			return flow.Leave(term.ExitFailure)
+		}
+		if p.Ops.ApplyTeams(ctx, []string{team.Team}) != nil {
+			p.Kit.Term.PrintError("team " + team.Team + " now has its description in the host_vars but is not applied as declared. " +
+				"Once the cause above is fixed, ccy-teams apply " + team.Team + " applies it.")
+			return flow.Leave(term.ExitFailure)
+		}
+		return nil
+	})
+	if errors.Is(err, playlock.ErrNotTaken) {
+		p.Kit.Tell("Team " + team.Team + " has no description yet: what you typed (" + text + ") was not saved. " +
+			"ccy-teams asks again the next time it starts.")
+		return nil
 	}
-	if err := p.Ops.ApplyTeams(ctx, []string{team.Team}); err != nil {
-		p.Kit.Term.PrintError("team " + team.Team + " now has its description in the host_vars but is not applied as declared. " +
-			"Once the cause above is fixed, ccy-teams apply " + team.Team + " applies it.")
-		return flow.Leave(term.ExitFailure)
-	}
-	return nil
+	return err
 }
 
 // inputDescription asks for team's one line until declare.py accepts it, maxDescriptionTries at

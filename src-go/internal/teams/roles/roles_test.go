@@ -3,6 +3,7 @@ package roles
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/playlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 )
@@ -57,7 +59,7 @@ func newRig(t *testing.T) *rig {
 	g.s = New(w.Host, flow.New(w.Host), func(_ context.Context, teams ...string) error {
 		g.applied = append(g.applied, teams...)
 		return nil
-	})
+	}, nil)
 	g.s.Reader = g.r
 	w.On(setRole, "", 0)
 	w.OnDeclare("lxc-members", "")
@@ -166,7 +168,9 @@ func TestAnEntryWhoseCheckoutCannotBeReadStopsTheChangeBeforeAnything(t *testing
 	g.OnDeclare("lxc-members", entryA)
 	g.r.errs = map[string]error{"container-a": errors.New("/srv/agent/one of agent@container-a could not be read from the host: not running")}
 	_, err := g.s.Set(t.Context(), "alpha", g.say, Step{Handle: lxcHandle, From: agentbus.RoleWorker, To: agentbus.RoleCoordinator})
-	if err == nil || !strings.Contains(err.Error(), "not running") || !strings.Contains(err.Error(), "agent@container-a") ||
+	if err == nil || !strings.Contains(err.Error(), "not running") ||
+		!strings.Contains(err.Error(), "the entry of agent@container-a blocks the change of "+lxcHandle) ||
+		!strings.Contains(err.Error(), "give each of team alpha's entries its seat") ||
 		!strings.Contains(err.Error(), "no role was changed") {
 		t.Fatalf("err %v", err)
 	}
@@ -264,6 +268,78 @@ func TestChangeAppliesTheTeamOnlyWhenAnEntryWasWritten(t *testing.T) {
 	}
 	if !slices.Equal(g.applied, []string{"alpha", "alpha"}) || !slices.Contains(g.changes(), "lxc-role container-a worker") {
 		t.Fatalf("an undone entry was not applied again: applied %v changes %q", g.applied, g.changes())
+	}
+}
+
+// locker is ops.Locked as the test sees it: whether a hold is open, how many were taken, and
+// refused, the wait stopped before the lock was taken (fn never runs).
+type locker struct {
+	holding  bool
+	holds    int
+	refused  error
+	purposes []string
+}
+
+func (l *locker) locked(ctx context.Context, purpose string, fn func(context.Context) error) error {
+	l.purposes = append(l.purposes, purpose)
+	if l.refused != nil {
+		return l.refused
+	}
+	l.holds++
+	l.holding = true
+	defer func() { l.holding = false }()
+	return fn(ctx)
+}
+
+func TestADeclaredChangeWritesTheEntryTheLiveRoleAndAppliesInOneHoldOfThePlayLock(t *testing.T) {
+	g := newRig(t)
+	g.OnDeclare("lxc-members", entryA)
+	l := &locker{}
+	g.s.Locked = l.locked
+	var inHold []string
+	g.Fake.OnFunc(strings.Fields(g.DeclarePrefix("lxc-role")), func(execx.Cmd) (execx.Result, error) {
+		inHold = append(inHold, "lxc-role "+map[bool]string{true: "held", false: "free"}[l.holding])
+		return execx.Result{Stdout: []byte("CHANGED\tLXC member\n")}, nil
+	})
+	g.Fake.OnFunc(strings.Fields(setRole), func(execx.Cmd) (execx.Result, error) {
+		inHold = append(inHold, "set-role "+map[bool]string{true: "held", false: "free"}[l.holding])
+		return execx.Result{}, nil
+	})
+	g.s.Apply = func(context.Context, ...string) error {
+		inHold = append(inHold, "apply "+map[bool]string{true: "held", false: "free"}[l.holding])
+		return nil
+	}
+	if _, err := g.s.Change(t.Context(), "alpha", g.say, Step{Handle: lxcHandle, From: agentbus.RoleWorker, To: agentbus.RoleCoordinator}); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"lxc-role held", "set-role held", "apply held"}; l.holds != 1 || !slices.Equal(inHold, want) {
+		t.Fatalf("holds %d, steps %q, want %q in one hold", l.holds, inHold, want)
+	}
+}
+
+func TestAStoppedWaitForThePlayLockChangesNothing(t *testing.T) {
+	g := newRig(t)
+	g.OnDeclare("lxc-members", entryA)
+	stopped := fmt.Errorf("the play lock was not taken: %w", playlock.ErrStopped)
+	g.s.Locked = (&locker{refused: stopped}).locked
+	_, err := g.s.Change(t.Context(), "alpha", g.say, Step{Handle: lxcHandle, From: agentbus.RoleWorker, To: agentbus.RoleCoordinator})
+	if !errors.Is(err, playlock.ErrStopped) || !strings.Contains(err.Error(), "no role was changed") {
+		t.Fatalf("err %v", err)
+	}
+	if got := g.changes(); len(got) != 0 || len(g.applied) != 0 {
+		t.Fatalf("a stopped wait changed %q, applied %v", got, g.applied)
+	}
+}
+
+func TestALiveOnlyChangeTakesNoPlayLock(t *testing.T) {
+	g := newRig(t)
+	l := &locker{}
+	g.s.Locked = l.locked
+	if _, err := g.s.Change(t.Context(), "alpha", g.say, Step{Handle: ccyHandle, From: agentbus.RoleWorker, To: agentbus.RoleCoordinator}); err != nil {
+		t.Fatal(err)
+	}
+	if len(l.purposes) != 0 {
+		t.Fatalf("a change with no entry to write waited for the play lock: %q", l.purposes)
 	}
 }
 

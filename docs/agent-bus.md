@@ -117,6 +117,11 @@ that play.
    down or deletes data: a team declared `absent`, or running but no longer declared,
    says "decide" and is left alone. A full run of `play-agent-bus.yml` (the main playbook)
    does apply an `absent` entry, as declared.
+   Every ccy-teams change that runs a play (apply, Save and apply, a description, create,
+   lxc-add, remove) first takes the host's play lock, the one every play run shares. If another
+   play run holds it (a `meta-deploy.bash` unit, say), ccy-teams names it and how long it has
+   held the lock, and waits up to 30 minutes (with a **Stop waiting** row on a terminal). It
+   writes the host_vars only once it has the lock, so stopping the wait changes nothing.
 9. **Take a team down.** `ccy-teams remove <team>` (or Ctrl-X on the team), on a terminal
    only, one team at a time. It says what is lost, offers a backup first, and by default
    keeps the team's data (its whole room history); deleting the data as well needs the

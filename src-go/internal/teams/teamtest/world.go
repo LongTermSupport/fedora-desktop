@@ -6,12 +6,17 @@ package teamtest
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/playlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 )
@@ -56,7 +61,12 @@ func New(t *testing.T) *World {
 		Out: &bytes.Buffer{}, ErrOut: &bytes.Buffer{}, Fake: &execx.Fake{}, Root: root,
 		overview: map[string]string{},
 	}
-	w.Env = map[string]string{"CCY_LIB": lib, "HOME": filepath.Join(root, "home")}
+	// The runtime directory the play lock is taken in: the user's own, which only it can write.
+	run := filepath.Join(root, "run")
+	if err := os.Mkdir(run, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	w.Env = map[string]string{"CCY_LIB": lib, "HOME": filepath.Join(root, "home"), "XDG_RUNTIME_DIR": run}
 	getenv := func(k string) string { return w.Env[k] }
 	w.Host = &host.Host{
 		Config: config.Load(root, getenv),
@@ -148,6 +158,52 @@ func (w *World) Spawned() map[string]int {
 	}
 	w.counted = len(calls)
 	return counts
+}
+
+// HoldPlayNote is the holder line HoldPlayLock writes: another play run, a meta-deploy unit.
+const HoldPlayNote = "pid=999 what=run.bash playbooks/imports/play-basic-configs.yml since=2026-10-16T11:59:20Z\n"
+
+// HoldPlayLock takes the play lock in the world's runtime directory on a descriptor of its own,
+// as another play run does, until the test ends or the returned func lets it go.
+func (w *World) HoldPlayLock(t *testing.T) func() {
+	t.Helper()
+	f, err := os.OpenFile(filepath.Join(w.Env["XDG_RUNTIME_DIR"], playlock.Name), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteAt([]byte(HoldPlayNote), 0); err != nil {
+		t.Fatal(err)
+	}
+	var once sync.Once
+	release := func() {
+		once.Do(func() {
+			if err := f.Close(); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	t.Cleanup(release)
+	return release
+}
+
+// PlayLockHeld is whether anyone holds the play lock in the world's runtime directory now.
+func (w *World) PlayLockHeld(t *testing.T) bool {
+	t.Helper()
+	probe := playlock.New(func(k string) string { return w.Env[k] })
+	lock, err := probe.Take(context.Background(), "probe", 0, nil)
+	if errors.As(err, new(*playlock.TimeoutError)) {
+		return true
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lock.Release(); err != nil {
+		t.Fatal(err)
+	}
+	return false
 }
 
 // MustWrite writes a file, making its directories.

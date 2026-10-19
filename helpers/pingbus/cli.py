@@ -2153,16 +2153,20 @@ def _tell(environ: Mapping[str, str], inj: _Injector, rt: Runtime, err: TextIO,
         except notify.SocketGone:
             raise
         except OSError as exc:
-            err.write(f"{PROG}: the membership notice was not written ({exc.strerror or exc}): the next "
+            err.write(f"{PROG}: the {what} was not written ({exc.strerror or exc}): the next "
                       "prompt's hook tells it\n")
             return False
         inj.last_sent = rt.monotonic()
         return True
 
+    what = "role notice (this session's role changed)" if teller is hooks.tell_roles else "membership notice"
     try:
-        teller(environ, deliver)
+        if teller is hooks.tell_roles:
+            hooks.tell_roles(environ, deliver, err=err)
+        else:
+            teller(environ, deliver)
     except (hooks.Failure, membership.MembershipError, OSError, ValueError) as exc:
-        err.write(f"{PROG}: the membership notice could not be built ({type(exc).__name__})\n")
+        err.write(f"{PROG}: the {what} could not be built ({type(exc).__name__})\n")
 
 
 # ---------------------------------------------------------------- history

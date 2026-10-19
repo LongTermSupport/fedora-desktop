@@ -256,6 +256,48 @@ func TestElementSetUpDeclaresThenRunsThePlayThenOpens(t *testing.T) {
 	}
 }
 
+// The Element profile is declared and its play run in one hold of the play lock; a wait for it
+// that is stopped declares nothing.
+func TestElementSetUpIsInOneHoldOfThePlayLock(t *testing.T) {
+	h := newRig(t)
+	heldAtDeclare := false
+	h.Fake.OnFunc(strings.Fields(h.DeclarePrefix("element")), func(execx.Cmd) (execx.Result, error) {
+		heldAtDeclare = h.PlayLockHeld(t)
+		return execx.Result{Stdout: []byte("CHANGED\tteam alpha\n")}, nil
+	})
+	h.On("systemd-run", "", 0)
+	h.On(teamtest.SudoBus+"human devices alpha owner", "DEVICE\ta\t-\n", 0)
+	h.Script.Gum = []string{"YES"}
+	h.Fake.OnFunc(strings.Fields(h.Host.ElementPlay), func(execx.Cmd) (execx.Result, error) {
+		teamtest.MustWrite(t, h.elementLauncher(), "")
+		return execx.Result{}, nil
+	})
+	if _, err := h.l.OpenElement(context.Background(), h.pass(t), "alpha"); err != nil {
+		t.Fatalf("%v: %s", err, h.ErrOut.String())
+	}
+	if !heldAtDeclare || h.PlayLockHeld(t) {
+		t.Fatalf("held at the declare %v, held after %v", heldAtDeclare, h.PlayLockHeld(t))
+	}
+}
+
+func TestStoppingTheWaitForThePlayLockSetsNothingUpInElement(t *testing.T) {
+	h := newRig(t)
+	h.OnDeclare("element", "CHANGED\tteam alpha\n")
+	h.HoldPlayLock(t)
+	h.Script.Gum = []string{"YES"}
+	h.Script.Fzf = []string{"|EXIT"}
+	res, err := h.l.OpenElement(context.Background(), h.pass(t), "alpha")
+	if err != nil || res != flow.Refused {
+		t.Fatalf("%v %v", res, err)
+	}
+	if h.Fake.Called(h.DeclarePrefix("element")) || h.elementPlays() != 0 {
+		t.Fatal("declared, or the play ran, without the lock")
+	}
+	if !strings.Contains(h.ErrOut.String(), "Nothing set up: the play lock was not free (above). Opening the team in Element offers it again.") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+}
+
 func TestElementSetUpFailureIsSaidAndKeepsThePicker(t *testing.T) {
 	h := newRig(t)
 	h.OnDeclare("element", "CHANGED\tx\n")

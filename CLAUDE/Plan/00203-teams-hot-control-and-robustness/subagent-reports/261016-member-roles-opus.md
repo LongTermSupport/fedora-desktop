@@ -14,8 +14,13 @@ demote-then-write with rollback now goes through it). Each step:
 - a member that has a handle is set live, `sudo agent-bus set-role` (so the team record,
   which routes messages, changes at once), for every kind;
 - a member declared by an `agent_bus_lxc_members` entry also has its entry set first
-  (`declare lxc-role`), then the team is applied through `ops.ApplyTeams` (its play lock, so
-  the fix on `fix/teams-wait-play-lock` covers this too).
+  (`declare lxc-role`), then the team is applied through `ops.ApplyTeams`.
+- Correction after Fable's review: as first committed (0be311bd) the entry and the live role
+  were written BEFORE the play lock was waited for, which `ops.ApplyTeams` alone takes on
+  `fix/teams-wait-play-lock`; a stopped wait would have said "nothing was changed" over a
+  changed entry. Now (merged with that branch) `roles.Change` runs the entry, the live role and
+  the apply in one `ops.Locked` hold, so a stopped or timed-out wait writes nothing; a change
+  with no entry takes no lock.
 
 Before this, every live path set a declared LXC member's role live only: the next apply put
 the declared role back, or refused a second coordinator. Which entry a live LXC handle is was
@@ -79,5 +84,5 @@ sessions). It asks first, default No, and is never first in its menu.
 
 ## Versions and deploy
 
-CCY 3.99.12.15, container 2.77.12 (pingbus and declare.py are baked into the image): renumber
+CCY 3.99.12.16, container 2.77.13 (pingbus and declare.py are baked into the image; .15/.12 before Fable's fixes): renumber
 at merge. Queued in `meta-deploy.list`: play-claude-yolo.yml, then play-agent-bus.yml.

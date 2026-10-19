@@ -22,7 +22,7 @@ a different answer changes only the expectations it names.
 | Q4  | Choosing a team that does not cover the checkout: what are the choices?                               | Three, default **Add**: "Add example-org/proj to beta's scope", "Join without adding (beta will treat example-org/proj references as external)", "Leave beta out". Joining without adding is an explicit, named choice, not a fallback.                     | S-B7          |
 | Q5  | When does the chooser appear?                                                                         | Whenever an attended launch has `--teams` with no value or a team alone, **unless** the machine has exactly one team and it covers the checkout (then it is taken, as today). With two or more teams the owner always sees the list, covering teams on top. | S-B2          |
 | Q6  | How does `pingbus send`/`say` pick a team when the session is on several?                             | Infer it when unambiguous: from `--re` (`send` only: an event belongs to one team's room) or from `--to` (every name resolves in exactly one active team). Otherwise exit 64 listing the active teams with their descriptions. `--team` always wins.        | S-C8, S-C9    |
-| Q7  | Show the session's teams in the **status line**?                                                      | Yes (revised after review): the member kit's `pingbus status-line` shows `👥 alpha,beta` from the per-session record, below the checkout's own status line, in any checkout (S-C6). It is the one place visible during the whole session.                 | S-C6          |
+| Q7  | Show the session's teams in the **status line**?                                                      | Yes (revised after review): the member kit's `pingbus status-line` shows `👥 alpha,beta` from the per-session record, below the checkout's own status line, in any checkout (S-C6). It is the one place visible during the whole session.                   | S-C6          |
 | Q8  | Does `recv` print a ready reply command for PINGs too, or only for PEER and HUMAN items?              | PEER and HUMAN only (what was asked). A PING's answer is a verb the agent must choose; the skill already says how.                                                                                                                                          | S-D1          |
 | Q9  | `cc --teams`: does cc pick its seat silently (today) or show the seat and role chooser as ccy does?   | Show the same chooser: one flow, one behaviour. The only cc-specific step is the Element consent, shown inside the flow.                                                                                                                                    | S-E3          |
 | Q10 | `ccy-teams for-checkout --choose`: keep or remove once the launchers use the new flow?                | Remove `--choose` (YAGNI); keep `for-checkout` without it, which prints the covering teams for scripts.                                                                                                                                                     | S-B14         |
@@ -375,6 +375,52 @@ or re-create its history, re-issue every member's token and bundle, move every s
 session record, re-point every running session, and take the old team down; the installer's
 `check_unchanged` refuses it today. Half of that would leave sessions on a team that no longer
 exists, so it is a task of its own.
+
+## G. The play lock (Task 2.17)
+
+The owner's defect: a description applied from ccy-teams while a meta-deploy unit held the
+host's play lock. run.bash refused the play with exit 75 ("another play run is in progress"),
+and ccy-teams died saying the description was in the host_vars but not applied. The lock is
+`helpers/play_lock/lock.py`'s: a flock(2) on `fedora-desktop-plays.lock` in the user's runtime
+directory, a holder line `pid=… what=… since=…`, and delegation to a child through an inherited
+descriptor named by `FEDORA_DESKTOP_PLAY_LOCK_FD`, which run.bash proves with `lock.py held`.
+
+- **S-G1** Every ccy-teams flow that runs a play takes the play lock first, through the Go side
+  of the same lock (`internal/playlock`: same file, same refusals, same holder line). No second
+  locking scheme.
+- **S-G2** Write, then apply, in one hold. A flow that writes the host_vars (Save and apply,
+  describe, drop a path limit, add a repository to a scope, create, lxc-add, remove, set up
+  Element) takes the lock before it writes and holds it across the write and every play it runs.
+  Each play is handed the hold (the descriptor and the variable), so run.bash runs it inside the
+  hold instead of exiting 75. A wait that does not end in the lock writes nothing, so nothing is
+  ever left saved but not applied by it. `ccy-teams apply` takes it the same way.
+- **S-G3** A free lock is taken at once and nothing is said about it. The holder line names
+  ccy-teams and what it is doing (`ccy-teams: save and apply team <t>'s settings`), so a run it
+  refuses names it.
+- **S-G4** A held lock is waited for, up to 30 minutes. The wait says who holds it: what it is,
+  its pid, since when and for how long (`run.bash playbooks/imports/play-basic-configs.yml (pid N), held since HH:MM:SS UTC, for 2 minutes`), and until when it waits.
+- **S-G5** On a terminal (stdin and stderr both, fzf installed) the wait is a screen titled
+  `Waiting for the play lock`, with one visible choice, `Stop waiting (nothing is changed)`
+  (Esc and q too, rule 14). It is drawn again when the holder changes or has held the lock
+  another minute, and closes by itself the moment the lock is taken.
+- **S-G6** With no terminal the wait is said on stderr, with a line each time another run takes
+  the lock in turn; Ctrl-C stops it.
+- **S-G7** The wait ends only in the lock taken on ccy-teams' own descriptor (flock), never in a
+  check followed by a separate take.
+- **S-G8** A wait that is stopped (the row, Esc, q, Ctrl-C) says "Stopped waiting for the play
+  lock; nothing was changed." and the flow exits 130 where it ends the run. A wait that reaches
+  its bound says it gave up and who still holds the lock, and fails (1). Each flow then says, in
+  its own words, that nothing was saved and what to run once the other play run has finished:
+  the settings screen keeps the unsaved changes to save again; the start-up offers (describe, a
+  path limit) say they will ask again; `ccy-teams apply` names `ccy-teams apply <team>`.
+- **S-G9** A play that exits 75 all the same (refused the lock) is said as that, never as a raw
+  failure: "play-agent-bus.yml did not run: it was refused the play lock (exit 75, above), which
+  another play run took. Once that run has finished, ccy-teams apply <team> applies it." The
+  flow's own line then says the change is in the host_vars but not applied, and the board shows
+  the team out of date.
+- **S-G10** A lock that cannot be used (no runtime directory, one others can write, a symlink) is
+  a failure naming why, not a wait.
+- **S-G11** A play is never started outside the hold: one asked for without it is refused.
 
 ## Milestones (each test-first: the failing test lands before the code)
 

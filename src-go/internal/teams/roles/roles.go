@@ -13,7 +13,9 @@
 //     change before anything is changed.
 //
 // A step that fails puts back every step before it. Change applies the team when an entry was
-// written, through the same ops.ApplyTeams every flow uses (and so its play lock).
+// written, through the same ops.ApplyTeams every flow uses, and holds the play lock
+// (ops.Locked) around the entry, the live role and the apply together, so a wait for the lock
+// that is stopped changes nothing.
 package roles
 
 import (
@@ -56,15 +58,20 @@ type Setter struct {
 	SetRole func(ctx context.Context, team, handle, role string) error
 	Reader  Reader
 	// Apply is ops.ApplyTeams: the play for the teams named.
-	Apply       func(ctx context.Context, teams ...string) error
+	Apply func(ctx context.Context, teams ...string) error
+	// Locked is ops.Locked: fn in one hold of the play lock, waited for first (re-entrant, so
+	// Apply inside it is the same hold); nil runs fn alone.
+	Locked      func(ctx context.Context, purpose string, fn func(context.Context) error) error
 	ReadTimeout time.Duration
 }
 
-// New is the Setter over a host; apply is ops.ApplyTeams.
-func New(h *host.Host, kit *flow.Kit, apply func(ctx context.Context, teams ...string) error) *Setter {
+// New is the Setter over a host; apply is ops.ApplyTeams and locked ops.Locked.
+func New(h *host.Host, kit *flow.Kit, apply func(ctx context.Context, teams ...string) error,
+	locked func(ctx context.Context, purpose string, fn func(context.Context) error) error,
+) *Setter {
 	return &Setter{
 		Kit: kit, Declare: h.Declare, SetRole: h.Bus.SetRole, Reader: &lxcfreeze.Lister{Sudo: h.Sudo, LookPath: h.LookPath},
-		Apply: apply, ReadTimeout: readTimeout,
+		Apply: apply, Locked: locked, ReadTimeout: readTimeout,
 	}
 }
 
@@ -85,50 +92,102 @@ type Done struct {
 	// Declared is whether an entry was written: the team is applied for it to agree.
 	Declared bool
 	undo     []func(context.Context) error
-	// apply is the team's apply, which an undo of a written entry runs again.
-	apply func(context.Context) error
+	// apply is the team's apply, which an undo of a written entry runs again, inside locked,
+	// the play lock's hold, as Change made it.
+	apply  func(context.Context) error
+	locked func(context.Context, func(context.Context) error) error
 }
 
 // Undo puts back what was changed, the last first, and applies the team again when an entry
-// was written; the first failure stops it.
+// was written (in one hold of the play lock, as the change was); the first failure stops it.
 func (d Done) Undo(ctx context.Context) error {
-	for _, back := range slices.Backward(d.undo) {
-		if err := back(ctx); err != nil {
-			return err
+	back := func(ctx context.Context) error {
+		for _, step := range slices.Backward(d.undo) {
+			if err := step(ctx); err != nil {
+				return err
+			}
 		}
+		if d.Declared && d.apply != nil {
+			return d.apply(ctx)
+		}
+		return nil
 	}
-	if d.Declared && d.apply != nil {
-		return d.apply(ctx)
+	if d.Declared && d.locked != nil {
+		return d.locked(ctx, back)
 	}
-	return nil
+	return back(ctx)
 }
 
-// Change is Set, then the apply of team when an entry was written. A failed apply leaves the
-// roles changed, live and in the entries, which agree; the error says how to finish.
+// Change is Set, then the apply of team when an entry was written. A change that writes an
+// entry happens in one hold of the play lock (ops.Locked), the entry, the live role and the
+// apply all inside it: a wait for the lock that is stopped, or that reaches its bound, changes
+// nothing. A change with no entry to write is live only and takes no lock. A failed apply leaves
+// the roles changed, live and in the entries, which agree; the error says how to finish.
 func (s *Setter) Change(ctx context.Context, team string, said func(string), steps ...Step) (Done, error) {
-	done, err := s.Set(ctx, team, said, steps...)
-	if err != nil || !done.Declared {
-		return done, err
+	resolved, err := s.resolve(ctx, team, steps)
+	if err != nil {
+		return Done{}, err
 	}
-	if err = s.Apply(ctx, team); err != nil {
-		last := steps[len(steps)-1]
-		return Done{}, fmt.Errorf("%s is a %s now, live and in the host_vars, but the apply of %s that follows failed (%w): "+
-			"once the cause is fixed, ccy-teams apply %s finishes it", who(last), last.To, team, err, team)
+	if !slices.ContainsFunc(resolved, func(st Step) bool { return st.Entry != nil }) {
+		return s.run(ctx, team, said, resolved)
+	}
+	var done Done
+	ran := false
+	lockErr := s.locked(ctx, "change a role in team "+team, func(ctx context.Context) error {
+		ran = true
+		var runErr error
+		if done, runErr = s.run(ctx, team, said, resolved); runErr != nil {
+			return runErr
+		}
+		if applyErr := s.Apply(ctx, team); applyErr != nil {
+			last := resolved[len(resolved)-1]
+			done = Done{}
+			return fmt.Errorf("%s is a %s now, live and in the host_vars, but the apply of %s that follows failed (%w): "+
+				"once the cause is fixed, ccy-teams apply %s finishes it", who(last), last.To, team, applyErr, team)
+		}
+		return nil
+	})
+	if lockErr != nil && !ran {
+		return Done{}, fmt.Errorf("%w, so no role was changed", lockErr)
+	}
+	if lockErr != nil {
+		return Done{}, lockErr
 	}
 	done.apply = func(ctx context.Context) error { return s.Apply(ctx, team) }
+	done.locked = func(ctx context.Context, fn func(context.Context) error) error {
+		return s.locked(ctx, "put back a role in team "+team, fn)
+	}
 	return done, nil
 }
 
-// Set makes each step, in order, and says each live change. Sudo must be ready: the registry
-// and a container's checkout are root's.
+// Set makes each step, in order, and says each live change; it applies nothing and takes no
+// lock (a caller that writes the host_vars, as lxc-add does, holds the play lock around it).
+// Sudo must be ready: the registry and a container's checkout are root's.
 func (s *Setter) Set(ctx context.Context, team string, said func(string), steps ...Step) (Done, error) {
+	resolved, err := s.resolve(ctx, team, steps)
+	if err != nil {
+		return Done{}, err
+	}
+	return s.run(ctx, team, said, resolved)
+}
+
+// locked is s.Locked, or fn alone where none is wired.
+func (s *Setter) locked(ctx context.Context, purpose string, fn func(context.Context) error) error {
+	if s.Locked == nil {
+		return fn(ctx)
+	}
+	return s.Locked(ctx, purpose, fn)
+}
+
+// resolve finds each step's entry when the caller gave none: only reads, nothing changes.
+func (s *Setter) resolve(ctx context.Context, team string, steps []Step) ([]Step, error) {
 	found := &entries{s: s, team: team}
 	resolved := make([]Step, len(steps))
 	for i, st := range steps {
 		if st.Entry == nil && st.Handle != "" {
 			entry, declared, err := found.of(ctx, st.Handle)
 			if err != nil {
-				return Done{}, fmt.Errorf("%w, so no role was changed", err)
+				return nil, fmt.Errorf("%w, so no role was changed", err)
 			}
 			if declared {
 				st.Entry = &entry
@@ -136,6 +195,11 @@ func (s *Setter) Set(ctx context.Context, team string, said func(string), steps 
 		}
 		resolved[i] = st
 	}
+	return resolved, nil
+}
+
+// run makes the resolved steps, putting back the earlier ones when one fails.
+func (s *Setter) run(ctx context.Context, team string, said func(string), resolved []Step) (Done, error) {
 	var done Done
 	for _, st := range resolved {
 		if err := s.step(ctx, team, st, said, &done); err != nil {
@@ -245,7 +309,7 @@ func (e *entries) of(ctx context.Context, handle string) (declare.LxcMember, boo
 		if !h.couldBe(e.team, m) {
 			continue
 		}
-		identity, err := e.identity(ctx, m)
+		identity, err := e.identity(ctx, m, handle)
 		if err != nil {
 			return declare.LxcMember{}, false, err
 		}
@@ -286,8 +350,9 @@ func (e *entries) load(ctx context.Context) error {
 	return nil
 }
 
-// identity is the repo and host of the handles m's checkout gives.
-func (e *entries) identity(ctx context.Context, m declare.LxcMember) (declare.Identity, error) {
+// identity is the repo and host of the handles m's checkout gives; handle is the member being
+// looked for, which a failure names with the entry that blocked it.
+func (e *entries) identity(ctx context.Context, m declare.LxcMember, handle string) (declare.Identity, error) {
 	if e.script == "" {
 		script, err := e.s.Declare.LxcScript(ctx, rootReader)
 		if err != nil {
@@ -299,12 +364,14 @@ func (e *entries) identity(ctx context.Context, m declare.LxcMember) (declare.Id
 	defer cancel()
 	probe, err := e.s.Reader.ReadCheckout(bounded, e.script, "probe", m.Container, m.User, m.Checkout)
 	if err != nil {
-		return declare.Identity{}, fmt.Errorf("whether %s@%s's entry is the member could not be read (%w); "+
-			"its container must be running", m.User, m.Container, err)
+		return declare.Identity{}, fmt.Errorf("the entry of %s@%s blocks the change of %s: it gives no seat, so its "+
+			"checkout is read to tell whether it is %s, and that read failed (%w). Start container %s, or give each "+
+			"of team %s's entries its seat in the host_vars", m.User, m.Container, handle, handle, err, m.Container, e.team)
 	}
 	identity, err := e.s.Declare.LxcIdentity(ctx, probe)
 	if err != nil {
-		return declare.Identity{}, fmt.Errorf("whether %s@%s's entry is the member could not be told (%w)", m.User, m.Container, err)
+		return declare.Identity{}, fmt.Errorf("the entry of %s@%s blocks the change of %s: whether it is %s could not be "+
+			"told from its checkout (%w)", m.User, m.Container, handle, handle, err)
 	}
 	return identity, nil
 }

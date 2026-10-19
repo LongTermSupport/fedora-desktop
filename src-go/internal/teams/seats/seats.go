@@ -51,7 +51,7 @@ func New(h *host.Host, kit *flow.Kit, o *ops.Ops) *Seats {
 	return &Seats{
 		Kit: kit, Ops: o, Tmux: h.Tmux, Git: h.Git, Bus: h.Bus, Systemd: h.Systemd, Registry: h.Registry,
 		Here: h.Here, Exec: h.Exec, Launcher: h.Launcher,
-		Roles: roles.New(h, kit, func(ctx context.Context, teams ...string) error { return o.ApplyTeams(ctx, teams) }),
+		Roles: roles.New(h, kit, func(ctx context.Context, teams ...string) error { return o.ApplyTeams(ctx, teams) }, o.Locked),
 	}
 }
 

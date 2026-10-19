@@ -298,7 +298,7 @@ func (x *Hot) leaveRole(ctx context.Context, r request, team, seat, handle strin
 				"--coordinator=demote (no one has it) or --coordinator=hand-to=<seat>."), false
 		}
 		code, yes := x.ask(ctx, "Seat "+seat+" is "+team+"'s coordinator. Make it a worker as it leaves (the role goes to no one)? "+
-			"To hand the role to another seat instead, say no and use --coordinator=hand-to=<seat>.", true)
+			"To hand the role to another seat instead, say no and use --coordinator=hand-to=<seat>.", false)
 		if !yes {
 			return nil, "", code, false
 		}
