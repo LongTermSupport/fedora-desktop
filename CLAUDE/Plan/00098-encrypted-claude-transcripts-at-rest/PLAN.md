@@ -146,9 +146,11 @@ measured hole and cannot break the daemon's byte-offset reads.
 
 - [x] ✅ **Task 1.1**: `umask 077` in `entrypoint.sh` before state creation, and in the desktop
   `cc` wrapper
-- [x] ✅ **Task 1.2**: Repair the desktop store **inside `play-claude-code.yml`**, which already
+- [x] ✅ **Task 1.2**: Repair the desktop store **inside `play-claude-yolo.yml`**, which already
   owns it. `find -perm /077 -exec chmod go=` preserves owner bits (a blanket mode would strip
-  execute from 129 plugin/skill scripts); `failed_when` asserts it afterwards. Per-project CCY
+  execute from 129 plugin/skill scripts); `failed_when` asserts it afterwards. The state file
+  `~/.claude.json` sits beside the directory, so the find never reaches it: `go-rwx` repairs
+  it (symlink followed), re-stat plus assert, skipped under `--check`. Per-project CCY
   stores are repaired by a launcher preflight, since only the launcher knows the project dir.
   A separate `play-claude-state-hygiene.yml` was written then **deleted** — no independent
   lifecycle, so bureaucratic separation rather than a real play
@@ -260,7 +262,7 @@ Blocking Phase 2; Phase 1 proceeds regardless.
 - Research complete (11 agents, 0 errors); recommendation recorded; full artefacts in
   [`research/`](research/) — a81ae3a
 - Phase 2 gate closed (owner runs no backups); `umask 077` in both launchers, a launch-time
-  repair preflight, and the desktop-store repair folded into `play-claude-code.yml`.
+  repair preflight, and the desktop-store repair folded into `play-claude-yolo.yml`.
   CCY 3.31.0, container 2.26
 - First `qa-reviewer` run returned **BLOCK** and found the third store (see Overview). Repair
   scope widened from `.claude/ccy` to the whole project `.claude` tree. Repair measurements are

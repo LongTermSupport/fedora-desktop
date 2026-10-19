@@ -781,6 +781,7 @@
     - name: Check Whether the Claude Code State File Exists
       ansible.builtin.stat:
         path: "{{ claude_state_file }}"
+        follow: true
       register: claude_state_file_stat
 
     - name: Restrict Claude Code State File to the Owner
@@ -792,8 +793,12 @@
     - name: Re-Check the Claude Code State File Mode
       ansible.builtin.stat:
         path: "{{ claude_state_file }}"
+        follow: true
       register: claude_state_file_after
-      when: claude_state_file_stat.stat.exists
+      when:
+        - claude_state_file_stat.stat.exists
+        # --check leaves the mode unchanged, so there is nothing to assert about
+        - not ansible_check_mode
 
     - name: Assert the Claude Code State File Is Not Group or Other Accessible
       ansible.builtin.assert:
@@ -801,7 +806,9 @@
           - claude_state_file_after.stat.mode[-2:] == '00'
         fail_msg: "{{ claude_state_file }} still has group/other permission bits ({{ claude_state_file_after.stat.mode }})"
         quiet: true
-      when: claude_state_file_stat.stat.exists
+      when:
+        - claude_state_file_stat.stat.exists
+        - not ansible_check_mode
 
     - name: Configure Claude Code Shell Integration
       ansible.builtin.blockinfile:
