@@ -106,6 +106,7 @@ gate	run-bash-rerun	scripts/test-run-bash-rerun.bash	run.bash --rerun tests fail
 gate	run-bash-gh-scopes	scripts/test-run-bash-gh-scopes.bash	run.bash / gh-account-setup.bash single-pass scope tests failed	count
 gate	run-bash-config-repo	scripts/test-run-bash-config-repo.bash	run.bash config-repo tests failed	count
 gate	run-bash-ssh-agent-start	scripts/test-run-bash-ssh-agent-start.bash	run.bash headless SSH unlock tests failed	count
+gate	run-bash-pipx-inject	scripts/test-run-bash-pipx-inject.bash	run.bash pipx inject step tests failed	count
 gate	gh-alias-wrappers	scripts/test-gh-alias-wrappers.bash	gh-<alias> wrapper tests failed	count
 gate	self-update-cycle	scripts/test-self-update-cycle.bash	fedora-desktop-self-update end-to-end tests failed	count
 gate	agent-bus-install	scripts/test-agent-bus-install.bash	agent-bus-install tests failed	count
