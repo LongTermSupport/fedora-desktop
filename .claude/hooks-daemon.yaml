@@ -185,6 +185,7 @@ handlers:
     # ADVISORY HANDLERS (Priority 56-60)
     daemon_docs_guard: {enabled: true, priority: 57}        # Warn when reading daemon internal docs
     british_english: {enabled: true, priority: 60}          # Warn about American English spellings
+    review_round_advisor: {enabled: true, priority: 60}     # Advise from the 4th review round on one plan or branch
     subagent_full_qa_blocker: {enabled: true}               # Full-suite QA belongs to the coordinator, not a sub-agent
 
   # PostToolUse handlers (run after tool execution)
