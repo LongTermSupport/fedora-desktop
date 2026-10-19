@@ -209,6 +209,17 @@ func TestHappyPathAsksOnlyTheContainerUserCheckoutAndRoleThenWritesAndAppliesAnd
 	if len(r.Script.GumLog) != 5 {
 		t.Fatalf("%d questions were asked, want 5:\n%s", len(r.Script.GumLog), strings.Join(r.Script.GumLog, "\n"))
 	}
+	// Each question names the team it adds to, its step, and the answers so far; the last is
+	// the review of what joins which team.
+	for i, want := range []string{
+		"Teams › alpha › Add LXC member · step 1/4 Container\ninto team alpha",
+		"Teams › alpha › Add LXC member · step 2/4 User\ninto team alpha · container container-a",
+		"Teams › alpha › Add LXC member · step 3/4 Checkout\ninto team alpha · container container-a · user agent",
+		"Teams › alpha › Add LXC member · step 4/4 Role\ninto team alpha · container container-a · user agent · checkout /srv/agent/one",
+		"Teams › alpha › Add LXC member › Review\nagent@container-a joins team alpha · role worker",
+	} {
+		r.Script.HeadingAt(i, want)
+	}
 }
 
 func TestAClaudeSessionAlreadyRunningIsToldToBeStartedAgainToJoin(t *testing.T) {
@@ -346,12 +357,12 @@ func TestTheCheckoutsInTheUsersHomeAreOfferedAsChoicesCcyProjectsFirstWithATyped
 		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
 	}
 	question := r.Script.GumLog[2]
-	want := "gum choose --header Add an LXC member to alpha · step 3/4 Checkout · container-a, user agent\n" +
-		"Checkout in container-a --selected /srv/agent/two   (example-org/two, a ccy project) " +
+	want := "gum choose --header Checkout in container-a --selected /srv/agent/two   (example-org/two, a ccy project) " +
 		"/srv/agent/two   (example-org/two, a ccy project) " + oneRow + " Type a path…"
 	if question != want {
 		t.Fatalf("the checkout question was\n%q\nwant\n%q", question, want)
 	}
+	r.Script.HeadingAt(2, "Teams › alpha › Add LXC member · step 3/4 Checkout\ninto team alpha · container container-a · user agent")
 }
 
 func TestACheckoutListThatCannotBeReadIsSaidAndTheCheckoutIsTyped(t *testing.T) {
@@ -495,13 +506,13 @@ func TestTheCoordinatorIsOfferedPlainlyWhenTheTeamHasNone(t *testing.T) {
 	}
 }
 
-// roleQuestion is the gum call that asked the role.
-// roleContext is the context line every Role question carries, the takeover offer included.
-const roleContext = "Add an LXC member to alpha · step 4/4 Role · container-a, user agent"
+// roleHeading is the heading every Role question carries, the takeover offer included.
+const roleHeading = "Teams › alpha › Add LXC member · step 4/4 Role\ninto team alpha · container container-a · user agent · checkout /srv/agent/one"
 
+// roleQuestion is the gum call that asked the role.
 func (r *rig) roleQuestion() string {
 	for _, line := range r.Script.GumLog {
-		if strings.HasPrefix(line, "gum choose --header "+roleContext+"\nRole ") {
+		if strings.HasPrefix(line, "gum choose --header Role ") {
 			return line
 		}
 	}
@@ -550,7 +561,9 @@ func TestTheTakeoverOfADeclaredCoordinatorMakesItsEntryAWorkerFirst(t *testing.T
 	if code := r.run("alpha"); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
 	}
-	confirm := "gum confirm --default=false " + roleContext + "\n" + coordinator.OfferTakeover("alpha", "agent@container-a", h)
+	confirm := "gum confirm --default=false " + coordinator.OfferTakeover("alpha", "agent@container-a", h)
+	r.Script.HeadingAt(3, roleHeading)
+	r.Script.HeadingAt(4, roleHeading)
 	if !slices.Contains(r.Script.GumLog, confirm) {
 		t.Fatalf("no takeover question %q in %q", confirm, r.Script.GumLog)
 	}

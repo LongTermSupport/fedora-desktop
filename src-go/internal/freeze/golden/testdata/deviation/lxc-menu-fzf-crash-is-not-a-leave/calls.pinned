@@ -15,4 +15,4 @@
 ["cat", "/var/lib/lxc/bravo/config"]
 ["lxc-info", "-n", "bravo", "-iH"]
 ["lxc-info", "-n", "sleeper", "-s"]
-["fzf", "--height=50%", "--reverse", "--prompt=lxcfreeze: ", "--header=ENTER acts on the chosen group \u2014 ESC to quit"]
+["fzf", "--height=50%", "--reverse", "--prompt=lxcfreeze: ", "--header=lxcfreeze\n3 groups\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nENTER acts on the chosen group \u2014 ESC to quit"]

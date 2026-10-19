@@ -255,9 +255,10 @@
  "pod-menu-fzf-all-then-leave": {
   "bugs": [
    7,
-   26
+   26,
+   27
   ],
-  "why": "bug 7: 'Thaw them with' and the freeze note list only what was frozen, and neither is printed when nothing was; bug 26: the startup load serves the menu's first pass: one load, not two",
+  "why": "bug 7: 'Thaw them with' and the freeze note list only what was frozen, and neither is printed when nothing was; bug 26: the startup load serves the menu's first pass: one load, not two; bug 27: every fzf screen's header starts with the shared heading (the tool, the group, a count)",
   "streams": [
    "stderr",
    "calls"
@@ -266,9 +267,10 @@
  "pod-menu-fzf-specific-members": {
   "bugs": [
    7,
-   26
+   26,
+   27
   ],
-  "why": "bug 7: 'Thaw them with' and the freeze note list only what was frozen, and neither is printed when nothing was; bug 26: the startup load serves the menu's first pass: one load, not two",
+  "why": "bug 7: 'Thaw them with' and the freeze note list only what was frozen, and neither is printed when nothing was; bug 26: the startup load serves the menu's first pass: one load, not two; bug 27: every fzf screen's header starts with the shared heading (the tool, the group, a count)",
   "streams": [
    "stderr",
    "calls"
@@ -276,18 +278,20 @@
  },
  "pod-menu-fzf-escape-in-drill-down-goes-back": {
   "bugs": [
-   26
+   26,
+   27
   ],
-  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two; bug 27: every fzf screen's header starts with the shared heading (the tool, the group, a count)",
   "streams": [
    "calls"
   ]
  },
  "pod-menu-fzf-no-match-quits": {
   "bugs": [
-   26
+   26,
+   27
   ],
-  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two; bug 27: every fzf screen's header starts with the shared heading (the tool, the group, a count)",
   "streams": [
    "calls"
   ]
@@ -295,9 +299,10 @@
  "pod-menu-fzf-crash-is-not-a-leave": {
   "bugs": [
    2,
-   26
+   26,
+   27
   ],
-  "why": "bug 2: an fzf that failed (not Esc, Ctrl-C or no match) is an error, no longer a quiet leave; bug 26: the startup load serves the menu's first pass: one load, not two",
+  "why": "bug 2: an fzf that failed (not Esc, Ctrl-C or no match) is an error, no longer a quiet leave; bug 26: the startup load serves the menu's first pass: one load, not two; bug 27: every fzf screen's header starts with the shared heading (the tool, the group, a count)",
   "streams": [
    "stderr",
    "status",
@@ -502,27 +507,30 @@
  },
  "lxc-menu-fzf-all-then-leave": {
   "bugs": [
-   26
+   26,
+   27
   ],
-  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two; bug 27: every fzf screen's header starts with the shared heading (the tool, the group, a count)",
   "streams": [
    "calls"
   ]
  },
  "lxc-menu-fzf-specific-members": {
   "bugs": [
-   26
+   26,
+   27
   ],
-  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two; bug 27: every fzf screen's header starts with the shared heading (the tool, the group, a count)",
   "streams": [
    "calls"
   ]
  },
  "lxc-menu-fzf-escape-in-drill-down-goes-back": {
   "bugs": [
-   26
+   26,
+   27
   ],
-  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two; bug 27: every fzf screen's header starts with the shared heading (the tool, the group, a count)",
   "streams": [
    "calls"
   ]
@@ -530,9 +538,10 @@
  "lxc-menu-fzf-crash-is-not-a-leave": {
   "bugs": [
    2,
-   26
+   26,
+   27
   ],
-  "why": "bug 2: an fzf that failed (not Esc, Ctrl-C or no match) is an error, no longer a quiet leave; bug 26: the startup load serves the menu's first pass: one load, not two",
+  "why": "bug 2: an fzf that failed (not Esc, Ctrl-C or no match) is an error, no longer a quiet leave; bug 26: the startup load serves the menu's first pass: one load, not two; bug 27: every fzf screen's header starts with the shared heading (the tool, the group, a count)",
   "streams": [
    "stderr",
    "status",

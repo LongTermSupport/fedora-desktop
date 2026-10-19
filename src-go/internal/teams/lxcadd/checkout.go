@@ -126,7 +126,7 @@ func (a *Adder) pickCheckout(ctx context.Context, ans *answers, found []declare.
 	}
 	rows = append(rows, typePath)
 	for {
-		choice, err := a.Gum.Choose(ctx, a.header(ans, "Checkout", "Checkout in "+ans.container), rows[0], rows)
+		choice, err := a.Gum.Choose(ctx, a.head, "Checkout in "+ans.container, rows[0], rows)
 		if err != nil {
 			return "", a.gumErr(err)
 		}
@@ -217,7 +217,7 @@ func (a *Adder) browse(ctx context.Context, ans *answers, start, back string) (s
 		if err := a.show(ctx, ans, b); err != nil {
 			return "", err
 		}
-		picked, err := a.Picker.Pick(ctx, a.browseSpec(ans, b, back))
+		picked, err := a.Picker.Pick(ctx, a.head, a.browseSpec(ans, b, back))
 		if errors.Is(err, ui.ErrLeave) {
 			return "", errBack
 		}
@@ -284,7 +284,6 @@ func (a *Adder) browseSpec(ans *answers, b *browser, back string) ui.PickSpec {
 		add("../   (up to "+listed(path.Dir(listed(b.dir)))+")", tagUp)
 	}
 	notes := []string{
-		a.context(ans, "Checkout"),
 		"Type to filter. Text that matches no row: Tab completes it as a path, Enter takes it as typed (end it with / to open it).",
 	}
 	if b.shown.Truncated {
@@ -294,7 +293,7 @@ func (a *Adder) browseSpec(ans *answers, b *browser, back string) ui.PickSpec {
 		notes = append(notes, fmt.Sprintf("%d name that cannot be shown safely is left out.", b.shown.unshown))
 	}
 	return ui.PickSpec{
-		Title:   a.context(ans, "Checkout"),
+		Title:   "Checkout in " + ans.container,
 		Header:  ui.Header("Enter open or choose   Tab complete   Esc back", notes...),
 		Actions: []ui.Action{{ID: actComplete, Label: "Complete what is typed as a path", Key: "tab"}},
 		Rows:    rows, Tags: tags, ExitLabel: back,

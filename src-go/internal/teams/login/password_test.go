@@ -38,9 +38,10 @@ func TestPasswordRowSetsAPasswordAndShowsTheLoginOnce(t *testing.T) {
 	if !strings.HasSuffix(h.ErrOut.String(), "Press Enter to go back to the list.\n") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
-	if len(h.Script.FzfArgs) != 1 || !slices.Contains(h.Script.FzfArgs[0], "--border-label= Open alpha in Element now? ") {
+	if len(h.Script.FzfArgs) != 1 || !strings.Contains(h.HeaderOf(0), "Open alpha in Element now?") {
 		t.Fatalf("someone with no sessions is asked nothing but whether to open Element: %q", h.Script.FzfArgs)
 	}
+	h.Script.HeadingAt(0, "Teams › alpha › Open in Element\nteam alpha")
 	if slices.Contains(h.Script.FzfArgs[0], "--bind=start:last") {
 		t.Fatal("opening Element defaults to Yes")
 	}
@@ -212,9 +213,10 @@ func TestPasswordOffersTheClipboardOnWaylandAndPutsItOnStdin(t *testing.T) {
 	if slices.Contains(h.Script.FzfArgs[0], "--bind=start:last") {
 		t.Fatal("the copy question defaults to Yes")
 	}
-	if !slices.Contains(h.Script.FzfArgs[0], "--border-label= Copy the password? ") {
+	if !strings.Contains(h.HeaderOf(0), "Copy the password?") {
 		t.Fatalf("args %q", h.Script.FzfArgs[0])
 	}
+	h.Script.HeadingAt(0, "Teams › alpha › owner › Element password › Copy\nowner in team alpha · 0 Element sessions")
 	if !slices.Contains(h.Script.Rows[0], "Yes, copy the password") {
 		t.Fatalf("rows %q", h.Script.Rows[0])
 	}

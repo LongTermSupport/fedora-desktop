@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -116,7 +118,8 @@ func (o *Ops) sessionsOff(ctx context.Context, team string) (term.ExitCode, bool
 	if len(in) == 0 {
 		return term.ExitOK, true
 	}
-	yes, err := o.Gum.Confirm(ctx, "Take "+strings.Join(in, ", ")+" off "+team+" first? They keep running.", true)
+	yes, err := o.Gum.Confirm(ctx, takeDownHeading(team).Push("Sessions in it").About("team "+team+" · running in it: "+strings.Join(in, ", ")),
+		"Take "+strings.Join(in, ", ")+" off "+team+" first? They keep running.", true)
 	if err != nil {
 		return o.questionFailed(err), false
 	}
@@ -155,9 +158,17 @@ func (o *Ops) heading(ctx context.Context, team string) (term.ExitCode, bool) {
 	return term.ExitOK, true
 }
 
+// takeDownHeading is the heading of the questions that take team down.
+func takeDownHeading(team string) ui.Heading { return flow.Here(team, "Take down") }
+
+// restoreHeading is the heading of restore's step n (of 2) in team.
+func restoreHeading(team string, n int, name, context string) ui.Heading {
+	return flow.Here(team, "Restore").AtStep(n, 2, name).About(context)
+}
+
 // backupFirst offers a backup of the team before it goes, and takes it.
 func (o *Ops) backupFirst(ctx context.Context, team string) (term.ExitCode, bool) {
-	yes, err := o.Gum.Confirm(ctx, "Back "+team+" up first?", true)
+	yes, err := o.Gum.Confirm(ctx, takeDownHeading(team).AtStep(1, 2, "Backup").About("team "+team), "Back "+team+" up first?", true)
 	if err != nil {
 		return o.questionFailed(err), false
 	}
@@ -177,7 +188,7 @@ func (o *Ops) backupFirst(ctx context.Context, team string) (term.ExitCode, bool
 
 // chooseFate asks what happens to the team and, for deletion, makes the person type its name.
 func (o *Ops) chooseFate(ctx context.Context, team string) (bool, term.ExitCode, bool) {
-	choice, err := o.Gum.Choose(ctx, "What happens to "+team+"?", choiceKeep, []string{choiceKeep, choicePurge, choiceStay})
+	choice, err := o.Gum.Choose(ctx, takeDownHeading(team).AtStep(2, 2, "Its data").About("team "+team), "What happens to "+team+"?", choiceKeep, []string{choiceKeep, choicePurge, choiceStay})
 	if err != nil {
 		return false, o.questionFailed(err), false
 	}
@@ -185,7 +196,8 @@ func (o *Ops) chooseFate(ctx context.Context, team string) (bool, term.ExitCode,
 	case choiceKeep:
 		return false, 0, true
 	case choicePurge:
-		typed, err := o.Gum.Input(ctx, "Type "+team+" to delete its data for good", "the team's name", "")
+		typed, err := o.Gum.Input(ctx, takeDownHeading(team).AtStep(2, 2, "Its data").About("team "+team+" · "+choicePurge),
+			"Type "+team+" to delete its data for good", "the team's name", "")
 		if err != nil {
 			return false, o.questionFailed(err), false
 		}
@@ -307,7 +319,7 @@ func (o *Ops) Restore(ctx context.Context, args []string) term.ExitCode {
 		if !o.interactive() {
 			return o.usageError("a restore replaces the team's database and state: confirm it with --yes when there is no terminal.")
 		}
-		sure, err := o.Picker.Confirm(ctx, "Restore "+req.team,
+		sure, err := o.Picker.Confirm(ctx, restoreHeading(req.team, 2, "Confirm", "team "+req.team+" · backup "+req.id),
 			"Restore backup "+req.id+" of "+req.team+"? Its homeserver stops, and every message and change since that backup is lost.",
 			"restore backup "+req.id, false)
 		if err != nil {
@@ -381,7 +393,7 @@ func (o *Ops) chooseBackup(ctx context.Context, team string) (string, term.ExitC
 	for _, b := range backups {
 		rows, tags = append(rows, fmt.Sprintf("Backup %-6s %s", b.ID, b.Time)), append(tags, b.ID)
 	}
-	picked, err := o.Picker.Pick(ctx, ui.PickSpec{
+	picked, err := o.Picker.Pick(ctx, restoreHeading(team, 1, "Backup", "team "+team+" · "+strconv.Itoa(len(backups))+" backups"), ui.PickSpec{
 		Title: "Restore " + team,
 		Header: ui.Header("Enter choose   Esc or q exit",
 			"The homeserver is stopped, the backup's database and state put back, and it is started again."),

@@ -335,6 +335,7 @@ func TestOnATerminalTheWaitIsAScreenThatGoesOnByItselfWhenTheLockIsFree(t *testi
 	r := newOpsRig(t)
 	screen := &blockingFzf{Fake: r.fake}
 	r.ops.Picker.Runner = screen
+	r.ops.Picker.Plain, r.ops.Picker.Columns = true, 200
 	r.on(opsPlay, execx.Result{})
 	r.appliedBeta()
 	release := r.holdElsewhere(t, basicNote)
@@ -353,6 +354,8 @@ func TestOnATerminalTheWaitIsAScreenThatGoesOnByItselfWhenTheLockIsFree(t *testi
 	first := screenText(t, shown[0])
 	for _, want := range []string{
 		"Waiting for the play lock",
+		"Teams › Waiting for the play lock",
+		"before ccy-teams can apply beta",
 		"ccy-teams is waiting for the play lock before it can apply beta.",
 		"Held by " + basicWho + ", for less than a minute.",
 		"It waits up to 30 minutes, until 12:30:05 UTC, and goes on by itself the moment the lock is free.",

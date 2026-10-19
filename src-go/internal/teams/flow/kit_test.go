@@ -95,13 +95,13 @@ func TestNeedGumAndNeedFzfNameThePlayThatInstallsThem(t *testing.T) {
 func TestAskYesIsGumsConfirmAndCtrlCCancels(t *testing.T) {
 	r := newKit(t)
 	r.Script.Gum = []string{"YES", "NO", "CANCEL"}
-	if yes, err := r.kit.AskYes(t.Context(), "Sure?", true); err != nil || !yes {
+	if yes, err := r.kit.AskYes(t.Context(), ui.Here("Teams", "alpha"), "Sure?", true); err != nil || !yes {
 		t.Fatalf("yes: %v %v", yes, err)
 	}
-	if yes, err := r.kit.AskYes(t.Context(), "Sure?", true); err != nil || yes {
+	if yes, err := r.kit.AskYes(t.Context(), ui.Here("Teams"), "Sure?", true); err != nil || yes {
 		t.Fatalf("no: %v %v", yes, err)
 	}
-	_, err := r.kit.AskYes(t.Context(), "Sure?", true)
+	_, err := r.kit.AskYes(t.Context(), ui.Here("Teams"), "Sure?", true)
 	if code, ok := ExitCodeOf(err); !ok || code != term.ExitCancelled {
 		t.Fatalf("ctrl-c: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestAskYesIsGumsConfirmAndCtrlCCancels(t *testing.T) {
 func TestAskYesLeavesWithFailureWhenGumCannotRun(t *testing.T) {
 	r := newKit(t)
 	r.kit.Gum = &ui.Gum{Runner: &execx.Fake{}, Stderr: r.ErrOut}
-	_, err := r.kit.AskYes(t.Context(), "Sure?", true)
+	_, err := r.kit.AskYes(t.Context(), ui.Here("Teams"), "Sure?", true)
 	if code, ok := ExitCodeOf(err); !ok || code != term.ExitFailure {
 		t.Fatalf("%v", err)
 	}
@@ -120,7 +120,7 @@ func TestConfirmIsAYesInThePickerAndNoEscAndQAreNo(t *testing.T) {
 	r := newKit(t)
 	r.Script.Fzf = []string{"|YES", "|EXIT", "|ABORT"}
 	for i, want := range []bool{true, false, false} {
-		yes, err := r.kit.Confirm(t.Context(), "Do it?", "It does it.", "do it", false)
+		yes, err := r.kit.Confirm(t.Context(), ui.Here("Teams", "Do it"), "It does it.", "do it", false)
 		if err != nil || yes != want {
 			t.Fatalf("answer %d: %v %v", i, yes, err)
 		}
@@ -130,7 +130,7 @@ func TestConfirmIsAYesInThePickerAndNoEscAndQAreNo(t *testing.T) {
 func TestConfirmWithoutFzfIsRefused(t *testing.T) {
 	r := newKit(t)
 	r.kit.LookPath = func(string) (string, error) { return "", errors.New("not found") }
-	if _, err := r.kit.Confirm(t.Context(), "t", "q", "a", false); err == nil {
+	if _, err := r.kit.Confirm(t.Context(), ui.Here("t"), "q", "a", false); err == nil {
 		t.Fatal("no fzf, no question")
 	}
 }
@@ -138,11 +138,11 @@ func TestConfirmWithoutFzfIsRefused(t *testing.T) {
 func TestChooseLeavesWithEscAndNamesAFailure(t *testing.T) {
 	r := newKit(t)
 	r.Script.Fzf = []string{"|ABORT"}
-	if _, err := r.kit.Choose(t.Context(), ui.PickSpec{Title: "t", Rows: []string{"a"}, Tags: []string{"0"}}); !errors.Is(err, ui.ErrLeave) {
+	if _, err := r.kit.Choose(t.Context(), ui.Here("t"), ui.PickSpec{Title: "t", Rows: []string{"a"}, Tags: []string{"0"}}); !errors.Is(err, ui.ErrLeave) {
 		t.Fatalf("esc: %v", err)
 	}
 	r.kit.Picker = &ui.Picker{Runner: &execx.Fake{}, Stderr: r.ErrOut}
-	_, err := r.kit.Choose(t.Context(), ui.PickSpec{Title: "t", Rows: []string{"a"}, Tags: []string{"0"}})
+	_, err := r.kit.Choose(t.Context(), ui.Here("t"), ui.PickSpec{Title: "t", Rows: []string{"a"}, Tags: []string{"0"}})
 	if code, ok := ExitCodeOf(err); !ok || code != term.ExitFailure {
 		t.Fatalf("fzf failing: %v", err)
 	}

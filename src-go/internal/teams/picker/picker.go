@@ -15,9 +15,11 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/create"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
@@ -193,6 +195,21 @@ func (r *run) rowHeaders() []string {
 	return append(headers, r.frame.header("This row: Enter or Tab shows the running sessions, and what can be done to each"))
 }
 
+// listHeading is the teams list's heading: how many teams there are, and which are not up.
+func (r *run) listHeading() ui.Heading {
+	context := plural(len(r.snap.Teams), "team")
+	var down []string
+	for _, team := range r.snap.Teams {
+		if r.snap.StateOf(team) != systemd.HomeserverUp {
+			down = append(down, team)
+		}
+	}
+	if len(down) > 0 {
+		context += " · not up: " + strings.Join(down, ", ")
+	}
+	return flow.Here().About(context)
+}
+
 // loop shows the list, does what a key asks, and shows the list again, until a flow leaves.
 func (r *run) loop(ctx context.Context) error {
 	for first := true; ; first = false {
@@ -236,7 +253,7 @@ func (r *run) listPass(ctx context.Context) error {
 	for i, row := range r.snap.Rows {
 		menus[i] = r.menuFor(row)
 	}
-	picked, err := p.Kit.Choose(ctx, ui.PickSpec{
+	picked, err := p.Kit.Choose(ctx, r.listHeading(), ui.PickSpec{
 		Title: "Agent teams", Header: r.frame.header(""), RowHeaders: r.rowHeaders(),
 		Rows: r.shownRows(), Tags: r.tags(), Actions: []ui.Action{sessionsAction}, Menus: menus,
 	})

@@ -202,7 +202,13 @@ a repository is no longer offered for a checkout of it. Report:
   every play, handed to each play as run.bash's delegation. Every flow writes inside the hold,
   so a wait that does not end in the lock changes nothing; exit 75 is said as a refused lock.
   Host run pending (meta-deploy: play-claude-yolo.yml). Report:
-  `subagent-reports/261016-teams-wait-play-lock-opus.md`.
+  `subagent-reports/261016-teams-wait-play-lock-opus.md`. Spec section G was written after the
+  code (journal correction); Fable's review: `subagent-reports/` on `review/teams-wait-play-lock`.
+- [ ] ⬜ **Task 2.18**: run.bash waits on the play lock (`lock.py acquire --wait`, bounded,
+  naming the holder) instead of exiting 75, so meta-deploy, the panel's run-play and a play run
+  by hand wait for a ccy-teams hold as ccy-teams now waits for theirs. Pending the owner's
+  decision: it changes how every caller of run.bash behaves, and run.bash is on the bash-limits
+  ratchet, so the wait belongs in the Python helper.
 
 ## Success Criteria
 

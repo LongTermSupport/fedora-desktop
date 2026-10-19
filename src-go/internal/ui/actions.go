@@ -28,6 +28,9 @@ func (a Action) Line() string {
 type Menu struct {
 	Title, Header string
 	Actions       []Action
+	// Heading, when it has crumbs, is the menu's heading; otherwise it is the list's heading with
+	// Title as one more crumb.
+	Heading Heading
 }
 
 // menuBack is the last row of every row menu.

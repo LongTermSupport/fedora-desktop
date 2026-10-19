@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -15,6 +16,8 @@ import (
 // MemberScreen is the drill-down for one group. Lines[0] is the "all" row; Lines[i+1] belongs to
 // Names[i].
 type MemberScreen struct {
+	// Group is the group's line in the menu it was chosen from, which the screen's heading names.
+	Group string
 	Lines []string
 	Names []string
 }
@@ -34,7 +37,7 @@ type Chooser interface {
 
 // Fzf is the picker the choosers use; *ui.Picker is the production one.
 type Fzf interface {
-	Choose(ctx context.Context, spec ui.ChooseSpec) ([]string, error)
+	Choose(ctx context.Context, h ui.Heading, spec ui.ChooseSpec) ([]string, error)
 }
 
 // TTYChooser is the production Chooser: fzf when installed, else numbered prompts read from the
@@ -83,7 +86,7 @@ func (c *TTYChooser) Members(ctx context.Context, screen MemberScreen) (Choice, 
 
 func (c *TTYChooser) group(ctx context.Context, keys, labels []string) (string, error) {
 	if c.Fzf != nil {
-		lines, fzfErr := c.Fzf.Choose(ctx, ui.ChooseSpec{
+		lines, fzfErr := c.Fzf.Choose(ctx, ui.Here(c.Cfg.Tool).About(countOf(len(labels), "group")), ui.ChooseSpec{
 			Prompt: c.Cfg.Tool + ": ", Header: "ENTER acts on the chosen group — ESC to quit",
 			Height: "50%", Rows: labels,
 		})
@@ -130,6 +133,22 @@ func (c *TTYChooser) withWrites(err error) error {
 		err = fmt.Errorf("write prompt: %w", werr)
 	}
 	return err
+}
+
+// groupName is the screen's group as its heading names it.
+func groupName(screen MemberScreen) string {
+	if name := strings.TrimSpace(screen.Group); name != "" {
+		return name
+	}
+	return "the chosen group"
+}
+
+// countOf is n and noun, with an s unless n is one.
+func countOf(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return strconv.Itoa(n) + " " + noun + "s"
 }
 
 // matchLabel maps fzf's chosen line back to its key by whole-string equality.
@@ -179,7 +198,7 @@ func giveUp() error {
 
 func (c *TTYChooser) members(ctx context.Context, screen MemberScreen) (Choice, error) {
 	if c.Fzf != nil {
-		lines, fzfErr := c.Fzf.Choose(ctx, ui.ChooseSpec{
+		lines, fzfErr := c.Fzf.Choose(ctx, ui.Here(c.Cfg.Tool, groupName(screen)).About(countOf(len(screen.Names), "container")), ui.ChooseSpec{
 			Prompt: "In this group: ", Multi: true, Height: "60%", Rows: screen.Lines,
 			Header: "ENTER on the first row acts on all — TAB picks specific ones, ESC goes back",
 		})

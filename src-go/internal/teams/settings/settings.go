@@ -113,6 +113,20 @@ func (sc *screen) title(step string) string {
 	return t
 }
 
+// heading is the screen's heading: Teams › <team> › Settings, then the step when there is one,
+// over the team and the changes waiting to be saved.
+func (sc *screen) heading(step string) ui.Heading {
+	h := flow.Here(sc.team, "Settings")
+	if step != "" {
+		h = h.Push(step)
+	}
+	waiting := "no changes waiting"
+	if n := len(sc.pending); n > 0 {
+		waiting = changes(n) + " waiting for Save and apply"
+	}
+	return h.About("team " + sc.team + " · " + waiting)
+}
+
 func (sc *screen) header(about string) string {
 	return ui.Header("Enter choose   Esc or q back",
 		"Settings of team "+sc.team+": changes wait here until Save and apply.", sc.notice, about)
@@ -121,7 +135,7 @@ func (sc *screen) header(about string) string {
 // once draws the screen and does what was chosen; done ends the visit.
 func (sc *screen) once(ctx context.Context) (bool, flow.Result, error) {
 	rows, tags, headers := sc.rows()
-	picked, err := sc.s.Kit.Choose(ctx, ui.PickSpec{
+	picked, err := sc.s.Kit.Choose(ctx, sc.heading(""), ui.PickSpec{
 		Title: sc.title(""), Header: sc.header(""), RowHeaders: headers, Rows: rows, Tags: tags, ExitLabel: "Back",
 	})
 	sc.notice = ""
@@ -254,7 +268,7 @@ func (sc *screen) editField(ctx context.Context, f field) error {
 		value = editText(json.RawMessage(j))
 	}
 	for range maxTries {
-		answer, err := sc.s.Kit.Gum.Input(ctx, sc.title(f.label)+"\n"+f.about, f.label, value)
+		answer, err := sc.s.Kit.Gum.Input(ctx, sc.heading(f.label), f.about, f.label, value)
 		if errors.Is(err, ui.ErrCancelled) {
 			sc.notice = f.label + " is as it was."
 			return sc.s.Kit.Interrupted(ctx)
@@ -315,7 +329,7 @@ func (sc *screen) back(ctx context.Context) (bool, error) {
 	if n == 1 {
 		verb = " is"
 	}
-	yes, err := sc.s.Kit.Confirm(ctx, sc.title("Back"),
+	yes, err := sc.s.Kit.Confirm(ctx, sc.heading("Back"),
 		changes(n)+verb+" not saved. Leave the settings and lose them?", "leave and lose them", false)
 	if err != nil || yes {
 		return true, err
@@ -335,7 +349,7 @@ func (sc *screen) save(ctx context.Context) (bool, flow.Result, error) {
 	if !ready {
 		return false, flow.Done, nil
 	}
-	yes, err := sc.s.Kit.Confirm(ctx, sc.title("Save and apply"), sc.summary(removed), "save and apply", len(removed) == 0)
+	yes, err := sc.s.Kit.Confirm(ctx, sc.heading("Save and apply"), sc.summary(removed), "save and apply", len(removed) == 0)
 	if err != nil {
 		return true, flow.Done, err
 	}
@@ -524,7 +538,7 @@ func (sc *screen) pickCoordinator(ctx context.Context) (string, error) {
 		}
 		rows, tags = append(rows, row), append(tags, m.Handle)
 	}
-	picked, err := sc.s.Kit.Choose(ctx, ui.PickSpec{
+	picked, err := sc.s.Kit.Choose(ctx, sc.heading("Coordinator"), ui.PickSpec{
 		Title: sc.title("Coordinator"), Rows: rows, Tags: tags, ExitLabel: "Back to the settings",
 		Header: ui.Header("Enter choose   Esc or q back to the settings",
 			"Changed at once, not by Save and apply.", about),

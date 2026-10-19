@@ -35,4 +35,9 @@ playbooks/imports/optional/common/play-speech-to-text.yml
 # Stop waiting row; it takes the lock before it writes the host_vars and runs its play inside
 # that hold, so stopping the wait leaves nothing saved but not applied. Running sessions are not
 # touched.
+# Plan 00204 D4: rebuilds ccy-teams and ccy-sessions with the context heading. Every screen
+# says where it is and what it acts on (Teams › alpha › Add LXC member · step 3/4 Checkout over
+# "into team alpha · container …"; ccy --teams heads each team "New session › Team 2 of 3: …";
+# Teams › <team> › Settings). A heading wider than the terminal wraps at its › and ·
+# separators instead of being cut off. Running sessions are not touched.
 playbooks/imports/play-claude-yolo.yml
