@@ -223,12 +223,41 @@ class WatchRelayTest(RelayCase):
                    "the stale marker stayed")
 
     def test_no_relay_confirmed_for_120_seconds_while_items_wait_is_stalled(self):
+        """The clock moves only once the watcher has judged the stall at the current time:
+        the line is spooled before that pass reads the clock, so moving it on sight of the
+        line would start the window at the moved time."""
+        judged: list[tuple[float, bool]] = []
+        stall_class = relay.Stall
+
+        class RecordingStall(stall_class):
+            def __init__(self, clock, *args) -> None:
+                self.read = 0.0
+                super().__init__(self._reading(clock), *args)
+
+            def _reading(self, clock):
+                def read() -> float:
+                    self.read = clock()
+                    return self.read
+                return read
+
+            def observe(self, *, waiting: int, confirmed: int) -> bool:
+                stalled = super().observe(waiting=waiting, confirmed=confirmed)
+                if waiting:
+                    judged.append((self.read, stalled))
+                return stalled
+
+        def judged_at(now: float) -> bool:
+            return any(at == now for at, _ in judged)
+
+        self.enterContext(mock.patch.object(relay, "Stall", RecordingStall))
         self.joined()
         self.start_watch(monotonic=lambda: self.mono[0])
         event = self.a.human()
         self.spooled(event)
+        self.until(lambda: judged_at(1000.0), "the watcher never judged the waiting line")
         self.mono[0] += 119
-        time.sleep(0.3)
+        self.until(lambda: judged_at(1119.0), "the watcher never judged the line at 119 s")
+        self.assertFalse(any(stalled for _, stalled in judged), "stalled before 120 s")
         self.assertFalse(self.spool.stalled())
         self.mono[0] += 2
         self.until(self.spool.stalled, "relay never recorded as stalled")
