@@ -226,6 +226,8 @@ func removalProblem(p string, scan Scan) string {
 		return ""
 	}
 	switch {
+	case scan.Exempt[p] && IsTestCode(p):
+		return "" // test code is not tooling; a file moved there is caught by exemptTwin
 	case scan.Exempt[p]:
 		return p + " still exists and is exempt"
 	case scan.Present[p]:

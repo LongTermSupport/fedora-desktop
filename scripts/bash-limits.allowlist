@@ -14,8 +14,6 @@
 # path <TAB> code lines <TAB> functions <TAB> statements <TAB> grandfathered flags (assoc, ui, data or -)
 # measurer: 2
 .claude/ccy/claude-supervise	68	4	74	-
-.semgrep/bash-conventions.bash	61	0	118	-
-.semgrep/ready-wait.bash	84	9	99	-
 CLAUDE/Plan/_planlib.inc.bash	395	25	430	-
 CLAUDE/Plan/meta-deploy.bash	163	0	183	assoc
 CLAUDE/Plan/mkplan.bash	619	18	495	-
@@ -47,11 +45,6 @@ files/home/.local/bin/ssh-with-agent.bash	108	6	109	-
 files/home/.local/bin/ssh-with-key	87	2	98	-
 files/home/.local/bin/vmtest-bridge-watcher	53	8	59	-
 files/home/.local/bin/wsi-claude-process	99	2	112	-
-files/home/.local/share/vmtest/guest-acceptance-desktop.bash	203	2	250	data
-files/home/.local/share/vmtest/guest-acceptance-server-github-token.bash	184	3	186	-
-files/home/.local/share/vmtest/guest-acceptance-server-host-health-kernel-change.bash	265	7	247	data
-files/home/.local/share/vmtest/guest-acceptance-server.bash	138	2	165	-
-files/home/.local/share/vmtest/guest-prepare-server-host-health-kernel-change.bash	169	7	239	data
 files/home/bashrc-includes/history-search.bash	56	2	64	ui
 files/usr/lib/systemd/system-sleep/resuspend-aborted-suspend	91	2	95	-
 files/usr/local/bin/agent-bus	119	9	124	-
