@@ -23,8 +23,7 @@ const (
 var colourCodes = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
 // Script stands in for fzf and gum: each fzf call takes the next answer of Fzf, "<key>|<choice>"
-// where choice is text the chosen row contains, YES, EXIT, ABORT, or TYPED:<text> (text typed
-// into a --print-query picker that matches no row: exit 1 with the text); each gum call takes the
+// where choice is text the chosen row contains, YES, EXIT or ABORT; each gum call takes the
 // next of Gum, "YES", "NO" or "CANCEL".
 type Script struct {
 	T       *testing.T
@@ -156,9 +155,6 @@ func (s *Script) runFzf(c execx.Cmd) (execx.Result, error) {
 		s.T.Fatalf("fzf answer %q has no |", answer)
 	}
 	expects := slices.ContainsFunc(c.Args, func(a string) bool { return strings.HasPrefix(a, "--expect") })
-	if typed, ok := strings.CutPrefix(choice, "TYPED:"); ok {
-		return typedAnswer(typed, key, expects), &execx.ExitError{Name: fzfProgram, Code: 1}
-	}
 	if choice == "ABORT" {
 		return execx.Result{ExitCode: 130}, &execx.ExitError{Name: fzfProgram, Code: 130}
 	}
@@ -172,9 +168,6 @@ func (s *Script) runFzf(c execx.Cmd) (execx.Result, error) {
 	}
 	if expects {
 		out = key + "\n" + out
-	}
-	if slices.Contains(c.Args, "--print-query") {
-		out = queryOf(c.Args) + "\n" + out
 	}
 	return execx.Result{Stdout: []byte(out)}, nil
 }
@@ -202,26 +195,6 @@ func (s *Script) chosenRow(choice string, rows []string) string {
 		marked = append(marked, rows[at])
 	}
 	return strings.Join(marked, "\n")
-}
-
-// typedAnswer is fzf's output when what was typed matches no row: the text, then the key when
-// keys are expected (exit 1).
-func typedAnswer(typed, key string, expects bool) execx.Result {
-	out := typed + "\n"
-	if expects {
-		out += key + "\n"
-	}
-	return execx.Result{ExitCode: 1, Stdout: []byte(out)}
-}
-
-// queryOf is the text a typed fzf call started with, which a row answer leaves as it was.
-func queryOf(args []string) string {
-	for _, a := range args {
-		if v, ok := strings.CutPrefix(a, "--query="); ok {
-			return v
-		}
-	}
-	return ""
 }
 
 func (s *Script) runGum(c execx.Cmd) (execx.Result, error) {

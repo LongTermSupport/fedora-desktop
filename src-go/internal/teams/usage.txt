@@ -104,10 +104,10 @@ Usage:
                                    with no hand edit of the host_vars. It lists this host's
                                    running containers (as root: sudo asks), then asks, with
                                    gum, for the container, its user (the container's ordinary
-                                   users are suggested), the checkout inside it (those in the
-                                   user's home with a GitHub remote are offered, ccy projects
-                                   first; Type a path... walks the container's directories, Tab
-                                   completing a name) and the role (worker first; the
+                                   users are suggested), the checkout inside it (typed on a
+                                   line, Tab completing a directory name; those with a GitHub
+                                   remote in the user's home, /var/www, /srv and /opt are
+                                   suggested, ccy projects first) and the role (worker first; the
                                    coordinator on a team with none, or on a team that has one a
                                    takeover that names it, on No), each question naming the
                                    team, the step, the container and the user. The

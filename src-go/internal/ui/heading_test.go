@@ -229,6 +229,16 @@ func TestHeadingRendersTrailContextAndARulePlainOrInColour(t *testing.T) {
 	}
 }
 
+func TestDrawIsTheHeadingWrappedToAWidthAndRefusesOneWithNoPlace(t *testing.T) {
+	got, err := lxcStep.Draw(false, 30)
+	if err != nil || got != lxcStep.render(false, 30) {
+		t.Fatalf("draw %q %v", got, err)
+	}
+	if _, err := (Heading{}).Draw(false, 30); !errors.Is(err, ErrNoHeading) {
+		t.Fatalf("an empty heading drew: %v", err)
+	}
+}
+
 func TestPushCopiesSoSiblingsDoNotShareCrumbs(t *testing.T) {
 	base := Here("Teams")
 	a, b := base.Push("alpha"), base.Push("beta")

@@ -13,52 +13,48 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui/pathinput"
 )
 
-// The Checkout step. The checkouts the home search found are offered as choices, ccy projects
-// first, beside "Type a path…", which opens the container's directories: a list walked with the
-// arrows and Enter, with Tab completing what is typed, as a shell does. Every listing is read
-// from the host's side, as root, by the same reader as the checkout (never by entering the
-// container), and bounded in time.
+// The Checkout step: a line the checkout's path is typed in, with Tab completing a directory
+// name from the container's tree as a shell does. The checkouts the search found (the user's
+// home and the common web and service roots) are suggested under it, ccy projects first, and
+// the line starts with the first. Every listing is read from the host's side, as root, by the
+// same reader as the checkout (never by entering the container), and bounded in time.
 
-const (
-	// typePath is the choice that opens the directory list.
-	typePath = "Type a path…"
+// searched says where the checkout search looks, for what is said about it.
+const searched = "/var/www, /srv, /opt"
 
-	// actComplete completes what is typed, or opens the highlighted directory as Enter does: a
-	// row of the list, with Tab its shortcut, as a shell has it.
-	actComplete = "complete"
+// maxNameBytes is the longest directory name a file system holds.
+const maxNameBytes = 255
 
-	// maxBrowse is how many moves the directory list takes before the run gives up.
-	maxBrowse = 200
-
-	// The tags of the rows that are not directories.
-	tagUse = "use"
-	tagUp  = "up"
-	tagDir = "dir:"
-
-	// maxNameBytes is the longest directory name a file system holds.
-	maxNameBytes = 255
-)
-
-// errBack is the person leaving the directory list.
-var errBack = errors.New("back to the checkouts found")
+// PathAsker asks for a path on a line with Tab completion; *pathinput.Asker is the real one.
+type PathAsker interface {
+	Ask(ctx context.Context, s pathinput.Spec) (string, error)
+}
 
 func (a *Adder) askCheckout(ctx context.Context, ans *answers) error {
 	found := a.findCheckouts(ctx, ans)
 	hint := "Where the agent's repository is checked out, inside the container: its top directory. " +
 		"The handle's repo, host and seat come from it as ccy derives them: the repo from its origin, the host from " +
 		".claude/ccy/ccy.env.local (else local), the seat the next free one. " +
-		"Offered: the checkouts in its home with a GitHub remote, ccy projects first; " + typePath +
-		" walks the container's directories, with Tab completing a name."
+		"Type its path; Tab completes a directory name from the container's tree, as a shell does. " +
+		"The checkouts with a GitHub remote found in the home of " + ans.user + ", " + searched +
+		" are suggested under the line, ccy projects first; the arrows put one in it."
 	if err := a.step(ctx, ans, "Checkout", hint); err != nil {
 		return err
 	}
-	start := "/home/" + ans.user + "/"
+	value := "/"
+	if len(found) > 0 {
+		value = found[0].Path
+	}
 	for range maxTries {
-		picked, err := a.pickCheckout(ctx, ans, found, start)
+		picked, err := a.Paths.Ask(ctx, a.pathSpec(ans, found, value))
+		if errors.Is(err, ui.ErrLeave) || errors.Is(err, ui.ErrCancelled) {
+			return a.cancelled()
+		}
 		if err != nil {
-			return err
+			return a.failed("the checkout's path could not be asked: " + err.Error())
 		}
 		good, err := a.checkoutOK(ctx, ans, picked)
 		if err != nil {
@@ -69,14 +65,14 @@ func (a *Adder) askCheckout(ctx context.Context, ans *answers) error {
 			a.term.Answered(picked)
 			return nil
 		}
-		start = path.Dir(picked) + "/"
+		value = withSlash(path.Dir(picked))
 	}
 	a.term.Printf("Giving up after %d tries; nothing was changed.\n", maxTries)
 	return &stop{term.ExitFailure}
 }
 
-// findCheckouts is the checkouts in the user's home with a GitHub remote, ccy projects first. A
-// search that cannot be read, or that takes too long, is said, and the path is typed instead.
+// findCheckouts is the checkouts with a GitHub remote the search found, ccy projects first. A
+// search that cannot be read, takes too long, or stopped at a limit is said; the path is typed.
 func (a *Adder) findCheckouts(ctx context.Context, ans *answers) []declare.Checkout {
 	bounded, cancel := context.WithTimeout(ctx, a.ReadTimeout)
 	defer cancel()
@@ -85,61 +81,73 @@ func (a *Adder) findCheckouts(ctx context.Context, ans *answers) []declare.Check
 	if err == nil {
 		found, err = a.Declare.LxcCheckouts(ctx, scan)
 	}
+	for _, root := range found.Skipped {
+		a.term.Printf("%s in %s was not searched: a symbolic link is on its way, which the search does not follow; "+
+			"type a path under it, or under its target.\n", root, ans.container)
+	}
 	switch {
 	case err != nil && errors.Is(bounded.Err(), context.DeadlineExceeded):
-		a.term.Printf("The search of the home of %s took too long and was stopped (after %s); type the checkout's path.\n",
-			ans.user, a.ReadTimeout)
+		a.term.Printf("The search for checkouts in %s took too long and was stopped (after %s); type the checkout's path.\n",
+			ans.container, a.ReadTimeout)
 		return nil
 	case err != nil:
-		a.term.Printf("The checkouts in the home of %s could not be listed: %s\nType the checkout's path.\n", ans.user, err.Error())
+		a.term.Printf("The checkouts in %s could not be listed: %s\nType the checkout's path.\n", ans.container, err.Error())
 		return nil
-	case found.TimedOut:
-		a.term.Printf("The search of the home of %s stopped at its time limit, so it may have missed some; "+
-			"those it found are offered, or type the path.\n", ans.user)
+	case found.Partial:
+		a.term.Printf("The search for checkouts in %s stopped at its time or count limit, so it may have missed some; "+
+			"those it found are suggested, or type the path.\n", ans.container)
 	case len(found.Found) == 0:
-		a.term.Printf("No checkout with a GitHub remote was found in the home of %s; type its path.\n", ans.user)
+		a.term.Printf("No checkout with a GitHub remote was found in %s (the home of %s, %s); type its path.\n",
+			ans.container, ans.user, searched)
 	}
 	return found.Found
 }
 
-// checkoutRow is how a found checkout is offered.
-func checkoutRow(c declare.Checkout) string {
-	if c.Ccy {
-		return c.Path + "   (" + c.Repo + ", a ccy project)"
+// pathSpec is the checkout line: its heading, the checkouts found as suggestions, and Tab's
+// listing of the container's directories.
+func (a *Adder) pathSpec(ans *answers, found []declare.Checkout, value string) pathinput.Spec {
+	suggestions := make([]pathinput.Suggestion, 0, len(found))
+	for _, c := range found {
+		note := c.Repo
+		if c.Ccy {
+			note += ", a ccy project"
+		}
+		suggestions = append(suggestions, pathinput.Suggestion{Path: c.Path, Note: note})
 	}
-	return c.Path + "   (" + c.Repo + ")"
+	return pathinput.Spec{
+		Heading: a.head, Prompt: "Checkout in " + ans.container + ": ",
+		Value: value, Suggestions: suggestions,
+		List: func(ctx context.Context, dir string) (pathinput.Listing, error) { return a.listing(ctx, ans, dir) },
+	}
 }
 
-// pickCheckout is a found checkout chosen, or a path from the directory list. Leaving the list
-// goes back to the checkouts found; with none found, it cancels.
-func (a *Adder) pickCheckout(ctx context.Context, ans *answers, found []declare.Checkout, start string) (string, error) {
-	if len(found) == 0 {
-		chosen, err := a.browse(ctx, ans, start, "Cancel")
-		if errors.Is(err, errBack) {
-			return "", a.cancelled()
-		}
-		return chosen, err
+// listing is one directory of the container for Tab: its subdirectories, a git checkout noted,
+// and what was left out said.
+func (a *Adder) listing(ctx context.Context, ans *answers, dir string) (pathinput.Listing, error) {
+	l, err := a.listDir(ctx, ans, dir)
+	if err != nil {
+		return pathinput.Listing{}, err
 	}
-	rows := make([]string, 0, len(found)+1)
-	for _, c := range found {
-		rows = append(rows, checkoutRow(c))
+	if !l.Exists {
+		return pathinput.Listing{}, fmt.Errorf("%s does not exist in %s", dir, ans.container)
 	}
-	rows = append(rows, typePath)
-	for {
-		choice, err := a.Gum.Choose(ctx, a.head, "Checkout in "+ans.container, rows[0], rows)
-		if err != nil {
-			return "", a.gumErr(err)
+	out := pathinput.Listing{Entries: make([]pathinput.Entry, 0, len(l.Dirs))}
+	for _, e := range l.Dirs {
+		entry := pathinput.Entry{Name: e.Name}
+		if e.Git {
+			entry.Note = "a git checkout"
 		}
-		for i, c := range found {
-			if choice == rows[i] {
-				return c.Path, nil
-			}
-		}
-		chosen, err := a.browse(ctx, ans, start, "Back to the checkouts found")
-		if !errors.Is(err, errBack) {
-			return chosen, err
-		}
+		out.Entries = append(out.Entries, entry)
 	}
+	var notes []string
+	if l.Truncated {
+		notes = append(notes, "Only the first directories are listed; type more of a name.")
+	}
+	if l.unshown > 0 {
+		notes = append(notes, fmt.Sprintf("%d name that cannot be shown safely is left out.", l.unshown))
+	}
+	out.Note = strings.Join(notes, " ")
+	return out, nil
 }
 
 // listing is one directory as the reader lists it.
@@ -202,198 +210,10 @@ func parseListing(out string) (listing, error) {
 	return l, nil
 }
 
-// browser is the directory list's state: the directory shown and what is typed in it.
-type browser struct {
-	dir, query string
-	shown      *listing
-}
-
-// browse walks the container's directories from start and is the path chosen, or errBack when
-// the person leaves. A directory that cannot be listed is said and the list stays where it was;
-// when the first cannot be listed, the container cannot be read and the run ends saying why.
-func (a *Adder) browse(ctx context.Context, ans *answers, start, back string) (string, error) {
-	b := &browser{dir: start}
-	for range maxBrowse {
-		if err := a.show(ctx, ans, b); err != nil {
-			return "", err
-		}
-		picked, err := a.Picker.Pick(ctx, a.head, a.browseSpec(ans, b, back))
-		if errors.Is(err, ui.ErrLeave) {
-			return "", errBack
-		}
-		if err != nil {
-			return "", err
-		}
-		if chosen, done := a.move(ctx, ans, b, picked); done {
-			return chosen, nil
-		}
-	}
-	a.term.Printf("Giving up after %d moves in the directory list; nothing was changed.\n", maxBrowse)
-	return "", &stop{term.ExitFailure}
-}
-
-// show reads the directory to show, unless it is the one shown. A directory that does not exist
-// is said and its parent shown.
-func (a *Adder) show(ctx context.Context, ans *answers, b *browser) error {
-	for b.shown == nil || b.shown.Path != listed(b.dir) {
-		l, err := a.listDir(ctx, ans, b.dir)
-		if err != nil && b.shown == nil {
-			return a.failed("the directories of " + ans.label() + " could not be read: " + err.Error())
-		}
-		if err != nil {
-			a.problem(err.Error(), false)
-			b.dir, b.query = withSlash(b.shown.Path), ""
-			continue
-		}
-		if !l.Exists && b.dir != "/" {
-			a.term.Printf("  %s does not exist in %s.\n", b.dir, ans.container)
-			b.dir = withSlash(path.Dir(strings.TrimSuffix(b.dir, "/")))
-			continue
-		}
-		b.shown = &l
-	}
-	return nil
-}
-
-// browseSpec is the directory list: the directories (hidden ones are reached by typing), using
-// this directory (first when it is a checkout), and up.
-func (a *Adder) browseSpec(ans *answers, b *browser, back string) ui.PickSpec {
-	var rows, tags []string
-	add := func(row, tag string) {
-		rows = append(rows, row)
-		tags = append(tags, tag)
-	}
-	use := "Use " + listed(b.dir) + " as the checkout"
-	if b.shown.Git {
-		add(use+"   (a git checkout)", tagUse)
-	}
-	for _, e := range b.shown.Dirs {
-		if strings.HasPrefix(e.Name, ".") {
-			continue
-		}
-		row := e.Name + "/"
-		if e.Git {
-			row += "   (a git checkout)"
-		}
-		add(row, tagDir+e.Name)
-	}
-	if !b.shown.Git {
-		add(use, tagUse)
-	}
-	if b.dir != "/" {
-		add("../   (up to "+listed(path.Dir(listed(b.dir)))+")", tagUp)
-	}
-	notes := []string{
-		"Type to filter. Text that matches no row: Tab completes it as a path, Enter takes it as typed (end it with / to open it).",
-	}
-	if b.shown.Truncated {
-		notes = append(notes, "Only the first directories are listed; type a name to reach another.")
-	}
-	if b.shown.unshown > 0 {
-		notes = append(notes, fmt.Sprintf("%d name that cannot be shown safely is left out.", b.shown.unshown))
-	}
-	return ui.PickSpec{
-		Title:   "Checkout in " + ans.container,
-		Header:  ui.Header("Enter open or choose   Tab complete   Esc back", notes...),
-		Actions: []ui.Action{{ID: actComplete, Label: "Complete what is typed as a path", Key: "tab"}},
-		Rows:    rows, Tags: tags, ExitLabel: back,
-		Typed: true, Prompt: b.dir, Query: b.query,
-	}
-}
-
-// move is where a choice in the directory list leads: the path chosen (done), or the next
-// directory and text to show.
-func (a *Adder) move(ctx context.Context, ans *answers, b *browser, picked ui.Picked) (string, bool) {
-	b.query = ""
-	switch {
-	case picked.Action == actComplete && picked.Query != "":
-		// Tab completes what is typed, whichever row fzf highlights for it.
-		a.complete(ctx, ans, b, picked.Query)
-	case picked.Tag == tagUse:
-		return listed(b.dir), true
-	case picked.Tag == tagUp:
-		b.dir = withSlash(path.Dir(listed(b.dir)))
-	case strings.HasPrefix(picked.Tag, tagDir):
-		b.dir += strings.TrimPrefix(picked.Tag, tagDir) + "/"
-	case picked.Action == actComplete && picked.Tag == "":
-		// Tab with nothing typed and no row: nothing to complete.
-	default:
-		typed := resolve(b.dir, picked.Query)
-		if !strings.HasSuffix(picked.Query, "/") {
-			return listed(typed), true
-		}
-		b.dir = withSlash(typed)
-	}
-	return "", false
-}
-
-// complete is Tab on typed text: the one directory it starts, or the text the several it starts
-// share; nothing to complete is said.
-func (a *Adder) complete(ctx context.Context, ans *answers, b *browser, typed string) {
-	full := resolve(b.dir, typed)
-	if strings.HasSuffix(typed, "/") {
-		b.dir = withSlash(full)
-		return
-	}
-	parent, frag := withSlash(path.Dir(full)), path.Base(full)
-	if parent != b.dir {
-		b.dir = parent
-		if err := a.show(ctx, ans, b); err != nil {
-			a.problem(err.Error(), false)
-			return
-		}
-		if b.dir != parent {
-			return
-		}
-	}
-	var matches []string
-	for _, e := range b.shown.Dirs {
-		if strings.HasPrefix(e.Name, frag) {
-			matches = append(matches, e.Name)
-		}
-	}
-	switch len(matches) {
-	case 0:
-		a.term.Printf("  Nothing in %s starts with %s.\n", b.dir, frag)
-	case 1:
-		b.dir += matches[0] + "/"
-	default:
-		b.query = sharedPrefix(matches)
-	}
-}
-
-// resolve is typed text as an absolute path in the container: from the root when it starts with a
-// slash, else from dir.
-func resolve(dir, typed string) string {
-	if strings.HasPrefix(typed, "/") {
-		return path.Clean(typed)
-	}
-	return path.Clean(dir + typed)
-}
-
-// listed is a directory as the reader names it: no trailing slash, except the root.
-func listed(dir string) string {
-	if dir == "/" {
-		return dir
-	}
-	return strings.TrimSuffix(dir, "/")
-}
-
-// withSlash is a directory as the prompt shows it, ending in a slash.
+// withSlash is a directory as the line starts with it, ending in a slash.
 func withSlash(dir string) string {
 	if strings.HasSuffix(dir, "/") {
 		return dir
 	}
 	return dir + "/"
-}
-
-// sharedPrefix is the longest text every name starts with, whole characters only.
-func sharedPrefix(names []string) string {
-	prefix := []rune(names[0])
-	for _, n := range names[1:] {
-		for !strings.HasPrefix(n, string(prefix)) {
-			prefix = prefix[:len(prefix)-1]
-		}
-	}
-	return string(prefix)
 }
