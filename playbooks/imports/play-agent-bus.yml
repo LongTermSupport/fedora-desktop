@@ -76,6 +76,9 @@
       - "{{ agent_bus_lxc_member_list | to_json }}"
       - --teams-present
       - "{{ agent_bus_present | map(attribute='team') | list | to_json }}"
+    # A scoped run says its scope, so the helper sweeps only those teams' member records.
+    agent_bus_lxc_scope_args: "{{ [] if agent_bus_only_teams is not defined
+      else ['--only-teams', agent_bus_only_teams | to_json] }}"
   tasks:
     # Only the shape this play itself relies on; the installer validates each team file.
     - name: Check agent_bus_teams declares each team once, with a known state
@@ -366,13 +369,15 @@
     # README.lxc's steps for each present entry; a member already joined is left alone. One
     # whose container is not running is skipped (joined) or deferred (not yet), never a failure:
     # after a reboot most containers are stopped (SPEC-lxc-stopped-members.md of Plan 00203).
+    # It runs with no entries too, to remove the member record of a team left with none.
     - name: Join the LXC members declared present to their teams
       ansible.builtin.command:
-        argv: "{{ ['python3', '-m', 'helpers.agent_bus_lxc.members', '--phase', 'present'] + agent_bus_lxc_args }}"
+        argv: "{{ ['python3', '-m', 'helpers.agent_bus_lxc.members', '--phase', 'present'] + agent_bus_lxc_args
+          + agent_bus_lxc_scope_args }}"
         chdir: "{{ root_dir }}" # repo root on sys.path so the helpers package imports
       register: agent_bus_lxc_present
       changed_when: agent_bus_lxc_present.stdout_lines | select('match', agent_bus_changed_re) | list | length > 0
-      when: agent_bus_lxc_member_list | length > 0 and not ansible_check_mode
+      when: not ansible_check_mode
       tags: [agent-bus]
 
     # The members held back, each with why, then the one summary line; ccy-teams says them too.

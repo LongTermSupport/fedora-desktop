@@ -61,6 +61,19 @@ class WriteTest(unittest.TestCase):
         with self.assertRaisesRegex(applied_record.RecordError, "not a directory"):
             applied_record.write(self.directory, "team-a.json", "{}\n", self.gid)
 
+    def test_names_lists_the_teams_with_a_record(self) -> None:
+        self.assertEqual(applied_record.names(self.directory), [])
+        applied_record.write(self.directory, "team-b.json", "{}\n", self.gid)
+        applied_record.write(self.directory, "team-a.json", "{}\n", self.gid)
+        (self.directory / ".team-c.json.new").write_text("{}\n")
+        self.assertEqual(applied_record.names(self.directory), ["team-a", "team-b"])
+
+    def test_names_refuses_a_symlink_in_place_of_the_directory(self) -> None:
+        (self.applied / "elsewhere").mkdir()
+        self.directory.symlink_to(self.applied / "elsewhere")
+        with self.assertRaisesRegex(applied_record.RecordError, "not a directory"):
+            applied_record.names(self.directory)
+
     def test_read_gives_the_text_or_none(self) -> None:
         self.assertIsNone(applied_record.read(self.directory / "team-a.json"))
         applied_record.write(self.directory, "team-a.json", "{}\n", self.gid)

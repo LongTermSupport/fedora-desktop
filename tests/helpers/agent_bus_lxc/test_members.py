@@ -270,6 +270,7 @@ class Fixture(unittest.TestCase):
             autostarts=lambda name: name in self.autostart,
             read_record=lambda team: self.records.get(team),
             write_record=self.write_record,
+            record_teams=lambda: sorted(self.records),
             now=lambda: self.clock,
         )
 
@@ -1323,6 +1324,67 @@ class MemberRecordTest(StoppedFixture):
         self.active = set()
         self.run_phase("absent", [entry(state="absent")], teams_present=())
         self.assertNotIn(TEAM, self.records)
+
+
+class RecordSweepTest(StoppedFixture):
+    """L8 for a team's last entry: a team with no entry keeps no record, so the board and
+    ccy-teams apply never ask the owner to start a container nobody declares any more. The
+    present phase sweeps it, even when no entry is left at all; with agent_bus_only_teams
+    only the teams in scope, since the member list is scoped and --teams-present is not."""
+
+    def main(self, entries: Sequence[dict], *extra: str, phase: str = "present") -> tuple[int, str]:
+        out = io.StringIO()
+        code = members.main(["--phase", phase, "--members", json.dumps(list(entries)),
+                             "--teams-present", json.dumps([TEAM, OTHER_TEAM]), *extra],
+                            host_factory=self.host, stdout=out, stderr=io.StringIO())
+        return code, out.getvalue()
+
+    def deferred_in_both_teams(self) -> None:
+        self.states = {"devbox": "STOPPED", "box2": "STOPPED"}
+        self.run_phase("present", [entry(), entry(container="box2", team=OTHER_TEAM)],
+                       teams_present=(TEAM, OTHER_TEAM))
+        self.assertEqual(sorted(self.records), [TEAM, OTHER_TEAM])
+
+    def test_the_record_of_a_team_whose_last_entry_went_is_removed(self) -> None:
+        self.deferred_in_both_teams()
+        code, out = self.main([entry(container="box2", team=OTHER_TEAM)])
+        self.assertEqual(code, 0)
+        self.assertEqual(sorted(self.records), [OTHER_TEAM])
+        self.assertIn(f"CHANGED\tthe LXC member record of team {TEAM}\n", out)
+
+    def test_an_empty_member_list_removes_every_record(self) -> None:
+        self.deferred_in_both_teams()
+        code, out = self.main([])
+        self.assertEqual((code, self.records), (0, {}))
+        self.assertIn(f"CHANGED\tthe LXC member record of team {OTHER_TEAM}\n", out)
+        self.assertEqual(self.main([]), (0, ""))
+
+    def test_a_scoped_run_sweeps_only_the_teams_in_scope(self) -> None:
+        self.deferred_in_both_teams()
+        code, _ = self.main([], "--only-teams", json.dumps([TEAM]))
+        self.assertEqual((code, sorted(self.records)), (0, [OTHER_TEAM]))
+
+    def test_a_scoped_run_keeps_the_record_of_a_team_in_scope_that_has_entries(self) -> None:
+        self.deferred_in_both_teams()
+        code, _ = self.main([entry(container="box2", team=OTHER_TEAM)], "--only-teams", json.dumps([OTHER_TEAM]))
+        self.assertEqual((code, sorted(self.records)), (0, [TEAM, OTHER_TEAM]))
+
+    def test_the_absent_phase_sweeps_nothing(self) -> None:
+        self.deferred_in_both_teams()
+        self.assertEqual(self.main([], phase="absent"), (0, ""))
+        self.assertEqual(sorted(self.records), [TEAM, OTHER_TEAM])
+
+    def test_only_teams_must_be_a_list_of_names(self) -> None:
+        code, _ = self.main([], "--only-teams", json.dumps(TEAM))
+        self.assertEqual(code, 78)
+
+
+class WriteRecordTest(unittest.TestCase):
+    def test_a_stamp_group_that_does_not_exist_is_a_refusal_not_a_traceback(self) -> None:
+        with mock.patch.object(members.teamfile, "read_stamp_group", return_value="nosuchgroup"), \
+                mock.patch.object(members.grp, "getgrnam", side_effect=KeyError("getgrnam(): name not found")), \
+                self.assertRaisesRegex(members.MemberError, "group nosuchgroup .*does not exist"):
+            members._write_record(TEAM, None)
 
 
 class MarkerLinesTest(StoppedFixture):

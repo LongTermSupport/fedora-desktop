@@ -63,7 +63,10 @@ The absent phase did the same for a member being taken off a team.
   the other phase's; an item no entry declares any more is dropped. The record is rewritten
   only when it differs, and a rewrite is a `CHANGED` line; a run that changes nothing reports
   no change. It is written only after the phase succeeded. A team not declared present has no
-  record (it is removed).
+  record (it is removed). Nor has a team with no entry left: the present phase runs on every
+  play run, entries or none, and removes the record of each team no entry names; a run scoped by
+  `agent_bus_only_teams` (`--only-teams`) removes only those teams' records, since its member
+  list holds only theirs while `--teams-present` is unscoped.
 - **L9** `ccy-teams apply` (and every flow that applies a team, lxc-add included), after a
   successful play, reads each applied team's record and says each deferred member with its why,
   and each skipped one; the apply still succeeds.

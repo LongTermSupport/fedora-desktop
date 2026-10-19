@@ -922,6 +922,8 @@ class Host:
     read_record: Callable[[str], Mapping | None]
     #: The team's member record written (None: removed); whether that changed anything.
     write_record: Callable[[str, Mapping | None], bool]
+    #: The teams that have a member record on this host.
+    record_teams: Callable[[], Sequence[str]]
     now: Callable[[], float]
 
 
@@ -1333,6 +1335,17 @@ def _write_records(members: Sequence[Member], seen: Sequence[Seen], teams_presen
             emit(f"the LXC member record of team {team}")
 
 
+def sweep_records(members: Sequence[Member], only_teams: Collection[str] | None, host: Host,
+                  emit: Callable[[str], None]) -> None:
+    """The record of each team no entry names any more removed (L8), so a member nobody declares
+    is never shown as waiting for its container. With `only_teams` (agent_bus_only_teams) the
+    entries are only those teams', so only those teams' records may go."""
+    named = {member.team for member in members}
+    for team in host.record_teams():
+        if team not in named and (only_teams is None or team in only_teams) and host.write_record(team, None):
+            emit(f"the LXC member record of team {team}")
+
+
 def run_phase(phase: str, members: Sequence[Member], teams_present: Sequence[str], host: Host,
               *, emit: Callable[[str], None], say: Callable[[str], None]) -> list[Report]:
     """The phase's entries brought to their state; the members held back, in entry order."""
@@ -1502,10 +1515,23 @@ def _read_record(team: str) -> dict | None:
 def _write_record(team: str, record: Mapping | None) -> bool:
     text = None if record is None else json.dumps(record, sort_keys=True, indent=1) + "\n"
     try:
-        gid = grp.getgrnam(teamfile.read_stamp_group(STAMP_GROUP_FILE, "root")).gr_gid
+        group = teamfile.read_stamp_group(STAMP_GROUP_FILE, "root")
+        try:
+            gid = grp.getgrnam(group).gr_gid
+        except KeyError:
+            raise MemberError(f"the LXC member record of team {team}: the stamps' group {group} named in "
+                              f"{STAMP_GROUP_FILE} does not exist on this host (it went while the play ran?): "
+                              "play-agent-bus.yml records that group; run the play again") from None
         return applied_record.write(RECORD_DIR, f"{team}.json", text, gid)
     except (teamfile.StampGroupError, applied_record.RecordError) as exc:
         raise MemberError(f"the LXC member record of team {team}: {exc}") from None
+
+
+def _record_teams() -> list[str]:
+    try:
+        return applied_record.names(RECORD_DIR)
+    except (OSError, applied_record.RecordError) as exc:
+        raise MemberError(f"the LXC member records: {exc}") from None
 
 
 def real_host() -> Host:
@@ -1515,7 +1541,8 @@ def real_host() -> Host:
                 team_active=system.team_active, bus_address=system.bus_address, team_file=_team_file,
                 kit_tar=lambda: kit_tar(pathlib.Path(KIT_PARENT)), guest=LxcGuest,
                 read_checkout=read_checkout, autostarts=_autostarts,
-                read_record=_read_record, write_record=_write_record, now=time.time)
+                read_record=_read_record, write_record=_write_record, record_teams=_record_teams,
+                now=time.time)
 
 
 def main(argv: Sequence[str] | None = None, *, host_factory: Callable[[], Host] = real_host,
@@ -1527,6 +1554,8 @@ def main(argv: Sequence[str] | None = None, *, host_factory: Callable[[], Host] 
     parser.add_argument("--members", required=True, help="agent_bus_lxc_members, as JSON")
     parser.add_argument("--teams-present", required=True,
                         help="the names of the agent_bus_teams declared present, as a JSON list")
+    parser.add_argument("--only-teams", help="agent_bus_only_teams, as a JSON list, when the run is scoped: "
+                        "--members then holds only those teams' entries")
     args = parser.parse_args(argv)
 
     def emit(what: str) -> None:
@@ -1538,16 +1567,23 @@ def main(argv: Sequence[str] | None = None, *, host_factory: Callable[[], Host] 
 
     try:
         data, teams = json.loads(args.members), json.loads(args.teams_present)
+        only = None if args.only_teams is None else json.loads(args.only_teams)
     except ValueError as exc:
-        say(f"--members and --teams-present must be JSON: {exc}")
+        say(f"--members, --teams-present and --only-teams must be JSON: {exc}")
         return EXIT_USAGE
     try:
-        if not isinstance(teams, list) or not all(isinstance(team, str) for team in teams):
-            raise MemberError("--teams-present must be a JSON list of team names")
+        for name, value in (("--teams-present", teams), ("--only-teams", [] if only is None else only)):
+            if not isinstance(value, list) or not all(isinstance(team, str) for team in value):
+                raise MemberError(f"{name} must be a JSON list of team names")
         members = parse_members(data)
         reports = []
-        if any(member.state == args.phase for member in members):
-            reports = run_phase(args.phase, members, teams, host_factory(), emit=emit, say=say)
+        # The present phase runs on every play run, with entries or none, to sweep the records
+        # of teams that have no entry left (L8).
+        if args.phase == "present" or any(member.state == args.phase for member in members):
+            host = host_factory()
+            reports = run_phase(args.phase, members, teams, host, emit=emit, say=say)
+            if args.phase == "present":
+                sweep_records(members, only, host, emit)
     except (MemberError, checkout.CheckoutError, teamfile.TeamFileError) as exc:
         say(str(exc))
         return EXIT_REFUSED

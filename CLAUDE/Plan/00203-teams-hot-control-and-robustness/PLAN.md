@@ -69,7 +69,8 @@ Built on `fix/teams-server-robustness`; design and evidence in
   `/var/lib/agent-bus-applied/lxc/<team>.json` says what each run found; `ccy-teams apply`, the
   board and `lxc-add` say what was held back. [SPEC-lxc-stopped-members.md](SPEC-lxc-stopped-members.md)
   L1-L11, built on `fix/lxc-stopped-member` and finished on `fix/lxc-stopped-member-2` (the board,
-  the picker and lxc-add); deploy queued in meta-deploy.list. ccy-teams and the play only: no CCY
+  the picker and lxc-add); Fable's FIX-FIRST (docs, the record of a team with no entry left, the
+  stamps' group refusal) fixed on `fix/lxc-stopped-member-3`; deploy queued in meta-deploy.list. ccy-teams and the play only: no CCY
   or image change.
 
 ### Phase 3: hot control build (the spec's milestones, tests first)

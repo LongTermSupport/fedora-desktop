@@ -28,6 +28,16 @@ def read(path: pathlib.Path) -> str | None:
         return None
 
 
+def names(directory: pathlib.Path) -> list[str]:
+    """The names, without `.json`, of the records in `directory`, sorted; none when it is missing."""
+    if not os.path.lexists(directory):
+        return []
+    if directory.is_symlink() or not directory.is_dir():
+        raise RecordError(f"{directory} is not a directory")
+    return sorted(path.name[:-len(".json")] for path in directory.iterdir()
+                  if path.name.endswith(".json") and not path.name.startswith("."))
+
+
 def write(directory: pathlib.Path, name: str, text: str | None, gid: int) -> bool:
     """`directory`/`name` made to hold `text` (replaced atomically), or removed when `text` is
     None. Returns whether anything changed. The directory's parent, the applied stamps'
