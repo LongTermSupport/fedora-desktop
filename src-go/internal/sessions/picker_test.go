@@ -541,6 +541,43 @@ func TestWithNoSessionsInAProjectItOffersToStartCcy(t *testing.T) {
 	}
 }
 
+// inLxcCheckout makes the working directory a checkout inside LXC container box's root
+// filesystem (under the default LXC path), seen from the host; it returns the top as shown.
+func inLxcCheckout(h *harness) string {
+	top := "/var/lib/lxc/box/rootfs/srv/proj"
+	h.fake.On([]string{"git", "rev-parse", "--is-inside-work-tree"}, execx.Result{Stdout: []byte("true\n")})
+	h.fake.On([]string{"git", "rev-parse", "--show-toplevel"}, execx.Result{Stdout: []byte(top + "\n")})
+	return top
+}
+
+func TestThePickerNeverStartsASessionInAContainersCheckout(t *testing.T) {
+	h := newHarness(t)
+	s := newServer(h)
+	s.listSessions("/srv/a", "ccy-a")
+	top := inLxcCheckout(h)
+	rig := newPickerRig(h, "ctrl-n|ccy-a", "ctrl-n|ccy-a", "ctrl-n|ccy-a")
+	exitCodeIs(t, h.run(), 1, h)
+	contains(t, "rows", rig.shown[0], "Start a new ccy session here: unavailable, "+top+" is LXC container box's checkout")
+	contains(t, "argv", rig.argv[0], "--header=Sessions\n1 running · no new session can start in ~/proj\n───")
+	contains(t, "stderr", h.stderr(), top+" is LXC container box's checkout", "ccy-teams lxc-add", "Nothing attached after 3 tries.")
+	if len(h.fake.Execs()) != 0 {
+		t.Fatalf("started %v", h.fake.Execs())
+	}
+}
+
+func TestWithNoSessionsInAContainersCheckoutItOffersNothingThere(t *testing.T) {
+	h := newHarness(t)
+	s := newServer(h)
+	s.listSessions("/srv/a")
+	top := inLxcCheckout(h)
+	rig := newPickerRig(h, "|YES")
+	exitCodeIs(t, h.run(), 0, h)
+	if len(rig.argv) != 0 || len(h.fake.Execs()) != 0 {
+		t.Fatalf("offered %v started %v", rig.argv, h.fake.Execs())
+	}
+	contains(t, "stderr", h.stderr(), "No CCY or cc sessions are running.", top+" is LXC container box's checkout")
+}
+
 func TestWithNoSessionsOutsideAProjectItSaysHowToStartOne(t *testing.T) {
 	h := newHarness(t)
 	s := newServer(h)

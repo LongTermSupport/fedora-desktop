@@ -269,7 +269,7 @@ func (r *run) teamOptions(s hot.Session, leaving string) []option {
 		}
 		o := option{line: r.teamLine(team), value: team}
 		if seat, in := cellOf(s, team); in {
-			o.refused = s.Name + " is already in " + team + " as seat " + seat.Seat + ": one seat per team per session."
+			o.refused = s.Name + " is already in " + team + " as " + r.seatLabel(s.Checkout, seat) + ": one seat per team per session."
 		} else if !r.snap.Loaded[team] {
 			o.refused = team + " is not installed: ccy-teams apply " + team + " builds it."
 		} else if systemd.StateWord(r.snap.Active[team]) != systemd.HomeserverUp {
@@ -334,7 +334,7 @@ func roleOptions(team, current string, holder coordinator.Holder) []option {
 // removeFromTeam is section 5.3: what becomes of a coordinator's role, then `session remove`
 // for the team the menu line named.
 func (r *run) removeFromTeam(ctx context.Context, s hot.Session, cell hot.Cell) (flow.Result, error) {
-	h := sessionHeading(s, "Remove from "+cell.Team).About("session " + s.Name + " · seat " + cell.Seat + " in team " + cell.Team)
+	h := sessionHeading(s, "Remove from "+cell.Team).About("session " + s.Name + " · " + r.seatLabel(s.Checkout, cell) + " in team " + cell.Team)
 	coordinator, res, ok, err := r.askCoordinator(ctx, s, cell, h)
 	if !ok {
 		return res, err
@@ -345,7 +345,7 @@ func (r *run) removeFromTeam(ctx context.Context, s hot.Session, cell hot.Cell) 
 // moveTeams is `session move` out of the team from: the team it joins, and a coordinator's role.
 func (r *run) moveTeams(ctx context.Context, s hot.Session, from hot.Cell) (flow.Result, error) {
 	h := sessionHeading(s, "Move from "+from.Team)
-	to, res, ok, err := r.ask(ctx, h.About("session "+s.Name+" · seat "+from.Seat+" in team "+from.Team),
+	to, res, ok, err := r.ask(ctx, h.About("session "+s.Name+" · "+r.seatLabel(s.Checkout, from)+" in team "+from.Team),
 		"Move "+s.Name+" from "+from.Team+" to which team?", r.teamOptions(s, from.Team))
 	if !ok {
 		return res, err
@@ -365,13 +365,14 @@ func (r *run) askCoordinator(ctx context.Context, s hot.Session, cell hot.Cell, 
 	if handle == "" || r.snap.RoleOf(cell.Team, handle) != roleCoordinator {
 		return nil, flow.Done, true, nil
 	}
-	opts := []option{{line: "The role goes to no one (seat " + cell.Seat + " becomes a worker)", value: "demote"}}
+	who := agentbus.Label(handle, "")
+	opts := []option{{line: "The role goes to no one (" + who + " becomes a worker)", value: "demote"}}
 	for _, m := range r.snap.Members[cell.Team].Members {
 		if m.Handle != handle && !m.Parked {
 			opts = append(opts, option{line: "Hand it to " + m.Handle, value: "hand-to=" + m.Handle})
 		}
 	}
-	o, res, ok, err := r.ask(ctx, h.Push("Coordinator role"), "Its seat "+cell.Seat+" is "+cell.Team+"'s coordinator. After it leaves:", opts)
+	o, res, ok, err := r.ask(ctx, h.Push("Coordinator role"), "Its seat "+who+" is "+cell.Team+"'s coordinator. After it leaves:", opts)
 	if !ok {
 		return nil, res, false, err
 	}
@@ -380,9 +381,10 @@ func (r *run) askCoordinator(ctx context.Context, s hot.Session, cell hot.Cell, 
 
 // roleInTeam is `session role` in the team the menu line named: the role.
 func (r *run) roleInTeam(ctx context.Context, s hot.Session, cell hot.Cell) (flow.Result, error) {
-	h := sessionHeading(s, "Role in "+cell.Team).About("session " + s.Name + " · seat " + cell.Seat + " in team " + cell.Team + " · now " + cell.Role)
+	who := r.seatLabel(s.Checkout, cell)
+	h := sessionHeading(s, "Role in "+cell.Team).About("session " + s.Name + " · " + who + " in team " + cell.Team + " · now " + cell.Role)
 	holder := coordinator.Holding(r.snap.Members[cell.Team], r.seatHandle(s.Checkout, cell), seats.SnapshotRunning(r.snap))
-	role, res, ok, err := r.ask(ctx, h, "Role of seat "+cell.Seat+" in "+cell.Team+":", roleOptions(cell.Team, cell.Role, holder))
+	role, res, ok, err := r.ask(ctx, h, "Role of "+who+" in "+cell.Team+":", roleOptions(cell.Team, cell.Role, holder))
 	if !ok {
 		return res, err
 	}
@@ -391,6 +393,15 @@ func (r *run) roleInTeam(ctx context.Context, s hot.Session, cell hot.Cell) (flo
 		args = []string{"role", s.Name, cell.Team, roleCoordinator, "--demote-current"}
 	}
 	return r.session(ctx, args)
+}
+
+// seatLabel is a seat of checkout as a person is shown it: its full handle, or "seat N" only
+// while the board has no row for it (ccy has not made the seat's member yet).
+func (r *run) seatLabel(checkout string, cell hot.Cell) string {
+	if handle := r.seatHandle(checkout, cell); handle != "" {
+		return agentbus.Label(handle, "")
+	}
+	return "seat " + cell.Seat
 }
 
 // seatHandle is the handle of a seat of checkout, as the board's seat rows have it.

@@ -21,6 +21,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccyenv"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/hostcheckout"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessprobe"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
@@ -160,11 +161,14 @@ type App struct {
 	// Unsetenv removes a variable from this process, so a child never inherits it.
 	Unsetenv func(string) error
 
-	Term   *term.Term
-	Tmux   *tmuxccy.Tmux
-	Git    *gitx.Git
-	Picker *ui.Picker
-	Probe  *sessprobe.Probe
+	Term *term.Term
+	Tmux *tmuxccy.Tmux
+	Git  *gitx.Git
+	// Checkouts says whether the folder the picker runs in is a checkout ccy may start in (not
+	// an LXC container's files seen from the host).
+	Checkouts *hostcheckout.Finder
+	Picker    *ui.Picker
+	Probe     *sessprobe.Probe
 	// Transcripts reads only what each polled transcript gained since the last look.
 	Transcripts *transcript.Cache
 
@@ -270,6 +274,9 @@ func (a *App) wire() {
 	}
 	if a.Git == nil {
 		a.Git = gitx.New(a.Runner)
+	}
+	if a.Checkouts == nil {
+		a.Checkouts = &hostcheckout.Finder{Git: a.Git, ReadFile: os.ReadFile}
 	}
 	if a.Picker == nil {
 		a.Picker = &ui.Picker{Runner: a.Runner, Stderr: a.Stderr, Plain: !a.Term.ColourOn(a.Stderr)}

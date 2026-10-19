@@ -163,6 +163,18 @@ func placeOf(line string, n int) (string, int, error) {
 	return text, at, nil
 }
 
+// The frame around the list, in columns on each side: what fzfArgs passes and RowChrome counts.
+const (
+	frameMargin  = 2
+	framePadding = 2
+	frameBorder  = 1
+	pointerWidth = 2
+)
+
+// RowChrome is how many of the terminal's columns the frame takes from a row: a row wider than
+// the terminal less this is cut by fzf, so a caller lays its rows out to fit.
+const RowChrome = 2*(frameMargin+frameBorder+framePadding) + pointerWidth
+
 // fzfArgs is the house style, the header under the heading h, and the keys the screen declares.
 func (s PickSpec) fzfArgs(h Heading, colour bool, width int) ([]string, error) {
 	headerArgs, err := s.headerArgs(h, colour, width)
@@ -173,7 +185,7 @@ func (s PickSpec) fzfArgs(h Heading, colour bool, width int) ([]string, error) {
 		"--ansi", "--height=~70%", "--layout=reverse", "--no-multi", "--no-sort", "--no-info",
 		"--color=" + pickerColours,
 		"--border=rounded", "--border-label= " + s.Title + " ", "--border-label-pos=3",
-		"--margin=1,2", "--padding=1,2", "--header-first", "--pointer=▶",
+		"--margin=1," + strconv.Itoa(frameMargin), "--padding=1," + strconv.Itoa(framePadding), "--header-first", "--pointer=▶",
 	}, headerArgs...)
 	args = append(args, s.typingArgs()...)
 	// fzf refuses an empty --expect, so it is passed only when there are keys.

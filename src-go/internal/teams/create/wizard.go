@@ -15,6 +15,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/hostcheckout"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/login"
@@ -51,6 +52,8 @@ type Wizard struct {
 	Declare *declare.Client
 	Gum     *ui.Gum
 	Git     *gitx.Git
+	// Checkouts says whether the folder the wizard runs in is a checkout a session may start in.
+	Checkouts *hostcheckout.Finder
 	// NewTerm is a Term of its own for each run: the step counters live in it.
 	NewTerm func() *term.Term
 	Runner  execx.Runner // gh, id
@@ -89,7 +92,7 @@ type Wizard struct {
 // apply installs the team, login signs a person in and opens Element.
 func New(h *host.Host, o *ops.Ops, l *login.Login) *Wizard {
 	return &Wizard{
-		Declare: h.Declare, Gum: h.Gum, Git: h.Git, NewTerm: h.FreshTerm, Runner: h.Runner,
+		Declare: h.Declare, Gum: h.Gum, Git: h.Git, Checkouts: h.Checkouts, NewTerm: h.FreshTerm, Runner: h.Runner,
 		Stdin: h.Stdin, Stdout: h.Stdout,
 		Cwd: h.Here(), HostVars: h.HostVars, Home: h.Home, Launcher: h.Launcher,
 		LookPath: h.LookPath,
@@ -960,9 +963,16 @@ func (c *Wizard) askYes(ctx context.Context, h ui.Heading, question string, defa
 // offerJoin, in a checkout of the team's repositories, offers to start a ccy session there
 // as a member (ccy --teams <team>, no seat, so ccy chooses one and says it).
 func (c *Wizard) offerJoin(ctx context.Context, team, here string) error {
-	inTree, err := c.Git.ProjectHere(ctx, c.Cwd)
-	if err != nil || !inTree || here == "" {
+	if here == "" {
+		return nil
+	}
+	checkout, err := c.Checkouts.Find(ctx, c.Cwd)
+	if err != nil || checkout.Top == "" {
 		return err
+	}
+	if !checkout.Host() {
+		c.term.Printf("%s\n", checkout.Refusal(term.AbbrevHome(checkout.Top, c.Home)))
+		return nil
 	}
 	covering, err := c.Declare.TeamsFor(ctx, here)
 	if err != nil {
@@ -973,10 +983,7 @@ func (c *Wizard) offerJoin(ctx context.Context, team, here string) error {
 	if !slices.Contains(covering, team) {
 		return nil
 	}
-	top, err := c.Git.TopLevel(ctx, c.Cwd)
-	if err != nil {
-		return err
-	}
+	top := checkout.Top
 	shown := term.AbbrevHome(top, c.Home)
 	yes, err := c.askYes(ctx, flow.Here(team, "New session").About("team "+team+" · in "+shown), "Start a ccy session in "+shown+" as a member of "+team+"?", true)
 	if err != nil || !yes {

@@ -106,9 +106,6 @@ func (l line) draw(colour bool) string {
 	return headingColour + l.crumbs + colourReset + l.rest
 }
 
-// cells is how many terminal columns text takes: a wide (CJK) rune or an emoji takes two.
-func cells(text string) int { return ansi.StringWidth(text) }
-
 // wrapper lays pieces out in lines of at most width cells.
 type wrapper struct {
 	width int
@@ -123,7 +120,7 @@ func (w *wrapper) add(text string, crumb bool) {
 	} else {
 		w.cur.rest += text
 	}
-	w.n += cells(text)
+	w.n += Width(text)
 }
 
 func (w *wrapper) newLine() {
@@ -137,7 +134,7 @@ func (w *wrapper) newLine() {
 // mark and the piece do not fit a whole line but the piece does, the mark ends the line before
 // it. A piece wider than a whole line is cut between grapheme clusters, never elided.
 func (w *wrapper) place(p piece) {
-	if text := p.sep + p.text; w.n == 0 || w.n+cells(text) <= w.width {
+	if text := p.sep + p.text; w.n == 0 || w.n+Width(text) <= w.width {
 		if w.n == 0 {
 			text = p.text
 		}
@@ -145,7 +142,7 @@ func (w *wrapper) place(p piece) {
 		return
 	}
 	mark := strings.TrimSpace(p.sep)
-	if cells(mark+" "+p.text) > w.width && cells(p.text) <= w.width && w.n+1+cells(mark) <= w.width {
+	if Width(mark+" "+p.text) > w.width && Width(p.text) <= w.width && w.n+1+Width(mark) <= w.width {
 		w.add(" "+mark, p.crumb)
 		w.newLine()
 		w.fill(p.text, p.crumb, 0)
@@ -159,7 +156,7 @@ func (w *wrapper) place(p piece) {
 // what is left: at its last space that fits (past the first lead bytes, so a mark is never
 // left alone on a line), else between grapheme clusters.
 func (w *wrapper) fill(text string, crumb bool, lead int) {
-	for cells(text) > w.width-w.n {
+	for Width(text) > w.width-w.n {
 		head := ansi.Truncate(text, w.width-w.n, "")
 		rest := text[len(head):]
 		if at := strings.LastIndex(head, " "); at > lead {
@@ -235,7 +232,7 @@ func (h Heading) render(colour bool, width int) string {
 	longest := 0
 	drawn := make([]string, 0, len(lines)+1)
 	for _, l := range lines {
-		longest = max(longest, cells(l.plain()))
+		longest = max(longest, Width(l.plain()))
 		drawn = append(drawn, l.draw(colour))
 	}
 	return strings.Join(append(drawn, strings.Repeat("─", min(max(longest, shortestRule), width))), "\n")
@@ -250,12 +247,12 @@ func (h Heading) above(text string, colour bool, width int) string {
 }
 
 // What a screen takes from the terminal's width before its header, in columns, measured on a
-// pseudo-terminal against fzf with the house frame: the framed picker loses its margin (4),
-// border (2), padding (4), fzf's pointer and marker columns (2) and two more; Picker.Choose has
+// pseudo-terminal against fzf with the house frame: the framed picker loses RowChrome (its
+// margin, border, padding and fzf's pointer and marker columns) and two more; Picker.Choose has
 // no frame, only fzf's columns and two more; a gum header is printed as it is, kept off the
 // last column.
 const (
-	framedMargin = 14
+	framedMargin = RowChrome + 2
 	plainMargin  = 4
 	gumMargin    = 2
 )
