@@ -52,6 +52,9 @@ func cannotChange(s hot.Session) string {
 // cannot join team refused with why; then the seat and the role, as the sessions view asks them.
 func (r *run) addRunningTo(ctx context.Context, team string) (flow.Result, error) {
 	k := r.p.Kit
+	if why := r.cannotBeJoined(team); why != "" {
+		return k.Refuse(ctx, why)
+	}
 	sessions, err := r.p.Session.Sessions(ctx)
 	if err != nil {
 		return k.Refuse(ctx, "The running sessions cannot be listed: "+err.Error()+".")

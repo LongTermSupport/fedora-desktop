@@ -276,14 +276,23 @@ func (r *run) teamOptions(s hot.Session, leaving string) []option {
 		o := option{line: r.teamLine(team), value: team}
 		if seat, in := cellOf(s, team); in {
 			o.refused = r.alreadyIn(s, seat)
-		} else if !r.snap.Loaded[team] {
-			o.refused = team + " is not installed: ccy-teams apply " + team + " builds it."
-		} else if systemd.StateWord(r.snap.Active[team]) != systemd.HomeserverUp {
-			o.refused = team + "'s homeserver is down, so nothing can join it: systemctl status agent-bus-hs@" + team
+		} else {
+			o.refused = r.cannotBeJoined(team)
 		}
 		opts = append(opts, o)
 	}
 	return opts
+}
+
+// cannotBeJoined is why nothing can join team now (not installed, homeserver down), or "".
+func (r *run) cannotBeJoined(team string) string {
+	if !r.snap.Loaded[team] {
+		return team + " is not installed: ccy-teams apply " + team + " builds it."
+	}
+	if systemd.StateWord(r.snap.Active[team]) != systemd.HomeserverUp {
+		return team + "'s homeserver is down, so nothing can join it: systemctl status agent-bus-hs@" + team
+	}
+	return ""
 }
 
 // teamLine is a team as the add question shows it: what it is for, its homeserver and size.

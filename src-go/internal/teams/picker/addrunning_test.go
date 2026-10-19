@@ -111,6 +111,47 @@ func TestAddARunningSessionWhenNoneCanJoinSaysWhyForEach(t *testing.T) {
 	}
 }
 
+// A3: a team that cannot be joined (homeserver down, or not installed) is refused before the
+// sessions are listed, in teamOptions' own words.
+func TestAddARunningSessionToATeamThatCannotBeJoinedRefusesBeforeListing(t *testing.T) {
+	for name, tc := range map[string]struct{ units, want string }{
+		"homeserver down": {
+			"agent-bus-hs@alpha.service loaded failed failed Homeserver alpha\n",
+			"alpha's homeserver is down, so nothing can join it: systemctl status agent-bus-hs@alpha",
+		},
+		"not installed": {"", "alpha is not installed: ccy-teams apply alpha builds it."},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newRig(t)
+			h.On("systemctl list-units", tc.units, 0)
+			h.ses.list = []hot.Session{h.other()}
+			r := h.run1(t)
+			if _, err := r.do(context.Background(), actAddRunning, h.row(t, r.snap, board.NoDescription)); err != nil {
+				t.Fatal(err)
+			}
+			h.wantErr(t, tc.want)
+			if h.ses.listed != 0 || len(h.Script.Rows) != 0 {
+				t.Fatalf("refused before listing: listed %d, questions %q", h.ses.listed, h.Script.Rows)
+			}
+			h.wantRuns(t)
+		})
+	}
+}
+
+// The help describes only what is built: the add lines, and not the restart of Task 3.11.
+func TestHelpDescribesTheAddLinesAndNoRestart(t *testing.T) {
+	for _, want := range []string{"Add a running session to <team>", "Add this\nsession to another team"} {
+		if !strings.Contains(helpText, want) {
+			t.Fatalf("help lacks %q", want)
+		}
+	}
+	for _, unbuilt := range []string{"ccy-teams restart", "Restart the team"} {
+		if strings.Contains(helpText, unbuilt) {
+			t.Fatalf("help describes %q, which is not built", unbuilt)
+		}
+	}
+}
+
 // A7, A8: a running member's seat row offers adding its session to another team, with the add
 // actions, never last; it is the sessions view's Add to a team, its own team refused.
 func TestASeatRowOffersAddingItsSessionToAnotherTeam(t *testing.T) {

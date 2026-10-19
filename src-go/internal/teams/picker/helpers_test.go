@@ -40,9 +40,14 @@ type fakeSessions struct {
 	err  error
 	runs [][]string
 	code term.ExitCode
+	// listed is how many times the sessions were asked for.
+	listed int
 }
 
-func (f *fakeSessions) Sessions(context.Context) ([]hot.Session, error) { return f.list, f.err }
+func (f *fakeSessions) Sessions(context.Context) ([]hot.Session, error) {
+	f.listed++
+	return f.list, f.err
+}
 
 func (f *fakeSessions) Run(_ context.Context, args []string) term.ExitCode {
 	f.runs = append(f.runs, args)
