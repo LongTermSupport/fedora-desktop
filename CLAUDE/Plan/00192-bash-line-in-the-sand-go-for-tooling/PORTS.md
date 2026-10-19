@@ -277,7 +277,9 @@ bundled analyzers beside them.
 `src-go/internal/vmtest`, the Python helpers kept behind one seam; the lab play builds the
 binary, the bash CLI and its four suites are gone (their cases are Go tests), and the qa-all
 golden restores their rows (`retiredAfterPort`). Booting is proven only on the host (SPEC
-section 7, H1-H6, queued in `meta-deploy.list`); report
+section 7, H1-H6). Deployed by `meta-deploy.bash` at F44 `3474744f`; H1, H2 and H4 passed
+there. H3 (desktop base, LUKS unlock), H5 (the nightly sweep) and H6 (host-only run) wait on
+the owner. No host run is pending and nothing is in `meta-deploy.list`; report
 `subagent-reports/261015-vmtest-port-opus.md`.
 `ftp-camera` (P8, the ftp-camera part) on
 `go-port/ftp-camera`: ported and cut over, merged into F44 (`a069fd96`); spec
@@ -285,7 +287,10 @@ section 7, H1-H6, queued in `meta-deploy.list`); report
 `src-go/internal/ftpcamera`, with `internal/rclonerc` (the Go twin of `rclone-rc-auth.bash`,
 which stays for the bash rclone helpers) and root systemctl verbs in `internal/systemd`;
 `play-ftp-camera.yml` builds the binary, the bash script and its allowlist row are gone.
-Proven only on the host with a camera (SPEC section 7, H1-H5, queued in `meta-deploy.list`);
+Proven only on the host with a camera (SPEC section 7, H1-H5). Deployed by `meta-deploy.bash`
+at F44 `a069fd96`; the checks without a camera passed (`--help`, `--copy-preflight`, an empty
+`--sort`). H3-H5, which need a camera session, wait on the owner. No host run is pending and
+nothing is in `meta-deploy.list`;
 report `subagent-reports/261015-ftp-camera-port-opus.md`. Fable's review (FIX FIRST: 2
 Medium, 5 Low) is fixed on the branch, test first: Ctrl+C no longer drains the async backlog
 under the cancelled context (E66, B25), the test runner refuses a command under a finished
