@@ -226,25 +226,31 @@ func (r *run) addToTeam(ctx context.Context, s hot.Session) (flow.Result, error)
 	if !ok {
 		return res, err
 	}
-	seat, res, ok, err := r.askSeat(ctx, s, team.value, h.AtStep(2, 3, "Seat").About("session "+s.Name+" · team "+team.value))
+	return r.addSeatAndRole(ctx, s, team.value, h, "session "+s.Name+" · team "+team.value)
+}
+
+// addSeatAndRole is the last two steps of an add, once the session and the team are known: the
+// seat and the role, then `session add`. h is the add's heading, and about what was chosen so far.
+func (r *run) addSeatAndRole(ctx context.Context, s hot.Session, team string, h ui.Heading, about string) (flow.Result, error) {
+	seat, res, ok, err := r.askSeat(ctx, s, team, h.AtStep(2, 3, "Seat").About(about))
 	if !ok {
 		return res, err
 	}
-	holder := coordinator.Holding(r.snap.Members[team.value], seat.handle, seats.SnapshotRunning(r.snap))
+	holder := coordinator.Holding(r.snap.Members[team], seat.handle, seats.SnapshotRunning(r.snap))
 	current := ""
-	if seat.handle != "" && r.snap.RoleOf(team.value, seat.handle) == roleCoordinator {
+	if seat.handle != "" && r.snap.RoleOf(team, seat.handle) == roleCoordinator {
 		current = roleCoordinator // the seat's handle holds the role already (Fable's N1)
 	}
 	seatWord := "the lowest free seat"
 	if seat.value != "" {
 		seatWord = "seat " + seat.value
 	}
-	role, res, ok, err := r.ask(ctx, h.AtStep(3, 3, "Role").About("session "+s.Name+" · team "+team.value+" · "+seatWord),
-		"Role in "+team.value+":", roleOptions(team.value, current, holder))
+	role, res, ok, err := r.ask(ctx, h.AtStep(3, 3, "Role").About(about+" · "+seatWord),
+		"Role in "+team+":", roleOptions(team, current, holder))
 	if !ok {
 		return res, err
 	}
-	where := team.value
+	where := team
 	if seat.value != "" {
 		where += "/" + seat.value
 	}
@@ -269,7 +275,7 @@ func (r *run) teamOptions(s hot.Session, leaving string) []option {
 		}
 		o := option{line: r.teamLine(team), value: team}
 		if seat, in := cellOf(s, team); in {
-			o.refused = s.Name + " is already in " + team + " as " + r.seatLabel(s.Checkout, seat) + ": one seat per team per session."
+			o.refused = r.alreadyIn(s, seat)
 		} else if !r.snap.Loaded[team] {
 			o.refused = team + " is not installed: ccy-teams apply " + team + " builds it."
 		} else if systemd.StateWord(r.snap.Active[team]) != systemd.HomeserverUp {

@@ -63,6 +63,16 @@ checkout inside it and the role (the handle comes from the checkout), shows a su
 agent_bus_lxc_members entry for you and applies the team. It is the same as
 `ccy-teams lxc-add <team>`.
 
+Add a running session to <team> is in a team row's menu: it lists the running sessions (each
+already in the team, or one that cannot be changed while it runs, says why), then asks the
+seat and the role as Add to a team does. A seat row whose session is running has Add this
+session to another team, the same Add to a team for that session.
+
+Restart the team's desktop sessions is in a team row's menu (`ccy-teams restart <team>`):
+every ccy and cc member's session on this machine resumes its own conversation; a running
+ccy one restarts in place at its next idle moment, a stopped one is started. LXC members are
+named and left alone. It asks first.
+
 A seat marked "(coordinator)" is its team's coordinator: the agent that takes the humans'
 requests, dispatches them to the workers and is copied on what workers tell humans. A team
 has one. Enter on a seat has Make it the coordinator when the team has none, Stop being
