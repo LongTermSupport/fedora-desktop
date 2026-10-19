@@ -20,16 +20,23 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00203 Task 3.10: the host's agent team bus kit (used by cc --teams and cc --bus) takes
-# the pingbus whose SessionStart hook records each session's conversation, so a cc session can
-# be restored and restarted by its own conversation id. Teams and homeservers are not changed.
+# Plan 00194 Task 2.0b: the host's pingbus kit (seat disconnected) for the ccy launcher's exit,
+# and the member kit's settings with the longer SessionEnd bound. Plan 00203 Task 3.10: the
+# same kit (used by cc --teams and cc --bus) takes the pingbus whose SessionStart hook records
+# each session's conversation, so a cc session can be restored and restarted by its own
+# conversation id. Teams and homeservers are not changed. Before play-claude-yolo.yml.
 playbooks/imports/play-agent-bus.yml
 
-# Plan 00203 Tasks 3.10-3.12 (CCY 3.99.12.16, container 2.77.12; the image rebuilds once at the
-# next ccy launch). ccy-sessions restore resumes each session by its recorded conversation id,
-# never --continue; a session with none recorded is named and not started. New
-# `ccy-teams restart <team>` and the team menu's "Restart the team's desktop sessions": running
-# ccy sessions restart in place at their next idle moment, stopped ones start resuming their
-# conversation, running cc sessions and LXC members are left as they are and named. The image
-# switches Claude Code's agent view off (/background, --bg). Running sessions are not touched.
+# Plan 00194 Task 2.0b: the goodbye is no longer cut off when a session ends with Ctrl-C, and a
+# session ended without it (podman stop, a closed terminal, a crash) is told "disconnected" by
+# the launcher. ccy also refuses, with a clear message, a wrapper that runs a shell launcher
+# through Python, instead of failing with a bare traceback.
+# Plan 00203 Tasks 3.10-3.12: ccy-sessions restore resumes each session by its recorded
+# conversation id, never --continue; a session with none recorded is named and not started.
+# New `ccy-teams restart <team>` and the team menu's "Restart the team's desktop sessions":
+# running ccy sessions restart in place at their next idle moment, stopped ones start resuming
+# their conversation, running cc sessions and LXC members are left as they are and named. The
+# image switches Claude Code's agent view off (/background, --bg).
+# CCY 3.99.12.17, container 2.77.13, so the image IS rebuilt on the next launch. Running
+# sessions are not touched.
 playbooks/imports/play-claude-yolo.yml

@@ -163,6 +163,11 @@ class Applied:
 # ── parsing ──────────────────────────────────────────────────────────────────────────────
 
 
+def is_session_name(value: object) -> bool:
+    """A session's name as a desired file gives it (and its report's directory is named)."""
+    return isinstance(value, str) and _SESSION_RE.fullmatch(value) is not None
+
+
 def _is_int(value: object, low: int) -> bool:
     return type(value) is int and value >= low
 

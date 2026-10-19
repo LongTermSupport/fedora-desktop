@@ -211,7 +211,7 @@ Built on `fix/teams-server-robustness`; design and evidence in
 
 - [ ] 🔄 **Task 3.12** (was 3.10): Claude Code's agent view off in the ccy image (SPEC C7,
   Decision 11): `ENV CLAUDE_CODE_DISABLE_AGENT_VIEW=1`, the name confirmed in the Claude Code
-  2.1.303 build. CCY 3.99.12.16, container 2.77.12 (placeholders). Built and tested; host
+  2.1.303 build. CCY 3.99.12.17, container 2.77.13 (placeholders). Built and tested; host
   acceptance to come.
 
 ## Decisions

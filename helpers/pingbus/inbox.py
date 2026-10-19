@@ -738,9 +738,12 @@ class Lock:
     """A held lock. Released by `release`, by the context manager, or by the kernel when
     the last process holding its open file description exits."""
 
-    def __init__(self, fd: int, kind: str) -> None:
+    def __init__(self, fd: int, kind: str, previous: str = "") -> None:
         self._fd: int | None = fd
         self.kind = kind
+        #: What the file said before this lock was taken: a holder that died leaves its kind
+        #: and claim time there; an explicit release leaves it empty.
+        self.previous = previous
 
     def fileno(self) -> int:
         if self._fd is None:
@@ -813,10 +816,33 @@ def acquire_lock_at(path: pathlib.Path, kind: str, *, claimed_ms: int | None = N
                 os.close(fd)
                 raise Busy(holder) from None
             sleep(LOCK_RETRY_S)
+    previous = os.pread(fd, KIND_READ_MAX, 0).decode("ascii", errors="replace")
     text = kind if claimed_ms is None else f"{kind} {claimed_ms}"
     os.ftruncate(fd, 0)
     os.pwrite(fd, text.encode("ascii"), 0)
-    return Lock(fd, kind)
+    return Lock(fd, kind, previous)
+
+
+_CLAIM_RE = re.compile(rf"{SEAT_KIND} (0|[1-9][0-9]{{0,15}})")
+
+
+def parse_claim(text: str) -> int | None:
+    """The claim time a seat lock's text names (`seat <ms>`); None for any other text."""
+    found = _CLAIM_RE.fullmatch(text)
+    return None if found is None else int(found.group(1))
+
+
+def read_claim_at(path: pathlib.Path) -> int | None:
+    """The claim time the seat lock at `path` names, held or not (a holder that died leaves
+    it); None when the file is absent, empty or names none. Takes no lock."""
+    try:
+        fd = _open_lock(path, os.O_RDONLY)
+    except FileNotFoundError:
+        return None
+    try:
+        return parse_claim(os.pread(fd, KIND_READ_MAX, 0).decode("ascii", errors="replace"))
+    finally:
+        os.close(fd)
 
 
 def acquire_lock(state: TeamState, kind: str, *, sleep: Callable[[float], None] = time.sleep) -> Lock:

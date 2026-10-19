@@ -93,11 +93,13 @@ item was written test first.
    Background tasks are left on. `test-ccy-restart-request.bash` checks that the variable is
    present and that no background-task switch is set; it failed (0, wanted 1) before the
    change and passes after it.
-4. **Version placeholders:** CCY 3.99.12.16, container 2.77.12, not the .15 and .11 that
-   were asked for. The pre-commit hook requires a new container version in every commit
-   that changes an image file, and two of my commits did. meta-deploy has
-   `play-agent-bus.yml` (the host kit's pingbus), then one `play-claude-yolo.yml` entry; F44
-   had emptied the queue. My changelog section is the top one.
+4. **Version placeholders:** CCY 3.99.12.17, container 2.77.13, not the .15 and .11 that
+   were asked for. The pre-commit hook requires a new version in every commit that stages
+   ccy or image files, and three of my commits did: the bash deletion, the agent view, and
+   the merge of F44 de85f5f6. That merge brought the goodbye fix in at 3.99.12.14 /
+   2.77.10. meta-deploy has one `play-agent-bus.yml` entry, then one `play-claude-yolo.yml`
+   entry; each comment covers both Plan 00194's goodbye and this work. My changelog section
+   is the top one and follows 3.99.12.14.
 
 QA run, all targeted and with PINGBUS\_\* unset: go test for teams, sessions, registry and
 conversation; golangci-lint; the project rules (vet tool); qa-hidden-bindings;
