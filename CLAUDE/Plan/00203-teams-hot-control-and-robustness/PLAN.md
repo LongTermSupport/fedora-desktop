@@ -174,6 +174,33 @@ Built on `fix/teams-server-robustness`; design and evidence in
   container 2.75.1. Host acceptance: the M2 leg of `acceptance.bash`, queued in meta-deploy.
   Notes: [subagent-reports/261016-name-race-opus.md](subagent-reports/261016-name-race-opus.md).
 
+- [ ] 🔄 **Task 3.8** (owner feedback on lxc-add in 3.99.12.10): the Checkout step is a typed
+  line with Tab completion from the container's tree (`internal/ui/pathinput`, the first
+  Bubble Tea screen a command runs; a hint line says Tab completes), built on
+  `fix/lxc-checkout-typed`. The checkout search also covers `/var/www`, `/srv` and `/opt`,
+  bounded by depth, count and time, and says when it is partial; what it found is suggested
+  under the line. A paste goes in as typed text; control characters and bidirectional
+  controls are refused whole, typed or pasted. Preceded by Plan 00204 Task 2.3
+  (`project_hidden_bindings` over Bubble Tea). CCY 3.99.12.12, container 2.77.8 (merged
+  over F44's 3.99.12.11). Host acceptance: `ccy-teams lxc-add <team>`, a path pasted into the
+  Checkout line, after meta-deploy.
+
+- [ ] 🔄 **Task 3.8** (owner feedback): a running session added from the teams list, on
+  `feat/teams-add-session-and-restart`. A team's menu has Add a running session to `<team>`,
+  and a running seat's menu Add this session to another team, both through the Running
+  sessions view's seat and role questions ([SPEC-team-add-and-restart.md](SPEC-team-add-and-restart.md)
+  A1-A10). Picker only. Built and tested; review and host acceptance to come.
+
+- [ ] ⬜ **Task 3.9**: each session's conversation recorded by the pingbus SessionStart hook
+  beside its report, and restore after a reboot resuming it by id, never `--continue`
+  (SPEC C1-C6, Decision 10).
+
+- [ ] ⬜ **Task 3.10**: Claude Code's agent view off in the ccy image (SPEC C7, Decision 11).
+  CCY 3.99.12.14, container 2.77.10 (placeholders).
+
+- [ ] ⬜ **Task 3.11**: `ccy-teams restart <team>` and the team menu's Restart the team's
+  desktop sessions (SPEC B1-B11, Decisions 8 and 9).
+
 ## Decisions
 
 These were settled by the coordinator under the owner's standing "do not gate on me". **The owner
@@ -233,6 +260,21 @@ These are not settled. Each runs on the interim default below until the owner de
    in that seat, accepting. The alternative: `cc --bus` accepts from launch (cc's settings
    already do for `--teams`), so its first join is hot with no restart, and until then any
    process of the owner's uid can post into it.
+
+### Open: for the owner (team add and restart)
+
+Each runs as stated until the owner decides; detail in SPEC-team-add-and-restart.md section 5.
+
+08. **A running ccy member of a restarted team restarts in place**, at its next idle moment,
+    through its own supervisor, resuming its exact conversation on the current image. The
+    alternative: running members are skipped and only stopped ones started.
+09. **A running cc member is left running** (cc has no supervisor). The alternative: `/exit`
+    typed into it as `shutdown` does, then started again with its recorded conversation.
+10. **Restore and restart resume by recorded conversation id only, never `--continue`.** A
+    session without the bus kit (`ccy --no-bus`, a plain `cc`) records none, so after a reboot
+    it is named and not restored. The alternative: a recording hook in every session.
+11. **Claude Code's agent view is off in the ccy image's environment**
+    (`CLAUDE_CODE_DISABLE_AGENT_VIEW=1`), background sub-agents and shell tasks left on.
 
 ## Success Criteria
 

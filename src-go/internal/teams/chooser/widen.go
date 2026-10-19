@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/playlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
@@ -84,11 +85,33 @@ func hasWidening(taken []entry) bool {
 	return false
 }
 
-// widen adds the repository to each team's scope, then applies them all in one play run.
+// widen adds the repository to each team's scope, then applies them all in one play run, in one
+// hold of the play lock: a wait for it that does not end in the lock adds nothing.
 func (c *Chooser) widen(ctx context.Context, repo string, teams []string) term.ExitCode {
 	if len(teams) == 0 {
 		return term.ExitOK
 	}
+	names := strings.Join(teams, " ")
+	code := term.ExitOK
+	err := c.Locked(ctx, "add "+repo+" to the scope of "+names, func(ctx context.Context) error {
+		code = c.widenHeld(ctx, repo, teams)
+		return nil
+	})
+	switch {
+	case errors.Is(err, playlock.ErrNotTaken):
+		c.say("ccy-teams: nothing was added to the scope of " + names + " and nothing was started, as the play lock was not free (above). " +
+			"Once the other play run has finished, run this again.")
+		if errors.Is(err, playlock.ErrStopped) {
+			return term.ExitCancelled
+		}
+		return term.ExitFailure
+	case err != nil:
+		return c.failed(err)
+	}
+	return code
+}
+
+func (c *Chooser) widenHeld(ctx context.Context, repo string, teams []string) term.ExitCode {
 	for _, team := range teams {
 		change, err := c.Declare.AddRepo(ctx, team, repo)
 		if err != nil {

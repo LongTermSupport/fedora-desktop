@@ -180,6 +180,21 @@ func TestThePickerWrapsToTheMeasuredWidthOfItsTerminal(t *testing.T) {
 	}
 }
 
+// With WrapHeader, a header line under the heading wider than the window is wrapped at its
+// spaces like the heading, never left for fzf to cut: on 40 columns the framed picker draws 26
+// cells whole.
+func TestAHeaderLineWiderThanTheWindowIsWrappedNotCut(t *testing.T) {
+	f := fakeColumns("40")
+	long := "Held by play-claude-yolo.yml (pid 123456), held since 12:00:05 UTC, for 3 minutes."
+	if _, err := (&Picker{Runner: f, Plain: true}).Pick(context.Background(), lxcStep, PickSpec{Title: "t", Header: "legend\n" + long, Rows: []string{"r"}, WrapHeader: true}); !errors.Is(err, ErrLeave) {
+		t.Fatal(err)
+	}
+	want := "--header=" + lxcStep.render(false, 26) + "\nlegend\nHeld by\nplay-claude-yolo.yml (pid\n123456), held since\n12:00:05 UTC, for 3\nminutes.\n"
+	if got := callOf(t, f, "fzf").Args; !slices.Contains(got, want) {
+		t.Fatalf("pick header %q\nwant %q", got, want)
+	}
+}
+
 func TestGumAndTheUnframedChooseWrapToTheirOwnMargins(t *testing.T) {
 	ctx := context.Background()
 	f := fakeColumns("40")
@@ -226,6 +241,16 @@ func TestHeadingRendersTrailContextAndARulePlainOrInColour(t *testing.T) {
 	}
 	if got := Here("A").render(false, unwrapped); strings.Count(got, "\n") != 1 {
 		t.Fatalf("no context line when there is no context: %q", got)
+	}
+}
+
+func TestDrawIsTheHeadingWrappedToAWidthAndRefusesOneWithNoPlace(t *testing.T) {
+	got, err := lxcStep.Draw(false, 30)
+	if err != nil || got != lxcStep.render(false, 30) {
+		t.Fatalf("draw %q %v", got, err)
+	}
+	if _, err := (Heading{}).Draw(false, 30); !errors.Is(err, ErrNoHeading) {
+		t.Fatalf("an empty heading drew: %v", err)
 	}
 }
 

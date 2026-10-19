@@ -29,6 +29,22 @@ func TestSpawnedCountsWhatRanSinceTheLastCall(t *testing.T) {
 	}
 }
 
+func TestThePlayLockIsTheWorldsOwnAndCanBeHeldAsAnotherRunHoldsIt(t *testing.T) {
+	w := New(t)
+	if w.PlayLockHeld(t) {
+		t.Fatal("a new world's play lock is held")
+	}
+	release := w.HoldPlayLock(t)
+	if !w.PlayLockHeld(t) {
+		t.Fatal("held, it reads free")
+	}
+	release()
+	release()
+	if w.PlayLockHeld(t) {
+		t.Fatal("released, it reads held")
+	}
+}
+
 func TestOnDeclareScriptsTheTwoHalvesOfTheOverview(t *testing.T) {
 	w := New(t)
 	w.OnDeclare("declared", DeclaredAlpha)

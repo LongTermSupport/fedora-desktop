@@ -67,6 +67,16 @@ func (h Heading) About(context string) Heading {
 // Checkout".
 func (h Heading) Trail() string { return strings.Join(h.Crumbs, crumbSeparator) + h.stepText() }
 
+// Draw is the heading as a ui screen of its own drawing (a Bubble Tea component) shows it:
+// wrapped to width, its crumbs in colour when colour is set. A heading that names no place is
+// ErrNoHeading.
+func (h Heading) Draw(colour bool, width int) (string, error) {
+	if err := h.check(); err != nil {
+		return "", err
+	}
+	return h.render(colour, width), nil
+}
+
 func (h Heading) stepText() string {
 	if h.Steps == 0 {
 		return ""
@@ -163,7 +173,7 @@ func (w *wrapper) fill(text string, crumb bool, lead int) {
 			head, rest = head[:at], text[at+1:]
 		}
 		if head == "" { // a cluster wider than the line: it gets a line of its own
-			head = string([]rune(text)[0])
+			head = Clusters(text)[0].Text
 			rest = text[len(head):]
 		}
 		w.add(head, crumb)
@@ -244,6 +254,27 @@ func (h Heading) above(text string, colour bool, width int) string {
 		return h.render(colour, width)
 	}
 	return h.render(colour, width) + "\n" + text
+}
+
+// wrapText is text with each line wider than width cells carried onto further lines, at its
+// spaces as the heading is, else between grapheme clusters: nothing is left for fzf to cut.
+func wrapText(text string, width int) string {
+	width = max(width, 2)
+	var out []string
+	for l := range strings.SplitSeq(text, "\n") {
+		if Width(l) <= width {
+			out = append(out, l)
+			continue
+		}
+		for i, w := range wrap([]piece{{text: l}}, width) {
+			s := strings.TrimRight(w.plain(), " ")
+			if i > 0 {
+				s = strings.TrimLeft(s, " ")
+			}
+			out = append(out, s)
+		}
+	}
+	return strings.Join(out, "\n")
 }
 
 // What a screen takes from the terminal's width before its header, in columns, measured on a

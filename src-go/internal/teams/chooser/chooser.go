@@ -50,6 +50,10 @@ type CreateFunc func(ctx context.Context) (string, term.ExitCode)
 // ApplyFunc applies the declared teams (the play), saying why it failed when it does.
 type ApplyFunc func(ctx context.Context, teams []string) error
 
+// LockFunc runs fn in one hold of the play lock, waited for first (ops.Locked); a lock not
+// taken is an error wrapping playlock.ErrNotTaken, already said.
+type LockFunc func(ctx context.Context, purpose string, fn func(context.Context) error) error
+
 // Chooser is the choose-teams flow. Every dependency is a field so a test stands in for each.
 type Chooser struct {
 	Host    *host.Host
@@ -63,6 +67,7 @@ type Chooser struct {
 	Seat   SeatFunc
 	Create CreateFunc
 	Apply  ApplyFunc
+	Locked LockFunc
 	// Now stamps the owner's acceptance.
 	Now func() time.Time
 	// UID is the user the acceptance record must belong to.
@@ -70,10 +75,10 @@ type Chooser struct {
 }
 
 // New is the chooser over a host and the flows it hands the work to.
-func New(h *host.Host, seat SeatFunc, create CreateFunc, apply ApplyFunc) *Chooser {
+func New(h *host.Host, seat SeatFunc, create CreateFunc, apply ApplyFunc, locked LockFunc) *Chooser {
 	return &Chooser{
 		Host: h, Declare: h.Declare, Systemd: h.Systemd, Gum: h.Gum, Picker: h.Picker, Payload: h.Payload,
-		Seat: seat, Create: create, Apply: apply, Now: time.Now, UID: os.Getuid,
+		Seat: seat, Create: create, Apply: apply, Locked: locked, Now: time.Now, UID: os.Getuid,
 	}
 }
 

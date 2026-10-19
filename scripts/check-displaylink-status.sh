@@ -37,7 +37,7 @@ echo -e "${BLUE}${BOLD}1. SECURE BOOT & MOK STATUS${NC}"
 echo -e "${BLUE}───────────────────────────${NC}"
 
 SB_STATE=$(mokutil --sb-state 2>&1)
-if echo "$SB_STATE" | grep -q "SecureBoot enabled"; then
+if grep -q "SecureBoot enabled" <<<"$SB_STATE"; then
     echo -e "  ${GREEN}✅${NC} Secure Boot: ${BOLD}Enabled${NC}"
     SECURE_BOOT=1
 else
@@ -47,10 +47,10 @@ fi
 
 if [ -f /var/lib/dkms/mok.pub ]; then
     MOK_TEST=$(mokutil --test-key /var/lib/dkms/mok.pub 2>&1)
-    if echo "$MOK_TEST" | grep -q "is already enrolled"; then
+    if grep -q "is already enrolled" <<<"$MOK_TEST"; then
         print_status 0 "MOK Key: ${BOLD}Successfully enrolled${NC}"
         MOK_ENROLLED=1
-    elif echo "$MOK_TEST" | grep -q "is not enrolled"; then
+    elif grep -q "is not enrolled" <<<"$MOK_TEST"; then
         print_status 1 "MOK Key: ${BOLD}Not enrolled${NC} (requires reboot and enrollment)"
         MOK_ENROLLED=0
     else
@@ -110,7 +110,7 @@ if [ "$DKMS_OK" -eq 0 ]; then
     # warning above would answer a question that was never asked successfully.
     echo -e "      (no DKMS verdict - the query above failed)"
 elif [ -n "$DKMS_STATUS" ]; then
-    if echo "$DKMS_STATUS" | grep -q "installed"; then
+    if grep -q "installed" <<<"$DKMS_STATUS"; then
         print_status 0 "DKMS compilation: ${BOLD}$DKMS_STATUS${NC}"
     else
         print_status 1 "DKMS compilation: ${BOLD}$DKMS_STATUS${NC}"

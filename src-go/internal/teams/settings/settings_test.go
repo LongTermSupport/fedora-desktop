@@ -67,7 +67,7 @@ func newRig(t *testing.T) *rig {
 		}
 		return coordinator.Stopped
 	}
-	r.s = New(h, kit, o.ApplyTeams, func(_ context.Context, team, handle string, want bool, look coordinator.Lookup) (bool, error) {
+	r.s = New(h, kit, o.ApplyTeams, o.Locked, func(_ context.Context, team, handle string, want bool, look coordinator.Lookup) (bool, error) {
 		running := coordinator.Unknown
 		if look != nil {
 			running = look(agentbus.Member{Handle: "proj.1+local.podman"})
@@ -218,6 +218,60 @@ func TestAnEditIsCheckedShownChangedThenSavedAndAppliedOnce(t *testing.T) {
 		t.Fatalf("the play ran %d times", r.plays())
 	}
 	if !strings.Contains(r.ErrOut.String(), "Team alpha's settings are saved and applied.") {
+		t.Fatalf("stderr %s", r.ErrOut.String())
+	}
+}
+
+// Save and apply writes the host_vars and runs the play in one hold of the play lock, so no
+// other play run can come between the write and its apply.
+func TestSaveWritesAndAppliesInsideOneHoldOfThePlayLock(t *testing.T) {
+	r := newRig(t)
+	heldAtWrite := false
+	r.Fake.OnFunc(strings.Fields(r.DeclarePrefix("set")), func(c execx.Cmd) (execx.Result, error) {
+		if slices.Contains(c.Args, "--check") {
+			return execx.Result{}, nil
+		}
+		heldAtWrite = r.PlayLockHeld(t)
+		return execx.Result{Stdout: []byte("CHANGED\tteam alpha: description\n")}, nil
+	})
+	r.Script.Fzf = []string{"|Description:", "|Save and apply", "|YES"}
+	r.Script.Gum = []string{"CHOOSE:Runs the site"}
+	r.edit(t)
+	if !heldAtWrite {
+		t.Error("the host_vars were written outside the play lock")
+	}
+	if r.plays() != 1 || r.PlayLockHeld(t) {
+		t.Errorf("plays %d, lock still held %v", r.plays(), r.PlayLockHeld(t))
+	}
+}
+
+// The owner's defect: Save and apply while another play run holds the lock. It waits on a screen
+// naming the holder; Stop waiting saves nothing, runs nothing, and keeps the changes on the screen
+// to save again.
+func TestStoppingTheWaitForThePlayLockSavesNothingAndKeepsTheChanges(t *testing.T) {
+	r := newRig(t)
+	r.HoldPlayLock(t)
+	r.Script.Fzf = []string{"|Description:", "|Save and apply", "|YES", "|EXIT", "|EXIT", "|YES"}
+	r.Script.Gum = []string{"CHOOSE:Runs the site"}
+	r.Script.Columns = 200 // the holder on one line; ops tests the wrap on a narrow terminal
+	r.edit(t)
+	if len(r.saves()) != 0 || r.plays() != 0 {
+		t.Fatalf("saves %q, plays %d", r.saves(), r.plays())
+	}
+	if r.title(3) != "Waiting for the play lock" ||
+		!strings.Contains(r.HeaderOf(3), "Held by run.bash playbooks/imports/play-basic-configs.yml (pid 999), held since 11:59:20 UTC") {
+		t.Fatalf("wait screen %q: %s", r.title(3), r.HeaderOf(3))
+	}
+	if want := "Teams › Waiting for the play lock\nbefore ccy-teams can save and apply team alpha's settings"; !slices.Contains(r.Script.Headings, want) {
+		t.Fatalf("no wait screen headed %q: %q", want, r.Script.Headings)
+	}
+	if !slices.Contains(r.rows(4), "Description: Runs the site   (changed)") {
+		t.Fatalf("the change is gone: %q", r.rows(4))
+	}
+	if !strings.Contains(r.HeaderOf(4), "Nothing was saved: the play lock was not free (above). Your changes are still here") {
+		t.Fatalf("header %s", r.HeaderOf(4))
+	}
+	if !r.PlayLockHeld(t) || strings.Contains(r.ErrOut.String(), "saved in the host_vars") {
 		t.Fatalf("stderr %s", r.ErrOut.String())
 	}
 }

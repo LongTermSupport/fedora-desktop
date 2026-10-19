@@ -150,6 +150,13 @@ local mtime=$(stat -c %Y "$file" 2>/dev/null)
 # ruleid: bash-capture-discards-status
 export BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
 
+# A trailing comment is NOT a justification. The rule's regex once anchored `$`
+# straight after the closing paren, so any comment at all evaded it and the
+# FAIL-FAST-OK exclusion below was decorative. Caught with a probe, fixed, and
+# pinned here so it cannot regress.
+# ruleid: bash-capture-discards-status
+commented_but_unjustified=$(gh api user --jq .login 2>/dev/null)  # just a note
+
 # ok: bash-capture-discards-status
 fallback_var=$(findmnt -no SOURCE / 2>/dev/null) || fallback_var=""
 
@@ -203,3 +210,29 @@ if ! value=$(sysctl -n net.ipv4.ip_forward 2>&1); then
 elif [ "$value" != "1" ]; then
     echo "it is $value, expected 1"
 fi
+
+# --- pipe-into-grep-q-under-pipefail ---
+
+# ruleid: pipe-into-grep-q-under-pipefail
+printf '%s\n' "${items[@]}" | grep -qxF -- "$item"
+
+# ruleid: pipe-into-grep-q-under-pipefail
+some_cmd | grep -E -q 'needle'
+
+# ruleid: pipe-into-grep-q-under-pipefail
+some_cmd | grep --quiet 'needle'
+
+# ruleid: pipe-into-grep-q-under-pipefail
+some_cmd | grep -q 'needle'  # FAIL-FAST-OK:
+
+# ok: pipe-into-grep-q-under-pipefail
+some_cmd | grep -E 'needle'
+
+# ok: pipe-into-grep-q-under-pipefail
+grep -qxF -- "$item" <<<"$(printf '%s\n' "${items[@]}")"
+
+# ok: pipe-into-grep-q-under-pipefail
+some_cmd || grep -q 'needle' file
+
+# ok: pipe-into-grep-q-under-pipefail
+some_cmd | grep -q 'needle'  # FAIL-FAST-OK: a one-line producer cannot be killed

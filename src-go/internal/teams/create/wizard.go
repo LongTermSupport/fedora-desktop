@@ -16,6 +16,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/hostcheckout"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/playlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/login"
@@ -66,8 +67,11 @@ type Wizard struct {
 	Home     string // for the ~ abbreviation
 	Launcher string // the ccy launcher offered after the team is made
 
-	LookPath    func(name string) (string, error)
-	ApplyTeams  func(ctx context.Context, teams ...string) error
+	LookPath   func(name string) (string, error)
+	ApplyTeams func(ctx context.Context, teams ...string) error
+	// Locked is ops.Locked: fn in one hold of the play lock, waited for first. The team is
+	// declared and installed in it, so a wait that does not end in the lock adds nothing.
+	Locked      func(ctx context.Context, purpose string, fn func(context.Context) error) error
 	NewPassword func(ctx context.Context, team, human string) error
 	// SignInGap is, after an apply that failed, the sign-in of the team's people who have no
 	// Element session: the play made their accounts, so it is offered (ask) or said.
@@ -99,6 +103,7 @@ func New(h *host.Host, o *ops.Ops, l *login.Login) *Wizard {
 		ApplyTeams: func(ctx context.Context, teams ...string) error {
 			return o.ApplyTeams(ctx, teams)
 		},
+		Locked:        o.Locked,
 		NewPassword:   l.NewPassword,
 		SignInGap:     l.SignInGap,
 		LaunchElement: l.Open,
@@ -853,9 +858,38 @@ func summaryLine(label, value string) string {
 	return fmt.Sprintf("%-9s %s", label, value)
 }
 
-// write declares the team and its Element profile, installs it, and, on a terminal,
-// offers what comes next.
+// write declares the team and its Element profile and installs it, in one hold of the play
+// lock, and, on a terminal, offers what comes next.
 func (c *Wizard) write(ctx context.Context, o createOpts, here string) error {
+	err := c.Locked(ctx, "create team "+o.team, func(ctx context.Context) error {
+		return c.declareAndApply(ctx, o)
+	})
+	if errors.Is(err, playlock.ErrNotTaken) {
+		c.term.PrintError("nothing was added: team " + o.team + " was not saved, as the play lock was not free (above). " +
+			"Once the other play run has finished, run ccy-teams create again.")
+		return &stop{ops.LockExit(err)}
+	}
+	if errors.Is(err, errInstallFailed) {
+		// The play ran before it failed, so the person's account exists with a password
+		// nobody was shown: the sign-in is offered (or said) here, out of the lock's hold, and
+		// the failure still stands.
+		if signErr := c.SignInGap(ctx, []string{o.team}, !o.yes); signErr != nil {
+			c.term.PrintError(signErr.Error())
+		}
+		return c.failed("team " + o.team + " is declared in " + term.AbbrevHome(c.HostVars, c.Home) +
+			" but not applied as declared. Once the cause above is fixed, ccy-teams apply " + o.team + " applies it.")
+	}
+	if err != nil {
+		return err
+	}
+	return c.afterWrite(ctx, o, here)
+}
+
+// errInstallFailed is a team declared whose apply then failed, having said why.
+var errInstallFailed = errors.New("the team is declared, and its install failed")
+
+// declareAndApply declares the team and its Element profile, then installs it.
+func (c *Wizard) declareAndApply(ctx context.Context, o createOpts) error {
 	change, err := c.Declare.Create(ctx, o.entry())
 	if err != nil {
 		return err
@@ -874,17 +908,17 @@ func (c *Wizard) write(ctx context.Context, o createOpts, here string) error {
 		return err
 	}
 	if err = c.ApplyTeams(ctx, o.team); err != nil {
-		// The play ran before it failed, so the person's account exists with a password
-		// nobody was shown: the sign-in is offered (or said) here, the failure still stands.
-		if signErr := c.SignInGap(ctx, []string{o.team}, !o.yes); signErr != nil {
-			c.term.PrintError(signErr.Error())
-		}
-		return c.failed("team " + o.team + " is declared in " + term.AbbrevHome(c.HostVars, c.Home) +
-			" but not applied as declared. Once the cause above is fixed, ccy-teams apply " + o.team + " applies it.")
+		return errInstallFailed
 	}
+	return nil
+}
+
+// afterWrite is what follows a team made: on a terminal the offers of what comes next, then the
+// next steps.
+func (c *Wizard) afterWrite(ctx context.Context, o createOpts, here string) error {
 	c.created = o.team
 	if !o.yes {
-		if err = c.afterCreate(ctx, o); err != nil {
+		if err := c.afterCreate(ctx, o); err != nil {
 			return err
 		}
 	}

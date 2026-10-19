@@ -237,7 +237,7 @@ probe_after() {
     local state_home="$1" script="$2" out answer
     out="$(printf '%s\n' "$script" \
         | XDG_STATE_HOME="$state_home" bash --norc --noprofile -i 2>/dev/null)"
-    if ! printf '%s\n' "$out" | grep -q '^PROBE:'; then
+    if ! grep -q '^PROBE:' <<<"$out"; then
         printf 'NO-PROBE-LINE'
         return 0
     fi

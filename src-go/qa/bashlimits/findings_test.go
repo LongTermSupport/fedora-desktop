@@ -312,12 +312,13 @@ func TestMovingAnAllowlistedFileIntoAnExemptPathCannotLaunderIt(t *testing.T) {
 
 func TestUpdateRefusesToDropAnEntryWhoseFileStillExists(t *testing.T) {
 	root := repo(t)
-	put(t, root, allowlistRel, Allowlist{"files/bin/long": {Code: 80, Stmts: 80}, "scripts/test-x.bash": {Code: 500, Stmts: 500}}.Format())
+	put(t, root, "CLAUDE/Plan/001-x/a.bash", script(500))
+	put(t, root, allowlistRel, Allowlist{"files/bin/long": {Code: 80, Stmts: 80}, "CLAUDE/Plan/001-x/a.bash": {Code: 500, Stmts: 500}}.Format())
 	r := run(t, root, "--base", "HEAD", "--update")
-	if r.code == ExitOK || !strings.Contains(r.err, "scripts/test-x.bash") {
+	if r.code == ExitOK || !strings.Contains(r.err, "CLAUDE/Plan/001-x/a.bash") {
 		t.Fatalf("exit %d: %s", r.code, r.err)
 	}
-	if !strings.Contains(readAllowlist(t, root), "scripts/test-x.bash") {
+	if !strings.Contains(readAllowlist(t, root), "CLAUDE/Plan/001-x/a.bash") {
 		t.Fatal("the entry was dropped")
 	}
 }

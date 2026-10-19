@@ -1232,11 +1232,20 @@
         - cleanup
         - distrobox
 
+    # distrobox rm --force exits 0 for a missing container, so probe first to stay idempotent.
+    - name: Probe for playwright-tests Distrobox Container
+      ansible.builtin.command: podman container exists playwright-tests
+      register: playwright_container_probe
+      changed_when: false
+      failed_when: playwright_container_probe.rc not in [0, 1]  # FAIL-FAST-OK: probe-then-fail, rc 1 means absent and anything else fails
+      tags:
+        - cleanup
+        - distrobox
+
     - name: Remove playwright-tests Distrobox Container
       ansible.builtin.command: distrobox rm playwright-tests --force
-      register: distrobox_rm_result
-      failed_when: false  # FAIL-FAST-OK: container may not exist (already cleaned up)
-      changed_when: distrobox_rm_result.rc == 0
+      when: playwright_container_probe.rc == 0
+      changed_when: true
       tags:
         - cleanup
         - distrobox

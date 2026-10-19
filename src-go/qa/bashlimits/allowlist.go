@@ -219,15 +219,19 @@ func shrankBelow(m, rec Measurement) string {
 
 // removalProblem says why a listed path may not simply disappear from the allowlist, or ""
 // when it may: its file was measured (it is within limits, or is judged on its own), it is a
-// daemon-owned file an upgrade shipped (VerifyDaemonOwned), or it is gone and nothing exempt
-// looks like its new home. A file that still exists but is not a
-// checked bash file, or that went away next to an exempt file of the same name, has been
-// moved out of the gate's sight, not ported.
+// daemon-owned file an upgrade shipped (VerifyDaemonOwned), it is test code exempt where it
+// stands (IsTestCode: only a change to the reviewed exemption table put it there), or it is
+// gone and nothing exempt looks like its new home. A file that still exists but is not a
+// checked bash file has been moved out of the gate's sight, not ported; so has one that went
+// away next to an exempt file of the same name (exemptTwin catches same-name moves only, not
+// a move that also renames the file).
 func removalProblem(p string, scan Scan) string {
 	if _, measured := scan.Measured[p]; measured || scan.DaemonOwned[p] {
 		return ""
 	}
 	switch {
+	case scan.Exempt[p] && IsTestCode(p):
+		return "" // test code is not tooling; a file moved there is caught by exemptTwin
 	case scan.Exempt[p]:
 		return p + " still exists and is exempt"
 	case scan.Present[p]:

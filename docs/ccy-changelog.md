@@ -17,9 +17,9 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.12.15 — container 2.77.11
+## 3.99.12.13 — container 2.77.9
 
-Follows 3.99.12.13 (container 2.77.9).
+Follows 3.99.12.12 (container 2.77.8).
 
 - **The goodbye is sent when a session is ended with Ctrl-C** (Plan 00194 Task 2.0b). Claude
   Code gave every SessionEnd hook 1.5 s together, and the plugin hook's own `timeout` did not
@@ -38,6 +38,27 @@ Follows 3.99.12.13 (container 2.77.9).
   Claude Code has exited, so the hook cannot tell it from `/exit` (a follow-up in Plan 00194).
 
 ---
+
+## 3.99.12.12 — container 2.77.8
+
+Follows 3.99.12.11 (container 2.77.7). The image carries `declare.py`, whose checkout-search
+markers changed (`PARTIAL`, `SKIPPED`), so it is rebuilt once.
+
+- **`ccy-teams lxc-add` takes the checkout on a typed line with Tab completion** (Plan
+  00203). The Checkout step is an editable line: type the path, Tab completes a directory
+  name from the container's tree as a shell does (listing the candidates when several
+  match), and a hint line says so ("Tab completes a directory name"). A pasted path goes in
+  as typed text; typed or pasted text holding a control character (a newline, an escape) or
+  a bidirectional control (such as the U+202E override, which can make one path look like
+  another) is refused whole, and a refused paste is said. It replaces the directory list
+  that started in the user's home and could not be typed into.
+- **The checkout search looks beyond the home**: `/var/www`, `/srv` and `/opt` too, bounded
+  by depth, count and time; what it found is suggested under the line (the arrows put one in
+  it), a search stopped at a limit says it may have missed some, and a root with a symbolic
+  link on its way is named rather than skipped silently. The line wraps to the terminal and
+  carries the step's standard heading; Esc cancels the run.
+- The line is the first `ccy-teams` screen built on Bubble Tea, in `internal/ui`, and
+  `project_hidden_bindings` now covers Bubble Tea keys (Plan 00204 Task 2.3).
 
 ## 3.99.12.11 — container 2.77.7
 

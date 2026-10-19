@@ -161,7 +161,7 @@ usage_case() {
         printf '%s\n%s\n' "$plain" "$err" | awk '{ print "        | " $0 }'
         return
     fi
-    if ! printf '%s' "$plain" | grep -qF "$want"; then
+    if ! grep -qF "$want" <<<"$plain"; then
         fail "$desc -> never printed \"$want\" (the usage view was not drawn)"
         return
     fi

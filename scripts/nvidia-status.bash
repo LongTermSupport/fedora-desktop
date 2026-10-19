@@ -64,10 +64,10 @@ fi
 SB_RC=0
 SB_STATE=$(mokutil --sb-state 2>&1) || SB_RC=$?
 SECURE_BOOT_KNOWN=1
-if echo "$SB_STATE" | grep -q "SecureBoot enabled"; then
+if grep -q "SecureBoot enabled" <<<"$SB_STATE"; then
     echo -e "  ${GREEN}✅${NC} Secure Boot: ${BOLD}Enabled${NC}"
     SECURE_BOOT=1
-elif echo "$SB_STATE" | grep -q "SecureBoot disabled"; then
+elif grep -q "SecureBoot disabled" <<<"$SB_STATE"; then
     print_warning "Secure Boot: ${BOLD}Disabled${NC}"
     SECURE_BOOT=0
 else
@@ -84,10 +84,10 @@ MOK_ENROLLED=0
 # Method 1: Check the standard akmods key file location
 if [ -f /etc/pki/akmods/certs/public_key.der ]; then
     MOK_TEST=$(mokutil --test-key /etc/pki/akmods/certs/public_key.der 2>&1)
-    if echo "$MOK_TEST" | grep -q "is already enrolled"; then
+    if grep -q "is already enrolled" <<<"$MOK_TEST"; then
         print_status 0 "akmods MOK Key: ${BOLD}Successfully enrolled${NC} (/etc/pki/akmods/certs/public_key.der)"
         MOK_ENROLLED=1
-    elif echo "$MOK_TEST" | grep -q "is not enrolled"; then
+    elif grep -q "is not enrolled" <<<"$MOK_TEST"; then
         print_status 1 "akmods MOK Key: ${BOLD}Not enrolled${NC} (requires reboot and enrollment)"
     else
         print_warning "akmods MOK Key: ${BOLD}Unknown status${NC}"
@@ -188,7 +188,7 @@ fi
 # Check loaded modules
 LOADED_MODULES=()
 for mod in nvidia nvidia_drm nvidia_modeset nvidia_uvm; do
-    if lsmod | grep -q "^${mod}"; then
+    if grep -q "^${mod}" <<<"$(lsmod)"; then
         LOADED_MODULES+=("$mod")
     fi
 done
@@ -266,7 +266,7 @@ if command -v glxinfo &>/dev/null; then
     GL_VERSION=$(printf '%s\n' "$GLXINFO_OUT" | grep "OpenGL version" | cut -d: -f2 | xargs)
 
     # Detect hybrid graphics (Intel/AMD iGPU + NVIDIA dGPU)
-    if (echo "$GL_RENDERER" | grep -Eqi "intel|radeon|amd") && [ "$DRIVER_OK" -eq 1 ]; then
+    if (grep -Eqi "intel|radeon|amd" <<<"$GL_RENDERER") && [ "$DRIVER_OK" -eq 1 ]; then
         HYBRID_GRAPHICS=1
     fi
 
@@ -275,7 +275,7 @@ if command -v glxinfo &>/dev/null; then
         # Corporation)" with a red cross here blamed the driver for a query that
         # never ran — the failure is already reported above.
         print_info "OpenGL vendor/renderer: not reported (the query above failed)"
-    elif echo "$GL_VENDOR" | grep -qi "nvidia"; then
+    elif grep -qi "nvidia" <<<"$GL_VENDOR"; then
         print_status 0 "OpenGL vendor: ${BOLD}$GL_VENDOR${NC}"
         echo -e "      Renderer: ${BOLD}$GL_RENDERER${NC}"
         echo -e "      Version: ${BOLD}$GL_VERSION${NC}"
@@ -311,7 +311,7 @@ if command -v vulkaninfo &>/dev/null; then
     # Check if vulkaninfo can run without errors
     if vulkaninfo --summary &>/dev/null; then
         VULKAN_DEVICES=$(vulkaninfo --summary 2>/dev/null | grep -A1 "GPU" | grep "deviceName" | cut -d= -f2 | xargs)  # FAIL-FAST-OK: guarded by both `command -v vulkaninfo` and a successful `vulkaninfo --summary` above
-        if echo "$VULKAN_DEVICES" | grep -qi "nvidia"; then
+        if grep -qi "nvidia" <<<"$VULKAN_DEVICES"; then
             print_status 0 "Vulkan runtime: ${BOLD}Working${NC}"
             echo -e "      GPU: ${BOLD}$VULKAN_DEVICES${NC}"
 
@@ -358,7 +358,7 @@ fi
 
 if command -v vainfo &>/dev/null; then
     VAAPI_OUTPUT=$(vainfo 2>&1)
-    if echo "$VAAPI_OUTPUT" | grep -q "VAProfileNone"; then
+    if grep -q "VAProfileNone" <<<"$VAAPI_OUTPUT"; then
         print_status 0 "VA-API: ${BOLD}Driver loaded${NC}"
         VAAPI_DRIVER=$(echo "$VAAPI_OUTPUT" | grep "Driver version" | cut -d: -f2 | xargs)
         if [ -n "$VAAPI_DRIVER" ]; then
