@@ -3,6 +3,7 @@
 One module, `github.com/LongTermSupport/fedora-desktop/src-go`, for this repository's large
 interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfreeze`,
 `lxcfreeze`, `vmtest`, `ftp-camera`, `watermark`, `wsi` and `open` live here; their bash originals are gone.
+`convert` is new, with no bash original.
 
 ## Layout
 
@@ -48,6 +49,10 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
   by an `os.Pipe`, no shell); the chooser is `ui.Picker`, or a numbered menu on `/dev/tty`
   without fzf. Its one run-time program name is the handler the person chose (a
   `dynamicNames` row).
+- `internal/convert/` — the `convert` command (Plan 00210 `SPEC-convert.md`, E1-E15): the
+  conversion table (input type, output formats, the engine for each pair) is data in
+  `table.go`; each engine spells its program in its own `execx.Cmd` (pandoc for Markdown to
+  DOCX) and writes a temporary that is renamed into place only on success.
 - `internal/wsipost/` — `wsi-postprocess`, the panel menu's Post-Process Last Transcription
   items (Plan 00208, P1-P8 in its package doc): Claude post-processing of the last
   transcription, through the sibling `wsi-claude-process`.
@@ -165,7 +170,7 @@ and `tasks/deploy-freeze.yml` for the freeze tools, which `play-podfreeze.yml` a
 `play-lxcfreeze.yml` import (both import `play-golang.yml` first for the toolchain), and
 `play-vm-test-lab.yml` for `vmtest`, `play-ftp-camera.yml` for `ftp-camera`,
 `play-image-watermarking.yml` for `watermark`, `play-speech-to-text.yml` for `wsi` and
-`play-cli-tools.yml` for `open` (each imports `play-golang.yml` too);
+`play-cli-tools.yml` for `open` and `convert` (each imports `play-golang.yml` too);
 `watermark` is installed root-owned in `/usr/local/bin` (`go_command_owner: root`; only that
 copy runs as root). Each binary lands at its old path. A new deployed command takes a row in
 `scripts/go-binary-suites.tsv`. Never

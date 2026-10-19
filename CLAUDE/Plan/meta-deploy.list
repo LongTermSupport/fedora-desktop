@@ -47,4 +47,9 @@ playbooks/imports/play-claude-yolo.yml
 # /opt/ouch-0.8.1/ through get_url with a pinned sha256 and fails on a mismatch. The first run
 # downloads it once (about 2.8 MB, one changed task); the binary already extracted there is kept
 # (the extract task's creates: guard), so ouch, compress and uncompress are unchanged.
+# Plan 00210 Task 2.1, the same run: installs pandoc (dnf) and the new `convert` command at
+# ~/.local/bin/convert, built from src-go/cmd/convert. Afterwards `convert notes.md` lists what a
+# Markdown file can become (docx) and `convert notes.md --to docx` writes notes.docx beside it.
+# In the login user's shells it shadows ImageMagick's legacy /usr/bin/convert alias (magick is
+# unaffected). Keep this entry until both plans' runs are done.
 playbooks/imports/optional/common/play-cli-tools.yml
