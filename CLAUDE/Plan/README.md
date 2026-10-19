@@ -34,7 +34,7 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00209-agent-bus-v2-in-go](00209-agent-bus-v2-in-go/) - Not Started. The agent bus rebuilt in Go from its requirements (a v2, not a port): one codebase, a host daemon with a read model ccy-teams uses in-process, no sudo for reads, staged cut-over beside v1; design proposed, owner decisions D1-D13
+- [00209-agent-bus-v2-in-go](00209-agent-bus-v2-in-go/) - Not Started. The agent bus rebuilt in Go from its requirements (a v2, not a port): one codebase, reads in-process plus one reader for every team run with no root, every state file and lock shared with v1, staged cut-over with the owner-visible wins first; design revised after Fable's review, owner decisions D1-D20
 
 - [00208-stt-paste-uses-stale-clipboard](00208-stt-paste-uses-stale-clipboard/) - In Progress. Speech-to-text auto-paste pasted the previous dictation: the paste key now waits until the clipboard reads back as this dictation's text, or nothing is pasted and the failure is said
 
