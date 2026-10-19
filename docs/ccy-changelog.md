@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.12.15 — container 2.77.11
+## 3.99.12.16 — container 2.77.12
 
 Follows 3.99.12.12 (container 2.77.8). The image carries the pingbus kit, whose SessionStart
 hook changed, so it is rebuilt once.
@@ -40,6 +40,11 @@ hook changed, so it is rebuilt once.
   running cc session is left running and named; LXC members are left out and named. One line
   per session, and exit 1 if any failed. The lifecycle plugin (1.2.0) gives "the owner
   restarted its team" as the reason for such a restart.
+- **Claude Code's agent view is off in the image** (Plan 00203 Decision 11):
+  `CLAUDE_CODE_DISABLE_AGENT_VIEW=1` (confirmed in Claude Code 2.1.303) switches off
+  `/background`, `--bg`, `claude agents` and their daemon, whose records from a gone container
+  made `--continue` refuse a conversation for good. Background sub-agents and shell tasks stay
+  on.
 
 ## 3.99.12.12 — container 2.77.8
 

@@ -667,6 +667,16 @@ check "the old-sessions migration is not asked on a restart" "1" \
 check "keys, an expired token and a failed token refuse a restart rather than ask" "3" \
     "$(grep -c -F "ccy_restart_refuse \"\$CCY_RESTART_RELAUNCH_SESSION\"" "$LAUNCHER")"
 
+echo "=== the image: Claude Code's agent view off, background tasks on (Plan 00203 C7, D11) ==="
+# A /background record from another PID namespace is counted live for ever, and makes --continue
+# refuse that conversation's lineage (SPEC-team-add-and-restart F5): the agent view is what writes
+# them. Background sub-agents and shell tasks are a different switch and stay on.
+DOCKERFILE="$REPO_ROOT/files/var/local/claude-yolo/Dockerfile"
+check "the image sets CLAUDE_CODE_DISABLE_AGENT_VIEW=1" "1" \
+    "$(grep -c -x -F 'ENV CLAUDE_CODE_DISABLE_AGENT_VIEW=1' "$DOCKERFILE")"
+check "and leaves background tasks on" "0" \
+    "$(grep -c -E 'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS|disableBackgroundTasks' "$DOCKERFILE")"
+
 echo
 printf 'passed: %s  failed: %s\n' "$passed" "$failed"
 [ "$failed" -eq 0 ]
