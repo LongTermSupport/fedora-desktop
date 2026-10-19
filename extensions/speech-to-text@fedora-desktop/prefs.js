@@ -157,13 +157,22 @@ export default class SpeechToTextPreferences extends ExtensionPreferences {
             ['Sonnet', 'Opus', 'Haiku']);
 
         const tokenNames = this._listClaudeTokens(settings.get_string('claude-token'));
-        this._addComboRow(claudeGroup, settings, 'claude-token',
+        const tokenRow = this._addComboRow(claudeGroup, settings, 'claude-token',
             'Claude token',
             'The account post-processing runs as: a named token from ~/.claude-tokens/ccy/tokens ' +
             '(ccy --create-token makes one; the newest unexpired one is used). Desktop login is ' +
             'parked while a cc named-token session runs, so post-processing fails then',
             ['', ...tokenNames],
             ['Desktop login', ...tokenNames]);
+
+        this._addSwitchRow(claudeGroup, settings, 'claude-token-auto',
+            'Use the token with the most allowance left',
+            'Each post-processing runs as the token with the most 5-hour and weekly allowance ' +
+            'left, read with ccy --token-usage: one small request per token, unless read in the ' +
+            'last 15 minutes. When none has any left it fails, and the panel icon shows a warning');
+        // The named token is not used while the automatic choice is on
+        settings.bind('claude-token-auto', tokenRow, 'sensitive',
+            Gio.SettingsBindFlags.GET | Gio.SettingsBindFlags.INVERT_BOOLEAN);
 
         this._addPromptRow(claudeGroup,
             'Edit Corporate Prompt',

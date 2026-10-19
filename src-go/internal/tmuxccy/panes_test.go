@@ -173,6 +173,19 @@ func typeAndSee(t *testing.T, tm *tmuxccy.Tmux, name, text string) {
 	t.Fatalf("screen %q", screen)
 }
 
+// waitForServerExit polls the real server until it reports no server running.
+func waitForServerExit(t *testing.T, tm *tmuxccy.Tmux) {
+	t.Helper()
+	var err error
+	for range 100 {
+		if _, err = tm.Run(context.Background(), "list-sessions"); err != nil && strings.Contains(err.Error(), "no server running") {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("the tmux server did not exit after its last session ended: %v", err)
+}
+
 // The suites' fakes only prove the argv; a real tmux on a private socket proves the targets
 // are accepted, and that the bare =name form is refused for pane commands.
 func TestRealTmuxAcceptsTheTargetsAndRefusesTheBareForm(t *testing.T) {
@@ -208,6 +221,10 @@ func TestRealTmuxAcceptsTheTargetsAndRefusesTheBareForm(t *testing.T) {
 	if err = tm.KillSession(ctx, "alpha"); err != nil {
 		t.Fatal(err)
 	}
+	// The last session gone, the server exits. A command that reaches it mid-exit is told
+	// "server exited unexpectedly", which KillSession rightly calls a failure (TestKillSession),
+	// so the second kill waits until the server has finished exiting.
+	waitForServerExit(t, tm)
 	if err = tm.KillSession(ctx, "alpha"); !errors.Is(err, tmuxccy.ErrSessionGone) {
 		t.Fatalf("killing it twice: %v", err)
 	}

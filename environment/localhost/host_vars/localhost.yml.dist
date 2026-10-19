@@ -73,6 +73,12 @@ user_email: "yourname@example.com"
 #   $ANSIBLE_VAULT;1.2;AES256;localhost
 #   <encrypted-value-goes-here>
 
+# Optional (play-speech-to-text.yml): folders of recordings that stt transcribes by itself
+# every 5 minutes (stt-watch.timer). Absolute paths; unset or empty, nothing is watched. See
+# docs/features/speech-to-text.md "Watching folders".
+# stt_watch_folders:
+#   - "/home/{{ user_login }}/mnt/<drive>/<recordings folder>"
+
 # Optional MOK Password for Secure Boot (DisplayLink, NVIDIA, etc.)
 # Required when installing kernel modules with Secure Boot enabled
 # mok_password: !vault |

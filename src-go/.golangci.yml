@@ -78,6 +78,9 @@ linters:
       # beside camelCase siblings), not ours to choose.
       - path: internal/transcript/transcript\.go
         linters: [tagliatelle]
+      # `ccy --token-usage --json` is ccy's documented report (schema 1, snake_case keys).
+      - path: internal/wsitoken/usage\.go
+        linters: [tagliatelle]
       # A session's membership file is pingbus's wire format (Plan 00203 SPEC-hot-control.md
       # section 3.1, snake_case like the rest of pingbus's files), read by the session's pingbus.
       - path: internal/teams/membership/(membership|desired|report)\.go
@@ -198,6 +201,12 @@ linters:
       - path: internal/wsi/(app|log)\.go
         linters: [gosec]
         text: "G304"
+      # stt reads the recordings the person names on the command line, by computed path, and
+      # checks each part against the MD5 the phone app's manifest records: a comparison with a
+      # checksum it did not choose, not a use of MD5 for security. Its tests build that tree.
+      - path: internal/stt/
+        linters: [gosec]
+        text: "G304|G401|G501|G703"
       - path: internal/wsi/.*_test\.go
         linters: [gosec]
         text: "G304|G306|G703"

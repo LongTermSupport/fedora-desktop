@@ -1,0 +1,20 @@
+[Unit]
+Description=Speech-to-text: transcribe new recordings in the watched folders
+Documentation=https://github.com/LongTermSupport/fedora-desktop
+# Run by stt-watch.timer, deployed by play-speech-to-text.yml from stt_watch_folders in
+# host_vars/localhost.yml. stt itself decides what is ready: a recording whose manifest is
+# not COMPLETE, or whose parts have not all synced, is waiting and left for the next run; a
+# part whose size or MD5 is not the manifest's fails the run. Audio with no manifest is sent
+# once it has gone a minute unchanged. The warm server is started only when something is pending.
+After=graphical-session.target
+# Lingering (play-rclone.yml) starts the user manager at boot; before login there is no one
+# to show a failure to, so the run waits for a graphical session.
+ConditionEnvironment=WAYLAND_DISPLAY
+OnFailure=stt-watch-failed.service
+
+[Service]
+Type=oneshot
+# No timeout: an hour of audio takes minutes, and the timer does not start a second run
+# while this one is going.
+ExecStart=%h/.local/bin/stt{% for folder in stt_watch_folders | default([]) %} "{{ folder | replace('%', '%%') | replace('$', '$$') }}"{% endfor %}
+

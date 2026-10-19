@@ -486,11 +486,23 @@ export TEST_LOG="$LOG" TEST_STATE="$STATE" TEST_ANSWERS="$SCRATCH/answers" TEST_
 export TEST_FZF_RAW="$SCRATCH/fzf-raw"
 unset NO_COLOR WAYLAND_DISPLAY XDG_STATE_HOME
 export TEST_GUM_ANSWERS="$SCRATCH/gum-answers"
-# The ccy image installs a real gum, so every directory holding one is left out.
+# A real gum may be installed (the ccy image, or /usr/bin on a desktop), so a directory holding
+# one is replaced by a mirror of its other programs: only gum goes, not tr or script beside it.
 PATH_WITHOUT_GUM="$BIN"
 IFS=: read -ra path_dirs <<<"$PATH"
+mirror=0
 for dir in "${path_dirs[@]}"; do
-    [ -x "$dir/gum" ] || PATH_WITHOUT_GUM+=":$dir"
+    if [ ! -x "$dir/gum" ]; then
+        PATH_WITHOUT_GUM+=":$dir"
+        continue
+    fi
+    mirror=$((mirror + 1))
+    shim="$SCRATCH/no-gum-$mirror"
+    mkdir -p "$shim"
+    for program in "$dir"/*; do
+        [ "${program##*/}" = gum ] || ln -s "$program" "$shim/"
+    done
+    PATH_WITHOUT_GUM+=":$shim"
 done
 export PATH="$BIN:$GUMBIN:$PATH" HOME="$HOME_DIR" CCY_STATE_DIR="$SCRATCH/ccy-state" CCY_LIB="$LIB_DIR"
 export CCY_TEAMS_HOST_VARS="$HOST_VARS" CCY_TEAMS_LAUNCHER="$BIN/launcher"
