@@ -184,6 +184,9 @@ today; rewriting them is out of scope.
   - Gate: `TestEveryWorkflowSetsUpTheGoFloor` (`src-go/qa/toolchain`) fails when a workflow's
     setup-go names a go.mod whose go directive is not the floor. Red on the old workflow, green
     on the fix.
+  - Review follow-ups: the comments say `setup-go@v5` (later majors read the toolchain line
+    unless `GOTOOLCHAIN=local`); Plan 00204's note is corrected; `qa-routing.tsv` sends
+    `.github/workflows/*.yml` to the go check (SPEC-qa-changed B50).
   - Remaining: the coordinator's push shows CI green. Issue text is in the journal.
 
 - [x] ✅ **Task 3.4**: go-qa-ci diff mode, `go-qa run --changed [--base <ref>]` (M13):

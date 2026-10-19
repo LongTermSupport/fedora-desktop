@@ -46,7 +46,8 @@ jobs:
         with:
           node-version: "20"
 
-      # setup-go installs the go directive of this file and ignores a toolchain line, so it names
+      # setup-go@v5 installs the go directive of this file and ignores a toolchain line (later
+      # majors read the toolchain line unless GOTOOLCHAIN=local), so it names
       # the go.mod with the higher go directive: the Go floor qa-toolchain asserts, and the
       # release the CCY image's GO_VERSION carries. TestEveryWorkflowSetsUpTheGoFloor
       # (src-go/qa/toolchain) fails when it does not.

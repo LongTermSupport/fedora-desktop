@@ -134,10 +134,15 @@ expect_has "a changed suite runs itself" "$plan" "suite scripts/test-planlib.bas
 
 # Built from parts: this suite's own text would otherwise name the file, and a suite that names
 # a changed file covers it — which would turn the "uncovered" fixture into a covered one.
+unmapped="LIC""ENSE"
+plan="$(plan_for "$unmapped")"
+expect_has "unmapped file is reported" "$plan" "not covered by qa-changed: $unmapped"
+
 wf_dir=".github/workflows"
 wf_name="qa"
 plan="$(plan_for "$wf_dir/${wf_name}.yml")"
-expect_has "unmapped file is reported" "$plan" "not covered by qa-changed: $wf_dir/${wf_name}.yml"
+expect_has "a workflow: the Go test that holds setup-go to the Go floor runs" "$plan" "check go"
+expect_lacks "a workflow is covered" "$plan" "not covered by qa-changed"
 
 capture plan_for no/such/file.bash scripts/qa-bash.bash
 expect_rc "nonexistent file beside a real one: exit 0" 0

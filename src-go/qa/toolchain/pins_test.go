@@ -174,8 +174,9 @@ func TestTheGolangciLintPinIsTheOneGoQaCiInstalls(t *testing.T) {
 	}
 }
 
-// actions/setup-go installs the go directive of the go.mod its go-version-file names, never a
-// toolchain line, so every workflow that sets up Go names a go.mod whose go directive is the floor:
+// actions/setup-go@v5 installs the go directive of the go.mod its go-version-file names, never a
+// toolchain line (later majors read the toolchain line unless GOTOOLCHAIN=local), so every
+// workflow that sets up Go names a go.mod whose go directive is the floor:
 // an older Go there fails this gate in CI before anything is built.
 func TestEveryWorkflowSetsUpTheGoFloor(t *testing.T) {
 	root := os.DirFS(filepath.Join("..", "..", ".."))
