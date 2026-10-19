@@ -138,6 +138,22 @@ today; rewriting them is out of scope.
   it, and record the choice. go-qa prints the percentage only when the floor is missed, so the
   measurement needs a run with a deliberately high floor or a profile of its own.
 
+- [ ] 🔄 **Task 3.10**: go-qa-ci diff mode must not fail on a test-only package (found by
+  Fable). The build stage names the changed packages and their importers to `go build`, which
+  refuses a package with no non-test Go file, although `./...` skips it. Here
+  `src-go/internal/freeze/golden` is test-only and imports lxcfreeze, so any change to lxcfreeze
+  or podfreeze failed `qa-changed.bash` at the go stage.
+
+  - Fixed test first in go-qa-ci, branch `build-skips-test-only-packages` (commit `240fbf2`, not
+    yet pushed): the named patterns are resolved with `go list -e` and a package that loads with
+    only test files is left out of `go build`; the test stage still compiles its tests, and a
+    named package that does not load still fails.
+  - Regression check after the bump: a change to `src-go/internal/lxcfreeze` passes the go stage
+    of `./scripts/qa-changed.bash`.
+  - Follow-up, once the coordinator has pushed and merged the fix: bump the go-qa-ci pin in
+    `src-go/qa/go.mod` (both requires) to the merged commit, `go mod tidy` in `src-go/qa`, and
+    run the regression check above.
+
 - [x] ✅ **Task 3.4**: go-qa-ci diff mode, `go-qa run --changed [--base <ref>]` (M13):
   per-package engines on the affected packages and their importers, repo-wide defences always,
   and a change to `go.mod`, `go.sum`, the golangci config, `qa/` or the tool lock widens it to
