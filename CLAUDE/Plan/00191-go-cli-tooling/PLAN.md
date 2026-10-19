@@ -111,7 +111,7 @@ today; rewriting them is out of scope.
   minor items are in `subagent-reports/261014-go-qa-ci-deferred-run*.md`, for a polish pass.
 
 - [x] ✅ **Task 3.3**: This repository's Go QA runs go-qa-ci, pinned. `scripts/qa-go-qa.bash`
-  runs `go-qa run --no-fix` over both modules; go-qa is pinned at go-qa-ci `7fc4547e92f2` by the
+  runs `go-qa run --no-fix` over both modules; go-qa is pinned at go-qa-ci `8e17b432bfd3` (Task 3.10) by the
   `tool` directive of `src-go/qa/go.mod` (one pin for the driver import and the binary) and
   configured by `src-go/qa/go-qa.toml`; it installs its own pinned tools (Task 3.7).
   `scripts/qa-go.bash` is deleted. qa-all runs the gate whole, qa-changed in diff mode for a
