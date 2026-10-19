@@ -9,10 +9,14 @@ Run from the repo root:
 
 from __future__ import annotations
 
+import errno
 import fcntl
+import io
 import json
 import os
 import pathlib
+import shutil
+import signal
 import sys
 import time
 
@@ -206,3 +210,108 @@ class DisconnectedWaitTest(DisconnectedCase):
 
     def test_the_default_wait_is_bounded(self):
         self.assertTrue(5 <= cli.Runtime().disconnect_wait_s <= 30)
+
+    def test_a_ctrl_c_or_a_hangup_while_it_runs_does_not_stop_it(self):
+        """Ctrl-C mashed after the container has gone reaches the launcher's process group."""
+        self.joined()
+        fd = self.hold_as_a_process_that_will_die()
+        self.later(0.3, lambda: os.close(fd))
+        sent: list[int] = []
+
+        def sleep(seconds: float) -> None:
+            for signum in (signal.SIGINT, signal.SIGHUP):
+                if signum not in sent:
+                    sent.append(signum)
+                    os.kill(os.getpid(), signum)
+            time.sleep(seconds)
+
+        before = {signum: signal.getsignal(signum) for signum in (signal.SIGINT, signal.SIGHUP)}
+        rt = self.runtime()
+        rt.sleep = sleep
+        err = io.StringIO()
+        code = cli.main(["seat", "disconnected", "--root", str(self.root), "--session", SESSION,
+                         "--since", str(SINCE)], environ=self.env, stdout=io.StringIO(), stderr=err,
+                        stdin=io.BytesIO(b""), runtime=rt)
+        self.assertEqual(code, cli.EXIT_OK, err.getvalue())
+        self.assertEqual(sent, [signal.SIGINT, signal.SIGHUP])
+        self.assertEqual(len(self.notices()), 1)
+        self.assertEqual({signum: signal.getsignal(signum) for signum in before}, before,
+                         "the handlers are put back")
+
+
+class _DeadTerminal(io.TextIOBase):
+    """The stderr of a process whose terminal was closed: every write fails with EIO."""
+
+    def write(self, text: str) -> int:
+        raise OSError(errno.EIO, os.strerror(errno.EIO))
+
+
+class DisconnectedDeadStderrTest(DisconnectedCase):
+    """A closed terminal or tmux window: the pty has gone, so stderr cannot be written."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.b = self.add_team()
+        self.b_dir = self.root / bus.TEAM_B / "1"
+        self.b_dir.mkdir(parents=True)
+        for directory in (self.root / bus.TEAM_B, self.b_dir):
+            directory.chmod(0o700)
+        shutil.rmtree(self.b.bundle)
+        self.b.bundle = self.b_dir
+        self.b.write_bundle()
+        (self.home / bus.TEAM_B).symlink_to(self.b_dir)
+        self.ref_b = seat.SeatRef("1", bus.TEAM_B)
+        self.report(REF, self.ref_b)
+        self.joined()
+
+    def run_dead(self) -> int:
+        return cli.main(["seat", "disconnected", "--root", str(self.root), "--session", SESSION,
+                         "--since", str(SINCE)], environ=self.env, stdout=io.StringIO(),
+                        stderr=_DeadTerminal(), stdin=io.BytesIO(b""), runtime=self.runtime())
+
+    def test_two_seats_are_both_told_with_stderr_gone(self):
+        self.died_holding()
+        seat.lock_path(self.root, self.ref_b).write_text(f"seat {CLAIM}", encoding="ascii")
+        self.assertEqual(self.run_dead(), cli.EXIT_OK)
+        self.assertEqual(len(self.notices()), 1, "team A")
+        self.assertEqual(len([c for c in self.b.messages_from_me() if NOTICE in c["body"]]), 1, "team B")
+
+    def test_a_failure_with_stderr_gone_is_still_the_exit_and_the_other_seat_is_told(self):
+        self.died_holding()
+        seat.lock_path(self.root, self.ref_b).write_text(f"seat {CLAIM}", encoding="ascii")
+        self.a.write_bundle(base_url=f"http://127.0.0.1:{bus.free_port()}")
+        self.assertNotEqual(self.run_dead(), cli.EXIT_OK)
+        self.assertEqual(len([c for c in self.b.messages_from_me() if NOTICE in c["body"]]), 1)
+
+    def test_every_seat_is_told_before_any_line_is_written(self):
+        self.died_holding()
+        seat.lock_path(self.root, self.ref_b).write_text(f"seat {CLAIM}", encoding="ascii")
+        told_at_first_line: list[int] = []
+
+        class Watching(io.StringIO):
+            def write(inner, text: str) -> int:
+                if not told_at_first_line:
+                    told_at_first_line.append(len(self.notices()) + len(self.b.messages_from_me()))
+                return super().write(text)
+
+        err = Watching()
+        code = cli.main(["seat", "disconnected", "--root", str(self.root), "--session", SESSION,
+                         "--since", str(SINCE)], environ=self.env, stdout=io.StringIO(), stderr=err,
+                        stdin=io.BytesIO(b""), runtime=self.runtime())
+        self.assertEqual(code, cli.EXIT_OK, err.getvalue())
+        self.assertEqual(told_at_first_line, [2])
+        self.assertEqual(err.getvalue().count("✓ seat"), 2)
+
+    def test_a_stderr_that_fails_otherwise_is_not_hidden(self):
+        """Only a terminal that has gone is tolerated; any other write failure is raised."""
+        self.died_holding()
+
+        class Full(io.TextIOBase):
+            def write(self, text: str) -> int:
+                raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+
+        with self.assertRaises(OSError):
+            cli.main(["seat", "disconnected", "--root", str(self.root), "--session", SESSION,
+                      "--since", str(SINCE)], environ=self.env, stdout=io.StringIO(), stderr=Full(),
+                     stdin=io.BytesIO(b""), runtime=self.runtime())
+        self.assertEqual(len(self.notices()), 1, "the seat was told before the report failed")

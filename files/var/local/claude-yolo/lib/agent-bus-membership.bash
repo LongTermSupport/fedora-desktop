@@ -68,14 +68,27 @@ ccy_membership_args() {
     CCY_BUS_DISCONNECT=("$PWD/.claude/ccy/pingbus/seats" "${session:-$container}" "$(date +%s%3N)")
 }
 
+# The most `pingbus seat disconnected` may take: its wait for each seat (15 s) and the posts.
+CCY_BUS_DISCONNECT_TIMEOUT_S="${CCY_BUS_DISCONNECT_TIMEOUT_S:-60}"
+
 # ccy_bus_disconnected — once the container has gone: `pingbus seat disconnected` tells each
 # team of a seat this launch held that ended without its goodbye. Nothing for a launch without
 # the kit or a checkout with no seats. A failure is said on stderr and is not the launcher's:
-# the session has ended, and a restart still goes ahead.
+# the session has ended, and a restart still goes ahead. Ctrl-C pressed again now reaches the
+# launcher's process group, so SIGINT is ignored meanwhile and put back after (a restart's exec
+# would inherit it); `timeout` bounds the run and gives pingbus a process group of its own.
 ccy_bus_disconnected() {
     [ -n "${CCY_BUS_DISCONNECT[0]:-}" ] && [ -d "${CCY_BUS_DISCONNECT[0]}" ] || return 0
-    if ! "$CCY_PINGBUS_COMMAND" seat disconnected --root "${CCY_BUS_DISCONNECT[0]}" \
-        --session "${CCY_BUS_DISCONNECT[1]}" --since "${CCY_BUS_DISCONNECT[2]}"; then
+    local rc=0
+    trap '' INT
+    timeout "$CCY_BUS_DISCONNECT_TIMEOUT_S" "$CCY_PINGBUS_COMMAND" seat disconnected \
+        --root "${CCY_BUS_DISCONNECT[0]}" --session "${CCY_BUS_DISCONNECT[1]}" \
+        --since "${CCY_BUS_DISCONNECT[2]}" || rc=$?
+    trap - INT
+    [ "$rc" -eq 0 ] && return 0
+    if [ "$rc" -eq 124 ]; then
+        print_error "pingbus seat disconnected was stopped after $CCY_BUS_DISCONNECT_TIMEOUT_S s: the team may not have been told this session ended without a goodbye."
+    else
         print_error "pingbus seat disconnected failed (the reason is above): the team was not told this session ended without a goodbye."
     fi
 }

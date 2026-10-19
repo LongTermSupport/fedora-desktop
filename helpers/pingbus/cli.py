@@ -22,6 +22,7 @@ import collections
 import contextlib
 import ctypes
 import dataclasses
+import errno
 import functools
 import hashlib
 import io
@@ -2593,7 +2594,12 @@ def cmd_seat_disconnected(args: argparse.Namespace, environ: Mapping[str, str], 
     session last held, by its report beside the checkout's seats, a seat whose lock still
     names a claim of this launch and no goodbye for it is told `DISCONNECT_TEXT`, from its
     member to the team's humans and coordinator(s). Holding the lock meanwhile, and letting
-    it go, empties it, so a claim is told once. The exit is the first failure's."""
+    it go, empties it, so a claim is told once. The exit is the first failure's.
+
+    It runs as a session ends, when its terminal may have gone: SIGINT and SIGHUP are ignored
+    meanwhile (Ctrl-C pressed again reaches the launcher's process group), and every seat is
+    told before any line is written, so a stderr that has gone stops no notice
+    (`_report_unless_gone`)."""
     rt: Runtime = args.runtime
     root, _ = _seat_paths(argparse.Namespace(root=args.root, home=None), rt, "seat disconnected")
     if not membership.is_session_name(args.session) or args.since < 0:
@@ -2605,15 +2611,34 @@ def cmd_seat_disconnected(args: argparse.Namespace, environ: Mapping[str, str], 
     except membership.MembershipError as exc:
         raise config.ConfigError(f"{PROG} seat disconnected: {exc}") from None
     first_failure: int | None = None
-    for held in () if applied is None else applied.seats:
-        ref = seating.SeatRef(held.seat, held.team)
-        try:
-            _tell_disconnected(root, ref, args.since, environ, rt, err)
-        except FAILURES as exc:
-            code, message = failure(exc)
-            err.write(f"{PROG}: seat {ref.text}: no disconnect notice: {message}\n")
-            first_failure = first_failure or code
+    lines = io.StringIO()
+    with hooks.terminal_signals_ignored():
+        for held in () if applied is None else applied.seats:
+            ref = seating.SeatRef(held.seat, held.team)
+            try:
+                _tell_disconnected(root, ref, args.since, environ, rt, lines)
+            except FAILURES as exc:
+                code, message = failure(exc)
+                lines.write(f"{PROG}: seat {ref.text}: no disconnect notice: {message}\n")
+                first_failure = first_failure or code
+    _report_unless_gone(err, lines.getvalue())
     return EXIT_OK if first_failure is None else first_failure
+
+
+#: What a write to the stderr of a closed terminal or tmux window fails with: the pty has gone.
+TERMINAL_GONE_ERRNOS = frozenset({errno.EIO, errno.EBADF, errno.EPIPE})
+
+
+def _report_unless_gone(err: TextIO, text: str) -> None:
+    """`text` to `err`, unless `err` is a terminal that has gone. Then the report has nowhere to
+    go: the notices are posted and the exit code still says how it went. Any other write
+    failure is raised."""
+    try:
+        err.write(text)
+        err.flush()
+    except OSError as exc:
+        if exc.errno not in TERMINAL_GONE_ERRNOS:
+            raise
 
 
 def _tell_disconnected(root: pathlib.Path, ref: seating.SeatRef, since: int, environ: Mapping[str, str],

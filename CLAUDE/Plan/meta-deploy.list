@@ -41,7 +41,7 @@ playbooks/imports/play-agent-bus.yml
 # MEMBER, KIND and STATE stay on the row and the rest shows above the headings. ccy-teams and
 # ccy-sessions no longer offer a host or podman session in a checkout inside an LXC container's
 # files (read from /etc/lxc/lxc.conf, no root needed); they point to ccy-teams lxc-add instead.
-# Plan 00194 Task 2.0b: ccy 3.99.12.14, container 2.77.10, so the image IS rebuilt on the next
+# Plan 00194 Task 2.0b: ccy 3.99.12.15, container 2.77.11, so the image IS rebuilt on the next
 # launch: the goodbye is no longer cut off when a session ends with Ctrl-C, and a session ended
 # without it (podman stop, a closed terminal, a crash) is told "disconnected" by the launcher,
 # which a closed terminal or a mashed Ctrl-C no longer stops.

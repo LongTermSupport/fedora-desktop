@@ -611,11 +611,12 @@ TERMINAL_SIGNALS = (signal.SIGINT, signal.SIGHUP)
 
 
 @contextlib.contextmanager
-def _terminal_signals_ignored() -> Iterator[None]:
+def terminal_signals_ignored() -> Iterator[None]:
     """`TERMINAL_SIGNALS` ignored meanwhile, then their handlers put back. Claude Code starts a
     hook in a session of its own, so they should not arrive; this holds if one is sent anyway.
-    SIGTERM is left alone: it is how Claude Code ends a hook past its bound. Python sets a
-    handler only from the main thread, where the hook runs; elsewhere nothing changes."""
+    The host's `seat disconnected` uses it too. SIGTERM is left alone: it is how Claude Code
+    (or the launcher's `timeout`) ends a command past its bound. Python sets a handler only
+    from the main thread; elsewhere nothing changes."""
     if threading.current_thread() is not threading.main_thread():
         yield
         return
@@ -910,7 +911,7 @@ class _Hook:
                     for view in seat.session_seats(home, teams) if view.own]
         if goodbyes and self._first_goodbye(home / GOODBYE_FILE):
             claims = {team: self._claim(home / team) for team, _ in goodbyes}
-            with _terminal_signals_ignored():
+            with terminal_signals_ignored():
                 self._post_all(post, goodbyes, claims)
         return {}
 

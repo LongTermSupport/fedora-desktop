@@ -140,10 +140,15 @@ FAKE
 chmod 755 "$bus_bin/ccy-teams"
 
 # The fake host pingbus (CCY_TEAMS_PINGBUS): each call is one line in $FAKE_BUS_LOG; it exits
-# FAKE_PINGBUS_RC.
+# FAKE_PINGBUS_RC. With FAKE_PINGBUS_SLEEP it first takes that long, then logs `pingbus done`
+# (its sleep holds none of the caller's streams, so a kill ends the wait at once).
 cat >"$bus_bin/pingbus" <<'FAKE'
 #!/usr/bin/env bash
 printf 'pingbus %s\n' "$*" >>"$FAKE_BUS_LOG"
+if [ -n "${FAKE_PINGBUS_SLEEP:-}" ]; then
+    sleep "$FAKE_PINGBUS_SLEEP" </dev/null >>"$FAKE_BUS_LOG.sleep" 2>>"$FAKE_BUS_LOG.sleep"
+    echo "pingbus done" >>"$FAKE_BUS_LOG"
+fi
 if [ "${FAKE_PINGBUS_RC:-0}" -ne 0 ]; then
     echo "pingbus: refused (fake)" >&2
 fi
@@ -174,6 +179,18 @@ take_then_disconnect() {
     ccy_seats_take "$@" >/dev/null || return
     ccy_bus_disconnected
 }
+# The same, with Ctrl-C mashed at the launcher's process group while pingbus runs (run under
+# setsid, so the group is this run's alone).
+take_then_disconnect_mashed() {
+    ccy_seats_take "$@" >/dev/null || return
+    (for _ in 1 2 3 4 5; do sleep 0.2; kill -INT 0; done) &
+    ccy_bus_disconnected
+}
+# The cleanup, then what SIGINT is left as (nothing printed: the default).
+disconnect_then_show_int() {
+    take_then_disconnect "$@" || return
+    trap -p INT
+}
 "$@"
 printf 'rc=%s' "$?"
 RUN
@@ -182,6 +199,14 @@ lib_run() {
     (cd "$work" && LIB_DIR="$LIB_DIR" PATH="$bus_bin:$PATH" CCY_MOUNT_RELABEL="${CCY_MOUNT_RELABEL-z}" \
         CCY_TEAMS_PINGBUS="$bus_bin/pingbus" XDG_RUNTIME_DIR="$work/run" \
         bash "$work/lib-run.bash" "$@" 2>"$work/lib.err")
+}
+# lib_run in a process group of its own (setsid; --wait in case it forks), for a test that
+# signals the launcher's process group.
+lib_run_own_group() {
+    : >"$FAKE_BUS_LOG"
+    (cd "$work" && LIB_DIR="$LIB_DIR" PATH="$bus_bin:$PATH" CCY_MOUNT_RELABEL="${CCY_MOUNT_RELABEL-z}" \
+        CCY_TEAMS_PINGBUS="$bus_bin/pingbus" XDG_RUNTIME_DIR="$work/run" \
+        setsid --wait bash "$work/lib-run.bash" "$@" 2>"$work/lib.err")
 }
 INIT="ccy-teams internal membership-init"
 MOUNT="-v|/run/user/1000/ccy/membership/ccy-proj-1:/run/ccy/membership:ro,Z|-e|PINGBUS_MEMBERSHIP=/run/ccy/membership"
@@ -286,6 +311,20 @@ check "no kit (no list, outside tmux): pingbus is not run" "none" "$(bus_calls)"
 check "a failure is said on stderr and is not the launcher's (a restart still goes ahead)" "rc=0" \
     "$(FAKE_PINGBUS_RC=1 lib_run take_then_disconnect dev1@team-a false false yolo-1)"
 check "  it names the command" "yes" "$(has "pingbus seat disconnected failed" "$work/lib.err")"
+check "Ctrl-C mashed while pingbus runs (the container has gone) does not stop it" "rc=0" \
+    "$(FAKE_PINGBUS_SLEEP=1.5 lib_run_own_group take_then_disconnect_mashed dev1@team-a false false yolo-1)"
+check "  pingbus finished" "1" "$(grep -c '^pingbus done$' "$FAKE_BUS_LOG")"
+check "  and nothing was said to have failed" "no" "$(has "failed" "$work/lib.err")"
+check "  SIGINT is the launcher's again afterwards (a restart's exec inherits it)" "rc=0" \
+    "$(lib_run disconnect_then_show_int dev1@team-a false false yolo-1)"
+started=$(date +%s)
+check "a pingbus that hangs is ended at the bound, said, and not the launcher's" "rc=0" \
+    "$(CCY_BUS_DISCONNECT_TIMEOUT_S=1 FAKE_PINGBUS_SLEEP=20 lib_run take_then_disconnect dev1@team-a false false yolo-1)"
+check "  within the bound" "yes" "$(yes_no [ $(($(date +%s) - started)) -lt 10 ])"
+check "  it is said, with the bound" "yes" "$(has "1 s" "$work/lib.err")"
+check "  pingbus did not finish" "0" "$(grep -c '^pingbus done$' "$FAKE_BUS_LOG")"
+check "the bound is the launcher's own by default" "yes" \
+    "$(yes_no grep -qE '^CCY_BUS_DISCONNECT_TIMEOUT_S="\$\{CCY_BUS_DISCONNECT_TIMEOUT_S:-60\}"$' "$LIB_DIR/agent-bus-membership.bash")"
 check "no cleanup before a launch: nothing is run" "rc=0" "$(lib_run ccy_bus_disconnected)"
 check "  pingbus is not run" "none" "$(bus_calls)"
 rm -r "$work/.claude"
