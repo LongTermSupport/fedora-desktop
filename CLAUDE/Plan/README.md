@@ -62,7 +62,7 @@ Use these Unicode icons in plan documents:
 
 - [00190-docker-podman-coexistence-on-host](00190-docker-podman-coexistence-on-host/) - Not Started. The Docker/Podman coexistence concerns left on #41 after Plan 00091
 
-- [00189-ouch-download-sha256-pin](00189-ouch-download-sha256-pin/) - Not Started. The ouch tarball is checked against a pinned sha256 (#63)
+- [00189-ouch-download-sha256-pin](00189-ouch-download-sha256-pin/) - In Progress. The ouch tarball is checked against a pinned sha256 (#63)
 
 - [00188-run-bash-rerun-noise](00188-run-bash-rerun-noise/) - Not Started. A `run.bash` re-run injects only missing pipx packages, with no warnings (#54)
 
