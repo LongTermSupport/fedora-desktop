@@ -202,7 +202,7 @@ Built on `fix/teams-server-robustness`; design and evidence in
   ([SPEC-team-add-and-restart.md](SPEC-team-add-and-restart.md) A1-A10). Picker only. Built
   and tested; Fable's FIX-FIRST fixed; host acceptance to come.
 
-- [ ] 🔄 **Task 3.8** (owner feedback): every member kind has the same roles, built on
+- [x] ✅ **Task 3.8** (owner feedback): every member kind has the same roles, built on
   `fix/teams-member-roles`. Enter on an LXC member row offered Park first and no role. Every
   member row (ccy, cc, LXC, host, docker, vm) now offers the same role action, worded by package
   coordinator's two paths, through one role-change path that dispatches by kind only at the
@@ -214,7 +214,8 @@ Built on `fix/teams-server-robustness`; design and evidence in
   (merged over F44's 3.99.12.14). A member row with no handle yet (a deferred LXC member, a
   seat ccy has not joined) offers no role and no Park. Fable's FIX-FIRST on
   `fix/teams-member-roles-2` fixed, and `fix/lxc-stopped-member-3` merged, on
-  `fix/teams-member-roles-3`. Notes:
+  `fix/teams-member-roles-3`. Deployed in F44 9b9e50e0; the owner confirmed on the host that a
+  running LXC member can be made a team's coordinator. Notes:
   [subagent-reports/261016-member-roles-opus.md](subagent-reports/261016-member-roles-opus.md),
   [subagent-reports/261019-member-roles-remerge-opus.md](subagent-reports/261019-member-roles-remerge-opus.md).
 
