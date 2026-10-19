@@ -19,62 +19,11 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-# Plan 00194 Task 2.0i: installs the pingbus kit on the host and copies it into every declared
-# LXC member's running container. pingbus's own notices (disconnected, the session-end goodbye,
-# the removal goodbye) are no longer refused as duplicates when the same seat sent the same one
-# in the last minute, which lost G3's notice in the last acceptance. Before play-claude-yolo.yml.
-playbooks/imports/play-agent-bus.yml
-# Plan 00194 Task 2.0i: installs ccy 3.99.12.19, container 2.77.15, whose image carries the same
-# pingbus, so it is rebuilt once at the next ccy launch. Running sessions are not touched.
-# The same run deploys Plan 00167 (#90): it builds cc-project-dir beside cc and installs the new
-# cc, which starts at the top of a git repository and, typed outside one, offers this checkout
-# [Y/n] (refusing on no, or with no terminal); afterwards type cc in ~ twice (accept once,
-# decline once) and once in a project subfolder. And Plan 00135 Task 10.1 (#86): it rebuilds
-# ccy-sessions, whose verify-restore now reports a session sitting at Claude Code's
-# conversation picker as WAITING-AT-PROMPT thread-picker, not OK, so
-# fedora-desktop-self-update verify fails on it. Before the 00194 acceptance.
-playbooks/imports/play-claude-yolo.yml
-# Plan 00194 Tasks 2.0b, 2.0h and 2.0i: the goodbye host checks, automated (acceptance.bash;
-# the plan has no triage.bash or deploy.bash), run again for G3 (window closed). An earlier run
-# failed G3 because the launcher's exit ran while its container still held the seats (Task
-# 2.0h). The run at F44 96454752 proved that fix, but pingbus refused G3's notice as a
-# duplicate of G2's, sent 19 s earlier from the same seat (Task 2.0i, fixed by the two plays
-# just above). G3 also keeps the launcher's stderr and the checkout's disconnect.log as
-# evidence. The whole script runs again, so G1 and G2 are repeated. It makes two throwaway teams,
-# starts three idle ccy sessions on them in a scratch checkout on its own tmux server, ends one
-# with Ctrl-C, one with podman stop and one by closing its window, counts the goodbye and
-# disconnected messages each team gets, then removes all of it. No SSH key or agent goes into
-# the sessions. Each launch runs ccy's normal startup clean-up, which removes every exited or
-# created ccy container on the host (as any ccy launch does). The team purge relies on sudo
-# staying cached (it does on this host). One sudo prompt.
-00194-agent-bus-live-delivery-supervisor-plugin
-# Plan 00187 (#100): builds and installs wsi and deploys wsi-stream (restarting the warm
-# speech server) and the panel extension, so that while Claude post-processes a Ctrl+Insert
-# dictation the panel icon is 🤖, and 💬 for Alt+Insert, instead of the orange loading icon;
-# Insert during it flashes the no-entry sign. The extension changed: LOG OUT and back in
-# before it shows. Then look: dictate with Ctrl+Insert, then Alt+Insert, and watch the icon
-# after the orange loading icon (the debug log says "Display: CLAUDE_PROCESSING").
-playbooks/imports/optional/common/play-speech-to-text.yml
-# Plan 00183 Task 2.2 (#52): re-runs the basic configs play, which now imports play-golang.yml
-# (golang is already installed, so no change there), builds git-fetch-age from src-go and
-# installs it root-owned as /usr/local/bin/git-fetch-age, then deploys the new
-# /var/local/ps1-prompt. New shells then show a yellow [fetched 14d ago] beside the directory
-# in a checkout whose last fetch is an hour old or more. It never fetches. Open terminals keep
-# the old prompt until a new shell is started. Asks for the PS1 colour only if none is set.
-playbooks/imports/play-basic-configs.yml
-# Plan 00210 (#102): installs pandoc and builds ~/.local/bin/convert from src-go/cmd/convert.
-# Afterwards `convert notes.md` lists what a Markdown file can become (docx) and
-# `convert notes.md --to docx` writes notes.docx beside it. In the login user's shells it
-# shadows ImageMagick's legacy /usr/bin/convert (use magick). The other CLI tools are re-run
-# unchanged. Before the 00210 acceptance.
-playbooks/imports/optional/common/play-cli-tools.yml
-# Plan 00210 Task 2.2: acceptance.bash (no triage.bash or deploy.bash) runs the installed
-# convert on a fixture Markdown file with headings, a list, a table, bold/italic and a code
-# block, in a scratch directory, and reads the DOCX back with pandoc to confirm each survived.
-# Read-only apart from the scratch directory; no prompts.
-00210-convert-cli-markdown-to-docx
-# The ftp-camera follow-up (140f79809, merged long ago but never deployed: its queue entry was
-# lost in a merge): the ssh-suspend guard play now restarts the running ssh-suspend-guard
-# service whenever its script or unit changes, so the first run restarts the guard once. Host
-# behaviour is otherwise unchanged.
-playbooks/imports/play-prevent-ssh-suspend.yml
+# Plan 00185 Task 1.1 (#60, wrong emoji glyphs): TRIAGE ONLY, READ-ONLY. The plan has only
+# triage.bash; it changes nothing on the host, needs no sudo and never prompts. It records the
+# terminal it runs in and every running terminal emulator (version, start time), the VTE
+# version, the emoji font packages and their install times, fc-match and fc-list for the
+# issue's code points, the fontconfig cache ages, which emoji font file each running terminal
+# has mapped, and the terminals' font and GPU settings. Start meta-deploy from the terminal that
+# draws the wrong emoji, and leave that window open while it runs.
+00185-terminal-emoji-glyphs
