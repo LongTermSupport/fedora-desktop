@@ -68,7 +68,9 @@ Built on `fix/teams-server-robustness`; design and evidence in
   up, and every running member is joined as before. The member record
   `/var/lib/agent-bus-applied/lxc/<team>.json` says what each run found; `ccy-teams apply`, the
   board and `lxc-add` say what was held back. [SPEC-lxc-stopped-members.md](SPEC-lxc-stopped-members.md)
-  L1-L11, built on `fix/lxc-stopped-member`. ccy-teams and the play only: no CCY or image change.
+  L1-L11, built on `fix/lxc-stopped-member` and finished on `fix/lxc-stopped-member-2` (the board,
+  the picker and lxc-add); deploy queued in meta-deploy.list. ccy-teams and the play only: no CCY
+  or image change.
 
 ### Phase 3: hot control build (the spec's milestones, tests first)
 

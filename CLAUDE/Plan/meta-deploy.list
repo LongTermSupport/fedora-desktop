@@ -25,5 +25,15 @@
 # with its homeserver down is refused before any question. ccy-teams waits for the play lock (up
 # to 30 min, with a visible Stop waiting) instead of failing with exit 75, and never leaves a
 # saved-but-unapplied edit. The playwright-tests distrobox cleanup now reports changed only when
-# it removes a container. Running sessions are not touched.
+# it removes a container. Running sessions are not touched. Plan 00203 Task 2.6: ccy-teams apply
+# and lxc-add name the LXC members a play held back because their containers were stopped, lxc-add
+# lists the team's declared members in stopped containers before its yes, and the board shows a
+# deferred member's row and "container stopped at the last apply" on a joined one.
 playbooks/imports/play-claude-yolo.yml
+# Plan 00203 Task 2.6: a stopped LXC container no longer fails the agent-bus play. A member
+# already joined whose container is stopped is skipped (left as it is), one not yet joined is
+# deferred and joined by the first run with its container up; each is printed in a task of its
+# own. The play writes each team's LXC member record under /var/lib/agent-bus-applied/lxc/,
+# which ccy-teams reads. No container is started, and members in running containers are joined
+# and refreshed as before.
+playbooks/imports/play-agent-bus.yml

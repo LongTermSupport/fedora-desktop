@@ -103,6 +103,9 @@ func (r *run) kindActions(row board.Row) []action {
 	case board.KindCcy:
 		return r.seatActions(row, open, start, help)
 	}
+	if row.Handle == "" || row.Handle == "-" {
+		return []action{open, start, help}
+	}
 	return []action{{actRemove, keyRemove, "Park " + row.Handle, "park it"}, open, start, help}
 }
 

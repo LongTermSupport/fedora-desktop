@@ -210,6 +210,26 @@ func TestEveryKeyIsInTheMenuOfTheRowsItActsOn(t *testing.T) {
 	}
 }
 
+// A deferred LXC member (SPEC-lxc-stopped-members.md L10) was never joined, so it has no handle
+// and nothing to park; its menu still starts a session and opens Element.
+func TestADeferredLxcRowOffersNoParking(t *testing.T) {
+	h := newRig(t)
+	r := h.run1(t)
+	row := board.Row{
+		Team: "alpha", Member: "agent@container-c", Kind: "lxc", State: "deferred", Applied: "-", Session: "-",
+		Restore: "-", Where: "deferred: LXC container container-c is STOPPED: start it", Handle: "-", Dir: "-",
+	}
+	labels := h.labels(r, row)
+	for _, l := range labels {
+		if strings.HasPrefix(l, "Park ") {
+			t.Fatalf("menu %q", labels)
+		}
+	}
+	if !slices.Contains(labels, "Open alpha in Element   (Ctrl-E)") {
+		t.Fatalf("menu %q", labels)
+	}
+}
+
 // labels are the menu lines of row.
 func (h rig) labels(r *run, row board.Row) []string {
 	acts := r.actionsFor(row)

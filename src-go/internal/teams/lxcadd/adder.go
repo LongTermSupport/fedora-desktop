@@ -28,6 +28,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcrecord"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
@@ -99,6 +100,8 @@ type Adder struct {
 
 	HostVars string
 	Home     string // for the ~ abbreviation
+	// AppliedDir holds the applied stamps and the LXC member record the play writes.
+	AppliedDir string
 
 	term *term.Term
 	// head is the heading of the question being asked, and asked the steps so far.
@@ -121,7 +124,7 @@ func New(h *host.Host, kit *flow.Kit, o *ops.Ops) *Adder {
 		ApplyTeams: func(ctx context.Context, teams ...string) error { return o.ApplyTeams(ctx, teams) },
 		Locked:     o.Locked,
 		NewTerm:    h.FreshTerm, LookPath: h.LookPath, Stdin: h.Stdin, Stdout: h.Stdout,
-		HostVars: h.HostVars, Home: h.Home,
+		HostVars: h.HostVars, Home: h.Home, AppliedDir: h.AppliedDir,
 	}
 }
 
@@ -217,7 +220,7 @@ func (a *Adder) add(ctx context.Context, team string) error {
 	if err := a.prepare(ctx, team); err != nil {
 		return err
 	}
-	running, err := a.listContainers(ctx)
+	running, stopped, err := a.listContainers(ctx)
 	if err != nil {
 		return err
 	}
@@ -231,15 +234,17 @@ func (a *Adder) add(ctx context.Context, team string) error {
 	if err != nil {
 		return err
 	}
-	held, err := a.coordinatorOf(ctx, team, roster)
+	declared, err := a.Declare.LxcMembers(ctx)
 	if err != nil {
 		return err
 	}
+	held := coordinatorOf(team, roster, declared)
 	ans := answers{team: team, role: roleWorker}
 	a.term.Steps = 4
 	if err = a.ask(ctx, &ans, running, held); err != nil {
 		return err
 	}
+	a.sayStopped(team, declared, stopped)
 	if err = a.summary(ctx, ans); err != nil {
 		return err
 	}
@@ -266,27 +271,58 @@ func (a *Adder) prepare(ctx context.Context, team string) error {
 	return nil
 }
 
-// listContainers is the running containers, asking for root first. A container that is not
-// running cannot join: the play reaches into it with lxc-attach.
-func (a *Adder) listContainers(ctx context.Context) ([]string, error) {
+// listContainers is the running and the stopped containers, asking for root first. Only a
+// running one is offered: the play reaches into it with lxc-attach.
+func (a *Adder) listContainers(ctx context.Context) ([]string, []string, error) {
 	if !a.SudoReady(ctx, readWhy) {
-		return nil, a.failed("so the containers cannot be listed, and nothing was changed.")
+		return nil, nil, a.failed("so the containers cannot be listed, and nothing was changed.")
 	}
 	running, stopped, err := a.Lister.Containers(ctx)
 	if err != nil {
-		return nil, a.failed(err.Error())
+		return nil, nil, a.failed(err.Error())
 	}
 	if len(running) == 0 {
 		msg := "there is no running LXC container on this host to add."
 		if len(stopped) > 0 {
 			msg += " Stopped, so not offered: " + strings.Join(stopped, ", ") + ". Start one, then run this again."
 		}
-		return nil, a.failed(msg)
+		return nil, nil, a.failed(msg)
 	}
 	if len(stopped) > 0 {
 		a.term.Printf("Not offered, as they are not running: %s.\n", strings.Join(stopped, ", "))
 	}
-	return running, nil
+	return running, stopped, nil
+}
+
+// sayStopped names the team's declared present members whose containers are stopped, so the
+// owner knows before the yes that the play holds them back (skipped when joined, deferred when
+// not) and that they do not stop this add (SPEC-lxc-stopped-members.md L11). Nothing is started.
+func (a *Adder) sayStopped(team string, declared []declare.LxcMember, stopped []string) {
+	var named []string
+	for _, m := range declared {
+		if m.Team == team && m.State == "present" && slices.Contains(stopped, m.Container) {
+			named = append(named, m.User+"@"+m.Container)
+		}
+	}
+	if len(named) == 0 {
+		return
+	}
+	a.term.Printf("Declared in %s, container not running: %s. The play skips a member already joined and defers "+
+		"one not yet joined; neither blocks this add. Nothing is started.\n", team, strings.Join(named, ", "))
+}
+
+// deferred is why the last apply deferred the new member, when its record says so (its
+// container stopped between the question and the play); "" when it was not deferred.
+func (a *Adder) deferred(ans answers) (string, error) {
+	rec, found, err := lxcrecord.Read(a.AppliedDir, ans.team)
+	if err != nil || !found {
+		return "", err
+	}
+	item, ok := rec.Find(ans.container, ans.user)
+	if !ok || item.Status != lxcrecord.StatusDeferred {
+		return "", nil
+	}
+	return item.Why, nil
 }
 
 // holding says who holds the team's coordinator role, from the declaration and from the live
@@ -330,20 +366,16 @@ func (a *Adder) teamRoster(ctx context.Context, team string) (agentbus.Roster, e
 
 // coordinatorOf reads the declared LXC members first (a present coordinator there is the one
 // the play will set), then the live roster.
-func (a *Adder) coordinatorOf(ctx context.Context, team string, roster agentbus.Roster) (holding, error) {
-	members, err := a.Declare.LxcMembers(ctx)
-	if err != nil {
-		return holding{}, err
-	}
-	for _, m := range members {
+func coordinatorOf(team string, roster agentbus.Roster, declared []declare.LxcMember) holding {
+	for _, m := range declared {
 		if m.Team == team && m.State == "present" && m.Role == agentbus.RoleCoordinator {
-			return holding{holder: m.User + "@" + m.Container, declared: &m}, nil
+			return holding{holder: m.User + "@" + m.Container, declared: &m}
 		}
 	}
 	if m, ok := roster.Coordinator(); ok {
-		return holding{holder: m.Handle, member: m}, nil
+		return holding{holder: m.Handle, member: m}
 	}
-	return holding{}, nil
+	return holding{}
 }
 
 func (a *Adder) ask(ctx context.Context, ans *answers, running []string, held holding) error {
@@ -647,6 +679,14 @@ func (a *Adder) write(ctx context.Context, ans answers) error {
 	}
 	if err != nil {
 		return err
+	}
+	why, err := a.deferred(ans)
+	if err != nil {
+		return a.failed(err.Error())
+	}
+	if why != "" {
+		a.term.Say(ans.label() + " is declared in " + ans.team + " but deferred, not joined: " + why)
+		return nil
 	}
 	a.term.Say(a.joined(ctx, ans))
 	a.term.Say(a.session(ctx, ans))

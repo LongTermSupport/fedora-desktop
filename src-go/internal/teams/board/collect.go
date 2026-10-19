@@ -19,6 +19,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/discover"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcrecord"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 )
@@ -374,11 +375,15 @@ func (c *Collector) addTeamRows(ctx context.Context, s *Snapshot, team string, s
 	if s.Status[team].State == declare.ApplyUnreadable {
 		where += ", entry unreadable: " + s.Status[team].Detail
 	}
+	lxc, _, err := lxcrecord.Read(c.AppliedDir, team)
+	if err != nil {
+		where += ", " + err.Error()
+	}
 	s.Rows = append(s.Rows, Row{
 		Team: team, Member: s.aboutTeam(team), Kind: KindTeam, State: state, Applied: s.StatusWord(team),
 		Session: "-", Restore: "-", Where: where, Handle: "-", Dir: "-",
 	})
-	s.addMemberRows(c, team, seats)
+	s.addMemberRows(c, team, seats, lxc)
 }
 
 // teamState is a team's STATE and the start of its WHERE: its port, and why its members are
