@@ -189,6 +189,44 @@ class PaneCleanTest(unittest.TestCase):
                 gc.pane_clean(text)
 
 
+class PaneErrorsTest(unittest.TestCase):
+    """A launcher that ended before its container started: its ERROR lines are the reason."""
+
+    REFUSAL = ("Commit signing is on in ~/.gitconfig, but the session has no SSH identity to sign with.")
+
+    def test_the_error_line_without_its_colour_codes(self) -> None:
+        pane = (
+            "✓ Using token: personal (expires in 200 days)\r\n"
+            f"\x1b[0;31mERROR:\x1b[0m {self.REFUSAL}\r\n"
+            "  Every commit in the container would fail. Choose an SSH key at launch.\r\n"
+        )
+        self.assertEqual(gc.pane_errors(pane), [f"ERROR: {self.REFUSAL}"])
+
+    def test_only_lines_starting_with_error_never_the_rest(self) -> None:
+        pane = (
+            "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-secret\n"
+            "the launch said ERROR: in the middle of a line\n"
+            "   ERROR: indented, still the launcher's\n"
+            "\x1b]0;CCY: checkout\x07ERROR: after a title sequence\n"
+            "ERRORS are not errors\n"
+        )
+        self.assertEqual(gc.pane_errors(pane), ["ERROR: indented, still the launcher's",
+                                                "ERROR: after a title sequence"])
+
+    def test_the_last_few_only(self) -> None:
+        pane = "".join(f"ERROR: number {n}\n" for n in range(10))
+        self.assertEqual(gc.pane_errors(pane), [f"ERROR: number {n}" for n in range(10 - gc.PANE_ERRORS_MAX, 10)])
+
+    def test_a_pane_with_no_error_line_gives_nothing(self) -> None:
+        self.assertEqual(gc.pane_errors("Validating token...\n✓ Token validated successfully\n"), [])
+
+    def test_the_command_prints_one_per_line(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            log = pathlib.Path(tmp, "pane.log")
+            log.write_text(f"x\n\x1b[0;31mERROR:\x1b[0m {self.REFUSAL}\n", encoding="utf-8")
+            self.assertEqual(run_main("pane-errors", str(log)), (0, f"ERROR: {self.REFUSAL}\n", ""))
+
+
 class CommandLineTest(unittest.TestCase):
     def test_tally_then_expect_through_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

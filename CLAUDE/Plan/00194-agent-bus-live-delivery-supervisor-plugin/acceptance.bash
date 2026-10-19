@@ -19,7 +19,9 @@
 # WHAT IT CHANGES, all removed on the way out however the run ends (plan_on_cleanup), and first
 # if an interrupted run left it: two throwaway teams, accept194a and accept194b, made and purged
 # by Plan 00201's acceptance legs and declared only in a host_vars file in the run directory; a
-# scratch checkout in the run directory holding seat 1 of each; a tmux server of its own at
+# scratch checkout in the run directory holding seat 1 of each (its own git config turns commit
+# and tag signing off: it never commits, so its sessions launch with --no-ssh and no key or
+# agent of the owner's goes into them); a tmux server of its own at
 # $XDG_RUNTIME_DIR/accept194-tmux/ccy; three idle interactive ccy sessions on both seats, one at
 # a time (accept194-ctrlc, -stop, -window: containers labelled ccy-session=<name>, membership
 # directories); a login of each team's human. Like every ccy launch, the launcher also removes
@@ -160,6 +162,11 @@ if [[ "${FAKE}" -eq 1 ]]; then
     reject_leg "G1 (fake) a goodbye with another reason" gb_fake_case other-reason 1 0
     check_leg "G1 (fake) a quiet terminal" gb_fake_pane clean
     reject_leg "G1 (fake) a terminal showing a traceback" gb_fake_pane traceback
+    check_leg "launch (fake) the scratch checkout's signing off passes ccy's signing check with no SSH identity" gb_fake_signing off
+    reject_leg "launch (fake) a checkout leaving signing to ~/.gitconfig is refused by it" gb_fake_signing inherited
+    check_leg "launch (fake) a launcher that ended early is reported by its ERROR line alone" gb_fake_launcher_died
+    check_leg "launch (fake) a launcher waiting at a question is caught, by name" gb_fake_prompt waiting
+    reject_leg "launch (fake) a launcher still starting is not taken for one waiting" gb_fake_prompt starting
     printf '\nFAKE ACCEPTED: the verdicts accept what each ending should leave and reject the rest\n' | tee -a "${REPORT}"
     plan_finish
 fi

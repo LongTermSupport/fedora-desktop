@@ -28,3 +28,15 @@ playbooks/imports/play-agent-bus.yml
 # Plan 00194 Task 2.0f: installs ccy 3.99.12.17, container 2.77.13, whose image carries the same
 # pingbus: the image is rebuilt once at the next ccy launch. Running sessions are not touched.
 playbooks/imports/play-claude-yolo.yml
+
+# Plan 00194 Task 2.0b: the goodbye host checks, automated (acceptance.bash; the plan has no
+# triage.bash or deploy.bash), run again now that its scratch checkout turns commit signing off
+# (the first run stopped at ccy's signing check, before any goodbye was tested). After
+# play-claude-yolo.yml, so the sessions run the deployed image. It makes two throwaway teams,
+# starts three idle ccy sessions on them in a scratch checkout on its own tmux server, ends one
+# with Ctrl-C, one with podman stop and one by closing its window, counts the goodbye and
+# disconnected messages each team gets, then removes all of it. No SSH key or agent goes into
+# the sessions. Each launch runs ccy's normal startup clean-up, which removes every exited or
+# created ccy container on the host (as any ccy launch does). The team purge relies on sudo
+# staying cached (it does on this host). One sudo prompt.
+00194-agent-bus-live-delivery-supervisor-plugin
