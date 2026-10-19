@@ -5,7 +5,7 @@
 **Owner**: joseph
 **Priority**: Medium
 
-Addresses #49 and #97.
+Addresses #49, #97 and #104.
 
 ## Overview
 
@@ -77,6 +77,22 @@ clone are one checkout or two is settled before building.
 - [ ] ⬜ **Task 3.3**: Single-play mode accepts a private play path inside the clone.
 - [ ] ⬜ **Task 3.4**: `RUN_BASH_VERSION` minor bump, `docs/run-bash-changelog.md`, docs;
   `qa-all.bash`; the `qa-reviewer` agent.
+
+### Phase 4: Automatic backup of localhost.yml (#104)
+
+- [ ] ⬜ **Task 4.1**: Issue #104, "Back up localhost.yml to the private config repo
+  automatically": every change to `localhost.yml` (now also written by `ccy-teams create`
+  through `helpers/agent_bus/declare.py`) reaches the private config repo as a commit that
+  says what changed, with no step from the owner. Phase 2's clone and symlink (#97) deliver
+  the first half: the live file is the clone's working copy, so `git diff` shows every unsaved
+  change, there is no copy to forget, the clone sits under `untracked/` (visible in the ccy
+  container), and the privacy gate is checked before a push. Left for this task, after the
+  owner picks from the issue's options: the commit-and-push trigger ((a) every writer commits
+  through one shared command, (b) a systemd path unit after a quiet period, or (c)
+  `meta-deploy.bash` and `run.bash` commit pending changes at start); a push that fails loudly
+  with the primary account's token (Plan 00139); retiring the local
+  `localhost.yml.backup.*` files once history exists; and a fresh install without the repo
+  keeping today's plain file. Seats and team membership are out of scope (Plan 00197).
 
 ## Success Criteria
 
