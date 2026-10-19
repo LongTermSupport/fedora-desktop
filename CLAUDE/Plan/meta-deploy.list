@@ -21,9 +21,17 @@
 # that is not an entry is a fatal error naming its line number.
 # Plan 00194 Task 2.0b: the host's pingbus kit (seat disconnected) for the ccy launcher's exit,
 # and the member kit's settings with the longer SessionEnd bound. Before play-claude-yolo.yml.
+# Plan 00203 Task 2.6: a stopped LXC container no longer fails the agent-bus play. A member
+# already joined whose container is stopped is skipped (left as it is), one not yet joined is
+# deferred and joined by the first run with its container up; each is printed in a task of its
+# own. The play writes each team's LXC member record under /var/lib/agent-bus-applied/lxc/,
+# which ccy-teams reads, and removes the record of a team left with no LXC entry. No container
+# is started, and members in running containers are joined and refreshed as before. On this
+# first run an already-joined member whose container is stopped shows as deferred (no record
+# yet), until the first run with its container up records it joined.
 # Plan 00203 Task 3.8: installs the new pingbus kit and declare.py on the host and copies the
-# kit into every declared LXC member's container, so an LXC agent is told a role change from
-# ccy-teams while it runs (at its next prompt at once; by its watcher once its session has
+# kit into every declared LXC member's running container, so an LXC agent is told a role change
+# from ccy-teams while it runs (at its next prompt at once; by its watcher once its session has
 # restarted after this run). The status line of every bus session then shows its role in each
 # team, `👥 desktop (coordinator), other (worker)`, and a role change shows at the next refresh
 # (ccy sessions get it with the image below). Applies every team as declared; no team changes
@@ -35,6 +43,10 @@ playbooks/imports/play-agent-bus.yml
 # without it (podman stop, a closed terminal, a crash) is told "disconnected" by the launcher.
 # ccy also refuses, with a clear message, a wrapper that runs a shell launcher through Python,
 # instead of failing with a bare traceback.
+# Plan 00203 Task 2.6: ccy-teams apply and lxc-add name the LXC members a play held back because
+# their containers were stopped, lxc-add lists the team's declared members in stopped containers
+# before its yes, and the board shows a deferred member's row and "container stopped at the
+# last apply" on a joined one.
 # Plan 00203 Task 3.8: every team member kind (ccy, cc, LXC, host, docker, vm) gets the same
 # role actions in ccy-teams, and no menu starts on a destructive action (Park, Remove and Take
 # down are last). This installs ccy 3.99.12.15, container 2.77.11, which carries all of the

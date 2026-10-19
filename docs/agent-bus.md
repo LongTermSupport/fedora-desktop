@@ -398,9 +398,17 @@ way a ccy seat's is: `<repo>` from the checkout's forge remote, `<host>` from th
 `HOOKS_DAEMON_HOSTNAME` its `ccy.env.local` assigns or `local`, `<seat>` the lowest number no
 active member of that `<repo>+<host>.lxc` holds) and run `play-agent-bus.yml`. The play runs `README.lxc`'s steps for you, and checks the result with
 `pingbus config check` on every run. The container and its agent user must already exist,
-the container must be running, and the team must be declared present in `agent_bus_teams`.
+and the team must be declared present in `agent_bus_teams`. A container that is not running
+never fails the play and is never started or entered: its member is `SKIPPED` when it has
+joined already (left as it is until a run with the container up) and `DEFERRED` when it has
+not (start the container and apply again), and every other member is applied in the same run.
+The play records what it found per team in `/var/lib/agent-bus-applied/lxc/<team>.json`, which
+`ccy-teams apply` reads to name the members held back, the board to show a deferred member's
+row, and `ccy-teams lxc-add` to name the team's stopped members before it asks; a team with no
+entry left keeps no record. The full rules are in
+[agent-bus-lxc-members.md](agent-bus-lxc-members.md#containers-that-are-not-running).
 The agent user must have gh logged in to github.com inside the container: the play checks
-it for every container before it changes anything, and stops naming the container and
+it for every running container before it changes anything, and stops naming the container and
 `gh auth login` when it is missing; it never installs gh or supplies a token.
 `play-agent-bus.yml` adds the LXC bridge's subnet (read from the live `lxcbr0`, which
 `play-lxc-install-config.yml` sets up, by `ip -j -4 addr show`) to every present

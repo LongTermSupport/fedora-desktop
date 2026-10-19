@@ -24,6 +24,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcrecord"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -405,6 +406,11 @@ func (o *Ops) applyHeld(ctx context.Context, teams []string) error {
 		o.Term.PrintError("the play finished, but these teams are still not as declared: " + strings.Join(behind, " ") + ".")
 		return errOpFailed
 	}
+	held, err := o.lxcHeldBack(teams)
+	if err != nil {
+		o.Term.PrintError("the play finished, but " + err.Error())
+		return errOpFailed
+	}
 	watched, err := o.elementTeams(ctx, teams)
 	if err != nil {
 		o.childExit(err)
@@ -415,6 +421,34 @@ func (o *Ops) applyHeld(ctx context.Context, teams []string) error {
 			strings.Join(teams, " ") + " runs both again.")
 		return errOpFailed
 	}
+	if held > 0 {
+		o.Term.Say(fmt.Sprintf("Applied: %s, with %d LXC member%s held back (above).", strings.Join(teams, " "), held, plural(held)))
+		return nil
+	}
 	o.Term.Say("Applied: " + strings.Join(teams, " ") + ".")
 	return nil
+}
+
+// lxcHeldBack says each LXC member the play skipped or deferred because its container was not
+// running (SPEC-lxc-stopped-members.md L9), from the teams' member records; it is how many.
+func (o *Ops) lxcHeldBack(teams []string) (int, error) {
+	held := 0
+	for _, team := range teams {
+		rec, _, err := lxcrecord.Read(o.Cfg.AppliedDir, team)
+		if err != nil {
+			return 0, err
+		}
+		for _, item := range rec.HeldBack() {
+			o.Term.Say(team + ": " + item.Label() + " " + item.Words())
+			held++
+		}
+	}
+	return held, nil
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }

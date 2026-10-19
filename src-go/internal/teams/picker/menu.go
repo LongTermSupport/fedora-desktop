@@ -153,13 +153,24 @@ func (r *run) humanActions(row board.Row, open, start, help action) []action {
 // memberActions are an agent member's, whatever its kind (ccy, cc, LXC, host, docker, vm): a
 // ccy seat's own first (attaching its session, restore), then its role, Element, a session of
 // the team, help, and taking it away. Every kind gets the same role action in the same words
-// (Plan 00203 Task 3.8), and one path changes it (seats.ToggleCoordinator).
+// (Plan 00203 Task 3.8), and one path changes it (seats.ToggleCoordinator). A member with no
+// handle yet (a deferred LXC member, a seat ccy has not joined) has no role to change and
+// nothing to park: only a ccy seat's own actions and its Remove seat, which go by its folder.
 func (r *run) memberActions(row board.Row, open, start, help action) []action {
-	remove := action{actRemove, keyRemove, "Park " + row.Handle, "park it"}
-	if row.Kind == board.KindCcy && row.Dir != "-" {
-		remove = action{actRemove, keyRemove, "Remove seat " + row.Label() + " from " + row.Team, "remove seat " + row.Label()}
+	handleless := row.Handle == "" || row.Handle == "-"
+	seat := row.Kind == board.KindCcy && row.Dir != "-"
+	acts := r.seatOwnActions(row)
+	if !handleless {
+		acts = append(acts, r.roleAction(row))
 	}
-	return append(r.seatOwnActions(row), r.roleAction(row), open, start, help, remove)
+	acts = append(acts, open, start, help)
+	switch {
+	case seat:
+		return append(acts, action{actRemove, keyRemove, "Remove seat " + row.Label() + " from " + row.Team, "remove seat " + row.Label()})
+	case handleless:
+		return acts
+	}
+	return append(acts, action{actRemove, keyRemove, "Park " + row.Handle, "park it"})
 }
 
 // seatOwnActions are what only a ccy seat has, first in its menu: attaching its session, and

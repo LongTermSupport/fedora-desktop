@@ -89,3 +89,59 @@ They do collide in these places:
 - PLAN.md and the 26-10-19 journal: plan text, plus the journal union.
 - Versions: lxc-stopped does not bump ccy, but if it changes anything in the image it needs a
   number after 3.99.12.15 / 2.77.11.
+
+## FIX-FIRST round and lxc-stopped merge: fix/teams-member-roles-3
+
+Branch `fix/teams-member-roles-3`, made from `fix/teams-member-roles-2` 04163717. Fable's
+review (FIX-FIRST) is copied beside this report as `261019-member-roles-2-review-fable.md`.
+Not pushed, not merged into F44.
+
+- **Finding 1.** SPEC-hot-control.md H23 step 2 and the `leaveRole` comment in `hot/role.go`
+  now say the coordinator-leaves question starts on No, matching `x.ask(..., false)` and
+  `TestRemoveOfTheCoordinatorAsksAboutItsRoleDefaultingToNo`. The `hot/role.go` line in the
+  conflicts list above is corrected: F44's yes was not a later change on F44. It came in with
+  the question in 7b5ce2e2 (`git log -S`).
+- **Finding 2.** `roles.go`'s error for an unreadable checkout no longer says "it gives no
+  seat". `couldBe` also matches an entry that gives its seat, and the repo can only be read
+  from the checkout. The message now says the checkout is read to tell whether the entry is
+  the handle. It adds "or give each of team X's entries its seat" only when this entry gives
+  no seat. The existing test still pins that advice for a seatless entry. New:
+  `TestAnEntryThatGivesItsSeatAndCannotBeReadIsNotToldToGiveItsSeat` (red on the old message).
+- **Merge of `fix/lxc-stopped-member-3` 6dfa7c9b, `--no-ff`.** There were two textual
+  conflicts, `picker/menu.go` and `meta-deploy.list`. Everything else merged cleanly.
+  - `picker/menu.go`: the lxc-stopped guard in `kindActions` was dropped, and the rule moved
+    into `memberActions`. A row whose handle is "" or "-" gets no role action and no Park. A
+    handle-less row of any kind except ccy gets only open, start and help, exactly as the
+    guard gave it. A ccy seat with no handle yet keeps attach/restore and its "Remove seat",
+    because those go by its folder, not by a handle. That part goes beyond the brief's literal
+    "only open, start and help", and it stops a seat with a working folder from losing Remove
+    seat. `TestADeferredLxcRowOffersNoParking` now also asserts no `actCoordinator` or
+    `actDemote` and no line naming coordinator or worker. New:
+    `TestASeatWithNoHandleYetOffersNoRoleButCanBeRemoved`.
+  - `lxcadd`: `New()` keeps `AppliedDir: h.AppliedDir`, merged cleanly beside `Roles:`.
+    `stopped_test.go` does not fake `SetRole`. Its LXCMEMBER fixtures did need the checkout and
+    seat fields this branch added (7 fields, want 9), so they now carry `/srv/agent` and `-`.
+  - `menu_test.go`: merged cleanly. Both sides' tests are present.
+  - `meta-deploy.list`: lines 1-21 are byte for byte the same on both parents (`cmp`). Each
+    play appears once, agent-bus first and claude-yolo second. The agent-bus comment has the
+    00194 line, then 2.6's stopped-container text, then 3.8's kit/status-line text, which now
+    says "running container". The claude-yolo comment has the 00194 text, then 2.6's ccy-teams
+    text without "(no image change)", which the 3.8 rebuild makes untrue, then 3.8's
+    3.99.12.15 / 2.77.11 text.
+  - PLAN.md and the 26-10-19 journal merged cleanly. The journal headings are in time order
+    (09:50 to 11:14, both sides present). The Task 3.8 member-roles entry in PLAN.md names
+    this round.
+  - Versions stay 3.99.12.15 / 2.77.11. lxc-stopped changes nothing under
+    `files/var/local/claude-yolo/`.
+- Journalled through `mkplan.bash --journal 00203 action`.
+
+### Targeted QA, all green (qa-all not run)
+
+- `go test -race ./internal/teams/...`: all ok. `golangci-lint run ./...`: 0 issues.
+  `gofmt -l`: empty.
+- `scripts/test-ccy-teams.bash`: passed 214, failed 0. `scripts/test-ccy-teams-command.bash`:
+  passed 383, failed 0. `bash scripts/test-ccy-lifecycle.bash`: passed 223, failed 0.
+- agent_bus, agent_bus_lxc and pingbus helper tests by module name (47 modules, PINGBUS\_\*
+  unset): Ran 2438 tests, OK.
+- `scripts/qa-bash-limits.bash`: BASH-LIMITS-OK. `scripts/qa-hidden-bindings.bash`:
+  HIDDEN-BINDINGS-OK. `ansible-playbook --syntax-check playbooks/imports/play-agent-bus.yml`: OK.

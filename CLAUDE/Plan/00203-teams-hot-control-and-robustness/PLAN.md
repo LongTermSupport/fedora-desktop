@@ -63,6 +63,15 @@ Built on `fix/teams-server-robustness`; design and evidence in
   `agent-bus health status`; the sign-in limits said where a password is issued.
 - [ ] 🔄 **Task 2.4** (gap 9): `service: true` LXC members run as a unit in their container.
 - [ ] ⬜ **Task 2.5**: host acceptance passed (meta-deploy), and B1-B2 after a reboot.
+- [ ] 🔄 **Task 2.6** (owner, urgent): play-agent-bus.yml never fails because an LXC member's
+  container is not running: a joined one is skipped, any other deferred to the first run with it
+  up, and every running member is joined as before. The member record
+  `/var/lib/agent-bus-applied/lxc/<team>.json` says what each run found; `ccy-teams apply`, the
+  board and `lxc-add` say what was held back. [SPEC-lxc-stopped-members.md](SPEC-lxc-stopped-members.md)
+  L1-L11, built on `fix/lxc-stopped-member` and finished on `fix/lxc-stopped-member-2` (the board,
+  the picker and lxc-add); Fable's FIX-FIRST (docs, the record of a team with no entry left, the
+  stamps' group refusal) fixed on `fix/lxc-stopped-member-3`; deploy queued in meta-deploy.list. ccy-teams and the play only: no CCY
+  or image change.
 
 ### Phase 3: hot control build (the spec's milestones, tests first)
 
@@ -200,8 +209,12 @@ Built on `fix/teams-server-robustness`; design and evidence in
   member's handle. The status line shows each team with this session's role,
   `👥 desktop (coordinator), other (worker)`, read on every refresh from the team record the
   role notice reads; `(role?)` where it cannot be read. CCY 3.99.12.15, container 2.77.11
-  (merged over F44's 3.99.12.14). Notes:
-  [subagent-reports/261016-member-roles-opus.md](subagent-reports/261016-member-roles-opus.md).
+  (merged over F44's 3.99.12.14). A member row with no handle yet (a deferred LXC member, a
+  seat ccy has not joined) offers no role and no Park. Fable's FIX-FIRST on
+  `fix/teams-member-roles-2` fixed, and `fix/lxc-stopped-member-3` merged, on
+  `fix/teams-member-roles-3`. Notes:
+  [subagent-reports/261016-member-roles-opus.md](subagent-reports/261016-member-roles-opus.md),
+  [subagent-reports/261019-member-roles-remerge-opus.md](subagent-reports/261019-member-roles-remerge-opus.md).
 
 - [ ] ⬜ **Task 3.9**: each session's conversation recorded by the pingbus SessionStart hook
   beside its report, and restore after a reboot resuming it by id, never `--continue`
