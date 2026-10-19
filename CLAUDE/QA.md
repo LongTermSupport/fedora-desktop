@@ -1114,7 +1114,7 @@ but still owes the whole gates it implies (the bash-limits gate for a deleted ba
 allowlisted path, the Go gate and the command suites for a deleted `src-go/` file) and selects
 the suites that name it. The gate scripts take no file list, so the same tools are invoked on
 the changed files; the gates that are cheap (`qa-ansible.bash`, `qa-docs.bash`) run whole. A
-changed file that maps to no check — a workflow, a `.j2` no suite names — is listed as `not covered by qa-changed`, never skipped silently. Left to `qa-all.bash`: the Python-template
+changed file that maps to no check — a `.j2` no suite names — is listed as `not covered by qa-changed`, never skipped silently. Left to `qa-all.bash`: the Python-template
 compile, semgrep parse-coverage assertions, helper-test counts, extension-compat,
 panel-contract, deployed-drift, and every suite no changed file is named in.
 
