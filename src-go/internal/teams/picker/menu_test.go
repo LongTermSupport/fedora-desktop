@@ -34,6 +34,7 @@ func TestEnterOnAPersonWhoHasNeverSignedInOffersSigningInFirst(t *testing.T) {
 	if !slices.Contains(rows, "Open alpha in Element   (Ctrl-E)") {
 		t.Fatalf("menu %q", rows)
 	}
+	h.Script.HeadingAt(1, "Teams › alpha › owner\nhuman owner in team alpha · in room")
 	if last := h.Script.Rows[1][len(h.Script.Rows[1])-1]; last != "Back to the list" {
 		t.Fatalf("the menu ends with %q", last)
 	}
@@ -69,6 +70,7 @@ func TestATeamsMenuHeaderShowsItsWholeDescription(t *testing.T) {
 	if !strings.Contains(h.HeaderOf(1), "What to do with team alpha:") || !strings.Contains(h.HeaderOf(1), long) {
 		t.Fatalf("header %q", h.HeaderOf(1))
 	}
+	h.Script.HeadingAt(1, "Teams › alpha\nteam alpha · up")
 }
 
 func TestATeamsMenuOpensEveryTeamInElement(t *testing.T) {
@@ -281,7 +283,7 @@ func TestASeatsMenuOnATeamWithACoordinatorOffersTheTakeoverLast(t *testing.T) {
 	if at < 0 || slices.ContainsFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Make it the coordinator") }) {
 		t.Fatalf("seat menu %q", labels)
 	}
-	if remove := slices.IndexFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Remove seat 1 from alpha") }); remove < 0 || at < remove {
+	if remove := slices.IndexFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Remove seat proj.1+local.podman from alpha") }); remove < 0 || at < remove {
 		t.Fatalf("the takeover is less prominent than the ordinary choices, after Remove seat: %q", labels)
 	}
 }

@@ -45,6 +45,8 @@ type Gum struct {
 	Runner execx.Runner
 	Stdin  io.Reader
 	Stderr io.Writer
+	// Plain draws the heading without colour: NO_COLOR, or not a terminal.
+	Plain bool
 }
 
 // exitCode is a command's non-zero exit, or -1 when the error is not an exit at all.
@@ -55,10 +57,13 @@ func exitCode(err error) int {
 	return -1
 }
 
-// Confirm is a yes/no: gum exits 0 for yes and 1 for no (Esc is a no in gum confirm); any
-// other exit (130 on Ctrl-C) cancels.
-func (g *Gum) Confirm(ctx context.Context, question string, defaultYes bool) (bool, error) {
-	_, err := g.run(ctx, "confirm", fmt.Sprintf("--default=%t", defaultYes), question)
+// Confirm is a yes/no under the heading h: gum exits 0 for yes and 1 for no (Esc is a no in
+// gum confirm); any other exit (130 on Ctrl-C) cancels.
+func (g *Gum) Confirm(ctx context.Context, h Heading, question string, defaultYes bool) (bool, error) {
+	if err := h.check(); err != nil {
+		return false, err
+	}
+	_, err := g.run(ctx, "confirm", fmt.Sprintf("--default=%t", defaultYes), h.above(question, !g.Plain, g.headingWidth(ctx)))
 	switch code := exitCode(err); {
 	case err == nil:
 		return true, nil
@@ -71,19 +76,25 @@ func (g *Gum) Confirm(ctx context.Context, question string, defaultYes bool) (bo
 	}
 }
 
-// Input is one line of text, trimmed. gum 0.17 exits 1 on Esc and 130 on Ctrl-C; both
-// cancel.
-func (g *Gum) Input(ctx context.Context, header, placeholder, value string) (string, error) {
-	res, err := g.run(ctx, "input", "--header", header, "--placeholder", placeholder, "--value", value, "--width", "0")
+// Input is one line of text under the heading h, trimmed. gum 0.17 exits 1 on Esc and 130 on
+// Ctrl-C; both cancel.
+func (g *Gum) Input(ctx context.Context, h Heading, header, placeholder, value string) (string, error) {
+	if err := h.check(); err != nil {
+		return "", err
+	}
+	res, err := g.run(ctx, "input", "--header", h.above(header, !g.Plain, g.headingWidth(ctx)), "--placeholder", placeholder, "--value", value, "--width", "0")
 	if err != nil {
 		return "", cancelOrFail("gum input", err)
 	}
 	return strings.TrimSpace(string(res.Stdout)), nil
 }
 
-// Choose is one of options, starting on selected.
-func (g *Gum) Choose(ctx context.Context, header, selected string, options []string) (string, error) {
-	args := append([]string{"choose", "--header", header, "--selected", selected}, options...)
+// Choose is one of options under the heading h, starting on selected.
+func (g *Gum) Choose(ctx context.Context, h Heading, header, selected string, options []string) (string, error) {
+	if err := h.check(); err != nil {
+		return "", err
+	}
+	args := append([]string{"choose", "--header", h.above(header, !g.Plain, g.headingWidth(ctx)), "--selected", selected}, options...)
 	res, err := g.run(ctx, args...)
 	if err != nil {
 		return "", cancelOrFail("gum choose", err)

@@ -62,11 +62,11 @@ func TestFzfGroupAndDrillDownUseTheLegacyArgvAndTheChoiceIsActedOn(t *testing.T)
 	got := *runs
 	eqStrings(t, "group argv", got[0].args, []string{
 		"--height=50%", "--reverse", "--prompt=podfreeze: ",
-		"--header=ENTER acts on the chosen group — ESC to quit",
+		"--header=podfreeze\n9 groups\n────────────────────────\nENTER acts on the chosen group — ESC to quit",
 	})
 	eqStrings(t, "drill-down argv", got[1].args, []string{
 		"--multi", "--height=60%", "--reverse", "--prompt=In this group: ",
-		"--header=ENTER on the first row acts on all — TAB picks specific ones, ESC goes back",
+		"--header=podfreeze › network: appnet\n2 containers\n───────────────────────────\nENTER on the first row acts on all — TAB picks specific ones, ESC goes back",
 	})
 	if len(got[0].rows) != 9 || got[0].rows[0] != menuLabel("all CCY (Claude) containers", "FREEZE 1") {
 		t.Fatalf("the labels, one per line, go on stdin: %q", got[0].rows)

@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.99.12.11"  # Container 2.77.8: the goodbye survives Ctrl-C; a session ended without it is told "disconnected". See docs/ccy-changelog.md.
+CCY_VERSION="3.99.12.14"  # Container 2.77.10: the goodbye survives Ctrl-C; a session ended without it is told "disconnected". See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -78,7 +78,7 @@ source "$SCRIPT_DIR/lib/agent-bus-seats.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.77.8"
+REQUIRED_CONTAINER_VERSION="2.77.10"
 
 set -e
 
@@ -3190,24 +3190,19 @@ else
         fi
     done < <(container_cmd network ls --format "{{.Name}}" 2>/dev/null)
 
-    # Check for compose files if no matching network found (and not already handled)
-    if [ ${#MATCHING_NETWORKS[@]} -eq 0 ] && [ -z "$SPECIFIED_NETWORK" ] && [ "$COMPOSE_ALREADY_HANDLED" != "true" ]; then
-        # Scan for compose files in project root
-        COMPOSE_FILES_FOUND=()
-        for pattern in "docker-compose.yml" "docker-compose.yaml" "podman-compose.yml" "podman-compose.yaml" "compose.yml" "compose.yaml"; do
-            if [ -f "$pattern" ]; then
-                COMPOSE_FILES_FOUND+=("$pattern")
-            fi
-        done
-
-        if [ ${#COMPOSE_FILES_FOUND[@]} -gt 0 ]; then
+    # Check for compose files if no matching network found (and not already handled). A compose
+    # question answered above (started, or a no) is this launch's answer: it is not asked twice.
+    if [ ${#MATCHING_NETWORKS[@]} -eq 0 ] && [ -z "$SPECIFIED_NETWORK" ] && [ "$COMPOSE_ALREADY_HANDLED" != "true" ] \
+        && [ -z "${CCY_COMPOSE_OUTCOME:-}" ] && [ "${CCY_COMPOSE_DECLINED:-false}" != true ]; then
+        # Scan for compose files in project root (has_compose_files sets COMPOSE_FILES)
+        if has_compose_files; then
             echo ""
             echo "════════════════════════════════════════════════════════════════════════════════"
             echo "Compose Files Detected"
             echo "════════════════════════════════════════════════════════════════════════════════"
             echo ""
             echo "Found compose files but no matching project networks are running:"
-            for cf in "${COMPOSE_FILES_FOUND[@]}"; do
+            for cf in "${COMPOSE_FILES[@]}"; do
                 echo "  • $cf"
             done
             echo ""

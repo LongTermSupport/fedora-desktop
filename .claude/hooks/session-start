@@ -15,6 +15,19 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Plan 00477 Task 5.2: a pulled daemon.expected_version upgrade is synced by
+# provision.sh --background, started here DETACHED so this hook never waits on
+# it. It decides for itself whether anything needs syncing, records its outcome
+# for the SessionStart version check to report, and writes its own log. It sits
+# above the relay guard block so a relay-enabled project starts it too, and is
+# skipped on the relay's --no-relay fallback, which already passed here.
+if [[ "${1:-}" != "--no-relay" && -f "$SCRIPT_DIR/../provision.sh" ]]; then
+    if command -v setsid > /dev/null; then
+        setsid bash "$SCRIPT_DIR/../provision.sh" --background < /dev/null > /dev/null 2>&1 &
+    else
+        nohup bash "$SCRIPT_DIR/../provision.sh" --background < /dev/null > /dev/null 2>&1 &
+    fi
+fi
 source "$SCRIPT_DIR/../init.sh"
 
 # Try to start daemon - if it fails, output proper JSON error to stdout

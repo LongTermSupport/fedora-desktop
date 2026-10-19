@@ -21,6 +21,7 @@ func newRig(t *testing.T, covering string) rig {
 	w := teamtest.Populated(t)
 	c := teamtest.Interactive(t, w)
 	w.On("git rev-parse --is-inside-work-tree", "true\n", 0)
+	w.On("git rev-parse --show-toplevel", w.Checkout()+"\n", 0)
 	w.On("git remote get-url origin", "git@example.com:example-org/proj.git\n", 0)
 	w.OnDeclare("github-remote", "example-org/proj\n")
 	w.OnDeclare("teams-for", covering)
@@ -83,6 +84,17 @@ func TestNotAGitCheckoutFails(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	if !strings.Contains(h.ErrOut.String(), "not a git checkout") || h.Out.String() != "" {
+		t.Fatalf("stdout %q stderr %q", h.Out.String(), h.ErrOut.String())
+	}
+}
+
+func TestAContainersCheckoutFindsNoTeamForAHostSession(t *testing.T) {
+	h := newRig(t, "TEAM\talpha\n")
+	top := h.InLxcCheckout()
+	if code := h.f.Run(t.Context(), nil); code != term.ExitFailure {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.Contains(h.ErrOut.String(), top+" is LXC container "+teamtest.LxcContainer+"'s checkout") || h.Out.String() != "" {
 		t.Fatalf("stdout %q stderr %q", h.Out.String(), h.ErrOut.String())
 	}
 }

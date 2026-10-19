@@ -90,6 +90,16 @@ func (r gitRepo) fileAtRef(ctx context.Context, ref, path string) (string, bool,
 	return text, err == nil, err
 }
 
+// upgradeShippedFiles is every file a hooks-daemon upgrade commit reachable from HEAD names in
+// its UPGRADE_METADATA modified_files list.
+func (r gitRepo) upgradeShippedFiles(ctx context.Context) (map[string]bool, error) {
+	out, err := r.git.Run(ctx, r.dir, "log", "--format=%B%x00", "--fixed-strings", "--grep="+upgradeMetadataOpen, "HEAD")
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpgradeMetadata(out), nil
+}
+
 // mergeBaseWithDefault is the commit HEAD shares with origin's default branch: the point a
 // change started from, however many commits it has made and whether or not they are pushed.
 // A repository whose default branch is unknown is an error, not "compare with HEAD".

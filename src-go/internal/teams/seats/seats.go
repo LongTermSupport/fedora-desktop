@@ -14,7 +14,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccyenv"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/hostcheckout"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
@@ -28,12 +28,13 @@ import (
 
 // Seats is the flows on a team's seats. Every dependency is a field so a test stands in for each.
 type Seats struct {
-	Kit     *flow.Kit
-	Ops     *ops.Ops
-	Tmux    *tmuxccy.Tmux
-	Git     *gitx.Git
-	Bus     *agentbus.Client
-	Systemd *systemd.Systemd
+	Kit  *flow.Kit
+	Ops  *ops.Ops
+	Tmux *tmuxccy.Tmux
+	// Checkouts says whether the folder ccy-teams runs in is a checkout a session may start in.
+	Checkouts *hostcheckout.Finder
+	Bus       *agentbus.Client
+	Systemd   *systemd.Systemd
 	// Registry finds the session registry, which depends on the environment.
 	Registry func() (*registry.Store, error)
 	// Here is the folder the command was run in.
@@ -46,7 +47,7 @@ type Seats struct {
 // New is the Seats flows over a host.
 func New(h *host.Host, kit *flow.Kit, o *ops.Ops) *Seats {
 	return &Seats{
-		Kit: kit, Ops: o, Tmux: h.Tmux, Git: h.Git, Bus: h.Bus, Systemd: h.Systemd, Registry: h.Registry,
+		Kit: kit, Ops: o, Tmux: h.Tmux, Checkouts: h.Checkouts, Bus: h.Bus, Systemd: h.Systemd, Registry: h.Registry,
 		Here: h.Here, Exec: h.Exec, Launcher: h.Launcher,
 	}
 }
@@ -74,7 +75,7 @@ func (s *Seats) AttachSeat(ctx context.Context, snap *board.Snapshot, row board.
 		return s.Kit.Refuse(ctx, row.Handle+" is a ccy member whose checkout is not known here, so there is no session to attach.")
 	}
 	if _, live := snap.Live[row.Session]; !live {
-		return s.Kit.Refuse(ctx, "Seat "+row.Member+"@"+row.Team+" has no running session to attach. Ctrl-N starts one.")
+		return s.Kit.Refuse(ctx, "Seat "+row.Label()+" in "+row.Team+" has no running session to attach. Ctrl-N starts one.")
 	}
 	return s.AttachSession(ctx, snap, row.Session)
 }
@@ -140,7 +141,7 @@ func seatChoices(top, team string, seats []agentbus.Seat, roster agentbus.Roster
 	var rows, tags []string
 	for _, seat := range seats {
 		if seat.Team == team && !seat.Held {
-			rows, tags = append(rows, "Seat "+seat.Seat+"@"+team+"   free"), append(tags, seat.Seat+"@"+team)
+			rows, tags = append(rows, agentbus.Label(seat.Handle, "")+"   free"), append(tags, seat.Seat+"@"+team)
 		}
 	}
 	return append(rows, "Seat "+strconv.Itoa(next)+"@"+team+"   new"), append(tags, strconv.Itoa(next)+"@"+team), nil
@@ -148,14 +149,16 @@ func seatChoices(top, team string, seats []agentbus.Seat, roster agentbus.Roster
 
 // NewSession starts ccy in this checkout, in a free seat of the team or a new one.
 func (s *Seats) NewSession(ctx context.Context, snap *board.Snapshot, team string) (flow.Result, error) {
-	project, err := s.Git.ProjectHere(ctx, "")
-	if err != nil {
-		s.Kit.ReportErr(err)
-		return flow.Refused, flow.Leave(term.ExitFailure)
-	}
-	if !project {
+	here, err := s.Checkouts.Find(ctx, "")
+	switch {
+	case err != nil:
+		return s.Kit.Refuse(ctx, "No session is started: "+err.Error()+".")
+	case here.Top == "":
 		return s.Kit.Refuse(ctx, s.Kit.Abbrev(s.Here())+" is not a project folder (no git repository), so ccy cannot be started here.")
+	case !here.Host():
+		return s.Kit.Refuse(ctx, here.Refusal(s.Kit.Abbrev(here.Top)))
 	}
+	top := here.Top
 	state, err := s.Systemd.HomeserverState(ctx, team)
 	if err != nil {
 		s.Kit.Term.PrintError(err.Error())
@@ -163,11 +166,6 @@ func (s *Seats) NewSession(ctx context.Context, snap *board.Snapshot, team strin
 	}
 	if state != systemd.HomeserverUp {
 		return s.Kit.Refuse(ctx, team+"'s homeserver is down, so no session can join it.")
-	}
-	top, err := s.Git.TopLevel(ctx, "")
-	if err != nil {
-		s.Kit.ReportErr(err)
-		return flow.Refused, flow.Leave(term.ExitFailure)
 	}
 	seats, unreadable, err := s.Bus.SeatList(ctx, top)
 	if err != nil || unreadable {
@@ -182,7 +180,7 @@ func (s *Seats) NewSession(ctx context.Context, snap *board.Snapshot, team strin
 		s.Kit.Term.PrintError(err.Error())
 		return flow.Refused, flow.Leave(term.ExitFailure)
 	}
-	picked, err := s.Kit.Choose(ctx, ui.PickSpec{
+	picked, err := s.Kit.Choose(ctx, flow.Here(team, "New session").About("team "+team+" · in "+s.Kit.Abbrev(top)), ui.PickSpec{
 		Title: "New ccy session in " + team,
 		Header: ui.Header("Enter start   Esc or q back", "Runs ccy --teams <seat>@"+team+" in "+s.Kit.Abbrev(top)+
 			"; a new seat is created by that launch (sudo)."),
@@ -247,8 +245,8 @@ func (s *Seats) RemoveOrPark(ctx context.Context, snap *board.Snapshot, row boar
 
 func (s *Seats) removeSeat(ctx context.Context, row board.Row) (flow.Result, error) {
 	ref := row.Member + "@" + row.Team
-	yes, err := s.Kit.Confirm(ctx, "Remove seat "+ref+"?",
-		row.Handle+" is parked (its token revoked; its history kept) and the seat's directory in "+s.Kit.Abbrev(row.Dir)+
+	yes, err := s.Kit.Confirm(ctx, flow.Here(row.Team, row.Crumb(), "Remove").About("seat "+ref+" · "+row.Handle+" · in "+s.Kit.Abbrev(row.Dir)),
+		"Remove seat "+ref+"? "+row.Handle+" is parked (its token revoked; its history kept) and the seat's directory in "+s.Kit.Abbrev(row.Dir)+
 			" deleted. Launching into "+ref+" again brings it back.",
 		"remove "+ref, false)
 	if err != nil || !yes {
@@ -265,8 +263,8 @@ func (s *Seats) removeSeat(ctx context.Context, row board.Row) (flow.Result, err
 }
 
 func (s *Seats) park(ctx context.Context, row board.Row) (flow.Result, error) {
-	yes, err := s.Kit.Confirm(ctx, "Park "+row.Handle+"?",
-		"Its token is revoked; its account, role and room are kept. add-member --seat returns it, "+
+	yes, err := s.Kit.Confirm(ctx, flow.Here(row.Team, row.Crumb(), "Park").About(row.Handle+" in team "+row.Team+" · "+row.State),
+		"Park "+row.Handle+"? Its token is revoked; its account, role and room are kept. add-member --seat returns it, "+
 			"and an agent_bus_lxc_members entry is returned by the next play run unless set absent.",
 		"park "+row.Handle, false)
 	if err != nil || !yes {

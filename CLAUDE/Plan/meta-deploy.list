@@ -28,7 +28,21 @@ playbooks/imports/optional/common/play-speech-to-text.yml
 # and the member kit's settings with the longer SessionEnd bound. Before play-claude-yolo.yml.
 playbooks/imports/play-agent-bus.yml
 
-# Plan 00194 Task 2.0b: ccy 3.99.12.11, container 2.77.8 (rebuilt on next launch): the goodbye
-# is no longer cut off when a session ends with Ctrl-C, and a session ended without it
-# (podman stop, a closed terminal, a crash) is told "disconnected" by the launcher.
+# CCY 3.99.12.11: deploys the launcher whose compose start question is asked once per launch,
+# a no kept (it used to be asked again straight after). The image is unchanged: no rebuild.
+# Plan 00204 D4 and Plan 00201 Task 2.17: rebuilds ccy-teams and ccy-sessions, nothing to
+# restart; running sessions are not touched. Every screen has a context heading saying where it
+# is and what it acts on (Teams › alpha › Add LXC member · step 3/4 Checkout over "into team
+# alpha · container …"; ccy --teams heads each team "New session › Team 2 of 3: …"; Teams ›
+# <team> › Settings), wrapped at its › and · separators on a narrow terminal, never cut off.
+# Every seat is shown by its whole handle (<repo>.<seat>+<host>.<type>, the coordinator's with
+# (coordinator) beside it) in the list, --list, the menus and the headings; the table's columns
+# are sized to their longest value and nothing is cut short, and on a narrow terminal TEAM,
+# MEMBER, KIND and STATE stay on the row and the rest shows above the headings. ccy-teams and
+# ccy-sessions no longer offer a host or podman session in a checkout inside an LXC container's
+# files (read from /etc/lxc/lxc.conf, no root needed); they point to ccy-teams lxc-add instead.
+# Plan 00194 Task 2.0b: ccy 3.99.12.14, container 2.77.10, so the image IS rebuilt on the next
+# launch: the goodbye is no longer cut off when a session ends with Ctrl-C, and a session ended
+# without it (podman stop, a closed terminal, a crash) is told "disconnected" by the launcher,
+# which a closed terminal or a mashed Ctrl-C no longer stops.
 playbooks/imports/play-claude-yolo.yml

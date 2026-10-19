@@ -17,9 +17,9 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.12.11 — container 2.77.8
+## 3.99.12.14 — container 2.77.10
 
-Follows 3.99.12.10 (container 2.77.7).
+Follows 3.99.12.13 (container 2.77.9).
 
 - **The goodbye is sent when a session is ended with Ctrl-C** (Plan 00194 Task 2.0b). Claude
   Code gave every SessionEnd hook 1.5 s together, and the plugin hook's own `timeout` did not
@@ -31,6 +31,25 @@ Follows 3.99.12.10 (container 2.77.7).
   launcher's exit now runs `pingbus seat disconnected` on the host, which posts
   `<handle> disconnected: session ended without a goodbye` for each seat the session held with
   no goodbye recorded, at most once per seat (needs `play-agent-bus.yml` for the host pingbus).
+  It posts to every seat before it reports, so a closed terminal (whose stderr is gone) still
+  has every seat told, and Ctrl-C pressed again after the container has gone does not stop it:
+  the launcher ignores SIGINT while it runs, bounded at 60 s.
+- **A scheduled restart still says goodbye**: the supervisor records a restart only after
+  Claude Code has exited, so the hook cannot tell it from `/exit` (a follow-up in Plan 00194).
+
+---
+
+## 3.99.12.11 — container 2.77.7
+
+Follows 3.99.12.10 (container 2.77.7); the image is unchanged.
+
+- **The compose start question is asked once per launch, and a no is kept.** When the
+  project's saved network was gone, `offer_compose_start` asked "Start services with
+  podman-compose up -d?", and on n the launcher's own "Compose Files Detected" block asked
+  "Start compose services?" straight after. That block now runs only when no compose question
+  was answered earlier in the launch, and once a no is given every later offer in the same
+  launch (for example after choosing to connect to a network) is answered no without asking.
+  Answering y and every `--compose` mode behave as before.
 
 ## 3.99.12.10 — container 2.77.7
 

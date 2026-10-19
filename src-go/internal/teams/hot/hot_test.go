@@ -492,3 +492,25 @@ func TestAChangeInProgressRefusesAnotherOnTheSameSession(t *testing.T) {
 		t.Fatalf("the change names itself in the lock: %q %v", data, err)
 	}
 }
+
+// A change's question is headed with the path the picker's Running sessions view shows: the
+// session, the change, and the teams it acts on.
+func TestEachChangeIsHeadedWithTheSessionAndWhatItChanges(t *testing.T) {
+	for args, want := range map[string]string{
+		"add ccy-proj alpha/3":            "Teams › Running sessions › ccy-proj › Add to alpha\nsession ccy-proj · team alpha",
+		"remove ccy-proj alpha":           "Teams › Running sessions › ccy-proj › Remove from alpha\nsession ccy-proj · team alpha",
+		"move ccy-proj alpha beta":        "Teams › Running sessions › ccy-proj › Move from alpha\nsession ccy-proj · from team alpha to team beta",
+		"role ccy-proj alpha coordinator": "Teams › Running sessions › ccy-proj › Role in alpha\nsession ccy-proj · team alpha · becomes coordinator",
+		"repair ccy-proj":                 "Teams › Running sessions › ccy-proj › Repair its seat keeper\nsession ccy-proj",
+	} {
+		words := strings.Fields(args)
+		r, err := parse(words[0], words[1:])
+		if err != nil {
+			t.Fatalf("%s: %v", args, err)
+		}
+		h := r.heading()
+		if got := h.Trail() + "\n" + h.Context; got != want {
+			t.Errorf("%s:\n got %q\nwant %q", args, got, want)
+		}
+	}
+}
