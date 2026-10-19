@@ -27,4 +27,7 @@
 playbooks/imports/play-agent-bus.yml
 # Plan 00194 Task 2.0f: installs ccy 3.99.12.17, container 2.77.13, whose image carries the same
 # pingbus: the image is rebuilt once at the next ccy launch. Running sessions are not touched.
+# Plan 00203 Task 3.14: the same run builds and installs ccy-teams with `ccy-teams wind-down
+# <team>` and the team menu's Wind down the team's sessions (/goal clear, then the wind-down
+# instruction, typed into each running session of the team). Nothing is wound down by the run.
 playbooks/imports/play-claude-yolo.yml

@@ -144,6 +144,31 @@ func TestATeamsMenuRestartsItsDesktopSessions(t *testing.T) {
 	}
 }
 
+// Plan 00203 SPEC-team-wind-down.md W12: a team row's menu winds its sessions down, a visible
+// line with no key, after Restart and before Shut down, never first; it asks first, default No.
+func TestATeamsMenuWindsItsSessionsDown(t *testing.T) {
+	h := newRig(t)
+	r := h.run1(t)
+	labels := h.labels(r, h.row(t, r.snap, board.NoDescription))
+	at := index(t, labels, windDownLabel)
+	if restart := index(t, labels, "Restart the team's desktop sessions"); at != restart+1 {
+		t.Fatalf("wind down follows Restart: %q", labels)
+	}
+	if shutdown := index(t, labels, "Shut down every session of alpha"); at > shutdown || at == 0 {
+		t.Fatalf("wind down comes before Shut down and is not first: %q", labels)
+	}
+	checkOrder(t, "team menu", labels)
+	h.Script.Fzf = []string{"|alpha", "|" + windDownLabel, "|EXIT", "|ABORT"}
+	if code := h.run(); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	for _, want := range []string{"Team alpha: 1 session to wind down.", "Nothing was wound down.", "Press Enter to go back to the list."} {
+		if !strings.Contains(h.ErrOut.String(), want) {
+			t.Fatalf("stderr lacks %q: %s", want, h.ErrOut.String())
+		}
+	}
+}
+
 // SPEC-many-teams.md S-F1: a team row's menu has one visible "Edit settings" choice (no key),
 // which opens the team's settings screen.
 func TestATeamsMenuOpensItsSettings(t *testing.T) {

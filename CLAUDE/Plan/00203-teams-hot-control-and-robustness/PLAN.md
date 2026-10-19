@@ -250,6 +250,17 @@ Built on `fix/teams-server-robustness`; design and evidence in
   measurement to come. Next, separately: one agent-bus call for the whole board
   ([report](subagent-reports/261019-teams-open-speed-opus.md)).
 
+- [ ] 🔄 **Task 3.14** (owner request): wind a team down.
+  `ccy-teams wind-down <team> [--yes]` and the team menu's Wind down the team's sessions: every
+  running desktop session of the team, the coordinator included, gets `/goal clear` typed into
+  its pane at an idle moment, then the wind-down instruction (save and push work in progress,
+  stop sub-agents, record where unfinished work stands, then stop), typed too, so it is the
+  owner's own turn and never a bus message. LXC members, members elsewhere and unnamed held seats
+  are out of reach from the host and fail the run, named with the text to give them by hand
+  ([SPEC-team-wind-down.md](SPEC-team-wind-down.md) W1-W13). ccy-teams only: no CCY or image
+  change. Host acceptance to come. Known limit: the ccy supervisor's own goal injection can type
+  a new `/goal` after a wind-down while the daemon's goal ledger owes one (SPEC section 4).
+
 ## Decisions
 
 These were settled by the coordinator under the owner's standing "do not gate on me". **The owner
