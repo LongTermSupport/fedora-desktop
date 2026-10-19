@@ -19,3 +19,10 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Plan 00194 Task 2.0b: the goodbye host checks, automated (acceptance.bash; the plan has no
+# triage.bash or deploy.bash). It makes two throwaway teams, starts three idle ccy sessions on
+# them in a scratch checkout on its own tmux server, ends one with Ctrl-C, one with podman stop
+# and one by closing its window, counts the goodbye and disconnected messages each team gets,
+# then removes all of it. It changes nothing else. One sudo prompt.
+00194-agent-bus-live-delivery-supervisor-plugin
