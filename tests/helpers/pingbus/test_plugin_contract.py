@@ -30,7 +30,7 @@ import unittest
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
-from helpers.pingbus import cli, config, envelope, hooks, limits, protocol
+from helpers.pingbus import cli, config, envelope, hooks, limits, protocol, seat
 
 KIT = REPO_ROOT / "files" / "opt" / "claude-yolo" / "optional" / "agent-bus"
 PLUGIN = KIT / "plugin" / "pingbus"
@@ -42,8 +42,9 @@ LAUNCHER = KIT / "agent-bus-claude"
 
 #: The hooks whose subcommand does something. `session-end` removes the session's teams record
 #: the status line reads and posts the goodbye (Plan 00194 Task 2.0b); it is registered with a
-#: `timeout` above the hook's own cap, because Claude Code gives a SessionEnd hook only a short
-#: default.
+#: `timeout` above the hook's own cap. That alone does not give it the time: Claude Code bounds
+#: every SessionEnd hook together at 1.5 s and a plugin hook's `timeout` does not raise the
+#: bound, so the settings carry CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS (test_settings_…).
 REGISTERED = {"SessionStart": "session-start", "UserPromptSubmit": "prompt", "Stop": "stop",
               "PostToolUse": "post-tool", "SessionEnd": "session-end"}
 #: The one hook that is matched to a tool: the `SENT` echo follows `pingbus say` and `send`,
@@ -88,9 +89,11 @@ class PluginLayoutTest(unittest.TestCase):
     def test_settings_accept_cross_session_inbound(self) -> None:
         # U01: in bypass mode without this setting a notice is held and no turn starts.
         # Plan 00201 S-C6: the status line is pingbus's, which runs the session's own first.
+        # Plan 00194 Task 2.0b: the SessionEnd bound a ccy session's settings raise (seat.py).
         self.assertEqual(load_json(SETTINGS), {
             "crossSessionInbound": "accept",
             "statusLine": {"type": "command", "command": "pingbus status-line", "refreshInterval": 1},
+            "env": {"CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS": str(seat.SESSION_END_BUDGET_MS)},
         })
 
     def test_every_kit_file_is_tracked_by_name(self) -> None:

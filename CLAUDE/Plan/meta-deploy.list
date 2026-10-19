@@ -19,3 +19,13 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+# Plan 00194 Task 2.0b: the host's pingbus kit (seat disconnected) for the ccy launcher's exit,
+# and the member kit's settings with the longer SessionEnd bound. Before play-claude-yolo.yml.
+playbooks/imports/play-agent-bus.yml
+
+# Plan 00194 Task 2.0b: ccy 3.99.12.14, container 2.77.10, so the image IS rebuilt on the next
+# launch: the goodbye is no longer cut off when a session ends with Ctrl-C, and a session ended
+# without it (podman stop, a closed terminal, a crash) is told "disconnected" by the launcher.
+# ccy also refuses, with a clear message, a wrapper that runs a shell launcher through Python,
+# instead of failing with a bare traceback.
+playbooks/imports/play-claude-yolo.yml

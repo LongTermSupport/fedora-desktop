@@ -473,6 +473,34 @@ rm -f "$work/plugins/ccy_lifecycle.py"
 check "a missing plugin file is refused" "rc=1" "$(wrapper_case "python3 $SUP --" 7200 '' claude)"
 check "…and says to rebuild" "yes" "$(has 'ccy --rebuild' "$work/wrapper.err")"
 
+# A wrapper that hands a python interpreter the daemon's #!/bin/sh launcher gets a Python
+# SyntaxError from the launcher's first function. The daemon's launcher migration rewrites
+# "python3 <dir>/claude-supervise.py" to "python3 <dir>/claude-supervise", which is that wrapper.
+mkdir -p "$work/sh-launcher"
+printf '#!/bin/sh\nMIN_MAJOR=3\nrun_unsupervised() {\n    :\n}\n' >"$work/sh-launcher/claude-supervise"
+printf '_PLUGIN_API_MAJOR = 1\n' >"$work/sh-launcher/claude-supervise.py"
+check "python3 on the sh launcher is refused before exec" "rc=1" \
+    "$(wrapper_case "python3 $work/sh-launcher/claude-supervise --arm --" '' '' claude)"
+check "…and names the fix" "yes" \
+    "$(has 'Point CCY_CLAUDE_WRAPPER at claude-supervise (no python3) or claude-supervise.py' "$work/wrapper.err")"
+check "…and says what the wrapper was" "yes" \
+    "$(has "python3 $work/sh-launcher/claude-supervise --arm --" "$work/wrapper.err")"
+check "an interpreter named by path is judged the same" "rc=1" \
+    "$(wrapper_case "/usr/bin/python3.12 $work/sh-launcher/claude-supervise --" '' '' claude)"
+printf '#!/usr/bin/env bash\necho hi\n' >"$work/sh-launcher/other-script"
+check "python3 on any bash script is refused" "rc=1" \
+    "$(wrapper_case "python3 $work/sh-launcher/other-script --" '' '' claude)"
+printf '#!/usr/bin/env python3\nMIN_MAJOR = 3\n' >"$work/sh-launcher/claude-supervise"
+check "python3 on a python-shebang file beside a .py sibling still runs" \
+    "python3|$work/sh-launcher/claude-supervise|--|claude" \
+    "$(wrapper_case "python3 $work/sh-launcher/claude-supervise --" '' '' claude)"
+check "python3 on the .py itself still runs" \
+    "python3|$work/sh-launcher/claude-supervise.py|--arm|--|claude" \
+    "$(wrapper_case "python3 $work/sh-launcher/claude-supervise.py --arm --" '' '' claude)"
+check "the launcher run directly still runs" \
+    "$work/sh-launcher/claude-supervise|--arm|--|claude" \
+    "$(wrapper_case "$work/sh-launcher/claude-supervise --arm --" '' '' claude)"
+
 echo "=== launcher and image wiring ==="
 
 check "launcher sources the library" "1" \

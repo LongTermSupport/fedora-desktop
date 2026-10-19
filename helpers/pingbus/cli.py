@@ -22,6 +22,7 @@ import collections
 import contextlib
 import ctypes
 import dataclasses
+import errno
 import functools
 import hashlib
 import io
@@ -705,6 +706,9 @@ class Runtime:
     #: How long `seat retire` and `seat farewell` wait for a removed team's sync lock: its
     #: watcher thread lets it go once the long poll in flight ends (Plan 00203 H11, H23).
     sync_wait_s: float = limits.SYNC_LONG_POLL_S + 10.0
+    #: How long `seat disconnected` waits for a seat the session held to be let go: a closed
+    #: terminal runs the launcher's exit while the container is still stopping.
+    disconnect_wait_s: float = 15.0
     #: The keeper's ties to its process: dying with its parent, and its output once running.
     die_with_parent: Callable[[], object] = lambda: die_with_parent()
     detach: Callable[[pathlib.Path, bool], object] = lambda log, ready: detach_keeper(log, ready)
@@ -2579,6 +2583,99 @@ def cmd_seat_farewell(args: argparse.Namespace, environ: Mapping[str, str], out:
     return EXIT_OK
 
 
+#: Plan 00194 Task 2.0b: what the host says of a seat whose session ended without its goodbye.
+DISCONNECT_TEXT = "{handle} disconnected: session ended without a goodbye"
+DISCONNECT_POLL_S = 0.5
+
+
+def cmd_seat_disconnected(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO,
+                          err: TextIO) -> int:
+    """On the host, once a launch's container has gone (protocol §12): for each seat the
+    session last held, by its report beside the checkout's seats, a seat whose lock still
+    names a claim of this launch and no goodbye for it is told `DISCONNECT_TEXT`, from its
+    member to the team's humans and coordinator(s). Holding the lock meanwhile, and letting
+    it go, empties it, so a claim is told once. The exit is the first failure's.
+
+    It runs as a session ends, when its terminal may have gone: SIGINT and SIGHUP are ignored
+    meanwhile (Ctrl-C pressed again reaches the launcher's process group), and every seat is
+    told before any line is written, so a stderr that has gone stops no notice
+    (`_report_unless_gone`)."""
+    rt: Runtime = args.runtime
+    root, _ = _seat_paths(argparse.Namespace(root=args.root, home=None), rt, "seat disconnected")
+    if not membership.is_session_name(args.session) or args.since < 0:
+        raise config.UsageError(f"{PROG} seat disconnected: --session is a session's name and "
+                                "--since a time in epoch milliseconds")
+    report = root.parent / seating.SESSIONS_DIR / args.session
+    try:
+        applied = membership.read_applied(report)
+    except membership.MembershipError as exc:
+        raise config.ConfigError(f"{PROG} seat disconnected: {exc}") from None
+    first_failure: int | None = None
+    lines = io.StringIO()
+    with hooks.terminal_signals_ignored():
+        for held in () if applied is None else applied.seats:
+            ref = seating.SeatRef(held.seat, held.team)
+            try:
+                _tell_disconnected(root, ref, args.since, environ, rt, lines)
+            except FAILURES as exc:
+                code, message = failure(exc)
+                lines.write(f"{PROG}: seat {ref.text}: no disconnect notice: {message}\n")
+                first_failure = first_failure or code
+    _report_unless_gone(err, lines.getvalue())
+    return EXIT_OK if first_failure is None else first_failure
+
+
+#: What a write to the stderr of a closed terminal or tmux window fails with: the pty has gone.
+TERMINAL_GONE_ERRNOS = frozenset({errno.EIO, errno.EBADF, errno.EPIPE})
+
+
+def _report_unless_gone(err: TextIO, text: str) -> None:
+    """`text` to `err`, unless `err` is a terminal that has gone. Then the report has nowhere to
+    go: the notices are posted and the exit code still says how it went. Any other write
+    failure is raised."""
+    try:
+        err.write(text)
+        err.flush()
+    except OSError as exc:
+        if exc.errno not in TERMINAL_GONE_ERRNOS:
+            raise
+
+
+def _tell_disconnected(root: pathlib.Path, ref: seating.SeatRef, since: int, environ: Mapping[str, str],
+                       rt: Runtime, err: TextIO) -> None:
+    path = seating.lock_path(root, ref)
+    give_up = rt.monotonic() + rt.disconnect_wait_s
+    while inbox.probe_lock_at(path) is not None:
+        if rt.monotonic() >= give_up:
+            err.write(f"{PROG}: seat {ref.text}: still held {rt.disconnect_wait_s:g} s after the "
+                      "session ended, so it is left to its holder; no disconnect notice\n")
+            return
+        rt.sleep(DISCONNECT_POLL_S)
+    claimed = inbox.read_claim_at(path)
+    if claimed is None or claimed < since:
+        return
+    try:
+        lock = inbox.acquire_lock_at(path, inbox.SEAT_KIND, sleep=rt.sleep)
+    except inbox.Busy:
+        return  # a session took the seat meanwhile: the claim is its keeper's now
+    with lock:
+        if inbox.parse_claim(lock.previous) != claimed:
+            return
+        directory = seating.seat_dir(root, ref)
+        try:
+            said = seating.goodbye_said(directory, claimed)
+        except inbox.StateError as exc:
+            err.write(f"{PROG}: seat {ref.text}: its goodbye record is unreadable, so none is "
+                      f"counted: {exc}\n")
+            said = False
+        if said:
+            return
+        member = config.read_member(ref.team, directory)
+        _post_to_humans_and_coordinators(member, environ, rt, err, DISCONNECT_TEXT.format(handle=member.handle))
+    err.write(f"✓ seat {ref.text}: the session ended without a goodbye, so the team was told it "
+              "disconnected\n")
+
+
 def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
     class Parser(argparse.ArgumentParser):
         """Usage errors exit 64 (never argparse's 2); help goes to the given stdout."""
@@ -2711,6 +2808,16 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
     seat_farewell.add_argument("--root", metavar="DIR", help="the checkout's seats (default: ccy's)")
     seat_farewell.add_argument("seat", metavar="SEAT@TEAM")
     seat_farewell.set_defaults(handler=cmd_seat_farewell)
+    seat_disconnected = seat_commands.add_parser(
+        "disconnected", help="on the host, once a launch's container has gone: tell each team of a "
+                             "seat it held that ended without its goodbye")
+    team_option(seat_disconnected, argparse.SUPPRESS)
+    seat_disconnected.add_argument("--root", metavar="DIR", required=True, help="the checkout's seats")
+    seat_disconnected.add_argument("--session", metavar="NAME", required=True,
+                                   help="the session whose report names its seats")
+    seat_disconnected.add_argument("--since", metavar="MS", type=int, required=True,
+                                   help="the launch's start, in epoch milliseconds")
+    seat_disconnected.set_defaults(handler=cmd_seat_disconnected)
     reach = command("reach", cmd_reach, "whether this environment reaches --team's homeserver (3 s)")
     reach.add_argument("--root", metavar="DIR", help="the checkout's seats (default: ccy's)")
     return parser
