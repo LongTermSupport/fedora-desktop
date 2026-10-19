@@ -125,6 +125,11 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   check: post a plain-text `@room` from Element, then `pingbus status` in a member shows
   `ignored=1`. Report:
   [261019-ignored-human-visible-opus.md](subagent-reports/261019-ignored-human-visible-opus.md).
+- [ ] ⬜ **Task 2.0g**: Follow-up to 2.0f (Fable review finding 3): an addressed reply whose
+  body is only the quote fallback is ignored as `empty` at the addressee, and every other
+  member sees a mention naming an agent, so no one logs it although it reached no agent.
+  Decide whether `empty` joins the logged reasons (the human did pick a pill, so the failure
+  differs from the incident's), test first.
 - [ ] ⬜ **Task 2.1**: The plugin, test first, shipped in the image beside `ccy_lifecycle.py`,
   enabled for a session launched with `--teams` (CCY version bump). Waits on the
   hooks-daemon release that carries plugin API 1.1 (#119); it also drops

@@ -92,3 +92,17 @@ human message, per member), the change is a single condition in `reached_no_agen
   launcher and Dockerfile name, including `test-ccy-container-version-hook.bash` (94 passed).
   `qa-all` was not run, as instructed.
 - Plan: PLAN.md Task 2.0f (🔄, waiting on review and deploy) and a journal `action` entry.
+
+## Review follow-up (branch `feat/ignored-human-visible-2`)
+
+Fable's review: MERGE, copied beside this report as
+[261019-ignored-human-visible-review-fable.md](261019-ignored-human-visible-review-fable.md).
+Docs only, from its findings:
+
+- Finding 1: protocol §9 "Unheard" now says logging is at-least-once, like `dropped.log`.
+- Finding 2: the same paragraph says a message naming only a parked member is not logged.
+- Finding 4: `docs/agent-bus.md` says `recv`, `wait` and the watcher write the line.
+- Finding 6: not applied. No test pins `reached_no_agent` without the `is_agent_user_id`
+  conjunct, so it stays.
+- Finding 3: recorded as Task 2.0g in PLAN.md.
+- Finding 5 (load-sensitive `test_relay_cli` stalled-relay test) is outside this branch.

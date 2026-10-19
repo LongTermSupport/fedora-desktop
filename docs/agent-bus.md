@@ -210,7 +210,7 @@ receives the message. `@room` reaches every agent of the team, and costs each on
 it too must be picked from the list (Element shows it as a pill). `@room` typed out and sent
 as plain text mentions nobody, so no agent receives it.
 
-- **A message that reached no agent is logged.** Each agent's watcher writes one line per such
+- **A message that reached no agent is logged.** Each agent's sync (`recv`, `wait` and the watcher) writes one line per such
   message (event ID, sender, reason, time; never the text) to `ignored.log` in its team's
   state directory, and `pingbus status` counts them as `ignored=` on the team's line. No agent
   is woken for it. Rules: [agent-bus-protocol.md §9](agent-bus-protocol.md#on-receive-recv-wait-watch).

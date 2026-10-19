@@ -541,8 +541,11 @@ syncer appends one line to `ignored.log`, in `dropped.log`'s format: team, event
 user ID, reason code (`not-addressed`, the one code), time; never the body. It is not a
 drop: no `DROPPED` count, no effect on the exit code, nothing delivered, no turn. A message
 naming another agent is that agent's and is not logged; a ping or agent text for others is
-never logged. `status` counts the lines (`ignored`, §13). Like `dropped.log`, the file is
-append-only and not rotated.
+never logged. A message naming only a parked member (§8) is not logged either: the parked member
+keeps its role, so the message reaches it on resume unless it is stale by then. `status` counts the
+lines (`ignored`, §13). Like `dropped.log`, the file is append-only, not rotated, and
+at-least-once: a crash between the append and the sync token's save logs that batch's unheard
+events again, so `ignored` is not an exact count.
 
 After the batch's inbox writes are durable, the sync token is saved.
 
