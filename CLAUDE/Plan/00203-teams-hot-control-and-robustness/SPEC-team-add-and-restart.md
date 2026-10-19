@@ -78,7 +78,10 @@ the facts in section 3 show `--continue` picks the wrong conversation or refuses
   wrote; the directory is `/workspace/.claude/ccy/pingbus/sessions/<name>` for ccy and
   `<checkout>/.claude/ccy/pingbus/sessions/<name>` for cc.
 - C2. It is written on every SessionStart, so it follows `/clear`, a resume and a compaction.
-  A write that fails is one stderr line, never a failed hook.
+  A write that fails is one stderr line, never a failed hook. A session holding no seat runs
+  no hook under the inert contract (SPEC-hot-control.md H33), so its SessionStart, and only
+  that, runs `pingbus hook conversation`, which writes the record and answers `{}`
+  (Decision 12).
 - C3. Why the hook and not `~/.claude/sessions/<pid>.json`: the hook is told the id at each
   change and names the session through the host's own membership file; the PID file needs the
   session's PID namespace, which is gone after a reboot, and its stale entries are F5's trap.
@@ -87,10 +90,15 @@ the facts in section 3 show `--continue` picks the wrong conversation or refuses
   grow, CLAUDE.md's bash limits); the report directory is the one place both kinds of session
   and the host share.
 - C4. The host reads it with `conversation.For(record)` (`src-go/internal/conversation`): the
-  file must be exactly C1's shape, name the record's session, carry a Claude session id (a
-  UUID), and that conversation's transcript must exist (`transcript.Dir`). Anything else is an
-  error naming the session and the file, and the way to resume by hand (`ccy --resume`, whose
-  picker lists the conversations).
+  record's own launch must have carried the bus (`discover.LaunchedWithBus`; Fable's review,
+  the M6 B1 class: a `--no-bus` launch under a reused name writes nothing, so a file there is
+  an earlier session's); the file must be exactly C1's shape, name the record's session, carry
+  a Claude session id (a UUID), and that id's own transcript must exist (`transcript.Dir`,
+  then `<id>.jsonl`, never the newest in the folder). Anything else is an error naming the
+  session and the file, and the way to resume by hand (`ccy --resume`, whose picker lists the
+  conversations). A cc session's file is under the git checkout around its folder (cc takes
+  the top level), found by walking up to the `.git`. Not checked: a bus launch whose hook never
+  ran (it died before its first SessionStart) leaves the earlier session's file in place.
 - C5. `registry.ResumeArgs(compose, prefix, args, id)` is RestoreArgs with every recorded
   conversation selector removed (`-c`, `--continue`, `-r`/`--resume` and their value,
   `--session-id` and its value, either side of `--`) and one `--resume <id>` appended, as the
@@ -138,7 +146,7 @@ the facts in section 3 show `--continue` picks the wrong conversation or refuses
 
 ## 5. Decisions for the owner
 
-Recorded in PLAN.md as Decisions 8 to 11; each runs as stated until the owner decides.
+Recorded in PLAN.md as Decisions 8 to 12; each runs as stated until the owner decides.
 
 - D8. A running ccy member is restarted in place, at its next idle moment, through its own
   supervisor (B4), rather than skipped. It picks up the current image, keeps its tmux session
@@ -151,3 +159,6 @@ Recorded in PLAN.md as Decisions 8 to 11; each runs as stated until the owner de
   session, not only the bus ones.
 - D11. The agent view is switched off in the image's environment (C7), not in the project's
   `settings.json`, which the entrypoint merges and a project may own.
+- D12. A session holding no seat records its conversation at SessionStart (C2), the one
+  exception to the inert contract, so a ccy session on no team is restored after a reboot.
+  The alternative: the contract kept whole, and such sessions named and not restored.

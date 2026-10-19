@@ -26,6 +26,17 @@ func TestReadReportTakesTheKeepersReport(t *testing.T) {
 	}
 }
 
+// The report and the conversation record (Plan 00203 SPEC-team-add-and-restart C1) share one
+// directory per session, beside the checkout's seats.
+func TestSessionDirHoldsTheReport(t *testing.T) {
+	if got, want := SessionDir("/c", "s"), "/c/.claude/ccy/pingbus/sessions/s"; got != want {
+		t.Fatalf("SessionDir %q, want %q", got, want)
+	}
+	if ReportPath("/c", "s") != filepath.Join(SessionDir("/c", "s"), "applied.json") {
+		t.Fatalf("ReportPath %q is not in SessionDir", ReportPath("/c", "s"))
+	}
+}
+
 func TestReadReportOfNoReportIsNotExist(t *testing.T) {
 	if _, err := ReadReport(t.TempDir(), "ccy-proj"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("got %v", err)

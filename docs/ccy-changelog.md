@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.12.13 — container 2.77.9
+
+Follows 3.99.12.12 (container 2.77.8). The image carries the pingbus kit, whose SessionStart
+hook changed, so it is rebuilt once.
+
+- **Each session's conversation is recorded for a restore** (Plan 00203). The pingbus
+  SessionStart hook writes the conversation a session is in now, `conversation.json` beside
+  its seat report under `.claude/ccy/pingbus/sessions/<session>/`, at its start and after
+  every `/clear`, resume or compaction; a session on no team records it too, and does nothing
+  else at that moment (pingbus plugin 1.4.0).
+
 ## 3.99.12.12 — container 2.77.8
 
 Follows 3.99.12.11 (container 2.77.7). The image carries `declare.py`, whose checkout-search

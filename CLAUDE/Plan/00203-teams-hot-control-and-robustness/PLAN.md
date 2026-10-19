@@ -193,9 +193,13 @@ Built on `fix/teams-server-robustness`; design and evidence in
   ([SPEC-team-add-and-restart.md](SPEC-team-add-and-restart.md) A1-A10). Picker only. Built
   and tested; Fable's FIX-FIRST fixed; host acceptance to come.
 
-- [ ] ⬜ **Task 3.10** (was 3.9): each session's conversation recorded by the pingbus
+- [ ] 🔄 **Task 3.10** (was 3.9): each session's conversation recorded by the pingbus
   SessionStart hook beside its report, read on the host only for a record whose launch
-  carried the bus (SPEC C1-C4).
+  carried the bus (SPEC C1-C4), on `feat/teams-restart`. `conversation.json` on every
+  SessionStart (startup, resume, clear, compact), and through `pingbus hook conversation` in a
+  session holding no seat (Decision 12); `internal/conversation` reads it, resolving the
+  transcript by the recorded id. Pingbus plugin 1.4.0. Built and tested; review and host
+  acceptance to come.
 
 - [ ] ⬜ **Task 3.11** (was 3.9's restore and 3.11): restore after a reboot and the new
   `ccy-teams restart <team>` (with the team menu's Restart the team's desktop sessions)
@@ -279,6 +283,14 @@ Each runs as stated until the owner decides; detail in SPEC-team-add-and-restart
     it is named and not restored. The alternative: a recording hook in every session.
 11. **Claude Code's agent view is off in the ccy image's environment**
     (`CLAUDE_CODE_DISABLE_AGENT_VIEW=1`), background sub-agents and shell tasks left on.
+12. **A session on no team records its conversation too: the one exception to the inert
+    contract (Decision 1).** Found while building Task 3.10: the plugin's hooks run only while
+    a seat is held, so under Decision 10 every ccy session on no team (most of them) would
+    record nothing and not come back after a reboot. Now its SessionStart, and only that,
+    runs `pingbus hook conversation`: one short Python process at startup, `/clear`, a resume
+    or a compaction, which writes `conversation.json` and answers nothing. Every other event
+    stays inert. The alternative: keep the contract whole, and such sessions are named and
+    not restored after a reboot (`ccy --resume` by hand).
 
 ## Success Criteria
 

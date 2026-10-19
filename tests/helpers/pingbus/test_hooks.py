@@ -792,6 +792,96 @@ class MembershipNoticeHookTest(MembershipHookCase):
         self.assertNotIn("Builds", told[0])
 
 
+CONVERSATION_ID = "0f1e2d3c-4b5a-4968-8776-655443322110"
+OTHER_CONVERSATION_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+
+
+class ConversationRecordTest(MembershipHookCase):
+    """Plan 00203 Task 3.10, SPEC-team-add-and-restart.md C1-C3: every SessionStart of a session
+    under the membership writes the session's current conversation id beside its report, so
+    the host resumes that exact conversation, never `--continue`."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.env[hooks.SESSIONS_DIR_VAR] = str(self.tmp / "status-sessions")
+        self.workspace = self.tmp / "workspace"
+        self.enterContext(mock.patch.object(seat, "CCY_SEATS_ROOT", self.workspace / seat.CHECKOUT_SEATS))
+
+    def started(self, payload: dict, env: dict[str, str] | None = None) -> tuple[dict, str]:
+        out, err = io.StringIO(), io.StringIO()
+        code = cli.main(["hook", "session-start"], environ=env or self.env, stdout=out, stderr=err,
+                        stdin=io.BytesIO(json.dumps(payload).encode("utf-8")), runtime=self.runtime())
+        self.assertEqual(code, 0, err.getvalue())
+        return json.loads(out.getvalue()), err.getvalue()
+
+    def recorded(self, top: pathlib.Path, session: str = "ccy-myrepo-1") -> pathlib.Path:
+        return top / ".claude/ccy/pingbus/sessions" / session / hooks.CONVERSATION_FILE
+
+    def test_a_ccy_session_records_its_conversation_beside_its_report(self):
+        self.started({"session_id": CONVERSATION_ID, "source": "startup"})
+        path = self.recorded(self.workspace)
+        self.assertEqual(json.loads(path.read_text(encoding="ascii")), {
+            "v": 1, "session": "ccy-myrepo-1", "session_id": CONVERSATION_ID, "source": "startup",
+            "written_ms": int(T0 * 1000)})
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        self.assertEqual([p.name for p in path.parent.iterdir()], [hooks.CONVERSATION_FILE],
+                         "written atomically: no temporary file is left beside it")
+
+    def test_a_clear_or_a_resume_moves_the_record_to_the_new_conversation(self):
+        self.started({"session_id": CONVERSATION_ID, "source": "startup"})
+        self.now += 60
+        self.started({"session_id": OTHER_CONVERSATION_ID, "source": "clear"})
+        data = json.loads(self.recorded(self.workspace).read_text(encoding="ascii"))
+        self.assertEqual((data["session_id"], data["source"], data["written_ms"]),
+                         (OTHER_CONVERSATION_ID, "clear", int((T0 + 60) * 1000)))
+
+    def test_a_source_outside_the_known_four_is_recorded_as_other(self):
+        for source, said in (("compact", "compact"), ("resume", "resume"), ("fork", "other"), (7, "other")):
+            self.started({"session_id": CONVERSATION_ID, "source": source})
+            self.assertEqual(json.loads(self.recorded(self.workspace).read_text(encoding="ascii"))["source"],
+                             said)
+
+    def test_a_cc_session_records_it_in_its_own_checkout(self):
+        checkout = self.tmp / "checkout"
+        desired = json.loads((self.mount / membership.DESIRED_FILE).read_text(encoding="utf-8"))
+        desired.update(kind="cc", session="cc-myrepo", checkout=str(checkout))
+        (self.mount / membership.DESIRED_FILE).write_text(json.dumps(desired), encoding="utf-8")
+        self.started({"session_id": CONVERSATION_ID, "source": "startup"})
+        data = json.loads(self.recorded(checkout, "cc-myrepo").read_text(encoding="ascii"))
+        self.assertEqual((data["session"], data["session_id"]), ("cc-myrepo", CONVERSATION_ID))
+        self.assertFalse(self.workspace.exists())
+
+    def test_nothing_is_recorded_without_the_membership_or_without_an_id(self):
+        self.started({"source": "startup"})
+        self.started({"session_id": "not/an id", "source": "startup"})
+        off = dict(self.env, **{membership.MEMBERSHIP_VAR: membership.MEMBERSHIP_OFF})
+        self.started({"session_id": CONVERSATION_ID, "source": "startup"}, env=off)
+        self.assertFalse(self.recorded(self.workspace).exists())
+
+    def test_a_session_on_no_team_records_it_with_the_conversation_hook_and_says_nothing(self):
+        """Decision 12: the inert SessionStart runs `hook conversation`, which only records."""
+        self.seats([])
+        out, err = io.StringIO(), io.StringIO()
+        payload = json.dumps({"session_id": CONVERSATION_ID, "source": "startup"}).encode("utf-8")
+        code = cli.main(["hook", "conversation"], environ=self.env, stdout=out, stderr=err,
+                        stdin=io.BytesIO(payload), runtime=self.runtime())
+        self.assertEqual((code, json.loads(out.getvalue()), err.getvalue()), (0, {}, ""))
+        self.assertEqual(json.loads(self.recorded(self.workspace).read_text(encoding="ascii"))["session_id"],
+                         CONVERSATION_ID)
+        self.assertEqual(self.spawned, [], "nothing else of the session start runs")
+        self.assertIsNone(self.told(), "and nothing is told")
+
+    def test_a_record_that_cannot_be_written_is_one_stderr_line_and_the_hook_still_answers(self):
+        report = self.recorded(self.workspace).parent
+        report.parent.mkdir(parents=True)
+        report.write_text("not a directory", encoding="ascii")
+        result, err = self.started({"session_id": CONVERSATION_ID, "source": "startup"})
+        self.assertIn("SessionStart", json.dumps(result))
+        lines = [line for line in err.splitlines() if "conversation" in line]
+        self.assertEqual(len(lines), 1, err)
+        self.assertNotIn(CONVERSATION_ID, err)
+
+
 # ── SessionEnd: the goodbye ────────────────────────────────────────────────────────────
 
 OWN_HANDLE = "myrepo.1+workstation.podman"
