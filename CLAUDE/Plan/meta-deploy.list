@@ -43,3 +43,8 @@ playbooks/imports/play-claude-yolo.yml
 # created ccy container on the host (as any ccy launch does). The team purge relies on sudo
 # staying cached (it does on this host). One sudo prompt.
 00194-agent-bus-live-delivery-supervisor-plugin
+# Plan 00189 Task 1.3: re-runs the CLI tools play, which now downloads the ouch 0.8.1 tarball to
+# /opt/ouch-0.8.1/ through get_url with a pinned sha256 and fails on a mismatch. The first run
+# downloads it once (about 2.8 MB, one changed task); the binary already extracted there is kept
+# (the extract task's creates: guard), so ouch, compress and uncompress are unchanged.
+playbooks/imports/optional/common/play-cli-tools.yml

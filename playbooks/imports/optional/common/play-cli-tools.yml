@@ -36,9 +36,12 @@
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     user_bin_dir: "/home/{{ user_login }}/.local/bin"
-    # Pin ouch version for reproducibility. Update deliberately; vars/version-pins.yml
-    # names this var. @see https://github.com/ouch-org/ouch/releases
+    # Pin ouch by version and checksum. Update deliberately; vars/version-pins.yml names
+    # this var. The sha256 is the release asset's published digest for ouchArch and must
+    # change with every bump, or the download fails verification.
+    # @see https://github.com/ouch-org/ouch/releases
     ouchVersion: "0.8.1"
+    ouchSha256: "866884b08ea69fbab80bd79162df408519068a8fa232c2055038a1e561ad8f4c"
     ouchArch: "x86_64-unknown-linux-musl"
     ouchDir: "/opt/ouch-{{ ouchVersion }}"
     ouchBin: "/usr/local/bin/ouch"
@@ -163,9 +166,19 @@
         mode: "0755"
       tags: compression-helpers
 
-    - name: Download and extract ouch static musl binary
+    - name: Download the ouch static musl tarball (checksum-verified)
+      ansible.builtin.get_url:
+        url: "{{ ouchUrl }}"
+        dest: "{{ ouchDir }}/ouch-{{ ouchArch }}.tar.gz"
+        checksum: "sha256:{{ ouchSha256 }}"
+        owner: root
+        group: root
+        mode: "0644"
+      tags: compression-helpers
+
+    - name: Extract the ouch static musl binary
       ansible.builtin.unarchive:
-        src: "{{ ouchUrl }}"
+        src: "{{ ouchDir }}/ouch-{{ ouchArch }}.tar.gz"
         dest: "{{ ouchDir }}"
         remote_src: true
         creates: "{{ ouchDir }}/ouch-{{ ouchArch }}/ouch"
