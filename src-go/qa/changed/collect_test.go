@@ -22,11 +22,21 @@ func gitIn(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(res.Stdout)
 }
 
+// initFixture makes dir a repository that ignores only what the fixture's own .gitignore says.
+// GIT_CONFIG_GLOBAL=/dev/null does not reach the default excludes file: git still reads
+// $XDG_CONFIG_HOME/git/ignore (or ~/.config/git/ignore), so a machine that ignores, say,
+// untracked/ would hide fixture files. The repository's own setting outranks that default.
+func initFixture(t *testing.T, dir string) {
+	t.Helper()
+	gitIn(t, dir, "init", "-q")
+	gitIn(t, dir, "config", "core.excludesFile", "/dev/null")
+}
+
 // scratchRepo is a committed repository with one kept file, one to delete and an ignored name.
 func scratchRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	gitIn(t, dir, "init", "-q")
+	initFixture(t, dir)
 	writeFile(t, dir, ".gitignore", "ignored.bash\n")
 	writeFile(t, dir, "kept.bash", "#!/usr/bin/bash\n:\n")
 	writeFile(t, dir, "gone.bash", "#!/usr/bin/bash\n:\n")

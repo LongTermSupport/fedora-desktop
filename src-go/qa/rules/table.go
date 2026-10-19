@@ -151,6 +151,26 @@ var dynamicNames = []allowance{
 		reason: "wsi-claude-process, run from the directory the wsi-postprocess binary is in",
 	},
 	{
+		pkg:    "internal/wsitoken",
+		fn:     "App.setting",
+		reason: "wsi-setting, run from the directory the wsi-claude-token binary is in",
+	},
+	{
+		pkg:    "internal/wsitoken",
+		fn:     "App.readUsage",
+		reason: "ccy's launcher, whose installed path is configuration (wsitoken.DefaultCCY in production)",
+	},
+	{
+		pkg:    "internal/stt",
+		fn:     "App.language",
+		reason: "wsi-setting, run from the directory the stt binary is in",
+	},
+	{
+		pkg:    "internal/stt",
+		fn:     "App.ensureServer",
+		reason: "wsi-stream --ensure-server, run from the directory the stt binary is in",
+	},
+	{
 		pkg:    lxcfreezePkg,
 		fn:     "Engine.runAct",
 		reason: "runs the lxc command its caller names; every caller is itself judged as a program runner",

@@ -1132,6 +1132,26 @@ def run_server_at_login():
     os.execv(cmd[0], cmd)
 
 
+def run_ensure_server():
+    """--ensure-server: the warm server is running and answering, started if need be.
+
+    Run by `stt` before it hands the server a recording, so the server is started the
+    one way an Insert starts it (start_server). Exit 0 once it answers; 1 with the
+    reason on stderr. Records nothing.
+    """
+    language = session_language(read_setting("language"))
+    try:
+        up = start_server(language)
+    except RuntimeError as e:  # ModelNotDownloaded is one: it says what to download
+        print(f"wsi-stream: {e}", file=sys.stderr)
+        return 1
+    if not up:
+        print("wsi-stream: the speech-to-text server did not come up in time "
+              "(see ~/.local/share/speech-to-text/server.log)", file=sys.stderr)
+        return 1
+    return 0
+
+
 def send_server_command(command, params=None):
     """Send one command to the server; its one-line JSON reply, or status "error".
 
@@ -2396,6 +2416,9 @@ def main():
     parser.add_argument("--server-at-login", action="store_true",
                         help="Become the persistent server if Settings ask for it at login "
                              "(run by wsi-stream-server-at-login.service; records nothing)")
+    parser.add_argument("--ensure-server", action="store_true",
+                        help="Start the persistent server if it is not running and wait until "
+                             "it answers (run by stt; records nothing)")
     parser.add_argument("--session-token", type=str, default="",
                         help="The panel's name for this recording, sent with every D-Bus "
                              "signal so the panel follows only the client it started last")
@@ -2408,6 +2431,9 @@ def main():
     if args.server_at_login:
         debug_mode = args.debug
         return run_server_at_login()
+    if args.ensure_server:
+        debug_mode = args.debug
+        return run_ensure_server()
 
     # Registered here rather than at import, so loading this file for its unit tests
     # emits no D-Bus signal on exit

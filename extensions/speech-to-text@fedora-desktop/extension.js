@@ -24,8 +24,9 @@ import { FocusOutline } from './focusOutline.js';
 import { PasteTargetPin } from './pasteTarget.js';
 import { PanelSession } from './panelSession.js';
 import { spawnWatched, killArgv, discardSignal } from './recorderLaunch.js';
-import { lookFor, isKnownState, recordingBadgeColor, articleBadgeColor, COLOURS } from './panelLook.js';
+import { lookFor, isKnownState, recordingBadgeColor, articleBadgeColor, shownState, COLOURS } from './panelLook.js';
 import { POST_PROCESS_STYLES, LastTranscriptPostProcessor, unusableKeybindings } from './postProcess.js';
+import { TOKEN_WARNING_FILE, tokenWarning } from './tokenWarning.js';
 
 // DBus interface for wsi communication
 const DBUS_PATH = '/org/fedoradesktop/SpeechToText';
@@ -94,6 +95,7 @@ export default class SpeechToTextExtension extends Extension {
         this._serverStatusDot = null;
         this._serverPollTimer = null;
         this._serverIsHot = false;
+        this._filesRunning = false;       // the server is transcribing recordings (stt)
 
         // Recording timer state
         this._recordingTimer = null;
@@ -163,6 +165,15 @@ export default class SpeechToTextExtension extends Extension {
             visible: false
         });
         this._iconBox.add_child(this._serverStatusDot);
+
+        // No Claude token has allowance left (tokenWarning.js): shown until cleared
+        this._tokenWarningIcon = new St.Icon({
+            icon_name: 'dialog-warning-symbolic',
+            style_class: 'system-status-icon',
+            style: `color: ${COLOURS.amber};`,
+            visible: false
+        });
+        this._iconBox.add_child(this._tokenWarningIcon);
 
         // Add the box to the indicator
         this._indicator.add_child(this._iconBox);
@@ -272,6 +283,7 @@ export default class SpeechToTextExtension extends Extension {
 
         // Ensure log directory exists
         this._ensureLogDirectory();
+        this._watchTokenWarning();
 
         // Start server status polling
         this._startServerStatusPolling();
@@ -342,6 +354,13 @@ export default class SpeechToTextExtension extends Extension {
         // Stop server status polling
         this._stopServerStatusPolling();
 
+        if (this._tokenWarningMonitor) {
+            this._tokenWarningMonitor.cancel();
+            this._tokenWarningMonitor = null;
+        }
+        this._tokenWarningIcon = null;
+        this._tokenWarningItem = null;
+
         if (this._indicator) {
             this._indicator.destroy();
             this._indicator = null;
@@ -401,6 +420,13 @@ export default class SpeechToTextExtension extends Extension {
         this._statusLabel = new PopupMenu.PopupMenuItem('Status: IDLE', { reactive: false });
         this._statusLabel.label.style = 'font-weight: bold;';
         menu.addMenuItem(this._statusLabel);
+
+        // Shown with the panel's warning icon while no Claude token has allowance left
+        this._tokenWarningItem = new PopupMenu.PopupMenuItem('');
+        this._tokenWarningItem.label.style = `color: ${COLOURS.amber};`;
+        this._tokenWarningItem.visible = false;
+        this._tokenWarningItem.connect('activate', () => { this._clearTokenWarning(); });
+        menu.addMenuItem(this._tokenWarningItem);
 
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
@@ -642,6 +668,28 @@ export default class SpeechToTextExtension extends Extension {
         }
     }
 
+    /** Whether the server is transcribing recordings (stt), in any startup mode: it marks a
+     * file job with wsi-file-job while it runs. A marker beside no PID file is a server
+     * that is gone, and means nothing. Idle shows FILES while it is so. */
+    _checkFileJob() {
+        const runtimeDir = GLib.get_user_runtime_dir();
+        if (!runtimeDir)
+            return;
+        let filesRunning = false;
+        try {
+            filesRunning = Gio.File.new_for_path(`${runtimeDir}/wsi-file-job`).query_exists(null) &&
+                Gio.File.new_for_path(`${runtimeDir}/wsi-stream-server.pid`).query_exists(null);
+        } catch (e) {
+            this._log(`File job check failed: ${e.message}`, 'WARN');
+        }
+        if (filesRunning !== this._filesRunning) {
+            this._filesRunning = filesRunning;
+            this._log(`File transcription ${filesRunning ? 'started' : 'ended'}`);
+            if (this._icon && this._iconState === 'IDLE')
+                this._showLook('IDLE');
+        }
+    }
+
     _startServerStatusPolling() {
         // Poll server status every 5 seconds
         if (this._serverPollTimer) {
@@ -651,6 +699,7 @@ export default class SpeechToTextExtension extends Extension {
         // Initial check (wrapped in try-catch)
         try {
             this._checkServerStatus();
+            this._checkFileJob();
         } catch (e) {
             this._log(`Initial server check failed: ${e.message}`, 'ERROR');
         }
@@ -659,6 +708,7 @@ export default class SpeechToTextExtension extends Extension {
         this._serverPollTimer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 5, () => {
             try {
                 this._checkServerStatus();
+                this._checkFileJob();
             } catch (e) {
                 this._log(`Server polling error: ${e.message}`, 'ERROR');
             }
@@ -680,6 +730,7 @@ export default class SpeechToTextExtension extends Extension {
             this._serverStatusDot.visible = false;
         }
         this._serverIsHot = false;
+        this._filesRunning = false;
     }
 
     /**
@@ -757,11 +808,12 @@ export default class SpeechToTextExtension extends Extension {
         }
     }
 
-    /** The icon and its colour for `state`, which are panelLook.js's. */
+    /** The icon and its colour for `state`, which are panelLook.js's; idle shows a file
+     * job (FILES) while one runs. */
     _showLook(state) {
         if (!isKnownState(state))
             this._log(`Unknown state "${state}": shown as please-wait, never as ready`);
-        const look = lookFor(state);
+        const look = lookFor(shownState(state, this._filesRunning));
         if (look.icon === 'hourglass')
             this._icon.gicon = this._hourglassIcon;
         else
@@ -1212,6 +1264,65 @@ export default class SpeechToTextExtension extends Extension {
             this._log(`Escape failed: ${e.message}`);
             Main.notify('STT Error', `Escape failed: ${e.message}`);
         }
+    }
+
+    /** Show the token warning for as long as wsi-claude-token's file is there. */
+    _watchTokenWarning() {
+        this._tokenWarningFile = Gio.File.new_for_path(`${this._logDir}/${TOKEN_WARNING_FILE}`);
+        this._lastTokenWarning = null;
+        try {
+            this._tokenWarningMonitor = this._tokenWarningFile.monitor_file(Gio.FileMonitorFlags.NONE, null);
+            this._tokenWarningMonitor.connect('changed', () => this._refreshTokenWarning());
+        } catch (e) {
+            logError(e, 'STT: watching the Claude token warning');
+            Main.notify('STT Error', 'The panel cannot watch for every Claude token running out ' +
+                `(${e.message}); it shows only what it finds at login`);
+        }
+        this._refreshTokenWarning();
+    }
+
+    _refreshTokenWarning() {
+        this._tokenWarningFile.load_contents_async(null, (file, res) => {
+            let text = null;
+            try {
+                const [, contents] = file.load_contents_finish(res);
+                text = new TextDecoder().decode(contents);
+            } catch (e) {
+                // No file is the answer "no warning"; a file that cannot be read still warns
+                if (!e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND))
+                    text = `cannot read ${file.get_path()}: ${e.message}`;
+            }
+            this._showTokenWarning(tokenWarning(text));
+        });
+    }
+
+    _showTokenWarning(warning) {
+        if (!this._tokenWarningIcon || !this._tokenWarningItem)
+            return;  // the extension was disabled while the file was read
+        this._tokenWarningIcon.visible = warning !== null;
+        this._tokenWarningItem.visible = warning !== null;
+        if (warning) {
+            this._tokenWarningItem.label.text = warning.label;
+            if (warning.log !== this._lastTokenWarning)
+                this._log(warning.log);
+        }
+        this._lastTokenWarning = warning?.log ?? null;
+    }
+
+    /** The owner clears the warning: the file goes, and the monitor hides it. */
+    _clearTokenWarning() {
+        this._tokenWarningFile.delete_async(GLib.PRIORITY_DEFAULT, null, (file, res) => {
+            try {
+                file.delete_finish(res);
+                this._log('Claude token warning cleared from the menu');
+            } catch (e) {
+                if (!e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND)) {
+                    this._log(`Could not clear the Claude token warning: ${e.message}`);
+                    Main.notify('STT Error', `Could not clear the Claude token warning: ${e.message}`);
+                }
+            }
+            this._refreshTokenWarning();
+        });
     }
 
     _ensureLogDirectory() {

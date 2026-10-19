@@ -82,7 +82,7 @@ Use these Unicode icons in plan documents:
 
 - [00180-desktop-only-pr-merge-gate](00180-desktop-only-pr-merge-gate/) - Not Started. A written, scope-picked QA gate for PRs merged from a desktop (#94)
 
-- [00179-stt-recording-batch-and-engine-research](00179-stt-recording-batch-and-engine-research/) - Not Started. Batch transcription of long recordings, and the engine and CPU-path decisions (#98, #11, #9, #84)
+- [00179-stt-recording-batch-and-engine-research](00179-stt-recording-batch-and-engine-research/) - In Progress. Batch transcription of long recordings, and the engine and CPU-path decisions (#98, #11, #9, #84)
 
 - [00191-go-cli-tooling](00191-go-cli-tooling/) - In Progress (high priority). This repo's large interactive tools leave bash for a Go module under `src-go/`: `ccy-teams` first, then `ccy-sessions`, then possibly `ccy`; and a new `go-qa-ci` repository, sibling of rust-qa-ci, that its QA runs
 
