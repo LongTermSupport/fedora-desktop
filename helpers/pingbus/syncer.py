@@ -472,6 +472,8 @@ class Syncer:
                 drops[outcome.reason] += 1
             elif outcome.kind == protocol.ACCEPT:
                 accepted.append(event)
+            elif protocol.reached_no_agent(event, ctx, outcome):
+                self.state.log_ignored(member.team, event_id, event.get("sender"), outcome.reason, now)
         if answers:
             with self.state.outbox() as box:
                 for answer in answers:

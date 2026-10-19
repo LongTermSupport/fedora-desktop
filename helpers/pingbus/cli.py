@@ -2322,7 +2322,7 @@ def _status_team(member: config.Member, now_ms: int, relay_field: str, out: Text
         fields += [f"pending={total}", f"humans={humans}", f"peers={peers}", f"pings={pings}"]
         known = set(record.humans) | set(record.roles) | {member.admin}
         unexpected = sorted(uid for uid in members if uid not in known)
-    fields += [f"overdue={overdue}", f"dropped={dropped}",
+    fields += [f"overdue={overdue}", f"dropped={dropped}", f"ignored={state.ignored_count()}",
                "unexpected=-" if record is None else f"unexpected={len(unexpected)}",
                f"relay={relay_field}"]
     trust = "trust=trusted" if record is not None else "trust=untrusted"
@@ -2347,7 +2347,7 @@ def _status_team(member: config.Member, now_ms: int, relay_field: str, out: Text
 
 def cmd_status(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
     """Per active team, offline: the handle, room trust (and why not), the wake path from
-    the lock, pending, overdue and dropped counts, unexpected members; then each member of
+    the lock, pending, overdue, dropped and ignored counts, unexpected members; then each member of
     the last verified team record with its role or `human` and its status. A team that
     fails is reported and prints nothing; the others still run."""
     rt: Runtime = args.runtime

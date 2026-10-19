@@ -113,6 +113,23 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   upstream hooks-daemon change, filed as #127 (waits on its release); then the hook skips the goodbye for that session and records
   it as said (`seat.record_goodbye`), so the launcher's `seat disconnected` stays quiet
   too, test first. `docs/agent-bus.md` states today's behaviour until then.
+- [ ] 🔄 **Task 2.0f**: A human message that reaches no agent is visible. The owner posted
+  `@room ...` in Element as plain text (no pill), so it had no `m.mentions.room`; every
+  member's watcher ignored it as not addressed, which writes nothing, and the owner could not
+  tell. Now a team human's message whose mentions name no agent of the team gets one
+  `ignored.log` line per member (`dropped.log`'s format; never the body; no turn, not a drop)
+  and `pingbus status` counts them (`ignored=`); who receives what is unchanged (a typed
+  `@room` stays unaddressed: the owner's decision). Built test first on branch
+  `feat/ignored-human-visible` (CCY 3.99.12.17, container 2.77.13); waits on review, then
+  `play-agent-bus.yml` and `play-claude-yolo.yml` (queued in meta-deploy) and the owner's
+  check: post a plain-text `@room` from Element, then `pingbus status` in a member shows
+  `ignored=1`. Report:
+  [261019-ignored-human-visible-opus.md](subagent-reports/261019-ignored-human-visible-opus.md).
+- [ ] ⬜ **Task 2.0g**: Follow-up to 2.0f (Fable review finding 3): an addressed reply whose
+  body is only the quote fallback is ignored as `empty` at the addressee, and every other
+  member sees a mention naming an agent, so no one logs it although it reached no agent.
+  Decide whether `empty` joins the logged reasons (the human did pick a pill, so the failure
+  differs from the incident's), test first.
 - [ ] ⬜ **Task 2.1**: The plugin, test first, shipped in the image beside `ccy_lifecycle.py`,
   enabled for a session launched with `--teams` (CCY version bump). Waits on the
   hooks-daemon release that carries plugin API 1.1 (#119); it also drops

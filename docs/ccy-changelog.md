@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.12.17 — container 2.77.13
+
+Follows 3.99.12.16 (container 2.77.12). The image carries the pingbus kit, which changed, so
+it is rebuilt once.
+
+- **A message from Element that reached no agent is visible** (Plan 00194). A team human's
+  message whose mentions name no agent of the team (`@room` or a handle typed as plain text,
+  not picked from Element's list) is still delivered to no one, but each member now writes
+  one line for it to `ignored.log` in its team's state directory (event ID, sender, reason,
+  time; never the text), and `pingbus status` counts the lines as `ignored=` on the `TEAM`
+  line. No agent is woken for it, and who receives what is unchanged.
+
 ## 3.99.12.16 — container 2.77.12
 
 Follows 3.99.12.15 (container 2.77.11). The image carries the pingbus kit, whose SessionStart
