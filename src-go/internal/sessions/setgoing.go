@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/screen"
@@ -418,7 +419,7 @@ func (g *goingRun) lookAt(ctx context.Context, name, prefix string, attached int
 }
 
 // conversationOwner is the other session already set going on this conversation. Two sessions
-// in one project that both --continue resume the same conversation: only one may drive it.
+// that resume the same conversation: only one may drive it.
 func (g *goingRun) conversationOwner(file, name string) string {
 	for _, e := range g.manifest.Entries {
 		if e.Name == name || e.Transcript != file {
@@ -434,12 +435,7 @@ func (g *goingRun) conversationOwner(file, name string) string {
 }
 
 // claudeHome is where cc keeps its transcripts.
-func (a *App) claudeHome() string {
-	if dir := a.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
-		return dir
-	}
-	return a.Getenv("HOME") + "/.claude"
-}
+func (a *App) claudeHome() string { return conversation.ClaudeHome(a.Getenv) }
 
 // setOne sets one pending session going once its prompt has drawn: /compact at or above the
 // floor (followed by continue when it has no supervisor, see continueAfterCompaction), else

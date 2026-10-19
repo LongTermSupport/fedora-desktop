@@ -12,11 +12,16 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
-const sep = "\x1f"
-
 func joinArgs(args []string) string { return strings.Join(args, "|") }
 
-func TestRestoreArgsGoldenCases(t *testing.T) {
+// conversation is a Claude session id, as the SessionStart hook records it.
+const conversation = "0f1e2d3c-4b5a-4968-8776-655443322110"
+
+// Plan 00203 SPEC-team-add-and-restart C5: the recorded set, ccy's compose and supervise flags,
+// every recorded conversation selector removed from either side of `--`, and one
+// `--resume <id>`; never --continue.
+func TestResumeArgsGoldenCases(t *testing.T) {
+	const r = "--resume|" + conversation
 	cases := []struct {
 		name    string
 		compose string
@@ -24,67 +29,58 @@ func TestRestoreArgsGoldenCases(t *testing.T) {
 		args    []string
 		want    string
 	}{
-		{"ccy appends supervise and continue", "", "ccy", []string{"--token", "work"}, "--token|work|--supervise|--continue"},
-		{"supervise not doubled", "", "ccy", []string{"--supervise", "--token", "work"}, "--supervise|--token|work|--continue"},
-		{"no-supervise respected", "", "ccy", []string{"--no-supervise"}, "--no-supervise|--continue"},
-		{"continue not doubled", "", "ccy", []string{"--continue"}, "--continue|--supervise"},
-		{"short continue", "", "ccy", []string{"-c"}, "-c|--supervise"},
-		{"resume names a conversation", "", "ccy", []string{"--resume", "abc"}, "--resume|abc|--supervise"},
-		{"short resume", "", "ccy", []string{"-r", "abc"}, "-r|abc|--supervise"},
-		{"cc only continue", "", "cc", []string{"--model", "opus"}, "--model|opus|--continue"},
-		{"empty in", "", "ccy", nil, "--supervise|--continue"},
-		{"supervise goes before a recorded dash dash", "", "ccy", []string{"--token", "t", "--", "--model", "opus"}, "--token|t|--supervise|--|--model|opus|--continue"},
-		{"supervise after dash dash is claudes", "", "ccy", []string{"--", "--supervise"}, "--supervise|--|--supervise|--continue"},
-		{"continue after dash dash counts", "", "ccy", []string{"--", "--continue"}, "--supervise|--|--continue"},
-		{"compose started", "started", "ccy", []string{"--token", "t"}, "--token|t|--compose|start|--supervise|--continue"},
-		{"compose running", "running", "ccy", nil, "--compose|start|--supervise|--continue"},
-		{"compose declined", "declined", "ccy", []string{"--"}, "--compose|skip|--supervise|--|--continue"},
-		{"compose is ccys flag only", "started", "cc", []string{"-x"}, "-x|--continue"},
+		{"ccy appends supervise and the resume", "", "ccy", []string{"--token", "work"}, "--token|work|--supervise|" + r},
+		{"supervise not doubled", "", "ccy", []string{"--supervise", "--token", "work"}, "--supervise|--token|work|" + r},
+		{"no-supervise respected", "", "ccy", []string{"--no-supervise"}, "--no-supervise|" + r},
+		{"a recorded continue goes", "", "ccy", []string{"--continue"}, "--supervise|" + r},
+		{"a short continue goes", "", "ccy", []string{"-c"}, "--supervise|" + r},
+		{"a recorded resume goes with its value", "", "ccy", []string{"--resume", "abc", "--no-ssh"}, "--no-ssh|--supervise|" + r},
+		{"a short resume goes with its value", "", "ccy", []string{"-r", "abc"}, "--supervise|" + r},
+		{"a resume with an equals sign goes", "", "ccy", []string{"--resume=abc"}, "--supervise|" + r},
+		{"a bare resume keeps the next flag", "", "ccy", []string{"--resume", "--no-ssh"}, "--no-ssh|--supervise|" + r},
+		{"a session id goes with its value", "", "ccy", []string{"--", "--session-id", "x", "--session-id=y", "--model", "opus"}, "--supervise|--|--model|opus|" + r},
+		{"a ccy flag's value is not a selector", "", "ccy", []string{"--token", "-c"}, "--token|-c|--supervise|" + r},
+		{"after dash dash every selector is claude's", "", "ccy", []string{"--token", "t", "--", "--model", "opus", "--continue"}, "--token|t|--supervise|--|--model|opus|" + r},
+		{"supervise after dash dash is claude's", "", "ccy", []string{"--", "--supervise"}, "--supervise|--|--supervise|" + r},
+		{"cc gets the resume only", "", "cc", []string{"--model", "opus", "-c"}, "--model|opus|" + r},
+		{"cc has no ccy flags", "", "cc", []string{"--token", "-c"}, "--token|" + r},
+		{"empty in", "", "ccy", nil, "--supervise|" + r},
+		{"compose started", "started", "ccy", []string{"--token", "t"}, "--token|t|--compose|start|--supervise|" + r},
+		{"compose running", "running", "ccy", nil, "--compose|start|--supervise|" + r},
+		{"compose declined", "declined", "ccy", []string{"--"}, "--compose|skip|--supervise|--|" + r},
+		{"compose is ccy's flag only", "started", "cc", []string{"-x"}, "-x|" + r},
 	}
 	for _, c := range cases {
-		got, err := RestoreArgs(c.compose, c.prefix, c.args)
+		got, err := ResumeArgs(c.compose, c.prefix, c.args, conversation)
 		if err != nil || joinArgs(got) != c.want {
 			t.Errorf("%s: got %q, %v; want %q", c.name, joinArgs(got), err, c.want)
 		}
+		if slices.Contains(got, "--continue") {
+			t.Errorf("%s: --continue in %q", c.name, joinArgs(got))
+		}
+		if c.prefix == "ccy" && ResumeID(got) != conversation {
+			t.Errorf("%s: ResumeID of %q is %q", c.name, joinArgs(got), ResumeID(got))
+		}
 	}
 }
 
-func TestRestoreArgsErrors(t *testing.T) {
-	if _, err := RestoreArgs("maybe", "ccy", nil); err == nil || err.Error() != "compose outcome 'maybe' is not one of started declined running" {
+func TestResumeArgsErrors(t *testing.T) {
+	if _, err := ResumeArgs("maybe", "ccy", nil, conversation); err == nil || err.Error() != "compose outcome 'maybe' is not one of started declined running" {
 		t.Fatalf("got %v", err)
 	}
-	if _, err := RestoreArgs("", "", nil); err == nil {
+	if _, err := ResumeArgs("", "", nil, conversation); err == nil {
 		t.Fatal("an empty prefix is an error")
+	}
+	for _, id := range []string{"", "abc", "--continue", conversation + "x", "0f1e2d3c-4b5a-4968-8776-65544332211g"} {
+		if _, err := ResumeArgs("", "ccy", nil, id); err == nil || !strings.Contains(err.Error(), "not a Claude session id") {
+			t.Errorf("%q: got %v", id, err)
+		}
 	}
 }
 
-func TestRestoreArgsAgreesWithBash(t *testing.T) {
-	inputs := []struct {
-		compose string
-		prefix  string
-		args    []string
-	}{
-		{"", "ccy", []string{"--teams", "1@alpha", "", "two words"}},
-		{"started", "ccy", []string{"--token", "x", "--", "--supervise", "-c"}},
-		{"declined", "ccy", []string{"--no-supervise", "--resume", "id"}},
-		{"", "cc", []string{"--", "a"}},
-		{"running", "ccy", []string{"-r"}},
-	}
-	for _, in := range inputs {
-		script := "ccy_registry_restore_args"
-		if in.compose != "" {
-			script += " --compose " + in.compose
-		}
-		script += ` "$@" | tr '\n' '\037'`
-		args := append([]string{in.prefix}, in.args...)
-		out := bashWithArgs(t, script, args...)
-		got, err := RestoreArgs(in.compose, in.prefix, in.args)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if want := strings.Join(got, sep) + sep; out != want {
-			t.Errorf("%v: bash %q, go %q", in, out, want)
-		}
+func TestSessionIDIsAUUID(t *testing.T) {
+	if !SessionID(conversation) || !SessionID(strings.ToUpper(conversation)) || SessionID("d2dae64d") {
+		t.Fatal("SessionID")
 	}
 }
 
