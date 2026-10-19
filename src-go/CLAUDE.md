@@ -54,6 +54,9 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
 - `internal/wsitoken/` — `wsi-claude-token`, the one chooser of the Claude account
   post-processing runs as (Plan 00208, K1-K8 in its package doc): the named token, or the one
   with the most allowance left by `ccy --token-usage --json`; `wsi-claude-process` runs it.
+- `internal/fetchage/` — `git-fetch-age`, the shell prompt's stale-fetch mark (Plan 00183,
+  A1-A13 in its package doc): the age of the newest `FETCH_HEAD` of the checkout's repository,
+  read from files only; it starts no process.
   Reuse these; a second way to run a command or prompt the user is a defect.
 
 ## Rules
@@ -165,9 +168,9 @@ and `tasks/deploy-freeze.yml` for the freeze tools, which `play-podfreeze.yml` a
 `play-lxcfreeze.yml` import (both import `play-golang.yml` first for the toolchain), and
 `play-vm-test-lab.yml` for `vmtest`, `play-ftp-camera.yml` for `ftp-camera`,
 `play-image-watermarking.yml` for `watermark`, `play-speech-to-text.yml` for `wsi` and
-`play-cli-tools.yml` for `open` (each imports `play-golang.yml` too);
-`watermark` is installed root-owned in `/usr/local/bin` (`go_command_owner: root`; only that
-copy runs as root). Each binary lands at its old path. A new deployed command takes a row in
+`play-cli-tools.yml` for `open` and `play-basic-configs.yml` for `git-fetch-age` (each imports
+`play-golang.yml` too);
+`watermark` and `git-fetch-age` are installed root-owned in `/usr/local/bin` (`go_command_owner: root`; only that copy runs as root). Each binary lands at its old path. A new deployed command takes a row in
 `scripts/go-binary-suites.tsv`. Never
 install a binary by hand: the play is the only route
 ([InfrastructureAsCode.md](../CLAUDE/InfrastructureAsCode.md)).

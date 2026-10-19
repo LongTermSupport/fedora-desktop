@@ -48,3 +48,10 @@ playbooks/imports/play-claude-yolo.yml
 # downloads it once (about 2.8 MB, one changed task); the binary already extracted there is kept
 # (the extract task's creates: guard), so ouch, compress and uncompress are unchanged.
 playbooks/imports/optional/common/play-cli-tools.yml
+# Plan 00183 Task 2.2 (#52): re-runs the basic configs play, which now imports play-golang.yml
+# (golang is already installed, so no change there), builds git-fetch-age from src-go and
+# installs it root-owned as /usr/local/bin/git-fetch-age, then deploys the new
+# /var/local/ps1-prompt. New shells then show a yellow [fetched 14d ago] beside the directory
+# in a checkout whose last fetch is an hour old or more. It never fetches. Open terminals keep
+# the old prompt until a new shell is started. Asks for the PS1 colour only if none is set.
+playbooks/imports/play-basic-configs.yml

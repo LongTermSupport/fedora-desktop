@@ -1,5 +1,9 @@
 #!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
 ---
+# The prompt runs git-fetch-age, a Go binary built here from src-go, so the Go toolchain is
+# installed first. play-golang.yml stays its one source of truth.
+- import_playbook: play-golang.yml
+
 - hosts: desktop
   name: Basic Configs
   become: true
@@ -159,6 +163,16 @@
         owner: root
         group: root
         mode: "0644"
+
+    # The prompt calls it at every draw, for root and the user alike, so it is installed
+    # root-owned on the system PATH before the prompt that names it.
+    - name: Build and Install the git-fetch-age Prompt Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: git-fetch-age
+        go_command_dest: /usr/local/bin/git-fetch-age
+        go_command_mode: "0755"
+        go_command_owner: root
 
     - name: Basic Bash Tweaks Prompt File
       ansible.builtin.copy:
