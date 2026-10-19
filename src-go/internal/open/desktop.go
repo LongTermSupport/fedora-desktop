@@ -46,9 +46,12 @@ func (r *run) desktopCandidates(ctx context.Context, mime string) ([]candidate, 
 		return nil, false, fail("%s", gioMissing)
 	}
 	var stdout bytes.Buffer
-	_, err := r.env.Runner.Run(ctx, execx.Cmd{
+	err := r.step(ctx, execx.Cmd{
 		Name: gioProg, Args: []string{"mime", mime}, Env: []string{"LC_ALL=C.UTF-8"}, Stdout: &stdout,
 	})
+	if errors.Is(err, errCancelled) {
+		return nil, false, err
+	}
 	if err != nil {
 		return nil, false, fail("gio mime %s failed: %v", mime, err)
 	}

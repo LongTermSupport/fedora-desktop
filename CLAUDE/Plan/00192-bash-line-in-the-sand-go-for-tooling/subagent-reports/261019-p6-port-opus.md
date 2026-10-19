@@ -62,3 +62,53 @@ sensitivity of the test, not something this branch caused.
 ## Left
 
 H1-H5 need a desktop session and a terminal. Merge after review and the owner's host run.
+
+## Review fixes (branch `go-port/open-2`, from `497a23b0`)
+
+`go-port/open` was checked out in another worktree, so the fixes are on `go-port/open-2`. Fable's
+review is copied beside this report (`261019-open-port-review-fable.md`, verdict FIX-FIRST). Each
+finding was fixed test first; the red and the green are in the 00192 journal.
+
+1. **Signals (blocking).** The coordinator ruled that the person's own Ctrl-C is a cancel, never
+   a failure. `execx.ExitError` gains `Signal`, set from the wait status, and its message reads
+   `<name> killed by SIGTERM`. New expectations in SPEC-open:
+
+   - E29: a handler that dies of SIGINT, or exits non-zero after a SIGINT reached `open` while
+     it ran (mpv's 4), ends `open` quietly with exit 130. A producer killed by Ctrl-C while
+     `less` survived counts the same way.
+   - E30: any other signal is `open: <label> killed by <SIGNAME>`, exit 128 + n.
+   - E31: an interrupt before the handler runs cancels with `open: cancelled — nothing opened.`,
+     exit 130, and nothing further runs. That covers a detector, `gio mime`, the
+     registration, the choice and the moment before the handler starts. A step killed by
+     SIGINT/SIGQUIT counts as interrupted even if `open` has not seen the signal yet. A
+     `gio launch` that failed because of an interrupt is a cancel too.
+
+   A handler's interrupts are taken when it ends, so a Ctrl-C that a handler dealt with
+   (exit 0) does not cancel the next target. This replaces the numbered prompt's blanket drain.
+   §4 exit codes and B20 are added, and H5 checks this on the host.
+
+2. **B1 reworded.** gio's default falls back to the first registered app in `mimeinfo.cache`,
+   so the Go opens unasked, as the bash did. It asks only when gio names no default, or when
+   the default it names is in no application directory. H2 confirms this.
+
+3. **Plan 00064** PLAN.md now describes `gio mime` in the overview, Task 2.1 and the risk row. A
+   note under Decision 1 says the port moved to gio within option C (same `mimeapps.list`),
+   pending the owner's confirmation at H3.
+
+4. **Live-tree comparison** recorded in the journal. The Go binary and the bash at `9b9e50e0`
+   were run over 11 cases (directory and URL `-l`/`-n`, a missing path, a `-`-leading file, a
+   plain file, and the usage cases). The only differences were B11, B12, B13 and B14. No typed
+   file could be compared because the container has no detectors.
+
+5. **Missing test** `TestDefaultInNoDirectoryAsks` added. It passed on the old code: the
+   behaviour was right and only the test was missing.
+
+6. **Pager failures** now name the pager (`open: less exited 2`, `open: less killed by SIGTERM`).
+
+B14 (exit 64 and 130) is kept.
+
+QA, all passing: `go test -race` over `internal/open`, `cmd/open` and `internal/execx`, plus
+`go test ./...` over the module (`execx` is shared). golangci-lint reported 0 issues. The
+project rules driver (`go vet -vettool`) was clean, and so were `qa-bash-limits.bash`,
+`ansible-playbook --syntax-check` on `play-cli-tools.yml` and `qa-changed.bash`. qa-all was not
+run.

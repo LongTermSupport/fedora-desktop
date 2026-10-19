@@ -42,7 +42,7 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
   `wsi-resolve-model`) stay bash and Python and run from the binary's directory. Its batch
   limit's one home is `limit.go` (`scripts/qa-stt-limits.bash`); `scripts/test-wsi-stop-grace.bash`
   builds and drives the binary end to end.
-- `internal/open/` — the `open` command (spec `SPEC-open.md`, E1-E28): a target's type
+- `internal/open/` — the `open` command (spec `SPEC-open.md`, E1-E31): a target's type
   (`mimetype`, `xdg-mime`, `file`), the desktop apps `gio mime` names, found in the XDG
   application directories, and the terminal handlers as a table of argv (an optional pager fed
   by an `os.Pipe`, no shell); the chooser is `ui.Picker`, or a numbered menu on `/dev/tty`

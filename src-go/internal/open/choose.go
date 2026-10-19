@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -105,7 +104,11 @@ func (r *run) numbered(ctx context.Context, heading ui.Heading, labels []string)
 	for i, l := range labels {
 		r.note(fmt.Sprintf("  %2d) %s", i+1, l))
 	}
-	drainInterrupts(r.env.Interrupts)
+	// A handler's interrupts are taken when it ends, so one pending here came after it: a
+	// cancel before anything runs (E31).
+	if r.takeInterrupts().seen {
+		return 0, errCancelled
+	}
 	for attempt := 1; ; attempt++ {
 		r.errOut.Print(r.env.Stderr, fmt.Sprintf("Choice [1-%d, q to cancel]: ", len(labels)))
 		reply, err := r.readLine()
@@ -145,18 +148,6 @@ func (r *run) columns(ctx context.Context) int {
 
 // errInterrupted is Ctrl-C (or Ctrl-\) at the prompt.
 var errInterrupted = errors.New("interrupted")
-
-// drainInterrupts drops interrupts that arrived before the prompt (while a handler for an
-// earlier target had the terminal), so they do not cancel it.
-func drainInterrupts(ch <-chan os.Signal) {
-	for {
-		select {
-		case <-ch:
-		default:
-			return
-		}
-	}
-}
 
 // readLine is one reply from the terminal, trimmed; end of input is io.EOF even after a partial
 // line, and an interrupt is errInterrupted without waiting for the read.

@@ -271,6 +271,8 @@ type fakePicker struct {
 	answers  []pickAnswer
 	specs    []ui.PickSpec
 	headings []ui.Heading
+	// during, when set, runs inside each Pick (the person acting while the chooser is up).
+	during func()
 }
 
 type pickAnswer struct {
@@ -281,6 +283,9 @@ type pickAnswer struct {
 func (p *fakePicker) Pick(_ context.Context, h ui.Heading, s ui.PickSpec) (ui.Picked, error) {
 	p.specs = append(p.specs, s)
 	p.headings = append(p.headings, h)
+	if p.during != nil {
+		p.during()
+	}
 	if len(p.answers) == 0 {
 		return ui.Picked{}, errors.New("fakePicker: unscripted pick")
 	}

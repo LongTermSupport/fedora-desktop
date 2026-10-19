@@ -45,8 +45,8 @@ type Env struct {
 	IsTerminal func(any) bool
 	// OpenTTY opens the controlling terminal the numbered menu reads from.
 	OpenTTY func() (io.ReadCloser, error)
-	// Interrupts is SIGINT and SIGQUIT, caught so a handler owns them while it runs (E26) and
-	// a prompt is cancelled by them (E19).
+	// Interrupts is SIGINT and SIGQUIT, caught so a handler owns them while it runs (E26, E29)
+	// and anything before the handler is cancelled by them (E19, E31).
 	Interrupts <-chan os.Signal
 }
 
@@ -72,10 +72,11 @@ type App struct {
 	Env Env
 }
 
-// failure ends a run with code after printing "open: <msg>".
+// failure ends a run with code after printing "open: <msg>", or printing nothing when quiet.
 type failure struct {
-	code term.ExitCode
-	msg  string
+	code  term.ExitCode
+	msg   string
+	quiet bool
 }
 
 func (f *failure) Error() string { return f.msg }
@@ -121,7 +122,9 @@ func (r *run) result(err error) term.ExitCode {
 	case err == nil:
 		return term.ExitOK
 	case ok:
-		r.say(f.msg)
+		if !f.quiet {
+			r.say(f.msg)
+		}
 		return f.code
 	default:
 		r.say(err.Error())

@@ -81,6 +81,9 @@ func (r *run) typeOf(ctx context.Context, path string) (string, error) {
 		if err == nil {
 			return mime, nil
 		}
+		if errors.Is(err, errCancelled) {
+			return "", err
+		}
 		reasons = append(reasons, d.Name+": "+err.Error())
 		r.say(fmt.Sprintf("%s could not type '%s': %v; trying the next detector", d.Name, path, err))
 	}
@@ -92,7 +95,7 @@ func (r *run) typeOf(ctx context.Context, path string) (string, error) {
 func (r *run) detect(ctx context.Context, d execx.Cmd) (string, error) {
 	var stdout bytes.Buffer
 	d.Stdout = &stdout
-	if _, err := r.env.Runner.Run(ctx, d); err != nil {
+	if err := r.step(ctx, d); err != nil {
 		return "", err
 	}
 	answer := strings.TrimSpace(stdout.String())

@@ -16,6 +16,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // Cmd is one program run: argv, extra environment, stdin and working directory. Stdout and
@@ -54,16 +56,21 @@ type Result struct {
 	ExitCode int
 }
 
-// ExitError is a command that ran and exited non-zero. A command that could not start at
-// all is a different error, so a caller can tell "refused" from "not installed".
+// ExitError is a command that ran and exited non-zero, or was ended by a signal (Signal set,
+// Code -1). A command that could not start at all is a different error, so a caller can tell
+// "refused" from "not installed".
 type ExitError struct {
 	Name   string
 	Code   int
+	Signal syscall.Signal
 	Stderr string
 }
 
 func (e *ExitError) Error() string {
 	msg := fmt.Sprintf("%s exited %d", e.Name, e.Code)
+	if e.Signal != 0 {
+		msg = fmt.Sprintf("%s killed by %s", e.Name, unix.SignalName(e.Signal))
+	}
 	if s := strings.TrimSpace(e.Stderr); s != "" {
 		msg += ": " + s
 	}
@@ -119,7 +126,11 @@ func (o OS) Run(ctx context.Context, c Cmd) (Result, error) {
 		return res, nil
 	case errors.As(err, &exitErr):
 		res.ExitCode = exitErr.ExitCode()
-		return res, &ExitError{Name: c.Name, Code: res.ExitCode, Stderr: errBuf.String()}
+		e := &ExitError{Name: c.Name, Code: res.ExitCode, Stderr: errBuf.String()}
+		if status, ok := exitErr.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+			e.Signal = status.Signal()
+		}
+		return res, e
 	case errors.Is(err, exec.ErrWaitDelay):
 		// The command ended but a child still held its pipe: what it wrote is complete, so
 		// the Result is returned with the error.

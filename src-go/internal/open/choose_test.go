@@ -57,6 +57,28 @@ func TestNoDefaultAsksEvenWithRegisteredApps(t *testing.T) {
 	}
 }
 
+// E9, E15: a default gio names whose entry is in no application directory is not offered, so
+// the first app left is not a default and the person is asked.
+func TestDefaultInNoDirectoryAsks(t *testing.T) {
+	w := newWorld(t)
+	p := w.file("a.png", "x")
+	w.types("image/png")
+	w.gui("image/png", gioWithDefault) // names org.gnome.Loupe.desktop, which is written nowhere
+	gimp := w.desktop("org.gimp.GIMP.desktop", "[Desktop Entry]\nName=GIMP\n")
+	w.install("chafa")
+	w.runner.On([]string{"gio", "launch"}, execx.Result{})
+	w.picker.chooseRow("0")
+	if code := w.run(p); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.stderr.String())
+	}
+	if len(w.picker.specs) != 1 {
+		t.Fatalf("asked %d times", len(w.picker.specs))
+	}
+	if !w.called("gio launch " + gimp + " " + p) {
+		t.Fatalf("ran %q", w.ran())
+	}
+}
+
 // E15: no desktop apps and a known type: the first terminal handler, unasked.
 func TestKnownTypeInATerminalOpensUnasked(t *testing.T) {
 	w := newWorld(t)
@@ -249,19 +271,33 @@ func TestNumberedMenuCancels(t *testing.T) {
 // E19: Ctrl-C at the numbered prompt cancels; a stale interrupt from before the prompt does not.
 func TestInterruptAtThePromptCancels(t *testing.T) {
 	w, p := numberedWorld(t, "")
+	// The first target is an image chafa opens unasked; the person presses Ctrl-C in it, chafa
+	// handles it and exits 0. That interrupt was the handler's (E26), so it must not cancel the
+	// second target's prompt.
+	img := w.file("a.png", "x")
+	w.runner.OnFunc([]string{"file", "--brief", "--mime-type", "--"}, func(c execx.Cmd) (execx.Result, error) {
+		if c.Args[len(c.Args)-1] == img {
+			return execx.Result{Stdout: []byte("image/png\n")}, nil
+		}
+		return execx.Result{Stdout: []byte("application/x-weird\n")}, nil
+	})
+	w.install("chafa")
+	w.runner.OnFunc([]string{"chafa"}, func(execx.Cmd) (execx.Result, error) {
+		w.signals <- os.Interrupt
+		return execx.Result{}, nil
+	})
 	tty := &interruptingTTY{signals: w.signals, release: make(chan struct{})}
 	t.Cleanup(func() { close(tty.release) })
 	app := w.app()
 	app.Env.OpenTTY = func() (io.ReadCloser, error) { return tty, nil }
-	w.signals <- os.Interrupt // stale: from before the prompt, so drained
-	code := app.Run(t.Context(), []string{p})
+	code := app.Run(t.Context(), []string{img, p})
 	if code != term.ExitCancelled {
-		t.Fatalf("exit %d", code)
+		t.Fatalf("exit %d: %s", code, w.stderr.String())
 	}
 	w.wantStderr("Choice [1-3, q to cancel]: ")
 	w.wantStderr("open: cancelled — nothing opened.\n")
 	if !tty.reading.Load() {
-		t.Fatal("the prompt was never read: the stale interrupt cancelled it")
+		t.Fatal("the prompt was never read: the first handler's interrupt cancelled it")
 	}
 }
 

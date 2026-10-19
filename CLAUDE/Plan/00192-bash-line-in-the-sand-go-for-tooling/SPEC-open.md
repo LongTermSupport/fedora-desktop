@@ -169,11 +169,13 @@ against risk:
   runs on this process's stdin, stdout and stderr. With a pager, the producer's stdout feeds the
   pager's stdin, the producer's stdin is `/dev/null`, and the pager has the terminal.
 - E25. A handler that exits non-zero is `open: <label> exited <n>`, exit 1. With a pager: the
-  pager's failure counts; the producer's failure counts only when the pager had not ended first
-  (a person quitting the pager early stops the producer, which is not a failure).
-- E26. While a handler runs, an interrupt or quit from the terminal (Ctrl-C, Ctrl-) is the
+  pager's failure counts, named by the pager's program (`open: less exited <n>`); the producer's
+  failure counts only when the pager had not ended first (a person quitting the pager early
+  stops the producer, which is not a failure).
+- E26. While a handler runs, an interrupt or quit from the terminal (Ctrl-C, `Ctrl-\`) is the
   handler's: `open` neither dies nor stops it, so the terminal is never left to an orphaned
-  program; `open` ends when the handler does.
+  program; `open` ends when the handler does. A handler that handles the interrupt and exits 0
+  is a success, and the next target is opened.
 - E27. A handler that is not installed by the time it runs is `open: <program> is not installed`,
   exit 1.
 
@@ -183,33 +185,56 @@ against risk:
   terminal handler itself prints); everything else is stderr. A write to stdout that fails is
   `open: could not write the output: <reason>`, exit 1.
 
+### Interrupts and signals
+
+The person's own Ctrl-C is a cancel, never a failure.
+
+- E29. A handler (or, with a pager, the program whose result counts by E25) that dies of
+  SIGINT, or that exits non-zero after a SIGINT reached `open` while it ran (`mpv` exits 4 on
+  Ctrl-C), ends `open` with exit 130 and no message of its own: the handler's ending has already
+  shown the person what happened. Later targets are not opened (E3).
+- E30. A handler (or pager, as E29) ended by any other signal is
+  `open: <label> killed by <SIGNAME>` (the pager's program in place of the label when it is the
+  pager), exit 128 + the signal's number (`killed by SIGTERM`, 143; `killed by SIGQUIT`, 131).
+- E31. An interrupt or quit before a handler runs cancels: during a type detector, `gio mime`,
+  the `--set-default` registration, the choice, or between the choice and the handler, it is
+  `open: cancelled — nothing opened.`, exit 130, and nothing further runs (no next detector, no
+  handler). A step killed by SIGINT or SIGQUIT counts as interrupted even when `open` has not yet
+  seen the signal (the terminal signals the whole foreground group). `gio launch` failing after
+  an interrupt, or killed by one, is the same cancel, not `gio launch failed`; a `gio launch`
+  that succeeded has opened the target, and a pending interrupt cancels whatever would run next.
+  A handler's interrupts are taken when it ends (E26, E29), so they never cancel a later
+  target's steps.
+
 ## 4. Exit codes
 
-0 opened (or listed, or a dry run); 1 a failure; 64 a usage error; 130 cancelled.
+0 opened (or listed, or a dry run); 1 a failure; 64 a usage error; 130 cancelled (E17-E19, E29,
+E31); 128 + n a handler killed by signal n other than SIGINT (E30).
 
 ## 5. Where the Go departs from the bash
 
-| #   | bash behaviour                                                                                                                                          | Go                                                                                         | exp.     |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | -------- |
-| B1  | in a graphical session, any registered application made it "confident": with no default set, the first registered app was launched without asking       | only a registered default is opened unasked; otherwise the person chooses                  | E15      |
-| B2  | the desktop-entry search used `find -type f`, so a symlinked entry (every Flatpak export, many user entries) was never found and its app never offered  | symlinks followed, the target must be a regular file                                       | E9       |
-| B3  | an ID was matched to any file of that base name at any depth (`foo.desktop` matched `kde/foo.desktop`, whose ID is `kde-foo.desktop`)                   | the desktop-entry spec's ID: the path below the directory with `/` read as `-`             | E9       |
-| B4  | the label was the first `Name=` line anywhere in the file                                                                                               | the `[Desktop Entry]` group's `Name`                                                       | E10      |
-| B5  | the default came from `xdg-mime query default`, whose failure was discarded; `gio mime`'s failure in a process substitution was discarded too           | `gio mime` alone (C locale), a failure is exit 1; `xdg-mime` is no longer asked a default  | E8       |
-| B6  | `--set-default` registered with `xdg-mime default`                                                                                                      | `gio mime <type> <id>`, failure named, nothing started                                     | E23      |
-| B7  | without `gio`, only the `xdg-mime` default was offered and `gtk-launch` started it                                                                      | in a graphical session `gio` is required; `-t` works without it                            | E8       |
-| B8  | a terminal handler was a `bash -c` template                                                                                                             | an argv and an optional pager argv, joined by a pipe; no shell                             | D4, E24  |
-| B9  | a handler whose pager (`less`) was not installed was still offered, and failed                                                                          | offered only when the pager is installed too                                               | E11      |
-| B10 | a handler's non-zero exit ended `open` with that status and no message; in a pipeline only the pager's status was seen                                  | `<label> exited <n>`, exit 1; a producer's failure counts unless the pager ended first     | E25      |
-| B11 | a failing type detector was discarded without a word before the next was asked                                                                          | named on stderr; output that is not one `type/subtype` word is a failure too               | E6       |
-| B12 | `--list` printed to stderr                                                                                                                              | stdout, its payload                                                                        | E20, E28 |
-| B13 | `--dry-run` printed `bash -c '<template>' open <target>`                                                                                                | the argv itself, shell-quoted, with the pager after `\|`; and the `gio mime` line for `-d` | E21      |
-| B14 | every error exited 1, a usage error and a cancel included; options were read one by one, so `open --bogus -h` failed and `open -h --bogus` printed help | usage 64, cancel 130; the whole command line first, `-h` anywhere wins                     | E1, E2   |
-| B15 | any target containing `://` was a URL, a file path with `://` in it included; the scheme kept its case                                                  | a scheme by RFC 3986's grammar, lower-cased                                                | E4       |
-| B16 | a path beginning with `-` reached `jq`, `sqlite3` and `bsdtar`, which take no `--`, as an option                                                        | passed as `./<path>`                                                                       | E5       |
-| B17 | the "no terminal" advice suggested `open --ask`, which needs the terminal that is missing, and `mimeopen --ask-default`                                 | `open --list`, and `open --set-default` run from a terminal                                | E16      |
-| B18 | Ctrl-C while a handler ran killed the bash too, and two equal labels in fzf always chose the first                                                      | the handler's alone (E26); each row carries its own hidden tag (E17)                       | E17, E26 |
-| B19 | the fzf chooser's only way out was Esc, a key with no visible row                                                                                       | a `Cancel — open nothing` row, as the house picker has                                     | E17      |
+| #   | bash behaviour                                                                                                                                           | Go                                                                                                                                                                                                                                                                                                                                                                                            | exp.     |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| B1  | in a graphical session, any registered application made it "confident": with no default set, the first registered app was launched without asking        | only the default `gio mime` names is opened unasked. gio's default falls back to the first registered app in `mimeinfo.cache` when `mimeapps.list` names none, so whenever an app is registered gio names a default and the Go opens it unasked, as the bash did. The Go asks only when gio lists apps and names no default, or when the default it names is in no application directory (E9) | E9, E15  |
+| B2  | the desktop-entry search used `find -type f`, so a symlinked entry (every Flatpak export, many user entries) was never found and its app never offered   | symlinks followed, the target must be a regular file                                                                                                                                                                                                                                                                                                                                          | E9       |
+| B3  | an ID was matched to any file of that base name at any depth (`foo.desktop` matched `kde/foo.desktop`, whose ID is `kde-foo.desktop`)                    | the desktop-entry spec's ID: the path below the directory with `/` read as `-`                                                                                                                                                                                                                                                                                                                | E9       |
+| B4  | the label was the first `Name=` line anywhere in the file                                                                                                | the `[Desktop Entry]` group's `Name`                                                                                                                                                                                                                                                                                                                                                          | E10      |
+| B5  | the default came from `xdg-mime query default`, whose failure was discarded; `gio mime`'s failure in a process substitution was discarded too            | `gio mime` alone (C locale), a failure is exit 1; `xdg-mime` is no longer asked a default                                                                                                                                                                                                                                                                                                     | E8       |
+| B6  | `--set-default` registered with `xdg-mime default`                                                                                                       | `gio mime <type> <id>`, failure named, nothing started                                                                                                                                                                                                                                                                                                                                        | E23      |
+| B7  | without `gio`, only the `xdg-mime` default was offered and `gtk-launch` started it                                                                       | in a graphical session `gio` is required; `-t` works without it                                                                                                                                                                                                                                                                                                                               | E8       |
+| B8  | a terminal handler was a `bash -c` template                                                                                                              | an argv and an optional pager argv, joined by a pipe; no shell                                                                                                                                                                                                                                                                                                                                | D4, E24  |
+| B9  | a handler whose pager (`less`) was not installed was still offered, and failed                                                                           | offered only when the pager is installed too                                                                                                                                                                                                                                                                                                                                                  | E11      |
+| B10 | a handler's non-zero exit ended `open` with that status and no message; in a pipeline only the pager's status was seen                                   | `<label> exited <n>`, exit 1; a producer's failure counts unless the pager ended first                                                                                                                                                                                                                                                                                                        | E25      |
+| B11 | a failing type detector was discarded without a word before the next was asked                                                                           | named on stderr; output that is not one `type/subtype` word is a failure too                                                                                                                                                                                                                                                                                                                  | E6       |
+| B12 | `--list` printed to stderr                                                                                                                               | stdout, its payload                                                                                                                                                                                                                                                                                                                                                                           | E20, E28 |
+| B13 | `--dry-run` printed `bash -c '<template>' open <target>`                                                                                                 | the argv itself, shell-quoted, with the pager after `\|`; and the `gio mime` line for `-d`                                                                                                                                                                                                                                                                                                    | E21      |
+| B14 | every error exited 1, a usage error and a cancel included; options were read one by one, so `open --bogus -h` failed and `open -h --bogus` printed help  | usage 64, cancel 130; the whole command line first, `-h` anywhere wins                                                                                                                                                                                                                                                                                                                        | E1, E2   |
+| B15 | any target containing `://` was a URL, a file path with `://` in it included; the scheme kept its case                                                   | a scheme by RFC 3986's grammar, lower-cased                                                                                                                                                                                                                                                                                                                                                   | E4       |
+| B16 | a path beginning with `-` reached `jq`, `sqlite3` and `bsdtar`, which take no `--`, as an option                                                         | passed as `./<path>`                                                                                                                                                                                                                                                                                                                                                                          | E5       |
+| B17 | the "no terminal" advice suggested `open --ask`, which needs the terminal that is missing, and `mimeopen --ask-default`                                  | `open --list`, and `open --set-default` run from a terminal                                                                                                                                                                                                                                                                                                                                   | E16      |
+| B18 | Ctrl-C while a handler ran killed the bash too, and two equal labels in fzf always chose the first                                                       | the handler's alone (E26); each row carries its own hidden tag (E17)                                                                                                                                                                                                                                                                                                                          | E17, E26 |
+| B19 | the fzf chooser's only way out was Esc, a key with no visible row                                                                                        | a `Cancel — open nothing` row, as the house picker has                                                                                                                                                                                                                                                                                                                                        | E17      |
+| B20 | a handler ended by a signal ended `open` with 128 + n and no message, Ctrl-C included; an interrupt while a detector ran killed the bash with no message | Ctrl-C ending a handler is a quiet cancel (130), however the handler encodes it; any other signal is named, 128 + n; before a handler, `cancelled — nothing opened.`, 130                                                                                                                                                                                                                     | E29-E31  |
 
 ## 6. Go design
 
@@ -219,7 +244,7 @@ against risk:
 - `internal/open`: `App` over an `Env` of seams (runner, picker, streams, environment, PATH lookup,
   the readable check, the terminal test, the controlling terminal, the signal channel). `args.go`
   the command line, `mime.go` E4-E6, `desktop.go` E8-E10 (the `gio mime` reader and the XDG
-  search), `handlers.go` E11-E13 as a table, `choose.go` E15-E19, `launch.go` E21-E27.
+  search), `handlers.go` E11-E13 as a table, `choose.go` E15-E19, `launch.go` E21-E27 and E29-E31.
 - `scripts/go-binary-suites.tsv`: `open	qa-go` (its oracle is the Go tests).
 - The usage text, `src-go/internal/open/usage.txt`, is embedded: the bash's, with `--list` and
   `--dry-run` said to print on stdout and the default registered by `gio`.
@@ -230,8 +255,9 @@ Plan 00064's Phase 4 desktop and terminal checks, on the Go binary:
 
 - H1. After `play-cli-tools.yml`: `open --help` prints the usage, and `file ~/.local/bin/open`
   says ELF (the Go binary replaced the bash).
-- H2. Desktop: `open <pdf>` starts the registered viewer without asking; `open .` starts the file
-  manager; `open -a <image>` shows the fzf chooser with the image viewers and a
+- H2. Desktop: `open <pdf>` starts the registered viewer without asking; with no default set in
+  `mimeapps.list` for a type that has apps registered, `open <file>` starts the app gio names
+  (its `mimeinfo.cache` fallback) without asking (B1); `open .` starts the file manager; `open -a <image>` shows the fzf chooser with the image viewers and a
   `Cancel — open nothing` row, and the row chosen starts.
 - H3. Desktop: `open -d <image>` and choosing an app registers it (`gio mime image/<type>` names
   it as the default afterwards), and a later `open <image>` starts it unasked. A Flatpak app
@@ -242,4 +268,6 @@ Plan 00064's Phase 4 desktop and terminal checks, on the Go binary:
   chooser.
 - H5. Terminal: Ctrl-C inside `less` or `mpv` started by `open` is that program's; the shell
   prompt comes back only when the program has ended, and the terminal is in its normal state
-  (E26).
+  (E26). Ctrl-C that ends `mpv` or `chafa` returns to the prompt with no `open:` line and
+  `echo $?` prints 130 (E29); Ctrl-C while `open` is still typing a slow file, or before the
+  handler starts, prints `open: cancelled — nothing opened.` with exit 130 (E31).

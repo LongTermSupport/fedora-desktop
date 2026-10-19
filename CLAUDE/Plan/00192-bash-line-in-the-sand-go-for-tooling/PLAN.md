@@ -392,12 +392,15 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   the bash and its allowlist row are gone. Host checks H1-H3 pending.
   `open` (P6, the first of the interactive account/setup tools; chosen in its spec's section 1:
   no root, no credentials, all decisions over data a fake can pin) on `go-port/open`: ported
-  and cut over, not merged; spec [SPEC-open.md](SPEC-open.md) (E1-E28, B1-B19),
+  and cut over, not merged; spec [SPEC-open.md](SPEC-open.md) (E1-E31, B1-B20),
   `src-go/cmd/open` and `src-go/internal/open` (handlers as an argv table with an optional
   pager over an `os.Pipe`, no shell; the chooser `ui.Picker` with a Cancel row, or a numbered
   menu on `/dev/tty`; desktop apps through `gio` alone); `play-cli-tools.yml` builds it, the bash
   and its allowlist row are gone (it had no suite). Host checks H1-H5 queued in
-  `meta-deploy.list`; report `subagent-reports/261019-p6-port-opus.md`.
+  `meta-deploy.list`; report `subagent-reports/261019-p6-port-opus.md`. Fable's review
+  (`subagent-reports/261019-open-port-review-fable.md`, FIX-FIRST) is fixed on
+  `go-port/open-2`: a handler's own Ctrl-C is a quiet cancel (130), other signals named
+  (128 + n), an interrupt before the handler cancels (E29-E31).
 
 ### Phase 4: Review
 

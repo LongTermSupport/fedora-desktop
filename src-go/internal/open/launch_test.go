@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
@@ -207,7 +208,176 @@ func TestPipelineFailures(t *testing.T) {
 	if code := w.run(p); code != term.ExitFailure {
 		t.Fatalf("pager failing: exit %d", code)
 	}
-	w.wantStderr("open: pdftotext (text) exited 2\n")
+	// The pager failed, so the pager is named, not the producer.
+	w.wantStderr("open: less exited 2\n")
+}
+
+// E29: a handler ended by the person's Ctrl-C ends open quietly, exit 130.
+func TestHandlerEndedByCtrlCIsAQuietCancel(t *testing.T) {
+	w := newWorld(t)
+	p := w.file("a.png", "x")
+	w.types("image/png")
+	w.install("chafa")
+	w.runner.OnError([]string{"chafa"}, &execx.ExitError{Name: "chafa", Code: -1, Signal: syscall.SIGINT})
+	if code := w.run(p); code != term.ExitCancelled {
+		t.Fatalf("exit %d", code)
+	}
+	if got := w.stderr.String(); got != "→ "+p+" — chafa (terminal image)\n" {
+		t.Fatalf("stderr %q", got)
+	}
+}
+
+// E29: a handler that exits non-zero after the person pressed Ctrl-C while it ran (mpv exits
+// 4) ends open quietly, exit 130.
+func TestHandlerFailingAfterCtrlCIsAQuietCancel(t *testing.T) {
+	w := newWorld(t)
+	p := w.file("a.mp4", "x")
+	w.types("video/mp4")
+	w.install("mpv")
+	w.runner.OnFunc([]string{"mpv"}, func(execx.Cmd) (execx.Result, error) {
+		w.signals <- os.Interrupt
+		return execx.Result{ExitCode: 4}, nil
+	})
+	if code := w.run(p); code != term.ExitCancelled {
+		t.Fatalf("exit %d", code)
+	}
+	if strings.Contains(w.stderr.String(), "open: ") {
+		t.Fatalf("stderr %q", w.stderr.String())
+	}
+}
+
+// E29: a producer ended by Ctrl-C while the pager survived it is the same quiet cancel.
+func TestPipelineProducerEndedByCtrlCIsAQuietCancel(t *testing.T) {
+	w := newWorld(t)
+	p := w.file("a.pdf", "x")
+	w.types("application/pdf")
+	w.install("pdftotext", "less")
+	w.runner.OnError([]string{"pdftotext"}, &execx.ExitError{Name: "pdftotext", Code: -1, Signal: syscall.SIGINT})
+	w.runner.OnFunc([]string{"less"}, drainStdin)
+	if code := w.run(p); code != term.ExitCancelled {
+		t.Fatalf("exit %d: %s", code, w.stderr.String())
+	}
+	if strings.Contains(w.stderr.String(), "open: ") {
+		t.Fatalf("stderr %q", w.stderr.String())
+	}
+}
+
+// E30: any other signal that ends a handler (or its pager) is named, exit 128+n.
+func TestHandlerKilledByAnotherSignalIsNamed(t *testing.T) {
+	for _, tc := range []struct {
+		sig  syscall.Signal
+		code term.ExitCode
+		name string
+	}{{syscall.SIGTERM, 143, "SIGTERM"}, {syscall.SIGQUIT, 131, "SIGQUIT"}, {syscall.SIGKILL, 137, "SIGKILL"}} {
+		w := newWorld(t)
+		p := w.file("a.png", "x")
+		w.types("image/png")
+		w.install("chafa")
+		w.runner.OnError([]string{"chafa"}, &execx.ExitError{Name: "chafa", Code: -1, Signal: tc.sig})
+		if code := w.run(p); code != tc.code {
+			t.Fatalf("%s: exit %d", tc.name, code)
+		}
+		w.wantStderr("open: chafa (terminal image) killed by " + tc.name + "\n")
+	}
+
+	w := newWorld(t)
+	p := w.file("a.pdf", "x")
+	w.types("application/pdf")
+	w.install("pdftotext", "less")
+	w.runner.On([]string{"pdftotext"}, execx.Result{Stdout: []byte("x\n")})
+	w.runner.OnError([]string{"less"}, &execx.ExitError{Name: "less", Code: -1, Signal: syscall.SIGTERM})
+	if code := w.run(p); code != 143 {
+		t.Fatalf("pager: exit %d", code)
+	}
+	w.wantStderr("open: less killed by SIGTERM\n")
+}
+
+// E31: an interrupt while a type detector runs cancels; the next detector is not asked, and
+// nothing opens. A detector killed by it cancels even when open had not yet seen the signal.
+func TestInterruptWhileTypingCancels(t *testing.T) {
+	w := newWorld(t)
+	p := w.file("a.png", "x")
+	w.types("image/png")
+	w.install("mimetype", "chafa")
+	w.runner.OnFunc([]string{"mimetype"}, func(execx.Cmd) (execx.Result, error) {
+		w.signals <- os.Interrupt
+		return execx.Result{Stdout: []byte("image/png\n")}, nil
+	})
+	w.runner.On([]string{"chafa"}, execx.Result{})
+	if code := w.run(p); code != term.ExitCancelled {
+		t.Fatalf("exit %d: %s", code, w.stderr.String())
+	}
+	w.wantStderr("open: cancelled — nothing opened.\n")
+	if w.runner.Called("file") || w.runner.Called("chafa") {
+		t.Fatalf("carried on: %q", w.ran())
+	}
+
+	w = newWorld(t)
+	p = w.file("a.png", "x")
+	w.types("image/png")
+	w.install("mimetype", "chafa")
+	w.runner.OnError([]string{"mimetype"}, &execx.ExitError{Name: "mimetype", Code: -1, Signal: syscall.SIGINT})
+	if code := w.run(p); code != term.ExitCancelled {
+		t.Fatalf("killed detector: exit %d: %s", code, w.stderr.String())
+	}
+	if w.runner.Called("file") || strings.Contains(w.stderr.String(), "trying the next detector") {
+		t.Fatalf("carried on: %q\n%s", w.ran(), w.stderr.String())
+	}
+}
+
+// E31: an interrupt while gio mime lists the apps cancels.
+func TestInterruptDuringGioMimeCancels(t *testing.T) {
+	w, p := pngWorld(t, gioWithDefault)
+	w.runner.OnFunc([]string{"gio", "mime", "image/png"}, func(execx.Cmd) (execx.Result, error) {
+		w.signals <- os.Interrupt
+		return execx.Result{Stdout: []byte(gioWithDefault)}, nil
+	})
+	if code := w.run(p); code != term.ExitCancelled {
+		t.Fatalf("exit %d: %s", code, w.stderr.String())
+	}
+	if w.called("gio launch") || w.runner.Called("gio launch") {
+		t.Fatalf("launched: %q", w.ran())
+	}
+}
+
+// E31: gio launch failing because of an interrupt (killed by it, or ending after it) is a
+// cancel, not a failed launch.
+func TestInterruptDuringGioLaunchCancels(t *testing.T) {
+	w, p := pngWorld(t, gioWithDefault)
+	w.runner.OnError([]string{"gio", "launch"}, &execx.ExitError{Name: "gio", Code: -1, Signal: syscall.SIGINT})
+	if code := w.run(p); code != term.ExitCancelled {
+		t.Fatalf("exit %d: %s", code, w.stderr.String())
+	}
+	w.wantStderr("open: cancelled — nothing opened.\n")
+
+	w, p = pngWorld(t, gioWithDefault)
+	w.runner.OnFunc([]string{"gio", "launch"}, func(execx.Cmd) (execx.Result, error) {
+		w.signals <- os.Interrupt
+		return execx.Result{ExitCode: 1}, nil
+	})
+	if code := w.run(p); code != term.ExitCancelled {
+		t.Fatalf("exit %d: %s", code, w.stderr.String())
+	}
+	if strings.Contains(w.stderr.String(), "gio launch failed") {
+		t.Fatalf("stderr %q", w.stderr.String())
+	}
+}
+
+// E31: an interrupt that arrives after the choice but before the handler runs cancels it.
+func TestInterruptBeforeTheHandlerRunsCancels(t *testing.T) {
+	w := newWorld(t)
+	p := w.file("a.png", "x")
+	w.types("image/png")
+	w.install("chafa")
+	w.runner.On([]string{"chafa"}, execx.Result{})
+	w.picker.chooseRow("0")
+	w.picker.during = func() { w.signals <- os.Interrupt }
+	if code := w.run("-a", p); code != term.ExitCancelled {
+		t.Fatalf("exit %d: %s", code, w.stderr.String())
+	}
+	if w.runner.Called("chafa") {
+		t.Fatal("the handler ran")
+	}
 }
 
 // E25: the person quitting the pager early stops the producer, which is not a failure.
