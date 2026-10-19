@@ -53,6 +53,8 @@ type Collector struct {
 	Now func() time.Time
 	// Getenv is the environment: XDG_RUNTIME_DIR, where the sessions' desired memberships are.
 	Getenv func(string) string
+	// Parallel is how many agent-bus calls a pass runs at once; 0 is the default bound.
+	Parallel int
 
 	// devices is who is signed in to Element, by "<team>|<person>", read once and kept until
 	// ForgetDevices: one sudo process per person is too much to pay on every redraw.
@@ -116,7 +118,8 @@ type seatAt struct {
 	seat agentbus.Seat
 }
 
-// Collect is one pass over the machine: every source read once, the rows built.
+// Collect is one pass over the machine: every source read once, the rows built. The agent-bus
+// calls run together (read), and what they found is used in the order they were always made.
 func (c *Collector) Collect(ctx context.Context) (*Snapshot, error) {
 	s := NewSnapshot()
 	if err := c.collectTeams(ctx, s); err != nil {
@@ -128,9 +131,10 @@ func (c *Collector) Collect(ctx context.Context) (*Snapshot, error) {
 	if err := c.collectSessions(ctx, s); err != nil {
 		return nil, err
 	}
-	seats := c.readSeats(ctx, s)
+	r := c.read(ctx, s)
+	seats := c.seatsRead(s, r)
 	for _, team := range s.Teams {
-		c.addTeamRows(ctx, s, team, seats)
+		c.addTeamRows(s, team, seats, r)
 	}
 	return s, nil
 }
@@ -286,10 +290,11 @@ func (c *Collector) addWorkTree(ctx context.Context, s *Snapshot) {
 	}
 }
 
-// collectMembers reads team's roster, and each person's Element sessions, as root without
+// addMembers notes team's roster, and each person's Element sessions, as read as root without
 // prompting. What could not be read is recorded as a reason, never skipped silently.
-func (c *Collector) collectMembers(ctx context.Context, s *Snapshot, team string) {
-	roster, err := c.Bus.List(ctx, team)
+func (c *Collector) addMembers(s *Snapshot, team string, read *rosterRead) {
+	read.said.play(c.Out)
+	roster, err := read.roster, read.err
 	switch {
 	case err == nil:
 		s.Members[team] = roster
@@ -310,7 +315,9 @@ func (c *Collector) collectMembers(ctx context.Context, s *Snapshot, team string
 			s.setSessions(key, count)
 			continue
 		}
-		devices, err := c.Bus.HumanDevices(ctx, team, h.Name)
+		person := read.devices[h.Name]
+		person.said.play(c.Out)
+		devices, err := person.devices, person.err
 		switch {
 		case err == nil:
 			s.setSessions(key, len(devices))
@@ -338,15 +345,17 @@ func roomWord(membership string) string {
 	return "not in room"
 }
 
-// readSeats is every seat of the checkouts that have a seat directory, read as the user.
-func (c *Collector) readSeats(ctx context.Context, s *Snapshot) []seatAt {
+// seatsRead is every seat of the checkouts that have a seat directory, as read as the user, in
+// the snapshot's order of checkouts.
+func (c *Collector) seatsRead(s *Snapshot, r reads) []seatAt {
 	var all []seatAt
 	for _, dir := range s.Checkouts {
-		info, err := os.Stat(filepath.Join(dir, ".claude", "ccy", "pingbus", "seats"))
-		if err != nil || !info.IsDir() {
+		read, asked := r.seats[dir]
+		if !asked {
 			continue
 		}
-		seats, unreadable, err := c.Bus.SeatList(ctx, dir)
+		read.said.play(c.Out)
+		seats, unreadable, err := read.seats, read.unreadable, read.err
 		if err != nil || unreadable {
 			if err != nil && !agentbus.IsCommandError(err) {
 				c.reportErr(err)
@@ -362,8 +371,8 @@ func (c *Collector) readSeats(ctx context.Context, s *Snapshot) []seatAt {
 }
 
 // addTeamRows appends the team's own row, then its seats, other members and people.
-func (c *Collector) addTeamRows(ctx context.Context, s *Snapshot, team string, seats []seatAt) {
-	state, where := c.teamState(ctx, s, team)
+func (c *Collector) addTeamRows(s *Snapshot, team string, seats []seatAt, r reads) {
+	state, where := c.teamState(s, team, r)
 	if s.Loaded[team] {
 		if words := healthWords(c.AppliedDir, team, c.Now()); words != "" {
 			where += ", " + words
@@ -387,8 +396,8 @@ func (c *Collector) addTeamRows(ctx context.Context, s *Snapshot, team string, s
 }
 
 // teamState is a team's STATE and the start of its WHERE: its port, and why its members are
-// not shown. It reads the members of a team that is up.
-func (c *Collector) teamState(ctx context.Context, s *Snapshot, team string) (string, string) {
+// not shown. It notes the members of a team that is up.
+func (c *Collector) teamState(s *Snapshot, team string, r reads) (string, string) {
 	port := s.Port[team]
 	if port == "" {
 		port = "unknown (not declared)"
@@ -402,8 +411,8 @@ func (c *Collector) teamState(ctx context.Context, s *Snapshot, team string) (st
 		return wordNotInstalled, where + ", install it: ccy-teams apply " + team
 	}
 	state := systemd.StateWord(s.Active[team])
-	if state == systemd.HomeserverUp {
-		c.collectMembers(ctx, s, team)
+	if s.up(team) {
+		c.addMembers(s, team, r.rosters[team])
 	} else {
 		s.MembersUnknown[team] = "homeserver down"
 	}

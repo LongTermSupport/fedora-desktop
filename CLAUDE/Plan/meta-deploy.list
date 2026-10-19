@@ -27,3 +27,11 @@
 # `open -t`) text, a directory, an image and a PDF opening in the terminal, Ctrl-C in less or
 # mpv belonging to that program.
 playbooks/imports/optional/common/play-cli-tools.yml
+
+
+# Plan 00203 Task 3.13: rebuilds and installs ccy-teams, which now opens faster: the board's
+# agent-bus calls (each checkout's seat list, each team's members, each person's Element
+# sessions) run together instead of one after another, and the declare helper runs on
+# /usr/bin/python3 instead of through the pyenv shim. The table and messages are unchanged. No
+# ccy or image change; running sessions are not touched.
+playbooks/imports/play-claude-yolo.yml
