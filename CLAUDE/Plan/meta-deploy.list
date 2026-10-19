@@ -19,3 +19,17 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Plan 00203 Task 3.10: the host's agent team bus kit (used by cc --teams and cc --bus) takes
+# the pingbus whose SessionStart hook records each session's conversation, so a cc session can
+# be restored and restarted by its own conversation id. Teams and homeservers are not changed.
+playbooks/imports/play-agent-bus.yml
+
+# Plan 00203 Tasks 3.10-3.12 (CCY 3.99.12.16, container 2.77.12; the image rebuilds once at the
+# next ccy launch). ccy-sessions restore resumes each session by its recorded conversation id,
+# never --continue; a session with none recorded is named and not started. New
+# `ccy-teams restart <team>` and the team menu's "Restart the team's desktop sessions": running
+# ccy sessions restart in place at their next idle moment, stopped ones start resuming their
+# conversation, running cc sessions and LXC members are left as they are and named. The image
+# switches Claude Code's agent view off (/background, --bg). Running sessions are not touched.
+playbooks/imports/play-claude-yolo.yml
