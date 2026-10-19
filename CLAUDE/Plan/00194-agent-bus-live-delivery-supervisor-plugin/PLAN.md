@@ -130,6 +130,18 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   member sees a mention naming an agent, so no one logs it although it reached no agent.
   Decide whether `empty` joins the logged reasons (the human did pick a pill, so the failure
   differs from the incident's), test first.
+- [ ] 🔄 **Task 2.0h**: The host acceptance's G3 (tmux window closed) told the teams nothing,
+  no goodbye and no disconnected notice. Cause, reproduced in the container: the launcher is
+  the pane's session leader, so the hangup's SIGHUP reaches it alone; bash runs the EXIT trap
+  at once without waiting for podman, which is told only once the launcher has gone. So the
+  notice ran while the container still held the seats, waited 15 s, gave up, and said so on
+  the dead terminal. Fixed test first (CCY 3.99.12.18, container 2.77.14): the clean-up stops
+  a container still running before the notice and ignores SIGHUP and SIGINT until done; both
+  the launcher and `pingbus seat disconnected` write each outcome to the owner-only
+  `.claude/ccy/pingbus/disconnect.log`; G3 keeps the launcher's stderr and that log. Waits on
+  review, then `play-agent-bus.yml`, `play-claude-yolo.yml` and the acceptance (queued in
+  meta-deploy). Report:
+  [261019-g3-window-closed-opus.md](subagent-reports/261019-g3-window-closed-opus.md).
 - [ ] ⬜ **Task 2.1**: The plugin, test first, shipped in the image beside `ccy_lifecycle.py`,
   enabled for a session launched with `--teams` (CCY version bump). Waits on the
   hooks-daemon release that carries plugin API 1.1 (#119); it also drops

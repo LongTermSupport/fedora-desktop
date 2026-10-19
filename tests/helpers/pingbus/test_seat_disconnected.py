@@ -207,6 +207,8 @@ class DisconnectedWaitTest(DisconnectedCase):
         self.assertEqual(self.notices(), [])
         self.assertIn("1@team-a", err)
         self.assertIn("held", err)
+        (line,) = (self.root.parent / cli.DISCONNECT_LOG).read_text(encoding="utf-8").splitlines()
+        self.assertIn("seat=1@team-a not told: still held", line)
 
     def test_the_default_wait_is_bounded(self):
         self.assertTrue(5 <= cli.Runtime().disconnect_wait_s <= 30)
@@ -237,6 +239,84 @@ class DisconnectedWaitTest(DisconnectedCase):
         self.assertEqual(len(self.notices()), 1)
         self.assertEqual({signum: signal.getsignal(signum) for signum in before}, before,
                          "the handlers are put back")
+
+
+class DisconnectedLogTest(DisconnectedCase):
+    """Every seat's outcome, told or not, is a line in the checkout's disconnect log beside its
+    seats and sessions, owner-only: the one record a closed terminal leaves (G3)."""
+
+    def log(self) -> pathlib.Path:
+        return self.root.parent / cli.DISCONNECT_LOG
+
+    def lines(self) -> list[str]:
+        return self.log().read_text(encoding="utf-8").splitlines()
+
+    def only_line(self) -> str:
+        (line,) = self.lines()
+        self.assertIn(f"session={SESSION}", line)
+        return line
+
+    def test_a_notice_posted_is_logged_owner_only_without_its_text(self):
+        self.joined()
+        self.died_holding()
+        self.assertEqual(self.disconnected()[0], cli.EXIT_OK)
+        line = self.only_line()
+        self.assertIn("seat=1@team-a told:", line)
+        self.assertNotIn(NOTICE, line)
+        self.assertNotIn(bus.ME_LP, line)
+        self.assertEqual(self.log().stat().st_mode & 0o777, 0o600)
+
+    def test_a_log_left_readable_by_others_is_made_owner_only(self):
+        self.log().write_text("", encoding="utf-8")
+        self.log().chmod(0o644)
+        self.assertEqual(self.disconnected()[0], cli.EXIT_OK)
+        self.assertEqual(self.log().stat().st_mode & 0o777, 0o600)
+
+    def test_each_reason_for_telling_no_one_is_logged(self):
+        cases = {
+            "no claim": lambda: None,
+            "older than this launch": lambda: self.died_holding(SINCE - 1),
+            "goodbye already posted": lambda: (self.died_holding(), self.said_goodbye(CLAIM)),
+        }
+        for reason, arrange in cases.items():
+            with self.subTest(reason=reason):
+                self.lock.unlink(missing_ok=True)
+                (self.seat_dir / seat.SAID_GOODBYE_FILE).unlink(missing_ok=True)
+                self.log().unlink(missing_ok=True)
+                arrange()
+                self.assertEqual(self.disconnected()[0], cli.EXIT_OK)
+                self.assertIn(f"seat=1@team-a not told: {reason}", self.only_line())
+                self.assertEqual(self.notices(), [])
+
+    def test_a_session_with_no_report_is_logged(self):
+        code, _, err = self.run_cli("seat", "disconnected", "--root", str(self.root),
+                                    "--session", "ccy-other-2", "--since", str(SINCE))
+        self.assertEqual((code, err), (cli.EXIT_OK, ""))
+        (line,) = self.lines()
+        self.assertIn("session=ccy-other-2 seat=- not told: no applied session report", line)
+
+    def test_a_failure_is_logged(self):
+        self.died_holding()
+        self.a.write_bundle(base_url=f"http://127.0.0.1:{bus.free_port()}")
+        self.assertNotEqual(self.disconnected()[0], cli.EXIT_OK)
+        self.assertIn("seat=1@team-a failed:", self.only_line())
+
+    def test_lines_are_appended_across_runs(self):
+        self.joined()
+        self.died_holding()
+        self.disconnected()
+        self.disconnected()
+        self.assertEqual([("seat=1@team-a told:" in line, "no claim" in line) for line in self.lines()],
+                         [(True, False), (False, True)])
+
+    def test_a_log_that_cannot_be_written_fails_after_the_notice(self):
+        self.joined()
+        self.died_holding()
+        self.log().mkdir()
+        code, _, err = self.disconnected()
+        self.assertEqual(code, cli.EXIT_CONFIG)
+        self.assertIn(cli.DISCONNECT_LOG, err)
+        self.assertEqual(len(self.notices()), 1, "the team was told first")
 
 
 class _DeadTerminal(io.TextIOBase):
@@ -275,6 +355,8 @@ class DisconnectedDeadStderrTest(DisconnectedCase):
         self.assertEqual(self.run_dead(), cli.EXIT_OK)
         self.assertEqual(len(self.notices()), 1, "team A")
         self.assertEqual(len([c for c in self.b.messages_from_me() if NOTICE in c["body"]]), 1, "team B")
+        log = (self.root.parent / cli.DISCONNECT_LOG).read_text(encoding="utf-8")
+        self.assertEqual(log.count(" told: claim"), 2, "the log is written with stderr gone")
 
     def test_a_failure_with_stderr_gone_is_still_the_exit_and_the_other_seat_is_told(self):
         self.died_holding()
