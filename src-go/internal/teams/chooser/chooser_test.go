@@ -370,7 +370,7 @@ func TestEscOnTheScopeQuestionLeavesWithNothingChosen(t *testing.T) {
 // S-B5: not a GitHub checkout: the whole list, joining without widening.
 func TestOutsideAGitHubCheckoutEveryTeamIsListedAndJoinedWithoutWidening(t *testing.T) {
 	r := newRig(t, "")
-	r.On("git rev-parse --is-inside-work-tree", "", 128)
+	r.OnNotARepository()
 	r.On(r.DeclarePrefix("declared"), "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\t\"Builds the site\"\n"+
 		"TEAM\tbeta\t6168\tpresent\tbeta.agent-bus.internal\thttp://192.0.2.10:6168\t-\n"+
 		"TEAM\tgone\t6169\tabsent\tgone.agent-bus.internal\t-\t-\n", 0)

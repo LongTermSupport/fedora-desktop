@@ -91,7 +91,7 @@ func busy(t *testing.T, teams []string, checkouts int) *teamtest.World {
 	w.OnDeclare("status", status.String())
 	w.On("systemctl list-units", units.String(), 0)
 	w.On("tmux -L ccy list-sessions", tmux.String(), 0)
-	w.On("git rev-parse --is-inside-work-tree", "", 128)
+	w.OnNotARepository()
 	w.Fake.OnFunc([]string{"agent-bus", "seat", "list"}, func(c execx.Cmd) (execx.Result, error) {
 		return execx.Result{Stdout: []byte("SEAT\t" + teams[0] + "\t1\tfree\t-\t" + filepath.Base(c.Dir) + ".1+local.podman\n")}, nil
 	})

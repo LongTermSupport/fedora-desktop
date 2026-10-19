@@ -117,6 +117,7 @@ func (s *wzScript) matching(prefix string) []string {
 
 func wzOK(out string) execx.Result     { return execx.Result{Stdout: []byte(out)} }
 func wzExit(code int) execx.Result     { return execx.Result{ExitCode: code} }
+func wzNotARepo() execx.Result         { return wzRefuse(teamtest.NotARepository) }
 func wzRefuse(msg string) execx.Result { return execx.Result{ExitCode: 64, Stderr: []byte(msg + "\n")} }
 
 // dp is the argv prefix of a declare.py call on the host_vars file.
@@ -479,7 +480,7 @@ func TestWizardRunsItsStepsInTheDocumentedOrder(t *testing.T) {
 
 func TestWizardOutsideACheckoutOffersTheOwnerFirstAndNoDefaults(t *testing.T) {
 	h := newWzHarness(t)
-	h.run.queue("git rev-parse", wzExit(128)) // not a work tree
+	h.run.queue("git rev-parse", wzNotARepo())
 	h.run.queue("gum choose", wzOK(scopeOwner+"\n"))
 	h.run.queue("gum input", wzOK("Example-Org\n"), wzOK("example-org\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1))
@@ -1181,7 +1182,7 @@ func TestNextStepsThatCannotBeReadEndTheRun(t *testing.T) {
 func TestNoSessionIsOfferedOutsideACheckout(t *testing.T) {
 	h := newWzHarness(t)
 	h.happyAnswers()
-	h.run.queue("git rev-parse", wzOK("true\n"), wzExit(128)) // here: a work tree; offer: not one
+	h.run.queue("git rev-parse", wzOK("true\n"), wzNotARepo()) // here: a work tree; offer: not one
 	h.run.queues["gum confirm"] = []execx.Result{wzOK(""), wzExit(1), wzExit(1)}
 	wzCode(t, h.invoke(), 0, h)
 	if h.run.called("gum confirm --default=true Start a ccy session") || len(h.execd) != 0 {

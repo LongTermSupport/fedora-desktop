@@ -13,7 +13,8 @@
 //     nothing asked and nothing on stderr. A subdirectory gives the top, so the session loads
 //     the repository's settings.
 //   - P4. git not installed: `git is not installed`, exit 1; never reported as "not in a
-//     repository". Any other failure to run git: exit 1.
+//     repository". Any other failure to run git, or git refusing for any reason but its own
+//     "not a git repository" (a repository owned by another user): exit 1, naming git's words.
 //   - P5. Outside a work tree with no one to ask (stdin is not a terminal, or
 //     CCY_SESSION_RESTORE is set: a restore has no answer to give): the refusal, exit 1,
 //     nothing read.
@@ -22,7 +23,7 @@
 //     stdout, exit 0; n or no is the refusal, exit 1. Anything else re-prompts, up to
 //     maxTries asks, then the refusal, exit 1. End of input is cancelled: the refusal, exit 1.
 //   - P7. The checkout is not a git work tree (moved, deleted): exit 1 before asking, naming
-//     it and the play that records it.
+//     it and the play that records it. Git failing on the checkout is reported as git's error.
 //
 // The refusal names the directory and the ways forward: cd into a project, or run claude.
 // stdout is only the directory; every message is on stderr.
@@ -136,7 +137,11 @@ func (a *App) offer(ctx context.Context, git *gitx.Git, cwd string) term.ExitCod
 	if !a.IsTerminal(a.Stdin) || a.Getenv("CCY_SESSION_RESTORE") != "" {
 		return a.refuse(cwd)
 	}
-	if ok, err := git.ProjectHere(ctx, a.RootDir); err != nil || !ok {
+	ok, err := git.ProjectHere(ctx, a.RootDir)
+	if err != nil {
+		return a.failf("cannot tell whether the fedora-desktop checkout recorded at build time, %s, is a git work tree: %v", a.RootDir, err)
+	}
+	if !ok {
 		return a.failf("the fedora-desktop checkout recorded at build time, %s, is not a git work tree; re-run %s from the checkout", a.RootDir, play)
 	}
 	a.sayf("cc: %s is not in a git repository, so no project settings (hooks, status line) would load.\n", cwd)

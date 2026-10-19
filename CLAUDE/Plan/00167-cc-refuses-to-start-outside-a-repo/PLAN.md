@@ -78,17 +78,20 @@ clear message.
 
 ### Phase 3: Deploy and accept
 
-- [ ] ⬜ **Task 3.1**: `deploy.bash` runs `play-claude-yolo.yml`.
-- [ ] ⬜ **Task 3.2**: `acceptance.bash` runs the deployed `/var/local/claude-code/cc` with
-  stdin not a terminal: from a fresh `mktemp -d` it must exit 1 with the repository
-  refusal and ask nothing, and from the repository root it must get past that check and
-  stop at the terminal check instead. A tmux session list taken before and after shows no
-  new `cc-` session. Prints `COVERAGE: n of m`. The offer itself needs a terminal and is
-  listed as NOT ESTABLISHABLE for the owner's check.
+- [x] ~~**Task 3.1**: `deploy.bash` runs `play-claude-yolo.yml`.~~ Dropped: the
+  `play-claude-yolo.yml` entry in `meta-deploy.list` deploys it, so a `deploy.bash` would
+  only run the same play a second time.
+- [x] ✅ **Task 3.2**: `acceptance.bash` (legs in `check-cc-project-dir.bash`) runs the
+  installed `/var/local/claude-code/cc-project-dir`, never `cc` or Claude, from `mktemp -d`
+  scratch directories: outside a repository with stdin `</dev/null`, and with
+  `CCY_SESSION_RESTORE=1` and stdin the terminal, it must exit 1 with the refusal, an empty
+  stdout and no `[Y/n]` offer; in a subfolder of a scratch git repository it must exit 0 with
+  the repository's top on stdout. The offer itself needs a person at a terminal and is the
+  owner's check (Task 3.3).
 - [ ] 🔄 **Task 3.3**: Add the plan to `meta-deploy.bash`. The owner runs it, then types `cc`
-  in `~` (accepts the offer once and declines it once) and once in a project. Queued for now
-  as the `play-claude-yolo.yml` entry already in `meta-deploy.list` (one run deploys both),
-  with this plan named in its description; becomes the plan entry once Tasks 3.1 and 3.2 exist.
+  in `~` (accepts the offer once and declines it once) and once in a project subfolder.
+  Queued: the plan entry runs `acceptance.bash` right after the `play-claude-yolo.yml` entry
+  that deploys it.
 
 ### Phase 4: Review and close
 

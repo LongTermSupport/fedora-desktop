@@ -109,7 +109,7 @@ func Populated(t *testing.T) *World {
 	w.On("systemctl list-units", UnitAlpha, 0)
 	w.On("systemctl is-active agent-bus-hs@alpha.service", "active\n", 0)
 	w.On("tmux -L ccy list-sessions", "ccy-proj 0 "+w.Checkout()+"\n", 0)
-	w.On("git rev-parse --is-inside-work-tree", "", 128)
+	w.OnNotARepository()
 	w.On("agent-bus seat list", "SEAT\talpha\t1\theld\tself\tproj.1+local.podman\nSEAT\talpha\tdev\tfree\t-\tproj.dev+local.podman\n", 0)
 	w.On(SudoBus+"list alpha", BusList, 0)
 	w.On(SudoBus+"human devices alpha owner", "", 0)
@@ -134,6 +134,15 @@ func (w *World) On(prefix, stdout string, code int) {
 // OnErr is On with a stderr text, for commands that fail with a reason.
 func (w *World) OnErr(prefix, stderr string, code int) {
 	w.Fake.On(strings.Fields(prefix), execx.Result{Stderr: []byte(stderr), ExitCode: code})
+}
+
+// NotARepository is git's own refusal for a folder in no repository, the one refusal
+// gitx.ProjectHere reads as "not a checkout".
+const NotARepository = "fatal: not a git repository (or any of the parent directories): .git"
+
+// OnNotARepository scripts git to say the folder is in no repository.
+func (w *World) OnNotARepository() {
+	w.OnErr("git rev-parse --is-inside-work-tree", NotARepository, 128)
 }
 
 // DeclarePrefix is the argv start of one declare.py subcommand.

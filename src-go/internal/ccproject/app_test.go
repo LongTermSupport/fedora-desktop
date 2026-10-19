@@ -285,6 +285,52 @@ func TestOfferRefusesAnUnreadableCheckout(t *testing.T) {
 	}
 }
 
+// P4: git refusing for any reason but "not a git repository" is an error naming git's words,
+// never the offer.
+func TestGitRefusingOtherwiseIsNotNoRepository(t *testing.T) {
+	const dubious = "fatal: detected dubious ownership in repository at '/home/u'"
+	w := newWorld()
+	w.fake.OnFunc([]string{"git", "rev-parse", "--is-inside-work-tree"}, gitFail(dubious))
+	w.stdin = "y\n"
+	if code := w.run(); code != term.ExitFailure {
+		t.Fatalf("exit %d", code)
+	}
+	if w.asked() != 0 || w.stdout.Len() != 0 {
+		t.Errorf("offered the checkout on git's refusal: %q", w.stderr.String())
+	}
+	if !strings.Contains(w.stderr.String(), dubious) {
+		t.Errorf("stderr does not carry git's words: %q", w.stderr.String())
+	}
+	if strings.Contains(w.stderr.String(), "not in a git repository") {
+		t.Errorf("git's refusal was reported as no repository: %q", w.stderr.String())
+	}
+}
+
+// P7: git failing on the checkout is reported as git's error, not as "not a git work tree".
+func TestOfferReportsGitFailingOnTheCheckout(t *testing.T) {
+	const dubious = "fatal: detected dubious ownership in repository at '" + checkout + "'"
+	w := newWorld()
+	w.fake.OnFunc([]string{"git", "rev-parse", "--is-inside-work-tree"}, func(c execx.Cmd) (execx.Result, error) {
+		if c.Dir == checkout {
+			return gitFail(dubious)(c)
+		}
+		return gitFail("fatal: not a git repository (or any of the parent directories): .git")(c)
+	})
+	w.stdin = "y\n"
+	if code := w.run(); code != term.ExitFailure {
+		t.Fatalf("exit %d", code)
+	}
+	if w.asked() != 0 || w.stdout.Len() != 0 {
+		t.Errorf("offered the checkout: %q", w.stderr.String())
+	}
+	if !strings.Contains(w.stderr.String(), dubious) {
+		t.Errorf("stderr does not carry git's words: %q", w.stderr.String())
+	}
+	if strings.Contains(w.stderr.String(), "is not a git work tree") {
+		t.Errorf("git's error was reported as not a work tree: %q", w.stderr.String())
+	}
+}
+
 func TestWorkingDirectoryUnreadableFails(t *testing.T) {
 	w := newWorld()
 	app := App{

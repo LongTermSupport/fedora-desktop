@@ -34,6 +34,12 @@ playbooks/imports/play-agent-bus.yml
 # conversation picker as WAITING-AT-PROMPT thread-picker, not OK, so
 # fedora-desktop-self-update verify fails on it. Before the 00194 acceptance.
 playbooks/imports/play-claude-yolo.yml
+# Plan 00167 Task 3.2 (#90): acceptance.bash (no triage.bash or deploy.bash; the play just
+# above deploys it) runs the installed cc-project-dir, never cc or Claude: outside a repository
+# with stdin </dev/null, and again as a restore (CCY_SESSION_RESTORE=1, stdin the terminal),
+# it must refuse with exit 1 and offer nothing; in a subfolder of a scratch git repository it
+# must print the repository's top. Scratch directories only, removed afterwards; no prompts.
+00167-cc-refuses-to-start-outside-a-repo
 # Plan 00194 Tasks 2.0b, 2.0h and 2.0i: the goodbye host checks, automated (acceptance.bash;
 # the plan has no triage.bash or deploy.bash), run again for G3 (window closed). An earlier run
 # failed G3 because the launcher's exit ran while its container still held the seats (Task
