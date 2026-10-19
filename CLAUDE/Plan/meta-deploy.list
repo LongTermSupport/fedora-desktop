@@ -43,4 +43,6 @@ playbooks/imports/play-agent-bus.yml
 # image switches Claude Code's agent view off (/background, --bg).
 # This installs ccy 3.99.12.16, container 2.77.12, which carries all of the above: the image is
 # rebuilt once at the next ccy launch. Running sessions are not touched.
+# Plan 00098: ~/.claude.json (account and project state) joins the owner-only repair, so it
+# and the backups Claude Code copies from it are no longer group/other readable.
 playbooks/imports/play-claude-yolo.yml
