@@ -27,3 +27,8 @@
 # has mapped, and the terminals' font and GPU settings. Start meta-deploy from the terminal that
 # draws the wrong emoji, and leave that window open while it runs.
 00185-terminal-emoji-glyphs
+# play-basic-configs.yml (no plan owns it): the "Disable GRUB Menu Auto-Hide" task now reads
+# `grub2-editenv list` first and unsets menu_auto_hide only when it is set, so it reports
+# changed only when it changes something (it used to report changed on every run). The first run
+# after this may still show one change if the variable is set; the next shows none.
+playbooks/imports/play-basic-configs.yml

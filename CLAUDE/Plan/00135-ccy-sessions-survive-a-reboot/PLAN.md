@@ -213,8 +213,10 @@ The process runs and sits at a prompt, so `ccy_restore_verdict` sees nothing wro
 - [ ] ⬜ **Task 10.2**: Owner decision, then build: should a restore record ever keep
   `--resume`? A restore with nobody attached cannot answer a picker. The candidate is to
   record `--continue` in its place.
-- [ ] ⬜ **Task 10.3**: Changelog, CCY version bump, and a host check through
-  `meta-deploy.bash`.
+- [ ] 🔄 **Task 10.3**: Changelog, CCY version bump, and a host check through
+  `meta-deploy.bash`. Task 10.1's `ccy-sessions` was deployed by `play-claude-yolo.yml` at F44
+  c3391ba9 (ccy 3.99.12.19, all 8 units passed). Left: the changelog and the host check that
+  `verify-restore` reports a real session at the conversation picker.
 
 ### Phase 11: set-going fails only for a fault, not for a session handed to a person
 

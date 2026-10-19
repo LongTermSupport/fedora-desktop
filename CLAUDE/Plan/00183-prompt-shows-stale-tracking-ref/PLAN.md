@@ -51,10 +51,11 @@ agent at all. The cause is unknown, so this plan triages first.
   `files/var/local/ps1-prompt` and built and installed root-owned to `/usr/local/bin` by
   `play-basic-configs.yml`, which now imports `play-golang.yml`. It reads files only, so a
   missing agent can neither block nor prompt.
-- [ ] 🔄 **Task 2.3**: `play-basic-configs.yml` queued in `meta-deploy.list`; docs
-  (`docs/configuration.md`, `docs/playbooks.md`, `src-go/CLAUDE.md`) done. Left:
-  `qa-all.bash`, the `qa-reviewer` agent, and the owner's look at a stale checkout's prompt
-  on the host after the deploy.
+- [ ] 🔄 **Task 2.3**: `play-basic-configs.yml` ran on the host at F44 c3391ba9 (all 8 units
+  passed; `git-fetch-age` printed nothing in the checkout, which is right for a recent
+  fetch); docs (`docs/configuration.md`, `docs/playbooks.md`, `src-go/CLAUDE.md`) done.
+  Left: `qa-all.bash`, the `qa-reviewer` agent, and the owner's hand check, the yellow mark in
+  a stale checkout's prompt.
 
 ## Technical Decisions
 
