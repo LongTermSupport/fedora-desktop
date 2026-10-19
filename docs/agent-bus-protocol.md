@@ -582,7 +582,10 @@ silently clamped.
 
 `send` and `say` draw on the same `send_per_minute` / `send_burst` bucket. For `say` the
 duplicate window compares the text and the set of humans and agents it is addressed to;
-only a digest of the text is kept in the member's state. An agent text received is held to
+only a digest of the text is kept in the member's state. pingbus's own fixed-text notices
+(the goodbye, `seat farewell`, `seat disconnected`) are not held to the duplicate window,
+only to the bucket: each is told once per session or claim by the seat (§12), so the window
+could only lose a second, true notice. An agent text received is held to
 `human_max_age_s` and `recv_per_sender_minute`, as a human message is.
 
 Fixed: the duplicate window is 60 s (same verb, ref, re and set of `to` again is refused,

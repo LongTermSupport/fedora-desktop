@@ -30,11 +30,21 @@ playbooks/imports/play-agent-bus.yml
 # same pingbus, so it is rebuilt once at the next ccy launch. Running sessions are not touched.
 # Before the 00194 acceptance.
 playbooks/imports/play-claude-yolo.yml
-# Plan 00194 Tasks 2.0b and 2.0h: the goodbye host checks, automated (acceptance.bash; the plan
-# has no triage.bash or deploy.bash), run again for G3 (window closed). The last run passed G1
-# (Ctrl-C) and G2 (podman stop) and failed G3: the team got no disconnected notice, because the
-# launcher's exit ran while its container still held the seats (Task 2.0h, fixed by the two
-# plays above). G3 now also keeps the launcher's stderr and the checkout's disconnect.log as
+# Plan 00194 Task 2.0i: installs the pingbus kit on the host and copies it into every declared
+# LXC member's running container. pingbus's own notices (disconnected, the session-end goodbye,
+# the removal goodbye) are no longer refused as duplicates when the same seat sent the same one
+# in the last minute, which lost G3's notice in the last acceptance. Before play-claude-yolo.yml.
+playbooks/imports/play-agent-bus.yml
+# Plan 00194 Task 2.0i: installs ccy 3.99.12.19, container 2.77.15, whose image carries the same
+# pingbus, so it is rebuilt once at the next ccy launch. Running sessions are not touched.
+# Before the 00194 acceptance.
+playbooks/imports/play-claude-yolo.yml
+# Plan 00194 Tasks 2.0b, 2.0h and 2.0i: the goodbye host checks, automated (acceptance.bash;
+# the plan has no triage.bash or deploy.bash), run again for G3 (window closed). An earlier run
+# failed G3 because the launcher's exit ran while its container still held the seats (Task
+# 2.0h). The run at F44 96454752 proved that fix, but pingbus refused G3's notice as a
+# duplicate of G2's, sent 19 s earlier from the same seat (Task 2.0i, fixed by the two plays
+# just above). G3 also keeps the launcher's stderr and the checkout's disconnect.log as
 # evidence. The whole script runs again, so G1 and G2 are repeated. It makes two throwaway teams,
 # starts three idle ccy sessions on them in a scratch checkout on its own tmux server, ends one
 # with Ctrl-C, one with podman stop and one by closing its window, counts the goodbye and

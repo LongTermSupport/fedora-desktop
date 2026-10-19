@@ -142,6 +142,23 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   review, then `play-agent-bus.yml`, `play-claude-yolo.yml` and the acceptance (queued in
   meta-deploy). Report:
   [261019-g3-window-closed-opus.md](subagent-reports/261019-g3-window-closed-opus.md).
+- [ ] 🔄 **Task 2.0i**: The host acceptance at F44 96454752 proved 2.0h (the launcher survived
+  the hangup, stopped the container, ran `seat disconnected`), but pingbus refused G3's notice
+  as `rate limited: duplicate`: G2 had posted the same fixed text from the same seat to the
+  same addressees 19 s earlier, inside the send gate's 60 s duplicate window. A product bug: a
+  seat that crashes, relaunches and crashes again within a minute loses its second notice.
+  Chosen: (a) pingbus's own notices skip the duplicate window and keep the token bucket, at
+  the one poster they share (`_post_to_humans_and_coordinators`), because the window exists to
+  stop an agent repeating itself, and each notice is already told once per claim (seat lock
+  and claim check) or per session (the goodbye record). Not (b), a claim time in the text: it
+  puts a machine stamp in a human's message, must be repeated in every template, and leaves
+  the trap for the next fixed-text notice. All room notices checked: the disconnected notice,
+  the session-end goodbye and the removal goodbye (`seat farewell`) all had the defect and are
+  fixed; `joined`, `left` and the MEMBERSHIP envelope are written into the session, never
+  posted, so the send gate never sees them. Fixed test first (CCY 3.99.12.19, container
+  2.77.15). Waits on review, then `play-agent-bus.yml`, `play-claude-yolo.yml` and the
+  acceptance (queued in meta-deploy). Report:
+  [261019-notice-duplicate-window-opus.md](subagent-reports/261019-notice-duplicate-window-opus.md).
 - [ ] ⬜ **Task 2.1**: The plugin, test first, shipped in the image beside `ccy_lifecycle.py`,
   enabled for a session launched with `--teams` (CCY version bump). Waits on the
   hooks-daemon release that carries plugin API 1.1 (#119); it also drops
