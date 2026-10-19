@@ -100,6 +100,17 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   `fix/watcher-survives-homeserver-restart` (container 2.67, CCY 3.98.12); waits on review,
   then `play-claude-yolo.yml` and `play-agent-bus.yml` (queued in meta-deploy) and the
   owner's check: restart a team's homeserver under an idle session, then post from Element.
+- [ ] 🔄 **Task 2.0e**: Compact before a cold wake (the owner's request of 2026-10-19: a
+  message that wakes a large, cache-cold context should compact first and the work continue).
+  Spec: [SPEC-compact-wake.md](SPEC-compact-wake.md). The facts show pingbus cannot compact:
+  a socket message cannot run `/compact` and the supervisor's plugin API cannot type for it,
+  and `/compact <message>` would let the sender steer the summary. Stage 1, the measurement,
+  is built test first on branch `feat/pingbus-compact-before-wake`: `coldwake.py` reads the
+  context size, the last call and the cache TTL from the session transcript, and the watcher
+  logs one `cold wake:` line of numbers per such delivery, observe only (container 2.77.8,
+  CCY 3.99.12.11, placeholders). Waits on review, then `play-claude-yolo.yml` and
+  `play-agent-bus.yml` (queued in meta-deploy) and host checks HC1-HC2. Stage 2, the
+  compaction, needs the owner's decisions D1-D7 and an upstream supervisor change (U1-U3).
 - [ ] ⬜ **Task 2.1**: The plugin, test first, shipped in the image beside `ccy_lifecycle.py`,
   enabled for a session launched with `--teams` (CCY version bump). Waits on the
   hooks-daemon release that carries plugin API 1.1 (#119); it also drops

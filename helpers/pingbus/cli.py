@@ -42,8 +42,8 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from typing import BinaryIO, TextIO
 
 from helpers.agent_bus import registry
-from helpers.pingbus import (config, envelope, forge, hooks, inbox, inject, limits, matrix, membership, notify,
-                             protocol, relay, sentlog, syncer)
+from helpers.pingbus import (coldwake, config, envelope, forge, hooks, inbox, inject, limits, matrix, membership,
+                             notify, protocol, relay, sentlog, syncer)
 from helpers.pingbus import seat as seating
 from helpers.pingbus import statusline
 
@@ -1773,6 +1773,7 @@ def _send_delivery(batch: _Batch, inj: _Injector, rt: Runtime, pending: _Drops, 
         nonce = secrets.token_hex(4)
         text = envelope.render([c.entry for c in live], nonce, held_back=inj.held, more=batch.more)
         before = inj.check.prepare()
+        cold = coldwake.assess(coldwake.read(before[0]), now_s=rt.clock_ms() / 1000)
         try:
             closed = notify.send_notice(inj.path, inj.token, text, timeout_s=rt.delivery.send_timeout_s)
         except notify.SocketGone:
@@ -1796,6 +1797,8 @@ def _send_delivery(batch: _Batch, inj: _Injector, rt: Runtime, pending: _Drops, 
         humans = [c for c in live if c.entry.kind == "HUMAN"]
         if humans:
             inj.unread[nonce] = humans
+    if cold is not None:
+        err.write(f"{PROG}: {coldwake.log_line(nonce, cold)}\n")
     if not closed:
         err.write(f"{PROG}: delivery {nonce} was written in full but the socket did not close within "
                   f"{rt.delivery.send_timeout_s:g} s: counted as sent\n")

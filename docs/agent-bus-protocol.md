@@ -630,7 +630,9 @@ the hooks), `untrusted.json` (why the room stopped being trusted, for `status`; 
 the first sync and the one after a join load every member, later syncs follow joins and
 leaves), `forge-cache.json`, `dropped.log`, `lock`. Beside the bundles, `PINGBUS_HOME`
 holds `stop-guard.json` (the Stop hook's memory of what it last blocked for, and when) and
-`watch.log` (the watcher's stderr). `lock` is held with `flock` by the
+`watch.log` (the watcher's stderr; a delivery that wakes a context of at least 60 000 tokens
+whose prompt cache has expired adds one `cold wake:` line of numbers, never text: Plan 00194
+SPEC-compact-wake.md). `lock` is held with `flock` by the
 one process syncing this team, which writes its kind into it: `watch` (a watcher), `wait`
 (a waiter), or `recv` (a `recv` syncing once, for that sync only). A waker is live exactly
 when a non-blocking `flock` on it fails and the kind it holds is `watch` or `wait`; a

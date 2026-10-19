@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.12.11 — container 2.77.8
+
+Follows 3.99.12.10 (container 2.77.7).
+
+- **The agent-bus watcher notes a delivery that wakes a large, cache-cold context** (Plan
+  00194 Task 2.0e, stage 1, observe only). When a delivery reaches a session whose last model
+  call sent at least 60 000 tokens and was longer ago than its prompt cache lives (the TTL the
+  session's own transcript records), `watch.log` gets one line of numbers: the delivery's
+  nonce, the context's size, the idle time and the TTL. No message text. The delivery itself
+  is unchanged. It measures how often compacting before such a wake would apply, and on what
+  sizes, before anything compacts (the image's pingbus, hence the container bump).
+
 ## 3.99.12.10 — container 2.77.7
 
 Follows 3.99.12.9 (container 2.77.7); the image is unchanged.
@@ -26,6 +38,7 @@ Follows 3.99.12.9 (container 2.77.7); the image is unchanged.
   attach, take over (Ctrl-T) and end (Ctrl-X), and a row of its own to start a new session
   (Ctrl-N); its header names those keys. In `ccy-teams` a shortcut is accepted only where its
   line is listed. A key is now only a shortcut, printed beside the line it chooses.
+
 ## 3.99.12.9 — container 2.77.7
 
 Follows 3.99.12.8 (container 2.77.6).

@@ -34,8 +34,9 @@ from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import cli, inbox, inject, matrix, membership, notify, protocol, statusline, syncer
+from helpers.pingbus import cli, coldwake, inbox, inject, matrix, membership, notify, protocol, statusline, syncer
 from tests.helpers.pingbus import test_cli as bus
+from tests.helpers.pingbus import test_coldwake as coldwake_test
 
 SESSION_TOKEN = "session-token-0123456789abcdef"
 DELIVERY_RE = re.compile(
@@ -596,6 +597,45 @@ class WatchDeliveryTest(WatchCase):
             handle.write(json.dumps({"type": "user", "message": {"content": text}}) + "\n")
         time.sleep(1.5)
         self.assertFalse(self.marks().missing())
+
+    def with_last_call(self, idle_s: float, read: int) -> None:
+        """The session's transcript, its last model call `idle_s` ago on a one-hour cache."""
+        transcript = self.tmp / "t.jsonl"
+        call = coldwake_test.assistant(self.now - idle_s, write=500, read=read)
+        transcript.write_text(json.dumps(call) + "\n", encoding="utf-8")
+        self.marks().record_transcript(str(transcript))
+        self.timing.missing_quiet_s = 30.0
+
+    def test_a_delivery_that_wakes_a_large_cold_context_is_logged_once(self):
+        """SPEC-compact-wake C3: one watch-log line of numbers, and the delivery unchanged."""
+        self.with_last_call(7200.5, read=180000)
+        self.joined()
+        self.start_watch()
+        self.a.human("the words stay out of the log")
+        (text,) = self.sock.wait_for(1)
+        self.assertEqual(summary(text), ("1", "1", "0"))
+        self.until(lambda: self.pending() == 0, "the delivery was not consumed")
+        _, _, err = self.end_session()
+        verdict = coldwake.Verdict(tokens=2 + 500 + 180000, idle_s=7200.0, ttl_s=3600.0)
+        self.assertEqual([line for line in err.splitlines() if "cold wake" in line],
+                         [f"{cli.PROG}: {coldwake.log_line(nonce(text), verdict)}"])
+        self.assertNotIn("the words stay out", err)
+
+    def delivered_err(self) -> str:
+        self.joined()
+        self.start_watch()
+        self.a.human()
+        self.sock.wait_for(1)
+        self.until(lambda: self.pending() == 0, "the delivery was not consumed")
+        return self.end_session()[2]
+
+    def test_a_delivery_to_a_warm_context_logs_nothing(self):
+        self.with_last_call(60.0, read=180000)
+        self.assertNotIn("cold wake", self.delivered_err())
+
+    def test_a_delivery_to_a_small_context_logs_nothing(self):
+        self.with_last_call(7200.5, read=1000)
+        self.assertNotIn("cold wake", self.delivered_err())
 
     def test_a_timeout_is_delivered_once(self):
         self.joined()
