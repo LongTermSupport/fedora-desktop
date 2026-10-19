@@ -2,6 +2,7 @@ package open
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -389,12 +390,19 @@ func TestQuittingThePagerEarlyIsNotAFailure(t *testing.T) {
 	pagerGone := make(chan struct{})
 	w.runner.OnFunc([]string{"pdftotext"}, func(c execx.Cmd) (execx.Result, error) {
 		<-pagerGone
-		// The pager has ended and its end of the pipe is closed: the write breaks, as SIGPIPE
-		// ends a real producer.
-		if _, err := c.Stdout.Write([]byte("more\n")); err == nil {
-			return execx.Result{}, errors.New("the write after the pager ended should break")
+		// Like a real producer, it writes until the write breaks: open closes its read end
+		// just after the pager's run returns, so a write before that lands in the pipe buffer.
+		// A read end never closed fills the buffer and blocks here, failing the test by timeout.
+		for {
+			_, err := c.Stdout.Write([]byte("more\n"))
+			if err == nil {
+				continue
+			}
+			if !errors.Is(err, syscall.EPIPE) {
+				return execx.Result{}, fmt.Errorf("the write after the pager ended broke with %w, not EPIPE", err)
+			}
+			return execx.Result{ExitCode: 141}, nil
 		}
-		return execx.Result{ExitCode: 141}, nil
 	})
 	w.runner.OnFunc([]string{"less"}, func(execx.Cmd) (execx.Result, error) {
 		defer close(pagerGone)
