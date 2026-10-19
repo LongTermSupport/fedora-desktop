@@ -526,7 +526,8 @@ or the tmux window, a crash, a kill) cannot say goodbye: in ccy the container en
 The ccy launcher then posts `<handle> disconnected: session ended without a goodbye` for each
 seat it held, from the host, after the container has gone; never both messages for one
 session. A closed terminal, or Ctrl-C pressed again meanwhile, does not stop it. A host
-reboot tells nothing; teammates then see only that the seat is free. The
+reboot tells nothing; teammates then see only that the seat is free. Each notice, posted or
+not and why, is a line in the checkout's `.claude/ccy/pingbus/disconnect.log`. The
 detail is in [agent-bus-protocol.md](agent-bus-protocol.md) §12.
 
 **How messages reach the session.** A session in a team gets each message in its

@@ -2624,17 +2624,48 @@ def cmd_seat_disconnected(args: argparse.Namespace, environ: Mapping[str, str], 
         raise config.ConfigError(f"{PROG} seat disconnected: {exc}") from None
     first_failure: int | None = None
     lines = io.StringIO()
+    outcomes: list[tuple[str, str]] = []
+    if applied is None or not applied.seats:
+        outcomes.append(("-", "not told: " + ("no applied session report" if applied is None
+                                              else "the session held no seat")))
     with hooks.terminal_signals_ignored():
         for held in () if applied is None else applied.seats:
             ref = seating.SeatRef(held.seat, held.team)
             try:
-                _tell_disconnected(root, ref, args.since, environ, rt, lines)
+                outcome = _tell_disconnected(root, ref, args.since, environ, rt, lines)
             except FAILURES as exc:
                 code, message = failure(exc)
                 lines.write(f"{PROG}: seat {ref.text}: no disconnect notice: {message}\n")
+                outcome = f"failed: {message}"
                 first_failure = first_failure or code
+            outcomes.append((ref.text, outcome))
+        log = root.parent / DISCONNECT_LOG
+        try:
+            _append_disconnect_log(log, rt, args.session, outcomes)
+        except OSError as exc:
+            lines.write(f"{PROG}: seat disconnected: {log} was not written: {exc.strerror or exc}\n")
+            first_failure = first_failure or EXIT_CONFIG
     _report_unless_gone(err, lines.getvalue())
     return EXIT_OK if first_failure is None else first_failure
+
+
+#: Beside the checkout's seats and sessions: one line per seat `seat disconnected` judged,
+#: told or not and why, owner-only, never a message text. A closed terminal takes stderr with
+#: it; this file stays. The launcher's `ccy_bus_disconnected` writes its own lines here too.
+DISCONNECT_LOG = "disconnect.log"
+
+
+def _append_disconnect_log(path: pathlib.Path, rt: Runtime, session: str,
+                           outcomes: Sequence[tuple[str, str]]) -> None:
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(rt.clock_ms() / 1000))
+    text = "".join(f"{stamp} pingbus session={session} seat={ref} {outcome}\n" for ref, outcome in outcomes)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_CLOEXEC,
+                 inbox.FILE_MODE)
+    try:
+        os.fchmod(fd, inbox.FILE_MODE)
+        os.write(fd, text.encode("utf-8"))
+    finally:
+        os.close(fd)
 
 
 #: What a write to the stderr of a closed terminal or tmux window fails with: the pty has gone.
@@ -2654,25 +2685,29 @@ def _report_unless_gone(err: TextIO, text: str) -> None:
 
 
 def _tell_disconnected(root: pathlib.Path, ref: seating.SeatRef, since: int, environ: Mapping[str, str],
-                       rt: Runtime, err: TextIO) -> None:
+                       rt: Runtime, err: TextIO) -> str:
+    """Tell the seat's team, unless its claim is not this launch's to tell; the outcome, for
+    `DISCONNECT_LOG`."""
     path = seating.lock_path(root, ref)
     give_up = rt.monotonic() + rt.disconnect_wait_s
     while inbox.probe_lock_at(path) is not None:
         if rt.monotonic() >= give_up:
             err.write(f"{PROG}: seat {ref.text}: still held {rt.disconnect_wait_s:g} s after the "
                       "session ended, so it is left to its holder; no disconnect notice\n")
-            return
+            return f"not told: still held {rt.disconnect_wait_s:g} s after the session ended"
         rt.sleep(DISCONNECT_POLL_S)
     claimed = inbox.read_claim_at(path)
-    if claimed is None or claimed < since:
-        return
+    if claimed is None:
+        return "not told: no claim (the seat was let go in order, or never claimed)"
+    if claimed < since:
+        return f"not told: older than this launch (claim {claimed}, launch {since})"
     try:
         lock = inbox.acquire_lock_at(path, inbox.SEAT_KIND, sleep=rt.sleep)
     except inbox.Busy:
-        return  # a session took the seat meanwhile: the claim is its keeper's now
+        return "not told: a session took the seat meanwhile"
     with lock:
         if inbox.parse_claim(lock.previous) != claimed:
-            return
+            return "not told: the claim changed meanwhile"
         directory = seating.seat_dir(root, ref)
         try:
             said = seating.goodbye_said(directory, claimed)
@@ -2681,11 +2716,12 @@ def _tell_disconnected(root: pathlib.Path, ref: seating.SeatRef, since: int, env
                       f"counted: {exc}\n")
             said = False
         if said:
-            return
+            return f"not told: goodbye already posted (claim {claimed})"
         member = config.read_member(ref.team, directory)
         _post_to_humans_and_coordinators(member, environ, rt, err, DISCONNECT_TEXT.format(handle=member.handle))
     err.write(f"✓ seat {ref.text}: the session ended without a goodbye, so the team was told it "
               "disconnected\n")
+    return f"told: claim {claimed}"
 
 
 def build_parser(stdout: TextIO) -> argparse.ArgumentParser:

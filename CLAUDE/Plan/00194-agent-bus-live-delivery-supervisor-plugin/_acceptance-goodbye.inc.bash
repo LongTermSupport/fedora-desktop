@@ -495,13 +495,22 @@ gb_session_started() { podman exec "${GB_CTR}" python3 -c "${GB_RECORD_PY}"; }
 # expired or failing token) is caught by gb_starting, and a launcher that ends before its
 # session is up is reported by its ERROR lines. The Quick Launch record it writes is the
 # scratch checkout's.
+#
+# gb_launch <session> stderr — the same, and the launcher's stderr copied to launcher.stderr: a
+# closed window takes the pane, and every line written after it, with it. The launcher is still
+# the pane's own process (the wrapper execs it), so the hangup still reaches it; tee ignores
+# SIGHUP and SIGINT and carries on once the pane has gone. The launcher's stderr is then a pipe,
+# so the launch counts as unattended, which with every seat named asks nothing more.
 gb_launch() {
-    local name="$1" ev pid
+    local name="$1" ev pid wrap=()
     ev="$(gb_ev "${name}")"
     mkdir -p -- "${ev}" || return 1
     date +%s%3N >"${ev}/start-ms" || return 1
+    if [[ "${2:-}" == stderr ]]; then
+        wrap=(bash -c "exec \"\$@\" 2> >(trap '' HUP INT; exec tee --output-error=warn -a \"\$0\" >&2)" "${ev}/launcher.stderr")
+    fi
     gb_tmux new-session -d -s "${name}" -x 200 -y 50 -c "${GB_CHECKOUT}" \
-        -e "CCY_TEAMS_HOST_VARS=${HOST_VARS_FILE}" -- \
+        -e "CCY_TEAMS_HOST_VARS=${HOST_VARS_FILE}" -- "${wrap[@]+"${wrap[@]}"}" \
         "${CCY_LAUNCHER}" --teams "${SEAT_LIST}" --token "${GB_TOKEN}" --no-ssh --no-network --compose skip --no-restore \; \
         pipe-pane -o "cat >>$(printf '%q' "${ev}/pane.log")" || return 1
     pid="$(gb_tmux display-message -p -t "=${name}:" '#{pane_pid}')" || return 1
@@ -655,11 +664,26 @@ gb_check_podman_stop() {
 # G3 — the tmux window of the two-seat session closed: one disconnected per seat, no goodbye.
 gb_check_window_closed() {
     local name="${GB_SESSIONS[2]}"
-    gb_launch "${name}" || return 1
+    gb_launch "${name}" stderr || return 1
     printf '==> tmux kill-window: the window of %s closed\n' "${name}"
     gb_tmux kill-window -t "=${name}:" || return 1
     gb_finished "${name}" || return 1
+    gb_keep_disconnect_log "${name}" || return 1
     gb_room_says "${name}" 0 1
+}
+
+# gb_keep_disconnect_log <session> — the launcher's stderr and the checkout's disconnect log
+# (one line per step of the launcher's notice and per seat pingbus judged) shown and kept as
+# evidence, whatever the verdict.
+gb_keep_disconnect_log() {
+    local log="${GB_SEATS_DIR%/*}/disconnect.log"
+    printf -- '--- %s: the launcher stderr after the window closed\n' "$1"
+    cat -- "$(gb_ev "$1/launcher.stderr")" || return 1
+    [[ -f "${log}" ]] || { printf '[FAIL] %s: no disconnect log at %s\n' "$1" "${log}" >&2; return 1; }
+    cp -- "${log}" "$(gb_ev "$1/disconnect.log")" || return 1
+    printf -- '--- %s: the disconnect log\n' "$1"
+    cat -- "${log}"
+    gb_evidence "$1: launcher stderr $1/launcher.stderr, disconnect log $1/disconnect.log"
 }
 
 # ── the way out ──────────────────────────────────────────────────────────────────────────

@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.99.12.17"  # Container 2.77.13: a team human's message that reached no agent is logged and counted by pingbus status. See docs/ccy-changelog.md.
+CCY_VERSION="3.99.12.18"  # Container 2.77.14: a closed terminal's session is told to its teams as disconnected. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -78,7 +78,7 @@ source "$SCRIPT_DIR/lib/agent-bus-seats.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.77.13"
+REQUIRED_CONTAINER_VERSION="2.77.14"
 
 set -e
 
@@ -2375,13 +2375,13 @@ fi
 
 # Cleanup function
 cleanup() {
+    # A closed terminal's SIGHUP runs this at once (the container may still run), and a
+    # further SIGHUP or Ctrl-C would end the launcher mid-cleanup, before the teams are told.
+    trap '' HUP INT
     # Restore terminal suspend character if we disabled it before container launch.
     # Best-effort: the TTY may already be gone at exit, which is not an error.
-    if [[ -n "${_CCY_STTY_SAVED:-}" ]]; then
-        if ! stty "$_CCY_STTY_SAVED" 2>/dev/null; then
-            debug "could not restore terminal suspend character (no TTY at exit)"
-        fi
-    fi
+    [[ -z "${_CCY_STTY_SAVED:-}" ]] || stty "$_CCY_STTY_SAVED" 2>/dev/null \
+        || debug "could not restore terminal suspend character (no TTY at exit)"
 
     rm -rf "$CONFIG_TEMP"
     # Staged key copies (SELinux-enforcing hosts, lib/ssh-handling.bash) live in
@@ -2392,9 +2392,7 @@ cleanup() {
     fi
     # A restore's container passphrase copy: the entrypoint removes it once its keys are
     # added; this covers a container that never got that far.
-    if [ -n "${CCY_RESTORE_ASKPASS_DIR:-}" ]; then
-        rm -rf "$CCY_RESTORE_ASKPASS_DIR"
-    fi
+    rm -rf ${CCY_RESTORE_ASKPASS_DIR:+"$CCY_RESTORE_ASKPASS_DIR"}
     # The duty of the probe's trap this one replaces; a no-op once the probe has returned.
     _probe_agent_stop
     ccy_askpass_passphrase_discard
@@ -2411,6 +2409,8 @@ cleanup() {
     fi
     # A session that ended without its goodbye is told to its teams (lib/agent-bus-membership.bash).
     ccy_bus_disconnected
+    # Put back for a restart's exec, which would inherit them ignored.
+    trap - HUP INT
 }
 trap cleanup EXIT
 

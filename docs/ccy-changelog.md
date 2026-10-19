@@ -17,6 +17,21 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.12.18 — container 2.77.14
+
+Follows 3.99.12.17 (container 2.77.13). The image carries the pingbus kit, which changed, so
+it is rebuilt once.
+
+- **A closed terminal's session is told to its teams as disconnected** (Plan 00194). Closing
+  the terminal or tmux window sends the launcher SIGHUP, and bash runs the launcher's exit
+  clean-up at once, while the container still runs and holds the seats (podman is told only
+  once the launcher has gone). The disconnect notice then waited 15 s for seats that were never
+  let go and told no one. The clean-up now stops a container that is still running before the
+  notice, and ignores SIGHUP and Ctrl-C until it has finished.
+- **`.claude/ccy/pingbus/disconnect.log`** records, owner-only, each step of the notice: the
+  launcher's (a container stopped, pingbus's exit) and one line per seat from `pingbus seat disconnected` (told, or why not). Never a message text. A closed terminal takes stderr with
+  it; this file stays.
+
 ## 3.99.12.17 — container 2.77.13
 
 Follows 3.99.12.16 (container 2.77.12). The image carries the pingbus kit, which changed, so
