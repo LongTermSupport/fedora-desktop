@@ -258,10 +258,12 @@ rules:
   # A here-string hands grep a finished string, so there is no writer to kill.
   - id: pipe-into-grep-q-under-pipefail
     patterns:
-      # A single `|` (not `||`) before `grep` with a -q flag in its option
-      # cluster, on a line with no earlier `#` (a comment is not code).
-      - pattern-regex: '(?m)^[^\n#]*(?<!\|)\|[ \t]*grep[ \t]+-[A-Za-z]*q'
-      - pattern-not-regex: '(?m)^[^\n]*#[ \t]*FAIL-FAST-OK:[^\n]*$'
+      # A single `|` (not `||`) into a grep carrying -q in any option cluster
+      # (`-qxF`, `-E -q`) or --quiet/--silent, on a line with no earlier `#`
+      # (a comment is not code).
+      - pattern-regex: '(?m)^[^\n#]*(?<!\|)\|[ \t]*grep\b(?:[ \t]+-[A-Za-z]+)*?[ \t]+(?:-[A-Za-z]*q[A-Za-z]*|--quiet|--silent)\b'
+      # An exemption must carry its reason: a bare `FAIL-FAST-OK:` is not one.
+      - pattern-not-regex: '(?m)^[^\n]*#[ \t]*FAIL-FAST-OK:[ \t]*\S[^\n]*$'
     message: >
       'cmd | grep -q' fails at random: grep exits at its first match, the
       producer dies of SIGPIPE, and under 'set -o pipefail' the pipeline fails

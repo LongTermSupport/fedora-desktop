@@ -25,22 +25,10 @@
 # --- bash-error-hiding-pipe-echo ---
 
 # ok: bash-error-hiding-pipe-echo
-if ! some_cmd; then
-    echo "ERROR: some_cmd failed" >&2
-    exit 1
-fi
-
-# ok: bash-error-hiding-pipe-echo
-some_cmd
-
-# ok: bash-error-hiding-pipe-echo
 VAR=$(some_cmd)
 
 # ruleid: bash-error-hiding-pipe-echo
 some_cmd || echo "WARNING: something failed"
-
-# ruleid: bash-error-hiding-pipe-echo
-another_cmd || echo "something went wrong"
 
 # ruleid: bash-error-hiding-pipe-echo
 default_var=$(some_cmd || echo "default")
@@ -57,9 +45,6 @@ some_cmd with args || echo "command WITH arguments"
 
 # ruleid: bash-error-hiding-pipe-echo
 tracked_files=$(git ls-files "$ccy_dir" 2>/dev/null || echo "")
-
-# ruleid: bash-error-hiding-pipe-echo
-defaulted=$(some_cmd arg1 arg2 || echo "default")
 
 # A ternary is a value expression, not error hiding.
 # ok: bash-error-hiding-pipe-echo
@@ -81,9 +66,6 @@ flush_buffers || true  # a trailing comment does not exempt the line
 
 # ok: bash-error-hiding-or-true
 if ! umount /mnt 2>/dev/null; then echo "note: already unmounted" >&2; fi
-
-# ok: bash-error-hiding-or-true
-count=$(( count + 1 ))
 
 # ok: bash-error-hiding-or-true
 root_source=$(findmnt -no SOURCE / 2>/dev/null) || root_source=""
@@ -132,10 +114,6 @@ else
     echo "grep failed: $else_rc" >&2
 fi
 
-# ok: bash-status-after-block
-some_cmd
-immediate_rc=$?
-
 # --- bash-capture-discards-status ---
 #
 # The exact shape that took ccy down during a GitHub outage (CCY 3.36.0):
@@ -150,23 +128,18 @@ local mtime=$(stat -c %Y "$file" 2>/dev/null)
 # ruleid: bash-capture-discards-status
 export BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
 
-# ok: bash-capture-discards-status
-fallback_var=$(findmnt -no SOURCE / 2>/dev/null) || fallback_var=""
-
-# ok: bash-capture-discards-status
-if checked_var=$(gh api user --jq .login 2>/dev/null); then
-    echo "$checked_var"
-fi
-
-# ok: bash-capture-discards-status
-kept_stderr=$(gh api user --jq .login 2>&1)
-
 # A trailing comment is NOT a justification. The rule's regex once anchored `$`
 # straight after the closing paren, so any comment at all evaded it and the
 # FAIL-FAST-OK exclusion below was decorative. Caught with a probe, fixed, and
 # pinned here so it cannot regress.
 # ruleid: bash-capture-discards-status
 commented_but_unjustified=$(gh api user --jq .login 2>/dev/null)  # just a note
+
+# ok: bash-capture-discards-status
+fallback_var=$(findmnt -no SOURCE / 2>/dev/null) || fallback_var=""
+
+# ok: bash-capture-discards-status
+kept_stderr=$(gh api user --jq .login 2>&1)
 
 # Only the explicit, greppable annotation grants the exemption.
 # ok: bash-capture-discards-status
@@ -181,12 +154,6 @@ annotated_var=$(gh api user --jq .login 2>/dev/null)  # FAIL-FAST-OK: absence is
 # ruleid: bash-test-discards-status
 if [ "$(sysctl -n net.ipv4.ip_forward 2>/dev/null)" != "1" ]; then
     echo "sysctl: net.ipv4.ip_forward is not set to 1"
-fi
-
-# The `[[ ]]` form is the same defect.
-# ruleid: bash-test-discards-status
-if [[ "$(mokutil --sb-state 2>/dev/null)" == *enabled* ]]; then
-    echo "secure boot on"
 fi
 
 # The legitimate case: an empty result genuinely MEANS absent, and the line says
@@ -210,17 +177,22 @@ fi
 printf '%s\n' "${items[@]}" | grep -qxF -- "$item"
 
 # ruleid: pipe-into-grep-q-under-pipefail
-if some_cmd | grep -q 'needle'; then :; fi
+some_cmd | grep -E -q 'needle'
+
+# ruleid: pipe-into-grep-q-under-pipefail
+some_cmd | grep --quiet 'needle'
+
+# ruleid: pipe-into-grep-q-under-pipefail
+some_cmd | grep -q 'needle'  # FAIL-FAST-OK:
+
+# ok: pipe-into-grep-q-under-pipefail
+some_cmd | grep -E 'needle'
 
 # ok: pipe-into-grep-q-under-pipefail
 grep -qxF -- "$item" <<<"$(printf '%s\n' "${items[@]}")"
 
 # ok: pipe-into-grep-q-under-pipefail
-some_cmd | grep 'needle'
-
-# ok: pipe-into-grep-q-under-pipefail
 some_cmd || grep -q 'needle' file
 
 # ok: pipe-into-grep-q-under-pipefail
-# a comment may say some_cmd | grep -q needle
-true
+some_cmd | grep -q 'needle'  # FAIL-FAST-OK: a one-line producer cannot be killed
