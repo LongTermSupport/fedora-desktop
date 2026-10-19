@@ -158,6 +158,16 @@ func TestTheRealRoutingSendsEveryToolchainInputToTheToolchainCheck(t *testing.T)
 	}
 }
 
+// A workflow is read by a Go test (toolchain's TestEveryWorkflowSetsUpTheGoFloor), so the real
+// table sends it to the go check and counts it covered.
+func TestTheRealRoutingSendsAWorkflowToTheGoCheck(t *testing.T) {
+	root, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkSemgrepRoute(t, root, ".github/workflows/qa.yml", "check:go")
+}
+
 // Every input of the vmtest-manifest gate, routed by the real table, runs the check: the manifest
 // (covered by it), the Fedora version, the host's validator, the gate's own files, and every guest
 // acceptance and prepare script the tree holds (read from git, so a script this test has not met
