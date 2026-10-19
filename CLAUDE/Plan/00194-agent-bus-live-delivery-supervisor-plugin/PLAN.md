@@ -110,7 +110,7 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   supervisor may refuse the request (no single session id) or abandon it after 30 s, and the
   marker would then silence a real exit. To close it: the supervisor records the request
   (or exports a marker path) before it types `/exit` and clears it when it abandons one, an
-  upstream hooks-daemon change; then the hook skips the goodbye for that session and records
+  upstream hooks-daemon change, filed as #127 (waits on its release); then the hook skips the goodbye for that session and records
   it as said (`seat.record_goodbye`), so the launcher's `seat disconnected` stays quiet
   too, test first. `docs/agent-bus.md` states today's behaviour until then.
 - [ ] ⬜ **Task 2.1**: The plugin, test first, shipped in the image beside `ccy_lifecycle.py`,
