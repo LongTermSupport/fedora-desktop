@@ -23,6 +23,9 @@
 # top of a git repository and, typed outside one, offers this checkout [Y/n] (refusing on no,
 # or with no terminal). ccy stays at 3.99.12.18, already installed. Afterwards type cc in ~
 # twice (accept once, decline once) and once in a project subfolder.
+# Plan 00135 Task 10.1 (#86): it also rebuilds ccy-sessions, whose verify-restore now reports a
+# session sitting at Claude Code's conversation picker as WAITING-AT-PROMPT thread-picker, not
+# OK, so fedora-desktop-self-update verify fails on it.
 playbooks/imports/play-claude-yolo.yml
 # Plan 00194 Tasks 2.0b, 2.0h and 2.0i: the goodbye host checks, automated (acceptance.bash; the
 # plan has no triage.bash or deploy.bash), run again for G3 (window closed). The last run passed

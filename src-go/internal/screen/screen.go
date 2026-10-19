@@ -1,6 +1,6 @@
 // Package screen reads what a ccy or cc pane shows: the text with its terminal escapes
-// removed, whether Claude's input box is drawn, busy or holding typed text, and which launcher
-// prompt (if any) the pane is waiting at. The screen reading lives only here; the launchers'
+// removed, whether Claude's input box is drawn, busy or holding typed text, which launcher
+// prompt (if any) the pane is waiting at, and whether it is at Claude Code's conversation picker. The screen reading lives only here; the launchers'
 // prompt table in lib/common-pure.bash stays the owner of the prompt texts while they are bash.
 package screen
 
@@ -66,6 +66,35 @@ func KnownPrompts() []Prompt {
 		{"compose-stop", "Stop compose services?"},
 		{"token-setup", "Press Enter to start the token setup container:"},
 	}
+}
+
+// ConversationPicker is the name a pane at Claude Code's conversation picker (`claude
+// --resume` with no conversation named) is reported waiting at.
+const ConversationPicker = "thread-picker"
+
+// pickerSigns are the lines, by what they start with once indented space is removed, that only
+// Claude Code's conversation picker draws: its header ("Resume session", with a count when the
+// list scrolls), and the footer of its preview. They are Claude Code's text, not ccy's, so
+// they are not in KnownPrompts; and the picker's last line is a key-hint footer that wraps
+// differently at every pane width, so a last-line prefix could not match it.
+var pickerSigns = []string{"Resume session", "Enter to resume · Esc to cancel"}
+
+// AtConversationPicker says whether a pane shows Claude Code's conversation picker: a line
+// starting with one of pickerSigns, and no framed input box (a conversation that quotes the
+// header still has its box drawn below).
+func AtConversationPicker(pane string) bool {
+	if ClaudeState(pane) != NotDrawn {
+		return false
+	}
+	for line := range strings.SplitSeq(Plain(pane), "\n") {
+		line = strings.TrimSpace(line)
+		for _, sign := range pickerSigns {
+			if strings.HasPrefix(line, sign) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 var csi = regexp.MustCompile(`\x1b\[[0-9;:?]*[A-Za-z]`)

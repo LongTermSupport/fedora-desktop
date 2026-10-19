@@ -405,7 +405,8 @@ If the restore wrote no manifest for the boot, set-going says so and fails rathe
 Check with `ccy-sessions verify-restore [--wait SECONDS]`. It reads the manifest the boot's
 restore wrote (`~/.local/state/ccy/last-restore`) and prints one line per session: `OK`,
 `STARTING`, `SETTING-GOING`, `NOT-SET-GOING <reason>`, `WAITING-AT-PROMPT <prompt>` or
-`DEAD <reason>`. `NOT-SET-GOING` is a session left alone, or one whose transcript shows no
+`DEAD <reason>`. A session at Claude Code's conversation picker (a restore of a `--resume`
+launch) is `WAITING-AT-PROMPT thread-picker`. `NOT-SET-GOING` is a session left alone, or one whose transcript shows no
 input within two minutes of the keys being typed (`compact-not-started`,
 `continue-not-started`). It exits non-zero unless every session is `OK`. `--wait` polls
 until the restore has settled: nothing `STARTING` or `SETTING-GOING`, and the same answer
