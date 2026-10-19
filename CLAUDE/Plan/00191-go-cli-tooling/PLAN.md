@@ -138,21 +138,30 @@ today; rewriting them is out of scope.
   it, and record the choice. go-qa prints the percentage only when the floor is missed, so the
   measurement needs a run with a deliberately high floor or a profile of its own.
 
-- [ ] 🔄 **Task 3.10**: go-qa-ci diff mode must not fail on a test-only package (found by
-  Fable). The build stage names the changed packages and their importers to `go build`, which
+- [x] ✅ **Task 3.10**: go-qa-ci diff mode must not fail on a test-only package (found by
+  Fable). The build stage named the changed packages and their importers to `go build`, which
   refuses a package with no non-test Go file, although `./...` skips it. Here
   `src-go/internal/freeze/golden` is test-only and imports lxcfreeze, so any change to lxcfreeze
-  or podfreeze failed `qa-changed.bash` at the go stage.
+  or podfreeze failed the build stage of `qa-changed.bash`.
 
-  - Fixed test first in go-qa-ci, branch `build-skips-test-only-packages` (commit `240fbf2`, not
-    yet pushed): the named patterns are resolved with `go list -e` and a package that loads with
-    only test files is left out of `go build`; the test stage still compiles its tests, and a
-    named package that does not load still fails.
-  - Regression check after the bump: a change to `src-go/internal/lxcfreeze` passes the go stage
-    of `./scripts/qa-changed.bash`.
-  - Follow-up, once the coordinator has pushed and merged the fix: bump the go-qa-ci pin in
-    `src-go/qa/go.mod` (both requires) to the merged commit, `go mod tidy` in `src-go/qa`, and
-    run the regression check above.
+  - Fixed test first in go-qa-ci (`240fbf2`, Fable-approved, merged to its main as `8e17b43`):
+    the named patterns are resolved with `go list -e` and a package that loads with only test
+    files is left out of `go build`; the test stage still compiles its tests, and a named
+    package that does not load still fails.
+  - Pinned at `v0.0.0-20261019182226-8e17b432bfd3` in `src-go/qa/go.mod`, `go mod tidy`;
+    `qa-changed.bash` passes on the bump.
+  - Evidence: with the bump committed and a throwaway edit to `src-go/internal/lxcfreeze`
+    (reverted), the narrowed go-qa run scoped `./internal/freeze/golden` and its `build` and
+    `test` steps passed. The same run failed `coverage`, a separate defect: Task 3.11.
+
+- [ ] ⬜ **Task 3.11**: A narrowed go-qa run fails the coverage floor that the full run meets.
+  With only an lxcfreeze file changed, the diff-mode coverage step measured the 11 affected
+  packages at 88.8% statements, which is under the module floor of 90 (`src-go/qa/go-qa.toml`).
+  The uncovered functions are in packages the change did not touch (the two `main`s,
+  `teams/hot`, `teams/lxcadd`). So until this is fixed, `qa-changed.bash` still fails the go
+  stage for a change to lxcfreeze. Decide where the fix belongs: go-qa-ci (in diff mode, judge
+  only the changed packages against the floor, or report coverage without enforcing it), or
+  this repository's floor (Task 3.9).
 
 - [x] ✅ **Task 3.4**: go-qa-ci diff mode, `go-qa run --changed [--base <ref>]` (M13):
   per-package engines on the affected packages and their importers, repo-wide defences always,
