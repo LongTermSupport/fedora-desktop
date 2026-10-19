@@ -34,6 +34,10 @@ func (r *run) do(ctx context.Context, id string, row board.Row) (flow.Result, er
 		return r.p.Seats.ToggleCoordinator(ctx, r.snap, row)
 	case actLxc:
 		return r.addLxc(ctx, row.Team)
+	case actAddRunning:
+		return r.addRunningTo(ctx, row.Team)
+	case actAddThis:
+		return r.addThisSession(ctx, row)
 	}
 	return r.doTeam(ctx, id, row)
 }

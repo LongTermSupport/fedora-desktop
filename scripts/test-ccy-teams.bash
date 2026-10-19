@@ -139,6 +139,23 @@ fi
 FAKE
 chmod 755 "$bus_bin/ccy-teams"
 
+# The fake host pingbus (CCY_TEAMS_PINGBUS): each call is one line in $FAKE_BUS_LOG; it exits
+# FAKE_PINGBUS_RC. With FAKE_PINGBUS_SLEEP it first takes that long, then logs `pingbus done`
+# (its sleep holds none of the caller's streams, so a kill ends the wait at once).
+cat >"$bus_bin/pingbus" <<'FAKE'
+#!/usr/bin/env bash
+printf 'pingbus %s\n' "$*" >>"$FAKE_BUS_LOG"
+if [ -n "${FAKE_PINGBUS_SLEEP:-}" ]; then
+    sleep "$FAKE_PINGBUS_SLEEP" </dev/null >>"$FAKE_BUS_LOG.sleep" 2>>"$FAKE_BUS_LOG.sleep"
+    echo "pingbus done" >>"$FAKE_BUS_LOG"
+fi
+if [ "${FAKE_PINGBUS_RC:-0}" -ne 0 ]; then
+    echo "pingbus: refused (fake)" >&2
+fi
+exit "${FAKE_PINGBUS_RC:-0}"
+FAKE
+chmod 755 "$bus_bin/pingbus"
+
 echo "=== lib/agent-bus-seats.bash ==="
 
 # lib_run <function> [args...]: call a function with the libraries loaded and the fake on
@@ -157,13 +174,39 @@ take_and_show() {
     printf '%s|' "${CCY_SEAT_RUN_ARGS[@]}"
     return "$s"
 }
+# The launch, then the launcher's cleanup once the container has gone.
+take_then_disconnect() {
+    ccy_seats_take "$@" >/dev/null || return
+    ccy_bus_disconnected
+}
+# The same, with Ctrl-C mashed at the launcher's process group while pingbus runs (run under
+# setsid, so the group is this run's alone).
+take_then_disconnect_mashed() {
+    ccy_seats_take "$@" >/dev/null || return
+    (for _ in 1 2 3 4 5; do sleep 0.2; kill -INT 0; done) &
+    ccy_bus_disconnected
+}
+# The cleanup, then what SIGINT is left as (nothing printed: the default).
+disconnect_then_show_int() {
+    take_then_disconnect "$@" || return
+    trap -p INT
+}
 "$@"
 printf 'rc=%s' "$?"
 RUN
 lib_run() {
     : >"$FAKE_BUS_LOG"
     (cd "$work" && LIB_DIR="$LIB_DIR" PATH="$bus_bin:$PATH" CCY_MOUNT_RELABEL="${CCY_MOUNT_RELABEL-z}" \
-        XDG_RUNTIME_DIR="$work/run" bash "$work/lib-run.bash" "$@" 2>"$work/lib.err")
+        CCY_TEAMS_PINGBUS="$bus_bin/pingbus" XDG_RUNTIME_DIR="$work/run" \
+        bash "$work/lib-run.bash" "$@" 2>"$work/lib.err")
+}
+# lib_run in a process group of its own (setsid; --wait in case it forks), for a test that
+# signals the launcher's process group.
+lib_run_own_group() {
+    : >"$FAKE_BUS_LOG"
+    (cd "$work" && LIB_DIR="$LIB_DIR" PATH="$bus_bin:$PATH" CCY_MOUNT_RELABEL="${CCY_MOUNT_RELABEL-z}" \
+        CCY_TEAMS_PINGBUS="$bus_bin/pingbus" XDG_RUNTIME_DIR="$work/run" \
+        setsid --wait bash "$work/lib-run.bash" "$@" 2>"$work/lib.err")
 }
 INIT="ccy-teams internal membership-init"
 MOUNT="-v|/run/user/1000/ccy/membership/ccy-proj-1:/run/ccy/membership:ro,Z|-e|PINGBUS_MEMBERSHIP=/run/ccy/membership"
@@ -191,7 +234,7 @@ check "take with a list in ccy's tmux: the label, the read-only relabelled mount
 check "take, interactive: the membership first, no --no-prompt, then the launch block for the list" \
     "$INIT ccy-proj-1 $work dev1@team-a,qa2@team-b|seat take dev1@team-a,qa2@team-b|ccy-teams describe-seats --block dev1@team-a,qa2@team-b" "$(bus_calls)"
 check "the PINGBUS_SEATS variable and the ccy-seats label are retired (H2)" "no" \
-    "$(lib_run take_and_show dev1@team-a false false yolo-1 | grep -q 'PINGBUS_SEATS\|ccy-seats' && echo yes || echo no)"
+    "$(grep -q 'PINGBUS_SEATS\|ccy-seats' <<<"$(lib_run take_and_show dev1@team-a false false yolo-1)" && echo yes || echo no)"
 check "take's CHANGED lines go to stderr, never stdout" "rc=0" "$(lib_run ccy_seats_take dev1@team-a false false yolo-1)"
 check "they are shown" "yes" "$(has "CHANGED seat dev1@team-a" "$work/lib.err")"
 check "the launch block is shown on stderr" "yes" "$(has "This session is on teams (fake block): dev1@team-a" "$work/lib.err")"
@@ -240,6 +283,54 @@ check "a membership that cannot be written stops the launch with its code, befor
 check "  only membership-init ran" "$INIT ccy-proj-1 $work dev1@team-a" "$(bus_calls)"
 check "a session that cannot be named stops the launch" "rc=1" \
     "$(FAKE_SESSION_RC=1 lib_run ccy_seats_take "" false false yolo-1)"
+
+# Plan 00194 Task 2.0b: once the container has gone, the launcher has pingbus tell each team
+# about a seat the session held that ended without its goodbye (a closed terminal, podman
+# stop, a crash), naming the session's report and the launch's start in epoch milliseconds.
+seats_root="$work/.claude/ccy/pingbus/seats"
+mkdir -p "$seats_root"
+disconnect_re="^pingbus seat disconnected --root $seats_root --session ccy-proj-1 --since [0-9]{13}\$"
+before_ms=$(date +%s%3N)
+check "after the container, pingbus is asked to tell what ended without a goodbye" "rc=0" \
+    "$(lib_run take_then_disconnect dev1@team-a false false yolo-1)"
+since_ms=$(grep -E "$disconnect_re" "$FAKE_BUS_LOG" | grep -oE '[0-9]{13}$')
+check "  with the seats, the session and the launch's start" "yes" \
+    "$([ -n "$since_ms" ] && [ "$since_ms" -ge "$before_ms" ] && [ "$since_ms" -le "$(date +%s%3N)" ] && echo yes || echo no)"
+check "  after the seats were taken" "yes" \
+    "$(grep -qE -- "$disconnect_re" <<<"$(tail -n 1 "$FAKE_BUS_LOG")" && echo yes || echo no)"
+lib_run take_then_disconnect "" false false yolo-1 >/dev/null
+check "a plain session in ccy's tmux (a seat can be added later): asked too" "1" \
+    "$(grep -cE "$disconnect_re" "$FAKE_BUS_LOG")"
+FAKE_SESSION='' lib_run take_then_disconnect dev1@team-a false false yolo-1 >/dev/null
+check "outside ccy's tmux the session's report is the container's name" "1" \
+    "$(grep -cE "^pingbus seat disconnected --root $seats_root --session yolo-1 --since [0-9]{13}\$" "$FAKE_BUS_LOG")"
+lib_run take_then_disconnect "" false true yolo-1 >/dev/null
+check "--no-bus: nothing to tell, pingbus is not run" "none" "$(bus_calls)"
+FAKE_SESSION='' lib_run take_then_disconnect "" false false yolo-1 >/dev/null
+check "no kit (no list, outside tmux): pingbus is not run" "none" "$(bus_calls)"
+check "a failure is said on stderr and is not the launcher's (a restart still goes ahead)" "rc=0" \
+    "$(FAKE_PINGBUS_RC=1 lib_run take_then_disconnect dev1@team-a false false yolo-1)"
+check "  it names the command" "yes" "$(has "pingbus seat disconnected failed" "$work/lib.err")"
+check "Ctrl-C mashed while pingbus runs (the container has gone) does not stop it" "rc=0" \
+    "$(FAKE_PINGBUS_SLEEP=1.5 lib_run_own_group take_then_disconnect_mashed dev1@team-a false false yolo-1)"
+check "  pingbus finished" "1" "$(grep -c '^pingbus done$' "$FAKE_BUS_LOG")"
+check "  and nothing was said to have failed" "no" "$(has "failed" "$work/lib.err")"
+check "  SIGINT is the launcher's again afterwards (a restart's exec inherits it)" "rc=0" \
+    "$(lib_run disconnect_then_show_int dev1@team-a false false yolo-1)"
+started=$(date +%s)
+check "a pingbus that hangs is ended at the bound, said, and not the launcher's" "rc=0" \
+    "$(CCY_BUS_DISCONNECT_TIMEOUT_S=1 FAKE_PINGBUS_SLEEP=20 lib_run take_then_disconnect dev1@team-a false false yolo-1)"
+check "  within the bound" "yes" "$(yes_no [ $(($(date +%s) - started)) -lt 10 ])"
+check "  it is said, with the bound" "yes" "$(has "1 s" "$work/lib.err")"
+check "  pingbus did not finish" "0" "$(grep -c '^pingbus done$' "$FAKE_BUS_LOG")"
+check "the bound is the launcher's own by default" "yes" \
+    "$(yes_no grep -qE '^CCY_BUS_DISCONNECT_TIMEOUT_S="\$\{CCY_BUS_DISCONNECT_TIMEOUT_S:-60\}"$' "$LIB_DIR/agent-bus-membership.bash")"
+check "no cleanup before a launch: nothing is run" "rc=0" "$(lib_run ccy_bus_disconnected)"
+check "  pingbus is not run" "none" "$(bus_calls)"
+rm -r "$work/.claude"
+lib_run take_then_disconnect dev1@team-a false false yolo-1 >/dev/null
+check "a checkout with no seats has nothing to tell: pingbus is not run" "0" \
+    "$(grep -c '^pingbus' "$FAKE_BUS_LOG")"
 
 # canon <flag-pos> <value-pos> <canonical> <args...>: the rewritten arguments, '|' joined.
 canon() {
@@ -526,17 +617,17 @@ check "  the Quick Launch banner went to stderr, nothing to stdout" "yes" \
         echo no; fi)"
 save personal /keys/id_a proj_net
 check "interactive with saved choices: the prompt is still asked" "yes" \
-    "$(quick false | grep -q 'prompt=yes' && echo yes || echo no)"
+    "$(grep -q 'prompt=yes' <<<"$(quick false)" && echo yes || echo no)"
 save personal "" ""
 check "headless, saved with no key and no network: those are the choices, not a menu" \
     "token=personal keys= no_ssh=true net= no_net=true rc=0 prompt=no" "$(quick true)"
 save "" /keys/id_a ""
 check "headless, saved with no token: refused, no prompt" "yes" \
-    "$(quick true | grep -q 'rc=1 prompt=no' && echo yes || echo no)"
+    "$(grep -q 'rc=1 prompt=no' <<<"$(quick true)" && echo yes || echo no)"
 rm -f "$proj/.claude/ccy/.last-launch.conf"
 : >"$PROMPT_LOG"
 check "headless with no saved choices: refused, no prompt" "yes" \
-    "$(quick true | grep -q 'rc=1 prompt=no' && echo yes || echo no)"
+    "$(grep -q 'rc=1 prompt=no' <<<"$(quick true)" && echo yes || echo no)"
 check "  it says how to launch instead" "yes" "$(has "--token" "$work/quick.err")"
 : >"$PROMPT_LOG"
 check "headless with a launch-choice flag: the block is not entered" \
@@ -551,7 +642,7 @@ save personal /keys/id_a proj_net dev1@team-a
 check "headless, a saved team: not launched into, a restart would replay none (M2.9)" \
     "ran= end=|--orig" "$(teams_after true)"
 check "  the rest of the saved choices are still taken" "yes" \
-    "$(save personal /keys/id_a proj_net dev1@team-a; quick true | grep -q 'token=personal keys=/keys/id_a' && echo yes || echo no)"
+    "$(save personal /keys/id_a proj_net dev1@team-a; grep -q 'token=personal keys=/keys/id_a' <<<"$(quick true)" && echo yes || echo no)"
 check "  it says the saved team is not taken" "yes" "$(has "not its team" "$work/quick.err")"
 check "  and it records nothing" "none" "$(save personal /keys/id_a proj_net dev1@team-a; recorded_after true)"
 save personal /keys/id_a proj_net dev1@team-a
@@ -597,7 +688,7 @@ check "  a launch that is no session of its own (run from inside another session
     "none" "$(QUICK_SESSION="" QUICK_ANSWER=y recorded_after false)"
 save personal /keys/id_a proj_net dev1@team-a
 check "  a record that cannot be written stops the launch" "yes" \
-    "$(FAKE_RECORD_RC=1 QUICK_ANSWER=y quick false | grep -q 'rc=1 prompt=' && echo yes || echo no)"
+    "$(grep -q 'rc=1 prompt=' <<<"$(FAKE_RECORD_RC=1 QUICK_ANSWER=y quick false)" && echo yes || echo no)"
 save personal /keys/id_a proj_net dev1@team-a
 check "an explicit --teams records nothing here (the launch's arguments carry it)" "none" \
     "$(QUICK_TEAMS_GIVEN=true QUICK_TEAMS_LIST=other-team QUICK_ANSWER=y recorded_after false)"
@@ -642,7 +733,7 @@ check "  the file is kept" "kept" "$(file_left)"
 check "  no version-change discard is announced" "no" "$(has "version changed" "$work/quick.err")"
 save_as SAVED_CONFIG_VERSION=2 3.80.0 old
 check "another ccy version, same format: interactive still offers them" "yes" \
-    "$(quick false | grep -q 'prompt=yes' && echo yes || echo no)"
+    "$(grep -q 'prompt=yes' <<<"$(quick false)" && echo yes || echo no)"
 save_as SAVED_CONFIG_VERSION=2 9.9.9 other-hash
 check "same version, another hash (an unbumped change): warned, choices kept" "$kept_choices" "$(quick true)"
 check "  the warning names the developer error" "yes" "$(has "without version bump" "$work/quick.err")"
@@ -692,12 +783,12 @@ for bus_lib in agent-bus-seats agent-bus-membership; do
 done
 check "--help documents --no-bus" "1" "$(grep -c -E '^  --no-bus ' "$LAUNCHER")"
 check "the did-you-mean list knows --no-bus" "yes" \
-    "$(awk '/^            ccy_flags=\(/,/^            \)/' "$LAUNCHER" | grep -q -- '--no-bus' && echo yes || echo no)"
+    "$(grep -q -- '--no-bus' <<<"$(awk '/^            ccy_flags=\(/,/^            \)/' "$LAUNCHER")" && echo yes || echo no)"
 check "the take call passes --no-bus and the container name" "1" \
     "$(grep -c -F "\"\$NO_BUS_MODE\" \"\$CONTAINER_NAME\" || exit \$?" "$LAUNCHER")"
 check "--help documents --teams" "1" "$(grep -c -E '^  --teams ' "$LAUNCHER")"
 check "the did-you-mean list knows --teams" "yes" \
-    "$(awk '/^            ccy_flags=\(/,/^            \)/' "$LAUNCHER" | grep -q -- '--teams' && echo yes || echo no)"
+    "$(grep -q -- '--teams' <<<"$(awk '/^            ccy_flags=\(/,/^            \)/' "$LAUNCHER")" && echo yes || echo no)"
 check "the run line carries the seat arguments" "1" "$(grep -c -F "\"\${CCY_SEAT_RUN_ARGS[@]}\"" "$LAUNCHER")"
 take_call="ccy_seats_take \"\$CCY_SEATS\""
 take_line=$(grep -n -F "$take_call" "$LAUNCHER" | cut -d: -f1)
@@ -732,13 +823,16 @@ check "a team alone asks it" "yes" "$(needs_chooser 'team-a')"
 check "  and so does a team alone among seats" "yes" "$(needs_chooser '1@team-a, team-b')"
 check "a list naming every seat does not" "no" "$(needs_chooser '1@team-a,qa2@team-b')"
 check "a restore, a restart, headless and no terminal count as nobody to choose" "yes" \
-    "$(grep -A2 '^    ccy_nobody_to_ask || \[ ! -t 2 \]' "$LAUNCHER" | tr '\n' ' ' | grep -F 'ccy_nobody_to_ask' \
-        | grep -F 'CCY_SESSION_RESTORE' | grep -F 'CCY_RESTART_RELAUNCH_SESSION' \
-        | grep -qF '|| attended=true' && echo yes || echo no)"
+    "$(grep -qF '|| attended=true' <<<"$(grep -A2 '^    ccy_nobody_to_ask || \[ ! -t 2 \]' "$LAUNCHER" | tr '\n' ' ' | grep -F 'ccy_nobody_to_ask' \
+        | grep -F 'CCY_SESSION_RESTORE' | grep -F 'CCY_RESTART_RELAUNCH_SESSION')" && echo yes || echo no)"
 check "Quick Launch's summary names each seat with its role, through ccy-teams" "1" \
     "$(grep -c -F 'ccy-teams describe-seats' "$LAUNCHER")"
 check "the flag and the Quick Launch team go through the one function (definition and two calls)" "3" \
     "$(grep -c -E '^ *ccy_launch_teams' "$LAUNCHER")"
+check "the launcher's cleanup tells what ended without a goodbye, last (Plan 00194)" "    ccy_bus_disconnected" \
+    "$(awk '/^cleanup\(\) \{$/ {p=1; next} p && /^\}$/ {exit} p && NF {last=$0} END {print last}' "$LAUNCHER")"
+check "  cleanup runs at every exit, and before a restart's exec" "2" \
+    "$(grep -c -E '^trap cleanup EXIT$|^    cleanup$' "$LAUNCHER")"
 
 echo
 printf 'passed: %s  failed: %s\n' "$passed" "$failed"

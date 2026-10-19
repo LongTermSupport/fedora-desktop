@@ -114,6 +114,7 @@ func TestDispatchListIsTheBoard(t *testing.T) {
 func TestDispatchForCheckoutIsTheFindFlow(t *testing.T) {
 	h := world(t)
 	h.On("git rev-parse --is-inside-work-tree", "true\n", 0)
+	h.On("git rev-parse --show-toplevel", h.Checkout()+"\n", 0)
 	h.On("git remote get-url origin", "git@example.com:example-org/proj.git\n", 0)
 	h.OnDeclare("github-remote", "example-org/proj\n")
 	h.OnDeclare("teams-for", "TEAM\talpha\n")

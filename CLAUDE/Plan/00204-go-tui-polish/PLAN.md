@@ -141,12 +141,30 @@ the QA module's `go.mod` and runs as `go tool govulncheck`.
 
 ### Phase 1: The seam, on fzf and gum (D4)
 
+- [x] ✅ **Task 1.0**: The context heading, ahead of D1 because the owner asked for it twice
+  ("adding a container to multiple teams it was not clear which team im adding to").
+  `ui.Heading` (crumbs, a wizard's step, a context line with the answers so far) is a
+  required argument of every `ui` question and pick, drawn the same way on fzf's `--header`
+  and gum's header or prompt, and refused when it names no place. Threaded through
+  `ccy-teams`, `ccy --teams` (`New session › Team 2 of 3: <team>`), `ccy-sessions`, the freeze
+  tools and `ftp-camera`. InteractiveScripts.md rule 15; owner steps in
+  [ACCEPTANCE.md](ACCEPTANCE.md); report `subagent-reports/261016-context-headings-opus.md`.
+  Branch `fix/context-headings`, from `dbf/hidden-bindings`. A heading wider than the
+  terminal (less the picker's frame) is wrapped at its `›` and `·` separators, never
+  truncated (Fable's review, B1).
+
+- [ ] ⬜ **Task 1.0a**: Head the bash pickers too. `lib/tmux-session.bash`'s screens still have
+  no heading (Fable's review of Task 1.0, N2); give them the same trail, context line and rule,
+  or move them onto the Go `ui` when that library is ported.
+
 - [x] ✅ **Task 1.1**: `ui.Action{ID, Label, Key}` lands with `project_hidden_bindings`
   (branch `dbf/hidden-bindings`). `ccy-sessions`' Ctrl-T, Ctrl-X and Ctrl-N, and `ccy-teams`'
   Tab, become visible choices.
+
 - [ ] ⬜ **Task 1.2**: The semantic API in `internal/ui` (`Screen`, `Wizard`, `Confirm`,
   `Result`, with `Crumbs`), rendered on fzf and gum. The flows move onto it, and their tests
   script answers at that level instead of fzf argv.
+
 - [ ] ⬜ **Task 1.3**: Breadcrumbs in every title, one Confirm everywhere, and column
   explanations moved to help.
 
@@ -166,13 +184,22 @@ the QA module's `go.mod` and runs as `go tool govulncheck`.
   - The rule's new wording in GoProjectRules.md, src-go/CLAUDE.md and QA.md.
 - [ ] ⬜ **Task 2.2**: The `project_seam_imports` rule (only `internal/ui` imports the TUI
   library), and `project_hidden_bindings` extended to `key.Binding` (RESEARCH §5.3).
-- [ ] ⬜ **Task 2.3**: Before the first Bubble Tea key handler lands (it must precede Task
+- [x] ✅ **Task 2.3** (red `727810c8`, green the next commit; the rule checks that every binding
+  has constant help, and ui's tests hold that ui draws it; Tab in a text input is navigation,
+  the owner's decision, recorded in the catalogue): Before the first Bubble Tea key handler lands (it must precede Task
   3.1), widen `project_hidden_bindings` to Bubble Tea (Fable's N4 on `dbf/hidden-bindings`):
   every `key.Binding` has help text and is rendered by the one help or menu component in
   `internal/ui`, and a `tea.KeyMsg` switch outside that component is a finding. Red first on a
   fixture with a key-only `KeyMsg` case. In the same commit, the catalogue sentence in
   GoProjectRules.md that excuses Go key reads ("no first-party Go reads raw keys; there is no
   terminal library in `src-go`") changes: it stops being true when Bubble Tea is a dependency.
+  The reviewers' evasions (a key read in a variable or a switch init, `strings` searches on one,
+  a `key.Binding{}` literal, Tab by hand with no Tab binding) were closed red `f66868db`, green
+  the next commit; what is still not caught is listed in the catalogue.
+- [ ] ⬜ **Task 2.4**: The next wider Bubble Tea rule (named in GoProjectRules.md): every
+  `key.Binding` a ui model matches in `Update` is one its `View` hands the help view, so the
+  Tab exception is tied to the hint on the same screen, not to the package. DBF, red first on a
+  model that matches a binding it never draws.
 
 ### Phase 3: The frame, `ccy-sessions` first (D1, D5)
 

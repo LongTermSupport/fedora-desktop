@@ -744,6 +744,10 @@ reason); K = kept for parity; the owner's decision, if any, is in section 15.
 26. **F. startup loads twice** (`PF` L891 then the loop refresh): two podman round trips (and, for
     lxcfreeze, up to `1 + 3N` sudo calls twice) before the first menu. The first load serves the
     one-shot paths; the menu reuses it for its first pass.
+27. **F. the fzf screens say nothing of where the person is** (`FC` L476, L614): the group menu
+    and the drill-down show a key legend only, so the drill-down does not name the group it
+    lists. Every `ui` screen now starts with the shared heading (Plan 00204 D4): the tool, then
+    the group, and a count (`lxcfreeze › bridge: lxcbr0`, `2 containers`), above the legend.
 
 ---
 

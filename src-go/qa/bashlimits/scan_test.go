@@ -43,6 +43,34 @@ func TestScanTree(t *testing.T) {
 	}
 }
 
+// A test suite and a semgrep fixture are exempt however long; a tool outside the test
+// locations is measured, even one named for tests.
+func TestScanTreeExemptsTestFilesAndMeasuresTools(t *testing.T) {
+	long := "#!/usr/bin/bash\n" + strings.Repeat("echo x\n", 70)
+	paths := []string{
+		".semgrep/bash-conventions.bash", "scripts/test-suite.bash", "tests/helpers/x.bash",
+		"scripts/qa-helper-tests.bash", "scripts/tool.bash",
+	}
+	fsys := fstest.MapFS{}
+	for _, p := range paths {
+		fsys[p] = &fstest.MapFile{Data: []byte(long)}
+	}
+	scan, err := ScanTree(fsys, paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range paths[:3] {
+		if !scan.Exempt[p] || scan.Measured[p].Code != 0 {
+			t.Errorf("%s should be exempt: exempt=%v measured=%v", p, scan.Exempt[p], scan.Measured[p])
+		}
+	}
+	for _, p := range paths[3:] {
+		if scan.Exempt[p] || scan.Measured[p].Code != 70 {
+			t.Errorf("%s should be measured: exempt=%v measured=%v", p, scan.Exempt[p], scan.Measured[p])
+		}
+	}
+}
+
 // unreadableFS lists files but refuses to open any.
 type unreadableFS struct{ fs.FS }
 

@@ -103,10 +103,24 @@ func TestExemptionFor(t *testing.T) {
 		"CLAUDE/Plan/Cancelled/00066-z/triage.bash":      true,
 		".claude/init.sh":                                true,
 		"scripts/qa-all.bash":                            false,
-		"CLAUDE/Plan/mkplan.bash":                        false,
+		"CLAUDE/Plan/mkplan.bash":                        true,
 		"CLAUDE/Plan/_planlib.inc.bash":                  false,
 		"files/home/.local/bin/vmtest":                   false,
 		"scripts/lib/go-tool.bash":                       false,
+		// Test fixtures: the semgrep rule fixtures and the guest-side acceptance checkers
+		// and fixture preparers the VM lab runs.
+		".semgrep/bash-conventions.bash":                                                     true,
+		".semgrep/ready-wait.bash":                                                           true,
+		"files/home/.local/share/vmtest/guest-acceptance-server.bash":                        true,
+		"files/home/.local/share/vmtest/guest-prepare-server-host-health-kernel-change.bash": true,
+		// Tools that merely have "test" in their name or sit beside test files stay measured.
+		"scripts/qa-helper-tests.bash":                                 false,
+		"scripts/qa-vmtest-manifest.bash":                              false,
+		"scripts/vmtest-request.bash":                                  false,
+		"files/home/.local/bin/latest-tool":                            false,
+		"files/home/.local/share/vmtest/guest-cleanup.bash":            false,
+		"files/home/.local/share/vmtest/vmtest-session-provision.bash": false,
+		"scripts/sub/test-a.bash":                                      false,
 	}
 	for p, want := range cases {
 		reason, ok, err := ExemptionFor(p)

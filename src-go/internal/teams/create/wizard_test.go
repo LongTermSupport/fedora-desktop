@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os/exec"
 	"slices"
 	"strconv"
@@ -14,7 +15,9 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/hostcheckout"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/playlock"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -65,10 +68,28 @@ func (s *wzScript) queue(key string, results ...execx.Result) {
 	s.queues[key] = append(s.queues[key], results...)
 }
 
+// lines is every call, with the screens' headings cut out (headings has them).
 func (s *wzScript) lines() []string {
 	out := make([]string, 0, len(s.calls))
 	for _, c := range s.calls {
-		out = append(out, c.Line())
+		out = append(out, teamtest.Unheaded(c).Line())
+	}
+	return out
+}
+
+// headings is the heading of every gum question, in order.
+func (s *wzScript) headings() []string {
+	var out []string
+	for _, c := range s.calls {
+		if c.Name != "gum" || len(c.Args) == 0 || c.Args[0] == "style" || c.Args[0] == "spin" {
+			continue
+		}
+		for _, a := range c.Args {
+			if heading := teamtest.HeadingOf(a); heading != "" {
+				out = append(out, heading)
+				break
+			}
+		}
 	}
 	return out
 }
@@ -186,7 +207,7 @@ func newWzHarness(t *testing.T) *wzHarness {
 	client.Err = h.declErr
 	h.c = &Wizard{
 		Declare: client,
-		Gum:     &ui.Gum{Runner: h.run, Stderr: h.stderr},
+		Gum:     &ui.Gum{Runner: h.run, Stderr: h.stderr, Plain: true},
 		Git:     gitx.New(h.run),
 		NewTerm: func() *term.Term {
 			return &term.Term{Err: h.stderr, IsTerminal: func(any) bool { return h.tty }, Getenv: wzNoColour}
@@ -222,6 +243,8 @@ func newWzHarness(t *testing.T) *wzHarness {
 		},
 	}
 	h.c.Gum.Runner = h.run
+	// Root's LXC configuration is absent: LXC keeps its containers in the default path.
+	h.c.Checkouts = &hostcheckout.Finder{Git: h.c.Git, ReadFile: func(string) ([]byte, error) { return nil, fs.ErrNotExist }}
 	return h
 }
 
@@ -238,6 +261,9 @@ func (h *wzHarness) locked(ctx context.Context, purpose string, fn func(context.
 	h.locks = append(h.locks, fmt.Sprintf("%s: declared before %v, after %v, applied %d", purpose, before, after, len(h.applied)))
 	return err
 }
+
+// wzLxcPath is where the harness's root LXC keeps its containers.
+const wzLxcPath = hostcheckout.DefaultLxcPath
 
 func (h *wzHarness) invoke(args ...string) term.ExitCode {
 	return h.c.Run(context.Background(), args)
@@ -308,6 +334,22 @@ func TestWizardInACheckoutAcceptsEveryDefault(t *testing.T) {
 			t.Errorf("input %d:\n got %q\nwant %q", i, inputs[i], want)
 		}
 	}
+	// every question says where it is: the step and the answers so far, then each offer after
+	wantHeadings := []string{
+		"Teams › New team · step 1/6 What the team works on\nnothing is changed until you say yes at the end",
+		"Teams › New team · step 2/6 Repositories\nnothing is changed until you say yes at the end",
+		"Teams › New team · step 3/6 Team name\nworks on example-org/proj",
+		"Teams › New team · step 4/6 What is this team for?\nworks on example-org/proj · team proj",
+		"Teams › New team · step 5/6 People\nworks on example-org/proj · team proj",
+		"Teams › New team · step 6/6 Other machines\nworks on example-org/proj · team proj · people owner",
+		"Teams › New team › Review\nteam proj · works on only example-org/proj, on any branch",
+		"Teams › proj › owner › Sign in\nowner in team proj · just created",
+		"Teams › proj › Open in Element\nteam proj · just created",
+		"Teams › proj › New session\nteam proj · in ~/proj",
+	}
+	if got := h.run.headings(); !slices.Equal(got, wantHeadings) {
+		t.Errorf("headings:\n got %q\nwant %q", got, wantHeadings)
+	}
 	// checked on GitHub for push access
 	if !h.run.called("gh api repos/example-org/proj --jq .permissions.push") {
 		t.Error("the repository was not checked for push access")
@@ -358,6 +400,18 @@ func TestWizardInACheckoutAcceptsEveryDefault(t *testing.T) {
 
 // S-B11: the chooser runs the wizard for this checkout and takes the team it made; the wizard
 // neither offers a session of its own nor prints on stdout, which is the chooser's payload.
+func TestWizardInAContainersCheckoutOffersNoSessionThere(t *testing.T) {
+	h := newWzHarness(t)
+	top := wzLxcPath + "/box/rootfs/srv/proj"
+	h.fake.On([]string{"git", "rev-parse", "--show-toplevel"}, wzOK(top+"\n"))
+	h.happyAnswers()
+	wzCode(t, h.invoke(), 0, h)
+	if len(h.execd) != 0 || h.run.called("gum confirm --default=true Start a ccy session") {
+		t.Errorf("a session was offered or started: %v", h.execd)
+	}
+	wzContain(t, "stderr", h.err(), top+" is LXC container box's checkout", "ccy-teams lxc-add")
+}
+
 func TestWizardForTheChooserReturnsTheTeamAndStartsNothing(t *testing.T) {
 	h := newWzHarness(t)
 	h.run.queue("gum choose", wzOK(scopeRepos+", starting with example-org/proj\n"))

@@ -131,7 +131,7 @@ team covers, whose own status line is a hooks daemon's.
     **free**, and the team row still **up**. A line saying `stopped` or `failed` fails this
     step: send it.
 13. A team's settings (Task 2.15, SPEC-many-teams.md section F). In `ccy-teams`, press Enter on
-    a team's row and choose **Edit settings**. The screen's title reads `Team <team> › Settings`, and it lists the description, people, GitHub owner, repositories, excluded
+    a team's row and choose **Edit settings**. The screen's heading reads `Teams › <team> › Settings` over `team <team> · no changes waiting`, and it lists the description, people, GitHub owner, repositories, excluded
     repositories, path limit, allowed networks and coordinator with their values. Below them
     are the name, port, listen addresses, server name and forge API marked `(fixed)`, then
     **Save and apply**, **Discard changes** and **Back**. Moving the cursor changes the header

@@ -7,6 +7,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/login"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
@@ -74,11 +75,13 @@ func (a action) footerPart() string {
 
 // actionsFor is everything that can be done to row, the likeliest first and every destructive
 // action last (lastDestructive). Every row offers adding an LXC container's agent to its team,
-// just after starting a ccy session in it.
+// just after starting a ccy session in it, and a team's row and a running seat's then offer
+// adding a running session (addActions): the add lines stay together.
 func (r *run) actionsFor(row board.Row) []action {
 	acts := r.kindActions(row)
 	lxc := action{actLxc, "", "Add an LXC container's agent to " + row.Team, "add an LXC container to " + row.Team}
-	return lastDestructive(slices.Insert(acts, slices.IndexFunc(acts, func(a action) bool { return a.id == actNew })+1, lxc))
+	adds := append([]action{lxc}, r.addActions(row)...)
+	return lastDestructive(slices.Insert(acts, slices.IndexFunc(acts, func(a action) bool { return a.id == actNew })+1, adds...))
 }
 
 // destructive is whether choosing a parks, removes, takes down, shuts down or makes a
@@ -154,7 +157,7 @@ func (r *run) humanActions(row board.Row, open, start, help action) []action {
 func (r *run) memberActions(row board.Row, open, start, help action) []action {
 	remove := action{actRemove, keyRemove, "Park " + row.Handle, "park it"}
 	if row.Kind == board.KindCcy && row.Dir != "-" {
-		remove = action{actRemove, keyRemove, "Remove seat " + row.Member + " from " + row.Team, "remove seat " + row.Member}
+		remove = action{actRemove, keyRemove, "Remove seat " + row.Label() + " from " + row.Team, "remove seat " + row.Label()}
 	}
 	return append(r.seatOwnActions(row), r.roleAction(row), open, start, help, remove)
 }
@@ -200,7 +203,7 @@ func (r *run) menuFor(row board.Row) ui.Menu {
 	for i, a := range acts {
 		items[i] = a.ui()
 	}
-	subject := row.Member + " in " + row.Team
+	subject := row.Label() + " in " + row.Team
 	if row.Kind == board.KindTeam {
 		subject = "team " + row.Team
 	}
@@ -208,7 +211,17 @@ func (r *run) menuFor(row board.Row) ui.Menu {
 		Title:   subject,
 		Header:  ui.Header("Enter choose   Esc or q back to the list", "What to do with "+subject+":", aboutLine(row)),
 		Actions: items,
+		Heading: rowHeading(row),
 	}
+}
+
+// rowHeading is the heading of a row's menu: Teams › team, and the member for a member's row,
+// with what the row is as its context.
+func rowHeading(row board.Row) ui.Heading {
+	if row.Kind == board.KindTeam {
+		return flow.Here(row.Team).About("team " + row.Team + " · " + row.State)
+	}
+	return flow.Here(row.Team, row.Crumb()).About(string(row.Kind) + " " + row.Member + " in team " + row.Team + " · " + row.State)
 }
 
 // aboutLine is a team row's description, whole, for the header of its menu; "" for any other row.

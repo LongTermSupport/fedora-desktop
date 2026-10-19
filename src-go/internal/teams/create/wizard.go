@@ -15,7 +15,9 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/hostcheckout"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/playlock"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/login"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
@@ -51,6 +53,8 @@ type Wizard struct {
 	Declare *declare.Client
 	Gum     *ui.Gum
 	Git     *gitx.Git
+	// Checkouts says whether the folder the wizard runs in is a checkout a session may start in.
+	Checkouts *hostcheckout.Finder
 	// NewTerm is a Term of its own for each run: the step counters live in it.
 	NewTerm func() *term.Term
 	Runner  execx.Runner // gh, id
@@ -78,6 +82,11 @@ type Wizard struct {
 	ExecLauncher func(dir string, argv []string) error
 
 	term *term.Term
+	// head is the heading of the question being asked; asked counts the steps so far, and said
+	// is the answers given, as the heading's context line shows them.
+	head  ui.Heading
+	asked int
+	said  []string
 	// forChooser is a run for `choose-teams`; created is the team that run made.
 	forChooser bool
 	created    string
@@ -87,7 +96,7 @@ type Wizard struct {
 // apply installs the team, login signs a person in and opens Element.
 func New(h *host.Host, o *ops.Ops, l *login.Login) *Wizard {
 	return &Wizard{
-		Declare: h.Declare, Gum: h.Gum, Git: h.Git, NewTerm: h.FreshTerm, Runner: h.Runner,
+		Declare: h.Declare, Gum: h.Gum, Git: h.Git, Checkouts: h.Checkouts, NewTerm: h.FreshTerm, Runner: h.Runner,
 		Stdin: h.Stdin, Stdout: h.Stdout,
 		Cwd: h.Here(), HostVars: h.HostVars, Home: h.Home, Launcher: h.Launcher,
 		LookPath: h.LookPath,
@@ -152,6 +161,7 @@ func (c *Wizard) RunForChooser(ctx context.Context) (string, term.ExitCode) {
 
 func (c *Wizard) run(ctx context.Context, args []string) term.ExitCode {
 	c.term = c.NewTerm()
+	c.head, c.asked, c.said = flow.Here(newTeamCrumb), 0, nil
 	err := c.create(ctx, args)
 	if err == nil {
 		return term.ExitOK
@@ -372,9 +382,29 @@ func countSteps(o createOpts, scopeGiven bool, knownAddress string) int {
 	return steps
 }
 
+// newTeamCrumb is the crumb of every question of the create wizard.
+const newTeamCrumb = "New team"
+
+// step starts the next question: its numbered title and hint on the terminal, and the heading
+// its prompt carries, with the answers so far as the context line.
 func (c *Wizard) step(ctx context.Context, title, hint string) error {
+	c.asked++
+	context := "nothing is changed until you say yes at the end"
+	if len(c.said) > 0 {
+		context = strings.Join(c.said, " · ")
+	}
+	c.head = flow.Here(newTeamCrumb).AtStep(c.asked, c.term.Steps, title).About(context)
 	c.term.Step(title)
 	return c.Gum.Explain(ctx, hint, 5)
+}
+
+// answered keeps value on screen under its step and, when context is not empty, adds context
+// to the answers the next questions' headings show.
+func (c *Wizard) answered(value, context string) {
+	c.term.Answered(value)
+	if context != "" {
+		c.said = append(c.said, context)
+	}
 }
 
 // ownerOf is the owner part of OWNER/REPO (all of a name with no slash).
@@ -410,11 +440,11 @@ func (c *Wizard) askScope(ctx context.Context, o *createOpts, here string) error
 	if err := c.step(ctx, "What the team works on", "Its agents may point each other only at these repositories, on any branch. Anything else reaches them as outside content, marked so."); err != nil {
 		return err
 	}
-	scope, err := c.Gum.Choose(ctx, "Trust", choices[0], choices)
+	scope, err := c.Gum.Choose(ctx, c.head, "Trust", choices[0], choices)
 	if err != nil {
 		return c.gumErr(err)
 	}
-	c.term.Answered(scope)
+	c.answered(scope, "")
 	if strings.HasPrefix(scope, scopeOwner) {
 		return c.askOwner(ctx, o, here)
 	}
@@ -429,7 +459,7 @@ func (c *Wizard) askScope(ctx context.Context, o *createOpts, here string) error
 		return err
 	}
 	o.repos = splitCommas(strings.ToLower(text))
-	c.term.Answered(strings.Join(o.repos, " "))
+	c.answered(strings.Join(o.repos, " "), "works on "+strings.Join(o.repos, " "))
 	return nil
 }
 
@@ -444,7 +474,7 @@ func (c *Wizard) askOwner(ctx context.Context, o *createOpts, here string) error
 		return err
 	}
 	o.org = strings.ToLower(owner)
-	c.term.Answered(o.org)
+	c.answered(o.org, "works on "+o.org)
 	return nil
 }
 
@@ -536,7 +566,7 @@ func (c *Wizard) askTeam(ctx context.Context, o *createOpts) error {
 		return err
 	}
 	o.team = team
-	c.term.Answered(team)
+	c.answered(team, "team "+team)
 	return nil
 }
 
@@ -556,7 +586,7 @@ func (c *Wizard) askDescription(ctx context.Context, o *createOpts) error {
 		return err
 	}
 	o.description = text
-	c.term.Answered(text)
+	c.answered(text, "")
 	return nil
 }
 
@@ -593,7 +623,7 @@ func (c *Wizard) askHumans(ctx context.Context, o *createOpts) error {
 		return err
 	}
 	o.humans = splitCommas(text)
-	c.term.Answered(strings.Join(o.humans, " "))
+	c.answered(strings.Join(o.humans, " "), "people "+strings.Join(o.humans, " "))
 	return nil
 }
 
@@ -613,10 +643,10 @@ func (c *Wizard) askAllowFrom(ctx context.Context, o *createOpts) error {
 	}
 	o.allowFrom = splitCommas(text)
 	if len(o.allowFrom) == 0 {
-		c.term.Answered("none, this machine only")
+		c.answered("none, this machine only", "this machine only")
 		return nil
 	}
-	c.term.Answered(strings.Join(o.allowFrom, " "))
+	c.answered(strings.Join(o.allowFrom, " "), "also "+strings.Join(o.allowFrom, " "))
 	return nil
 }
 
@@ -631,7 +661,7 @@ func (c *Wizard) askAddress(ctx context.Context, o *createOpts) error {
 		return err
 	}
 	o.address = address
-	c.term.Answered(address)
+	c.answered(address, "")
 	return nil
 }
 
@@ -643,7 +673,7 @@ type checker func(ctx context.Context, answer string) (bool, error)
 // back as the next try's value, as typed.
 func (c *Wizard) askValid(ctx context.Context, check checker, header, placeholder, value string) (string, error) {
 	for range maxTries {
-		answer, err := c.Gum.Input(ctx, header, placeholder, value)
+		answer, err := c.Gum.Input(ctx, c.head, header, placeholder, value)
 		if err != nil {
 			return "", c.gumErr(err)
 		}
@@ -813,7 +843,7 @@ func (c *Wizard) confirmSummary(ctx context.Context, o createOpts) error {
 		return err
 	}
 	question := "Create team " + o.team + "? (saved to " + term.AbbrevHome(c.HostVars, c.Home) + ", then installed: sudo asks for your password)"
-	yes, err := c.Gum.Confirm(ctx, question, true)
+	yes, err := c.Gum.Confirm(ctx, flow.Here(newTeamCrumb, "Review").About("team "+o.team+" · works on "+o.trusts()), question, true)
 	if err != nil {
 		return c.gumErr(err)
 	}
@@ -925,7 +955,7 @@ func withoutOffered(steps string) string {
 // afterCreate is, straight after create, each person's sign-in and then Element opened.
 func (c *Wizard) afterCreate(ctx context.Context, o createOpts) error {
 	for _, human := range nonEmpty(o.humans) {
-		yes, err := c.askYes(ctx, "Sign "+human+" in to Element now? A password is set and shown here once.", true)
+		yes, err := c.askYes(ctx, flow.Here(o.team, human, "Sign in").About(human+" in team "+o.team+" · just created"), "Sign "+human+" in to Element now? A password is set and shown here once.", true)
 		if err != nil {
 			return err
 		}
@@ -935,7 +965,7 @@ func (c *Wizard) afterCreate(ctx context.Context, o createOpts) error {
 			}
 		}
 	}
-	yes, err := c.askYes(ctx, "Open "+o.team+" in Element now?", true)
+	yes, err := c.askYes(ctx, flow.Here(o.team, "Open in Element").About("team "+o.team+" · just created"), "Open "+o.team+" in Element now?", true)
 	if err != nil || !yes {
 		return err
 	}
@@ -956,8 +986,8 @@ func (c *Wizard) offered(err error) error {
 }
 
 // askYes is a gum confirm: yes, no, or (Ctrl-C) the run cancelled.
-func (c *Wizard) askYes(ctx context.Context, question string, defaultYes bool) (bool, error) {
-	yes, err := c.Gum.Confirm(ctx, question, defaultYes)
+func (c *Wizard) askYes(ctx context.Context, h ui.Heading, question string, defaultYes bool) (bool, error) {
+	yes, err := c.Gum.Confirm(ctx, h, question, defaultYes)
 	if err != nil {
 		return false, c.gumErr(err)
 	}
@@ -967,9 +997,16 @@ func (c *Wizard) askYes(ctx context.Context, question string, defaultYes bool) (
 // offerJoin, in a checkout of the team's repositories, offers to start a ccy session there
 // as a member (ccy --teams <team>, no seat, so ccy chooses one and says it).
 func (c *Wizard) offerJoin(ctx context.Context, team, here string) error {
-	inTree, err := c.Git.ProjectHere(ctx, c.Cwd)
-	if err != nil || !inTree || here == "" {
+	if here == "" {
+		return nil
+	}
+	checkout, err := c.Checkouts.Find(ctx, c.Cwd)
+	if err != nil || checkout.Top == "" {
 		return err
+	}
+	if !checkout.Host() {
+		c.term.Printf("%s\n", checkout.Refusal(term.AbbrevHome(checkout.Top, c.Home)))
+		return nil
 	}
 	covering, err := c.Declare.TeamsFor(ctx, here)
 	if err != nil {
@@ -980,12 +1017,9 @@ func (c *Wizard) offerJoin(ctx context.Context, team, here string) error {
 	if !slices.Contains(covering, team) {
 		return nil
 	}
-	top, err := c.Git.TopLevel(ctx, c.Cwd)
-	if err != nil {
-		return err
-	}
+	top := checkout.Top
 	shown := term.AbbrevHome(top, c.Home)
-	yes, err := c.askYes(ctx, "Start a ccy session in "+shown+" as a member of "+team+"?", true)
+	yes, err := c.askYes(ctx, flow.Here(team, "New session").About("team "+team+" · in "+shown), "Start a ccy session in "+shown+" as a member of "+team+"?", true)
 	if err != nil || !yes {
 		return err
 	}

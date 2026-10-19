@@ -36,7 +36,8 @@ func (s *Seats) ChangeRole(ctx context.Context, team, handle string, want bool, 
 		return false, nil
 	}
 	holder := coordinator.Holding(roster, handle, look)
-	yes, err := s.Kit.Confirm(ctx, roleTitle(handle, team, want, holder), roleQuestion(handle, team, want, holder),
+	head := flow.Here(team, handle, "Coordinator").About(handle + " in team " + team + " · now " + member.Role)
+	yes, err := s.Kit.Confirm(ctx, head, roleTitle(handle, team, want, holder)+" "+roleQuestion(handle, team, want, holder),
 		roleAction(handle, want, holder), false)
 	if err != nil || !yes {
 		return false, err

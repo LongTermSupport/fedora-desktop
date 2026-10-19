@@ -17,6 +17,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/playlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
 // lockStart is the instant the rig's clock begins at; basicNote is what the other play run,
@@ -335,6 +336,8 @@ func TestOnATerminalTheWaitIsAScreenThatGoesOnByItselfWhenTheLockIsFree(t *testi
 	r := newOpsRig(t)
 	screen := &blockingFzf{Fake: r.fake}
 	r.ops.Picker.Runner = screen
+	r.ops.Picker.Plain = true
+	r.on("tput cols", execx.Result{Stdout: []byte("200\n")})
 	r.on(opsPlay, execx.Result{})
 	r.appliedBeta()
 	release := r.holdElsewhere(t, basicNote)
@@ -353,6 +356,8 @@ func TestOnATerminalTheWaitIsAScreenThatGoesOnByItselfWhenTheLockIsFree(t *testi
 	first := screenText(t, shown[0])
 	for _, want := range []string{
 		"Waiting for the play lock",
+		"Teams › Waiting for the play lock",
+		"before ccy-teams can apply beta",
 		"ccy-teams is waiting for the play lock before it can apply beta.",
 		"Held by " + basicWho + ", for less than a minute.",
 		"It waits up to 30 minutes, until 12:30:05 UTC, and goes on by itself the moment the lock is free.",
@@ -389,6 +394,40 @@ func TestStopWaitingOnTheScreenRunsNothingAndHoldsNothing(t *testing.T) {
 		if !strings.Contains(r.said(), want) {
 			t.Errorf("missing %q in %q", want, r.said())
 		}
+	}
+}
+
+// On a narrow terminal the holder's play and pid are wrapped under the heading, never cut: each
+// header line fits the window and the words are all there, in order.
+func TestOnANarrowTerminalTheWaitScreenWrapsTheHolderAndCutsNothing(t *testing.T) {
+	r := newOpsRig(t)
+	screen := &blockingFzf{Fake: r.fake, leave: true}
+	r.ops.Picker.Runner = screen
+	r.ops.Picker.Plain = true
+	r.on("tput cols", execx.Result{Stdout: []byte("40\n")})
+	r.appliedBeta()
+	r.holdElsewhere(t, basicNote)
+	if code := r.ops.Apply(t.Context(), []string{"beta"}); code != term.ExitCancelled {
+		t.Fatalf("exit %d, want 130; said %q", code, r.said())
+	}
+	shown := screen.shown()
+	if len(shown) == 0 {
+		t.Fatal("no screen was drawn")
+	}
+	var header string
+	for _, a := range shown[0].Args {
+		if h, ok := strings.CutPrefix(a, "--header="); ok {
+			header = h
+		}
+	}
+	for l := range strings.SplitSeq(header, "\n") {
+		if ui.Width(l) > 40-ui.RowChrome-2 {
+			t.Errorf("a header line of %d cells on 40 columns: %q", ui.Width(l), l)
+		}
+	}
+	bare := strings.NewReplacer(" ", "", "\n", "")
+	if got, want := bare.Replace(header), bare.Replace("Held by "+basicWho+", for less than a minute."); !strings.Contains(got, want) {
+		t.Errorf("the holder is not all there:\n%s", header)
 	}
 }
 

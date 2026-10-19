@@ -20,7 +20,7 @@ func TestRemoveReleasesReBaselinesAndSaysGoodbye(t *testing.T) {
 	}
 	wantLines(t, r.ErrOut.String(),
 		"✓ session "+session+": running, can be hot-controlled",
-		"✓ role: seat 3 is a worker",
+		"✓ role: proj.3+local.podman is a worker",
 		"✓ record: no --teams",
 		"✓ membership: generation 2 written (farewell alpha/3)",
 		"✓ session: seat 3 released (0.0 s)",

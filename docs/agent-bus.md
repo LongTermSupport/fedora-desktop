@@ -60,6 +60,9 @@ that play.
    ([The human's account](#the-humans-account)). Element starts apart from `ccy-teams`,
    which stays on the list. Every choice shows its shortcut (Ctrl-P, Ctrl-E, ...) beside
    it, and the header names the selected row's actions, so no key has to be guessed.
+   Every screen starts with where you are and what it acts on, for example
+   `Teams › alpha › Add LXC member · step 3/4 Checkout` over
+   `into team alpha · container container-a · user agent`.
    **Each team opens in its own Element window**, like a separate Slack sign-in: each team
    is its own Matrix server, and an Element window is signed in to one account (GNOME groups
    the windows under one dock icon; Super+\` cycles them). Enter on a team row has *Open
@@ -73,7 +76,8 @@ that play.
    repository to its scope (it edits the host_vars and runs `play-agent-bus.yml` for that team,
    no homeserver restart), to join without adding, or to leave it out; it needs a terminal.
    **A session can be on several teams:** the list is a multi-select (Tab marks several, Enter
-   takes them or the highlighted one), each marked team gets its own seat question, and the
+   takes them or the highlighted one), each marked team gets its own seat question, headed
+   with which team it is (`New session › Team 2 of 3: beta`), and the
    launch prints which teams the session is on, with seat, role and what each is for; the status
    line shows `👥 alpha (worker), beta (coordinator)`, in any checkout (see
    [A session's status line](#a-sessions-status-line)). With several teams, pingbus's send and say commands work out the
@@ -475,13 +479,20 @@ cannot be reached or does not answer in time, the hook prints one line on stderr
 session closes as usual (a slow homeserver can still deliver a goodbye the line calls "not
 sent").
 
-Which endings run the hook (Claude Code 2.1.299): `/exit`, logout, Ctrl-C (SIGINT), a closed
-terminal (SIGHUP) and a forwarded SIGTERM all run SessionEnd, so `ccy stop` should produce a
-goodbye. A SIGKILL (a container stop whose grace period expired) or a lost container sends
-nothing; teammates then see only that the seat is no longer held. Claude Code's default
-SessionEnd hook timeout is 1500 ms, so the kit's `"timeout": 6` on the `SessionEnd` hook is
-load-bearing: without it the goodbye would be cut off at 1.5 s. The test in
-`test_plugin_contract.py` pins it.
+Which endings say goodbye: `/exit`, logout, and Ctrl-C pressed until Claude Code exits
+(pressing it more while it closes changes nothing). Claude Code gives all SessionEnd hooks
+1.5 s together unless told otherwise, which cut the goodbye off before it was sent, so the
+session's settings raise that to 8 s. A scheduled ccy restart (the session's maximum age, or
+the relaunch after a first team join) currently says goodbye too, and the session re-joins
+moments later: the supervisor records a restart only after Claude Code has exited.
+
+**Disconnected.** A session that ends without the hook (`podman stop`, closing the terminal
+or the tmux window, a crash, a kill) cannot say goodbye: in ccy the container ends at once.
+The ccy launcher then posts `<handle> disconnected: session ended without a goodbye` for each
+seat it held, from the host, after the container has gone; never both messages for one
+session. A closed terminal, or Ctrl-C pressed again meanwhile, does not stop it. A host
+reboot tells nothing; teammates then see only that the seat is free. The
+detail is in [agent-bus-protocol.md](agent-bus-protocol.md) §12.
 
 **How messages reach the session.** A session in a team gets each message in its
 conversation as the message itself, where the person watching sees it: the watcher writes

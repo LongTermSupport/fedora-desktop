@@ -17,11 +17,10 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.12.17 — container 2.77.14
+## 3.99.12.15 — container 2.77.11
 
-Follows 3.99.12.10 (container 2.77.7). The image carries the new pingbus and declare.py.
-3.99.12.15 (container 2.77.12) and 3.99.12.16 (container 2.77.13) were earlier states of this
-release on its branch; neither was merged.
+Follows 3.99.12.14 (container 2.77.10). The image carries the new pingbus and declare.py, so it
+is rebuilt once.
 
 - **The status line shows each team's role**: `👥 desktop (coordinator), other (worker)`,
   read on every refresh from the team record the role notice reads, so a role change shows at
@@ -50,6 +49,80 @@ release on its branch; neither was merged.
   above Back; making a coordinator a worker and the takeover come after the ordinary actions;
   Remove from a team is last in a session's menu; the take-down question starts on "Leave it
   running"; settings lists No coordinator last.
+
+## 3.99.12.14 — container 2.77.10
+
+Follows 3.99.12.13 (container 2.77.9). The entrypoint changed, so the image is rebuilt once.
+
+- **A wrapper that runs a shell script through Python is refused, naming the fix.** From
+  hooks-daemon 3.69.0, `.claude/ccy/claude-supervise` is a `#!/bin/sh` launcher beside
+  `claude-supervise.py`, and the daemon's upgrade repoints a `ccy.env` line from
+  `claude-supervise.py` to `claude-supervise` without removing a `python3` in front of it. A
+  project wrapper of the form `python3 /workspace/.claude/ccy/claude-supervise --arm --` then
+  died at launch on a bare Python `SyntaxError` at the launcher's first function. When the
+  wrapper's first word is a python interpreter and the next is a script whose shebang names
+  sh, bash or dash, the entrypoint now stops before exec with
+  "Point CCY_CLAUDE_WRAPPER at claude-supervise (no python3) or claude-supervise.py". The
+  wrapper is never rewritten; the fix belongs in the project's `.claude/ccy/ccy.env` (or
+  `ccy.env.local`).
+- The "could not verify which account this token belongs to" message is printed by one
+  `printf` instead of a run of `echo` lines, with the same text, so the entrypoint stays
+  within its bash-limits record.
+
+## 3.99.12.13 — container 2.77.9
+
+Follows 3.99.12.12 (container 2.77.8).
+
+- **The goodbye is sent when a session is ended with Ctrl-C** (Plan 00194 Task 2.0b). Claude
+  Code gave every SessionEnd hook 1.5 s together, and the plugin hook's own `timeout` did not
+  raise that, so the goodbye was cut off before it was posted. The session's settings (and the
+  member kit's) now set `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` to 8 s, and the hook ignores
+  SIGINT and SIGHUP while it posts. Each goodbye posted is recorded in its seat.
+- **A session that ends without its goodbye is told "disconnected"**. `podman stop`, a closed
+  terminal or tmux window, or a crash ends the container at once, so no hook runs. The
+  launcher's exit now runs `pingbus seat disconnected` on the host, which posts
+  `<handle> disconnected: session ended without a goodbye` for each seat the session held with
+  no goodbye recorded, at most once per seat (needs `play-agent-bus.yml` for the host pingbus).
+  It posts to every seat before it reports, so a closed terminal (whose stderr is gone) still
+  has every seat told, and Ctrl-C pressed again after the container has gone does not stop it:
+  the launcher ignores SIGINT while it runs, bounded at 60 s.
+- **A scheduled restart still says goodbye**: the supervisor records a restart only after
+  Claude Code has exited, so the hook cannot tell it from `/exit` (a follow-up in Plan 00194).
+
+---
+
+## 3.99.12.12 — container 2.77.8
+
+Follows 3.99.12.11 (container 2.77.7). The image carries `declare.py`, whose checkout-search
+markers changed (`PARTIAL`, `SKIPPED`), so it is rebuilt once.
+
+- **`ccy-teams lxc-add` takes the checkout on a typed line with Tab completion** (Plan
+  00203). The Checkout step is an editable line: type the path, Tab completes a directory
+  name from the container's tree as a shell does (listing the candidates when several
+  match), and a hint line says so ("Tab completes a directory name"). A pasted path goes in
+  as typed text; typed or pasted text holding a control character (a newline, an escape) or
+  a bidirectional control (such as the U+202E override, which can make one path look like
+  another) is refused whole, and a refused paste is said. It replaces the directory list
+  that started in the user's home and could not be typed into.
+- **The checkout search looks beyond the home**: `/var/www`, `/srv` and `/opt` too, bounded
+  by depth, count and time; what it found is suggested under the line (the arrows put one in
+  it), a search stopped at a limit says it may have missed some, and a root with a symbolic
+  link on its way is named rather than skipped silently. The line wraps to the terminal and
+  carries the step's standard heading; Esc cancels the run.
+- The line is the first `ccy-teams` screen built on Bubble Tea, in `internal/ui`, and
+  `project_hidden_bindings` now covers Bubble Tea keys (Plan 00204 Task 2.3).
+
+## 3.99.12.11 — container 2.77.7
+
+Follows 3.99.12.10 (container 2.77.7); the image is unchanged.
+
+- **The compose start question is asked once per launch, and a no is kept.** When the
+  project's saved network was gone, `offer_compose_start` asked "Start services with
+  podman-compose up -d?", and on n the launcher's own "Compose Files Detected" block asked
+  "Start compose services?" straight after. That block now runs only when no compose question
+  was answered earlier in the launch, and once a no is given every later offer in the same
+  launch (for example after choosing to connect to a network) is answered no without asking.
+  Answering y and every `--compose` mode behave as before.
 
 ## 3.99.12.10 — container 2.77.7
 

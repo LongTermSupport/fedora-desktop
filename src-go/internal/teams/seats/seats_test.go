@@ -2,6 +2,7 @@ package seats
 
 import (
 	"context"
+	"io/fs"
 	"slices"
 	"strings"
 	"testing"
@@ -13,6 +14,10 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
+
+// wideTerminal keeps a heading on one line when its context holds the test's temporary path,
+// whose length varies with the test and the machine (wrapping is tested in ui and picker).
+const wideTerminal = 400
 
 func (h rig) attachable() {
 	h.On("tmux -L ccy list-clients", "", 0)
@@ -57,7 +62,7 @@ func TestAttachSessionAttachesALiveSessionByName(t *testing.T) {
 
 func TestAttachSeatRefusesWhatCannotBeAttached(t *testing.T) {
 	cases := map[string]string{
-		"dev":                 "Seat dev@alpha has no running session to attach. Ctrl-N starts one.\n",
+		"dev":                 "Seat proj.dev+local.podman in alpha has no running session to attach. Ctrl-N starts one.\n",
 		"proj.2+local.podman": "proj.2+local.podman is a ccy member whose checkout is not known here, so there is no session to attach.\n",
 	}
 	for member, want := range cases {
@@ -112,13 +117,14 @@ func newSessionHarness(t *testing.T) rig {
 
 func TestNewSessionOffersFreeSeatsAndANewOneAndExecsTheLauncherInTheTop(t *testing.T) {
 	h := newSessionHarness(t)
+	h.Script.Columns = wideTerminal
 	h.Script.Fzf = []string{"|new"}
 	snap := h.pass(t)
 	res, err := h.s.NewSession(context.Background(), snap, "alpha")
 	if code, ok := flow.ExitCodeOf(err); !ok || code != 0 || res != flow.Done {
 		t.Fatalf("%v %v: %s", res, err, h.ErrOut.String())
 	}
-	if want := []string{"Seat dev@alpha   free\tdev@alpha", "Seat 3@alpha   new\t3@alpha", "Exit"}; !slices.Equal(h.Script.Rows[0], want) {
+	if want := []string{"proj.dev+local.podman   free\tdev@alpha", "Seat 3@alpha   new\t3@alpha", "Exit"}; !slices.Equal(h.Script.Rows[0], want) {
 		t.Fatalf("rows %q", h.Script.Rows[0])
 	}
 	if len(h.Execs) != 1 || h.Execs[0].Dir != h.Checkout() || h.Execs[0].Path != "/x/launcher" ||
@@ -133,6 +139,7 @@ func TestNewSessionOffersFreeSeatsAndANewOneAndExecsTheLauncherInTheTop(t *testi
 		!strings.Contains(header, "Runs ccy --teams <seat>@alpha in "+h.Checkout()+"; a new seat is created by that launch (sudo).") {
 		t.Fatalf("header %q", header)
 	}
+	h.Script.HeadingAt(0, "Teams › alpha › New session\nteam alpha · in "+h.Checkout())
 }
 
 func TestNewSessionTakesAFreeSeat(t *testing.T) {
@@ -167,6 +174,34 @@ func TestNewSessionCancelledStartsNothing(t *testing.T) {
 	res, err := h.s.NewSession(context.Background(), snap, "alpha")
 	if err != nil || res != flow.Done || len(h.Execs) != 0 {
 		t.Fatalf("%v %v %v", res, err, h.Execs)
+	}
+}
+
+func TestNewSessionNeverStartsInAContainersCheckout(t *testing.T) {
+	h := newRig(t)
+	top := h.InLxcCheckout()
+	snap := h.pass(t)
+	res, err := h.s.NewSession(context.Background(), snap, "alpha")
+	if err != nil || res != flow.Refused || len(h.Execs) != 0 {
+		t.Fatalf("%v %v %+v", res, err, h.Execs)
+	}
+	if !strings.Contains(h.ErrOut.String(), top+" is LXC container "+teamtest.LxcContainer+"'s checkout") ||
+		!strings.Contains(h.ErrOut.String(), "ccy-teams lxc-add") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+	if len(h.Script.Rows) != 0 {
+		t.Fatalf("seats were offered: %q", h.Script.Rows)
+	}
+}
+
+func TestNewSessionRefusesWhenItCannotTellWhoseCheckoutItIs(t *testing.T) {
+	h := newRig(t)
+	h.InLxcCheckout()
+	h.Host.Checkouts.ReadFile = func(string) ([]byte, error) { return nil, fs.ErrPermission }
+	snap := h.pass(t)
+	res, err := h.s.NewSession(context.Background(), snap, "alpha")
+	if err != nil || res != flow.Refused || len(h.Execs) != 0 || !strings.Contains(h.ErrOut.String(), "/etc/lxc/lxc.conf could not be read") {
+		t.Fatalf("%v %v %+v %q", res, err, h.Execs, h.ErrOut.String())
 	}
 }
 
@@ -281,6 +316,7 @@ func TestToggleRestoreReportsAnUnlocatableRegistry(t *testing.T) {
 
 func TestRemoveSeatAsksThenRemovesInItsCheckout(t *testing.T) {
 	h := newRig(t)
+	h.Script.Columns = wideTerminal
 	h.On("agent-bus seat remove", "", 0)
 	h.Script.Fzf = []string{"|YES"}
 	snap := h.pass(t)
@@ -300,6 +336,7 @@ func TestRemoveSeatAsksThenRemovesInItsCheckout(t *testing.T) {
 	if !strings.Contains(h.HeaderOf(0), "proj.1+local.podman is parked (its token revoked; its history kept) and the seat's directory in "+h.Checkout()+" deleted. Launching into 1@alpha again brings it back.") {
 		t.Fatalf("header %q", h.HeaderOf(0))
 	}
+	h.Script.HeadingAt(0, "Teams › alpha › proj.1+local.podman › Remove\nseat 1@alpha · proj.1+local.podman · in "+h.Checkout())
 }
 
 func TestRemoveSeatNoRemovesNothingAndFailureIsSaid(t *testing.T) {

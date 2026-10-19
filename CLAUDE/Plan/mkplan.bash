@@ -46,8 +46,8 @@
 #      (`hooksdaemon.latestPlanNumber`), bootstrapping from a filesystem
 #      scan when the counter is unset — exactly like the hooks daemon does.
 #      A brand-new project (no counter, no plans) starts at 00001.
-#   5. Sanity-checks the number against the folders on disk and refuses to
-#      proceed on drift or collision.
+#   5. Sanity-checks the number against the folders on disk: advances a lagging
+#      counter to the highest plan on disk, and refuses to proceed on collision.
 #   6. Creates <plan-dir>/NNNNN-name/ and scaffolds PLAN.md.
 #   7. Advances the git counter so the next plan reads counter + 1.
 #
@@ -183,26 +183,41 @@ acquire_lock() {
     trap release_lock EXIT INT TERM
 }
 
-# Highest existing plan number on disk. Mirrors the daemon's scan:
-#   - direct numbered children of CLAUDE/Plan/      (NNNNN-name/)
-#   - one level inside non-numbered subdirs         (Completed/NNNNN-name/, archive/...)
-# Pattern requires a letter after the hyphen so date dirs (2026-06-19) are ignored.
-# Dotfiles (e.g. the .mkplan.lock dir) are not matched by the unquoted-* globs.
-filesystem_highest() {
-    local plan_dir="$1"
-    local highest=0 dir base num
-    shopt -s nullglob
-    for dir in "$plan_dir"/*/ "$plan_dir"/*/*/; do
-        base="$(basename "$dir")"
+# Walk one directory for filesystem_highest, recursing into every folder that is not
+# itself a plan. Sets the global `scan_highest_result`. Callers own the glob
+# options (nullglob, dotglob).
+scan_plan_tree() {
+    local dir="$1" entry base num
+    for entry in "$dir"/*/; do
+        entry="${entry%/}"
+        base="${entry##*/}"
         if [[ "$base" =~ ^([0-9]{1,5})-[a-zA-Z] ]]; then
+            # A numbered folder is a plan: it holds its number and is not searched.
             num=$((10#${BASH_REMATCH[1]}))
-            if (( num > highest )); then
-                highest=$num
+            if (( num > scan_highest_result )); then
+                scan_highest_result=$num
             fi
+        else
+            scan_plan_tree "$entry"
         fi
     done
-    shopt -u nullglob
-    printf '%d' "$highest"
+}
+
+# Highest existing plan number on disk. The same single rule as the daemon's
+# highest_plan_number (handlers/utils/plan_numbering.py), pinned by
+# tests/unit/scripts/test_mkplan_scan_depth_parity.py:
+#   - a folder named NNNNN-name holds that number and is NOT searched further
+#   - every other folder (Completed/, Completed/2025/, archive/, ...) is searched,
+#     at any depth, dot-prefixed folders included
+# Pattern requires a letter after the hyphen so date dirs (2026-06-19) are not
+# read as plan 2026; they are searched like any other organisational folder.
+filesystem_highest() {
+    local plan_dir="$1"
+    scan_highest_result=0
+    shopt -s nullglob dotglob
+    scan_plan_tree "$plan_dir"
+    shopt -u nullglob dotglob
+    printf '%d' "$scan_highest_result"
 }
 
 # Plan folders in the plan ROOT only -- the same set the dedupe scout is told
@@ -758,25 +773,23 @@ else
     counter="$fs_highest"
 fi
 
-# Drift guard: the git counter is authoritative, but if the filesystem already
-# holds a HIGHER number the counter is stale and counter+1 would collide or
-# mis-order. Refuse and tell the user how to reconcile.
+# Drift guard: the counter lives in each clone's local git config, so a clone
+# can lag the plan folders it holds (plans pulled from elsewhere). The disk is
+# the truth about which numbers are taken: advance the counter to it rather
+# than refuse, and allocate the number after it. The advanced value is written
+# with the new plan below, like any other allocation.
 if (( fs_highest > counter )); then
-    die "counter ($counter) is behind the highest plan on disk ($fs_highest). The counter is stale; reconcile with: git -C '$repo_root' config --local $COUNTER_KEY $fs_highest"
+    printf 'mkplan: counter (%s) is behind the highest plan on disk (%s); advancing it\n' \
+        "$counter" "$fs_highest" >&2
+    counter="$fs_highest"
 fi
 
 next=$((counter + 1))
 printf -v padded '%0*d' "$NUMBER_WIDTH" "$next"
 
-# Collision guard: nothing on disk may already carry this number (active or
-# archived). filesystem_highest already covers the common case, but check the
-# concrete number explicitly for a precise error.
-shopt -s nullglob
-existing=( "$plan_dir/$padded-"*/ "$plan_dir"/*/"$padded-"*/ )
-shopt -u nullglob
-if (( ${#existing[@]} > 0 )); then
-    die "plan number $padded already exists on disk: ${existing[0]}"
-fi
+# No separate collision scan: the counter is at least filesystem_highest (above),
+# so $next is above every number the one shared scan rule can find. A second
+# scan with a different rule would refuse numbers the daemon considers free.
 
 target="$plan_dir/$padded-$name"
 if [[ -e "$target" ]]; then

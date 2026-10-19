@@ -37,6 +37,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/roles"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
 // The exits a command uses beside term's (H17).
@@ -94,6 +95,9 @@ type Hot struct {
 	Now   func() time.Time
 	Sleep func(time.Duration)
 	Waits Waits
+
+	// head is the heading of this run's questions: the session and the change asked of it.
+	head ui.Heading
 }
 
 // New is the command over a host, on the wall clock; r changes roles.
@@ -187,6 +191,7 @@ func (x *Hot) Run(ctx context.Context, args []string) term.ExitCode {
 	if err != nil {
 		return x.usageError(err.Error())
 	}
+	x.head = r.heading()
 	if r.verb == verbRole && roles.IsHandle(r.session) {
 		return x.memberRole(ctx, r)
 	}
@@ -230,6 +235,26 @@ type request struct {
 	// coordinator is remove's and move's --coordinator: "", demote, or hand-to=<seat>.
 	coordinator              string
 	demoteCurrent, park, yes bool
+}
+
+// heading is the heading of the questions a change asks: Teams › Running sessions › the
+// session › the change, the same path the picker's Running sessions view shows.
+func (r *request) heading() ui.Heading {
+	change, context := "Repair its seat keeper", "session "+r.session
+	if roles.IsHandle(r.session) {
+		context = "member " + r.session
+	}
+	switch r.verb {
+	case verbAdd:
+		change, context = "Add to "+r.team, context+" · team "+r.team
+	case verbRemove:
+		change, context = "Remove from "+r.team, context+" · team "+r.team
+	case verbMove:
+		change, context = "Move from "+r.team, context+" · from team "+r.team+" to team "+r.to
+	case verbRole:
+		change, context = "Role in "+r.team, context+" · team "+r.team+" · becomes "+r.role
+	}
+	return flow.Here("Running sessions", r.session, change).About(context)
 }
 
 // optionsOf is which options each verb takes, and how many words.
@@ -620,7 +645,7 @@ func (x *Hot) confirm(ctx context.Context, question string, yes bool) (term.Exit
 
 // ask is a yes/no question on the terminal; no is "Nothing was changed." and exit 0.
 func (x *Hot) ask(ctx context.Context, question string, defaultYes bool) (term.ExitCode, bool) {
-	sure, err := x.Kit.AskYes(ctx, question, defaultYes)
+	sure, err := x.Kit.AskYes(ctx, x.head, question, defaultYes)
 	if err != nil {
 		if code, ok := flow.ExitCodeOf(err); ok {
 			return code, false

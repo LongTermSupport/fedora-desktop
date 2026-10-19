@@ -84,8 +84,8 @@ func newOpsRig(t *testing.T) *opsRig {
 		Declare:    &declare.Client{Runner: r.fake, Root: "/root", File: opsHostVars, Err: r.err},
 		Sudo:       su,
 		Bus:        &agentbus.Client{Runner: r.fake, Root: su, Err: r.err},
-		Gum:        &ui.Gum{Runner: r.fake, Stdin: strings.NewReader(""), Stderr: r.err},
-		Picker:     &ui.Picker{Runner: r.fake, Stderr: r.err},
+		Gum:        &ui.Gum{Runner: r.fake, Stdin: strings.NewReader(""), Stderr: r.err, Plain: true},
+		Picker:     &ui.Picker{Runner: r.fake, Stderr: r.err, Plain: true},
 		Term:       tm,
 		Stdin:      strings.NewReader(""),
 		Stdout:     r.out,
@@ -140,14 +140,37 @@ func (r *opsRig) onExit(prefix string, code int, stderr string) {
 // sudoOK makes sudo ready without asking.
 func (r *opsRig) sudoOK() { r.on("sudo -n -v", execx.Result{}) }
 
-func (r *opsRig) called(prefix string) bool { return r.fake.Called(prefix) }
+func (r *opsRig) called(prefix string) bool {
+	return slices.ContainsFunc(r.lines(), func(l string) bool { return strings.HasPrefix(l, prefix) })
+}
 
-// lines is the command lines run, in order.
+// lines is the command lines run, in order, with the screens' headings cut out (headings has
+// them).
 func (r *opsRig) lines() []string {
 	calls := r.fake.Calls()
 	out := make([]string, 0, len(calls))
 	for _, c := range calls {
-		out = append(out, c.Line())
+		if c.Name == "tput" { // ui reading the terminal's width for a heading
+			continue
+		}
+		out = append(out, teamtest.Unheaded(c).Line())
+	}
+	return out
+}
+
+// headings is the heading of every question asked (gum and fzf), in order.
+func (r *opsRig) headings() []string {
+	var out []string
+	for _, c := range r.fake.Calls() {
+		if c.Name != "fzf" && (c.Name != "gum" || len(c.Args) == 0 || c.Args[0] == "style") {
+			continue
+		}
+		for _, a := range c.Args {
+			if heading := teamtest.HeadingOf(strings.TrimPrefix(a, "--header=")); heading != "" {
+				out = append(out, heading)
+				break
+			}
+		}
 	}
 	return out
 }

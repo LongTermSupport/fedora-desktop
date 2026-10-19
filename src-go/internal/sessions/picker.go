@@ -42,9 +42,12 @@ func leave(code term.ExitCode) step { return step{done: true, code: code} }
 
 // pickState is what the picker knows for its whole run.
 type pickState struct {
-	here        string
-	projectHere bool
-	header      string
+	here string
+	// unavailable is why ccy cannot start here, as the new-session row says it, "" when it can;
+	// refusal is the same said in full when Ctrl-N is pressed; outside a project noProject is set.
+	unavailable, refusal string
+	noProject            bool
+	header               string
 	// newAction is the list's own row that starts ccy here, unavailable outside a project.
 	newAction ui.Action
 	// detachedFrom is the sessions a take-over was tried on without attaching here: it may have
@@ -116,11 +119,21 @@ func (a *App) newPickState(ctx context.Context) *pickState {
 		}
 	}
 	here := term.AbbrevHome(pwd, a.Getenv("HOME"))
-	project, err := a.Git.ProjectHere(ctx, "")
-	st := &pickState{here: here, projectHere: err == nil && project}
+	st := &pickState{here: here}
+	switch checkout, err := a.Checkouts.Find(ctx, ""); {
+	case err != nil:
+		st.unavailable, st.refusal = err.Error(), err.Error()+"."
+	case checkout.Top == "":
+		st.noProject = true
+		st.unavailable = here + " is not a project folder (no git repository)"
+		st.refusal = st.unavailable + ", so ccy cannot be started here."
+	case !checkout.Host():
+		st.refusal = checkout.Refusal(term.AbbrevHome(checkout.Top, a.Getenv("HOME")))
+		st.unavailable = st.refusal
+	}
 	st.newAction = ui.Action{ID: actNew, Label: "Start a new ccy session in " + here, Key: "ctrl-n"}
-	if !st.projectHere {
-		st.newAction.Label = "Start a new ccy session here: unavailable, " + here + " is not a project folder (no git repository)"
+	if st.unavailable != "" {
+		st.newAction.Label = "Start a new ccy session here: unavailable, " + st.unavailable
 	}
 	st.header = ui.Header("Enter lists what can be done to the session   Ctrl-T take it over   Ctrl-X end it   Ctrl-N start a new one   Esc or q quit",
 		`"open elsewhere" is attached in another terminal: taking it over detaches that terminal and attaches this one; the session keeps running`,
@@ -139,19 +152,42 @@ func (a *App) choose(ctx context.Context, st *pickState, rows []tableRow) (ui.Pi
 	for i, r := range rows {
 		texts[i], tags[i], menus[i] = r.text(home), strconv.Itoa(i), sessionMenu(r)
 	}
-	picked, err := a.Picker.Pick(ctx, ui.PickSpec{
+	picked, err := a.Picker.Pick(ctx, st.heading(len(rows)), ui.PickSpec{
 		Title: "CCY sessions", Header: st.header, Rows: texts, Tags: tags,
 		Actions: []ui.Action{st.newAction}, Menus: menus,
 	})
 	return picked, err
 }
 
+// sessionsCrumb is the first crumb of every ccy-sessions screen.
+const sessionsCrumb = "Sessions"
+
+// heading is the list's heading: how many sessions run, and where a new one would start.
+func (st *pickState) heading(running int) ui.Heading {
+	where := "new sessions start in " + st.here
+	switch {
+	case st.noProject:
+		where = st.here + " is not a project folder"
+	case st.unavailable != "":
+		where = "no new session can start in " + st.here
+	}
+	return ui.Here(sessionsCrumb).About(strconv.Itoa(running) + " running · " + where)
+}
+
+// sessionHeading is the heading of a question about the session name.
+func sessionHeading(name, question, context string) ui.Heading {
+	return ui.Here(sessionsCrumb, name, question).About(context)
+}
+
 // sessionMenu is what Enter on a session offers: attaching it here when no other terminal has
 // it, taking it over, and ending it.
 func sessionMenu(r tableRow) ui.Menu {
 	var acts []ui.Action
+	state := "detached"
 	if !r.elsewhere() {
 		acts = append(acts, ui.Action{ID: actAttach, Label: "Attach it here"})
+	} else {
+		state = "open elsewhere"
 	}
 	acts = append(acts,
 		ui.Action{ID: actTakeOver, Label: "Take it over here (any other terminal on it is detached; the session keeps running)", Key: "ctrl-t"},
@@ -160,17 +196,21 @@ func sessionMenu(r tableRow) ui.Menu {
 		Title:   r.Name,
 		Header:  ui.Header("Enter choose   Esc or q back to the list", r.Name+": what to do"),
 		Actions: acts,
+		Heading: ui.Here(sessionsCrumb, r.Name).About("session " + r.Name + " · " + state),
 	}
 }
 
 // noSessions is what the picker does when nothing is running: offer to start ccy in a project
 // folder, or say how.
 func (a *App) noSessions(ctx context.Context, st *pickState) term.ExitCode {
-	if !st.projectHere {
+	if st.unavailable != "" {
 		a.sayf("No CCY or cc sessions are running. Start one with ccy or cc in a project directory.\n")
+		if !st.noProject {
+			a.sayf("%s\n", st.refusal)
+		}
 		return term.ExitOK
 	}
-	yes, err := a.Picker.Confirm(ctx, "CCY sessions", "No sessions are running. Start ccy in "+st.here+"?", "start ccy here", false)
+	yes, err := a.Picker.Confirm(ctx, ui.Here(sessionsCrumb, "Start ccy").About("0 running · in "+st.here), "No sessions are running. Start ccy in "+st.here+"?", "start ccy here", false)
 	if err != nil {
 		a.failErr(err)
 		return term.ExitFailure
@@ -215,12 +255,12 @@ func (a *App) act(ctx context.Context, st *pickState, picked ui.Picked, rows []t
 	return leave(term.ExitFailure)
 }
 
-// newHere starts ccy in this folder, when it is a project.
+// newHere starts ccy in this folder, when it is the host's own checkout.
 func (a *App) newHere(st *pickState) step {
-	if st.projectHere {
+	if st.unavailable == "" {
 		return a.startHere(st)
 	}
-	a.sayf("%s is not a project folder (no git repository), so ccy cannot be started here.\n", st.here)
+	a.sayf("%s\n", st.refusal)
 	return tried
 }
 
@@ -240,7 +280,7 @@ func (a *App) startHere(st *pickState) step {
 // kill-session never lets the pane's trampoline remove it. A session that ended since the list
 // was drawn is just as ended.
 func (a *App) confirmEnd(ctx context.Context, name string) step {
-	yes, err := a.Picker.Confirm(ctx, "End "+name+"?", "Everything running in it will be killed.", "end '"+name+"'", false)
+	yes, err := a.Picker.Confirm(ctx, sessionHeading(name, "End", "session "+name), "End "+name+"? Everything running in it will be killed.", "end '"+name+"'", false)
 	if err != nil {
 		a.failErr(err)
 		return leave(term.ExitFailure)
@@ -314,8 +354,8 @@ func (a *App) confirmTakeOver(ctx context.Context, st *pickState, name string) s
 		}
 		return tried
 	}
-	yes, err := a.Picker.Confirm(ctx, "Take over "+name+"?",
-		"It is open on "+others+". That terminal is detached, not closed, and the session keeps running.",
+	yes, err := a.Picker.Confirm(ctx, sessionHeading(name, "Take over", "session "+name+" · open on "+others),
+		"Take over "+name+"? It is open on "+others+". That terminal is detached, not closed, and the session keeps running.",
 		"take over '"+name+"'", false)
 	if err != nil {
 		a.failErr(err)

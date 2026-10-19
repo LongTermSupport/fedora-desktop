@@ -241,6 +241,7 @@ func TestOnlyTestSuitesPlansAndVendoredTreesAreExempt(t *testing.T) {
 		".claude/skills/hooks-daemon/scripts/x.sh",
 		".claude/skills/docs-qa/scripts/x.sh",
 		"src-go/vendor/golang.org/x/sys/unix/mkall.sh",
+		"CLAUDE/Plan/mkplan.bash",
 	}
 	checked := []string{
 		"run.bash",
@@ -248,7 +249,6 @@ func TestOnlyTestSuitesPlansAndVendoredTreesAreExempt(t *testing.T) {
 		"files/etc/profile.d/zz_lts-fedora-desktop.bash",
 		"files/var/local/ps1-prompt",
 		"files/var/local/colours",
-		"CLAUDE/Plan/mkplan.bash",
 		"CLAUDE/Plan/_planlib.inc.bash",
 		".claude/skills/other/scripts/x.sh",
 		"scripts/qa-all.bash",
@@ -312,12 +312,13 @@ func TestMovingAnAllowlistedFileIntoAnExemptPathCannotLaunderIt(t *testing.T) {
 
 func TestUpdateRefusesToDropAnEntryWhoseFileStillExists(t *testing.T) {
 	root := repo(t)
-	put(t, root, allowlistRel, Allowlist{"files/bin/long": {Code: 80, Stmts: 80}, "scripts/test-x.bash": {Code: 500, Stmts: 500}}.Format())
+	put(t, root, "CLAUDE/Plan/001-x/a.bash", script(500))
+	put(t, root, allowlistRel, Allowlist{"files/bin/long": {Code: 80, Stmts: 80}, "CLAUDE/Plan/001-x/a.bash": {Code: 500, Stmts: 500}}.Format())
 	r := run(t, root, "--base", "HEAD", "--update")
-	if r.code == ExitOK || !strings.Contains(r.err, "scripts/test-x.bash") {
+	if r.code == ExitOK || !strings.Contains(r.err, "CLAUDE/Plan/001-x/a.bash") {
 		t.Fatalf("exit %d: %s", r.code, r.err)
 	}
-	if !strings.Contains(readAllowlist(t, root), "scripts/test-x.bash") {
+	if !strings.Contains(readAllowlist(t, root), "CLAUDE/Plan/001-x/a.bash") {
 		t.Fatal("the entry was dropped")
 	}
 }

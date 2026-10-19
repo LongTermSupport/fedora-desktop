@@ -1,7 +1,18 @@
 // Package bashlimits is the QA gate behind the repository's rule "tooling is Go; bash only for
 // very small helpers" (CLAUDE.md, src-go/CLAUDE.md). It measures every bash file git knows
 // against the limits below, exempts the few kinds of file where bash is not the thing being
-// judged, and holds the files already over a limit to a ratchet allowlist that may only shrink.
+// judged (test suites, test fixtures and testdata, plan-folder scaffolding, vendored and
+// daemon-owned trees: see Exemptions; the limits are for tooling, and a tool stays measured
+// even when it is named for tests), and holds the files already over a limit to a ratchet allowlist that may only shrink.
+//
+// # Exemptions
+//
+// Exemptions (exempt.go) are the kinds: test suites, plan-folder scripts, vendored trees and
+// the daemon-owned trees. DaemonOwnedFiles (daemonowned.go) are single files the hooks daemon
+// overwrites on every upgrade, each an exact path, exempt only while a hooks-daemon upgrade
+// commit names it in its UPGRADE_METADATA modified_files list. That is the only way an
+// allowlisted file that still exists may leave the allowlist: exempting any other ratcheted
+// file is refused, so calling a file exempt cannot dodge the ratchet.
 //
 // # The measure (MeasurerVersion)
 //

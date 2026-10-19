@@ -40,9 +40,14 @@ type fakeSessions struct {
 	err  error
 	runs [][]string
 	code term.ExitCode
+	// listed is how many times the sessions were asked for.
+	listed int
 }
 
-func (f *fakeSessions) Sessions(context.Context) ([]hot.Session, error) { return f.list, f.err }
+func (f *fakeSessions) Sessions(context.Context) ([]hot.Session, error) {
+	f.listed++
+	return f.list, f.err
+}
 
 func (f *fakeSessions) Run(_ context.Context, args []string) term.ExitCode {
 	f.runs = append(f.runs, args)
@@ -89,6 +94,12 @@ func (h rig) row(t *testing.T, snap *board.Snapshot, member string) board.Row {
 	}
 	t.Fatalf("no row for %s", member)
 	return board.Row{}
+}
+
+// text is the row of member as the list shows it, laid out with the rest of the pass.
+func (h rig) text(t *testing.T, snap *board.Snapshot, member string) string {
+	t.Helper()
+	return board.Layout(snap.Rows, 0).Text(h.row(t, snap, member))
 }
 
 // inProject makes the working directory a work tree whose top is the checkout.

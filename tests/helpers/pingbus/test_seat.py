@@ -30,7 +30,7 @@ import unittest
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
-from helpers.pingbus import cli, config, inbox, inject, membership, notify, protocol, seat
+from helpers.pingbus import cli, config, hooks, inbox, inject, membership, notify, protocol, seat
 from tests.helpers.pingbus import fake_gh
 
 TEAM_A, SN_A = "team-a", "team-a.agent-bus.internal"
@@ -924,9 +924,22 @@ class MembershipClaimTest(SeatCase):
         self.assertEqual(settings, {
             "crossSessionInbound": "accept",
             "statusLine": {"type": "command", "command": seat.STATUS_LINE_GUARD, "refreshInterval": 1},
+            "env": {"CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS": "8000"},
         })
         for name in (seat.SESSION_SETTINGS, seat.STATUS_LINE_INNER, seat.ACTIVE_FLAG):
             self.assertEqual(stat.S_IMODE((self.session_home / name).stat().st_mode), 0o600, name)
+
+    def test_every_session_gives_its_session_end_hooks_time_for_the_goodbye(self):
+        """Plan 00194 Task 2.0b: Claude Code bounds all SessionEnd hooks together at 1.5 s
+        unless a settings file says otherwise (a plugin hook's `timeout` does not count), which
+        cut the goodbye off. Every bus session's settings raise the bound, seated or not (a seat
+        can be added later), and with or without the status line guard."""
+        self.assertGreaterEqual(seat.SESSION_END_BUDGET_MS, hooks.GOODBYE_TIMEOUT_S * 1000 + 2000)
+        for settings in (seat.session_settings(None, seated=True),
+                         seat.session_settings(None, seated=False),
+                         seat.session_settings(None, seated=True, guard=False)):
+            self.assertEqual(settings["env"], {"CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS":
+                                               str(seat.SESSION_END_BUDGET_MS)})
 
     def test_a_session_launched_on_no_team_refuses_inbound(self):
         """H34, Decision 1: Claude Code binds its inbox socket in every session, so a session on

@@ -39,6 +39,10 @@ the version the project names, without changing any tracked file:
 /hooks-daemon provision
 ```
 
+The same command syncs a clone that is already there but at another version
+than `daemon.expected_version` names (after a pull), through that release's
+pre-deploy gate; `upgrade` is for moving the project itself to a new version.
+
 See [provision.md](provision.md).
 
 ### Upgrade Daemon

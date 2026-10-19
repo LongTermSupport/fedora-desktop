@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/playlock"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -180,9 +181,9 @@ func (o *Ops) waitOnScreen(ctx context.Context, w lockWait, holder playlock.Hold
 	for {
 		screenCtx, closeScreen := context.WithCancel(ctx)
 		picked := make(chan error, 1)
-		spec := o.lockScreen(w, shown)
+		head, spec := o.lockScreen(w, shown)
 		go func() {
-			_, err := o.Picker.Pick(screenCtx, spec)
+			_, err := o.Picker.Pick(screenCtx, head, spec)
 			picked <- err
 		}()
 		next, end, ok := o.watchScreen(seen, done, picked, shown)
@@ -229,16 +230,18 @@ func (o *Ops) screenLeft(ctx context.Context, err error) error {
 	return err
 }
 
-// lockScreen is the wait's screen: what it waits for, who holds the lock and for how long, the
-// bound, and the one choice, to stop.
-func (o *Ops) lockScreen(w lockWait, s seenHolder) ui.PickSpec {
-	return ui.PickSpec{
+// lockScreen is the wait's screen, headed Teams › Waiting for the play lock with what it is
+// for: what it waits for, who holds the lock and for how long, the bound, and the one choice,
+// to stop.
+func (o *Ops) lockScreen(w lockWait, s seenHolder) (ui.Heading, ui.PickSpec) {
+	return flow.Here("Waiting for the play lock").About("before ccy-teams can " + w.purpose), ui.PickSpec{
 		Title: "Waiting for the play lock",
 		Header: ui.Header("Enter choose   Esc or q stop waiting",
 			"ccy-teams is waiting for the play lock before it can "+w.purpose+".",
 			"Held by "+s.holder.Describe(s.at)+".",
 			"It waits "+o.until(w)+", and goes on by itself the moment the lock is free."),
-		ExitLabel: "Stop waiting (nothing is changed)",
+		ExitLabel:  "Stop waiting (nothing is changed)",
+		WrapHeader: true,
 	}
 }
 

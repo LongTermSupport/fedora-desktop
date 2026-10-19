@@ -101,8 +101,18 @@ func TestLauncherWithGum(t *testing.T) {
 			selected = append(selected, c.Args[4])
 		}
 	}
-	if len(headers) != 3 || !strings.HasPrefix(headers[0], "Step 1/3") || !strings.HasPrefix(headers[2], "Step 3/3") {
+	wantHeaders := []string{
+		"ftp-camera · step 1/3 Mode\n──────────────────────────\nPick a primary mode",
+		"ftp-camera · step 2/3 Viewer\nmode async-copy\n────────────────────────────\nViewer?",
+		"ftp-camera · step 3/3 Hotspot\nmode async-copy · view JPG\n─────────────────────────────\nHotspot?",
+	}
+	if len(headers) != len(wantHeaders) {
 		t.Fatalf("headers %q", headers)
+	}
+	for i, want := range wantHeaders {
+		if !strings.HasPrefix(headers[i], want) {
+			t.Errorf("header %d: %q, want it to start %q", i, headers[i], want)
+		}
 	}
 	if selected[1] != "no viewer" || selected[2] != "no hotspot" {
 		t.Errorf("selected %q", selected)

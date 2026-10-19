@@ -277,7 +277,7 @@ type leaving func(context.Context) (term.ExitCode, bool)
 
 // leaveRole decides H23 step 2 before anything changes: a worker leaves as it is; the
 // coordinator needs --coordinator (asked on a terminal, demote by default).
-func (x *Hot) leaveRole(ctx context.Context, r request, team, seat, handle string, up bool) (leaving, string, term.ExitCode, bool) {
+func (x *Hot) leaveRole(ctx context.Context, r request, team, handle string, up bool) (leaving, string, term.ExitCode, bool) {
 	if !up {
 		x.mark(markSkip, "role: not checked (the homeserver is down)")
 		return nil, "", term.ExitOK, true
@@ -287,24 +287,26 @@ func (x *Hot) leaveRole(ctx context.Context, r request, team, seat, handle strin
 		x.mark(markFailed, "role: the members of "+team+" could not be read: "+lastLine(err))
 		return nil, "", term.ExitFailure, false
 	}
-	if m, found := roster.Member(handle); !found || m.Role != agentbus.RoleCoordinator {
-		x.mark(markDone, "role: seat "+seat+" is a worker")
+	m, found := roster.Member(handle)
+	if !found || m.Role != agentbus.RoleCoordinator {
+		x.mark(markDone, "role: "+agentbus.Label(handle, "")+" is a worker")
 		return nil, "", term.ExitOK, true
 	}
+	who := agentbus.Label(handle, "")
 	choice := r.coordinator
 	if choice == "" {
 		if !x.interactive() {
-			return nil, "", x.usageError("seat " + seat + " is " + team + "'s coordinator: say what becomes of the role with " +
+			return nil, "", x.usageError(who + " is " + team + "'s coordinator: say what becomes of the role with " +
 				"--coordinator=demote (no one has it) or --coordinator=hand-to=<seat>."), false
 		}
-		code, yes := x.ask(ctx, "Seat "+seat+" is "+team+"'s coordinator. Make it a worker as it leaves (the role goes to no one)? "+
+		code, yes := x.ask(ctx, who+" is "+team+"'s coordinator. Make it a worker as it leaves (the role goes to no one)? "+
 			"To hand the role to another seat instead, say no and use --coordinator=hand-to=<seat>.", false)
 		if !yes {
 			return nil, "", code, false
 		}
 		choice = coordDemote
 	}
-	said := "Seat " + seat + " is " + team + "'s coordinator: "
+	said := who + " is " + team + "'s coordinator: "
 	if choice == coordDemote {
 		return func(ctx context.Context) (term.ExitCode, bool) {
 			return x.changeRole(ctx, team, handle, agentbus.RoleWorker, false)

@@ -4,5 +4,8 @@
     "type": "command",
     "command": "pingbus status-line",
     "refreshInterval": 1
+  },
+  "env": {
+    "CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS": "8000"
   }
 }

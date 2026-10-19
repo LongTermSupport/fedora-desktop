@@ -13,6 +13,12 @@ Under it, its members and people:
   lxc ...  another member: active, or parked (its token revoked)
   human    a person in the team room: in room, invited or not in room, and how
            many Element sessions they are signed in with
+Every member is shown by its whole handle, <repo>.<seat>+<host>.<type>, and nothing in the
+list is cut short. On a terminal too narrow for every column, a row keeps TEAM, MEMBER, KIND
+and STATE, and the row's other columns (and a team's description, as ABOUT) are shown above
+the headings while the cursor is on it.
+A folder inside an LXC container's files (as the host sees them) is the container's
+checkout: no session is started there from the host; ccy-teams lxc-add adds its agent.
 
 Keys:
   Enter    a menu of everything that can be done to the row, in words, each with its
@@ -56,6 +62,11 @@ It lists the host's running LXC containers and asks for the container, its user,
 checkout inside it and the role (the handle comes from the checkout), shows a summary, writes the
 agent_bus_lxc_members entry for you and applies the team. It is the same as
 `ccy-teams lxc-add <team>`.
+
+Add a running session to <team> is in a team row's menu: it lists the running sessions (each
+already in the team, or one that cannot be changed while it runs, says why), then asks the
+seat and the role as Add to a team does. A seat row whose session is running has Add this
+session to another team, the same Add to a team for that session.
 
 A seat marked "(coordinator)" is its team's coordinator: the agent that takes the humans'
 requests, dispatches them to the workers and is copied on what workers tell humans. A team

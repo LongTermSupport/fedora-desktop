@@ -13,6 +13,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/playlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
 const repo = "example-org/proj"
@@ -27,7 +28,8 @@ type rig struct {
 	payload *bytes.Buffer
 
 	seatsAsked []string // "<team>/<type>"
-	headings   []string // the heading each seat question was given
+	// seatTrails is the heading each seat question was given, as its trail.
+	seatTrails []string
 	seatLeft   map[string]bool
 	seatCode   term.ExitCode
 	created    string
@@ -53,6 +55,7 @@ func newRig(t *testing.T, choices string) *rig {
 	w := teamtest.New(t)
 	console := teamtest.Interactive(t, w)
 	w.On("git rev-parse --is-inside-work-tree", "true\n", 0)
+	w.On("git rev-parse --show-toplevel", w.Checkout()+"\n", 0)
 	w.On("git remote get-url origin", "git@example.com:example-org/proj.git\n", 0)
 	w.OnDeclare("github-remote", repo+"\n")
 	w.OnDeclare("choices", choices)
@@ -61,10 +64,9 @@ func newRig(t *testing.T, choices string) *rig {
 	}
 	r := &rig{World: w, Console: console, payload: &bytes.Buffer{}, seatLeft: map[string]bool{}}
 	r.c = New(w.Host,
-		func(_ context.Context, team, memberType, heading string) (string, term.ExitCode) {
+		func(_ context.Context, h ui.Heading, team, memberType string) (string, term.ExitCode) {
 			r.seatsAsked = append(r.seatsAsked, team+"/"+memberType)
-			r.headings = append(r.headings, heading)
-			r.say(heading + " (seat chosen)")
+			r.seatTrails = append(r.seatTrails, h.Trail())
 			if r.seatLeft[team] {
 				return "", term.ExitOK
 			}
@@ -92,11 +94,6 @@ func newRig(t *testing.T, choices string) *rig {
 		})
 	r.c.Payload = r.payload
 	return r
-}
-
-// say is a line on stderr, as the seat chooser prints its own.
-func (r *rig) say(line string) {
-	r.Host.Print(r.Host.Stderr, line+"\n")
 }
 
 func (r *rig) run(args ...string) term.ExitCode {
@@ -389,6 +386,21 @@ func TestOutsideAGitHubCheckoutEveryTeamIsListedAndJoinedWithoutWidening(t *test
 	}
 }
 
+// A session is never chosen for in an LXC container's checkout seen from the host, whichever
+// way the seats are given: it would run on the container's files as the host user.
+func TestNoSessionIsChosenForInAContainersCheckout(t *testing.T) {
+	for _, args := range [][]string{{"--type=podman"}, {"--type=host", "1@alpha"}, {"--type=host", "--bus"}} {
+		r := newRig(t, alphaCovers+betaWiden)
+		top := r.InLxcCheckout()
+		exit(t, r.run(args...), term.ExitFailure, r)
+		contains(t, "stderr", r.stderr(), top+" is LXC container "+teamtest.LxcContainer+"'s checkout", "ccy-teams lxc-add")
+		r.lacksOutput(t)
+		if len(r.Script.Rows) != 0 || len(r.seatsAsked) != 0 {
+			t.Fatalf("%v: rows %q seats %v", args, r.Script.Rows, r.seatsAsked)
+		}
+	}
+}
+
 // S-B11: creating a team from the list. The checkout's standing is read again afterwards.
 func (r *rig) choicesAfterCreate(fresh string) {
 	calls := 0
@@ -498,6 +510,9 @@ func TestSeatsInTheListAreKeptAndTeamsAloneAreResolvedInOrder(t *testing.T) {
 	}
 	if !slices.Equal(r.seatsAsked, []string{"beta/podman"}) {
 		t.Fatalf("seats %v", r.seatsAsked)
+	}
+	if want := []string{"New session › Team 2 of 3: beta"}; !slices.Equal(r.seatTrails, want) {
+		t.Fatalf("seat headings %q, want %q", r.seatTrails, want)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
 func TestInteractiveMakesTheHostATerminalWithScriptedFzfAndGum(t *testing.T) {
@@ -16,16 +17,42 @@ func TestInteractiveMakesTheHostATerminalWithScriptedFzfAndGum(t *testing.T) {
 	}
 	c.Script.Gum = []string{"YES", "NO", "CANCEL"}
 	for _, want := range []bool{true, false} {
-		yes, err := w.Host.Gum.Confirm(t.Context(), "Sure?", true)
+		yes, err := w.Host.Gum.Confirm(t.Context(), ui.Here("Teams"), "Sure?", true)
 		if err != nil || yes != want {
 			t.Fatalf("%v %v", yes, err)
 		}
 	}
-	if _, err := w.Host.Gum.Confirm(t.Context(), "Sure?", true); err == nil {
+	if _, err := w.Host.Gum.Confirm(t.Context(), ui.Here("Teams"), "Sure?", true); err == nil {
 		t.Fatal("CANCEL is Ctrl-C")
 	}
 	if len(c.Script.GumLog) != 3 {
 		t.Fatalf("gum log %v", c.Script.GumLog)
+	}
+}
+
+// The heading of each screen is kept apart from what the screen asks: Headings and HeadingAt
+// read it, and GumLog and HeaderOf read the screen without it.
+func TestEveryScreensHeadingIsRecordedApartFromWhatItAsks(t *testing.T) {
+	w := Populated(t)
+	c := Interactive(t, w)
+	c.Script.Gum = []string{"YES"}
+	c.Script.Fzf = []string{"|EXIT"}
+	if _, err := w.Host.Gum.Confirm(t.Context(), ui.Here("Teams", "alpha").About("team alpha"), "Sure?", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Host.Picker.Pick(t.Context(), ui.Here("Teams").AtStep(2, 3, "Seat"), ui.PickSpec{Title: "t", Header: "legend", Rows: []string{"r"}}); err == nil {
+		t.Fatal("the Exit row leaves")
+	}
+	c.Script.HeadingAt(0, "Teams › alpha\nteam alpha")
+	c.Script.HeadingAt(1, "Teams · step 2/3 Seat")
+	if c.Script.GumLog[0] != "gum confirm --default=true Sure?" {
+		t.Fatalf("gum log %q", c.Script.GumLog)
+	}
+	if c.HeaderOf(0) != "legend\n" {
+		t.Fatalf("header %q", c.HeaderOf(0))
+	}
+	if AfterHeading("no heading here") != "no heading here" || HeadingOf("no heading here") != "" {
+		t.Fatal("text with no heading is left whole")
 	}
 }
 
@@ -47,26 +74,6 @@ func TestScriptedFzfAnswersWithTheChosenRowAndKey(t *testing.T) {
 	}
 	if len(c.Script.Rows) != 2 || len(c.Script.FzfArgs) != 2 {
 		t.Fatalf("rows %v", c.Script.Rows)
-	}
-}
-
-func TestScriptedTypedFzfHandsBackTheQueryFirstOrWhatWasTyped(t *testing.T) {
-	w := Populated(t)
-	c := Interactive(t, w)
-	c.Script.Fzf = []string{"tab|beta", "tab|TYPED:/srv/wo"}
-	run := func() (execx.Result, error) {
-		return c.Script.Run(t.Context(), execx.Cmd{
-			Name: "fzf", Args: []string{"--print-query", "--query=be", "--expect=tab"},
-			Stdin: strings.NewReader("alpha one\nbeta two\n"),
-		})
-	}
-	res, err := run()
-	if err != nil || string(res.Stdout) != "be\ntab\nbeta two\n" {
-		t.Fatalf("%q %v", res.Stdout, err)
-	}
-	res, err = run()
-	if err == nil || res.ExitCode != 1 || string(res.Stdout) != "/srv/wo\ntab\n" {
-		t.Fatalf("typed text that matches no row: %q %v", res.Stdout, err)
 	}
 }
 
@@ -120,7 +127,7 @@ func TestScriptPrintsWithGumStyleWithoutTakingAnAnswer(t *testing.T) {
 	if len(c.Script.Gum) != 1 || len(c.Script.GumLog) != 0 || len(c.Script.Styled) != 2 {
 		t.Fatalf("answers left %v, questions %v, styled %v", c.Script.Gum, c.Script.GumLog, c.Script.Styled)
 	}
-	if yes, err := w.Host.Gum.Confirm(t.Context(), "Sure?", true); err != nil || !yes {
+	if yes, err := w.Host.Gum.Confirm(t.Context(), ui.Here("Teams"), "Sure?", true); err != nil || !yes {
 		t.Fatalf("%v %v", yes, err)
 	}
 }

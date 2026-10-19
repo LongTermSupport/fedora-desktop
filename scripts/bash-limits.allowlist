@@ -14,11 +14,8 @@
 # path <TAB> code lines <TAB> functions <TAB> statements <TAB> grandfathered flags (assoc, ui, data or -)
 # measurer: 2
 .claude/ccy/claude-supervise	68	4	74	-
-.semgrep/bash-conventions.bash	69	0	118	-
-.semgrep/ready-wait.bash	84	9	99	-
 CLAUDE/Plan/_planlib.inc.bash	395	25	430	-
 CLAUDE/Plan/meta-deploy.bash	163	0	183	assoc
-CLAUDE/Plan/mkplan.bash	619	18	495	-
 extensions/scripts/gnome-shell-extract-js.bash	85	6	105	-
 fedora-install/pull-projects.bash	226	5	249	-
 fedora-install/push.bash	454	9	400	assoc,data
@@ -47,11 +44,6 @@ files/home/.local/bin/ssh-with-agent.bash	108	6	109	-
 files/home/.local/bin/ssh-with-key	87	2	98	-
 files/home/.local/bin/vmtest-bridge-watcher	53	8	59	-
 files/home/.local/bin/wsi-claude-process	99	2	112	-
-files/home/.local/share/vmtest/guest-acceptance-desktop.bash	203	2	250	data
-files/home/.local/share/vmtest/guest-acceptance-server-github-token.bash	184	3	186	-
-files/home/.local/share/vmtest/guest-acceptance-server-host-health-kernel-change.bash	265	7	247	data
-files/home/.local/share/vmtest/guest-acceptance-server.bash	138	2	165	-
-files/home/.local/share/vmtest/guest-prepare-server-host-health-kernel-change.bash	169	7	239	data
 files/home/bashrc-includes/history-search.bash	56	2	64	ui
 files/usr/lib/systemd/system-sleep/resuspend-aborted-suspend	91	2	95	-
 files/usr/local/bin/agent-bus	119	9	124	-
@@ -63,13 +55,13 @@ files/usr/local/sbin/fedora-desktop-self-update	94	2	99	-
 files/var/local/claude-code/cc	183	2	196	-
 files/var/local/claude-code/cc-teams.bash	87	7	159	-
 files/var/local/claude-yolo/agent-browser-session-guard	123	2	113	data
-files/var/local/claude-yolo/claude-yolo	2819	12	2743	-
-files/var/local/claude-yolo/entrypoint.sh	440	5	444	data
+files/var/local/claude-yolo/claude-yolo	2813	12	2741	-
+files/var/local/claude-yolo/entrypoint.sh	440	5	443	data
 files/var/local/claude-yolo/lib/common-pure.bash	324	15	318	-
 files/var/local/claude-yolo/lib/common.bash	698	21	721	assoc
 files/var/local/claude-yolo/lib/docker-health.bash	454	9	477	-
 files/var/local/claude-yolo/lib/dockerfile-custom.bash	595	4	231	-
-files/var/local/claude-yolo/lib/network-management.bash	962	30	1125	assoc
+files/var/local/claude-yolo/lib/network-management.bash	960	30	1125	assoc
 files/var/local/claude-yolo/lib/restart-request.bash	318	8	316	data
 files/var/local/claude-yolo/lib/session-lifecycle.bash	185	8	223	-
 files/var/local/claude-yolo/lib/session-registry.bash	1044	39	1077	assoc,data
@@ -80,19 +72,19 @@ files/var/local/colours	65	16	65	-
 files/var/local/docker-in-lxc	668	20	526	-
 files/var/local/ps1-prompt	76	6	78	-
 run.bash	2856	66	2821	assoc,data
-scripts/check-displaylink-status.sh	211	1	239	-
+scripts/check-displaylink-status.sh	211	1	231	-
 scripts/check-pinned-versions.bash	137	3	127	data
 scripts/collect-diagnostics.bash	364	9	365	-
-scripts/gh-account-setup.bash	546	19	548	data
+scripts/gh-account-setup.bash	546	19	538	data
 scripts/git-hooks/commit-msg	117	0	134	-
 scripts/git-hooks/lib/secret-scan.bash	225	6	126	assoc,data
 scripts/git-hooks/pre-commit	277	0	292	-
 scripts/lib/run-log-scrub.bash	130	4	70	data
 scripts/lint	257	6	246	data
 scripts/mark-branches-superseded.bash	236	12	223	-
-scripts/nvidia-status.bash	430	4	519	-
+scripts/nvidia-status.bash	430	4	502	-
 scripts/qa-go.bash	72	2	81	-
 scripts/release.bash	227	8	271	data
-scripts/setup-rclone.bash	442	9	450	data
+scripts/setup-rclone.bash	442	9	444	data
 scripts/setup.bash	74	5	107	-
 vault.bash	179	11	164	data

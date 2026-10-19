@@ -19,25 +19,24 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# Plan 00179 Task 0.7: deploys stt-watch.timer, which runs stt over stt_watch_folders every
-# 5 minutes, and its failure notification. Set stt_watch_folders in host_vars first.
-playbooks/imports/optional/common/play-speech-to-text.yml
-# Plan 00201 Task 2.17: rebuilds ccy-teams so it waits for the play lock instead of dying on
-# it. A Save and apply, a description, create, lxc-add, remove, apply or role change made while
-# another play run holds the lock now shows who holds it (the play, its pid, how long) and waits
-# up to 30 minutes, with a Stop waiting row; it takes the lock before it writes the host_vars and
-# runs its play inside that hold, so stopping the wait leaves nothing saved but not applied.
-# Plan 00203 Task 3.8: every team member kind (ccy, cc, LXC, host, docker, vm) gets the same
-# role actions in ccy-teams, and no menu starts on a destructive action (Park, Remove and Take
-# down are last). Also installs ccy 3.99.12.17, whose image (container 2.77.14) is rebuilt once
-# at the next ccy launch to carry the new pingbus. Running sessions are not touched.
-playbooks/imports/play-claude-yolo.yml
+# Plan 00194 Task 2.0b: the host's pingbus kit (seat disconnected) for the ccy launcher's exit,
+# and the member kit's settings with the longer SessionEnd bound. Before play-claude-yolo.yml.
 # Plan 00203 Task 3.8: installs the new pingbus kit and declare.py on the host and copies the
 # kit into every declared LXC member's container, so an LXC agent is told a role change from
 # ccy-teams while it runs (at its next prompt at once; by its watcher once its session has
 # restarted after this run). The status line of every bus session then shows its role in each
 # team, `👥 desktop (coordinator), other (worker)`, and a role change shows at the next refresh
-# (ccy sessions get it with the image above). Applies every team as declared; no team changes
+# (ccy sessions get it with the image below). Applies every team as declared; no team changes
 # otherwise.
 playbooks/imports/play-agent-bus.yml
+
+# Plan 00194 Task 2.0b: ccy 3.99.12.14, container 2.77.10, so the image IS rebuilt on the next
+# launch: the goodbye is no longer cut off when a session ends with Ctrl-C, and a session ended
+# without it (podman stop, a closed terminal, a crash) is told "disconnected" by the launcher.
+# ccy also refuses, with a clear message, a wrapper that runs a shell launcher through Python,
+# instead of failing with a bare traceback.
+# Plan 00203 Task 3.8: every team member kind (ccy, cc, LXC, host, docker, vm) gets the same
+# role actions in ccy-teams, and no menu starts on a destructive action (Park, Remove and Take
+# down are last). This installs ccy 3.99.12.15, container 2.77.11, which carries all of the
+# above: the image is rebuilt once at the next ccy launch. Running sessions are not touched.
+playbooks/imports/play-claude-yolo.yml
