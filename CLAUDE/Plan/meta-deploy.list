@@ -28,7 +28,9 @@ playbooks/imports/play-agent-bus.yml
 # window now stops the session's still-running container before the disconnect notice, so the
 # teams are told, and the clean-up ignores SIGHUP and Ctrl-C until done. The image carries the
 # same pingbus, so it is rebuilt once at the next ccy launch. Running sessions are not touched.
-# Before the 00194 acceptance.
+# Plan 00135 Task 10.1 (#86): it also rebuilds ccy-sessions, whose verify-restore now reports a
+# session sitting at Claude Code's conversation picker as WAITING-AT-PROMPT thread-picker, not
+# OK, so fedora-desktop-self-update verify fails on it. Before the 00194 acceptance.
 playbooks/imports/play-claude-yolo.yml
 # Plan 00194 Tasks 2.0b and 2.0h: the goodbye host checks, automated (acceptance.bash; the plan
 # has no triage.bash or deploy.bash), run again for G3 (window closed). The last run passed G1

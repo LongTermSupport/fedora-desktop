@@ -1,0 +1,30 @@
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  Resume session (1 of 40)
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ⌕ Search…                                                                                    │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+    workspace · project-b
+
+  ❯ example conversation 40
+    2 seconds ago · 1023 bytes
+
+    example conversation 39
+    2 seconds ago · 1023 bytes
+
+    example conversation 38
+    2 seconds ago · 1023 bytes
+
+    example conversation 37
+    2 seconds ago · 1023 bytes
+
+    example conversation 36
+    2 seconds ago · 1023 bytes
+
+  ↓ example conversation 35
+    2 seconds ago · 1023 bytes
+
+    Ctrl+A to show all projects · Ctrl+B to only show current branch · Ctrl+W to show all
+    worktrees · Space to preview · Ctrl+R to rename · Type to search · Esc to cancel
+
+

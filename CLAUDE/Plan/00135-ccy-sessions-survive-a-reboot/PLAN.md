@@ -200,9 +200,16 @@ Code's conversation picker. A person had relaunched it with `ccy --resume`, ccy 
 record with `--resume`, and the next restore opened the picker with nobody there to answer.
 The process runs and sits at a prompt, so `ccy_restore_verdict` sees nothing wrong.
 
-- [ ] ⬜ **Task 10.1**: Tests first: `ccy_restore_verdict` reports a pane at the conversation
-  picker as `WAITING-AT-PROMPT thread-picker` (an entry in `ccy_known_prompts`), and
-  `fedora-desktop-self-update verify` treats it as not restored.
+- [x] ✅ **Task 10.1**: Tests first: the restore verdict (`restore.Judge`, which verify-restore
+  runs) reports a pane at the conversation picker as `WAITING-AT-PROMPT thread-picker`, and
+  verify-restore exits non-zero on it, which `fedora-desktop-self-update verify` reads as not
+  restored. Done in Go (`screen.AtConversationPicker`), not as a `ccy_known_prompts` entry: the
+  picker's last line is a key-hint footer that wraps differently at every pane width, so the
+  table's last-line prefix cannot match it, and the bash `ccy_restore_verdict` has no
+  production caller. The picker is seen by its header (`Resume session`, or the preview's
+  `Enter to resume · Esc to cancel`) with no framed input box. Fixtures are real tmux captures
+  of Claude Code 2.1.303 at four widths, scrolling and preview
+  (`src-go/internal/screen/testdata/picker-*.txt`). Host check: Task 10.3.
 - [ ] ⬜ **Task 10.2**: Owner decision, then build: should a restore record ever keep
   `--resume`? A restore with nobody attached cannot answer a picker. The candidate is to
   record `--continue` in its place.

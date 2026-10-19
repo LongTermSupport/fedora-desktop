@@ -89,7 +89,8 @@ const (
 )
 
 // Judge is one restored session's state from what its pane shows. The screen is the pane's
-// visible text and is judged by its LAST non-blank line, where a prompt waiting for input sits.
+// visible text and is judged by its LAST non-blank line, where a prompt waiting for input sits,
+// and then as a whole for Claude Code's conversation picker, which nobody restoring can answer.
 // container is, for ccy, ContainerUp when the session's container is running, ContainerStarting
 // when its engine client exists and the container is not yet listed, ContainerNone when there is
 // no engine client; cc runs claude on the host and ignores it. going is what set-going did to
@@ -107,6 +108,9 @@ func Judge(prefix string, live bool, pane string, container ContainerState, goin
 		if strings.HasPrefix(last, p.Text) {
 			return Verdict{StateWaitingAtPrompt, p.Name}
 		}
+	}
+	if screen.AtConversationPicker(pane) {
+		return Verdict{StateWaitingAtPrompt, screen.ConversationPicker}
 	}
 	switch prefix {
 	case prefixCC:
