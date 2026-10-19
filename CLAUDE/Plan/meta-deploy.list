@@ -48,3 +48,11 @@ playbooks/imports/play-claude-yolo.yml
 # downloads it once (about 2.8 MB, one changed task); the binary already extracted there is kept
 # (the extract task's creates: guard), so ouch, compress and uncompress are unchanged.
 playbooks/imports/optional/common/play-cli-tools.yml
+# Plan 00185 Task 1.1 (#60, wrong emoji glyphs): TRIAGE ONLY, READ-ONLY. The plan has only
+# triage.bash; it changes nothing on the host, needs no sudo and never prompts. It records the
+# terminal it runs in and every running terminal emulator (version, start time), the VTE
+# version, the emoji font packages and their install times, fc-match and fc-list for the
+# issue's code points, the fontconfig cache ages, which emoji font file each running terminal
+# has mapped, and the terminals' font and GPU settings. Start meta-deploy from the terminal that
+# draws the wrong emoji, and leave that window open while it runs.
+00185-terminal-emoji-glyphs
