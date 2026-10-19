@@ -29,3 +29,7 @@ playbooks/imports/play-claude-yolo.yml
 # Plan 00179 Task 0.7: deploys stt-watch.timer, which runs stt over stt_watch_folders every
 # 5 minutes, and its failure notification. Set stt_watch_folders in host_vars first.
 playbooks/imports/optional/common/play-speech-to-text.yml
+
+# CCY 3.99.12.11: deploys the launcher whose compose start question is asked once per launch,
+# a no kept (it used to be asked again straight after). The image is unchanged: no rebuild.
+playbooks/imports/play-claude-yolo.yml

@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.12.11 — container 2.77.7
+
+Follows 3.99.12.10 (container 2.77.7); the image is unchanged.
+
+- **The compose start question is asked once per launch, and a no is kept.** When the
+  project's saved network was gone, `offer_compose_start` asked "Start services with
+  podman-compose up -d?", and on n the launcher's own "Compose Files Detected" block asked
+  "Start compose services?" straight after. That block now runs only when no compose question
+  was answered earlier in the launch, and once a no is given every later offer in the same
+  launch (for example after choosing to connect to a network) is answered no without asking.
+  Answering y and every `--compose` mode behave as before.
+
 ## 3.99.12.10 — container 2.77.7
 
 Follows 3.99.12.9 (container 2.77.7); the image is unchanged.
@@ -26,6 +38,7 @@ Follows 3.99.12.9 (container 2.77.7); the image is unchanged.
   attach, take over (Ctrl-T) and end (Ctrl-X), and a row of its own to start a new session
   (Ctrl-N); its header names those keys. In `ccy-teams` a shortcut is accepted only where its
   line is listed. A key is now only a shortcut, printed beside the line it chooses.
+
 ## 3.99.12.9 — container 2.77.7
 
 Follows 3.99.12.8 (container 2.77.6).
