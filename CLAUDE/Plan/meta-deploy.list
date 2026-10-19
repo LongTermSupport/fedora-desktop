@@ -28,10 +28,7 @@ playbooks/imports/play-agent-bus.yml
 # window now stops the session's still-running container before the disconnect notice, so the
 # teams are told, and the clean-up ignores SIGHUP and Ctrl-C until done. The image carries the
 # same pingbus, so it is rebuilt once at the next ccy launch. Running sessions are not touched.
-# Also Plan 00203 Task 3.14: builds and installs ccy-teams with `ccy-teams wind-down <team>` and
-# the team menu's Wind down the team's sessions (/goal clear, then the wind-down instruction,
-# typed into each running session of the team, desktop and LXC). Nothing is wound down by the
-# run. Before the 00194 acceptance.
+# Before the 00194 acceptance.
 playbooks/imports/play-claude-yolo.yml
 # Plan 00194 Tasks 2.0b and 2.0h: the goodbye host checks, automated (acceptance.bash; the plan
 # has no triage.bash or deploy.bash), run again for G3 (window closed). The last run passed G1
