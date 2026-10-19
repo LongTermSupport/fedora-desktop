@@ -71,11 +71,14 @@ func (a action) footerPart() string {
 }
 
 // actionsFor is everything that can be done to row, the likeliest first. Every row offers
-// adding an LXC container's agent to its team, just after starting a ccy session in it.
+// adding an LXC container's agent to its team, just after starting a ccy session in it, and a
+// team's row and a running seat's then offer adding a running session (addActions): the add
+// lines stay together, ahead of everything that ends or removes something.
 func (r *run) actionsFor(row board.Row) []action {
 	acts := r.kindActions(row)
 	lxc := action{actLxc, "", "Add an LXC container's agent to " + row.Team, "add an LXC container to " + row.Team}
-	return slices.Insert(acts, slices.IndexFunc(acts, func(a action) bool { return a.id == actNew })+1, lxc)
+	adds := append([]action{lxc}, r.addActions(row)...)
+	return slices.Insert(acts, slices.IndexFunc(acts, func(a action) bool { return a.id == actNew })+1, adds...)
 }
 
 // kindActions is what can be done to row because of what it is.
