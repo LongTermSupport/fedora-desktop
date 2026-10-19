@@ -38,7 +38,7 @@ LINE_RES = {
     "TEAM": re.compile(
         rf"TEAM\t{TEAM_RE}\t{protocol.HANDLE_PATTERN}\ttrust=(?:trusted|untrusted)"
         rf"\twake=(?:watcher|waiter|none)\tpending={COUNT_RE}\thumans={COUNT_RE}\tpeers={COUNT_RE}\tpings={COUNT_RE}"
-        rf"\toverdue=\d+\tdropped=\d+\tunexpected={COUNT_RE}\trelay=(?:on|stalled|off)"),
+        rf"\toverdue=\d+\tdropped=\d+\tignored=\d+\tunexpected={COUNT_RE}\trelay=(?:on|stalled|off)"),
     "ABOUT": re.compile(rf"ABOUT\t1\t{TEAM_RE}\t\"[\x20-\x7e]{{0,300}}\""),
     "UNTRUSTED": re.compile(rf"UNTRUSTED\t{TEAM_RE}\t[\x20-\x7e]{{1,200}}"),
     "MEMBER": re.compile(
@@ -236,6 +236,17 @@ class StatusTest(StatusCase):
         self.now += bus.limits.DEFAULTS["ack_timeout_s"] + 1
         team = self.team_line(self.report()[1])
         self.assertEqual((team["overdue"], team["dropped"]), ("1", "1"))
+
+    def test_a_human_message_that_reached_no_agent_is_counted(self):
+        """The owner's `@room` typed as plain text names no one: `ignored` counts it, so
+        `status` shows that a message reached no agent; it is not a drop."""
+        self.joined()
+        self.a.send(self.a.alice, {"msgtype": "m.text", "body": "@room anyone?", "m.mentions": {}})
+        self.a.send(self.a.alice, {"msgtype": "m.text", "body": "for the coordinator",
+                                   "m.mentions": {"user_ids": [self.a.orch]}})
+        self.run_cli("recv")
+        team = self.team_line(self.report()[1])
+        self.assertEqual((team["ignored"], team["dropped"], team["pending"]), ("1", "0", "0"))
 
     def test_every_active_team_is_reported(self):
         self.add_team()

@@ -27,3 +27,12 @@
 # `open -t`) text, a directory, an image and a PDF opening in the terminal, Ctrl-C in less or
 # mpv belonging to that program.
 playbooks/imports/optional/common/play-cli-tools.yml
+# Plan 00194 Task 2.0f: installs the pingbus kit on the host and copies it into every declared
+# LXC member's running container. A team human's message from Element that reaches no agent
+# (a handle or @room typed as plain text, not picked from the mention list) is still delivered
+# to no one, but each member now logs it in its team's ignored.log (no text, no turn) and
+# `pingbus status` shows the count as ignored=. Before play-claude-yolo.yml.
+playbooks/imports/play-agent-bus.yml
+# Plan 00194 Task 2.0f: installs ccy 3.99.12.17, container 2.77.13, whose image carries the same
+# pingbus: the image is rebuilt once at the next ccy launch. Running sessions are not touched.
+playbooks/imports/play-claude-yolo.yml

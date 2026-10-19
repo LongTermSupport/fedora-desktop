@@ -24,6 +24,7 @@ Layout under the state directory (created 0700, files 0600, never through a syml
 - `room.json`: `{"v": 1, "members": {<user ID>: "join"|"invite"}, "statuses": {<user ID>:
   <until ms>}}`, the room as the syncer last saw it, for an offline `status`.
 - `dropped.log`: one tab-separated line per drop (team, event ID, sender, reason, ms).
+- `ignored.log`: the same, per team human's message that reached no agent (never the body).
 
 Writes go to a temporary file in the same directory, are fsynced, renamed over the target,
 and the directory is fsynced. Errors propagate; the only things skipped are inbox files
@@ -60,6 +61,8 @@ UNTRUSTED_FILE = "untrusted.json"
 UNTRUSTED_REASON_MAX = 200
 #: One line per drop (§9 "Drop"): team, event ID, sender user ID, reason code, time (ms).
 DROPPED_LOG = "dropped.log"
+#: The same five fields per team human's message that reached no agent (§9 "Unheard").
+IGNORED_LOG = "ignored.log"
 #: The room as the syncer last saw it (§12), for an offline `status`: joined and invited
 #: members by user ID, and the `listening` statuses §8 lets it read.
 ROOM_FILE = "room.json"
@@ -99,7 +102,7 @@ MAX_STATE_FILE_BYTES = 1 << 20
 SYNC_TOKEN_MAX = 4096
 
 _TOKEN_RE = re.compile(r"[\x21-\x7e]+")
-#: A sender written to `dropped.log`: printable ASCII, no space or tab, Matrix's 255 limit.
+#: A sender written to `dropped.log` or `ignored.log`: printable ASCII, no space or tab, Matrix's 255 limit.
 _LOG_USER_RE = re.compile(r"@[\x21-\x7e]{1,254}")
 _INBOX_NAME_RE = re.compile(rf"({protocol.EVENT_ID_PATTERN})\.json")
 _TMP_NAME_RE = re.compile(r"\..+\.[0-9a-f]{16}\.tmp")
@@ -514,10 +517,29 @@ class TeamState:
     def log_drop(self, team: str, event_id: object, sender: object, reason: str, now_ms: int) -> None:
         """Append one `dropped.log` line. An event ID or sender that fails its grammar is
         written as `-`, so nothing an event chose can add a field or a line."""
-        if not protocol.is_team_name(team):
-            raise ValueError("not a team name")
         if reason not in protocol.DROP_REASONS:
             raise ValueError(f"not a drop reason code: {reason!r}")
+        self._append_log(DROPPED_LOG, team, event_id, sender, reason, now_ms)
+
+    def drop_count(self) -> int:
+        """How many lines `dropped.log` holds (0 before the first drop)."""
+        return self._count_lines(DROPPED_LOG)
+
+    def log_ignored(self, team: str, event_id: object, sender: object, reason: str, now_ms: int) -> None:
+        """Append one `ignored.log` line, in `dropped.log`'s format, for a human's message
+        that reached no agent (§9 "Unheard"); never its body."""
+        if reason not in protocol.UNHEARD_REASONS:
+            raise ValueError(f"not an unheard reason code: {reason!r}")
+        self._append_log(IGNORED_LOG, team, event_id, sender, reason, now_ms)
+
+    def ignored_count(self) -> int:
+        """How many lines `ignored.log` holds (0 before the first)."""
+        return self._count_lines(IGNORED_LOG)
+
+    def _append_log(self, name: str, team: str, event_id: object, sender: object, reason: str,
+                    now_ms: int) -> None:
+        if not protocol.is_team_name(team):
+            raise ValueError("not a team name")
         if not _is_int(now_ms):
             raise ValueError("now_ms must be an integer of milliseconds")
         fields = (
@@ -528,7 +550,7 @@ class TeamState:
             str(now_ms),
         )
         self.ensure_dirs()
-        path = self.path / DROPPED_LOG
+        path = self.path / name
         try:
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_CLOEXEC, FILE_MODE)
         except OSError as exc:
@@ -540,9 +562,8 @@ class TeamState:
                 raise StateError(f"{path} is not a regular file")
             handle.write(("\t".join(fields) + "\n").encode("ascii"))
 
-    def drop_count(self) -> int:
-        """How many lines `dropped.log` holds (0 before the first drop)."""
-        path = self.path / DROPPED_LOG
+    def _count_lines(self, name: str) -> int:
+        path = self.path / name
         try:
             fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
         except FileNotFoundError:

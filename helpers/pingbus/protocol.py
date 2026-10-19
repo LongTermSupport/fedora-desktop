@@ -167,6 +167,11 @@ DROP_REASONS = (
 #: The ignore reason for an agent's text that does not name the receiving agent (spec §7,
 #: §9): it is for others, so the agent skips it silently and it is never a drop.
 IGNORE_AGENT_TEXT = "agent-text"
+#: The ignore reason for a message (a human's, or a ping) not addressed to the receiving agent.
+IGNORE_NOT_ADDRESSED = "not-addressed"
+#: The reasons `ignored.log` records (spec §9 "Unheard"): a team human's message that
+#: reached no agent. Every other ignore is traffic for others, and logs nothing.
+UNHEARD_REASONS = (IGNORE_NOT_ADDRESSED,)
 #: Codes that refuse a send and never name a receive drop.
 SEND_REFUSALS = ("secret",)
 #: Codes this module never produces: limits (`stale`, `rate`) and the forge check (`forge-rate`, `unresolved`, `provenance`).
@@ -791,7 +796,7 @@ def _human_outcome(
     if len(body.encode("utf-8")) > MAX_HUMAN_BODY_BYTES:
         return Outcome(DROP, "size")
     if not _addressed(content, self_user_id):
-        return Outcome(IGNORE, "not-addressed")
+        return Outcome(IGNORE, IGNORE_NOT_ADDRESSED)
     if relates is not None and "m.in_reply_to" in relates:
         body = strip_reply_fallback(body)
         if body == "":
@@ -875,10 +880,27 @@ def validate_event(
     except Refusal as refusal:
         return Outcome(DROP, refusal.reason)
     if self_user_id not in ping.to:
-        return Outcome(IGNORE, "not-addressed")
+        return Outcome(IGNORE, IGNORE_NOT_ADDRESSED)
     return Outcome(ACCEPT, ping=dataclasses.replace(
         ping, sender=sender, event_id=event_id, origin_server_ts=ts,
         copy_of=_copy_of(ping.to, self_user_id, ctx)))
+
+
+def reached_no_agent(event: object, ctx: Context, outcome: Outcome) -> bool:
+    """Spec §9 "Unheard": whether `outcome` (`validate_event`'s for `event`) is a team
+    human's message ignored as not addressed whose mentions name no agent holding a role,
+    so no agent of the team receives it. A message for another agent is that agent's."""
+    if outcome.kind != IGNORE or outcome.reason != IGNORE_NOT_ADDRESSED or not isinstance(event, dict):
+        return False
+    content = event.get("content")
+    if sender_class(event.get("sender"), ctx) != SENDER_HUMAN or not isinstance(content, dict):
+        return False
+    mentions = content.get("m.mentions")
+    users = mentions.get("user_ids") if isinstance(mentions, dict) else None
+    if not isinstance(users, list):
+        return True
+    return not any(isinstance(user, str) and user in ctx.roles and is_agent_user_id(user, ctx.server_name)
+                   for user in users)
 
 
 def _list_of(value: object, low: int, high: int) -> list:
