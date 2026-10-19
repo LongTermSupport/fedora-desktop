@@ -63,6 +63,12 @@ Built on `fix/teams-server-robustness`; design and evidence in
   `agent-bus health status`; the sign-in limits said where a password is issued.
 - [ ] 🔄 **Task 2.4** (gap 9): `service: true` LXC members run as a unit in their container.
 - [ ] ⬜ **Task 2.5**: host acceptance passed (meta-deploy), and B1-B2 after a reboot.
+- [ ] 🔄 **Task 2.6** (owner, urgent): play-agent-bus.yml never fails because an LXC member's
+  container is not running: a joined one is skipped, any other deferred to the first run with it
+  up, and every running member is joined as before. The member record
+  `/var/lib/agent-bus-applied/lxc/<team>.json` says what each run found; `ccy-teams apply`, the
+  board and `lxc-add` say what was held back. [SPEC-lxc-stopped-members.md](SPEC-lxc-stopped-members.md)
+  L1-L11, built on `fix/lxc-stopped-member`. ccy-teams and the play only: no CCY or image change.
 
 ### Phase 3: hot control build (the spec's milestones, tests first)
 

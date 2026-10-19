@@ -37,14 +37,27 @@ run. Otherwise the stale bundle goes, an active handle is parked, and `add-membe
 returns (or adds) it with a new token. An absent entry parks the handle when its team
 runs here, deletes the bundle, and takes the team out of PINGBUS_TEAMS.
 
-Streams: stdout carries only `CHANGED<TAB><what>` lines; diagnostics go to stderr. Exit 0
-done, 64 usage, 78 refused (`MemberError`).
+A container that is not running is never entered and never fails the play (Plan 00203 Task
+2.6, SPEC-lxc-stopped-members.md): after a reboot most are stopped. A present member whose handle
+this host knows (the entry's host, seat and repo, or the member record below) and which is an
+active member is skipped; any other is deferred to the first run with its container up. An
+absent one has its known handle parked from the host's side, and the rest is deferred. Only a
+container that does not exist, or a failure in one that runs, fails.
+
+What each phase found is kept in the member record, `<applied>/lxc/<team>.json` (L8), which
+ccy-teams reads to say what was deferred, and which gives a stopped member its known handle.
+
+Streams: stdout carries `CHANGED<TAB><what>` lines, then a `SKIPPED` or `DEFERRED<TAB><team>
+<TAB><user>@<container><TAB><why>` line for each member held back and one `LXC-SUMMARY<TAB>
+<text>` line when there is any; diagnostics go to stderr. Exit 0 done, 64 usage, 78 refused
+(`MemberError`).
 """
 
 from __future__ import annotations
 
 import argparse
 import dataclasses
+import grp
 import io
 import ipaddress
 import json
@@ -53,11 +66,12 @@ import re
 import subprocess
 import sys
 import tarfile
-from collections.abc import Callable, Mapping, Sequence
+import time
+from collections.abc import Callable, Collection, Mapping, Sequence
 from typing import TextIO, TypeVar
 
 from helpers.agent_bus import checkout, registry, teamfile
-from helpers.agent_bus_lxc import derive
+from helpers.agent_bus_lxc import applied_record, derive
 from helpers.pingbus import protocol
 
 T = TypeVar("T")
@@ -80,6 +94,14 @@ VARS_FILE = "environment/localhost/host_vars/localhost.yml"
 LXC_PLAY = "playbooks/imports/play-lxc-install-config.yml"
 EXIT_USAGE = 64
 EXIT_REFUSED = 78
+RUNNING = "RUNNING"
+#: The member record (L8): `<team>.json` here, beside the applied stamps, readable by ccy-teams.
+RECORD_DIR = checkout.APPLIED_DIR / "lxc"
+RECORD_VERSION = 1
+STAMP_GROUP_FILE = pathlib.Path("/etc/agent-bus/stamp-group")
+#: A record item's status: joined this run; joined, its container not running (skipped);
+#: held back to a later run (deferred); taken off the team.
+JOINED, STOPPED, DEFERRED, LEFT = "joined", "stopped", "deferred", "left"
 
 REQUIRED_KEYS = frozenset({"team", "container", "user"})
 #: `host` and `seat` are overrides: left out, they are derived from the checkout as ccy
@@ -495,7 +517,7 @@ def _check_between(found: Sequence[Member]) -> None:
 def resolve_members(found: Sequence[Member], *, identify: Callable[[Member], derive.Identity],
                     roster: Callable[[str], Mapping[str, bool]],
                     bundle: Callable[[Member], str | None],
-                    unheld_ok: bool = False) -> tuple[Member, ...]:
+                    unheld_ok: bool = False, unheld_teams: Collection[str] = ()) -> tuple[Member, ...]:
     """The present entries with the host and seat they leave out derived, in file order, by
     derive.py's rule. `identify` reads the member's checkout (asked only for an entry that
     leaves one out), `roster` is a team's members (handle -> parked) and `bundle` the handle
@@ -503,7 +525,9 @@ def resolve_members(found: Sequence[Member], *, identify: Callable[[Member], der
     names its handle. An entry that gives both is untouched, so a run of it changes nothing.
 
     A derived entry comes back with `repo` set to the checkout's: the one `<repo>` of its
-    handle, which `_suggest` then holds the container's own claim to. `unheld_ok` is derive_seat's."""
+    handle, which `_suggest` then holds the container's own claim to. `unheld_ok` is derive_seat's;
+    `unheld_teams` turns it on for those teams alone: each has an entry whose container is not
+    running and whose handle is not known here, so an active seat no entry names may be its (L4)."""
     def derived(member: Member, step: Callable[[], T]) -> T:
         try:
             return step()
@@ -545,7 +569,8 @@ def resolve_members(found: Sequence[Member], *, identify: Callable[[Member], der
             taken = {s for team, h, repo, s in claimed
                      if team == member.team and h == identity.host and repo in (None, identity.repo)}
             seat = derived(member, lambda member=member, identity=identity, taken=taken: derive.derive_seat(
-                identity, member.container, roster(member.team), bundles[id(member)], taken, unheld_ok=unheld_ok))
+                identity, member.container, roster(member.team), bundles[id(member)], taken,
+                unheld_ok=unheld_ok or member.team in unheld_teams))
             claimed.append((member.team, identity.host, identity.repo, seat))
         resolved.append(dataclasses.replace(member, host=identity.host, seat=seat, repo=identity.repo))
     result = tuple(resolved)
@@ -615,6 +640,124 @@ def present_plan(handle: str, url: str, member: Member, found: Found,
 def absent_plan(found: Found, registered: tuple[str, bool] | None, team_runs: bool) -> Plan:
     return Plan(remove_bundle=found.exists,
                 park=team_runs and registered is not None and not registered[1])
+
+
+@dataclasses.dataclass(frozen=True)
+class Seen:
+    """What a phase found for one entry: a member record item's status, handle and why."""
+
+    member: Member
+    status: str
+    handle: str | None
+    why: str = ""
+
+
+@dataclasses.dataclass(frozen=True)
+class Report:
+    """A member held back because its container is not running: SKIPPED or DEFERRED."""
+
+    kind: str
+    team: str
+    label: str
+    why: str
+
+
+def report_of(seen: Seen) -> Report | None:
+    kinds = {STOPPED: "SKIPPED", DEFERRED: "DEFERRED"}
+    if seen.status not in kinds:
+        return None
+    return Report(kinds[seen.status], seen.member.team, seen.member.label, seen.why)
+
+
+def summary(reports: Sequence[Report]) -> str:
+    """The one line after the members' lines that says what was held back (L7)."""
+    words = {"SKIPPED": "skipped", "DEFERRED": "deferred"}
+    named = ", ".join(f"{r.label} ({r.team}, {words[r.kind]})" for r in reports)
+    return (f"{len(reports)} LXC member(s) not reached, their containers not running: {named}. Nothing "
+            "failed; the first run with each container up brings it in line")
+
+
+def record_item(record: Mapping | None, member: Member) -> Mapping | None:
+    """The member record's item for the entry's container and user, if there is one."""
+    items = record.get("members") if isinstance(record, Mapping) else None
+    for item in items if isinstance(items, list) else ():
+        if isinstance(item, Mapping) and (item.get("container"), item.get("user")) == (member.container, member.user):
+            return item
+    return None
+
+
+def known_handle(member: Member, record: Mapping | None) -> str | None:
+    """The member's handle as this host knows it without entering the container: from the entry
+    when it gives host, seat and repo; else from the member record, when the record is for the
+    entry's checkout and agrees with whatever host, seat or repo the entry gives."""
+    if member.host is not None and member.seat is not None and member.repo is not None:
+        return member.handle(member.repo)
+    item = record_item(record, member)
+    if item is None or (member.checkout is not None and item.get("checkout") != member.checkout):
+        return None
+    held = protocol.parse_handle(item.get("handle"))
+    if held is None or held.type != MEMBER_TYPE:
+        return None
+    for given, found in ((member.host, held.host), (member.seat, held.seat), (member.repo, held.repo)):
+        if given is not None and given != found:
+            return None
+    return item["handle"]
+
+
+def with_handle(member: Member, handle: str) -> Member:
+    """The entry with the host, seat and repo its known handle gives: a seat that is claimed."""
+    held = protocol.parse_handle(handle)
+    return dataclasses.replace(member, host=held.host, seat=held.seat, repo=held.repo)
+
+
+def skipped_why(member: Member, state: str, handle: str) -> str:
+    return (f"LXC container {member.container} is {state}: {handle} is already a member of team "
+            f"{member.team}, so it is left as it is; the first run with the container up refreshes its kit, "
+            "env file and config check")
+
+
+def deferred_why(member: Member, state: str, handle: str | None) -> str:
+    known = (f"and this host has no record that it joined team {member.team}" if handle is None else
+             f"and its handle {handle} is not an active member of team {member.team}")
+    return (f"LXC container {member.container} is {state}, {known}: start it, then run the play again "
+            f"(ccy-teams apply {member.team}) to join it, or choose not to declare it yet")
+
+
+def merge_record(previous: Mapping | None, team: str, declared: Sequence[Member], seen: Sequence[Seen],
+                 now: float) -> dict:
+    """The team's member record (L8): one item per entry of the team, in file order; an entry
+    this phase saw gets what it found, any other keeps its item while its state is unchanged.
+    `since` is kept while an item's status and handle stay."""
+    fresh = {(s.member.container, s.member.user): s for s in seen}
+    items = []
+    for member in declared:
+        before = record_item(previous, member)
+        found = fresh.get((member.container, member.user))
+        if found is None:
+            if before is not None and before.get("state") == member.state:
+                items.append(dict(before))
+            continue
+        kept = before is not None and (before.get("status"), before.get("handle")) == (found.status, found.handle)
+        items.append({"container": member.container, "user": member.user, "state": member.state,
+                      "status": found.status, "handle": found.handle, "checkout": member.checkout,
+                      "why": found.why, "since": before["since"] if kept else int(now)})
+    return {"version": RECORD_VERSION, "team": team, "members": items}
+
+
+def parse_record(text: str | None, where: str) -> dict | None:
+    """A member record as written here, or None when there is none."""
+    if text is None:
+        return None
+    try:
+        record = json.loads(text)
+    except ValueError as exc:
+        raise MemberError(f"{where} is not JSON ({exc}): the play writes it; remove it and run the play "
+                          "again") from None
+    if not isinstance(record, dict) or record.get("version") != RECORD_VERSION or not isinstance(
+            record.get("members"), list):
+        raise MemberError(f"{where} is not a member record of version {RECORD_VERSION}: remove it and run "
+                          "the play again")
+    return record
 
 
 def merge_env(text: str | None, *, where: str, add: Sequence[str] = (), remove: Sequence[str] = (),
@@ -775,20 +918,24 @@ class Host:
     read_checkout: Callable[[str, str, str], str]
     #: Whether lxc-autostart starts the container at host boot (`lxc.start.auto = 1`).
     autostarts: Callable[[str], bool]
+    #: The team's member record (L8), parsed, or None when there is none.
+    read_record: Callable[[str], Mapping | None]
+    #: The team's member record written (None: removed); whether that changed anything.
+    write_record: Callable[[str, Mapping | None], bool]
+    now: Callable[[], float]
 
 
 def _python(script: str, *args: str) -> list[str]:
     return ["python3", "-I", "-c", script, *args]
 
 
-def _guest_running(host: Host, container: str):
+def _existing_state(host: Host, container: str) -> str:
+    """The container's state; one that does not exist is a wrong entry, and fails (L5)."""
     state = host.container_state(container)
     if state is None:
         raise MemberError(f"LXC container {container} does not exist: this play joins existing "
                           "containers, it never makes one")
-    if state != "RUNNING":
-        raise MemberError(f"LXC container {container} is {state}: start it, then run the play again")
-    return host.guest(container)
+    return state
 
 
 def _home(guest, member: Member) -> str:
@@ -883,7 +1030,8 @@ def _check_route(host: Host, guest, members: Sequence[Member], bus: str) -> None
                 f"team {member.team} in agent_bus_teams ({VARS_FILE}), and run the play again")
 
 
-def _join(host: Host, guest, member: Member, home: str, bus: str, emit: Callable[[str], None]) -> None:
+def _join(host: Host, guest, member: Member, home: str, bus: str, emit: Callable[[str], None]) -> str:
+    """README.lxc steps 3 and 4 for one entry; the member's handle."""
     suggested = _suggest(guest, member, home)
     # A derived entry carries the repo the host read from the checkout; the container's own
     # claim was only held to it (_suggest), so the handle is never minted from what it says.
@@ -913,6 +1061,7 @@ def _join(host: Host, guest, member: Member, home: str, bus: str, emit: Callable
     if plan.set_role:
         host.agent_bus(["set-role", member.team, handle, f"--role={member.role}"])
         emit(f"{handle} is now {member.role} in team {member.team}")
+    return handle
 
 
 def _check_service(host: Host, guest, container: str) -> str:
@@ -990,7 +1139,8 @@ def _groups(members: Sequence[Member]) -> dict[tuple[str, str], list[Member]]:
 
 
 def _derive_hosts_and_seats(found: Sequence[Member], host: Host,
-                            guests: Mapping[tuple[str, str], tuple[object, str]]) -> tuple[Member, ...]:
+                            guests: Mapping[tuple[str, str], tuple[object, str]],
+                            unheld_teams: Collection[str]) -> tuple[Member, ...]:
     """resolve_members over the real surroundings: the checkout read from the host's side,
     the team's roster from `agent-bus list`, the bundle from the agent's own directory."""
     rosters: dict[str, dict[str, bool]] = {}
@@ -1010,28 +1160,68 @@ def _derive_hosts_and_seats(found: Sequence[Member], host: Host,
         seen, _ = _observe(guest, member, home)
         return bundle_handle(seen.member) if seen.member is not None else None
 
-    return resolve_members(found, identify=identify, roster=roster, bundle=bundle)
+    return resolve_members(found, identify=identify, roster=roster, bundle=bundle, unheld_teams=unheld_teams)
+
+
+def _hold_back(member: Member, state: str, record: Mapping | None,
+               listed: Callable[[str], Mapping[str, tuple[str, bool]]]) -> tuple[Seen, str | None]:
+    """A present entry whose container is not running (L1, L2): skipped when its known handle
+    is an active member, else deferred. Also its known handle, which keeps its seat claimed."""
+    handle = known_handle(member, record)
+    registered = listed(member.team).get(handle) if handle is not None else None
+    if registered is not None and not registered[1]:
+        return Seen(member, STOPPED, handle, skipped_why(member, state, handle)), handle
+    return Seen(member, DEFERRED, handle, deferred_why(member, state, handle)), handle
 
 
 def run_present(members: Sequence[Member], teams_present: Sequence[str], host: Host,
-                emit: Callable[[str], None], say: Callable[[str], None]) -> None:
+                emit: Callable[[str], None], say: Callable[[str], None],
+                records: Mapping[str, Mapping | None] | None = None) -> list[Seen]:
     # Everything that can be checked without the kit, for every container, before any change:
     # suggest-handle needs the kit's pingbus, so its --type check comes after the kit sync.
     _check_teams(members, teams_present, host)
+    records = records or {}
     bus = host.bus_address()
+    lists: dict[str, dict[str, tuple[str, bool]]] = {}
+
+    def listed(team: str) -> dict[str, tuple[str, bool]]:
+        if team not in lists:
+            lists[team] = parse_list(host.agent_bus(["list", team]).decode())
+        return lists[team]
+
     ready = []
     tmux_of: dict[tuple[str, str], str] = {}
+    held: list[Seen] = []
+    claimed: dict[int, Member] = {}
+    unheld_teams: set[str] = set()
     for (container, user), group in _groups(members).items():
-        guest = _guest_running(host, container)
+        state = _existing_state(host, container)
+        if state != RUNNING:
+            for member in group:
+                seen, handle = _hold_back(member, state, records.get(member.team), listed)
+                held.append(seen)
+                if handle is not None:
+                    claimed[id(member)] = with_handle(member, handle)
+                else:
+                    unheld_teams.add(member.team)
+            continue
+        guest = host.guest(container)
         home = _home(guest, group[0])
         _check_gh(guest, group[0], home)
         _check_route(host, guest, group, bus)
         if group[0].service:
             tmux_of[(container, user)] = _check_service(host, guest, container)
         ready.append((container, user, group, guest, home))
-    members = _derive_hosts_and_seats(members, host, {(c, u): (guest, home) for c, u, _, guest, home in ready})
+    reachable = {(c, u) for c, u, *_ in ready}
+    # A held-back entry takes part in the derivation only through its known handle (L4).
+    found = [claimed.get(id(m), m) for m in members
+             if (m.container, m.user) in reachable or id(m) in claimed]
+    derived = _derive_hosts_and_seats(found, host, {(c, u): (guest, home) for c, u, _, guest, home in ready},
+                                      unheld_teams)
+    members = [m for m in derived if (m.container, m.user) in reachable]
     ready = [(c, u, group, *next((g, h) for cc, uu, _, g, h in ready if (cc, uu) == (c, u)))
              for (c, u), group in _groups(members).items()]
+    joined: list[Seen] = []
     synced: set[str] = set()
     for container, user, group, guest, home in ready:
         if container not in synced:
@@ -1043,7 +1233,7 @@ def run_present(members: Sequence[Member], teams_present: Sequence[str], host: H
             for member in group:
                 if (member.role == protocol.ROLE_COORDINATOR) == coordinators:
                     say(f"{member.label}: team {member.team}")
-                    _join(host, guest, member, home, bus, emit)
+                    joined.append(Seen(member, JOINED, _join(host, guest, member, home, bus, emit)))
     for container, user, group, guest, home in ready:
         first = group[0]
         _, env = _observe(guest, first, home)
@@ -1058,10 +1248,30 @@ def run_present(members: Sequence[Member], teams_present: Sequence[str], host: H
             _ensure_service(guest, first, home, tmux_of[(container, user)], emit)
         else:
             _drop_service(guest, container, user, emit)
+    return held + joined
+
+
+def _absent_held_back(host: Host, member: Member, state: str, team_runs: bool, record: Mapping | None,
+                      emit: Callable[[str], None]) -> Seen:
+    """An absent entry whose container is not running (L6): its known handle parked from this
+    host's side, the bundle and env file inside left for the first run with the container up."""
+    where = f"LXC container {member.container} is {state}"
+    later = "the first run with it up removes its bundle and env file"
+    if not team_runs:
+        return Seen(member, DEFERRED, None, f"{where}: {later}")
+    held = known_handle(member, record)
+    if held is None:
+        return Seen(member, DEFERRED, None, f"{where}, and this host has no record of its handle in team "
+                                            f"{member.team}, so it is not parked yet: {later} and parks it")
+    registered = parse_list(host.agent_bus(["list", member.team]).decode()).get(held)
+    if registered is not None and not registered[1]:
+        host.agent_bus(["park-member", member.team, held])
+        emit(f"parked {held} in team {member.team}")
+    return Seen(member, DEFERRED, held, f"{where}: {held} is parked in team {member.team}; {later}")
 
 
 def _absent_one(host: Host, member: Member, teams_present: Sequence[str],
-                emit: Callable[[str], None]) -> None:
+                emit: Callable[[str], None], record: Mapping | None = None) -> Seen:
     team_runs = host.team_active(member.team)
     if member.team in teams_present and not team_runs:
         raise MemberError(f"team {member.team}'s homeserver ({checkout.hs_unit(member.team)}) is not "
@@ -1074,8 +1284,10 @@ def _absent_one(host: Host, member: Member, teams_present: Sequence[str],
             raise MemberError(f"LXC container {member.container} does not exist, so {member.label}'s "
                               "handle cannot be read from it: add repo: <repo> to the entry, and the play "
                               "parks it")
+    elif state != RUNNING:
+        return _absent_held_back(host, member, state, team_runs, record, emit)
     else:
-        guest = _guest_running(host, member.container)
+        guest = host.guest(member.container)
         home = guest.home(member.user)
         if home is not None:
             found, env = _observe(guest, member, home)
@@ -1105,25 +1317,47 @@ def _absent_one(host: Host, member: Member, teams_present: Sequence[str],
         if merged != env:
             _write_env(guest, member, home, merged)
             emit(f"{member.label}: {ENV_PATH} no longer lists {member.team}")
+    return Seen(member, LEFT, held)
+
+
+def _write_records(members: Sequence[Member], seen: Sequence[Seen], teams_present: Sequence[str],
+                   records: Mapping[str, Mapping | None], host: Host, emit: Callable[[str], None]) -> None:
+    """Each team's member record, after the phase succeeded (L8); a team not declared present
+    keeps none."""
+    for team in dict.fromkeys(member.team for member in members):
+        record = None
+        if team in teams_present:
+            record = merge_record(records.get(team), team, [m for m in members if m.team == team],
+                                  [s for s in seen if s.member.team == team], host.now())
+        if host.write_record(team, record):
+            emit(f"the LXC member record of team {team}")
 
 
 def run_phase(phase: str, members: Sequence[Member], teams_present: Sequence[str], host: Host,
-              *, emit: Callable[[str], None], say: Callable[[str], None]) -> None:
+              *, emit: Callable[[str], None], say: Callable[[str], None]) -> list[Report]:
+    """The phase's entries brought to their state; the members held back, in entry order."""
     chosen = [member for member in members if member.state == phase]
     if not chosen:
-        return
+        return []
+    records = {team: host.read_record(team) for team in dict.fromkeys(member.team for member in members)}
     if phase == "present":
-        run_present(chosen, teams_present, host, emit, say)
-        return
-    for member in chosen:
-        say(f"{member.label}: leaving team {member.team}")
-        _absent_one(host, member, teams_present, emit)
-    # A user left in no team keeps no supervised session (step 7); one still declared present
-    # in another team is the present phase's to keep.
-    staying = {(member.container, member.user) for member in members if member.state == "present"}
-    for container, user in dict.fromkeys((member.container, member.user) for member in chosen):
-        if (container, user) not in staying and host.container_state(container) is not None:
-            _drop_service(_guest_running(host, container), container, user, emit)
+        seen = run_present(chosen, teams_present, host, emit, say, records)
+    else:
+        seen = []
+        for member in chosen:
+            say(f"{member.label}: leaving team {member.team}")
+            seen.append(_absent_one(host, member, teams_present, emit, records.get(member.team)))
+        # A user left in no team keeps no supervised session (step 7); one still declared present
+        # in another team is the present phase's to keep. A container not running keeps its unit
+        # until the first run with it up (L6).
+        staying = {(member.container, member.user) for member in members if member.state == "present"}
+        for container, user in dict.fromkeys((member.container, member.user) for member in chosen):
+            if (container, user) not in staying and host.container_state(container) == RUNNING:
+                _drop_service(host.guest(container), container, user, emit)
+    _write_records(members, seen, teams_present, records, host, emit)
+    order = {(m.container, m.user, m.team): n for n, m in enumerate(members)}
+    seen = sorted(seen, key=lambda s: order[(s.member.container, s.member.user, s.member.team)])
+    return [report for report in map(report_of, seen) if report is not None]
 
 
 # ── the real host ────────────────────────────────────────────────────────────────────────
@@ -1260,13 +1494,28 @@ def kit_tar(parent: pathlib.Path) -> bytes:
     return buffer.getvalue()
 
 
+def _read_record(team: str) -> dict | None:
+    path = RECORD_DIR / f"{team}.json"
+    return parse_record(applied_record.read(path), str(path))
+
+
+def _write_record(team: str, record: Mapping | None) -> bool:
+    text = None if record is None else json.dumps(record, sort_keys=True, indent=1) + "\n"
+    try:
+        gid = grp.getgrnam(teamfile.read_stamp_group(STAMP_GROUP_FILE, "root")).gr_gid
+        return applied_record.write(RECORD_DIR, f"{team}.json", text, gid)
+    except (teamfile.StampGroupError, applied_record.RecordError) as exc:
+        raise MemberError(f"the LXC member record of team {team}: {exc}") from None
+
+
 def real_host() -> Host:
     system = checkout.real_system()
     return Host(container_state=_container_state, agent_bus=_agent_bus, ip_json=_ip_json,
                 is_bridge=lambda dev: pathlib.Path(f"/sys/class/net/{dev}/bridge").is_dir(),
                 team_active=system.team_active, bus_address=system.bus_address, team_file=_team_file,
                 kit_tar=lambda: kit_tar(pathlib.Path(KIT_PARENT)), guest=LxcGuest,
-                read_checkout=read_checkout, autostarts=_autostarts)
+                read_checkout=read_checkout, autostarts=_autostarts,
+                read_record=_read_record, write_record=_write_record, now=time.time)
 
 
 def main(argv: Sequence[str] | None = None, *, host_factory: Callable[[], Host] = real_host,
@@ -1296,11 +1545,17 @@ def main(argv: Sequence[str] | None = None, *, host_factory: Callable[[], Host] 
         if not isinstance(teams, list) or not all(isinstance(team, str) for team in teams):
             raise MemberError("--teams-present must be a JSON list of team names")
         members = parse_members(data)
+        reports = []
         if any(member.state == args.phase for member in members):
-            run_phase(args.phase, members, teams, host_factory(), emit=emit, say=say)
+            reports = run_phase(args.phase, members, teams, host_factory(), emit=emit, say=say)
     except (MemberError, checkout.CheckoutError, teamfile.TeamFileError) as exc:
         say(str(exc))
         return EXIT_REFUSED
+    for report in reports:
+        out.write(f"{report.kind}\t{report.team}\t{report.label}\t{report.why}\n")
+    if reports:
+        out.write(f"LXC-SUMMARY\t{summary(reports)}\n")
+    out.flush()
     return 0
 
 

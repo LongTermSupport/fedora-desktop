@@ -247,6 +247,10 @@ class Fixture(unittest.TestCase):
         self.env_local: str | None = "export HOOKS_DAEMON_HOSTNAME=box\n"
         #: The containers lxc-autostart starts at boot (lxc.start.auto = 1).
         self.autostart = {"devbox"}
+        #: The member records (L8), by team, as the host keeps them; and the clock.
+        self.records: dict[str, dict] = {}
+        self.clock = 1_792_000_000.0
+        self.reports: list[members.Report] = []
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
@@ -264,7 +268,22 @@ class Fixture(unittest.TestCase):
             guest=lambda name: self.guest,
             read_checkout=self.read_checkout,
             autostarts=lambda name: name in self.autostart,
+            read_record=lambda team: self.records.get(team),
+            write_record=self.write_record,
+            now=lambda: self.clock,
         )
+
+    def write_record(self, team: str, record: dict | None) -> bool:
+        before = self.records.get(team)
+        if record is None:
+            self.records.pop(team, None)
+        else:
+            self.records[team] = json.loads(json.dumps(record))
+        return before != self.records.get(team)
+
+    def item(self, container: str = "devbox", team: str = TEAM) -> dict:
+        (found,) = [i for i in self.records[team]["members"] if i["container"] == container]
+        return found
 
     def read_checkout(self, container: str, user: str, path: str) -> str:
         """What the root-side reader prints for the checkout (its script is tested in test_derive)."""
@@ -276,9 +295,10 @@ class Fixture(unittest.TestCase):
 
     def run_phase(self, phase: str, entries: Sequence[dict], teams_present: Sequence[str] = (TEAM,)) -> list[str]:
         self.changed = []
-        members.run_phase(phase, members.parse_members(list(entries)), teams_present, self.host(),
-                          emit=self.changed.append, say=lambda text: None)
-        return self.changed
+        self.reports = members.run_phase(phase, members.parse_members(list(entries)), teams_present,
+                                         self.host(), emit=self.changed.append, say=lambda text: None)
+        # The member record's own line is said by the tests that are about it (L8).
+        return [line for line in self.changed if not line.startswith("the LXC member record")]
 
     def bundle_dir(self, team: str = TEAM) -> pathlib.Path:
         return self.tmp / "guest" / "home" / "agent" / ".config" / "pingbus" / team
@@ -587,7 +607,6 @@ class PresentPhaseTest(Fixture):
     def test_refusals_before_anything_is_made(self) -> None:
         cases = {
             "no such container": ("state", None, "does not exist"),
-            "stopped container": ("state", "STOPPED", "is STOPPED"),
             "homeserver not running": ("active", set(), "not active"),
         }
         for label, (attr, value, message) in cases.items():
@@ -600,8 +619,8 @@ class PresentPhaseTest(Fixture):
                 self.assertEqual(self.bus.calls, [])
 
     def test_a_later_container_refused_before_any_change(self) -> None:
-        self.states = {"box2": "STOPPED"}
-        with self.assertRaisesRegex(members.MemberError, "box2 is STOPPED"):
+        self.states = {"box2": None}
+        with self.assertRaisesRegex(members.MemberError, "box2 does not exist"):
             self.run_phase("present", [entry(), entry(container="box2")])
         self.assertFalse(pathlib.Path(self.guest.kit_parent).exists())
         self.assertEqual(self.bus.calls, [])
@@ -1086,6 +1105,250 @@ class AbsentPhaseTest(Fixture):
         self.active = set()
         with self.assertRaisesRegex(members.MemberError, "not active"):
             self.run_phase("absent", [entry(state="absent")])
+
+
+class StoppedFixture(Fixture):
+    """Two containers, devbox and box2, each with its own guest."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.guests = {name: FakeGuest(self.tmp / name) for name in ("devbox", "box2")}
+
+    def host(self) -> members.Host:
+        return dataclasses.replace(super().host(), guest=lambda name: self.guests[name])
+
+    def guest_runs(self) -> int:
+        return sum(len(g.agent_runs) for g in self.guests.values())
+
+    def kinds(self) -> list[tuple[str, str, str]]:
+        return [(r.kind, r.team, r.label) for r in self.reports]
+
+
+class StoppedContainerTest(StoppedFixture):
+    """SPEC-lxc-stopped-members.md (Plan 00203 Task 2.6): a container that is not running never
+    fails the play. A member already joined is skipped, one not joined is deferred, and every
+    member whose container runs is joined as before in the same run."""
+
+    def test_a_joined_member_whose_container_stopped_is_skipped_and_nothing_enters_it(self) -> None:
+        self.run_phase("present", [entry()])
+        self.assertEqual(self.item()["status"], "joined")
+        self.states = {"devbox": "STOPPED"}
+        runs, self.bus.calls = self.guest_runs(), []
+        self.assertEqual(self.run_phase("present", [entry()]), [])
+        self.assertEqual(self.kinds(), [("SKIPPED", TEAM, "agent@devbox")])
+        self.assertIn("STOPPED", self.reports[0].why)
+        self.assertIn("refreshes", self.reports[0].why)
+        self.assertEqual(self.guest_runs(), runs)
+        self.assertEqual([call[0] for call in self.bus.calls], ["list"])
+        self.assertEqual((self.item()["status"], self.item()["handle"]), ("stopped", HANDLE))
+
+    def test_a_member_never_joined_whose_container_is_stopped_is_deferred_and_the_others_join(self) -> None:
+        self.states = {"box2": "STOPPED"}
+        both = [entry(), entry(container="box2")]
+        changed = self.run_phase("present", both)
+        self.assertIn(f"{HANDLE} joined team {TEAM} (agent@devbox)", changed)
+        self.assertEqual(self.kinds(), [("DEFERRED", TEAM, "agent@box2")])
+        why = self.reports[0].why
+        self.assertIn("box2 is STOPPED", why)
+        self.assertIn("start it", why)
+        self.assertIn("not to declare it yet", why)
+        self.assertEqual(sorted(self.bus.members), [HANDLE])
+        self.assertEqual(self.item("box2")["status"], "deferred")
+        self.assertEqual(self.guests["box2"].agent_runs, [])
+        # Once it is up, the next run joins it; the one after changes nothing.
+        self.states = {}
+        changed = self.run_phase("present", both)
+        self.assertIn(f"proj.box2+box.lxc joined team {TEAM} (agent@box2)", changed)
+        self.assertEqual(self.reports, [])
+        self.assertEqual(self.item("box2")["status"], "joined")
+        self.assertEqual(self.run_phase("present", both), [])
+
+    def test_a_stopped_member_whose_handle_is_parked_is_deferred_not_skipped(self) -> None:
+        self.run_phase("present", [entry()])
+        self.bus.members[HANDLE][1] = True
+        self.states = {"devbox": "STOPPED"}
+        self.run_phase("present", [entry()])
+        self.assertEqual(self.kinds(), [("DEFERRED", TEAM, "agent@devbox")])
+
+    def test_an_entry_naming_host_seat_and_repo_is_known_joined_without_a_record(self) -> None:
+        self.run_phase("present", [entry(repo="proj")])
+        self.records.clear()
+        self.states = {"devbox": "STOPPED"}
+        self.run_phase("present", [entry(repo="proj")])
+        self.assertEqual(self.kinds(), [("SKIPPED", TEAM, "agent@devbox")])
+
+    def test_a_record_for_another_checkout_does_not_make_the_member_joined(self) -> None:
+        self.run_phase("present", [entry()])
+        self.states = {"devbox": "STOPPED"}
+        self.run_phase("present", [entry(checkout="/srv/other")])
+        self.assertEqual(self.kinds(), [("DEFERRED", TEAM, "agent@devbox")])
+
+    def test_another_state_than_stopped_is_not_entered_either(self) -> None:
+        self.states = {"devbox": "FROZEN"}
+        self.run_phase("present", [entry()])
+        self.assertEqual(self.kinds(), [("DEFERRED", TEAM, "agent@devbox")])
+        self.assertIn("FROZEN", self.reports[0].why)
+
+    def test_a_failure_of_a_running_member_still_fails_while_another_is_stopped(self) -> None:
+        self.states = {"box2": "STOPPED"}
+        self.guests["devbox"].gh_ok = False
+        with self.assertRaisesRegex(members.MemberError, "LXC container devbox"):
+            self.run_phase("present", [entry(), entry(container="box2")])
+        self.assertEqual(self.records, {})
+
+    def test_a_container_that_does_not_exist_still_fails(self) -> None:
+        self.states = {"box2": None}
+        with self.assertRaisesRegex(members.MemberError, "box2 does not exist"):
+            self.run_phase("present", [entry(), entry(container="box2")])
+
+    def test_every_container_stopped_changes_nothing_and_does_not_fail(self) -> None:
+        self.run_phase("present", [entry(), entry(container="box2")])
+        self.state = "STOPPED"
+        self.assertEqual(self.run_phase("present", [entry(), entry(container="box2")]), [])
+        self.assertEqual([r.kind for r in self.reports], ["SKIPPED", "SKIPPED"])
+
+
+class StoppedSeatTest(Fixture):
+    """L4: the seat of a stopped member is never given to a member added beside it. Two
+    containers of one repo, as SecondContainerTest's entries."""
+
+    ENTRIES = SecondContainerTest.ENTRIES
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.guests = {"container-a": FakeGuest(self.tmp / "guest-a"),
+                       "container-b": FakeGuest(self.tmp / "guest-b")}
+        for guest in self.guests.values():
+            guest.suggest = "--repo=proj-a --host=box --type=lxc"
+        self.remote_config = '[remote "origin"]\n\turl = https://github.com/example-org/proj-a.git\n'
+
+    def host(self) -> members.Host:
+        return dataclasses.replace(super().host(), guest=lambda name: self.guests[name])
+
+    def test_a_skipped_members_seat_is_claimed(self) -> None:
+        self.run_phase("present", self.ENTRIES[:1])
+        self.assertEqual(sorted(self.bus.members), ["proj-a.1+box.lxc"])
+        self.states = {"container-a": "STOPPED"}
+        self.run_phase("present", self.ENTRIES)
+        self.assertEqual(sorted(self.bus.members), ["proj-a.1+box.lxc", "proj-a.2+box.lxc"])
+        self.assertEqual([(r.kind, r.label) for r in self.reports], [("SKIPPED", "agent@container-a")])
+        self.states = {}
+        self.assertEqual(self.run_phase("present", self.ENTRIES), [])
+
+    def test_a_deferred_member_with_no_record_does_not_block_the_next_seat(self) -> None:
+        # Joined before this host kept records: its seat is active, and no entry can name it
+        # while its container is stopped. The new member passes over it rather than failing.
+        self.run_phase("present", self.ENTRIES[:1])
+        self.records.clear()
+        self.states = {"container-a": "STOPPED"}
+        self.run_phase("present", self.ENTRIES)
+        self.assertEqual(sorted(self.bus.members), ["proj-a.1+box.lxc", "proj-a.2+box.lxc"])
+        self.assertEqual([(r.kind, r.label) for r in self.reports], [("DEFERRED", "agent@container-a")])
+        self.assertIn("no record that it joined", self.reports[0].why)
+        # Up again, it keeps its own seat by its bundle.
+        self.states = {}
+        self.assertEqual(self.run_phase("present", self.ENTRIES), [])
+        self.assertEqual(self.item("container-a")["handle"], "proj-a.1+box.lxc")
+
+    def test_with_no_stopped_member_a_lost_bundle_is_still_refused(self) -> None:
+        self.run_phase("present", self.ENTRIES[:1])
+        shutil.rmtree(self.tmp / "guest-a" / "home" / "agent" / ".config" / "pingbus" / TEAM)
+        with self.assertRaisesRegex(members.MemberError, "state: absent"):
+            self.run_phase("present", self.ENTRIES)
+
+
+class StoppedAbsentTest(StoppedFixture):
+    """L6: a member taken off a team while its container is stopped."""
+
+    def test_its_handle_is_parked_from_the_host_and_the_rest_waits_for_the_container(self) -> None:
+        self.run_phase("present", [entry()])
+        self.states = {"devbox": "STOPPED"}
+        changed = self.run_phase("absent", [entry(state="absent")])
+        self.assertIn(f"parked {HANDLE} in team {TEAM}", changed)
+        self.assertTrue(self.bus.members[HANDLE][1])
+        self.assertEqual(self.kinds(), [("DEFERRED", TEAM, "agent@devbox")])
+        self.assertIn("bundle", self.reports[0].why)
+        self.assertTrue((self.tmp / "devbox" / "home" / "agent" / ".config" / "pingbus" / TEAM).exists())
+        self.assertEqual(self.item()["status"], "deferred")
+        # Up again: the bundle and env file go, and nothing is parked twice.
+        self.states, self.bus.calls = {}, []
+        self.run_phase("absent", [entry(state="absent")])
+        self.assertNotIn("park-member", [call[0] for call in self.bus.calls])
+        self.assertFalse((self.tmp / "devbox" / "home" / "agent" / ".config" / "pingbus" / TEAM).exists())
+        self.assertEqual(self.reports, [])
+        self.assertEqual(self.item()["status"], "left")
+
+    def test_with_no_known_handle_nothing_is_parked_and_it_is_deferred(self) -> None:
+        self.run_phase("present", [entry()])
+        self.records.clear()
+        self.states = {"devbox": "STOPPED"}
+        self.run_phase("absent", [entry(state="absent")])
+        self.assertFalse(self.bus.members[HANDLE][1])
+        self.assertEqual(self.kinds(), [("DEFERRED", TEAM, "agent@devbox")])
+        self.assertIn("not parked", self.reports[0].why)
+
+
+class MemberRecordTest(StoppedFixture):
+    """L8: what the play last found for each entry, read by ccy-teams."""
+
+    def test_a_join_is_recorded_once_and_a_second_run_reports_no_change(self) -> None:
+        self.run_phase("present", [entry()])
+        self.assertIn(f"the LXC member record of team {TEAM}", self.changed[-1])
+        self.assertEqual(self.records[TEAM], {"version": 1, "team": TEAM, "members": [{
+            "container": "devbox", "user": "agent", "state": "present", "status": "joined",
+            "handle": HANDLE, "checkout": CHECKOUT, "why": "", "since": int(self.clock)}]})
+        self.clock += 60
+        self.run_phase("present", [entry()])
+        self.assertEqual(self.changed, [])
+        self.assertEqual(self.item()["since"], int(self.clock) - 60)
+
+    def test_since_moves_when_the_status_does(self) -> None:
+        self.run_phase("present", [entry()])
+        self.clock += 60
+        self.states = {"devbox": "STOPPED"}
+        self.run_phase("present", [entry()])
+        self.assertEqual(self.item()["since"], int(self.clock))
+
+    def test_each_phase_keeps_the_others_items_and_an_undeclared_one_is_dropped(self) -> None:
+        both = [entry(), entry(container="box2")]
+        self.run_phase("present", both)
+        self.run_phase("absent", [entry(), entry(container="box2", state="absent")])
+        self.assertEqual({i["container"]: i["status"] for i in self.records[TEAM]["members"]},
+                         {"devbox": "joined", "box2": "left"})
+        self.run_phase("present", [entry()])
+        self.assertEqual([i["container"] for i in self.records[TEAM]["members"]], ["devbox"])
+
+    def test_a_team_not_declared_present_has_no_record(self) -> None:
+        self.run_phase("present", [entry()])
+        self.active = set()
+        self.run_phase("absent", [entry(state="absent")], teams_present=())
+        self.assertNotIn(TEAM, self.records)
+
+
+class MarkerLinesTest(StoppedFixture):
+    """L1, L2, L7: the lines the play reads and shows."""
+
+    def test_skipped_and_deferred_lines_then_one_summary(self) -> None:
+        self.run_phase("present", [entry()])
+        self.states = {"devbox": "STOPPED", "box2": "STOPPED"}
+        out = io.StringIO()
+        code = members.main(["--phase", "present", "--members", json.dumps([entry(), entry(container="box2")]),
+                             "--teams-present", json.dumps([TEAM])], host_factory=self.host,
+                            stdout=out, stderr=io.StringIO())
+        self.assertEqual(code, 0)
+        lines = [line for line in out.getvalue().splitlines() if not line.startswith("CHANGED\t")]
+        self.assertTrue(lines[0].startswith(f"SKIPPED\t{TEAM}\tagent@devbox\t"), lines)
+        self.assertTrue(lines[1].startswith(f"DEFERRED\t{TEAM}\tagent@box2\t"), lines)
+        self.assertTrue(lines[-1].startswith("LXC-SUMMARY\t"), lines)
+        self.assertIn("agent@devbox (team-a, skipped)", lines[-1])
+        self.assertIn("agent@box2 (team-a, deferred)", lines[-1])
+
+    def test_no_summary_when_nothing_was_held_back(self) -> None:
+        out = io.StringIO()
+        members.main(["--phase", "present", "--members", json.dumps([entry()]),
+                      "--teams-present", json.dumps([TEAM])], host_factory=self.host,
+                     stdout=out, stderr=io.StringIO())
+        self.assertTrue(all(line.startswith("CHANGED\t") for line in out.getvalue().splitlines()))
 
 
 class KitSyncTest(Fixture):
