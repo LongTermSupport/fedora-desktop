@@ -119,6 +119,9 @@ func (r *opsRig) lines() []string {
 	calls := r.fake.Calls()
 	out := make([]string, 0, len(calls))
 	for _, c := range calls {
+		if c.Name == "tput" { // ui reading the terminal's width for a heading
+			continue
+		}
 		out = append(out, teamtest.Unheaded(c).Line())
 	}
 	return out

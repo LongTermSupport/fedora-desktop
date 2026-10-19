@@ -1,15 +1,13 @@
 package ui
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"os"
 	"slices"
-	"strconv"
 	"strings"
-	"unicode/utf8"
 
-	"golang.org/x/sys/unix"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // ErrNoHeading is a question or pick asked for without saying where the person is.
@@ -108,46 +106,87 @@ func (l line) draw(colour bool) string {
 	return headingColour + l.crumbs + colourReset + l.rest
 }
 
-// wrap lays pieces out in lines of at most width runes, never cutting anything off: fzf and gum
-// truncate a header line that is too wide, so the heading is wrapped before they see it. A
-// piece that does not fit on the line starts the next one, led by its separator's mark ("› ",
-// "· "); a piece longer than a whole line is cut into lines of width.
+// cells is how many terminal columns text takes: a wide (CJK) rune or an emoji takes two.
+func cells(text string) int { return ansi.StringWidth(text) }
+
+// wrapper lays pieces out in lines of at most width cells.
+type wrapper struct {
+	width int
+	lines []line
+	cur   line
+	n     int // cells on the current line
+}
+
+func (w *wrapper) add(text string, crumb bool) {
+	if crumb {
+		w.cur.crumbs += text
+	} else {
+		w.cur.rest += text
+	}
+	w.n += cells(text)
+}
+
+func (w *wrapper) newLine() {
+	if w.n > 0 {
+		w.lines, w.cur, w.n = append(w.lines, w.cur), line{}, 0
+	}
+}
+
+// place puts one piece on the lines. It joins the line after its separator when it fits;
+// otherwise it starts the next line led by its separator's mark ("› ", "· "), or, when the
+// mark and the piece do not fit a whole line but the piece does, the mark ends the line before
+// it. A piece wider than a whole line is cut between grapheme clusters, never elided.
+func (w *wrapper) place(p piece) {
+	if text := p.sep + p.text; w.n == 0 || w.n+cells(text) <= w.width {
+		if w.n == 0 {
+			text = p.text
+		}
+		w.fill(text, p.crumb, 0)
+		return
+	}
+	mark := strings.TrimSpace(p.sep)
+	if cells(mark+" "+p.text) > w.width && cells(p.text) <= w.width && w.n+1+cells(mark) <= w.width {
+		w.add(" "+mark, p.crumb)
+		w.newLine()
+		w.fill(p.text, p.crumb, 0)
+		return
+	}
+	w.newLine()
+	w.fill(mark+" "+p.text, p.crumb, len(mark))
+}
+
+// fill adds text to the current line, carrying it onto further lines where it is wider than
+// what is left: at its last space that fits (past the first lead bytes, so a mark is never
+// left alone on a line), else between grapheme clusters.
+func (w *wrapper) fill(text string, crumb bool, lead int) {
+	for cells(text) > w.width-w.n {
+		head := ansi.Truncate(text, w.width-w.n, "")
+		rest := text[len(head):]
+		if at := strings.LastIndex(head, " "); at > lead {
+			head, rest = head[:at], text[at+1:]
+		}
+		if head == "" { // a cluster wider than the line: it gets a line of its own
+			head = string([]rune(text)[0])
+			rest = text[len(head):]
+		}
+		w.add(head, crumb)
+		text = rest
+		w.newLine()
+	}
+	if text != "" {
+		w.add(text, crumb)
+	}
+}
+
+// wrap lays pieces out in lines of at most width cells, never cutting anything off: fzf
+// truncates a header line wider than its window, so the heading is wrapped before it is seen.
 func wrap(pieces []piece, width int) []line {
-	var lines []line
-	cur, n := line{}, 0
-	add := func(text string, crumb bool) {
-		if crumb {
-			cur.crumbs += text
-		} else {
-			cur.rest += text
-		}
-		n += utf8.RuneCountInString(text)
-	}
+	w := &wrapper{width: width}
 	for _, p := range pieces {
-		text := p.sep + p.text
-		if n == 0 || n+utf8.RuneCountInString(text) > width {
-			if n > 0 {
-				lines, cur, n = append(lines, cur), line{}, 0
-			}
-			text = strings.TrimLeft(p.sep, " ") + p.text
-			if utf8.RuneCountInString(text) > width {
-				text = p.text // the mark would push a piece that fits a line onto two
-			}
-		}
-		for room := width - n; utf8.RuneCountInString(text) > room; room = width - n {
-			r := []rune(text)
-			add(string(r[:room]), p.crumb)
-			text = string(r[room:])
-			lines, cur, n = append(lines, cur), line{}, 0
-		}
-		if text != "" {
-			add(text, p.crumb)
-		}
+		w.place(p)
 	}
-	if n > 0 {
-		lines = append(lines, cur)
-	}
-	return lines
+	w.newLine()
+	return w.lines
 }
 
 // pieces is the trail as pieces: each crumb, then the step.
@@ -166,37 +205,43 @@ func (h Heading) pieces() []piece {
 	return out
 }
 
+// contextPieces is the context line as pieces, split at its separators; an empty part is left
+// out, so it draws no stray mark.
+func (h Heading) contextPieces() []piece {
+	parts := strings.Split(h.Context, contextSeparator)
+	out := make([]piece, 0, len(parts))
+	for _, part := range parts {
+		if strings.TrimSpace(part) == "" {
+			continue
+		}
+		sep := contextSeparator
+		if len(out) == 0 {
+			sep = ""
+		}
+		out = append(out, piece{sep: sep, text: part})
+	}
+	return out
+}
+
 // contextSeparator joins the parts of a context line, and the step to the crumbs.
 const contextSeparator = " · "
 
-// render is the heading as it is drawn above every question, in lines of at most width runes:
+// render is the heading as it is drawn above every question, in lines of at most width cells:
 // the trail, the context line when there is one, and a rule as long as the longest line. In
 // colour the crumbs are bold in the accent.
 func (h Heading) render(colour bool, width int) string {
-	width = max(width, 1)
-	lines := wrap(h.pieces(), width)
-	if h.Context != "" {
-		parts := strings.Split(h.Context, contextSeparator)
-		ctx := make([]piece, 0, len(parts))
-		for i, part := range parts {
-			sep := contextSeparator
-			if i == 0 {
-				sep = ""
-			}
-			ctx = append(ctx, piece{sep: sep, text: part})
-		}
-		lines = append(lines, wrap(ctx, width)...)
-	}
+	width = max(width, 2)
+	lines := append(wrap(h.pieces(), width), wrap(h.contextPieces(), width)...)
 	longest := 0
 	drawn := make([]string, 0, len(lines)+1)
 	for _, l := range lines {
-		longest = max(longest, utf8.RuneCountInString(l.plain()))
+		longest = max(longest, cells(l.plain()))
 		drawn = append(drawn, l.draw(colour))
 	}
 	return strings.Join(append(drawn, strings.Repeat("─", min(max(longest, shortestRule), width))), "\n")
 }
 
-// above is text with the heading drawn on top of it, in lines of at most width runes.
+// above is text with the heading drawn on top of it, in lines of at most width cells.
 func (h Heading) above(text string, colour bool, width int) string {
 	if text == "" {
 		return h.render(colour, width)
@@ -204,39 +249,21 @@ func (h Heading) above(text string, colour bool, width int) string {
 	return h.render(colour, width) + "\n" + text
 }
 
-// The width a heading is wrapped to: the terminal's, less what a screen's frame and padding
-// take, or a common width when the terminal's cannot be read.
+// What a screen takes from the terminal's width before its header, in columns, measured on a
+// pseudo-terminal against fzf with the house frame: the framed picker loses its margin (4),
+// border (2), padding (4), fzf's pointer and marker columns (2) and two more; Picker.Choose has
+// no frame, only fzf's columns and two more; a gum header is printed as it is, kept off the
+// last column.
 const (
-	headingMargin        = 10
-	fallbackHeadingWidth = 68
-	narrowestHeading     = 16
+	framedMargin = 14
+	plainMargin  = 4
+	gumMargin    = 2
 )
 
-// terminalColumns is the terminal's width, 0 when it cannot be read; a variable so a test
-// stands in for the terminal.
-var terminalColumns = readTerminalColumns
+// headingWidth is the width a gum question's heading is wrapped to.
+func (g *Gum) headingWidth(ctx context.Context) int { return g.columns(ctx) - gumMargin }
 
-// readTerminalColumns is $COLUMNS when it is a number, else the width of the first of stderr,
-// stdin and stdout that is a terminal, else 0.
-func readTerminalColumns() int {
-	if cols, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && cols > 0 {
-		return cols
-	}
-	for _, f := range []*os.File{os.Stderr, os.Stdin, os.Stdout} {
-		if ws, err := unix.IoctlGetWinsize(int(f.Fd()), unix.TIOCGWINSZ); err == nil && ws.Col > 0 {
-			return int(ws.Col)
-		}
-	}
-	return 0
-}
-
-// headingWidth is the width a heading is wrapped to on a terminal columns wide (0: read it).
-func headingWidth(columns int) int {
-	if columns <= 0 {
-		columns = terminalColumns()
-	}
-	if columns <= 0 {
-		return fallbackHeadingWidth
-	}
-	return max(columns-headingMargin, narrowestHeading)
+// headingWidth is the width a picker's heading is wrapped to, on a screen that takes margin.
+func (p *Picker) headingWidth(ctx context.Context, margin int) int {
+	return columns(ctx, p.Runner, nil, p.Stderr) - margin
 }

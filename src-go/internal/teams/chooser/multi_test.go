@@ -174,11 +174,10 @@ func TestEachTeamsQuestionsCarryItsHeadingAndPlaceInTheSequence(t *testing.T) {
 	}
 	r.Script.HeadingAt(1, "New session › Team 2 of 3: beta › Scope\nteam beta · does not cover "+repo+" (this checkout)")
 	r.Script.HeadingAt(2, "New session › Team 3 of 3: delta › Scope\nteam delta · does not cover "+repo+" (this checkout)")
-	out := r.stderr()
-	beta, note, delta := strings.Index(out, "New session › Team 2 of 3: beta › Scope\n"), strings.Index(out, "beta: "+repo+" references external"),
-		strings.Index(out, "New session › Team 3 of 3: delta › Scope\n")
-	if beta < 0 || note < beta || delta < note {
-		t.Fatalf("beta's note is not under beta's heading, before delta's:\n%s", out)
+	// The heading draws the trail, so it is not said again; the note after the question names
+	// its team itself.
+	if out := r.stderr(); !strings.Contains(out, "beta: "+repo+" references external") || strings.Contains(out, "› Scope") {
+		t.Fatalf("stderr:\n%s", out)
 	}
 }
 

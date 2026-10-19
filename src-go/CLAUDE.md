@@ -69,10 +69,10 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
 
 - **Every screen has a heading.** Each `ui` question and pick takes a `ui.Heading` (crumbs,
   a wizard's step, a context line with the answers so far) as a required argument, and refuses
-  to draw without crumbs (`ui.ErrNoHeading`); it is wrapped to the terminal's width
-  (`Gum.Columns`/`Picker.Columns`, 0 reads it), never truncated; ccy-teams screens start from `flow.Here`, the
+  to draw without crumbs (`ui.ErrNoHeading`). It is wrapped to the width `tput cols` gives
+  through the runner, never truncated. ccy-teams screens start from `flow.Here`, the
   `ccy --teams` questions from `flow.LaunchTeam` (rule 15 of the same file). `teamtest`'s
-  `Script.HeadingAt` asserts a screen's heading.
+  `Script.HeadingAt` asserts a screen's heading; `Script.Columns` sets the fake width.
 
 - **Project rules.** `qa/` is a nested module (so the QA tooling's dependencies stay out of
   this `go.mod` and out of the binaries) of `go/analysis` rules for the defect classes the ports hit: one process seam, owned programs,

@@ -51,7 +51,7 @@ func TestEveryActionIsAVisibleRowOrMenuLineWithItsKeyBesideIt(t *testing.T) {
 	if err != nil || got.Action != "shutdown" || got.Row != "alpha" {
 		t.Fatalf("Enter on a row then a menu line: got %+v, %v", got, err)
 	}
-	calls := f.Calls()
+	calls := drawn(f)
 	list, menu := calls[0], calls[1]
 	if !slices.Contains(list.Args, "--expect=tab,ctrl-e,ctrl-x") {
 		t.Fatalf("the list takes exactly the declared keys: %v", list.Args)
@@ -155,8 +155,8 @@ func TestActionRowsCanHaveHeadersOfTheirOwn(t *testing.T) {
 	if !errors.Is(err, ErrLeave) {
 		t.Fatal(err)
 	}
-	if !slices.ContainsFunc(f.Calls()[0].Args, func(a string) bool { return strings.Contains(a, "1) printf '%s\\n' '"+testHeadText+"for S'") }) {
-		t.Fatalf("args %q", f.Calls()[0].Args)
+	if !slices.ContainsFunc(drawn(f)[0].Args, func(a string) bool { return strings.Contains(a, "1) printf '%s\\n' '"+testHeadText+"for S'") }) {
+		t.Fatalf("args %q", drawn(f)[0].Args)
 	}
 }
 

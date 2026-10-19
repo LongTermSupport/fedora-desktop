@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/hot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
@@ -223,9 +224,11 @@ func TestAddToATeamRunsSessionAdd(t *testing.T) {
 		"Teams\n1 team",
 		"Teams › Running sessions\n1 session running",
 		"Teams › Running sessions › ccy-proj\nsession ccy-proj · ok · in no team",
-		"Teams › Running sessions › ccy-proj › Add to a team · step 1/3 Team\nsession ccy-proj",
-		"Teams › Running sessions › ccy-proj › Add to a team · step 2/3 Seat\nsession ccy-proj · team alpha",
-		"Teams › Running sessions › ccy-proj › Add to a team · step 3/3 Role\nsession ccy-proj · team alpha · the lowest free seat",
+		// At the fake terminal's 80 columns the trail is wider than the 66 fzf draws whole, so
+		// the step wraps onto a line of its own.
+		"Teams › Running sessions › ccy-proj › Add to a team\n· step 1/3 Team\nsession ccy-proj",
+		"Teams › Running sessions › ccy-proj › Add to a team\n· step 2/3 Seat\nsession ccy-proj · team alpha",
+		"Teams › Running sessions › ccy-proj › Add to a team\n· step 3/3 Role\nsession ccy-proj · team alpha · the lowest free seat",
 	} {
 		h.Script.HeadingAt(i, want)
 	}
@@ -441,7 +444,27 @@ func TestMoveOfTheCoordinatorAsksWhereTheRoleGoes(t *testing.T) {
 	}
 	h.wantRuns(t, []string{"move", proj, "alpha", "beta", "--coordinator=demote"})
 	h.Script.HeadingAt(3, "Teams › Running sessions › ccy-proj › Move from alpha\nsession ccy-proj · seat 1 in team alpha")
-	h.Script.HeadingAt(4, "Teams › Running sessions › ccy-proj › Move from alpha › Coordinator role\nsession ccy-proj · from team alpha to team beta")
+	h.Script.HeadingAt(4, "Teams › Running sessions › ccy-proj › Move from alpha\n› Coordinator role\nsession ccy-proj · from team alpha to team beta")
+}
+
+// On a 40-column terminal the framed picker draws 26 cells of a header line whole (one more is
+// cut to ".."): the Move coordinator heading wraps to fit, and keeps the team just chosen.
+func TestTheMoveCoordinatorHeadingWrapsOnANarrowTerminalAndKeepsTheAnswer(t *testing.T) {
+	h := newRig(t)
+	h.Script.Columns = 40
+	h.withBeta()
+	h.coordinatorOfAlpha("proj.1+local.podman")
+	h.ses.list = []hot.Session{h.seated()}
+	h.Script.Fzf = []string{toSessions, "|ccy-proj", "|Move to another team", "|beta", "|goes to no one", "|ABORT", "|ABORT"}
+	if code := h.run(); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	h.Script.HeadingAt(4, "Teams › Running sessions\n› ccy-proj\n› Move from alpha\n› Coordinator role\nsession ccy-proj\n· from team alpha to team\nbeta")
+	for l := range strings.SplitSeq(h.Script.Headings[4], "\n") {
+		if n := utf8.RuneCountInString(l); n > 26 {
+			t.Fatalf("a heading line of %d is cut by fzf at 40 columns: %q", n, l)
+		}
+	}
 }
 
 // Change role on a team with no coordinator: worker (now), then the plain offer, which passes

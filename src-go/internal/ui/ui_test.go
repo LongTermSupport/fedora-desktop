@@ -38,7 +38,7 @@ func TestConfirmMapsGumExitCodes(t *testing.T) {
 		if got != c.want || !errors.Is(err, c.err) {
 			t.Fatalf("exit %d: got %v, %v", c.code, got, err)
 		}
-		if line := f.Calls()[0].Line(); line != "gum confirm --default=false "+testHeadText+"Create one now?" {
+		if line := drawn(f)[0].Line(); line != "gum confirm --default=false "+testHeadText+"Create one now?" {
 			t.Fatalf("argv %q", line)
 		}
 	}
@@ -50,7 +50,7 @@ func TestGumEnvironmentUsesTheTerminalsColoursAndOneAccent(t *testing.T) {
 	if _, err := newGum(f).Confirm(context.Background(), testHead, "q", true); err != nil {
 		t.Fatal(err)
 	}
-	env := f.Calls()[0].Env
+	env := drawn(f)[0].Env
 	for _, want := range []string{
 		"GUM_CONFIRM_SELECTED_BACKGROUND=3", "GUM_INPUT_HEADER_FOREGROUND=",
 		"GUM_CONFIRM_SHOW_HELP=false", "GUM_CHOOSE_CURSOR_FOREGROUND=3",
@@ -76,7 +76,7 @@ func TestInputTrimsAndCancels(t *testing.T) {
 		t.Fatalf("got %q, %v", got, err)
 	}
 	want := "gum input --header " + testHeadText + "Repositories --placeholder e.g. x/y --value example-org/proj --width 0"
-	if line := f.Calls()[0].Line(); line != want {
+	if line := drawn(f)[0].Line(); line != want {
 		t.Fatalf("argv %q", line)
 	}
 	f.On([]string{"gum", "input"}, execx.Result{ExitCode: 1})
@@ -92,7 +92,7 @@ func TestChoose(t *testing.T) {
 	if err != nil || got != "B" {
 		t.Fatalf("got %q, %v", got, err)
 	}
-	if line := f.Calls()[0].Line(); line != "gum choose --header "+testHeadText+"Trust --selected A A B" {
+	if line := drawn(f)[0].Line(); line != "gum choose --header "+testHeadText+"Trust --selected A A B" {
 		t.Fatalf("argv %q", line)
 	}
 }

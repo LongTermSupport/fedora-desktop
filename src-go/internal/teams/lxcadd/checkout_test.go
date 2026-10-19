@@ -74,6 +74,23 @@ func TestEveryQuestionShowsTheTeamTheStepTheContainerAndTheUser(t *testing.T) {
 	}
 }
 
+// On a 40-column terminal step 4's heading, the longest of the run, wraps to the 38 columns a
+// gum header has and keeps every answer given so far.
+func TestStepFoursHeadingWrapsOnANarrowTerminalAndKeepsEveryAnswer(t *testing.T) {
+	r := newRig(t)
+	r.Script.Columns = 40
+	r.happy()
+	if code := r.run("alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	r.Script.HeadingAt(3, "Teams › alpha › Add LXC member\n· step 4/4 Role\ninto team alpha\n· container container-a · user agent\n· checkout /srv/agent/one")
+	for l := range strings.SplitSeq(r.Script.Headings[3], "\n") {
+		if len([]rune(l)) > 38 || strings.HasSuffix(l, "..") {
+			t.Fatalf("a heading line does not fit 40 columns: %q", l)
+		}
+	}
+}
+
 func TestTypeAPathOpensTheContainersDirectoriesToWalkWithArrowsAndEnter(t *testing.T) {
 	r := browsing(t, "|project/", "|Use "+home+"/project")
 	if got := r.checkoutWritten(t); got != home+"/project" {
