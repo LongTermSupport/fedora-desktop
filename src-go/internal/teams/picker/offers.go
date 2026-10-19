@@ -26,7 +26,7 @@ func (p *Picker) offerCreate(ctx context.Context) error {
 		return err
 	}
 	p.Kit.Term.Say("No agent teams on this machine yet.")
-	yes, err := p.Kit.AskYes(ctx, "Create one now?", false)
+	yes, err := p.Kit.AskYes(ctx, flow.Here("Create a team").About("no agent teams on this machine yet"), "Create one now?", false)
 	if err != nil {
 		return err
 	}
@@ -83,8 +83,8 @@ func (p *Picker) askedBefore(marker, about string) (bool, error) {
 
 // offer is one three-way question: now (the cursor starts there), not now, or never. Esc is
 // not now: only the explicit never is kept.
-func (p *Picker) offer(ctx context.Context, header, now, never string) (answer, error) {
-	picked, err := p.Kit.Gum.Choose(ctx, header, now, []string{now, notNowWords, never})
+func (p *Picker) offer(ctx context.Context, h ui.Heading, header, now, never string) (answer, error) {
+	picked, err := p.Kit.Gum.Choose(ctx, h, header, now, []string{now, notNowWords, never})
 	switch {
 	case errors.Is(err, ui.ErrCancelled) || picked == notNowWords:
 		p.Kit.Tell("Not now: ccy-teams asks again next time.")
@@ -132,7 +132,8 @@ func (p *Picker) askPathLimit(ctx context.Context, team, prefixes, trusts, marke
 	p.Kit.Term.Say("One question about a team already on this machine, whichever checkout you are in.")
 	p.Kit.Term.Say("Team " + team + " (for " + trusts + ") was made when teams were limited to some folders: " +
 		"its agents may only point each other at files under " + prefixes + ".")
-	got, err := p.offer(ctx, "Remove "+team+"'s limit, so any path in its repositories can be named?",
+	h := flow.Here(team, "Folder limit").About("team " + team + " · for " + trusts + " · limited to " + prefixes)
+	got, err := p.offer(ctx, h, "Remove "+team+"'s limit, so any path in its repositories can be named?",
 		"Remove "+team+"'s limit now", "Keep "+team+"'s limit and never ask again")
 	switch {
 	case err != nil || got == answerLater:
@@ -232,7 +233,7 @@ func (p *Picker) askDescription(ctx context.Context, team declare.Undescribed, m
 	if err := p.Kit.NeedGum(); err != nil {
 		return err
 	}
-	got, err := p.offer(ctx, "Team "+team.Team+" (for "+team.Trusts+") has no description.",
+	got, err := p.offer(ctx, describeHeading(team), "Team "+team.Team+" (for "+team.Trusts+") has no description.",
 		"Describe "+team.Team+" now", "Never ask about "+team.Team)
 	switch {
 	case err != nil || got == answerLater:
@@ -242,7 +243,7 @@ func (p *Picker) askDescription(ctx context.Context, team declare.Undescribed, m
 			team.Team+"'s row has "+askDescriptionLabel(team.Team)+".")
 	case got == answerNow:
 	}
-	text, err := p.inputDescription(ctx, team.Team)
+	text, err := p.inputDescription(ctx, describeHeading(team), team.Team)
 	if err != nil || text == "" {
 		return err
 	}
@@ -258,12 +259,17 @@ func (p *Picker) askDescription(ctx context.Context, team declare.Undescribed, m
 	return nil
 }
 
-// inputDescription asks for team's one line until declare.py accepts it, maxDescriptionTries at
-// most; "" with no error is a person who gave up, and nothing is written.
-func (p *Picker) inputDescription(ctx context.Context, team string) (string, error) {
+// describeHeading is the heading of the questions that describe team.
+func describeHeading(team declare.Undescribed) ui.Heading {
+	return flow.Here(team.Team, "Description").About("team " + team.Team + " · for " + team.Trusts + " · no description yet")
+}
+
+// inputDescription asks for team's one line, under h, until declare.py accepts it,
+// maxDescriptionTries at most; "" with no error is a person who gave up, and nothing is written.
+func (p *Picker) inputDescription(ctx context.Context, h ui.Heading, team string) (string, error) {
 	value := ""
 	for range maxDescriptionTries {
-		answer, err := p.Kit.Gum.Input(ctx, "What is team "+team+" for?", "e.g. Builds and reviews the example site", value)
+		answer, err := p.Kit.Gum.Input(ctx, h, "What is team "+team+" for?", "e.g. Builds and reviews the example site", value)
 		if errors.Is(err, ui.ErrCancelled) {
 			return "", p.Kit.Cancelled()
 		}
@@ -307,7 +313,7 @@ func (p *Picker) offerUpdate(ctx context.Context) error {
 		return err
 	}
 	p.Kit.Term.Say("Not as declared: " + strings.Join(behind, " ") + ".")
-	yes, err := p.Kit.AskYes(ctx, "Update them now (play-agent-bus.yml)?", true)
+	yes, err := p.Kit.AskYes(ctx, flow.Here("Update").About("not as declared: "+strings.Join(behind, " ")), "Update them now (play-agent-bus.yml)?", true)
 	if err != nil || !yes {
 		return err
 	}
@@ -367,7 +373,7 @@ func (r *run) offerJoinHere(ctx context.Context) error {
 	if !slices.ContainsFunc(teams, free) {
 		return nil
 	}
-	return p.offerStart(ctx, top, "Start a ccy session in "+p.Kit.Abbrev(top)+"?")
+	return p.offerStart(ctx, top, repo, "Start a ccy session in "+p.Kit.Abbrev(top)+"?")
 }
 
 // offerCreateHere says that no team works on this checkout's repository, and offers one.
@@ -378,24 +384,24 @@ func (p *Picker) offerCreateHere(ctx context.Context, repo, top string) error {
 	p.Kit.Term.Say("No team on this machine works on " + repo + " (this checkout). " +
 		"The teams listed next are for other repositories.")
 	// No by default: creating a team is heavy and outward, and a stray Enter must not do it.
-	yes, err := p.Kit.AskYes(ctx, "Create a team for "+repo+" now?", false)
+	yes, err := p.Kit.AskYes(ctx, flow.Here("Create a team").About("no team works on "+repo+" (this checkout)"), "Create a team for "+repo+" now?", false)
 	if err != nil {
 		return err
 	}
 	if !yes {
 		p.Kit.Tell(nothingCreated)
-		return p.offerStart(ctx, top, "Start a ccy session in "+p.Kit.Abbrev(top)+" (choose its teams)?")
+		return p.offerStart(ctx, top, repo, "Start a ccy session in "+p.Kit.Abbrev(top)+" (choose its teams)?")
 	}
 	return flow.Leave(p.Create.Run(ctx, nil))
 }
 
 // offerStart offers a bare `ccy --teams` in top, which lists the teams and lets the person choose
 // (adding this repository to a team's scope when the team does not cover it).
-func (p *Picker) offerStart(ctx context.Context, top, question string) error {
+func (p *Picker) offerStart(ctx context.Context, top, repo, question string) error {
 	if err := p.Kit.NeedGum(); err != nil {
 		return err
 	}
-	yes, err := p.Kit.AskYes(ctx, question, true)
+	yes, err := p.Kit.AskYes(ctx, flow.Here("New session").About("in "+p.Kit.Abbrev(top)+" · "+repo), question, true)
 	if err != nil || !yes {
 		return err
 	}

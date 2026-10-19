@@ -105,18 +105,23 @@ const tagDelimiter = "\t"
 type Picker struct {
 	Runner execx.Runner
 	Stderr io.Writer
+	// Plain draws the heading without colour: NO_COLOR, or not a terminal.
+	Plain bool
 }
 
-// Pick shows the rows and the actions and returns what was chosen. Esc, q and the Exit row are
-// ErrLeave; leaving a row's menu is ErrBack.
-func (p *Picker) Pick(ctx context.Context, s PickSpec) (Picked, error) {
+// Pick shows the rows and the actions under the heading h and returns what was chosen. Esc, q
+// and the Exit row are ErrLeave; leaving a row's menu is ErrBack.
+func (p *Picker) Pick(ctx context.Context, h Heading, s PickSpec) (Picked, error) {
+	if err := h.check(); err != nil {
+		return Picked{}, err
+	}
 	if err := s.checkActions(); err != nil {
 		return Picked{}, err
 	}
 	if len(s.Tags) > 0 && len(s.Tags) != len(s.Rows) {
 		return Picked{}, errTagCount
 	}
-	args, err := s.fzfArgs()
+	args, err := s.fzfArgs(h, !p.Plain, p.headingWidth(ctx, framedMargin))
 	if err != nil {
 		return Picked{}, err
 	}
@@ -143,7 +148,7 @@ func (p *Picker) Pick(ctx context.Context, s PickSpec) (Picked, error) {
 	if s.Typed {
 		query, out = splitLine(out)
 	}
-	picked, err := p.pickedFrom(ctx, s, out, len(lines), exitRow)
+	picked, err := p.pickedFrom(ctx, h, s, out, len(lines), exitRow)
 	picked.Query = query
 	return picked, err
 }
@@ -158,9 +163,9 @@ func placeOf(line string, n int) (string, int, error) {
 	return text, at, nil
 }
 
-// fzfArgs is the house style, the header, and the keys the screen declares.
-func (s PickSpec) fzfArgs() ([]string, error) {
-	headerArgs, err := s.headerArgs()
+// fzfArgs is the house style, the header under the heading h, and the keys the screen declares.
+func (s PickSpec) fzfArgs(h Heading, colour bool, width int) ([]string, error) {
+	headerArgs, err := s.headerArgs(h, colour, width)
 	if err != nil {
 		return nil, err
 	}
@@ -243,21 +248,30 @@ func splitLine(text string) (string, string) {
 	return text, ""
 }
 
-// headerArgs is the fzf arguments that set the header: the one given, or the first row's when
-// each row has its own, which then follows the cursor.
-func (s PickSpec) headerArgs() ([]string, error) {
+// headerArgs is the fzf arguments that set the header, each under the heading h: the one
+// given, or the first row's when each row has its own, which then follows the cursor. A heading
+// that names no place is ErrNoHeading.
+func (s PickSpec) headerArgs(h Heading, colour bool, width int) ([]string, error) {
+	if err := h.check(); err != nil {
+		return nil, err
+	}
+	headed := func(text string) string { return h.above(text, colour, width) }
 	if len(s.RowHeaders) == 0 {
-		return []string{"--header=" + s.Header + "\n"}, nil
+		return []string{"--header=" + headed(s.Header) + "\n"}, nil
 	}
 	n := len(s.RowHeaders)
 	if n != len(s.Rows) && (len(s.Actions) == 0 || n != len(s.Rows)+len(s.Actions)) {
 		return nil, errHeaderCount
 	}
-	first := s.RowHeaders[0]
-	if s.CursorLast {
-		first = s.Header
+	rowHeaders := make([]string, n)
+	for i, rh := range s.RowHeaders {
+		rowHeaders[i] = headed(rh)
 	}
-	follow := headerFollowsCursor(s.RowHeaders, s.Header)
+	first := rowHeaders[0]
+	if s.CursorLast {
+		first = headed(s.Header)
+	}
+	follow := headerFollowsCursor(rowHeaders, headed(s.Header))
 	if len(follow) > maxBindingBytes {
 		return nil, fmt.Errorf("%w: %d bytes, the limit is %d", errHeadersTooLarge, len(follow), maxBindingBytes)
 	}
@@ -303,12 +317,15 @@ func parsePicked(out string, withKey bool) (string, string, error) {
 	return key, row, nil
 }
 
-// Confirm is a yes/no in the picker, so no prompt is a bare read: one "Yes, <action>" row
-// above Exit. The cursor starts on Exit unless defaultYes (a harmless step the person came
-// to take). Leaving is a no.
-func (p *Picker) Confirm(ctx context.Context, title, question, action string, defaultYes bool) (bool, error) {
-	picked, err := p.Pick(ctx, PickSpec{
-		Title: title, Header: Header("Enter choose   Esc or q exit", question),
+// Confirm is a yes/no in the picker under the heading h, so no prompt is a bare read: one
+// "Yes, <action>" row above Exit. The frame is titled with the heading's first crumb. The cursor
+// starts on Exit unless defaultYes (a harmless step the person came to take). Leaving is a no.
+func (p *Picker) Confirm(ctx context.Context, h Heading, question, action string, defaultYes bool) (bool, error) {
+	if err := h.check(); err != nil {
+		return false, err
+	}
+	picked, err := p.Pick(ctx, h, PickSpec{
+		Title: h.Crumbs[0], Header: Header("Enter choose   Esc or q exit", question),
 		Rows: []string{"Yes, " + action}, CursorLast: !defaultYes,
 	})
 	if errors.Is(err, ErrLeave) {
@@ -321,13 +338,13 @@ func (p *Picker) Confirm(ctx context.Context, title, question, action string, de
 }
 
 // pickedFrom is what fzf's answer chose: the key line when keys were expected, then the row.
-func (p *Picker) pickedFrom(ctx context.Context, s PickSpec, out string, n int, exitRow string) (Picked, error) {
+func (p *Picker) pickedFrom(ctx context.Context, h Heading, s PickSpec, out string, n int, exitRow string) (Picked, error) {
 	key, line, err := parsePicked(out, len(s.keys()) > 0)
 	if err != nil {
 		return Picked{}, err
 	}
 	if line == exitRow {
-		return p.chosen(ctx, s, key, "", -1)
+		return p.chosen(ctx, h, s, key, "", -1)
 	}
 	if !s.indexed() {
 		// Rows with tags only carry the tag itself; a row fzf hands back without one keeps "".
@@ -340,11 +357,11 @@ func (p *Picker) pickedFrom(ctx context.Context, s PickSpec, out string, n int, 
 	if err != nil {
 		return Picked{}, err
 	}
-	return p.chosen(ctx, s, key, text, at)
+	return p.chosen(ctx, h, s, key, text, at)
 }
 
 // chosen is what the key, or Enter, chose on the row at place at (-1 for the Exit row).
-func (p *Picker) chosen(ctx context.Context, s PickSpec, key, row string, at int) (Picked, error) {
+func (p *Picker) chosen(ctx context.Context, h Heading, s PickSpec, key, row string, at int) (Picked, error) {
 	var picked Picked
 	onRow := at >= 0 && at < len(s.Rows)
 	if onRow {
@@ -362,14 +379,19 @@ func (p *Picker) chosen(ctx context.Context, s PickSpec, key, row string, at int
 	case !onRow:
 		return Picked{Action: s.Actions[at-len(s.Rows)].ID}, nil
 	case len(s.Menus) > 0:
-		return p.menu(ctx, s.Menus[at], picked)
+		return p.menu(ctx, h, s.Menus[at], picked)
 	}
 	return picked, nil
 }
 
-// menu is Enter on a row: its actions, each with its key; leaving it is ErrBack.
-func (p *Picker) menu(ctx context.Context, m Menu, picked Picked) (Picked, error) {
-	got, err := p.Pick(ctx, PickSpec{Title: m.Title, Header: m.Header, Actions: m.Actions, ExitLabel: menuBack})
+// menu is Enter on a row: its actions, each with its key, under the menu's own heading, or the
+// list's heading with the menu's title as one more crumb; leaving it is ErrBack.
+func (p *Picker) menu(ctx context.Context, h Heading, m Menu, picked Picked) (Picked, error) {
+	mh := m.Heading
+	if len(mh.Crumbs) == 0 {
+		mh = h.Push(m.Title)
+	}
+	got, err := p.Pick(ctx, mh, PickSpec{Title: m.Title, Header: m.Header, Actions: m.Actions, ExitLabel: menuBack})
 	if errors.Is(err, ErrLeave) {
 		return Picked{}, ErrBack
 	}

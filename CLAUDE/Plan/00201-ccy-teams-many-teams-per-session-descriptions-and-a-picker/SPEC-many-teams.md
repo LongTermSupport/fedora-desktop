@@ -22,7 +22,7 @@ a different answer changes only the expectations it names.
 | Q4  | Choosing a team that does not cover the checkout: what are the choices?                               | Three, default **Add**: "Add example-org/proj to beta's scope", "Join without adding (beta will treat example-org/proj references as external)", "Leave beta out". Joining without adding is an explicit, named choice, not a fallback.                     | S-B7          |
 | Q5  | When does the chooser appear?                                                                         | Whenever an attended launch has `--teams` with no value or a team alone, **unless** the machine has exactly one team and it covers the checkout (then it is taken, as today). With two or more teams the owner always sees the list, covering teams on top. | S-B2          |
 | Q6  | How does `pingbus send`/`say` pick a team when the session is on several?                             | Infer it when unambiguous: from `--re` (`send` only: an event belongs to one team's room) or from `--to` (every name resolves in exactly one active team). Otherwise exit 64 listing the active teams with their descriptions. `--team` always wins.        | S-C8, S-C9    |
-| Q7  | Show the session's teams in the **status line**?                                                      | Yes (revised after review): the member kit's `pingbus status-line` shows `👥 alpha,beta` from the per-session record, below the checkout's own status line, in any checkout (S-C6). It is the one place visible during the whole session.                 | S-C6          |
+| Q7  | Show the session's teams in the **status line**?                                                      | Yes (revised after review): the member kit's `pingbus status-line` shows `👥 alpha,beta` from the per-session record, below the checkout's own status line, in any checkout (S-C6). It is the one place visible during the whole session.                   | S-C6          |
 | Q8  | Does `recv` print a ready reply command for PINGs too, or only for PEER and HUMAN items?              | PEER and HUMAN only (what was asked). A PING's answer is a verb the agent must choose; the skill already says how.                                                                                                                                          | S-D1          |
 | Q9  | `cc --teams`: does cc pick its seat silently (today) or show the seat and role chooser as ccy does?   | Show the same chooser: one flow, one behaviour. The only cc-specific step is the Element consent, shown inside the flow.                                                                                                                                    | S-E3          |
 | Q10 | `ccy-teams for-checkout --choose`: keep or remove once the launchers use the new flow?                | Remove `--choose` (YAGNI); keep `for-checkout` without it, which prints the covering teams for scripts.                                                                                                                                                     | S-B14         |
@@ -176,14 +176,14 @@ chooser logic in bash (the bash ratchet, R§1, forbids growing `claude-yolo` or
 - **S-C1** Several teams are chosen at launch by S-B3's marks or by an explicit
   `--teams 1@alpha,qa2@beta` (unchanged). One seat per team (D48, unchanged).
   Every question of a team's sequence names the team and its place among the teams being
-  joined: the scope question ("Team 2 of 3: beta · scope: beta does not trust ..."), the seat
-  question ("Team 2 of 3: beta · seat: which seat does this session take?") and the role
-  question ("Team 2 of 3: beta · role of seat 1: ..."). One team is headed "Team beta". The
-  heading is also said on its own line before the team's questions, so a team's lines (the
-  "references external" note, "Taking seat ...") sit under its own heading and never under
-  another team's. In a given list, the place counts every item, named seats included.
-  Owner feedback, Plan 00203. A shared screen heading in the ui layer would take this text:
-  it is built once, by `chooser.heading`, and handed to the seat chooser through `SeatFunc`.
+  joined, as the screen heading (`ui.Heading`, Plan 00204 D4): the scope question
+  ("New session › Team 2 of 3: beta › Scope"), the seat question ("New session › Team 2 of 3:
+  beta · step 1/2 Seat") and the role question ("… · step 2/2 Role"). One team is headed
+  "New session › Team beta". The heading draws the trail, so it is not said again; a team's
+  lines after its questions (the "references external" note, "Taking seat 1@beta ...") name
+  the team themselves. In a given list, the place counts every
+  item, named seats included. Owner feedback, Plan 00203. It is built once, by
+  `flow.LaunchTeam`, and handed to the seat chooser through `SeatFunc`.
 - **S-C2** A session's teams change only by a new launch; there is no join-while-running.
 - **S-C3** Restart, restore and Quick Launch replay the whole canonical list (unchanged;
   verified by a test with two teams).
@@ -326,11 +326,11 @@ the facts kept elsewhere, as built:
   lose: 78, nothing written. A vaulted entry: 78. Prints `CHANGED<TAB>team T: <keys>` or
   `UNCHANGED<TAB>T`. `describe` and `drop-limit` are this edit with one key.
 - **S-F6** `declare.Client.Settings`, `Set` and `CheckSet` run them (Go).
-- **S-F7** The screen (title `Team <team> › Settings`) lists the editable fields with their
+- **S-F7** The screen (headed `Teams › <team> › Settings`, over the team and the changes waiting) lists the editable fields with their
   values, then `Coordinator: <handle or (none)>   (changed at once)`, then the fixed fields
   marked `(fixed)`, then `Save and apply (<n> changes | nothing changed yet)`, `Discard changes` and `Back`. Each row's header says what the field is and what applying it does, or
   why it is fixed. A pending change is shown as the row's value, marked `(changed)`.
-- **S-F8** Choosing an editable field asks for it (`gum input`, titled `Team <team> › Settings › <field>`, starting from its value; lists are comma-separated). The answer is judged by
+- **S-F8** Choosing an editable field asks for it (`gum input`, headed `Teams › <team> › Settings › <field>`, starting from its value; lists are comma-separated). The answer is judged by
   `set --check` together with the other pending changes; refused, the reason is shown and it
   is asked again, three times at most. Esc leaves the field as it was. The value it already has
   is no change.

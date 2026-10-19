@@ -171,7 +171,7 @@ func (s *Shutdown) confirm(ctx context.Context, team string, n int, yes bool) (t
 	if !s.IsTerminal(s.Stdin) || !s.IsTerminal(s.Term.Err) {
 		return s.usageError("shutting sessions down ends them: confirm it with --yes when there is no terminal."), false
 	}
-	sure, err := s.Kit.Confirm(ctx, "Shut down "+team, "Shut down "+sessions(n)+" of "+team+"?", "shut down "+sessions(n), false)
+	sure, err := s.Kit.Confirm(ctx, flow.Here(team, "Shut down").About("team "+team+" · "+sessions(n)+" running"), "Shut down "+sessions(n)+" of "+team+"?", "shut down "+sessions(n), false)
 	if err != nil {
 		if code, ok := flow.ExitCodeOf(err); ok {
 			return code, false

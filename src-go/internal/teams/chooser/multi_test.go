@@ -35,6 +35,12 @@ func TestTwoMarkedTeamsGetASeatEachInListOrder(t *testing.T) {
 	if !slices.Equal(r.seatsAsked, []string{"alpha/podman", "beta/podman"}) {
 		t.Fatalf("seats %v", r.seatsAsked)
 	}
+	// Each team's questions say which of the teams it is, so a seat is never chosen blind.
+	if want := []string{"New session › Team 1 of 2: alpha", "New session › Team 2 of 2: beta"}; !slices.Equal(r.seatTrails, want) {
+		t.Fatalf("seat headings %q, want %q", r.seatTrails, want)
+	}
+	r.Script.HeadingAt(0, "New session › Teams\nfor "+repo+" (this checkout)")
+	r.Script.HeadingAt(1, "New session › Team 2 of 2: beta › Scope\nteam beta · does not cover "+repo+" (this checkout)")
 }
 
 // S-B9: every Add of one run is applied by one play run.
@@ -160,30 +166,30 @@ func TestEachTeamsQuestionsCarryItsHeadingAndPlaceInTheSequence(t *testing.T) {
 	r.Script.Fzf = []string{"|alpha&&beta&&delta"}
 	r.Script.Gum = []string{joinBeta, "CHOOSE:Join without adding (delta will treat " + repo + " references as external)"}
 	exit(t, r.run("--type=podman"), term.ExitOK, r)
-	if want := []string{"Team 1 of 3: alpha", "Team 2 of 3: beta", "Team 3 of 3: delta"}; !slices.Equal(r.headings, want) {
-		t.Fatalf("seat headings %q, want %q", r.headings, want)
+	if want := []string{"New session › Team 1 of 3: alpha", "New session › Team 2 of 3: beta", "New session › Team 3 of 3: delta"}; !slices.Equal(r.seatTrails, want) {
+		t.Fatalf("seat headings %q, want %q", r.seatTrails, want)
 	}
-	if len(r.Script.GumLog) != 2 || !strings.Contains(r.Script.GumLog[0], "Team 2 of 3: beta · scope") ||
-		!strings.Contains(r.Script.GumLog[1], "Team 3 of 3: delta · scope") {
+	if len(r.Script.GumLog) != 2 {
 		t.Fatalf("scope questions %q", r.Script.GumLog)
 	}
-	out := r.stderr()
-	beta, note, delta := strings.Index(out, "Team 2 of 3: beta · scope\n"), strings.Index(out, "beta: "+repo+" references external"),
-		strings.Index(out, "Team 3 of 3: delta · scope\n")
-	if beta < 0 || note < beta || delta < note {
-		t.Fatalf("beta's note is not under beta's heading, before delta's:\n%s", out)
+	r.Script.HeadingAt(1, "New session › Team 2 of 3: beta › Scope\nteam beta · does not cover "+repo+" (this checkout)")
+	r.Script.HeadingAt(2, "New session › Team 3 of 3: delta › Scope\nteam delta · does not cover "+repo+" (this checkout)")
+	// The heading draws the trail, so it is not said again; the note after the question names
+	// its team itself.
+	if out := r.stderr(); !strings.Contains(out, "beta: "+repo+" references external") || strings.Contains(out, "› Scope") {
+		t.Fatalf("stderr:\n%s", out)
 	}
 }
 
 func TestAListOfOneTeamAloneIsHeadedByTheTeamAlone(t *testing.T) {
 	r := newRig(t, alphaCovers)
 	exit(t, r.run("--type=podman", "alpha"), term.ExitOK, r)
-	if !slices.Equal(r.headings, []string{"Team alpha"}) {
-		t.Fatalf("headings %q", r.headings)
+	if !slices.Equal(r.seatTrails, []string{"New session › Team alpha"}) {
+		t.Fatalf("headings %q", r.seatTrails)
 	}
 	r = newRig(t, alphaCovers)
 	exit(t, r.run("--type=podman", "alpha,2@beta,delta"), term.ExitOK, r)
-	if !slices.Equal(r.headings, []string{"Team 1 of 3: alpha", "Team 3 of 3: delta"}) {
-		t.Fatalf("headings %q", r.headings)
+	if !slices.Equal(r.seatTrails, []string{"New session › Team 1 of 3: alpha", "New session › Team 3 of 3: delta"}) {
+		t.Fatalf("headings %q", r.seatTrails)
 	}
 }

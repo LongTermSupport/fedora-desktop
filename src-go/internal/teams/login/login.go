@@ -182,8 +182,8 @@ func sessionsWarning(snap *board.Snapshot, team, name string) string {
 // else defaults to No, as a new password signs out their other devices.
 func (l *Login) SetPassword(ctx context.Context, snap *board.Snapshot, team, name string) (bool, error) {
 	count, known := snap.SessionsOf(team, name)
-	yes, err := l.Kit.Confirm(ctx, "New Element password for "+name+"?",
-		"Sets a new password for "+name+" on "+team+"'s homeserver and shows it here, once: it is stored nowhere. "+
+	yes, err := l.Kit.Confirm(ctx, passwordHeading(snap, team, name),
+		"New Element password for "+name+"? Sets a new password for "+name+" on "+team+"'s homeserver and shows it here, once: it is stored nowhere. "+
 			sessionsWarning(snap, team, name),
 		"set a new password for "+name, known && count == 0)
 	if err != nil {
@@ -194,6 +194,15 @@ func (l *Login) SetPassword(ctx context.Context, snap *board.Snapshot, team, nam
 		return false, nil
 	}
 	return l.IssuePassword(ctx, snap, team, name)
+}
+
+// passwordHeading is the heading of the questions about name's Element password in team.
+func passwordHeading(snap *board.Snapshot, team, name string) ui.Heading {
+	context := name + " in team " + team
+	if count, known := snap.SessionsOf(team, name); known {
+		context += " · " + strconv.Itoa(count) + " Element sessions"
+	}
+	return flow.Here(team, name, "Element password").About(context)
 }
 
 // IssuePassword sets name's password on team and shows it once, the question having been
@@ -212,7 +221,7 @@ func (l *Login) IssuePassword(ctx context.Context, snap *board.Snapshot, team, n
 	// The person's other Element sessions were signed out.
 	l.Board.ForgetDevices(team)
 	l.showLogin(snap, team, name, password)
-	return true, l.offerCopy(ctx, name, password)
+	return true, l.offerCopy(ctx, passwordHeading(snap, team, name), name, password)
 }
 
 // NewPassword is the sign-in offered straight after a team is made, for a person of it: the
@@ -305,7 +314,7 @@ func (l *Login) offerSignIn(ctx context.Context, snap *board.Snapshot, team, nam
 // askSignIn asks, then sets the password. Leaving the question (Ctrl-C) is a no, said without
 // "nothing was changed": the apply ran. It says whether a password was set.
 func (l *Login) askSignIn(ctx context.Context, snap *board.Snapshot, team, name string) (bool, error) {
-	yes, err := l.Kit.Gum.Confirm(ctx, "Sign "+name+" in to Element now? A password is set and shown here once.", true)
+	yes, err := l.Kit.Gum.Confirm(ctx, flow.Here(team, name, "Sign in").About(name+" in team "+team+" · just added"), "Sign "+name+" in to Element now? A password is set and shown here once.", true)
 	if errors.Is(err, ui.ErrCancelled) || (err == nil && !yes) {
 		return false, nil
 	}
@@ -343,8 +352,8 @@ func (l *Login) passwordFor(ctx context.Context, snap *board.Snapshot, row board
 // offerElement asks whether to open the team in Element now, setting its profile up first when
 // it has none.
 func (l *Login) offerElement(ctx context.Context, team string) error {
-	yes, err := l.Kit.Confirm(ctx, "Open "+team+" in Element now?",
-		"Element opens in a window of its own; ccy-teams stays here.", "open "+team+" in Element", true)
+	yes, err := l.Kit.Confirm(ctx, flow.Here(team, "Open in Element").About("team "+team),
+		"Open "+team+" in Element now? Element opens in a window of its own; ccy-teams stays here.", "open "+team+" in Element", true)
 	if err != nil || !yes {
 		return err
 	}
@@ -363,7 +372,7 @@ func (l *Login) setUpElement(ctx context.Context, team string) (flow.Result, err
 		return flow.Refused, err
 	}
 	l.Kit.Term.Say(team + " has no Element profile on this desktop yet.")
-	yes, err := l.Kit.AskYes(ctx, "Set one up now? It installs Element Desktop if needed (sudo asks for your password).", true)
+	yes, err := l.Kit.AskYes(ctx, flow.Here(team, "Element profile").About("team "+team+" · no Element profile on this desktop"), "Set one up now? It installs Element Desktop if needed (sudo asks for your password).", true)
 	if err != nil {
 		return flow.Refused, err
 	}
@@ -415,7 +424,7 @@ func (l *Login) showLogin(snap *board.Snapshot, team, name, password string) {
 // Nor is it while the Clipboard Indicator extension is on (or that cannot be read): it reads
 // every new selection, which is the one paste, and keeps it in its history; it honours no
 // password-manager hint.
-func (l *Login) offerCopy(ctx context.Context, name, password string) error {
+func (l *Login) offerCopy(ctx context.Context, h ui.Heading, name, password string) error {
 	if l.Getenv("WAYLAND_DISPLAY") == "" {
 		return nil
 	}
@@ -435,8 +444,8 @@ func (l *Login) offerCopy(ctx context.Context, name, password string) error {
 			"and it would use up the one paste and keep the password in its history. Type it from above.")
 		return nil
 	}
-	yes, err := l.Kit.Confirm(ctx, "Copy the password?",
-		"Put "+name+"'s new password on the clipboard for one paste, into Element; after that it is gone "+
+	yes, err := l.Kit.Confirm(ctx, h.Push("Copy"),
+		"Copy the password? Put "+name+"'s new password on the clipboard for one paste, into Element; after that it is gone "+
 			"from the clipboard. A clipboard manager may keep a copy.",
 		"copy the password", true)
 	if err != nil || !yes {

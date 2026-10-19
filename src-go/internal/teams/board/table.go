@@ -89,6 +89,15 @@ func (r Row) Painted() string {
 		paint(13, r.State), paint(18, r.Applied), paint(26, r.Session), paint(7, r.Restore), r.Where)
 }
 
+// Crumb is how a screen's heading names the row's member: a seat of a checkout as "seat <name>",
+// anyone else by the name the MEMBER column shows.
+func (r Row) Crumb() string {
+	if r.Kind == KindCcy && r.Dir != "-" {
+		return "seat " + r.Member
+	}
+	return r.Member
+}
+
 // memberCell is the MEMBER column: the seat, marked when it is the team's coordinator. A member
 // shown by its handle (no checkout known) is too wide for a mark and says its role in WHERE.
 func (r Row) memberCell() string {
