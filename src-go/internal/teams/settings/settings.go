@@ -514,17 +514,16 @@ func (sc *screen) coordinator(ctx context.Context) error {
 	return nil
 }
 
-// pickCoordinator is the member chosen to coordinate, or tagNoOne; ui.ErrLeave for Back. The
-// two paths of package coordinator: a team with none is offered one plainly; a team with one is
-// a takeover, which names it, says whether it runs and that it becomes a worker, and offers No
-// coordinator.
+// pickCoordinator is the member chosen to coordinate, of any kind, or tagNoOne; ui.ErrLeave for
+// Back. The two paths of package coordinator: a team with none is offered one plainly; a team
+// with one is a takeover, which names it, says whether it runs and that it becomes a worker, and
+// offers No coordinator, last, as it is destructive.
 func (sc *screen) pickCoordinator(ctx context.Context) (string, error) {
 	holder := sc.holder()
 	rows := make([]string, 0, 1+len(sc.roster.Members))
 	tags := make([]string, 0, 1+len(sc.roster.Members))
 	about := sc.team + " has no coordinator. Choose the member to make its coordinator."
 	if holder.Handle != "" {
-		rows, tags = append(rows, "No coordinator"), append(tags, tagNoOne)
 		about = sc.team + "'s coordinator is " + holder.Named() + ". A team has one coordinator: choosing " +
 			"another member is a takeover, " + holder.Handle + " becomes a worker, and the question starts on No."
 	}
@@ -537,6 +536,9 @@ func (sc *screen) pickCoordinator(ctx context.Context) (string, error) {
 			row += "   (parked)"
 		}
 		rows, tags = append(rows, row), append(tags, m.Handle)
+	}
+	if holder.Handle != "" {
+		rows, tags = append(rows, "No coordinator"), append(tags, tagNoOne)
 	}
 	picked, err := sc.s.Kit.Choose(ctx, sc.heading("Coordinator"), ui.PickSpec{
 		Title: sc.title("Coordinator"), Rows: rows, Tags: tags, ExitLabel: "Back to the settings",

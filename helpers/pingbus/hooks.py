@@ -31,6 +31,10 @@ event, a stored file or an exception carried reaches the output: every text is o
   (`seat.record_goodbye`), which the host's `seat disconnected` reads. A failure is one
   stderr line; the hook still answers.
 - `post-tool` (PostToolUse) is the `SENT` echo (relay mode only; nothing otherwise).
+- Under `PINGBUS_MEMBERSHIP`, `session-start` first records the session's current conversation
+  id beside its report (`conversation.json`), which the host resumes after a reboot or a team
+  restart (Plan 00203 SPEC-team-add-and-restart C1). `conversation` records only that and
+  answers nothing: it is what a session holding no seat runs at SessionStart (Decision 12).
 
 With `PINGBUS_DELIVERY=relay` (Plan 00194) a supervisor plugin owns the watcher and types
 the messages: `session-start` spawns nothing and names no wake path, the counts leave out
@@ -54,6 +58,7 @@ import shutil
 import signal
 import stat
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping
@@ -61,13 +66,14 @@ from typing import TextIO
 
 from helpers.pingbus import config, inbox, inject, membership, notify, protocol, relay, seat, sentlog, statusline
 
-EVENTS = ("session-start", "prompt", "stop", "session-end", "post-tool")
+EVENTS = ("session-start", "prompt", "stop", "session-end", "post-tool", "conversation")
 HOOK_EVENT_NAMES = {
     "session-start": "SessionStart",
     "prompt": "UserPromptSubmit",
     "stop": "Stop",
     "session-end": "SessionEnd",
     "post-tool": "PostToolUse",
+    "conversation": "SessionStart",
 }
 GUARD_FILE = "stop-guard.json"
 GOODBYE_FILE = "goodbye.json"
@@ -200,6 +206,37 @@ sessions_dir = statusline.sessions_dir
 def _session_id(payload: dict | None) -> str | None:
     value = None if payload is None else payload.get("session_id")
     return value if isinstance(value, str) and SESSION_ID_RE.fullmatch(value) else None
+
+
+#: Beside the keeper's report (seat.py `_publish`): the session's current conversation, which
+#: the host resumes by id after a reboot or a team restart (Plan 00203 SPEC-team-add-and-restart C1).
+CONVERSATION_FILE = "conversation.json"
+CONVERSATION_SOURCES = ("startup", "resume", "clear", "compact")
+
+
+def conversation_path(desired: membership.Desired) -> pathlib.Path:
+    """Where the session's conversation is recorded: its report directory, under the checkout
+    as this side sees it (/workspace in a ccy container, the checkout itself for cc)."""
+    root = seat.CCY_SEATS_ROOT if desired.kind == "ccy" else seat.checkout_seats_root(pathlib.Path(desired.checkout))
+    return root.parent / seat.SESSIONS_DIR / desired.session / CONVERSATION_FILE
+
+
+def record_conversation(environ: Mapping[str, str], payload: dict | None, now_ms: int) -> pathlib.Path | None:
+    """C1, C2: write the conversation the session is in now, named by the host's own membership
+    file; None when the session is not under the membership or the hook was given no id.
+    `OSError` or `MembershipError` when it cannot be written."""
+    marker = environ.get(membership.MEMBERSHIP_VAR)
+    session_id = _session_id(payload)
+    if marker in (None, membership.MEMBERSHIP_OFF) or session_id is None:
+        return None
+    desired = membership.read_desired(membership.mount_dir(marker))
+    source = payload.get("source") if payload is not None else None
+    path = conversation_path(desired)
+    os.makedirs(path.parent, mode=seat.SESSION_HOME_MODE, exist_ok=True)
+    membership.write_private_json(path, {
+        "v": 1, "session": desired.session, "session_id": session_id,
+        "source": source if source in CONVERSATION_SOURCES else "other", "written_ms": now_ms})
+    return path
 
 
 def record_session_teams(environ: Mapping[str, str], session_id: str, teams: list[str]) -> None:
@@ -381,6 +418,60 @@ def tell_membership(environ: Mapping[str, str], deliver: Callable[[list[str]], b
         if lines and not deliver(lines):
             return False
         membership.write_told(home, record)
+        return True
+
+
+# ── the role notice outside the membership (Plan 00203 Task 3.8) ─────────────────────────
+
+
+def _outside_membership(environ: Mapping[str, str]) -> bool:
+    """A session ccy's membership does not hold: one agent-bus-claude starts (an LXC
+    container's agent, a host, docker or vm member), whose teams are its bundles."""
+    return environ.get(membership.MEMBERSHIP_VAR) in (None, membership.MEMBERSHIP_OFF)
+
+
+def role_notice(previous: Mapping[str, str] | None,
+                views: tuple[TeamView, ...]) -> tuple[dict[str, str], list[str]]:
+    """The roles told after this notice, and its lines: one role context for each team whose
+    role changed since previous. Nothing is said when nothing was told before (the session
+    start told every role), and a team whose record cannot be read keeps what it was told."""
+    now = {view.team: view.role for view in views if view.role in membership.ROLES}
+    if previous is None:
+        return now, []
+    active = {view.team for view in views}
+    record = {**{team: role for team, role in previous.items() if team in active}, **now}
+    changed = tuple(view for view in views if view.team in now and view.team in previous
+                    and previous[view.team] != now[view.team])
+    return record, role_lines(changed)
+
+
+def tell_roles(environ: Mapping[str, str], deliver: Callable[[list[str]], bool],
+               views: tuple[TeamView, ...] | None = None, *, err: TextIO | None = None) -> bool | None:
+    """Tell a session outside the membership a change of its own role, once, as
+    tell_membership tells a ccy session: True when told (or recorded), False when `deliver`
+    could not, None for a membership session, nothing to tell, or another teller at it. An
+    unreadable record of what was told is said on `err` (stderr by default) and taken again
+    from now: a change since it was written is recorded, not told."""
+    err = sys.stderr if err is None else err
+    if not _outside_membership(environ):
+        return None
+    home = config.resolve_home(environ)
+    with membership.telling(home) as mine:
+        if not mine:
+            return None
+        teams = survey(environ).teams if views is None else views
+        try:
+            previous = membership.read_told_roles(home)
+        except membership.MembershipError as exc:
+            err.write(f"pingbus: the record of the roles this session was told is unreadable ({exc}): "
+                      f"it is written again from now, so a role change since is not told\n")
+            previous = None
+        record, lines = role_notice(previous, teams)
+        if record == previous:
+            return None
+        if lines and not deliver(lines):
+            return False
+        membership.write_told_roles(home, record)
         return True
 
 
@@ -672,7 +763,21 @@ class _Hook:
             stopped = True
         return [TEMPLATES["keeper_stopped"]] if stopped else []
 
+    def conversation(self) -> dict:
+        """Decision 12: a session start with no seat held (the inert contract) records the
+        conversation and answers nothing, so a session on no team is restored too."""
+        self._record_conversation()
+        return {}
+
+    def _record_conversation(self) -> None:
+        try:
+            record_conversation(self.environ, self.payload, self.now_ms)
+        except (OSError, membership.MembershipError) as exc:
+            self.err.write(f"pingbus: hook {self.event}: the conversation record for a restore was not "
+                           f"written: {type(exc).__name__}\n")
+
     def session_start(self) -> dict:
+        self._record_conversation()
         surveyed = survey(self.environ)
         self._membership_baseline(surveyed)
         lines = self._keeper_lines() + self._session_teams_lines(surveyed)
@@ -688,6 +793,7 @@ class _Hook:
             seat_failure = "state"
         lines += about_lines(surveyed.teams)
         lines += role_lines(surveyed.teams)
+        self._role_lines(surveyed, baseline=True)
         lines += self._pending_and_failure(surveyed, seat_failure)
         return _context(self.event, lines)
 
@@ -706,6 +812,18 @@ class _Hook:
         except (OSError, ValueError, membership.MembershipError) as exc:
             self.err.write(f"pingbus: hook session-start: the membership record was not written: "
                            f"{type(exc).__name__}\n")
+
+    def _role_lines(self, surveyed: Survey, *, baseline: bool = False) -> list[str]:
+        """Outside the membership (Plan 00203 Task 3.8): a change of this session's role the
+        watcher did not deliver, told here once. At the session start (baseline) the roles it
+        told are recorded and nothing more is said."""
+        told: list[str] = []
+        try:
+            tell_roles(self.environ, lambda lines: baseline or told.extend(lines) or True, surveyed.teams, err=self.err)
+        except (OSError, membership.MembershipError) as exc:
+            self.err.write(f"pingbus: hook {self.event}: the role notice failed: {type(exc).__name__}\n")
+            return []
+        return told
 
     def _membership_lines(self) -> list[str]:
         """H13: a membership change the watcher did not deliver, told here once."""
@@ -790,7 +908,7 @@ class _Hook:
         surveyed = survey(self.environ)
         self._record_transcript(surveyed)
         revived = self._revive(surveyed)
-        lines = self._keeper_lines() + self._membership_lines()
+        lines = self._keeper_lines() + self._membership_lines() + self._role_lines(surveyed)
         lines += [] if revived is None else [TEMPLATES[f"watcher_{revived}"]]
         return _context(self.event, lines + self._pending_and_failure(surveyed))
 
@@ -1022,6 +1140,8 @@ def run(event: str, raw: bytes, environ: Mapping[str, str], *, now_ms: int,
             return hook.session_end(post)
         if event == "session-start":
             return hook.session_start()
+        if event == "conversation":
+            return hook.conversation()
         if event == "prompt":
             return hook.prompt()
         if event == "post-tool":

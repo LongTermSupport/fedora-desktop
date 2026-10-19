@@ -17,6 +17,68 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.12.16 — container 2.77.12
+
+Follows 3.99.12.15 (container 2.77.11). The image carries the pingbus kit, whose SessionStart
+hook changed, and the Dockerfile changed, so it is rebuilt once.
+
+- **Each session's conversation is recorded for a restore** (Plan 00203). The pingbus
+  SessionStart hook writes the conversation a session is in now, `conversation.json` beside
+  its seat report under `.claude/ccy/pingbus/sessions/<session>/`, at its start and after
+  every `/clear`, resume or compaction; a session on no team records it too, and does nothing
+  else at that moment (pingbus plugin 1.4.0).
+- **`ccy-sessions restore` resumes each session's own conversation by id** (Plan 00203
+  Decision 10), never `--continue`, which picks the newest conversation of a checkout that
+  several sessions share and refuses one a stale `/background` record holds. A record with no
+  recorded conversation (a `--no-bus` launch, a plain `cc`) is not started: it is named, with
+  `ccy --resume` as the way back by hand, and its record is kept. The uncalled bash restore
+  in `lib/session-registry.bash`, which still appended `--continue`, is gone.
+- **`ccy-teams restart <team>`, and the team menu's Restart the team's desktop sessions**
+  (Plan 00203 Decisions 8 and 9). Each member's session on this desktop resumes its own
+  conversation by id: a running ccy session restarts in place at its next idle moment through
+  its supervisor, in a fresh container; a stopped one is started as a restore starts it; a
+  running cc session is left running and named; LXC members are left out and named. One line
+  per session, and exit 1 if any failed. The lifecycle plugin (1.2.0) gives "the owner
+  restarted its team" as the reason for such a restart.
+- **Claude Code's agent view is off in the image** (Plan 00203 Decision 11):
+  `CLAUDE_CODE_DISABLE_AGENT_VIEW=1` (confirmed in Claude Code 2.1.303) switches off
+  `/background`, `--bg`, `claude agents` and their daemon, whose records from a gone container
+  made `--continue` refuse a conversation for good. Background sub-agents and shell tasks stay
+  on.
+
+## 3.99.12.15 — container 2.77.11
+
+Follows 3.99.12.14 (container 2.77.10). The image carries the new pingbus and declare.py, so it
+is rebuilt once.
+
+- **The status line shows each team's role**: `👥 desktop (coordinator), other (worker)`,
+  read on every refresh from the team record the role notice reads, so a role change shows at
+  the next refresh. A role that cannot be read shows as `(role?)`, never a guess, with one
+  line on stderr. `(down)` follows the role.
+
+- **A role change waits for the play lock before it writes anything**: the declared entry, the
+  live role and the apply happen under one hold, so a wait that is stopped or times out changes
+  nothing.
+
+- **Every member kind has the same roles** (Plan 00203 Task 3.8, owner feedback). In
+  `ccy-teams`, the row of any member (a ccy or cc session, an LXC container's agent, a host,
+  docker or vm member) offers its role: "Make <handle> the coordinator (<team> has none)",
+  the takeover "Replace the coordinator, <holder> (...): it becomes a worker...", or "Make
+  <handle> a worker (<team> then has no coordinator)", each asking first with No as the
+  default. One path changes a role, whatever the kind: live through `agent-bus set-role`, and
+  for an LXC member declared in `agent_bus_lxc_members` its entry too (`declare lxc-role`),
+  then the team is applied, so the next apply keeps it. `ccy-teams session role` takes a
+  member's handle in place of a session.
+
+- **A running agent of any kind is told its new role**: a session started by
+  agent-bus-claude (LXC, host, docker, vm) now gets the same role context a ccy session's
+  membership notice gives, from its watcher or at its next prompt. No restart.
+
+- **No menu starts on a destructive action.** Park, Remove seat and Take down are last, just
+  above Back; making a coordinator a worker and the takeover come after the ordinary actions;
+  Remove from a team is last in a session's menu; the take-down question starts on "Leave it
+  running"; settings lists No coordinator last.
+
 ## 3.99.12.14 — container 2.77.10
 
 Follows 3.99.12.13 (container 2.77.9). The entrypoint changed, so the image is rebuilt once.

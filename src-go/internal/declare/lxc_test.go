@@ -15,14 +15,17 @@ import (
 
 func TestLxcMembersParsesTheMemberLines(t *testing.T) {
 	f := &execx.Fake{}
-	script(f, "lxc-members", "LXCMEMBER\talpha\tcontainer-a\tagent\tworker\tcoordinator\tpresent\n"+
-		"LXCMEMBER\talpha\tcontainer-b\tagent\tother\tworker\tabsent\n")
+	script(f, "lxc-members", "LXCMEMBER\talpha\tcontainer-a\tagent\tworker\tcoordinator\tpresent\t/srv/agent/one\tdev\n"+
+		"LXCMEMBER\talpha\tcontainer-b\tagent\tother\tworker\tabsent\t-\t-\n")
 	got, err := newClient(f).LxcMembers(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []LxcMember{
-		{Team: "alpha", Container: "container-a", User: "agent", Host: "worker", Role: "coordinator", State: "present"},
+		{
+			Team: "alpha", Container: "container-a", User: "agent", Host: "worker", Role: "coordinator", State: "present",
+			Checkout: "/srv/agent/one", Seat: "dev",
+		},
 		{Team: "alpha", Container: "container-b", User: "agent", Host: "other", Role: "worker", State: "absent"},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -98,9 +101,26 @@ func TestLxcSetRoleNamesTheMemberAndTheRole(t *testing.T) {
 	}
 }
 
+func TestLxcIdentityIsTheRepoAndHostOfACheckoutsHandles(t *testing.T) {
+	f := &execx.Fake{}
+	script(f, "lxc-identity", "IDENTITY\tproj\tworker\n")
+	got, err := newClient(f).LxcIdentity(context.Background(), `{"path":"/srv"}`)
+	if err != nil || got != (Identity{Repo: "proj", Host: "worker"}) {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if line := lastLine(t, f); line != prefix+` lxc-identity --file /hv.yml --probe {"path":"/srv"}` {
+		t.Fatalf("ran %q", line)
+	}
+	g := &execx.Fake{}
+	script(g, "lxc-identity", "IDENTITY\tproj\n")
+	if _, err := newClient(g).LxcIdentity(context.Background(), "{}"); err == nil {
+		t.Fatal("a short answer was accepted")
+	}
+}
+
 func TestLxcMembersReadsADashAsNoHost(t *testing.T) {
 	f := &execx.Fake{}
-	script(f, "lxc-members", "LXCMEMBER\talpha\tcontainer-a\tagent\t-\tworker\tpresent\n")
+	script(f, "lxc-members", "LXCMEMBER\talpha\tcontainer-a\tagent\t-\tworker\tpresent\t-\t-\n")
 	got, err := newClient(f).LxcMembers(context.Background())
 	if err != nil || len(got) != 1 || got[0].Host != "" {
 		t.Fatalf("%+v %v", got, err)

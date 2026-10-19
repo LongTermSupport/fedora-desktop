@@ -91,7 +91,12 @@ trusted reference may name any path in the team's repositories (a team narrows i
         coordinator a worker with it first): CHANGED<TAB>..., or UNCHANGED<TAB>... when it has
         that role; an unknown member or role is refused (64)
     python3 -m helpers.agent_bus.declare lxc-members --file <localhost.yml>
-        LXCMEMBER<TAB><team><TAB><container><TAB><user><TAB><host><TAB><role><TAB><state> per entry
+        LXCMEMBER<TAB><team><TAB><container><TAB><user><TAB><host><TAB><role><TAB><state><TAB><checkout>
+        <TAB><seat> per entry (- for a host, checkout or seat the entry leaves out)
+    python3 -m helpers.agent_bus.declare lxc-identity --file <localhost.yml> --probe JSON
+        IDENTITY<TAB><repo><TAB><host>: the repo and host of the handles made in the checkout the
+        host-side reader printed (--probe), by derive.py's rule; ccy-teams finds which entry a live
+        LXC handle is with it, to change its role (Plan 00203 Task 3.8); exit 64 when unreadable
     python3 -m helpers.agent_bus.declare lxc-remove --file <localhost.yml> --team T --container C
             --user U [--dry-run]
         sets the entry's state: absent, which the play applies by parking the member and
@@ -1348,8 +1353,15 @@ def lxc_command(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
             found = members.parse_members(_lxc_existing(text))
         except members.MemberError as exc:
             raise DeclareError(str(exc)) from None
-        out.writelines(f"LXCMEMBER\t{m.team}\t{m.container}\t{m.user}\t{m.host or '-'}\t{m.role}\t{m.state}\n"
-                       for m in found)
+        out.writelines(f"LXCMEMBER\t{m.team}\t{m.container}\t{m.user}\t{m.host or '-'}\t{m.role}\t{m.state}"
+                       f"\t{m.checkout or '-'}\t{m.seat or '-'}\n" for m in found)
+        return EXIT_OK
+    if args.command == "lxc-identity":
+        try:
+            identity = derive.identity_of(derive.parse_probe(args.probe))
+        except derive.DeriveError as exc:
+            raise UsageError(str(exc)) from None
+        out.write(f"IDENTITY\t{identity.repo}\t{identity.host}\n")
         return EXIT_OK
     if args.command == "lxc-checkouts":
         try:
@@ -1615,6 +1627,9 @@ def _lxc_parsers(commands: argparse._SubParsersAction) -> None:
     for flag in ("team", "container", "user", "role"):
         roled.add_argument(f"--{flag}", required=True)
     roled.add_argument("--dry-run", action="store_true", help="print the edited file; write nothing")
+    known = commands.add_parser("lxc-identity", help="the repo and host of a checkout's handles, from its probe")
+    known.add_argument("--file", required=True)
+    known.add_argument("--probe", required=True, help="what the root-side reader printed for the checkout")
     shown = commands.add_parser("lxc-derive", help="the handle the play would give an entry, from its checkout")
     shown.add_argument("--file", required=True)
     for flag in ("team", "container", "user"):

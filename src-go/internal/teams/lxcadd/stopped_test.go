@@ -12,10 +12,10 @@ import (
 // The declared members whose containers are stopped (SPEC-lxc-stopped-members.md L11):
 // agent@container-c in alpha (stopped), a member of another team in the same stopped container,
 // alpha's member in the running container-b, and one alpha has let go of.
-const declaredAroundStopped = "LXCMEMBER\talpha\tcontainer-c\tagent\t-\tworker\tpresent\n" +
-	"LXCMEMBER\tbeta\tcontainer-c\tother\t-\tworker\tpresent\n" +
-	"LXCMEMBER\talpha\tcontainer-b\tagent\t-\tworker\tpresent\n" +
-	"LXCMEMBER\talpha\tcontainer-c\tgone\t-\tworker\tabsent\n"
+const declaredAroundStopped = "LXCMEMBER\talpha\tcontainer-c\tagent\t-\tworker\tpresent\t/srv/agent\t-\n" +
+	"LXCMEMBER\tbeta\tcontainer-c\tother\t-\tworker\tpresent\t/srv/agent\t-\n" +
+	"LXCMEMBER\talpha\tcontainer-b\tagent\t-\tworker\tpresent\t/srv/agent\t-\n" +
+	"LXCMEMBER\talpha\tcontainer-c\tgone\t-\tworker\tabsent\t/srv/agent\t-\n"
 
 const stoppedNotice = "Declared in alpha, container not running: agent@container-c. The play skips a member " +
 	"already joined and defers one not yet joined; neither blocks this add. Nothing is started."
@@ -47,7 +47,7 @@ func TestTheTeamsDeclaredMembersInStoppedContainersAreSaidBeforeTheSummary(t *te
 
 func TestNoStoppedNoticeWhenEveryDeclaredMemberIsRunning(t *testing.T) {
 	r := newRig(t)
-	r.OnDeclare("lxc-members", "LXCMEMBER\talpha\tcontainer-b\tagent\t-\tworker\tpresent\n")
+	r.OnDeclare("lxc-members", "LXCMEMBER\talpha\tcontainer-b\tagent\t-\tworker\tpresent\t/srv/agent\t-\n")
 	r.happy()
 	if code := r.run("alpha"); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, r.ErrOut.String())

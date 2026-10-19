@@ -104,6 +104,18 @@ func OfferTakeover(team, who string, h Holder) string {
 // NoneChoice is the role-list item for the plain path.
 func NoneChoice(team string) string { return "Make it the coordinator (" + team + " has none)" }
 
+// MakeChoice is the plain path as a member's menu line, naming the member: the picker offers it
+// on the row of a member of any kind.
+func MakeChoice(who, team string) string {
+	return "Make " + who + " the coordinator (" + team + " has none)"
+}
+
+// WorkerChoice is the coordinator's own menu line, naming it: it leads to a question that says
+// the team then has no coordinator and defaults to no.
+func WorkerChoice(who, team string) string {
+	return "Make " + who + " a worker (" + team + " then has no coordinator)"
+}
+
 // TakeoverChoice is the role-list item for the takeover: never a plain "coordinator", and it
 // leads to a question that defaults to no.
 func TakeoverChoice(h Holder) string {

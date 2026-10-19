@@ -247,14 +247,14 @@ func TestUsageTextNamesTheLauncherSubcommandsAndTheCoordinator(t *testing.T) {
 	h := newHarness(t)
 	h.app.Run([]string{"--help"})
 	wants := []string{
-		"choose-seat", "describe-seats", "coordinator", "ccy-teams shutdown <team> [--yes]",
+		"choose-seat", "describe-seats", "coordinator", "ccy-teams shutdown <team> [--yes]", "ccy-teams restart <team> [--yes]",
 		"ccy-teams internal membership-init <session> <checkout> <seats>",
 		"ccy-teams internal restart-args <session>", "ccy-teams session list",
 		"ccy-teams internal claim-container-name <project> <suffix> <owner-pid>",
 		"ccy-teams session add <session> <team>[/<seat>] [--role=worker|coordinator] [--demote-current] [--yes]",
 		"ccy-teams session remove <session> <team> [--coordinator=demote|hand-to=<seat>] [--park] [--yes]",
 		"ccy-teams session move <session> <from-team> <to-team>[/<seat>]",
-		"ccy-teams session role <session> <team> worker|coordinator [--demote-current] [--yes]",
+		"ccy-teams session role <session>|<handle> <team> worker|coordinator [--demote-current] [--yes]",
 		"ccy-teams session repair <session> [--yes]",
 		"Only sessions started through ccy's tmux (listed by ccy-sessions), and cc sessions started with",
 	}
@@ -278,6 +278,8 @@ func TestSubcommandsReachTheirRealFlowsWithTheirUsageErrors(t *testing.T) {
 		{[]string{"restore"}, "ccy-teams: "},
 		{[]string{"shutdown"}, "ccy-teams: 'shutdown' needs a team. See ccy-teams --help."},
 		{[]string{"shutdown", "alpha", "--now"}, "ccy-teams: unknown shutdown option '--now'. See ccy-teams --help."},
+		{[]string{"restart"}, "ccy-teams: 'restart' needs a team. See ccy-teams --help."},
+		{[]string{"restart", "alpha", "--now"}, "ccy-teams: unknown restart option '--now'. See ccy-teams --help."},
 	}
 	for _, c := range cases {
 		h := newHarness(t)

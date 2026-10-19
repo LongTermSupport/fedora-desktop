@@ -83,7 +83,7 @@ func (x *Hot) addQuestion(ctx context.Context, t *target, r request, roster agen
 	if c.handle != "" {
 		question += " (" + c.handle + ")"
 	}
-	offer, takeover, code, ok := x.coordinatorPath(ctx, t, r, roster, team, c.handle, t.session)
+	offer, takeover, code, ok := x.coordinatorPath(r, roster, team, c.handle, t.session, x.running(ctx, t))
 	switch {
 	case !ok:
 		return "", false, code, false

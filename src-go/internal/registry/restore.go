@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -64,20 +65,35 @@ func FlagClass(word string) Class {
 	return ClassUnknown
 }
 
-// RestoreArgs is the arguments a restore starts the launcher with: the recorded set, with
-// `--compose start` (compose outcome started or running: `up -d` leaves running services alone)
-// or `--compose skip` (declined) for ccy when the record holds an outcome, and `--supervise`
-// for ccy unless the record already says --supervise or --no-supervise, then `--continue`
-// unless the record already continues or resumes a conversation. cc forwards every argument to
-// claude and has no compose question, and --compose and --supervise are ccy's flags, so cc
-// gets --continue only. A record with no outcome gets no --compose: the launcher then asks.
+// sessionID is a Claude Code session id: a UUID (lib/restart-request.bash's
+// CCY_RESTART_SESSION_ID_PATTERN).
+var sessionID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// SessionID is whether id is a Claude Code session id.
+func SessionID(id string) bool { return sessionID.MatchString(id) }
+
+// ResumeArgs is the arguments a restore or a team restart starts the launcher with, to resume
+// the conversation id (Plan 00203 SPEC-team-add-and-restart C5): the recorded set with every
+// conversation selector removed (-c, --continue, -r/--resume and their value, --session-id and
+// its value, from either side of `--`, as the supervisor's relaunch does in
+// lib/restart-request.bash), `--compose start` (compose outcome started or running: `up -d`
+// leaves running services alone) or `--compose skip` (declined) for ccy when the record holds
+// an outcome, `--supervise` for ccy unless the record already says --supervise or
+// --no-supervise, then one `--resume <id>`. Never --continue: it takes the newest conversation
+// in a transcript directory that several sessions share, and refuses one a stale background
+// record holds (the continue-trap investigation). cc forwards every argument to claude and has
+// no compose question, and --compose and --supervise are ccy's flags, so cc gets the resume
+// only. A record with no outcome gets no --compose: the launcher then asks.
 //
 // After a recorded `--` every word is claude's, so ccy's flags go in before it, and a
-// --supervise after it is claude's word rather than ccy's. --continue is claude's flag and
+// --supervise after it is claude's word rather than ccy's. --resume is claude's flag and
 // reaches claude from either side, so it is appended.
-func RestoreArgs(compose, prefix string, args []string) ([]string, error) {
+func ResumeArgs(compose, prefix string, args []string, id string) ([]string, error) {
 	if prefix == "" {
 		return nil, errors.New("restore arguments need a launcher prefix")
+	}
+	if !SessionID(id) {
+		return nil, fmt.Errorf("refusing to resume '%s': it is not a Claude session id", id)
 	}
 	var ccyFlags []string
 	if prefix == prefixCCY && compose != "" {
@@ -87,11 +103,11 @@ func RestoreArgs(compose, prefix string, args []string) ([]string, error) {
 		}
 		ccyFlags = composeFlags
 	}
-	hasSupervise, hasContinue := scanRecorded(args)
-	if prefix == prefixCCY && !hasSupervise {
+	args = withoutSelectors(prefix, args)
+	if prefix == prefixCCY && !recordedSupervise(args) {
 		ccyFlags = append(ccyFlags, flagSupervise)
 	}
-	out := make([]string, 0, len(args)+len(ccyFlags)+1)
+	out := make([]string, 0, len(args)+len(ccyFlags)+2)
 	afterDD := false
 	for _, a := range args {
 		if a == "--" && !afterDD {
@@ -102,10 +118,77 @@ func RestoreArgs(compose, prefix string, args []string) ([]string, error) {
 		out = append(out, a)
 	}
 	out = append(out, ccyFlags...)
-	if !hasContinue {
-		out = append(out, "--continue")
+	return append(out, "--resume", id), nil
+}
+
+// withoutSelectors is args with claude's conversation selectors removed. Before `--` a ccy flag
+// that takes a value consumes the next word, as the launcher's parser does, so `--token -c`
+// keeps its token; cc has no flags of its own. A bare --resume or -r (the picker) takes the
+// next word only when it is not a flag.
+func withoutSelectors(prefix string, args []string) []string {
+	out := make([]string, 0, len(args))
+	keepNext, dropNext, resumeValue, afterDD := false, false, false, false
+	for _, w := range args {
+		if resumeValue {
+			resumeValue = false
+			dropNext = !strings.HasPrefix(w, "-")
+		}
+		switch {
+		case dropNext:
+			dropNext = false
+			continue
+		case keepNext:
+			keepNext = false
+			out = append(out, w)
+			continue
+		case w == "--" && !afterDD:
+			afterDD = true
+			out = append(out, w)
+			continue
+		case prefix == prefixCCY && !afterDD && takesValue(w):
+			keepNext = true
+			out = append(out, w)
+			continue
+		}
+		switch selectorOf(w) {
+		case selectorAlone:
+		case selectorMaybeValue:
+			resumeValue = true
+		case selectorWithValue:
+			dropNext = true
+		case selectorNone:
+			out = append(out, w)
+		}
 	}
-	return out, nil
+	return out
+}
+
+// takesValue is whether a ccy flag consumes the next word.
+func takesValue(w string) bool {
+	c := FlagClass(w)
+	return c == ClassKeepValue || c == ClassDropValue
+}
+
+// selector is what a word is as one of claude's conversation selectors.
+type selector int
+
+const (
+	selectorNone       selector = iota // not a selector
+	selectorAlone                      // -c, --continue, --resume=<id>, --session-id=<id>
+	selectorMaybeValue                 // -r, --resume: the next word is its id unless it is a flag
+	selectorWithValue                  // --session-id: the next word is its id
+)
+
+func selectorOf(w string) selector {
+	switch {
+	case w == "-c", w == "--continue", strings.HasPrefix(w, "--resume="), strings.HasPrefix(w, "--session-id="):
+		return selectorAlone
+	case w == "-r", w == "--resume":
+		return selectorMaybeValue
+	case w == "--session-id":
+		return selectorWithValue
+	}
+	return selectorNone
 }
 
 // composeArgs is the --compose flag a compose outcome maps to.
@@ -119,23 +202,18 @@ func composeArgs(outcome string) ([]string, error) {
 	return nil, fmt.Errorf("compose outcome '%s' is not one of %s", outcome, strings.Join(composeOutcomes, " "))
 }
 
-// scanRecorded says whether the recorded words already carry a supervise choice before any
-// `--`, and whether they already continue or resume a conversation (from either side of it).
-func scanRecorded(args []string) (bool, bool) {
-	supervise, continues, afterDD := false, false, false
+// recordedSupervise says whether the recorded words already carry a supervise choice before
+// any `--`.
+func recordedSupervise(args []string) bool {
 	for _, a := range args {
 		if a == "--" {
-			afterDD = true
-			continue
+			return false
 		}
-		switch a {
-		case flagSupervise, flagNoSupervise:
-			supervise = supervise || !afterDD
-		case "--continue", "-c", "--resume", "-r":
-			continues = true
+		if a == flagSupervise || a == flagNoSupervise {
+			return true
 		}
 	}
-	return supervise, continues
+	return false
 }
 
 // ResumeID is the conversation id the launch resumes: the value of --resume <id>, --resume=<id>

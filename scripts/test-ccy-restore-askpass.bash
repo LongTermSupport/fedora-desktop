@@ -478,13 +478,27 @@ PATH="$RBIN:$PATH"
 PROJ="$SCRATCH/project"
 mkdir -p "$PROJ"
 ccy_registry_write "ccy-proj" "$PROJ" /launch/ccy ccy yes --ssh-key "$KEYS/github_fixture"
-ccy_registry_write "cc-proj" "$PROJ" /launch/cc cc yes
+ccy_registry_write "cc-proj" "$PROJ" /launch/cc cc yes --bus
 unset CCY_RESTORE_SSH_PASSPHRASE_FILE
+# A restore resumes each session's recorded conversation by id (Plan 00203 Decision 10), so
+# each session gets what its pingbus SessionStart hook would have left: conversation.json
+# beside its report and the transcript it names. cc records under its git checkout's top.
+CLAUDE_HOME="$SCRATCH/claude-home"
+mkdir -p "$PROJ/.git" "$PROJ/.claude/ccy/projects/-workspace" "$CLAUDE_HOME/projects/${PROJ//[^a-zA-Z0-9]/-}"
+converse() {
+    local name="$1" id="$2" transcripts="$3"
+    mkdir -p "$PROJ/.claude/ccy/pingbus/sessions/$name"
+    printf '{"v":1,"session":"%s","session_id":"%s","source":"startup","written_ms":1}' "$name" "$id" \
+        >"$PROJ/.claude/ccy/pingbus/sessions/$name/conversation.json"
+    printf '{}\n' >"$transcripts/$id.jsonl"
+}
+converse ccy-proj 11111111-0000-4000-8000-000000000000 "$PROJ/.claude/ccy/projects/-workspace"
+converse cc-proj 22222222-0000-4000-8000-000000000000 "$CLAUDE_HOME/projects/${PROJ//[^a-zA-Z0-9]/-}"
 
 # restore_run — the restore under test: the built binary's `restore` subcommand, which is
 # what the boot unit runs.
 restore_run() {
-    CCY_LIB="$LIB_DIR" "$GO_TOOL" restore
+    CCY_LIB="$LIB_DIR" CLAUDE_CONFIG_DIR="$CLAUDE_HOME" "$GO_TOOL" restore
 }
 
 rm -f "$STARTED_LOG"

@@ -135,7 +135,9 @@ TIMEOUT	1	TEAM	EVENT_ID	SILENT_TARGET	VERB	REF
 ## Roles
 
 A team has workers, humans, and at most one **coordinator**, an agent the owner nominates.
-The SessionStart context says which you are, and who the coordinator is.
+The SessionStart context says which you are, and who the coordinator is. If the owner
+changes your role while you run, you are told once, in the same words, as a pingbus notice
+or at your next prompt: from then on act in the new role.
 
 - **Coordinator.** Humans may message you ("get this done"): work out how, split it, and
   dispatch it to workers with a ping (`fetch`, `sync`, `review`, `run-qa`, `halt`) or

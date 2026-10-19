@@ -2022,6 +2022,12 @@ def _watch(members: Sequence[config.Member], path: str, token: str, relaying: bo
                 if not seats:
                     err.write(f"{PROG}: this session is on no team now: the watcher exits\n")
                     return EXIT_OK
+            elif injector is not None:
+                try:
+                    _tell(environ, injector, rt, err, hooks.tell_roles)
+                except notify.SocketGone as gone:
+                    err.write(f"{PROG}: {gone}: the watcher exits\n")
+                    return EXIT_OK
             try:
                 if relaying:
                     _relay_pass(seats, ledger, rt, pending, err)
@@ -2137,10 +2143,12 @@ class _Following:
         return kept
 
 
-def _tell(environ: Mapping[str, str], inj: _Injector, rt: Runtime, err: TextIO) -> None:
-    """H12: tell the session, through its socket, what changed in its teams, once per change.
-    A write that fails is left to the next prompt's hook (H13); the socket gone ends the
-    watcher (`SocketGone`)."""
+def _tell(environ: Mapping[str, str], inj: _Injector, rt: Runtime, err: TextIO,
+          teller: Callable[[Mapping[str, str], Callable[[list[str]], bool]], bool | None] = hooks.tell_membership) -> None:
+    """H12: tell the session, through its socket, what changed in its teams, once per change:
+    a ccy session its membership (hooks.tell_membership), a session outside the membership a
+    change of its role (hooks.tell_roles, Plan 00203 Task 3.8). A write that fails is left to
+    the next prompt's hook (H13); the socket gone ends the watcher (`SocketGone`)."""
 
     def deliver(lines: list[str]) -> bool:
         text = envelope.render_membership(lines, secrets.token_hex(4))
@@ -2149,16 +2157,20 @@ def _tell(environ: Mapping[str, str], inj: _Injector, rt: Runtime, err: TextIO) 
         except notify.SocketGone:
             raise
         except OSError as exc:
-            err.write(f"{PROG}: the membership notice was not written ({exc.strerror or exc}): the next "
+            err.write(f"{PROG}: the {what} was not written ({exc.strerror or exc}): the next "
                       "prompt's hook tells it\n")
             return False
         inj.last_sent = rt.monotonic()
         return True
 
+    what = "role notice (this session's role changed)" if teller is hooks.tell_roles else "membership notice"
     try:
-        hooks.tell_membership(environ, deliver)
+        if teller is hooks.tell_roles:
+            hooks.tell_roles(environ, deliver, err=err)
+        else:
+            teller(environ, deliver)
     except (hooks.Failure, membership.MembershipError, OSError, ValueError) as exc:
-        err.write(f"{PROG}: the membership notice could not be built ({type(exc).__name__})\n")
+        err.write(f"{PROG}: the {what} could not be built ({type(exc).__name__})\n")
 
 
 # ---------------------------------------------------------------- history
@@ -2211,7 +2223,7 @@ def cmd_hook(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
 
 def cmd_status_line(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
     """The session's status line, with its agent-bus teams (statusline.py): the kit's statusLine."""
-    text, status = statusline.render(args.stdin.read(HOOK_INPUT_MAX + 1), environ)
+    text, status = statusline.render(args.stdin.read(HOOK_INPUT_MAX + 1), environ, err=err)
     out.write(text + "\n")
     return status
 

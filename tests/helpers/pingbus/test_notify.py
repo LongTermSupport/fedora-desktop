@@ -294,6 +294,18 @@ class WatchCase(bus.BusCase):
 
 
 class WatchTest(WatchCase):
+    def test_a_session_outside_the_membership_is_told_a_role_change_by_its_watcher(self):
+        """Plan 00203 Task 3.8: an agent-bus-claude session (an LXC container's agent, a host,
+        docker or vm member) learns a change of its role live, as a ccy session does."""
+        self.joined()
+        membership.write_told_roles(self.home, {bus.TEAM_A: "worker"})
+        self.start_watch()
+        self.a.set_record(dict(self.a.record, roles={self.a.me: "coordinator", self.a.orch: "worker"}))
+        self.until(lambda: any("kind: MEMBERSHIP" in t for t in self.sock.texts()), "no role notice")
+        (notice,) = [t for t in self.sock.texts() if "kind: MEMBERSHIP" in t]
+        self.assertIn(f"agent-bus: in team {bus.TEAM_A} you are the coordinator.", notice)
+        self.until(lambda: membership.read_told_roles(self.home) == {bus.TEAM_A: "coordinator"}, "not recorded")
+
     def test_a_ping_reaches_the_session_as_a_delivery(self):
         self.joined()
         self.start_watch()

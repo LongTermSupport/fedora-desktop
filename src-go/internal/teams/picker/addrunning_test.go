@@ -138,16 +138,14 @@ func TestAddARunningSessionToATeamThatCannotBeJoinedRefusesBeforeListing(t *test
 	}
 }
 
-// The help describes only what is built: the add lines, and not the restart of Task 3.11.
-func TestHelpDescribesTheAddLinesAndNoRestart(t *testing.T) {
-	for _, want := range []string{"Add a running session to <team>", "Add this\nsession to another team"} {
+// The help describes the add lines and the team restart (B1).
+func TestHelpDescribesTheAddLinesAndTheRestart(t *testing.T) {
+	for _, want := range []string{
+		"Add a running session to <team>", "Add this\nsession to another team",
+		"Restart the team's desktop sessions", "`ccy-teams restart <team>`", "LXC members",
+	} {
 		if !strings.Contains(helpText, want) {
 			t.Fatalf("help lacks %q", want)
-		}
-	}
-	for _, unbuilt := range []string{"ccy-teams restart", "Restart the team"} {
-		if strings.Contains(helpText, unbuilt) {
-			t.Fatalf("help describes %q, which is not built", unbuilt)
 		}
 	}
 }

@@ -10,16 +10,18 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/roles"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 // noUndo is the undo of a step that changed nothing.
 func noUndo(context.Context) {}
 
-// setRoleTo makes handle the team's want (worker or coordinator) through sudo agent-bus
-// set-role (H25, H7). A coordinator while another member holds the role first makes that one a
-// worker, only with demote (asked on a terminal), as seats.ChangeRole does. undo puts back what
-// it changed, for an add that is rolled back.
+// setRoleTo makes handle, a member of any kind, the team's want (worker or coordinator) through
+// package roles (H25, H7), as seats.ChangeRole does: live by sudo agent-bus set-role, and in a
+// declared member's entry, then applied. A coordinator while another member holds the role first
+// makes that one a worker, only with demote (asked on a terminal). undo puts back what it
+// changed, for an add that is rolled back.
 func (x *Hot) setRoleTo(ctx context.Context, team, handle, want string, demote bool) (func(context.Context), term.ExitCode, bool) {
 	roster, err := x.Host.Bus.List(ctx, team)
 	if err != nil {
@@ -43,24 +45,21 @@ func (x *Hot) setRoleTo(ctx context.Context, team, handle, want string, demote b
 		x.mark(markFailed, "role: sudo is not ready, so no role was changed")
 		return noUndo, term.ExitFailure, false
 	}
+	var steps []roles.Step
 	if holder != "" {
-		if !x.runSetRole(ctx, team, holder, agentbus.RoleWorker, " (it was "+team+"'s coordinator)") {
-			return noUndo, term.ExitFailure, false
-		}
+		steps = append(steps, roles.Step{
+			Handle: holder, From: agentbus.RoleCoordinator, To: agentbus.RoleWorker, Note: " (it was " + team + "'s coordinator)",
+		})
 	}
-	if !x.runSetRole(ctx, team, handle, want, "") {
-		if holder != "" && x.runSetRole(ctx, team, holder, agentbus.RoleCoordinator, " again") {
-			x.say(holder + " is " + team + "'s coordinator again.")
-		}
+	steps = append(steps, roles.Step{Handle: handle, From: member.Role, To: want})
+	done, err := x.Roles.Change(ctx, team, func(line string) { x.mark(markDone, "role: "+line) }, steps...)
+	if err != nil {
+		x.mark(markFailed, "role: "+lastLine(err))
 		return noUndo, term.ExitFailure, false
 	}
 	undo := func(ctx context.Context) {
-		back := x.Host.Bus.SetRole(ctx, team, handle, member.Role)
-		if back == nil && holder != "" {
-			back = x.Host.Bus.SetRole(ctx, team, holder, agentbus.RoleCoordinator)
-		}
-		if back != nil {
-			x.mark(markFailed, "role: not put back ("+lastLine(back)+"): ccy-teams, the seat's menu, sets it")
+		if back := done.Undo(ctx); back != nil {
+			x.mark(markFailed, "role: not put back ("+lastLine(back)+"): ccy-teams, the member's menu, sets it")
 			return
 		}
 		x.mark(markDone, "role: put back as it was")
@@ -92,14 +91,14 @@ func (x *Hot) demoting(ctx context.Context, roster agentbus.Roster, team, handle
 // changes: none (not a coordinator), the plain offer (the team has no coordinator), or the
 // takeover (another member holds the role), which needs --demote-current where nothing can be
 // asked, --yes included. The question names the path; takeover is whether the holder is demoted.
-func (x *Hot) coordinatorPath(ctx context.Context, t *target, r request, roster agentbus.Roster, team, handle, who string) (string, bool, term.ExitCode, bool) {
+func (x *Hot) coordinatorPath(r request, roster agentbus.Roster, team, handle, who string, look coordinator.Lookup) (string, bool, term.ExitCode, bool) {
 	if r.role != agentbus.RoleCoordinator {
 		return "", false, term.ExitOK, true
 	}
 	if m, found := roster.Member(handle); found && m.Role == agentbus.RoleCoordinator {
 		return handle + " is already " + team + "'s coordinator, so its role stays. Go on?", false, term.ExitOK, true
 	}
-	h := coordinator.Holding(roster, handle, x.running(ctx, t))
+	h := coordinator.Holding(roster, handle, look)
 	if h.Handle == "" {
 		return coordinator.OfferNone(team, who), false, term.ExitOK, true
 	}
@@ -141,17 +140,6 @@ func (x *Hot) changeRole(ctx context.Context, team, handle, want string, demote 
 	return code, ok
 }
 
-// runSetRole is one set-role, said.
-func (x *Hot) runSetRole(ctx context.Context, team, handle, role, note string) bool {
-	if err := x.Host.Bus.SetRole(ctx, team, handle, role); err != nil {
-		x.Kit.ReportRootErr(err)
-		x.mark(markFailed, "role: "+handle+" was not made a "+role+": "+lastLine(err))
-		return false
-	}
-	x.mark(markDone, "role: "+handle+" set to "+role+note)
-	return true
-}
-
 // setRole is `session role` (H25): the session's seat in the team made a worker or the
 // coordinator, then the wait for the session to be told.
 func (x *Hot) setRole(ctx context.Context, t *target, r request) term.ExitCode {
@@ -172,7 +160,8 @@ func (x *Hot) setRole(ctx context.Context, t *target, r request) term.ExitCode {
 	changed := !found || member.Role != r.role
 	demote := r.demoteCurrent
 	if changed {
-		question, takeover, pathCode, ok := x.roleQuestion(ctx, t, r, roster, seat, handle)
+		who := fmt.Sprintf("%s (seat %s, %s)", t.session, seat, handle)
+		question, takeover, pathCode, ok := x.roleQuestion(r, roster, handle, who, x.running(ctx, t))
 		if !ok {
 			return pathCode
 		}
@@ -187,11 +176,44 @@ func (x *Hot) setRole(ctx context.Context, t *target, r request) term.ExitCode {
 	return x.waitTold(ctx, t, r.team, handle, r.role, changed)
 }
 
-// roleQuestion is role's question: one of the two coordinator paths (coordinatorPath), or a
-// worker's, which says when the team is left with no coordinator.
-func (x *Hot) roleQuestion(ctx context.Context, t *target, r request, roster agentbus.Roster, seat, handle string) (string, bool, term.ExitCode, bool) {
-	who := fmt.Sprintf("%s (seat %s, %s)", t.session, seat, handle)
-	question, takeover, code, ok := x.coordinatorPath(ctx, t, r, roster, r.team, handle, who)
+// memberRole is `session role` given a member's handle in place of a session (Plan 00203 Task
+// 3.8): the member, of any kind, made a worker or the coordinator by the same question and the
+// same path as a session's seat. There is no session record to wait on: how the member's running
+// session learns it is said (roles.Reach).
+func (x *Hot) memberRole(ctx context.Context, r request) term.ExitCode {
+	handle := r.session
+	roster, code, up := x.teamUp(ctx, r.team)
+	if !up {
+		return code
+	}
+	member, found := roster.Member(handle)
+	if !found {
+		x.mark(markFailed, "role: "+handle+" is not a member of "+r.team)
+		return term.ExitFailure
+	}
+	if member.Role == r.role {
+		x.mark(markSkip, "role: "+handle+" is a "+r.role+" already")
+		x.say("Nothing to do: " + handle + " is " + roleWords(r.team, r.role) + ".")
+		return term.ExitOK
+	}
+	question, takeover, pathCode, ok := x.roleQuestion(r, roster, handle, handle, nil)
+	if !ok {
+		return pathCode
+	}
+	if askCode, proceed := x.confirm(ctx, question, r.yes); !proceed {
+		return askCode
+	}
+	if roleCode, set := x.changeRole(ctx, r.team, handle, r.role, r.demoteCurrent || takeover); !set {
+		return roleCode
+	}
+	x.say(handle + " is " + roleWords(r.team, r.role) + " now. " + roles.Reach)
+	return term.ExitOK
+}
+
+// roleQuestion is role's question about who, the member handle: one of the two coordinator
+// paths (coordinatorPath), or a worker's, which says when the team is left with no coordinator.
+func (x *Hot) roleQuestion(r request, roster agentbus.Roster, handle, who string, look coordinator.Lookup) (string, bool, term.ExitCode, bool) {
+	question, takeover, code, ok := x.coordinatorPath(r, roster, r.team, handle, who, look)
 	if !ok || question != "" {
 		return question, takeover, code, ok
 	}
@@ -254,7 +276,7 @@ func (x *Hot) waitTold(ctx context.Context, t *target, team, handle, role string
 type leaving func(context.Context) (term.ExitCode, bool)
 
 // leaveRole decides H23 step 2 before anything changes: a worker leaves as it is; the
-// coordinator needs --coordinator (asked on a terminal, demote by default).
+// coordinator needs --coordinator (asked on a terminal, starting on No).
 func (x *Hot) leaveRole(ctx context.Context, r request, team, handle string, up bool) (leaving, string, term.ExitCode, bool) {
 	if !up {
 		x.mark(markSkip, "role: not checked (the homeserver is down)")
@@ -278,7 +300,7 @@ func (x *Hot) leaveRole(ctx context.Context, r request, team, handle string, up 
 				"--coordinator=demote (no one has it) or --coordinator=hand-to=<seat>."), false
 		}
 		code, yes := x.ask(ctx, who+" is "+team+"'s coordinator. Make it a worker as it leaves (the role goes to no one)? "+
-			"To hand the role to another seat instead, say no and use --coordinator=hand-to=<seat>.", true)
+			"To hand the role to another seat instead, say no and use --coordinator=hand-to=<seat>.", false)
 		if !yes {
 			return nil, "", code, false
 		}

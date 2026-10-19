@@ -276,6 +276,12 @@ def load_cached_record(member: config.Member) -> protocol.TeamRecord:
     return record
 
 
+def cached_role(member: config.Member) -> str:
+    """`member`'s role in its team, from the team record last verified (`load_cached_record`):
+    the role the hooks tell the agent and the status line shows. `Untrusted` as that raises."""
+    return load_cached_record(member).roles[member.user_id]
+
+
 class TeamState:
     """`PINGBUS_HOME/<team>/state/`. Reads create nothing; the first write creates the
     state directories inside an existing bundle directory."""

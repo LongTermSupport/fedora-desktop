@@ -126,7 +126,8 @@ func newRig(t *testing.T) *rig {
 	r.a.Paths = r.paths
 	r.a.Roster = func(context.Context, string) (agentbus.Roster, error) { return r.roster, r.rosterE }
 	r.a.SudoReady = func(context.Context, string) bool { return r.sudoOK }
-	r.a.SetRole = func(_ context.Context, team, handle, role string) error {
+	r.a.Roles.Reader = r.lxc
+	r.a.Roles.SetRole = func(_ context.Context, team, handle, role string) error {
 		r.setRoles = append(r.setRoles, team+" "+handle+" "+role)
 		r.events = append(r.events, "set-role")
 		return nil
@@ -484,8 +485,8 @@ func TestOnlyRunningContainersAreOfferedAndTheStoppedOnesAreNamed(t *testing.T) 
 func TestTheCoordinatorIsOfferedPlainlyWhenTheTeamHasNone(t *testing.T) {
 	cases := map[string]string{
 		"none": "",
-		"coordinator declared absent does not count": "LXCMEMBER\talpha\tcontainer-b\tagent\tworker\tcoordinator\tabsent\n",
-		"another team's coordinator does not count":  "LXCMEMBER\tbeta\tcontainer-b\tagent\tworker\tcoordinator\tpresent\n",
+		"coordinator declared absent does not count": "LXCMEMBER\talpha\tcontainer-b\tagent\tworker\tcoordinator\tabsent\t/srv/b\t-\n",
+		"another team's coordinator does not count":  "LXCMEMBER\tbeta\tcontainer-b\tagent\tworker\tcoordinator\tpresent\t/srv/b\t-\n",
 	}
 	for name, members := range cases {
 		r := newRig(t)
@@ -525,7 +526,7 @@ func (r *rig) lxcRoleLine() string {
 	return ""
 }
 
-const declaredCoordinator = "LXCMEMBER\talpha\tcontainer-b\tagent\tworker\tcoordinator\tpresent\n"
+const declaredCoordinator = "LXCMEMBER\talpha\tcontainer-b\tagent\tworker\tcoordinator\tpresent\t/srv/b\t-\n"
 
 func TestOnATeamWithACoordinatorWorkerIsTheOrdinaryChoiceAndNothingChangesSilently(t *testing.T) {
 	takeover := coordinator.TakeoverChoice(coordinator.Holder{Handle: "agent@container-b", Running: coordinator.Unknown})
@@ -655,7 +656,7 @@ func TestAnUnreadableUserListIsSaidAndTheUserIsTyped(t *testing.T) {
 
 func TestAUserAlreadyInOneTeamIsAddedToASecond(t *testing.T) {
 	r := newRig(t)
-	r.OnDeclare("lxc-members", "LXCMEMBER\tbeta\tcontainer-a\tagent\tworker\tworker\tpresent\n")
+	r.OnDeclare("lxc-members", "LXCMEMBER\tbeta\tcontainer-a\tagent\tworker\tworker\tpresent\t/srv/a\t-\n")
 	r.happy()
 	if code := r.run("alpha"); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
@@ -847,11 +848,6 @@ func TestLxcFailuresStopTheRunBeforeAnythingIsWritten(t *testing.T) {
 
 // minted makes the play's apply add a member to the team, as a real apply would.
 func (r *rig) minted(handles ...string) {
-	r.a.SetRole = func(_ context.Context, team, handle, role string) error {
-		r.setRoles = append(r.setRoles, team+" "+handle+" "+role)
-		r.events = append(r.events, "set-role")
-		return nil
-	}
 	r.a.ApplyTeams = func(_ context.Context, teams ...string) error {
 		r.applied = append(r.applied, teams...)
 		for _, h := range handles {

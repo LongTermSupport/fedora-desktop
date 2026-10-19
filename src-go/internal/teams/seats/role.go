@@ -9,17 +9,19 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/roles"
 )
 
-// ChangeRole makes the member the team's coordinator (want true) or a worker (want false), after
-// asking, and says whether it changed anything. It is the one code path that changes a role: the
-// seat menu and the launcher's chooser both call it. A member already in the wanted role is not
-// asked about and costs no sudo. A team has at most one coordinator, so making another member
-// the coordinator first makes the holder a worker. The two paths are asked apart (package
-// coordinator): a team with no coordinator is offered one plainly; a team that has one is a
-// takeover, whose question names the holder, says whether it runs (as look knows; nil knows
-// nothing) and starts on no. If the second step fails the holder is put back, and the error says
-// which steps happened.
+// ChangeRole makes the member, of any kind, the team's coordinator (want true) or a worker (want
+// false), after asking, and says whether it changed anything. It is the one question that
+// changes a role on a terminal: every member row of the picker, settings and the launcher's
+// chooser call it, and package roles makes the change (live, and in a declared member's entry,
+// then the apply). A member already in the wanted role is not asked about and costs no sudo. A
+// team has at most one coordinator, so making another member the coordinator first makes the
+// holder a worker. The two paths are asked apart (package coordinator): a team with no
+// coordinator is offered one plainly; a team that has one is a takeover, whose question names
+// the holder, says whether it runs (as look knows; nil knows nothing) and starts on no. If the
+// second step fails the holder is put back, and the error says which steps happened.
 func (s *Seats) ChangeRole(ctx context.Context, team, handle string, want bool, look coordinator.Lookup) (bool, error) {
 	roster, err := s.Bus.List(ctx, team)
 	if err != nil {
@@ -43,38 +45,23 @@ func (s *Seats) ChangeRole(ctx context.Context, team, handle string, want bool, 
 	if !s.Kit.SudoReady(ctx, "A role is changed as root, by agent-bus.") {
 		return false, errors.New("sudo is not ready, so no role was changed")
 	}
-	if !want {
-		return s.setRole(ctx, team, handle, agentbus.RoleWorker)
+	var steps []roles.Step
+	if want && holder.Handle != "" {
+		steps = append(steps, roles.Step{Handle: holder.Handle, From: agentbus.RoleCoordinator, To: agentbus.RoleWorker})
 	}
-	if holder.Handle != "" {
-		if changed, err := s.setRole(ctx, team, holder.Handle, agentbus.RoleWorker); err != nil || !changed {
-			return false, err
-		}
-		return s.promote(ctx, team, handle, holder.Handle)
-	}
-	return s.setRole(ctx, team, handle, agentbus.RoleCoordinator)
-}
-
-// promote makes handle the coordinator after previous was made a worker, and puts previous back
-// when it cannot.
-func (s *Seats) promote(ctx context.Context, team, handle, previous string) (bool, error) {
-	if changed, err := s.setRole(ctx, team, handle, agentbus.RoleCoordinator); err != nil || !changed {
-		if _, back := s.setRole(ctx, team, previous, agentbus.RoleCoordinator); back != nil {
-			return false, fmt.Errorf("%s was made a worker and could not be made the coordinator again (%w): "+
-				"the team has no coordinator; run sudo agent-bus set-role %s %s --role=coordinator",
-				previous, back, team, previous)
-		}
-		return false, fmt.Errorf("%s could not be made the coordinator, so %s is the coordinator again: %w", handle, previous, err)
+	steps = append(steps, roles.Step{Handle: handle, From: member.Role, To: wanted(want)})
+	if _, err := s.Roles.Change(ctx, team, func(string) {}, steps...); err != nil {
+		return false, err
 	}
 	return true, nil
 }
 
-func (s *Seats) setRole(ctx context.Context, team, handle, role string) (bool, error) {
-	if err := s.Bus.SetRole(ctx, team, handle, role); err != nil {
-		s.Kit.ReportRootErr(err)
-		return false, fmt.Errorf("%s was not made a %s", handle, role)
+// wanted is the role want names: the coordinator's, or a worker's.
+func wanted(want bool) string {
+	if want {
+		return agentbus.RoleCoordinator
 	}
-	return true, nil
+	return agentbus.RoleWorker
 }
 
 func roleTitle(handle, team string, want bool, holder coordinator.Holder) string {
@@ -131,8 +118,9 @@ func SnapshotRunning(snap *board.Snapshot) coordinator.Lookup {
 	}
 }
 
-// ToggleCoordinator is the seat menu's entry: make the seat's member the coordinator, or, when
-// it is, stop it being. It says what happened and goes back to the list.
+// ToggleCoordinator is every member row's role entry, whatever the member's kind: make it the
+// coordinator, or, when it is, a worker. It says what happened, how the member's running session
+// learns it, and goes back to the list.
 func (s *Seats) ToggleCoordinator(ctx context.Context, snap *board.Snapshot, row board.Row) (flow.Result, error) {
 	want := snap.RoleOf(row.Team, row.Handle) != agentbus.RoleCoordinator
 	changed, err := s.ChangeRole(ctx, row.Team, row.Handle, want, SnapshotRunning(snap))
@@ -143,7 +131,7 @@ func (s *Seats) ToggleCoordinator(ctx context.Context, snap *board.Snapshot, row
 	case !changed:
 		return s.Kit.Note(ctx, "Nothing was changed.")
 	case want:
-		return s.Kit.Note(ctx, row.Handle+" is now the coordinator of "+row.Team+".")
+		return s.Kit.Note(ctx, row.Handle+" is now the coordinator of "+row.Team+". "+roles.Reach)
 	}
-	return s.Kit.Note(ctx, row.Handle+" is now a worker; "+row.Team+" has no coordinator.")
+	return s.Kit.Note(ctx, row.Handle+" is now a worker; "+row.Team+" has no coordinator. "+roles.Reach)
 }

@@ -2,11 +2,13 @@ package picker
 
 import (
 	"context"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -105,6 +107,40 @@ func TestATeamsMenuShutsItsSessionsDown(t *testing.T) {
 	}
 	if h.Fake.Called("tmux -L ccy send-keys") {
 		t.Fatal("something was typed after a no")
+	}
+}
+
+// Plan 00203 SPEC-team-add-and-restart B1: a team row's menu restarts the team's desktop
+// sessions, a visible line with no key, after Update and before the lines that end things; it
+// asks first, default No.
+func TestATeamsMenuRestartsItsDesktopSessions(t *testing.T) {
+	h := newRig(t)
+	r := h.run1(t)
+	labels := h.labels(r, h.row(t, r.snap, board.NoDescription))
+	at := index(t, labels, "Restart the team's desktop sessions")
+	if update := index(t, labels, "Update every team that is out of date or not built   (Ctrl-U)"); at != update+1 {
+		t.Fatalf("restart follows Update: %q", labels)
+	}
+	if shutdown := index(t, labels, "Shut down every session of alpha"); at > shutdown {
+		t.Fatalf("restart comes before Shut down: %q", labels)
+	}
+	checkOrder(t, "team menu", labels)
+	h.Env["XDG_RUNTIME_DIR"] = filepath.Join(h.Root, "run")
+	desired := membership.Desired{
+		V: 1, Session: "ccy-proj", Kind: "ccy", Checkout: h.Checkout(), Generation: 1, WrittenMS: 1,
+		Seats: []membership.Seat{{Team: "alpha", Seat: "1"}}, Farewell: []membership.Farewell{},
+	}
+	if err := membership.Write(membership.DirOf(h.Env["XDG_RUNTIME_DIR"], "ccy", "ccy-proj"), desired); err != nil {
+		t.Fatal(err)
+	}
+	h.Script.Fzf = []string{"|alpha", "|Restart the team's desktop sessions", "|EXIT", "|ABORT"}
+	if code := h.run(); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	for _, want := range []string{"Team alpha: 1 session to restart.", "Nothing was restarted.", "Press Enter to go back to the list."} {
+		if !strings.Contains(h.ErrOut.String(), want) {
+			t.Fatalf("stderr lacks %q: %s", want, h.ErrOut.String())
+		}
 	}
 }
 
@@ -221,12 +257,41 @@ func TestADeferredLxcRowOffersNoParking(t *testing.T) {
 	}
 	labels := h.labels(r, row)
 	for _, l := range labels {
-		if strings.HasPrefix(l, "Park ") {
+		if strings.HasPrefix(l, "Park ") || strings.Contains(l, "coordinator") || strings.Contains(l, "worker") {
 			t.Fatalf("menu %q", labels)
+		}
+	}
+	for _, a := range r.actionsFor(row) {
+		if a.id == actCoordinator || a.id == actDemote {
+			t.Fatalf("menu offers role action %q", a.ui().Line())
 		}
 	}
 	if !slices.Contains(labels, "Open alpha in Element   (Ctrl-E)") {
 		t.Fatalf("menu %q", labels)
+	}
+}
+
+func TestASeatWithNoHandleYetOffersNoRoleButCanBeRemoved(t *testing.T) {
+	h := newRig(t)
+	r := h.run1(t)
+	row := board.Row{
+		Team: "alpha", Member: "s1", Kind: board.KindCcy, State: "joined", Applied: "-", Session: "-",
+		Restore: "-", Where: "-", Handle: "", Dir: "/srv/proj",
+	}
+	var removes int
+	for _, a := range r.actionsFor(row) {
+		switch a.id {
+		case actCoordinator, actDemote:
+			t.Fatalf("menu offers role action %q", a.ui().Line())
+		case actRemove:
+			removes++
+			if !strings.HasPrefix(a.ui().Line(), "Remove seat ") {
+				t.Fatalf("remove line %q", a.ui().Line())
+			}
+		}
+	}
+	if removes != 1 {
+		t.Fatalf("menu %q", h.labels(r, row))
 	}
 }
 
@@ -265,14 +330,14 @@ func TestTheFooterFollowsTheRowUnderTheCursorInWords(t *testing.T) {
 	}
 }
 
-func TestASeatsMenuOffersMakingItTheCoordinator(t *testing.T) {
+func TestASeatsMenuOffersMakingItTheCoordinatorByName(t *testing.T) {
 	h := newRig(t)
 	r := h.run1(t)
 	labels := h.labels(r, h.row(t, r.snap, "1"))
-	if !slices.Contains(labels, "Make it the coordinator (alpha has none)") {
+	if !slices.Contains(labels, "Make proj.1+local.podman the coordinator (alpha has none)") {
 		t.Fatalf("seat menu %q", labels)
 	}
-	if slices.Contains(labels, "Stop being coordinator") {
+	if slices.ContainsFunc(labels, func(l string) bool { return strings.Contains(l, "a worker") }) {
 		t.Fatalf("a seat that is not the coordinator offers to stop being it: %q", labels)
 	}
 	footer := r.footerFor(h.row(t, r.snap, "1"))
@@ -281,18 +346,20 @@ func TestASeatsMenuOffersMakingItTheCoordinator(t *testing.T) {
 	}
 }
 
-func TestTheCoordinatorsSeatMenuOffersToStopBeingIt(t *testing.T) {
+func TestTheCoordinatorsSeatMenuOffersToMakeItAWorkerAfterTheOrdinaryChoices(t *testing.T) {
 	h := newRig(t)
 	h.On(teamtest.SudoBus+"list alpha", strings.Replace(teamtest.BusList,
 		"MEMBER\tproj.1+local.podman\tdev", "MEMBER\tproj.1+local.podman\tcoordinator", 1), 0)
 	r := h.run1(t)
 	labels := h.labels(r, h.row(t, r.snap, "1"))
-	if !slices.Contains(labels, "Stop being coordinator") || slices.ContainsFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Make it the coordinator") }) {
+	worker := slices.Index(labels, "Make proj.1+local.podman a worker (alpha then has no coordinator)")
+	help := slices.Index(labels, "What the columns and keys mean   (?)")
+	if worker < 0 || worker < help || slices.ContainsFunc(labels, func(l string) bool { return strings.Contains(l, "the coordinator (alpha has none)") }) {
 		t.Fatalf("seat menu %q", labels)
 	}
 }
 
-func TestASeatsMenuOnATeamWithACoordinatorOffersTheTakeoverLast(t *testing.T) {
+func TestASeatsMenuOnATeamWithACoordinatorOffersTheTakeoverAfterTheOrdinaryChoicesBeforeRemove(t *testing.T) {
 	h := newRig(t)
 	h.On(teamtest.SudoBus+"list alpha", strings.Replace(teamtest.BusList,
 		"MEMBER\tproj.box+role.lxc\tops", "MEMBER\tproj.box+role.lxc\tcoordinator", 1), 0)
@@ -300,11 +367,12 @@ func TestASeatsMenuOnATeamWithACoordinatorOffersTheTakeoverLast(t *testing.T) {
 	row := h.row(t, r.snap, "1")
 	labels := h.labels(r, row)
 	at := slices.IndexFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Replace the coordinator, proj.box+role.lxc (") })
-	if at < 0 || slices.ContainsFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Make it the coordinator") }) {
+	if at < 0 || slices.ContainsFunc(labels, func(l string) bool { return strings.Contains(l, "the coordinator (alpha has none)") }) {
 		t.Fatalf("seat menu %q", labels)
 	}
-	if remove := slices.IndexFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Remove seat proj.1+local.podman from alpha") }); remove < 0 || at < remove {
-		t.Fatalf("the takeover is less prominent than the ordinary choices, after Remove seat: %q", labels)
+	help := slices.Index(labels, "What the columns and keys mean   (?)")
+	if remove := slices.IndexFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Remove seat proj.1+local.podman from alpha") }); remove != len(labels)-1 || at < help || at > remove {
+		t.Fatalf("the takeover is after the ordinary choices and Remove seat is last: %q", labels)
 	}
 }
 
@@ -322,13 +390,34 @@ func TestChoosingMakeCoordinatorChangesTheRoleThroughSudo(t *testing.T) {
 	}
 }
 
-func TestEnterOnAMemberThatIsNotACcySeatOffersParkingAndTheRest(t *testing.T) {
+func TestEnterOnAnLxcMemberOffersItsRoleFirstAndParkingLast(t *testing.T) {
 	h := newRig(t)
 	r := h.run1(t)
 	labels := h.labels(r, h.row(t, r.snap, "proj.box+role.lxc"))
-	for _, want := range []string{"Park proj.box+role.lxc   (Ctrl-X)", "Open alpha in Element   (Ctrl-E)"} {
-		if !slices.Contains(labels, want) {
-			t.Fatalf("menu %q lacks %q", labels, want)
-		}
+	want := []string{
+		"Make proj.box+role.lxc the coordinator (alpha has none)",
+		"Open alpha in Element   (Ctrl-E)",
+		"Start a ccy session in alpha, in this folder   (Ctrl-N)",
+		"Add an LXC container's agent to alpha",
+		"What the columns and keys mean   (?)",
+		"Park proj.box+role.lxc   (Ctrl-X)",
+	}
+	if !slices.Equal(labels, want) {
+		t.Fatalf("menu %q,\nwant %q", labels, want)
+	}
+}
+
+func TestChoosingTheRoleOfAnLxcMemberChangesItThroughTheSharedPath(t *testing.T) {
+	h := newRig(t)
+	h.On("sudo -n -v", "", 0)
+	h.On(teamtest.SudoBus+"set-role alpha", "", 0)
+	h.OnDeclare("lxc-members", "")
+	h.Script.Fzf = []string{"|YES"}
+	r := h.run1(t)
+	if _, err := r.do(context.Background(), actCoordinator, h.row(t, r.snap, "proj.box+role.lxc")); err != nil {
+		t.Fatal(err)
+	}
+	if !h.Fake.Called(teamtest.SudoBus + "set-role alpha proj.box+role.lxc --role=coordinator") {
+		t.Fatalf("calls %v", h.Fake.Calls())
 	}
 }

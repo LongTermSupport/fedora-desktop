@@ -59,6 +59,11 @@ GUARD_SUFFIX = "; fi"
 #: `agent-bus-claude` member) runs every hook as before.
 INERT_HEAD = '[ -z "$PINGBUS_MEMBERSHIP" ] || [ -e "$PINGBUS_HOME/active" ] || '
 INERT_GUARD = INERT_HEAD + "exit 0; "
+#: Plan 00203 Decision 12: the one exception. A SessionStart with no seat held runs only
+#: `pingbus hook conversation`, which records the conversation id a restore resumes and answers
+#: nothing; every other event of such a session starts no process.
+INERT_SESSION_START = INERT_HEAD + "exec pingbus hook conversation; "
+INERT_RUNS = {"SessionStart": "conversation"}
 
 #: The commands an agent runs by hand, each of which the skill must name.
 AGENT_COMMANDS = ("send", "say", "recv", "wait", "inbox", "status", "history", "config check", "validate")
@@ -144,8 +149,9 @@ class HooksJsonTest(unittest.TestCase):
         for event, commands in self.commands().items():
             self.assertEqual(len(commands), 1, event)
             command = commands[0]
-            self.assertTrue(command.startswith(INERT_GUARD), f"{event}: {command}")
-            command = command[len(INERT_GUARD):]
+            guard = INERT_SESSION_START if event in INERT_RUNS else INERT_GUARD
+            self.assertTrue(command.startswith(guard), f"{event}: {command}")
+            command = command[len(guard):]
             if event == "PostToolUse":  # guarded in shell: off mode starts no Python process
                 self.assertTrue(command.startswith(GUARD_PREFIX) and command.endswith(GUARD_SUFFIX), command)
                 command = "exec " + command[len(GUARD_PREFIX):-len(GUARD_SUFFIX)]
@@ -181,11 +187,19 @@ class HooksJsonTest(unittest.TestCase):
 
     def test_a_session_on_no_team_runs_no_hook_process_and_answers_nothing(self) -> None:
         """H33: the flag absent under the membership marker, every hook is an empty answer
-        and starts neither pingbus nor python3."""
+        and starts neither pingbus nor python3; SessionStart runs only the conversation record
+        (Decision 12)."""
         for event, (command,) in self.commands().items():
             with self.subTest(event=event):
                 done, started, _ = self.run_hook(command, active=False, membership=True)
-                self.assertEqual((done.returncode, done.stdout, done.stderr, started), (0, "", "", ""))
+                runs = f"pingbus hook {INERT_RUNS[event]}\n" if event in INERT_RUNS else ""
+                self.assertEqual((done.returncode, done.stdout, done.stderr, started), (0, "", "", runs))
+
+    def test_the_inert_session_start_runs_a_hook_subcommand_of_the_same_event(self) -> None:
+        for event, subcommand in INERT_RUNS.items():
+            self.assertIn(subcommand, hooks.EVENTS)
+            self.assertEqual(hooks.HOOK_EVENT_NAMES[subcommand], event)
+            self.assertTrue(parses(["hook", subcommand]))
 
     def test_a_session_holding_a_seat_runs_each_hook(self) -> None:
         for event, (command,) in self.commands().items():

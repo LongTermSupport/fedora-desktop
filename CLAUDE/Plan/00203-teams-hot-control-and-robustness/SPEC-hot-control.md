@@ -340,7 +340,7 @@ Two things are **not** frozen:
   - `ccy-teams session add <session> <team>[/<seat>] [--role=worker|coordinator]`
   - `ccy-teams session remove <session> <team> [--coordinator=demote|hand-to=<seat>]`
   - `ccy-teams session move <session> <from-team> <to-team>[/<seat>]`
-  - `ccy-teams session role <session> <team> worker|coordinator [--demote-current]`
+  - `ccy-teams session role <session>|<handle> <team> worker|coordinator [--demote-current]`
   - `ccy-teams session repair <session>`
 
   `ccy-teams internal membership-init` is the launcher's. It is listed in the usage text's
@@ -449,8 +449,8 @@ Two things are **not** frozen:
 
   1. Resolve the session as for add.
   2. If the seat holds the coordinator role, `--coordinator` is required: `demote` sets it to
-     worker; `hand-to=<seat>` makes another seat coordinator. Interactively it is asked, with
-     demote as the default. Non-interactively its absence is exit 64.
+     worker; `hand-to=<seat>` makes another seat coordinator. Interactively it is asked, and the
+     question starts on No. Non-interactively its absence is exit 64.
   3. Write the record, then the desired file without the seat, adding a `farewell` entry.
   4. Wait up to 10 s for the seat lock to read free.
   5. **Re-baseline**, from the host, through `pingbus seat retire --root <checkout seats> <seat>@<team>`:
@@ -524,6 +524,39 @@ Two things are **not** frozen:
     fails, it says the old coordinator is a worker now and the team has none until
     `ccy-teams apply <team>` succeeds. Before, lxc-add made
     the member a worker without asking when the team had a coordinator.
+  - **Every member kind has the same roles (Task 3.8, the owner's rule).** A member added by
+    any route (a ccy or cc session, `lxc-add`, a host, docker or vm member joined by hand) is
+    offered the same role actions, in the same words, and one path changes them (package
+    `teams/roles`), which every caller uses: the picker's member rows and settings
+    (`seats.ChangeRole`), `session role` and `add --role` (hot), and `lxc-add`'s takeover. By
+    kind only at the last step: every member with a handle is set live (`sudo agent-bus set-role`); a member declared by an `agent_bus_lxc_members` entry also has its entry set
+    first (`declare lxc-role`), else the next apply would put the old role back or refuse a
+    second coordinator, and the team is then applied (`ops.ApplyTeams`). Such a change runs in
+    one hold of the play lock (`ops.Locked`, Plan 00201 Task 2.17): the entry, the live role and
+    the apply all inside it, so a wait for the lock that is stopped or reaches its bound writes
+    nothing, entry or live role. A change with no entry to write is live only and takes no lock.
+    Which entry a live LXC handle is is read from each candidate entry's checkout as root
+    (`declare lxc-identity` over the root reader's probe), before the lock is waited for; an
+    entry that cannot be read (its container stopped) stops the change before anything changes,
+    and the error names that entry and says to start it or give the team's entries their seats.
+    A step that fails puts back those before it. A remove's question whether the coordinator
+    becomes a worker starts on No.
+    - The picker's member menu, for every kind: the role line first ("Make <handle> the
+      coordinator (<team> has none)"), then Element, a session, adding an LXC agent, help; a
+      ccy seat's own attach and restore come before it. "Make <handle> a worker (<team> then has
+      no coordinator)" and the takeover demote someone, so they come after help, and Park or
+      Remove seat is last, just above Back.
+    - **No destructive action is where a cursor starts** (park, remove, take down, shut down,
+      make a coordinator a worker), in any picker menu: each is listed after every other
+      action, a tested rule over every row and kind. The take-down question starts on "Leave
+      it running"; a coordinator's role question in the Running sessions view starts on
+      "coordinator (now)"; settings lists No coordinator last.
+    - `session role` takes a member's handle (`<repo>.<seat>+<host>.<type>`) in place of a
+      session: one command for every kind. There is no session record to wait on.
+    - How it reaches the member: who is copied changes at once (the team record), and the
+      session is told by pingbus, a ccy or cc session by its membership notice (H12), any
+      other (agent-bus-claude) by the same role context from its watcher or its next prompt
+      (`told-roles.json`). No restart.
   - Every session on the team whose role changed gets the notice (H12) from its own watcher's
     next sync.
   - The command waits up to 10 s for the target session's report (3.3) to show the new role in

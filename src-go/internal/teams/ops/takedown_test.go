@@ -131,7 +131,8 @@ func TestRemoveDeclaredKeepsDataAfterBackup(t *testing.T) {
 		"gum confirm --default=true Back alpha up first?",
 		"sudo -n -v",
 		opsInstaller + "backup-now --team alpha",
-		"gum choose --header What happens to alpha? --selected Take it down, keep its data Take it down, keep its data Take it down and delete its data Leave it running",
+		// The cursor starts on leaving it running: no destructive answer is pre-selected (Plan 00203 Task 3.8).
+		"gum choose --header What happens to alpha? --selected Leave it running Leave it running Take it down, keep its data Take it down and delete its data",
 		opsDeclare + "remove --file " + opsHostVars + " --team alpha",
 		opsPlay + ` -e {"agent_bus_only_teams": ["alpha"]}`,
 	}

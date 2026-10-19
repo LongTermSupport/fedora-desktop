@@ -17,6 +17,7 @@ import io
 import json
 import os
 import pathlib
+import shutil
 import signal
 import stat
 import subprocess
@@ -28,13 +29,20 @@ from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import cli, config, hooks, membership, protocol, statusline
+from helpers.pingbus import cli, config, hooks, inbox, membership, protocol, statusline
 
 CYAN, RED, RESET = "\033[36m", "\033[31m", "\033[0m"
 
 
+def worker_roles(environ: object, teams: list[str]) -> tuple[dict[str, str | None], str | None]:
+    """A role reader that finds this member a worker in every team: the layout tests' stand-in
+    for the team records RoleSegmentTest reads for real."""
+    return dict.fromkeys(teams, "worker"), None
+
+
 class StatusLineTest(unittest.TestCase):
     def setUp(self) -> None:
+        self.enterContext(mock.patch.object(statusline, "read_roles", worker_roles))
         self.tmp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.sessions = self.tmp / "sessions"
         self.project = self.tmp / "project"
@@ -68,7 +76,7 @@ class StatusLineTest(unittest.TestCase):
 
     def test_a_sessions_teams_are_shown_in_order(self) -> None:
         self.record("sess-1", "alpha,beta")
-        self.assertEqual(self.render(), (f"{CYAN}👥 alpha,beta{RESET}", 0))
+        self.assertEqual(self.render(), (f"{CYAN}👥 alpha (worker), beta (worker){RESET}", 0))
 
     def test_another_sessions_teams_are_never_shown(self) -> None:
         self.record("sess-2", "gamma")
@@ -108,17 +116,17 @@ class StatusLineTest(unittest.TestCase):
 
     def test_the_record_is_read_where_the_hook_writes_it(self) -> None:
         hooks.record_session_teams(self.env, "sess-1", ["alpha", "beta"])
-        self.assertIn("👥 alpha,beta", self.render()[0])
+        self.assertIn("👥 alpha (worker), beta (worker)", self.render()[0])
 
     # ── the status line the session would have had ────────────────────────────────────
 
     def test_the_projects_status_line_runs_first_with_the_same_input(self) -> None:
         self.record("sess-1", "alpha")
         self.settings(self.project / ".claude/settings.json", "cat >/dev/null; printf 'model | dir'")
-        self.assertEqual(self.render(), (f"model | dir\n{CYAN}👥 alpha{RESET}", 0))
+        self.assertEqual(self.render(), (f"model | dir\n{CYAN}👥 alpha (worker){RESET}", 0))
         echo = "python3 -c 'import json,sys; print(json.load(sys.stdin)[\"session_id\"])'"
         self.settings(self.project / ".claude/settings.json", echo)
-        self.assertEqual(self.render()[0], f"sess-1\n{CYAN}👥 alpha{RESET}")
+        self.assertEqual(self.render()[0], f"sess-1\n{CYAN}👥 alpha (worker){RESET}")
 
     def test_local_project_settings_win_then_project_then_user(self) -> None:
         self.record("sess-1", "alpha")
@@ -146,7 +154,7 @@ class StatusLineTest(unittest.TestCase):
     def test_the_segment_goes_on_its_own_row(self) -> None:
         self.record("sess-1", "alpha")
         self.settings(self.project / ".claude/settings.json", "printf 'one\\ntwo\\n'")
-        self.assertEqual(self.render()[0], f"one\ntwo\n{CYAN}👥 alpha{RESET}")
+        self.assertEqual(self.render()[0], f"one\ntwo\n{CYAN}👥 alpha (worker){RESET}")
 
     def test_no_row_is_wider_than_the_terminal_after_a_wrapped_inner_status_line(self) -> None:
         """The owner's `bus: de…`: the hooks daemon's status line wraps its own segments to
@@ -163,21 +171,24 @@ class StatusLineTest(unittest.TestCase):
         self.assertIn("beta", text)
 
     def test_the_teams_wrap_at_the_width_never_cut(self) -> None:
-        """Every team is shown whole: the list breaks after a comma onto rows indented under
-        the first, each its own colour span, and nothing is ellipsised."""
+        """Every team is shown whole, with its role: the list breaks after a comma onto rows
+        indented under the first, each its own colour span, and nothing is ellipsised. A team
+        and its role are never split across rows."""
         self.record("sess-1", "alpha,beta,gamma")
-        self.env["COLUMNS"] = "12"
-        self.assertEqual(self.render()[0], f"{CYAN}👥 alpha,{RESET}\n{CYAN}   beta,{RESET}\n"
-                                           f"{CYAN}   gamma{RESET}")
-        self.env["COLUMNS"] = "18"
-        self.assertEqual(self.render()[0], f"{CYAN}👥 alpha,beta,{RESET}\n{CYAN}   gamma{RESET}")
+        self.env["COLUMNS"] = "20"
+        self.assertEqual(self.render()[0], f"{CYAN}👥 alpha (worker),{RESET}\n{CYAN}   beta (worker),{RESET}\n"
+                                           f"{CYAN}   gamma (worker){RESET}")
+        self.env["COLUMNS"] = "34"
+        self.assertEqual(self.render()[0], f"{CYAN}👥 alpha (worker), beta (worker),{RESET}\n"
+                                           f"{CYAN}   gamma (worker){RESET}")
         self.env["COLUMNS"] = "80"
-        self.assertEqual(self.render()[0], f"{CYAN}👥 alpha,beta,gamma{RESET}")
+        self.assertEqual(self.render()[0], f"{CYAN}👥 alpha (worker), beta (worker), gamma (worker){RESET}")
 
     def test_a_team_wider_than_the_width_keeps_its_own_row_whole(self) -> None:
         self.record("sess-1", "alpha,a-very-long-team-name")
         self.env["COLUMNS"] = "10"
-        self.assertEqual(self.render()[0], f"{CYAN}👥 alpha,{RESET}\n{CYAN}   a-very-long-team-name{RESET}")
+        self.assertEqual(self.render()[0], f"{CYAN}👥 alpha (worker),{RESET}\n"
+                                           f"{CYAN}   a-very-long-team-name (worker){RESET}")
 
     def test_the_red_notes_wrap_between_words(self) -> None:
         self.env["COLUMNS"] = "30"
@@ -199,14 +210,16 @@ class StatusLineTest(unittest.TestCase):
                 self.env.pop("COLUMNS", None)
                 if columns is not None:
                     self.env["COLUMNS"] = columns
-                self.assertEqual(self.render()[0], f"inner\n{CYAN}👥 alpha,beta,gamma{RESET}")
+                self.assertEqual(self.render()[0],
+                                 f"inner\n{CYAN}👥 alpha (worker), beta (worker), gamma (worker){RESET}")
 
     def test_the_measured_text_is_ascii_and_the_label(self) -> None:
         """display_width only ever measures the segment: the label, team names (TEAM_NAME_RE,
-        plus `(down)`) and the fixed notes. Pinned to ASCII and the label, the one wide code
-        point, so the heuristic's approximations never meet text they could get wrong."""
+        plus a role and `(down)`) and the fixed notes. Pinned to ASCII and the label, the one
+        wide code point, so the heuristic's approximations never meet text they could get wrong."""
         self.assertEqual(statusline.display_width(statusline.LABEL), 2)
-        for text in (statusline.NO_RECORD, statusline.NO_MEMBERSHIP, statusline.TEAM_NAME_RE.pattern):
+        for text in (statusline.NO_RECORD, statusline.NO_MEMBERSHIP, statusline.TEAM_NAME_RE.pattern,
+                     statusline.ROLE_UNKNOWN, *protocol.ROLES):
             with self.subTest(text=text):
                 self.assertTrue(text.isascii())
         self.record("sess-1", "alpha,beta")
@@ -225,14 +238,14 @@ class StatusLineTest(unittest.TestCase):
         self.record("sess-1", "alpha")
         self.settings(self.project / ".claude/settings.json", "echo DAEMON FAILED; exit 1")
         self.assertEqual(self.render(), (
-            f"DAEMON FAILED {RED}(status line exit 1){RESET}\n{CYAN}👥 alpha{RESET}", 0))
+            f"DAEMON FAILED {RED}(status line exit 1){RESET}\n{CYAN}👥 alpha (worker){RESET}", 0))
 
     def test_unreadable_settings_are_shown_not_skipped(self) -> None:
         self.record("sess-1", "alpha")
         (self.project / ".claude/settings.json").write_text("{not json", encoding="utf-8")
         text, rc = self.render()
         self.assertIn(f"{RED}status line: {self.project}/.claude/settings.json is not valid JSON{RESET}", text)
-        self.assertIn("👥 alpha", text)
+        self.assertIn("👥 alpha (worker)", text)
         self.assertEqual(rc, 0)
 
     def test_a_hung_inner_status_line_times_out_and_its_whole_group_is_killed(self) -> None:
@@ -330,7 +343,7 @@ class StatusLineTest(unittest.TestCase):
         self.record("sess-1", "alpha")
         self.settings(self.project / ".claude/settings.json", "pingbus status-line")
         self.settings(self.home / ".claude/settings.json", "echo user")
-        self.assertEqual(self.render()[0], f"user\n{CYAN}👥 alpha{RESET}")
+        self.assertEqual(self.render()[0], f"user\n{CYAN}👥 alpha (worker){RESET}")
 
     def test_the_project_dir_falls_back_to_the_variable(self) -> None:
         self.record("sess-1", "alpha")
@@ -353,7 +366,7 @@ class StatusLineTest(unittest.TestCase):
         out, err = io.StringIO(), io.StringIO()
         rc = cli.main(["status-line"], environ=self.env, stdout=out, stderr=err,
                       stdin=io.BytesIO(self.payload()))
-        self.assertEqual((out.getvalue(), rc), (f"inner\n{CYAN}👥 alpha{RESET}\n", 0))
+        self.assertEqual((out.getvalue(), rc), (f"inner\n{CYAN}👥 alpha (worker){RESET}\n", 0))
 
     def test_the_kit_settings_make_it_the_status_line_refreshed_every_second(self) -> None:
         """The interval is the project's (1 s): the kit's statusLine replaces the project's whole,
@@ -367,9 +380,11 @@ class StatusLineTest(unittest.TestCase):
         project = json.loads((repo / ".claude/settings.json").read_text(encoding="utf-8"))
         self.assertEqual(settings["statusLine"]["refreshInterval"], project["statusLine"]["refreshInterval"])
 
-    # ── cheap to run: a render imports no other pingbus module ─────────────────────────
+    # ── cheap to run: only a segment with teams imports the role reader's modules ──────
 
     def test_the_module_imports_no_other_pingbus_module(self) -> None:
+        """A render outside a bus session imports nothing more; `read_roles` imports config and
+        inbox when there are teams to show (RoleSegmentTest), which is still not the cli."""
         repo = str(pathlib.Path(__file__).resolve().parents[3])
         done = subprocess.run([sys.executable, "-X", "importtime", "-c", "import helpers.pingbus.statusline"],
                               cwd=repo, capture_output=True, text=True, check=True)
@@ -390,6 +405,7 @@ class MembershipSegmentTest(unittest.TestCase):
     SessionStart record; the copy of the intersection is pinned equal to `config.active_teams`."""
 
     def setUp(self) -> None:
+        self.enterContext(mock.patch.object(statusline, "read_roles", worker_roles))
         self.tmp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.mount = self.tmp / "membership"
         self.mount.mkdir()
@@ -412,13 +428,13 @@ class MembershipSegmentTest(unittest.TestCase):
 
     def test_the_teams_held_and_desired_in_desired_order(self) -> None:
         self.write([("beta", "2"), ("alpha", "1")], [("alpha", "1"), ("beta", "2"), ("gamma", "1")])
-        self.assertEqual(self.segment(), f"{CYAN}👥 beta,alpha{RESET}")
+        self.assertEqual(self.segment(), f"{CYAN}👥 beta (worker), alpha (worker){RESET}")
 
     def test_a_change_shows_on_the_next_render(self) -> None:
         self.write([("alpha", "1")], [("alpha", "1")])
-        self.assertEqual(self.segment(), f"{CYAN}👥 alpha{RESET}")
+        self.assertEqual(self.segment(), f"{CYAN}👥 alpha (worker){RESET}")
         self.write([("alpha", "1"), ("beta", "2")], [("alpha", "1"), ("beta", "2")])
-        self.assertEqual(self.segment(), f"{CYAN}👥 alpha,beta{RESET}")
+        self.assertEqual(self.segment(), f"{CYAN}👥 alpha (worker), beta (worker){RESET}")
 
     def test_no_team_no_segment(self) -> None:
         self.write([], [])
@@ -438,9 +454,9 @@ class MembershipSegmentTest(unittest.TestCase):
         """H26: the watcher keeps a team whose homeserver does not answer, and marks it down."""
         self.write([("alpha", "1"), ("beta", "2")], [("alpha", "1"), ("beta", "2")])
         statusline.set_team_down(self.home, "beta", True)
-        self.assertEqual(self.segment(), f"{CYAN}👥 alpha,beta(down){RESET}")
+        self.assertEqual(self.segment(), f"{CYAN}👥 alpha (worker), beta (worker) (down){RESET}")
         statusline.set_team_down(self.home, "beta", False)
-        self.assertEqual(self.segment(), f"{CYAN}👥 alpha,beta{RESET}")
+        self.assertEqual(self.segment(), f"{CYAN}👥 alpha (worker), beta (worker){RESET}")
 
     def test_a_stale_down_mark_is_not_believed(self) -> None:
         """A watcher killed during an outage leaves its mark; one its retries stopped refreshing
@@ -449,7 +465,7 @@ class MembershipSegmentTest(unittest.TestCase):
         statusline.set_team_down(self.home, "alpha", True)
         old = time.time() - statusline.DOWN_FRESH_S - 1
         os.utime(self.home / statusline.DOWN_DIR / "alpha", (old, old))
-        self.assertEqual(self.segment(), f"{CYAN}👥 alpha{RESET}")
+        self.assertEqual(self.segment(), f"{CYAN}👥 alpha (worker){RESET}")
 
     def test_marking_down_refreshes_and_clearing_is_idempotent(self) -> None:
         statusline.set_team_down(self.home, "alpha", True)
@@ -468,7 +484,7 @@ class MembershipSegmentTest(unittest.TestCase):
         self.write([("alpha", "1")], [("alpha", "1")])
         (self.home / statusline.DOWN_DIR).mkdir(mode=0o700)
         (self.home / statusline.DOWN_DIR / "alpha").symlink_to(self.home / membership.APPLIED_FILE)
-        self.assertEqual(self.segment(), f"{CYAN}👥 alpha{RESET}")
+        self.assertEqual(self.segment(), f"{CYAN}👥 alpha (worker){RESET}")
 
     def test_the_copy_agrees_with_config_active_teams(self) -> None:
         cases = [
@@ -485,6 +501,122 @@ class MembershipSegmentTest(unittest.TestCase):
                 except config.ConfigError:
                     expected = []
                 self.assertEqual(statusline.membership_teams(self.env), expected)
+
+
+class RoleSegmentTest(unittest.TestCase):
+    """Plan 00203 Task 3.8, owner feedback: each team in the segment shows this member's role in
+    it, `👥 alpha (coordinator), beta (worker)`, read on every render from the team record the
+    role notice reads (`inbox.cached_role`), so a role change shows at the next refresh with no
+    restart. A role that cannot be read is `(role?)` with one stderr line, never a guess.
+    Order: the team, its role, then its marks such as `(down)`, each in its own brackets."""
+
+    def setUp(self) -> None:
+        self.tmp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.home = self.tmp / "pingbus"
+        self.home.mkdir()
+        self.sessions = self.tmp / "sessions"
+        self.sessions.mkdir(mode=0o700)
+        self.env = {"PINGBUS_HOME": str(self.home), "PINGBUS_TEAMS": "alpha,beta",
+                    "HOME": str(self.tmp), "PINGBUS_STATUS_LINE_INNER": "1",
+                    hooks.SESSIONS_DIR_VAR: str(self.sessions)}
+        record = self.sessions / "sess-1"
+        record.write_text("alpha,beta", encoding="ascii")
+        record.chmod(0o600)
+
+    @staticmethod
+    def me(team: str) -> str:
+        return f"@myrepo.1+workstation.podman:{team}.agent-bus.internal"
+
+    def bundle(self, team: str) -> None:
+        directory = self.home / team
+        directory.mkdir()
+        sn = f"{team}.agent-bus.internal"
+        (directory / "member.json").write_text(json.dumps({
+            "protocol": 1, "team": team, "user_id": self.me(team), "server_name": sn,
+            "base_url": "http://127.0.0.1:1", "plain_http_hosts": ["127.0.0.1"],
+            "token_file": "token", "admin": f"@admin:{sn}", "room": "!" + "R" * 43}), encoding="utf-8")
+        token = directory / "token"
+        token.write_text(f"syt_member_token_for_{team}", encoding="ascii")
+        token.chmod(0o600)
+
+    def roles(self, team: str, roles: dict[str, str]) -> None:
+        """Team `team`'s cached record, as the watcher saves it, giving `roles` by user id."""
+        sn = f"{team}.agent-bus.internal"
+        inbox.TeamState(self.home / team / "state").save_team_record({
+            "v": 1, "team": team, "humans": [f"@alice:{sn}"], "roles": roles,
+            "repos": [{"repo": "example-org/myrepo", "branches": ["main"]}],
+            "path_prefixes": ["docs/"], "forge_api": "https://api.github.com"})
+
+    def make_me(self, team: str, role: str) -> None:
+        other = "worker" if role == "coordinator" else "coordinator"
+        self.roles(team, {self.me(team): role, f"@orch.1+workstation.podman:{team}.agent-bus.internal": other})
+
+    def segment(self) -> tuple[str, str]:
+        err = io.StringIO()
+        text, _ = statusline.render(json.dumps({"session_id": "sess-1"}).encode(), self.env, err=err)
+        return text, err.getvalue()
+
+    def test_each_team_shows_this_members_role_in_it(self) -> None:
+        for team in ("alpha", "beta"):
+            self.bundle(team)
+        self.make_me("alpha", "coordinator")
+        self.make_me("beta", "worker")
+        self.assertEqual(self.segment(), (f"{CYAN}👥 alpha (coordinator), beta (worker){RESET}", ""))
+
+    def test_a_role_change_shows_on_the_next_render_with_no_restart(self) -> None:
+        for team in ("alpha", "beta"):
+            self.bundle(team)
+            self.make_me(team, "worker")
+        self.assertEqual(self.segment()[0], f"{CYAN}👥 alpha (worker), beta (worker){RESET}")
+        self.make_me("beta", "coordinator")
+        self.assertEqual(self.segment()[0], f"{CYAN}👥 alpha (worker), beta (coordinator){RESET}")
+
+    def test_the_role_is_the_one_the_role_notice_reads(self) -> None:
+        for team in ("alpha", "beta"):
+            self.bundle(team)
+        for alpha, beta in (("coordinator", "worker"), ("worker", "coordinator"), ("worker", "worker")):
+            with self.subTest(alpha=alpha, beta=beta):
+                self.make_me("alpha", alpha)
+                self.make_me("beta", beta)
+                told = {view.team: view.role for view in hooks.survey(self.env).teams}
+                self.assertEqual(statusline.read_roles(self.env, ["alpha", "beta"]), (told, None))
+
+    def test_an_unreadable_role_is_role_unknown_and_one_stderr_line_never_a_guess(self) -> None:
+        self.bundle("alpha")
+        self.make_me("alpha", "worker")
+        for broken in ("no bundle", "no record", "not json", "no role for this member"):
+            with self.subTest(broken=broken):
+                shutil.rmtree(self.home / "beta", ignore_errors=True)
+                if broken != "no bundle":
+                    self.bundle("beta")
+                if broken == "not json":
+                    (self.home / "beta/state").mkdir(mode=0o700)
+                    (self.home / "beta/state" / inbox.TEAM_FILE).write_text("{", encoding="utf-8")
+                if broken == "no role for this member":
+                    self.roles("beta", {"@orch.1+workstation.podman:beta.agent-bus.internal": "coordinator"})
+                text, err = self.segment()
+                self.assertEqual(text, f"{CYAN}👥 alpha (worker), beta (role?){RESET}")
+                self.assertEqual(len(err.splitlines()), 1, err)
+                self.assertIn("beta", err)
+                self.assertNotIn("alpha", err)
+
+    def test_the_marks_come_after_the_role(self) -> None:
+        self.bundle("alpha")
+        self.make_me("alpha", "coordinator")
+        statusline.set_team_down(self.home, "alpha", True)
+        statusline.set_team_down(self.home, "beta", True)
+        text, err = self.segment()
+        self.assertEqual(text, f"{CYAN}👥 alpha (coordinator) (down), beta (role?) (down){RESET}")
+        self.assertEqual(len(err.splitlines()), 1)
+
+    def test_pingbus_status_line_writes_the_diagnostic_to_its_stderr(self) -> None:
+        self.bundle("alpha")
+        self.make_me("alpha", "worker")
+        out, err = io.StringIO(), io.StringIO()
+        rc = cli.main(["status-line"], environ=self.env, stdout=out, stderr=err,
+                      stdin=io.BytesIO(json.dumps({"session_id": "sess-1"}).encode()))
+        self.assertEqual((out.getvalue(), rc), (f"{CYAN}👥 alpha (worker), beta (role?){RESET}\n", 0))
+        self.assertEqual(len(err.getvalue().splitlines()), 1, err.getvalue())
 
 
 if __name__ == "__main__":

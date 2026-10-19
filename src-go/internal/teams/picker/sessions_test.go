@@ -180,10 +180,10 @@ func TestTheSessionMenuNamesEveryActionInWords(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
 	want := []string{
-		"Add to a team", "Remove from alpha", "Remove from beta",
+		"Add to a team",
 		"Change role in alpha (now worker)", "Change role in beta (now coordinator)",
 		"Move from alpha to another team", "Move from beta to another team",
-		"Attach", "Repair (its seat keeper has stopped)", "Back to the list",
+		"Attach", "Repair (its seat keeper has stopped)", "Remove from alpha", "Remove from beta", "Back to the list",
 	}
 	if menu := untagged(h.Script.Rows[2]); !slices.Equal(menu, want) {
 		t.Fatalf("menu %q, want %q", menu, want)
@@ -201,7 +201,7 @@ func TestTheMenuOfASessionInOneTeamMovesItToAnotherTeam(t *testing.T) {
 	if code := h.run(); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
-	want := []string{"Add to a team", "Remove from alpha", "Change role in alpha (now worker)", "Move to another team", "Attach", "Back to the list"}
+	want := []string{"Add to a team", "Change role in alpha (now worker)", "Move to another team", "Attach", "Remove from alpha", "Back to the list"}
 	if menu := untagged(h.Script.Rows[2]); !slices.Equal(menu, want) {
 		t.Fatalf("menu %q, want %q", menu, want)
 	}

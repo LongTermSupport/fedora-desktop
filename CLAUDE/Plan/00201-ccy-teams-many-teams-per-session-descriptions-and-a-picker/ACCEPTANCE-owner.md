@@ -49,7 +49,8 @@ Do these in order, once. Each step names what you should see.
    coordinator**, then Yes.
 6. **Check the session.** The launch prints "This session is on 1 team:" (or "on N teams:"),
    one line per seat with its role and the team's description. The status line ends
-   `👥 <team>` (several teams: `👥 <team>,<team>`); a red `👥 no record ...` is a
+   `👥 <team> (<role>)` (several teams: `👥 <team> (<role>), <team> (<role>)`); a red
+   `👥 no record ...` or a `(role?)` is a
    fault (below). Next time in that checkout, plain `ccy` shows the seats on the **Team:**
    line under **Quick Launch Available**, and Enter takes them again.
 7. **Talk to an agent.** In the team's Element window type `@`, **pick the agent from the

@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ -z \"$PINGBUS_MEMBERSHIP\" ] || [ -e \"$PINGBUS_HOME/active\" ] || exit 0; exec pingbus hook session-start"
+            "command": "[ -z \"$PINGBUS_MEMBERSHIP\" ] || [ -e \"$PINGBUS_HOME/active\" ] || exec pingbus hook conversation; exec pingbus hook session-start"
           }
         ]
       }

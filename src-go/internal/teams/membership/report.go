@@ -37,9 +37,15 @@ type Report struct {
 	Told       json.RawMessage `json:"told,omitempty"`
 }
 
+// SessionDir is a session's directory beside the checkout's seats: the keeper's report and
+// the conversation the SessionStart hook records (helpers/pingbus seat.py and hooks.py).
+func SessionDir(checkout, session string) string {
+	return filepath.Join(checkout, ".claude", "ccy", "pingbus", "sessions", session)
+}
+
 // ReportPath is where a session's keeper writes its report, beside the checkout's seats.
 func ReportPath(checkout, session string) string {
-	return filepath.Join(checkout, ".claude", "ccy", "pingbus", "sessions", session, "applied.json")
+	return filepath.Join(SessionDir(checkout, session), "applied.json")
 }
 
 // ReadReport is the session's report; os.ErrNotExist before its keeper wrote one.

@@ -99,6 +99,47 @@ func TestRelaunchPendingAndWithdrawn(t *testing.T) {
 	}
 }
 
+// Plan 00203 B4, B7: a team restart's request says why, and withdrawing it removes only a
+// request that is a restart's, never a first join's.
+func TestARestartRequestSaysWhyAndOnlyItIsWithdrawn(t *testing.T) {
+	dir := t.TempDir()
+	if err := WriteRestart(dir, 3, stamp); err != nil {
+		t.Fatal(err)
+	}
+	body := readFile(t, filepath.Join(dir, RelaunchFile))
+	if !strings.Contains(body, `"why":"restart"`) || !strings.Contains(body, `"generation":3`) || mode(t, filepath.Join(dir, RelaunchFile)).Perm() != 0o600 {
+		t.Fatalf("restart %q", body)
+	}
+	if removed, err := WithdrawRestart(dir); err != nil || !removed {
+		t.Fatalf("a restart's request is withdrawn: %v %v", removed, err)
+	}
+	if pending, err := RelaunchPending(dir); err != nil || pending {
+		t.Fatalf("withdrawn: %v %v", pending, err)
+	}
+}
+
+func TestWithdrawingARestartLeavesAFirstJoinsRequest(t *testing.T) {
+	dir := t.TempDir()
+	if err := WriteRelaunch(dir, 2, stamp); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(readFile(t, filepath.Join(dir, RelaunchFile)), "why") {
+		t.Fatal("a first join's request carries no why")
+	}
+	if removed, err := WithdrawRestart(dir); err != nil || removed {
+		t.Fatalf("a first join's request is not a restart's: %v %v", removed, err)
+	}
+	if pending, err := RelaunchPending(dir); err != nil || !pending {
+		t.Fatalf("the first join's request stays: %v %v", pending, err)
+	}
+	if err := os.Remove(filepath.Join(dir, RelaunchFile)); err != nil {
+		t.Fatal(err)
+	}
+	if removed, err := WithdrawRestart(dir); err != nil || removed {
+		t.Fatalf("withdrawing none is fine: %v %v", removed, err)
+	}
+}
+
 func TestCanonicalJoinsSeatsInOrder(t *testing.T) {
 	if got := Canonical([]Seat{{Team: "alpha", Seat: "1"}, {Team: "beta", Seat: "dev"}}); got != "1@alpha,dev@beta" {
 		t.Fatalf("got %q", got)

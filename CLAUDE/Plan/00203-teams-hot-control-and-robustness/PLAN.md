@@ -194,21 +194,51 @@ Built on `fix/teams-server-robustness`; design and evidence in
   over F44's 3.99.12.11). Host acceptance: `ccy-teams lxc-add <team>`, a path pasted into the
   Checkout line, after meta-deploy.
 
-- [ ] 🔄 **Task 3.8** (owner feedback): a running session added from the teams list, on
-  `feat/teams-add-session-and-restart`. A team's menu has Add a running session to `<team>`,
-  and a running seat's menu Add this session to another team, both through the Running
-  sessions view's seat and role questions ([SPEC-team-add-and-restart.md](SPEC-team-add-and-restart.md)
-  A1-A10). Picker only. Built and tested; review and host acceptance to come.
+- [ ] 🔄 **Task 3.9** (owner feedback; its first commits and journal entries call it Task
+  3.8, renumbered because F44's lxc-checkout task holds 3.8): a running session added from
+  the teams list, on `feat/teams-add-session-and-restart`. A team's menu has Add a running
+  session to `<team>`, and a running seat's menu Add this session to another team, both
+  through the Running sessions view's seat and role questions
+  ([SPEC-team-add-and-restart.md](SPEC-team-add-and-restart.md) A1-A10). Picker only. Built
+  and tested; Fable's FIX-FIRST fixed; host acceptance to come.
 
-- [ ] ⬜ **Task 3.9**: each session's conversation recorded by the pingbus SessionStart hook
-  beside its report, and restore after a reboot resuming it by id, never `--continue`
-  (SPEC C1-C6, Decision 10).
+- [ ] 🔄 **Task 3.8** (owner feedback): every member kind has the same roles, built on
+  `fix/teams-member-roles`. Enter on an LXC member row offered Park first and no role. Every
+  member row (ccy, cc, LXC, host, docker, vm) now offers the same role action, worded by package
+  coordinator's two paths, through one role-change path that dispatches by kind only at the
+  last step (a declared LXC member's entry is written too, then applied). No destructive
+  action is first in any picker menu: a tested rule. `ccy-teams session role` also takes a
+  member's handle. The status line shows each team with this session's role,
+  `👥 desktop (coordinator), other (worker)`, read on every refresh from the team record the
+  role notice reads; `(role?)` where it cannot be read. CCY 3.99.12.15, container 2.77.11
+  (merged over F44's 3.99.12.14). A member row with no handle yet (a deferred LXC member, a
+  seat ccy has not joined) offers no role and no Park. Fable's FIX-FIRST on
+  `fix/teams-member-roles-2` fixed, and `fix/lxc-stopped-member-3` merged, on
+  `fix/teams-member-roles-3`. Notes:
+  [subagent-reports/261016-member-roles-opus.md](subagent-reports/261016-member-roles-opus.md),
+  [subagent-reports/261019-member-roles-remerge-opus.md](subagent-reports/261019-member-roles-remerge-opus.md).
 
-- [ ] ⬜ **Task 3.10**: Claude Code's agent view off in the ccy image (SPEC C7, Decision 11).
-  CCY 3.99.12.14, container 2.77.10 (placeholders).
+- [ ] 🔄 **Task 3.10** (was 3.9): each session's conversation recorded by the pingbus
+  SessionStart hook beside its report, read on the host only for a record whose launch
+  carried the bus (SPEC C1-C4), on `feat/teams-restart`. `conversation.json` on every
+  SessionStart (startup, resume, clear, compact), and through `pingbus hook conversation` in a
+  session holding no seat (Decision 12); `internal/conversation` reads it, resolving the
+  transcript by the recorded id. Pingbus plugin 1.4.0. Built and tested; review and host
+  acceptance to come.
 
-- [ ] ⬜ **Task 3.11**: `ccy-teams restart <team>` and the team menu's Restart the team's
-  desktop sessions (SPEC B1-B11, Decisions 8 and 9).
+- [ ] 🔄 **Task 3.11** (was 3.9's restore and 3.11): restore after a reboot and the new
+  `ccy-teams restart <team>` (with the team menu's Restart the team's desktop sessions)
+  resume each session by its recorded id, never `--continue` (SPEC C5, C6, B1-B11,
+  Decisions 8, 9 and 10), on `feat/teams-restart-2`. `registry.ResumeArgs`;
+  `internal/teams/restart`; `membership.WriteRestart`/`WithdrawRestart` (only a restart's
+  request is withdrawn); lifecycle plugin 1.2.0 names the restart. The uncalled bash restore
+  is deleted. Built and tested; review and host acceptance to come.
+
+- [ ] 🔄 **Task 3.12** (was 3.10): Claude Code's agent view off in the ccy image (SPEC C7,
+  Decision 11): `ENV CLAUDE_CODE_DISABLE_AGENT_VIEW=1`, the name confirmed in the Claude Code
+  2.1.303 build. CCY 3.99.12.16, container 2.77.12 (merged over
+  `fix/teams-member-roles-3`'s 3.99.12.15, on `feat/teams-restart-3`). Built and tested; host
+  acceptance to come.
 
 ## Decisions
 
@@ -282,8 +312,22 @@ Each runs as stated until the owner decides; detail in SPEC-team-add-and-restart
 10. **Restore and restart resume by recorded conversation id only, never `--continue`.** A
     session without the bus kit (`ccy --no-bus`, a plain `cc`) records none, so after a reboot
     it is named and not restored. The alternative: a recording hook in every session.
+    **This changes `ccy-sessions restore` for existing records.** Before: every record was
+    started with its arguments plus `--continue` (the newest conversation in its folder,
+    which several sessions share, or a refusal behind a stale background record). After:
+    each is started with `--resume <its recorded id>`; a `--no-bus` or plain-`cc` record, or
+    one whose hook never ran, is not started: the restore names it as a failure (exit 1),
+    says to run `ccy --resume` in its folder, and keeps its record.
 11. **Claude Code's agent view is off in the ccy image's environment**
     (`CLAUDE_CODE_DISABLE_AGENT_VIEW=1`), background sub-agents and shell tasks left on.
+12. **A session on no team records its conversation too: the one exception to the inert
+    contract (Decision 1).** Found while building Task 3.10: the plugin's hooks run only while
+    a seat is held, so under Decision 10 every ccy session on no team (most of them) would
+    record nothing and not come back after a reboot. Now its SessionStart, and only that,
+    runs `pingbus hook conversation`: one short Python process at startup, `/clear`, a resume
+    or a compaction, which writes `conversation.json` and answers nothing. Every other event
+    stays inert. The alternative: keep the contract whole, and such sessions are named and
+    not restored after a reboot (`ccy --resume` by hand).
 
 ## Success Criteria
 

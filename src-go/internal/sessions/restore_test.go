@@ -2,6 +2,7 @@ package sessions
 
 import (
 	"fmt"
+	"hash/crc32"
 	"os"
 	"path/filepath"
 	"slices"
@@ -9,9 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/restore"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/transcript"
 )
 
 // restoreHost fakes the tools a restore starts a session with: tmux, systemd-run and
@@ -25,8 +29,20 @@ func restoreHost(h *harness) {
 	h.sessions()
 }
 
-// record writes a session record the way a launcher does and returns its path.
+// record writes a session record the way a launcher does and returns its path; when the
+// session's folder is there, its conversation is recorded too, as its SessionStart hook does
+// (conversationOf), with that conversation's transcript.
 func record(t *testing.T, h *harness, rec registry.Record) string {
+	t.Helper()
+	file := recordOnly(t, h, rec)
+	if info, err := os.Stat(rec.Dir); err == nil && info.IsDir() {
+		converse(t, h, rec)
+	}
+	return file
+}
+
+// recordOnly writes the record and nothing the session's hook would.
+func recordOnly(t *testing.T, h *harness, rec registry.Record) string {
 	t.Helper()
 	dir, err := registry.Dir(h.app.Getenv)
 	if err != nil {
@@ -36,6 +52,28 @@ func record(t *testing.T, h *harness, rec registry.Record) string {
 		t.Fatal(err)
 	}
 	return filepath.Join(dir, rec.Name)
+}
+
+// conversationOf is the conversation id a test session is in: one per name.
+func conversationOf(name string) string {
+	return fmt.Sprintf("%08x-0000-4000-8000-000000000000", crc32.ChecksumIEEE([]byte(name)))
+}
+
+// converse records the session's conversation (Plan 00203 SPEC-team-add-and-restart C1) and
+// writes its transcript; a cc session's folder is made its own git checkout's top.
+func converse(t *testing.T, h *harness, rec registry.Record) {
+	t.Helper()
+	id := conversationOf(rec.Name)
+	if rec.Prefix == "cc" {
+		h.write(strings.TrimPrefix(filepath.Join(rec.Dir, ".git", "HEAD"), h.root+"/"), "ref: refs/heads/main\n")
+	}
+	body := `{"v":1,"session":"` + rec.Name + `","session_id":"` + id + `","source":"startup","written_ms":1}`
+	h.write(strings.TrimPrefix(filepath.Join(membership.SessionDir(rec.Dir, rec.Name), conversation.File), h.root+"/"), body)
+	tdir, err := transcript.Dir(rec.Prefix, rec.Dir, conversation.ClaudeHome(h.app.Getenv))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.write(strings.TrimPrefix(filepath.Join(tdir, id+".jsonl"), h.root+"/"), "{}\n")
 }
 
 // project makes a project directory for a record and returns it.
@@ -80,7 +118,7 @@ func TestRestoreStartsEachRecordedSessionInNameOrderAndWritesThePendingManifest(
 		Name: "ccy-b", Dir: b, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true, Compose: "started",
 		Args: []string{"--resume", "0a1b-old"},
 	})
-	record(t, h, registry.Record{Name: "cc-a", Dir: a, Launcher: "/launch/cc", Prefix: "cc", Restore: true})
+	record(t, h, registry.Record{Name: "cc-a", Dir: a, Launcher: "/launch/cc", Prefix: "cc", Restore: true, Args: []string{"--bus"}})
 	exitCodeIs(t, h.run("restore"), 0, h)
 	calls := startedSessions(h)
 	if len(calls) != 2 {
@@ -88,16 +126,25 @@ func TestRestoreStartsEachRecordedSessionInNameOrderAndWritesThePendingManifest(
 	}
 	// Spec bug 9.13: the trampoline names the session's own launcher, not always ccy.
 	contains(t, "cc-a", strings.Join(calls[0].Args, " "), "--unit ccy-tmux-", "-s cc-a -c "+a+" -- bash -c ",
-		" ccy-tmux env CCY_SESSION_RESTORE=1 /launch/cc --continue ; set-hook -g client-attached ", "cc exited with status")
+		" ccy-tmux env CCY_SESSION_RESTORE=1 /launch/cc --bus --resume "+conversationOf("cc-a")+" ; set-hook -g client-attached ", "cc exited with status")
+	// Plan 00203 C6: the recorded conversation, by id; the record's own --resume is replaced.
 	contains(t, "ccy-b", strings.Join(calls[1].Args, " "),
-		" ccy-tmux env CCY_SESSION_RESTORE=1 /launch/ccy --resume 0a1b-old --compose start --supervise ")
+		" ccy-tmux env CCY_SESSION_RESTORE=1 /launch/ccy --compose start --supervise --resume "+conversationOf("ccy-b")+" ")
+	for _, c := range calls {
+		if slices.Contains(c.Args, "--continue") || strings.Contains(strings.Join(c.Args, " "), "--continue") {
+			t.Fatalf("a restore never continues: %v", c.Args)
+		}
+	}
 	contains(t, "progress", h.stderr(), "restored cc-a in "+a+".\n", "restored ccy-b in "+b+".\n", "ccy session restore: 2 started, 0 failed.\n")
 	m := manifestOf(t, h)
 	entries := make([]string, 0, len(m.Entries))
 	for _, e := range m.Entries {
 		entries = append(entries, fmt.Sprintf("%s %s %s resume=%q supervised=%v %s", e.Name, e.Prefix, e.Dir, e.Resume, e.Supervised, e.Going))
 	}
-	want := []string{"cc-a cc " + a + ` resume="" supervised=false pending`, "ccy-b ccy " + b + ` resume="0a1b-old" supervised=true pending`}
+	want := []string{
+		"cc-a cc " + a + ` resume="` + conversationOf("cc-a") + `" supervised=false pending`,
+		"ccy-b ccy " + b + ` resume="` + conversationOf("ccy-b") + `" supervised=true pending`,
+	}
 	if m.Boot != "this-boot" || !slices.Equal(entries, want) {
 		t.Fatalf("manifest %+v", m)
 	}
@@ -112,7 +159,7 @@ func TestRestoreDryRunSaysWhatItWouldStartAndWritesNothing(t *testing.T) {
 	a := realDir(t, h, "a")
 	record(t, h, registry.Record{Name: "ccy-a", Dir: a, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true})
 	exitCodeIs(t, h.run("restore", "--dry-run"), 0, h)
-	contains(t, "dry run", h.stderr(), "would start ccy-a in "+a+": /launch/ccy --supervise --continue\n",
+	contains(t, "dry run", h.stderr(), "would start ccy-a in "+a+": /launch/ccy --supervise --resume "+conversationOf("ccy-a")+"\n",
 		"ccy session restore: 0 started, 0 failed.\n")
 	if len(startedSessions(h)) != 0 {
 		t.Fatal("a dry run starts nothing")
@@ -177,6 +224,37 @@ func TestARecordWhoseDirectoryIsGoneFailsThatSessionOnly(t *testing.T) {
 		" (the record is kept at "+file+"; remove it if the project is gone).",
 		"restored ccy-c in "+a+".", "ccy session restore: 1 started, 1 failed.")
 	if m := manifestOf(t, h); len(m.Entries) != 1 || m.Entries[0].Name != "ccy-c" {
+		t.Fatalf("%+v", m)
+	}
+}
+
+// Plan 00203 C6, Decision 10: a session is resumed by its recorded conversation or not at all.
+// One with none (its hook never wrote it, or a launch without the bus) is a failure that names
+// it and says how to bring it back by hand; its record is kept; the others go on.
+func TestASessionWithNoRecordedConversationIsNotRestored(t *testing.T) {
+	h := newHarness(t)
+	restoreHost(h)
+	a, b, c := realDir(t, h, "a"), realDir(t, h, "b"), realDir(t, h, "c")
+	none := recordOnly(t, h, registry.Record{Name: "ccy-none", Dir: a, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true})
+	noBus := record(t, h, registry.Record{Name: "ccy-nobus", Dir: b, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true, Args: []string{"--no-bus"}})
+	record(t, h, registry.Record{Name: "ccy-ok", Dir: c, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true})
+	exitCodeIs(t, h.run("restore"), 1, h)
+	contains(t, "none", h.stderr(),
+		"ERROR: cannot restore ccy-none: ccy-none: no conversation is recorded",
+		"resume it by hand: ccy --resume in "+a+", whose picker lists the conversations (the record is kept at "+none+").",
+		"ERROR: cannot restore ccy-nobus: ccy-nobus: it was launched without the agent team bus",
+		"(the record is kept at "+noBus+").",
+		"restored ccy-ok in "+c+".", "ccy session restore: 1 started, 2 failed.")
+	calls := startedSessions(h)
+	if len(calls) != 1 || !strings.Contains(strings.Join(calls[0].Args, " "), "--resume "+conversationOf("ccy-ok")) {
+		t.Fatalf("only ccy-ok starts: %v", h.ran())
+	}
+	for _, f := range []string{none, noBus} {
+		if _, err := os.Stat(f); err != nil {
+			t.Fatalf("the record is kept: %v", err)
+		}
+	}
+	if m := manifestOf(t, h); len(m.Entries) != 1 || m.Entries[0].Name != "ccy-ok" {
 		t.Fatalf("%+v", m)
 	}
 }
@@ -387,7 +465,7 @@ func passphraseHost(t *testing.T) (*harness, string) {
 	restoreHost(h)
 	dir := realDir(t, h, "proj")
 	record(t, h, registry.Record{Name: "ccy-proj", Dir: dir, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true, Args: []string{"--ssh-key", "/k"}})
-	record(t, h, registry.Record{Name: "cc-proj", Dir: dir, Launcher: "/launch/cc", Prefix: "cc", Restore: true})
+	record(t, h, registry.Record{Name: "cc-proj", Dir: dir, Launcher: "/launch/cc", Prefix: "cc", Restore: true, Args: []string{"--teams", "1@alpha"}})
 	file := h.write("restore-ssh-passphrase", "fixture pass'phrase 7")
 	h.env[unlockFileEnv] = file
 	return h, file
