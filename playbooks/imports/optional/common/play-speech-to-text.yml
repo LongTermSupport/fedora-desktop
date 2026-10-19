@@ -413,6 +413,16 @@
         go_command_dest: "/home/{{ user_login }}/.local/bin/wsi-claude-token"
         go_command_mode: "0755"
 
+    # File transcription (src-go/cmd/stt, Plan 00179): recordings into .stt.md sidecars through
+    # the warm streaming server (wsi-stream-server, deployed above), so dictation and files
+    # share one model. It runs wsi-stream and wsi-setting from the directory it is installed in.
+    - name: Build and Install the stt Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: stt
+        go_command_dest: "/home/{{ user_login }}/.local/bin/stt"
+        go_command_mode: "0755"
+
     # The one reader of the extension's GSettings keys for the recorder scripts
     # (wsi-stop-grace uses it, so it is deployed first).
     - name: Deploy Settings Reader (wsi-setting)
@@ -633,6 +643,77 @@
       when: >-
         warm_server_readback.rc != 0
         or 'wsi-stream-server-at-login.service' not in warm_server_readback.stdout
+
+    # =========================================================================
+    # Watched Recording Folders (stt-watch.timer, Plan 00179)
+    # =========================================================================
+    # stt_watch_folders in host_vars/localhost.yml lists the folders stt transcribes by
+    # itself every 5 minutes. The units are deployed on every host; the timer runs only while
+    # the list has a folder, so emptying it stops the watching.
+
+    - name: Assert stt_watch_folders Is A List Of Absolute Paths
+      ansible.builtin.assert:
+        that:
+          - stt_watch_folders is sequence
+          - stt_watch_folders is not string
+          - stt_watch_folders is not mapping
+          - stt_watch_folders | select('match', '^/') | list | length == stt_watch_folders | length
+          # Hex escapes: Jinja unescapes \\ itself, so a literal backslash would not reach re.
+          - stt_watch_folders | select('search', '[\\x22\\x5c\\x0a]') | list | length == 0
+          # A mount that is down leaves its mountpoint an empty folder, which stt would read
+          # as nothing to do; a folder inside the mount is missing instead, and the run fails.
+          - >-
+            stt_watch_folders | map('regex_replace', '/+$', '') | intersect(rclone_mounts
+            | default([]) | map(attribute='mountpoint') | map('regex_replace', '/+$', ''))
+            | length == 0
+        fail_msg: >-
+          stt_watch_folders must be a list of absolute folder paths without a double quote,
+          a backslash or a newline (they are written into a systemd ExecStart), and none may
+          be an rclone mountpoint itself: name the recordings folder inside the mount. Got:
+          {{ stt_watch_folders }}
+      when: stt_watch_folders is defined
+
+    - name: Deploy The Recording Folder Watch Service
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/home/.config/systemd/user/stt-watch.service.j2"
+        dest: "/home/{{ user_login }}/.config/systemd/user/stt-watch.service"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+      register: stt_watch_service_unit
+
+    - name: Deploy The Recording Folder Watch Timer And Its Failure Notice
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.config/systemd/user/{{ item }}"
+        dest: "/home/{{ user_login }}/.config/systemd/user/{{ item }}"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+      loop:
+        - stt-watch.timer
+        - stt-watch-failed.service
+      register: stt_watch_other_units
+
+    - name: Reload The User Manager For The Watch Units
+      become: true
+      become_user: "{{ user_login }}"
+      when: stt_watch_service_unit is changed or stt_watch_other_units is changed
+      ansible.builtin.systemd:
+        scope: user
+        daemon_reload: true
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+
+    - name: Start Or Stop Watching The Recording Folders
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.systemd:
+        name: stt-watch.timer
+        scope: user
+        enabled: "{{ stt_watch_folders | default([]) | length > 0 }}"
+        state: "{{ (stt_watch_folders | default([]) | length > 0) | ternary('started', 'stopped') }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
 
     # =========================================================================
     # Claude Code Post-Processing Integration

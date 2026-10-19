@@ -1,0 +1,13 @@
+[Unit]
+Description=Transcribe new recordings in the watched folders every 5 minutes
+Documentation=https://github.com/LongTermSupport/fedora-desktop
+
+[Timer]
+# Polled, not a .path unit: inotify on an rclone (FUSE) mount does not see files that
+# arrive from the remote. A run with nothing new reads only the sidecars and manifests.
+OnStartupSec=3min
+OnUnitActiveSec=5min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

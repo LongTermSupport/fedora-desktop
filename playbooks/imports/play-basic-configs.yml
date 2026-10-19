@@ -591,10 +591,19 @@
       when: yq_binary.stat.exists
       tags: yq
 
-    - name: DNF Parallel
+    # minrate/timeout: the stock floor is 1000 B/s for 30s, so a mirror trickling at
+    # tens of KB/s is never dropped. Below 500 KB/s for 15s, librepo abandons the
+    # mirror and moves to the next one in the metalink.
+    - name: DNF Download Settings
       ansible.builtin.lineinfile:
         path: /etc/dnf/dnf.conf
-        line: max_parallel_downloads=10
+        regexp: "^{{ item.key }}="
+        line: "{{ item.key }}={{ item.value }}"
+        insertafter: '^\[main\]'
+      loop:
+        - { key: max_parallel_downloads, value: "10" }
+        - { key: minrate, value: "500k" }
+        - { key: timeout, value: "15" }
 
     # Always show GRUB menu — useful for kernel selection and recovery
     - name: Disable GRUB Menu Auto-Hide

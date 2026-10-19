@@ -15,6 +15,7 @@ export const COLOURS = {
     green: '#44ff44',
     purple: '#c678dd',
     grey: '#999999',
+    blue: '#61afef',
 };
 
 const MIC = 'audio-input-microphone-symbolic';
@@ -37,7 +38,16 @@ const LOOKS = {
     TRANSCRIBING: {icon: LOADING, colour: COLOURS.amber},
     SUCCESS: {icon: MIC, colour: COLOURS.green},
     ERROR: {icon: MIC, colour: COLOURS.red},
+    // The server is transcribing recordings (stt). Insert still dictates: the file job
+    // pauses for it (Plan 00179).
+    FILES: {icon: 'document-edit-symbolic', colour: COLOURS.blue},
 };
+
+/** The state to show: the idle mic gives way to FILES while recordings are being
+ * transcribed; every other state is a dictation's and is shown as it is. */
+export function shownState(state, filesRunning) {
+    return state === 'IDLE' && filesRunning ? 'FILES' : state;
+}
 
 /** Whether `state` has a look of its own. */
 export function isKnownState(state) {

@@ -431,6 +431,7 @@ by itself afterwards. Ctrl+Insert and Alt+Insert follow the same rules.
 | The icon shows                                                    | Insert                                                                       | Escape                 |
 | ----------------------------------------------------------------- | ---------------------------------------------------------------------------- | ---------------------- |
 | Ready (default colour, or the green/red of the last one)          | Starts a recording (the purple hourglass shows until the microphone is open) | Nothing                |
+| Blue document: ready, and transcribing recordings (`stt`)         | Starts a recording; the recordings pause until it is done                    | Nothing                |
 | Purple hourglass: starting, or waiting for the server             | Cancels the start (grey crossed-out microphone until it has stopped)         | Nothing                |
 | Orange microphone: preparing (batch and pre-buffer are capturing) | Stops; what was already heard is transcribed                                 | Nothing                |
 | Red badge with the time: recording                                | Stops, after the [stop grace](#stop-grace)                                   | Discards the dictation |
@@ -562,6 +563,58 @@ wsi -l en
 wsi --claude-process --claude-model sonnet --claude-style corporate
 ```
 
+### Transcribing Recordings (`stt`)
+
+`stt` transcribes audio files, such as dictation recorded on a phone and synced through an
+rclone mount, into a `<recording>.stt.md` sidecar beside each recording. It uses the warm
+streaming server's model, so dictation and file transcription share one model in GPU memory;
+the server is started if it is not running. Dictation comes first: while you dictate, the
+file job pauses after the window it is on, then carries on. While recordings are being
+transcribed, the idle panel icon is a blue document instead of the microphone.
+
+```bash
+stt ~/mnt/<drive>/<recordings folder>          # transcribe everything without a sidecar
+stt --list ~/mnt/<drive>/<recordings folder>   # done / pending / waiting / short, per recording
+stt --short ~/mnt/<drive>/<recordings folder>  # only the accidental taps, a path a line
+```
+
+A path is a recording folder (a folder of audio parts plus the phone app's `manifest.json`),
+an audio file, or a folder of those. A recording is sent only once its manifest says
+`COMPLETE` and every part has synced with its recorded size and MD5, and an audio file with
+no manifest once it has gone a minute unchanged; one shorter than
+`--min-seconds` (default 3) is skipped as an accidental recording. The sidecar has YAML front
+matter (source, length, language, model, and the audio it was made from: each part's size and
+MD5) and the text in paragraphs, each opened by its time. When a recording's audio no longer
+matches its sidecar (replaced or re-synced), `stt --list` shows it as `stale` and `stt`
+transcribes it again over the old sidecar; a folder is checked against its manifest without
+reading the audio.
+The language is the panel's setting unless `--language` names one (`auto` detects it).
+
+#### Watching folders (`stt-watch.timer`)
+
+List the folders in `host_vars/localhost.yml` and re-run `play-speech-to-text.yml`; every 5
+minutes `stt` then runs over them by itself:
+
+```yaml
+stt_watch_folders:
+  - "/home/{{ user_login }}/mnt/<drive>/<recordings folder>"
+```
+
+Nothing is sent early. A recording with a `manifest.json` waits until the manifest says
+`COMPLETE` and every part has synced, and a part whose size or MD5 is not the manifest's is a
+failure. An audio file with no manifest is sent once it has gone a minute unchanged, so a
+file still being copied in is left for a later run. Any folder can be watched. For an rclone
+mount, name the folder inside the mount, never the mountpoint (the play refuses one listed in
+`rclone_mounts`): a mount that is down then makes the folder missing, and the run fails instead
+of finding nothing. The warm server is started only when
+something is pending, so a run with nothing new costs no GPU memory. Runs happen only while you
+are logged in to the desktop.
+
+A failed run raises a desktop notification that stays, at most once an hour. `stt` stops at the
+first failure, so a corrupt recording holds back the ones after it until it is moved aside. Why
+it failed: `journalctl --user -u stt-watch.service -n 30 --no-pager`. Removing the list (or
+emptying it) and re-running the play stops the timer.
+
 ---
 
 ## Claude Code Post-Processing
@@ -683,19 +736,20 @@ The extension icon indicates current status:
 The panel shows a single microphone icon whose **colour** carries the state (it swaps to
 a loading icon while transcribing):
 
-| Appearance                      | Status      | Meaning                                                          |
-| ------------------------------- | ----------- | ---------------------------------------------------------------- |
-| Default colour                  | Idle        | Ready: Insert starts a recording                                 |
-| Purple hourglass                | Please wait | The press was taken; the recording is starting                   |
-| Orange hourglass                | Finishing   | The last dictation is still finishing; Insert does nothing       |
-| Red no-entry sign (a moment)    | Blocked     | Insert did nothing: the last dictation is not finished yet       |
-| Grey crossed-out microphone     | Cancelling  | Insert cancelled a start; ready once the recorder has stopped    |
-| Orange                          | Preparing   | Starting up                                                      |
-| Red badge with the elapsed time | Recording   | Listening to your voice (Insert to stop); amber when behind      |
-| Red record dot                  | Not ours    | A recording the panel did not start is running (Insert stops it) |
-| Orange, loading icon            | Processing  | Transcribing audio                                               |
-| Green (2 seconds)               | Success     | Transcription delivered (the only green)                         |
-| Red microphone (2 seconds)      | Error       | The panel menu says why; check the debug log                     |
+| Appearance                      | Status      | Meaning                                                           |
+| ------------------------------- | ----------- | ----------------------------------------------------------------- |
+| Default colour                  | Idle        | Ready: Insert starts a recording                                  |
+| Blue document                   | Idle, files | Ready; recordings are being transcribed and pause for a dictation |
+| Purple hourglass                | Please wait | The press was taken; the recording is starting                    |
+| Orange hourglass                | Finishing   | The last dictation is still finishing; Insert does nothing        |
+| Red no-entry sign (a moment)    | Blocked     | Insert did nothing: the last dictation is not finished yet        |
+| Grey crossed-out microphone     | Cancelling  | Insert cancelled a start; ready once the recorder has stopped     |
+| Orange                          | Preparing   | Starting up                                                       |
+| Red badge with the elapsed time | Recording   | Listening to your voice (Insert to stop); amber when behind       |
+| Red record dot                  | Not ours    | A recording the panel did not start is running (Insert stops it)  |
+| Orange, loading icon            | Processing  | Transcribing audio                                                |
+| Green (2 seconds)               | Success     | Transcription delivered (the only green)                          |
+| Red microphone (2 seconds)      | Error       | The panel menu says why; check the debug log                      |
 
 The ready icon is shown only when no recorder the panel started is still running, so a
 press on it always starts a recording. In Claude post-processing modes the panel
@@ -1025,7 +1079,8 @@ Scripts:
   ~/.local/bin/
     ├── wsi                  - Main backend (batch mode)
     ├── wsi-stream           - Streaming mode backend
-    ├── wsi-stream-server    - Warm server for streaming Server mode
+    ├── wsi-stream-server    - Warm server for streaming Server mode and stt
+    ├── stt                  - Recordings into .stt.md sidecars (warm server's model)
     ├── wsi-setting          - Prints one of the extension's settings
     ├── wsi-stop-grace       - Prints the stop grace (stop-grace-seconds)
     ├── wsi-resolve-model    - Prints the model a recording loads (what auto means)

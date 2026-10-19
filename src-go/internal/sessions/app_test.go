@@ -62,7 +62,17 @@ func TestTheDefaultLibraryDirectoryIsUsedWhenCCYLibIsUnset(t *testing.T) {
 	h := newHarness(t)
 	delete(h.env, "CCY_LIB")
 	exitCodeIs(t, h.run("--list"), 1, h)
-	contains(t, "default lib", h.stderr(), "/var/local/claude-yolo/lib/tmux-session.bash missing")
+	// The default is a real path: on a machine with ccy installed the library is there and
+	// the run goes on (to tmux, which the harness does not script); elsewhere it is missing.
+	missing := defaultLib + "/tmux-session.bash missing"
+	if _, err := os.Stat(filepath.Join(defaultLib, "tmux-session.bash")); err == nil {
+		if strings.Contains(h.stderr(), missing) {
+			t.Fatalf("default lib is installed but reported missing:\n%s", h.stderr())
+		}
+		contains(t, "default lib used", h.stderr(), "tmux list-sessions failed")
+		return
+	}
+	contains(t, "default lib", h.stderr(), missing)
 }
 
 func TestConfigReadsTheKnobs(t *testing.T) {
