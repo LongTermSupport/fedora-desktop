@@ -457,6 +457,11 @@ def telling(home: pathlib.Path) -> Iterator[bool]:
         os.close(fd)
 
 
+def write_private_json(path: pathlib.Path, obj: Mapping[str, object]) -> None:
+    """Write `obj` to `path` as this module writes its own files: atomically, mode 0600."""
+    _write_json(pathlib.Path(path), obj)
+
+
 def _write_json(path: pathlib.Path, obj: Mapping[str, object]) -> None:
     temp = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
     data = (json.dumps(obj, ensure_ascii=True, sort_keys=True) + "\n").encode("ascii")

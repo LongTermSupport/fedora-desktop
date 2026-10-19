@@ -727,6 +727,16 @@ class MembershipRelaunchTests(PluginTestCase):
         result = half.on_idle(FakeTick(T0))
         self.assertIsInstance(result, FakeExitForRestart)
         self.assertIn("team", result.reason)
+        self.assertIn("accept team messages", result.reason)
+
+    def test_a_team_restart_request_says_the_owner_restarted_the_team(self) -> None:
+        """Plan 00203 B4: `ccy-teams restart` writes the same request with why "restart"."""
+        half = self.half(self.relaunch_env())
+        self.request('{"v": 1, "generation": 2, "written_ms": 1, "why": "restart"}')
+        result = half.on_idle(FakeTick(T0))
+        self.assertIsInstance(result, FakeExitForRestart)
+        self.assertIn("the owner restarted its team (ccy-teams restart)", result.reason)
+        self.assertNotIn("accept team messages", result.reason)
 
     def test_a_malformed_or_linked_request_is_not_acted_on(self) -> None:
         half = self.half(self.relaunch_env())

@@ -31,6 +31,7 @@ const (
 	actLxc        = "lxc-add"
 	actElementAll = "element-all"
 	actShutdown   = "shutdown"
+	actRestart    = "restart"
 	actSettings   = "settings"
 	// actAskDescription and actAskLimit undo a never answer to an offer: menu lines of a team
 	// marked never, with no shortcut.
@@ -39,8 +40,9 @@ const (
 )
 
 // The shortcut keys, as fzf names them. Attaching, the coordinator role, adding an LXC
-// container's agent, opening every team and shutting a team's sessions down have none: they are
-// menu lines only, and a key that ends sessions is too easy to press by mistake.
+// container's agent, opening every team, restarting a team's sessions and shutting them down
+// have none: they are menu lines only, and a key that ends sessions is too easy to press by
+// mistake.
 const (
 	keyNew      = "ctrl-n"
 	keyRestore  = "ctrl-r"
@@ -116,6 +118,7 @@ func (r *run) kindActions(row board.Row) []action {
 			start,
 			{actSettings, "", "Edit settings", "edit " + team + "'s settings"},
 			{actUpdate, keyUpdate, "Update every team that is out of date or not built", "update out-of-date teams"},
+			{actRestart, "", "Restart the team's desktop sessions", "restart " + team + "'s desktop sessions"},
 			{actShutdown, "", "Shut down every session of " + team, "shut down " + team + "'s sessions"},
 			{actRemove, keyRemove, "Take " + team + " down", "take " + team + " down"},
 		}, r.askAgainActions(team)...), help)

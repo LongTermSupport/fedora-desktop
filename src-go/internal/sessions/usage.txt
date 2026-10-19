@@ -85,6 +85,13 @@ action: reboot-warning when it is, shutdown-warning when it is not. The texts al
 the action, so a shutdown with restore on reads "will reboot", and a reboot with restore
 off reads "will shut down"; what the agent is asked to do is right either way.
 
+A restore resumes each session's own conversation by the id its SessionStart hook
+recorded (conversation.json beside its seat report), never with --continue, which takes
+the newest conversation in a folder several sessions share. A session with none recorded
+(ccy --no-bus, a cc without --teams or --bus, or one whose hook never ran) is not started:
+it is named as a failure with how to bring it back by hand (ccy --resume in its folder, whose
+picker lists the conversations), and its record is kept.
+
 A restore answers only the prompts that have one safe answer (Quick Launch, the two
 running-container menus, and the others docs/ccy.md lists) and the compose question,
 from the compose outcome in the session's record (--compose); every other prompt still

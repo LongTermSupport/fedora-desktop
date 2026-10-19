@@ -17,6 +17,35 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.12.16 — container 2.77.12
+
+Follows 3.99.12.15 (container 2.77.11). The image carries the pingbus kit, whose SessionStart
+hook changed, and the Dockerfile changed, so it is rebuilt once.
+
+- **Each session's conversation is recorded for a restore** (Plan 00203). The pingbus
+  SessionStart hook writes the conversation a session is in now, `conversation.json` beside
+  its seat report under `.claude/ccy/pingbus/sessions/<session>/`, at its start and after
+  every `/clear`, resume or compaction; a session on no team records it too, and does nothing
+  else at that moment (pingbus plugin 1.4.0).
+- **`ccy-sessions restore` resumes each session's own conversation by id** (Plan 00203
+  Decision 10), never `--continue`, which picks the newest conversation of a checkout that
+  several sessions share and refuses one a stale `/background` record holds. A record with no
+  recorded conversation (a `--no-bus` launch, a plain `cc`) is not started: it is named, with
+  `ccy --resume` as the way back by hand, and its record is kept. The uncalled bash restore
+  in `lib/session-registry.bash`, which still appended `--continue`, is gone.
+- **`ccy-teams restart <team>`, and the team menu's Restart the team's desktop sessions**
+  (Plan 00203 Decisions 8 and 9). Each member's session on this desktop resumes its own
+  conversation by id: a running ccy session restarts in place at its next idle moment through
+  its supervisor, in a fresh container; a stopped one is started as a restore starts it; a
+  running cc session is left running and named; LXC members are left out and named. One line
+  per session, and exit 1 if any failed. The lifecycle plugin (1.2.0) gives "the owner
+  restarted its team" as the reason for such a restart.
+- **Claude Code's agent view is off in the image** (Plan 00203 Decision 11):
+  `CLAUDE_CODE_DISABLE_AGENT_VIEW=1` (confirmed in Claude Code 2.1.303) switches off
+  `/background`, `--bg`, `claude agents` and their daemon, whose records from a gone container
+  made `--continue` refuse a conversation for good. Background sub-agents and shell tasks stay
+  on.
+
 ## 3.99.12.15 — container 2.77.11
 
 Follows 3.99.12.14 (container 2.77.10). The image carries the new pingbus and declare.py, so it

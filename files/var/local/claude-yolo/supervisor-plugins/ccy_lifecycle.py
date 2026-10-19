@@ -26,6 +26,8 @@ Two independent features, both off unless configured:
                        relaunch.json into the session's read-only membership directory
                        (PINGBUS_MEMBERSHIP), and at the next idle point the plugin asks for
                        an exit for restart. The next launch's membership-init removes it.
+                       `ccy-teams restart` writes the same request with "why": "restart"
+                       (Plan 00203 B4), and the restart then gives that as its reason.
 
 Configuration arrives in the environment (the ccy launcher passes it through):
 
@@ -78,7 +80,7 @@ from typing import Any
 PLUGIN_API = 1
 
 PLUGIN_NAME = "ccy-lifecycle"
-PLUGIN_VERSION = "1.1.0"
+PLUGIN_VERSION = "1.2.0"
 
 ENV_LAUNCH_ID = "CCY_LIFECYCLE_LAUNCH_ID"
 ENV_MAX_AGE = "CCY_LIFECYCLE_MAX_AGE_SECONDS"
@@ -89,6 +91,9 @@ ENV_MEMBERSHIP = "PINGBUS_MEMBERSHIP"
 RELAUNCH_FILE = "relaunch.json"
 RELAUNCH_MAX_BYTES = 4096
 RELAUNCH_REASON = "joined a team: relaunching once to accept team messages"
+#: Plan 00203 B4: the request `ccy-teams restart` writes carries this why.
+RELAUNCH_WHY_RESTART = "restart"
+RESTART_REASON = "the owner restarted its team (ccy-teams restart): relaunching to resume"
 
 MAX_AGE_MIN_SECONDS = 30 * 60
 MAX_AGE_MAX_SECONDS = 30 * 24 * 3600
@@ -332,10 +337,15 @@ class LifecycleHalf:
             return None
         if not isinstance(data, dict) or data.get("v") != 1 or len(raw) > RELAUNCH_MAX_BYTES:
             return None
+        restart = data.get("why") == RELAUNCH_WHY_RESTART
         if not self._relaunch_audited:
             self._relaunch_audited = True
-            self._api.audit("relaunch requested: the session joined a team and accepts no team messages yet")
-        return self._api.ExitForRestart(RELAUNCH_REASON)
+            self._api.audit(
+                "relaunch requested: the owner restarted the team"
+                if restart
+                else "relaunch requested: the session joined a team and accepts no team messages yet"
+            )
+        return self._api.ExitForRestart(RESTART_REASON if restart else RELAUNCH_REASON)
 
     def _deadline_result(self, active: _Active, now: float, session_id: str | None) -> Any:
         deadline = active.config.deadline

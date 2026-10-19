@@ -19,8 +19,7 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-# Plan 00194 Task 2.0b: the host's pingbus kit (seat disconnected) for the ccy launcher's exit,
-# and the member kit's settings with the longer SessionEnd bound. Before play-claude-yolo.yml.
+
 # Plan 00203 Task 2.6: a stopped LXC container no longer fails the agent-bus play. A member
 # already joined whose container is stopped is skipped (left as it is), one not yet joined is
 # deferred and joined by the first run with its container up; each is printed in a task of its
@@ -36,19 +35,24 @@
 # team, `👥 desktop (coordinator), other (worker)`, and a role change shows at the next refresh
 # (ccy sessions get it with the image below). Applies every team as declared; no team changes
 # otherwise.
+# Plan 00203 Task 3.10: the same kit (used by cc --teams and cc --bus) takes the pingbus whose
+# SessionStart hook records each session's conversation, so a cc session can be restored and
+# restarted by its own conversation id. Before play-claude-yolo.yml.
 playbooks/imports/play-agent-bus.yml
 
-# Plan 00194 Task 2.0b: ccy 3.99.12.14, container 2.77.10, so the image IS rebuilt on the next
-# launch: the goodbye is no longer cut off when a session ends with Ctrl-C, and a session ended
-# without it (podman stop, a closed terminal, a crash) is told "disconnected" by the launcher.
-# ccy also refuses, with a clear message, a wrapper that runs a shell launcher through Python,
-# instead of failing with a bare traceback.
 # Plan 00203 Task 2.6: ccy-teams apply and lxc-add name the LXC members a play held back because
 # their containers were stopped, lxc-add lists the team's declared members in stopped containers
 # before its yes, and the board shows a deferred member's row and "container stopped at the
 # last apply" on a joined one.
 # Plan 00203 Task 3.8: every team member kind (ccy, cc, LXC, host, docker, vm) gets the same
 # role actions in ccy-teams, and no menu starts on a destructive action (Park, Remove and Take
-# down are last). This installs ccy 3.99.12.15, container 2.77.11, which carries all of the
-# above: the image is rebuilt once at the next ccy launch. Running sessions are not touched.
+# down are last).
+# Plan 00203 Tasks 3.10-3.12: ccy-sessions restore resumes each session by its recorded
+# conversation id, never --continue; a session with none recorded is named and not started.
+# New `ccy-teams restart <team>` and the team menu's "Restart the team's desktop sessions":
+# running ccy sessions restart in place at their next idle moment, stopped ones start resuming
+# their conversation, running cc sessions and LXC members are left as they are and named. The
+# image switches Claude Code's agent view off (/background, --bg).
+# This installs ccy 3.99.12.16, container 2.77.12, which carries all of the above: the image is
+# rebuilt once at the next ccy launch. Running sessions are not touched.
 playbooks/imports/play-claude-yolo.yml

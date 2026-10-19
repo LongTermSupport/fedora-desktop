@@ -255,9 +255,19 @@ A box provisioned headless declares it with `RUN_BASH_CCY_RESTORE_SESSIONS=1`
 `ccy-sessions-restore.service` in the user manager, wanted by `default.target`, which with
 linger (also part of `playbook-main.yml`) is reached at boot before anyone logs in. It runs
 `ccy-sessions restore`: for each record it starts the session again, detached, on CCY's
-server, in the recorded directory, with the recorded arguments plus `--continue` (and
-`--supervise` for `ccy`). `ccy-sessions` then lists them as detached; `ccy` in the project
-directory offers them back.
+server, in the recorded directory, with the recorded arguments plus `--resume <id>` of the
+conversation it was in (and `--supervise` for `ccy`). `ccy-sessions` then lists them as
+detached; `ccy` in the project directory offers them back.
+
+The id is the one the session's agent team bus hook last recorded, at its start and after
+every `/clear`, resume or compaction (`conversation.json` beside its seat report). A
+restore never uses `--continue`: several sessions in one project share one transcript
+folder, so "the most recent conversation" is often another session's, and a stale
+background-session record makes `--continue` refuse outright. **A session that recorded no
+conversation is not restored** (Plan 00203 Decision 10): `ccy --no-bus`, a plain `cc`, or a
+session that ended before its first prompt. The restore names it as a failure and keeps its
+record; bring it back with `ccy --resume` in its folder, whose picker lists the
+conversations.
 
 What is replayed is the launch command line **minus the one-shot arguments**: `--rebuild`,
 `--prompt "text"` and a bare opening instruction, `--connect`, `--disconnect`, `--debug`, `--ssh-agent`
@@ -372,9 +382,8 @@ A session left alone is one of two things:
   launch prompt when the wait ends, such as a desktop's SSH passphrase. Or someone is
   attached, or there is text in its input box. Or it is busy and its transcript shows it
   took input after this boot began, so it is working. Or it shares its
-  conversation with a session already set going: two sessions in one project that both
-  `--continue` resume the same conversation, so only the first to draw its prompt is set
-  going. The journal says `left <name> alone, as expected: <reason>; <why>`.
+  conversation with a session already set going: two sessions resuming the same
+  conversation, so only the first to draw its prompt is set going. The journal says `left <name> alone, as expected: <reason>; <why>`.
 - **A fault, and the unit fails**, naming each one: the launcher exited or the session died, a
   screen or transcript that cannot be read, keys that cannot be sent, or a prompt or
   compaction that never comes in the time. A session that shows a spinner but took no input

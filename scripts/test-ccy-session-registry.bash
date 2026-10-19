@@ -37,7 +37,7 @@ source "$LIB_DIR/session-registry.bash"
 
 for fn in ccy_registry_dir ccy_registry_replay_args ccy_registry_wants_restore \
     ccy_registry_launch_args ccy_registry_write ccy_registry_remove ccy_registry_read \
-    ccy_registry_trampoline ccy_registry_restore_args ccy_registry_restore; do
+    ccy_registry_trampoline; do
     if ! declare -F "$fn" >/dev/null; then
         echo "FAIL: $fn is not defined after sourcing the library" >&2
         exit 1
@@ -370,36 +370,6 @@ else
 fi
 
 echo ""
-echo "=== restore arguments: the recorded set plus what a restore needs ==="
-check "ccy: --supervise and --continue are appended" "--token|work|--supervise|--continue" \
-    "$(joined ccy_registry_restore_args ccy --token work)"
-check "ccy: --supervise is not doubled" "--supervise|--token|work|--continue" \
-    "$(joined ccy_registry_restore_args ccy --supervise --token work)"
-check "ccy: --no-supervise is respected, not contradicted" "--no-supervise|--continue" \
-    "$(joined ccy_registry_restore_args ccy --no-supervise)"
-check "ccy: --continue is not doubled" "--continue|--supervise" \
-    "$(joined ccy_registry_restore_args ccy --continue)"
-check "ccy: --resume already names a conversation" "--resume|abc|--supervise" \
-    "$(joined ccy_registry_restore_args ccy --resume abc)"
-# cc runs claude on the host and forwards every argument to it; --supervise is ccy's flag
-# and would reach claude as an unknown option.
-check "cc: only --continue is appended" "--model|opus|--continue" \
-    "$(joined ccy_registry_restore_args cc --model opus)"
-check "empty in: just the additions" "--supervise|--continue" "$(joined ccy_registry_restore_args ccy)"
-# After `--` every word is claude's (the launcher's parser forwards it raw), so ccy's own
-# --supervise has to land before the separator or claude receives it. --continue is claude's
-# either side of it.
-check "ccy: --supervise goes before a recorded --, claude's words stay after it" \
-    "--token|t|--supervise|--|--model|opus|--continue" \
-    "$(joined ccy_registry_restore_args ccy --token t -- --model opus)"
-check "ccy: a --supervise after -- is claude's word, not ccy's" \
-    "--supervise|--|--supervise|--continue" \
-    "$(joined ccy_registry_restore_args ccy -- --supervise)"
-check "ccy: a --continue after -- still counts as continuing" \
-    "--supervise|--|--continue" \
-    "$(joined ccy_registry_restore_args ccy -- --continue)"
-
-echo ""
 echo "=== forgetting a network: a record keeps every other word exactly ==="
 # q_args <record-name> — the record's arguments, each shell-quoted, so an empty one is visible.
 q_args() {
@@ -477,9 +447,6 @@ ccy_registry_record_ssh_key key_token /k/id_one 2>"$SCRATCH/rk.err"
 check "a --token record takes the key: status" "0" "$?"
 check "  the record now replays --ssh-key" "$(printf '%q ' --token work --ssh-key /k/id_one)" "$(q_args key_token)"
 check "  and says so on stderr" "yes" "$(grep -qF 'key_token' "$SCRATCH/rk.err" && echo yes || echo no)"
-check "  its restore starts with the key, so the prompt never appears" \
-    "--token|work|--ssh-key|/k/id_one|--supervise|--continue" \
-    "$(ccy_registry_read "$CCY_STATE_DIR/sessions/key_token" && joined ccy_registry_restore_args ccy "${REC_ARGS[@]}")"
 
 rk key_network yes --network n -- --model opus
 ccy_registry_record_ssh_key key_network /k/id_one 2>/dev/null
@@ -594,22 +561,6 @@ check "forgetting a network keeps the compose outcome" "running|$(printf '%q ' -
     "$REC_COMPOSE|$(printf '%q ' "${REC_ARGS[@]}")"
 rm -rf "$CCY_STATE_DIR"
 
-# What a restore replays: started and running both start the stack (`up -d` leaves running
-# services alone), declined skips it. The flag goes before claude's `--`, like --supervise.
-check "a started stack is restored with --compose start" "--token|work|--compose|start|--supervise|--continue" \
-    "$(joined ccy_registry_restore_args --compose started ccy --token work)"
-check "a stack already running is restored with --compose start" "--compose|start|--supervise|--continue" \
-    "$(joined ccy_registry_restore_args --compose running ccy)"
-check "a declined stack is restored with --compose skip" "--compose|skip|--supervise|--continue" \
-    "$(joined ccy_registry_restore_args --compose declined ccy)"
-check "--compose goes before a recorded --" "--token|t|--compose|start|--supervise|--|--model|opus|--continue" \
-    "$(joined ccy_registry_restore_args --compose started ccy --token t -- --model opus)"
-check "no outcome, no flag: the launcher asks, as it does for a person" "--token|work|--supervise|--continue" \
-    "$(joined ccy_registry_restore_args ccy --token work)"
-check "cc has no compose question, so no flag" "--model|opus|--continue" \
-    "$(joined ccy_registry_restore_args --compose started cc --model opus)"
-check "an unknown outcome is refused" "1" \
-    "$(ccy_registry_restore_args --compose maybe ccy 2>"$SCRATCH/cmp.err" >"$SCRATCH/cmp.out"; echo $?)"
 # The flag a person gives is not replayed: the record's outcome is the one source, and a
 # replayed --compose beside the restore's would be the same flag twice.
 check "--compose is not replayed from the launch arguments" "drop-value" "$(ccy_registry_flag_class --compose)"
@@ -648,159 +599,6 @@ printf 'not a record\n' >"$CCY_STATE_DIR/sessions/sr_broken"
 check "a record that cannot be read is a failure" "1" \
     "$(ccy_registry_set_restore sr_broken no 2>"$SCRATCH/sr.err"; echo $?)"
 rm -rf "$CCY_STATE_DIR"
-
-echo ""
-echo "=== restore: records and live sessions in, decisions out ==="
-# The executor asks two questions of the outside world — which sessions are live, and how to
-# start one — and both are stubbed here, so what runs is every decision and nothing else.
-LIVE=""
-LIST_RC=0
-ccy_tmux_list() {
-    printf '%s' "$LIVE"
-    return "$LIST_RC"
-}
-# The executor runs inside a command substitution below, so the stub records to a file the
-# parent shell can read, not to a variable the subshell would take with it.
-STARTED_LOG="$SCRATCH/started"
-ccy_tmux_start_detached() {
-    printf '%q ' "$@" >>"$STARTED_LOG"
-    printf '\n' >>"$STARTED_LOG"
-}
-started_log() {
-    if [ -f "$STARTED_LOG" ]; then cat "$STARTED_LOG"; fi
-}
-check "the live-listing stub answers" "" "$(ccy_tmux_list)"
-
-rm -rf "$SCRATCH/state"
-GONE="$SCRATCH/deleted checkout"
-KEEP="$SCRATCH/kept checkout"
-mkdir -p "$KEEP"
-ccy_registry_write --compose started "ccy-alpha" "$KEEP" /launch/ccy ccy yes --token work
-ccy_registry_write "ccy-beta" "$KEEP" /launch/ccy ccy yes
-ccy_registry_write "cc-gamma" "$KEEP" /launch/cc cc yes --model opus
-ccy_registry_write "ccy-oneoff" "$KEEP" /launch/ccy ccy no
-ccy_registry_write "ccy-orphan" "$GONE" /launch/ccy ccy yes
-
-LIVE=$'ccy-beta 0 '"$KEEP"$'\n'
-rm -f "$STARTED_LOG"
-out="$(ccy_registry_restore 2>&1)"
-rc=$?
-check "a vanished directory fails the run (loudly)" "1" "$rc"
-check "and is named" "yes" "$([[ "$out" == *"ccy-orphan"* && "$out" == *"$GONE"* ]] && echo yes || echo no)"
-check "a record whose session is already live is skipped" "yes" \
-    "$([[ "$out" == *"ccy-beta"* && "$out" == *"already running"* ]] && echo yes || echo no)"
-check "a no-restore record is skipped" "yes" \
-    "$([[ "$out" == *"ccy-oneoff"* && "$out" == *"no-restore"* ]] && echo yes || echo no)"
-
-# The failure above did not stop the others: every startable record was started, with the
-# right launcher, directory and arguments, and the skipped ones were not. Each is started
-# with the restore marker on its command, which is what lets the launcher answer the prompts
-# that have one safe answer, and a record with a compose outcome gets its --compose.
-started_alpha="ccy-alpha $(printf '%q' "$KEEP") env CCY_SESSION_RESTORE=1 /launch/ccy --token work --compose start --supervise --continue "
-started_gamma="cc-gamma $(printf '%q' "$KEEP") env CCY_SESSION_RESTORE=1 /launch/cc --model opus --continue "
-STARTED="$(started_log)"
-check "startable ccy record started with restore args" "yes" "$([[ "$STARTED" == *"$started_alpha"* ]] && echo yes || echo no)"
-check "startable cc record started with cc's restore args" "yes" "$([[ "$STARTED" == *"$started_gamma"* ]] && echo yes || echo no)"
-check "the live one was not started" "no" "$([[ "$STARTED" == *"ccy-beta"* ]] && echo yes || echo no)"
-check "the no-restore one was not started" "no" "$([[ "$STARTED" == *"ccy-oneoff"* ]] && echo yes || echo no)"
-check "the orphan was not started" "no" "$([[ "$STARTED" == *"ccy-orphan"* ]] && echo yes || echo no)"
-check "exactly two sessions started" "2" "$(printf '%s' "$STARTED" | grep -c .)"
-
-# The orphan's record is deliberately LEFT: deleting it would make the next boot report
-# success on a session that was never brought back. The operator removes it, or the
-# directory comes back.
-if [ -f "$(ccy_registry_dir)/ccy-orphan" ]; then
-    check "a failed record is kept for the operator" "present" "present"
-else
-    check "a failed record is kept for the operator" "present" "absent"
-fi
-
-# The manifest names every session that should now be up — the two started, and the one
-# already live — for this boot, and not the skipped or failed ones.
-MANIFEST="$(ccy_registry_manifest_path)"
-check "the manifest sits beside the registry, not in it" "$SCRATCH/state/last-restore" "$MANIFEST"
-if ccy_restore_manifest_read; then
-    check "the manifest reads back" "ok" "ok"
-else
-    check "the manifest reads back" "ok" "refused"
-fi
-check "it names this boot" "boot-one" "$RM_BOOT"
-check "it lists the started and the already-live sessions, in record order" "cc-gamma|ccy-alpha|ccy-beta" \
-    "$(IFS='|' && printf '%s' "${RM_NAMES[*]}")"
-check "with each one's launcher" "cc|ccy|ccy" "$(IFS='|' && printf '%s' "${RM_PREFIXES[*]}")"
-check "and directory" "$KEEP|$KEEP|$KEEP" "$(IFS='|' && printf '%s' "${RM_DIRS[*]}")"
-# The two it started wait for set-going; the one a person started is never typed into.
-check "the started ones are pending set-going, the live one is not set going" "pending|pending|none" \
-    "$(IFS='|' && printf '%s' "${RM_GOING[*]}")"
-check "with nothing yet sent" "||" "$(IFS='|' && printf '%s' "${RM_AT[*]}")"
-check "only ccy has a supervisor to carry a session on after a compaction" "no|yes|yes" \
-    "$(IFS='|' && printf '%s' "${RM_SUPERVISED[*]}")"
-check "none of them resumes a named conversation" "||" "$(IFS='|' && printf '%s' "${RM_RESUME[*]}")"
-
-# A second restore in the same boot keeps what set-going already did with a session the
-# first one started, rather than resetting it to none; a new one it starts is pending.
-RM_GOING[1]=continue RM_AT[1]=1700000000 RM_DETAIL[1]=5000 RM_TRANSCRIPT[1]=/t/a.jsonl
-ccy_restore_manifest_rewrite
-ccy_registry_write "ccy-delta" "$KEEP" /launch/ccy ccy yes --no-supervise -- --resume 0a1b-2c3d
-LIVE=$'ccy-beta 0 '"$KEEP"$'\n'"ccy-alpha 0 $KEEP"$'\n'"cc-gamma 0 $KEEP"$'\n'
-rm -f "$STARTED_LOG"
-out="$(ccy_registry_restore 2>&1)"
-check "the second restore still fails only on the orphan" "yes" "$([[ "$out" == *"ccy-orphan"* ]] && echo yes || echo "no: $out")"
-ccy_restore_manifest_read
-check "a second restore keeps set-going's outcome for a session the first started" \
-    "cc-gamma:pending ccy-alpha:continue:1700000000 ccy-beta:none ccy-delta:pending" \
-    "$(for i in "${!RM_NAMES[@]}"; do printf '%s:%s%s ' "${RM_NAMES[i]}" "${RM_GOING[i]}" "${RM_AT[i]:+:${RM_AT[i]}}"; done | awk '{$1=$1; print}')"
-i="$(ccy_restore_manifest_index ccy-delta)"
-check "a --resume launch names its conversation, and --no-supervise has no supervisor" "0a1b-2c3d|no" \
-    "${RM_RESUME[i]}|${RM_SUPERVISED[i]}"
-ccy_registry_remove ccy-delta
-LIVE=$'ccy-beta 0 '"$KEEP"$'\n'
-
-# Dry run: the same decisions printed, nothing started, and the manifest untouched.
-rm -f "$STARTED_LOG"
-before="$(cat "$MANIFEST")"
-out="$(ccy_registry_restore --dry-run 2>&1)"
-check "dry run starts nothing" "" "$(started_log)"
-check "dry run names what it would start" "yes" \
-    "$([[ "$out" == *"would start ccy-alpha"* && "$out" == *"would start cc-gamma"* ]] && echo yes || echo no)"
-check "dry run leaves the manifest alone" "$before" "$(cat "$MANIFEST")"
-
-rm -rf "$SCRATCH/state"
-out="$(ccy_registry_restore 2>&1)"
-rc=$?
-check "no registry directory at all is a clean no-op" "0" "$rc"
-check "and says nothing was recorded" "yes" "$([[ "$out" == *"nothing to restore"* ]] && echo yes || echo no)"
-# Still a restore that ran this boot, so verify-restore can tell "nothing to bring up" from
-# "the restore never ran".
-ccy_restore_manifest_read
-check "and still writes an empty manifest for this boot" "boot-one:0" "$RM_BOOT:${#RM_NAMES[@]}"
-
-# A registry path that exists but cannot be listed is not an empty registry: the glob would
-# find nothing, the restore would report success, and verify-restore would pass on a boot
-# that restored no session. An unreadable directory cannot be staged here (the container
-# runs as root, which reads any directory), so the non-directory case stands in for it.
-mkdir -p "$SCRATCH/state"
-REGDIR_PATH="$(ccy_registry_dir)"
-: >"$REGDIR_PATH"
-out="$(ccy_registry_restore 2>&1)"
-rc=$?
-check "a registry path that is not a directory is a failure" "1" "$rc"
-check "and says why" "yes" "$([[ "$out" == *"not a readable directory"* ]] && echo yes || echo "no: $out")"
-rm -f "$REGDIR_PATH"
-
-# A listing failure is a failure: starting sessions on top of an unknown live set could
-# double up every one of them.
-rm -rf "$SCRATCH/state"
-mkdir -p "$SCRATCH/state/sessions"
-ccy_registry_write "ccy-alpha" "$KEEP" /launch/ccy ccy yes
-LIST_RC=1
-rm -f "$STARTED_LOG"
-out="$(ccy_registry_restore 2>&1)"
-rc=$?
-check "an unreadable live listing stops the restore" "1" "$rc"
-check "and starts nothing" "" "$(started_log)"
-check "and writes no manifest: a restore that did not run is not one that brought nothing up" \
-    "absent" "$([ -e "$(ccy_registry_manifest_path)" ] && echo present || echo absent)"
 
 echo ""
 echo "=== the restore manifest is read strictly ==="

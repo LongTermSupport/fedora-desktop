@@ -110,14 +110,55 @@ func Write(dir string, d Desired) error {
 }
 
 type relaunch struct {
-	V          int   `json:"v"`
-	Generation int   `json:"generation"`
-	WrittenMS  int64 `json:"written_ms"`
+	V          int    `json:"v"`
+	Generation int    `json:"generation"`
+	WrittenMS  int64  `json:"written_ms"`
+	Why        string `json:"why,omitempty"`
 }
+
+// WhyRestart is the why of the request `ccy-teams restart` writes (SPEC-team-add-and-restart
+// B4); the lifecycle plugin gives it as the restart's reason. A first join's request has none.
+const WhyRestart = "restart"
 
 // WriteRelaunch asks the session whose membership is in dir to relaunch once (RelaunchFile).
 func WriteRelaunch(dir string, generation int, now time.Time) error {
-	data, err := json.Marshal(relaunch{V: 1, Generation: generation, WrittenMS: now.UnixMilli()})
+	return writeRelaunch(dir, relaunch{V: 1, Generation: generation, WrittenMS: now.UnixMilli()})
+}
+
+// WriteRestart asks the session whose membership is in dir to restart in place at its next
+// idle moment, resuming its conversation, for a team restart (B4).
+func WriteRestart(dir string, generation int, now time.Time) error {
+	return writeRelaunch(dir, relaunch{V: 1, Generation: generation, WrittenMS: now.UnixMilli(), Why: WhyRestart})
+}
+
+// WithdrawRestart drops the request in dir only when it is a team restart's, and says whether
+// it did: a first join's request (H22) is that join's to withdraw.
+func WithdrawRestart(dir string) (bool, error) {
+	path := filepath.Join(dir, RelaunchFile)
+	data, err := os.ReadFile(filepath.Clean(path))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("could not read the relaunch request %s: %w", path, err)
+	}
+	if !isRestart(data) {
+		return false, nil
+	}
+	if err := removeRelaunch(dir); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// isRestart is whether a request's bytes are a team restart's; anything unreadable is not.
+func isRestart(data []byte) bool {
+	var r relaunch
+	return json.Unmarshal(data, &r) == nil && r.Why == WhyRestart
+}
+
+func writeRelaunch(dir string, r relaunch) error {
+	data, err := json.Marshal(r)
 	if err != nil {
 		return fmt.Errorf("could not encode the relaunch request: %w", err)
 	}

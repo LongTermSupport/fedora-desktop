@@ -32,8 +32,8 @@
 # scripts/test-ccy-session-registry.bash; anything after `--` is claude's and is kept
 # verbatim. `--no-restore` is the opt-out: it is consumed here and the launcher never sees it.
 #
-# Requires print_error (common-pure.bash, always loaded first). ccy_registry_restore also
-# needs ccy_tmux_list and ccy_tmux_start_detached from lib/tmux-session.bash.
+# Requires print_error (common-pure.bash, always loaded first). The restore itself is
+# `ccy-sessions restore` (src-go/internal/sessions/restore.go).
 
 CCY_REGISTRY_HEADER="ccy-session-record 1"
 
@@ -614,71 +614,6 @@ ccy_registry_trampoline() {
     printf '%s' "\"\$@\"; rc=\$?; rm -f -- ${quoted}; if [ \"\$rc\" -ne 0 ]; then printf '\\n${prefix} exited with status %s. ${CCY_SESSION_ENDED_TEXT}\\n' \"\$rc\"; read -r; fi; exit \"\$rc\""
 }
 
-# ccy_registry_restore_args [--compose <outcome>] <prefix> [replay-args...] — the arguments a
-# restore starts the launcher with, one per line: the recorded set, with `--compose start`
-# (outcome started or running: `up -d` leaves running services alone) or `--compose skip`
-# (declined) for ccy when the record holds an outcome, and `--supervise` for ccy unless the
-# record already says --supervise or --no-supervise, then `--continue` unless the record
-# already continues or resumes a conversation. cc forwards every argument to claude and has
-# no compose question, and --compose and --supervise are ccy's flags, so cc gets --continue
-# only. A record with no outcome gets no --compose: the launcher then asks, as for a person.
-#
-# After a recorded `--` every word is claude's, so ccy's flags go in before it, and a
-# --supervise after it is claude's word rather than ccy's. --continue is claude's flag and
-# reaches claude from either side, so it is appended.
-ccy_registry_restore_args() {
-    local outcome=""
-    if [[ "${1:-}" == "--compose" ]]; then
-        outcome="${2-}"
-        shift 2 || {
-            print_error "ccy_registry_restore_args: --compose needs an outcome."
-            return 1
-        }
-    fi
-    local prefix="${1:?ccy_registry_restore_args requires a prefix}"
-    shift
-    local -a ccy_flags=()
-    if [[ "$prefix" == "ccy" && -n "$outcome" ]]; then
-        case "$outcome" in
-        started | running) ccy_flags+=(--compose start) ;;
-        declined) ccy_flags+=(--compose skip) ;;
-        *)
-            print_error "compose outcome '$outcome' is not one of ${CCY_REGISTRY_COMPOSE_OUTCOMES[*]}."
-            return 1
-            ;;
-        esac
-    fi
-    local arg has_supervise=false has_continue=false after_dd=false
-    for arg in "$@"; do
-        if [[ "$arg" == "--" ]]; then
-            after_dd=true
-            continue
-        fi
-        case "$arg" in
-        --supervise | --no-supervise) [[ "$after_dd" == true ]] || has_supervise=true ;;
-        --continue | -c | --resume | -r) has_continue=true ;;
-        esac
-    done
-    [[ "$prefix" == "ccy" && "$has_supervise" == false ]] && ccy_flags+=(--supervise)
-    after_dd=false
-    for arg in "$@"; do
-        if [[ "$arg" == "--" && "$after_dd" == false ]]; then
-            after_dd=true
-            if [[ ${#ccy_flags[@]} -gt 0 ]]; then
-                printf '%s\n' "${ccy_flags[@]}"
-                ccy_flags=()
-            fi
-        fi
-        printf '%s\n' "$arg"
-    done
-    if [[ ${#ccy_flags[@]} -gt 0 ]]; then
-        printf '%s\n' "${ccy_flags[@]}"
-    fi
-    if [[ "$has_continue" == false ]]; then
-        printf '%s\n' "--continue"
-    fi
-}
-
 # ── the restore manifest: what the last restore brought up, for verify-restore ──────────
 #
 # A restored session's record is removed by its trampoline the moment its launcher returns,
@@ -776,43 +711,6 @@ _ccy_restore_manifest_update() {
     fi
     RM_GOING[i]="$4" RM_AT[i]="$5" RM_DETAIL[i]="$6" RM_TRANSCRIPT[i]="$7"
     ccy_restore_manifest_rewrite
-}
-
-# _ccy_restore_manifest_merge [<entry groups>]... — the restore's write, run under the lock.
-# An entry whose going is "keep" (a session found already running) takes the entry this
-# boot's manifest already holds for that name, so a second restore leaves an earlier one's
-# set-going state alone; with none there, it is written as none. A manifest that cannot be
-# read is replaced: the entries this restore knows are the ones that should be up.
-_ccy_restore_manifest_merge() {
-    local width="${#CCY_RESTORE_MANIFEST_KEYS[@]}" boot i n
-    local -a out=() group=()
-    boot=$(ccy_boot_id) || return 1
-    local path
-    path=$(ccy_registry_manifest_path) || return 1
-    # No manifest is the first restore of a boot. One that cannot be read says why on
-    # stderr and is replaced; one from an earlier boot has nothing to keep.
-    if [[ ! -e "$path" ]] || ! ccy_restore_manifest_read || [[ "$RM_BOOT" != "$boot" ]]; then
-        RM_NAMES=()
-    fi
-    while [[ $# -ge "$width" ]]; do
-        group=("${@:1:width}")
-        shift "$width"
-        if [[ "${group[5]}" == keep ]]; then
-            if i=$(ccy_restore_manifest_index "${group[0]}"); then
-                group=("${RM_NAMES[i]}" "${RM_PREFIXES[i]}" "${RM_DIRS[i]}" "${RM_RESUME[i]}"
-                    "${RM_SUPERVISED[i]}" "${RM_GOING[i]}" "${RM_AT[i]}" "${RM_DETAIL[i]}" "${RM_TRANSCRIPT[i]}")
-            else
-                group[5]=none
-            fi
-        fi
-        out+=("${group[@]}")
-    done
-    n=$#
-    [[ "$n" -eq 0 ]] || {
-        print_error "the restore manifest was handed $n values that make no whole entry."
-        return 1
-    }
-    ccy_restore_manifest_write "${out[@]}"
 }
 
 # ccy_restore_manifest_write [<a group of values, one per CCY_RESTORE_MANIFEST_KEYS>]... —
@@ -1275,140 +1173,4 @@ ccy_restore_passphrase_take() {
         return 1
     fi
     ccy_restore_passphrase_check "$RESTORE_SSH_PASSPHRASE_FILE"
-}
-
-# ccy_registry_restore [--dry-run] — start every recorded session that is not running.
-#
-# Per record: marked no-restore → skipped; its session name already live → skipped (a
-# hand-started session is ordinary, and starting a second under the same name is impossible
-# anyway); its directory gone → an ERROR, the record kept for the operator, and the run
-# continues to the next record so one deleted checkout does not hold back every other
-# session. The run's exit status is non-zero if anything failed. Nothing is started at all if
-# the live set cannot be read: restoring on top of an unknown set could double every session.
-#
-# Each session is started with CCY_SESSION_RESTORE=1 on its command, which lets the launcher
-# answer the prompts that have one safe answer, and a ccy record's compose outcome becomes
-# --compose (ccy_registry_restore_args). The rest still ask, in the pane, and
-# `ccy-sessions verify-restore` names them from the manifest written at the end. Each
-# session started here is entered there as pending; `ccy-sessions set-going`, run by its own
-# unit after this one, waits for it and types its first input. This returns as soon as the
-# sessions exist, because a boot's user manager waits for it.
-#
-# On a headless server the unit's drop-in also sets CCY_RESTORE_SSH_PASSPHRASE_FILE. It is
-# checked before anything starts, and a bad one starts nothing: every ccy session would only
-# stop at a passphrase prompt. It is then dropped from the environment, so tmux never holds
-# it. Each ccy session is given its path on its own command (never its contents); a cc
-# session starts no container and loads no key, so it is not.
-#
-# Reports go to stderr, which under systemd is the journal. --dry-run prints the decisions
-# and starts nothing, and writes no manifest.
-ccy_registry_restore() {
-    local dry_run=false
-    if [[ "${1:-}" == "--dry-run" ]]; then
-        dry_run=true
-    elif [[ $# -gt 0 ]]; then
-        print_error "ccy_registry_restore accepts only --dry-run, not '$1'."
-        return 1
-    fi
-    local regdir listing name file failures=0 started=0 seen=false resume supervised
-    local passphrase_file="${CCY_RESTORE_SSH_PASSPHRASE_FILE:-}"
-    # Out of the environment before tmux runs: the first session started here starts ccy's
-    # tmux server, whose global environment every later pane inherits, and an ordinary ccy
-    # given the file refuses it and exits. Only the restored commands below get the path.
-    unset CCY_RESTORE_SSH_PASSPHRASE_FILE
-    local -A live=()
-    local -a args=() manifest=() marker=()
-    if [[ -n "$passphrase_file" ]] && ! ccy_restore_passphrase_check "$passphrase_file"; then
-        print_error "nothing is restored: every ccy session would stop at its SSH key passphrase prompt."
-        return 1
-    fi
-    regdir=$(ccy_registry_dir) || return 1
-    # Only an ABSENT registry is an empty one. A path that is there but cannot be listed
-    # would glob to nothing and read as "nothing to restore" on a boot that restored nothing.
-    if [[ -e "$regdir" && ! (-d "$regdir" && -r "$regdir" && -x "$regdir") ]]; then
-        print_error "the session registry $regdir is not a readable directory, so the sessions recorded there cannot be listed; nothing is restored."
-        return 1
-    fi
-    if [[ ! -e "$regdir" ]]; then
-        echo "ccy session registry: nothing to restore ($regdir does not exist)." >&2
-        if [[ "$dry_run" == false ]]; then
-            ccy_restore_manifest_locked _ccy_restore_manifest_merge || return 1
-        fi
-        return 0
-    fi
-    if ! declare -F ccy_tmux_start_detached >/dev/null; then
-        print_error "ccy_tmux_start_detached is not defined: lib/tmux-session.bash must be sourced before restoring."
-        return 1
-    fi
-    if ! listing=$(ccy_tmux_list); then
-        print_error "the live session list could not be read, so nothing is restored: starting sessions on top of an unknown live set could double every one of them."
-        return 1
-    fi
-    while read -r name _; do
-        [[ -n "$name" ]] && live["$name"]=1
-    done <<<"$listing"
-
-    for file in "$regdir"/*; do
-        [[ -e "$file" ]] || continue
-        [[ "$file" == *.tmp.* ]] && continue
-        seen=true
-        if ! ccy_registry_read "$file"; then
-            failures=$((failures + 1))
-            continue
-        fi
-        if [[ "$REC_RESTORE" == "no" ]]; then
-            echo "skip $REC_NAME: marked no-restore." >&2
-            continue
-        fi
-        if ! mapfile -t args < <(ccy_registry_restore_args --compose "$REC_COMPOSE" "$REC_PREFIX" "${REC_ARGS[@]}") \
-            || ! wait "$!"; then
-            print_error "could not work out the arguments to restore $REC_NAME with (the record is kept at $file)."
-            failures=$((failures + 1))
-            continue
-        fi
-        resume="$(ccy_registry_resume_id "${args[@]}")"
-        supervised="$(ccy_registry_supervised "$REC_PREFIX" "${args[@]}")"
-        if [[ -n "${live[$REC_NAME]:-}" ]]; then
-            echo "skip $REC_NAME: already running." >&2
-            # Still one of the sessions that should be up, so still one to verify: a second
-            # restore in the same boot must not hide a session stuck at a prompt since the first.
-            # Not this restore's to set going: whoever started it is driving it. An entry an
-            # earlier restore in this boot made for it is kept as it is ("keep"), so set-going
-            # can finish with it.
-            manifest+=("$REC_NAME" "$REC_PREFIX" "$REC_DIR" "$resume" "$supervised" keep "" "" "")
-            continue
-        fi
-        if [[ ! -d "$REC_DIR" ]]; then
-            print_error "cannot restore $REC_NAME: its directory no longer exists: $REC_DIR (the record is kept at $file; remove it if the project is gone)."
-            failures=$((failures + 1))
-            continue
-        fi
-        if [[ "$dry_run" == true ]]; then
-            echo "would start $REC_NAME in $REC_DIR: $REC_LAUNCHER ${args[*]}" >&2
-            continue
-        fi
-        marker=(CCY_SESSION_RESTORE=1)
-        if [[ -n "$passphrase_file" && "$REC_PREFIX" == ccy ]]; then
-            marker+=("CCY_RESTORE_SSH_PASSPHRASE_FILE=$passphrase_file")
-        fi
-        if ccy_tmux_start_detached "$REC_NAME" "$REC_DIR" env "${marker[@]}" "$REC_LAUNCHER" "${args[@]}"; then
-            echo "restored $REC_NAME in $REC_DIR." >&2
-            started=$((started + 1))
-            manifest+=("$REC_NAME" "$REC_PREFIX" "$REC_DIR" "$resume" "$supervised" pending "" "" "")
-        else
-            print_error "could not start $REC_NAME in $REC_DIR (the record is kept at $file)."
-            failures=$((failures + 1))
-        fi
-    done
-
-    if [[ "$dry_run" == false ]]; then
-        ccy_restore_manifest_locked _ccy_restore_manifest_merge "${manifest[@]}" || failures=$((failures + 1))
-    fi
-    if [[ "$seen" == false ]]; then
-        echo "ccy session registry: nothing to restore (no records in $regdir)." >&2
-        [[ "$failures" -eq 0 ]]
-        return
-    fi
-    echo "ccy session restore: $started started, $failures failed." >&2
-    [[ "$failures" -eq 0 ]]
 }

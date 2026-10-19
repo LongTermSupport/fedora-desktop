@@ -2,11 +2,13 @@ package picker
 
 import (
 	"context"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -105,6 +107,40 @@ func TestATeamsMenuShutsItsSessionsDown(t *testing.T) {
 	}
 	if h.Fake.Called("tmux -L ccy send-keys") {
 		t.Fatal("something was typed after a no")
+	}
+}
+
+// Plan 00203 SPEC-team-add-and-restart B1: a team row's menu restarts the team's desktop
+// sessions, a visible line with no key, after Update and before the lines that end things; it
+// asks first, default No.
+func TestATeamsMenuRestartsItsDesktopSessions(t *testing.T) {
+	h := newRig(t)
+	r := h.run1(t)
+	labels := h.labels(r, h.row(t, r.snap, board.NoDescription))
+	at := index(t, labels, "Restart the team's desktop sessions")
+	if update := index(t, labels, "Update every team that is out of date or not built   (Ctrl-U)"); at != update+1 {
+		t.Fatalf("restart follows Update: %q", labels)
+	}
+	if shutdown := index(t, labels, "Shut down every session of alpha"); at > shutdown {
+		t.Fatalf("restart comes before Shut down: %q", labels)
+	}
+	checkOrder(t, "team menu", labels)
+	h.Env["XDG_RUNTIME_DIR"] = filepath.Join(h.Root, "run")
+	desired := membership.Desired{
+		V: 1, Session: "ccy-proj", Kind: "ccy", Checkout: h.Checkout(), Generation: 1, WrittenMS: 1,
+		Seats: []membership.Seat{{Team: "alpha", Seat: "1"}}, Farewell: []membership.Farewell{},
+	}
+	if err := membership.Write(membership.DirOf(h.Env["XDG_RUNTIME_DIR"], "ccy", "ccy-proj"), desired); err != nil {
+		t.Fatal(err)
+	}
+	h.Script.Fzf = []string{"|alpha", "|Restart the team's desktop sessions", "|EXIT", "|ABORT"}
+	if code := h.run(); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	for _, want := range []string{"Team alpha: 1 session to restart.", "Nothing was restarted.", "Press Enter to go back to the list."} {
+		if !strings.Contains(h.ErrOut.String(), want) {
+			t.Fatalf("stderr lacks %q: %s", want, h.ErrOut.String())
+		}
 	}
 }
 

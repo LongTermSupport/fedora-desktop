@@ -543,8 +543,6 @@ write_record demo_yolo "$PWD" ccy --network wrong-network --token demo-token
 run_disconnect "" wrong-network
 check "a detach removes --network NET from this project's restore record" "--token demo-token" "$(record_args demo_yolo)"
 check "and the output names the record" "yes" "$(says "demo_yolo" "$OUT")"
-mapfile -t replay < <(ccy_registry_restore_args ccy --token demo-token)
-check "so a restore replays no --network at all" "no" "$(says "--network" "$(printf '%s ' "${replay[@]}")")"
 
 reset
 write_record demo_yolo "$PWD" ccy --ssh-key key-one --network wrong-network --model opus --no-ssh

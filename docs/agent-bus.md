@@ -141,6 +141,15 @@ agent, a session on another machine, a `cc --teams <team>` session whose record 
 end those where they run). A session with unsent text in its input box, or whose screen cannot
 be read, is left alone. Local only: nothing goes on the bus. Spec: Plan 00201 `SPEC-shutdown.md`.
 
+**Restart a team's desktop sessions**, after a reboot or whenever. `ccy-teams restart <team>`
+(or Enter on the team, then **Restart the team's desktop sessions**) resumes each member's own
+conversation by its recorded id, never `--continue`. A running ccy session restarts in place at
+its next idle moment, through its supervisor, in a fresh container; a stopped one is started as
+`ccy-sessions restore` starts it. A running cc session is left running (cc has no supervisor:
+`/exit` it and restart again), and one whose conversation was never recorded is named and not
+started. LXC members are left out. It asks first (`--yes` where there is no terminal), reports
+each session, and exits 1 if any failed. Spec: Plan 00203 `SPEC-team-add-and-restart.md` B1-B11.
+
 **Change a team's settings.** Enter on the team, then **Edit settings**. One screen lists every
 field of the team's `agent_bus_teams` entry with its value. Choose a field to change it; each
 value is checked as you type it, by the same rules the play uses. Changes wait on the screen

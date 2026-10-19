@@ -31,6 +31,10 @@ event, a stored file or an exception carried reaches the output: every text is o
   (`seat.record_goodbye`), which the host's `seat disconnected` reads. A failure is one
   stderr line; the hook still answers.
 - `post-tool` (PostToolUse) is the `SENT` echo (relay mode only; nothing otherwise).
+- Under `PINGBUS_MEMBERSHIP`, `session-start` first records the session's current conversation
+  id beside its report (`conversation.json`), which the host resumes after a reboot or a team
+  restart (Plan 00203 SPEC-team-add-and-restart C1). `conversation` records only that and
+  answers nothing: it is what a session holding no seat runs at SessionStart (Decision 12).
 
 With `PINGBUS_DELIVERY=relay` (Plan 00194) a supervisor plugin owns the watcher and types
 the messages: `session-start` spawns nothing and names no wake path, the counts leave out
@@ -62,13 +66,14 @@ from typing import TextIO
 
 from helpers.pingbus import config, inbox, inject, membership, notify, protocol, relay, seat, sentlog, statusline
 
-EVENTS = ("session-start", "prompt", "stop", "session-end", "post-tool")
+EVENTS = ("session-start", "prompt", "stop", "session-end", "post-tool", "conversation")
 HOOK_EVENT_NAMES = {
     "session-start": "SessionStart",
     "prompt": "UserPromptSubmit",
     "stop": "Stop",
     "session-end": "SessionEnd",
     "post-tool": "PostToolUse",
+    "conversation": "SessionStart",
 }
 GUARD_FILE = "stop-guard.json"
 GOODBYE_FILE = "goodbye.json"
@@ -201,6 +206,37 @@ sessions_dir = statusline.sessions_dir
 def _session_id(payload: dict | None) -> str | None:
     value = None if payload is None else payload.get("session_id")
     return value if isinstance(value, str) and SESSION_ID_RE.fullmatch(value) else None
+
+
+#: Beside the keeper's report (seat.py `_publish`): the session's current conversation, which
+#: the host resumes by id after a reboot or a team restart (Plan 00203 SPEC-team-add-and-restart C1).
+CONVERSATION_FILE = "conversation.json"
+CONVERSATION_SOURCES = ("startup", "resume", "clear", "compact")
+
+
+def conversation_path(desired: membership.Desired) -> pathlib.Path:
+    """Where the session's conversation is recorded: its report directory, under the checkout
+    as this side sees it (/workspace in a ccy container, the checkout itself for cc)."""
+    root = seat.CCY_SEATS_ROOT if desired.kind == "ccy" else seat.checkout_seats_root(pathlib.Path(desired.checkout))
+    return root.parent / seat.SESSIONS_DIR / desired.session / CONVERSATION_FILE
+
+
+def record_conversation(environ: Mapping[str, str], payload: dict | None, now_ms: int) -> pathlib.Path | None:
+    """C1, C2: write the conversation the session is in now, named by the host's own membership
+    file; None when the session is not under the membership or the hook was given no id.
+    `OSError` or `MembershipError` when it cannot be written."""
+    marker = environ.get(membership.MEMBERSHIP_VAR)
+    session_id = _session_id(payload)
+    if marker in (None, membership.MEMBERSHIP_OFF) or session_id is None:
+        return None
+    desired = membership.read_desired(membership.mount_dir(marker))
+    source = payload.get("source") if payload is not None else None
+    path = conversation_path(desired)
+    os.makedirs(path.parent, mode=seat.SESSION_HOME_MODE, exist_ok=True)
+    membership.write_private_json(path, {
+        "v": 1, "session": desired.session, "session_id": session_id,
+        "source": source if source in CONVERSATION_SOURCES else "other", "written_ms": now_ms})
+    return path
 
 
 def record_session_teams(environ: Mapping[str, str], session_id: str, teams: list[str]) -> None:
@@ -727,7 +763,21 @@ class _Hook:
             stopped = True
         return [TEMPLATES["keeper_stopped"]] if stopped else []
 
+    def conversation(self) -> dict:
+        """Decision 12: a session start with no seat held (the inert contract) records the
+        conversation and answers nothing, so a session on no team is restored too."""
+        self._record_conversation()
+        return {}
+
+    def _record_conversation(self) -> None:
+        try:
+            record_conversation(self.environ, self.payload, self.now_ms)
+        except (OSError, membership.MembershipError) as exc:
+            self.err.write(f"pingbus: hook {self.event}: the conversation record for a restore was not "
+                           f"written: {type(exc).__name__}\n")
+
     def session_start(self) -> dict:
+        self._record_conversation()
         surveyed = survey(self.environ)
         self._membership_baseline(surveyed)
         lines = self._keeper_lines() + self._session_teams_lines(surveyed)
@@ -1090,6 +1140,8 @@ def run(event: str, raw: bytes, environ: Mapping[str, str], *, now_ms: int,
             return hook.session_end(post)
         if event == "session-start":
             return hook.session_start()
+        if event == "conversation":
+            return hook.conversation()
         if event == "prompt":
             return hook.prompt()
         if event == "post-tool":

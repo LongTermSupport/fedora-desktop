@@ -33,7 +33,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.77.11"
+LABEL claude-yolo-version="2.77.12"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -426,6 +426,13 @@ ENV DEVCONTAINER=true
 # Suppress "switched from npm to native installer" warning banner
 # This env var gates the jfq() warning hook in Claude Code's cli.js
 ENV DISABLE_INSTALLATION_CHECKS=1
+
+# Claude Code's agent view (/background, --bg, `claude agents`, its daemon) off (Plan 00203
+# Decision 11). A /background record from another PID namespace counts as live for ever, and
+# every ccy container is a new namespace, so one stale record makes --continue refuse that
+# conversation for good. Here, not in the project's settings.json, which the entrypoint merges
+# and a project may own. Background sub-agents and shell tasks are a separate switch, left on.
+ENV CLAUDE_CODE_DISABLE_AGENT_VIEW=1
 
 # Note: no USER directive, so the container runs as uid 0 INSIDE the container.
 #

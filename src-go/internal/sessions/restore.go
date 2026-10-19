@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/conversation"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -187,21 +188,18 @@ func (r *restoreRun) record(ctx context.Context, rec registry.Record) {
 		a.sayf("skip %s: marked no-restore.\n", rec.Name)
 		return
 	}
-	args, err := registry.RestoreArgs(rec.Compose, rec.Prefix, rec.Args)
-	if err != nil {
-		a.fail("could not work out the arguments to restore " + rec.Name + " with (the record is kept at " + file + ").")
-		r.failures++
-		return
-	}
 	entry := restore.Entry{
-		Name: rec.Name, Prefix: rec.Prefix, Dir: rec.Dir, Resume: registry.ResumeID(args),
-		Supervised: registry.Supervised(rec.Prefix, args), Going: restore.GoingPending,
+		Name: rec.Name, Prefix: rec.Prefix, Dir: rec.Dir, Resume: registry.ResumeID(rec.Args),
+		Supervised: registry.Supervised(rec.Prefix, rec.Args), Going: restore.GoingPending,
 	}
 	if r.live[rec.Name] {
 		// Still one of the sessions that should be up, so still one to verify. Not this
 		// restore's to set going: whoever started it is driving it, and an entry an earlier
 		// restore this boot made for it is kept as it is.
 		a.sayf("skip %s: already running.\n", rec.Name)
+		if id, convErr := conversation.For(rec, conversation.ClaudeHome(a.Getenv)); convErr == nil {
+			entry.Resume = id
+		}
 		entry.Going = restore.GoingKeep
 		r.entries = append(r.entries, entry)
 		return
@@ -212,6 +210,21 @@ func (r *restoreRun) record(ctx context.Context, rec registry.Record) {
 		r.failures++
 		return
 	}
+	// Plan 00203 C6, Decision 10: the session's own conversation by its recorded id, or not at
+	// all; --continue would take the newest in a folder several sessions share.
+	id, err := conversation.For(rec, conversation.ClaudeHome(a.Getenv))
+	if err != nil {
+		a.fail("cannot restore " + rec.Name + ": " + err.Error() + " (the record is kept at " + file + ").")
+		r.failures++
+		return
+	}
+	args, err := registry.ResumeArgs(rec.Compose, rec.Prefix, rec.Args, id)
+	if err != nil {
+		a.fail("could not work out the arguments to restore " + rec.Name + " with (the record is kept at " + file + ").")
+		r.failures++
+		return
+	}
+	entry.Resume = id
 	if r.dryRun {
 		a.sayf("would start %s in %s: %s %s\n", rec.Name, rec.Dir, rec.Launcher, strings.Join(args, " "))
 		return
