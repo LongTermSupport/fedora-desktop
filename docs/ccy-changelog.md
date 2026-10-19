@@ -33,6 +33,13 @@ hook changed, so it is rebuilt once.
   recorded conversation (a `--no-bus` launch, a plain `cc`) is not started: it is named, with
   `ccy --resume` as the way back by hand, and its record is kept. The uncalled bash restore
   in `lib/session-registry.bash`, which still appended `--continue`, is gone.
+- **`ccy-teams restart <team>`, and the team menu's Restart the team's desktop sessions**
+  (Plan 00203 Decisions 8 and 9). Each member's session on this desktop resumes its own
+  conversation by id: a running ccy session restarts in place at its next idle moment through
+  its supervisor, in a fresh container; a stopped one is started as a restore starts it; a
+  running cc session is left running and named; LXC members are left out and named. One line
+  per session, and exit 1 if any failed. The lifecycle plugin (1.2.0) gives "the owner
+  restarted its team" as the reason for such a restart.
 
 ## 3.99.12.12 — container 2.77.8
 

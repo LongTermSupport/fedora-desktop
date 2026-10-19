@@ -47,7 +47,8 @@ too (? there shows every key, explained). The shortcuts:
            `ccy-teams session ...` below, run for you, with its question and its steps.
            Back to the teams, or Esc, comes back
 A key works only on a row whose menu has it.
-The menu of a team row also has Shut down every session of <team> (no shortcut): the same as
+The menu of a team row also has Restart the team's desktop sessions and Shut down every
+session of <team> (no shortcut): the same as `ccy-teams restart <team>` and
 `ccy-teams shutdown <team>` below.
 The menu of a team row also has Edit settings (no shortcut): every field of the team's entry
 with its value. Each editable one is checked as it is typed; Save and apply writes the changes
@@ -150,7 +151,21 @@ Usage:
                                    be free. One line per member: exited cleanly, stopped,
                                    failed or not shut down; exit 1 unless all ended. The
                                    homeserver keeps running. Nothing goes on the bus
-  ccy-teams for-checkout          print the team(s) that work on this checkout's GitHub
+  ccy-teams restart <team> [--yes]
+                                   restart the team's sessions on this desktop, each
+                                   resuming its own conversation by id (--resume <id>,
+                                   never --continue). A running ccy session restarts in
+                                   place at its next idle moment, through its supervisor,
+                                   in a fresh container (300 s); a running cc session is
+                                   left running (cc has no supervisor: /exit it and run
+                                   this again); a stopped one is started as ccy-sessions
+                                   restore starts it (180 s), and one whose conversation
+                                   was never recorded is named and not started. LXC
+                                   members are left out and named. It lists what it will
+                                   do and asks (default No; with no terminal, --yes is
+                                   required). One line per session: done, failed or left
+                                   as it is; exit 1 if any failed. Nothing goes on the bus
+  ccy-teams for-checkout         print the team(s) that work on this checkout's GitHub
                                    OWNER/REPO (an organisation team by its owner, unless
                                    it excludes the repository), one per line on stdout, the
                                    rest on stderr. With none, it fails saying so. For scripts;
