@@ -126,12 +126,15 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
 
 - [ ] On the host, a message the owner posts in Element mentioning a seat appears in that
   ccy session within seconds, with the agent running nothing, framed as the human's.
+
 - [ ] Another agent's message appears in the same envelope with its own kind and no
   authority.
+
 - [ ] Host, after `play-agent-bus.yml` and `play-claude-yolo.yml` (branch
   `fix/goodbye-ctrl-c`, journal 2026-10-19). Before the fix no goodbye was ever sent:
   Claude Code's 1.5 s SessionEnd bound, which a plugin hook's `timeout` does not raise, cut
   it off; a stop or a closed terminal ends the container at once, so no hook runs at all.
+
   1. End a `--teams` session by MASHING Ctrl-C for several seconds, on past the container's
      exit: `left the team` is posted once (to the team's humans and coordinator), and the
      launcher's exit prints no traceback and no `pingbus seat disconnected failed`.
@@ -141,6 +144,16 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   4. No ending posts both messages.
   5. Baseline for Task 2.0e: a lifecycle restart (`CCY_LIFECYCLE_MAX_AGE_SECONDS` at its
      minimum); record what the team sees (today: `left the team`, then the seat re-joins).
+
+  Steps 1-4 are automated, as the owner asked, by [acceptance.bash](acceptance.bash), run
+  through meta-deploy: G1 = step 1 (Ctrl-C sent until the launcher exits; one goodbye per
+  team, and no traceback or failed disconnect on the terminal), G2 = step 2, G3 = step 3, G4 =
+  step 4 (checked in every scenario), C1 = nothing of the run left. It runs on two throwaway
+  teams made by Plan 00201's acceptance legs, in a scratch checkout, on a tmux server of its
+  own. It counts what each team's human sees in the room. Every session sits on both seats.
+  The verdicts are in `goodbye_check.py`, tested by `test_goodbye_check.py`, which also runs
+  `acceptance.bash --fake` over fixture rooms. Step 5 is still done by hand.
+
 - [ ] A message sent to a busy session is typed mid-turn and run when the turn ends.
 
 ## Delivery & Milestones

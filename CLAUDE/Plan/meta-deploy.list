@@ -35,3 +35,13 @@ playbooks/imports/optional/common/play-cli-tools.yml
 # /usr/bin/python3 instead of through the pyenv shim. The table and messages are unchanged. No
 # ccy or image change; running sessions are not touched.
 playbooks/imports/play-claude-yolo.yml
+
+# Plan 00194 Task 2.0b: the goodbye host checks, automated (acceptance.bash; the plan has no
+# triage.bash or deploy.bash). After play-claude-yolo.yml, so the sessions run the deployed
+# image. It makes two throwaway teams, starts three idle ccy sessions on them in a scratch
+# checkout on its own tmux server, ends one with Ctrl-C, one with podman stop and one by
+# closing its window, counts the goodbye and disconnected messages each team gets, then removes
+# all of it. Each launch runs ccy's normal startup clean-up, which removes every exited or
+# created ccy container on the host (as any ccy launch does). The team purge relies on sudo
+# staying cached (it does on this host). One sudo prompt.
+00194-agent-bus-live-delivery-supervisor-plugin
