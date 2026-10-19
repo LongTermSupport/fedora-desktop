@@ -186,7 +186,7 @@ func TestTheListShowsEveryTeamCoveringFirstAndCreating(t *testing.T) {
 	if r.payload.String() != "1@alpha\n" {
 		t.Fatalf("payload %q", r.payload.String())
 	}
-	if !r.Fake.Called("env PYTHONPATH=" + r.Host.RootDir + " python3 -P -m helpers.agent_bus.declare choices") {
+	if !r.Fake.Called("env PYTHONPATH=" + r.Host.RootDir + " /usr/bin/python3 -P -m helpers.agent_bus.declare choices") {
 		t.Fatal("coverage did not come from declare.py choices")
 	}
 }
@@ -247,7 +247,7 @@ func TestAddingTheRepositoryAppliesOnceAndThenStarts(t *testing.T) {
 	if len(r.applied) != 1 || !slices.Equal(r.applied[0], []string{"beta"}) {
 		t.Fatalf("applied %v", r.applied)
 	}
-	if !r.Fake.Called("env PYTHONPATH=" + r.Host.RootDir + " python3 -P -m helpers.agent_bus.declare add-repo --file " + r.Host.HostVars + " --team beta --repo " + repo) {
+	if !r.Fake.Called("env PYTHONPATH=" + r.Host.RootDir + " /usr/bin/python3 -P -m helpers.agent_bus.declare add-repo --file " + r.Host.HostVars + " --team beta --repo " + repo) {
 		t.Fatal("the scope was not edited by declare.py add-repo")
 	}
 	contains(t, "stderr", r.stderr(), "host_vars", "play-agent-bus.yml", "sudo", "no homeserver restart", "trusts "+repo)
@@ -340,7 +340,7 @@ func TestJoiningWithoutAddingKeepsTheTeamAndSaysItsReferencesAreExternal(t *test
 		t.Fatalf("payload %q applied %v", r.payload.String(), r.applied)
 	}
 	contains(t, "stderr", r.stderr(), "beta", repo+" references external")
-	if r.Fake.Called("env PYTHONPATH=" + r.Host.RootDir + " python3 -P -m helpers.agent_bus.declare add-repo") {
+	if r.Fake.Called("env PYTHONPATH=" + r.Host.RootDir + " /usr/bin/python3 -P -m helpers.agent_bus.declare add-repo") {
 		t.Fatal("the scope was edited")
 	}
 }
@@ -381,7 +381,7 @@ func TestOutsideAGitHubCheckoutEveryTeamIsListedAndJoinedWithoutWidening(t *test
 	if strings.Contains(rows, "gone") || strings.Contains(rows, "would add") {
 		t.Fatalf("rows %s", rows)
 	}
-	if r.payload.String() != "1@beta\n" || len(r.Script.GumLog) != 0 || r.Fake.Called("env PYTHONPATH="+r.Host.RootDir+" python3 -P -m helpers.agent_bus.declare choices") {
+	if r.payload.String() != "1@beta\n" || len(r.Script.GumLog) != 0 || r.Fake.Called("env PYTHONPATH="+r.Host.RootDir+" /usr/bin/python3 -P -m helpers.agent_bus.declare choices") {
 		t.Fatalf("payload %q gum %v", r.payload.String(), r.Script.GumLog)
 	}
 }
@@ -497,7 +497,7 @@ func TestATeamAloneInTheListSkipsTheListAndAsksOnlyForItsSeat(t *testing.T) {
 	if r.payload.String() != "1@beta\n" || len(r.Script.Rows) != 0 {
 		t.Fatalf("payload %q rows %v", r.payload.String(), r.Script.Rows)
 	}
-	if r.Fake.Called("env PYTHONPATH=" + r.Host.RootDir + " python3 -P -m helpers.agent_bus.declare choices") {
+	if r.Fake.Called("env PYTHONPATH=" + r.Host.RootDir + " /usr/bin/python3 -P -m helpers.agent_bus.declare choices") {
 		t.Fatal("a named team needs no coverage check")
 	}
 }

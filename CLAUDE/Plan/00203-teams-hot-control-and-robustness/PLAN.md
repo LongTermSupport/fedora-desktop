@@ -240,6 +240,15 @@ Built on `fix/teams-server-robustness`; design and evidence in
   `fix/teams-member-roles-3`'s 3.99.12.15, on `feat/teams-restart-3`). Built and tested; host
   acceptance to come.
 
+- [ ] 🔄 **Task 3.13** (owner feedback): ccy-teams opens fast, on `fix/teams-open-fast`. The
+  board's agent-bus calls (each checkout's `seat list`, each team's `list`, then each person's
+  `human devices`) ran one after another; they now run together, eight at most, with what each
+  says kept and written out in the old order, and a checkout known by two names is read once.
+  The declare helper runs on `/usr/bin/python3`, not through the pyenv shim. The output is
+  unchanged. On fakes at 0.4 s a call: 6.1 s down to 1.3-1.7 s. Built and tested; host
+  measurement to come. Next, separately: one agent-bus call for the whole board
+  ([report](subagent-reports/261019-teams-open-speed-opus.md)).
+
 ## Decisions
 
 These were settled by the coordinator under the owner's standing "do not gate on me". **The owner

@@ -19,3 +19,10 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Plan 00203 Task 3.13: rebuilds and installs ccy-teams, which now opens faster: the board's
+# agent-bus calls (each checkout's seat list, each team's members, each person's Element
+# sessions) run together instead of one after another, and the declare helper runs on
+# /usr/bin/python3 instead of through the pyenv shim. The table and messages are unchanged. No
+# ccy or image change; running sessions are not touched.
+playbooks/imports/play-claude-yolo.yml

@@ -8,6 +8,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/discover"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcrecord"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
@@ -145,6 +146,11 @@ func (s *Snapshot) HoldsLiveSeat(top, team string) bool {
 		}
 	}
 	return false
+}
+
+// up is whether team's homeserver is installed and running: only then are its members read.
+func (s *Snapshot) up(team string) bool {
+	return s.Loaded[team] && systemd.StateWord(s.Active[team]) == systemd.HomeserverUp
 }
 
 // aboutTeam is the team row's MEMBER cell: what the team is for, whole.

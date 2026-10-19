@@ -138,7 +138,7 @@ func (w *World) OnErr(prefix, stderr string, code int) {
 
 // DeclarePrefix is the argv start of one declare.py subcommand.
 func (w *World) DeclarePrefix(sub string) string {
-	return "env PYTHONPATH=" + w.Host.RootDir + " python3 -P -m helpers.agent_bus.declare " + sub
+	return "env PYTHONPATH=" + w.Host.RootDir + " /usr/bin/python3 -P -m helpers.agent_bus.declare " + sub
 }
 
 // OnDeclare scripts one declare.py subcommand. The list is read with "overview", which prints
