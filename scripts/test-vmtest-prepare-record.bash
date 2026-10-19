@@ -351,7 +351,7 @@ write_record "$work/short.env" real
 grep -v '^PREPARED_FIXTURE_FINDING=' "$work/short.env" > "$work/short2.env"
 mv "$work/short2.env" "$work/short.env"
 run_checker "$work/short.env"
-if [ "$CHECKER_RC" = 70 ] && printf '%s\n' "$CHECKER_OUT" | grep -q 'PREPARED_FIXTURE_FINDING'; then
+if [ "$CHECKER_RC" = 70 ] && grep -q 'PREPARED_FIXTURE_FINDING' <<<"$CHECKER_OUT"; then
     report pass an-incomplete-record-is-refused-by-name
 else
     report fail an-incomplete-record-is-refused-by-name "rc=$CHECKER_RC: $CHECKER_OUT"
@@ -366,7 +366,7 @@ fi
 write_record "$work/tail.env" real
 printf 'this is ( not shell\n' >> "$work/tail.env"
 run_checker "$work/tail.env"
-if [ "$CHECKER_RC" = 70 ] && printf '%s\n' "$CHECKER_OUT" | grep -q 'not readable as shell'; then
+if [ "$CHECKER_RC" = 70 ] && grep -q 'not readable as shell' <<<"$CHECKER_OUT"; then
     report pass a-complete-but-unparseable-record-is-refused-as-unparseable
 else
     report fail a-complete-but-unparseable-record-is-refused-as-unparseable \
@@ -383,7 +383,7 @@ grep -v '^PREPARED_RUNNING_KERNEL=' "$work/blank.env" > "$work/blank2.env"
 printf "PREPARED_RUNNING_KERNEL=''\n" >> "$work/blank2.env"
 mv "$work/blank2.env" "$work/blank.env"
 run_checker "$work/blank.env"
-if [ "$CHECKER_RC" = 70 ] && printf '%s\n' "$CHECKER_OUT" | grep -q 'PREPARED_RUNNING_KERNEL'; then
+if [ "$CHECKER_RC" = 70 ] && grep -q 'PREPARED_RUNNING_KERNEL' <<<"$CHECKER_OUT"; then
     report pass a-blank-value-is-refused-by-name
 else
     report fail a-blank-value-is-refused-by-name "rc=$CHECKER_RC: $CHECKER_OUT"
@@ -396,7 +396,7 @@ fi
 if [ "${#OPTIONAL[@]}" -gt 0 ]; then
     write_record "$work/blankok.env" real
     run_checker "$work/blankok.env"
-    if printf '%s\n' "$CHECKER_OUT" | grep -q '^VMTEST-CHECKS-DONE '; then
+    if grep -q '^VMTEST-CHECKS-DONE ' <<<"$CHECKER_OUT"; then
         report pass a-blank-value-that-is-allowed-still-runs "${OPTIONAL[0]} is blank"
     else
         report fail a-blank-value-that-is-allowed-still-runs "rc=$CHECKER_RC"

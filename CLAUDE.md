@@ -54,7 +54,9 @@ The gate parses every file as bash and counts on the syntax tree; the measure is
 the package doc of `src-go/qa/bashlimits`. A bash file is found by what it is: `*.bash`,
 `*.sh`, or a first line that is a bash/sh shebang, whatever the file is called.
 
-Exempt: test suites (`scripts/test-*.bash`, `tests/`), plan-folder scripts (they are plan-local
+Exempt: test suites, test fixtures and testdata (`scripts/test-*.bash`, `tests/`, the semgrep
+fixtures in `.semgrep/`, the VM lab's guest acceptance checkers and fixture preparers; a tool
+merely named for tests stays measured), plan-folder scripts (they are plan-local
 scaffolding that [PlanScriptStandards.md](CLAUDE/PlanScriptStandards.md) requires),
 vendored or daemon-owned trees, and the daemon-owned files named one by one in
 `DaemonOwnedFiles` (such as `CLAUDE/Plan/mkplan.bash`), each held exempt only while a

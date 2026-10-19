@@ -108,7 +108,7 @@ check() {
 }
 contains() {
     local label="$1" needle="$2" hay="$3"
-    if printf '%s' "$hay" | grep -qF -- "$needle"; then
+    if grep -qF -- "$needle" <<<"$hay"; then
         passed=$((passed + 1))
         printf '  PASS  %s\n' "$label"
     else
@@ -147,7 +147,7 @@ reset_stub
 printf 'gh: Bad credentials (HTTP 401)\n' >"$STUB_DIR/api-error"
 OUT="$(exists alice alice/fedora-desktop-config)"
 check "any other failure stops the run" "failed" "$(first_line "$OUT")"
-check "  rather than reading as absent" "no" "$(printf '%s\n' "$OUT" | grep -qxE 'found|absent' && echo yes || echo no)"
+check "  rather than reading as absent" "no" "$(grep -qxE 'found|absent' <<<"$OUT" && echo yes || echo no)"
 contains "  with gh's own words" "Bad credentials (HTTP 401)" "$OUT"
 contains "  naming the repo" "github.com/alice/fedora-desktop-config" "$OUT"
 
@@ -155,7 +155,7 @@ reset_stub
 touch "$STUB_DIR/no-token"
 OUT="$(exists alice alice/fedora-desktop-config)"
 check "a primary with no token stops the run" "failed" "$(first_line "$OUT")"
-check "  rather than reading as absent" "no" "$(printf '%s\n' "$OUT" | grep -qxE 'found|absent' && echo yes || echo no)"
+check "  rather than reading as absent" "no" "$(grep -qxE 'found|absent' <<<"$OUT" && echo yes || echo no)"
 contains "  saying whose token is missing" "could not read alice's gh token" "$OUT"
 check "  and never calls the API with someone else's token" "no" \
     "$([ -s "$STUB_DIR/api.log" ] && echo yes || echo no)"
@@ -175,7 +175,7 @@ check "a 404 leaves it empty and reads as absent" "absent" "$(read_path hosts/h.
 reset_stub
 echo "gh: connection reset" >"$STUB_DIR/api-error"
 OUT="$(read_path hosts/h.yml .content)"
-check "a network fault stops the run" "no" "$(echo "$OUT" | grep -qE '^(read:|absent)' && echo yes || echo no)"
+check "a network fault stops the run" "no" "$(grep -qE '^(read:|absent)' <<<"$OUT" && echo yes || echo no)"
 contains "  with gh's words" "connection reset" "$OUT"
 
 echo "== push_config_to_repo"
@@ -204,7 +204,7 @@ check "  with no sha" "-" "$(body_field sha)"
 reset_stub
 echo "gh: Bad credentials (HTTP 401)" >"$STUB_DIR/api-error"
 OUT="$(push)"
-check "a failed sha lookup stops the save" "no" "$(echo "$OUT" | grep -qx pushed && echo yes || echo no)"
+check "a failed sha lookup stops the save" "no" "$(grep -qx pushed <<<"$OUT" && echo yes || echo no)"
 check "  before anything is uploaded" "no" "$([ -e "$STUB_DIR/put-body" ] && echo yes || echo no)"
 
 echo "== hl_pull_config_source (headless)"
@@ -244,19 +244,19 @@ menu() {
     ' _ "$work/fn.bash" "$work/menu-fn.bash" "$work/menu.bash" 2>&1)
 }
 OUT="$(menu '' yes)"
-check "with a local config, Enter adds this machine as a new host" "yes" "$(echo "$OUT" | grep -qF "Added new host 'thisbox'" && echo yes || echo no)"
-check "  offering it first, by name" "yes" "$(echo "$OUT" | grep -qF "1) Add new host 'thisbox'" && echo yes || echo no)"
+check "with a local config, Enter adds this machine as a new host" "yes" "$(grep -qF "Added new host 'thisbox'" <<<"$OUT" && echo yes || echo no)"
+check "  offering it first, by name" "yes" "$(grep -qF "1) Add new host 'thisbox'" <<<"$OUT" && echo yes || echo no)"
 check "  saving the local config as hosts/thisbox.yml" "$(base64 -w0 "$work/menu-home/localhost.yml")" "$(body_field content)"
-check "  and the second menu does not ask again" "no" "$(echo "$OUT" | grep -qF 'How would you like to configure this system?' && echo yes || echo no)"
+check "  and the second menu does not ask again" "no" "$(grep -qF 'How would you like to configure this system?' <<<"$OUT" && echo yes || echo no)"
 OUT="$(menu '2\n' yes)"
-check "choosing another machine starts from its config" "yes" "$(echo "$OUT" | grep -qF 'Using config from h' && echo yes || echo no)"
-check "  saying it copies that machine's settings" "yes" "$(echo "$OUT" | grep -qF "Start from h's saved config (copies that machine's settings here)" && echo yes || echo no)"
+check "choosing another machine starts from its config" "yes" "$(grep -qF 'Using config from h' <<<"$OUT" && echo yes || echo no)"
+check "  saying it copies that machine's settings" "yes" "$(grep -qF "Start from h's saved config (copies that machine's settings here)" <<<"$OUT" && echo yes || echo no)"
 check "  without saving anything" "no" "$([ -e "$STUB_DIR/put-body" ] && echo yes || echo no)"
-check "  and the second menu still runs" "yes" "$(echo "$OUT" | grep -qF 'How would you like to configure this system?' && echo yes || echo no)"
+check "  and the second menu still runs" "yes" "$(grep -qF 'How would you like to configure this system?' <<<"$OUT" && echo yes || echo no)"
 OUT="$(menu '' no)"
-check "with no local config, there is nothing to add" "no" "$(echo "$OUT" | grep -qF 'Add new host' && echo yes || echo no)"
-check "  the legacy file is named as such" "yes" "$(echo "$OUT" | grep -qF '3) Start from the legacy shared localhost.yml' && echo yes || echo no)"
-check "  and Enter skips (option 4)" "yes" "$(echo "$OUT" | grep -qF '4) Skip' && echo "$OUT" | grep -qF 'Skipping saved config' && echo yes || echo no)"
+check "with no local config, there is nothing to add" "no" "$(grep -qF 'Add new host' <<<"$OUT" && echo yes || echo no)"
+check "  the legacy file is named as such" "yes" "$(grep -qF '3) Start from the legacy shared localhost.yml' <<<"$OUT" && echo yes || echo no)"
+check "  and Enter skips (option 4)" "yes" "$(grep -qF '4) Skip' <<<"$OUT" && grep -qF 'Skipping saved config' <<<"$OUT" && echo yes || echo no)"
 check "  saving nothing" "no" "$([ -e "$STUB_DIR/put-body" ] && echo yes || echo no)"
 
 echo "== run.bash: the wiring"

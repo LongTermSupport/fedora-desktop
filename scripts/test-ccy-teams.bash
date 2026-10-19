@@ -191,7 +191,7 @@ check "take with a list in ccy's tmux: the label, the read-only relabelled mount
 check "take, interactive: the membership first, no --no-prompt, then the launch block for the list" \
     "$INIT ccy-proj-1 $work dev1@team-a,qa2@team-b|seat take dev1@team-a,qa2@team-b|ccy-teams describe-seats --block dev1@team-a,qa2@team-b" "$(bus_calls)"
 check "the PINGBUS_SEATS variable and the ccy-seats label are retired (H2)" "no" \
-    "$(lib_run take_and_show dev1@team-a false false yolo-1 | grep -q 'PINGBUS_SEATS\|ccy-seats' && echo yes || echo no)"
+    "$(grep -q 'PINGBUS_SEATS\|ccy-seats' <<<"$(lib_run take_and_show dev1@team-a false false yolo-1)" && echo yes || echo no)"
 check "take's CHANGED lines go to stderr, never stdout" "rc=0" "$(lib_run ccy_seats_take dev1@team-a false false yolo-1)"
 check "they are shown" "yes" "$(has "CHANGED seat dev1@team-a" "$work/lib.err")"
 check "the launch block is shown on stderr" "yes" "$(has "This session is on teams (fake block): dev1@team-a" "$work/lib.err")"
@@ -526,17 +526,17 @@ check "  the Quick Launch banner went to stderr, nothing to stdout" "yes" \
         echo no; fi)"
 save personal /keys/id_a proj_net
 check "interactive with saved choices: the prompt is still asked" "yes" \
-    "$(quick false | grep -q 'prompt=yes' && echo yes || echo no)"
+    "$(grep -q 'prompt=yes' <<<"$(quick false)" && echo yes || echo no)"
 save personal "" ""
 check "headless, saved with no key and no network: those are the choices, not a menu" \
     "token=personal keys= no_ssh=true net= no_net=true rc=0 prompt=no" "$(quick true)"
 save "" /keys/id_a ""
 check "headless, saved with no token: refused, no prompt" "yes" \
-    "$(quick true | grep -q 'rc=1 prompt=no' && echo yes || echo no)"
+    "$(grep -q 'rc=1 prompt=no' <<<"$(quick true)" && echo yes || echo no)"
 rm -f "$proj/.claude/ccy/.last-launch.conf"
 : >"$PROMPT_LOG"
 check "headless with no saved choices: refused, no prompt" "yes" \
-    "$(quick true | grep -q 'rc=1 prompt=no' && echo yes || echo no)"
+    "$(grep -q 'rc=1 prompt=no' <<<"$(quick true)" && echo yes || echo no)"
 check "  it says how to launch instead" "yes" "$(has "--token" "$work/quick.err")"
 : >"$PROMPT_LOG"
 check "headless with a launch-choice flag: the block is not entered" \
@@ -551,7 +551,7 @@ save personal /keys/id_a proj_net dev1@team-a
 check "headless, a saved team: not launched into, a restart would replay none (M2.9)" \
     "ran= end=|--orig" "$(teams_after true)"
 check "  the rest of the saved choices are still taken" "yes" \
-    "$(save personal /keys/id_a proj_net dev1@team-a; quick true | grep -q 'token=personal keys=/keys/id_a' && echo yes || echo no)"
+    "$(save personal /keys/id_a proj_net dev1@team-a; grep -q 'token=personal keys=/keys/id_a' <<<"$(quick true)" && echo yes || echo no)"
 check "  it says the saved team is not taken" "yes" "$(has "not its team" "$work/quick.err")"
 check "  and it records nothing" "none" "$(save personal /keys/id_a proj_net dev1@team-a; recorded_after true)"
 save personal /keys/id_a proj_net dev1@team-a
@@ -597,7 +597,7 @@ check "  a launch that is no session of its own (run from inside another session
     "none" "$(QUICK_SESSION="" QUICK_ANSWER=y recorded_after false)"
 save personal /keys/id_a proj_net dev1@team-a
 check "  a record that cannot be written stops the launch" "yes" \
-    "$(FAKE_RECORD_RC=1 QUICK_ANSWER=y quick false | grep -q 'rc=1 prompt=' && echo yes || echo no)"
+    "$(grep -q 'rc=1 prompt=' <<<"$(FAKE_RECORD_RC=1 QUICK_ANSWER=y quick false)" && echo yes || echo no)"
 save personal /keys/id_a proj_net dev1@team-a
 check "an explicit --teams records nothing here (the launch's arguments carry it)" "none" \
     "$(QUICK_TEAMS_GIVEN=true QUICK_TEAMS_LIST=other-team QUICK_ANSWER=y recorded_after false)"
@@ -642,7 +642,7 @@ check "  the file is kept" "kept" "$(file_left)"
 check "  no version-change discard is announced" "no" "$(has "version changed" "$work/quick.err")"
 save_as SAVED_CONFIG_VERSION=2 3.80.0 old
 check "another ccy version, same format: interactive still offers them" "yes" \
-    "$(quick false | grep -q 'prompt=yes' && echo yes || echo no)"
+    "$(grep -q 'prompt=yes' <<<"$(quick false)" && echo yes || echo no)"
 save_as SAVED_CONFIG_VERSION=2 9.9.9 other-hash
 check "same version, another hash (an unbumped change): warned, choices kept" "$kept_choices" "$(quick true)"
 check "  the warning names the developer error" "yes" "$(has "without version bump" "$work/quick.err")"
@@ -692,12 +692,12 @@ for bus_lib in agent-bus-seats agent-bus-membership; do
 done
 check "--help documents --no-bus" "1" "$(grep -c -E '^  --no-bus ' "$LAUNCHER")"
 check "the did-you-mean list knows --no-bus" "yes" \
-    "$(awk '/^            ccy_flags=\(/,/^            \)/' "$LAUNCHER" | grep -q -- '--no-bus' && echo yes || echo no)"
+    "$(grep -q -- '--no-bus' <<<"$(awk '/^            ccy_flags=\(/,/^            \)/' "$LAUNCHER")" && echo yes || echo no)"
 check "the take call passes --no-bus and the container name" "1" \
     "$(grep -c -F "\"\$NO_BUS_MODE\" \"\$CONTAINER_NAME\" || exit \$?" "$LAUNCHER")"
 check "--help documents --teams" "1" "$(grep -c -E '^  --teams ' "$LAUNCHER")"
 check "the did-you-mean list knows --teams" "yes" \
-    "$(awk '/^            ccy_flags=\(/,/^            \)/' "$LAUNCHER" | grep -q -- '--teams' && echo yes || echo no)"
+    "$(grep -q -- '--teams' <<<"$(awk '/^            ccy_flags=\(/,/^            \)/' "$LAUNCHER")" && echo yes || echo no)"
 check "the run line carries the seat arguments" "1" "$(grep -c -F "\"\${CCY_SEAT_RUN_ARGS[@]}\"" "$LAUNCHER")"
 take_call="ccy_seats_take \"\$CCY_SEATS\""
 take_line=$(grep -n -F "$take_call" "$LAUNCHER" | cut -d: -f1)
@@ -732,9 +732,8 @@ check "a team alone asks it" "yes" "$(needs_chooser 'team-a')"
 check "  and so does a team alone among seats" "yes" "$(needs_chooser '1@team-a, team-b')"
 check "a list naming every seat does not" "no" "$(needs_chooser '1@team-a,qa2@team-b')"
 check "a restore, a restart, headless and no terminal count as nobody to choose" "yes" \
-    "$(grep -A2 '^    ccy_nobody_to_ask || \[ ! -t 2 \]' "$LAUNCHER" | tr '\n' ' ' | grep -F 'ccy_nobody_to_ask' \
-        | grep -F 'CCY_SESSION_RESTORE' | grep -F 'CCY_RESTART_RELAUNCH_SESSION' \
-        | grep -qF '|| attended=true' && echo yes || echo no)"
+    "$(grep -qF '|| attended=true' <<<"$(grep -A2 '^    ccy_nobody_to_ask || \[ ! -t 2 \]' "$LAUNCHER" | tr '\n' ' ' | grep -F 'ccy_nobody_to_ask' \
+        | grep -F 'CCY_SESSION_RESTORE' | grep -F 'CCY_RESTART_RELAUNCH_SESSION')" && echo yes || echo no)"
 check "Quick Launch's summary names each seat with its role, through ccy-teams" "1" \
     "$(grep -c -F 'ccy-teams describe-seats' "$LAUNCHER")"
 check "the flag and the Quick Launch team go through the one function (definition and two calls)" "3" \

@@ -183,7 +183,7 @@ check "every launcher flag is classified" "" "$unclassified"
 stale=""
 for flag in "${CCY_REGISTRY_DROP_FLAGS[@]}" "${CCY_REGISTRY_DROP_VALUE_FLAGS[@]}" \
     "${CCY_REGISTRY_KEEP_VALUE_FLAGS[@]}" "${CCY_REGISTRY_KEEP_FLAGS[@]}"; do
-    printf '%s\n' "${parsed_flags[@]}" | grep -qxF -- "$flag" || stale+="$flag "
+    grep -qxF -- "$flag" <<<"$(printf '%s\n' "${parsed_flags[@]}")" || stale+="$flag "
 done
 check "every classified flag is one the launcher parses" "" "$stale"
 double=""
@@ -191,7 +191,7 @@ for flag in "${parsed_flags[@]}"; do
     n=0
     for group in CCY_REGISTRY_DROP_FLAGS CCY_REGISTRY_DROP_VALUE_FLAGS CCY_REGISTRY_KEEP_VALUE_FLAGS CCY_REGISTRY_KEEP_FLAGS; do
         declare -n members="$group"
-        printf '%s\n' "${members[@]}" | grep -qxF -- "$flag" && n=$((n + 1))
+        grep -qxF -- "$flag" <<<"$(printf '%s\n' "${members[@]}")" && n=$((n + 1))
         unset -n members
     done
     [ "$n" -gt 1 ] && double+="$flag "
@@ -1058,7 +1058,7 @@ for entry in "${UNREACHABLE_PROMPTS[@]}"; do
 done
 check "every unreachable-prompt entry still names a real prompt" "" "$stale_allow"
 check "the compose-stop prompt is registered" "yes" \
-    "$(ccy_known_prompts | grep -q '^compose-stop	' && echo yes || echo no)"
+    "$(grep -q '^compose-stop	' <<<"$(ccy_known_prompts)" && echo yes || echo no)"
 check "a session waiting at compose-stop is reported waiting" "WAITING-AT-PROMPT compose-stop" \
     "$(ccy_restore_verdict ccy 1 "$CCY_PROMPT_COMPOSE_STOP [Y/n]: " up)"
 

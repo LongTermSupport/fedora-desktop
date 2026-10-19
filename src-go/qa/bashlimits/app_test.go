@@ -212,8 +212,9 @@ func TestStaleEntryFails(t *testing.T) {
 
 func TestExemptedFileOnTheListIsStale(t *testing.T) {
 	root := repo(t)
-	put(t, root, allowlistRel, Allowlist{"files/bin/long": {Code: 80, Stmts: 80}, "run.bash": {Code: 500, Stmts: 500}, "scripts/test-x.bash": {Code: 500, Stmts: 500}}.Format())
-	wantFail(t, "exempt entry", run(t, root), "scripts/test-x.bash", "exempt")
+	put(t, root, "CLAUDE/Plan/001-x/a.bash", script(500))
+	put(t, root, allowlistRel, Allowlist{"files/bin/long": {Code: 80, Stmts: 80}, "run.bash": {Code: 500, Stmts: 500}, "CLAUDE/Plan/001-x/a.bash": {Code: 500, Stmts: 500}}.Format())
+	wantFail(t, "exempt entry", run(t, root), "CLAUDE/Plan/001-x/a.bash", "exempt")
 }
 
 func TestBaseRejectsAddedAndRaisedEntries(t *testing.T) {

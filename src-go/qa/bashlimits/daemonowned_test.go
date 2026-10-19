@@ -124,13 +124,14 @@ func TestUpgradeMetadataAloneDoesNotExemptARatchetedFile(t *testing.T) {
 func TestExemptRatchetedFileThatIsNotDaemonOwnedCannotLeave(t *testing.T) {
 	rec := Measurement{Code: 100}
 	scan := scanOf(map[string]Measurement{})
-	for _, p := range []string{"scripts/test-x.bash", mkplan} {
+	const planScript = "CLAUDE/Plan/001-x/a.bash"
+	for _, p := range []string{planScript, mkplan} {
 		scan.Exempt[p] = true
 		scan.Present[p] = true
 	}
 	scan.DaemonOwned = map[string]bool{mkplan: true}
-	base := fileOf(MeasurerVersion, Allowlist{"scripts/test-x.bash": rec, mkplan: rec})
-	wantKinds(t, "drop", CompareBase(base, fileOf(MeasurerVersion, Allowlist{}), scan), "scripts/test-x.bash:"+KindDropped)
+	base := fileOf(MeasurerVersion, Allowlist{planScript: rec, mkplan: rec})
+	wantKinds(t, "drop", CompareBase(base, fileOf(MeasurerVersion, Allowlist{}), scan), planScript+":"+KindDropped)
 	_, refused := Tighten(base.Records, scan)
-	wantKinds(t, "tighten", refused, "scripts/test-x.bash:"+KindOrphan)
+	wantKinds(t, "tighten", refused, planScript+":"+KindOrphan)
 }

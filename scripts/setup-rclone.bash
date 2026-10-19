@@ -430,7 +430,7 @@ while true; do
         echo ""
 
         # Give targeted advice based on the error
-        if echo "$LSD_ERR_MSG" | grep -q "SERVICE_DISABLED\|API has not been used\|accessNotConfigured"; then
+        if grep -q "SERVICE_DISABLED\|API has not been used\|accessNotConfigured" <<<"$LSD_ERR_MSG"; then
             PROJECT_ID=$(echo "$LSD_ERR_MSG" | grep -oP 'project[= ]\K[0-9]+' | head -1)
             echo -e "  ${YELLOW}▶ The Google Drive API is not enabled on your GCP project.${NC}"
             echo ""
@@ -442,14 +442,14 @@ while true; do
             fi
             echo ""
             echo -e "  Then wait ~1 minute and select this remote again to retry."
-        elif echo "$LSD_ERR_MSG" | grep -q "AuthError\|oauth\|token\|401\|invalid_grant"; then
+        elif grep -q "AuthError\|oauth\|token\|401\|invalid_grant" <<<"$LSD_ERR_MSG"; then
             echo -e "  ${YELLOW}▶ Authentication failed — the OAuth token may be missing or expired.${NC}"
             echo ""
             echo -e "  Fix: open another terminal and re-authenticate:"
             echo -e "    ${BOLD}rclone config reconnect ${SELECTED_REMOTE}:${NC}"
             echo ""
             echo -e "  Then select this remote again to retry."
-        elif echo "$LSD_ERR_MSG" | grep -q "connection refused\|no such host\|network\|dial tcp"; then
+        elif grep -q "connection refused\|no such host\|network\|dial tcp" <<<"$LSD_ERR_MSG"; then
             echo -e "  ${YELLOW}▶ Network error — could not reach the remote service.${NC}"
             echo ""
             echo -e "  Check your internet connection, then re-run this script."
