@@ -19,30 +19,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# Plan 00203 Task 3.8: installs the new pingbus kit and declare.py on the host and copies the
-# kit into every declared LXC member's running container, so an LXC agent is told a role change
-# from ccy-teams while it runs (at its next prompt at once; by its watcher once its session has
-# restarted after this run). The status line of every bus session then shows its role in each
-# team, `👥 desktop (coordinator), other (worker)`, and a role change shows at the next refresh
-# (ccy sessions get it with the image below). Applies every team as declared; no team changes
-# otherwise.
-# Plan 00203 Task 3.10: the same kit (used by cc --teams and cc --bus) takes the pingbus whose
-# SessionStart hook records each session's conversation, so a cc session can be restored and
-# restarted by its own conversation id. Before play-claude-yolo.yml.
-playbooks/imports/play-agent-bus.yml
-
-# Plan 00203 Task 3.8: every team member kind (ccy, cc, LXC, host, docker, vm) gets the same
-# role actions in ccy-teams, and no menu starts on a destructive action (Park, Remove and Take
-# down are last).
-# Plan 00203 Tasks 3.10-3.12: ccy-sessions restore resumes each session by its recorded
-# conversation id, never --continue; a session with none recorded is named and not started.
-# New `ccy-teams restart <team>` and the team menu's "Restart the team's desktop sessions":
-# running ccy sessions restart in place at their next idle moment, stopped ones start resuming
-# their conversation, running cc sessions and LXC members are left as they are and named. The
-# image switches Claude Code's agent view off (/background, --bg).
-# This installs ccy 3.99.12.16, container 2.77.12, which carries all of the above: the image is
-# rebuilt once at the next ccy launch. Running sessions are not touched.
-# Plan 00098: ~/.claude.json (account and project state) joins the owner-only repair, so it
-# and the backups Claude Code copies from it are no longer group/other readable.
-playbooks/imports/play-claude-yolo.yml
