@@ -23,4 +23,7 @@
 # session to <team>" and every running seat menu gains "Add this session to another team" (one
 # flow: pick the session, seat and role); a team not installed or with its homeserver down is
 # refused before any question. Running sessions are not touched.
+# Also CCY 3.99.12.13 (container 2.77.9, so each project's image is rebuilt at its next
+# start): a CCY_CLAUDE_WRAPPER that runs the hooks daemon's sh launcher through python3 is
+# refused at launch with the fix named, instead of a bare Python SyntaxError.
 playbooks/imports/play-claude-yolo.yml

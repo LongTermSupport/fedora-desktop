@@ -101,15 +101,11 @@ if [ -n "$GITHUB_USERNAME" ]; then
     done
 
     if [ -z "$AUTHENTICATED_USER" ]; then
-        echo "ERROR: Could not verify which account this token belongs to" >&2
-        echo "" >&2
-        echo "GitHub's API did not return a usable answer after 3 attempts." >&2
-        echo "What it said:" >&2
-        echo "  ${GH_LOOKUP_ERROR:-(no output)}" >&2
-        echo "" >&2
-        echo "This is almost always GitHub being briefly unavailable, NOT a problem" >&2
-        echo "with your token or configuration. Check https://www.githubstatus.com/" >&2
-        echo "and retry." >&2
+        printf '%s\n' "ERROR: Could not verify which account this token belongs to" "" \
+            "GitHub's API did not return a usable answer after 3 attempts." "What it said:" \
+            "  ${GH_LOOKUP_ERROR:-(no output)}" "" \
+            "This is almost always GitHub being briefly unavailable, NOT a problem" \
+            "with your token or configuration. Check https://www.githubstatus.com/" "and retry." >&2
         exit 1
     fi
 
@@ -742,6 +738,13 @@ ccy_lifecycle_extend_wrapper() {
 # Execute the command.
 if [[ -n "${CCY_CLAUDE_WRAPPER:-}" ]]; then
     read -ra _ccy_wrapper <<< "$CCY_CLAUDE_WRAPPER"
+    # Python handed a shell script dies on a SyntaxError that names no fix. The daemon's
+    # .claude/ccy/claude-supervise is a #!/bin/sh launcher beside claude-supervise.py, so a
+    # python word before a file with a .py sibling, or before a sh/bash script, is refused.
+    if [[ "${_ccy_wrapper[0]##*/}" == python* && -f "${_ccy_wrapper[1]:-}" ]] && [[ -f "${_ccy_wrapper[1]}.py" || "$(head -n1 -- "${_ccy_wrapper[1]}")" =~ ^#!.*[/\ ](ba|da)?sh( |$) ]]; then
+        printf '✗ CCY: CCY_CLAUDE_WRAPPER runs a shell script through Python: %s\n  Point CCY_CLAUDE_WRAPPER at claude-supervise (no python3) or claude-supervise.py, in .claude/ccy/ccy.env (or ccy.env.local).\n' "$CCY_CLAUDE_WRAPPER" >&2
+        exit 1
+    fi
     # A bus session also gets the plugin for its first-join relaunch (Plan 00203 H22), when
     # the supervisor takes plugins; without it the session starts, and is told why below.
     if ccy_lifecycle_wanted; then
