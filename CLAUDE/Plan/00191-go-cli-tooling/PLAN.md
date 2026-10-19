@@ -75,8 +75,8 @@ today; rewriting them is out of scope.
     files) and breaks only the build. Red/green proven with a throwaway fixture package.
     go-qa-ci has the same stage, merged to its main at `7fc4547e92f2` after a Fable review
     (no binary left behind, go.mod and go.sum never rewritten, go.work and vendor/ respected).
-  - Interim, until Task 3.3 puts go-qa-ci in its place; govulncheck comes with it, since
-    go-qa-ci already runs it.
+  - Retired by Task 3.3: `scripts/qa-go-qa.bash` (go-qa-ci) is the Go gate now, and
+    govulncheck, deadcode and the bundled analyzers came with it.
 
 ### Phase 2: ccy-teams in Go
 
@@ -110,14 +110,24 @@ today; rewriting them is out of scope.
   conformance is declared with recorded gaps, never claimed in full. The verifiers' deferred
   minor items are in `subagent-reports/261014-go-qa-ci-deferred-run*.md`, for a polish pass.
 
-- [ ] ⬜ **Task 3.3**: This repository's Go QA runs go-qa-ci, pinned. Waits on the owner
-  making go-qa-ci public (CI and the host cannot fetch a private module); until then the
-  interim `scripts/qa-go.bash` gates `src-go/`. Ready on go-qa-ci's side since M15/M16 (Plan
-  00192): it builds a project driver from a nested module (`src-go/qa`), counts disabled linters
-  as the chosen defence set rather than suppressions, and ships nine bundled analyzers. When
-  adopted, its pinned tools (ast-grep, gremlins, deadcode, govulncheck, gitleaks, actionlint)
-  are installed by go-qa itself (Task 3.7): the image and CI run one go-qa install command
-  at build time, not one task per tool.
+- [x] ✅ **Task 3.3**: This repository's Go QA runs go-qa-ci, pinned. `scripts/qa-go-qa.bash`
+  runs `go-qa run --no-fix` over both modules; go-qa is pinned at go-qa-ci `7fc4547e92f2` by the
+  `tool` directive of `src-go/qa/go.mod` (one pin for the driver import and the binary) and
+  configured by `src-go/qa/go-qa.toml`; it installs its own pinned tools (Task 3.7).
+  `scripts/qa-go.bash` is deleted. qa-all runs the gate whole, qa-changed in diff mode for a
+  `src-go/` change; the toolchain gate takes the higher go directive of the two modules and holds
+  the `.qa-versions` golangci-lint pin to go-qa-ci's `tools.lock`. The bundled analyzers'
+  findings (map order, a wall-clock test, `os.Exit` outside `main`) are fixed with no
+  suppression; the `TestMain` re-exec is `qa/internal/cmdmaintest`. semgrep timed out clean
+  files on a loaded host (its 5 s default per rule per file is wall time): every semgrep scan now
+  passes `--timeout=120` (`semgrepreport.TimeoutFlag`), and the large-script test pads with
+  comments. Full gate green, coverage
+  included. Report: `subagent-reports/261019-go-qa-ci-pin-opus.md`.
+
+- [ ] ⬜ **Task 3.8**: The owner signs a go-qa project record for this repository (go-qa-ci adopt
+  step B2), then `[tools] record` and `suppression` are switched on in `src-go/qa/go-qa.toml`.
+  Both are off until then: without a record every `.golangci.yml` exclusion would fail the
+  suppression detector. `qa-go.bash` had neither check, so nothing was lost by Task 3.3.
 
 - [x] ✅ **Task 3.4**: go-qa-ci diff mode, `go-qa run --changed [--base <ref>]` (M13):
   per-package engines on the affected packages and their importers, repo-wide defences always,
@@ -167,7 +177,8 @@ today; rewriting them is out of scope.
   works as before or better (owner's host test after meta-deploy: "seems good").
 - [ ] The parity suite and the Go unit tests pass in `qa-all.bash`, with golangci-lint strict
   and race-detector tests.
-- [ ] `go-qa-ci` exists, tests itself, and this repository's Go QA runs it.
+- [x] `go-qa-ci` exists, tests itself, and this repository's Go QA runs it (Task 3.3; its
+  record and suppression checks follow the owner's record, Task 3.8).
 
 ## Delivery & Milestones
 

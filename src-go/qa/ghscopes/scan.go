@@ -103,7 +103,7 @@ type semgrepReport struct {
 // scan hands the files to semgrep by name, never as a directory: a directory scan applies
 // semgrep's default ignore list, which skips tests/ and would hide a copy there.
 func (g *gate) scan(ctx context.Context, files []string) (semgrepReport, error) {
-	argv := append([]string{"semgrep", "--config", g.path(ruleFile), "--json", "--quiet", "--metrics=off", "--max-target-bytes=0"}, files...)
+	argv := append([]string{"semgrep", "--config", g.path(ruleFile), "--json", "--quiet", "--metrics=off", semgrepreport.TimeoutFlag, "--max-target-bytes=0"}, files...)
 	res, err := g.runTool(ctx, semgrepTimeout, argv...)
 	if err != nil {
 		return semgrepReport{}, err

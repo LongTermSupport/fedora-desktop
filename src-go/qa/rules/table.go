@@ -1,6 +1,6 @@
 // Package rules holds this module's project rules (Defence Before Fix): go/analysis analyzers
 // for the defect classes the ccy-teams and ccy-sessions ports actually hit. Each is proven on
-// a fixture reproducing the defect (testdata) and run over src-go by scripts/qa-go.bash.
+// a fixture reproducing the defect (testdata) and run over src-go by go-qa (scripts/qa-go-qa.bash).
 // CLAUDE/GoProjectRules.md is the catalogue.
 //
 // The tables below are the rules' data: which package owns which seam, and the narrow,

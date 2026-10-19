@@ -198,7 +198,7 @@ func (g *gate) scan(ctx context.Context, sets fileSets) ([]finding, error) {
 func (g *gate) scanPython(ctx context.Context, py []string) ([]finding, error) {
 	argv := slices.Concat([]string{
 		"semgrep", "--metrics=off", "--disable-version-check", "--config", g.path(rulesPath),
-		"--no-rewrite-rule-ids", "--scan-unknown-extensions", "--json", "--quiet",
+		"--no-rewrite-rule-ids", "--scan-unknown-extensions", "--json", semgrepreport.TimeoutFlag, "--quiet",
 	}, py)
 	res, err := g.runTool(ctx, semgrepTimeout, argv...)
 	if err != nil {

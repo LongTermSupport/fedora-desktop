@@ -398,7 +398,7 @@ func runSemgrep(ctx context.Context, s *session, cp *checkPlan) (checkResult, er
 	res, err := s.runCmd(ctx, proc.Cmd{
 		Argv: []string{
 			"semgrep", configFlag, filepath.Join(s.root, ".semgrep", "bash-conventions.yml"),
-			"--json-output", report, "--metrics=off", "--quiet", ".",
+			"--json-output", report, "--metrics=off", "--quiet", semgrepreport.TimeoutFlag, ".",
 		},
 		Dir:   mirror,
 		Merge: true,

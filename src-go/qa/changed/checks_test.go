@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
 )
 
 // scriptedRunner is a proc.Runner that answers by the joined argv and records every call.
@@ -429,6 +430,9 @@ func TestSemgrepMirrorsFilesWithABashExtensionAndReadsItsJSON(t *testing.T) {
 	argv := runner.calls[0].Argv
 	if argv[0] != "semgrep" || argv[2] != filepath.Join(s.root, ".semgrep", "bash-conventions.yml") || argv[len(argv)-1] != "." {
 		t.Fatalf("argv: %v", argv)
+	}
+	if !slices.Contains(argv, semgrepreport.TimeoutFlag) {
+		t.Fatalf("argv lacks %s, so a loaded host turns a clean file into a timeout: %v", semgrepreport.TimeoutFlag, argv)
 	}
 	s.cleanup()
 	if _, err := os.Stat(mirror); !os.IsNotExist(err) {

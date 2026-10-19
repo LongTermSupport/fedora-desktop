@@ -1,6 +1,6 @@
 # Plan 00192: Line in the sand: tooling is Go, bash only for small helpers
 
-**Status**: In Progress (every QA script but `qa-go.bash` ported; that one waits on the owner making go-qa-ci public, Plan 00191 Task 3.3)
+**Status**: In Progress (every QA script ported or retired; `qa-go.bash` retired by Plan 00191 Task 3.3, the Go gate is go-qa-ci through `scripts/qa-go-qa.bash`)
 **Created**: 2026-10-14
 **Owner**: joseph
 **Priority**: High
@@ -62,7 +62,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
 - [x] ✅ **Task 2.1**: go-qa-ci audited: [AUDIT-go-qa-ci.md](AUDIT-go-qa-ci.md). Complete with
   recorded gaps; its bundled rule set is one analyzer; this repo had no project rules.
 - [x] ✅ **Task 2.2**: Project DBF rules as `go/analysis` analyzers in the nested module
-  `src-go/qa` (so the shipped binaries stay dependency-free), run by `qa-go.bash`: one process
+  `src-go/qa` (so the shipped binaries stay dependency-free), run by the Go gate (now `qa-go-qa.bash`): one process
   seam, owned programs (sudo, tmux, gum, fzf, systemctl, git), tmux target forms, no wall clock in
   tests, one home abbreviation, a `WaitDelay` that names its error (six rules); catalogue [GoProjectRules.md](../../GoProjectRules.md). Each red on a fixture of
   the historical defect, green on the tree after fixing the real instances; on landing they
@@ -351,10 +351,10 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   `qa/cmd` mains call `cmdmain.RefuseClosedStdout`; the departure rows for the Strict move exist
   (SPEC-qa-docs B16, qa-js B12, qa-python B18, qa-patterns B15, qa-gh-scopes B9, qa-ansible-syntax
   D11).
-  Still on `scripts/bash-limits.allowlist`: `qa-go.bash`, the interim Go gate that Plan 00191's
-  go-qa-ci toolchain is to replace. Owner's decision (2026-10-15): not ported; the owner makes
-  `go-qa-ci` public, then Plan 00191 Task 3.3 pins it and retires `scripts/qa-go.bash`, which
-  closes this task. Blocked on that owner action.
+  `qa-go.bash`, the interim Go gate, was not ported (owner's decision, 2026-10-15): Plan 00191
+  Task 3.3 pinned go-qa-ci and retired it, and its row is off `scripts/bash-limits.allowlist`.
+  The project rules now run inside go-qa (`scripts/qa-go-qa.bash`), with go-qa-ci's nine
+  bundled analyzers beside them.
   `vmtest` (P5) on `go-port/vmtest`: ported and cut over, not merged; spec
   [SPEC-vmtest.md](SPEC-vmtest.md) (E1-E60, B1-B17), `src-go/cmd/vmtest` and
   `src-go/internal/vmtest`, the Python helpers kept behind one seam; the lab play builds the

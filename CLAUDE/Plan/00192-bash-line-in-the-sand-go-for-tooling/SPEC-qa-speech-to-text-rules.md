@@ -94,7 +94,7 @@ and `semgrep`, both through `qa/internal/proc`.
   scanned.
 - S12. A scan hands the files to semgrep **by name**, never as a directory (a directory scan applies
   semgrep's default ignore list, which skips `tests/`), from the root:
-  `semgrep --metrics=off --disable-version-check --config <rules> --no-rewrite-rule-ids --scan-unknown-extensions --json --quiet --max-target-bytes=0 <files...>`.
+  `semgrep --metrics=off --disable-version-check --config <rules> --no-rewrite-rule-ids --scan-unknown-extensions --json --quiet --timeout=120 --max-target-bytes=0 <files...>` (`--timeout=120` is `semgrepreport.TimeoutFlag`: semgrep's 5 s default is wall time, and a loaded host turns a clean file into a Timeout error).
 
 ### Judging semgrep's answer (nothing unread is a pass)
 

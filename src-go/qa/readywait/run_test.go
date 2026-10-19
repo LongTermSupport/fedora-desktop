@@ -428,7 +428,7 @@ func TestTheScanIsRunInTheRootWithTheDocumentedArguments(t *testing.T) {
 	if argv[0] != w.root {
 		t.Fatalf("ran in %q", argv[0])
 	}
-	want := []string{"semgrep", "--metrics=off", "--disable-version-check", "--config", filepath.Join(w.root, ".semgrep/ready-wait.yml"), "--no-rewrite-rule-ids", "--scan-unknown-extensions", "--json", "--quiet", "helpers/mod.py"}
+	want := []string{"semgrep", "--metrics=off", "--disable-version-check", "--config", filepath.Join(w.root, ".semgrep/ready-wait.yml"), "--no-rewrite-rule-ids", "--scan-unknown-extensions", "--json", semgrepreport.TimeoutFlag, "--quiet", "helpers/mod.py"}
 	if !slices.Equal(argv[1:], want) {
 		t.Fatalf("argv %v\nwant %v", argv[1:], want)
 	}

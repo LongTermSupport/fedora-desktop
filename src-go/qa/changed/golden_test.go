@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
 )
 
 // The golden replay: scenarios.json is a corpus of command lines over a small world
@@ -283,6 +284,15 @@ func TestTheGoGateMappedBackToTheRecordingStillDiffersFromIt(t *testing.T) {
 	}
 }
 
+// semgrepArgvAsRecorded is semgrep's argv as the bash ran it. semgrepreport.TimeoutFlag was added
+// after the recording (Plan 00191 Task 3.3: semgrep's 5 s default timed out clean files on a loaded
+// host), so the replay drops it. This is not a deviation: the bash had no timeout bug of its own
+// that the recording shows, only an argument it did not pass. The mapping is rot once the check
+// stops passing the flag, which TestSemgrepMirrorsFilesWithABashExtensionAndReadsItsJSON refuses.
+func semgrepArgvAsRecorded(argv []string) []string {
+	return slices.DeleteFunc(slices.Clone(argv), func(a string) bool { return a == semgrepreport.TimeoutFlag })
+}
+
 // goldenRunner stands in for the stub tools of the capture: version control, the go tool and
 // bash -n run for real; the other tools and the gate and suite scripts log their argv and exit
 // as the scenario says.
@@ -397,7 +407,7 @@ func (r *goldenRunner) semgrep(c proc.Cmd) proc.Result {
 		r.t.Fatal(err)
 	}
 	slices.Sort(mirror)
-	r.log = append(r.log, "semgrep "+strings.Join(c.Argv[1:], " ")+" | mirror: "+strings.Join(mirror, " ")+" ")
+	r.log = append(r.log, "semgrep "+strings.Join(semgrepArgvAsRecorded(c.Argv[1:]), " ")+" | mirror: "+strings.Join(mirror, " ")+" ")
 	report := `{"results":[]}`
 	if len(r.findings) > 0 {
 		body, marshalErr := json.Marshal(map[string]any{"results": r.findings})

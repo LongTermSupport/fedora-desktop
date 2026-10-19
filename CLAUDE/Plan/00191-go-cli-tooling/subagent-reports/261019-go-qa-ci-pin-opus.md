@@ -1,8 +1,7 @@
-# Plan 00191 Task 3.3: go-qa-ci pinned, qa-go.bash retired (interim report)
+# Plan 00191 Task 3.3: go-qa-ci pinned, qa-go.bash retired
 
-Branch `feat/pin-go-qa-ci-2` (continues `feat/pin-go-qa-ci`), not pushed, not merged. This report
-is interim: the work stopped at the agent's context budget, and the handoff for the next agent is
-`untracked/scratch/261019-a5492c2c369494521-handoff.md` in the worktree.
+Branch `feat/pin-go-qa-ci-3` (continues `feat/pin-go-qa-ci-2` and `feat/pin-go-qa-ci`), not pushed,
+not merged. Task 3.3 is done. The full go-qa gate is green, coverage included.
 
 ## What the Go gate is now
 
@@ -22,7 +21,13 @@ the bash-limits allowlist.
 | lint                               | golangci-lint, both modules  | golangci, both modules                               |
 | project rules                      | the driver over both modules | the driver plus 9 bundled analyzers, both modules    |
 | dead code, vulnerabilities, go.mod | none                         | `deadcode`, `vuln`, `mod`                            |
-| record, suppression                | none                         | off until the owner signs a record (new Task 3.8)    |
+| record, suppression                | none                         | off until the owner signs a record (Task 3.8)        |
+
+The last full run (`scripts/qa-go-qa.bash`) passed fmt, summary, docs, golangci, analyzers,
+deadcode, vuln, mod, build, test and coverage. ast-grep and mutants are skipped by configuration.
+`src-go/qa/all/testdata/wording/go.txt` is now the real output, captured with
+`go test ./all -run 'TestCaptureTheRealWordingOfTheDetailGates/^go$' -capture-wording`. It
+replaces the hand-written placeholder, and adds the `summary:` note line and the `mutants` row.
 
 ## The bundled analyzers' findings, all fixed with no suppression
 
@@ -37,6 +42,51 @@ the bash-limits allowlist.
     silently passed: this was shown red before the `TestMain`s were added.
   - The five hand-rolled tests and `cmdmain`'s own two tests now use it. Each test keeps what it
     checks.
+
+## The semgrep timeout (the last red step), fixed at the cause
+
+**The finding.** `cmd/qa-patterns TestRealSemgrepScansTestsDirectoriesAndLargeScripts` failed
+under host load in three agents' runs. A qa-all on F44 then aborted in the patterns gate itself
+with the same error: a Timeout on `files/var/local/claude-yolo/claude-yolo` (twice) and on
+`scripts/test-ccy-sessions-reboot.bash`, at load 28-32 on 22 cores.
+
+**The cause.** semgrep limits one rule on one file to 5 s by default, parse included, and it
+measures wall time. A scan starved of CPU therefore reports a clean file as a Timeout, and the
+gate is right to answer that with exit 2 (SPEC-qa-patterns P14: the file was not analysed). The
+gate's own 15-minute context was never involved.
+
+**The test fixture.**
+
+- Measured with `semgrep --time`: the test's 1.1 MB of `echo` lines took 2 to 4.5 s to parse at
+  load ~28, just under the limit. The same size of comment lines took under 0.5 s.
+- The fixture is now comment lines, just over semgrep's default 1,000,000-byte size limit. Size
+  is the only thing that limit looks at.
+- A guard fails the test if the fixture is ever not over the limit. It was red at 994,028 bytes.
+- The test still proves what it was written for: with `--max-target-bytes=0` removed it fails
+  ("semgrep did not scan 1 discovered shell script(s): scripts/big.bash").
+
+**The gates.**
+
+- Every semgrep scan now passes `semgrepreport.TimeoutFlag` (`--timeout=120`), defined once in
+  `src-go/qa/internal/semgrepreport`. The gates that pass it: patterns, gh-scopes,
+  ready-wait-rules, speech-to-text-rules, and qa-changed's `semgrep` check.
+- Why 120 s: the largest tracked scripts take well under a second, so 120 s is far beyond any
+  honest file. A runaway rule still fails on the file it stalls on, inside the whole-run
+  deadline.
+- Each gate's argv test requires the flag. All five were red before the code changed.
+- qa-changed's golden replay drops the flag from the logged argv (`semgrepArgvAsRecorded`), so
+  there is no deviation.
+- The four gates pass over the real tree, and their real-semgrep command tests pass.
+- The SPEC argv lines are updated: patterns P11, gh-scopes, ready-wait R10, speech-to-text and
+  qa-changed 12.1.
+- `--timeout-threshold` is left at its default. Any Timeout already fails the gate, so how many
+  rules may time out before a file is skipped changes nothing.
+
+**Evidence.**
+
+- The patterns test passed `-count=5` on its own.
+- It passed `-count=5` again at load 67, while `go test ./... -p 22` ran in both modules at the
+  same time. Both modules' suites also passed in that run.
 
 ## Gate wiring
 
@@ -59,18 +109,24 @@ the bash-limits allowlist.
   - A new test requires the golangci-lint pin in `.qa-versions` to equal the one in go-qa-ci's
     `tools.lock`.
 
-## State at the stop
+## Plans
 
-- **Not yet seen green.** The full go-qa run passed every detector, plus vuln, mod and build.
-- **One test failure.** `go test` failed one test:
-  `cmd/qa-patterns TestRealSemgrepScansTestsDirectoriesAndLargeScripts`.
-  - semgrep's per-file timeout fires on its 1 MB fixture under host load (load average about 37
-    on 22 cores).
-  - It passes when run alone, but it failed the same way on a second full go-qa run. It is
-    therefore a finding to triage, not a flake to rerun: go-qa may run more test binaries at
-    once than `qa-go.bash` did, or the patterns gate may need a semgrep `--timeout` of its own.
-- **Coverage did not run**, because a test failed.
-- **Unfinished:**
-  - the real `go` wording capture;
-  - the plan and journal updates;
-  - the targeted QA run listed in the handoff.
+- Plan 00191: Task 3.3 is done, and its Phase 1 note now says `qa-go.bash` is retired.
+- Plan 00191: a new **Task 3.8**. The owner signs a go-qa project record; then `[tools] record`
+  and `suppression` are switched on in `src-go/qa/go-qa.toml`.
+- Plan 00191: success criterion 3 is met.
+- Plan 00192: the status line and Task 2.2 are updated.
+- SPEC-qa-all and SPEC-qa-changed 12.1: one paragraph each on the replaced row.
+- Both plans have a journal entry.
+
+## Targeted QA
+
+All green:
+
+- `scripts/test-qa-changed.bash`: 127 passed, 0 failed.
+- `scripts/qa-bash-limits.bash`.
+- `scripts/qa-docs.bash`.
+- `scripts/qa-changed.bash`.
+- `go test` of the touched packages.
+
+qa-all was not run; that is the coordinator's.

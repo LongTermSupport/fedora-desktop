@@ -1,3 +1,4 @@
+summary: no [summary] file is configured (summary.file); the summary check is off
 
 go-qa summary:
   format     fmt          passed
@@ -12,3 +13,4 @@ go-qa summary:
   runners    build        passed
   runners    test         passed
   runners    coverage     passed
+  runners    mutants      skipped (mutants.mode is off)

@@ -111,7 +111,7 @@ func (g *gate) scanIn(ctx context.Context, work string, scripts []script) (scanR
 	}
 	// The rules sit beside the mirror and are named relative to it: a config file outside the
 	// scan root makes semgrep prefix every rule id with that file's dotted absolute path.
-	run, err := g.runTool(ctx, semgrepTimeout, mirror, "semgrep", "--config", "../rules.yml", "--json-output", out, "--metrics=off", "--quiet", "--max-target-bytes=0", ".")
+	run, err := g.runTool(ctx, semgrepTimeout, mirror, "semgrep", "--config", "../rules.yml", "--json-output", out, "--metrics=off", "--quiet", semgrepreport.TimeoutFlag, "--max-target-bytes=0", ".")
 	if err != nil {
 		return scanResult{}, err
 	}
