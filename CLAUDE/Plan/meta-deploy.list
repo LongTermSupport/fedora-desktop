@@ -23,6 +23,10 @@
 # team menu's Wind down the team's sessions (/goal clear, then the wind-down instruction, typed
 # into each running session of the team, desktop and LXC). Nothing is wound down by the run.
 # ccy itself stays at 3.99.12.17, already installed. Before the 00194 acceptance.
+# The same run also deploys Plan 00167: it builds cc-project-dir beside cc and installs the
+# new cc, which starts at the top of a git repository and, typed outside one, offers this
+# checkout [Y/n] (refusing on no, or with no terminal). Afterwards type cc in ~ twice (accept
+# once, decline once) and once in a project.
 playbooks/imports/play-claude-yolo.yml
 # Plan 00194 Task 2.0b: the goodbye host checks, automated (acceptance.bash; the plan has no
 # triage.bash or deploy.bash), run again for G3 (window closed). The last run passed G1 (Ctrl-C)

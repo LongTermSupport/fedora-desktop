@@ -51,7 +51,7 @@ files/usr/local/bin/shutdown-with-update	290	10	298	-
 files/usr/local/bin/uncompress	106	2	80	-
 files/usr/local/sbin/agent-bus-install	988	62	1156	assoc,data
 files/usr/local/sbin/fedora-desktop-self-update	94	2	99	-
-files/var/local/claude-code/cc	183	2	196	-
+files/var/local/claude-code/cc	182	2	196	-
 files/var/local/claude-code/cc-teams.bash	87	7	159	-
 files/var/local/claude-yolo/agent-browser-session-guard	123	2	113	data
 files/var/local/claude-yolo/claude-yolo	2813	12	2741	-
