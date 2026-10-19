@@ -1,6 +1,7 @@
 # SPEC: adding a running session from the teams list, and restarting a team
 
-Plan 00203, Tasks 3.8 to 3.11. The owner's two requests, condensed:
+Plan 00203, Tasks 3.9 to 3.12 (A: 3.9; C1-C4: 3.10; C5, C6 and B: 3.11; C7: 3.12). They were
+numbered 3.8 to 3.11 until F44's lxc-checkout task took 3.8. The owner's two requests, condensed:
 
 - "We support adding an LXC session to a team, but we don't seem to support adding an
   already-running ccy session to a team." The add existed (`ccy-teams session add`, and Add to

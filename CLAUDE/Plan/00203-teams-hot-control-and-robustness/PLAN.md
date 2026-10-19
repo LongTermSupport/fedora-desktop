@@ -185,21 +185,25 @@ Built on `fix/teams-server-robustness`; design and evidence in
   over F44's 3.99.12.11). Host acceptance: `ccy-teams lxc-add <team>`, a path pasted into the
   Checkout line, after meta-deploy.
 
-- [ ] 🔄 **Task 3.8** (owner feedback): a running session added from the teams list, on
-  `feat/teams-add-session-and-restart`. A team's menu has Add a running session to `<team>`,
-  and a running seat's menu Add this session to another team, both through the Running
-  sessions view's seat and role questions ([SPEC-team-add-and-restart.md](SPEC-team-add-and-restart.md)
-  A1-A10). Picker only. Built and tested; review and host acceptance to come.
+- [ ] 🔄 **Task 3.9** (owner feedback; its first commits and journal entries call it Task
+  3.8, renumbered because F44's lxc-checkout task holds 3.8): a running session added from
+  the teams list, on `feat/teams-add-session-and-restart`. A team's menu has Add a running
+  session to `<team>`, and a running seat's menu Add this session to another team, both
+  through the Running sessions view's seat and role questions
+  ([SPEC-team-add-and-restart.md](SPEC-team-add-and-restart.md) A1-A10). Picker only. Built
+  and tested; Fable's FIX-FIRST fixed; host acceptance to come.
 
-- [ ] ⬜ **Task 3.9**: each session's conversation recorded by the pingbus SessionStart hook
-  beside its report, and restore after a reboot resuming it by id, never `--continue`
-  (SPEC C1-C6, Decision 10).
+- [ ] ⬜ **Task 3.10** (was 3.9): each session's conversation recorded by the pingbus
+  SessionStart hook beside its report, read on the host only for a record whose launch
+  carried the bus (SPEC C1-C4).
 
-- [ ] ⬜ **Task 3.10**: Claude Code's agent view off in the ccy image (SPEC C7, Decision 11).
-  CCY 3.99.12.14, container 2.77.10 (placeholders).
+- [ ] ⬜ **Task 3.11** (was 3.9's restore and 3.11): restore after a reboot and the new
+  `ccy-teams restart <team>` (with the team menu's Restart the team's desktop sessions)
+  resume each session by its recorded id, never `--continue` (SPEC C5, C6, B1-B11,
+  Decisions 8, 9 and 10).
 
-- [ ] ⬜ **Task 3.11**: `ccy-teams restart <team>` and the team menu's Restart the team's
-  desktop sessions (SPEC B1-B11, Decisions 8 and 9).
+- [ ] ⬜ **Task 3.12** (was 3.10): Claude Code's agent view off in the ccy image (SPEC C7,
+  Decision 11). CCY 3.99.12.13, container 2.77.9 (placeholders).
 
 ## Decisions
 
