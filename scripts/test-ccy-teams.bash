@@ -297,7 +297,7 @@ since_ms=$(grep -E "$disconnect_re" "$FAKE_BUS_LOG" | grep -oE '[0-9]{13}$')
 check "  with the seats, the session and the launch's start" "yes" \
     "$([ -n "$since_ms" ] && [ "$since_ms" -ge "$before_ms" ] && [ "$since_ms" -le "$(date +%s%3N)" ] && echo yes || echo no)"
 check "  after the seats were taken" "yes" \
-    "$(tail -n 1 "$FAKE_BUS_LOG" | grep -qE "$disconnect_re" && echo yes || echo no)"
+    "$(grep -qE -- "$disconnect_re" <<<"$(tail -n 1 "$FAKE_BUS_LOG")" && echo yes || echo no)"
 lib_run take_then_disconnect "" false false yolo-1 >/dev/null
 check "a plain session in ccy's tmux (a seat can be added later): asked too" "1" \
     "$(grep -cE "$disconnect_re" "$FAKE_BUS_LOG")"
