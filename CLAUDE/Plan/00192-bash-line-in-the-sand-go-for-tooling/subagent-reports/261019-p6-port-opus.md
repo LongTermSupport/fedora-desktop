@@ -112,3 +112,27 @@ QA, all passing: `go test -race` over `internal/open`, `cmd/open` and `internal/
 project rules driver (`go vet -vettool`) was clean, and so were `qa-bash-limits.bash`,
 `ansible-playbook --syntax-check` on `play-cli-tools.yml` and `qa-changed.bash`. qa-all was not
 run.
+
+## Flaky pager test (branch `fix/open-pager-test-race`, from `50782762`)
+
+qa-all on F44 failed once in `TestQuittingThePagerEarlyIsNotAFailure` ("the write after the
+pager ended should break"). The fault was in the test; the production code was right.
+
+- **Cause.** The fake pager closes `pagerGone` as its run returns, but `runHandler` closes its
+  read end (`pr.Close()`) only after that. The fake producer made one write and required it to
+  break. If that write landed in the gap, it went into the pipe buffer and succeeded.
+- **Why production is sound.** `open` holds the read end until the pager's run has returned,
+  so no real producer can get EPIPE or SIGPIPE before then. Once the pager ends,
+  `producerFirst` is false, so a producer that dies on the broken pipe is never reported.
+  Quitting `less` early on a big PDF prints nothing.
+- **Fix.** Only the test changed. Like a real producer, the fake now keeps writing until the
+  write breaks, and requires the error to be `EPIPE`. If the read end were never closed, the
+  buffer would fill and the test would hang until it timed out.
+- **Proof.**
+  - Red: 26 of 500 runs failed under a parallel `go test -race -p 16 ./...` before the fix.
+  - Green: 500/500, 200/200 and 2000/2000 passed under the same load (load average 21-24).
+    The parallel full-suite run also passed.
+  - Mutation: with the `producerFirst` guard removed, the test failed 20 of 20 runs
+    (`pdftotext (text) exited 141`).
+  - golangci-lint (fmt and run) reported 0 issues, and the project rules driver was clean.
+    qa-all was not run.
