@@ -154,14 +154,21 @@ today; rewriting them is out of scope.
     (reverted), the narrowed go-qa run scoped `./internal/freeze/golden` and its `build` and
     `test` steps passed. The same run failed `coverage`, a separate defect: Task 3.11.
 
-- [ ] ⬜ **Task 3.11**: A narrowed go-qa run fails the coverage floor that the full run meets.
+- [ ] 🔄 **Task 3.11**: A narrowed go-qa run fails the coverage floor that the full run meets.
   With only an lxcfreeze file changed, the diff-mode coverage step measured the 11 affected
   packages at 88.8% statements, which is under the module floor of 90 (`src-go/qa/go-qa.toml`).
   The uncovered functions are in packages the change did not touch (the two `main`s,
   `teams/hot`, `teams/lxcadd`). So until this is fixed, `qa-changed.bash` still fails the go
-  stage for a change to lxcfreeze. Decide where the fix belongs: go-qa-ci (in diff mode, judge
-  only the changed packages against the floor, or report coverage without enforcing it), or
-  this repository's floor (Task 3.9).
+  stage for a change to lxcfreeze. The fix belongs in go-qa-ci.
+
+  - Fix ready for review: go-qa-ci commit `6a352d6` on branch `coverage-diff-changed-only`
+    (on `8e17b43`, not pushed). In diff mode `-coverpkg` names only the changed packages (less
+    test-only ones); the importers are still tested, since their tests may reach the changed
+    code. Full mode is unchanged. Test first; the clone's tests, golangci-lint and
+    `go-qa run --ci` pass. Detail in the journal.
+  - Next: review, push and merge in go-qa-ci, then bump the pin in `src-go/qa/go.mod`
+    (`go mod tidy`) and repeat the throwaway lxcfreeze edit to show `coverage` passes.
+  - Possible follow-up, not this task: judge each changed package against the floor on its own.
 
 - [x] ✅ **Task 3.4**: go-qa-ci diff mode, `go-qa run --changed [--base <ref>]` (M13):
   per-package engines on the affected packages and their importers, repo-wide defences always,
