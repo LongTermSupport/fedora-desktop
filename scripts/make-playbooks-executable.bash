@@ -41,7 +41,7 @@ while IFS= read -r -d '' playbook; do
         tail -n +2 "$playbook" >> "$temp_file"
         mv "$temp_file" "$playbook"
         COUNT_UPDATED=$((COUNT_UPDATED + 1))
-    elif head -n 3 "$playbook" | grep -qxF "$SHEBANG"; then
+    elif grep -qxF "$SHEBANG" <<<"$(head -n 3 "$playbook")"; then
         if [[ "$first_line" == "$SHEBANG" ]]; then
             echo "  ✓ Already has shebang: $playbook"
         else

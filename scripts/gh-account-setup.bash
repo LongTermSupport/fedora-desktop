@@ -130,10 +130,10 @@ is_gh_authed() {
   local username="$1"
   local status_output
   if status_output=$(gh auth status --hostname github.com 2>&1); then
-    echo "$status_output" | grep -qF "account ${username}"
+    grep -qF "account ${username}" <<<"$status_output"
   else
     # gh returns non-zero when not authenticated — check output anyway
-    echo "$status_output" | grep -qF "account ${username}"
+    grep -qF "account ${username}" <<<"$status_output"
   fi
 }
 
@@ -143,7 +143,7 @@ switch_to_account() {
   local switch_output
   if ! switch_output=$(gh auth switch --user "$username" 2>&1); then
     # "already active" is not an error — only warn on real failures
-    if echo "$switch_output" | grep -qi "already active"; then
+    if grep -qi "already active" <<<"$switch_output"; then
       : # already on the right account, nothing to do
     else
       warning "Could not switch to ${username}: ${switch_output}"
@@ -394,7 +394,7 @@ setup_account() {
   switch_to_account "$username"
   local pub_key_data keys_output
   pub_key_data=$(awk '{print $2}' "$key_public")
-  if keys_output=$(gh api user/keys --paginate 2>&1) && echo "$keys_output" | grep -q "$pub_key_data"; then
+  if keys_output=$(gh api user/keys --paginate 2>&1) && grep -q "$pub_key_data" <<<"$keys_output"; then
     success "Key registered on GitHub: ${username}"
   else
     info "Uploading key to GitHub: ${username}"
@@ -467,7 +467,7 @@ check_account() {
     switch_to_account "$username"
     local pub_key_data keys_output
     pub_key_data=$(awk '{print $2}' "$key_public")
-    if keys_output=$(gh api user/keys --paginate 2>&1) && echo "$keys_output" | grep -q "$pub_key_data"; then
+    if keys_output=$(gh api user/keys --paginate 2>&1) && grep -q "$pub_key_data" <<<"$keys_output"; then
       success "GitHub key: registered"
     else
       error "GitHub key: not registered"

@@ -243,3 +243,36 @@ rules:
     metadata:
       category: correctness
       confidence: HIGH
+
+  # Rule: ban piping into `grep -q`
+  #
+  # WRONG: printf '%s\n' "${arr[@]}" | grep -qxF -- "$x"
+  # WRONG: cmd | grep -q pattern                       (under `set -o pipefail`)
+  # RIGHT: grep -qxF -- "$x" <<<"$(printf '%s\n' "${arr[@]}")"
+  # RIGHT: [[ $text == *"$x"* ]]
+  #
+  # `grep -q` exits at its FIRST match. The producer on the left is then still
+  # writing, dies of SIGPIPE, and pipefail reports the pipeline as failed: a
+  # successful match reads as "not found", at random, more often under load.
+  # It made a registry test suite fail on roughly 1 run in 1500.
+  # A here-string hands grep a finished string, so there is no writer to kill.
+  - id: pipe-into-grep-q-under-pipefail
+    patterns:
+      # A single `|` (not `||`) before `grep` with a -q flag in its option
+      # cluster, on a line with no earlier `#` (a comment is not code).
+      - pattern-regex: '(?m)^[^\n#]*(?<!\|)\|[ \t]*grep[ \t]+-[A-Za-z]*q'
+      - pattern-not-regex: '(?m)^[^\n]*#[ \t]*FAIL-FAST-OK:[^\n]*$'
+    message: >
+      'cmd | grep -q' fails at random: grep exits at its first match, the
+      producer dies of SIGPIPE, and under 'set -o pipefail' the pipeline fails
+      although the pattern matched. Use a here-string
+      ('grep -q -- "$pat" <<<"$(cmd)"') or a bash pattern match
+      ('[[ $text == *"$x"* ]]').
+    paths:
+      include:
+        - 'scripts/**'
+    languages: [bash]
+    severity: ERROR
+    metadata:
+      category: correctness
+      confidence: HIGH

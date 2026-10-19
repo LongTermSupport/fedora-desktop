@@ -203,3 +203,24 @@ if ! value=$(sysctl -n net.ipv4.ip_forward 2>&1); then
 elif [ "$value" != "1" ]; then
     echo "it is $value, expected 1"
 fi
+
+# --- pipe-into-grep-q-under-pipefail ---
+
+# ruleid: pipe-into-grep-q-under-pipefail
+printf '%s\n' "${items[@]}" | grep -qxF -- "$item"
+
+# ruleid: pipe-into-grep-q-under-pipefail
+if some_cmd | grep -q 'needle'; then :; fi
+
+# ok: pipe-into-grep-q-under-pipefail
+grep -qxF -- "$item" <<<"$(printf '%s\n' "${items[@]}")"
+
+# ok: pipe-into-grep-q-under-pipefail
+some_cmd | grep 'needle'
+
+# ok: pipe-into-grep-q-under-pipefail
+some_cmd || grep -q 'needle' file
+
+# ok: pipe-into-grep-q-under-pipefail
+# a comment may say some_cmd | grep -q needle
+true

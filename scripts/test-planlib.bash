@@ -710,7 +710,7 @@ assert_not_contains "the library never disables errexit" "${NEEDLE_SET_PLUS_E}" 
 assert_not_contains "the library carries no linter suppression" "shellcheck dis""able" "${LIB_CODE}"
 
 # A library never sets shell options — the caller owns the shell.
-if printf '%s\n' "${LIB_CODE}" | grep -Eq '^[[:space:]]*set -[euo]'; then
+if grep -Eq '^[[:space:]]*set -[euo]' <<<"$(printf '%s\n' "${LIB_CODE}")"; then
     fail "the library sets no shell options" "no set -euo" "a set -… is present"
 else
     pass "the library sets no shell options"
@@ -738,7 +738,7 @@ extract_func() {
 
 START_LOG_BODY="$(extract_func plan_start_log)"
 for sig in EXIT INT TERM HUP; do
-    if printf '%s\n' "${START_LOG_BODY}" | grep -Eq "trap .* ${sig}\b"; then
+    if grep -Eq "trap .* ${sig}\b" <<<"$(printf '%s\n' "${START_LOG_BODY}")"; then
         pass "start_log arms the finalize handler for ${sig}"
     else
         fail "start_log arms the finalize handler for ${sig}" "a trap on ${sig}" "no trap on ${sig}"
@@ -756,7 +756,7 @@ else
 fi
 
 CONFIRM_BODY="$(extract_func plan_confirm)"
-if printf '%s\n' "${CONFIRM_BODY}" | grep -Eq '>[[:space:]]*/dev/tty'; then
+if grep -Eq '>[[:space:]]*/dev/tty' <<<"$(printf '%s\n' "${CONFIRM_BODY}")"; then
     fail "plan_confirm routes the prompt through ordered stdout" \
         "no write to /dev/tty" "a direct /dev/tty write (races ahead of the tee'd banner)"
 else
@@ -765,7 +765,7 @@ fi
 # Matched with a pattern rather than a literal, because `</dev/tty` and `< /dev/tty` are
 # the same redirect and the literal form failed on the second spelling — a false failure
 # about whitespace, in a test whose subject is where the reply is read from.
-if printf '%s\n' "${CONFIRM_BODY}" | grep -Eq '<[[:space:]]*/dev/tty'; then
+if grep -Eq '<[[:space:]]*/dev/tty' <<<"$(printf '%s\n' "${CONFIRM_BODY}")"; then
     pass "plan_confirm reads the reply from /dev/tty (ansible drains stdin)"
 else
     fail "plan_confirm reads the reply from /dev/tty (ansible drains stdin)" \
