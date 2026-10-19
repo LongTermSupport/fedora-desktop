@@ -26,8 +26,10 @@ event, a stored file or an exception carried reaches the output: every text is o
   no stop: it exits when the session's socket goes. The goodbye is the one network use of a
   hook: a fixed-template room message from each seat the session holds, sent through `post`,
   once per session and only when the session really ends (not on `/clear` or `/resume`,
-  where SessionEnd fires and the session goes on), within `GOODBYE_TIMEOUT_S`. A failure is
-  one stderr line; the hook still answers.
+  where SessionEnd fires and the session goes on), within `GOODBYE_TIMEOUT_S`, with SIGINT
+  and SIGHUP ignored meanwhile; each one posted is recorded in its seat
+  (`seat.record_goodbye`), which the host's `seat disconnected` reads. A failure is one
+  stderr line; the hook still answers.
 - `post-tool` (PostToolUse) is the `SENT` echo (relay mode only; nothing otherwise).
 
 With `PINGBUS_DELIVERY=relay` (Plan 00194) a supervisor plugin owns the watcher and types
@@ -40,6 +42,7 @@ Stop names the stall once per window. Unset, every hook is as it was.
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import hashlib
 import json
@@ -48,11 +51,12 @@ import pathlib
 import secrets
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from typing import TextIO
 
 from helpers.pingbus import config, inbox, inject, membership, notify, protocol, relay, seat, sentlog, statusline
@@ -601,6 +605,29 @@ class _Guard:
 # ── the hooks ────────────────────────────────────────────────────────────────────────────
 
 
+#: What a terminal sends when a key is pressed again, or its window closed, while the session
+#: closes: the goodbye in flight must not die of either (Plan 00194 Task 2.0b).
+TERMINAL_SIGNALS = (signal.SIGINT, signal.SIGHUP)
+
+
+@contextlib.contextmanager
+def terminal_signals_ignored() -> Iterator[None]:
+    """`TERMINAL_SIGNALS` ignored meanwhile, then their handlers put back. Claude Code starts a
+    hook in a session of its own, so they should not arrive; this holds if one is sent anyway.
+    The host's `seat disconnected` uses it too. SIGTERM is left alone: it is how Claude Code
+    (or the launcher's `timeout`) ends a command past its bound. Python sets a handler only
+    from the main thread; elsewhere nothing changes."""
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    saved = {signum: signal.signal(signum, signal.SIG_IGN) for signum in TERMINAL_SIGNALS}
+    try:
+        yield
+    finally:
+        for signum, handler in saved.items():
+            signal.signal(signum, handler)
+
+
 def _context(event: str, lines: list[str]) -> dict:
     if not lines:
         return {}
@@ -883,8 +910,22 @@ class _Hook:
         goodbyes = [(view.ref.team, fill("goodbye", handle=view.handle, reason=shown))
                     for view in seat.session_seats(home, teams) if view.own]
         if goodbyes and self._first_goodbye(home / GOODBYE_FILE):
-            self._post_all(post, goodbyes)
+            claims = {team: self._claim(home / team) for team, _ in goodbyes}
+            with terminal_signals_ignored():
+                self._post_all(post, goodbyes, claims)
         return {}
+
+    def _claim(self, link: pathlib.Path) -> tuple[pathlib.Path, int] | None:
+        """The seat's directory and the claim its lock names (the keeper's), for the goodbye
+        record; None, said on stderr, when there is none to record against."""
+        directory = pathlib.Path(os.path.realpath(link))
+        try:
+            claimed = inbox.read_claim_at(directory / seat.LOCK_FILE)
+        except (inbox.StateError, OSError) as exc:
+            self.err.write(f"pingbus: hook session-end: seat {directory.name}@{link.name}: "
+                           f"its lock cannot be read, so its goodbye will not be recorded: {exc}\n")
+            return None
+        return None if claimed is None else (directory, claimed)
 
     def _forget_marks(self) -> None:
         """Socket delivery: the session ended, so its marks go with it (a reused socket path
@@ -918,8 +959,13 @@ class _Hook:
             return False
         return True
 
-    def _post_all(self, post: Callable[[str, str], object], goodbyes: list[tuple[str, str]]) -> None:
+    def _post_all(self, post: Callable[[str, str], object], goodbyes: list[tuple[str, str]],
+                  claims: Mapping[str, tuple[pathlib.Path, int] | None]) -> None:
+        """Each goodbye in a thread of its own, all within `GOODBYE_TIMEOUT_S`; one posted is
+        recorded in its seat at once (`seat.record_goodbye`), so the host's `seat disconnected`
+        does not tell that claim again."""
         results: dict[str, str | None] = {}
+        unrecorded: dict[str, str] = {}
 
         def send(team: str, text: str) -> None:
             try:
@@ -930,6 +976,12 @@ class _Hook:
                 results[team] = type(exc).__name__
             else:
                 results[team] = None
+                claim = claims.get(team)
+                if claim is not None:
+                    try:
+                        seat.record_goodbye(*claim)
+                    except OSError as exc:
+                        unrecorded[team] = exc.strerror or type(exc).__name__
 
         threads = [threading.Thread(target=send, args=goodbye, daemon=True) for goodbye in goodbyes]
         for thread in threads:
@@ -941,6 +993,9 @@ class _Hook:
             failure = results.get(team, f"no answer within {GOODBYE_TIMEOUT_S:g} s")
             if failure is not None:
                 self.err.write(f"pingbus: hook session-end: goodbye to team {team} not sent: {failure}\n")
+            elif team in unrecorded:
+                self.err.write(f"pingbus: hook session-end: goodbye to team {team} sent but not recorded "
+                               f"(the host may also say it disconnected): {unrecorded[team]}\n")
 
     def failed(self, cls: str) -> dict:
         if self.event == "stop":

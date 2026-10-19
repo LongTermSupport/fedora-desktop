@@ -84,3 +84,42 @@ every other team change, a different member's `ccy-teams lxc-add` included.
 - Reconcile `CLAUDE/Plan/meta-deploy.list` at merge. It needs `play-claude-yolo.yml`, which
   rebuilds ccy-teams, and `play-agent-bus.yml`.
 - No CCY or container version bump is needed.
+
+## FIX-FIRST round (fix/lxc-stopped-member-3, from 3fe83b95)
+
+Fable's review is copied beside this report as `261019-lxc-stopped-member-review-fable.md`.
+`fix/lxc-stopped-member-2` was checked out in another worktree, so this round is on
+`fix/lxc-stopped-member-3`, branched from 3fe83b95.
+
+| Finding                                   | What was done                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 Docs drift                              | `docs/agent-bus-lxc-members.md`: the STOPPED refusal row is gone. The checks are now described as for running containers. A new section, "Containers that are not running", covers SKIPPED / DEFERRED, the first-run deferral of a member that has no record yet, the member record (including the sweep), and what apply, the board and lxc-add say. "Leaving" now describes L6. `docs/agent-bus.md` ~:401 now says the same in short and links to that section. |
+| 2 Stale record                            | `applied_record.names()` lists the records. `Host.record_teams` was added. `members.sweep_records()` removes the record of every team that no entry names. `main` runs the present phase on every call, with entries or none, and sweeps after it. The new `--only-teams` limits the sweep to a scoped run's teams. The play passes `--only-teams` only when `agent_bus_only_teams` is defined, and the present task's `when` is now just `not ansible_check_mode`. The absent phase sweeps nothing. SPEC L8 now states the sweep. |
+| 5 KeyError                                | `_write_record` turns `grp.getgrnam`'s KeyError into a MemberError (exit 78) that names the group and the stamp-group file.                                                                                                                                                                                                                                                                                                                                    |
+| 3 First-run note                          | Added to the agent-bus comment in meta-deploy.list, and to the docs.                                                                                                                                                                                                                                                                                                                                                                                  |
+| 4 Merge F44 5ce37f5e (--no-ff)            | Journal: both sides' entries in time order (journal_union.py). Every line of both sides is still present. meta-deploy.list: lines 1-21 are exactly F44's. Each play is listed once, in F44's order (agent-bus, then claude-yolo). The branch's Task 2.6 comments are merged in. I dropped the branch's "Plan 00203 and Plan 00201 Task 2.18" ccy-teams text because 226a292d has already been deployed (b2e49b1e emptied the queue), so it is no longer pending. |
+
+Tests were written first. Before the code change: 86 errors, from the missing `record_teams`, the missing `names` and the KeyError. After it: green. New tests:
+
+- `RecordSweepTest`, 6 tests: the last entry removed; an empty list; a scoped sweep; a scoped run that keeps a team with entries; the absent phase sweeps nothing; `--only-teams` must be a list.
+- `WriteRecordTest`.
+- `test_names_*`, 2 tests.
+
+### Targeted QA on the merged tree (all pass)
+
+- `python3 -m unittest` over test_members, test_applied_record, test_derive and test_declare: 398 OK.
+- `go test ./internal/teams/...`: pass. `golangci-lint run ./internal/teams/...`: 0 issues.
+- `scripts/test-ccy-teams-command.bash`: passed 383, failed 0.
+- `ansible-playbook --syntax-check playbooks/imports/play-agent-bus.yml`: passes. This was a syntax check only; no play was run.
+- `qa-bash-limits`, `qa-hidden-bindings` and `qa-docs` (83 files): OK. `ruff check`: clean. qa-all was not run.
+
+### For the coordinator: porting onto fix/teams-member-roles-2
+
+- **Picker.** The guard is the three lines in `picker/menu.go` `kindActions`: a row whose
+  `Handle` is `""` or `"-"` gets only open, start and help. Move it into member-roles'
+  `memberActions`, and have it drop the role action as well as Park for such a row. The test
+  is `TestADeferredLxcRowOffersNoParking` in `picker/menu_test.go`; extend it to check that no
+  role action is offered.
+- **lxc-add.** My change to `New()` is one field, `AppliedDir: h.AppliedDir`. Keep it when
+  resolving the textual conflict. `lxcadd/stopped_test.go` does not fake `SetRole`.
+- Nothing in this round touched Go.

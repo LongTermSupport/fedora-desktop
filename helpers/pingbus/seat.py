@@ -74,6 +74,14 @@ SESSION_HOME_MODE = 0o700
 CHECKOUT_SEATS = pathlib.PurePosixPath(".claude/ccy/pingbus/seats")
 CCY_SEATS_ROOT = pathlib.Path("/workspace") / CHECKOUT_SEATS
 LOCK_FILE = "seat.lock"
+#: In a seat's directory: the claim (from `seat.lock`) whose session posted its goodbye, which
+#: `pingbus seat disconnected` then does not tell again (protocol §12).
+SAID_GOODBYE_FILE = "said-goodbye.json"
+#: The bound on all of a session's SessionEnd hooks together, in its settings' `env`. Claude
+#: Code's own is 1500 ms and a plugin hook's `timeout` does not raise it (2.1.303), which cut
+#: the goodbye (`hooks.GOODBYE_TIMEOUT_S`, 4 s) off before pingbus had even started.
+SESSION_END_BUDGET_VAR = "CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS"
+SESSION_END_BUDGET_MS = 8000
 
 HELD, FREE = "held", "free"
 SELF = "self"
@@ -249,6 +257,19 @@ def list_seats(root: pathlib.Path, *, team: str | None = None) -> tuple[SeatRef,
             _real_dir(directory)
             found.append(SeatRef(directory.name, team_dir.name))
     return tuple(ref for ref in found if team is None or ref.team == team)
+
+
+def record_goodbye(directory: pathlib.Path, claimed_ms: int) -> None:
+    """Note in the seat's directory that the session holding claim `claimed_ms` said goodbye."""
+    inbox.write_json_file(pathlib.Path(directory) / SAID_GOODBYE_FILE, {"v": 1, "claimed_ms": claimed_ms})
+
+
+def goodbye_said(directory: pathlib.Path, claimed_ms: int) -> bool:
+    """Whether the seat's goodbye record names `claimed_ms`; `inbox.StateError` when it is
+    not a file pingbus wrote."""
+    data = inbox.read_json_file(pathlib.Path(directory) / SAID_GOODBYE_FILE)
+    return (isinstance(data, dict) and data.get("v") == 1 and type(data.get("claimed_ms")) is int
+            and data["claimed_ms"] == claimed_ms)
 
 
 def seat_state(root: pathlib.Path, ref: SeatRef) -> str:
@@ -430,8 +451,11 @@ def session_settings(inner: Mapping[str, object] | None, *, seated: bool, guard:
     shell guard: the inner one with no `active` flag, `pingbus status-line` with it. A seated
     session refreshes each second as before; a plain one keeps the inner line's own interval
     and padding. Without `guard` (a settings file could not be read) no status line is set,
-    so Claude Code's own applies and there is no bus segment."""
-    settings: dict[str, object] = {"crossSessionInbound": "accept" if seated else "refuse"}
+    so Claude Code's own applies and there is no bus segment. Every session gets the
+    SessionEnd bound its goodbye needs (`SESSION_END_BUDGET_MS`), seated or not, since a seat
+    can be added while it runs."""
+    settings: dict[str, object] = {"crossSessionInbound": "accept" if seated else "refuse",
+                                   "env": {SESSION_END_BUDGET_VAR: str(SESSION_END_BUDGET_MS)}}
     if not guard:
         return settings
     line: dict[str, object] = {"type": "command", "command": STATUS_LINE_GUARD}

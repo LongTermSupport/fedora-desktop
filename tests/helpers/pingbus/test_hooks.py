@@ -23,6 +23,7 @@ import json
 import os
 import pathlib
 import re
+import signal
 import socket
 import stat
 import sys
@@ -910,6 +911,63 @@ class GoodbyeTest(SeatCase):
         self.post_error = None
         self.end()
         self.assertEqual(self.posted, [])
+
+    # The record `seat disconnected` reads (protocol §12): a goodbye posted is noted in the
+    # seat's directory with the claim it ends, so the host never tells that claim again.
+
+    def hold_seat(self, claimed_ms: int = 1234) -> None:
+        lock = inbox.acquire_lock_at(self.own / seat.LOCK_FILE, inbox.SEAT_KIND, claimed_ms=claimed_ms)
+        self.addCleanup(lock.release)
+
+    def said(self) -> object:
+        path = self.own / seat.SAID_GOODBYE_FILE
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+    def test_a_posted_goodbye_is_recorded_in_the_seat_with_its_claim(self):
+        self.hold_seat()
+        self.assertEqual(self.end(), ({}, ""))
+        self.assertEqual(self.said(), {"v": 1, "claimed_ms": 1234})
+        self.assertEqual(stat.S_IMODE((self.own / seat.SAID_GOODBYE_FILE).stat().st_mode), 0o600)
+
+    def test_a_goodbye_not_posted_is_not_recorded(self):
+        self.hold_seat()
+        self.post_error = hooks.GoodbyeFailed("homeserver: unreachable")
+        self.end()
+        self.assertIsNone(self.said())
+
+    def test_a_seat_with_no_claim_is_not_recorded(self):
+        self.assertEqual(self.end(), ({}, ""))
+        self.assertEqual(len(self.posted), 1)
+        self.assertIsNone(self.said())
+
+    # Ctrl-C pressed again while Claude Code closes (Plan 00194 Task 2.0b): Claude Code starts the
+    # hook in a session of its own, so a terminal's signals should not reach it; if one does,
+    # the goodbye is posted all the same, and the handlers are put back afterwards.
+
+    def test_a_sigint_or_sighup_while_the_goodbye_is_posted_does_not_stop_it(self):
+        seen: dict[str, object] = {}
+        arrived: list[int] = []
+
+        def record(signum: int, frame: object) -> None:
+            arrived.append(signum)
+
+        for signum in (signal.SIGINT, signal.SIGHUP):
+            self.addCleanup(signal.signal, signum, signal.signal(signum, record))
+
+        def post(team: str, text: str) -> None:
+            seen["int"], seen["hup"] = signal.getsignal(signal.SIGINT), signal.getsignal(signal.SIGHUP)
+            os.kill(os.getpid(), signal.SIGINT)
+            os.kill(os.getpid(), signal.SIGHUP)
+            time.sleep(0.05)
+            self.posted.append((team, text))
+
+        self.post = post
+        self.assertEqual(self.end(), ({}, ""))
+        self.assertEqual(len(self.posted), 1)
+        self.assertEqual((seen["int"], seen["hup"]), (signal.SIG_IGN, signal.SIG_IGN))
+        self.assertEqual(arrived, [], "both were ignored, not delivered late")
+        self.assertIs(signal.getsignal(signal.SIGINT), record, "the handlers are put back")
+        self.assertIs(signal.getsignal(signal.SIGHUP), record)
 
 
 # ── Stop ───────────────────────────────────────────────────────────────────────────────

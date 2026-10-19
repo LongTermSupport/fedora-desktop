@@ -487,13 +487,20 @@ cannot be reached or does not answer in time, the hook prints one line on stderr
 session closes as usual (a slow homeserver can still deliver a goodbye the line calls "not
 sent").
 
-Which endings run the hook (Claude Code 2.1.299): `/exit`, logout, Ctrl-C (SIGINT), a closed
-terminal (SIGHUP) and a forwarded SIGTERM all run SessionEnd, so `ccy stop` should produce a
-goodbye. A SIGKILL (a container stop whose grace period expired) or a lost container sends
-nothing; teammates then see only that the seat is no longer held. Claude Code's default
-SessionEnd hook timeout is 1500 ms, so the kit's `"timeout": 6` on the `SessionEnd` hook is
-load-bearing: without it the goodbye would be cut off at 1.5 s. The test in
-`test_plugin_contract.py` pins it.
+Which endings say goodbye: `/exit`, logout, and Ctrl-C pressed until Claude Code exits
+(pressing it more while it closes changes nothing). Claude Code gives all SessionEnd hooks
+1.5 s together unless told otherwise, which cut the goodbye off before it was sent, so the
+session's settings raise that to 8 s. A scheduled ccy restart (the session's maximum age, or
+the relaunch after a first team join) currently says goodbye too, and the session re-joins
+moments later: the supervisor records a restart only after Claude Code has exited.
+
+**Disconnected.** A session that ends without the hook (`podman stop`, closing the terminal
+or the tmux window, a crash, a kill) cannot say goodbye: in ccy the container ends at once.
+The ccy launcher then posts `<handle> disconnected: session ended without a goodbye` for each
+seat it held, from the host, after the container has gone; never both messages for one
+session. A closed terminal, or Ctrl-C pressed again meanwhile, does not stop it. A host
+reboot tells nothing; teammates then see only that the seat is free. The
+detail is in [agent-bus-protocol.md](agent-bus-protocol.md) §12.
 
 **How messages reach the session.** A session in a team gets each message in its
 conversation as the message itself, where the person watching sees it: the watcher writes

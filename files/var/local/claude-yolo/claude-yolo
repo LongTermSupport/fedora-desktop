@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.99.12.12"  # Container 2.77.8: lxc-add's checkout is a typed line with Tab completion; the search covers /var/www, /srv, /opt. See docs/ccy-changelog.md.
+CCY_VERSION="3.99.12.14"  # Container 2.77.10: a wrapper that runs a shell script through python3 is refused with the fix named. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -78,7 +78,7 @@ source "$SCRIPT_DIR/lib/agent-bus-seats.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.77.8"
+REQUIRED_CONTAINER_VERSION="2.77.10"
 
 set -e
 
@@ -2409,6 +2409,8 @@ cleanup() {
         cat "$DEBUG_LOG"
         echo "════════════════════════════════════════════════════════════════════════════════"
     fi
+    # A session that ended without its goodbye is told to its teams (lib/agent-bus-membership.bash).
+    ccy_bus_disconnected
 }
 trap cleanup EXIT
 
@@ -3934,9 +3936,7 @@ if [[ "${CCY_COMPOSE_WAS_STARTED:-}" = "true" ]]; then
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo "CCY Session Ended — Compose Services Running"
     echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-    echo "Compose services were started for this CCY session."
-    echo ""
+    printf '\nCompose services were started for this CCY session.\n\n'
 
     # List containers with resource stats so user can tell if anything is active
     echo "Running containers (resource usage):"

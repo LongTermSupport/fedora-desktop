@@ -100,6 +100,19 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   `fix/watcher-survives-homeserver-restart` (container 2.67, CCY 3.98.12); waits on review,
   then `play-claude-yolo.yml` and `play-agent-bus.yml` (queued in meta-deploy) and the
   owner's check: restart a team's homeserver under an idle session, then post from Element.
+- [ ] ⬜ **Task 2.0e**: A scheduled restart posts nothing (Fable's review of
+  `fix/goodbye-ctrl-c`, 3b). Today a lifecycle restart (maximum age, or the relaunch after a
+  first join) posts `left the team: session ended (exit)` and the session re-joins seconds
+  later, which a coordinator may act on. The gap: at SessionEnd nothing says "restart". The
+  supervisor (daemon-owned) types `/exit` and writes `restart-request.json` only once Claude
+  Code has exited; the hook's `reason` is the same as for `/exit`; a marker written by
+  `ccy_lifecycle.py` when it returns `ExitForRestart` is not reliable, because the
+  supervisor may refuse the request (no single session id) or abandon it after 30 s, and the
+  marker would then silence a real exit. To close it: the supervisor records the request
+  (or exports a marker path) before it types `/exit` and clears it when it abandons one, an
+  upstream hooks-daemon change; then the hook skips the goodbye for that session and records
+  it as said (`seat.record_goodbye`), so the launcher's `seat disconnected` stays quiet
+  too, test first. `docs/agent-bus.md` states today's behaviour until then.
 - [ ] ⬜ **Task 2.1**: The plugin, test first, shipped in the image beside `ccy_lifecycle.py`,
   enabled for a session launched with `--teams` (CCY version bump). Waits on the
   hooks-daemon release that carries plugin API 1.1 (#119); it also drops
@@ -115,11 +128,19 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   ccy session within seconds, with the agent running nothing, framed as the human's.
 - [ ] Another agent's message appears in the same envelope with its own kind and no
   authority.
-- [ ] Host: `ccy stop` on a running `--teams` session sends the goodbye (to the team's
-  humans and coordinator, not to the other agents). SIGTERM reaches Claude Code's SessionEnd
-  in 2.1.299, but whether the supervisor dies fast enough inside the container's stop grace
-  is only known on the host. If it does not, set `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS`
-  in the entrypoint.
+- [ ] Host, after `play-agent-bus.yml` and `play-claude-yolo.yml` (branch
+  `fix/goodbye-ctrl-c`, journal 2026-10-19). Before the fix no goodbye was ever sent:
+  Claude Code's 1.5 s SessionEnd bound, which a plugin hook's `timeout` does not raise, cut
+  it off; a stop or a closed terminal ends the container at once, so no hook runs at all.
+  1. End a `--teams` session by MASHING Ctrl-C for several seconds, on past the container's
+     exit: `left the team` is posted once (to the team's humans and coordinator), and the
+     launcher's exit prints no traceback and no `pingbus seat disconnected failed`.
+  2. `podman stop` a session's container: one `disconnected: session ended without a goodbye`, from the launcher.
+  3. Close the tmux window of a session holding TWO seats (two teams): each team gets one
+     `disconnected`.
+  4. No ending posts both messages.
+  5. Baseline for Task 2.0e: a lifecycle restart (`CCY_LIFECYCLE_MAX_AGE_SECONDS` at its
+     minimum); record what the team sees (today: `left the team`, then the seat re-joins).
 - [ ] A message sent to a busy session is typed mid-turn and run when the turn ends.
 
 ## Delivery & Milestones

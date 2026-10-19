@@ -1130,6 +1130,13 @@
       register: dockerfile_hash
       changed_when: false
 
+    # `images -q` prints nothing (rc 0) for a missing tag, so a first build or a rebuild is told
+    # apart from a full cache hit by comparing the image ID before and after the build.
+    - name: Read Claude YOLO Image ID Before Build
+      ansible.builtin.command: "{{ container_engine }} images -q claude-yolo:latest"
+      register: image_id_before
+      changed_when: false
+
     - name: Build Claude YOLO Container Image with Hash
       ansible.builtin.command: >
         {{ container_engine }} build
@@ -1137,7 +1144,12 @@
         -t claude-yolo:latest
         /opt/claude-yolo
       register: container_build
-      changed_when: "'Successfully built' in container_build.stdout or 'Successfully tagged' in container_build.stdout or container_build.rc == 0"
+      changed_when: false
+
+    - name: Detect Whether Claude YOLO Image Was Rebuilt
+      ansible.builtin.command: "{{ container_engine }} images -q claude-yolo:latest"
+      register: image_id_after
+      changed_when: image_id_after.stdout != image_id_before.stdout
 
     - name: Verify Container Image
       ansible.builtin.command: "{{ container_engine }} image inspect claude-yolo:latest"
@@ -1148,11 +1160,18 @@
     # Retired claude-browser artifact cleanup — remove all remnants of the retired claude-browser system
     # =========================================================================
 
+    - name: Probe for claude-browser:latest Container Image
+      ansible.builtin.command: "{{ container_engine }} images -q claude-browser:latest"
+      register: claude_browser_image_probe
+      changed_when: false
+      tags:
+        - cleanup
+        - browser
+
     - name: Remove claude-browser:latest Container Image
       ansible.builtin.command: "{{ container_engine }} rmi claude-browser:latest"
-      register: rmi_result
-      failed_when: false  # FAIL-FAST-OK: image may not exist (already cleaned up)
-      changed_when: rmi_result.rc == 0
+      when: claude_browser_image_probe.stdout != ''
+      changed_when: true
       tags:
         - cleanup
         - browser
