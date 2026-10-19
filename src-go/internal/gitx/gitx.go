@@ -29,15 +29,22 @@ func refused(err error) bool {
 	return errors.As(err, &exitErr)
 }
 
-// ProjectHere reports whether dir is inside a git work tree. Git refusing (not a
-// repository) is false; git being unrunnable is an error.
+// notARepository is the start of git's own refusal for a directory in no repository. Git
+// translates it, so the probe runs with LC_ALL=C.
+const notARepository = "fatal: not a git repository"
+
+// ProjectHere reports whether dir is inside a git work tree. Only git's own "not a git
+// repository" refusal is false; any other refusal (a repository owned by another user, a
+// corrupt one) or git being unrunnable is an error carrying git's words.
 func (g *Git) ProjectHere(ctx context.Context, dir string) (bool, error) {
-	res, err := g.run(ctx, dir, "rev-parse", "--is-inside-work-tree")
+	args := []string{"rev-parse", "--is-inside-work-tree"}
+	res, err := g.runner.Run(ctx, execx.Cmd{Name: "git", Args: args, Dir: dir, Env: []string{"LC_ALL=C"}})
 	if err != nil {
-		if refused(err) {
+		if exitErr, ok := errors.AsType[*execx.ExitError](err); ok &&
+			strings.HasPrefix(strings.TrimSpace(exitErr.Stderr), notARepository) {
 			return false, nil
 		}
-		return false, err
+		return false, fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 	}
 	return strings.TrimSpace(string(res.Stdout)) == "true", nil
 }

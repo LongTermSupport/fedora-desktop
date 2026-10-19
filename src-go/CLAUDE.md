@@ -170,9 +170,9 @@ already listed. Behaviour the golden pins is changed in the same commit as its d
 (`go build -trimpath -buildvcs=false` with `GOFLAGS=-mod=vendor`, offline from `vendor/`, as
 the login user, into `~/.cache/ccy-go-build`) and
 installs it with a checksum-compared `copy`; it takes the command name, install path, mode and
-optional ldflags. `playbooks/imports/play-claude-yolo.yml` imports it for both ccy binaries and `cc-project-dir`
-(`ccy-teams` and `cc-project-dir` also get `-ldflags "-X main.RootDir=<checkout>"` and refuse to run without it),
-and `tasks/deploy-freeze.yml` for the freeze tools, which `play-podfreeze.yml` and
+optional ldflags. `playbooks/imports/play-claude-yolo.yml` imports it for both ccy binaries
+and `cc-project-dir` (`ccy-teams` and `cc-project-dir` also get
+`-ldflags "-X main.RootDir=<checkout>"` and refuse to run without it), and `tasks/deploy-freeze.yml` for the freeze tools, which `play-podfreeze.yml` and
 `play-lxcfreeze.yml` import (both import `play-golang.yml` first for the toolchain), and
 `play-vm-test-lab.yml` for `vmtest`, `play-ftp-camera.yml` for `ftp-camera`,
 `play-image-watermarking.yml` for `watermark`, `play-speech-to-text.yml` for `wsi` and

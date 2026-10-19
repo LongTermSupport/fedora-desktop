@@ -114,7 +114,7 @@ Use these Unicode icons in plan documents:
 
 - [00168-managed-config-files-changed-out-of-band](00168-managed-config-files-changed-out-of-band/) - Not Started. Report play-managed files changed since their play ran. Issue #91.
 
-- [00167-cc-refuses-to-start-outside-a-repo](00167-cc-refuses-to-start-outside-a-repo/) - Not Started. `cc` outside a git working tree offers the checkout or refuses. Issue #90.
+- [00167-cc-refuses-to-start-outside-a-repo](00167-cc-refuses-to-start-outside-a-repo/) - In Progress. `cc` outside a git working tree offers the checkout or refuses. Issue #90.
 
 - [00165-ccy-container-uses-host-time-zone](00165-ccy-container-uses-host-time-zone/) - In Progress (owner's clock check left). ccy containers run in the host's time zone through `TZ`.
 

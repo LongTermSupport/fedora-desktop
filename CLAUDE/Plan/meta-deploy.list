@@ -27,3 +27,14 @@
 # has mapped, and the terminals' font and GPU settings. Start meta-deploy from the terminal that
 # draws the wrong emoji, and leave that window open while it runs.
 00185-terminal-emoji-glyphs
+# Plan 00167 (#90) review fix: rebuilds cc-project-dir, ccy-teams and ccy-sessions, which share
+# the git check that now counts only git's own "not a git repository" as no repository; any other
+# git failure (a repository owned by another user, a broken .git) is an error that quotes git.
+# ccy stays at 3.99.12.19. Before the 00167 acceptance.
+playbooks/imports/play-claude-yolo.yml
+# Plan 00167 Task 3.2 (#90): acceptance.bash (no triage.bash or deploy.bash; the play just
+# above deploys it) runs the installed cc-project-dir, never cc or Claude: outside a repository
+# with stdin </dev/null, and again as a restore (CCY_SESSION_RESTORE=1, stdin the terminal),
+# it must refuse with exit 1 and offer nothing; in a subfolder of a scratch git repository it
+# must print the repository's top. Scratch directories only, removed afterwards; no prompts.
+00167-cc-refuses-to-start-outside-a-repo
