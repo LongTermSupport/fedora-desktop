@@ -53,7 +53,8 @@ handler cannot ship without being scored. Each handler declares its own
 RELEVANCE (`Handler.get_relevance()`): most apply everywhere; a few need
 something the project may lack (`lsp_enforcement` an LSP, the npm handlers a
 `package.json`, the ccy handlers an armed supervisor, the flaggable-content
-trio a deployed quarantine agent). The optimal state of a relevant handler is
+trio a deployed quarantine agent, and the `daemon_stats` status-line health
+line the daemon's own repository, since it is a daemon developer's diagnostic). The optimal state of a relevant handler is
 enabled, whatever its default; an irrelevant one is reported as "not
 applicable here", never as a shortfall.
 
