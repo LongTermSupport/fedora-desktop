@@ -1146,7 +1146,7 @@
       register: container_build
       changed_when: false
 
-    - name: Read Claude YOLO Image ID After Build
+    - name: Detect Whether Claude YOLO Image Was Rebuilt
       ansible.builtin.command: "{{ container_engine }} images -q claude-yolo:latest"
       register: image_id_after
       changed_when: image_id_after.stdout != image_id_before.stdout
@@ -1161,17 +1161,16 @@
     # =========================================================================
 
     - name: Probe for claude-browser:latest Container Image
-      ansible.builtin.command: podman image exists claude-browser:latest
+      ansible.builtin.command: "{{ container_engine }} images -q claude-browser:latest"
       register: claude_browser_image_probe
       changed_when: false
-      failed_when: claude_browser_image_probe.rc not in [0, 1]  # FAIL-FAST-OK: probe-then-fail, rc 1 means absent and anything else fails
       tags:
         - cleanup
         - browser
 
     - name: Remove claude-browser:latest Container Image
-      ansible.builtin.command: podman rmi claude-browser:latest
-      when: claude_browser_image_probe.rc == 0
+      ansible.builtin.command: "{{ container_engine }} rmi claude-browser:latest"
+      when: claude_browser_image_probe.stdout != ''
       changed_when: true
       tags:
         - cleanup
