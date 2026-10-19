@@ -2219,7 +2219,7 @@ def cmd_hook(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
 
 def cmd_status_line(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
     """The session's status line, with its agent-bus teams (statusline.py): the kit's statusLine."""
-    text, status = statusline.render(args.stdin.read(HOOK_INPUT_MAX + 1), environ)
+    text, status = statusline.render(args.stdin.read(HOOK_INPUT_MAX + 1), environ, err=err)
     out.write(text + "\n")
     return status
 

@@ -76,6 +76,8 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 #: How `pingbus status-line` starts its teams row, and indents a wrapped one under it.
 SEGMENT_LABEL = "👥 "
 SEGMENT_INDENT = "   "
+#: One team of the segment: its name, the role it was read to have, then its marks.
+_SEGMENT_TEAM_RE = re.compile(r"(?P<team>[a-z][a-z0-9-]*) \((?:worker|coordinator)\)(?: \([a-z]+\))*")
 #: pingbus cli.py, word for word: the refusal when several teams are active and none is inferred.
 CHOICES_TEXT = "several teams are active and --to/--re fit more than one (or none): name one with --team:"
 
@@ -492,16 +494,20 @@ def session_status_line(proc: pathlib.Path, payload: bytes) -> str:
 def expect_segment(text: str, teams: str) -> None:
     """`pingbus status-line` prints the session's own status line, then `👥 TEAMS` on rows of its
     own: the first row starts with the label, later rows are indented under it (it wraps after a
-    comma at COLUMNS)."""
+    comma at COLUMNS). Each team is `team (role)`, then any marks such as `(down)`, its role one
+    that was read (Plan 00203 Task 3.8); TEAMS is the team names alone, comma-separated."""
     lines = _ANSI_RE.sub("", text).strip("\n").splitlines()
     starts = [index for index, line in enumerate(lines) if line.startswith(SEGMENT_LABEL)]
     first = starts[-1] if starts else len(lines)
     inner, rows = lines[:first], lines[first:]
     shown = None
     if rows and all(row.startswith(SEGMENT_INDENT) and row.strip() for row in rows[1:]):
-        shown = rows[0].removeprefix(SEGMENT_LABEL) + "".join(row.removeprefix(SEGMENT_INDENT) for row in rows[1:])
+        joined = " ".join([rows[0].removeprefix(SEGMENT_LABEL), *(row.removeprefix(SEGMENT_INDENT) for row in rows[1:])])
+        pieces = [_SEGMENT_TEAM_RE.fullmatch(piece.strip()) for piece in joined.split(",")]
+        shown = ",".join(match["team"] for match in pieces if match) if all(pieces) else None
     if not any(line.strip() for line in inner) or shown != teams:
-        raise Failed(f"the status line is {lines!r}, want the session's own line then {SEGMENT_LABEL}{teams}")
+        raise Failed(f"the status line is {lines!r}, want the session's own line then {SEGMENT_LABEL}"
+                     f"{', '.join(f'{team} (worker|coordinator)' for team in teams.split(','))}")
 
 
 def expect_plain(labels: object, env: object) -> None:

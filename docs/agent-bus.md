@@ -75,7 +75,7 @@ that play.
    **A session can be on several teams:** the list is a multi-select (Tab marks several, Enter
    takes them or the highlighted one), each marked team gets its own seat question, and the
    launch prints which teams the session is on, with seat, role and what each is for; the status
-   line shows `👥 alpha,beta`, in any checkout (see
+   line shows `👥 alpha (worker), beta (coordinator)`, in any checkout (see
    [A session's status line](#a-sessions-status-line)). With several teams, pingbus's send and say commands work out the
    team from `--re` or `--to` when only one fits, and otherwise list the teams and ask for `--team`.
    It then goes on as `ccy --teams <team>` (no seat), which shows this
@@ -619,8 +619,13 @@ dedicated agent user.
 ### A session's status line
 
 Every session on a team (ccy, cc or `agent-bus-claude`, in any checkout) ends its status
-line with `👥 alpha,beta`, the teams it is on (👥 is the team counterpart of the hooks daemon's
-👤 account). The member kit's `settings.json`
+line with `👥 alpha (coordinator), beta (worker)`: the teams it is on, each with this session's
+role in it (👥 is the team counterpart of the hooks daemon's 👤 account). The role is read on
+every refresh from the same team record the live role notice reads, so a role change from
+`ccy-teams` shows at the next refresh with no restart. A role that cannot be read shows as
+`(role?)`, never a guess, and says why in one line on the status line command's stderr. A team
+whose homeserver does not answer is marked `(down)` after its role: each team is shown as its
+name, its role, then its marks. The member kit's `settings.json`
 makes `pingbus status-line` the status line command, and settings given on the command line
 outrank the project's, so it applies in a checkout that has never heard of the bus. It runs
 the status line the checkout or your user settings already set (a hooks daemon's, for
@@ -628,7 +633,7 @@ example) and adds the segment on rows of its own below it, so nothing you had is
 Code cuts a row wider than the terminal with an ellipsis, and the hooks daemon's status line
 already fills its rows to the width, so the teams are never appended to its last row: they
 wrap at the terminal's width (`COLUMNS`, which Claude Code sets) after a comma, under the 👥,
-and are never cut. With no `COLUMNS` the segment is one unbroken row. It refreshes every second,
+and are never cut; a team and its role stay on one row. With no `COLUMNS` the segment is one unbroken row. It refreshes every second,
 as this repository's status line does (ccy `--supervise` reads what the hooks daemon's status
 line writes on each render), whatever interval the replaced status line had. A failing, hung or
 unreadable status line underneath is shown in red rather than blanking the line. The segment comes from a record the SessionStart hook

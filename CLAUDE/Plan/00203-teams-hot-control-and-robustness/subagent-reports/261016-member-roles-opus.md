@@ -63,6 +63,16 @@ Deploy note: the LXC kit reaches containers through play-agent-bus.yml. After it
 hook tells at once; a watcher already running keeps the old code until that session restarts
 once.
 
+## The status line shows the role
+
+`👥 desktop (coordinator), other (worker)`. `pingbus status-line` reads each role on every
+render through `inbox.cached_role`, from the same cached team record the role notice reads (a
+test pins it equal to the hooks' survey), so a change shows at the next refresh with no restart.
+It reads through `config.load_bundle`, imported only when there are teams to show, so loading the
+module stays as cheap as before. Order: the team, its role, then its marks, `beta (worker) (down)`. A role that cannot be read is `(role?)`, with one stderr line naming the teams and why,
+never a guessed "worker". A team and its role never wrap apart. The Plan 00201 M3 and Plan 00203
+M3 acceptance checks now expect a real role for each team.
+
 ## Differences between kinds that remain
 
 1. Attach and restore are on ccy seat rows only: only sessions on ccy's tmux can be attached
@@ -84,5 +94,6 @@ sessions). It asks first, default No, and is never first in its menu.
 
 ## Versions and deploy
 
-CCY 3.99.12.16, container 2.77.13 (pingbus and declare.py are baked into the image; .15/.12 before Fable's fixes): renumber
+CCY 3.99.12.17, container 2.77.14 (pingbus and declare.py are baked into the image; .15/.12
+before Fable's fixes, .16/.13 before the status-line role): renumber
 at merge. Queued in `meta-deploy.list`: play-claude-yolo.yml, then play-agent-bus.yml.

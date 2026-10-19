@@ -17,11 +17,16 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.12.16 — container 2.77.13
+## 3.99.12.17 — container 2.77.14
 
 Follows 3.99.12.10 (container 2.77.7). The image carries the new pingbus and declare.py.
-3.99.12.15 (container 2.77.12) was this release before the role change took one play-lock hold
-(below); it was never merged.
+3.99.12.15 (container 2.77.12) and 3.99.12.16 (container 2.77.13) were earlier states of this
+release on its branch; neither was merged.
+
+- **The status line shows each team's role**: `👥 desktop (coordinator), other (worker)`,
+  read on every refresh from the team record the role notice reads, so a role change shows at
+  the next refresh. A role that cannot be read shows as `(role?)`, never a guess, with one
+  line on stderr. `(down)` follows the role.
 
 - **A role change waits for the play lock before it writes anything**: the declared entry, the
   live role and the apply happen under one hold, so a wait that is stopped or times out changes

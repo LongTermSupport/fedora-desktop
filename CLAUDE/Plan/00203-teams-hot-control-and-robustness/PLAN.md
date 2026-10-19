@@ -180,7 +180,9 @@ Built on `fix/teams-server-robustness`; design and evidence in
   coordinator's two paths, through one role-change path that dispatches by kind only at the
   last step (a declared LXC member's entry is written too, then applied). No destructive
   action is first in any picker menu: a tested rule. `ccy-teams session role` also takes a
-  member's handle. Notes:
+  member's handle. The status line shows each team with this session's role,
+  `👥 desktop (coordinator), other (worker)`, read on every refresh from the team record the
+  role notice reads; `(role?)` where it cannot be read. Notes:
   [subagent-reports/261016-member-roles-opus.md](subagent-reports/261016-member-roles-opus.md).
 
 ## Decisions

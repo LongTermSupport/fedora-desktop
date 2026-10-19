@@ -365,21 +365,27 @@ class RoutingTest(TempDir):
 
 class SegmentTest(TempDir):
     """M3: `pingbus status-line` prints the session's own status line, then `👥 TEAMS` on rows of
-    its own (wrapped after a comma at COLUMNS, later rows indented under the first)."""
+    its own (wrapped after a comma at COLUMNS, later rows indented under the first), each team
+    with this session's role in it (Plan 00203 Task 3.8); a role that could not be read fails."""
 
     def test_expect_segment_wants_the_inner_line_then_the_teams(self) -> None:
-        shown = self.write("seg", "model \x1b[2m|\x1b[0m dir\n\x1b[36m👥 a,b\x1b[0m\n")
-        wrapped = self.write("wrapped", "model | dir\nmore\n\x1b[36m👥 a,\x1b[0m\n\x1b[36m   b\x1b[0m\n")
-        alone = self.write("alone", "\x1b[36m👥 a,b\x1b[0m\n")
+        shown = self.write("seg", "model \x1b[2m|\x1b[0m dir\n\x1b[36m👥 a (worker), b (coordinator)\x1b[0m\n")
+        wrapped = self.write("wrapped", "model | dir\nmore\n\x1b[36m👥 a (worker),\x1b[0m\n"
+                                        "\x1b[36m   b (worker) (down)\x1b[0m\n")
+        alone = self.write("alone", "\x1b[36m👥 a (worker), b (worker)\x1b[0m\n")
         old = self.write("old", "model | dir | \x1b[36mbus: a,b\x1b[0m\n")
-        appended = self.write("appended", "model | dir | \x1b[36m👥 a,b\x1b[0m\n")
-        unindented = self.write("unindented", "model\n\x1b[36m👥 a,\x1b[0m\nb\n")
+        no_role = self.write("no-role", "model | dir\n\x1b[36m👥 a,b\x1b[0m\n")
+        unknown = self.write("unknown", "model | dir\n\x1b[36m👥 a (worker), b (role?)\x1b[0m\n")
+        appended = self.write("appended", "model | dir | \x1b[36m👥 a (worker), b (worker)\x1b[0m\n")
+        unindented = self.write("unindented", "model\n\x1b[36m👥 a (worker),\x1b[0m\nb (worker)\n")
         broken = self.write("broken", "model\n\x1b[31m👥 no record of this session's teams (pingbus status)\x1b[0m\n")
         self.assertEqual(run("expect-segment", shown, "a,b")[0], 0)
         self.assertEqual(run("expect-segment", wrapped, "a,b")[0], 0)
         self.assertEqual(run("expect-segment", shown, "b,a")[0], 1)
         self.assertEqual(run("expect-segment", alone, "a,b")[0], 1, "the session's own line is missing")
         self.assertEqual(run("expect-segment", old, "a,b")[0], 1)
+        self.assertEqual(run("expect-segment", no_role, "a,b")[0], 1, "each team shows its role")
+        self.assertEqual(run("expect-segment", unknown, "a,b")[0], 1, "a role that could not be read")
         self.assertEqual(run("expect-segment", appended, "a,b")[0], 1, "the teams must start a row")
         self.assertEqual(run("expect-segment", unindented, "a,b")[0], 1)
         self.assertEqual(run("expect-segment", broken, "a,b")[0], 1)

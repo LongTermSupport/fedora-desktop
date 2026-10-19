@@ -7,7 +7,7 @@ and command-line settings outrank the project's and the user's. So it works in a
 with or without a hooks daemon: it runs the status line the session would have had without the
 kit (the first `statusLine` command in the project's .claude/settings.local.json, then its
 .claude/settings.json, then the user's settings.json) with the same stdin, prints that, and adds
-`👥 A,B` from the record the SessionStart hook wrote under the session id
+`👥 A (role), B (role)` from the record the SessionStart hook wrote under the session id
 (`hooks.record_session_teams`, which writes where `sessions_dir` says).
 
 The teams go on rows of their own below the inner status line, never appended to its last row:
@@ -27,8 +27,15 @@ instead. The inner command runs in its own process group, killed on a timeout an
 process is cancelled (Claude Code cancels an in-flight render when a new one starts), so nothing
 it started outlives the render.
 
-It renders on every refresh, so it imports no other pingbus module (the zipapp's __main__ runs it
-without the cli); the few names it shares with hooks.py and protocol.py are copies a test keeps
+Each team shows this member's role in it, `👥 desktop (coordinator), other (worker)`, read on
+every render from the team record the hooks' role notice reads (`inbox.cached_role`), so a role
+change shows at the next refresh with no restart. A role that cannot be read is `(role?)`, never
+a guess, with one line on stderr naming the teams and why. A team's marks such as `(down)` come
+after its role: the team, its role, then each mark, in brackets of their own.
+
+It renders on every refresh, so loading it imports no other pingbus module (the zipapp's
+__main__ runs it without the cli): `read_roles` imports config and inbox only when there are
+teams to show. The few names it shares with hooks.py and protocol.py are copies a test keeps
 equal.
 """
 
@@ -45,6 +52,7 @@ import sys
 import time
 import unicodedata
 from collections.abc import Callable, Mapping
+from typing import TextIO
 
 COMMAND = "pingbus status-line"
 #: Set for the inner status line, so a settings file that names this command cannot loop.
@@ -79,8 +87,12 @@ NO_MEMBERSHIP = "this session's membership is unreadable (pingbus status)"
 DOWN_DIR = "down"
 DOWN_FRESH_S = 300.0
 CANCEL_SIGNALS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
+#: Shown in place of a role that cannot be read.
+ROLE_UNKNOWN = "role?"
 
 Runner = Callable[[str, bytes, Mapping[str, str], "pathlib.Path | None"], tuple[str, int]]
+#: Teams -> (each team's role, None where unreadable; one diagnostic line, None when all read).
+RoleReader = Callable[[Mapping[str, str], list[str]], tuple[dict[str, "str | None"], "str | None"]]
 
 #: The inner command's process while it runs, for the cancel handler.
 _running: subprocess.Popen | None = None
@@ -287,6 +299,30 @@ def _is_down(environ: Mapping[str, str], team: str) -> bool:
     return stat.S_ISREG(found.st_mode) and time.time() - found.st_mtime < DOWN_FRESH_S
 
 
+def read_roles(environ: Mapping[str, str], teams: list[str]) -> tuple[dict[str, str | None], str | None]:
+    """This member's role in each team, from each bundle as `config.load_active` validates it
+    and its cached team record by `inbox.cached_role` (what the role notice reads), None where
+    it cannot be read; and one
+    diagnostic line naming every such team and why, None when every role was read. The bus
+    modules are imported here, not with this module, so a render with no teams stays cheap."""
+    from helpers.pingbus import config, inbox, protocol
+
+    roles: dict[str, str | None] = dict.fromkeys(teams)
+    failed: list[str] = []
+    try:
+        home = config.resolve_home(environ)
+    except config.ConfigError as exc:
+        return roles, f"pingbus status-line: no team's role can be read: {exc}"
+    for team in teams:
+        try:
+            roles[team] = inbox.cached_role(config.load_bundle(home, team))
+        except (config.ConfigError, protocol.Untrusted) as exc:
+            failed.append(f"{team}: {exc}")
+    if not failed:
+        return roles, None
+    return roles, f"pingbus status-line: the role cannot be read ({'; '.join(failed)})"
+
+
 def display_width(text: str) -> int:
     """The terminal columns `text` takes, by the hooks daemon's measure: colour escapes take
     none, wide and fullwidth code points (most emoji) two, combining and format code points none.
@@ -323,26 +359,35 @@ def _wrapped(colour: str, pieces: list[str], joiner: str, columns: int | None) -
     return "\n".join(f"{colour}{row}{RESET}" for row in rows)
 
 
-def _teams_text(environ: Mapping[str, str], teams: list[str]) -> str:
-    shown = [f"{team}(down)" if _is_down(environ, team) else team for team in teams]
-    pieces = [f"{team}," for team in shown[:-1]] + shown[-1:]
-    return _wrapped(CYAN, pieces, "", terminal_columns(environ))
+def _team_piece(environ: Mapping[str, str], team: str, role: str | None) -> str:
+    """`team (role)`, then each of its marks: the one order every team is shown in."""
+    marks = " (down)" if _is_down(environ, team) else ""
+    return f"{team} ({role or ROLE_UNKNOWN}){marks}"
+
+
+def _teams_text(environ: Mapping[str, str], teams: list[str], read: RoleReader, err: TextIO) -> str:
+    roles, problem = read(environ, teams)
+    if problem is not None:
+        err.write(problem + "\n")
+    shown = [_team_piece(environ, team, roles.get(team)) for team in teams]
+    pieces = [f"{piece}," for piece in shown[:-1]] + shown[-1:]
+    return _wrapped(CYAN, pieces, " ", terminal_columns(environ))
 
 
 def _note(environ: Mapping[str, str], text: str) -> str:
     return _wrapped(RED, text.split(" "), " ", terminal_columns(environ))
 
 
-def _segment(environ: Mapping[str, str], payload: dict) -> str:
+def _segment(environ: Mapping[str, str], payload: dict, read: RoleReader, err: TextIO) -> str:
     marker = environ.get(MEMBERSHIP_VAR)
     if marker is not None and marker != MEMBERSHIP_OFF and marker.startswith("/"):
         found = membership_teams(environ)
         if found is None:
             return _note(environ, NO_MEMBERSHIP)
-        return _teams_text(environ, found) if found else ""
+        return _teams_text(environ, found, read, err) if found else ""
     teams = session_teams(environ, _session_id(payload))
     if teams is not None:
-        return _teams_text(environ, teams)
+        return _teams_text(environ, teams, read, err)
     if environ.get("PINGBUS_TEAMS"):
         return _note(environ, NO_RECORD)
     return ""
@@ -365,13 +410,15 @@ def _inner(raw: bytes, payload: dict, environ: Mapping[str, str], run: Runner) -
     return f"{text} {RED}{note}{RESET}" if text else f"{RED}{note}{RESET}"
 
 
-def render(raw: bytes, environ: Mapping[str, str], run: Runner = run_command) -> tuple[str, int]:
+def render(raw: bytes, environ: Mapping[str, str], run: Runner = run_command, *,
+           err: TextIO | None = None) -> tuple[str, int]:
     """The status line text (no final newline) and the exit status, always 0. The segment
     starts a row of its own: appended to the inner's last row it could push that row past the
-    terminal's width, where Claude Code cuts it."""
+    terminal's width, where Claude Code cuts it. A role that cannot be read is said on `err`
+    (default stderr)."""
     payload = _payload(raw)
     inner = "" if environ.get(INNER_VAR) else _inner(raw, payload, environ, run)
-    segment = _segment(environ, payload)
+    segment = _segment(environ, payload, read_roles, sys.stderr if err is None else err)
     if not segment:
         return inner, 0
     if not inner:

@@ -747,9 +747,11 @@ hook timeout is 1500 ms, so the kit's `"timeout": 6` is load-bearing.
   the `statusLine` command the session would otherwise have had (the first of the project's
   `.claude/settings.local.json`, `.claude/settings.json`, then `$CLAUDE_CONFIG_DIR` or
   `~/.claude` `settings.json`; never itself) with the same stdin, prints its output and adds
-  `👥 A,B` on rows of its own below it, from the record for the payload's `session_id`
-  (wrapped after a comma at `COLUMNS`, one unbroken row when `COLUMNS` is not a positive
-  number; never cut). It always exits 0
+  `👥 A (role), B (role)` on rows of its own below it, from the record for the payload's
+  `session_id` (wrapped after a comma at `COLUMNS`, one unbroken row when `COLUMNS` is not a
+  positive number; never cut). Each role is read on every render from the bundle's cached team
+  record (`inbox.cached_role`, what the role notice reads); one that cannot be read is
+  `(role?)`, with one line on stderr. A team's marks (`(down)`) follow its role. It always exits 0
   (a non-zero exit blanks Claude Code's status line): that command's non-zero exit, a 10 s
   timeout (its process group is then killed, as it is when `status-line` itself gets SIGTERM,
   SIGINT or SIGHUP) or an unreadable settings file is shown as red text. With `PINGBUS_TEAMS` set and no usable record it shows `👥 no record of this session's teams (pingbus status)` in red instead; with neither, nothing is added. `recv`, `wait`, `watch`, `inbox` and `status` cover every active

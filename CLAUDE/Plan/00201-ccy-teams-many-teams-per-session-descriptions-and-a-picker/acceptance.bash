@@ -37,7 +37,7 @@ set -euo pipefail
 #   M2 its per-session record (pingbus SessionStart) lists both teams;
 #   M3 the session's own settings make the guarded `pingbus status-line` its status line, and
 #      run as its claude runs it (claude's environment) it prints the checkout's own line then
-#      `👥 accept201a,accept201b` on rows of its own;
+#      `👥 accept201a (<role>), accept201b (<role>)` on rows of its own, each role one it read;
 #   R1 `pingbus say --to m7solo.1` (a member of accept201a only), no --team: SENT in accept201a;
 #   R2 `pingbus say --to m7peer.1` (a member of both): exit 64, both teams listed with their
 #      descriptions;
@@ -165,7 +165,7 @@ plan_deploy_leg "save the Quick Launch record; ccy --headless --teams ${SEAT_LIS
 check_leg "M1 the launch block names both teams, seats and descriptions" m7_check_block
 check_leg "D3 the session's pingbus status prints both ABOUT lines" m7_check_about
 check_leg "M2 the per-session record lists both teams" m7_check_record
-check_leg "M3 pingbus status-line shows the session's own line, then 👥 ${TEAM_A},${TEAM_B} below it" m7_check_segment
+check_leg "M3 pingbus status-line shows the session's own line, then 👥 ${TEAM_A}, ${TEAM_B} with their roles below it" m7_check_segment
 check_leg "R1 say --to a member of one team infers that team" m7_check_infer
 check_leg "R2 say --to a name on both teams is refused with the choices" m7_check_ambiguous
 check_leg "M4 SessionEnd removes the per-session record" m7_check_session_end
