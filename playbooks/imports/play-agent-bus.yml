@@ -65,6 +65,8 @@
       - etc/systemd/system/agent-bus-backup@.service
     # Matches the installer's and the helper's CHANGED<TAB><what> marker lines.
     agent_bus_changed_re: "^CHANGED\t"
+    # The LXC helper's lines for a member whose container is not running, and its summary.
+    agent_bus_lxc_held_re: "^(SKIPPED|DEFERRED|LXC-SUMMARY)\t"
     # Scoped like the teams: with agent_bus_only_teams, only those teams' LXC members.
     agent_bus_lxc_member_list: "{{ agent_bus_lxc_members | default([]) if agent_bus_only_teams is not defined
       else agent_bus_lxc_members | default([]) | selectattr('team', 'in', agent_bus_only_teams) | list }}"
@@ -74,6 +76,9 @@
       - "{{ agent_bus_lxc_member_list | to_json }}"
       - --teams-present
       - "{{ agent_bus_present | map(attribute='team') | list | to_json }}"
+    # A scoped run says its scope, so the helper sweeps only those teams' member records.
+    agent_bus_lxc_scope_args: "{{ [] if agent_bus_only_teams is not defined
+      else ['--only-teams', agent_bus_only_teams | to_json] }}"
   tasks:
     # Only the shape this play itself relies on; the installer validates each team file.
     - name: Check agent_bus_teams declares each team once, with a known state
@@ -242,6 +247,16 @@
       when: agent_bus_lxc_member_list | length > 0 and not ansible_check_mode
       tags: [agent-bus]
 
+    # A container that is not running is a deferral, not a failure (SPEC-lxc-stopped-members.md
+    # of Plan 00203): the helper parks the handle from the host and leaves the rest for the
+    # first run with the container up. This only says what was held back; ccy-teams says it too.
+    - name: Say which LXC members leaving a team wait for their containers
+      ansible.builtin.debug:
+        msg: "{{ agent_bus_lxc_absent.stdout_lines | select('match', agent_bus_lxc_held_re) | list }}"
+      when: agent_bus_lxc_absent is not skipped
+        and agent_bus_lxc_absent.stdout_lines | select('match', agent_bus_lxc_held_re) | list | length > 0
+      tags: [agent-bus]
+
     - name: Remove the agent-bus teams declared absent
       ansible.builtin.command:
         argv: >-
@@ -351,12 +366,24 @@
       when: not ansible_check_mode
       tags: [agent-bus]
 
-    # README.lxc's steps for each present entry; a member already joined is left alone.
+    # README.lxc's steps for each present entry; a member already joined is left alone. One
+    # whose container is not running is skipped (joined) or deferred (not yet), never a failure:
+    # after a reboot most containers are stopped (SPEC-lxc-stopped-members.md of Plan 00203).
+    # It runs with no entries too, to remove the member record of a team left with none.
     - name: Join the LXC members declared present to their teams
       ansible.builtin.command:
-        argv: "{{ ['python3', '-m', 'helpers.agent_bus_lxc.members', '--phase', 'present'] + agent_bus_lxc_args }}"
+        argv: "{{ ['python3', '-m', 'helpers.agent_bus_lxc.members', '--phase', 'present'] + agent_bus_lxc_args
+          + agent_bus_lxc_scope_args }}"
         chdir: "{{ root_dir }}" # repo root on sys.path so the helpers package imports
       register: agent_bus_lxc_present
       changed_when: agent_bus_lxc_present.stdout_lines | select('match', agent_bus_changed_re) | list | length > 0
-      when: agent_bus_lxc_member_list | length > 0 and not ansible_check_mode
+      when: not ansible_check_mode
+      tags: [agent-bus]
+
+    # The members held back, each with why, then the one summary line; ccy-teams says them too.
+    - name: Say which LXC members were skipped or deferred because their containers are not running
+      ansible.builtin.debug:
+        msg: "{{ agent_bus_lxc_present.stdout_lines | select('match', agent_bus_lxc_held_re) | list }}"
+      when: agent_bus_lxc_present is not skipped
+        and agent_bus_lxc_present.stdout_lines | select('match', agent_bus_lxc_held_re) | list | length > 0
       tags: [agent-bus]

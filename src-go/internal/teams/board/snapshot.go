@@ -9,8 +9,25 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/discover"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcrecord"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 )
+
+// stoppedAtApply is added to a joined LXC member's WHERE when its container was not running at
+// the last apply, which skipped it (SPEC-lxc-stopped-members.md L10).
+const stoppedAtApply = "container stopped at the last apply"
+
+// heldBackWords is the STATE and WHERE of a listed member the LXC record holds back: a skipped
+// one keeps its state with the stopped container said; a deferred one (leaving) is deferred.
+func heldBackWords(row Row, item lxcrecord.Item) (string, string) {
+	if item.Status == lxcrecord.StatusDeferred {
+		return lxcrecord.StatusDeferred, item.Words()
+	}
+	if row.Where == "" {
+		return row.State, stoppedAtApply
+	}
+	return row.State, row.Where + ", " + stoppedAtApply
+}
 
 // Words the table and the callers compare against.
 const (
@@ -213,8 +230,9 @@ func (s *Snapshot) fillSeats() {
 	}
 }
 
-// addMemberRows appends a team's seats, its other members and its people.
-func (s *Snapshot) addMemberRows(c *Collector, team string, seats []seatAt) {
+// addMemberRows appends a team's seats, its other members, the LXC members its record holds
+// back, and its people.
+func (s *Snapshot) addMemberRows(c *Collector, team string, seats []seatAt, lxc lxcrecord.Record) {
 	roster := s.Members[team]
 	activity := map[string]string{}
 	for _, m := range roster.Members {
@@ -234,14 +252,7 @@ func (s *Snapshot) addMemberRows(c *Collector, team string, seats []seatAt) {
 			shown[sa.seat.Handle] = true
 		}
 	}
-	for _, m := range roster.Members {
-		if !shown[m.Handle] {
-			s.Rows = append(s.Rows, Row{
-				Team: team, Member: m.Handle, Kind: Kind(m.Kind()), State: activity[m.Handle],
-				Applied: "-", Session: "-", Restore: "-", Where: m.Role, Handle: m.Handle, Dir: "-", Role: m.Role,
-			})
-		}
-	}
+	s.addListedRows(team, roster, activity, shown, lxc)
 	for _, h := range roster.Humans {
 		signed := s.SignedIn[team+"|"+h.Name]
 		if signed == "" {
@@ -251,5 +262,41 @@ func (s *Snapshot) addMemberRows(c *Collector, team string, seats []seatAt) {
 			Team: team, Member: h.Name, Kind: KindHuman, State: roomWord(h.Membership),
 			Applied: "-", Session: signed, Restore: "-", Where: "Element; Enter for choices", Handle: "-", Dir: "-",
 		})
+	}
+}
+
+// addListedRows appends the team's listed members that no seat row showed, with what the LXC
+// record says of each it held back, then a row for each deferred LXC member the list does not
+// name (one never joined, so with no handle yet).
+func (s *Snapshot) addListedRows(team string, roster agentbus.Roster, activity map[string]string, shown map[string]bool,
+	lxc lxcrecord.Record,
+) {
+	held := map[string]lxcrecord.Item{}
+	for _, item := range lxc.HeldBack() {
+		if item.Handle != "" {
+			held[item.Handle] = item
+		}
+	}
+	for _, m := range roster.Members {
+		if shown[m.Handle] {
+			continue
+		}
+		shown[m.Handle] = true
+		row := Row{
+			Team: team, Member: m.Handle, Kind: Kind(m.Kind()), State: activity[m.Handle],
+			Applied: "-", Session: "-", Restore: "-", Where: m.Role, Handle: m.Handle, Dir: "-", Role: m.Role,
+		}
+		if item, ok := held[m.Handle]; ok {
+			row.State, row.Where = heldBackWords(row, item)
+		}
+		s.Rows = append(s.Rows, row)
+	}
+	for _, item := range lxc.HeldBack() {
+		if item.Status == lxcrecord.StatusDeferred && !shown[item.Handle] {
+			s.Rows = append(s.Rows, Row{
+				Team: team, Member: item.Label(), Kind: "lxc", State: lxcrecord.StatusDeferred,
+				Applied: "-", Session: "-", Restore: "-", Where: item.Words(), Handle: "-", Dir: "-",
+			})
+		}
 	}
 }

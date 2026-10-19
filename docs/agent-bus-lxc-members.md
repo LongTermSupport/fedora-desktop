@@ -21,9 +21,11 @@ desktop's tooling:
 
 The desktop's side is `agent_bus_lxc_members` in the desktop's `localhost.yml`, applied by
 `play-agent-bus.yml` (`helpers/agent_bus_lxc/members.py`). It never creates a container or a
-user, never installs gh and never supplies a token for gh. A container that is missing
+user, never installs gh and never supplies a token for gh. A running container that is missing
 something stops the play with a message naming it; nothing is changed in any container until
-every declared container has passed the checks.
+every declared running container has passed the checks. A container that is not running never
+stops the play: its member is held back until a run with the container up
+([Containers that are not running](#containers-that-are-not-running)).
 
 For a container on another machine the desktop cannot reach with `lxc-attach`, join it by
 hand: `README.lxc` in the member kit (`/usr/local/share/agent-bus/kit/` on the desktop, or
@@ -34,14 +36,14 @@ the container is on the desktop.
 
 ## What the provisioner must provide
 
-The play checks these in this order, for every declared container, before it changes
-anything. The "stops with" column is the message to look for; the play exits 78 and prints it
-to stderr.
+The play checks these in this order, for every declared container that is running, before it
+changes anything. The "stops with" column is the message to look for; the play exits 78 and
+prints it to stderr. A container that exists but is not running is not checked and is not a
+failure ([Containers that are not running](#containers-that-are-not-running)).
 
 | Prerequisite                                                                                                                                      | Checked by                                                              | A failure says                                                                                                              |
 | ------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | The container exists, in the desktop's LXC (`lxc-ls`)                                                                                             | `lxc-ls`, `lxc-info`                                                    | `LXC container <container> does not exist: this play joins existing containers, it never makes one`                         |
-| It is running                                                                                                                                     | `lxc-info -n <container> -sH`                                           | `LXC container <container> is STOPPED: start it, then run the play again`                                                   |
 | The agent user exists (`getent passwd` gives a home)                                                                                              | `lxc-attach`                                                            | `LXC container <container> has no user <agent-user>: make the agent user in the container first`                            |
 | gh is installed and logged in to github.com as the agent user                                                                                     | `gh auth token --hostname github.com`, as the agent user                | `LXC container <container>: gh is required and must be logged in for <agent-user>: install gh in the container and run ...` |
 | The container reaches the homeserver host's bus address through an LXC bridge of the desktop                                                      | The container's source address towards the bus address                  | `... is on no network of this host` or `... reaches <bus> through <dev>, which is not a bridge of this host`                |
@@ -219,8 +221,56 @@ same way. A member joined by hand looks the same as a lost bundle, so it is refu
 
 **Leaving.** `state: absent` parks the member's handle in the team, deletes the bundle from
 the container and takes the team out of `PINGBUS_TEAMS`. A container that is already gone
-needs `repo: <repo>` on its entry so the play knows which handle to park. The play never
-removes the kit or the container.
+needs `repo: <repo>` on its entry so the play knows which handle to park. A container that
+exists but is not running has its handle parked from the desktop's side, so the member loses
+the team at once; the bundle, the env file and a supervised session's unit stay in the
+container until the first run with it up, which removes them (the play's line for it is
+`DEFERRED`). The play never removes the kit or the container.
+
+## Containers that are not running
+
+Most containers are stopped after a reboot, so a stopped (or frozen, or any state but
+RUNNING) container is ordinary and never fails the play. The play never starts one and never
+enters one that is not running; it holds its member back and goes on with every other member
+and team in the same run:
+
+- **SKIPPED**: the member has already joined (its handle is an active member of the team), so
+  it is left as it is. Its seat stays its own. The first run with the container up refreshes
+  its kit, env file, config check and unit.
+- **DEFERRED**: the member has not joined yet, or its handle is parked, or the desktop has no
+  record that it joined. Start the container, then run the play again (`ccy-teams apply <team>`)
+  to join it, or take the entry out until it is wanted.
+
+The desktop knows a member's handle without entering the container from the entry, when it
+gives `host`, `seat` and `repo`, or else from the member record below. A member that has joined
+but has no record yet (the first run of this play since the record was introduced, with its
+container stopped) shows as deferred until the first run with its container up.
+
+The play prints one `SKIPPED` or `DEFERRED` line per member held back, each with why, then one
+`LXC-SUMMARY` line, in a task of its own, so they show without `-v`. A container that does not
+exist is still a failure: the play joins existing containers and never makes one.
+
+**The member record.** After each successful run the play writes what it found for each entry
+of a team to `/var/lib/agent-bus-applied/lxc/<team>.json` (root and the stamps' group, 0640; it
+holds no secret): the container, the user, the declared state, the status (`joined`, `stopped`,
+`deferred` or `left`), the handle, the checkout, why, and since when. It is rewritten only when
+it changes. A team that is not declared present, or has no entry left in
+`agent_bus_lxc_members`, has no record: the play removes it, so a member nobody declares is
+never shown as waiting for its container. A run scoped to some teams (`ccy-teams apply <team>`)
+removes only those teams' records.
+
+ccy-teams reads the record:
+
+- `ccy-teams apply` names each member held back with why after the play, and ends with
+  `Applied: <team>, with N LXC members held back (above).` The apply still succeeds.
+- The board gives a deferred member that has no handle yet a row of its own (kind `lxc`, state
+  `deferred`, WHERE `deferred: <why>`), shows a deferred member that is leaving as `deferred`,
+  and adds `container stopped at the last apply` to a skipped member's WHERE. A record it
+  cannot read is said on the team's row.
+- `ccy-teams lxc-add` offers only running containers. Before its summary it names the team's
+  declared members whose containers are not running and says the play skips or defers them and
+  that they do not block this add. If the new member's container stops before the play reaches
+  it, it says the member is declared but deferred, not joined.
 
 ## Starting sessions
 

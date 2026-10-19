@@ -239,6 +239,48 @@ func TestApplyTeamsRunsPlayThenElementThenSays(t *testing.T) {
 	}
 }
 
+// SPEC-lxc-stopped-members.md L9: a member the play held back because its container was not
+// running is said after the apply, which still succeeds.
+func TestApplyTeamsSaysTheLxcMembersTheRunHeldBack(t *testing.T) {
+	r := newOpsRig(t)
+	r.ops.Cfg.AppliedDir = t.TempDir()
+	teamtest.MustWrite(t, filepath.Join(r.ops.Cfg.AppliedDir, "lxc", "beta.json"), `{"version": 1, "team": "beta", "members": [
+		{"container": "container-a", "user": "agent", "state": "present", "status": "joined", "handle": "p.1+box.lxc", "why": ""},
+		{"container": "container-b", "user": "agent", "state": "present", "status": "deferred", "handle": null,
+		 "why": "LXC container container-b is STOPPED: start it"}]}`)
+	r.on(opsPlay, execx.Result{})
+	r.on(opsDeclare+"element-teams", execx.Result{})
+	r.statuses = []map[string]declare.Status{{"beta": st("current", "")}}
+	if err := r.ops.ApplyTeams(t.Context(), []string{"beta"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{
+		"beta: agent@container-b deferred: LXC container container-b is STOPPED: start it",
+		"Applied: beta, with 1 LXC member held back (above).",
+	} {
+		if !strings.Contains(r.said(), s) {
+			t.Errorf("missing %q in %q", s, r.said())
+		}
+	}
+	if strings.Contains(r.said(), "container-a") {
+		t.Errorf("a joined member was said: %q", r.said())
+	}
+}
+
+func TestApplyTeamsWithAnUnreadableLxcRecordFails(t *testing.T) {
+	r := newOpsRig(t)
+	r.ops.Cfg.AppliedDir = t.TempDir()
+	teamtest.MustWrite(t, filepath.Join(r.ops.Cfg.AppliedDir, "lxc", "beta.json"), "{")
+	r.on(opsPlay, execx.Result{})
+	r.statuses = []map[string]declare.Status{{"beta": st("current", "")}}
+	if err := r.ops.ApplyTeams(t.Context(), []string{"beta"}); err == nil {
+		t.Fatal("want an error")
+	}
+	if !strings.Contains(r.said(), "the LXC member record") {
+		t.Errorf("said %q", r.said())
+	}
+}
+
 func TestApplyTeamsPlayStreamsToStdoutAndStderr(t *testing.T) {
 	r := newOpsRig(t)
 	r.on(opsPlay, execx.Result{Stdout: []byte("PLAY RECAP\n")})

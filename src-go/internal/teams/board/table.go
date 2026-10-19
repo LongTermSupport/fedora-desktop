@@ -238,7 +238,7 @@ func (t Table) line(cells [columns]string, dress func(i int, padded string) stri
 // wordColour is the colour a status word is shown in, or "" for none.
 func wordColour(word string) string {
 	switch {
-	case isOneOf(word, "free", "invited", "no", "parked", "never signed in"), strings.HasSuffix(word, "(stopped)"):
+	case isOneOf(word, "free", "invited", "no", "parked", "deferred", "never signed in"), strings.HasSuffix(word, "(stopped)"):
 		return cYellow
 	case isOneOf(word, "up", "active", "held", "in room", "yes"), strings.HasSuffix(word, " signed in"):
 		return cGreen
