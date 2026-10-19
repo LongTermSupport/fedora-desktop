@@ -19,23 +19,21 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-# Plan 00194 Task 2.0h: installs the pingbus kit on the host and copies it into every declared
-# LXC member's running container. `pingbus seat disconnected` (the host's notice for a session
-# that ended without its goodbye) now writes each seat's outcome, told or why not, to the
-# checkout's .claude/ccy/pingbus/disconnect.log. Before play-claude-yolo.yml.
-playbooks/imports/play-agent-bus.yml
-# Plan 00194 Task 2.0h: installs ccy 3.99.12.18, container 2.77.14: a closed terminal or tmux
-# window now stops the session's still-running container before the disconnect notice, so the
-# teams are told, and the clean-up ignores SIGHUP and Ctrl-C until done. The image carries the
-# same pingbus, so it is rebuilt once at the next ccy launch. Running sessions are not touched.
-# Before the 00194 acceptance.
+# Plan 00167 (#90): builds cc-project-dir beside cc and installs the new cc, which starts at the
+# top of a git repository and, typed outside one, offers this checkout [Y/n] (refusing on no,
+# or with no terminal). ccy stays at 3.99.12.18, already installed. Afterwards type cc in ~
+# twice (accept once, decline once) and once in a project subfolder.
+# Plan 00135 Task 10.1 (#86): it also rebuilds ccy-sessions, whose verify-restore now reports a
+# session sitting at Claude Code's conversation picker as WAITING-AT-PROMPT thread-picker, not
+# OK, so fedora-desktop-self-update verify fails on it.
 playbooks/imports/play-claude-yolo.yml
-# Plan 00194 Tasks 2.0b and 2.0h: the goodbye host checks, automated (acceptance.bash; the plan
-# has no triage.bash or deploy.bash), run again for G3 (window closed). The last run passed G1
-# (Ctrl-C) and G2 (podman stop) and failed G3: the team got no disconnected notice, because the
-# launcher's exit ran while its container still held the seats (Task 2.0h, fixed by the two
-# plays above). G3 now also keeps the launcher's stderr and the checkout's disconnect.log as
-# evidence. The whole script runs again, so G1 and G2 are repeated. It makes two throwaway teams,
+# Plan 00194 Tasks 2.0b, 2.0h and 2.0i: the goodbye host checks, automated (acceptance.bash; the
+# plan has no triage.bash or deploy.bash), run again for G3 (window closed). The last run passed
+# G1 (Ctrl-C) and G2 (podman stop); in G3 the launcher now stops the container and runs the
+# disconnect notice (Task 2.0h, deployed), but pingbus dropped it as a duplicate of G2's notice
+# sent 19 s earlier (Task 2.0i, to be fixed and queued above this entry). G3 keeps the launcher's
+# stderr and the checkout's disconnect.log as evidence. The whole script runs again, so G1 and
+# G2 are repeated. It makes two throwaway teams,
 # starts three idle ccy sessions on them in a scratch checkout on its own tmux server, ends one
 # with Ctrl-C, one with podman stop and one by closing its window, counts the goodbye and
 # disconnected messages each team gets, then removes all of it. No SSH key or agent goes into
@@ -43,13 +41,21 @@ playbooks/imports/play-claude-yolo.yml
 # created ccy container on the host (as any ccy launch does). The team purge relies on sudo
 # staying cached (it does on this host). One sudo prompt.
 00194-agent-bus-live-delivery-supervisor-plugin
-# Plan 00189 Task 1.3: re-runs the CLI tools play, which now downloads the ouch 0.8.1 tarball to
-# /opt/ouch-0.8.1/ through get_url with a pinned sha256 and fails on a mismatch. The first run
-# downloads it once (about 2.8 MB, one changed task); the binary already extracted there is kept
-# (the extract task's creates: guard), so ouch, compress and uncompress are unchanged.
-# Plan 00210 Task 2.1, the same run: installs pandoc (dnf) and the new `convert` command at
-# ~/.local/bin/convert, built from src-go/cmd/convert. Afterwards `convert notes.md` lists what a
-# Markdown file can become (docx) and `convert notes.md --to docx` writes notes.docx beside it.
-# In the login user's shells it shadows ImageMagick's legacy /usr/bin/convert alias (magick is
-# unaffected). Keep this entry until both plans' runs are done.
+# Plan 00187 (#100): builds and installs wsi and deploys wsi-stream (restarting the warm
+# speech server) and the panel extension, so that while Claude post-processes a Ctrl+Insert
+# dictation the panel icon is 🤖, and 💬 for Alt+Insert, instead of the orange loading icon;
+# Insert during it flashes the no-entry sign. The extension changed: LOG OUT and back in
+# before it shows. Then look: dictate with Ctrl+Insert, then Alt+Insert, and watch the icon
+# after the orange loading icon (the debug log says "Display: CLAUDE_PROCESSING").
+playbooks/imports/optional/common/play-speech-to-text.yml
+# Plan 00210 (#102): installs pandoc and builds ~/.local/bin/convert from src-go/cmd/convert.
+# Afterwards `convert notes.md` lists what a Markdown file can become (docx) and
+# `convert notes.md --to docx` writes notes.docx beside it. In the login user's shells it
+# shadows ImageMagick's legacy /usr/bin/convert (use magick). The other CLI tools are re-run
+# unchanged. Before the 00210 acceptance.
 playbooks/imports/optional/common/play-cli-tools.yml
+# Plan 00210 Task 2.2: acceptance.bash (no triage.bash or deploy.bash) runs the installed
+# convert on a fixture Markdown file with headings, a list, a table, bold/italic and a code
+# block, in a scratch directory, and reads the DOCX back with pandoc to confirm each survived.
+# Read-only apart from the scratch directory; no prompts.
+00210-convert-cli-markdown-to-docx

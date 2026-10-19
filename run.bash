@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.32.0"
+RUN_BASH_VERSION="1.32.1"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -2566,21 +2566,18 @@ if [[ -d ~/.local ]] && [[ "$(stat -c%U ~/.local)" != "$(whoami)" ]]; then
 fi
 mkdir -p ~/.local/bin ~/.local/share ~/.local/state
 info "Installing Ansible and dependencies via pipx"
-# M6: anchor on '^ansible ' so a prior `ansible-lint` install does NOT make this
-# match (which would skip the injects on a partial install). pipx list --short
-# prints one "<pkg> <version>" line per top-level package.
-if pipx list --short | grep -q '^ansible '; then
-  success "Ansible already installed"
-else
+# The ansible venv itself, not a name match in `pipx list`: a prior `ansible-lint`
+# install must not count as ansible (M6).
+if [[ ! -d ~/.local/share/pipx/venvs/ansible ]]; then
   pipx install --include-deps ansible
 fi
-# Inject deps unconditionally — pipx inject is idempotent, so this also repairs a
-# partial prior install where ansible existed but a dependency was missing.
-pipx inject ansible jmespath
-pipx inject ansible passlib
-pipx inject ansible ansible-lint
-# Ensure ~/.local/bin exists, then force-create symlink
-mkdir -p ~/.local/bin
+# Inject only the deps the venv lacks: re-injecting one prints a pipx warning (#54), and a
+# missing one is still injected, which repairs a partial prior install. jq fails on output
+# it cannot read (no JSON, no ansible venv, nothing at all; -s turns nothing into []), so
+# the run stops rather than assume either way.
+_pipx_missing="$(pipx list --json | jq -rs '$ARGS.positional - (.[0].venvs.ansible.metadata.injected_packages | keys) | join("\n")' --args jmespath passlib ansible-lint)"
+for _pkg in $_pipx_missing; do pipx inject ansible "$_pkg"; done
+success "Ansible and its dependencies present (jmespath, passlib, ansible-lint)"
 ln -sf ~/.local/share/pipx/venvs/ansible/bin/ansible-lint ~/.local/bin/ansible-lint
 # pipx's own app shims (ansible-galaxy, ansible-playbook, ansible, ...) now live in
 # ~/.local/bin, but PATH is only refreshed by a login shell's .bash_profile — a

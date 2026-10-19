@@ -83,6 +83,9 @@ also	extensions/*.js,extensions/*.mjs	eslint	tree:shell,rel:extensions
 also	playbooks/*.yml,playbooks/*.yaml,tasks/*.yml,tasks/*.yaml	ansible-pause	-
 also	scripts/qa-ansible-pause.bash,src-go/qa/ansiblepause/*,src-go/qa/cmd/qa-ansible-pause/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv,src-go/qa/internal/emit/*,src-go/qa/internal/cmdmain/*	ansible-pause	-
 also	tests/fixtures/ansible-pause/*	go	covered
+# A Go test in src-go/qa/toolchain holds each workflow's setup-go to the Go floor, so a workflow
+# edit runs the go check (whole, since the file is outside src-go/).
+also	.github/workflows/*.yml	go	covered
 # The toolchain gate judges the installed tools against .qa-versions (which it covers) and the Go
 # floor of src-go/go.mod and src-go/qa/go.mod; it runs whole when one, its wrapper, its Go package or command, or the
 # wrapper library change. It also runs after any changed shell or Python file (the post row below).

@@ -215,6 +215,15 @@ The host `cc` wrapper does all of the same: its sessions are `cc-<project>` on t
 server, `cc` in a project directory offers a detached one back, and `ccy-sessions` lists
 both kinds. From the keyboard the two feel identical; only the container differs.
 
+`cc` always starts its session at the top of a git repository, because Claude Code reads a
+project's `.claude/settings.json` (its hooks, its status line) only from the directory it
+starts in. Typed in a subdirectory, it starts at the repository's top. Typed outside any
+repository, it names the directory and offers this machine's fedora-desktop checkout
+(`[Y/n]`, Enter accepts); declining, or having no terminal to ask on (a reboot restore), stops
+it with a message saying to `cd` into a project or run `claude`, which starts anywhere. The
+check is `cc-project-dir`, a Go binary beside `cc` that `play-claude-yolo.yml` builds with the
+checkout baked in (Plan 00167).
+
 | Event                                              | Result                                                                                                                           |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | Terminal emulator crashes or is closed             | Session keeps running, detached                                                                                                  |
@@ -396,7 +405,8 @@ If the restore wrote no manifest for the boot, set-going says so and fails rathe
 Check with `ccy-sessions verify-restore [--wait SECONDS]`. It reads the manifest the boot's
 restore wrote (`~/.local/state/ccy/last-restore`) and prints one line per session: `OK`,
 `STARTING`, `SETTING-GOING`, `NOT-SET-GOING <reason>`, `WAITING-AT-PROMPT <prompt>` or
-`DEAD <reason>`. `NOT-SET-GOING` is a session left alone, or one whose transcript shows no
+`DEAD <reason>`. A session at Claude Code's conversation picker (a restore of a `--resume`
+launch) is `WAITING-AT-PROMPT thread-picker`. `NOT-SET-GOING` is a session left alone, or one whose transcript shows no
 input within two minutes of the keys being typed (`compact-not-started`,
 `continue-not-started`). It exits non-zero unless every session is `OK`. `--wait` polls
 until the restore has settled: nothing `STARTING` or `SETTING-GOING`, and the same answer

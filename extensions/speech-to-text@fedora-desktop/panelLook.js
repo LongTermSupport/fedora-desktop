@@ -38,10 +38,19 @@ const LOOKS = {
     TRANSCRIBING: {icon: LOADING, colour: COLOURS.amber},
     SUCCESS: {icon: MIC, colour: COLOURS.green},
     ERROR: {icon: MIC, colour: COLOURS.red},
+    // Claude post-processes the transcript: the style's emoji (claudeEmoji) is shown in
+    // place of the icon (Plan 00187)
+    CLAUDE_PROCESSING: {icon: LOADING, colour: COLOURS.purple},
     // The server is transcribing recordings (stt). Insert still dictates: the file job
     // pauses for it (Plan 00179).
     FILES: {icon: 'document-edit-symbolic', colour: COLOURS.blue},
 };
+
+/** The emoji of a Claude style, as on the recording countdown: 💬 for Alt+Insert
+ * (natural), 🤖 for Ctrl+Insert (corporate) and any style not known. */
+export function claudeEmoji(style) {
+    return style === 'natural' ? '💬' : '🤖';
+}
 
 /** The state to show: the idle mic gives way to FILES while recordings are being
  * transcribed; every other state is a dictation's and is shown as it is. */
@@ -54,9 +63,12 @@ export function isKnownState(state) {
     return Object.hasOwn(LOOKS, state);
 }
 
-/** The look of `state`. An unknown state is never shown as ready (the icon must not
- * claim ready when it does not know): it gets the please-wait hourglass. */
-export function lookFor(state) {
+/** The look of `state`; `claudeStyle` is the launch's Claude style, or null. An unknown
+ * state is never shown as ready (the icon must not claim ready when it does not know): it
+ * gets the please-wait hourglass. A look with `text` shows that text in place of its icon. */
+export function lookFor(state, claudeStyle = null) {
+    if (state === 'CLAUDE_PROCESSING')
+        return {...LOOKS.CLAUDE_PROCESSING, text: claudeEmoji(claudeStyle)};
     return isKnownState(state) ? LOOKS[state] : LOOKS.FINISHING;
 }
 

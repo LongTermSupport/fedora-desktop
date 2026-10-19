@@ -3,13 +3,17 @@ package toolchain
 import (
 	"context"
 	"errors"
+	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
 
 	goqaci "github.com/LongTermSupport/go-qa-ci"
+	"go.yaml.in/yaml/v3"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
@@ -168,6 +172,74 @@ func TestTheGolangciLintPinIsTheOneGoQaCiInstalls(t *testing.T) {
 	if pins["GOLANGCI_LINT"] != lock {
 		t.Fatalf(".qa-versions pins golangci-lint %s, go-qa-ci installs %s: bump them together", pins["GOLANGCI_LINT"], lock)
 	}
+}
+
+// actions/setup-go@v5 installs the go directive of the go.mod its go-version-file names, never a
+// toolchain line (later majors read the toolchain line unless GOTOOLCHAIN=local), so every
+// workflow that sets up Go names a go.mod whose go directive is the floor:
+// an older Go there fails this gate in CI before anything is built.
+func TestEveryWorkflowSetsUpTheGoFloor(t *testing.T) {
+	root := os.DirFS(filepath.Join("..", "..", ".."))
+	floor, err := readGoFloor(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflows, err := fs.Glob(root, ".github/workflows/*.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := 0
+	for _, wf := range workflows {
+		for _, file := range setupGoVersionFiles(t, root, wf) {
+			found++
+			got, err := readGoDirective(root, file)
+			if err != nil {
+				t.Fatalf("%s: %v", wf, err)
+			}
+			if got != floor.version {
+				t.Errorf("%s sets up Go from %s (go %s), but %s needs go %s: name that go.mod, or align the go directives",
+					wf, file, got, floor.file, floor.version)
+			}
+		}
+	}
+	if found == 0 {
+		t.Fatal("no workflow sets up Go with actions/setup-go, so CI's Go is unchecked")
+	}
+}
+
+// setupGoVersionFiles is the go-version-file of each actions/setup-go step in one workflow; a step
+// that names its Go any other way fails, since nothing ties that version to the modules.
+func setupGoVersionFiles(t *testing.T, root fs.FS, wf string) []string {
+	t.Helper()
+	data, err := fs.ReadFile(root, wf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Uses string            `yaml:"uses"`
+				With map[string]string `yaml:"with"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("%s: %v", wf, err)
+	}
+	var files []string
+	for _, name := range slices.Sorted(maps.Keys(doc.Jobs)) {
+		for _, step := range doc.Jobs[name].Steps {
+			if !strings.HasPrefix(step.Uses, "actions/setup-go@") {
+				continue
+			}
+			file := step.With["go-version-file"]
+			if file == "" || step.With["go-version"] != "" {
+				t.Fatalf("%s job %s: actions/setup-go must take its Go from go-version-file alone, got %v", wf, name, step.With)
+			}
+			files = append(files, file)
+		}
+	}
+	return files
 }
 
 // T6: the floor is validated where it is read, so a floor the version rules cannot compare is a

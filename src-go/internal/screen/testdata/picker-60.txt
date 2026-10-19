@@ -1,0 +1,40 @@
+
+────────────────────────────────────────────────────────────
+  Resume session
+  ╭──────────────────────────────────────────────────────╮
+  │ ⌕ Search…                                            │
+  ╰──────────────────────────────────────────────────────╯
+    workspace · project-b
+
+  ❯ example conversation 2
+    1 week ago · 962 bytes
+
+    example conversation 1
+    1 week ago · 962 bytes
+
+    Ctrl+A to show all projects · Ctrl+B to only show
+    current branch · Ctrl+W to show all worktrees · Space
+    to preview · Ctrl+R to rename · Type to search · Esc
+    to cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

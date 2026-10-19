@@ -321,6 +321,28 @@ test('the BLOCKED flash is logged as a display change', () => {
     assert.deepEqual(shown, ['Display: BLOCKED', 'Display: TRANSCRIBING']);
 });
 
+// Plan 00187 (#100): Claude's post-processing is a state of its own, after the transcript.
+for (const [key, launch] of [
+    ['Ctrl+Insert', {kind: 'claude', style: 'corporate', target: 'window-1'}],
+    ['Alt+Insert', {kind: 'claude', style: 'natural', target: 'window-1'}],
+]) {
+    test(`${key}: Claude post-processing is shown, with the launch that says which emoji`, () => {
+        const h = reported(launch, 'RECORDING', 'TRANSCRIBING', 'CLAUDE_PROCESSING');
+        assert.equal(h.shows(), 'CLAUDE_PROCESSING');
+        assert.deepEqual(h.shown.at(-1), {state: 'CLAUDE_PROCESSING', kind: 'claude'});
+        assert.match(h.logs.join('\n'), /Display: CLAUDE_PROCESSING/);
+        h.report('SUCCESS');
+        assert.equal(h.shows(), 'SUCCESS');
+    });
+
+    test(`${key}: Insert during Claude post-processing does nothing but flash BLOCKED`, () => {
+        const h = reported(launch, 'RECORDING', 'TRANSCRIBING', 'CLAUDE_PROCESSING');
+        h.pressBlocked(launch);
+        assert.equal(h.shows(), 'CLAUDE_PROCESSING');
+        h.noLie();
+    });
+}
+
 test('a recorder that ended with IDLE but is still exiting shows the hourglass, not ready', () => {
     const h = recording();
     h.report('IDLE');

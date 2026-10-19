@@ -59,6 +59,9 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
 - `internal/wsitoken/` — `wsi-claude-token`, the one chooser of the Claude account
   post-processing runs as (Plan 00208, K1-K8 in its package doc): the named token, or the one
   with the most allowance left by `ccy --token-usage --json`; `wsi-claude-process` runs it.
+- `internal/ccproject/` — `cc-project-dir`, the directory host `cc` starts its session in
+  (Plan 00167, P1-P7 in its package doc): the top of the git work tree, or outside one the
+  fedora-desktop checkout baked in with `-X main.RootDir`, offered `[Y/n]` at a terminal.
   Reuse these; a second way to run a command or prompt the user is a defect.
 
 ## Rules
@@ -164,8 +167,8 @@ already listed. Behaviour the golden pins is changed in the same commit as its d
 (`go build -trimpath -buildvcs=false` with `GOFLAGS=-mod=vendor`, offline from `vendor/`, as
 the login user, into `~/.cache/ccy-go-build`) and
 installs it with a checksum-compared `copy`; it takes the command name, install path, mode and
-optional ldflags. `playbooks/imports/play-claude-yolo.yml` imports it for both ccy binaries
-(`ccy-teams` also gets `-ldflags "-X main.RootDir=<checkout>"` and refuses to run without it),
+optional ldflags. `playbooks/imports/play-claude-yolo.yml` imports it for both ccy binaries and `cc-project-dir`
+(`ccy-teams` and `cc-project-dir` also get `-ldflags "-X main.RootDir=<checkout>"` and refuse to run without it),
 and `tasks/deploy-freeze.yml` for the freeze tools, which `play-podfreeze.yml` and
 `play-lxcfreeze.yml` import (both import `play-golang.yml` first for the toolchain), and
 `play-vm-test-lab.yml` for `vmtest`, `play-ftp-camera.yml` for `ftp-camera`,

@@ -50,7 +50,9 @@ digest.
   `update-versions` skill names the digest instead.
 - [ ] 🔄 **Task 1.3**: `deploy.bash` (`play-cli-tools.yml`), an entry in `meta-deploy.bash`;
   `qa-all.bash`; the `qa-reviewer` agent. The play is queued directly in `meta-deploy.list`
-  (no `deploy.bash` needed for one play); the host run, `qa-all.bash` and the review remain.
+  (no `deploy.bash` needed for one play). `qa-all.bash` passed and the host run passed at F44
+  96454752 (ok=23 changed=1, the one change the checksum-verified download); the `qa-reviewer`
+  pass remains.
 
 ## Success Criteria
 

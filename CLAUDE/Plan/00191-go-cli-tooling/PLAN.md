@@ -173,6 +173,22 @@ today; rewriting them is out of scope.
     `coverage`.
   - Possible follow-up, not this task: judge each changed package against the floor on its own.
 
+- [ ] 🔄 **Task 3.12**: CI's Go is older than the qa module requires. Since Task 3.3 the qa
+  module says `go 1.26.9`, but CI's `actions/setup-go@v5` read `src-go/go.mod`, which says
+  `go 1.26.0` (its `toolchain go1.26.9` line is ignored by setup-go). CI installed 1.26.0, and
+  `qa-toolchain` correctly failed "Install QA tooling" on every F44 run since.
+
+  - Fix: setup-go reads `src-go/qa/go.mod`, the go.mod with the higher go directive.
+    `src-go/go.mod` stays at `go 1.26.0`, so the host build (`GOTOOLCHAIN=local`, Fedora
+    golang) does not need a newer Go.
+  - Gate: `TestEveryWorkflowSetsUpTheGoFloor` (`src-go/qa/toolchain`) fails when a workflow's
+    setup-go names a go.mod whose go directive is not the floor. Red on the old workflow, green
+    on the fix.
+  - Review follow-ups: the comments say `setup-go@v5` (later majors read the toolchain line
+    unless `GOTOOLCHAIN=local`); Plan 00204's note is corrected; `qa-routing.tsv` sends
+    `.github/workflows/*.yml` to the go check (SPEC-qa-changed B50).
+  - Remaining: the coordinator's push shows CI green. Issue text is in the journal.
+
 - [x] ✅ **Task 3.4**: go-qa-ci diff mode, `go-qa run --changed [--base <ref>]` (M13):
   per-package engines on the affected packages and their importers, repo-wide defences always,
   and a change to `go.mod`, `go.sum`, the golangci config, `qa/` or the tool lock widens it to
