@@ -233,11 +233,23 @@ func TestANewSeatIsOfferedNoRoleAndSaysWhy(t *testing.T) {
 	if h.stdout() != "3@alpha\n" || len(h.Script.GumLog) != 1 {
 		t.Fatalf("stdout %q gum %q", h.stdout(), h.Script.GumLog)
 	}
-	if !strings.Contains(h.ErrOut.String(), "joins as a worker") {
+	if !strings.Contains(h.ErrOut.String(), "Seat "+handleNew+" is new: it joins as a worker") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 	if h.Fake.Called(teamtest.SudoBus + "list") {
 		t.Fatal("read the team for a seat that is not in it")
+	}
+}
+
+func TestASeatWithNoMemberYetIsNamedByItsHandle(t *testing.T) {
+	h := newRig(t)
+	h.On(teamtest.SudoBus+"list alpha", "HUMAN\towner\tjoin\nMEMBER\t"+handleDev+"\tworker\tjoin\tactive\n", 0)
+	h.Script.Gum = []string{h.pickSeatOne()}
+	if code := h.c.Seat(t.Context(), []string{"alpha"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if want := "Seat " + handleOne + " has no member in alpha yet: it joins as a worker."; !strings.Contains(h.ErrOut.String(), want) {
+		t.Fatalf("stderr %q lacks %q", h.ErrOut.String(), want)
 	}
 }
 

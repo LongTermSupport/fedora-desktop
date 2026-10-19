@@ -1,6 +1,7 @@
 package board
 
 import (
+	"io/fs"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -169,7 +170,7 @@ func TestCollectSessionsLeavesOutAContainersCheckout(t *testing.T) {
 func TestCollectSessionsSaysOnceWhenItCannotTellWhoseCheckoutThisIs(t *testing.T) {
 	h := populated(t)
 	top := h.InLxcCheckout()
-	h.OnErr("sudo -n lxc-config lxc.lxcpath", "sudo: a password is required\n", 1)
+	h.Host.Checkouts.ReadFile = func(string) ([]byte, error) { return nil, fs.ErrPermission }
 	for range 2 {
 		s := NewSnapshot()
 		if err := h.c.collectSessions(t.Context(), s); err != nil {
@@ -179,7 +180,7 @@ func TestCollectSessionsSaysOnceWhenItCannotTellWhoseCheckoutThisIs(t *testing.T
 			t.Fatalf("checkouts %v incomplete %q", s.Checkouts, s.Incomplete)
 		}
 	}
-	if strings.Count(h.ErrOut.String(), "password is required") != 1 {
+	if strings.Count(h.ErrOut.String(), "/etc/lxc/lxc.conf could not be read") != 1 {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 }

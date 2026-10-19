@@ -108,33 +108,46 @@ func TestEachColumnIsAsWideAsItsLongestValueSoNoRowShifts(t *testing.T) {
 	}
 }
 
-func TestALongDescriptionIsCutOnATerminalAndWholeWhenPiped(t *testing.T) {
+// The owner's rule: nothing is cut short. A long description widens the MEMBER column like any
+// value; on a terminal too narrow for that, it moves off the row with the other columns, whole.
+func TestADescriptionIsNeverCut(t *testing.T) {
 	long := "Coordinates the release of every example service across all regions"
-	rows := []Row{{Team: "alpha", Member: long, Kind: KindTeam, State: "up", Applied: "up to date", Session: "-", Restore: "-", Where: "port 6167"}}
-	if piped := Layout(rows, 0).Text(rows[0]); !strings.Contains(piped, long) {
-		t.Fatalf("the plain row (--list piped) keeps it whole: %q", piped)
-	}
-	tb := Layout(rows, 500)
-	cut := long[:descriptionWidth-1] + "…"
-	for _, line := range []string{tb.Text(rows[0]), ansi.ReplaceAllString(tb.Painted(rows[0]), "")} {
-		if !strings.Contains(line, cut+"  team ") || strings.Contains(line, long) {
-			t.Fatalf("on a terminal it is cut to %d characters with an ellipsis: %q", descriptionWidth, line)
+	rows := sample()
+	rows[0].Member = long
+	for _, width := range []int{0, 500} {
+		tb := Layout(rows, width)
+		if tb.Narrow() || !strings.Contains(tb.Text(rows[0]), long+"  team ") || strings.Contains(tb.Text(rows[0]), "…") {
+			t.Fatalf("width %d: the description is whole on its row and the column fits it: %q", width, tb.Text(rows[0]))
+		}
+		at := starts(t, tb.Heading())
+		if got := []rune(tb.Text(rows[1])); string(got[at[colKind]:at[colKind]+3]) != "ccy" {
+			t.Fatalf("width %d: a seat row's KIND does not line up under its heading: %q", width, tb.Text(rows[1]))
 		}
 	}
-	rows[0].Member = "Short one"
-	if Layout(rows, 500).Text(rows[0]) != Layout(rows, 0).Text(rows[0]) {
-		t.Fatal("a description that fits is not cut")
+	tb := Layout(rows, 100)
+	if !tb.Narrow() || strings.Contains(tb.Text(rows[0]), "Coordinates") || !strings.HasPrefix(tb.Rest(rows[0]), "ABOUT "+long+"   APPLIED ") {
+		t.Fatalf("too narrow: the description moves off the row, whole: %q / %q", tb.Text(rows[0]), tb.Rest(rows[0]))
+	}
+	if strings.Contains(tb.Rest(rows[1]), "ABOUT") {
+		t.Fatalf("only a team row has a description: %q", tb.Rest(rows[1]))
 	}
 }
 
-func TestADescriptionIsCutToTheMemberColumnNotPastIt(t *testing.T) {
+func TestColumnsAreMeasuredInTerminalCells(t *testing.T) {
+	wide := string([]rune{0x65e5, 0x672c, 0x8a9e}) // three characters, six cells
 	rows := sample()
-	rows[0].Member = strings.Repeat("d", 80)
-	tb := Layout(rows, 500)
-	line := tb.Text(rows[0])
-	at := starts(t, tb.Heading())
-	if []rune(line)[at[colKind]-3] != '…' || !strings.Contains(line, "…  team ") {
-		t.Fatalf("the description ends at the MEMBER column's edge: %q", line)
+	rows[0].Member = wide
+	tb := Layout(rows, 0)
+	heading := tb.Heading()
+	kindAt := strings.Index(heading, "KIND")
+	// MEMBER is as wide as its longest value in cells: the seat row's KIND starts at the same
+	// byte offset as the heading's, the team row's after the wide text's extra bytes.
+	if line := tb.Text(rows[1]); line[kindAt:kindAt+3] != "ccy" {
+		t.Fatalf("seat row %q misaligned against %q", line, heading)
+	}
+	team := tb.Text(rows[0])
+	if cells := strings.Index(team, "team") - len(wide) + 6; cells != kindAt {
+		t.Fatalf("team row %q: KIND at cell %d, heading at %d", team, cells, kindAt)
 	}
 }
 

@@ -7,11 +7,11 @@ package board
 import (
 	"slices"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
 // Terminal colours of the table: green is working, yellow wants a look, red is not working.
@@ -73,10 +73,8 @@ const narrowColumns = colApplied
 // gap is between two columns.
 const gap = "  "
 
-// descriptionWidth is how much of a team's description the MEMBER column makes room for on a
-// terminal: a longer one is cut to the column (piped, --list prints it whole). A member's handle
-// is never cut; the column is as wide as the longest.
-const descriptionWidth = 36
+// aboutHeading names a team's description where a narrow table moves it off the row.
+const aboutHeading = "ABOUT"
 
 // Label is the row's member or person as a person is shown it, in the MEMBER column and in every
 // menu and message about the row: a member's whole handle with the coordinator's role beside it
@@ -93,33 +91,23 @@ func (r Row) cells() [columns]string {
 	return [columns]string{r.Team, r.Label(), string(r.Kind), r.State, r.Applied, r.Session, r.Restore, r.Where}
 }
 
-// Table is a set of rows laid out together: each column as wide as its longest value, so no row
-// shifts the columns after a long one. On a terminal too narrow for every column, the table is
-// narrow: the rows keep TEAM, MEMBER, KIND and STATE whole, and the other columns move off the
-// row to Rest, which the picker shows in the row's header and --list on the line below it.
+// Table is a set of rows laid out together: each column as wide as its longest value, measured
+// in terminal cells, so no row shifts the columns after a long one; nothing is ever cut short. On
+// a terminal too narrow for every column, the table is narrow: the rows keep TEAM, MEMBER, KIND
+// and STATE whole, and the other columns, with a team row's description, move off the row to
+// Rest, which the picker shows in the row's header and --list on the line below it.
 type Table struct {
 	widths [columns]int
-	// cut is a terminal: a team's description is cut to the MEMBER column.
-	cut, narrow bool
+	narrow bool
 }
 
 // Layout lays rows out for a terminal width columns wide; 0 is not a terminal (piped), with no
-// limit and descriptions whole.
+// limit.
 func Layout(rows []Row, width int) Table {
-	t := Table{cut: width > 0}
-	for i, h := range headings {
-		t.widths[i] = runes(h)
+	t := Table{widths: measure(rows, true)}
+	if width > 0 && t.lineWidth(columns) > width {
+		t = Table{widths: measure(rows, false), narrow: true}
 	}
-	for _, r := range rows {
-		for i, c := range r.cells() {
-			n := runes(c)
-			if i == colMember && r.Kind == KindTeam {
-				n = min(n, descriptionWidth)
-			}
-			t.widths[i] = max(t.widths[i], n)
-		}
-	}
-	t.narrow = width > 0 && t.lineWidth(columns) > width
 	return t
 }
 
@@ -160,11 +148,32 @@ func (t Table) Rest(r Row) string {
 		return ""
 	}
 	cells := r.cells()
-	parts := make([]string, 0, columns-narrowColumns)
+	parts := make([]string, 0, columns-narrowColumns+1)
+	if r.Kind == KindTeam {
+		parts = append(parts, aboutHeading+" "+cells[colMember])
+	}
 	for i := narrowColumns; i < columns; i++ {
 		parts = append(parts, headings[i]+" "+cells[i])
 	}
 	return strings.Join(parts, "   ")
+}
+
+// measure sets each column's width to its longest value; a team's description counts only when
+// descriptions stay on their rows.
+func measure(rows []Row, descriptions bool) [columns]int {
+	var widths [columns]int
+	for i, h := range headings {
+		widths[i] = ui.Width(h)
+	}
+	for _, r := range rows {
+		for i, c := range r.cells() {
+			if i == colMember && r.Kind == KindTeam && !descriptions {
+				continue
+			}
+			widths[i] = max(widths[i], ui.Width(c))
+		}
+	}
+	return widths
 }
 
 // lineWidth is how wide a line of the first n columns is.
@@ -184,12 +193,12 @@ func (t Table) shown() int {
 	return columns
 }
 
-// shownCells are the row's words as shown: a team's description cut to the MEMBER column on a
-// terminal.
+// shownCells are the row's words as shown: a narrow table's team row has its description in
+// Rest, not in MEMBER.
 func (t Table) shownCells(r Row) [columns]string {
 	cells := r.cells()
-	if t.cut && r.Kind == KindTeam {
-		cells[colMember] = cut(cells[colMember], t.widths[colMember])
+	if t.narrow && r.Kind == KindTeam {
+		cells[colMember] = "-"
 	}
 	return cells
 }
@@ -205,23 +214,12 @@ func (t Table) line(cells [columns]string, dress func(i int, padded string) stri
 		}
 		padded := c
 		if i < n-1 {
-			padded += strings.Repeat(" ", max(0, t.widths[i]-runes(c)))
+			padded += strings.Repeat(" ", max(0, t.widths[i]-ui.Width(c)))
 		}
 		b.WriteString(dress(i, padded))
 	}
 	return b.String()
 }
-
-// cut is text shortened to width characters, ending in an ellipsis when it was longer.
-func cut(text string, width int) string {
-	r := []rune(text)
-	if len(r) <= width {
-		return text
-	}
-	return string(r[:width-1]) + "…"
-}
-
-func runes(s string) int { return utf8.RuneCountInString(s) }
 
 // wordColour is the colour a status word is shown in, or "" for none.
 func wordColour(word string) string {

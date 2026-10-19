@@ -264,7 +264,7 @@ func (c *Choose) pickSeat(ctx context.Context, heading string, choices agentbus.
 // that is new has no member yet, so it cannot be given a role until the launch has made it.
 func (c *Choose) offerRole(ctx context.Context, team, heading string, seat agentbus.Choice, choices agentbus.Choices) term.ExitCode {
 	if seat.State == stateNew {
-		c.say("Seat " + seat.Seat + "@" + team + " is new: it joins as a worker. To make it the coordinator, " +
+		c.say("Seat " + agentbus.Label(seat.Handle, "") + " is new: it joins as a worker. To make it the coordinator, " +
 			"choose it on its row in ccy-teams, or in this chooser the next time.")
 		return term.ExitOK
 	}
@@ -276,7 +276,7 @@ func (c *Choose) offerRole(ctx context.Context, team, heading string, seat agent
 	}
 	member, ok := roster.Member(seat.Handle)
 	if !ok {
-		c.say("Seat " + seat.Seat + "@" + team + " has no member in " + team + " yet: it joins as a worker.")
+		c.say("Seat " + agentbus.Label(seat.Handle, "") + " has no member in " + team + " yet: it joins as a worker.")
 		return term.ExitOK
 	}
 	look := running(choices)

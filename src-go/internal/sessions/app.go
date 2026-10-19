@@ -12,7 +12,6 @@ import (
 	"io"
 	"math"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -23,9 +22,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/hostcheckout"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/lxcfreeze"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessprobe"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/transcript"
@@ -188,8 +185,6 @@ type App struct {
 	InContainer func() bool
 	Executable  func(path string) bool
 	Getuid      func() int
-	// LookPath finds a program on PATH (whether LXC is installed).
-	LookPath func(string) (string, error)
 
 	cfg      Config
 	writeErr error // the first failed write to Stdout through out
@@ -281,10 +276,7 @@ func (a *App) wire() {
 		a.Git = gitx.New(a.Runner)
 	}
 	if a.Checkouts == nil {
-		root := &sudo.Sudo{Runner: a.Runner, Term: a.Term, Stdin: a.Stdin, Stdout: a.Stdout}
-		a.Checkouts = &hostcheckout.Finder{
-			Git: a.Git, LookPath: a.LookPath, Lxc: &lxcfreeze.Lister{Sudo: root, LookPath: a.LookPath},
-		}
+		a.Checkouts = &hostcheckout.Finder{Git: a.Git, ReadFile: os.ReadFile}
 	}
 	if a.Picker == nil {
 		a.Picker = &ui.Picker{Runner: a.Runner, Stderr: a.Stderr}
@@ -316,9 +308,6 @@ func (a *App) wireSeams() {
 	}
 	if a.Getuid == nil {
 		a.Getuid = os.Geteuid
-	}
-	if a.LookPath == nil {
-		a.LookPath = exec.LookPath
 	}
 }
 

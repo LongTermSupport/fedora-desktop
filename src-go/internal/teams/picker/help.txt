@@ -13,9 +13,10 @@ Under it, its members and people:
   lxc ...  another member: active, or parked (its token revoked)
   human    a person in the team room: in room, invited or not in room, and how
            many Element sessions they are signed in with
-Every member is shown by its whole handle, <repo>.<seat>+<host>.<type>, never cut short. On a
-terminal too narrow for every column, a row keeps TEAM, MEMBER, KIND and STATE, and the
-row's other columns are shown above the headings while the cursor is on it.
+Every member is shown by its whole handle, <repo>.<seat>+<host>.<type>, and nothing in the
+list is cut short. On a terminal too narrow for every column, a row keeps TEAM, MEMBER, KIND
+and STATE, and the row's other columns (and a team's description, as ABOUT) are shown above
+the headings while the cursor is on it.
 A folder inside an LXC container's files (as the host sees them) is the container's
 checkout: no session is started there from the host; ccy-teams lxc-add adds its agent.
 

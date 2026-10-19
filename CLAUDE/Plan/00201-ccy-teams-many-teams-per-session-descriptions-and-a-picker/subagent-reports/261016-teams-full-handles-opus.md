@@ -1,5 +1,26 @@
 # Task 2.17: full handles, no host session in a container's checkout, columns sized to fit
 
+## After Fable's FIX-FIRST (review `261016-teams-full-handles-review-fable.md`)
+
+- F44 `fa26fc66` merged; `meta-deploy.list` keeps F44's speech-to-text entry and one
+  play-claude-yolo.yml block.
+- The sudoers rule is gone (template, play task, suite checks). `hostcheckout` reads root's LXC
+  path from the world-readable `/etc/lxc/lxc.conf` (`lxc.lxcpath`, last one wins; comments,
+  blank lines and whitespace allowed; a line with no `=`, an empty or relative path, or an
+  unreadable file is an error and a refusal), else `/var/lib/lxc`. No sudo, no `lxcfreeze`
+  preflight, no "run sudo -v first". The parity suite points the binary built with
+  `-tags ccyteamstest` at a stand-in file (`CCY_TEAMS_TEST_LXC_CONF`, ignored by every other
+  build, tested both ways).
+- No CCY bump (the coordinator's correction: nothing under `files/var/local/claude-yolo/`).
+- Nothing is cut: a team's description widens MEMBER like any value; when the table is too
+  wide for the terminal it moves off the row whole, as `ABOUT <description>`, with the other
+  moved columns. Widths are terminal cells (`ui.Width`, x/ansi `StringWidth`).
+- `choose-seat` ("Seat <handle> is new" / "has no member") and `session remove` (the role mark
+  and the coordinator question and summary) now name the handle through `agentbus.Label`.
+
+The sections below describe the first round; where they mention the sudoers rule,
+`lxc-config` or the 36-character cut, the bullets above replace them.
+
 Branch `fix/teams-full-handles` from F44 `7f8b1c23`. ccy-teams and ccy-sessions only; no CCY or
 container bump (nothing under `files/var/local/claude-yolo/` changed).
 

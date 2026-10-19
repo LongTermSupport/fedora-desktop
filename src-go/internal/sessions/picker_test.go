@@ -538,13 +538,11 @@ func TestWithNoSessionsInAProjectItOffersToStartCcy(t *testing.T) {
 }
 
 // inLxcCheckout makes the working directory a checkout inside LXC container box's root
-// filesystem, seen from the host, with LXC installed; it returns the top as shown.
+// filesystem (under the default LXC path), seen from the host; it returns the top as shown.
 func inLxcCheckout(h *harness) string {
 	top := "/var/lib/lxc/box/rootfs/srv/proj"
 	h.fake.On([]string{"git", "rev-parse", "--is-inside-work-tree"}, execx.Result{Stdout: []byte("true\n")})
 	h.fake.On([]string{"git", "rev-parse", "--show-toplevel"}, execx.Result{Stdout: []byte(top + "\n")})
-	h.fake.On([]string{"sudo", "-n", "lxc-config", "lxc.lxcpath"}, execx.Result{Stdout: []byte("/var/lib/lxc\n")})
-	h.lxcInstalled = true
 	return top
 }
 

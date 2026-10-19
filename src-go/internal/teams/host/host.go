@@ -19,7 +19,6 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/hostcheckout"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/lxcfreeze"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
@@ -198,11 +197,7 @@ func (h *Host) wireTools() {
 		h.Git = gitx.New(h.Runner)
 	}
 	if h.Checkouts == nil {
-		// LookPath is a seam a test may set after Wire, so it is looked up at each call.
-		lookPath := func(name string) (string, error) { return h.LookPath(name) }
-		h.Checkouts = &hostcheckout.Finder{
-			Git: h.Git, LookPath: lookPath, Lxc: &lxcfreeze.Lister{Sudo: h.Sudo, LookPath: lookPath},
-		}
+		h.Checkouts = &hostcheckout.Finder{Git: h.Git, ReadFile: lxcConfReader(h.Getenv)}
 	}
 	if h.Declare == nil {
 		h.Declare = &declare.Client{Runner: h.Runner, Root: h.RootDir, File: h.HostVars, Err: h.Stderr}

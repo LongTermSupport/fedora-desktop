@@ -195,17 +195,21 @@ a repository is no longer offered for a checkout of it. Report:
 - [ ] 🔄 **Task 2.17**: three picker defects the owner reported (branch `fix/teams-full-handles`,
   ccy-teams and ccy-sessions only, no CCY or container bump). (1) Every member is shown by its
   whole handle, the coordinator's with `(coordinator)` beside it, through one renderer
-  (`agentbus.Label`, `board.Row.Label`): the list, `--list`, the menus and the seat messages;
-  a bare seat number, which two checkouts can share, is never shown. (2) A checkout inside an
+  (`agentbus.Label`, `board.Row.Label`): the list, `--list`, the menus, the seat messages,
+  `choose-seat` and `session remove`; a bare seat number, which two checkouts can share, is
+  never shown where the handle is known. (2) A checkout inside an
   LXC container's files seen from the host (the folder ccy-teams was started in) was offered
   for a host session by Ctrl-N, the start-up offer and `for-checkout`. The new
-  `internal/hostcheckout` answers whose checkout a folder is (git's top, against root's LXC path
-  from `lxc-config lxc.lxcpath`); every place ccy-teams and ccy-sessions take the folder as a
-  checkout asks it and refuses a container's, pointing to `ccy-teams lxc-add`. A new sudoers
-  rule (`files/etc/sudoers.d/ccy-lxc-path.j2`, play-claude-yolo.yml) lets them ask without a
-  password. No host_vars held such a path. (3) The table's columns are as wide as their
-  longest value; a terminal too narrow for them keeps TEAM, MEMBER, KIND and STATE on the row
-  and shows the rest in the row's header (`--list`: on the line below). Host run pending
+  `internal/hostcheckout` answers whose checkout a folder is (git's top, against root's LXC path,
+  `lxc.lxcpath` in the world-readable `/etc/lxc/lxc.conf`, else `/var/lib/lxc`; no root, and an
+  unparseable file is a refusal); every place ccy-teams and ccy-sessions take the folder as a
+  checkout asks it and refuses a container's, pointing to `ccy-teams lxc-add`. No host_vars
+  held such a path. (3) The table's columns are as wide as their longest value in terminal
+  cells and nothing is cut short; a terminal too narrow keeps TEAM, MEMBER, KIND and STATE on
+  the row and shows the rest (a team's description as ABOUT) in the row's header (`--list`:
+  on the line below). Fable's FIX-FIRST
+  (`subagent-reports/261016-teams-full-handles-review-fable.md`): the sudoers rule dropped,
+  the description no longer cut, the last bare seats labelled. Host run pending
   (meta-deploy: play-claude-yolo.yml). Report: `subagent-reports/261016-teams-full-handles-opus.md`.
 
 ## Success Criteria

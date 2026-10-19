@@ -66,7 +66,7 @@ func TestListOnANarrowTerminalPutsTheRestOfEachRowOnTheLineBelow(t *testing.T) {
 		t.Fatalf("%d lines: %q", len(lines), h.Out.String())
 	}
 	for i := 2; i < len(lines); i += 2 {
-		if !strings.HasPrefix(lines[i], "alpha ") || !strings.HasPrefix(lines[i+1], restIndent+"APPLIED ") {
+		if !strings.HasPrefix(lines[i], "alpha ") || !strings.HasPrefix(lines[i+1], restIndent) || !strings.Contains(lines[i+1], "APPLIED ") {
 			t.Fatalf("row %q, then %q", lines[i], lines[i+1])
 		}
 	}

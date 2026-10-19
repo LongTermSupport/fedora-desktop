@@ -6,12 +6,14 @@ package teamtest
 
 import (
 	"bytes"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/hostcheckout"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 )
@@ -26,8 +28,9 @@ const (
 		"MEMBER\tproj.box+role.lxc\tops\tjoin\tactive\n"
 	DeclaredAlpha = "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\t-\n"
 	UnitAlpha     = "agent-bus-hs@alpha.service loaded active running Homeserver alpha\n"
-	// LxcPath is where root's LXC keeps its containers; LxcContainer is one of them.
-	LxcPath      = "/var/lib/lxc"
+	// LxcPath is where root's LXC keeps its containers (hostcheckout's default); LxcContainer is
+	// one of them.
+	LxcPath      = hostcheckout.DefaultLxcPath
 	LxcContainer = "box"
 	// SudoBus is the start of every agent-bus call made as root.
 	SudoBus = "sudo -n /usr/local/bin/agent-bus "
@@ -70,18 +73,18 @@ func New(t *testing.T) *World {
 	w.Host.Wire()
 	// A run that made sudo ready ends by dropping the credential.
 	w.On("sudo -k", "", 0)
-	// Where root's LXC keeps its containers, asked before a checkout is offered for a session.
-	w.On("sudo -n lxc-config lxc.lxcpath", LxcPath+"\n", 0)
+	// Root's LXC configuration, read before a checkout is offered for a session: absent, so
+	// LXC keeps its containers in the default LxcPath.
+	w.Host.Checkouts.ReadFile = func(string) ([]byte, error) { return nil, fs.ErrNotExist }
 	return w
 }
 
 // InLxcCheckout makes the working directory a checkout inside LXC container LxcContainer's root
-// filesystem, seen from the host, with LXC installed; it returns that checkout's top.
+// filesystem, seen from the host; it returns that checkout's top.
 func (w *World) InLxcCheckout() string {
 	top := LxcPath + "/" + LxcContainer + "/rootfs/srv/proj"
 	w.On("git rev-parse --is-inside-work-tree", "true\n", 0)
 	w.On("git rev-parse --show-toplevel", top+"\n", 0)
-	w.Host.LookPath = func(name string) (string, error) { return "/usr/bin/" + name, nil }
 	return top
 }
 

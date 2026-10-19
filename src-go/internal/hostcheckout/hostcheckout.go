@@ -7,27 +7,32 @@ package hostcheckout
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"path/filepath"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
 )
 
-// LxcPather reads where root's LXC keeps its containers (lxcfreeze.Lister is the real one).
-type LxcPather interface {
-	LxcPath(ctx context.Context) (string, error)
-}
+// LxcConf is root's LXC configuration, world-readable; its lxc.lxcpath is where root's LXC keeps
+// its containers, DefaultLxcPath (LXC's compiled-in default) when it sets none or is absent. An
+// unprivileged lxc-config answers for the caller's own LXC instead, so the file is read.
+const (
+	LxcConf        = "/etc/lxc/lxc.conf"
+	DefaultLxcPath = "/var/lib/lxc"
+	lxcPathKey     = "lxc.lxcpath"
+)
 
-// Finder answers Find. The LXC path is asked once, and only when a folder is in a checkout.
+// Finder answers Find. The LXC path is read once, and only when a folder is in a checkout.
 type Finder struct {
 	Git *gitx.Git
-	// LookPath finds lxc-config: with none installed this host has no LXC containers.
-	LookPath func(string) (string, error)
-	Lxc      LxcPather
+	// ReadFile reads LxcConf (os.ReadFile).
+	ReadFile func(string) ([]byte, error)
 
 	asked    bool
-	lxcPaths []string // as configured, and resolved when that differs; none without LXC
+	lxcPaths []string // as configured, and resolved when that differs
 }
 
 // Checkout is where a folder is: Top is its work tree's root, "" when it is in none; Container
@@ -50,8 +55,8 @@ func (c Checkout) Refusal(shown string) string {
 }
 
 // Find is the checkout dir is in ("" is the folder the command runs in). Git that cannot run, or
-// an LXC path that cannot be read while LXC is installed, is an error: a checkout is never taken
-// for the host's when that could not be told.
+// an LxcConf that cannot be read or parsed, is an error: a checkout is never taken for the
+// host's when that could not be told.
 func (f *Finder) Find(ctx context.Context, dir string) (Checkout, error) {
 	inTree, err := f.Git.ProjectHere(ctx, dir)
 	if err != nil || !inTree {
@@ -61,22 +66,17 @@ func (f *Finder) Find(ctx context.Context, dir string) (Checkout, error) {
 	if err != nil {
 		return Checkout{}, err
 	}
-	if err := f.askLxc(ctx); err != nil {
-		return Checkout{}, fmt.Errorf("whether %s is an LXC container's checkout could not be told: %w. "+
-			"play-claude-yolo.yml installs the sudoers rule that lets it be read without a password; until then run sudo -v first", top, err)
+	if err := f.readLxcPath(); err != nil {
+		return Checkout{}, fmt.Errorf("whether %s is an LXC container's checkout could not be told: %w", top, err)
 	}
 	return Checkout{Top: top, Container: f.containerOf(top)}, nil
 }
 
-func (f *Finder) askLxc(ctx context.Context) error {
+func (f *Finder) readLxcPath() error {
 	if f.asked {
 		return nil
 	}
-	if !f.lxcInstalled() {
-		f.asked = true // there is no container tree to be in
-		return nil
-	}
-	path, err := f.Lxc.LxcPath(ctx)
+	path, err := lxcPath(f.ReadFile)
 	if err != nil {
 		return err
 	}
@@ -90,10 +90,34 @@ func (f *Finder) askLxc(ctx context.Context) error {
 	return nil
 }
 
-// lxcInstalled reports whether this host has LXC: lxc-config is on PATH.
-func (f *Finder) lxcInstalled() bool {
-	_, err := f.LookPath("lxc-config")
-	return err == nil
+// lxcPath is root's LXC path from LxcConf: its last lxc.lxcpath, else the default.
+func lxcPath(read func(string) ([]byte, error)) (string, error) {
+	text, err := read(LxcConf)
+	if errors.Is(err, fs.ErrNotExist) {
+		return DefaultLxcPath, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("%s could not be read: %w", LxcConf, err)
+	}
+	path := DefaultLxcPath
+	for n, line := range strings.Split(string(text), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, found := strings.Cut(line, "=")
+		if !found {
+			return "", fmt.Errorf("%s line %d is not KEY = VALUE: %q", LxcConf, n+1, line)
+		}
+		if strings.TrimSpace(key) != lxcPathKey {
+			continue
+		}
+		path = strings.TrimSpace(value)
+		if !filepath.IsAbs(path) {
+			return "", fmt.Errorf("%s line %d sets %s to %q, which is not an absolute path", LxcConf, n+1, lxcPathKey, path)
+		}
+	}
+	return path, nil
 }
 
 // containerOf is the container whose tree top is in: the first folder under an LXC path.

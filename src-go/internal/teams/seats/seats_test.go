@@ -2,6 +2,7 @@ package seats
 
 import (
 	"context"
+	"io/fs"
 	"slices"
 	"strings"
 	"testing"
@@ -190,10 +191,10 @@ func TestNewSessionNeverStartsInAContainersCheckout(t *testing.T) {
 func TestNewSessionRefusesWhenItCannotTellWhoseCheckoutItIs(t *testing.T) {
 	h := newRig(t)
 	h.InLxcCheckout()
-	h.OnErr("sudo -n lxc-config lxc.lxcpath", "sudo: a password is required\n", 1)
+	h.Host.Checkouts.ReadFile = func(string) ([]byte, error) { return nil, fs.ErrPermission }
 	snap := h.pass(t)
 	res, err := h.s.NewSession(context.Background(), snap, "alpha")
-	if err != nil || res != flow.Refused || len(h.Execs) != 0 || !strings.Contains(h.ErrOut.String(), "password is required") {
+	if err != nil || res != flow.Refused || len(h.Execs) != 0 || !strings.Contains(h.ErrOut.String(), "/etc/lxc/lxc.conf could not be read") {
 		t.Fatalf("%v %v %+v %q", res, err, h.Execs, h.ErrOut.String())
 	}
 }

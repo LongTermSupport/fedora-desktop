@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os/exec"
 	"slices"
 	"strconv"
@@ -217,16 +218,13 @@ func newWzHarness(t *testing.T) *wzHarness {
 		},
 	}
 	h.c.Gum.Runner = h.run
-	h.c.Checkouts = &hostcheckout.Finder{Git: h.c.Git, LookPath: h.c.LookPath, Lxc: wzLxc{}}
+	// Root's LXC configuration is absent: LXC keeps its containers in the default path.
+	h.c.Checkouts = &hostcheckout.Finder{Git: h.c.Git, ReadFile: func(string) ([]byte, error) { return nil, fs.ErrNotExist }}
 	return h
 }
 
 // wzLxcPath is where the harness's root LXC keeps its containers.
-const wzLxcPath = "/var/lib/lxc"
-
-type wzLxc struct{}
-
-func (wzLxc) LxcPath(context.Context) (string, error) { return wzLxcPath, nil }
+const wzLxcPath = hostcheckout.DefaultLxcPath
 
 func (h *wzHarness) invoke(args ...string) term.ExitCode {
 	return h.c.Run(context.Background(), args)

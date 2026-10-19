@@ -172,8 +172,7 @@ EOF
 
 # sudo: a credential is cached while $STATE/sudo-cached exists (reset makes it). Without one,
 # `sudo -n` refuses as the real one does, except for the two read-only commands when
-# TEST_SUDO_RULE stands for the sudoers rule, and always for where LXC keeps its containers
-# (the rule play-claude-yolo.yml installs with ccy-teams); `sudo -v` takes the password and caches it,
+# TEST_SUDO_RULE stands for the sudoers rule; `sudo -v` takes the password and caches it,
 # unless TEST_SUDO_REFUSE stands for three wrong passwords or a Ctrl-C. Then it runs the
 # named command's fake by its basename.
 cat >"$BIN/sudo" <<'EOF'
@@ -204,9 +203,6 @@ if [ "$1" = "-n" ]; then
     if [ "$cached" = no ]; then
         # The rule: the rendered sudoers template's own command paths and anchored regexes.
         allowed=no
-        while IFS=$'\t' read -r name args; do
-            if [ "$1" = "$name" ] && [ "${*:2}" = "$args" ]; then allowed=yes; fi
-        done <"$TEST_STATE/sudo-rules-ccy"
         if [ -n "${TEST_SUDO_RULE:-}" ]; then
             while IFS=$'\t' read -r path regex; do
                 if [ "$1" = "$path" ] && [[ "${*:2}" =~ $regex ]]; then allowed=yes; fi
@@ -361,19 +357,6 @@ while IFS=$'\t' read -r _ team _; do
     [ -z "$team" ] || : >"$HOME/.local/share/applications/agent-bus-$team-element.desktop"
 done <<<"$lines"
 EOF
-# LXC: installed, keeping its containers in $TEST_LXC_PATH (lxc-config lxc.lxcpath, as root).
-# ccy-teams asks where before it offers a session in a checkout; lxc-ls and lxc-attach are only
-# looked for on PATH there, and are never expected to run.
-cat >"$BIN/lxc-config" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-printf 'lxc-config %s\n' "$*" >>"$TEST_LOG"
-[ "$*" = lxc.lxcpath ] || { echo "fake lxc-config: unexpected $*" >&2; exit 97; }
-printf '%s\n' "$TEST_LXC_PATH"
-EOF
-for tool in lxc-ls lxc-attach; do
-    printf '#!/usr/bin/env bash\necho "fake %s: not expected" >&2\nexit 97\n' "$tool" >"$BIN/$tool"
-done
 chmod 755 "$BIN"/*
 
 # gum, in a directory of its own so a case can take it off PATH. Answers come from
@@ -455,21 +438,6 @@ rules = re.findall(r"(/\S+) (\^[^$]*\$)", text.split("NOPASSWD:", 1)[1])
 with open(dest, "w", encoding="utf-8") as handle:
     handle.writelines(f"{path}\t{regex}\n" for path, regex in rules)
 PYEOF
-# play-claude-yolo.yml's rule, as "<command as ccy-teams names it><TAB><arguments>": sudo finds
-# the bare name on its secure_path, which is where the rule names it.
-python3 - "$REPO_ROOT/files/etc/sudoers.d/ccy-lxc-path.j2" "$STATE/sudo-rules-ccy" <<'PYEOF'
-import os
-import sys
-
-source, dest = sys.argv[1:3]
-grant = open(source, encoding="utf-8").read().split("NOPASSWD:", 1)[1].strip()
-path, args = grant.split(" ", 1)
-with open(dest, "w", encoding="utf-8") as handle:
-    handle.write(f"{os.path.basename(path)}\t{args}\n")
-PYEOF
-check "the ccy sudoers template grants exactly lxc-config lxc.lxcpath, at its system path" \
-    "/usr/bin/lxc-config lxc.lxcpath" \
-    "$(awk -F'NOPASSWD: ' 'NF > 1 { print $2 }' "$REPO_ROOT/files/etc/sudoers.d/ccy-lxc-path.j2")"
 check "the sudoers template grants exactly two read-only commands" \
     $'/usr/local/bin/agent-bus\t^list [a-z][a-z0-9-]*$\n/usr/local/bin/agent-bus\t^human devices [a-z][a-z0-9-]* [a-z][a-z0-9_-]*$' \
     "$(cat "$STATE/sudo-rules")"
@@ -500,13 +468,16 @@ git -C "$CHECKOUT" init -q
 git -C "$CHECKOUT" remote add origin git@github.com:Example-Org/proj.git
 OUTSIDE="$SCRATCH/not-a-project"
 mkdir -p "$OUTSIDE"
-# Where LXC keeps its containers, and a checkout in container box's files seen from the host.
-TEST_LXC_PATH="$SCRATCH/lxc"
-IN_CONTAINER="$TEST_LXC_PATH/box/rootfs/srv/proj"
+# Where LXC keeps its containers, set in a stand-in for /etc/lxc/lxc.conf (the binary built
+# with the ccyteamstest tag reads it instead), and a checkout in container box's files seen from
+# the host.
+LXC_PATH="$SCRATCH/lxc"
+printf '# root LXC configuration\nlxc.lxcpath = %s\n' "$LXC_PATH" >"$SCRATCH/lxc.conf"
+export CCY_TEAMS_TEST_LXC_CONF="$SCRATCH/lxc.conf"
+IN_CONTAINER="$LXC_PATH/box/rootfs/srv/proj"
 mkdir -p "$IN_CONTAINER/.claude/ccy/pingbus/seats"
 git -C "$IN_CONTAINER" init -q
 git -C "$IN_CONTAINER" remote add origin git@github.com:Example-Org/proj.git
-export TEST_LXC_PATH
 
 export TEST_LOG="$LOG" TEST_STATE="$STATE" TEST_ANSWERS="$SCRATCH/answers" TEST_FZF_ROWS="$SCRATCH/fzf-rows"
 export TEST_FZF_RAW="$SCRATCH/fzf-raw"
@@ -837,7 +808,6 @@ check_has "in an LXC container's checkout the header says Ctrl-N is unavailable,
 check_has "  Ctrl-N there says so" "is LXC container box's checkout" "$out"
 check_has "  and points to lxc-add" "ccy-teams lxc-add" "$out"
 check "  and starts nothing" "no" "$(logged 'launcher')"
-check "  having asked where LXC keeps its containers without a password" "yes" "$(logged 'sudo -n lxc-config lxc.lxcpath')"
 out="$(cd "$IN_CONTAINER" && "$TOOL" for-checkout 2>&1)"
 check "for-checkout there names no team" "1" "$?"
 check_has "  saying whose checkout it is" "is LXC container box's checkout" "$out"

@@ -150,7 +150,7 @@ func TestPickerShowsWholeHandlesAndMovesColumnsToTheHeaderWhenNarrow(t *testing.
 	if !strings.Contains(strings.Join(h.Script.Rows[0], "\n"), "alpha  proj.1+local.podman ") {
 		t.Fatalf("the handle stays whole: %q", h.Script.Rows[0])
 	}
-	if !strings.Contains(strings.Join(h.Script.FzfArgs[0], "\n"), "This row: APPLIED up to date   SESSION -") {
+	if !strings.Contains(strings.Join(h.Script.FzfArgs[0], "\n"), "This row: ABOUT (no description)   APPLIED up to date   SESSION -") {
 		t.Fatalf("the team row's header carries its moved columns: %q", h.Script.FzfArgs[0])
 	}
 }
