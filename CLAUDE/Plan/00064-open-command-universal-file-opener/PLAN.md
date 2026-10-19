@@ -115,6 +115,11 @@ not, terminal-aware when headless". Build the wrapper; delegate everything else.
 
 ### Phase 4: HOST deployment and live verification
 
+The command is now a Go binary (Plan 00192,
+[SPEC-open.md](../00192-bash-line-in-the-sand-go-for-tooling/SPEC-open.md)): its host checks
+H1-H5 are these tasks, run on the Go command, and it reads the default and registers one
+through `gio` rather than `xdg-mime` (that spec's B5, B6).
+
 - [ ] ⬜ **Task 4.1**: (HOST) Run
   `ansible-playbook playbooks/imports/optional/common/play-cli-tools.yml --tags open-command`
   (`play-open-command.yml` was merged into `play-cli-tools.yml` by Plan 00150)

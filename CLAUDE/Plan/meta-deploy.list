@@ -46,3 +46,12 @@ playbooks/imports/play-agent-bus.yml
 # Plan 00098: ~/.claude.json (account and project state) joins the owner-only repair, so it
 # and the backups Claude Code copies from it are no longer group/other readable.
 playbooks/imports/play-claude-yolo.yml
+
+# Plan 00192 Task 3.3: `open` becomes a Go binary (src-go/cmd/open). The play installs the Go
+# toolchain, builds the command from this checkout and installs it at ~/.local/bin/open in place
+# of the bash script; the MIME and viewer packages are unchanged. Afterwards the owner checks
+# SPEC-open.md section 7, H1-H5: `open --help`, a PDF opening in its default viewer, `open -a`
+# showing the chooser with a Cancel row, `open -d` registering a default, and over SSH (or
+# `open -t`) text, a directory, an image and a PDF opening in the terminal, Ctrl-C in less or
+# mpv belonging to that program.
+playbooks/imports/optional/common/play-cli-tools.yml

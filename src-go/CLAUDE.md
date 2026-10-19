@@ -2,7 +2,7 @@
 
 One module, `github.com/LongTermSupport/fedora-desktop/src-go`, for this repository's large
 interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfreeze`,
-`lxcfreeze`, `vmtest`, `ftp-camera`, `watermark` and `wsi` live here; their bash originals are gone.
+`lxcfreeze`, `vmtest`, `ftp-camera`, `watermark`, `wsi` and `open` live here; their bash originals are gone.
 
 ## Layout
 
@@ -42,6 +42,12 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
   `wsi-resolve-model`) stay bash and Python and run from the binary's directory. Its batch
   limit's one home is `limit.go` (`scripts/qa-stt-limits.bash`); `scripts/test-wsi-stop-grace.bash`
   builds and drives the binary end to end.
+- `internal/open/` — the `open` command (spec `SPEC-open.md`, E1-E28): a target's type
+  (`mimetype`, `xdg-mime`, `file`), the desktop apps `gio mime` names, found in the XDG
+  application directories, and the terminal handlers as a table of argv (an optional pager fed
+  by an `os.Pipe`, no shell); the chooser is `ui.Picker`, or a numbered menu on `/dev/tty`
+  without fzf. Its one run-time program name is the handler the person chose (a
+  `dynamicNames` row).
 - `internal/wsipost/` — `wsi-postprocess`, the panel menu's Post-Process Last Transcription
   items (Plan 00208, P1-P8 in its package doc): Claude post-processing of the last
   transcription, through the sibling `wsi-claude-process`.
@@ -158,8 +164,8 @@ optional ldflags. `playbooks/imports/play-claude-yolo.yml` imports it for both c
 and `tasks/deploy-freeze.yml` for the freeze tools, which `play-podfreeze.yml` and
 `play-lxcfreeze.yml` import (both import `play-golang.yml` first for the toolchain), and
 `play-vm-test-lab.yml` for `vmtest`, `play-ftp-camera.yml` for `ftp-camera`,
-`play-image-watermarking.yml` for `watermark` and `play-speech-to-text.yml` for `wsi` (each
-imports `play-golang.yml` too);
+`play-image-watermarking.yml` for `watermark`, `play-speech-to-text.yml` for `wsi` and
+`play-cli-tools.yml` for `open` (each imports `play-golang.yml` too);
 `watermark` is installed root-owned in `/usr/local/bin` (`go_command_owner: root`; only that
 copy runs as root). Each binary lands at its old path. A new deployed command takes a row in
 `scripts/go-binary-suites.tsv`. Never
