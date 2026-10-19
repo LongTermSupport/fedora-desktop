@@ -276,7 +276,7 @@ func (x *Hot) waitTold(ctx context.Context, t *target, team, handle, role string
 type leaving func(context.Context) (term.ExitCode, bool)
 
 // leaveRole decides H23 step 2 before anything changes: a worker leaves as it is; the
-// coordinator needs --coordinator (asked on a terminal, demote by default).
+// coordinator needs --coordinator (asked on a terminal, starting on No).
 func (x *Hot) leaveRole(ctx context.Context, r request, team, handle string, up bool) (leaving, string, term.ExitCode, bool) {
 	if !up {
 		x.mark(markSkip, "role: not checked (the homeserver is down)")

@@ -29,8 +29,8 @@ sections are kept below it.
   `heading()`, the context says "member <handle>" for a handle and "session <name>"
   otherwise.
 - `hot/role.go`: F44's `who` wording, with the branch's default of No on the
-  coordinator-leaves question. F44 had changed that default to yes, which breaks the
-  no-destructive-first rule.
+  coordinator-leaves question. F44's default was yes, as it had been since the question
+  arrived in 7b5ce2e2 (not a later change on F44), which breaks the no-destructive-first rule.
 - `ops/takedown.go`: F44's heading argument, with the branch's order and default ("Leave it
   running" first).
 - `settings/settings.go`: the branch's "No coordinator" row, last and only when there is a

@@ -449,8 +449,8 @@ Two things are **not** frozen:
 
   1. Resolve the session as for add.
   2. If the seat holds the coordinator role, `--coordinator` is required: `demote` sets it to
-     worker; `hand-to=<seat>` makes another seat coordinator. Interactively it is asked, with
-     demote as the default. Non-interactively its absence is exit 64.
+     worker; `hand-to=<seat>` makes another seat coordinator. Interactively it is asked, and the
+     question starts on No. Non-interactively its absence is exit 64.
   3. Write the record, then the desired file without the seat, adding a `farewell` entry.
   4. Wait up to 10 s for the seat lock to read free.
   5. **Re-baseline**, from the host, through `pingbus seat retire --root <checkout seats> <seat>@<team>`:

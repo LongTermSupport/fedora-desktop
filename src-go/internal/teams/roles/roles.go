@@ -364,9 +364,12 @@ func (e *entries) identity(ctx context.Context, m declare.LxcMember, handle stri
 	defer cancel()
 	probe, err := e.s.Reader.ReadCheckout(bounded, e.script, "probe", m.Container, m.User, m.Checkout)
 	if err != nil {
-		return declare.Identity{}, fmt.Errorf("the entry of %s@%s blocks the change of %s: it gives no seat, so its "+
-			"checkout is read to tell whether it is %s, and that read failed (%w). Start container %s, or give each "+
-			"of team %s's entries its seat in the host_vars", m.User, m.Container, handle, handle, err, m.Container, e.team)
+		advice := "Start container " + m.Container
+		if m.Seat == "" {
+			advice += ", or give each of team " + e.team + "'s entries its seat in the host_vars"
+		}
+		return declare.Identity{}, fmt.Errorf("the entry of %s@%s blocks the change of %s: its checkout is read to "+
+			"tell whether it is %s, and that read failed (%w). %s", m.User, m.Container, handle, handle, err, advice)
 	}
 	identity, err := e.s.Declare.LxcIdentity(ctx, probe)
 	if err != nil {

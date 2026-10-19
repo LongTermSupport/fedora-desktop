@@ -179,6 +179,22 @@ func TestAnEntryWhoseCheckoutCannotBeReadStopsTheChangeBeforeAnything(t *testing
 	}
 }
 
+// An entry that gives its seat is still read (its repo is only in its checkout), so the advice
+// to give each entry its seat could not help and is not given.
+func TestAnEntryThatGivesItsSeatAndCannotBeReadIsNotToldToGiveItsSeat(t *testing.T) {
+	g := newRig(t)
+	g.OnDeclare("lxc-members", "LXCMEMBER\talpha\tcontainer-a\tagent\t-\tworker\tpresent\t/srv/agent/one\t1\n")
+	g.r.errs = map[string]error{"container-a": errors.New("not running")}
+	_, err := g.s.Set(t.Context(), "alpha", g.say, Step{Handle: lxcHandle, From: agentbus.RoleWorker, To: agentbus.RoleCoordinator})
+	if err == nil || !strings.Contains(err.Error(), "Start container container-a") ||
+		strings.Contains(err.Error(), "its seat") || strings.Contains(err.Error(), "gives no seat") {
+		t.Fatalf("err %v", err)
+	}
+	if got := g.changes(); len(got) != 0 {
+		t.Fatalf("changes %q", got)
+	}
+}
+
 func TestTwoEntriesThatGiveTheHandleAreRefused(t *testing.T) {
 	g := newRig(t)
 	g.OnDeclare("lxc-members", entryA+entryB)
