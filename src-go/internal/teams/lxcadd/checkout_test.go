@@ -100,6 +100,24 @@ func TestEveryQuestionShowsTheTeamTheStepTheContainerAndTheUser(t *testing.T) {
 	}
 }
 
+// On a 40-column terminal step 4's heading, the longest of the run, wraps to the 38 columns a
+// gum header has and keeps every answer given so far. The checkout's line is not gum's, so
+// step 4 is gum's third question.
+func TestStepFoursHeadingWrapsOnANarrowTerminalAndKeepsEveryAnswer(t *testing.T) {
+	r := newRig(t)
+	r.Script.Columns = 40
+	r.happy()
+	if code := r.run("alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	r.Script.HeadingAt(2, "Teams › alpha › Add LXC member\n· step 4/4 Role\ninto team alpha\n· container container-a · user agent\n· checkout /srv/agent/one")
+	for l := range strings.SplitSeq(r.Script.Headings[2], "\n") {
+		if len([]rune(l)) > 38 || strings.HasSuffix(l, "..") {
+			t.Fatalf("a heading line does not fit 40 columns: %q", l)
+		}
+	}
+}
+
 func TestTheCheckoutLineStartsWithTheFirstFoundAndSuggestsThemAllCcyProjectsFirst(t *testing.T) {
 	r := newRig(t)
 	r.OnDeclare("lxc-checkouts", "CHECKOUT\t/srv/agent/two\texample-org/two\tccy\nCHECKOUT\t/var/www/one\texample-org/one\t-\n")

@@ -47,8 +47,6 @@ type Gum struct {
 	Stderr io.Writer
 	// Plain draws the heading without colour: NO_COLOR, or not a terminal.
 	Plain bool
-	// Columns is the terminal's width, which the heading is wrapped to; 0 reads it.
-	Columns int
 }
 
 // exitCode is a command's non-zero exit, or -1 when the error is not an exit at all.
@@ -65,7 +63,7 @@ func (g *Gum) Confirm(ctx context.Context, h Heading, question string, defaultYe
 	if err := h.check(); err != nil {
 		return false, err
 	}
-	_, err := g.run(ctx, "confirm", fmt.Sprintf("--default=%t", defaultYes), h.above(question, !g.Plain, headingWidth(g.Columns)))
+	_, err := g.run(ctx, "confirm", fmt.Sprintf("--default=%t", defaultYes), h.above(question, !g.Plain, g.headingWidth(ctx)))
 	switch code := exitCode(err); {
 	case err == nil:
 		return true, nil
@@ -84,7 +82,7 @@ func (g *Gum) Input(ctx context.Context, h Heading, header, placeholder, value s
 	if err := h.check(); err != nil {
 		return "", err
 	}
-	res, err := g.run(ctx, "input", "--header", h.above(header, !g.Plain, headingWidth(g.Columns)), "--placeholder", placeholder, "--value", value, "--width", "0")
+	res, err := g.run(ctx, "input", "--header", h.above(header, !g.Plain, g.headingWidth(ctx)), "--placeholder", placeholder, "--value", value, "--width", "0")
 	if err != nil {
 		return "", cancelOrFail("gum input", err)
 	}
@@ -96,7 +94,7 @@ func (g *Gum) Choose(ctx context.Context, h Heading, header, selected string, op
 	if err := h.check(); err != nil {
 		return "", err
 	}
-	args := append([]string{"choose", "--header", h.above(header, !g.Plain, headingWidth(g.Columns)), "--selected", selected}, options...)
+	args := append([]string{"choose", "--header", h.above(header, !g.Plain, g.headingWidth(ctx)), "--selected", selected}, options...)
 	res, err := g.run(ctx, args...)
 	if err != nil {
 		return "", cancelOrFail("gum choose", err)

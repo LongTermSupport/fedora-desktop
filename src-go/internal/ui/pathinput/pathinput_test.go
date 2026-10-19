@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -152,6 +153,36 @@ func TestEveryLineIsWrappedToTheWindowNeverCut(t *testing.T) {
 	c := m.View().Cursor
 	if c == nil || c.Y >= len(lines) || !strings.HasSuffix(lines[c.Y], "current") || c.X != lipgloss.Width(lines[c.Y]) {
 		t.Fatalf("cursor %+v over\n%s", c, v)
+	}
+}
+
+// A ZWJ family (five runes, two cells) and a flag (two regional indicators, two cells): each
+// is one grapheme cluster, which a terminal draws as one character.
+var (
+	family = string([]rune{0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F467})
+	flag   = string([]rune{0x1F1EC, 0x1F1E7})
+)
+
+func TestAGraphemeClusterIsWrappedWholeAndTheCursorCountsItsCells(t *testing.T) {
+	m := settle(t, New(context.Background(), spec(sample())), tea.WindowSizeMsg{Width: 14, Height: 40})
+	m = drive(t, m, typed("/a")...)
+	// "Checkout: /a" is 12 cells: the family fills the row to 14, the flag starts the next.
+	m = drive(t, m, tea.KeyPressMsg{Text: family}, tea.KeyPressMsg{Text: flag})
+	lines := strings.Split(view(m), "\n")
+	row := slices.Index(lines, "Checkout: /a"+family)
+	if row < 0 || lines[row+1] != flag {
+		t.Fatalf("the clusters were cut:\n%q", lines)
+	}
+	if c := m.View().Cursor; c == nil || c.Y != row+1 || c.X != 2 {
+		t.Fatalf("cursor %+v, want row %d column 2 (after the flag's two cells)", c, row+1)
+	}
+	m = drive(t, m, left)
+	if c := m.View().Cursor; c.Y != row+1 || c.X != 0 {
+		t.Fatalf("after Left the cursor is %+v, want before the flag", c)
+	}
+	m = drive(t, m, backspace)
+	if m.Line() != "/a"+flag {
+		t.Fatalf("Backspace took %q, want the whole family", m.Line())
 	}
 }
 

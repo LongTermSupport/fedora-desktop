@@ -5,6 +5,7 @@ import (
 	"io"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,9 +16,8 @@ import (
 const (
 	gumProgram = "gum"
 	fzfProgram = "fzf"
-	// wideTerminal is the width the fake terminal reports: wide enough that no heading wraps,
-	// so a test asserts a heading as one trail and one context line (ui tests the wrapping).
-	wideTerminal = 400
+	// defaultColumns is the width the fake terminal reports when a test names none.
+	defaultColumns = 80
 )
 
 var colourCodes = regexp.MustCompile("\x1b\\[[0-9;]*m")
@@ -40,6 +40,8 @@ type Script struct {
 	// Headings is the heading of every screen asked (fzf, and gum but its style), in order: the
 	// lines above the heading's rule, colour stripped.
 	Headings []string
+	// Columns is the terminal's width, as tput cols answers it; 0 is defaultColumns.
+	Columns int
 }
 
 // HeadingOf is the heading ui draws on top of a screen's header or prompt: its lines above the
@@ -124,7 +126,11 @@ func (s *Script) Run(_ context.Context, c execx.Cmd) (execx.Result, error) {
 	case gumProgram:
 		return s.runGum(c)
 	case "tput":
-		return execx.Result{Stdout: []byte("80\n")}, nil
+		cols := s.Columns
+		if cols == 0 {
+			cols = defaultColumns
+		}
+		return execx.Result{Stdout: []byte(strconv.Itoa(cols) + "\n")}, nil
 	}
 	s.T.Fatalf("scripted runner asked for %s", c.Line())
 	return execx.Result{}, nil
@@ -247,8 +253,8 @@ func Interactive(t *testing.T, w *World) *Console {
 	h := w.Host
 	h.IsTerminal = func(any) bool { return true }
 	h.Term.IsTerminal = h.IsTerminal
-	h.Gum = &ui.Gum{Runner: c.Script, Stdin: h.Stdin, Stderr: w.ErrOut, Plain: true, Columns: wideTerminal}
-	h.Picker = &ui.Picker{Runner: c.Script, Stderr: w.ErrOut, Plain: true, Columns: wideTerminal}
+	h.Gum = &ui.Gum{Runner: c.Script, Stdin: h.Stdin, Stderr: w.ErrOut, Plain: true}
+	h.Picker = &ui.Picker{Runner: c.Script, Stderr: w.ErrOut, Plain: true}
 	h.LookPath = func(name string) (string, error) { return "/usr/bin/" + name, nil }
 	h.OpenTTY = func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader(c.TTY)), nil }
 	h.Exec = func(path string, argv []string, dir string) error {

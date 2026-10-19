@@ -14,6 +14,10 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
+// wideTerminal keeps a heading on one line when its context holds the test's temporary path,
+// whose length varies with the test and the machine (wrapping is tested in ui and picker).
+const wideTerminal = 400
+
 func (h rig) attachable() {
 	h.On("tmux -L ccy list-clients", "", 0)
 	h.On("tmux -L ccy set-hook", "", 0)
@@ -112,6 +116,7 @@ func newSessionHarness(t *testing.T) rig {
 
 func TestNewSessionOffersFreeSeatsAndANewOneAndExecsTheLauncherInTheTop(t *testing.T) {
 	h := newSessionHarness(t)
+	h.Script.Columns = wideTerminal
 	h.Script.Fzf = []string{"|new"}
 	snap := h.pass(t)
 	res, err := h.s.NewSession(context.Background(), snap, "alpha")
@@ -282,6 +287,7 @@ func TestToggleRestoreReportsAnUnlocatableRegistry(t *testing.T) {
 
 func TestRemoveSeatAsksThenRemovesInItsCheckout(t *testing.T) {
 	h := newRig(t)
+	h.Script.Columns = wideTerminal
 	h.On("agent-bus seat remove", "", 0)
 	h.Script.Fzf = []string{"|YES"}
 	snap := h.pass(t)

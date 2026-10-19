@@ -117,9 +117,10 @@ the former, fail fast on the latter.
     on, with the answers given so far (`into team alpha · container container-a · user agent`). When one run asks the same questions for several things in turn, the heading
     names which one, and which of how many (`New session › Team 2 of 3: beta`). In `src-go/`
     the heading is `ui.Heading`, a required argument of every `ui` question and pick, drawn
-    the same way by fzf and gum; a screen without one is refused (`ui.ErrNoHeading`). fzf and
-    gum cut off a header line that is too wide, so a long heading is wrapped at its `›` and
-    `·` separators to the terminal's width: wrap, never truncate.
+    the same way by fzf and gum; a screen without one is refused (`ui.ErrNoHeading`). fzf cuts
+    a header line wider than its window to `..`, and gum never wraps a header, so a long
+    heading is wrapped at its `›` and `·` separators (then at spaces) to the width of the
+    terminal, in display cells: wrap, never truncate.
 
 ## Canonical patterns
 

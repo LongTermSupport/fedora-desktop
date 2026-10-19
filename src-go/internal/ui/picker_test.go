@@ -19,7 +19,7 @@ func TestPickReturnsTheRowAndTreatsExitAsLeave(t *testing.T) {
 	if err != nil || got.Row != "alpha   up" || got.Action != "" {
 		t.Fatalf("got %+v, %v", got, err)
 	}
-	c := f.Calls()[0]
+	c := drawn(f)[0]
 	if !slices.Contains(c.Args, "--border-label= Agent teams ") || slices.ContainsFunc(c.Args, func(a string) bool { return strings.HasPrefix(a, "--expect") }) {
 		t.Fatalf("args %v", c.Args)
 	}
@@ -49,13 +49,13 @@ func TestConfirmInPickerDefaultsToExitUnlessAskedForYes(t *testing.T) {
 	if err != nil || !yes {
 		t.Fatalf("got %v, %v", yes, err)
 	}
-	if slices.Contains(f.Calls()[0].Args, "--bind=start:last") {
+	if slices.Contains(drawn(f)[0].Args, "--bind=start:last") {
 		t.Fatal("a yes-default question starts on Yes")
 	}
 	if _, err := p.Confirm(context.Background(), testHead, "q", "do it", false); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(f.Calls()[1].Args, "--bind=start:last") {
+	if !slices.Contains(drawn(f)[1].Args, "--bind=start:last") {
 		t.Fatal("the safe default starts on Exit")
 	}
 }
@@ -70,7 +70,7 @@ func TestTaggedRowsCarryAHiddenTailThatComesBack(t *testing.T) {
 	if err != nil || got.Row != "alpha   up" || got.Tag != "1" {
 		t.Fatalf("got %+v, %v", got, err)
 	}
-	c := f.Calls()[0]
+	c := drawn(f)[0]
 	if !slices.Contains(c.Args, "--delimiter=\t") || !slices.Contains(c.Args, "--with-nth=1") {
 		t.Fatalf("args %v", c.Args)
 	}
@@ -119,8 +119,8 @@ func TestUntaggedPicksPassNoDelimiter(t *testing.T) {
 	if _, err := (&Picker{Runner: f}).Pick(context.Background(), testHead, PickSpec{Title: "t", Rows: []string{"r"}}); err != nil {
 		t.Fatal(err)
 	}
-	if slices.Contains(f.Calls()[0].Args, "--with-nth=1") {
-		t.Fatalf("args %v", f.Calls()[0].Args)
+	if slices.Contains(drawn(f)[0].Args, "--with-nth=1") {
+		t.Fatalf("args %v", drawn(f)[0].Args)
 	}
 }
 
@@ -135,7 +135,7 @@ func TestRowHeadersFollowTheCursorAndTheExitRowKeepsTheBaseHeader(t *testing.T) 
 	if !errors.Is(err, ErrLeave) {
 		t.Fatal(err)
 	}
-	args := f.Calls()[0].Args
+	args := drawn(f)[0].Args
 	if !slices.Contains(args, "--header="+testHeadText+"for a (it's)\n") {
 		t.Fatalf("the first row's header is shown at the start: %q", args)
 	}
@@ -144,8 +144,8 @@ func TestRowHeadersFollowTheCursorAndTheExitRowKeepsTheBaseHeader(t *testing.T) 
 	if !slices.Contains(args, want) {
 		t.Fatalf("args %q lack %q", args, want)
 	}
-	if !slices.Contains(f.Calls()[0].Env, "SHELL=/bin/sh") {
-		t.Fatalf("the binding is sh, whatever the login shell is: %q", f.Calls()[0].Env)
+	if !slices.Contains(drawn(f)[0].Env, "SHELL=/bin/sh") {
+		t.Fatalf("the binding is sh, whatever the login shell is: %q", drawn(f)[0].Env)
 	}
 	if _, err := p.Pick(context.Background(), testHead, PickSpec{Title: "t", Rows: []string{"a"}, RowHeaders: []string{"x", "y"}}); err == nil {
 		t.Fatal("headers that do not pair up with rows are refused")
@@ -173,7 +173,7 @@ func TestExitLabelNamesTheLastRow(t *testing.T) {
 	if !errors.Is(err, ErrLeave) {
 		t.Fatal(err)
 	}
-	in, readErr := io.ReadAll(f.Calls()[0].Stdin)
+	in, readErr := io.ReadAll(drawn(f)[0].Stdin)
 	if readErr != nil || string(in) != "a\nBack to the list\n" {
 		t.Fatalf("rows fed %q, %v", in, readErr)
 	}
@@ -192,7 +192,7 @@ func TestAPickThatMatchesNothingLeaves(t *testing.T) {
 	if _, err := p.Pick(context.Background(), testHead, PickSpec{Title: "t", Rows: []string{"a/"}}); !errors.Is(err, ErrLeave) {
 		t.Fatalf("a pick that matches nothing leaves: %v", err)
 	}
-	if c := f.Calls()[0]; !slices.Contains(c.Args, "--bind=q:abort") || !slices.Contains(c.Args, "--prompt=filter > ") {
+	if c := drawn(f)[0]; !slices.Contains(c.Args, "--bind=q:abort") || !slices.Contains(c.Args, "--prompt=filter > ") {
 		t.Fatalf("args %v", c.Args)
 	}
 }

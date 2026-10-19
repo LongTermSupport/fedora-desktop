@@ -86,9 +86,10 @@ type listedMsg struct {
 
 // Model is the line and what it shows.
 type Model struct {
-	spec   Spec
-	list   func(dir string) (Listing, error)
-	line   []rune
+	spec Spec
+	list func(dir string) (Listing, error)
+	// line is the text typed, as grapheme clusters; cursor is the cluster it is before.
+	line   []ui.Cluster
 	cursor int
 	// pick is the suggestion in the line, -1 for none.
 	pick int
@@ -110,7 +111,7 @@ type Model struct {
 func New(ctx context.Context, s Spec) Model {
 	h := help.New()
 	h.Styles = help.Styles{}
-	value := []rune(s.Value)
+	value := ui.Clusters(s.Value)
 	return Model{
 		spec: s, list: func(dir string) (Listing, error) { return s.List(ctx, dir) },
 		line: value, cursor: len(value), help: h, width: defaultWidth,
@@ -119,7 +120,13 @@ func New(ctx context.Context, s Spec) Model {
 }
 
 // Line is the text in the line.
-func (m Model) Line() string { return string(m.line) }
+func (m Model) Line() string {
+	var b strings.Builder
+	for _, c := range m.line {
+		b.WriteString(c.Text)
+	}
+	return b.String()
+}
 
 // Result is the path given, or ui.ErrCancelled for Esc or Ctrl+C.
 func (m Model) Result() (string, error) {
@@ -164,7 +171,7 @@ func (m Model) View() tea.View {
 		lines = append(lines, wrapped(n, m.width)...)
 	}
 	lines = append(lines, "")
-	input := wrapAt(m.spec.Prompt, string(m.line), m.cursor, m.width)
+	input := wrapAt(m.spec.Prompt, m.line, m.cursor, m.width)
 	row, col := len(lines)+input.row, input.col
 	lines = append(lines, input.rows...)
 	for _, s := range m.said() {
@@ -218,7 +225,7 @@ func (m Model) replay() (Model, tea.Cmd) {
 
 // complete starts reading the directory the line names, for Tab.
 func (m Model) complete() (Model, tea.Cmd) {
-	text := string(m.line)
+	text := m.Line()
 	if !strings.HasPrefix(text, "/") {
 		m.note = "A path starts with /: Tab completes from there."
 		return m, nil
@@ -268,7 +275,7 @@ func (m Model) completed(l listedMsg) Model {
 
 // accept takes the line as the path, cleaned: no trailing slash.
 func (m Model) accept() (Model, tea.Cmd) {
-	text := string(m.line)
+	text := m.Line()
 	if !strings.HasPrefix(text, "/") {
 		m.note = "A path starts with /: type the whole path, or Tab from /."
 		return m, nil
@@ -295,7 +302,7 @@ func (m Model) suggest(up bool) Model {
 }
 
 func (m Model) setLine(text string) Model {
-	m.line = []rune(text)
+	m.line = ui.Clusters(text)
 	m.cursor = len(m.line)
 	m.note, m.shown = "", nil
 	return m
@@ -306,14 +313,16 @@ func (m Model) edit(k tea.KeyPressMsg) Model {
 	if moved, isMove := m.move(k.String()); isMove {
 		return moved
 	}
-	before := string(m.line)
+	before := m.Line()
 	m = m.delete(k.String())
-	if k.Text != "" && !strings.ContainsFunc(k.Text, func(r rune) bool { return !unicode.IsPrint(r) }) {
-		typed := []rune(k.Text)
+	// A joiner or a variation selector is part of a cluster, not a control: only controls are
+	// refused.
+	if k.Text != "" && !strings.ContainsFunc(k.Text, unicode.IsControl) {
+		typed := ui.Clusters(k.Text)
 		m.line = slices.Insert(slices.Clone(m.line), m.cursor, typed...)
 		m.cursor += len(typed)
 	}
-	if string(m.line) != before {
+	if m.Line() != before {
 		m.pick, m.note, m.shown = -1, "", nil
 	}
 	return m
@@ -421,23 +430,24 @@ type wrapping struct {
 	row, col int
 }
 
-// wrapped is text in rows of at most width cells, cut anywhere (a path has no spaces to break
-// at), nothing left out. Empty text is one empty row.
-func wrapped(text string, width int) []string { return wrapAt("", text, 0, width).rows }
+// wrapped is text in rows of at most width cells, cut between grapheme clusters anywhere (a
+// path has no spaces to break at), nothing left out. Empty text is one empty row.
+func wrapped(text string, width int) []string { return wrapAt("", ui.Clusters(text), 0, width).rows }
 
-// wrapAt is prompt then text in rows of at most width cells, and the row and column of a
-// cursor before text's rune at cursor. A cursor at the very end of a full row is at the start
-// of a row of its own, as a terminal puts it.
-func wrapAt(prompt, text string, cursor, width int) wrapping {
+// wrapAt is prompt then line in rows of at most width cells, cut between grapheme clusters
+// and measured by their cells (ui.Clusters, the count ui.Width gives), and the row and column
+// of a cursor before line's cluster at cursor, from the same count. A cursor at the very end
+// of a full row is at the start of a row of its own, as a terminal puts it.
+func wrapAt(prompt string, line []ui.Cluster, cursor, width int) wrapping {
 	width = max(width, 1)
 	var out wrapping
 	var cur strings.Builder
 	used := 0
-	runes := append([]rune(prompt), []rune(text)...)
-	at := len([]rune(prompt)) + cursor
-	for i, r := range runes {
-		w := lipgloss.Width(string(r))
-		if used+w > width && used > 0 {
+	lead := ui.Clusters(prompt)
+	units := slices.Concat(lead, line)
+	at := len(lead) + cursor
+	for i, u := range units {
+		if used+u.Cells > width && used > 0 {
 			out.rows = append(out.rows, cur.String())
 			cur.Reset()
 			used = 0
@@ -445,10 +455,10 @@ func wrapAt(prompt, text string, cursor, width int) wrapping {
 		if i == at {
 			out.row, out.col = len(out.rows), used
 		}
-		cur.WriteRune(r)
-		used += w
+		cur.WriteString(u.Text)
+		used += u.Cells
 	}
-	if at >= len(runes) {
+	if at >= len(units) {
 		out.row, out.col = len(out.rows), used
 		if used >= width {
 			out.rows = append(out.rows, cur.String())
@@ -461,12 +471,12 @@ func wrapAt(prompt, text string, cursor, width int) wrapping {
 }
 
 // componentStart is where the path component before the cursor starts, its slash kept.
-func componentStart(line []rune, cursor int) int {
+func componentStart(line []ui.Cluster, cursor int) int {
 	at := cursor
-	for at > 0 && line[at-1] == '/' {
+	for at > 0 && line[at-1].Text == "/" {
 		at--
 	}
-	for at > 0 && line[at-1] != '/' {
+	for at > 0 && line[at-1].Text != "/" {
 		at--
 	}
 	return at
