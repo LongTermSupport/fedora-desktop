@@ -201,6 +201,12 @@ linters:
       - path: internal/wsi/(app|log)\.go
         linters: [gosec]
         text: "G304"
+      # stt reads the recordings the person names on the command line, by computed path, and
+      # checks each part against the MD5 the phone app's manifest records: a comparison with a
+      # checksum it did not choose, not a use of MD5 for security. Its tests build that tree.
+      - path: internal/stt/
+        linters: [gosec]
+        text: "G304|G401|G501|G703"
       - path: internal/wsi/.*_test\.go
         linters: [gosec]
         text: "G304|G306|G703"

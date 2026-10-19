@@ -163,7 +163,7 @@ func replay(t *testing.T, world map[string]string, sc goldenScenario) goldenReco
 	writeFile(t, root, "scripts/qa-gates.tsv", goldenGates)
 	writeFile(t, root, "scripts/qa-routing.tsv", readReal(t, "qa-routing.tsv"))
 	writeFile(t, root, "scripts/qa-trees.tsv", readReal(t, "qa-trees.tsv"))
-	gitIn(t, root, "init", "-q")
+	initFixture(t, root)
 	gitIn(t, root, "add", "-A")
 	gitIn(t, root, "commit", "-q", "-m", "base")
 	first := gitIn(t, root, "rev-parse", "HEAD")

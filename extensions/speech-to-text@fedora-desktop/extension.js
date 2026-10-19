@@ -24,7 +24,7 @@ import { FocusOutline } from './focusOutline.js';
 import { PasteTargetPin } from './pasteTarget.js';
 import { PanelSession } from './panelSession.js';
 import { spawnWatched, killArgv, discardSignal } from './recorderLaunch.js';
-import { lookFor, isKnownState, recordingBadgeColor, articleBadgeColor, COLOURS } from './panelLook.js';
+import { lookFor, isKnownState, recordingBadgeColor, articleBadgeColor, shownState, COLOURS } from './panelLook.js';
 import { POST_PROCESS_STYLES, LastTranscriptPostProcessor, unusableKeybindings } from './postProcess.js';
 import { TOKEN_WARNING_FILE, tokenWarning } from './tokenWarning.js';
 
@@ -95,6 +95,7 @@ export default class SpeechToTextExtension extends Extension {
         this._serverStatusDot = null;
         this._serverPollTimer = null;
         this._serverIsHot = false;
+        this._filesRunning = false;       // the server is transcribing recordings (stt)
 
         // Recording timer state
         this._recordingTimer = null;
@@ -667,6 +668,28 @@ export default class SpeechToTextExtension extends Extension {
         }
     }
 
+    /** Whether the server is transcribing recordings (stt), in any startup mode: it marks a
+     * file job with wsi-file-job while it runs. A marker beside no PID file is a server
+     * that is gone, and means nothing. Idle shows FILES while it is so. */
+    _checkFileJob() {
+        const runtimeDir = GLib.get_user_runtime_dir();
+        if (!runtimeDir)
+            return;
+        let filesRunning = false;
+        try {
+            filesRunning = Gio.File.new_for_path(`${runtimeDir}/wsi-file-job`).query_exists(null) &&
+                Gio.File.new_for_path(`${runtimeDir}/wsi-stream-server.pid`).query_exists(null);
+        } catch (e) {
+            this._log(`File job check failed: ${e.message}`, 'WARN');
+        }
+        if (filesRunning !== this._filesRunning) {
+            this._filesRunning = filesRunning;
+            this._log(`File transcription ${filesRunning ? 'started' : 'ended'}`);
+            if (this._icon && this._iconState === 'IDLE')
+                this._showLook('IDLE');
+        }
+    }
+
     _startServerStatusPolling() {
         // Poll server status every 5 seconds
         if (this._serverPollTimer) {
@@ -676,6 +699,7 @@ export default class SpeechToTextExtension extends Extension {
         // Initial check (wrapped in try-catch)
         try {
             this._checkServerStatus();
+            this._checkFileJob();
         } catch (e) {
             this._log(`Initial server check failed: ${e.message}`, 'ERROR');
         }
@@ -684,6 +708,7 @@ export default class SpeechToTextExtension extends Extension {
         this._serverPollTimer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 5, () => {
             try {
                 this._checkServerStatus();
+                this._checkFileJob();
             } catch (e) {
                 this._log(`Server polling error: ${e.message}`, 'ERROR');
             }
@@ -705,6 +730,7 @@ export default class SpeechToTextExtension extends Extension {
             this._serverStatusDot.visible = false;
         }
         this._serverIsHot = false;
+        this._filesRunning = false;
     }
 
     /**
@@ -782,11 +808,12 @@ export default class SpeechToTextExtension extends Extension {
         }
     }
 
-    /** The icon and its colour for `state`, which are panelLook.js's. */
+    /** The icon and its colour for `state`, which are panelLook.js's; idle shows a file
+     * job (FILES) while one runs. */
     _showLook(state) {
         if (!isKnownState(state))
             this._log(`Unknown state "${state}": shown as please-wait, never as ready`);
-        const look = lookFor(state);
+        const look = lookFor(shownState(state, this._filesRunning));
         if (look.icon === 'hourglass')
             this._icon.gicon = this._hourglassIcon;
         else

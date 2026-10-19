@@ -731,7 +731,9 @@ if (cd "$REPO_ROOT" && python3 -m unittest \
         tests/speech_to_text/test_claude_failure_report.py \
         tests/speech_to_text/test_article_client.py \
         tests/speech_to_text/test_resolve_model.py \
-        tests/speech_to_text/test_keep_warm.py) > "$work/unit.out" 2>&1; then
+        tests/speech_to_text/test_keep_warm.py \
+        tests/speech_to_text/test_server_file_job.py \
+        tests/speech_to_text/test_ensure_server.py) > "$work/unit.out" 2>&1; then
     passed=$((passed + 1))
     echo "  PASS: $(grep -E '^Ran [0-9]+ tests' "$work/unit.out")"
 else
