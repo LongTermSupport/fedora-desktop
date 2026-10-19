@@ -207,7 +207,7 @@ Built on `fix/teams-server-robustness`; design and evidence in
   Decisions 8, 9 and 10).
 
 - [ ] ⬜ **Task 3.12** (was 3.10): Claude Code's agent view off in the ccy image (SPEC C7,
-  Decision 11). CCY 3.99.12.13, container 2.77.9 (placeholders).
+  Decision 11). CCY 3.99.12.15, container 2.77.11 (placeholders).
 
 ## Decisions
 

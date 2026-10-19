@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.12.13 — container 2.77.9
+## 3.99.12.15 — container 2.77.11
 
 Follows 3.99.12.12 (container 2.77.8). The image carries the pingbus kit, whose SessionStart
 hook changed, so it is rebuilt once.
@@ -27,6 +27,12 @@ hook changed, so it is rebuilt once.
   its seat report under `.claude/ccy/pingbus/sessions/<session>/`, at its start and after
   every `/clear`, resume or compaction; a session on no team records it too, and does nothing
   else at that moment (pingbus plugin 1.4.0).
+- **`ccy-sessions restore` resumes each session's own conversation by id** (Plan 00203
+  Decision 10), never `--continue`, which picks the newest conversation of a checkout that
+  several sessions share and refuses one a stale `/background` record holds. A record with no
+  recorded conversation (a `--no-bus` launch, a plain `cc`) is not started: it is named, with
+  `ccy --resume` as the way back by hand, and its record is kept. The uncalled bash restore
+  in `lib/session-registry.bash`, which still appended `--continue`, is gone.
 
 ## 3.99.12.12 — container 2.77.8
 
