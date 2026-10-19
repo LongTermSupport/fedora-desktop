@@ -104,8 +104,7 @@ today; rewriting them is out of scope.
   Before Fix toolchain spec read from its first-party repository:
   [RESEARCH-go-qa-ci.md](RESEARCH-go-qa-ci.md).
 
-- [x] ✅ **Task 3.2**: Create `LongTermSupport/go-qa-ci` (created private; the owner makes it
-  public after review) and build it by milestones, self-hosted. It is a generic DBF toolchain
+- [x] ✅ **Task 3.2**: Create `LongTermSupport/go-qa-ci` (public) and build it by milestones, self-hosted. It is a generic DBF toolchain
   for Go: it names no consumer. Milestones M0-M14 each passed an independent verifier; its
   conformance is declared with recorded gaps, never claimed in full. The verifiers' deferred
   minor items are in `subagent-reports/261014-go-qa-ci-deferred-run*.md`, for a polish pass.
@@ -129,7 +128,7 @@ today; rewriting them is out of scope.
   Both are off until then: without a record every `.golangci.yml` exclusion would fail the
   suppression detector. `qa-go.bash` had neither check, so nothing was lost by Task 3.3.
 
-- [ ] ⬜ **Task 3.9**: Re-derive the coverage floor from go-qa's measurement (Fable's review of
+- [x] ✅ **Task 3.9**: Re-derive the coverage floor from go-qa's measurement (Fable's review of
   Task 3.3, finding 4; `subagent-reports/261019-go-qa-ci-pin-review-fable.md`). `qa-go.bash`
   measured each package by its own tests (no `-coverpkg`); go-qa measures `-coverpkg=./...`
   across the module, so statements one package's tests execute in another now count. The floor
@@ -137,6 +136,12 @@ today; rewriting them is out of scope.
   gate printed 94.8% and 94.4%). Measure the module total the new way, choose the floor from
   it, and record the choice. go-qa prints the percentage only when the floor is missed, so the
   measurement needs a run with a deliberately high floor or a profile of its own.
+
+  - Measured 2026-10-19, full mode, floor set to 100 for the run only:
+    `scripts/qa-go-qa.bash -t coverage` printed `.: statement coverage 92.1%` and
+    `qa: statement coverage 94.3%`.
+  - Floor kept at 90: one floor serves both modules, and 90 is 2.1 points under the lower
+    total. The `go-qa.toml` comment now cites these figures.
 
 - [x] ✅ **Task 3.10**: go-qa-ci diff mode must not fail on a test-only package (found by
   Fable). The build stage named the changed packages and their importers to `go build`, which
@@ -173,7 +178,7 @@ today; rewriting them is out of scope.
     `coverage`.
   - Possible follow-up, not this task: judge each changed package against the floor on its own.
 
-- [ ] 🔄 **Task 3.12**: CI's Go is older than the qa module requires. Since Task 3.3 the qa
+- [x] ✅ **Task 3.12**: CI's Go is older than the qa module requires. Since Task 3.3 the qa
   module says `go 1.26.9`, but CI's `actions/setup-go@v5` read `src-go/go.mod`, which says
   `go 1.26.0` (its `toolchain go1.26.9` line is ignored by setup-go). CI installed 1.26.0, and
   `qa-toolchain` correctly failed "Install QA tooling" on every F44 run since.
@@ -186,8 +191,11 @@ today; rewriting them is out of scope.
     on the fix.
   - Review follow-ups: the comments say `setup-go@v5` (later majors read the toolchain line
     unless `GOTOOLCHAIN=local`); Plan 00204's note is corrected; `qa-routing.tsv` sends
-    `.github/workflows/*.yml` to the go check (SPEC-qa-changed B50).
-  - Remaining: the coordinator's push shows CI green. Issue text is in the journal.
+    `.github/workflows/*.yml` and `*.yaml` to the go check (SPEC-qa-changed B50), and the gate
+    reads both extensions.
+  - Verified: CI run 39318237801 (commit `8a4def2d`, which holds `ae9bc47e` and `03822051`) is
+    green, "Install QA tooling" included. The issue text in the journal was not filed: the
+    defect was fixed before an issue was needed.
 
 - [x] ✅ **Task 3.4**: go-qa-ci diff mode, `go-qa run --changed [--base <ref>]` (M13):
   per-package engines on the affected packages and their importers, repo-wide defences always,

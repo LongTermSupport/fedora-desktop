@@ -184,7 +184,7 @@ func TestEveryWorkflowSetsUpTheGoFloor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workflows, err := fs.Glob(root, ".github/workflows/*.yml")
+	workflows, err := workflowFiles(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,6 +205,36 @@ func TestEveryWorkflowSetsUpTheGoFloor(t *testing.T) {
 	if found == 0 {
 		t.Fatal("no workflow sets up Go with actions/setup-go, so CI's Go is unchecked")
 	}
+}
+
+// GitHub runs a workflow under either extension, so a .yaml workflow is held to the floor too.
+func TestWorkflowFilesTakesBothExtensions(t *testing.T) {
+	root := fstest.MapFS{
+		".github/workflows/a.yml":    {Data: []byte("name: a")},
+		".github/workflows/b.yaml":   {Data: []byte("name: b")},
+		".github/workflows/notes.md": {Data: []byte("not a workflow")},
+	}
+	got, err := workflowFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{".github/workflows/a.yml", ".github/workflows/b.yaml"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("workflowFiles = %v, want %v", got, want)
+	}
+}
+
+// workflowFiles is every workflow under .github/workflows, .yml then .yaml.
+func workflowFiles(root fs.FS) ([]string, error) {
+	var files []string
+	for _, pattern := range []string{".github/workflows/*.yml", ".github/workflows/*.yaml"} {
+		matches, err := fs.Glob(root, pattern)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, matches...)
+	}
+	return files, nil
 }
 
 // setupGoVersionFiles is the go-version-file of each actions/setup-go step in one workflow; a step

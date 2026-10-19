@@ -19,7 +19,8 @@ suppression = false
 module = "qa"
 driver = "./driver"
 
-# The floor sits a few points under the measured total, so it catches untested code landing,
-# not ordinary drift. Raise it as coverage rises; never lower it to let a change in.
+# One floor for both modules, a few points under the lower of go-qa's own totals (-coverpkg=./...
+# per module, full mode: src-go 92.1%, qa 94.3%; Plan 00191 Task 3.9), so it catches untested
+# code landing, not ordinary drift. Raise it as coverage rises; never lower it to let a change in.
 [coverage]
 fail_under_statements = 90
