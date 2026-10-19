@@ -54,12 +54,12 @@ the tasks.
   package, no services or secrets), which AnsibleStyle.md sends to that play as a tagged block,
   beside `open`. The play is headless-safe and in the server-recommended bundle; pandoc is
   headless too.
-- **D3 Name: `convert`, as the issue asks.** It is installed to `~/.local/bin/convert`, which
-  precedes `/usr/bin` on the login user's PATH, so it shadows ImageMagick's legacy
-  `/usr/bin/convert` alias in that user's shells. Nothing in this repository calls ImageMagick
-  as `convert` (every caller uses `magick`), and `magick` remains the way to run ImageMagick.
-  Assumed answer, open to the owner: keep the name; renaming is a change to the play's
-  install path.
+- **D3 Name: `convert` (settled by the issue's wording).** The owner's issue names the
+  command `convert`. Disclosed: it is installed to `~/.local/bin/convert`, which precedes
+  `/usr/bin` on the login user's PATH, so it shadows ImageMagick's legacy `/usr/bin/convert`
+  alias in that user's shells. Nothing in this repository calls ImageMagick as `convert`
+  (every caller uses `magick`), and `magick` remains the way to run ImageMagick. The play,
+  docs/playbooks.md and the meta-deploy entry say so.
 - **D4 Fail before acting.** Every requested format, output collision and engine is checked
   before the first conversion, so a request that cannot complete changes nothing (E7, E9, E10).
 
@@ -75,16 +75,19 @@ the tasks.
   `pandoc --version` probe, build-go-command install to `~/.local/bin/convert`; the
   `play-golang.yml` import also tagged `convert-command`; docs (`docs/playbooks.md`,
   `src-go/CLAUDE.md`).
-- [x] ✅ **Task 1.4**: Queue `play-cli-tools.yml` in `meta-deploy.list` with what it does.
-  Plan 00189's run of the same play is already queued, so its entry's description now covers
-  this plan too, rather than queuing the play twice.
+- [x] ✅ **Task 1.4**: Queue `play-cli-tools.yml` in `meta-deploy.list` with what it does,
+  as its own entry, followed by this plan folder (its `acceptance.bash`).
+- [x] ✅ **Task 1.5**: [acceptance.bash](acceptance.bash) (gather legs through
+  [check-convert.bash](check-convert.bash)): the installed `~/.local/bin/convert` lists docx,
+  refuses `--to pdf` with exit 64, and converts [fixture.md](fixture.md) to a DOCX that pandoc
+  reads back (JSON syntax tree and plain text) with headings, both lists, the table, bold,
+  italic and the code block. This is the real path the fake runner never exercises.
 
 ### Phase 2: Deploy and accept
 
-- [ ] ⬜ **Task 2.1**: Owner runs `./CLAUDE/Plan/meta-deploy.bash` (the CLI tools play).
-- [ ] ⬜ **Task 2.2**: Acceptance on the host: `convert` on a Markdown file with headings, a
-  list, a table, bold/italic and a fenced code block opens in Word or LibreOffice with each
-  preserved; `convert file.md` lists `docx`; `--to pdf` exits 64 naming `docx`.
+- [ ] ⬜ **Task 2.1**: Owner runs `./CLAUDE/Plan/meta-deploy.bash` (the CLI tools play, then
+  this plan's acceptance).
+- [ ] ⬜ **Task 2.2**: `acceptance.bash` passes on the host (Task 1.5's checks).
 - [ ] ⬜ **Task 2.3**: `qa-all.bash` and the `qa-reviewer` agent.
 
 ## Success Criteria

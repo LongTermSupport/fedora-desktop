@@ -141,7 +141,7 @@
         go_command_mode: "0755"
       tags: convert-command
 
-    # ── reclaim──────────────────────────────────────────────────────────────────
+    # ── reclaim ──────────────────────────────────────────────────────────────────
     # A dependency-light bash menu that reports what is using disk and runs targeted
     # cleanups, each behind an explicit confirmation; ncdu and baobab do deep dives.
     - name: Install reclaim command-line disk-usage tools
