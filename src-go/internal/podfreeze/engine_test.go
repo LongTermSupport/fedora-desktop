@@ -3,6 +3,8 @@ package podfreeze
 import (
 	"context"
 	"errors"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 
@@ -47,7 +49,7 @@ func TestLoadMarksCCYByNamePattern(t *testing.T) {
 		"proj_browser_": false, "plain": false,
 	}
 	var ps strings.Builder
-	for name := range cases {
+	for _, name := range slices.Sorted(maps.Keys(cases)) {
 		ps.WriteString(name + "|running|none\n")
 	}
 	_, inv := load(t, ps.String(), "", "")
