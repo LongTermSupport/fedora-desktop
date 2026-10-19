@@ -14,8 +14,9 @@ type Exemption struct {
 	Reason  string
 }
 
-// Exemptions is the one place a kind of file is exempted: test suites, plan-folder scripts
-// and vendored trees. Everything else, user-shell snippets and run.bash included, is measured
+// Exemptions is the one place a kind of file is exempted: test suites, plan-folder scripts,
+// vendored trees and the daemon-owned trees; single daemon-owned files are DaemonOwnedFiles,
+// which ExemptionFor also consults. Everything else, user-shell snippets and run.bash included, is measured
 // and, if over a limit, held on the allowlist at its size. Keep each entry narrow, its reason
 // true, and delete one that matches no file.
 var Exemptions = []Exemption{
@@ -33,6 +34,9 @@ var Exemptions = []Exemption{
 
 // ExemptionFor is the reason p is exempt, and whether it is.
 func ExemptionFor(p string) (string, bool, error) {
+	if reason := daemonOwnedReason(p); reason != "" {
+		return reason, true, nil
+	}
 	for _, e := range Exemptions {
 		hit, err := matchPattern(e.Pattern, p)
 		if err != nil {

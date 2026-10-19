@@ -3,6 +3,15 @@
 // against the limits below, exempts the few kinds of file where bash is not the thing being
 // judged, and holds the files already over a limit to a ratchet allowlist that may only shrink.
 //
+// # Exemptions
+//
+// Exemptions (exempt.go) are the kinds: test suites, plan-folder scripts, vendored trees and
+// the daemon-owned trees. DaemonOwnedFiles (daemonowned.go) are single files the hooks daemon
+// overwrites on every upgrade, each an exact path, exempt only while a hooks-daemon upgrade
+// commit names it in its UPGRADE_METADATA modified_files list. That is the only way an
+// allowlisted file that still exists may leave the allowlist: exempting any other ratcheted
+// file is refused, so calling a file exempt cannot dodge the ratchet.
+//
 // # The measure (MeasurerVersion)
 //
 // A file is parsed with mvdan.cc/sh/v3 as bash and measured on its syntax tree, so quoting,

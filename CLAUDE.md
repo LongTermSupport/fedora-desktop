@@ -55,9 +55,11 @@ the package doc of `src-go/qa/bashlimits`. A bash file is found by what it is: `
 `*.sh`, or a first line that is a bash/sh shebang, whatever the file is called.
 
 Exempt: test suites (`scripts/test-*.bash`, `tests/`), plan-folder scripts (they are plan-local
-scaffolding that [PlanScriptStandards.md](CLAUDE/PlanScriptStandards.md) requires), and
-vendored or daemon-owned trees. Everything else is measured, including shell snippets and
-`run.bash`; wrappers that `exec` a Go binary fit the limits. Existing scripts over the limits
+scaffolding that [PlanScriptStandards.md](CLAUDE/PlanScriptStandards.md) requires),
+vendored or daemon-owned trees, and the daemon-owned files named one by one in
+`DaemonOwnedFiles` (such as `CLAUDE/Plan/mkplan.bash`), each held exempt only while a
+hooks-daemon upgrade commit lists it in its `modified_files`. Everything else is measured,
+including shell snippets and `run.bash`; wrappers that `exec` a Go binary fit the limits. Existing scripts over the limits
 are on a ratchet allowlist: they may shrink and be ported, never grow. Python that Ansible
 loads stays Python; a standalone Python CLI is ported to Go when it is next reworked.
 
