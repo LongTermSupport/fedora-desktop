@@ -67,6 +67,9 @@ type PickSpec struct {
 	// menu pressed on the row chooses that action there; a key the row's menu does not have is
 	// a NotOfferedError.
 	Menus []Menu
+	// WrapHeader wraps Header's lines to the window as the heading is, for a header that carries
+	// text of any length (a play run's name and pid): fzf cuts a line wider than its window.
+	WrapHeader bool
 }
 
 // errHeaderCount is RowHeaders that do not pair up with Rows.
@@ -220,7 +223,11 @@ func (s PickSpec) headerArgs(h Heading, colour bool, width int) ([]string, error
 	}
 	headed := func(text string) string { return h.above(text, colour, width) }
 	if len(s.RowHeaders) == 0 {
-		return []string{"--header=" + headed(s.Header) + "\n"}, nil
+		header := s.Header
+		if s.WrapHeader {
+			header = wrapText(header, width)
+		}
+		return []string{"--header=" + headed(header) + "\n"}, nil
 	}
 	n := len(s.RowHeaders)
 	if n != len(s.Rows) && (len(s.Actions) == 0 || n != len(s.Rows)+len(s.Actions)) {

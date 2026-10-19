@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/playlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
@@ -35,6 +37,11 @@ type rig struct {
 	creates    int
 	applied    [][]string
 	applyErr   error
+	// locks is each hold of the play lock asked for; inLock is whether one is held now, and
+	// lockErr, when set, is a lock not taken (fn is not run).
+	locks   []string
+	inLock  bool
+	lockErr error
 }
 
 const (
@@ -75,6 +82,15 @@ func newRig(t *testing.T, choices string) *rig {
 		func(_ context.Context, teams []string) error {
 			r.applied = append(r.applied, teams)
 			return r.applyErr
+		},
+		func(ctx context.Context, purpose string, fn func(context.Context) error) error {
+			r.locks = append(r.locks, purpose)
+			if r.lockErr != nil {
+				return r.lockErr
+			}
+			r.inLock = true
+			defer func() { r.inLock = false }()
+			return fn(ctx)
 		})
 	r.c.Payload = r.payload
 	return r
@@ -255,6 +271,50 @@ func TestAnApplyThatFailsStartsNothingAndNamesTheCommand(t *testing.T) {
 		t.Fatalf("seats were asked: %v", r.seatsAsked)
 	}
 	r.lacksOutput(t)
+}
+
+// The repository is added to the scope and the team applied in one hold of the play lock.
+func TestTheAddAndItsApplyAreInOneHoldOfThePlayLock(t *testing.T) {
+	r := newRig(t, alphaCovers+betaWiden)
+	addInLock := false
+	r.Fake.OnFunc(strings.Fields(r.DeclarePrefix("add-repo")), func(execx.Cmd) (execx.Result, error) {
+		addInLock = r.inLock
+		return execx.Result{Stdout: []byte("CHANGED\tteam beta trusts " + repo + "\n")}, nil
+	})
+	r.Script.Fzf = []string{"|beta"}
+	r.Script.Gum = []string{"CHOOSE:Add " + repo + " to beta's scope"}
+	exit(t, r.run("--type=podman"), term.ExitOK, r)
+	if want := []string{"add " + repo + " to the scope of beta"}; !slices.Equal(r.locks, want) || !addInLock {
+		t.Fatalf("holds %q, add in the hold %v", r.locks, addInLock)
+	}
+}
+
+// The owner's defect: an add while another play run holds the lock, and the wait does not end in
+// it. Nothing is added to the scope, nothing is applied or started.
+func TestAPlayLockNotTakenAddsNothingAndStartsNothing(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		code term.ExitCode
+	}{
+		{"gave up", fmt.Errorf("gave up: %w", playlock.ErrNotTaken), term.ExitFailure},
+		{"stopped", fmt.Errorf("stopped: %w %w", playlock.ErrNotTaken, playlock.ErrStopped), term.ExitCancelled},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRig(t, alphaCovers+betaWiden)
+			r.OnDeclare("add-repo", "CHANGED\tteam beta trusts "+repo+"\n")
+			r.lockErr = tc.err
+			r.Script.Fzf = []string{"|beta"}
+			r.Script.Gum = []string{"CHOOSE:Add " + repo + " to beta's scope"}
+			exit(t, r.run("--type=podman"), tc.code, r)
+			if r.Fake.Called(r.DeclarePrefix("add-repo")) || len(r.applied) != 0 || r.seatsAsked != nil {
+				t.Fatalf("added, applied %v or asked seats %v without the lock", r.applied, r.seatsAsked)
+			}
+			contains(t, "stderr", r.stderr(), "ccy-teams: nothing was added to the scope of beta and nothing was started, "+
+				"as the play lock was not free (above). Once the other play run has finished, run this again.")
+			r.lacksOutput(t)
+		})
+	}
 }
 
 func TestAnAddThatDeclareRefusesFailsAndStartsNothing(t *testing.T) {

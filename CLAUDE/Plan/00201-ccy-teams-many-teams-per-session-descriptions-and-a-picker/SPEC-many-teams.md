@@ -376,6 +376,53 @@ session record, re-point every running session, and take the old team down; the 
 `check_unchanged` refuses it today. Half of that would leave sessions on a team that no longer
 exists, so it is a task of its own.
 
+## G. The play lock (Task 2.18)
+
+The owner's defect: a description applied from ccy-teams while a meta-deploy unit held the
+host's play lock. run.bash refused the play with exit 75 ("another play run is in progress"),
+and ccy-teams died saying the description was in the host_vars but not applied. The lock is
+`helpers/play_lock/lock.py`'s: a flock(2) on `fedora-desktop-plays.lock` in the user's runtime
+directory, a holder line `pid=… what=… since=…`, and delegation to a child through an inherited
+descriptor named by `FEDORA_DESKTOP_PLAY_LOCK_FD`, which run.bash proves with `lock.py held`.
+
+- **S-G1** Every ccy-teams flow that runs a play takes the play lock first, through the Go side
+  of the same lock (`internal/playlock`: same file, same refusals, same holder line). No second
+  locking scheme.
+- **S-G2** Write, then apply, in one hold. A flow that writes the host_vars (Save and apply,
+  describe, drop a path limit, add a repository to a scope, create, lxc-add, remove, set up
+  Element) takes the lock before it writes and holds it across the write and every play it runs.
+  Each play is handed the hold (the descriptor and the variable), so run.bash runs it inside the
+  hold instead of exiting 75. A wait that does not end in the lock writes nothing, so nothing is
+  ever left saved but not applied by it. `ccy-teams apply` takes it the same way.
+- **S-G3** A free lock is taken at once and nothing is said about it. The holder line names
+  ccy-teams and what it is doing (`ccy-teams: save and apply team <t>'s settings`), so a run it
+  refuses names it.
+- **S-G4** A held lock is waited for, up to 30 minutes. The wait says who holds it: what it is,
+  its pid, since when and for how long (`run.bash playbooks/imports/play-basic-configs.yml (pid N), held since HH:MM:SS UTC, for 2 minutes`), and until when it waits.
+- **S-G5** On a terminal (stdin and stderr both, fzf installed) the wait is a screen titled
+  `Waiting for the play lock`, with one visible choice, `Stop waiting (nothing is changed)`
+  (Esc and q too, rule 14). It is drawn again when the holder changes or has held the lock
+  another minute, and closes by itself the moment the lock is taken. Its lines, the holder's
+  play and pid among them, wrap to the window under its heading; none is cut.
+- **S-G6** With no terminal the wait is said on stderr, with a line each time another run takes
+  the lock in turn; Ctrl-C stops it.
+- **S-G7** The wait ends only in the lock taken on ccy-teams' own descriptor (flock), never in a
+  check followed by a separate take.
+- **S-G8** A wait that is stopped (the row, Esc, q, Ctrl-C) says "Stopped waiting for the play
+  lock; nothing was changed." and the flow exits 130 where it ends the run. A wait that reaches
+  its bound says it gave up and who still holds the lock, and fails (1). Each flow then says, in
+  its own words, that nothing was saved and what to run once the other play run has finished:
+  the settings screen keeps the unsaved changes to save again; the start-up offers (describe, a
+  path limit) say they will ask again; `ccy-teams apply` names `ccy-teams apply <team>`.
+- **S-G9** A play that exits 75 all the same (refused the lock) is said as that, never as a raw
+  failure: "play-agent-bus.yml did not run: it was refused the play lock (exit 75, above), which
+  another play run took. Once that run has finished, ccy-teams apply <team> applies it." The
+  flow's own line then says the change is in the host_vars but not applied, and the board shows
+  the team out of date.
+- **S-G10** A lock that cannot be used (no runtime directory, one others can write, a symlink) is
+  a failure naming why, not a wait.
+- **S-G11** A play is never started outside the hold: one asked for without it is refused.
+
 ## Milestones (each test-first: the failing test lands before the code)
 
 1. **M1 Descriptions declared and shown on the host** (S-A1 to S-A7, S-A13 to S-A16).

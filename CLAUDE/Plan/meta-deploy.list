@@ -19,8 +19,11 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-# Plan 00203: rebuilds ccy-teams (no CCY or image change). The team menu gains "Add a running
-# session to <team>" and every running seat menu gains "Add this session to another team" (one
-# flow: pick the session, seat and role); a team not installed or with its homeserver down is
-# refused before any question. Running sessions are not touched.
+# Plan 00203 and Plan 00201 Task 2.18: rebuilds ccy-teams (no CCY or image change). The team
+# menu gains "Add a running session to <team>" and every running seat menu gains "Add this
+# session to another team" (one flow: pick the session, seat and role); a team not installed or
+# with its homeserver down is refused before any question. ccy-teams waits for the play lock (up
+# to 30 min, with a visible Stop waiting) instead of failing with exit 75, and never leaves a
+# saved-but-unapplied edit. The playwright-tests distrobox cleanup now reports changed only when
+# it removes a container. Running sessions are not touched.
 playbooks/imports/play-claude-yolo.yml

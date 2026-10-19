@@ -33,6 +33,9 @@ type Cmd struct {
 	// Interrupt is the signal a cancelled context sends the child; SIGTERM when zero. A
 	// recorder that flushes its buffers on SIGINT (pw-record) is stopped with SIGINT.
 	Interrupt syscall.Signal
+	// ExtraFiles are open files the child inherits from descriptor 3 on (a held lock
+	// delegated to a child).
+	ExtraFiles []*os.File
 }
 
 // Line is the argv as one space-joined string, for logs and test matching.
@@ -104,6 +107,7 @@ func (o OS) Run(ctx context.Context, c Cmd) (Result, error) {
 		cmd.Env = ChildEnv(os.Environ(), c.Env, c.Unset)
 	}
 	cmd.Stdin = c.Stdin
+	cmd.ExtraFiles = c.ExtraFiles
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = pick(c.Stdout, &out)
 	cmd.Stderr = pick(c.Stderr, &errBuf)

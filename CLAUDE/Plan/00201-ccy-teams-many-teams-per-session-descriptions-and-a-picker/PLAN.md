@@ -214,6 +214,27 @@ a repository is no longer offered for a checkout of it. Report:
   bare seats labelled; `fix/context-headings` merged in, its headings' crumbs and context lines
   naming seats by handle and its truncation dropped. Host run pending (meta-deploy:
   play-claude-yolo.yml, one block for both branches). Report: `subagent-reports/261016-teams-full-handles-opus.md`.
+- [ ] 🔄 **Task 2.18**: ccy-teams waits for the play lock instead of dying on it (the owner:
+  "hits the lock then just chokes and dies"; a description applied while a meta-deploy unit
+  held the lock, exit 75). Branch `fix/teams-wait-play-lock`, ccy-teams only, no CCY or
+  container bump. Spec: [SPEC-many-teams.md](SPEC-many-teams.md) section G (S-G1 to S-G11). New
+  `internal/playlock` is the Go side of `helpers/play_lock/lock.py` (same file, refusals and
+  holder line) with a bounded wait; `ops.Locked` takes it (a screen with Stop waiting on a
+  terminal, stderr otherwise, 30 minutes at most) and holds it across the host_vars write and
+  every play, handed to each play as run.bash's delegation. Every flow writes inside the hold,
+  so a wait that does not end in the lock changes nothing; exit 75 is said as a refused lock.
+  F44 merged after `fix/context-headings`' final: the wait screen is headed through `ui.Heading`
+  at the width `tput cols` gives through the runner, and its lines (the holder's play and pid)
+  wrap to the window (`ui.PickSpec.WrapHeader`), never cut. Numbered 2.17 until F44's
+  full-handles task took that number. Host run pending (meta-deploy: play-claude-yolo.yml, one
+  block with F44's). Report:
+  `subagent-reports/261016-teams-wait-play-lock-opus.md`. Spec section G was written after the
+  code (journal correction); Fable's review: `subagent-reports/` on `review/teams-wait-play-lock`.
+- [ ] ⬜ **Task 2.19**: run.bash waits on the play lock (`lock.py acquire --wait`, bounded,
+  naming the holder) instead of exiting 75, so meta-deploy, the panel's run-play and a play run
+  by hand wait for a ccy-teams hold as ccy-teams now waits for theirs. Pending the owner's
+  decision: it changes how every caller of run.bash behaves, and run.bash is on the bash-limits
+  ratchet, so the wait belongs in the Python helper.
 
 ## Success Criteria
 

@@ -17,6 +17,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/playlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
@@ -42,16 +43,21 @@ type Settings struct {
 	Bus     *agentbus.Client
 	// Apply is ops.ApplyTeams: the apply play for those teams, as ccy-teams apply runs it.
 	Apply func(context.Context, []string) error
+	// Locked is ops.Locked: fn run in one hold of the play lock, waited for first. Save and
+	// apply writes and applies in it, so a wait that does not end in the lock saves nothing.
+	Locked func(ctx context.Context, purpose string, fn func(context.Context) error) error
 	// ChangeRole is seats.ChangeRole, the one code path that changes a member's role: it asks the
 	// plain offer or the takeover (package coordinator), and demotes and promotes with roll-back.
 	ChangeRole func(ctx context.Context, team, handle string, want bool, look coordinator.Lookup) (bool, error)
 }
 
-// New is the screen over a host, applying through apply and changing roles through changeRole.
+// New is the screen over a host, writing and applying in locked's hold of the play lock,
+// applying through apply and changing roles through changeRole.
 func New(h *host.Host, kit *flow.Kit, apply func(context.Context, []string) error,
+	locked func(ctx context.Context, purpose string, fn func(context.Context) error) error,
 	changeRole func(ctx context.Context, team, handle string, want bool, look coordinator.Lookup) (bool, error),
 ) *Settings {
-	return &Settings{Kit: kit, Declare: h.Declare, Bus: h.Bus, Apply: apply, ChangeRole: changeRole}
+	return &Settings{Kit: kit, Declare: h.Declare, Bus: h.Bus, Apply: apply, Locked: locked, ChangeRole: changeRole}
 }
 
 // screen is one visit to a team's settings: the entry as declared, the changes not yet saved
@@ -351,7 +357,24 @@ func (sc *screen) save(ctx context.Context) (bool, flow.Result, error) {
 		sc.notice = "Nothing was saved."
 		return false, flow.Done, nil
 	}
-	change, err := sc.s.Declare.Set(ctx, sc.team, values)
+	var change declare.Change
+	applied := false
+	lockErr := sc.s.Locked(ctx, "save and apply team "+sc.team+"'s settings", func(ctx context.Context) error {
+		change, err = sc.s.Declare.Set(ctx, sc.team, values)
+		if err == nil && change.Changed {
+			applied = sc.applied(ctx)
+		}
+		return nil
+	})
+	if errors.Is(lockErr, playlock.ErrNotTaken) {
+		sc.notice = "Nothing was saved: the play lock was not free (above). Your changes are still here: " +
+			"Save and apply once the other play run has finished."
+		return false, flow.Done, nil
+	}
+	if lockErr != nil {
+		sc.s.Kit.ReportErr(lockErr)
+		return true, flow.Done, flow.Leave(term.ExitFailure)
+	}
 	if errors.Is(err, declare.ErrUsage) || errors.Is(err, declare.ErrRefused) {
 		sc.notice = "Nothing was saved: " + err.Error()
 		return false, flow.Done, nil
@@ -365,7 +388,7 @@ func (sc *screen) save(ctx context.Context) (bool, flow.Result, error) {
 		sc.notice = "Nothing to save: the host_vars already had these values."
 		return false, flow.Done, nil
 	}
-	if !sc.applied(ctx) {
+	if !applied {
 		sc.s.Kit.BackToList(ctx)
 		return true, flow.Done, nil
 	}
