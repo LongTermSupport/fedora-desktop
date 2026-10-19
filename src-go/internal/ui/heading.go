@@ -257,12 +257,12 @@ func (h Heading) above(text string, colour bool, width int) string {
 }
 
 // What a screen takes from the terminal's width before its header, in columns, measured on a
-// pseudo-terminal against fzf with the house frame: the framed picker loses its margin (4),
-// border (2), padding (4), fzf's pointer and marker columns (2) and two more; Picker.Choose has
+// pseudo-terminal against fzf with the house frame: the framed picker loses RowChrome (its
+// margin, border, padding and fzf's pointer and marker columns) and two more; Picker.Choose has
 // no frame, only fzf's columns and two more; a gum header is printed as it is, kept off the
 // last column.
 const (
-	framedMargin = 14
+	framedMargin = RowChrome + 2
 	plainMargin  = 4
 	gumMargin    = 2
 )

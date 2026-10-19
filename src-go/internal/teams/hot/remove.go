@@ -72,7 +72,7 @@ func (x *Hot) takeOut(ctx context.Context, t *target, r request, team, seat stri
 		x.mark(markFailed, "seat "+seat+": "+err.Error())
 		return term.ExitFailure, false
 	}
-	role, said, code, ok := x.leaveRole(ctx, r, team, seat, handle, up)
+	role, said, code, ok := x.leaveRole(ctx, r, team, handle, up)
 	if !ok {
 		return code, false
 	}

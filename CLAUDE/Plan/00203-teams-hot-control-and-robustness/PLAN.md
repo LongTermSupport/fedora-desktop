@@ -179,9 +179,11 @@ Built on `fix/teams-server-robustness`; design and evidence in
   Bubble Tea screen a command runs; a hint line says Tab completes), built on
   `fix/lxc-checkout-typed`. The checkout search also covers `/var/www`, `/srv` and `/opt`,
   bounded by depth, count and time, and says when it is partial; what it found is suggested
-  under the line. Preceded by Plan 00204 Task 2.3 (`project_hidden_bindings` over Bubble
-  Tea). CCY 3.99.12.15, container 2.77.9 (after Fable's FIX-FIRST). Host acceptance: `ccy-teams lxc-add <team>` after
-  meta-deploy.
+  under the line. A paste goes in as typed text; control characters and bidirectional
+  controls are refused whole, typed or pasted. Preceded by Plan 00204 Task 2.3
+  (`project_hidden_bindings` over Bubble Tea). CCY 3.99.12.12, container 2.77.8 (merged
+  over F44's 3.99.12.11). Host acceptance: `ccy-teams lxc-add <team>`, a path pasted into the
+  Checkout line, after meta-deploy.
 
 ## Decisions
 

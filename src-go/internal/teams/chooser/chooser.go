@@ -84,6 +84,9 @@ func (c *Chooser) Run(ctx context.Context, args []string) term.ExitCode {
 	if !ok {
 		return term.ExitUsage
 	}
+	if code, refused := c.refuseContainerCheckout(ctx); refused {
+		return code
+	}
 	if bus {
 		return c.busOnly(ctx, memberType, list)
 	}
@@ -247,6 +250,21 @@ func (c *Chooser) failed(err error) term.ExitCode {
 		return term.ExitCode(de.Code)
 	}
 	return term.ExitFailure
+}
+
+// refuseContainerCheckout refuses, saying why, when the session would start in a checkout that
+// is an LXC container's (or whose owner could not be told): every choice here is for a host or
+// podman session in this folder.
+func (c *Chooser) refuseContainerCheckout(ctx context.Context) (term.ExitCode, bool) {
+	here, err := c.Host.Checkouts.Find(ctx, "")
+	if err != nil {
+		return c.failed(err), true
+	}
+	if here.Top != "" && !here.Host() {
+		c.say("ccy-teams: " + here.Refusal(term.AbbrevHome(here.Top, c.Host.Home)))
+		return term.ExitFailure, true
+	}
+	return term.ExitOK, false
 }
 
 // checkoutRepo is the lower-case OWNER/REPO of this checkout's origin, or "" when this is not a

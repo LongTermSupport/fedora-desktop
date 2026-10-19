@@ -880,8 +880,7 @@ has_compose_files() {
 #       $2 = project_name (optional, defaults to basename of PWD)
 # Returns: 0 if services are running (or were started), 1 if user declined or no compose
 check_and_start_compose_services() {
-    local network_name="$1"
-    local project_name="${2:-$(basename "$PWD")}"
+    local network_name="$1" project_name="${2:-$(basename "$PWD")}"
 
     # Check if network has running containers
     if network_has_running_containers "$network_name"; then
@@ -923,9 +922,11 @@ check_and_start_compose_services() {
 # ccy_compose_outcome_set <started|declined|running> — note how the project's compose services
 # stood, for ccy_compose_record_outcome. The launcher's own compose questions call it too. A no
 # given after a restore's start failed (CCY_COMPOSE_ASK_AGAIN) is "not now", not the answer the
-# record keeps: the record still says started, so the next restore tries again.
+# record keeps: the record still says started, so the next restore tries again. Either no is
+# this launch's answer (CCY_COMPOSE_DECLINED), so ccy_compose_answer does not ask again.
 ccy_compose_outcome_set() {
     local outcome="${1:?ccy_compose_outcome_set requires an outcome}"
+    [[ "$outcome" != declined ]] || CCY_COMPOSE_DECLINED=true
     if [[ "$outcome" == declined && "${CCY_COMPOSE_ASK_AGAIN:-false}" == true ]]; then
         return 0
     fi
@@ -998,10 +999,16 @@ ccy_compose_record_outcome() {
 # its record. ask reads the answer from the person at the terminal; with nobody to answer
 # (ccy_nobody_to_ask) it refuses by name and exits, rather than eat a headless session's input
 # or hang. A restore that reaches ask has a record from before compose= existed: it says so
-# before the question, because verify-restore names the line the pane stops on.
+# before the question, because verify-restore names the line the pane stops on. Once no was
+# answered (CCY_COMPOSE_DECLINED), a later offer in the same launch is answered N unasked.
 ccy_compose_answer() {
     local prompt="${1:?ccy_compose_answer requires a prompt}" default="${2:?ccy_compose_answer requires a default}"
     CCY_COMPOSE_REPLY=""
+    if [[ "${CCY_COMPOSE_DECLINED:-false}" == true ]]; then
+        echo "Not asking again: the compose services were declined above."
+        CCY_COMPOSE_REPLY=N
+        return 0
+    fi
     case "${COMPOSE_MODE:-ask}" in
     start)
         echo "Starting the compose services without asking (--compose start)."
@@ -1041,17 +1048,14 @@ ccy_compose_answer() {
 # Notes started or declined once answered (ccy_compose_outcome_set). A stack that will not
 # start under --compose start is ccy_compose_up's to handle: a restore asks again in its pane.
 _do_compose_start() {
-    local expected_network="$1"
-    local project_name="$2"
+    local expected_network="$1" project_name="$2"
 
     # Determine compose command based on container engine
     local compose_cmd=""
-    local compose_name=""
 
     if [[ "$CONTAINER_ENGINE" = "podman" ]]; then
         if command -v podman-compose &>/dev/null; then
             compose_cmd="podman-compose"
-            compose_name="podman-compose"
         else
             echo "⚠ podman-compose not installed"
             echo ""
@@ -1066,10 +1070,8 @@ _do_compose_start() {
     else
         if command -v docker-compose &>/dev/null; then
             compose_cmd="docker-compose"
-            compose_name="docker-compose"
         elif command -v docker &>/dev/null && docker compose version &>/dev/null 2>&1; then
             compose_cmd="docker compose"
-            compose_name="docker compose"
         else
             echo "⚠ docker-compose not installed"
             echo ""
@@ -1081,17 +1083,16 @@ _do_compose_start() {
 
     # Offer to start compose
     while true; do
-        ccy_compose_answer "$CCY_PROMPT_COMPOSE_START $compose_name up -d? [Y/n]: " Y
-        start_choice="$CCY_COMPOSE_REPLY"
+        ccy_compose_answer "$CCY_PROMPT_COMPOSE_START $compose_cmd up -d? [Y/n]: " Y
         echo ""
 
-        case "$start_choice" in
+        case "$CCY_COMPOSE_REPLY" in
             Y|y|Yes|yes)
-                echo "Starting $compose_name..."
+                echo "Starting $compose_cmd..."
                 local up_rc=0
                 local -a compose_words=()
                 read -ra compose_words <<<"$compose_cmd"
-                ccy_compose_up "$compose_name" "${compose_words[@]}" || up_rc=$?
+                ccy_compose_up "$compose_cmd" "${compose_words[@]}" || up_rc=$?
                 if [ "$up_rc" -eq 2 ]; then
                     continue
                 fi
@@ -1134,7 +1135,7 @@ _do_compose_start() {
                         return 1
                     fi
                 else
-                    echo "⚠ $compose_name failed. Check errors above."
+                    echo "⚠ $compose_cmd failed. Check errors above."
                     echo "────────────────────────────────────────────────────────────────────────────────"
                     return 1
                 fi
@@ -1142,7 +1143,7 @@ _do_compose_start() {
             N|n|No|no)
                 ccy_compose_outcome_set declined
                 echo "Skipping compose startup"
-                echo "Run '$compose_name up -d' manually when ready"
+                echo "Run '$compose_cmd up -d' manually when ready"
                 echo "────────────────────────────────────────────────────────────────────────────────"
                 return 1
                 ;;
@@ -1212,8 +1213,7 @@ _compose_already_running() {
 # Sets: COMPOSE_NETWORK (the network created/found after starting compose)
 # Returns: 0 if compose started and network found, 1 otherwise
 offer_compose_start() {
-    local expected_network="${1:-}"
-    local project_name="${2:-$(basename "$PWD")}"
+    local expected_network="${1:-}" project_name="${2:-$(basename "$PWD")}"
 
     # Reset output variable
     COMPOSE_NETWORK=""

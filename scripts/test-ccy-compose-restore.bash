@@ -288,6 +288,37 @@ check "the saved network gone but the services up: running, nothing asked" "0|ru
     "$(field ret "$out")|$(field outcome "$out")|$(ups)"
 
 echo ""
+echo "=== a no is asked once per launch (the start question twice in a row) ==="
+# times <text> <needle> — how often <needle> occurs in <text>, wherever it is on a line.
+times() { awk -v n="$2" '{ while ((i = index($0, n)) > 0) { c++; $0 = substr($0, i + length(n)) } } END { print c + 0 }' <<<"$1"; }
+# The questions ccy asks for compose, both wordings: a fresh launch never asks either twice.
+asked() { echo $(($(times "$1" "$CCY_PROMPT_COMPOSE_START") + $(times "$1" "$CCY_PROMPT_COMPOSE_START_SAVED"))); }
+fresh 0 compose.yml
+out="$(run_case terminal "n" "" '_do_compose_start project-a_default project-a; _do_compose_start project-a_default project-a')"
+check "a second offer after n: not asked again, a no, the launch carries on" "1|0|1|declined|0" \
+    "$(asked "$out")|$(field rc "$out")|$(field ret "$out")|$(field outcome "$out")|$(ups)"
+# The launcher's network handling as it stands, from "# Handle network flags" to its last `fi`,
+# where the project's saved network is gone: offer_compose_start asks, and on n the launcher's
+# own "Compose Files Detected" block used to ask the same thing straight after.
+awk '/^# Handle network flags$/ { on = 1 } on { print } on && /^fi  # End of network flag handling/ { exit }' "$LAUNCHER" >"$WORK/network.bash"
+check "the launcher's network handling was found" "yes" \
+    "$(grep -q -F "offer_compose_start \"\$PERSISTED_NETWORK\"" "$WORK/network.bash" && grep -q '^fi  # End of network flag handling' "$WORK/network.bash" && echo yes || echo no)"
+LAUNCH_NET="SPECIFIED_NETWORK= NO_NETWORK_MODE=false CCY_RESTART_RELAUNCH_SESSION= PROJECT_NAME=project-a NETWORK_FROM_CONFIG=false COMPOSE_ALREADY_HANDLED=
+load_network_preference() { printf '%s\n' project-a_default; }
+docker() { :; }
+container_cmd() { case \"\$1 \${2:-}\" in \"network ls\") ;; *) return 1 ;; esac; }"
+for reply in n N no; do
+    fresh 0 compose.yml
+    out="$(run_case terminal "$reply" "$LAUNCH_NET" "source $WORK/network.bash")"
+    check "saved network gone, '$reply': asked once, the launch carries on, nothing started" "1|0|0|declined|0" \
+        "$(asked "$out")|$(field rc "$out")|$(field ret "$out")|$(field outcome "$out")|$(ups)"
+done
+fresh 0 compose.yml
+out="$(run_case terminal "y" "$LAUNCH_NET" "source $WORK/network.bash")"
+check "saved network gone, y: asked once, started once" "1|0|started|1" \
+    "$(asked "$out")|$(field rc "$out")|$(field outcome "$out")|$(ups)"
+
+echo ""
 echo "=== the launcher's own argument loop sets COMPOSE_MODE (review B2) ==="
 # The loop is taken from the launcher as it stands, from its variable defaults to its `done`,
 # and run on real argv: a replayed `--compose start` must reach COMPOSE_MODE as start.

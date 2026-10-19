@@ -667,21 +667,21 @@ exactly the shape of a botched promotion, and the commit gate says so.
 Each check enforces one narrow, mechanical property. The table is the map
 from rule to instrument:
 
-| Check id                     | Rule    | Stages              | Can block?                                            |
-| ---------------------------- | ------- | ------------------- | ----------------------------------------------------- |
-| `pointer-resolves`           | R6      | edit, staged, sweep | Yes — only for a link NEW in this edit                |
-| `at-import-census`           | R6      | edit, sweep         | Yes — only for an import NEW in this edit             |
-| `duplicate-block`            | R1, R4  | edit, sweep         | **Never** — advisory by construction                  |
-| `quote-drift`                | R4b     | edit, sweep         | Yes at edit — any drifted quote in the edited file    |
-| `quote-source-stale`         | R4b     | edit                | **Never** — advises which quoters to re-check         |
-| `rules-file-shape`           | R7a     | edit, sweep         | Yes — worse-only (a metric grew, or a new bad file)   |
-| `rules-file-orphan-shrink`   | R7a     | staged              | **Never** — a prompt to check, not a verdict          |
-| `module-doc-budget`          | R7d     | edit, sweep         | Yes — registered docs over the block tier, worse-only |
-| `generated-doc-hand-edit`    | R10     | edit, sweep         | Yes at edit — the path matches a manifest glob        |
-| `plan-promotion-disposition` | R8      | staged              | **Never** — weak keyword approximation                |
-| `source-tree-markdown`       | R2, R7d | sweep               | **Never** — always advisory                           |
-| `unenforced-approval-gate`   | R14     | edit, staged, sweep | Yes — every instance, pre-existing or new             |
-| `unlisted-fake-value`        | R1      | edit, sweep         | **Never** — advisory; the registry is the fix         |
+| Check id                     | Rule    | Stages              | Can block?                                                                                                           |
+| ---------------------------- | ------- | ------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `pointer-resolves`           | R6      | edit, staged, sweep | Yes — only for a link NEW in this edit                                                                               |
+| `at-import-census`           | R6      | edit, sweep         | Yes — only for an import NEW in this edit                                                                            |
+| `duplicate-block`            | R1, R4  | edit, sweep         | **Never** — advisory by construction                                                                                 |
+| `quote-drift`                | R4b     | edit, sweep         | Yes at edit — any drifted quote in the edited file                                                                   |
+| `quote-source-stale`         | R4b     | edit                | **Never** — advises which quoters to re-check                                                                        |
+| `rules-file-shape`           | R7a     | edit, sweep         | Yes — worse-only (a metric grew, or a new bad file)                                                                  |
+| `rules-file-orphan-shrink`   | R7a     | staged              | **Never** — a prompt to check, not a verdict                                                                         |
+| `module-doc-budget`          | R7d     | edit, sweep         | Yes — registered docs over the block tier, worse-only                                                                |
+| `generated-doc-hand-edit`    | R10     | edit, sweep         | Yes at edit — the path matches a manifest glob                                                                       |
+| `plan-promotion-disposition` | R8      | staged              | **Never** — weak keyword approximation                                                                               |
+| `source-tree-markdown`       | R2, R7d | sweep               | **Never** — always advisory                                                                                          |
+| `unenforced-approval-gate`   | R14     | edit, staged, sweep | Yes — every instance, pre-existing or new                                                                            |
+| `unlisted-fake-value`        | R1      | edit, staged, sweep | Yes at commit, when `check_modes` sets it to `block` — a registry entry that is not visibly fake; otherwise advisory |
 
 Two properties of that table are worth internalising:
 
