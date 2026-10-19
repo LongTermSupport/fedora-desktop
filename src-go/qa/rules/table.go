@@ -146,6 +146,11 @@ var dynamicNames = []allowance{
 		reason: "wsi-stop-grace, wsi-setting or wsi-resolve-model, run from the directory the wsi binary is in",
 	},
 	{
+		pkg:    "internal/open",
+		fn:     "run.runHandler",
+		reason: "the terminal handler the person chose for a file (a viewer, pager, editor or player from open's table, or $VISUAL/$EDITOR) and its pager; never an owned program",
+	},
+	{
 		pkg:    "internal/wsipost",
 		fn:     "App.postProcess",
 		reason: "wsi-claude-process, run from the directory the wsi-postprocess binary is in",

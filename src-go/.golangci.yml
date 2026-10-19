@@ -204,6 +204,15 @@ linters:
       - path: internal/watermark/image\.go
         linters: [gosec]
         text: "G304"
+      # open reads the desktop entries it found in the XDG application directories, by the path
+      # the search gave (SPEC-open.md E9, E10). Its tests build home and application trees with
+      # the modes a real one has.
+      - path: internal/open/desktop\.go
+        linters: [gosec]
+        text: "G304"
+      - path: internal/open/.*_test\.go
+        linters: [gosec]
+        text: "G301|G302|G306"
       # wsi reads its PID file and its recording in /dev/shm and its log under the user's home,
       # each a fixed name (SPEC-wsi-watermark.md W5-W7); its tests read back what it wrote there,
       # copy the recording as the fake sox does, and write an executable stand-in recorder.

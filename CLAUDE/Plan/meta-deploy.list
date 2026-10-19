@@ -19,3 +19,11 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+# Plan 00192 Task 3.3: `open` becomes a Go binary (src-go/cmd/open). The play installs the Go
+# toolchain, builds the command from this checkout and installs it at ~/.local/bin/open in place
+# of the bash script; the MIME and viewer packages are unchanged. Afterwards the owner checks
+# SPEC-open.md section 7, H1-H5: `open --help`, a PDF opening in its default viewer, `open -a`
+# showing the chooser with a Cancel row, `open -d` registering a default, and over SSH (or
+# `open -t`) text, a directory, an image and a PDF opening in the terminal, Ctrl-C in less or
+# mpv belonging to that program.
+playbooks/imports/optional/common/play-cli-tools.yml

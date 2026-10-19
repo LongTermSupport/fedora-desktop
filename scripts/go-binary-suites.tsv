@@ -20,3 +20,4 @@ wsi	scripts/test-wsi-stop-grace.bash
 wsi-postprocess	qa-go
 wsi-claude-token	qa-go
 stt	qa-go
+open	qa-go

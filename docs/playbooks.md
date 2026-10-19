@@ -839,7 +839,9 @@ CLI Tools — the one home for small command-line utilities (rule:
   numbered menu; `-a` forces it). It never offers a GUI app with no display: over SSH you
   get terminal viewers, and only installed ones. `open .`, `open -l FILE` (what could
   open this), `open -d FILE` (choose and remember), `open -t FILE` (terminal only),
-  `open -n FILE` (print the command, run nothing). Installs the MIME and viewer stack it
+  `open -n FILE` (print the command, run nothing). A Go binary built from
+  `src-go/cmd/open` (the play installs the Go toolchain first); desktop apps are listed,
+  registered as defaults and started through `gio`. Installs the MIME and viewer stack it
   delegates to (`xdg-utils`, `perl-File-MimeInfo`, `fzf`, `chafa`, `w3m`,
   `poppler-utils`, `bsdtar`, `jq`, `tree` and others). Fedora ships no `/usr/bin/open`,
   so nothing is masked

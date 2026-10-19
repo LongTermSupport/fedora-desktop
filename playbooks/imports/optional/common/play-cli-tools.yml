@@ -22,6 +22,13 @@
 #
 # Standalone / opt-in play — run directly:
 #   ./playbooks/imports/optional/common/play-cli-tools.yml
+#
+# open is a Go binary built from this checkout (src-go/cmd/open), so the Go toolchain is
+# installed first. play-golang.yml stays its one source of truth; the tag makes
+# --tags open-command install the toolchain too.
+- import_playbook: ../../play-golang.yml
+  tags: open-command
+
 - hosts: desktop
   name: CLI Tools - small command-line utilities
   become: true
@@ -56,13 +63,14 @@
     # ~/.local/bin precedes /usr/bin on the user's PATH.
     #
     # Packages in two groups: how a file's type and its apps are found, and the terminal
-    # viewers offered with no display. The script probes each handler with `command -v`,
-    # so anything installed later (mpv, ranger, bat, …) is picked up automatically.
+    # viewers offered with no display. The command looks each handler up on PATH when it
+    # runs, so anything installed later (mpv, ranger, bat, …) is picked up automatically.
+    # gio (glib2, always present on Fedora) lists, registers and starts desktop apps.
     - name: Install open MIME resolution and chooser dependencies
       ansible.builtin.dnf:
         name:
-          - xdg-utils            # xdg-open, xdg-mime (default lookup + set)
-          - perl-File-MimeInfo   # mimetype (type lookup), mimeopen (set default)
+          - xdg-utils            # xdg-mime query filetype (second type detector)
+          - perl-File-MimeInfo   # mimetype (first type detector)
           - shared-mime-info     # the freedesktop MIME database itself
           - desktop-file-utils   # .desktop database the app list is read from
           - file                 # last-resort MIME fallback on a minimal box
@@ -87,13 +95,14 @@
         - packages
         - open-command
 
-    - name: Deploy the open command
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/.local/bin/open"
-        dest: "{{ user_bin_dir }}/open"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: '0755'
+    # The command is a Go binary (src-go/cmd/open, Plan 00192), built and installed at its
+    # old path by the shared build-go-command.yml.
+    - name: Build and Install the open Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: open
+        go_command_dest: "{{ user_bin_dir }}/open"
+        go_command_mode: "0755"
       tags: open-command
 
     # ── reclaim ──────────────────────────────────────────────────────────────────
