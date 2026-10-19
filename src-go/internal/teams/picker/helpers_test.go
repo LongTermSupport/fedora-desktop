@@ -70,7 +70,7 @@ func newRig(t *testing.T) rig {
 	p := New(h, kit, b, o, create.New(h, o, l), l, s, lxcadd.New(h, kit, o))
 	p.Shutdown = shutdown.New(h, kit, b)
 	p.Restart = restart.New(h, kit, b)
-	p.Settings = settings.New(h, kit, o.ApplyTeams, s.ChangeRole)
+	p.Settings = settings.New(h, kit, o.ApplyTeams, o.Locked, s.ChangeRole)
 	ses := &fakeSessions{}
 	p.Session = ses
 	return rig{World: w, Console: c, b: b, o: o, p: p, ses: ses}

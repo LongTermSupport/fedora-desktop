@@ -256,6 +256,27 @@ func (h Heading) above(text string, colour bool, width int) string {
 	return h.render(colour, width) + "\n" + text
 }
 
+// wrapText is text with each line wider than width cells carried onto further lines, at its
+// spaces as the heading is, else between grapheme clusters: nothing is left for fzf to cut.
+func wrapText(text string, width int) string {
+	width = max(width, 2)
+	var out []string
+	for l := range strings.SplitSeq(text, "\n") {
+		if Width(l) <= width {
+			out = append(out, l)
+			continue
+		}
+		for i, w := range wrap([]piece{{text: l}}, width) {
+			s := strings.TrimRight(w.plain(), " ")
+			if i > 0 {
+				s = strings.TrimLeft(s, " ")
+			}
+			out = append(out, s)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
 // What a screen takes from the terminal's width before its header, in columns, measured on a
 // pseudo-terminal against fzf with the house frame: the framed picker loses RowChrome (its
 // margin, border, padding and fzf's pointer and marker columns) and two more; Picker.Choose has

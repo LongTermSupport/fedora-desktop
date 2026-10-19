@@ -504,7 +504,7 @@ check "a relaunch with this launch's state exported still execs" "rc=0 update=1 
 check "…the relaunch inherits no key staging directory and no token value, but keeps compose" \
     "stage=unset oauth=unset gh=unset compose=true/podman-compose" "$(cat "$work/inherit.argv.inherit")"
 check "…and nothing of it is in the disposable update-check cache" "no" \
-    "$([ -e "$work/cache-ok" ] && find "$work/cache-ok" -name '*history*' | grep -q . && echo yes || echo no)"
+    "$([ -e "$work/cache-ok" ] && grep -q . <<<"$(find "$work/cache-ok" -name '*history*')" && echo yes || echo no)"
 
 # A launch where every choice was made at a prompt: none of them is in the original argv.
 check "an interactive launch: the relaunch still runs with nobody there" \

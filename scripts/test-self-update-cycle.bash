@@ -89,7 +89,7 @@ if ! git -C "$PROBE" -c user.name=Probe -c user.email="$PRINCIPAL" commit -q --a
     echo "      config reaches the fixtures is unknown (see git's error above)" >&2
     exit 1
 fi
-if git -C "$PROBE" cat-file commit HEAD | grep -q '^gpgsig'; then
+if grep -q '^gpgsig' <<<"$(git -C "$PROBE" cat-file commit HEAD)"; then
     echo "FAIL: a commit made without -S came out signed; this machine's git config reaches" >&2
     echo "      the fixtures, so the unsigned-commit cases cannot be trusted" >&2
     exit 1
@@ -468,11 +468,11 @@ wait "$PROXY_PID" 2>/dev/null
 check "an announced result with slack configured exits as the cycle decided (23)" "23" "$RC"
 check "the root process tried to deliver it to the webhook's host" "CONNECT hooks.slack.com:443" "$(cat "$PROXY_LOG")"
 check "the failed delivery is journalled" "yes" "$(says 'the alert could not be delivered: slack: not delivered' "$ERR")"
-check "the failed delivery is recorded" "yes" "$(result_key alert | grep -q '^slack: not delivered' && echo yes || echo no)"
+check "the failed delivery is recorded" "yes" "$(grep -q '^slack: not delivered' <<<"$(result_key alert)" && echo yes || echo no)"
 check "and published for the host-health report" "$(result_key alert)" "$(published_key alert)"
 check "the outcome is still the cycle's own" "verify-failed" "$(result_key outcome)"
 check "the webhook's secret path is in no output or record" "no" \
-    "$(cat "$OUT" "$ERR" "$STATE/last-result" "$PUBLISHED/result" | grep -q 'EXAMPLE/EXAMPLE' && echo yes || echo no)"
+    "$(grep -q 'EXAMPLE/EXAMPLE' <<<"$(cat "$OUT" "$ERR" "$STATE/last-result" "$PUBLISHED/result")" && echo yes || echo no)"
 rm -f "$WEBHOOK_FILE" "$STATE/last-result" "$PUBLISHED/result" "$STATE/owed-verify"
 write_config ""
 
@@ -802,7 +802,7 @@ check "no release tag: the cycle is refused (20), though the branch tip is signe
 check "and nothing is called" "" "$(calls)"
 check "and nothing moved" "$START" "$(git -C "$CLONE" rev-parse HEAD)"
 check "and it is recorded as refused, naming the cause" "refused" "$(result_key outcome)"
-check "and the record says why" "yes" "$(result_key detail | grep -q 'no release tag' && echo yes || echo no)"
+check "and the record says why" "yes" "$(grep -q 'no release tag' <<<"$(result_key detail)" && echo yes || echo no)"
 check "and it is alerted" "yes" "$(says 'ALERT refused' "$ERR")"
 
 RELEASE_ONE="$(release_commit one)"
@@ -858,7 +858,7 @@ check "a lightweight newest tag refuses the cycle (20)" "20" "$RC"
 check "and nothing is called" "" "$(calls)"
 check "and nothing moved, no older release is tried" "$TEN" "$(git -C "$CLONE" rev-parse HEAD)"
 check "and the record names the tag and the check that failed" "yes" \
-    "$(result_key detail | grep -q "release tag $FED.11.0 is refused: it is a commit reference" && echo yes || echo no)"
+    "$(grep -q "release tag $FED.11.0 is refused: it is a commit reference" <<<"$(result_key detail)" && echo yes || echo no)"
 check "and the journal names the tag" "yes" "$(says "release tag $FED.11.0 is refused" "$ERR")"
 # The owner withdraws the lightweight tag and releases the same commit properly. The clone
 # prunes the withdrawn name, so it is not mistaken for a tag that moved.
@@ -877,7 +877,7 @@ cycle run
 check "a release tag moved upstream refuses the cycle (20)" "20" "$RC"
 check "and nothing moved" "$ELEVEN" "$(git -C "$CLONE" rev-parse HEAD)"
 check "and the local tag was not forced" "$ELEVEN" "$(git -C "$CLONE" rev-parse "$FED.12.0^{commit}")"
-check "and the record says it was moved" "yes" "$(result_key detail | grep -q 'moved upstream' && echo yes || echo no)"
+check "and the record says it was moved" "yes" "$(grep -q 'moved upstream' <<<"$(result_key detail)" && echo yes || echo no)"
 
 # The branch channel is the explicit opt-in: it follows the tip and names no release.
 write_config "" branch "$REL_BRANCH"

@@ -116,13 +116,13 @@ func Wire(h *host.Host) *App {
 	list.Shutdown = down
 	again := restart.New(h, kit, b)
 	list.Restart = again
-	list.Settings = settings.New(h, kit, o.ApplyTeams, s.ChangeRole)
+	list.Settings = settings.New(h, kit, o.ApplyTeams, o.Locked, s.ChangeRole)
 	session := hot.New(h, kit)
 	o.SessionsIn, o.TakeOut = session.SessionsIn, session.TakeOut
 	list.Session = session
 	return &App{
 		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c, Lxc: x, Find: find.New(h), Choose: pick,
-		Chooser: chooser.New(h, pick.PickSeat, c.RunForChooser, o.ApplyTeams),
+		Chooser: chooser.New(h, pick.PickSeat, c.RunForChooser, o.ApplyTeams, o.Locked),
 		Picker:  list, Shutdown: down, Restart: again, Membership: membership.New(h), ContainerName: containername.New(h), Session: session,
 		Interrupted: func(ctx context.Context) (context.Context, context.CancelFunc) {
 			return signal.NotifyContext(ctx, os.Interrupt)

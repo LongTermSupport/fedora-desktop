@@ -24,6 +24,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/lxcfreeze"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/playlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
@@ -85,6 +86,9 @@ type Adder struct {
 	// SudoReady makes root available, saying why it is wanted; false means it has said why not.
 	SudoReady  func(ctx context.Context, why string) bool
 	ApplyTeams func(ctx context.Context, teams ...string) error
+	// Locked is ops.Locked: fn in one hold of the play lock, waited for first. The member is
+	// declared and the team applied in it, so a wait that does not end in the lock adds nothing.
+	Locked func(ctx context.Context, purpose string, fn func(context.Context) error) error
 	// NewTerm is a Term of its own for each run: the step counters live in it.
 	NewTerm func() *term.Term
 	// LookPath finds a tool on PATH.
@@ -115,6 +119,7 @@ func New(h *host.Host, kit *flow.Kit, o *ops.Ops) *Adder {
 		Declare: h.Declare, Gum: h.Gum, Paths: &pathinput.Asker{In: h.Stdin, Out: h.Stderr}, ReadTimeout: readTimeout, Lister: &lxcfreeze.Lister{Sudo: h.Sudo, LookPath: h.LookPath},
 		Roster: h.Bus.List, SetRole: h.Bus.SetRole, SudoReady: kit.SudoReady,
 		ApplyTeams: func(ctx context.Context, teams ...string) error { return o.ApplyTeams(ctx, teams) },
+		Locked:     o.Locked,
 		NewTerm:    h.FreshTerm, LookPath: h.LookPath, Stdin: h.Stdin, Stdout: h.Stdout,
 		HostVars: h.HostVars, Home: h.Home,
 	}
@@ -629,10 +634,36 @@ func (a *Adder) joined(ctx context.Context, ans answers) string {
 	return ans.label() + " is a member of " + ans.team + " as " + fresh[0] + " " + ans.where2() + "."
 }
 
-// write declares the member, applies the team, and says what is left to do in the container. A
-// takeover first makes the current coordinator a worker (its entry, or its live role), and puts
-// it back when the new entry cannot be written.
+// write declares the member and applies the team in one hold of the play lock, and says what is
+// left to do in the container.
 func (a *Adder) write(ctx context.Context, ans answers) error {
+	err := a.Locked(ctx, "add "+ans.label()+" to team "+ans.team, func(ctx context.Context) error {
+		return a.declareAndApply(ctx, ans)
+	})
+	if errors.Is(err, playlock.ErrNotTaken) {
+		a.term.PrintError("nothing was changed: " + ans.label() + " is not added to " + ans.team +
+			", as the play lock was not free (above). Once the other play run has finished, run ccy-teams lxc-add " + ans.team + " again.")
+		return &stop{ops.LockExit(err)}
+	}
+	if err != nil {
+		return err
+	}
+	a.term.Say(a.joined(ctx, ans))
+	a.term.Say(a.session(ctx, ans))
+	a.term.Printf("Inside the container (%s):\n", a.attach(ans))
+	a.term.Printf("  Agent    in %s: %s (the kit's launcher), or your project's launcher if it supports it "+
+		"(ccy --teams, with no value)\n", ans.checkout, launcher)
+	a.term.Printf("  Check    set -a; . ~/.config/pingbus/env; set +a; pingbus config check && pingbus history --limit 1"+
+		"   (reads %s's room live, as this member)\n", ans.team)
+	a.term.Printf("  GitHub   the play checked that %s is logged in to GitHub there, and agent-bus-claude refuses to start "+
+		"until it is; if it is ever logged out: gh auth login --hostname github.com, as %s.\n", ans.user, ans.user)
+	return nil
+}
+
+// declareAndApply declares the member and applies the team. A takeover first makes the current
+// coordinator a worker (its entry, or its live role), and puts it back when the new entry cannot
+// be written.
+func (a *Adder) declareAndApply(ctx context.Context, ans answers) error {
 	undo, err := a.demote(ctx, ans)
 	if err != nil {
 		return err
@@ -659,15 +690,6 @@ func (a *Adder) write(ctx context.Context, ans answers) error {
 			"  " + a.attach(ans) + "     (then gh auth login, and exit)\n" +
 			"Once the cause is fixed, ccy-teams apply " + ans.team + " joins it.")
 	}
-	a.term.Say(a.joined(ctx, ans))
-	a.term.Say(a.session(ctx, ans))
-	a.term.Printf("Inside the container (%s):\n", a.attach(ans))
-	a.term.Printf("  Agent    in %s: %s (the kit's launcher), or your project's launcher if it supports it "+
-		"(ccy --teams, with no value)\n", ans.checkout, launcher)
-	a.term.Printf("  Check    set -a; . ~/.config/pingbus/env; set +a; pingbus config check && pingbus history --limit 1"+
-		"   (reads %s's room live, as this member)\n", ans.team)
-	a.term.Printf("  GitHub   the play checked that %s is logged in to GitHub there, and agent-bus-claude refuses to start "+
-		"until it is; if it is ever logged out: gh auth login --hostname github.com, as %s.\n", ans.user, ans.user)
 	return nil
 }
 

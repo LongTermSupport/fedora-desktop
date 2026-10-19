@@ -215,11 +215,29 @@ func TestTightenOnlyLowers(t *testing.T) {
 
 func TestTightenRefusesWhatLivesOnOutsideTheGate(t *testing.T) {
 	scan := scanOf(map[string]Measurement{})
-	scan.Exempt["scripts/test-x.bash"] = true
-	scan.Present["scripts/test-x.bash"] = true
+	scan.Exempt["CLAUDE/Plan/001-x/a.bash"] = true
+	scan.Present["CLAUDE/Plan/001-x/a.bash"] = true
 	scan.Present["renamed.cmd"] = true
-	_, refused := Tighten(Allowlist{"scripts/test-x.bash": {Code: 99}, "renamed.cmd": {Code: 99}, "gone": {Code: 99}}, scan)
-	wantKinds(t, "refused", refused, "scripts/test-x.bash:"+KindOrphan, "renamed.cmd:"+KindOrphan)
+	_, refused := Tighten(Allowlist{"CLAUDE/Plan/001-x/a.bash": {Code: 99}, "renamed.cmd": {Code: 99}, "gone": {Code: 99}}, scan)
+	wantKinds(t, "refused", refused, "CLAUDE/Plan/001-x/a.bash:"+KindOrphan, "renamed.cmd:"+KindOrphan)
+}
+
+// Test code is not tooling: an entry for a test suite or fixture that is exempt where it
+// stands can be dropped, because only a change to the reviewed exemption table put it there.
+func TestRemovingAnEntryForTestCodeIsAllowed(t *testing.T) {
+	scan := scanOf(map[string]Measurement{})
+	for _, p := range []string{".semgrep/fixture.bash", "scripts/test-x.bash", "tests/helpers/a.bash"} {
+		scan.Exempt[p] = true
+		scan.Present[p] = true
+		if why := removalProblem(p, scan); why != "" {
+			t.Errorf("%s: %s", p, why)
+		}
+	}
+	// A tool named for tests is measured, so its entry stays until it is within limits.
+	scan.Present["scripts/qa-helper-tests.bash"] = true
+	if why := removalProblem("scripts/qa-helper-tests.bash", scan); why == "" {
+		t.Error("a tool merely named for tests was let off the allowlist")
+	}
 }
 
 func TestSeedRecordsOnlyOverLimitFiles(t *testing.T) {

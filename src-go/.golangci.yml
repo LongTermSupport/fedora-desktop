@@ -89,6 +89,11 @@ linters:
       # SPEC-team-add-and-restart C1), snake_case like the rest of pingbus's files.
       - path: internal/conversation/conversation\.go
         linters: [tagliatelle]
+      # The play lock's tests give the runtime directory a mode others can write: the state the
+      # lock must refuse to use.
+      - path: internal/playlock/playlock_test\.go
+        linters: [gosec]
+        text: "G302"
       # The QA module cannot import execx (it is a separate module), so its process runner is
       # its own one process seam, for the same reason.
       - path: qa/internal/proc/proc\.go

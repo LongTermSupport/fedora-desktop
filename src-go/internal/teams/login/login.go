@@ -15,6 +15,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/playlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
@@ -379,11 +380,19 @@ func (l *Login) setUpElement(ctx context.Context, team string) (flow.Result, err
 	if !yes {
 		return l.Kit.Refuse(ctx, "Nothing set up. Opening the team in Element offers it again.")
 	}
-	if _, err := l.Declare.Element(ctx, team); err != nil {
-		l.Kit.ReportErr(err)
-		return l.Kit.Refuse(ctx, team+" was not set up in Element, for the reason above.")
+	// The profile is declared and its play run in one hold of the play lock: a wait for it that
+	// does not end in the lock declares nothing.
+	err = l.Ops.Locked(ctx, "set up Element for "+team, func(ctx context.Context) error {
+		if _, declErr := l.Declare.Element(ctx, team); declErr != nil {
+			l.Kit.ReportErr(declErr)
+			return declErr
+		}
+		return l.Ops.RunElementPlay(ctx, []string{team})
+	})
+	if errors.Is(err, playlock.ErrNotTaken) {
+		return l.Kit.Refuse(ctx, "Nothing set up: the play lock was not free (above). Opening the team in Element offers it again.")
 	}
-	if err := l.Ops.RunElementPlay(ctx, []string{team}); err != nil {
+	if err != nil {
 		return l.Kit.Refuse(ctx, team+" was not set up in Element, for the reason above.")
 	}
 	return flow.Done, nil
