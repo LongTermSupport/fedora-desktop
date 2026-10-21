@@ -1787,7 +1787,9 @@ account of how Claude Code ended and the SessionEnd reason in `session.json`:
 | `exit` (no stop forwarded) or `killed`                | none                       | `disconnected`: Claude Code ended without saying so (a crash, a kill)    |
 | the keeper's control socket closed (the keeper died)  | any                        | `disconnected`                                                           |
 
-`clear` and `resume` are not ends. The link posts to every held team in parallel, inside the
+A seat whose roster role is `probe` (the acceptance probe, A 6.7, C 3.3) posts none of these
+notices and no `back`, and the host's `seat disconnected` rule is never run for it (its seat is
+outside the pool and the health tick's seat lists). `clear` and `resume` are not ends. The link posts to every held team in parallel, inside the
 keeper's 5 s, records `ended` with `state: "attempted"` before each send and `"sent"` on its
 answer, then sets presence offline (2.6 step 09). A SessionEnd hook alone, real or forged, posts
 nothing while the session lives (B42): only the keeper's `end` or its death does. Claude Code's

@@ -423,12 +423,23 @@ root verb per root act of D's steps (M0 `preflight`, M2 `fence`, M3 `capture`, M
 commit, M7 `accept`, the archive acts, and the rollback's `unfence` and `rollback`); D 5.4 names which of its
 acts run as the owner instead (coherence 17), and no step reaches root by any other verb.
 
-**The acceptance probe** (D 6.1, A4 and A7) is the one host-kind runtime v2 starts. The `migrate`
-verb that runs the check (`accept` for A7) makes a temporary probe account and a probe seat outside
-the pool, then runs `teamchat run --plain --kind host` holding that seat, as the owner (`os/exec`
-`Credential`, never as root), in a fresh 0700 runtime directory that is under no ccy mount and is
-not the seat store. No `cc` session runs in it, so seam row 56's refusal of host `cc` members is
-untouched; the account, the seat and the directory are removed when the check ends, pass or fail.
+**The acceptance probe** (D 6.1, A4 and A7) is the one host-kind runtime v2 starts. Its account is
+the team's reserved probe handle `teamchat.probe+<site>.host` with roster role `probe` (A 2.3,
+5.1, 6.7): a role that may send only the `check` verb, which asks its addressee for an `ack` and
+nothing else (A 8.1), so the probe can never ask the live coordinator for real work. The `migrate`
+verb that runs the check (`preflight`'s round trip for A4, `accept` for A7) creates the handle on
+the team's first check and returns it (3.6.3 `return`, a new token) on every later one, under the
+team lock, then parks it again when the check ends, pass or fail: no handle or seat number is ever
+spent on a probe, and the roster is written twice per check, as for any park and return. C posts
+no `added`, `removed`, `parked` or `role` notice for the probe handle (A 7.4). The verb places the
+probe's bundle in a fresh 0700 state directory, `~/.local/state/teamchat/probe/<team>/` (the
+owner's, beside the seat store and not in it, under no ccy mount, 3.7.1) and runs
+`teamchat run --plain --kind host --state <that directory> --seat <team>/probe -- sleep infinity`
+as the owner (`os/exec` `Credential`, never as root), with its runtime under the owner's
+`$XDG_RUNTIME_DIR` (B 2.4.1). The probe then runs `teamchat ping check --to <target> --team <team>`
+and reads its own `teamchat status --team <team>` `outbox` record (B 2.2.2). No `cc` session runs
+in it, so seam row 56's refusal of host `cc` members is untouched; the state directory is removed
+when the check ends.
 
 `version` answers for every class and prints the binary's source digest (the scheme of Plan 00192:
 `go.mod` plus every non-test file of the command and the module packages it imports, baked in with
