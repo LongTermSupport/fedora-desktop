@@ -28,7 +28,7 @@ const (
 	opsPlay        = "/root/play-agent-bus.yml"
 	opsElementPlay = "/root/play-agent-bus-element.yml"
 	opsHostVars    = "/home/u/hv/localhost.yml"
-	opsDeclare     = "env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare "
+	opsDeclare     = "env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare "
 )
 
 // opsRig is a Ops wired to a scripted runner and buffers for everything it writes.

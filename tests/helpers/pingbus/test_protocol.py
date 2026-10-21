@@ -156,7 +156,7 @@ class TestConstants(unittest.TestCase):
             p.Refusal("text")
 
     def test_send_only_refusals(self) -> None:
-        self.assertEqual(p.SEND_REFUSALS, ("secret",))
+        self.assertEqual(p.SEND_REFUSALS, ("secret", "no-room"))
         self.assertFalse(set(p.SEND_REFUSALS) & set(p.DROP_REASONS))
         self.assertEqual(p.Refusal("secret").reason, "secret")
 
@@ -1063,6 +1063,47 @@ class TestHumanMessage(unittest.TestCase):
         for label, body in cases:
             with self.subTest(case=label):
                 self.assertEqual(self.outcome(body).kind, p.IGNORE)
+
+    def test_a_message_naming_no_agent_reached_no_one(self) -> None:
+        """§9 "Unheard": a human's message ignored as not addressed is logged only when it
+        names no agent holding a role, so the log says it reached no one, not "not me"."""
+        cases = [
+            ("a typed @room, no pill", human_content("@room status please", mention=None)),
+            ("empty mentions", human_content(mention=())),
+            ("a human only", human_content(mention=(HUMAN2,))),
+            ("an agent with no role", human_content(mention=(NO_ROLE,))),
+            ("malformed user_ids", human_content(mention=None, **{"m.mentions": {"user_ids": [["x"], 5]}})),
+            ("room false", human_content(mention=None, **{"m.mentions": {"room": False}})),
+        ]
+        for label, body in cases:
+            with self.subTest(case=label):
+                ev = event(HUMAN, body)
+                self.assertTrue(p.reached_no_agent(ev, make_ctx(), p.validate_event(ev, make_ctx(), WORKER)))
+
+    def test_a_message_another_agent_receives_is_not_unheard(self) -> None:
+        for label, body, me in [
+            ("another agent named", human_content(mention=(WORKER2,)), WORKER),
+            ("addressed to me", human_content(), WORKER),
+            ("room pill", human_content(mention=None, **{"m.mentions": {"room": True}}), WORKER),
+            ("an empty reply", human_content("> q\n", **{"m.relates_to": {"m.in_reply_to": {"event_id": EVENT_ID_2}}}),
+             WORKER),
+        ]:
+            with self.subTest(case=label):
+                ev = event(HUMAN, body)
+                self.assertFalse(p.reached_no_agent(ev, make_ctx(), p.validate_event(ev, make_ctx(), me)))
+
+    def test_only_a_humans_message_can_be_unheard(self) -> None:
+        """A ping or an agent's text for others is traffic between agents, never logged;
+        a drop is already in `dropped.log`."""
+        ctx = make_ctx()
+        for label, ev in [
+            ("ping to another agent", event(ORCH, content("halt", to=[WORKER2]))),
+            ("agent text to a human", event(ORCH, p.build_text([HUMAN], "hi"))),
+            ("an edit naming nobody", event(HUMAN, human_content(mention=None, **{"m.new_content": {}}))),
+            ("not an event", "x"),
+        ]:
+            with self.subTest(case=label):
+                self.assertFalse(p.reached_no_agent(ev, ctx, p.validate_event(ev, ctx, WORKER)))
 
     def test_format_and_formatted_body_are_never_delivered(self) -> None:
         body = human_content("plain", format="org.matrix.custom.html", formatted_body="<b>other</b>")

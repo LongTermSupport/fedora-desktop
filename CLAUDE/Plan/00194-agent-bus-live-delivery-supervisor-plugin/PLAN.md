@@ -113,6 +113,54 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   upstream hooks-daemon change, filed as #127 (waits on its release); then the hook skips the goodbye for that session and records
   it as said (`seat.record_goodbye`), so the launcher's `seat disconnected` stays quiet
   too, test first. `docs/agent-bus.md` states today's behaviour until then.
+- [ ] 🔄 **Task 2.0f**: A human message that reaches no agent is visible. The owner posted
+  `@room ...` in Element as plain text (no pill), so it had no `m.mentions.room`; every
+  member's watcher ignored it as not addressed, which writes nothing, and the owner could not
+  tell. Now a team human's message whose mentions name no agent of the team gets one
+  `ignored.log` line per member (`dropped.log`'s format; never the body; no turn, not a drop)
+  and `pingbus status` counts them (`ignored=`); who receives what is unchanged (a typed
+  `@room` stays unaddressed: the owner's decision). Built test first on branch
+  `feat/ignored-human-visible` (CCY 3.99.12.17, container 2.77.13); waits on review, then
+  `play-agent-bus.yml` and `play-claude-yolo.yml` (queued in meta-deploy) and the owner's
+  check: post a plain-text `@room` from Element, then `pingbus status` in a member shows
+  `ignored=1`. Report:
+  [261019-ignored-human-visible-opus.md](subagent-reports/261019-ignored-human-visible-opus.md).
+- [ ] ⬜ **Task 2.0g**: Follow-up to 2.0f (Fable review finding 3): an addressed reply whose
+  body is only the quote fallback is ignored as `empty` at the addressee, and every other
+  member sees a mention naming an agent, so no one logs it although it reached no agent.
+  Decide whether `empty` joins the logged reasons (the human did pick a pill, so the failure
+  differs from the incident's), test first.
+- [x] ✅ **Task 2.0h**: The host acceptance's G3 (tmux window closed) told the teams nothing,
+  no goodbye and no disconnected notice. Cause, reproduced in the container: the launcher is
+  the pane's session leader, so the hangup's SIGHUP reaches it alone; bash runs the EXIT trap
+  at once without waiting for podman, which is told only once the launcher has gone. So the
+  notice ran while the container still held the seats, waited 15 s, gave up, and said so on
+  the dead terminal. Fixed test first (CCY 3.99.12.18, container 2.77.14): the clean-up stops
+  a container still running before the notice and ignores SIGHUP and SIGINT until done; both
+  the launcher and `pingbus seat disconnected` write each outcome to the owner-only
+  `.claude/ccy/pingbus/disconnect.log`; G3 keeps the launcher's stderr and that log.
+  Reviewed (Fable: MERGE); deployed through meta-deploy and proven on the host at F44
+  96454752 (the launcher survived the hangup and told the teams), and again at c3391ba9.
+  Report:
+  [261019-g3-window-closed-opus.md](subagent-reports/261019-g3-window-closed-opus.md).
+- [x] ✅ **Task 2.0i**: The host acceptance at F44 96454752 proved 2.0h (the launcher survived
+  the hangup, stopped the container, ran `seat disconnected`), but pingbus refused G3's notice
+  as `rate limited: duplicate`: G2 had posted the same fixed text from the same seat to the
+  same addressees 19 s earlier, inside the send gate's 60 s duplicate window. A product bug: a
+  seat that crashes, relaunches and crashes again within a minute loses its second notice.
+  Chosen: (a) pingbus's own notices skip the duplicate window and keep the token bucket, at
+  the one poster they share (`_post_to_humans_and_coordinators`), because the window exists to
+  stop an agent repeating itself, and each notice is already told once per claim (seat lock
+  and claim check) or per session (the goodbye record). Not (b), a claim time in the text: it
+  puts a machine stamp in a human's message, must be repeated in every template, and leaves
+  the trap for the next fixed-text notice. All room notices checked: the disconnected notice,
+  the session-end goodbye and the removal goodbye (`seat farewell`) all had the defect and are
+  fixed; `joined`, `left` and the MEMBERSHIP envelope are written into the session, never
+  posted, so the send gate never sees them. Fixed test first (CCY 3.99.12.19, container
+  2.77.15). Reviewed (Fable: MERGE); `play-agent-bus.yml` and `play-claude-yolo.yml` passed
+  on the host at F44 c3391ba9 (ccy 3.99.12.19) and the goodbye acceptance passed G1-G4 and
+  C1. Report:
+  [261019-notice-duplicate-window-opus.md](subagent-reports/261019-notice-duplicate-window-opus.md).
 - [ ] ⬜ **Task 2.1**: The plugin, test first, shipped in the image beside `ccy_lifecycle.py`,
   enabled for a session launched with `--teams` (CCY version bump). Waits on the
   hooks-daemon release that carries plugin API 1.1 (#119); it also drops
@@ -126,12 +174,15 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
 
 - [ ] On the host, a message the owner posts in Element mentioning a seat appears in that
   ccy session within seconds, with the agent running nothing, framed as the human's.
+
 - [ ] Another agent's message appears in the same envelope with its own kind and no
   authority.
+
 - [ ] Host, after `play-agent-bus.yml` and `play-claude-yolo.yml` (branch
   `fix/goodbye-ctrl-c`, journal 2026-10-19). Before the fix no goodbye was ever sent:
   Claude Code's 1.5 s SessionEnd bound, which a plugin hook's `timeout` does not raise, cut
   it off; a stop or a closed terminal ends the container at once, so no hook runs at all.
+
   1. End a `--teams` session by MASHING Ctrl-C for several seconds, on past the container's
      exit: `left the team` is posted once (to the team's humans and coordinator), and the
      launcher's exit prints no traceback and no `pingbus seat disconnected failed`.
@@ -141,6 +192,21 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   4. No ending posts both messages.
   5. Baseline for Task 2.0e: a lifecycle restart (`CCY_LIFECYCLE_MAX_AGE_SECONDS` at its
      minimum); record what the team sees (today: `left the team`, then the seat re-joins).
+
+  Steps 1-4 are automated, as the owner asked, by [acceptance.bash](acceptance.bash), run
+  through meta-deploy: G1 = step 1 (Ctrl-C sent until the launcher exits; one goodbye per
+  team, and no traceback or failed disconnect on the terminal), G2 = step 2, G3 = step 3, G4 =
+  step 4 (checked in every scenario), C1 = nothing of the run left. It runs on two throwaway
+  teams made by Plan 00201's acceptance legs, in a scratch checkout, on a tmux server of its
+  own. It counts what each team's human sees in the room. Every session sits on both seats.
+  The verdicts are in `goodbye_check.py`, tested by `test_goodbye_check.py`, which also runs
+  `acceptance.bash --fake` over fixture rooms. Step 5 is still done by hand. The first host
+  run stopped in setup at ccy's commit-signing check; the scratch checkout now turns signing
+  off in its own config (launched `--no-ssh`, no key goes in), a launcher that ends early is
+  reported by its ERROR lines, and one waiting at a question no flag answers fails at once by
+  name. Steps 1-4 passed on the host at F44 c3391ba9 (G1-G4 and C1); step 5 is still by
+  hand, so this criterion stays open.
+
 - [ ] A message sent to a busy session is typed mid-turn and run when the turn ends.
 
 ## Delivery & Milestones

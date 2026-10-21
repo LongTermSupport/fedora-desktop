@@ -134,10 +134,15 @@ expect_has "a changed suite runs itself" "$plan" "suite scripts/test-planlib.bas
 
 # Built from parts: this suite's own text would otherwise name the file, and a suite that names
 # a changed file covers it — which would turn the "uncovered" fixture into a covered one.
+unmapped="LIC""ENSE"
+plan="$(plan_for "$unmapped")"
+expect_has "unmapped file is reported" "$plan" "not covered by qa-changed: $unmapped"
+
 wf_dir=".github/workflows"
 wf_name="qa"
 plan="$(plan_for "$wf_dir/${wf_name}.yml")"
-expect_has "unmapped file is reported" "$plan" "not covered by qa-changed: $wf_dir/${wf_name}.yml"
+expect_has "a workflow: the Go test that holds setup-go to the Go floor runs" "$plan" "check go"
+expect_lacks "a workflow is covered" "$plan" "not covered by qa-changed"
 
 capture plan_for no/such/file.bash scripts/qa-bash.bash
 expect_rc "nonexistent file beside a real one: exit 0" 0
@@ -202,7 +207,7 @@ plan="$(plan_for src-go/internal/ui/ui.go src-go/go.mod)"
 expect_has "go: gate planned" "$plan" "check go"
 expect_lacks "go: a Go file is covered" "$plan" "not covered by qa-changed: src-go/internal/ui/ui.go"
 expect_lacks "go: go.mod is covered" "$plan" "not covered by qa-changed: src-go/go.mod"
-expect_lacks "go: qa-go is not also picked as a suite" "$plan" "suite scripts/qa-go.bash"
+expect_lacks "go: the Go gate is not also picked as a suite" "$plan" "suite scripts/qa-go-qa.bash"
 
 plan="$(plan_for src-go/qa/rules/seamexec.go src-go/qa/go.mod src-go/qa/rules/testdata/src/fix/internal/badexec/bad.go)"
 expect_has "go: a project-rules file plans the gate" "$plan" "check go"
@@ -283,7 +288,7 @@ for cmd_dir in "$SCRIPT_DIR"/../src-go/cmd/*/; do
     entry="$(awk -F'\t' -v c="$cmd_name" '$1 == c {print $2}' "$SCRIPT_DIR/go-binary-suites.tsv")"
     plan="$(plan_for "src-go/cmd/$cmd_name/main.go")"
     if [[ "$entry" == "qa-go" ]]; then
-        # Its oracle is a Go test: the whole Go gate is the check, and no bash suite is picked.
+        # Its oracle is a Go test: the Go gate is the check, and no bash suite is picked.
         expect_has "binaries: $cmd_name's oracle is a Go test, which the Go gate runs" "$plan" "check go"
         expect_lacks "binaries: $cmd_name picks no bash suite for its build closure" "$plan" "builds from"
     else

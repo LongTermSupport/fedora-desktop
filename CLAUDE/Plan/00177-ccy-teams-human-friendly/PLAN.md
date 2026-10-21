@@ -1,6 +1,6 @@
 # Plan 00177: ccy-teams, human friendly
 
-**Status**: In Progress (Phase 4 built and reviewed; Phase 9 built and reviewed; waiting on the owner's host tests, Tasks 5.1 and 9.5)
+**Status**: In Progress (Phase 4 built and reviewed; Phase 9 built and reviewed; Phase 7 built and deployed; waiting on the owner's host tests, Tasks 5.1, 6.4, 7.5 and 9.5)
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: High
@@ -159,34 +159,43 @@ quit `ccy-teams` to start Element.
 
 ### Phase 7: `ccy --teams` finds the team (the owner's host test)
 
-- [ ] 🔄 **Task 7.1**: `ccy --teams` with no value offers the teams whose scope covers this
+- [x] ✅ **Task 7.1**: `ccy --teams` with no value offers the teams whose scope covers this
   checkout's GitHub `owner/repo` (an organisation team by its owner, a repository team by
   the repository), choosing alone when exactly one matches and saying so when none does.
   The matching and the choice live in the Go `ccy-teams`; the launcher, on the bash-limits
-  ratchet, only calls it and must not grow. Built (`ccy-teams for-checkout [--choose]`, CCY
-  3.96.0), awaiting the owner's host test. The owner's test: when no team covers the
-  checkout, it stops and makes the owner type a team name. A chooser takes its place in Plan
-  00201 (M4), which also brings cc onto the same flow.
-- [ ] 🔄 **Task 7.2**: The quick launch ("use the previous configuration") remembers the team:
+  ratchet, only calls it and must not grow. Built as `ccy-teams for-checkout` (CCY 3.96.0).
+  The owner's test found that an uncovered checkout made them type a team name; Plan 00201
+  M4 replaced that with `ccy-teams choose-teams` (its `--choose` mode gone), which the launcher
+  calls, and brought cc onto the same flow. Deployed. The owner's test of it is Plan 00201's
+  [ACCEPTANCE-owner.md](../00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/ACCEPTANCE-owner.md)
+  step 5 (Task 7.5).
+- [x] ✅ **Task 7.2**: The quick launch ("use the previous configuration") remembers the team:
   `.last-launch.conf` keeps the `--teams` list (`LAST_TEAMS`, config format 2), and reusing
-  it launches into the same team; an explicit `--teams` overrides it. Built, awaiting the
-  owner's host test. Only a person's yes to the offer takes the team: a headless, no-terminal
-  or restore launch never does (CCY 3.97.3, Plan 00161 M2.9 defect).
-- [ ] 🔄 **Task 7.3**: The owner's host run found `play-agent-bus-element.yml` refusing them
+  it launches into the same team; an explicit `--teams` overrides it. Only a person's yes to
+  the offer takes the team: a headless, no-terminal or restore launch never does (CCY 3.97.3,
+  Plan 00161 M2.9 defect). Deployed; the unattended half passed on the host in Plan 00161's
+  acceptance (M2.9, M2.10 at F44 6affbfec). The person's yes is the owner's test: Plan
+  00201's ACCEPTANCE-owner.md steps 3 and 6 (Task 7.5).
+- [x] ✅ **Task 7.3**: The owner's host run found `play-agent-bus-element.yml` refusing them
   after they accepted `cc --teams`. The reason: "~/.config/pingbus exists: this user holds
   pingbus bundles". Task 4.10's acceptance record lives in that folder, so the Element
   check refused every owner who had accepted. A cc seat's bundles live in the checkout.
   `helpers/agent_bus/element.py` now passes a folder that holds only the acceptance record,
   valid by pingbus's own `config.element_accepted`. Anything else there still refuses.
-  Built test first, waiting for the owner's run of the Element play.
-- [ ] 🔄 **Task 7.4**: A person is never left with an account they cannot sign in to. After an
+  Built test first. The owner's run of the Element play on the host passed (26-10-15).
+- [x] ✅ **Task 7.4**: A person is never left with an account they cannot sign in to. After an
   apply (from `ccy-teams create` or `ccy-teams apply <team>`), passed or failed, every person
   of the team who has no Element session (the picker's check) is offered the sign-in on a
   terminal, or told the exact way (`ccy-teams`, Enter on the team, Open `<team>` in Element)
   without one. When the sessions cannot be read (the homeserver is not up after a failed
   apply) it says so with the same way. The apply's failure still stands and still exits 1.
   Diagnosis: `subagent-reports/261015-room-access-diagnosis-opus.md`; the report
-  `261015-create-signin-gap-sonnet.md`. Built test first; awaiting the owner's host test.
+  `261015-create-signin-gap-sonnet.md`. Built test first and deployed; the owner's test is
+  Task 7.5.
+- [ ] ⬜ **Task 7.5**: The owner tests Phase 7 on the host. Nothing to deploy (all of it is in
+  the deployed `ccy-teams` and CCY). Tasks 7.1 and 7.2: Plan 00201's ACCEPTANCE-owner.md steps
+  3, 5 and 6. Task 7.4: with a team where a person has never signed in to Element, run
+  `ccy-teams apply <team>` in a terminal; after the apply it offers that person the sign-in.
 
 ### Phase 9: Add an LXC container to a team from ccy-teams, no hand edit of localhost.yml
 

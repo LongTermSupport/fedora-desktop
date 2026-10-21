@@ -12,7 +12,7 @@ per expectation, cited by number) and a run over the live tree at cut-over.
 A gate's verdict belongs to the binary that produced it: two shellchecks four minor releases apart
 reported 141 and 173 issues on one tree. `.qa-versions` is the single statement of the version of
 every tool a gate runs (ruff, semgrep, shellcheck, golangci-lint); the Go toolchain is a floor
-taken from `src-go/go.mod`, not a pin. This gate asserts the machine matches. Callers: `qa-all`
+taken from `src-go/go.mod` and `src-go/qa/go.mod`, not a pin. This gate asserts the machine matches. Callers: `qa-all`
 (`scripts/qa-gates.tsv`, gate `toolchain`, a `detail:` reader of the stdout line) and `qa-changed`
 (check `toolchain`).
 
@@ -50,10 +50,12 @@ Numbers are cited by the tests.
 - T5. The keys are exactly `RUFF`, `SEMGREP`, `SHELLCHECK`, `GOLANGCI_LINT`. A missing key, an empty
   value, a duplicated key, or a key outside that set (a pin that no assertion reads) is exit 2
   naming the key.
-- T6. The Go floor is the `go` directive of `<root>/src-go/go.mod`, read with the `modfile` parser.
-  A missing, unreadable or unparseable file, one with no `go` directive, or one whose floor is not
-  a Go version (checked where it is read, so it is never reported as machine drift), is exit 2
-  naming it.
+- T6. The Go floor is the higher of the `go` directives of `<root>/src-go/go.mod` and
+  `<root>/src-go/qa/go.mod` (the same go builds both modules; Plan 00191 Task 3.3 made the qa
+  module's the higher, as go-qa-ci requires it), each read with the `modfile` parser; `<go.mod>`
+  below is the file that sets it. A missing, unreadable or unparseable file, one with no `go`
+  directive, or one whose floor is not a Go version (checked where it is read, so it is never
+  reported as machine drift), is exit 2 naming it.
 - T7. A file with no entries at all (empty or comment-only `.qa-versions`) is T5's missing keys,
   exit 2: an empty scope never passes.
 
@@ -62,7 +64,7 @@ Numbers are cited by the tests.
 - T8. The tools are asserted in this order: ruff, semgrep, shellcheck, golangci-lint, go. Every
   one is asserted before the verdict: all mismatches are reported, not the first.
 - T9. A tool is looked up on PATH. Absent is a mismatch, never a skip:
-  `✗ toolchain: <tool> is not installed (expected <pin>)`. For go: `(need >= <floor>, src-go/go.mod)`.
+  `✗ toolchain: <tool> is not installed (expected <pin>)`. For go: `(need >= <floor>, <go.mod>)`.
 - T10. The version is read by running `<tool> --version` in the root, bounded in time, from the
   first line (ruff: second field, `ruff 0.16.8`; semgrep: first field, bare number;
   golangci-lint: fourth field, `golangci-lint has version 2.14.0 built ...`) or, for shellcheck,
@@ -77,7 +79,7 @@ Numbers are cited by the tests.
   It must be a valid Go version and not older than the floor, compared by the Go version rules
   (`1.26.2` satisfies `1.26`; `1.25.9` does not satisfy `1.26`). Unreadable (cannot start, times
   out, exits non-zero, prints nothing valid) is the T10 message for `go`. Older prints
-  `✗ toolchain: go is older than src-go/go.mod requires`, then `    need >= : <floor>  (src-go/go.mod)`
+  `✗ toolchain: go is older than <go.mod> requires`, then `    need >= : <floor>  (<go.mod>)`
   and `    found   : <version>  (<path of go>)`.
 - T13. Each tool's `--version` stderr is kept and printed only on the unreadable path (T10), never
   discarded and never mixed into a passing run.

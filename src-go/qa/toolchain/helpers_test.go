@@ -38,7 +38,7 @@ type world struct {
 // goodWorld is a machine that matches goodPins and goodMod exactly.
 func goodWorld() *world {
 	return &world{
-		files: map[string]string{".qa-versions": goodPins, "src-go/go.mod": goodMod},
+		files: map[string]string{".qa-versions": goodPins, "src-go/go.mod": goodMod, "src-go/qa/go.mod": goodMod},
 		tools: map[string]string{
 			"ruff": "/bin/ruff", "semgrep": "/bin/semgrep", "shellcheck": "/bin/shellcheck",
 			"golangci-lint": "/bin/golangci-lint", "go": "/bin/go",

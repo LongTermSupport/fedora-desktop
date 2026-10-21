@@ -1,1 +1,16 @@
-GO-OK 40 package(s), all tested: fmt, vet, test -race, coverage 94.8% (floor 90%), golangci-lint clean; qa module 10 package(s) at 94.4%; project rules clean
+summary: no [summary] file is configured (summary.file); the summary check is off
+
+go-qa summary:
+  format     fmt          passed
+  detectors  summary      passed
+  detectors  docs         passed
+  detectors  ast-grep     skipped (no sgconfig.yml and the bundled pack is empty or switched off)
+  detectors  golangci     passed
+  detectors  analyzers    passed
+  detectors  deadcode     passed
+  runners    vuln         passed
+  runners    mod          passed
+  runners    build        passed
+  runners    test         passed
+  runners    coverage     passed
+  runners    mutants      skipped (mutants.mode is off)

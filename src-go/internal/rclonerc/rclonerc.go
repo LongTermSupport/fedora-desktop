@@ -137,21 +137,44 @@ func (c *Client) AddrForMount(ctx context.Context, path string) (string, error) 
 	if len(mounts) == 0 {
 		return "", errors.New("no rclone mount process is running")
 	}
-	for _, args := range mounts {
-		if slices.Contains(args[1:], root) {
-			return rcAddr(root, args)
-		}
+	if args := serving(mounts, root); args != nil {
+		return rcAddr(root, args)
 	}
 	return "", fmt.Errorf("no rclone mount process serves %s", root)
 }
 
-func rcAddr(root string, args []string) (string, error) {
-	var addrs []string
-	for _, a := range args {
-		if v, ok := strings.CutPrefix(a, "--rc-addr="); ok && v != "" {
-			addrs = append(addrs, v)
+// MountProcess is the argument list of the first rclone mount process, in pid order, one of
+// whose arguments after the program is root; nil when none is.
+func (c *Client) MountProcess(root string) ([]string, error) {
+	mounts, err := c.mountProcesses()
+	if err != nil {
+		return nil, err
+	}
+	return serving(mounts, root), nil
+}
+
+func serving(mounts [][]string, root string) []string {
+	for _, args := range mounts {
+		if slices.Contains(args[1:], root) {
+			return args
 		}
 	}
+	return nil
+}
+
+// FlagValues is the value of every `<flag>=<value>` argument with a value, in order.
+func FlagValues(args []string, flag string) []string {
+	var values []string
+	for _, a := range args {
+		if v, ok := strings.CutPrefix(a, flag+"="); ok && v != "" {
+			values = append(values, v)
+		}
+	}
+	return values
+}
+
+func rcAddr(root string, args []string) (string, error) {
+	addrs := FlagValues(args, "--rc-addr")
 	switch len(addrs) {
 	case 0:
 		return "", fmt.Errorf("the mount serving %s was started without --rc-addr", root)
