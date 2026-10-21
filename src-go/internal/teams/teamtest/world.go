@@ -53,6 +53,9 @@ type World struct {
 
 	overview map[string]string
 	counted  int
+
+	seatMu    sync.Mutex
+	seatLocks map[string]*os.File
 }
 
 // New is a Host over a scratch root with an installed ccy lib and the declare helper present,
@@ -103,14 +106,15 @@ func (w *World) InLxcCheckout() string {
 func Populated(t *testing.T) *World {
 	t.Helper()
 	w := New(t)
-	MustWrite(t, filepath.Join(w.Checkout(), ".claude/ccy/pingbus/seats/x"), "")
+	w.AddSeat(t, w.Checkout(), "alpha", "1", "proj.1+local.podman")
+	w.AddSeat(t, w.Checkout(), "alpha", "dev", "proj.dev+local.podman")
+	w.HoldSeat(t, w.Checkout(), "alpha", "1", true)
 	w.OnDeclare("declared", DeclaredAlpha)
 	w.OnDeclare("status", "STATUS\talpha\tcurrent\t-\n")
 	w.On("systemctl list-units", UnitAlpha, 0)
 	w.On("systemctl is-active agent-bus-hs@alpha.service", "active\n", 0)
 	w.On("tmux -L ccy list-sessions", "ccy-proj 0 "+w.Checkout()+"\n", 0)
 	w.OnNotARepository()
-	w.On("agent-bus seat list", "SEAT\talpha\t1\theld\tself\tproj.1+local.podman\nSEAT\talpha\tdev\tfree\t-\tproj.dev+local.podman\n", 0)
 	w.On(SudoBus+"list alpha", BusList, 0)
 	w.On(SudoBus+"human devices alpha owner", "", 0)
 	w.On(SudoBus+"human devices alpha guest", "DEVICE\ta\t-\nDEVICE\tb\t1\n", 0)
@@ -214,6 +218,69 @@ func (w *World) HoldPlayLock(t *testing.T) func() {
 	}
 	t.Cleanup(release)
 	return release
+}
+
+// SeatDir is the folder of seat of team in checkout.
+func SeatDir(checkout, team, seat string) string {
+	return filepath.Join(checkout, ".claude/ccy/pingbus/seats", team, seat)
+}
+
+// AddSeat makes seat of team in checkout as a seat take leaves it, read by the in-process seat
+// reader: a member.json naming handle on the team's server. It is free until HoldSeat holds it.
+func (w *World) AddSeat(t *testing.T, checkout, team, seat, handle string) {
+	t.Helper()
+	server := team + ".agent-bus.internal"
+	MustWrite(t, filepath.Join(SeatDir(checkout, team, seat), "member.json"), `{"protocol": 1, "team": "`+team+
+		`", "user_id": "@`+handle+`:`+server+`", "server_name": "`+server+
+		`", "base_url": "http://192.0.2.10:6167", "plain_http_hosts": ["192.0.2.10"], "token_file": "token", "admin": "@admin:`+server+
+		`", "room": "!`+strings.Repeat("A", 43)+`"}`)
+}
+
+// RemoveSeat lets go of seat's lock and removes its folder, as a seat retire does.
+func (w *World) RemoveSeat(t *testing.T, checkout, team, seat string) {
+	t.Helper()
+	w.HoldSeat(t, checkout, team, seat, false)
+	if err := os.RemoveAll(SeatDir(checkout, team, seat)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// BreakSeat makes seat's member.json one the reader refuses, so the seat is left out and named.
+func (w *World) BreakSeat(t *testing.T, checkout, team, seat string) {
+	t.Helper()
+	MustWrite(t, filepath.Join(SeatDir(checkout, team, seat), "member.json"), "{}")
+}
+
+// HoldSeat takes seat's seat.lock on a descriptor of its own, as the session sitting in it
+// does, until the test ends; held false lets it go. Asking for the state it is in does nothing.
+func (w *World) HoldSeat(t *testing.T, checkout, team, seat string, held bool) {
+	t.Helper()
+	path := filepath.Join(SeatDir(checkout, team, seat), "seat.lock")
+	w.seatMu.Lock()
+	defer w.seatMu.Unlock()
+	if w.seatLocks == nil {
+		w.seatLocks = map[string]*os.File{}
+	}
+	f, holding := w.seatLocks[path]
+	switch {
+	case held == holding:
+		return
+	case !held:
+		delete(w.seatLocks, path)
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	f, err := os.OpenFile(filepath.Clean(path), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	w.seatLocks[path] = f
+	t.Cleanup(func() { w.HoldSeat(t, checkout, team, seat, false) })
 }
 
 // PlayLockHeld is whether anyone holds the play lock in the world's runtime directory now.

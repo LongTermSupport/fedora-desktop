@@ -172,7 +172,8 @@ func TestDispatchChooseSeatAndDescribeSeatsAreTheChooseFlow(t *testing.T) {
 		t.Fatalf("choose-seat: exit %d: %s", code, h.ErrOut.String())
 	}
 	h = world(t)
-	h.On("agent-bus seat list", "SEAT\talpha\t1\theld\tself\tproj.1+local.podman\n", 0)
+	h.RemoveSeat(t, h.Checkout(), "alpha", "dev")
+	h.On("git rev-parse --show-toplevel", h.Checkout()+"\n", 0)
 	h.On(teamtest.SudoBus+"list alpha", "MEMBER\tproj.1+local.podman\tcoordinator\tjoin\tactive\n", 0)
 	if code := h.app.Run([]string{"describe-seats", "1@alpha"}); code != term.ExitOK {
 		t.Fatalf("describe-seats: exit %d: %s", code, h.ErrOut.String())

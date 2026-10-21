@@ -150,6 +150,26 @@ func TestSessionsNeedAnAbsoluteRuntimeDirectory(t *testing.T) {
 	}
 }
 
+// On a terminal `session list` is the table for a person, and says once what it cannot list.
+func TestListOnATerminalIsTheTable(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
+	r.labelled("old1\trunning\tccy-old\n")
+	r.Host.IsTerminal = func(any) bool { return true }
+	if code := r.run(t, "list"); code != term.ExitOK {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	heading, lines, err := SessionLines([]Session{{Name: "ccy-old", Checkout: "-", State: "old or --no-bus: relaunch it to change it while it runs"}}, r.Host.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := heading + "\n" + lines[0] + "\n"; r.Out.String() != want {
+		t.Fatalf("stdout\n%q\nwant\n%q", r.Out.String(), want)
+	}
+	if strings.Count(r.ErrOut.String(), OnlyTmuxLine) != 1 {
+		t.Fatalf("stderr %q", r.ErrOut.String())
+	}
+}
+
 // The table `session list` prints and the picker's rows are one layout: the heading and each
 // row aligned in the same columns, the checkout shown from the home directory.
 func TestSessionLinesAlignUnderTheHeading(t *testing.T) {

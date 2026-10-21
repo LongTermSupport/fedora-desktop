@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/bus/seat"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
@@ -217,7 +218,10 @@ func (r *rig) podmanPs(t *testing.T) execx.Result {
 	return execx.Result{Stdout: []byte(r.m.container + "\trunning\n")}
 }
 
-func (r *rig) seatList(t *testing.T) execx.Result {
+// syncSeats brings the checkout's seat folders to what the machine says before the in-process
+// reader reads them: each seat with its handle, held by another session or by the keeper
+// following the desired file.
+func (r *rig) syncSeats(t *testing.T) {
 	t.Helper()
 	r.m.mu.Lock()
 	defer r.m.mu.Unlock()
@@ -226,22 +230,12 @@ func (r *rig) seatList(t *testing.T) execx.Result {
 	if err != nil && !os.IsNotExist(err) {
 		t.Error(err)
 	}
-	refs := make([]string, 0, len(r.m.exists))
-	for ref := range r.m.exists {
-		refs = append(refs, ref)
+	for ref, handle := range r.m.exists {
+		name, team := refParts(ref)
+		mine := r.m.keeper && slices.Contains(d.Seats, membership.Seat{Team: team, Seat: name}) && r.m.running()
+		r.AddSeat(t, r.Checkout(), team, name, handle)
+		r.HoldSeat(t, r.Checkout(), team, name, r.m.heldBy[ref] || mine)
 	}
-	slices.Sort(refs)
-	var b strings.Builder
-	for _, ref := range refs {
-		seat, team := refParts(ref)
-		state := "free"
-		mine := r.m.keeper && slices.Contains(d.Seats, membership.Seat{Team: team, Seat: seat}) && r.m.running()
-		if r.m.heldBy[ref] || mine {
-			state = "held"
-		}
-		b.WriteString("SEAT\t" + team + "\t" + seat + "\t" + state + "\t-\t" + r.m.exists[ref] + "\n")
-	}
-	return execx.Result{Stdout: []byte(b.String())}
 }
 
 // roster is "agent-bus list <team>": the checkout's seats of the team, then the members others
@@ -326,7 +320,10 @@ func (r *rig) script(t *testing.T) {
 		r.m.alive, r.m.keeper = true, true
 		return execx.Result{}, nil
 	})
-	r.Fake.OnFunc([]string{"agent-bus", "seat", "list"}, func(execx.Cmd) (execx.Result, error) { return r.seatList(t), nil })
+	r.Host.Bus.ListSeats = func(top string, uid int) (seat.Listing, error) {
+		r.syncSeats(t)
+		return seat.List(top, uid)
+	}
 	r.Fake.OnFunc([]string{"agent-bus", "seat", "take"}, func(c execx.Cmd) (execx.Result, error) {
 		r.m.mu.Lock()
 		defer r.m.mu.Unlock()
