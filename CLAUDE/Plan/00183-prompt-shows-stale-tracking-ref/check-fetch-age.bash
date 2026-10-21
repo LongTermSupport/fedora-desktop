@@ -99,8 +99,8 @@ check_prompt() {
     : >"${dir}/.git/FETCH_HEAD"
     # The prompt file is sourced in a clean bash, as the login shell does, and PS1 expanded
     # as bash expands it before drawing.
-    shown="$(cd "${dir}" && PROMPT_FILE="${PROMPT_FILE}" bash --norc --noprofile -s <<'EOF'
-source "${PROMPT_FILE}"
+    shown="$(cd "${dir}" && bash --norc --noprofile -s -- "${PROMPT_FILE}" <<'EOF'
+source "$1"
 printf '%s' "${PS1@P}"
 EOF
 )"

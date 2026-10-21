@@ -324,8 +324,8 @@ owner's, done by hand at the desktop, and are not in `meta-deploy.list`; report 
 `go-port/open-2`, merged too: a handler's own Ctrl-C is a quiet cancel (130), other signals named
 (128 + n), an interrupt before the handler cancels (E29-E31).
 `rclone-cache-status` (P6, the second tool; chosen in its spec's section 1: the user's own
-account, changes nothing, its one secret through the tested `internal/rclonerc`) on this
-task's worktree branch: ported and cut over, not yet reviewed or merged; spec
+account, changes nothing, its one secret through the tested `internal/rclonerc`) ported,
+cut over, merged into F44, deployed and live-checked on the host; spec
 [SPEC-rclone-cache-status.md](SPEC-rclone-cache-status.md) (E1-E21, B1-B10),
 `src-go/cmd/rclone-cache-status` and `src-go/internal/rclonecache` (findmnt's JSON, the mount
 processes' arguments through the new `rclonerc.MountProcess` and `rclonerc.FlagValues`,
@@ -334,6 +334,6 @@ Go; no Python); `play-rclone.yml` builds it (tags `rclone` and `rclone-cache-sta
 second leaving the mounts up), the bash and its allowlist row are gone (it had no suite).
 Side by side with the bash over fakes: identical reports; the differences are departures, one
 found that way (B10: with no mount the bash printed only the heading and exited 1). Host run
-queued as `deploy-rclone-cache-status.bash` (the tagged play, then
-`acceptance-rclone-cache-status.bash` for H1); H2 and H3 by hand. A Fable review comes before
-the merge.
+`deploy-rclone-cache-status.bash` (the tagged play, then
+`acceptance-rclone-cache-status.bash` for H1) passed; H2 and H3 are the owner's, by hand inside
+a mount.
