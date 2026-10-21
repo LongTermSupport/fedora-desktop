@@ -168,6 +168,12 @@ class TestSubprocess(TempCase):
         self.assertEqual(proc.stdout, f"pingbus {cli.TOOL_VERSION} protocol {p.PROTOCOL_VERSION}\n")
         self.assertEqual(proc.stderr, "")
 
+    def test_version_is_the_rooms_release(self) -> None:
+        # Plan 00211's stage-1 acceptance tells a deployed pingbus that knows the reports and
+        # questions rooms from an older one by this version alone.
+        proc = run_process(["version"], self.env)
+        self.assertEqual(proc.stdout, f"pingbus 0.2.0 protocol {p.PROTOCOL_VERSION}\n")
+
     def test_validate_refusal_exit_4_reason_on_stdout(self) -> None:
         proc = run_process(["validate", "halt", REF_PATH], self.env)
         self.assertEqual(proc.returncode, 4)

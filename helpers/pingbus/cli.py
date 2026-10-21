@@ -49,7 +49,7 @@ from helpers.pingbus import seat as seating
 from helpers.pingbus import statusline
 
 PROG = "pingbus"
-TOOL_VERSION = "0.1.0"
+TOOL_VERSION = "0.2.0"
 #: What a forge refusal's stderr message starts with, before `<code>: <detail>`.
 FORGE_REFUSED = "forge check refused"
 

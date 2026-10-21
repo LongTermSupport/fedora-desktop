@@ -74,3 +74,12 @@ playbooks/imports/optional/common/play-speech-to-text.yml
 # It records whether a restricted join, the power-level refusals and a pending invite behave as the
 # design needs; a fact that does not hold fails the run, and its report says which.
 00211-agent-bus-reports-and-questions-rooms/spike.bash
+# Plan 00211 deploy 1 (Task 1.13), after the spike above: deploy.bash --stage 1, the member side
+# only, so no room is created yet. It runs the whole play-agent-bus.yml (the host's pingbus
+# becomes 0.2.0, which knows the reports and questions rooms, and every running LXC member's kit
+# is copied again) and the whole play-claude-yolo.yml (the staged pingbus and skill, and the ccy
+# image rebuilt once as container 2.78.5). Needs sudo once. Then acceptance.bash --stage 1
+# checks the host's, the ccy build context's and each declared LXC container's pingbus version,
+# and refuses a declared container that is down, naming it. Afterwards restart the teams'
+# agent sessions so they run the new pingbus.
+00211-agent-bus-reports-and-questions-rooms/deploy-stage-1.bash

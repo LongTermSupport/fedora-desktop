@@ -139,10 +139,16 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   by a test (SPEC §5.5, §11.1). `TestParseRosterSkipsRoomLines`.
 - [x] ✅ **Task 1.11**: `docs/agent-bus-protocol.md` and `docs/agent-bus.md` (SPEC §10.3).
   The protocol doc's §2, §8.1, §9, §10, §12, §13 and §15; the owner's guide's three rooms.
-- [ ] ⬜ **Task 1.12**: `acceptance.bash` with `--fake` and stage 1 legs S1-S2. `deploy.bash --stage 1` runs the **whole** `play-agent-bus.yml` and the ccy staging, then `acceptance.bash --stage 1`. Its closing message asks the owner to restart the teams' sessions (SPEC §5.3,
-  §11.2). `ansible-playbook --syntax-check` only.
-- [ ] ⬜ **Task 1.13**: Merge Phase 1 to F44, then queue `deploy.bash --stage 1` in
-  `meta-deploy.list`. Journal the run once the owner has run it.
+- [x] ✅ **Task 1.12**: `acceptance.bash` with `--fake` and stage 1 legs S1-S2. `deploy.bash --stage 1` runs the **whole** `play-agent-bus.yml` and the ccy staging, then `acceptance.bash --stage 1`. Its closing message asks the owner to restart the teams' sessions (SPEC §5.3,
+  §11.2). `ansible-playbook --syntax-check` only. Done in code, not deployed. The marker
+  of the new code is `pingbus version` 0.2.0 (`cli.TOOL_VERSION`, pinned by a test), and S1-S2
+  compare against the line this checkout's code prints. S1 also checks the pingbus staged into
+  the ccy build context. The ccy staging is the whole `play-claude-yolo.yml`, which also
+  rebuilds the image. `deploy-stage-1.bash` is the meta-deploy entry, because meta-deploy passes
+  no arguments to a script it runs.
+- [ ] 🔄 **Task 1.13**: Merge Phase 1 to F44, then queue `deploy.bash --stage 1` in
+  `meta-deploy.list`. Journal the run once the owner has run it. Queued on the Phase 1 branch
+  as `deploy-stage-1.bash`, after the spike; the merge and the run are left.
 
 ### Phase 2: admin side (deploy 2), after deploy 1 is accepted
 
