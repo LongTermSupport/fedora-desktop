@@ -67,13 +67,16 @@ Every decision is in [DESIGN-v2.md section 7](DESIGN-v2.md#7-the-owner-decisions
 coordinator hears of each one flagged there (IRREVERSIBLE, CONTRADICTS or VISIBLE) before the
 milestone that acts on it.
 
-| ID     | Decision                                                                                                                                                | State                                                                                                                                           |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| D4     | no relay mode in v2; specified on v2 when the plugin API ships                                                                                          | accepted by the coordinator                                                                                                                     |
-| D15    | a keeper (`teamchat run`) and a link (DESIGN.md called it the worker) in every member, the resident cost measured (B 2.14)                              | accepted by the coordinator                                                                                                                     |
-| TID    | a team has a stable id (at most 22 characters) fixed at creation; its name is display only; `server_name` and handles carry the id and survive a rename | defaulted, the coordinator agreed; it goes to the owner in the coordinator's next digest                                                        |
-| INT3   | a v1 name over 22 characters migrates under a short id declared with the move, and stays its display name                                               | defaulted; to the coordinator                                                                                                                   |
-| others | OD-A1-A11, BD1-BD18, DC1-DC21, OD-D1-D7, INT1, INT2, INT4-INT7                                                                                          | defaulted; the flagged ones (OD-A7, OD-A10, BD9, BD15, BD16, DC1, DC4, DC5, DC15-DC19, DC21, OD-D1, OD-D5, OD-D6, INT4-INT7) to the coordinator |
+| ID           | Decision                                                                                                                                                | State                                                                                                                                                                                                                                                          |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D4           | no relay mode in v2; specified on v2 when the plugin API ships                                                                                          | accepted by the coordinator                                                                                                                                                                                                                                    |
+| D15          | a keeper (`teamchat run`) and a link (DESIGN.md called it the worker) in every member, the resident cost measured (B 2.14)                              | accepted by the coordinator                                                                                                                                                                                                                                    |
+| TID          | a team has a stable id (at most 22 characters) fixed at creation; its name is display only; `server_name` and handles carry the id and survive a rename | accepted with gate A (Task 0.5): built on; to the owner in the coordinator's digest                                                                                                                                                                            |
+| INT3         | a v1 name over 22 characters migrates under a short id declared with the move, and stays its display name                                               | defaulted; to the coordinator (not among the Task 0.5 answers)                                                                                                                                                                                                 |
+| VISIBLE      | OD-A10, BD9, BD15, BD16, DC4, DC16, DC17, DC18, DC19, DC21, OD-D6, INT4, INT5, INT7, and DC8                                                            | accepted (Task 0.5); DC17 with its go-deps allowlist rows and govulncheck clean; DC8 comes back to the coordinator if H-C5 or H-C15 fails; DC16's and DC19's stated cost is INT6's, below                                                                      |
+| IRREVERSIBLE | OD-A7, DC1, DC5, DC15, OD-D1 (`teamchat`), OD-D5, and TID above                                                                                         | accepted with gate A (Task 0.5): N1-N4 build on them; no host install that writes an owner-visible name or path, and no migration of any team, until the owner confirms                                                                                        |
+| INT6         | owner-uid processes holding a pool seat's password have power over that account (DC16, DC19)                                                            | owner only, with gate B (Task 0.5): built as defaulted; the first deploy that gives any process a pool seat's password waits for the owner, who may choose [DESIGN-v2.md 7.1](DESIGN-v2.md#71-int6s-narrower-alternative-a-pool-seat-with-no-password) instead |
+| others       | OD-A1-A6, OD-A8, OD-A9, OD-A11, BD1-BD8, BD10-BD14, BD17, BD18, DC2, DC3, DC6, DC7, DC9-DC14, DC20, OD-D2-D4, OD-D7, INT1, INT2                         | defaulted, not flagged                                                                                                                                                                                                                                         |
 
 DESIGN.md's D1-D20 belonged to the in-place design and are superseded with it.
 
@@ -118,7 +121,25 @@ its first caller.
   (`261021-n0-qa-reviewer.md`), round 3 (`261021-n0-r3-fix.md`) and the narrow check, verdict MERGE
   (`261021-n0-r3-check.md`); its two launch-line minors are fixed and its third is carried to N1
   (Task 1.7).
-- [ ] ⬜ **Task 0.5**: The coordinator's answers on the flagged decisions (Decisions, above).
+- [x] ✅ **Task 0.5**: The coordinator's answers on the flagged decisions, 2026-10-21, recorded in
+  the State column of [DESIGN-v2.md section 7](DESIGN-v2.md#7-the-owner-decisions) and in
+  Decisions, above:
+  - **Accepted:** OD-A10, BD9, BD15, BD16, DC4, DC16, DC17 (`godbus/dbus/v5` and
+    `go.yaml.in/yaml/v3`, with go-deps allowlist rows; govulncheck must stay clean), DC18, DC19,
+    DC21, OD-D6, INT4, INT5, INT7, and DC8 (if H-C5 or H-C15 fails, it comes back to the
+    coordinator).
+  - **Irreversible, built on as defaulted:** OD-A7, DC1, DC5, DC15, OD-D1 (`teamchat`), OD-D5 and
+    TID. N1-N4 build on them; they are inert beside v1 and cheap to change until something is
+    installed. **Gate A:** none of them goes past the point of no return without the owner's own
+    word: no host install that writes a name or path an owner would see (the `teamchat` name in
+    units or paths; Tasks 1.4, 2.5, 4.1) and no migration of any team (Task 6.2; the coordinator's
+    "N5 migration" is this plan's Phase 6, N6) until the owner has confirmed them. The coordinator
+    puts them to the owner as one digest.
+  - **Owner only:** INT6 (owner-uid processes holding a pool seat's password have power over that
+    account), built as defaulted. **Gate B:** the first deploy that gives any process a pool
+    seat's password (Task 2.5) waits for the owner's confirmation. The narrower alternative the
+    owner may choose instead, a pool that keeps no password, is
+    [DESIGN-v2.md section 7.1](DESIGN-v2.md#71-int6s-narrower-alternative-a-pool-seat-with-no-password).
 
 ### Phase 1: N1, foundations
 
@@ -129,7 +150,9 @@ its first caller.
   room-trust check, kinds, references, limits, the envelope, the shared corpus (A 2-13), and the
   room specs exported as data (seam 13).
 - [ ] ⬜ **Task 1.4**: A's host checks HC-A1 to HC-A7 (host or VM lab), before `proto` fixes the
-  rules they decide.
+  rules they decide. **Gate A** (Task 0.5): a check that would leave the `teamchat` name in a
+  unit or path on the host runs in the VM lab until the owner has confirmed the irreversible
+  decisions.
 - [ ] ⬜ **Task 1.5**: The matrix client and `fakehs`, built and reviewed on
   `feat/bus-v2-m1-matrix` (58c7b6e1): rebuilt off 35acceab (Phase 7), placed under
   `internal/teamchat/` (D 3.3), merged with its first caller (N2 or N3), not alone.
@@ -154,6 +177,12 @@ its first caller.
   for a locked and a deactivated account recorded into `fakehs` (host or VM lab); VM-lab scenario
   `teamchat-coexist` (P1) to its N2 stage, a host-only team cycle (D 4.3); the install on the host with the footprint before and after (P2); host
   checks H-C1 to H-C12.
+  - **Gate A** (Task 0.5): the install on the host waits until the owner has confirmed OD-A7,
+    DC1, DC5, DC15, OD-D1, OD-D5 and TID. The VM-lab parts of this task do not wait.
+  - **Gate B** (Task 0.5): no pool seat is added on the host (H-C8's seat, and H-C13 to H-C15
+    where they run on the host) until the owner has confirmed INT6 or chosen
+    [DESIGN-v2.md section 7.1](DESIGN-v2.md#71-int6s-narrower-alternative-a-pool-seat-with-no-password)
+    in its place. The VM lab is not a deploy and does not wait.
 
 ### Phase 3: N3, the member client, LXC members first
 
@@ -170,7 +199,9 @@ its first caller.
 
 ### Phase 4: N4, ccy members and the board
 
-- [ ] ⬜ **Task 4.1**: The v2 kit in the ccy image (D 3.5), with the CCY version bump.
+- [ ] ⬜ **Task 4.1**: The v2 kit in the ccy image (D 3.5), with the CCY version bump. **Gate A**
+  (Task 0.5): the image carrying the kit is not deployed until the owner has confirmed the
+  irreversible decisions.
 - [ ] ⬜ **Task 4.2**: The launcher: the session directory mounts, refusing a checkout that contains
   the seat store (seam 53); removing the session record before the release, which runs `teamchat seat disconnected` (seam 54, 27); resolving each team's system, OD-D2's refusal (seam 55).
 - [ ] ⬜ **Task 4.3**: ccy-teams on both systems: the board from the status records (C 3.13, D 3.9),
@@ -191,7 +222,9 @@ its first caller.
   commit and rollback (D 5); `ccy-teams migrate` and `migrate-declared.bash` (D 5.10, seam 55).
 - [ ] ⬜ **Task 6.2**: Acceptance: VM-lab scenarios `teamchat-migrate` and
   `teamchat-migrate-rollback` (P1); the migration pilot (P4); the first real team, the owner's
-  choice (P5); then teams one at a time at the owner's pace.
+  choice (P5); then teams one at a time at the owner's pace. **Gate A** (Task 0.5): no team is
+  migrated, the pilot included, until the owner has confirmed OD-A7, DC1, DC5, DC15, OD-D1, OD-D5
+  and TID; the VM-lab scenarios do not wait.
 - [ ] ⬜ **Task 6.3**: When no team is v1-live, raise v1's retirement with the owner (its own plan).
 
 ### Phase 7: v1 while it runs
