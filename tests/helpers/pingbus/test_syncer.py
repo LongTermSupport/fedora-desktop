@@ -188,10 +188,12 @@ class FilterTest(unittest.TestCase):
         flt = json.loads(recorded["query"]["filter"])
         room = flt["room"]["rooms"][0]
         ours = syncer.sync_filter(room, flt["room"]["timeline"]["limit"])
-        # The probe predates the description: the topic is the one type added to it.
+        # The probe predates the description and the rooms index (Plan 00211): those two
+        # types are the ones added to it.
         for part in ("state", "timeline"):
-            self.assertIn(syncer.TOPIC, ours["room"][part]["types"])
-            ours["room"][part]["types"].remove(syncer.TOPIC)
+            for added in (syncer.TOPIC, protocol.EVENT_ROOMS):
+                self.assertIn(added, ours["room"][part]["types"])
+                ours["room"][part]["types"].remove(added)
         self.assertEqual(ours, flt)
 
     def test_gap_fill_filter_is_the_one_probe_h4_recorded(self):

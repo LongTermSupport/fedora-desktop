@@ -501,6 +501,16 @@ class AddMemberTest(AdminTestCase):
         member = json.loads(read_member(self.add_member(human_text=False), "member.json"))
         self.assertIs(member["human_text"], False)
 
+    def test_a_coordinator_must_take_human_text(self) -> None:
+        # Plan 00211 SPEC 4.5: refused before any homeserver call, so nothing is created.
+        calls = len(self.transport.calls) if hasattr(self.transport, "calls") else None
+        with self.assertRaisesRegex(admin.AdminError, "a coordinator must take human text: drop --no-human-text"):
+            self.add_member(role="coordinator", human_text=False)
+        if calls is not None:
+            self.assertEqual(len(self.transport.calls), calls)
+        self.assertFalse((self.team_dir / "registry.json").exists()
+                         and registry.load_registry(self.team_dir / "registry.json", "team-a").members)
+
     def test_seat_numbers_increase(self) -> None:
         self.add_member()
         second = json.loads(read_member(self.add_member(), "member.json"))

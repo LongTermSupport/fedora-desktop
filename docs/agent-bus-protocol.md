@@ -70,9 +70,15 @@ token, so every receiver re-checks everything (§9).
 | agent text    | `m.room.message`   | room (`m.notice`) | none             | §7      | an agent holding a role      |
 | team record   | `agent_bus.team`   | state             | `""`             | §8      | `admin` (the room's creator) |
 | status        | `agent_bus.status` | state             | sender's user ID | §8      | the member itself            |
+| rooms index   | `agent_bus.rooms`  | state (main room) | `""`             | §8      | `admin`                      |
+| room link     | `agent_bus.room`   | state (side room) | `""`             | §8      | `admin`                      |
+| report        | `m.room.message`   | room (`m.notice`) | none             | §13     | an agent holding a role      |
+| question      | `m.room.message`   | room (`m.text`)   | none             | §13     | a coordinator                |
 
 The ping's structured form is the content key `agent_bus.ping` (§4); an agent text's is the
-content key `agent_bus.text` (§7).
+content key `agent_bus.text` (§7). A report carries `agent_bus.report` `{"v": 1}`; a question
+`agent_bus.question` `{"v": 1, "n", "asked_by", "re"}`; a thread post that closes a question
+`agent_bus.question_state` `{"v": 1, "n", "state": "closed"}` (Plan 00211 SPEC §7, §8).
 
 **Why `agent_bus`.** The owner asked for a prefix that clearly is not a domain name (the bus
 is private; reverse-domain conventions buy nothing). The Matrix spec says custom event types
@@ -471,6 +477,41 @@ the team record is valid, sent by `admin`, and lists this agent with a role. An 
 accepted only when its sender and its stripped `m.room.create` sender are `admin` and its
 room ID is `room`; every other invite is rejected (`POST /leave`) and logged by room ID only.
 
+### 8.1 The side rooms: reports and questions
+
+Plan 00211 (its SPEC.md is the design) gives each team two more rooms, created by `admin`:
+
+- **The index**, in the main room: `agent_bus.rooms`, state key `""`, sent by `admin`, content
+  `{"v": 1, "reports": "!…", "questions": "!…"}`, each key present once its room exists. It is
+  read only from `admin`, with `v` 1, keys a subset of `reports` and `questions`, and each value a
+  room ID other than the main room's. It is one of the main room's trust types; an older member's
+  filter never names it, so it loses nothing.
+- **The back-link**, in each side room: `agent_bus.room`, state key `""`, sent by `admin`, content
+  `{"v": 1, "team": "<team>", "purpose": "reports"|"questions", "main": "<main room ID>"}`.
+- **Side-room trust** (on join and on every change to a trust type, which are the main room's
+  plus `m.room.join_rules` and `agent_bus.room`): the create event as for the main room; the
+  index names the room and its back-link names the same purpose and this member's main room;
+  the power levels below; the join rules exactly
+  `{"join_rule": "restricted", "allow": [{"type": "m.room_membership", "room_id": "<main>"}]}`
+  for reports and `{"join_rule": "invite"}` for questions. A side room that fails is untrusted
+  alone: `report`, `ask-human` and `thread` exit 10 naming it, and the main room stays trusted.
+- **Power levels.** Reports: humans 0, `users_default` and `events_default` 10, `state_default`,
+  `invite`, `kick`, `ban`, `redact`, `notifications.room`, `m.reaction` and `agent_bus.status`
+  100, the rest as the main room's. Questions, open (the record names a coordinator): the main
+  room's with `m.reaction` 100. Questions, closed (no coordinator): that, with every human at 0
+  and `events_default` 10, so nobody posts a message nobody would read.
+- **Joining.** Every member joins reports by the restricted join when it first reads the index,
+  and never syncs it. `admin` invites every coordinator to questions; a coordinator's syncer takes
+  the invite only when the inviter and the stripped create sender are `admin`, the index names
+  the room as `questions`, the record names it `coordinator`, and its bundle takes human text
+  (§12). An admin invite the index does not name, or a questions invite to any other member, is
+  left pending and logged, never joined or rejected; every other invite is rejected as above.
+- **The filter.** A coordinator's `/sync` names the main room and, while it is coordinator and
+  the room is not untrusted, the questions room; one token covers both and either is gap-filled
+  by the same read. History before its own join is skipped.
+- **`no-room`.** A send to a side room the index does not name yet is refused, exit 4: the rooms
+  are created by the agent-bus play, so this means "not deployed", not "untrusted".
+
 ## 9. Validation
 
 ### On send (`pingbus send`)
@@ -561,8 +602,9 @@ batch: one `DROPPED` line per team per pass (§15).
 `target`, `verb`, `ref`, `allowlist`, `excluded`, `re`, `body`, `stale`, `rate`, `forge-rate`, `unresolved`,
 `provenance`.
 
-**Send-only refusals**: `secret` (§7). It refuses a send and never names a receive drop: text
-already in the room is in every member account's view, so a receiver delivers it as it is.
+**Send-only refusals**: `secret` (§7), `no-room` (§8.1: the team has no reports or questions
+room yet). Each refuses a send and never names a receive drop: text already in the room is in
+every member account's view, so a receiver delivers it as it is.
 
 ## 10. Limits
 
@@ -579,8 +621,12 @@ silently clamped.
 | `halt_ack_timeout_s`     | 300                                          | 30 - 3600     |
 | `human_max_age_s`        | 86400                                        | 3600 - 604800 |
 | `wait_timeout_s`         | 1500 (`wait --timeout` default)              | 1 - 1790      |
+| `report_per_hour`        | 6 (`report`, any sliding hour)               | 1 - 60        |
 
-`send` and `say` draw on the same `send_per_minute` / `send_burst` bucket. For `say` the
+`send`, `say`, `report`, `ask-human` and `thread` draw on the same `send_per_minute` /
+`send_burst` bucket. A `report` is also held to `report_per_hour`, whose send times are kept
+in `state/reports.json`, apart from the outbox's gate; a report equal to the member's previous
+one within the duplicate window is refused (exit 9). For `say` the
 duplicate window compares the text and the set of humans and agents it is addressed to;
 only a digest of the text is kept in the member's state. pingbus's own fixed-text notices
 (the goodbye, `seat farewell`, `seat disconnected`) are not held to the duplicate window,

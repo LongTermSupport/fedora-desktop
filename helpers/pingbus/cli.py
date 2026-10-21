@@ -2347,6 +2347,11 @@ def _status_team(member: config.Member, now_ms: int, relay_field: str, out: Text
                               _member_status(uid, statuses, now_ms)) + "\n")
     for uid in unexpected:  # room_view() checked each against inbox.is_user_id_text
         out.write(report_line("UNEXPECTED", member.team, uid, members[uid]) + "\n")
+    side = state.side_rooms()
+    for purpose in protocol.PURPOSES:
+        if purpose in side:
+            found = side[purpose]
+            out.write(report_line("ROOM", member.team, purpose, found.state, found.reason or ABSENT) + "\n")
 
 
 def cmd_status(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
