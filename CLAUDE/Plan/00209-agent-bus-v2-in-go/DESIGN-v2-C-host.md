@@ -628,41 +628,62 @@ exits 1 on any `FAIL`. It is what the acceptance runs; it changes nothing.
 #### 3.6.1 The roster
 
 Each team's runtime account state lives in `ctl/<team>/roster.json`, written only by the
-`teamchat-ctl` child under the team lock, with the atomic writer of `bus/state` (temp file beside the
-target, `O_EXCL|O_NOFOLLOW`, `fchmod`, fsync, rename, directory fsync; S15). It is decoded strictly
-(unknown or duplicate keys refused, sizes capped, exit 78 naming the file).
+`teamchat-ctl` child under the team lock, with the atomic writer of `internal/teamchat/state` (temp
+file beside the target, `O_EXCL|O_NOFOLLOW`, `fchmod`, fsync, rename, directory fsync; S15). It is
+decoded strictly (unknown or duplicate keys refused, sizes capped, exit 78 naming the file).
 
 ```json
 {
   "v": 1,
   "team": "<team>",
+  "seq": 41,
+  "rev": 12,
   "counters": {"<repo>+<site>.<type>": 3},
   "members": {
-    "<handle>": {"state": "active", "kind": "podman", "human_text": true, "since_ms": 0, "token_ms": 0, "needs": null}
+    "<handle>": {"state": "active", "kind": "podman", "human_text": true, "since_ms": 0, "cred_seq": 39, "cred_ms": 0, "needs": null}
   },
-  "humans": {"<name>": {"state": "active", "since_ms": 0, "revoked_ms": 0, "needs": null}},
+  "humans": {"<name>": {"state": "active", "since_ms": 0, "revoked_seq": 17, "needs": null}},
   "coordinator": "<handle>",
   "coordinator_wanted": null,
   "pending": null
 }
 ```
 
-- `needs` is `null` or `"reissue"`: the member's token is not one the homeserver will accept
-  (a roll-forward that revoked without printing a bundle, 3.6.3, or a restore, 3.12.2). The
-  board names `member reissue` for it; `reissue` clears it.
-- `revoked_ms` is the time of the human's last password set or reset with device logout
-  (`human password`, `human logout`, account creation); restore uses it (3.12.2). A human's
-  `needs` is `null` or `"password"` (set by a restore; `human password` clears it).
+- `seq` is raised by one on every write of the file and never goes down, a restore included
+  (3.12.2). It is the clock the host compares by: a wall-clock time can step backwards (an NTP
+  correction after a suspend), a counter cannot.
+- `cred_seq` is the `seq` of the write that issued the member's current credential (its password
+  for a pool seat, its token for a guest seat, 3.6.3), and `cred_ms` the wall time of it, shown on
+  the board only. `revoked_seq` is the `seq` of the human's last password set or reset with device
+  logout (`human password`, `human logout`, account creation). A restore decides by these (3.12.2).
+- `needs` of a member is `null` or `"reissue"`: its credential is not one the homeserver will
+  accept (a roll-forward that revoked without printing a bundle, 3.6.3, or a restore, 3.12.2). The
+  board names `member reissue` for it; `reissue` clears it. A human's `needs` is `null` or
+  `"password"` (set by a restore; `human password` clears it).
 - `state` of a member: `active`, `parked`, `retired`, `lost` (its account is gone after a restore,
-  3.12.2), or the intent states below. A `retired`
-  member stays in the roster for ever, so its handle can never be issued again without asking the
-  homeserver (C18).
+  3.12.2), or the intent states below. A `retired` member stays in the roster for ever, so its
+  handle can never be issued again without asking the homeserver (C18).
 - `counters` never go down, even when an account creation fails (R9).
 - `coordinator` is the role last applied; the truth is the declaration (3.8, DC6).
   `coordinator_wanted` is a declared coordinator whose handle is not yet in the roster, or is
   `lost` (3.6.4): a recorded pending promotion, shown on the board as a problem with its fix.
-- `pending` is the one operation in progress, if any: `{"op": "member.add", "handle": "<h>", "step": "account", "since_ms": 0}`. It is written before the first homeserver call of an
-  operation and cleared after the last.
+- `pending` is the one operation in progress, if any:
+  `{"op": "member.add", "handle": "<h>", "step": "account", "since_ms": 0}`. It is written before
+  the first homeserver call of an operation and cleared after the last.
+- `rev` is the `rev` of the last `teamchat.roster` state event the child wrote (below).
+
+**A's roster event is derived from this file, never edited on its own.** The `teamchat.roster`
+state event in the main room (A §5.1) is `proto.Roster(roster.json, declaration, rooms)`: A's
+function, given C's file, the team's declaration (its humans, coordinator, trust and limits) and
+the room IDs of `rooms.json`. The child validates the result with A's own decoder before it writes
+it, so an invalid roster is refused before it reaches the room (seam row 17). It is written by the
+rooms step of bootstrap (3.6.2 step 4), which runs at the end of every apply and of every member,
+role and human verb (3.6.3-3.6.5), so the event follows each change at once rather than at the next
+play. The event is compared without its `rev`; when anything else differs, it is written with
+`rev` one above the larger of the event's current `rev` and the file's, and the file's `rev` is
+updated after the server accepted it. A crash in between is harmless: the next write reads the
+current event first. (A treats `rev` as diagnostic and lets a restore lower it, A §5.1; the host
+never does lower it, 3.12.2.)
 
 #### 3.6.2 Bootstrap
 
@@ -681,21 +702,28 @@ only what differs:
    kept, so nobody can sign in until the owner asks for `human password`; created without the
    `admin` key, M40). A human in the roster but no longer declared is removed from every room
    first (step 4), then locked (DC9).
-4. **Rooms.** Area A's layout, given as a typed value by A's package from the declaration and the
-   roster: `Desired(team, roster) []RoomSpec`, each spec naming a purpose, create parameters,
-   state events (type, state key, content), the members wanted (join or invite) and the members
-   that must not be there. The engine converges every spec:
+4. **Rooms.** Area A's layout, given as a typed value by A's package from the declaration, the
+   roster and the room IDs known so far: `Desired(team, roster, rooms) []RoomSpec`, each spec
+   naming a purpose, create parameters, state events (type, state key, content), the members
+   wanted (join or invite) and the members that must not be there. The engine converges every
+   spec:
    1. Find the room: its ID in `rooms.json`; if absent, adopt one the admin has joined whose
       admin-written back-link names this purpose (M35, S11 5.1); if none, write the intent into
       `pending`, create it with its initial state, record the ID, clear `pending`. More than one
-      candidate is refused, naming them.
+      candidate is refused, naming them. After every create or adoption the engine asks
+      `Desired` again with the new ID, so a spec that names another room's ID (the side rooms'
+      back-link to main, the roster's `rooms`) is never built before that room exists.
    2. Every removal in every room first: kick each member or human that must not be there, with
       the reason A gives. This includes a removed human from every room before any power-level
       rewrite (C15).
-   3. Then every state event whose canonical content differs.
+   3. Then every state event whose canonical content differs, the roster event by the rule of
+      3.6.1.
    4. Then every invite.
       The engine knows nothing about what a room is for. A owns the specs, and C owns that they are
-      applied idempotently, in this order, and that a failure names the room and the step.
+      applied idempotently, in this order, and that a failure names the room and the step. On a
+      new team the order this gives is the one A §5.2 needs: main is created with no roster, the
+      side rooms are created with their back-links to main, the roster is written with every
+      room's ID, and only then do invites go out.
 5. **Roles.** If the declared coordinator differs from the roster's, run the role change (3.6.4).
 
 Every change appends a `CHANGED` line, so a converged team prints nothing.
@@ -703,29 +731,48 @@ Every change appends a `CHANGED` line, so a converged team prints nothing.
 #### 3.6.3 Members
 
 Every member verb runs as root under the team lock, does its homeserver work in the `teamchat-ctl`
-child, refreshes the status record at the end, and answers one JSON document on stdout. Verbs and
-their state machine:
+child, and ends the same way: it converges the team's rooms from the changed roster (3.6.2 step 4,
+which rewrites the roster event and the membership of each room, the questions room's form
+included), posts the admin's notice for the change (below), refreshes the status record, and
+answers one JSON document on stdout. Verbs and their state machine:
 
-| Verb                                            | From state         | Steps (each recorded in `pending` before it runs)                                                       | To state  |
-| ----------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------- | --------- |
-| `member add --prefix P --seat S\|next --kind K` | (none)             | claim the handle in the roster (counter raised); create the account; mint a token; invite per A's specs | `active`  |
-| `member return --handle H`                      | `parked`, `lost`   | revoke (password reset with device logout), or for `lost` create the account; mint; re-invite per A     | `active`  |
-| `member reissue --handle H`                     | `active`           | revoke; mint (the lost-bundle recovery, C21)                                                            | `active`  |
-| `member park --handle H`                        | `active`           | revoke; post the admin's `parked` notice; mark                                                          | `parked`  |
-| `member retire --handle H`                      | `active`, `parked` | kick from every room; deactivate; post the admin's `removed` notice; mark                               | `retired` |
+| Verb                                                                                        | From state         | Steps (each recorded in `pending` before it runs)                                                                                                  | To state  |
+| ------------------------------------------------------------------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| `member add --prefix P --seat S\|next --kind K --human-text B --credential password\|token` | (none)             | claim the handle in the roster (counter raised); create the account; issue the credential; converge the rooms (invite per A's specs); post `added` | `active`  |
+| `member return --handle H --credential password\|token`                                     | `parked`, `lost`   | revoke (password reset with device logout), or for `lost` create the account; issue the credential; converge the rooms; post `added`               | `active`  |
+| `member reissue --handle H --credential password\|token`                                    | `active`           | revoke; issue the credential (the lost-bundle recovery, C21)                                                                                       | `active`  |
+| `member park --handle H`                                                                    | `active`           | revoke; mark; converge the rooms; post `parked`                                                                                                    | `parked`  |
+| `member retire --handle H`                                                                  | `active`, `parked` | mark; converge the rooms (kick from every room); deactivate; post `removed`                                                                        | `retired` |
+
+**The credential** (decision DC16). A seat's bundle carries one of two credentials, chosen by the
+caller:
+
+- `password`, for a pool seat (ccy-teams, 3.7): the child sets a fresh random password with device
+  logout (for a new account, creates it with that password) and answers the password. No token is
+  minted. Each session that takes the seat logs in with it as the seat's one device, which ends
+  the previous session's token (3.7.3).
+- `token`, for a guest seat (`lxc apply`, 3.9.2): the child sets a fresh random password that is
+  not kept, logs in once as the seat's device and answers the token. It also keeps a copy of the
+  token as `ctl/<team>/guest/<handle>.token` (0600), which the health tick posts the member's
+  `disconnected` notice with (3.11.2). That adds no exposure: the control user already holds the
+  team's admin token, which can do anything the member's can.
+
+Either way the issue is a password reset with device logout, so every earlier credential of the
+member is dead the moment the new one exists, and at most one credential is valid per member at
+any time (C23).
 
 - **Roll forward, never undo** (C20). If an operation dies, `pending` names it and its step. Any
   later verb on that team first completes the pending operation from its step, because every step
   is idempotent: an account that already exists is not created again, a revoke can always be
-  repeated, an invite to a member already invited is skipped. The same verb asked again for the
-  same handle (the caller retrying) completes it and prints the bundle, minting after a revoke.
-  Any other verb completes a pending `add`, `return` or `reissue` to `active` with its token
-  revoked and prints no bundle, and sets its `needs` to `reissue` (3.6.1), which the board shows. So a
-  token is printed only to a caller that asked for that handle, and v1's two gaps close: a failed
-  account creation that rolled the member back but kept the counter, and an interrupted mint
-  that left a valid token nobody held.
-- **Mint is always after revoke**, except for a brand-new account, so at most one token is valid
-  per member at any time (C23).
+  repeated, an invite to a member already invited is skipped, a notice is posted with a
+  transaction id derived from the operation (`pending`'s handle and `since_ms`), so a re-post is
+  stored once (M22). The same verb asked again for the same handle (the caller retrying)
+  completes it and prints the bundle, issuing after a revoke. Any other verb completes a pending
+  `add`, `return` or `reissue` to `active` with its credential revoked and prints no bundle, and
+  sets its `needs` to `reissue` (3.6.1), which the board shows. So a credential is printed only to
+  a caller that asked for that handle, and v1's two gaps close: a failed account creation that
+  rolled the member back but kept the counter, and an interrupted mint that left a valid token
+  nobody held.
 - `add` refuses a handle that is `active`, `parked` (naming `return`), `lost` (naming `return`) or
   `retired` (never returns). For `active` the message says the seat number is taken, perhaps just
   now by another checkout of the same repository, and to choose again; it names `reissue` only for
@@ -736,16 +783,26 @@ their state machine:
   sudo is named by the seat (3.7.3). `--seat next` is for `lxc apply` only, where root chooses
   under the team lock: the lowest number no active, parked or lost member of that prefix holds
   (parked and lost ones keep their number for their return).
+- `--human-text` sets the member's `human_text` in the roster, which is its one home: A's verdict
+  and B's invite rule read it from the roster event (A §5.1), and the bundle does not carry it
+  (3.7.2). Changing it is `member set --handle H --human-text B`, which converges the rooms like
+  every member verb and needs no new bundle.
 - A `member add` or `return` whose handle is the team's `coordinator_wanted` promotes it at its
   end (3.6.4). If the promotion is refused (A's rule on `human_text: false`), the add still
   succeeds and prints its bundle, `coordinator_wanted` stays, and the status record carries the
   refusal as a problem with its fix (change the declaration or the member's `human_text`).
 - `retire` refuses the declared coordinator: the declaration has to change first (C30).
-- `park` and `retire` post the admin's notice in the main room, `parked` or `removed` (A §7.4),
-  as the last step before marking. These two are the only notices the admin's account posts; a
-  member's `left` and `disconnected` are always posted with the member's own token (3.7.5).
-- Park keeps the account joined to its rooms (its history stays attributed) and keeps its role in
-  the roster; parking the coordinator is allowed and the board says the coordinator is parked.
+- **Park keeps the account joined to its rooms** (its history stays attributed), except where A's
+  specs remove a parked member: a parked coordinator is kicked from the questions room and the
+  questions room takes its closed form (A §4.3), by the rooms step the verb ends with, so members
+  see the change at once. Park keeps the member's role in the roster; parking the coordinator is
+  allowed and the board says the coordinator is parked.
+
+**What the admin's account posts**, all of it, in the main room, with A's types and templates
+(A §7.4, 7.7): `added` (end of `add` and `return`), `parked` (end of `park`), `removed` (end of
+`retire`), `role` (each demotion and promotion, 3.6.4), and, during a migration only, area D's
+carried items and its welcome notice (D §5.6, through `migrate carry`). Nothing else. A member's
+`left` and `disconnected` are always posted with the member's own credential (3.7.5).
 
 The answer of `add`, `return` and `reissue` carries the bundle (3.7); every other answer carries only
 `changed`.
@@ -760,9 +817,13 @@ written host_vars under the play lock) converges the roster to it:
    say what changes, for example removal from the questions room) and apply it fully.
 2. Only then promote the new one and apply it.
 
-The demotion completes before the promotion starts, across every member kind (C17). A coordinator
-whose bundle says `human_text: false` is refused where A's rules say so, at the place the role is
-assigned (S11 4.5).
+The demotion completes before the promotion starts, across every member kind (C17). "Apply it
+fully" is the rooms step of 3.6.2 run for the team from the changed roster: the roster event,
+the questions room's membership and its open or closed form (open while an active coordinator is
+joined, closed otherwise, A §4.3), and the re-invite of a coordinator that left the questions
+room. Each demotion and each promotion then posts the admin's `role` notice (A §7.4). A
+coordinator whose roster entry says `human_text: false` is refused where A's rules say so, at the
+place the role is assigned (S11 4.5).
 
 Bring-up order. A declared coordinator may not exist yet: an LXC member of a new team is created
 by `lxc apply --phase present`, after `team apply` (3.5.1), and a ccy member's handle exists only
