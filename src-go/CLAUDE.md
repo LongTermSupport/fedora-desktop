@@ -147,15 +147,19 @@ checkout, offline (`-mod=vendor`, Go's default when `vendor/` exists, and set ex
 
 ## How a port is built: spec first, tests first
 
-A new port is built to a spec of intended behaviour, not to a replay of the bash. The plan's
+A new port is built to a spec of intended behaviour, not to a replay of the old tool (bash or
+Python). The old tool is a prototype: the Go version fixes and improves it. The plan's
 `SPEC-<tool>.md` states each behaviour as a numbered, testable expectation (inputs, output
-lines, exit codes, failure modes, all fail-fast); the old bash is read only to find the
+lines, exit codes, failure modes, all fail-fast); the old tool is read only to find the
 requirements, and is not assumed correct. Where it was wrong, the spec states the right
 behaviour and notes the departure. Each expectation gets a Go test written first and seen to
 fail, then the code (red and green recorded in the plan journal). Before cut-over, the Go tool
 runs on the live tree and any difference from the old tool's result is explained.
-`SPEC-qa-ansible.md` and `qa/ansible` are the model. Do not record the bash's output as an
-oracle for a new port.
+`SPEC-qa-ansible.md` and `qa/ansible` are the model. Do not record the old tool's output as an
+oracle of its behaviour. An oracle against the old tool may check the compatibility contract
+only, while both run side by side: the shared on-disk formats and locks, wire formats, and the
+output other programs parse. It never pins the old tool's internals, wording or process
+structure; where the contract itself is bad, the spec says so as a departure.
 
 ## Parity oracles (earlier ports)
 

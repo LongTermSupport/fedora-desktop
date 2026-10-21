@@ -11,6 +11,9 @@ Go... properly optimise... a version 2, a rebuild rather than a straight-up port
 So this is a design from the requirements, not a translation. v1 (the Python, bash and Go that
 run today) is read only to find what the bus must do and what it learnt the hard way. Where v1 is
 shaped by its own constraints (Python start-up, bash's limits, no daemon), v2 is not bound by it.
+The owner's direction (PLAN.md, "Owner direction") makes this binding: v1 is a prototype, v2
+fixes and improves it, and only the compatibility contract binds (the shared on-disk formats and
+locks, wire protocol 1, and the CLI output agents and scripts parse).
 
 **Evidence.** Four research digests, each with `file:line` citations into v1, are committed
 beside this file and are this design's requirement sources:
@@ -862,7 +865,8 @@ first stage-3 apply, said in the stage-3 spec.
 - **Spec first, per stage.** Each stage has a `SPEC-<component>.md` in this plan with numbered
   expectations (E1...), the v1 requirement each one comes from, and departures (B1...) where v1
   was wrong, as `src-go/CLAUDE.md` "How a port is built" says. The v1 code is read for
-  requirements and never recorded as an oracle. Each spec is written from section 2, not from
+  requirements and never recorded as an oracle of its own behaviour; a parity oracle against v1
+  checks the compatibility contract only, never v1's internals, wording or process structure. Each spec is written from section 2, not from
   the package layout, which mirrors v1's modules only as an inventory.
 - **Fakes**: `fakehs` (the homeserver, with Tuwunel's quirks as switches and fault injection:
   refused connection, 429 with `Retry-After`, a limited timeline, a restart mid-sync); a fake clock;

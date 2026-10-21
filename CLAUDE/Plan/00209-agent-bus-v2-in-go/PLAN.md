@@ -31,6 +31,24 @@ script), Task 1.2 (why a session renders about twice a second), Task 2.2 (the st
 [RESEARCH-python-scope.md](RESEARCH-python-scope.md). No bus module is Ansible-loaded, so all of
 it is in scope (that file has the evidence per module).
 
+## Owner direction: v1 is a prototype
+
+Binding, from the owner to the build session: the Python is not a golden archetype. It is a
+prototype and a first draft. The Go version does not have to keep the Python's approaches; it
+fixes things, improves things, and is made excellent.
+
+- **Specs come from requirements, not from the Python.** The Python is read for what the bus must
+  do and what it learnt the hard way. Where it is wrong, awkward, slow or over-complicated, the
+  spec designs it better.
+- **Every improvement is a numbered departure with its reason** (DESIGN.md section 17, and each
+  stage spec's own). A Python bug, quirk or workaround is never copied.
+- **Only the compatibility contract binds**, not the Python's internals. While v1 and v2 run side
+  by side, these stay compatible: the shared on-disk formats and locks, wire protocol 1, and the
+  CLI output that agents and scripts parse. A parity oracle checks that contract only. It does not
+  pin the Python's internal behaviour, its wording, or its process structure.
+- **Where the contract itself is bad**, the spec says so as a departure. It changes once v1 is
+  retired (stage 8), or sooner through a versioned format that v1 tolerates.
+
 ## Goals
 
 - `ccy-teams` opens in about 1 s at the owner's scale (D13), with one bus process (the reader)
@@ -212,7 +230,7 @@ and its Task 1.2 (in progress) finds why a session renders about twice a second.
 - [ ] ⬜ **Task 3.1**: Not merged until the coordinator has answered D4 (its refusal of relay
   mode acts on D4); spec, build and review go ahead. `SPEC-pingbus-hooks.md`; Go `hook` reading v1 files, the dispatch to
   `pingbus.pyz` for the rest (B10), `goodbye.json` dropped (B7), a parity oracle per hook on
-  00213's golden pattern. Port order by measured cost (00213 Task 1.1): in socket mode the hooks
+  00213's golden pattern, over the compatibility contract only (Owner direction). Port order by measured cost (00213 Task 1.1): in socket mode the hooks
   that start pingbus are SessionStart, UserPromptSubmit, Stop and SessionEnd, since PostToolUse
   runs it only in relay mode. Plan 00211's role lines; Plan 00194 Task 2.0e (a scheduled restart
   posts no goodbye) once hooks-daemon #127 ships. Two coexistence tests from the start, because

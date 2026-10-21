@@ -43,7 +43,9 @@ open time) is an early owner-visible win. No behaviour may be lost. On the sessi
 2. **Plan 00213, the agent-bus performance Go carve-out:** the owner's ordering. Carve the standalone
    pieces out first (the status line is done), then move the rest over gradually. It has the
    parity-oracle pattern: Python and Go run over the same fixtures, and the golden test's
-   `-update` re-records from Python. Reuse that pattern for every piece. It also records owner
+   `-update` re-records from Python. Reuse that pattern for every piece, over the compatibility
+   contract only (PLAN.md, "Owner direction"): it never pins Python's internals or wording. It
+   also records owner
    requirements:
    - the bus segment has its own TTL cache, separate from the hooks-daemon line;
    - the refresh is 25 s, because the daemon-owned supervisor treats the context sidecar as stale
@@ -67,8 +69,9 @@ home. Record the choice in both plans, and avoid having two plans for one thing.
   coordinator. Never edit, commit or merge in /workspace itself; every change is made in a git
   worktree on its own branch. Sub-agents run with worktree isolation.
 - **Spec first, test first.** Read src-go/CLAUDE.md and CLAUDE/GoProjectRules.md before any Go.
-  Ports are built to a spec of intended behaviour, with a parity oracle against the Python, never
-  as a line-by-line replay. Every on-disk format and wire format must stay byte-compatible while
+  Ports are built to a spec of intended behaviour, never as a line-by-line replay: the Python is a
+  prototype (PLAN.md, "Owner direction"), each improvement is a numbered departure, and a parity
+  oracle against the Python checks the compatibility contract only. Every on-disk format and wire format must stay byte-compatible while
   Python and Go both live, and old and new versions must run side by side on the host, in the ccy
   image and on LXC members, which are upgraded at different times. LXC teams are top priority.
 - **Models:**
