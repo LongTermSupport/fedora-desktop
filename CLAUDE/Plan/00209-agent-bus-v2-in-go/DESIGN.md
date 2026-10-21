@@ -196,7 +196,7 @@ kept unless section 12 says otherwise and why.
 - R25. Hooks never block a turn on a missing memory (Stop guard once per pending set), never
   announce counts while delivery is live, always answer [P 5.12, P 5.13].
 - R26. The status line shows `👥 team (role) (down)` rows, refreshed at the kit's interval
-  (`refreshInterval: 1` today, D16), always exits 0, wraps the session's own status line
+  (`refreshInterval: 25` since Plan 00213 Task 1.3, D16), always exits 0, wraps the session's own status line
   [P 5.19], and keeps every rule of v1's (`helpers/pingbus/statusline.py`): the inner command
   runs through `/bin/sh -c` in its own process group, killed whole on its 10 s timeout or when
   the status line is cancelled, including a cancel that lands before the child's PID is known
@@ -699,8 +699,9 @@ few seconds; the status line reads that one file and probes the keeper lock for 
 segments at `COLUMNS`, and runs the inner command under every rule of R26. Go's start-up is about
 5 ms, so the bus's part of a refresh is one `exec` and one file read; the inner status line it wraps
 (`/bin/sh -c <command>`, 10 s timeout) is the session's own and dominates, and is not the bus's to
-fix. `refreshInterval: 1` is the kit's own choice
-(`files/opt/claude-yolo/optional/agent-bus/settings.json`) and could be 2-5 s (D16). Even in Go the
+fix. `refreshInterval` is the kit's own choice
+(`files/opt/claude-yolo/optional/agent-bus/settings.json`): 25 s since Plan 00213 Task 1.3, inside
+the supervisor's 30 s sidecar freshness (D16). Even in Go the
 status line never opens the inbox or loads the member code: a binary that counts pending items
 every second is v1's mistake in a faster language.
 
@@ -927,6 +928,9 @@ untrusted cache, and the SessionEnd timeout setting [L 7.10].
 ---
 
 ## 14. Owner decisions
+
+Each is defaulted to its recommendation (PLAN.md, "Owner decisions"), except D16, which Plan
+00213 Task 1.3 set to 25 s; the owner may overturn any.
 
 | #   | Question                                                                                                                | Options                                                                                                                                                                                                                                                                                                                      | Recommendation and why                                                                                                                                                                                                                                                                                                                             |
 | --- | ----------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
