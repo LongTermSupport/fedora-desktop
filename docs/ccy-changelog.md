@@ -17,6 +17,44 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.13.16 — container 2.78.13
+
+Follows 3.99.13.15. Container 2.78.13 only because the image carries `CCY-GUIDE.txt`, changed
+again here (the commit hook requires the bump); the Dockerfile is otherwise unchanged, one
+rebuild.
+
+- **A `GH_TOKEN` you export reaches the session again** (Plan 00191 Task 4.4b review). An
+  interactive launch re-runs the launcher inside tmux, and 3.99.13.15 left the re-run without
+  the token, so a box with no gh login refused to start and told you to export the token you
+  had exported. The outer launcher now writes the token to a fresh 0600 file in a 0700
+  directory under `XDG_RUNTIME_DIR` (else `TMPDIR`) and gives the re-run only the file's path,
+  on the tmux pane's command; the re-run reads it and deletes it before anything else, and the
+  outer launcher removes it on any exit where the re-run never started. A launch fails at once
+  if the file cannot be made. The custom-Dockerfile modes, which re-run the launcher with
+  `exec`, give it the token in that one command's environment.
+- The fix prompt after a failed custom Dockerfile build says the full log is on the host, and
+  the guide says to copy it into the project when its last 50 lines are not enough: the
+  container cannot read the host's temporary directory.
+
+## 3.99.13.15 — container 2.78.12
+
+Follows 3.99.13.14. Container 2.78.12 only because the image carries `CCY-GUIDE.txt` (the
+commit hook requires the bump); the Dockerfile is otherwise unchanged, one rebuild.
+
+- **Tokens reach only the programs that read them** (Plan 00191 Task 4.4b). The launcher no
+  longer exports `GH_TOKEN` or `CLAUDE_CODE_OAUTH_TOKEN` for the rest of its run, where every
+  program it started (getenforce, curl, timedatectl, ...) was given them. Each container run
+  that needs one (the session, the token check, `claude setup-token`) gets it by name, set in
+  that command's environment alone. A token the caller exported is taken out of the
+  environment at start and still used. This also closes a leak between sessions: ccy's tmux
+  server keeps the environment of the launch that started it and gives it to every session
+  started later, so the first launch's GitHub token reached the panes of every later session,
+  even one for another account.
+- **Host-path overrides must be absolute**, and the resolved path is what is used. Beyond the
+  default, a directory in `/proc`, `/sys` or `/dev` is refused (`/dev/shm` is no GPU).
+- The guide's advice for a failed custom Dockerfile build now says what ccy does: the build
+  log's path is printed and the fix prompt is given to Claude on the base image.
+
 ## 3.99.13.14 — container 2.78.11
 
 Follows 3.99.13.13. The launcher and its library only; the image is unchanged, so no rebuild.

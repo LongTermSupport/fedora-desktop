@@ -879,7 +879,7 @@ check "seat take runs just before the container starts" "yes" \
     "$([ -n "$take_line" ] && [ -n "$run_line" ] && [ "$take_line" -lt "$run_line" ] \
         && [ "$((run_line - take_line))" -lt 6 ] && echo yes || echo no)"
 rewrite_line=$(grep -n -F 'ccy_teams_canonical_args' "$LAUNCHER" | cut -d: -f1)
-insulate_line=$(grep -n -F "ccy_tmux_insulate \"\$PROJECT_NAME\"" "$LAUNCHER" | cut -d: -f1)
+insulate_line=$(grep -n -F "ccy_token_handoff_insulate \"\$PROJECT_NAME\"" "$LAUNCHER" | cut -d: -f1)
 check "the canonical list replaces the given one before tmux records the session" "yes" \
     "$([ -n "$rewrite_line" ] && [ -n "$insulate_line" ] && [ "$rewrite_line" -lt "$insulate_line" ] \
         && echo yes || echo no)"

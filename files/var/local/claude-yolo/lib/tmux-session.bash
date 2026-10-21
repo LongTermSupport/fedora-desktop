@@ -393,7 +393,8 @@ ccy_tmux_insulate() {
         if [[ "$attach_rc" -eq 0 || "$attach_rc" -eq 3 ]]; then
             exit 0
         fi
-        exec "$@"
+        # The GitHub token hand-off file's path (lib/token-handoff.bash), never the token.
+        CCY_GH_TOKEN_HANDOFF="${CCY_GH_TOKEN_HANDOFF:-}" exec "$@"
         ;;
     esac
 
@@ -414,8 +415,11 @@ ccy_tmux_insulate() {
     ccy_registry_write "$name" "$PWD" "$launcher" "$CCY_TMUX_SESSION_PREFIX" "$restore" "${replay[@]}" || return 1
 
     # A record with no session behind it would be restored at the next boot as a session
-    # that was never running, so a failed start takes its record with it.
-    if ! ccy_tmux_start_detached "$name" "$PWD" "$launcher" "${launch[@]}"; then
+    # that was never running, so a failed start takes its record with it. A GitHub token
+    # hand-off (lib/token-handoff.bash) goes on the pane's command as the file's path alone,
+    # so it reaches this session's launcher and not tmux's environment, which every later
+    # session would inherit.
+    if ! ccy_tmux_start_detached "$name" "$PWD" ${CCY_GH_TOKEN_HANDOFF:+env "CCY_GH_TOKEN_HANDOFF=$CCY_GH_TOKEN_HANDOFF"} "$launcher" "${launch[@]}"; then
         ccy_registry_remove "$name"
         return 1
     fi

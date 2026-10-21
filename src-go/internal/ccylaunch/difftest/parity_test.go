@@ -147,12 +147,13 @@ func scenarioNamed(t *testing.T, m matrix, name string) scenario {
 const unexportLine = "export -n GH_TOKEN CLAUDE_CODE_OAUTH_TOKEN CLAUDE_OAUTH_TOKEN\n"
 
 // TestLaunchHandsTokensOn holds the other side of the narrowing: the session's container run is
-// still given both tokens' values, by name, whether gh's login or the caller's GH_TOKEN supplied
-// the GitHub one. A golden names the variables only, so it would pass an empty one.
+// still given both tokens' values, by name, whether gh's login, the caller's GH_TOKEN or the
+// file the outer launch hands to the one it re-runs inside tmux supplied the GitHub one, and
+// that file is gone afterwards. A golden names the variables only, so it would pass an empty one.
 func TestLaunchHandsTokensOn(t *testing.T) {
 	m := loadMatrix(t)
 	l := probe(t, m, launcherUnderTest(t))
-	for _, name := range []string{"launch-plain", "launch-gh-token-env", "launch-headless", "launch-quick-replay"} {
+	for _, name := range []string{"launch-plain", "launch-gh-token-env", "launch-gh-token-handoff", "launch-headless", "launch-quick-replay"} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			got := runScenario(t, m, l, scenarioNamed(t, m, name))
@@ -161,6 +162,11 @@ func TestLaunchHandsTokensOn(t *testing.T) {
 			})
 			if idx < 0 {
 				t.Fatalf("scenario %s started no session container", name)
+			}
+			for _, file := range got.files {
+				if strings.Contains(file, "ccy-gh-token.") {
+					t.Errorf("scenario %s left the GitHub token hand-off behind: %s", name, file)
+				}
 			}
 			run := got.calls[idx]
 			for _, secret := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "GH_TOKEN"} {
