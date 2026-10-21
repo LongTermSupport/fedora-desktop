@@ -7,6 +7,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/roles"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -18,7 +19,7 @@ const lxcMember = "box.1+worker.lxc"
 func TestRoleOfAMemberNamedByItsHandleIsChangedWhateverItsKind(t *testing.T) {
 	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
 	r.m.roles["alpha\t"+lxcMember] = worker
-	r.OnDeclare("lxc-members", "")
+	r.WriteHostVars(t, teamtest.HostVarsAlpha) // no agent_bus_lxc_members entry
 	if code := r.run(t, "role", lxcMember, "alpha", coord, "--yes"); code != term.ExitOK {
 		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
 	}
@@ -40,7 +41,7 @@ func TestRoleOfAMemberByHandleIsTheSameTakeoverWithTheSameFlag(t *testing.T) {
 	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
 	r.m.roles["alpha\t"+lxcMember] = worker
 	r.m.roles["alpha\tproj.3+local.podman"] = coord
-	r.OnDeclare("lxc-members", "")
+	r.WriteHostVars(t, teamtest.HostVarsAlpha) // no agent_bus_lxc_members entry
 	if code := r.run(t, "role", lxcMember, "alpha", coord, "--yes"); code != term.ExitUsage {
 		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
 	}

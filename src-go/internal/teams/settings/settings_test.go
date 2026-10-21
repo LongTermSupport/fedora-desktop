@@ -2,11 +2,15 @@ package settings
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
@@ -15,20 +19,37 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 )
 
-// alphaSettings is what declare.py settings prints for team alpha.
-const alphaSettings = "SETTING\tteam\t\"alpha\"\n" +
-	"SETTING\tdescription\t\"Builds the site\"\n" +
-	"SETTING\thumans\t[\"owner\", \"guest\"]\n" +
-	"SETTING\torg\t\"example-org\"\n" +
-	"SETTING\trepos\t[{\"repo\": \"example-org/one\", \"branches\": [\"main\"]}]\n" +
-	"SETTING\texclude\t-\n" +
-	"SETTING\tpath_prefixes\t-\n" +
-	"SETTING\tallow_from\t[]\n" +
-	"SETTING\tport\t6167\n" +
-	"SETTING\tlisten\t[\"192.0.2.10\"]\n" +
-	"SETTING\tserver_name\t\"alpha.agent-bus.internal\"\n" +
-	"SETTING\tforge_api\t\"https://api.github.com\"\n" +
-	"SETTING\tremoved_humans\t-\n"
+// alphaVars is a host_vars whose team alpha declare.py settings reads as alphaSettings lists.
+const alphaVars = "agent_bus_address: 192.0.2.10\nagent_bus_teams:\n  - team: alpha\n    port: 6167\n" +
+	"    description: Builds the site\n    humans: [\"owner\", \"guest\"]\n    org: example-org\n" +
+	"    repos:\n      - repo: example-org/one\n        branches: [\"main\"]\n" +
+	"    allow_from: []\n    listen: [\"192.0.2.10\"]\n    forge_api: https://api.github.com\n"
+
+// alphaSettings is each key of alpha's entry in alphaVars, as declare.py settings writes it.
+var alphaSettings = []declare.Setting{
+	{Key: "team", Value: json.RawMessage(`"alpha"`)},
+	{Key: "description", Value: json.RawMessage(`"Builds the site"`)},
+	{Key: "humans", Value: json.RawMessage(`["owner", "guest"]`)},
+	{Key: "org", Value: json.RawMessage(`"example-org"`)},
+	{Key: "repos", Value: json.RawMessage(`[{"repo": "example-org/one", "branches": ["main"]}]`)},
+	{Key: "exclude"},
+	{Key: "path_prefixes"},
+	{Key: "allow_from", Value: json.RawMessage(`[]`)},
+	{Key: "port", Value: json.RawMessage(`6167`)},
+	{Key: "listen", Value: json.RawMessage(`["192.0.2.10"]`)},
+	{Key: "server_name", Value: json.RawMessage(`"alpha.agent-bus.internal"`)},
+	{Key: "forge_api", Value: json.RawMessage(`"https://api.github.com"`)},
+	{Key: "removed_humans"},
+}
+
+// The screen's tests read alphaVars: it must read as the settings their assertions name.
+func TestAlphaVarsReadsAsAlphaSettings(t *testing.T) {
+	r := newRig(t)
+	got, err := r.Host.Declare.Settings(t.Context(), "alpha")
+	if err != nil || !reflect.DeepEqual(got, alphaSettings) {
+		t.Fatalf("%+v %v", got, err)
+	}
+}
 
 // roleCall is one call of the ChangeRole the screen was given.
 type roleCall struct {
@@ -57,8 +78,7 @@ func newRig(t *testing.T) *rig {
 	b := board.New(h)
 	o := ops.New(h, b.Statuses, func() { b.ForgetDevices("") })
 	w.On(h.Play, "", 0)
-	w.OnDeclare("element-teams", "")
-	w.OnDeclare("settings", alphaSettings)
+	w.WriteHostVars(t, alphaVars)
 	w.OnDeclare("set", "")
 	r := &rig{World: w, Console: c}
 	r.look = func(m agentbus.Member) coordinator.Running {
@@ -460,7 +480,7 @@ func TestNoCoordinatorMakesTheCurrentOneAWorker(t *testing.T) {
 // S-F13: a vault-encrypted value is shown as such, and the team's entry is not edited here.
 func TestAVaultedEntryIsNotEditedHere(t *testing.T) {
 	r := newRig(t)
-	r.OnDeclare("settings", strings.Replace(alphaSettings, "[\"owner\", \"guest\"]", "!vaulted", 1))
+	r.WriteHostVars(t, strings.Replace(alphaVars, "[\"owner\", \"guest\"]", "!vault x", 1))
 	r.Script.Fzf = []string{"|Description:", "|EXIT"}
 	r.edit(t)
 	if !slices.Contains(r.rows(0), "People: (vault-encrypted)") {
@@ -474,30 +494,31 @@ func TestAVaultedEntryIsNotEditedHere(t *testing.T) {
 // Settings that cannot be read are reported, and nothing is shown or changed.
 func TestUnreadableSettingsAreReported(t *testing.T) {
 	r := newRig(t)
-	r.OnErr(r.DeclarePrefix("settings"), "declare: --team: team alpha is not declared present, with a port, in agent_bus_teams\n", 64)
+	r.WriteHostVars(t, strings.Replace(alphaVars, "    port: 6167\n", "", 1))
 	r.edit(t)
 	if !strings.Contains(r.ErrOut.String(), "not declared present") || len(r.Script.Rows) != 0 {
 		t.Fatalf("stderr %s, drawn %d times", r.ErrOut.String(), len(r.Script.Rows))
 	}
 }
 
-// settingsThen answers declare settings with first, then with later on every read after it.
-func (r *rig) settingsThen(first, later string) {
-	reads := 0
-	r.Fake.OnFunc(strings.Fields(r.DeclarePrefix("settings")), func(execx.Cmd) (execx.Result, error) {
-		reads++
-		if reads == 1 {
-			return execx.Result{Stdout: []byte(first)}, nil
+// settingsThen opens the screen on the host_vars first and has it become later while the
+// screen is open, as an edit made elsewhere does: the file changes at the first check of a
+// field (set --check, which runs before the save reads the file again). A save prints saved.
+func (r *rig) settingsThen(t *testing.T, first, later, saved string) {
+	t.Helper()
+	r.WriteHostVars(t, first)
+	r.Fake.OnFunc(strings.Fields(r.DeclarePrefix("set")), func(c execx.Cmd) (execx.Result, error) {
+		if c.Args[len(c.Args)-1] != "--check" {
+			return execx.Result{Stdout: []byte(saved)}, nil
 		}
-		return execx.Result{Stdout: []byte(later)}, nil
+		return execx.Result{}, os.WriteFile(r.Host.HostVars, []byte(later), 0o600)
 	})
 }
 
 // S-F10: the summary's old value is the host_vars' at save time, read again then.
 func TestTheSummaryShowsTheValueOnDiskAtSaveTime(t *testing.T) {
 	r := newRig(t)
-	r.settingsThen(alphaSettings, strings.Replace(alphaSettings, "Builds the site", "Edited elsewhere", 1))
-	r.OnDeclare("set", "CHANGED\tteam alpha: description\n")
+	r.settingsThen(t, alphaVars, strings.Replace(alphaVars, "Builds the site", "Edited elsewhere", 1), "CHANGED\tteam alpha: description\n")
 	r.Script.Fzf = []string{"|Description:", "|Save and apply", "|YES"}
 	r.Script.Gum = []string{"CHOOSE:Runs the site"}
 	r.edit(t)
@@ -519,7 +540,7 @@ func TestASaveThatChangesNothingSaysSo(t *testing.T) {
 // S-F13: a value that became unreadable since the screen opened stops the save, saying so.
 func TestASaveStopsWhenAValueBecameUnreadable(t *testing.T) {
 	r := newRig(t)
-	r.settingsThen(alphaSettings, strings.Replace(alphaSettings, "[\"owner\", \"guest\"]", "!vaulted", 1))
+	r.settingsThen(t, alphaVars, strings.Replace(alphaVars, "[\"owner\", \"guest\"]", "!vault x", 1), "")
 	r.Script.Fzf = []string{"|Description:", "|Save and apply", "|EXIT", "|YES"}
 	r.Script.Gum = []string{"CHOOSE:Runs the site"}
 	r.edit(t)

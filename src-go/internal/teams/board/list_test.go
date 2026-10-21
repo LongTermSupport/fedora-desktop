@@ -90,7 +90,8 @@ func TestListNoColourWithNoColor(t *testing.T) {
 
 func TestListWithNoTeams(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("declared", "")
+	h.WriteHostVars(t, "")
+	h.OnDeclare("status", "")
 	h.On("systemctl list-units", "", 0)
 	if code := h.c.List(t.Context()); code != term.ExitOK {
 		t.Fatalf("exit %d", code)
@@ -157,7 +158,7 @@ func TestListDownTeamIsStateNotFailure(t *testing.T) {
 
 func TestListCollectionFailureExitsOne(t *testing.T) {
 	h := newRig(t)
-	h.OnErr(h.DeclarePrefix("overview"), "declare: bad", 78)
+	h.WriteHostVars(t, "agent_bus_teams:\n  - team: alpha\n    port: port\n")
 	if code := h.c.List(t.Context()); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
 	}

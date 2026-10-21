@@ -256,7 +256,8 @@ func declaredRig(t *testing.T, oneIs, lxcIs string) (rig, *[]string) {
 	t.Helper()
 	h := roleRig(t, oneIs, "worker")
 	h.On(teamtest.SudoBus+"list alpha", lxcRoster(oneIs, lxcIs), 0)
-	h.OnDeclare("lxc-members", "LXCMEMBER\talpha\tcontainer-a\tagent\t-\t"+lxcIs+"\tpresent\t/srv/agent/one\t-\n")
+	h.WriteHostVars(t, teamtest.HostVarsAlpha+"agent_bus_lxc_members:\n  - team: alpha\n    container: container-a\n    user: agent\n"+
+		"    role: "+lxcIs+"\n    checkout: /srv/agent/one\n")
 	h.OnDeclare("lxc-script", "READER")
 	h.OnDeclare("lxc-identity", "IDENTITY\tproj\tworker\n")
 	h.OnDeclare("lxc-role", "CHANGED\tLXC member\n")

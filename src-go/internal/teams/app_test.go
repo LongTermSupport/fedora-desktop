@@ -115,9 +115,8 @@ func TestDispatchForCheckoutIsTheFindFlow(t *testing.T) {
 	h := world(t)
 	h.On("git rev-parse --is-inside-work-tree", "true\n", 0)
 	h.On("git rev-parse --show-toplevel", h.Checkout()+"\n", 0)
-	h.On("git remote get-url origin", "git@example.com:example-org/proj.git\n", 0)
-	h.OnDeclare("github-remote", "example-org/proj\n")
-	h.OnDeclare("teams-for", "TEAM\talpha\n")
+	h.On("git remote get-url origin", "git@github.com:example-org/proj.git\n", 0)
+	h.WriteHostVars(t, teamtest.HostVarsAlpha+"    org: example-org\n")
 	if code := h.app.Run([]string{"for-checkout"}); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}

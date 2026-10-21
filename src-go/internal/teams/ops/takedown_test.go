@@ -25,7 +25,7 @@ func removeRig(t *testing.T) *opsRig {
 	r.on("gum confirm", execx.Result{})
 	r.on("gum choose", execx.Result{Stdout: []byte("Take it down, keep its data\n")})
 	r.on(opsInstaller+"backup-now --team alpha", execx.Result{})
-	r.on(opsDeclare+"remove --file "+opsHostVars+" --team alpha", execx.Result{Stdout: []byte("CHANGED\tteam alpha declared absent\n")})
+	r.on(opsDeclare+"remove --file "+r.hostVars+" --team alpha", execx.Result{Stdout: []byte("CHANGED\tteam alpha declared absent\n")})
 	r.on(opsPlay, execx.Result{})
 	r.statuses = []map[string]declare.Status{
 		{"alpha": st("current", "")},
@@ -133,7 +133,7 @@ func TestRemoveDeclaredKeepsDataAfterBackup(t *testing.T) {
 		opsInstaller + "backup-now --team alpha",
 		// The cursor starts on leaving it running: no destructive answer is pre-selected (Plan 00203 Task 3.8).
 		"gum choose --header What happens to alpha? --selected Leave it running Leave it running Take it down, keep its data Take it down and delete its data",
-		opsDeclare + "remove --file " + opsHostVars + " --team alpha",
+		opsDeclare + "remove --file " + r.hostVars + " --team alpha",
 		opsPlay + ` -e {"agent_bus_only_teams": ["alpha"]}`,
 	}
 	got := r.lines()
@@ -320,7 +320,7 @@ func deleteRig(t *testing.T, typed string) *opsRig {
 	r := removeRig(t)
 	r.on("gum choose", execx.Result{Stdout: []byte("Take it down and delete its data\n")})
 	r.on("gum input", execx.Result{Stdout: []byte(typed + "\n")})
-	r.on(opsDeclare+"remove --file "+opsHostVars+" --team alpha --purge", execx.Result{Stdout: []byte("CHANGED\tteam alpha declared absent, purge: true\n")})
+	r.on(opsDeclare+"remove --file "+r.hostVars+" --team alpha --purge", execx.Result{Stdout: []byte("CHANGED\tteam alpha declared absent, purge: true\n")})
 	return r
 }
 
@@ -345,7 +345,7 @@ func TestRemoveDeletePurges(t *testing.T) {
 	if code := r.ops.Remove(context.Background(), []string{"alpha"}); code != 0 {
 		t.Fatalf("code %d: %s", code, r.said())
 	}
-	if !r.called(opsDeclare + "remove --file " + opsHostVars + " --team alpha --purge") {
+	if !r.called(opsDeclare + "remove --file " + r.hostVars + " --team alpha --purge") {
 		t.Errorf("calls %q", r.lines())
 	}
 	if !strings.Contains(r.said(), "Team alpha is down and its data deleted.") {
@@ -890,7 +890,7 @@ func TestRemoveChangeLineWriteFailure(t *testing.T) {
 func TestRemoveUnchangedDeclareLineIsPassedOn(t *testing.T) {
 	r := removeRig(t)
 	r.onExit("gum confirm", 1, "")
-	r.on(opsDeclare+"remove --file "+opsHostVars+" --team alpha", execx.Result{Stdout: []byte("UNCHANGED\talready absent\n")})
+	r.on(opsDeclare+"remove --file "+r.hostVars+" --team alpha", execx.Result{Stdout: []byte("UNCHANGED\talready absent\n")})
 	if code := r.ops.Remove(context.Background(), []string{"alpha"}); code != 0 {
 		t.Fatalf("code %d", code)
 	}

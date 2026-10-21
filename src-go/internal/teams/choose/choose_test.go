@@ -44,7 +44,6 @@ func newRig(t *testing.T) rig {
 		"CHOICE\t3\tnew\t"+handleNew+"\ta ccy seat\n"+
 		"DEFAULT\t1\n", 0)
 	w.On(teamtest.SudoBus+"list alpha", roster("worker", "worker"), 0)
-	w.On(w.DeclarePrefix("declared"), teamtest.DeclaredAlpha, 0)
 	w.On("sudo -n -v", "", 0)
 	w.On(setRole, "", 0)
 	// The working directory is the populated checkout, whose seats are 1 (held) and dev.
@@ -333,8 +332,9 @@ func TestDescribeNamesTheSeatAndItsRole(t *testing.T) {
 
 func TestDescribeFollowsEachSeatWithItsTeamsDescription(t *testing.T) {
 	h := newRig(t)
-	h.On(h.DeclarePrefix("declared"), "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\t\"Builds the example site\"\n"+
-		"TEAM\tbeta\t6168\tpresent\tbeta.agent-bus.internal\t-\t-\n", 0)
+	h.WriteHostVars(t, "agent_bus_address: 192.0.2.10\nagent_bus_teams:\n"+
+		"  - team: alpha\n    port: 6167\n    description: \"Builds the example site\"\n"+
+		"  - team: beta\n    port: 6168\n")
 	h.RemoveSeat(t, h.Checkout(), "alpha", "dev")
 	h.On(teamtest.SudoBus+"list alpha", roster("worker", "worker"), 0)
 	if code := h.c.Describe(t.Context(), []string{"1@alpha,3@beta"}); code != term.ExitOK {
@@ -348,12 +348,13 @@ func TestDescribeFollowsEachSeatWithItsTeamsDescription(t *testing.T) {
 
 func TestDescribeStillNamesTheSeatsWhenTheDescriptionsCannotBeRead(t *testing.T) {
 	h := newRig(t)
-	h.OnErr(h.DeclarePrefix("declared"), "declare: cannot read", 78)
+	// A host_vars the reader refuses: the descriptions cannot be read.
+	h.WriteHostVars(t, "agent_bus_teams:\n  - team: alpha\n    port: port\n")
 	h.RemoveSeat(t, h.Checkout(), "alpha", "dev")
 	if code := h.c.Describe(t.Context(), []string{"1@alpha"}); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
-	if !strings.HasPrefix(h.stdout(), "1@alpha (") || strings.Contains(h.stdout(), ": ") || !strings.Contains(h.ErrOut.String(), "declare: cannot read") {
+	if !strings.HasPrefix(h.stdout(), "1@alpha (") || strings.Contains(h.stdout(), ": ") || !strings.Contains(h.ErrOut.String(), "declare: line 3: the port is not a number") {
 		t.Fatalf("stdout %q stderr %q", h.stdout(), h.ErrOut.String())
 	}
 }
@@ -413,8 +414,9 @@ func TestDescribeWritesThePrefixFirstSoTheLauncherNeedsNoEcho(t *testing.T) {
 // S-C4: the launch block names every team of the session with its seat, role and description.
 func TestDescribeBlockNamesEveryTeamWithSeatRoleAndDescription(t *testing.T) {
 	h := newRig(t)
-	h.On(h.DeclarePrefix("declared"), "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\t\"Builds the example site\"\n"+
-		"TEAM\tbeta\t6168\tpresent\tbeta.agent-bus.internal\thttp://192.0.2.10:6168\t-\n", 0)
+	h.WriteHostVars(t, "agent_bus_address: 192.0.2.10\nagent_bus_teams:\n"+
+		"  - team: alpha\n    port: 6167\n    description: \"Builds the example site\"\n"+
+		"  - team: beta\n    port: 6168\n")
 	h.On(teamtest.SudoBus+"list alpha", roster("coordinator", "worker"), 0)
 	if code := h.c.Describe(t.Context(), []string{"--block", "1@alpha,3@beta"}); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())

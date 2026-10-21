@@ -74,7 +74,6 @@ func (r *opsRig) lockFree(t *testing.T) bool {
 
 // appliedBeta scripts a play and a read-back that pass for team beta, with no Element profile.
 func (r *opsRig) appliedBeta() {
-	r.on(opsDeclare+"element-teams", execx.Result{})
 	r.statuses = []map[string]declare.Status{{"beta": st("current", "")}}
 }
 
@@ -107,9 +106,9 @@ func TestThePlayRunsInsideTheHeldPlayLockHandedDownToIt(t *testing.T) {
 func TestTheElementPlayRunsInsideTheSameHold(t *testing.T) {
 	r := newOpsRig(t)
 	r.on(opsPlay, execx.Result{})
-	r.on(opsDeclare+"element-teams", execx.Result{Stdout: []byte("ELEMENT\tbeta\thttp://192.0.2.10:6167\n")})
+	r.declareElement(t, "beta")
 	r.on(opsElementPlay, execx.Result{})
-	r.files["/home/u/.local/share/applications/agent-bus-beta-element.desktop"] = true
+	r.files[r.home+"/.local/share/applications/agent-bus-beta-element.desktop"] = true
 	r.statuses = []map[string]declare.Status{{"beta": st("current", "")}}
 	if err := r.ops.ApplyTeams(t.Context(), []string{"beta"}); err != nil {
 		t.Fatal(err)
@@ -124,7 +123,7 @@ func TestTheElementPlayRunsInsideTheSameHold(t *testing.T) {
 func TestRunElementPlayAloneTakesTheLockItself(t *testing.T) {
 	r := newOpsRig(t)
 	r.on(opsElementPlay, execx.Result{})
-	r.files["/home/u/.local/share/applications/agent-bus-beta-element.desktop"] = true
+	r.files[r.home+"/.local/share/applications/agent-bus-beta-element.desktop"] = true
 	if err := r.ops.RunElementPlay(t.Context(), []string{"beta"}); err != nil {
 		t.Fatal(err)
 	}
