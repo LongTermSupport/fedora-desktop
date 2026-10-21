@@ -16,9 +16,11 @@ give false failures.
 
 ## Scope
 
-Rewrite the agent-team bus in Go, every stage of 00209's design: the host side too (in-process
-`ccy-teams` reads, the installer, the reader, the admin CLI and element). Stage 1 (`ccy-teams`
-open time) is an early owner-visible win. No behaviour may be lost. On the session side that means:
+Rewrite the agent-team bus in Go as v2, a separate system beside v1 (00209's DESIGN-v2.md): the
+host side too (the homeservers, the installer, the admin program, Element profiles and what
+`ccy-teams` reads). Stage 1 (v1's `ccy-teams` open time) is an early owner-visible win. No
+requirement may be lost (a Python quirk is not one: PLAN.md, "The owner's directions"). On the
+session side v2 replaces:
 
 - `helpers/pingbus/` (about 13k lines of Python, shipped as a zipapp): every CLI verb, the hooks,
   the watcher and waiter, inbox, outbox, envelope, protocol, seat, the status line, limits,
@@ -35,15 +37,17 @@ open time) is an early owner-visible win. No behaviour may be lost. On the sessi
 ## The plans that already exist (read these first, in this order)
 
 1. **Plan 00209, agent-bus v2 in Go:** the design of record, and this brief's own plan:
-   DESIGN.md, the four RESEARCH-\*.md files, and the Fable
-   review in subagent-reports/. Its owner decisions D1-D20 are not signed. The owner's standing
+   DESIGN-v2.md (which supersedes DESIGN.md), the RESEARCH-\*.md files, and the reviews in
+   subagent-reports/. Its owner decisions (DESIGN-v2.md section 7) are not signed. The owner's standing
    instruction is "DO NOT GATE ON ME". So take each decision's recommended option, record it in
    PLAN.md as defaulted, and send the coordinator any decision that is irreversible or that
    contradicts the owner's words. Do not wait on any of them.
 2. **Plan 00213, the agent-bus performance Go carve-out:** the owner's ordering. Carve the standalone
    pieces out first (the status line is done), then move the rest over gradually. It has the
    parity-oracle pattern: Python and Go run over the same fixtures, and the golden test's
-   `-update` re-records from Python. Reuse that pattern for every piece. It also records owner
+   `-update` re-records from Python. Reuse that pattern only where Go replaces a v1 piece in place
+   (stage 1's reads): v2 shares no format with v1, so it has no oracle against the Python
+   (src-go/CLAUDE.md, "How a port is built"). It also records owner
    requirements:
    - the bus segment has its own TTL cache, separate from the hooks-daemon line;
    - the refresh is 25 s, because the daemon-owned supervisor treats the context sidecar as stale
@@ -51,8 +55,8 @@ open time) is an early owner-visible win. No behaviour may be lost. On the sessi
    - Go stderr may differ in wording but keeps its shape, and empty stays empty.
 3. **Plan 00211, the reports and questions rooms:** live work in Python. Phase 1 is deployed. Phase
    2 (room creation, deploy 2) is being built now by a coordinator sub-agent on another branch.
-   The Go rewrite must carry 00211's behaviour: pingbus 0.2.0, the `report`, `ask-human`,
-   `thread`, `questions` and `history --room` verbs, ROOM lines, side rooms, and its SPEC.md.
+   The Go rewrite must carry 00211's behaviour (reports, questions, threads, asking a human, the
+   side rooms; its SPEC.md), as behaviour, not as pingbus 0.2.0's verb names or formats.
    Do not edit 00211's files while its Phase 2 branch is open. Tell the coordinator what you need.
 4. **Plans 00161, 00194 and 00201:** the bus history, live delivery and multi-team design. Read
    them for constraints. 00194 and 00201 still have Python tasks open; fold into the Go plan any
@@ -67,10 +71,12 @@ home. Record the choice in both plans, and avoid having two plans for one thing.
   coordinator. Never edit, commit or merge in /workspace itself; every change is made in a git
   worktree on its own branch. Sub-agents run with worktree isolation.
 - **Spec first, test first.** Read src-go/CLAUDE.md and CLAUDE/GoProjectRules.md before any Go.
-  Ports are built to a spec of intended behaviour, with a parity oracle against the Python, never
-  as a line-by-line replay. Every on-disk format and wire format must stay byte-compatible while
-  Python and Go both live, and old and new versions must run side by side on the host, in the ccy
-  image and on LXC members, which are upgraded at different times. LXC teams are top priority.
+  v2 is built to a spec of intended behaviour, never as a line-by-line replay: the Python is a
+  prototype, read for requirements and lessons (PLAN.md, "The owner's directions"). v2 shares no
+  format, lock or wire with v1; it installs beside v1, touches nothing v1 uses, and teams move one
+  at a time (DESIGN-v2.md section 1). Old and new versions of each system must run side by side
+  on the host, in the ccy image and on LXC members, which are upgraded at different times. LXC
+  teams are top priority.
 - **Models:**
   - Haiku: first drafts of boilerplate against an existing oracle. The owner suggested it, and it
     worked for the status line, but treat its output as untrusted.
@@ -113,9 +119,11 @@ Milestones should be deployable on their own and safe beside the old code.
 
 ## Definition of done
 
-- Every pingbus verb, hook and long-running process runs as Go.
-- The Python zipapp is retired from the host, the ccy image and the LXC member kit.
-- The parity oracles pass, and the old/new mixed-version window is proven safe.
+- v2 does in Go what every pingbus verb, hook and long-running process does.
+- The Python zipapp is retired from the host, the ccy image and the LXC member kit, once every
+  team has moved and the owner agrees (DESIGN-v2-D-migration.md 7.2).
+- The proof that v2 touches nothing of v1 passes, each team's migration passes its acceptance,
+  and v2's own mixed-version window is proven safe.
 - Host acceptance passes through meta-deploy.
 - CPU per status-line render and per hook event is measured before and after; this is the
   performance goal of 00213.

@@ -34,7 +34,7 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00213-agent-bus-performance-go-carve-out](00213-agent-bus-performance-go-carve-out/) - Not Started. pingbus starts a Python interpreter on every status-line refresh and hook event, costing several CPU threads across a team; cut the refresh rate, skip the host pyenv shim, then port `pingbus status-line` and the per-event hooks to Go with parity tests
+- [00213-agent-bus-performance-go-carve-out](00213-agent-bus-performance-go-carve-out/) - In Progress. pingbus starts a Python interpreter on every status-line refresh and hook event, costing several CPU threads across a team; cut the refresh rate, skip the host pyenv shim, then port `pingbus status-line` to Go with a parity test (the hooks port moved to Plan 00209)
 
 - [00212-stt-pauses-media-while-recording](00212-stt-pauses-media-while-recording/) - In Progress. A speech-to-text recording lowers the playing media to a third of its own volume and restores it exactly when the microphone closes (a player whose sound is not found is paused instead); a panel menu switch, on by default
 
@@ -42,7 +42,7 @@ Use these Unicode icons in plan documents:
 
 - [00210-convert-cli-markdown-to-docx](00210-convert-cli-markdown-to-docx/) - In Progress. A Go `convert` command that turns a file into the formats its type supports, through proven engines; Markdown to DOCX through pandoc first (#102)
 
-- [00209-agent-bus-v2-in-go](00209-agent-bus-v2-in-go/) - Not Started. The agent bus rebuilt in Go from its requirements (a v2, not a port): one codebase, reads in-process plus one reader for every team run with no root, every state file and lock shared with v1, staged cut-over with the owner-visible wins first; design revised after Fable's review, owner decisions D1-D20
+- [00209-agent-bus-v2-in-go](00209-agent-bus-v2-in-go/) - In Progress. v2 of the agent bus, `teamchat`: a separate system in Go beside v1, sharing none of v1's wire, files or locks, inert with no team; teams move to it one at a time by a migration the owner runs. Design in DESIGN-v2.md (chapters A-D), its decisions defaulted in section 7; milestones N0-N6
 
 - [00208-stt-paste-uses-stale-clipboard](00208-stt-paste-uses-stale-clipboard/) - In Progress. Speech-to-text auto-paste pasted the previous dictation: the paste key now waits until the clipboard reads back as this dictation's text, or nothing is pasted and the failure is said
 
