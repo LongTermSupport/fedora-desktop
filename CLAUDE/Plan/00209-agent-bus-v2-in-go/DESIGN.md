@@ -747,7 +747,7 @@ The pingbus zipapp is baked into the ccy image: `play-claude-yolo.yml` builds it
 (`files/var/local/claude-yolo/Dockerfile:398-407`), and `helpers/agent_bus` rides along
 (`helpers/agent_bus_lxc/applied_record.py:4-7`). So:
 
-- every stage that changes what a ccy container runs (2, 6 and 8) is a container version bump
+- every stage that changes what a ccy container runs (2, 6a, 6b and 8) is a container version bump
   (`LABEL claude-yolo-version` and `REQUIRED_CONTAINER_VERSION`, and `CCY_VERSION` when the
   launcher or its `lib/` changes), as `CLAUDE/ContainerRules.md` requires;
 - the container-version gate's file set (`scripts/test-ccy-container-version-hook.bash` checks it
@@ -942,7 +942,8 @@ untrusted cache, and the SessionEnd timeout setting [L 7.10].
 Each is defaulted to its recommendation (PLAN.md, "Owner decisions"); the owner may overturn any.
 Three are amended there: D16, which Plan 00213 Task 1.3 set to 25 s; D17, whose bumps are at 2,
 6a, 6b and 8 since stage 6 is split; and D20, which takes 10.2's order with that split. PLAN.md
-also raises D4 (it overrides Plan 00194's owner design) and D15 with the coordinator.
+also raises D4 (it overrides Plan 00194's owner design, and stage 2 already acts on it) and D15
+with the coordinator at M0: D4 is answered before stage 2's hooks ship, D15 before 6b.
 
 | #   | Question                                                                                                                | Options                                                                                                                                                                                                                                                                                                                      | Recommendation and why                                                                                                                                                                                                                                                                                                                             |
 | --- | ----------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
