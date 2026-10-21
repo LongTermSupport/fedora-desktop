@@ -465,12 +465,15 @@ func (j Judge) answer(v Verdict) (Answer, bool, bool) {
 }
 
 // probeCheck is whether a ping answers the probe's own `check`, so the probe is addressable.
-func (j Judge) probeCheck(c Content) bool {
+func (j Judge) probeCheck(c Content) bool { return probeCheckOf(j.Lookup, j.Roster, c) }
+
+// probeCheckOf is probeCheck for the receiver and the sender alike.
+func probeCheckOf(lookup Lookup, r Roster, c Content) bool {
 	if c.Key != KeyPing || !c.Relation.IsAnswer() {
 		return false
 	}
-	root, ok := j.Lookup.Event(c.Relation.Root)
-	return ok && root.Verb == VerbCheck && j.Roster.Members[root.Sender].Role == RoleProbe
+	root, ok := lookup.Event(c.Relation.Root)
+	return ok && root.Verb == VerbCheck && r.Members[root.Sender].Role == RoleProbe
 }
 
 // addressees is the content's `to`.
