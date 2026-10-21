@@ -164,7 +164,8 @@ as hooks-daemon issue #131 and is not this plan's to fix.
   `teamchat hook`, part of [Plan 00209](../00209-agent-bus-v2-in-go/PLAN.md)'s N3 member client
   (Task 3.2), a new system rather than a port of these. In socket mode PostToolUse does not start
   pingbus at all (`hooks.json` runs it only in relay mode).
-- [x] ❌ **Task 3.2**: Superseded by Plan 00209, which ports the watcher and the CLI too. What is
+- [x] ❌ **Task 3.2**: Superseded by Plan 00209, whose v2 replaces the watcher and the CLI as a
+  separate system rather than porting them; v1's stay Python until v1 retires. What is
   Python today and which 00209 stage replaces it is in its
   [RESEARCH-python-scope.md](../00209-agent-bus-v2-in-go/RESEARCH-python-scope.md).
 

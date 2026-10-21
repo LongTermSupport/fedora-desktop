@@ -68,7 +68,7 @@ milestone that acts on it.
 | ID     | Decision                                                                                                                                                | State                                                                                                       |
 | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | D4     | no relay mode in v2; specified on v2 when the plugin API ships                                                                                          | accepted by the coordinator                                                                                 |
-| D15    | a keeper and a worker in every member, the resident cost measured (B 2.14)                                                                              | accepted by the coordinator                                                                                 |
+| D15    | a keeper (`teamchat run`) and a link (DESIGN.md called it the worker) in every member, the resident cost measured (B 2.14)                              | accepted by the coordinator                                                                                 |
 | TID    | a team has a stable id (at most 22 characters) fixed at creation; its name is display only; `server_name` and handles carry the id and survive a rename | defaulted, the coordinator agreed; it goes to the owner in the coordinator's next digest                    |
 | INT3   | a v1 name over 22 characters migrates under a short id declared with the move, and stays its display name                                               | defaulted; to the coordinator                                                                               |
 | others | OD-A1-A9, BD1-BD15, DC1-DC17, OD-D1-D7, INT1, INT2                                                                                                      | defaulted; the flagged ones (OD-A7, BD15, DC1, DC4, DC5, DC15-DC17, OD-D1, OD-D5, OD-D6) to the coordinator |
@@ -111,7 +111,10 @@ its first caller.
   superseded (`subagent-reports/261021-n0-integration.md`).
 - [ ] ⬜ **Task 0.4**: The N0 review: one adversarial review of the whole design to MERGE, checking
   everything DESIGN-v2.md section 9 lists, and area B's defaults the build notes challenge (BD9's
-  `disconnected` on the next start, BD2's exit 69 with no worker, BD11's dropped SessionEnd lift).
+  `disconnected` on the next start, BD2's exit 69 with no link, BD11's dropped SessionEnd lift). The four integrated reviews were
+  FIX-FIRST; the fix pass for delivery, member and migration is merged
+  (`subagent-reports/261021-n0-merge.md`), the host fix pass is still running, and the final
+  verification review covers all four.
 - [ ] ⬜ **Task 0.5**: The coordinator's answers on the flagged decisions (Decisions, above).
 
 ### Phase 1: N1, foundations
@@ -142,7 +145,7 @@ its first caller.
   Element profiles (C 3.10), health and the status records (C 3.11), backups and restore (C 3.12).
 - [ ] ⬜ **Task 2.5**: Acceptance: C 3.14's tests; the M44 real-Tuwunel test, and Tuwunel's answers
   for a locked and a deactivated account recorded into `fakehs` (host or VM lab); VM-lab scenario
-  `teamchat-coexist` (P1); the install on the host with the footprint before and after (P2); host
+  `teamchat-coexist` (P1) to its N2 stage, a host-only team cycle (D 4.3); the install on the host with the footprint before and after (P2); host
   checks H-C1 to H-C12.
 
 ### Phase 3: N3, the member client, LXC members first
@@ -150,12 +153,13 @@ its first caller.
 - [ ] ⬜ **Task 3.1**: The N3 spec from area B. It says that net/http may resend a dropped `/sync`
   (a GET retried on some connection errors), and that this is safe because a sync with a since
   token is idempotent; and it carries 00194's 2.0e and 2.0g (Requirements carried).
-- [ ] ⬜ **Task 3.2**: The `teamchat` binary: CLI, member state, keeper and worker, locks, sync,
+- [ ] ⬜ **Task 3.2**: The `teamchat` binary: CLI, member state, the keeper (`run`) and the link, locks, sync,
   delivery, hooks, status line, plugin and skill (B 2.1-2.12).
 - [ ] ⬜ **Task 3.3**: LXC members: guest operations (B 2.13), LXC apply from the host (C 3.9),
   `teamchat-session-<user>.service`; the container's own config stays with its own play (seam 52).
 - [ ] ⬜ **Task 3.4**: Acceptance: B 2.15's tests, the resident-cost bars by
-  `acceptance-member-cost.bash` (B 2.14), an LXC member on a real team in the VM lab.
+  `acceptance-member-cost.bash` (B 2.14), an LXC member on a real team in the VM lab;
+  `teamchat-coexist` at its N3 stage, which adds the LXC member and its exchange (D 4.3).
 
 ### Phase 4: N4, ccy members and the board
 
@@ -165,7 +169,8 @@ its first caller.
 - [ ] ⬜ **Task 4.3**: ccy-teams on both systems: the board from the status records (C 3.13, D 3.9),
   the flows (C45), creating a team and renaming it (00201 Task 2.16).
 - [ ] ⬜ **Task 4.4**: Acceptance: H-C7 and H-C8; the v2-native pilot `teamchat-pilot` with one ccy
-  session and one LXC member, its cost measured (P3).
+  session and one LXC member, its cost measured (P3); `teamchat-coexist` run whole, with the ccy
+  seat (D 4.3).
 
 ### Phase 5: N5, other member kinds
 

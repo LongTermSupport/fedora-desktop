@@ -629,7 +629,7 @@ A member holds one verified snapshot per room, keyed by the event IDs of the sta
 snapshot is checked again before any further event of that room is judged when:
 
 - the member's sync stream starts or restarts (first sync, after a homeserver outage, after the
-  worker restarts);
+  link restarts);
 - the member joins the room;
 - a sync batch for the room is `limited` (a gap may hide a state change);
 - a sync batch for the room holds, in `state` or `timeline`, any event of type `m.room.create`,
@@ -640,14 +640,14 @@ snapshot is checked again before any further event of that room is judged when:
 
 A process without a live sync stream (a one-shot command) verifies before it sends. B decides which
 process holds the snapshot and how a one-shot command gets one (v1 ran three GETs per send; v2
-reaches the worker's).
+reaches the link's).
 
 Each event is judged against the roster **as it stands when the event is processed**, never as it
 stood when the event was sent. A member removed or parked a moment ago is dropped at once, including
 for events it sent before; that fails closed and costs at most a resend. Every event is judged once
 (7.6 rule 3), so a roster change never re-opens events already judged: the only events a change can
 widen are those still unjudged when it lands. For a syncing member that is the sync latency's worth;
-for a member whose worker was down, it is its offline span, capped by `human_max_age_s` for human
+for a member whose link was down, it is its offline span, capped by `human_max_age_s` for human
 text and by the verb's timeout for pings (8.5). A worker
 promoted to coordinator in that window could have a coordinator-only ping accepted that it sent as a
 worker (only by bypassing its own client, which refuses it), and a member switched to
@@ -684,9 +684,9 @@ The host reads it for the board; nothing on the wire can claim or deny it. Other
 cannot see a container's locks, so the room carries a **display** of it through Matrix presence,
 which nothing trusts:
 
-- The worker's long-poll sync is the only request that marks the member online: it uses the default
+- The link's long-poll sync is the only request that marks the member online: it uses the default
   `set_presence` (online), and runs only while the seat is held. Every other request that syncs passes
-  `set_presence=offline`. On a clean release the worker sets presence `offline` (PUT /presence) before it ends;
+  `set_presence=offline`. On a clean release the link sets presence `offline` (PUT /presence) before it ends;
   the keeper makes no network call (B14). A member that dies
   stops syncing and the server's own timeout marks it offline.
 - No `status_msg` is set and none is read.
@@ -864,27 +864,29 @@ which were PEER texts a receiver could only take as text.
 }
 ```
 
-| `event`        | Sender             | Extra fields                                    | Meaning                                                                                                                                                                           | Source           |
-| -------------- | ------------------ | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
-| `left`         | the subject itself | `reason`: `exit`, `logout`, `released`, `other` | the subject's session ended with a goodbye; `released`: the owner took the seat out of this session, and the member stays in the team                                             | R28              |
-| `disconnected` | the subject itself | -                                               | the subject's session ended without a goodbye (posted with the seat's own token by its next worker, or on the host by `teamchat seat disconnected` with the pool bundle, C 3.7.5) | R29              |
-| `added`        | admin              | `role`                                          | the subject joined the team                                                                                                                                                       | new              |
-| `removed`      | admin              | -                                               | the owner removed the subject                                                                                                                                                     | v1 farewell text |
-| `parked`       | admin              | -                                               | the owner parked the subject                                                                                                                                                      | new              |
-| `role`         | admin              | `role`                                          | the subject's role is now `role`                                                                                                                                                  | new              |
-| `moved`        | admin              | no `subject`                                    | this team moved from v1's agent bus to `teamchat`; v1's commands no longer reach it. Posted once, by a migration (D 5.6), and pinned                                              | D 5.6            |
+| `event`        | Sender             | Extra fields                                    | Meaning                                                                                                                                                                                                                                                                            | Source           |
+| -------------- | ------------------ | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `left`         | the subject itself | `reason`: `exit`, `logout`, `released`, `other` | the subject's session ended with a goodbye; `released`: the owner took the seat out of this session, and the member stays in the team                                                                                                                                              | R28              |
+| `disconnected` | the subject itself | -                                               | the subject's session ended without a goodbye (posted with the seat's own token by the link when it sees the end, or by the next link of a seat whose store survived, or on the host by `teamchat seat disconnected` with a host-held bundle, C 3.7.5 and the health tick; B 2.11) | R29              |
+| `back`         | the subject itself | -                                               | the subject's session is running again after a `disconnected`: posted once by the link when a run starts on a seat whose latest own lifecycle notice in main is `disconnected` (B 2.11), so a coordinator told that a member had gone learns that it returned                      | new              |
+| `added`        | admin              | `role`                                          | the subject joined the team                                                                                                                                                                                                                                                        | new              |
+| `removed`      | admin              | -                                               | the owner removed the subject                                                                                                                                                                                                                                                      | v1 farewell text |
+| `parked`       | admin              | -                                               | the owner parked the subject                                                                                                                                                                                                                                                       | new              |
+| `role`         | admin              | `role`                                          | the subject's role is now `role`                                                                                                                                                                                                                                                   | new              |
+| `moved`        | admin              | no `subject`                                    | this team moved from v1 to `teamchat`; v1's commands no longer reach it. Posted once, by a migration (D 5.6), and pinned; it is the humans' welcome too, its `body` the welcome text of D 5.6                                                                                      | D 5.6            |
 
 The envelope's `event:` line (13.2) shows each event with its fixed gloss:
 
-| `event`        | Gloss on the `event:` line                                                    |
-| -------------- | ----------------------------------------------------------------------------- |
-| `left`         | `the member's session ended and said goodbye`                                 |
-| `disconnected` | `the member's session ended without a goodbye`                                |
-| `added`        | `the owner added the member to the team`                                      |
-| `removed`      | `the owner removed the member from the team`                                  |
-| `parked`       | `the owner parked the member; it cannot read or post`                         |
-| `role`         | `the owner changed the member's role`                                         |
-| `moved`        | `this team moved from the old agent bus to teamchat; use only teamchat verbs` |
+| `event`        | Gloss on the `event:` line                                 |
+| -------------- | ---------------------------------------------------------- |
+| `left`         | `the member's session ended and said goodbye`              |
+| `disconnected` | `the member's session ended without a goodbye`             |
+| `back`         | `the member's session is running again after a disconnect` |
+| `added`        | `the owner added the member to the team`                   |
+| `removed`      | `the owner removed the member from the team`               |
+| `parked`       | `the owner parked the member; it cannot read or post`      |
+| `role`         | `the owner changed the member's role`                      |
+| `moved`        | `this team moved to teamchat; use only teamchat verbs`     |
 
 - `to` is the team's humans and the coordinator, at most 17, never the subject (R28: "to humans
   and coordinators only"; each agent addressed costs a model turn). `moved` is the exception: it is
@@ -900,8 +902,10 @@ The envelope's `event:` line (13.2) shows each event with its fixed gloss:
 - `removed`, `parked`, `role` and `added` come from the admin because the admin made the change:
   the notice no longer depends on the subject's session being alive to post its own farewell. There
   is no admin-posted farewell for a session that ends.
-- A `disconnected` is believed only as the subject's own statement about itself (its `subject`
-  equals its `sender`); a member gains nothing by posting one.
+- A `disconnected` or a `back` is believed only as the subject's own statement about itself (its
+  `subject` equals its `sender`); a member gains nothing by posting one.
+- A `back` follows only a `disconnected`, never a `left`: a session that said goodbye is new when it
+  starts again, and its team learns that from its first post. At most one `back` per run.
 - Exactly one of `left` and `disconnected` per claim, never twice: B's and C's records (R28, R29)
   keep that; A only fixes who may send which.
 
@@ -964,7 +968,7 @@ a reason from the closed set below).
       coordinator that was down longer than `human_max_age_s` must still get the answers. Any other
       agent event, and a `teamchat.carried` from anyone: drop `sender`.
     - main: continue.
-06. Admin: `teamchat.notice` other than `left` and `disconnected`: the notice path, kind NOTICE. A
+06. Admin: `teamchat.notice` other than `left`, `disconnected` and `back`: the notice path, kind NOTICE. A
     `teamchat.carried` object (7.7): the carried path, kind NOTICE. Anything else: ignore `admin`
     (the admin's display posts, if any, are for humans).
 07. Human: the human path (7.5), kind HUMAN. A member whose roster entry says `human_text: false`
@@ -972,7 +976,7 @@ a reason from the closed set below).
 08. Agent: content holding a `teamchat.carried` key: drop `sender` (only the admin carries, 7.7).
     Otherwise the typed-key rule (7.1), then by key: `teamchat.ping` the ping path (8.1), kind PING;
     `teamchat.text` kind PEER (the same `human_text` rule applies, as v1); `teamchat.notice` only
-    `left` or `disconnected` with `subject` equal to `sender`, kind NOTICE; any other agent notice:
+    `left`, `disconnected` or `back` with `subject` equal to `sender`, kind NOTICE; any other agent notice:
     drop `target`.
 09. Addressing: a ping, text, notice or carried item whose `to` does not hold this member: ignore `not-addressed`.
     Then answers: an `ack`, or a stale `nack`, `done` or `blocked`, that answers one of this
@@ -1043,10 +1047,16 @@ one member. It exists so that a migration loses nothing silently, and it is neve
   target and that an answer will arrive as a reply. `timeout` is the TIMEOUT v1 would have given.
   (`forwarded` is named apart from the team-wide `moved` notice of 7.4.)
 - The transaction ID is derived by area D (D 5.2.1), so a repeated carry step posts nothing twice.
-- `teamchat.carried` is part of wire major 1 with no feature name. It is posted only by a migration,
-  so once no v1 team remains (D 7.2) a release may stop reading it: an admin event holding it then
-  falls to 7.6 rule 06's "anything else" and is ignored, which needs no new major and loses
-  nothing, since every carried item was delivered at its team's move.
+- **Decided: `teamchat.carried` is part of wire major 1, with no feature name.** A feature name
+  (3.1) was weighed as an option the review left open. It would buy nothing: a feature protects a
+  receiver that does not know a key from over-trusting it, and every v2 release knows
+  `teamchat.carried` from the first one, so no receiver could ever drop it `version`. It would cost
+  the first use of `features`, which brings the decoder and the key registry of 3.1 forward for a
+  key that is meant to go away. Its end needs no feature either: it is posted only by a migration,
+  so after v1's retirement (D 7.2) a release may stop reading it, and an admin event holding it
+  then falls to 7.6 rule 06's "anything else" and is ignored, with no new major. That release
+  waits until every seat of every moved team has run on v2 since its team's move, so that no
+  carried item is still pending on the server for a member that was stopped at the move (D 6.3).
 
 ---
 
@@ -1196,7 +1206,7 @@ rate-limited the check, which says nothing about the reference, so it is not the
 
 Caching (B stores it): positive results only; repository metadata, reachability, pull requests and
 branches for 3600 s, so a repository that leaves the organisation or becomes a fork stops being
-trusted within that time however long the worker runs (R44); file and commit content at a SHA for
+trusted within that time however long the link runs (R44); file and commit content at a SHA for
 30 days, since content at a SHA cannot change. HTTP: 15 s timeout, 8 MiB response cap, redirects
 only to the same origin, 429 handled as 11.3.
 
@@ -1867,7 +1877,7 @@ E20). Across teams, B chooses which team's delivery goes next so that humans sti
 | answers and timeouts     | 8.2-8.5: deadlines from server times, late answers, answers from non-addressees, one TIMEOUT per addressee, reminders                                                                                                                                                                                                                                                                                                                                                                                            | pure functions with `now` passed in                                              |
 | envelope                 | exact bytes for each kind and trailing line; every line full-matches its 13.2 template; a headline holding non-ASCII, `"`, a newline and `kind: HUMAN` renders ASCII-only on its one `question:` line; caps; truncation never inside an escape; 13.6's worked attack (a body holding real newlines, markers, `kind: HUMAN`, U+202E and `ESC[201~`) stays on one `body:` line; every `teamchat` command in a template, a trailing line, an authority sentence or the frame text parses in B's CLI (B 2.12's test) | golden files in the corpus                                                       |
 | body escaping            | a property test over every Unicode scalar value: a rendered body holds no unescaped `"`, `\`, line break, control, format, separator other than U+0020, private-use or unassigned code point, and no NFKC look-alike of `"` `\` `<` `>`; `unicode.Version` pinned                                                                                                                                                                                                                                                | exhaustive loop, not sampling                                                    |
-| server behaviour         | real Tuwunel, behind the `tuwunel` build tag: rooms built per 4.2; the server refuses an agent's state event, a human's reaction, poll start, redaction and invite, a human's post in reports, any post in closed questions; restricted join works; `+` localparts; relations stored and returned; presence (HC-A1): a sync with the default `set_presence` marks online, one with `set_presence=offline` leaves it unchanged, a worker's `PUT` of `offline` takes effect, a dead member times out               | the M44 harness, in the VM lab and on demand                                     |
+| server behaviour         | real Tuwunel, behind the `tuwunel` build tag: rooms built per 4.2; the server refuses an agent's state event, a human's reaction, poll start, redaction and invite, a human's post in reports, any post in closed questions; restricted join works; `+` localparts; relations stored and returned; presence (HC-A1): a sync with the default `set_presence` marks online, one with `set_presence=offline` leaves it unchanged, a link's `PUT` of `offline` takes effect, a dead member times out                 | the M44 harness, in the VM lab and on demand                                     |
 | Element                  | the owner's acceptance steps (12.1-12.2): mention, reply, thread reply, edit, notifications on `m.text` and not on `m.notice`, reports composer hidden, no react or poll button; the raw events are recorded under `untracked/` and anonymised into corpus fixtures                                                                                                                                                                                                                                              | owner, once per Element major change                                             |
 
 The corpus lives beside the Go package, in `src-go/internal/teamchat/proto/testdata/` (D's name). There is no second implementation
@@ -1883,7 +1893,7 @@ Area A adds no process, port or unit. What its rules cost a member, per team:
 | Rule                         | Cost                                                                                                                                                 |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | verify a room (6.4)          | one `GET /rooms/{room}/state` per verification: at start, on join, and per trust-type change or gap; three rooms for a coordinator, two for a worker |
-| presence (6.6)               | one `PUT /presence` (offline) at a clean release; being online rides on the worker's sync, which already runs; no server state per member            |
+| presence (6.6)               | one `PUT /presence` (offline) at a clean release; being online rides on the link's sync, which already runs; no server state per member              |
 | human reply addressing (7.5) | one event fetch per human reply or thread post not already in the member's cache                                                                     |
 | human edit (7.5)             | one fetch of the original                                                                                                                            |
 | forge check (9.3)            | per receiver per referenced ping: up to four forge calls on a cold cache, none on a warm one (3600 s, 30 days)                                       |
@@ -1899,15 +1909,15 @@ state event per member every 300 s for ever (the seat lock is liveness); no deli
 Facts this design rests on that no source records yet. Each is a check in the plan's VM lab or
 Tuwunel-tagged harness, run before the build freezes the schema.
 
-| Check | Question                                                                                                                                                                                                                                                                                                                                           | If it fails                                                          |
-| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| HC-A1 | Does Tuwunel serve presence with federation off: a worker's default sync marks it online in another member's filtered sync; a sync with `set_presence=offline` means no change (not "set offline"); a worker's `PUT /presence` of `offline` takes effect; a dead member goes offline by the server's timeout, and what that timeout is (recorded)? | OD-A1 (b): no liveness on the wire; `who` shows the roster only      |
-| HC-A2 | Does Element notify a human for an `m.text` that mentions them, and not for an `m.notice` that mentions them?                                                                                                                                                                                                                                      | agent text to humans keeps the mention and the decision is revisited |
-| HC-A3 | Element's event shapes for reply, reply in thread (with and without a quoted post), and edit, in the version the owner uses                                                                                                                                                                                                                        | 7.5 and 10.4 are amended to the recorded shapes                      |
-| HC-A4 | Does Tuwunel accept and enforce 4.2's power levels exactly as written: polls, reactions, stickers, redactions refused for humans; a power-level object read back unchanged?                                                                                                                                                                        | the invariants stay; the layout names the refused types explicitly   |
-| HC-A5 | Does Element hide the composer in reports and the react button where `m.reaction` is closed?                                                                                                                                                                                                                                                       | display only; the server still refuses                               |
-| HC-A6 | Tuwunel's own service account localpart, to reserve                                                                                                                                                                                                                                                                                                | reserved by its observed name                                        |
-| HC-A7 | Does `GET /rooms/{room}/state` return the create event with its `sender`, so one read verifies a room?                                                                                                                                                                                                                                             | a second read with `?format=event`, as v1                            |
+| Check | Question                                                                                                                                                                                                                                                                                                                                       | If it fails                                                          |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| HC-A1 | Does Tuwunel serve presence with federation off: a link's default sync marks it online in another member's filtered sync; a sync with `set_presence=offline` means no change (not "set offline"); a link's `PUT /presence` of `offline` takes effect; a dead member goes offline by the server's timeout, and what that timeout is (recorded)? | OD-A1 (b): no liveness on the wire; `who` shows the roster only      |
+| HC-A2 | Does Element notify a human for an `m.text` that mentions them, and not for an `m.notice` that mentions them?                                                                                                                                                                                                                                  | agent text to humans keeps the mention and the decision is revisited |
+| HC-A3 | Element's event shapes for reply, reply in thread (with and without a quoted post), and edit, in the version the owner uses                                                                                                                                                                                                                    | 7.5 and 10.4 are amended to the recorded shapes                      |
+| HC-A4 | Does Tuwunel accept and enforce 4.2's power levels exactly as written: polls, reactions, stickers, redactions refused for humans; a power-level object read back unchanged?                                                                                                                                                                    | the invariants stay; the layout names the refused types explicitly   |
+| HC-A5 | Does Element hide the composer in reports and the react button where `m.reaction` is closed?                                                                                                                                                                                                                                                   | display only; the server still refuses                               |
+| HC-A6 | Tuwunel's own service account localpart, to reserve                                                                                                                                                                                                                                                                                            | reserved by its observed name                                        |
+| HC-A7 | Does `GET /rooms/{room}/state` return the create event with its `sender`, so one read verifies a room?                                                                                                                                                                                                                                         | a second read with `?format=event`, as v1                            |
 
 ---
 
@@ -1993,8 +2003,8 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
 - Every command in section 13 is a B verb in B's form, flags after the verb (`teamchat history --team <team>`, `teamchat verify '<id>'`, `teamchat reply '<id>' [--verb V]`, `teamchat status --team <team>`, `teamchat thread` with `--ask`), and B's skill-versus-code test covers them.
 - B sends a ping's answer in 7.2's answer form (a reply in the ping's thread), and a coordinator's
   `reply` in questions as 10.3 says, with no `n` for an unattached post.
-- Presence (6.6): only the worker's long-poll sync uses the default `set_presence`; every other
-  syncing request passes `set_presence=offline`; on a clean release the worker sets presence
+- Presence (6.6): only the link's long-poll sync uses the default `set_presence`; every other
+  syncing request passes `set_presence=offline`; on a clean release the link sets presence
   `offline` (PUT /presence) before it ends, and the keeper makes no network call (B14). Liveness for the board is the seat lock (R27), never presence. `status` shows presence
   labelled as display (6.6), or the roster only if HC-A1 fails.
 - B sends a read receipt for a HUMAN entry only once its delivery
@@ -2013,10 +2023,11 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
 - C has an admin verb `teamchat-admin redact --team <team> --event <id> --reason secret`, reached
   only through ccy-teams with the owner's password (12.4, OD-A10).
 - C posts the admin notices of 7.4 when it makes those changes: `added` at the end of a member
-  add or return, `removed`, `parked`, and `role` on each demote or promote. For a ccy seat whose session ended
-  without a goodbye, the host runs `teamchat seat disconnected` with the pool bundle (C 3.7.5),
-  which posts the `disconnected` notice as the subject (R29); an LXC or host seat's next worker posts
-  it itself.
+  add or return, `removed`, `parked`, and `role` on each demote or promote. For a seat of any kind whose session
+  ended without a goodbye, the host runs `teamchat seat disconnected` with a host-held bundle (the
+  ccy launcher when podman returns, and the health tick; C 3.7.5, B 2.11), which posts the
+  `disconnected` notice as the subject (R29); the member's own link posts it when it sees the end
+  or on the seat's next run, and then posts `back` (7.4).
 - C's health check compares each room's power levels, join rule and link exactly with section 4,
   and reports members whose room display name differs from their global one (12.3).
 - C enables presence in Tuwunel's configuration (display only) if OD-A1 (a) stands, and keeps registration closed,
