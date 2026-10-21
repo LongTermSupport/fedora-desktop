@@ -30,31 +30,40 @@ recommended there are listed at the end.
    tense. `RESEARCH-python-scope.md`'s pingbus table gets one line saying how its "stage 6" splits.
 4. **D4 overrides the owner.** PLAN.md's D4 row says it overrides 00194's decisions A-G and parks
    00194's delivery goal behind 6b. Round 2 showed that stage 2 already acts on D4 (the Go hook
-   refuses relay mode), so D4 is raised with the coordinator at the M0 hand-over and answered
-   before Task 3.1 ships, and Task 3.1 says so. D15 is raised at M0 too and answered before 6b
-   (Task 7.2's gate). The 00194 2.1 row of "Folded in" and DESIGN section 14's preface say the
-   same; `BUILD-BRIEF.md:25` reads "the relay's lock (relay mode itself dropped, D4)". **For the
-   coordinator:** D4 (before stage 2's hooks) and D15 (before 6b).
+   refuses relay mode), so D4 is raised with the coordinator at the M0 hand-over and answered by
+   the coordinator before Task 3.1 merges, and Task 3.1 says so. D15 is raised at M0 too and
+   answered by the coordinator before 6b merges (Task 7.2's gate). Round 3 had the Owner
+   decisions preface name both as the only exceptions to "do not wait": spec, build and review go
+   ahead, only the merge waits. The 00194 2.1 row of "Folded in" and DESIGN section 14's preface
+   say the same; `BUILD-BRIEF.md:25` reads "the relay's lock (relay mode itself dropped, D4)".
+   **For the coordinator:** D4 (before stage 2's hooks merge) and D15 (before 6b merges).
+5. **00201 stages.** "Requirements carried" now adds stage 3 for 2.12 N5, stages 1 and 3 for
+   S-F14, stage 1 for 2.17 and stage 5 for 2.18. The "Folded in" table moves 2.17 and 2.18 to
+   "stay in 00201; carried as expectations".
+6. **Stage-2 coexistence.** Task 3.1 now names both tests: the Go goodbye's send-gate charge in
+   `outbox.json` under the outbox lock against a v1 `send` in a second real process, and v1's
+   `seat disconnected` reading the `said-goodbye.json` it writes (H11). DESIGN's coexistence
+   bullet matches (finding 3).
+7. **`members.py` at stage 5.** Its row now brings the parse and resolve part (`parse_members`,
+   `resolve_members`, `MemberError`, called from `declare.py:1228,1258,1353`) to `bus/lxc` at
+   stage 5 with `bus/declare`, and the apply at stage 7.
+8. **00213 loose ends.** (a) Task 1.2 is named in 00213's Non-Goals list of kept work, in 00209's
+   "Plan of record" paragraph and in 00209's Phase 3 preface. (b) The hooks Goal is moved to
+   00213's Non-Goals as 00209 Task 3.1's work, and 00213 completes without it. (c) 00213's
+   Overview says `refreshInterval` was 1, 25 since Task 1.3.
+9. **Folds with two owners.** "Folded in" now says that on accepting a fold the coordinator marks
+   the folded task ❌ in its own plan, pointing to the 00209 task that owns it.
 
-Round 2 (`261021-m0-plan-review-2.md`) also found two unsplit lines, now fixed: DESIGN 8.4's
-container bumps read (2, 6a, 6b and 8), and `RESEARCH-python-scope.md` keeps the zipapp and the
-gate's Python packages until stage 8 deletes them.
-5\. **00201 stages.** "Requirements carried" now adds stage 3 for 2.12 N5, stages 1 and 3 for
-S-F14, stage 1 for 2.17 and stage 5 for 2.18. The "Folded in" table moves 2.17 and 2.18 to
-"stay in 00201; carried as expectations".
-6\. **Stage-2 coexistence.** Task 3.1 now names both tests: the Go goodbye's send-gate charge in
-`outbox.json` under the outbox lock against a v1 `send` in a second real process, and v1's
-`seat disconnected` reading the `said-goodbye.json` it writes (H11). DESIGN's coexistence
-bullet matches (finding 3).
-7\. **`members.py` at stage 5.** Its row now brings the parse and resolve part (`parse_members`,
-`resolve_members`, `MemberError`, called from `declare.py:1228,1258,1353`) to `bus/lxc` at
-stage 5 with `bus/declare`, and the apply at stage 7.
-8\. **00213 loose ends.** (a) Task 1.2 is named in 00213's Non-Goals list of kept work, in 00209's
-"Plan of record" paragraph and in 00209's Phase 3 preface. (b) The hooks Goal is moved to
-00213's Non-Goals as 00209 Task 3.1's work, and 00213 completes without it. (c) 00213's
-Overview says `refreshInterval` was 1, 25 since Task 1.3.
-9\. **Folds with two owners.** "Folded in" now says that on accepting a fold the coordinator marks
-the folded task ❌ in its own plan, pointing to the 00209 task that owns it.
+## Later rounds
+
+- **Round 2** (`261021-m0-plan-review-2.md`, FIX-FIRST): D4's raise point (folded into item 4),
+  and two unsplit lines, fixed: DESIGN 8.4's container bumps read (2, 6a, 6b and 8), and
+  `RESEARCH-python-scope.md` keeps the zipapp and the gate's Python packages until stage 8
+  deletes them.
+- **Round 3** (`261021-m0-plan-review-3.md`, FIX-FIRST): who answers D4 and D15, and that only
+  the merge waits (folded into item 4); and a journal `decision` and `handoff` entry for the M0
+  hand-over, added through `mkplan.bash --journal`. Round 3 was the last round allowed, so these
+  two fixes have not been re-reviewed.
 
 ## Edits recommended in plans this session does not own
 
