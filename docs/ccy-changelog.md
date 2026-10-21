@@ -17,6 +17,31 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.13.17 — container 2.78.13
+
+Follows 3.99.13.16. The image is unchanged, so there is no rebuild.
+
+- **The token hand-off takes only a file ccy made** (Plan 00191 Task 4.4b, round 2 review).
+  In 3.99.13.16, a launcher started with `CCY_GH_TOKEN_HANDOFF` set read and deleted whatever
+  file of yours the variable named. Now it takes only
+  `<XDG_RUNTIME_DIR, else TMPDIR>/ccy-gh-token.XXXXXX/token`, in a 0700 directory of yours
+  that is not a link, with the file yours, 0600, not a link and with one link. Any other path
+  ends the launch with an error that names the variable, and the file is not read or deleted.
+- **When the hand-off file can be left behind.** 3.99.13.16 said the outer launcher removes
+  the file whenever the re-run never started. That is wrong for a new session: the outer
+  launcher ends in `exec tmux attach-session`, which drops its exit trap. The re-run now takes
+  the file first, before `common.bash` and the library check, so a launch that then fails
+  still removes it. If the re-run never starts (tmux cannot run it, or the hand-off library
+  itself is missing), the file stays in your own 0700 runtime directory until you log out, or
+  under `TMPDIR` when there is no runtime directory.
+- **`--debug` no longer writes tokens to its log.** The hand-off, and the launcher's tests of
+  whether it has a GitHub token, no longer expand the token under `set -x`. Other traced lines
+  still do (the session run, the token checks), so the log's copy of the output has GitHub
+  tokens (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`) and Claude tokens
+  (`sk-ant-`) masked; the terminal still shows the raw trace. The log is created by `mktemp`,
+  mode 0600 under a fresh name (`ccy-debug-<date>-XXXXXX.log`), where before it was readable
+  by anyone in `/tmp`.
+
 ## 3.99.13.16 — container 2.78.13
 
 Follows 3.99.13.15. Container 2.78.13 only because the image carries `CCY-GUIDE.txt`, changed

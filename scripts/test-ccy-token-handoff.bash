@@ -63,16 +63,19 @@ ENTRY_CALL=" \"\$PROJECT_NAME\" \"\$SCRIPT_DIR/\$(basename \"\$0\")\" \"\$@\" ||
 ENTRY="$(grep -F -- "$ENTRY_CALL" "$LAUNCHER" | awk '{ print $1 }')"
 check "the launcher has one terminal-insulation entry point" "1" "$(grep -c . <<<"$ENTRY")"
 LIBS=(common-pure session-registry tmux-session)
-if grep -qE '^CCY_LIBS=\(.* token-handoff( |\))' "$LAUNCHER"; then
-    LIBS+=(token-handoff)
+if grep -qE '^CCY_LIBS=\((.* )?token-handoff( |\))' "$LAUNCHER"; then
+    LIBS=(token-handoff "${LIBS[@]}")
 fi
 check "the launcher loads lib/token-handoff.bash" "yes" \
     "$( [[ " ${LIBS[*]} " == *" token-handoff "* ]] && echo yes || echo no)"
-# common.bash comes first (print_error); the next library sourced must be this one, so the
-# token is taken before any library does work at load.
-check "and sources it first after common.bash" "yes" \
-    "$(first="$(grep -E "^source \"\\\$SCRIPT_DIR/lib/" "$LAUNCHER" | grep -vF 'lib/common.bash' | head -n 1)"
-        [[ "$first" == *lib/token-handoff.bash* ]] && echo yes || echo no)"
+# The outer launcher's EXIT trap does not survive its exec of tmux attach-session, so the
+# inner launcher must take the file before anything that can end it: the first library it
+# sources, ahead of common.bash and of the check that every library is present.
+first_source="$(grep -nE "^source \"\\\$SCRIPT_DIR/lib/" "$LAUNCHER" | head -n 1)"
+presence_check="$(grep -nF 'Required library not found' "$LAUNCHER" | head -n 1 | cut -d: -f1)"
+check "and sources it first, before common.bash and the library presence check" "yes" \
+    "$( [[ "$first_source" == *lib/token-handoff.bash* ]] && [ "${first_source%%:*}" -lt "${presence_check:-0}" ] \
+        && echo yes || echo no)"
 
 # ── the fakes ─────────────────────────────────────────────────────────────────────────
 BIN="$SCRATCH/bin"
@@ -131,7 +134,7 @@ cat >"$T_INNER" <<'EOF'
 export -n GH_TOKEN CLAUDE_CODE_OAUTH_TOKEN CLAUDE_OAUTH_TOKEN
 for lib in $T_LIBS; do
     # shellcheck source=/dev/null
-    source "$T_LIB/$lib.bash" || { echo "INNER failed loading $lib"; exit 1; }
+    source "$T_LIB/$lib.bash" || { echo "LOAD failed at $lib"; exit 1; }
 done
 printf 'INNER GH_TOKEN=%s HANDOFF=%s CHILD=%s\n' "${GH_TOKEN-unset}" "${CCY_GH_TOKEN_HANDOFF-unset}" \
     "$(bash -c 'printf %s "${GH_TOKEN-unset}/${CCY_GH_TOKEN_HANDOFF-unset}"')"
@@ -231,20 +234,141 @@ check "and no session was started" "0" "$(grep -c '^ARGV.* new-session ' "$T_LOG
 
 echo ""
 echo "=== the inner side refuses a hand-off it cannot trust ==="
+# Only a file the outer launcher made is taken: <runtime>/ccy-gh-token.XXXXXX/token, the
+# directory the user's, 0700 and no link, the file the user's, 0600, one link and no link.
+# Anything else is refused loudly and left where it is, and the launch ends.
 # take <path> — load the libraries as a launcher given that hand-off path does.
 take() {
-    (cd "$PROJ" && env -u GH_TOKEN CCY_GH_TOKEN_HANDOFF="$1" bash "$T_INNER" 2>&1)
+    (cd "$PROJ" && env -u GH_TOKEN XDG_RUNTIME_DIR="$RUNTIME" CCY_GH_TOKEN_HANDOFF="$1" bash "$T_INNER" 2>&1)
     echo "rc=$?"
 }
-printf '%s' "$TOKEN" >"$SCRATCH/real"
+# handoff <suffix> <dir-mode> <file-mode> — a hand-off directory and file in the runtime one.
+handoff() {
+    mkdir -p "$RUNTIME/ccy-gh-token.$1"
+    printf '%s\n' "$TOKEN" >"$RUNTIME/ccy-gh-token.$1/token"
+    chmod "$3" "$RUNTIME/ccy-gh-token.$1/token"
+    chmod "$2" "$RUNTIME/ccy-gh-token.$1"
+    printf '%s' "$RUNTIME/ccy-gh-token.$1/token"
+}
+# refused <label> <path> <out> — the launch ended, naming the variable, the token unread.
+refused() {
+    check "$1 is refused, ending the launch" "rc=1" "$(tail -n 1 <<<"$3")"
+    check "  with an error naming CCY_GH_TOKEN_HANDOFF and the path" "yes" \
+        "$(errors="$(grep -F 'ERROR' <<<"$3")"; [[ "$errors" == *"CCY_GH_TOKEN_HANDOFF=$2"* ]] && echo yes || echo no)"
+    check "  and nothing ran with the token" "0" "$(grep -c "^INNER" <<<"$3")"
+    if [ -e "$2" ]; then
+        check "  and the file is left in place" "$TOKEN" "$(cat "$2")"
+    fi
+}
+printf '%s\n' "$TOKEN" >"$SCRATCH/real"
+chmod 600 "$SCRATCH/real"
+refused "a file of the user's outside the pattern" "$SCRATCH/real" "$(take "$SCRATCH/real")"
 ln -s "$SCRATCH/real" "$SCRATCH/link"
-out="$(take "$SCRATCH/link")"
-check "a symlink is refused" "rc=1" "$(tail -n 1 <<<"$out")"
-check "and the token is not read through it" "0" "$(grep -c "GH_TOKEN=$TOKEN" <<<"$out")"
-out="$(take "$SCRATCH/missing")"
-check "a missing file is refused" "rc=1" "$(tail -n 1 <<<"$out")"
-check "with an error naming the path" "yes" \
-    "$(errors="$(grep -F 'ERROR' <<<"$out")"; [[ "$errors" == *"$SCRATCH/missing"* ]] && echo yes || echo no)"
+refused "a symlink" "$SCRATCH/link" "$(take "$SCRATCH/link")"
+refused "a missing file" "$SCRATCH/missing" "$(take "$SCRATCH/missing")"
+mkdir -p "$RUNTIME/other.abcdef"
+chmod 700 "$RUNTIME/other.abcdef"
+printf '%s\n' "$TOKEN" >"$RUNTIME/other.abcdef/token"
+chmod 600 "$RUNTIME/other.abcdef/token"
+refused "a file in a runtime subdirectory not made by ccy" "$RUNTIME/other.abcdef/token" \
+    "$(take "$RUNTIME/other.abcdef/token")"
+mkdir -p "$SCRATCH/elsewhere"
+chmod 700 "$SCRATCH/elsewhere"
+printf '%s\n' "$TOKEN" >"$SCRATCH/elsewhere/token"
+chmod 600 "$SCRATCH/elsewhere/token"
+ln -s "$SCRATCH/elsewhere" "$RUNTIME/ccy-gh-token.Linked"
+refused "a hand-off directory that is a symlink" "$RUNTIME/ccy-gh-token.Linked/token" \
+    "$(take "$RUNTIME/ccy-gh-token.Linked/token")"
+check "  and the directory it points at keeps its file" "$TOKEN" "$(cat "$SCRATCH/elsewhere/token")"
+f="$(handoff Mode64 700 644)"
+refused "a hand-off file of mode 0644" "$f" "$(take "$f")"
+f="$(handoff Dir755 755 600)"
+refused "a hand-off directory of mode 0755" "$f" "$(take "$f")"
+f="$(handoff TwoLnk 700 600)"
+ln "$f" "$SCRATCH/second-link"
+refused "a hand-off file with a second hard link" "$f" "$(take "$f")"
+f="$(handoff Dotdot 700 600)"
+refused "a path that climbs out with .." "$RUNTIME/ccy-gh-token.Dotdot/../ccy-gh-token.Dotdot/token" \
+    "$(take "$RUNTIME/ccy-gh-token.Dotdot/../ccy-gh-token.Dotdot/token")"
+f="$(handoff GoodOn 700 600)"
+out="$(take "$f")"
+check "a hand-off file the launcher made is taken" \
+    "INNER GH_TOKEN=$TOKEN HANDOFF=unset CHILD=unset/unset" "$(grep -m1 '^INNER' <<<"$out")"
+check "  and it and its directory are gone" "no" "$( [ -e "$RUNTIME/ccy-gh-token.GoodOn" ] && echo yes || echo no)"
+find "$RUNTIME" -mindepth 1 -delete
+
+echo ""
+echo "=== the real launcher takes the file before anything that can end it ==="
+# A new session's outer launcher has exec'd tmux, so its EXIT trap is gone; the inner one
+# must take (and delete) the file even when it then fails: a library is missing here, and
+# common.bash, which runs before the library check, can fail first (no container engine).
+COPY="$SCRATCH/launcher-copy"
+mkdir -p "$COPY"
+cp -r "$REPO_ROOT/files/var/local/claude-yolo/lib" "$COPY/lib"
+cp "$LAUNCHER" "$COPY/claude-yolo"
+rm "$COPY/lib/agent-bus-seats.bash"
+# real <handoff-path> — the copied launcher given that path; its output, then rc=N.
+real() {
+    (cd "$PROJ" && env -u GH_TOKEN XDG_RUNTIME_DIR="$RUNTIME" CCY_GH_TOKEN_HANDOFF="$1" \
+        bash "$COPY/claude-yolo" --version 2>&1)
+    echo "rc=$?"
+}
+out="$(real "$(handoff RealLn 700 600)")"
+check "the launcher fails" "rc=1" "$(tail -n 1 <<<"$out")"
+check "  having taken the hand-off file first" "0" "$(left_in_runtime)"
+f="$(handoff RealNo 700 644)"
+out="$(real "$f")"
+check "a hand-off it refuses ends the real launcher" "rc=1" "$(tail -n 1 <<<"$out")"
+check "  before anything else, naming the variable" "yes" \
+    "$(errors="$(grep -F 'ERROR' <<<"$out")"; [[ "$errors" == "ERROR: CCY_GH_TOKEN_HANDOFF=$f"* ]] && echo yes || echo no)"
+find "$RUNTIME" -mindepth 1 -delete
+
+echo ""
+echo "=== --debug: the log holds no token, and only its owner can read it ==="
+# The launcher's own lines that start the debug log, run as it runs them, then set -x over
+# the hand-off (any token shape) and lines shaped like the launcher's other token lines (a
+# GitHub and a Claude token, as gh and the token store give them).
+DEBUG_SETUP="$SCRATCH/debug-setup.bash"
+grep -E '^ *(DEBUG_LOG=|exec > >\(tee)' "$LAUNCHER" >"$DEBUG_SETUP"
+check "the launcher starts its debug log in two lines" "2" "$(grep -c . "$DEBUG_SETUP")"
+GH_SHAPED="gh""o_$(printf 'Q%.0s' {1..36})"
+CLAUDE_SHAPED="sk-""ant-oat01-$(printf 'R%.0s' {1..40})"
+DEBUG_TMP="$SCRATCH/debug-tmp"
+mkdir -p "$DEBUG_TMP"
+cat >"$SCRATCH/debug-driver.bash" <<'EOF'
+#!/usr/bin/env bash
+source "$T_LIB/token-handoff.bash" || exit 1
+# The common umask, under which a plain redirect makes a file anyone can read.
+umask 022
+TMPDIR="$T_DEBUG_TMP"
+# shellcheck source=/dev/null
+source "$T_DEBUG_SETUP"
+printf '%s\n' "$DEBUG_LOG" >"$T_DEBUG_TMP/name"
+GH_TOKEN="$T_CALLER_TOKEN"
+read -r GH_SHAPED CLAUDE_OAUTH_TOKEN <"$T_DEBUG_TMP/shaped"
+set -x
+ccy_token_handoff_give && ccy_token_handoff_take
+[ -n "${GH_TOKEN:+set}" ]
+CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH_TOKEN" GH_TOKEN="$GH_SHAPED" true
+set +x
+echo "DEBUG-DRIVER-END"
+EOF
+printf '%s %s\n' "$GH_SHAPED" "$CLAUDE_SHAPED" >"$DEBUG_TMP/shaped"
+(cd "$PROJ" && env XDG_RUNTIME_DIR="$RUNTIME" T_DEBUG_TMP="$DEBUG_TMP" T_DEBUG_SETUP="$DEBUG_SETUP" \
+    T_CALLER_TOKEN="$TOKEN" bash "$SCRATCH/debug-driver.bash" >"$DEBUG_TMP/out" 2>&1)
+DEBUG_LOG_FILE="$DEBUG_TMP/no-name-written"
+[ ! -f "$DEBUG_TMP/name" ] || DEBUG_LOG_FILE="$(cat "$DEBUG_TMP/name")"
+for _ in $(seq 50); do
+    grep -qs 'DEBUG-DRIVER-END' "$DEBUG_LOG_FILE" && break
+    sleep 0.1
+done
+check "the debug log was written" "yes" "$(grep -qs 'DEBUG-DRIVER-END' "$DEBUG_LOG_FILE" && echo yes || echo no)"
+check "  and traced the hand-off" "yes" "$(grep -qs 'ccy_token_handoff_take' "$DEBUG_LOG_FILE" && echo yes || echo no)"
+check "  holding no hand-off token" "0" "$(grep -csF -- "$TOKEN" "$DEBUG_LOG_FILE")"
+check "  no GitHub-shaped token" "0" "$(grep -csF -- "$GH_SHAPED" "$DEBUG_LOG_FILE")"
+check "  no Claude-shaped token" "0" "$(grep -csF -- "$CLAUDE_SHAPED" "$DEBUG_LOG_FILE")"
+check "  readable only by its owner" "600" "$(stat -c %a "$DEBUG_LOG_FILE" 2>&1)"
+find "$RUNTIME" -mindepth 1 -delete
 
 echo ""
 echo "=== the custom-Dockerfile modes re-run the launcher with the token ==="

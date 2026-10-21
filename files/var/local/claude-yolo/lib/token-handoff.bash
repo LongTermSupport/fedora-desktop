@@ -7,40 +7,57 @@
 # file: fresh, 0600, in a 0700 directory made for it under XDG_RUNTIME_DIR (else TMPDIR).
 # Only the file's path travels, as CCY_GH_TOKEN_HANDOFF on the pane's command, and the
 # launcher that finds it reads the token and deletes the file as soon as this library is
-# sourced. The outer launcher removes the file on every exit; a launcher that replaces itself
-# with exec leaves it for the one it runs.
+# sourced, which is the first thing it does after its first line. A new session's outer
+# launcher ends in `exec tmux attach-session`, which drops its EXIT trap, so only that taking
+# removes the file; an inner launcher that never starts leaves it in the user's own 0700
+# directory (XDG_RUNTIME_DIR is emptied at logout).
 #
-# Sourced by the launcher before any other library that does work at load.
+# No line here expands the token where `set -x` (--debug) would trace it.
+#
+# Sourced by the launcher before every other library, common.bash included, so it prints
+# its own errors.
 
-# ccy_token_handoff_take — when CCY_GH_TOKEN_HANDOFF names a file, set GH_TOKEN from it
-# (the launcher's first line has taken the export off it) and delete the file and its
-# directory. A path that is not a regular
-# file of this user's fails: a token is never read through a link or from a file not ours.
+# ccy_token_handoff_take — when CCY_GH_TOKEN_HANDOFF names a hand-off file, set GH_TOKEN
+# from it (the launcher's first line has taken the export off it) and delete the file and
+# its directory. Only <base>/ccy-gh-token.XXXXXX/token is taken, <base> resolved as
+# ccy_token_handoff_give resolves it, the directory the user's, 0700 and not a link, the
+# file the user's, 0600, one link and not a link: anything else is refused, unread and left
+# in place, and the caller ends the launch, since only a forged value can fail this.
 ccy_token_handoff_take() {
-    local file="${CCY_GH_TOKEN_HANDOFF:-}"
+    local file="${CCY_GH_TOKEN_HANDOFF:-}" base suffix
     unset CCY_GH_TOKEN_HANDOFF
     [ -n "$file" ] || return 0
-    if [ -L "$file" ] || [ ! -f "$file" ] || [ ! -O "$file" ]; then
-        print_error "CCY_GH_TOKEN_HANDOFF=$file is not a file of this user's; the GitHub token handed on by the launch that started this one cannot be read."
+    base="$(cd -P -- "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}" && pwd)"
+    suffix="${file#"$base"/ccy-gh-token.}"
+    if [ -z "$base" ] || [[ ! "$suffix" =~ ^[[:alnum:]]{6}/token$ ]] \
+        || [ "$(find "${file%/token}" -maxdepth 0 -type d -user "$EUID" -perm 700 -printf ok)" != ok ] \
+        || [ "$(find "$file" -maxdepth 0 -type f -user "$EUID" -perm 600 -links 1 -printf ok)" != ok ]; then
+        printf 'ERROR: CCY_GH_TOKEN_HANDOFF=%s is not a GitHub token hand-off file made by ccy (%s/ccy-gh-token.XXXXXX/token, 0600 and one link, in a 0700 directory, both yours); it was not read and is left in place.\n' \
+            "$file" "${base:-the runtime directory}" >&2
         return 1
     fi
-    GH_TOKEN="$(<"$file")" || return 1
-    rm -f -- "$file" && rmdir -- "$(dirname -- "$file")"
+    # read fails at an end of file with no newline, which a launcher before 3.99.13.17 wrote.
+    IFS= read -r GH_TOKEN <"$file" || [ -n "${GH_TOKEN:+set}" ] || return 1
+    rm -f -- "$file" && rmdir -- "${file%/token}"
 }
 
 # ccy_token_handoff_give — write GH_TOKEN, when set, to a fresh hand-off file and set
-# CCY_GH_TOKEN_HANDOFF (not exported) to its path; the EXIT trap removes it.
+# CCY_GH_TOKEN_HANDOFF (not exported) to its path. The EXIT trap removes it on every exit
+# except an exec, which replaces the launcher and drops the trap.
 ccy_token_handoff_give() {
-    [ -n "${GH_TOKEN:-}" ] || return 0
-    local base="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}" dir
-    if ! dir="$(mktemp -d "$base/ccy-gh-token.XXXXXX")"; then
-        print_error "cannot make a private directory in $base to hand the GitHub token to the session."
+    [ -n "${GH_TOKEN:+set}" ] || return 0
+    local base dir
+    if ! base="$(cd -P -- "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}" && pwd)" \
+        || ! dir="$(mktemp -d "$base/ccy-gh-token.XXXXXX")"; then
+        printf 'ERROR: cannot make a private directory in %s to hand the GitHub token to the session.\n' \
+            "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}" >&2
         return 1
     fi
     CCY_GH_TOKEN_HANDOFF="$dir/token"
     trap ccy_token_handoff_drop EXIT
-    (umask 077 && printf '%s' "$GH_TOKEN" >"$CCY_GH_TOKEN_HANDOFF") || {
-        print_error "cannot write the GitHub token hand-off file in $dir."
+    # set +x in the subshell keeps the token out of a --debug trace, the caller's unchanged.
+    (set +x && umask 077 && printf '%s\n' "$GH_TOKEN" >"$CCY_GH_TOKEN_HANDOFF") || {
+        printf 'ERROR: cannot write the GitHub token hand-off file in %s.\n' "$dir" >&2
         return 1
     }
 }

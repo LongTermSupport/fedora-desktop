@@ -58,11 +58,13 @@ var sandboxDirs = []string{"bin", "home", cwdProject, cwdOutside, "tmp", "run", 
 var snapshotDirs = []string{"home", cwdProject, cwdOutside, "tmp", "run"}
 
 // fileSpec is one file placed in the sandbox before the run, its path relative to the sandbox.
-// Its modification time is the matrix's clock minus AgeDays.
+// Its modification time is the matrix's clock minus AgeDays. DirMode, when set, is the mode of
+// the directory that holds it (a private directory the launcher checks).
 type fileSpec struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
 	Mode    string `json:"mode"`
+	DirMode string `json:"dirMode"`
 	AgeDays int    `json:"ageDays"`
 }
 
@@ -344,6 +346,15 @@ func (s sandbox) place(t *testing.T, f fileSpec) {
 	stamp := s.machineNow.Add(-time.Duration(f.AgeDays) * hoursPerDay * time.Hour)
 	if err := os.Chtimes(path, stamp, stamp); err != nil {
 		t.Fatal(err)
+	}
+	if f.DirMode != "" {
+		dirPerm, err := strconv.ParseUint(f.DirMode, 8, 32)
+		if err != nil {
+			t.Fatalf("%s: dirMode %q: %v", f.Path, f.DirMode, err)
+		}
+		if err := os.Chmod(filepath.Dir(path), fs.FileMode(dirPerm)); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

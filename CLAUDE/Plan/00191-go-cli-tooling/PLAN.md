@@ -316,8 +316,9 @@ today; rewriting them is out of scope.
   - Review (Opus, FIX-FIRST): `subagent-reports/261021-launcher-harness-review-opus.md`; every
     finding fixed as above.
 - [x] ✅ **Task 4.4b**: Launcher review follow-ups (round 1 finding 1, round 2 findings 1, 2,
-  4, 5, 7), CCY 3.99.13.15 and 3.99.13.16, containers 2.78.12 and 2.78.13 (the image carries
-  the guide, corrected twice; the commit hook requires a bump each time).
+  4, 5, 7; the hand-off's round 2 findings 1, 2 and 6), CCY 3.99.13.15 to 3.99.13.17,
+  containers 2.78.12 and 2.78.13 (the image carries the guide, corrected twice; the commit
+  hook requires a bump each time).
   - Secrets: the launcher held `GH_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN` exported from
     `claude-yolo`'s pre-run `export` (every later program: uname, timedatectl, sudo, curl in
     the restart update, compose) and `create_token`'s `export GH_TOKEN` (global from then on),
@@ -332,10 +333,9 @@ today; rewriting them is out of scope.
     the insulation): the outer launcher writes the token to a fresh 0600 file in a `mktemp -d`
     (0700) directory under `XDG_RUNTIME_DIR`, else `TMPDIR`, failing the launch if it cannot;
     only the path travels, as `env CCY_GH_TOKEN_HANDOFF=<path>` on the pane's command (never
-    tmux's environment) or on the `exec` of an attach refused; the library, sourced first
-    after `common.bash`, reads it and deletes it, refusing a link or a file not the user's;
-    the outer launcher's EXIT trap removes a file not taken, and when insulation does not
-    apply it takes the file back itself. The custom-Dockerfile re-runs
+    tmux's environment) or on the `exec` of an attach refused; the library, sourced before
+    every other one, reads it and deletes it; when insulation does not apply the outer
+    launcher takes the file back itself. The custom-Dockerfile re-runs
     (`lib/dockerfile-custom.bash`) give the token to the `exec` in its own environment.
     Red first: `scripts/test-ccy-token-handoff.bash` (new gate, 27 checks, the launcher's
     own entry point under `script` with a fake tmux that runs the pane) failed 10 on the
@@ -370,6 +370,35 @@ today; rewriting them is out of scope.
     line by `^container_cmd run`; they now match its prefixed form.
   - Review (Opus, FIX-FIRST): `subagent-reports/261021-launcher-token-hardening-review-opus.md`;
     findings 1, 2, 4, 5 and 6 fixed as above, 7 left as noted, 3 and 8 to 12 confirmations.
+  - Hand-off review round 2 (Opus, FIX-FIRST):
+    `subagent-reports/261021-launcher-token-handoff-review-2-opus.md`. CCY 3.99.13.17.
+    - Finding 1 (BLOCKING): a launcher read and deleted any file of the user's that
+      `CCY_GH_TOKEN_HANDOFF` named. Now only `<base>/ccy-gh-token.XXXXXX/token` is taken,
+      `<base>` resolved (`cd -P`) as the writer resolves it; the directory must be the
+      user's, 0700 and not a link, the file the user's, 0600, one link and not a link
+      (`find -perm`/`-links`, not `stat`, which the harness runs as a clock fake). Anything
+      else ends the launch, naming the variable, and the file is not read or deleted.
+    - Finding 2: a new session's outer launcher ends in `exec tmux attach-session`, which
+      drops its EXIT trap, so the trap covers only Esc, an attach refused and no insulation.
+      The inner launcher now sources `lib/token-handoff.bash` first, before `common.bash`
+      and the library check, so a launch that fails after that still removes the file. What
+      remains: if the inner launcher never starts (tmux cannot run it, or that one library
+      is missing), the file stays in the user's 0700 `XDG_RUNTIME_DIR` until logout, or
+      under `TMPDIR` when there is no runtime directory.
+    - Finding 6: `--debug`'s `set -x` traced the token. The hand-off's lines and the three
+      GitHub token tests in `lib/ssh-handling.bash` expand no token (`${GH_TOKEN:+set}`,
+      `read` into the variable, the write in a subshell with `set +x`). Every other traced
+      token line (the session run, `create_token`, `validate_token`) still expands it, so
+      the log's copy of the output has GitHub (`gh?_`, `github_pat_`) and Claude (`sk-ant-`)
+      tokens masked by an `awk` stage; the terminal shows the raw trace. The log is now made
+      by `mktemp` (0600, a fresh name), not a plain redirect into `/tmp`. Not masked: a
+      token of no known prefix (a legacy 40-hex GitHub token) in those other lines.
+    - Red first: `scripts/test-ccy-token-handoff.bash` failed 27 of 64 on the merged branch
+      (each refusal case, the source order, the real launcher leaving the file, the debug
+      log holding all three tokens at mode 0644); green 72 of 72. The harness fixture
+      `launch-gh-token-handoff` was refused too (an 8-character suffix, a 0755 directory):
+      it now has a 6-character suffix and a 0700 directory (`dirMode` in a scenario's file),
+      and keeps a token file with no newline, as a 3.99.13.16 outer launcher writes it.
 - [ ] 🔄 **Task 4.5**: Launcher phases 1 and 2: the foundation packages, then `--version`,
   `--help` and the other standalone modes, each a one-flag cut-over.
   - Phase 1 built (nothing cut over or installed, no play change, no CCY bump), each package

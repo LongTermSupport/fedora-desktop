@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.99.13.16"  # Container 2.78.13: secrets reach only the programs that read them, an exported GH_TOKEN handed to the tmux re-run by file; host-path overrides must be absolute (Plan 00191). See docs/ccy-changelog.md.
+CCY_VERSION="3.99.13.17"  # Container 2.78.13: the GH_TOKEN hand-off takes only a file ccy made, taken first; --debug's log 0600 with tokens masked (Plan 00191). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -30,8 +30,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # from lib/ (see CCY_HASH), because a hand-written list of what the program
 # consists of is a list that goes stale — this one omitted common-pure.bash,
 # which common.bash sources, for two months.
-CCY_LIBS=(common token-handoff host-paths token-management ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session agent-bus-membership agent-bus-seats)
+CCY_LIBS=(token-handoff common host-paths token-management ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session agent-bus-membership agent-bus-seats)
 
+# First, before anything that can end this launch: a GitHub token handed on by the launch
+# that started this one is taken, and its file deleted, at once.
+# shellcheck source=lib/token-handoff.bash
+source "$SCRIPT_DIR/lib/token-handoff.bash" || exit 1
 # print_error is not loaded yet: a missing common.bash is reported by bash, naming the path.
 source "$SCRIPT_DIR/lib/common.bash" || exit 1
 
@@ -51,9 +55,6 @@ for lib in "${CCY_LIBS[@]}"; do
     fi
 done
 
-# First: a GitHub token handed on by the launch that started this one is taken at once.
-# shellcheck source=lib/token-handoff.bash
-source "$SCRIPT_DIR/lib/token-handoff.bash"
 # shellcheck source=lib/host-paths.bash
 source "$SCRIPT_DIR/lib/host-paths.bash"
 # shellcheck source=lib/token-management.bash
@@ -1065,12 +1066,14 @@ if [ "$SHOW_DEBUG_CHOOSER" = true ]; then
     # Other layers (entrypoint, Claude) don't need log files
     if [ "$DEBUG_CCY" = true ]; then
         DEBUG_MODE=true
-        DEBUG_LOG="${TMPDIR:-/tmp}/ccy-debug-$(date +%Y%m%d-%H%M%S).log"
+        DEBUG_LOG="$(mktemp --suffix=.log "${TMPDIR:-/tmp}/ccy-debug-$(date +%Y%m%d-%H%M%S)-XXXXXX")" || exit 1
         echo ""
         echo "Debug logging to: $DEBUG_LOG"
         echo ""
-        # Redirect all output to both terminal and log file
-        exec > >(tee -a "$DEBUG_LOG") 2>&1
+        # All output to the terminal and to the log (mktemp: 0600, a fresh name). The trace
+        # expands tokens, so the log's copy has GitHub and Claude tokens, known by their
+        # prefixes, masked; lib/token-handoff.bash expands no token in a traced line.
+        exec > >(tee >(awk '{ gsub(/(gh[opsur]_|github_pat_|sk-ant-)[A-Za-z0-9_-]+/, "<token hidden>"); print; fflush() }' >>"$DEBUG_LOG")) 2>&1
         set -x
     fi
 fi
@@ -2480,16 +2483,18 @@ if [ "$DEBUG_CCY" = true ]; then
     echo "    $IMAGE_NAME \\"
     echo "    claude --dangerously-skip-permissions ${CLAUDE_ARGS[*]}"
     echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-    echo "Debug log saved to: $DEBUG_LOG"
-    echo ""
-    echo "Container will start now. Once inside, you can check:"
-    echo "  ls -la /workspace/.claude/"
-    echo "  echo \$CLAUDE_CODE_OAUTH_TOKEN"
-    echo ""
-    echo "After exiting, review the debug log with:"
-    echo "  cat $DEBUG_LOG"
-    echo ""
+    cat <<EOF
+
+Debug log saved to: $DEBUG_LOG
+
+Container will start now. Once inside, you can check:
+  ls -la /workspace/.claude/
+  echo \$CLAUDE_CODE_OAUTH_TOKEN
+
+After exiting, review the debug log with:
+  cat $DEBUG_LOG
+
+EOF
     read -rp "Press Enter to continue..."
 fi
 
