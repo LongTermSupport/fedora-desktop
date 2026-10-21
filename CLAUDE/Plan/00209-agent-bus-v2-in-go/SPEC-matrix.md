@@ -224,3 +224,17 @@ and member flows, device-ID grammar, what a non-200 means for each step.
 - **MB6.** No `/relations` endpoint: nothing in 00211 needs one.
 - **MB7.** `next_batch` and a limited timeline's `prev_batch` are checked by the client, where v1's
   syncer checked them; the rule is the same.
+- **MB8.** One general client: `Admin` embeds `Client`, so the host has every client-server call
+  (`Login`, `CreateRoom`, `Invite`, `Kick`, `Membership`, `JoinedRooms` are `Client` methods), and
+  `Register` asks its single-use nonce itself (no exported `RegisterNonce`).
+- **MB9.** The User-Agent defaults per side as M5 says and `Config.UserAgent` replaces it, as v2
+  names its own binaries.
+- **MB10.** `Send` retries only a transient `Unreachable` (no answer, timed out, cut short); an
+  over-long or non-JSON answer and a cancellation are not retried.
+- **MB11.** A nil list in `RoomFilter` is not sent (every room or type), an empty one asks for
+  none; `/messages` `from` is optional. A sync's `leave` section is read like `join`.
+- **MB12.** The token is a `Token` that formats as a placeholder whatever the verb and refuses
+  `MarshalText`; the client keeps it only inside a closure, so no formatting of the struct reaches
+  it. A call refused before any request is `ErrInvalid` (exit 7).
+- **MB13.** A member base URL's port is canonical (no leading zero) and its IP literal canonical,
+  as the admin rule; `Membership` refuses an empty user ID (a member state key is never empty).
