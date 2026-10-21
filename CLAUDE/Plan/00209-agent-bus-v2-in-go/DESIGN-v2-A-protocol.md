@@ -930,7 +930,7 @@ Kept from v1 (P19, `protocol.py:252-262`), with one change: an answer's `re` is 
 | `blocked` | required  | any              | optional       | no              | coordinator, worker | yes          |
 
 - Addressable: a non-parked role holder; for `ack`, `nack`, `done` and `blocked` also a listed human
-  (P20, P22). A worker's ping that names a human copies the coordinators (P21).
+  (P20, P22). A worker's ping that names a human copies the coordinator (P21).
 - `branch` only beside a `path` or `commit` reference (P28).
 - A sender outside the verb's senders: drop `role` (P23). An unknown verb: drop `verb`.
 - The reply relation where forbidden, or missing where required: drop `schema`.
@@ -959,19 +959,21 @@ addresses this member.
 
 ### 8.3 Timeouts
 
-When the member's clock passes a ping's deadline, each addressee that has not answered gets exactly
-one TIMEOUT, keyed `<ping event ID>~<addressee localpart>` and marked reported once delivered (R42;
+When the member's clock passes a ping's deadline plus a 30 s grace (one long-poll interval, so an
+answer the server already holds has had one sync to arrive), each addressee that has not answered
+gets exactly one TIMEOUT, keyed `<ping event ID>~<addressee localpart>` and marked reported once delivered (R42;
 v1 `inbox.py:840-860`). A TIMEOUT is never retried and spends no flood budget. Its authority is "a
 fact about your own ping" (13.3).
 
 ### 8.4 What is delivered
 
-| Arrives                       | Delivered as                                                                                                                                              |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| a ping that expects an answer | a PING entry                                                                                                                                              |
-| `nack`, `done`, `blocked`     | a PING entry                                                                                                                                              |
-| `ack`                         | no entry of its own: recorded, and the next delivery for another reason carries an `answered:` line for it (13.1); `history` and `status` show it (OD-A2) |
-| a late answer                 | as above, marked late in `history`                                                                                                                        |
+| Arrives                                                                     | Delivered as                                                                                                                                              |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| a ping that expects an answer                                               | a PING entry                                                                                                                                              |
+| `nack`, `done`, `blocked`                                                   | a PING entry                                                                                                                                              |
+| `ack`                                                                       | no entry of its own: recorded, and the next delivery for another reason carries an `answered:` line for it (13.1); `history` and `status` show it (OD-A2) |
+| a late answer                                                               | as above, marked late in `history`                                                                                                                        |
+| an on-time answer (by server time) arriving after its TIMEOUT was delivered | as above, and its `answered:` line ends `(after its TIMEOUT)`, whatever the verb, so the session knows the TIMEOUT no longer holds                        |
 
 Why `ack` is not its own delivery: each entry costs the receiving session a model turn, and an
 `ack` changes nothing the session must do: it waits for `done` or `blocked`, and a missing answer
@@ -1024,8 +1026,9 @@ Who checks: the sender before it sends (a failure refuses the send), and every r
 delivers (a failure drops the ping). Each uses its own forge login (`gh` for github.com), so a
 member never trusts another member's word for a forge fact. Never in a hook (v1 `forge.py:4-5`).
 The credential is re-read when a check needs it and the held copy is older than B's bound, and at
-once after a 401; it is sent only as an `Authorization` header to the roster's `forge.api` origin
-and never written or logged (R44).
+once after a 401; it is sent only as an `Authorization` header to the origin fixed per
+`forge.kind` in `<v2>/proto` (`https://api.github.com` for `github`, the only kind; 5.1 says why the
+origin is not in the roster), and never written or logged (R44).
 
 What proves a reference, by class (v1 `forge.py:323-405`):
 
@@ -1046,7 +1049,8 @@ The rule under all of it, from v1's own comment: **a commit the API returns prov
 a fork's commits are served through its parent's API; only reachability from a branch of a trusted
 repository proves provenance (`forge.py:343-345`).
 
-Results: proven (deliver, with the class as `trust`); `provenance` (found but not proven); `unresolved`
+Results: proven (deliver, with `trust: trusted` for a listed or org reference and `trust: external`
+otherwise, 13.2); `provenance` (found but not proven); `unresolved`
 (not found, wrong kind, forge unreachable, forge refused the credential); `forge-rate` (the forge
 rate-limited the check, which says nothing about the reference, so it is not the bus's `rate`).
 
@@ -1111,8 +1115,12 @@ coordinator in main (00211 D7).
 - Form (P54): headline 1-120 code points, then `Context:` and `Question:` sections (required) and
   `Options:` (optional, lines `1. ` to at most `9. ` in order); the whole at most 8000 bytes; `body`
   starts `Q<n> `. A form error is refused `body`, naming the section.
-- `n` is 1 plus the highest `n` among the coordinators' questions in the room's history, so a
-  replacement coordinator numbers the same way with no session state (00211).
+- The secret check of 7.3 runs over the whole text: secret shapes and the sender's own token are
+  refused `secret` (R43, P51). The room's history is `shared` and redaction is closed (4.2), so a
+  pasted token could never be withdrawn.
+- `n` is 1 plus the highest `n` among the `<ns>.question` events in the room's history, from any
+  agent account (the question index rule of 7.6), so a replacement coordinator numbers the same way
+  with no session state (00211).
 - `asked_by` 0-16 user IDs of members; `re` 0-16 main-room event IDs the question came from.
 - `remind_after_s` optional, 600-604800 (10.5).
 - An open question whose `Question:` section equals the new one (whitespace collapsed) refuses the
@@ -1133,19 +1141,24 @@ The coordinator's follow-ups inside a question's thread:
     "rel_type": "m.thread",
     "event_id": "$<question>",
     "is_falling_back": true,
-    "m.in_reply_to": {"event_id": "$<question>"}
+    "m.in_reply_to": {"event_id": "$<latest thread event>"}
   },
   "<ns>.thread": {"v": 1, "n": 3, "close": true}
 }
 ```
 
+- The fallback `m.in_reply_to` names the latest event in the thread the coordinator knows of (the
+  question itself when the thread is empty), as the Matrix specification's thread fallback does, so
+  a client without threads shows the post after the last one rather than every post as a reply to
+  the question.
 - With an answer to a specific human post, `m.in_reply_to` names that post and `is_falling_back` is
   `false` (the Matrix thread form).
+- The secret check of 7.3 runs over the text, as for questions (10.2).
 - `close: true` closes the question; text may then be empty and the body is `Q<n> closed.`.
 - A post that asks the humans something again is `m.text` and mentions them; otherwise `m.notice`
   and no mentions (00211 `--ask`).
-- At most 4000 bytes. `<ns>.thread` replaces v1's `agent_bus.question_state`, so every coordinator
-  post in questions is typed.
+- At most 4000 bytes. `<ns>.thread` replaces v1's `agent_bus.question_state`, so every post the
+  coordinator makes in questions is typed.
 
 ### 10.4 Matching a human's answer to a question
 
@@ -1210,18 +1223,21 @@ Set in the roster's `limits`, the same for every member (AR25). Values from v1 (
 
 ### 11.2 Fixed limits
 
-| What                            | Limit                                                                                                             | Source  |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------- |
-| any agent event content         | 16384 bytes                                                                                                       | new     |
-| ping object                     | 4096 bytes; `to` 1-32                                                                                             | P26     |
-| agent text                      | 1-4096 bytes; `to` 1-16                                                                                           | P32     |
-| notice `to`                     | 1-17                                                                                                              | R28     |
-| human body                      | 16384 bytes                                                                                                       | P36     |
-| report / question / thread post | 1500 / 8000 / 4000 bytes; headline 1-120 code points                                                              | P51-P54 |
-| duplicate window                | 60 s on `[verb or kind, ref, re, sorted to]`; notices exempt (v1 lesson: it can only lose a second, true goodbye) | P62     |
-| reference                       | 700 characters                                                                                                    | P13     |
-| roster lists                    | humans 1-16; members 0-64; repos 0-32; branches 1-8 per repo; exclude 1-32; path prefixes 1-32                    | P59     |
-| presence `status_msg`           | 200 bytes printable ASCII                                                                                         | new     |
+| What                            | Limit                                                                                                                          | Source  |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------- |
+| any agent event content         | 16384 bytes                                                                                                                    | new     |
+| ping object                     | 4096 bytes; `to` 1-32                                                                                                          | P26     |
+| agent text                      | 1-4096 bytes; `to` 1-16                                                                                                        | P32     |
+| notice `to`                     | 1-17                                                                                                                           | R28     |
+| human body                      | 16384 bytes                                                                                                                    | P36     |
+| report / question / thread post | 1500 / 8000 / 4000 bytes; headline 1-120 code points                                                                           | P51-P54 |
+| duplicate window                | 60 s on `[verb or kind, ref, re, sorted to, text digest]`; notices exempt (v1 lesson: it can only lose a second, true goodbye) | P62     |
+| reference                       | 700 characters                                                                                                                 | P13     |
+| roster lists                    | humans 1-16; members 0-64; repos 0-32; branches 1-8 per repo; exclude 1-32; path prefixes 1-32                                 | P59     |
+
+The duplicate key's text digest is the SHA-256 of the typed object's free text for the text-bearing
+kinds (agent text, report, question, thread post), and empty for pings. Two different `say`s to the
+same addressee in one window are therefore both sent; the same text twice is refused `duplicate`.
 
 ### 11.3 Server waits
 
@@ -1277,19 +1293,21 @@ never notified that an agent had answered them.
 | continue a conversation | reply, or reply in the thread of the agent's message (7.5 rules 3 and 4)             |
 | correct an instruction  | edit the message; the agent receives the new text as a revision (7.5)                |
 | answer a question       | reply in its thread in questions (or start a message `Q3: ...`)                      |
-| see who is live         | the online dots; `who` in ccy-teams                                                  |
+| see who is live         | the online dots (display, 6.6); the board in ccy-teams, from the seat locks (R27)    |
 
 What a human cannot do, and why:
 
-- **Delete a message.** Redaction is closed (I2): an agent may already have acted on it, and the
-  record of what it was told must stay. To withdraw an instruction, write or edit a correction.
-- **React, send a poll, a sticker, a location or a call.** Closed by the allow-list (4.2): no agent
-  reads them, so offering them would let a human believe they had answered.
+- **Delete a message.** Redaction is closed (I4: `m.room.redaction` is not on the allow-list, so it
+  falls to `events_default`): an agent may already have acted on it, and the record of what it was
+  told must stay. To withdraw an instruction, write or edit a correction.
+- **React, send a poll, a sticker or a call.** Closed by the allow-list (4.2): no agent reads them,
+  so offering them would let a human believe they had answered.
 - **Invite, kick or change the room.** Only the admin, through ccy-teams (C).
 - **Post in reports**, or anywhere in questions while it is closed.
 
-A human's file, image or `/me` message is an `m.room.message` the server cannot refuse; agents
-ignore it (7.5) and it counts as unheard.
+A human's file, image, voice message, location share or `/me` message is an `m.room.message` with
+another `msgtype`. These stay open: power levels gate event types, not msgtypes, so the server
+cannot refuse them. Agents ignore them (7.5) and they count as unheard.
 
 ### 12.3 Impersonation in Element
 
@@ -1297,7 +1315,10 @@ Any member can set a per-room display name equal to a human's; Matrix gives powe
 a user's own membership event. No rule in v2 reads a display name, and the envelope shows the
 localpart, so no agent is deceived. A human can be: Element shows the user ID beside both names when
 two members share one, and agent user IDs always contain `.` and `+`. C's health check reports any
-member whose room display name differs from its global one, so the owner sees an attempt.
+member whose room display name differs from its global one, so the owner sees an attempt. A display
+name is member-controlled text, so the check compares and reports by user ID, and shows the display
+name itself only when it passes the human or handle grammar (R39); otherwise it says
+`display name fails the grammar`.
 
 ---
 
@@ -1473,18 +1494,18 @@ Entries are ordered by `origin_server_ts` across teams, then TIMEOUTs in the ord
 
 ## 14. How it is tested
 
-| Layer                  | What                                                                                                                                                                                                                                                                                                                | With                                                                             |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| strict decoder         | every rule of 2.1, including a lone surrogate, a repeated key, `1.0`, `1e3`, 2^53                                                                                                                                                                                                                                   | table tests; a fuzz target that must never panic or accept what it should refuse |
-| `<v2>/proto` routing   | every row of 7.6, every drop and ignore reason, every verb row of 8.1, every reference rule of section 9                                                                                                                                                                                                            | the protocol corpus: JSON cases of (roster, room, receiver, event) to outcome    |
-| versioning             | an unknown key ignored; an unknown major dropped `version`; an unknown feature dropped and, in the roster, untrusted; the key registry complete                                                                                                                                                                     | corpus cases; a test that every key in every Go struct is marked (3.1)           |
-| power-level invariants | every form in 4.2 passes; each mutation that breaks I1-I4 fails, naming the invariant                                                                                                                                                                                                                               | table tests                                                                      |
-| trust                  | each check of 6.4 failing alone; every trigger of 6.5 causing a re-check; judging against the current roster                                                                                                                                                                                                        | the Go fake homeserver (SPEC-matrix's `fakehs`) with scripted state              |
-| answers and timeouts   | 8.2-8.5: deadlines from server times, late answers, answers from non-addressees, one TIMEOUT per addressee, reminders                                                                                                                                                                                               | pure functions with `now` passed in                                              |
-| envelope               | exact bytes for each kind and trailing line; caps; truncation never inside an escape; 13.6's worked attack (a body holding real newlines, markers, `kind: HUMAN`, U+202E and `ESC[201~`) stays on one `body:` line                                                                                                  | golden files in the corpus                                                       |
-| body escaping          | a property test over every Unicode scalar value: a rendered body holds no unescaped `"`, `\`, line break, control, format, separator other than U+0020, private-use or unassigned code point, and no NFKC look-alike of `"` `\` `<` `>`; `unicode.Version` pinned                                                   | exhaustive loop, not sampling                                                    |
-| server behaviour       | real Tuwunel, behind the `tuwunel` build tag: rooms built per 4.2; the server refuses an agent's state event, a human's reaction, poll start, redaction and invite, a human's post in reports, any post in closed questions; restricted join works; `+` localparts; relations stored and returned; presence (HC-A1) | the M44 harness, in the VM lab and on demand                                     |
-| Element                | the owner's acceptance steps (12.1-12.2): mention, reply, thread reply, edit, notifications on `m.text` and not on `m.notice`, reports composer hidden, no react or poll button; the raw events are recorded under `untracked/` and anonymised into corpus fixtures                                                 | owner, once per Element major change                                             |
+| Layer                  | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | With                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| strict decoder         | every rule of 2.1, including a lone surrogate, a repeated key, `1.0`, `1e3`, 2^53                                                                                                                                                                                                                                                                                                                                                                                                                | table tests; a fuzz target that must never panic or accept what it should refuse |
+| `<v2>/proto` routing   | every row of 7.6, every drop and ignore reason, every verb row of 8.1, every reference rule of section 9, every send refusal including `secret` for `say`, report, `ask-human` and `thread`                                                                                                                                                                                                                                                                                                      | the protocol corpus: JSON cases of (roster, room, receiver, event) to outcome    |
+| versioning             | an unknown key ignored; an unknown major dropped `version`; an unknown feature dropped and, in the roster, untrusted; the key registry complete                                                                                                                                                                                                                                                                                                                                                  | corpus cases; a test that every key in every Go struct is marked (3.1)           |
+| power-level invariants | every form in 4.2 passes; each mutation that breaks I1-I4 fails, naming the invariant                                                                                                                                                                                                                                                                                                                                                                                                            | table tests                                                                      |
+| trust                  | each check of 6.4 failing alone; every trigger of 6.5 causing a re-check; judging against the current roster                                                                                                                                                                                                                                                                                                                                                                                     | the Go fake homeserver (SPEC-matrix's `fakehs`) with scripted state              |
+| answers and timeouts   | 8.2-8.5: deadlines from server times, late answers, answers from non-addressees, one TIMEOUT per addressee, reminders                                                                                                                                                                                                                                                                                                                                                                            | pure functions with `now` passed in                                              |
+| envelope               | exact bytes for each kind and trailing line; caps; truncation never inside an escape; 13.6's worked attack (a body holding real newlines, markers, `kind: HUMAN`, U+202E and `ESC[201~`) stays on one `body:` line                                                                                                                                                                                                                                                                               | golden files in the corpus                                                       |
+| body escaping          | a property test over every Unicode scalar value: a rendered body holds no unescaped `"`, `\`, line break, control, format, separator other than U+0020, private-use or unassigned code point, and no NFKC look-alike of `"` `\` `<` `>`; `unicode.Version` pinned                                                                                                                                                                                                                                | exhaustive loop, not sampling                                                    |
+| server behaviour       | real Tuwunel, behind the `tuwunel` build tag: rooms built per 4.2; the server refuses an agent's state event, a human's reaction, poll start, redaction and invite, a human's post in reports, any post in closed questions; restricted join works; `+` localparts; relations stored and returned; presence (HC-A1): a sync with the default `set_presence` marks online, one with `set_presence=offline` leaves it unchanged, a keeper `PUT` of `offline` takes effect, a dead member times out | the M44 harness, in the VM lab and on demand                                     |
+| Element                | the owner's acceptance steps (12.1-12.2): mention, reply, thread reply, edit, notifications on `m.text` and not on `m.notice`, reports composer hidden, no react or poll button; the raw events are recorded under `untracked/` and anonymised into corpus fixtures                                                                                                                                                                                                                              | owner, once per Element major change                                             |
 
 The corpus lives beside the Go package (D names the directory). There is no second implementation
 to agree with: v1's corpus is an input for the cases worth keeping, not an oracle (frame direction
@@ -1499,14 +1520,14 @@ Area A adds no process, port or unit. What its rules cost a member, per team:
 | Rule                         | Cost                                                                                                                                                 |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | verify a room (6.4)          | one `GET /rooms/{room}/state` per verification: at start, on join, and per trust-type change or gap; three rooms for a coordinator, two for a worker |
-| presence (6.6)               | one `PUT /presence` at seat claim and one at release; staying online rides on the sync the member already runs                                       |
+| presence (6.6)               | one `PUT /presence` (offline) at a clean release; being online rides on the worker's sync, which already runs; no server state per member            |
 | human reply addressing (7.5) | one event fetch per human reply or thread post not already in the member's cache                                                                     |
 | human edit (7.5)             | one fetch of the original                                                                                                                            |
 | forge check (9.3)            | per receiver per referenced ping: up to four forge calls on a cold cache, none on a warm one (3600 s, 30 days)                                       |
 | question index (10.4)        | the coordinator reads the questions room's history with `/messages` when it starts, then follows its sync                                            |
 
 What it saves against v1: no three state reads per send (`verify_room` on every send); no status
-state event per member every 300 s for ever (with presence); no delivery and model turn per `ack`.
+state event per member every 300 s for ever (the seat lock is liveness); no delivery and model turn per `ack`.
 
 ---
 
@@ -1515,15 +1536,15 @@ state event per member every 300 s for ever (with presence); no delivery and mod
 Facts this design rests on that no source records yet. Each is a check in the plan's VM lab or
 Tuwunel-tagged harness, run before the build freezes the schema.
 
-| Check | Question                                                                                                                                                                                      | If it fails                                                          |
-| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| HC-A1 | Does Tuwunel serve presence with federation off: a member's `PUT /presence` with `status_msg` reaches another member's filtered sync, and a dead member goes offline by the server's timeout? | the state-event form of 6.6 (OD-A1)                                  |
-| HC-A2 | Does Element notify a human for an `m.text` that mentions them, and not for an `m.notice` that mentions them?                                                                                 | agent text to humans keeps the mention and the decision is revisited |
-| HC-A3 | Element's event shapes for reply, reply in thread (with and without a quoted post), and edit, in the version the owner uses                                                                   | 7.5 and 10.4 are amended to the recorded shapes                      |
-| HC-A4 | Does Tuwunel accept and enforce 4.2's power levels exactly as written: polls, reactions, stickers, redactions refused for humans; a power-level object read back unchanged?                   | the invariants stay; the layout names the refused types explicitly   |
-| HC-A5 | Does Element hide the composer in reports and the react button where `m.reaction` is closed?                                                                                                  | display only; the server still refuses                               |
-| HC-A6 | Tuwunel's own service account localpart, to reserve                                                                                                                                           | reserved by its observed name                                        |
-| HC-A7 | Does `GET /rooms/{room}/state` return the create event with its `sender`, so one read verifies a room?                                                                                        | a second read with `?format=event`, as v1                            |
+| Check | Question                                                                                                                                                                                                                                                                                                    | If it fails                                                          |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| HC-A1 | Does Tuwunel serve presence with federation off: a worker's default sync marks it online in another member's filtered sync; a sync with `set_presence=offline` means no change (not "set offline"); a keeper `PUT /presence` of `offline` takes effect; a dead member goes offline by the server's timeout? | OD-A1 (b): no liveness on the wire; `who` shows the roster only      |
+| HC-A2 | Does Element notify a human for an `m.text` that mentions them, and not for an `m.notice` that mentions them?                                                                                                                                                                                               | agent text to humans keeps the mention and the decision is revisited |
+| HC-A3 | Element's event shapes for reply, reply in thread (with and without a quoted post), and edit, in the version the owner uses                                                                                                                                                                                 | 7.5 and 10.4 are amended to the recorded shapes                      |
+| HC-A4 | Does Tuwunel accept and enforce 4.2's power levels exactly as written: polls, reactions, stickers, redactions refused for humans; a power-level object read back unchanged?                                                                                                                                 | the invariants stay; the layout names the refused types explicitly   |
+| HC-A5 | Does Element hide the composer in reports and the react button where `m.reaction` is closed?                                                                                                                                                                                                                | display only; the server still refuses                               |
+| HC-A6 | Tuwunel's own service account localpart, to reserve                                                                                                                                                                                                                                                         | reserved by its observed name                                        |
+| HC-A7 | Does `GET /rooms/{room}/state` return the create event with its `sender`, so one read verifies a room?                                                                                                                                                                                                      | a second read with `?format=event`, as v1                            |
 
 ---
 
@@ -1531,17 +1552,17 @@ Tuwunel-tagged harness, run before the build freezes the schema.
 
 Each has a default that the build follows unless the owner says otherwise.
 
-| ID    | Decision                                         | Options                                                                                         | Default and why                                                                                       |
-| ----- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| OD-A1 | How liveness and accepted versions are published | (a) Matrix presence; (b) a member state event on a timer, as v1                                 | (a), if HC-A1 passes: no room-history growth, no open state type, an online dot in Element            |
-| OD-A2 | Whether an `ack` is delivered as its own entry   | (a) no: recorded and shown as an `answered:` line in the next delivery; (b) yes, as v1          | (a): an ack changes nothing the session must do, and each delivery costs a model turn                 |
-| OD-A3 | Where agent-to-agent pings go                    | (a) main, with humans; (b) a fourth traffic room                                                | (a): one conversation, one room to sync; humans can mute main if it is busy                           |
-| OD-A4 | Sign the roster                                  | (a) no: rely on the server's authorisation of state; (b) an admin Ed25519 key pinned in bundles | (a): the realistic attacker holds both keys; (b) adds custody and rotation for a server-bug defence   |
-| OD-A5 | Reactions for humans                             | (a) closed everywhere; (b) open in main, display only                                           | (a): a reaction looks like an answer and no agent reads it                                            |
-| OD-A6 | Question reminders                               | (a) optional per question (`--remind-after`), off unless given; (b) a team-wide default         | (a): the coordinator knows which question blocks work                                                 |
-| OD-A7 | The handle grammar                               | (a) v1's, with `host` renamed `site`; (b) dots only; (c) opaque IDs                             | (a): legible, derived, stable; 2.3                                                                    |
-| OD-A8 | Human edits in main                              | (a) delivered as revisions, as in questions; (b) dropped, as v1                                 | (a): a correction the owner makes should arrive                                                       |
-| OD-A9 | Rich text from agents                            | (a) plain `body` only; (b) markdown rendered to `formatted_body`                                | (a) for now: display only, and Element's HTML sanitiser is one more thing to trust; revisit on demand |
+| ID    | Decision                                       | Options                                                                                                                                         | Default and why                                                                                                                                                                                |
+| ----- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OD-A1 | How liveness is shown to members and humans    | (a) Matrix presence, as display only (the seat lock stays the truth, R27); (b) no liveness on the wire. v1's state event is not an option (6.6) | (a), if HC-A1 passes: no room-history growth, no open state type, an online dot in Element. Accepted versions are never published: C derives them from each seat's recorded `<v2-bin>` version |
+| OD-A2 | Whether an `ack` is delivered as its own entry | (a) no: recorded and shown as an `answered:` line in the next delivery; (b) yes, as v1                                                          | (a): an ack changes nothing the session must do, and each delivery costs a model turn                                                                                                          |
+| OD-A3 | Where agent-to-agent pings go                  | (a) main, with humans; (b) a fourth traffic room                                                                                                | (a): one conversation, one room to sync; humans can mute main if it is busy                                                                                                                    |
+| OD-A4 | Sign the roster                                | (a) no: rely on the server's authorisation of state; (b) an admin Ed25519 key pinned in bundles                                                 | (a): the realistic attacker holds both keys; (b) adds custody and rotation for a server-bug defence                                                                                            |
+| OD-A5 | Reactions for humans                           | (a) closed everywhere; (b) open in main, display only                                                                                           | (a): a reaction looks like an answer and no agent reads it                                                                                                                                     |
+| OD-A6 | Question reminders                             | (a) optional per question (`--remind-after`), off unless given; (b) a team-wide default                                                         | (a): the coordinator knows which question blocks work                                                                                                                                          |
+| OD-A7 | The handle grammar                             | (a) v1's, with `host` renamed `site`; (b) dots only; (c) opaque IDs                                                                             | (a): legible, derived, stable; 2.3                                                                                                                                                             |
+| OD-A8 | Human edits in main                            | (a) delivered as revisions, as in questions; (b) dropped, as v1                                                                                 | (a): a correction the owner makes should arrive                                                                                                                                                |
+| OD-A9 | Rich text from agents                          | (a) plain `body` only; (b) markdown rendered to `formatted_body`                                                                                | (a) for now: display only, and Element's HTML sanitiser is one more thing to trust; revisit on demand                                                                                          |
 
 ---
 
@@ -1550,7 +1571,7 @@ Each has a default that the build follows unless the owner says otherwise.
 | Risk                                                                                                        | Mitigation                                                                                   |
 | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | Element's reply, thread and edit shapes differ from the Matrix specification (00211 never tested them)      | HC-A3 before freeze; every form is delivered, attached or not (10.4 rule 5)                  |
-| Presence on Tuwunel is missing or unreliable                                                                | HC-A1 decides; the state-event form is specified                                             |
+| Presence on Tuwunel is missing or unreliable                                                                | HC-A1 decides; presence is display only, so OD-A1 (b) drops it with nothing else changing    |
 | Ignoring unknown keys lets a writer add a trust-narrowing key without a feature, and old members over-trust | the key registry test (3.1); C's writer is the only roster writer                            |
 | Invariant-based power checks miss a layout change the exact check would have caught                         | C's health check compares exactly; the invariants cover every power a non-admin could misuse |
 | A strict decoder refuses something a real Tuwunel or Element sends                                          | the Tuwunel-tagged test and the recorded Element fixtures run the decoder over real events   |
@@ -1571,10 +1592,10 @@ Each has a default that the build follows unless the owner says otherwise.
 | unknown keys refused everywhere                                                                                                | made every addition a flag day; replaced by majors and features (section 3)        |
 | `agent_bus.rooms` as a separate index event                                                                                    | existed only to dodge the unknown-key rule; folded into the roster (5.1)           |
 | `human_text` and `limits` in each bundle                                                                                       | one team fact belongs in the one record every member verifies (5.1)                |
-| `agent_bus.status` state events and the admin's stray-status sweep                                                             | presence carries liveness (6.6, OD-A1)                                             |
+| `agent_bus.status` state events and the admin's stray-status sweep                                                             | the seat lock is liveness (R27); presence is display only; C knows versions (6.6)  |
 | the ping's `re` string field                                                                                                   | a reply relation, which Element shows (AR22)                                       |
 | goodbye, farewell and disconnected as fixed-text PEER messages                                                                 | typed notices; the admin posts the ones it causes (7.4)                            |
-| `agent_bus.question_state`                                                                                                     | every coordinator post in questions is a typed `<ns>.thread` (10.3)                |
+| `agent_bus.question_state`                                                                                                     | every post the coordinator makes in questions is a typed `<ns>.thread` (10.3)      |
 | questions room created only once a coordinator exists, and the `no-room` refusal                                               | all three rooms exist from creation (4.1)                                          |
 | `events_default` 0 and closing types by name                                                                                   | an allow-list (4.2)                                                                |
 | `orchestrator` read as `coordinator`; several coordinators tolerated                                                           | v2 has no legacy writers; the roster is invalid with two (5.1)                     |
@@ -1598,21 +1619,26 @@ Each has a default that the build follows unless the owner says otherwise.
   it, or verify before they send (6.5).
 - B caches replied-to events for 7.5 and positive forge results for 9.3, and treats both caches as
   untrusted (re-fetch before delivery, AR15).
-- B produces envelopes exactly to section 13, records answers and acks (8.2-8.4), sets and clears
-  presence from the keeper (6.6), and sends a read receipt for a HUMAN entry only once its delivery
+- B produces envelopes exactly to section 13, and records answers and acks (8.2-8.4).
+- Presence (6.6): only the worker's long-poll sync uses the default `set_presence`; every other
+  syncing request passes `set_presence=offline`; the keeper sets presence `offline` on a clean
+  release. Liveness for the board and `who` is the seat lock (R27), never presence.
+- B sends a read receipt for a HUMAN entry only once its delivery
   is proven in the transcript (R23).
 
 **C (host side).**
 
 - C creates all three rooms at team creation with section 4's names, join rules, history visibility,
   guest access, power levels, topics and initial state, and keeps them; it owns write order (5.2).
+- C records the `<v2-bin>` version each seat runs (R8, R49) and keeps the table of what each
+  version accepts, so a raise needs nothing from the wire (6.6).
 - C is the only roster writer, raises `rev` by one per write, refuses to raise `proto.send` or add a
-  feature until every non-removed member accepts it (3.2), and refuses a roster that section 5.1
+  feature until every non-removed member's recorded version accepts it (3.2), and refuses a roster that section 5.1
   calls invalid before writing it.
 - C posts the admin notices of 7.4 when it makes those changes, and the `disconnected` notice (R29).
 - C's health check compares each room's power levels, join rule and link exactly with section 4,
   and reports members whose room display name differs from their global one (12.3).
-- C enables presence in Tuwunel's configuration if OD-A1 (a) stands, and keeps registration closed,
+- C enables presence in Tuwunel's configuration (display only) if OD-A1 (a) stands, and keeps registration closed,
   federation off, room creation admin-only and `enable_set_displayname` off.
 - The bundle carries the anchors of 6.2 and nothing of the roster's.
 
