@@ -163,6 +163,30 @@ PLAN.md Task 2.3.
     - **For the integrator:** Task 1.4a is on `feat/bus-v2-n1-hostchecks`, not on this branch. It
       names these design fixes, so tick it together with this branch at the merge.
 
+## Review round 2 (`261021-n1-hc-design-review-2.md`, FIX-FIRST, 1 major, 6 minor; all ten round-1 findings verified fixed)
+
+1. **Major: nothing is written before the epoch check.** Steps 03 to 05 now judge in memory and
+   write only counters and log lines. Step 06's one checked store write carries the outbox
+   updates (an `answered` ping) as well. So a ping's reply in a discarded answer leaves the ping
+   unanswered, and its TIMEOUT is still made. B 2.15's replay row gains that case.
+2. **The epoch stored with a position.** It is always the one read before that position was
+   fetched (B 2.3.2), so a restore between step 01 (b)'s verification and its first persist is
+   caught by the next answer's check (B 2.15). A re-added team that is still `fresh` resumes as
+   step 01 (c), not (b), which keeps B33.
+3. **The random epoch stays in range.** It is drawn from 0-499999999, the lower half, so later
+   raises stay in range. The chance that it collides is stated. Updated: C 3.12.2, C 3.6.1, A 5.1.
+4. **"Raised" becomes "changed".** Restore step 5 now writes the epoch the merged roster sets.
+   Seam 17 reads "changed only by a restore", and so does A 20.
+5. **Take step 3's 429 cases.** A refused first login leaves the earlier tokens, which the next
+   take's logout ends. A refused last login is the logout-to-login failure.
+6. **C 3.2.4's key list.**
+   - Added in v2: the presence timers.
+   - Moved in v2: `database_backup_path`.
+   - The login-limit sentence now says that v1 minted member tokens through the admin API.
+7. The touched lines are rewrapped. A Markdown link that cannot be broken is left over the limit.
+
+The lead's limit of two review rounds is reached, so these round-2 fixes were not reviewed again.
+
 ## Not changed
 
 - No decision's state changed. The Decisions table and Task 0.5's lists are untouched: DC16 (c')

@@ -360,12 +360,14 @@ logging with no headers, the login limits, `database_backups_to_keep = 7` (resto
 the order this forces, 3.12.2), `max_request_size = 10000000` (Tuwunel's floor),
 `rocksdb_allow_fallocate = false` on btrfs, `enable_set_displayname = false`,
 `admin_signal_execute` set to the backup command, and `error_on_unknown_config_opts = true` so a
-key this Tuwunel does not know stops it at start. Added in v2: `database_backup_path` inside the
-state directory, `cache_capacity_modifier` from H-C1, and `unix_socket_path` is not used (members
-in containers need TCP, and one transport is enough). Changed in v2: `[rate_limiting.login.account]`
-doubles v1's values, burst 10 and `per_second = 0.006` (v1: 5 and 0.003), because a take makes two
-password logins (3.7.3 take step 3) where v1's design made one, so a seat can be taken as often
-as before. `[rate_limiting.login.failed]`, the guard against guessing, keeps v1's values.
+key this Tuwunel does not know stops it at start. Added in v2: `presence_idle_timeout_s` and
+`presence_offline_timeout_s` (below), and `cache_capacity_modifier` from H-C1. Moved in v2:
+`database_backup_path`, now inside the state directory. `unix_socket_path` is not used (members
+in containers need TCP, and one transport is enough). Changed in v2:
+`[rate_limiting.login.account]` doubles v1's values, to a burst of 10 and `per_second = 0.006`
+(v1: 5 and 0.003). v1 minted member tokens through the admin API, while a v2 take makes two
+password logins (3.7.3 take step 3), so the doubled values let a seat be taken five times in a
+burst. `[rate_limiting.login.failed]`, the guard against guessing, keeps v1's values.
 
 **Presence timers** (A 6.6, HC-A1). Tuwunel marks a member that stopped syncing `unavailable` after
 `presence_idle_timeout_s` and `offline` after a further `presence_offline_timeout_s`; the defaults,
@@ -770,7 +772,8 @@ decoded strictly (unknown or duplicate keys refused, sizes capped, exit 78 namin
 ```
 
 - `restore_epoch` is raised by one by a restore and changed by nothing else (3.12.2; under
-  `--roster-from-backup` it is set to a fresh random value instead), and carried into the
+  `--roster-from-backup` it is set to a fresh random value in the lower half of A 5.1's range
+  instead), and carried into the
   roster event, where area B's link reads it. The roster carries no `proto` and no `features`
   key: those are A's (A 3.1-3.2), not the host's.
 - `seq` is raised by one on every write of the file and never goes down, a restore included
@@ -1191,9 +1194,9 @@ allocation lock):
    names a session that is over, which is released first (below). A `held/` with no complete
    `held.json` is a take that died before step 2 finished: it is moved to quarantine, and its
    token, if one was written, dies at this take's device logout (step 3). The handle's state,
-   from the status record's roster, decides what follows: `active` with no `needs` goes on; `parked` or
-   `lost` goes to `member return` and `needs: reissue` to `member reissue` (each a placement,
-   above, and asking the owner's password); `retired` is refused and its pool directory moved to
+   from the status record's roster, decides what follows: `active` with no `needs` goes on;
+   `parked` or `lost` goes to `member return` and `needs: reissue` to `member reissue` (each a
+   placement, above, and asking the owner's password); `retired` is refused and its pool directory moved to
    quarantine.
 2. `mkdirat(held)` in the pool seat directory and write `held/held.json` with a fresh claim id
    (`openat(O_CREAT|O_EXCL|O_NOFOLLOW)`, 0600, fsync each and the directory).
@@ -1209,8 +1212,10 @@ allocation lock):
    was reset outside this pool: the take stops naming `member reissue`, and `held/` is removed.
    A failure between the logout and the last login leaves the device with no token and `held/`
    naming a session that holds nothing (below). The two logins count against the account's login
-   limit, which 3.2.4 doubles for them; a 429 is retried as M6 says, and past its retries it is
-   such a failure. A homeserver that is still starting is waited for as 3.7.4 says.
+   limit, which 3.2.4 doubles for them. A 429 is retried as M6 says. Past its retries, a refused
+   first login fails the take with the device's earlier tokens untouched (the next take's logout
+   ends them), and a refused last login is a failure between the logout and the last login
+   (above). A homeserver that is still starting is waited for as 3.7.4 says.
 4. Write `held/token`, then `held/seat.json` (the pool's `seat.json` with `claim` and
    `released_ms`, 3.7.2), `O_EXCL|O_NOFOLLOW`, 0600, fsync each and the directory. `held/` is now
    a complete bundle that only the pool can reach, used by the release (below).
@@ -2159,7 +2164,8 @@ no revoked credential is ever served.
     `active` pool seat (below); every human whose credential
     changed after `N` (below) is revoked the same way and set to `needs: password`; every human
     `locked` is locked. It then writes the roster event (3.6.1) with `rev` above the live roster's
-    `rev` and `restore_epoch` one above the live one. It writes no account's room account data:
+    `rev` and `restore_epoch` as the merged roster sets them (below: the epoch one above the live
+    one, or a fresh value under `--roster-from-backup`). It writes no account's room account data:
     a revocation is a password reset with device logout, and the reissues that follow (below)
     change only `password` and `token`, so every seat's `teamchat.floor` resume marker (B 2.3.2)
     stays as backup `N` holds it. A restore can therefore only move a seat's resume point back,
@@ -2290,9 +2296,11 @@ So the current roster stays the truth for handles, and the database is brought t
   `lost`). So C18 holds even then. What remains unknown is printed. Its `restore_epoch` cannot be
   the live one plus one, and the backup's plus one may equal what members already hold (a second
   restore of the same backup), which would leave every stale `since` in place (H-C14). It is a
-  fresh random value in A 5.1's range that differs from the backup's and from the status
-  record's copy of the roster, if readable. A member drops its position on any different epoch
-  (B 2.6 step 08), so a value that differs is all it needs.
+  fresh random value in 0-499999999, the lower half of A 5.1's range so that later raises stay
+  in range, that differs from the backup's and from the status record's copy of the roster, if
+  readable. A member drops its position on any different epoch (B 2.6 step 08), so a value that
+  differs is all it needs; one an older store still holds is drawn with a chance of about one in
+  500 million.
 
 Host check H-C5 proves that `--restore-backup` writes into a different `database_path` than the
 one the backup was taken from, that the transient unit runs under the live unit's uid with no file
