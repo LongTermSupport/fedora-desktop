@@ -156,3 +156,13 @@ func TestCanonicalOfAnOrderedObjectIsItsSortedDump(t *testing.T) {
 		t.Errorf("%s", Canonical(a))
 	}
 }
+
+// CodePoints is Python's view of a decoded string: a lone surrogate is one code point.
+func TestCodePointsCountsAsPythonsLen(t *testing.T) {
+	if r, ok := CodePoints("a\xed\xa0\x80é😀"); !ok || len(r) != 4 || r[1] != 0xd800 {
+		t.Errorf("%v %v", r, ok)
+	}
+	if _, ok := CodePoints("\xff"); ok {
+		t.Error("text that is not WTF-8")
+	}
+}

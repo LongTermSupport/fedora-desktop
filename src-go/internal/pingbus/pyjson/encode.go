@@ -217,3 +217,10 @@ func (e *encoder) str(s string) error {
 func appendUnit(b []byte, unit rune) []byte {
 	return fmt.Appendf(b, `\u%04x`, unit)
 }
+
+// CodePoints are a decoded string's code points as Python counts them (a lone surrogate is
+// one); false for text no decode gives.
+func CodePoints(s string) ([]rune, bool) {
+	runes, err := decodeWTF8([]byte(s))
+	return runes, err == nil
+}

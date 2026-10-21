@@ -98,6 +98,11 @@ linters:
       - path: internal/pingbus/statusline/.*_test\.go
         linters: [gosec]
         text: "G302|G304|G306|G703"
+      # The member-side state refuses files with loose modes; its tests build such files and
+      # read back what the writers wrote under a temporary directory.
+      - path: internal/bus/state/.*_test\.go
+        linters: [gosec]
+        text: "G302|G304|G306|G703"
       # The play lock's tests give the runtime directory a mode others can write: the state the
       # lock must refuse to use.
       - path: internal/playlock/playlock_test\.go
