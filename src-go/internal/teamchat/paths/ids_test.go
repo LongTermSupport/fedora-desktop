@@ -3,6 +3,7 @@ package paths
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"strings"
 	"testing"
@@ -110,7 +111,6 @@ func TestSegmentIdentifiersRefuseWhatCouldLeaveTheirDirectory(t *testing.T) {
 	parsers := map[string]func(string) error{
 		"SetID":         func(s string) error { _, err := ParseSetID(s); return err },
 		"SessionName":   func(s string) error { _, err := ParseSessionName(s); return err },
-		"Digest":        func(s string) error { _, err := ParseDigest(s); return err },
 		"ServerVersion": func(s string) error { _, err := ParseServerVersion(s); return err },
 	}
 	for name, parse := range parsers {
@@ -153,14 +153,14 @@ func TestParsePortIsOneTo65535(t *testing.T) {
 // it: a reserved, malformed or empty one fails the decode, and a valid one round-trips.
 func TestIDsDecodeOnlyThroughTheirParse(t *testing.T) {
 	type ids struct {
-		Team    TeamID      `json:"team"`
-		Run     RunID       `json:"run"`
-		Key     CheckoutKey `json:"key"`
-		User    GuestUser   `json:"user"`
-		Set     SetID       `json:"set"`
-		Session SessionName `json:"session"`
-		Digest  Digest      `json:"digest"`
-		Display DisplayName `json:"display"`
+		Team    TeamID        `json:"team"`
+		Run     RunID         `json:"run"`
+		Key     CheckoutKey   `json:"key"`
+		User    GuestUser     `json:"user"`
+		Set     SetID         `json:"set"`
+		Session SessionName   `json:"session"`
+		Digest  Digest        `json:"digest"`
+		Display DisplayName   `json:"display"`
 		Version ServerVersion `json:"version"`
 	}
 	valid := map[string]string{
@@ -173,8 +173,16 @@ func TestIDsDecodeOnlyThroughTheirParse(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got ids
-	if err := json.Unmarshal(data, &got); err != nil {
+	if err = json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("decode of valid ids: %v", err)
+	}
+	for field, id := range map[string]fmt.Stringer{
+		"team": got.Team, "run": got.Run, "key": got.Key, "user": got.User, "set": got.Set,
+		"session": got.Session, "digest": got.Digest, "display": got.Display, "version": got.Version,
+	} {
+		if id.String() != valid[field] {
+			t.Errorf("%s decoded as %q, want %q", field, id.String(), valid[field])
+		}
 	}
 	again, err := json.Marshal(got)
 	if err != nil || string(again) != `{"team":"ops","run":"0123456789abcdef","key":"`+strings.Repeat("ab", 16)+
@@ -187,18 +195,29 @@ func TestIDsDecodeOnlyThroughTheirParse(t *testing.T) {
 		"display": {"", "a\nb"}, "version": {"", "../x"},
 	}
 	for field, bads := range invalid {
-		for _, bad := range bads {
+		for _, value := range bads {
 			doc := maps.Clone(valid)
-			doc[field] = bad
-			data, err := json.Marshal(doc)
+			doc[field] = value
+			bad, err := json.Marshal(doc)
 			if err != nil {
 				t.Fatal(err)
 			}
 			var into ids
-			if err := json.Unmarshal(data, &into); !errors.Is(err, ErrInvalid) {
-				t.Errorf("%s %q decoded: %v", field, bad, err)
+			if err = json.Unmarshal(bad, &into); !errors.Is(err, ErrInvalid) {
+				t.Errorf("%s %q decoded: %v", field, value, err)
 			}
 		}
+	}
+}
+
+// A failed decode leaves the id it was decoding into as it was.
+func TestAFailedUnmarshalTextLeavesTheID(t *testing.T) {
+	id := mustTeam(t, "ops")
+	if err := id.UnmarshalText([]byte("ctl")); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("UnmarshalText(ctl) = %v, want ErrInvalid", err)
+	}
+	if id.String() != "ops" {
+		t.Fatalf("after a failed decode the id is %q", id)
 	}
 }
 

@@ -264,67 +264,89 @@ func teamNames(t *testing.T) map[string][]string {
 	t.Helper()
 	names := map[string][]string{}
 	for _, s := range sampleTeams {
-		team := mustTeam(t, s)
-		dir, err := ElementConfigDir("/home/u", team)
-		if err != nil {
-			t.Fatal(err)
-		}
-		launcher, err := ElementLauncher("/home/u", team)
-		if err != nil {
-			t.Fatal(err)
-		}
-		probe, err := ProbeState("/home/u/.local/state", team)
-		if err != nil {
-			t.Fatal(err)
-		}
-		seat := CCYLayout().Seat(team)
-		for name, value := range map[string]string{
-			"HomeserverUser":         HomeserverUser(team),
-			"ServerName":             ServerName(team),
-			"ServerUnit":             ServerUnit(team),
-			"ServerUnitDropIn":       ServerUnitDropIn(team),
-			"ServerRuntimeDirectory": ServerRuntimeDirectory(team),
-			"FenceUnit":              FenceUnit(team),
-			"FenceTable":             FenceTable(team),
-			"HomeserverState":        HomeserverState(team),
-			"HomeserverPrivateState": HomeserverPrivateState(team),
-			"AdminState":             AdminState(team),
-			"ServerConfig":           ServerConfig(team),
-			"TeamDeclaration":        TeamDeclaration(team),
-			"RestoreBlock":           RestoreBlock(team),
-			"MigrationDir":           MigrationDir(team),
-			"FenceFile":              FenceFile(team),
-			"FirewallRecord":         FirewallRecord(team),
-			"CtlState":               CtlState(team),
-			"TeamLock":               TeamLock(team),
-			"StatusTeamDir":          StatusTeamDir(team),
-			"StampFile":              StampFile(team),
-			"StatusFile":             StatusFile(team),
-			"ApprovedFile":           ApprovedFile(team),
-			"LXCOnlineFile":          LXCOnlineFile(team),
-			"LXCRecord":              LXCRecord(team),
-			"ElementProfile":         ElementProfile(team),
-			"ElementConfigDir":       dir,
-			"ElementLauncher":        launcher,
-			"ProbeState":             probe,
-			"Layout.Seat":            seat.Dir,
-			"Seat.Bundle":            seat.Bundle(),
-			"Seat.Token":             seat.Token(),
-			"Seat.Lock":              seat.Lock(),
-			"Seat.Store":             seat.Store(),
-			"Seat.Report":            seat.Report(),
-			"Seat.LastLog":           seat.LastLog(),
-		} {
-			names[name] = append(names[name], value)
+		for name, values := range teamDerived(t, mustTeam(t, s)) {
+			names[name] = append(names[name], values...)
 		}
 	}
 	return names
 }
 
-// notName is whether an exported identifier is not a v2 name: a parser, an id's own text, or
-// the error the parsers wrap.
+// teamDerived is every function of one team id, a seat's in both member layouts.
+func teamDerived(t *testing.T, team TeamID) map[string][]string {
+	t.Helper()
+	home, err := HomeLayout("/home/u", "/run/user/1000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string][]string{}
+	for _, l := range []Layout{CCYLayout(), home} {
+		seat := l.Seat(team)
+		for name, value := range map[string]string{
+			"Layout.Seat":  seat.Dir,
+			"Seat.Bundle":  seat.Bundle(),
+			"Seat.Token":   seat.Token(),
+			"Seat.Lock":    seat.Lock(),
+			"Seat.Store":   seat.Store(),
+			"Seat.Report":  seat.Report(),
+			"Seat.LastLog": seat.LastLog(),
+		} {
+			names[name] = append(names[name], value)
+		}
+	}
+	dir, err := ElementConfigDir("/home/u", team)
+	if err != nil {
+		t.Fatal(err)
+	}
+	launcher, err := ElementLauncher("/home/u", team)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe, err := ProbeState("/home/u/.local/state", team)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, value := range map[string]string{
+		"HomeserverUser":         HomeserverUser(team),
+		"ServerName":             ServerName(team),
+		"ServerUnit":             ServerUnit(team),
+		"ServerUnitDropIn":       ServerUnitDropIn(team),
+		"ServerRuntimeDirectory": ServerRuntimeDirectory(team),
+		"FenceUnit":              FenceUnit(team),
+		"FenceTable":             FenceTable(team),
+		"HomeserverState":        HomeserverState(team),
+		"HomeserverPrivateState": HomeserverPrivateState(team),
+		"AdminState":             AdminState(team),
+		"ServerConfig":           ServerConfig(team),
+		"TeamDeclaration":        TeamDeclaration(team),
+		"RestoreBlock":           RestoreBlock(team),
+		"MigrationDir":           MigrationDir(team),
+		"FenceFile":              FenceFile(team),
+		"FirewallRecord":         FirewallRecord(team),
+		"CtlState":               CtlState(team),
+		"TeamLock":               TeamLock(team),
+		"StatusTeamDir":          StatusTeamDir(team),
+		"StampFile":              StampFile(team),
+		"StatusFile":             StatusFile(team),
+		"ApprovedFile":           ApprovedFile(team),
+		"LXCOnlineFile":          LXCOnlineFile(team),
+		"LXCRecord":              LXCRecord(team),
+		"ElementProfile":         ElementProfile(team),
+		"ElementConfigDir":       dir,
+		"ElementLauncher":        launcher,
+		"ProbeState":             probe,
+	} {
+		names[name] = append(names[name], value)
+	}
+	return names
+}
+
+// notName is whether an exported identifier is not a v2 name: a parser, an id's or a kit's own
+// text and its encoding, or the error the parsers wrap. (A kit's text is sampled as HostKitDir,
+// HostKitCurrent and CCYKitDir.)
 func notName(ident string) bool {
-	return strings.HasPrefix(ident, "Parse") || ident == "TeamID.String" || ident == "ErrInvalid"
+	_, method, ok := strings.Cut(ident, ".")
+	return strings.HasPrefix(ident, "Parse") || ident == "ErrInvalid" ||
+		ok && slices.Contains([]string{"String", "MarshalText", "UnmarshalText"}, method)
 }
 
 // Every exported constant, variable, function and method is either in sampleNames or not a
@@ -413,9 +435,32 @@ func TestEveryNameIsDerivedFromTheProduct(t *testing.T) {
 }
 
 // A team id would make a team-derived name equal a fixed one when it is what follows teamchat-
-// in a fixed name (team ctl's homeserver user teamchat-ctl is CtlUser). Each such id, cut where
-// the team grammar ends, is reserved, and reservedTeamIDs holds exactly these.
+// in a fixed name (team ctl's homeserver user teamchat-ctl is CtlUser), or a fixed child of a
+// per-team root. Each such id, cut where the team grammar ends, is reserved, and
+// reservedTeamIDs holds exactly these.
 func TestReservedTeamIDsAreExactlyTheFixedNamesTails(t *testing.T) {
+	tails := fixedTails()
+	roots := perTeamRoots(t)
+	for _, values := range sampleNames(t) {
+		for _, value := range values {
+			if child := fixedChild(roots, value); child != "" && !slices.Contains(tails, child) {
+				tails = append(tails, child)
+			}
+		}
+	}
+	slices.Sort(tails)
+	if !slices.Equal(tails, reservedTeamIDs) {
+		t.Fatalf("the fixed names' tails and per-team roots' fixed children are %q; reservedTeamIDs is %q", tails, reservedTeamIDs)
+	}
+	for _, tail := range tails {
+		if _, err := ParseTeamID(tail); err == nil {
+			t.Errorf("team id %q is accepted, yet a fixed name would equal its derived name", tail)
+		}
+	}
+}
+
+// fixedTails is what follows teamchat- in each fixed name, cut where the team grammar ends.
+func fixedTails() []string {
 	var tails []string
 	for _, values := range constNames() {
 		for part := range strings.SplitSeq(values[0], "/") {
@@ -434,28 +479,70 @@ func TestReservedTeamIDsAreExactlyTheFixedNamesTails(t *testing.T) {
 		}
 	}
 	slices.Sort(tails)
-	if !slices.Equal(tails, reservedTeamIDs) {
-		t.Fatalf("the fixed names' tails are %q; reservedTeamIDs is %q", tails, reservedTeamIDs)
-	}
-	for _, tail := range tails {
-		if _, err := ParseTeamID(tail); err == nil {
-			t.Errorf("team id %q is accepted, yet a fixed name is teamchat-%s", tail, tail)
-		}
-	}
+	return tails
 }
 
-// perTeamRoots are the directories whose children are named by team id.
-var perTeamRoots = []string{
-	HomeserverStateRoot, HomeserverPrivateStateRoot, AdminStateRoot, CtlStateRoot, StatusRoot + "/teams",
+// fixedChild is the first segment of value under a per-team root when the team grammar would
+// accept it and it is not a sample team: a fixed name a team of that id would collide with
+// (the ccy session's /run/teamchat/membership, beside the host's /run/teamchat/<team>).
+func fixedChild(roots []string, value string) string {
+	for _, root := range roots {
+		if rest, ok := strings.CutPrefix(value, root+"/"); ok {
+			segment := firstSegment.FindString(rest)
+			if teamIDGrammar.MatchString(segment) && !slices.Contains(sampleTeams, segment) {
+				return segment
+			}
+		}
+	}
+	return ""
+}
+
+// perTeamRoots are the directories whose children are named by team id, derived from the names
+// of one team: each absolute name holding /ops at its end or before a / is under the root before
+// it. ServerRuntimeDirectory is relative to /run (systemd's RuntimeDirectory=).
+func perTeamRoots(t *testing.T) []string {
+	t.Helper()
+	const team = "ops"
+	var roots []string
+	for ident, values := range teamDerived(t, mustTeam(t, team)) {
+		for _, value := range values {
+			if ident == "ServerRuntimeDirectory" {
+				value = "/run/" + value
+			}
+			root, rest, ok := strings.Cut(value, "/"+team)
+			if !ok || !strings.HasPrefix(root, "/") || rest != "" && !strings.HasPrefix(rest, "/") {
+				continue
+			}
+			if !slices.Contains(roots, root) {
+				roots = append(roots, root)
+			}
+		}
+	}
+	slices.Sort(roots)
+	return roots
+}
+
+// The derivation finds every per-team root the design names, so it cannot quietly find none.
+func TestPerTeamRootsAreDerived(t *testing.T) {
+	roots := perTeamRoots(t)
+	for _, want := range []string{
+		HomeserverStateRoot, HomeserverPrivateStateRoot, AdminStateRoot, CtlStateRoot, StatusRoot + "/teams",
+		CCYLayout().State, "/home/u/.config/teamchat/seats", "/run/" + Product,
+	} {
+		if !slices.Contains(roots, want) {
+			t.Errorf("per-team root %s is not derived; derived %q", want, roots)
+		}
+	}
 }
 
 // A fixed child of a per-team root can never be a team's directory: every first segment under
 // one that is not a sample team is refused as a team id (C's LXC records are under _lxc, the
 // migration sets' locks under _sets).
 func TestNoFixedChildOfAPerTeamRootIsATeamID(t *testing.T) {
+	roots := perTeamRoots(t)
 	for ident, values := range sampleNames(t) {
 		for _, value := range values {
-			if segment := teamLikeChild(value); segment != "" {
+			if segment := teamLikeChild(roots, value); segment != "" {
 				t.Errorf("%s = %q: %s under a per-team root is a valid team id", ident, value, segment)
 			}
 		}
@@ -466,8 +553,8 @@ var firstSegment = regexp.MustCompile(`^[^/]*`)
 
 // teamLikeChild is the first segment of value under a per-team root when it is a valid team id
 // other than a sample team, else "".
-func teamLikeChild(value string) string {
-	for _, root := range perTeamRoots {
+func teamLikeChild(roots []string, value string) string {
+	for _, root := range roots {
 		rest, ok := strings.CutPrefix(value, root+"/")
 		if !ok {
 			continue
@@ -483,11 +570,15 @@ func teamLikeChild(value string) string {
 // The check above can fail: C's LXC records where C first put them, under lxc/, are reported,
 // and the same records under _lxc/ are not.
 func TestThePerTeamRootCheckDiscriminates(t *testing.T) {
-	if got := teamLikeChild(AdminStateRoot + "/lxc/c1/dev.json"); got != "lxc" {
+	roots := perTeamRoots(t)
+	if got := teamLikeChild(roots, AdminStateRoot+"/lxc/c1/dev.json"); got != "lxc" {
 		t.Errorf("lxc/ under %s: got %q, want lxc", AdminStateRoot, got)
 	}
+	if got := teamLikeChild(roots, CCYLayout().State+"/lock"); got != "lock" {
+		t.Errorf("lock under the seats directory: got %q, want lock", got)
+	}
 	for _, value := range []string{AdminLXCDir + "/c1/dev.json", AdminStateRoot + "/ops/team.json", StatusRoot + "/lxc/ops.json"} {
-		if got := teamLikeChild(value); got != "" {
+		if got := teamLikeChild(roots, value); got != "" {
 			t.Errorf("%s: got %q, want nothing", value, got)
 		}
 	}
@@ -601,7 +692,7 @@ func sampleServerVersion(t *testing.T) ServerVersion {
 
 func sampleDigest(t *testing.T) Digest {
 	t.Helper()
-	v, err := ParseDigest("abc123")
+	v, err := ParseDigest("0123456789abcdef")
 	if err != nil {
 		t.Fatal(err)
 	}

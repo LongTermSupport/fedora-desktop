@@ -73,9 +73,12 @@ func check(kind string, grammar *regexp.Regexp, s string) (string, error) {
 }
 
 // reservedTeamIDs are the ids that would make a team-derived name equal a fixed v2 name: team
-// ctl's homeserver user would be teamchat-ctl, the user holding every team's admin token. The
-// package's test derives the list from the fixed names and holds it complete.
-var reservedTeamIDs = []string{"admin", "backup", "ctl", "fence", "health", "install", "seats", "server", "status"}
+// ctl's homeserver user would be teamchat-ctl, the user holding every team's admin token, and
+// team membership's runtime directory /run/teamchat/membership, the ccy session's membership
+// mount. The package's test derives the list from the fixed names and holds it complete.
+var reservedTeamIDs = []string{
+	"admin", "backup", "ctl", "fence", "health", "install", "membership", "seats", "server", "status",
+}
 
 // ParseTeamID checks a team id against A 2.2's grammar and refuses a reserved one.
 func ParseTeamID(s string) (TeamID, error) {
@@ -166,34 +169,83 @@ func unmarshal[T any](dst *T, parse func(string) (T, error), text []byte) error 
 	return nil
 }
 
-func (t TeamID) String() string                    { return t.s }
-func (t TeamID) MarshalText() ([]byte, error)      { return marshal("team id", t.s) }
-func (t *TeamID) UnmarshalText(b []byte) error     { return unmarshal(t, ParseTeamID, b) }
-func (r RunID) String() string                     { return r.s }
-func (r RunID) MarshalText() ([]byte, error)       { return marshal("run id", r.s) }
-func (r *RunID) UnmarshalText(b []byte) error      { return unmarshal(r, ParseRunID, b) }
-func (k CheckoutKey) String() string               { return k.s }
+// String is the team id's text.
+func (t TeamID) String() string { return t.s }
+
+// MarshalText encodes the team id, and refuses the zero value.
+func (t TeamID) MarshalText() ([]byte, error) { return marshal("team id", t.s) }
+
+// UnmarshalText decodes a team id through ParseTeamID.
+func (t *TeamID) UnmarshalText(b []byte) error { return unmarshal(t, ParseTeamID, b) }
+
+// String is the run id's text.
+func (r RunID) String() string { return r.s }
+
+// MarshalText encodes the run id, and refuses the zero value.
+func (r RunID) MarshalText() ([]byte, error) { return marshal("run id", r.s) }
+
+// UnmarshalText decodes a run id through ParseRunID.
+func (r *RunID) UnmarshalText(b []byte) error { return unmarshal(r, ParseRunID, b) }
+
+// String is the checkout key's text.
+func (k CheckoutKey) String() string { return k.s }
+
+// MarshalText encodes the checkout key, and refuses the zero value.
 func (k CheckoutKey) MarshalText() ([]byte, error) { return marshal("checkout key", k.s) }
-func (k *CheckoutKey) UnmarshalText(b []byte) error {
-	return unmarshal(k, ParseCheckoutKey, b)
-}
-func (u GuestUser) String() string                   { return u.s }
-func (u GuestUser) MarshalText() ([]byte, error)     { return marshal("guest user", u.s) }
-func (u *GuestUser) UnmarshalText(b []byte) error    { return unmarshal(u, ParseGuestUser, b) }
-func (s SetID) String() string                       { return s.s }
-func (s SetID) MarshalText() ([]byte, error)         { return marshal("set id", s.s) }
-func (s *SetID) UnmarshalText(b []byte) error        { return unmarshal(s, ParseSetID, b) }
-func (n SessionName) String() string                 { return n.s }
-func (n SessionName) MarshalText() ([]byte, error)   { return marshal("session name", n.s) }
-func (n *SessionName) UnmarshalText(b []byte) error  { return unmarshal(n, ParseSessionName, b) }
-func (d Digest) String() string                      { return d.s }
-func (d Digest) MarshalText() ([]byte, error)        { return marshal("digest", d.s) }
-func (d *Digest) UnmarshalText(b []byte) error       { return unmarshal(d, ParseDigest, b) }
-func (d DisplayName) String() string                 { return d.s }
-func (d DisplayName) MarshalText() ([]byte, error)   { return marshal("display name", d.s) }
-func (d *DisplayName) UnmarshalText(b []byte) error  { return unmarshal(d, ParseDisplayName, b) }
-func (v ServerVersion) String() string               { return v.s }
+
+// UnmarshalText decodes a checkout key through ParseCheckoutKey.
+func (k *CheckoutKey) UnmarshalText(b []byte) error { return unmarshal(k, ParseCheckoutKey, b) }
+
+// String is the guest user's text.
+func (u GuestUser) String() string { return u.s }
+
+// MarshalText encodes the guest user, and refuses the zero value.
+func (u GuestUser) MarshalText() ([]byte, error) { return marshal("guest user", u.s) }
+
+// UnmarshalText decodes a guest user through ParseGuestUser.
+func (u *GuestUser) UnmarshalText(b []byte) error { return unmarshal(u, ParseGuestUser, b) }
+
+// String is the set id's text.
+func (s SetID) String() string { return s.s }
+
+// MarshalText encodes the set id, and refuses the zero value.
+func (s SetID) MarshalText() ([]byte, error) { return marshal("set id", s.s) }
+
+// UnmarshalText decodes a set id through ParseSetID.
+func (s *SetID) UnmarshalText(b []byte) error { return unmarshal(s, ParseSetID, b) }
+
+// String is the session name's text.
+func (n SessionName) String() string { return n.s }
+
+// MarshalText encodes the session name, and refuses the zero value.
+func (n SessionName) MarshalText() ([]byte, error) { return marshal("session name", n.s) }
+
+// UnmarshalText decodes a session name through ParseSessionName.
+func (n *SessionName) UnmarshalText(b []byte) error { return unmarshal(n, ParseSessionName, b) }
+
+// String is the digest's text.
+func (d Digest) String() string { return d.s }
+
+// MarshalText encodes the digest, and refuses the zero value.
+func (d Digest) MarshalText() ([]byte, error) { return marshal("digest", d.s) }
+
+// UnmarshalText decodes a digest through ParseDigest.
+func (d *Digest) UnmarshalText(b []byte) error { return unmarshal(d, ParseDigest, b) }
+
+// String is the display name's text.
+func (d DisplayName) String() string { return d.s }
+
+// MarshalText encodes the display name, and refuses the zero value.
+func (d DisplayName) MarshalText() ([]byte, error) { return marshal("display name", d.s) }
+
+// UnmarshalText decodes a display name through ParseDisplayName.
+func (d *DisplayName) UnmarshalText(b []byte) error { return unmarshal(d, ParseDisplayName, b) }
+
+// String is the server version's text.
+func (v ServerVersion) String() string { return v.s }
+
+// MarshalText encodes the server version, and refuses the zero value.
 func (v ServerVersion) MarshalText() ([]byte, error) { return marshal("server version", v.s) }
-func (v *ServerVersion) UnmarshalText(b []byte) error {
-	return unmarshal(v, ParseServerVersion, b)
-}
+
+// UnmarshalText decodes a server version through ParseServerVersion.
+func (v *ServerVersion) UnmarshalText(b []byte) error { return unmarshal(v, ParseServerVersion, b) }
