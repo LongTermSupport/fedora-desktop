@@ -26,7 +26,26 @@ func TestSeamCommandsDynamicNames(t *testing.T) {
 		{pkg: "internal/dynamic", fn: "Launch", reason: "the program is chosen at run time"},
 		{pkg: "internal/dynamic", fn: "Runner.Run", reason: "the program is chosen at run time"},
 	}
-	analysistest.Run(t, analysistest.TestData(), newSeamCommands(allow), "fix/internal/dynamic")
+	analysistest.Run(t, analysistest.TestData(), newSeamCommands(allow, nil), "fix/internal/dynamic")
+}
+
+// A shellStrings row excuses its function's shell string and nothing else: the neighbour is
+// flagged, and an owned program in the excused function still is.
+func TestSeamCommandsShellStrings(t *testing.T) {
+	allow := []allowance{
+		{pkg: "internal/shellstring", fn: "Configured", reason: "a command line the user configured"},
+		{pkg: "internal/shellstring", fn: "Runner.Run", reason: "a command line the user configured"},
+		{pkg: "internal/shellstring", fn: "OwnedInside", reason: "a command line the user configured"},
+	}
+	analysistest.Run(t, analysistest.TestData(), newSeamCommands(nil, allow), "fix/internal/shellstring")
+}
+
+func TestEveryShellStringHasAReason(t *testing.T) {
+	for _, a := range shellStrings {
+		if a.reason == "" || a.pkg == "" || a.fn == "" {
+			t.Errorf("allowance %+v needs a package, a function and a reason", a)
+		}
+	}
 }
 
 func TestTmuxTargets(t *testing.T) {
@@ -51,12 +70,18 @@ func TestHiddenBindings(t *testing.T) {
 		"fix/qa/hiddenbindings", "fix/internal/badtea", "fix/internal/ui/frame")
 }
 
+// A package with no test file is flagged; a test file of its own package or of an external test
+// package (x_test) satisfies the rule.
+func TestPackageTests(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), PackageTests, "fix/internal/notests", "fix/internal/withtests", "fix/internal/externaltests")
+}
+
 func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 7 {
-		t.Fatalf("want 7 rules, got %d", got)
+	if got := len(All()); got != 8 {
+		t.Fatalf("want 8 rules, got %d", got)
 	}
 }
 

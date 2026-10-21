@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -133,7 +134,8 @@ func TestWriteRefusesBadRecords(t *testing.T) {
 		"bad compose":     func(r *Record) { r.Compose = "maybe" },
 		"newline in name": func(r *Record) { r.Name = "a\nb" },
 	}
-	for name, mutate := range cases {
+	for _, name := range slices.Sorted(maps.Keys(cases)) {
+		mutate := cases[name]
 		s := newStore(t)
 		rec := sample()
 		mutate(&rec)

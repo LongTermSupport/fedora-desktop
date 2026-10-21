@@ -24,9 +24,10 @@ import { FocusOutline } from './focusOutline.js';
 import { PasteTargetPin } from './pasteTarget.js';
 import { PanelSession } from './panelSession.js';
 import { spawnWatched, killArgv, discardSignal } from './recorderLaunch.js';
-import { lookFor, isKnownState, recordingBadgeColor, articleBadgeColor, shownState, COLOURS } from './panelLook.js';
+import { lookFor, isKnownState, recordingBadgeColor, articleBadgeColor, shownState, claudeEmoji, COLOURS } from './panelLook.js';
 import { POST_PROCESS_STYLES, LastTranscriptPostProcessor, unusableKeybindings } from './postProcess.js';
 import { TOKEN_WARNING_FILE, tokenWarning } from './tokenWarning.js';
+import { LOWER_MEDIA_KEY, migratePauseMediaKey, startMediaHold } from './mediaHold.js';
 
 // DBus interface for wsi communication
 const DBUS_PATH = '/org/fedoradesktop/SpeechToText';
@@ -82,6 +83,7 @@ export default class SpeechToTextExtension extends Extension {
         // The one recorder the panel follows, and what each key does (panelSession.js)
         this._panel = null;
         this._hourglassIcon = null;
+        this._lookLabel = null;           // a look's text, shown in place of the icon
         this._iconState = null;           // the state the icon shows
         this._stateUnderBlocked = null;   // the state a BLOCKED flash is shown over
         this._articleSpinner = false;
@@ -157,6 +159,14 @@ export default class SpeechToTextExtension extends Extension {
         });
         this._iconBox.add_child(this._icon);
 
+        // A look with text (Claude post-processing's emoji) is shown here, in place of the icon
+        this._lookLabel = new St.Label({
+            text: '',
+            y_align: 2,  // Clutter.ActorAlign.CENTER
+            visible: false
+        });
+        this._iconBox.add_child(this._lookLabel);
+
         // Add server status indicator dot (initially hidden)
         this._serverStatusDot = new St.Icon({
             icon_name: 'media-record-symbolic',
@@ -192,6 +202,8 @@ export default class SpeechToTextExtension extends Extension {
 
                 // Load ALL settings FIRST (before building menu)
                 this._loadDebugSetting();
+                if (migratePauseMediaKey(this._settings))
+                    this._log('The Pause Media switch carried over to Lower Media Volume');
 
                 this._log('Attempting to add keybinding...');
                 const bindingAdded = Main.wm.addKeybinding(
@@ -441,6 +453,18 @@ export default class SpeechToTextExtension extends Extension {
         });
         menu.addMenuItem(this._autoPasteSwitch);
 
+        // Read at each recording's start, so a change applies from the next one. Without the
+        // schema nothing records (the keys are not bound), so the switch shows the default.
+        this._lowerMediaSwitch = new PopupMenu.PopupSwitchMenuItem('Lower media volume while recording',
+            this._settings?.get_boolean(LOWER_MEDIA_KEY) ?? true);
+        this._preventMenuClose(this._lowerMediaSwitch);
+        this._lowerMediaSwitch.connect('toggled', (item, state) => {
+            if (this._updatingToggles || !this._settings) return;
+            this._settings.set_boolean(LOWER_MEDIA_KEY, state);
+            this._log(`Lower media volume while recording ${state ? 'enabled' : 'disabled'}`);
+        });
+        menu.addMenuItem(this._lowerMediaSwitch);
+
         // Debug toggle — kept in popup so it's reachable when diagnosing issues
         this._debugSwitch = new PopupMenu.PopupSwitchMenuItem('Debug Logging', this._debugEnabled);
         this._preventMenuClose(this._debugSwitch);
@@ -510,6 +534,10 @@ export default class SpeechToTextExtension extends Extension {
                     break;
                 case 'auto-enter':
                     this._autoEnter = this._settings.get_boolean(key);
+                    break;
+                case LOWER_MEDIA_KEY:
+                    if (this._lowerMediaSwitch)
+                        this._lowerMediaSwitch.setToggleState(this._settings.get_boolean(key));
                     break;
                 case 'wrap-marker':
                     this._wrapWithMarker = this._settings.get_boolean(key);
@@ -754,7 +782,7 @@ export default class SpeechToTextExtension extends Extension {
 
         // Outline the window the text will be pasted into, for as long as a paste can come;
         // the pin taken at Insert lasts until the dictation has ended
-        const pasteCanCome = ['RECORDING', 'STOPPING', 'TRANSCRIBING'].includes(state);
+        const pasteCanCome = ['RECORDING', 'STOPPING', 'TRANSCRIBING', 'CLAUDE_PROCESSING'].includes(state);
         if (pasteCanCome && this._autoPaste && !this._isArticleMode)
             this._focusOutline?.show(this._pasteTarget?.window ?? null);
         else
@@ -813,12 +841,15 @@ export default class SpeechToTextExtension extends Extension {
     _showLook(state) {
         if (!isKnownState(state))
             this._log(`Unknown state "${state}": shown as please-wait, never as ready`);
-        const look = lookFor(shownState(state, this._filesRunning));
+        const look = lookFor(shownState(state, this._filesRunning), this._claudeStyle);
         if (look.icon === 'hourglass')
             this._icon.gicon = this._hourglassIcon;
         else
             this._icon.icon_name = look.icon;
         this._icon.style = look.colour ? `color: ${look.colour};` : '';
+        this._lookLabel.text = look.text ?? '';
+        this._lookLabel.visible = Boolean(look.text);
+        this._icon.visible = !look.text;
     }
 
     /** m:ss */
@@ -844,10 +875,8 @@ export default class SpeechToTextExtension extends Extension {
         let text = this._formatSeconds(left === null ? this._recordingSeconds : left);
         if (this._dictationPending > 0)
             text += ` ·${this._dictationPending}`;
-        if (this._isClaudeMode) {
-            const emoji = this._claudeStyle === 'natural' ? '💬' : '🤖';
-            return `${emoji} ${text}`;
-        }
+        if (this._isClaudeMode)
+            return `${claudeEmoji(this._claudeStyle)} ${text}`;
         return text;
     }
 
@@ -1026,6 +1055,7 @@ export default class SpeechToTextExtension extends Extension {
 
     _createPanelSession() {
         return new PanelSession({
+            holdMedia: () => this._holdMedia(),
             spawn: (launch, token, onExit) => this._spawnRecorder(launch, token, onExit),
             kill: (pid, signalName) => this._signalProcess(pid, signalName),
             abort: (pid, launch) => this._discardRecording(pid, launch),
@@ -1043,6 +1073,22 @@ export default class SpeechToTextExtension extends Extension {
             notify: message => Main.notify('Speech to Text', message),
             addTimeout: (ms, handler) => GLib.timeout_add(GLib.PRIORITY_DEFAULT, ms, handler),
             removeTimeout: id => GLib.Source.remove(id),
+        });
+    }
+
+    /** The media held for one recording while the switch is on (mediaHold.js), or null. */
+    _holdMedia() {
+        return startMediaHold({
+            enabled: this._settings.get_boolean(LOWER_MEDIA_KEY),
+            argv: [GLib.get_home_dir() + '/.local/bin/wsi-lower-media-volume'],
+            spawn: (argv, onExit) => spawnWatched(argv, {}, onExit),
+            kill: pid => this._signalProcess(pid, 'TERM'),
+            reportError: message => {
+                this._lastError = message;
+                this._log(message);
+                Main.notify('STT Error', message);
+            },
+            log: message => this._log(message),
         });
     }
 

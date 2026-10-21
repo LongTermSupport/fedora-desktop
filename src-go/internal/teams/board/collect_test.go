@@ -413,7 +413,7 @@ func TestCollectNotInstalledAndDownTeams(t *testing.T) {
 	h.OnDeclare("status", "STATUS\talpha\tdecide\tabsent\nSTATUS\tbeta\tunbuilt\t-\nSTATUS\tgamma\tunreadable\tbad\n")
 	h.On("systemctl list-units", "agent-bus-hs@alpha.service loaded inactive dead x\nagent-bus-hs@gamma.service loaded failed failed x\n", 0)
 	h.On("tmux -L ccy list-sessions", "", 0)
-	h.On("git rev-parse --is-inside-work-tree", "", 128)
+	h.OnNotARepository()
 	s, err := h.c.Collect(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -445,7 +445,7 @@ func TestCollectNotInstalledUndeclaredPointsAtRemove(t *testing.T) {
 	h.OnDeclare("status", "STATUS\tzeta\tdecide\tundeclared\n")
 	h.On("systemctl list-units", "", 0)
 	h.On("tmux -L ccy list-sessions", "", 0)
-	h.On("git rev-parse --is-inside-work-tree", "", 128)
+	h.OnNotARepository()
 	teamtest.MustWrite(t, filepath.Join(h.c.AppliedDir, "zeta.json"), "{}")
 	s, err := h.c.Collect(t.Context())
 	if err != nil {

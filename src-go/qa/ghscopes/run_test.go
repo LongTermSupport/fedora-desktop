@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
 )
 
 // G1
@@ -115,7 +117,7 @@ func TestTheSelfTestRunsTheRuleOverTheFixtureWithMetricsOff(t *testing.T) {
 			test = c
 		}
 	}
-	want := []string{"semgrep", "--test", "--config", filepath.Join(w.root, ruleFile), filepath.Join(w.root, fixtureFile), "--metrics=off"}
+	want := []string{"semgrep", "--test", "--config", filepath.Join(w.root, ruleFile), filepath.Join(w.root, fixtureFile), "--metrics=off", semgrepreport.TimeoutFlag}
 	if !slices.Equal(test, want) {
 		t.Fatalf("self-test argv %v, want %v", test, want)
 	}
@@ -204,7 +206,7 @@ func TestFilesAreHandedByNameFromTheRootNotAsADirectory(t *testing.T) {
 	wantExit(t, w.main(), ExitOK)
 	argv := w.run.scanArgv
 	i := slices.Index(argv, "--max-target-bytes=0")
-	want := []string{"semgrep", "--config", filepath.Join(w.root, ruleFile), "--json", "--quiet", "--metrics=off", "--max-target-bytes=0"}
+	want := []string{"semgrep", "--config", filepath.Join(w.root, ruleFile), "--json", "--quiet", "--metrics=off", semgrepreport.TimeoutFlag, "--max-target-bytes=0"}
 	if i < 0 || !slices.Equal(argv[:i+1], want) {
 		t.Fatalf("argv %v, want head %v", argv, want)
 	}

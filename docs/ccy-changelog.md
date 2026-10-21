@@ -17,6 +17,86 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.13.8 — container 2.78.8
+
+Follows 3.99.13.7 (container 2.78.7). The image carries the pingbus zipapp and the agent-bus
+settings, which changed, so it is rebuilt once.
+
+- **A bus session's status line refreshes every 25 seconds, not every second** (Plan 00213).
+  Each refresh started a Python interpreter, which cost an idle bus session about half a CPU
+  thread. Claude Code still redraws it on its own events (a new message, the end of a
+  `/compact`). 25 s keeps it inside the 30 s after which `ccy --supervise` stops trusting the
+  context reading the hooks daemon's status line writes.
+- **pingbus starts the system Python directly** (Plan 00213). The zipapp's first line was
+  `#!/usr/bin/env python3`, so every `pingbus` start (each status-line render and each hook)
+  looked `python3` up on PATH. On the host that meant a pyenv shim, which cost about 0.16 CPU
+  seconds on every start. It now names `/usr/bin/python3`. The `agent-bus` zipapp shares
+  that first line, so it changes too.
+
+## 3.99.13.7 — container 2.78.7
+
+Follows 3.99.12.19 (container 2.77.15). The image carries the pingbus kit, which changed, so
+it is rebuilt once.
+
+- **pingbus understands a team's reports and questions rooms** (Plan 00211, the member side).
+  Nothing changes until the agent-bus play creates the rooms (the plan's second deploy): this
+  release only teaches pingbus to read them, so it ships first. New commands: `pingbus report`,
+  and for a coordinator `ask-human`, `thread`, `questions` and `history --room questions`; a
+  `HUMAN` line gains one appended field, its room. `pingbus version` reports 0.2.0.
+- Agents are taught the new commands only once they have joined the room each needs; until
+  then they work in the main room as before. A lasting homeserver refusal in a side room is
+  recorded and logged for that room alone, and never stops the main room; a passing outage
+  is retried like any other, so no answer is lost.
+
+## 3.99.12.19 — container 2.77.15
+
+Follows 3.99.12.18 (container 2.77.14). The image carries the pingbus kit, which changed, so
+it is rebuilt once.
+
+- **A second disconnect within a minute is told too** (Plan 00194). pingbus refused the
+  `disconnected` notice of a seat that had already sent the same one in the last 60 s as a
+  duplicate (`rate limited: duplicate`), so a crash, relaunch and crash again lost the second
+  one. pingbus's own notices (`disconnected`, the session-end goodbye, the removal goodbye)
+  are told once per claim or session by the seat, and are no longer held to the duplicate
+  window; the send rate limit still applies to them.
+
+## Host cc — starts only in a git repository
+
+Host `cc` has no version number of its own; this entry is not a CCY release.
+
+- **`cc` starts at the top of a git repository, or offers the fedora-desktop checkout**
+  (Plan 00167, issue #90). In a subdirectory it starts at the repository's top, so the
+  project's settings load. Outside any repository it offers the checkout `[Y/n]` at a
+  terminal and refuses on no, or with no terminal (a reboot restore). `claude` still starts
+  anywhere.
+
+## 3.99.12.18 — container 2.77.14
+
+Follows 3.99.12.17 (container 2.77.13). The image carries the pingbus kit, which changed, so
+it is rebuilt once.
+
+- **A closed terminal's session is told to its teams as disconnected** (Plan 00194). Closing
+  the terminal or tmux window sends the launcher SIGHUP, and bash runs the launcher's exit
+  clean-up at once, while the container still runs and holds the seats (podman is told only
+  once the launcher has gone). The disconnect notice then waited 15 s for seats that were never
+  let go and told no one. The clean-up now stops a container that is still running before the
+  notice, and ignores SIGHUP and Ctrl-C until it has finished.
+- **`.claude/ccy/pingbus/disconnect.log`** records, owner-only, each step of the notice: the
+  launcher's (a container stopped, pingbus's exit) and one line per seat from `pingbus seat disconnected` (told, or why not). Never a message text. A closed terminal takes stderr with
+  it; this file stays.
+
+## 3.99.12.17 — container 2.77.13
+
+Follows 3.99.12.16 (container 2.77.12). The image carries the pingbus kit, which changed, so
+it is rebuilt once.
+
+- **A message from Element that reached no agent is visible** (Plan 00194). A team human's
+  message whose mentions name no agent of the team (`@room` or a handle typed as plain text,
+  not picked from Element's list) is still delivered to no one, but each member now writes
+  one line for it to `ignored.log` in its team's state directory (event ID, sender, reason,
+  time; never the text), and `pingbus status` counts the lines as `ignored=` on the `TEAM`
+  line. No agent is woken for it, and who receives what is unchanged.
+
 ## 3.99.12.16 — container 2.77.12
 
 Follows 3.99.12.15 (container 2.77.11). The image carries the pingbus kit, whose SessionStart

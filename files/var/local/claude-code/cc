@@ -32,11 +32,15 @@ umask 077
 : "${GH_TOKEN:=}" "${IMAGE_NAME:=}"
 
 CCY_LIB_DIR="/var/local/claude-yolo/lib"
-COMMON_PURE="$CCY_LIB_DIR/common-pure.bash"
-TOKEN_MGMT="$CCY_LIB_DIR/token-management.bash"
 
-CCY_ROOT="$HOME/.claude-tokens/ccy"
-TOKEN_DIR="$CCY_ROOT/tokens"
+TOKEN_DIR="$HOME/.claude-tokens/ccy/tokens"
+
+# Claude Code reads .claude/settings.json (hooks, status line) only from the directory it
+# starts in, so the session starts at the top of a git work tree, or nowhere. Outside one,
+# cc-project-dir offers the fedora-desktop checkout at a terminal and refuses otherwise
+# (Plan 00167). Before the tmux re-exec, so the session name and its restore record use it.
+CC_PROJECT_DIR=$(/var/local/claude-code/cc-project-dir)
+cd "$CC_PROJECT_DIR"
 
 if [ ! -t 0 ] || [ ! -t 1 ]; then
     echo "cc: requires an interactive shell (the token chooser uses read -p)" >&2
@@ -45,9 +49,9 @@ if [ ! -t 0 ] || [ ! -t 1 ]; then
 fi
 
 # shellcheck source=../claude-yolo/lib/common-pure.bash
-source "$COMMON_PURE"
+source "$CCY_LIB_DIR/common-pure.bash"
 # shellcheck source=../claude-yolo/lib/token-management.bash
-source "$TOKEN_MGMT"
+source "$CCY_LIB_DIR/token-management.bash"
 # shellcheck source=../claude-yolo/lib/tmux-session.bash
 source "$CCY_LIB_DIR/tmux-session.bash"
 # shellcheck source=../claude-yolo/lib/session-registry.bash

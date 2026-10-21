@@ -12,11 +12,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-const {lookFor, isKnownState, recordingBadgeColor, articleBadgeColor, shownState, COLOURS} = await import(
-    new URL('../../extensions/speech-to-text@fedora-desktop/panelLook.js', import.meta.url).href);
+const {lookFor, isKnownState, recordingBadgeColor, articleBadgeColor, shownState, claudeEmoji, COLOURS} =
+    await import(new URL('../../extensions/speech-to-text@fedora-desktop/panelLook.js', import.meta.url).href);
 
 const STATES = ['IDLE', 'LAUNCHING', 'WAITING', 'FINISHING', 'BLOCKED', 'CANCELLING', 'UNOWNED',
-    'PREPARING', 'RECORDING', 'STOPPING', 'TRANSCRIBING', 'SUCCESS', 'ERROR'];
+    'PREPARING', 'RECORDING', 'STOPPING', 'TRANSCRIBING', 'CLAUDE_PROCESSING', 'SUCCESS', 'ERROR'];
 
 test('every state has a look', () => {
     for (const state of STATES) {
@@ -89,4 +89,29 @@ test('a press that does nothing looks like no other state', () => {
 
 test('a recorder the panel did not start never looks ready', () => {
     assert.notDeepEqual(lookFor('UNOWNED'), lookFor('IDLE'));
+});
+
+// Plan 00187 (#100): while Claude post-processes, the panel shows the owner's emoji for the
+// style, the one the recording countdown already carries.
+test('Claude post-processing shows the robot for Ctrl+Insert and the speech bubble for Alt+Insert', () => {
+    assert.equal(isKnownState('CLAUDE_PROCESSING'), true);
+    assert.equal(lookFor('CLAUDE_PROCESSING', 'corporate').text, '🤖');
+    assert.equal(lookFor('CLAUDE_PROCESSING', 'natural').text, '💬');
+    assert.equal(claudeEmoji('corporate'), '🤖');
+    assert.equal(claudeEmoji('natural'), '💬');
+});
+
+test('Claude post-processing with no style known still shows the robot, never a blank', () => {
+    assert.equal(lookFor('CLAUDE_PROCESSING').text, '🤖');
+    assert.equal(lookFor('CLAUDE_PROCESSING', null).text, '🤖');
+});
+
+test('Claude post-processing looks different from transcribing, and is not green', () => {
+    assert.notDeepEqual(lookFor('CLAUDE_PROCESSING', 'corporate'), lookFor('TRANSCRIBING'));
+    assert.notEqual(lookFor('CLAUDE_PROCESSING', 'corporate').colour, COLOURS.green);
+});
+
+test('only Claude post-processing shows text in place of the icon', () => {
+    for (const state of STATES.filter(s => s !== 'CLAUDE_PROCESSING'))
+        assert.equal(lookFor(state, 'corporate').text, undefined, state);
 });

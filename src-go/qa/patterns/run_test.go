@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
 )
 
 const shebang = "#!/usr/bin/bash\n"
@@ -191,6 +193,9 @@ func TestP5SelfTestRunsOnRulesAndFixtureAndItsFailureIsExit2WithItsOutput(t *tes
 	if argv == nil || !strings.Contains(strings.Join(argv, " "), "--config "+filepath.Join(w.root, ".semgrep/bash-conventions.yml")) ||
 		!strings.Contains(strings.Join(argv, " "), filepath.Join(w.root, ".semgrep/bash-conventions.bash")) {
 		t.Fatalf("self-test argv: %v", argv)
+	}
+	if !slices.Contains(argv, semgrepreport.TimeoutFlag) {
+		t.Fatalf("self-test argv lacks %s: %v", semgrepreport.TimeoutFlag, argv)
 	}
 	if w.run.mirror != "" {
 		t.Fatal("scanned after the self-test failed")
@@ -456,7 +461,7 @@ func TestP11SemgrepRunsInTheMirrorWithTheRules(t *testing.T) {
 		}
 	}
 	joined := strings.Join(argv, " ")
-	for _, part := range []string{"--config ../rules.yml", "--json-output", "--metrics=off", "--quiet", "--max-target-bytes=0"} {
+	for _, part := range []string{"--config ../rules.yml", "--json-output", "--metrics=off", "--quiet", semgrepreport.TimeoutFlag, "--max-target-bytes=0"} {
 		if !strings.Contains(joined, part) {
 			t.Fatalf("argv %q lacks %q", joined, part)
 		}

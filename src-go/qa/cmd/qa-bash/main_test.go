@@ -11,8 +11,11 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/bash"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/cmdmain"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/cmdmaintest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
+
+func TestMain(m *testing.M) { os.Exit(cmdmaintest.Main(m)) }
 
 func TestRunDispatchesThroughTheCommand(t *testing.T) {
 	if code := run([]string{"--help"}); code != int(bash.ExitOK) {
@@ -155,15 +158,10 @@ func TestRealToolsAcceptARelativeAndATrailingSlashRoot(t *testing.T) {
 	}
 }
 
-// closedStdoutChild names the environment variable that turns this test binary into the command.
-const closedStdoutChild = "QA_BASH_CLOSED_STDOUT_CHILD"
-
 // S3: with stdout closed (>&-) the run is exit 2, it does not report a verdict nobody can read.
-// The test re-runs its own binary as the command, with fd 1 closed by the shell.
+// The test re-runs its own binary as the command over a real tree, with fd 1 closed by the shell.
 func TestAClosedStdoutIsExitTwo(t *testing.T) {
-	if args := os.Getenv(closedStdoutChild); args != "" {
-		os.Exit(run(strings.Fields(args)))
-	}
+	t.Setenv("QA_JSON_OUT", filepath.Join(t.TempDir(), "r.json"))
 	root := t.TempDir()
 	if res, err := (proc.OS{}).Run(context.Background(), proc.Cmd{Argv: []string{"git", "init", "-q"}, Dir: root}); err != nil || res.Code != 0 {
 		t.Fatalf("git init: %v %+v", err, res)
@@ -180,18 +178,5 @@ func TestAClosedStdoutIsExitTwo(t *testing.T) {
 	if res, err := (proc.OS{}).Run(context.Background(), proc.Cmd{Argv: []string{"git", "add", "-A"}, Dir: root}); err != nil || res.Code != 0 {
 		t.Fatalf("git add: %v %+v", err, res)
 	}
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	res, err := proc.OS{}.Run(context.Background(), proc.Cmd{
-		Argv: []string{"bash", "-c", `exec "$0" -test.run '^TestAClosedStdoutIsExitTwo$' >&-`, self},
-		Env:  []string{closedStdoutChild + "=--root " + root, "QA_JSON_OUT=" + filepath.Join(t.TempDir(), "r.json")},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Code != int(bash.ExitCannotRun) || !strings.Contains(res.Stderr, "ERROR: stdout is closed") {
-		t.Fatalf("exit %d\nstderr:\n%s", res.Code, res.Stderr)
-	}
+	cmdmaintest.RefusesClosedStdout(t, func() int { return run([]string{"--root", root}) }, int(bash.ExitCannotRun))
 }

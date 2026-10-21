@@ -87,8 +87,10 @@ change (section 4, B33), besides its own per-file semgrep check.
 ### Running semgrep and judging what came back
 
 - P11. The rules file is copied beside the mirror (outside it, so it is never scanned), and semgrep
-  runs in the mirror: `semgrep --config ../rules.yml --json-output <file> --metrics=off --quiet --max-target-bytes=0 .`
-  (no size limit: a large script is scanned, not skipped). A rules file outside the scan root makes
+  runs in the mirror: `semgrep --config ../rules.yml --json-output <file> --metrics=off --quiet --timeout=120 --max-target-bytes=0 .`
+  (no size limit: a large script is scanned, not skipped; `--timeout=120`, the shared
+  `semgrepreport.TimeoutFlag`, because semgrep's 5 s default per rule per file is wall time and a
+  loaded host turned clean files into Timeout errors, which P14 must answer with exit 2). A rules file outside the scan root makes
   semgrep prefix every rule id with the dotted path of the file, which would put the checkout's
   path in the output, so the rule id of a finding is the bare id from the rules file. Any exit status but 0 is exit 2 with semgrep's stderr (semgrep without `--error`
   exits 0 on findings, so any other status is semgrep itself failing). No JSON file, an empty one,

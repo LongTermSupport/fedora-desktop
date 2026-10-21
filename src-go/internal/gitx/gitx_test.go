@@ -3,6 +3,8 @@ package gitx_test
 import (
 	"context"
 	"errors"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
@@ -23,7 +25,7 @@ func TestProjectHere(t *testing.T) {
 	}{
 		{"inside", execx.Result{Stdout: []byte("true\n")}, true},
 		{"bare repo", execx.Result{Stdout: []byte("false\n")}, false},
-		{"not a repo", gitFail("fatal: not a git repository"), false},
+		{"not a repo", gitFail("fatal: not a git repository (or any of the parent directories): .git"), false},
 	}
 	for _, c := range cases {
 		f := &execx.Fake{}
@@ -34,6 +36,30 @@ func TestProjectHere(t *testing.T) {
 		}
 		if f.Calls()[0].Dir != dir {
 			t.Fatalf("%s: dir %q", c.name, f.Calls()[0].Dir)
+		}
+		if !slices.Contains(f.Calls()[0].Env, "LC_ALL=C") {
+			t.Fatalf("%s: env %q, want LC_ALL=C so git's refusal is in English", c.name, f.Calls()[0].Env)
+		}
+	}
+}
+
+// Only git's own not-a-repository refusal is false; any other refusal (a repository owned by
+// another user, a corrupt one) is an error carrying git's words.
+func TestProjectHereOtherRefusalIsAnError(t *testing.T) {
+	cases := map[string]execx.Result{
+		"dubious ownership": gitFail("fatal: detected dubious ownership in repository at '/srv/proj'"),
+		"silent 128":        {ExitCode: 128},
+		"exit 1":            {ExitCode: 1, Stderr: []byte("error: something else")},
+	}
+	for name, res := range cases {
+		f := &execx.Fake{}
+		f.On([]string{"git", "rev-parse", "--is-inside-work-tree"}, res)
+		got, err := gitx.New(f).ProjectHere(context.Background(), dir)
+		if err == nil || got {
+			t.Fatalf("%s: got %v, %v; want an error", name, got, err)
+		}
+		if s := string(res.Stderr); s != "" && !strings.Contains(err.Error(), s) {
+			t.Fatalf("%s: error %q does not carry git's stderr", name, err)
 		}
 	}
 }

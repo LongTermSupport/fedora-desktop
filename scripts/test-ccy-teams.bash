@@ -156,6 +156,26 @@ exit "${FAKE_PINGBUS_RC:-0}"
 FAKE
 chmod 755 "$bus_bin/pingbus"
 
+# The fake engine (container_cmd): each call is one line in $FAKE_BUS_LOG. The container is the
+# process whose pid is in $FAKE_CTR_PID: `ps` prints an id while it lives, `stop` ends it.
+# FAKE_PS_RC fails `ps`.
+cat >"$bus_bin/podman" <<'FAKE'
+#!/usr/bin/env bash
+printf 'podman %s\n' "$*" >>"$FAKE_BUS_LOG"
+pid=""
+if [ -f "${FAKE_CTR_PID:-}" ]; then pid=$(cat "$FAKE_CTR_PID"); fi
+case "$1" in
+ps)
+    [ "${FAKE_PS_RC:-0}" -eq 0 ] || { echo "podman: ps refused (fake)" >&2; exit "$FAKE_PS_RC"; }
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then echo 0123456789ab; fi
+    ;;
+stop) kill "$pid" && rm -f "$FAKE_CTR_PID" && echo "$4" ;;
+*) echo "fake podman: unexpected call: $*" >&2 && exit 70 ;;
+esac
+FAKE
+chmod 755 "$bus_bin/podman"
+export FAKE_CTR_PID="$work/container.pid" FAKE_LAUNCHER_PID="$work/launcher.pid" LAUNCHER
+
 echo "=== lib/agent-bus-seats.bash ==="
 
 # lib_run <function> [args...]: call a function with the libraries loaded and the fake on
@@ -168,6 +188,22 @@ cat >"$work/lib-run.bash" <<'RUN'
 . "$LIB_DIR/agent-bus-membership.bash"
 . "$LIB_DIR/agent-bus-seats.bash"
 ccy_tmux_current_session() { [ "${FAKE_SESSION_RC:-0}" -eq 0 ] || return 1; printf '%s' "${FAKE_SESSION-ccy-proj-1}"; }
+container_cmd() { podman "$@"; }
+# The launcher's own debug and cleanup, cut out of it; the SSH steps (no keys here) are stubs.
+. <(awk '/^debug\(\) \{$/,/^\}$/; /^cleanup\(\) \{$/,/^\}$/' "$LAUNCHER")
+_probe_agent_stop() { :; }
+ccy_askpass_passphrase_discard() { :; }
+ccy_agent_filter_stop() { :; }
+DEBUG_CCY=false DEBUG_LOG="" CONFIG_TEMP="$FAKE_CTR_PID.config"
+# The launch, then the container's run in the foreground (the process FAKE_CTR_PID names) with
+# the launcher's EXIT trap, as when a closed tmux window sends the launcher SIGHUP. The
+# launcher's pid is written to FAKE_LAUNCHER_PID.
+launch_then_wait_on_the_container() {
+    ccy_seats_take "$@" >/dev/null || return
+    trap cleanup EXIT
+    echo "$$" >"$FAKE_LAUNCHER_PID"
+    sh -c 'echo "$$" >"$FAKE_CTR_PID" && exec sleep 30'
+}
 take_and_show() {
     ccy_seats_take "$@"
     local s=$?
@@ -179,17 +215,18 @@ take_then_disconnect() {
     ccy_seats_take "$@" >/dev/null || return
     ccy_bus_disconnected
 }
-# The same, with Ctrl-C mashed at the launcher's process group while pingbus runs (run under
-# setsid, so the group is this run's alone).
-take_then_disconnect_mashed() {
+# The launch, then the launcher's cleanup with Ctrl-C mashed at the launcher's process group
+# while pingbus runs (run under setsid, so the group is this run's alone).
+take_then_cleanup_mashed() {
     ccy_seats_take "$@" >/dev/null || return
     (for _ in 1 2 3 4 5; do sleep 0.2; kill -INT 0; done) &
-    ccy_bus_disconnected
+    cleanup
 }
-# The cleanup, then what SIGINT is left as (nothing printed: the default).
-disconnect_then_show_int() {
-    take_then_disconnect "$@" || return
-    trap -p INT
+# The launcher's cleanup, then what SIGINT and SIGHUP are left as (nothing printed: the default).
+cleanup_then_show_signals() {
+    ccy_seats_take "$@" >/dev/null || return
+    cleanup
+    trap -p INT HUP
 }
 "$@"
 printf 'rc=%s' "$?"
@@ -311,12 +348,56 @@ check "no kit (no list, outside tmux): pingbus is not run" "none" "$(bus_calls)"
 check "a failure is said on stderr and is not the launcher's (a restart still goes ahead)" "rc=0" \
     "$(FAKE_PINGBUS_RC=1 lib_run take_then_disconnect dev1@team-a false false yolo-1)"
 check "  it names the command" "yes" "$(has "pingbus seat disconnected failed" "$work/lib.err")"
-check "Ctrl-C mashed while pingbus runs (the container has gone) does not stop it" "rc=0" \
-    "$(FAKE_PINGBUS_SLEEP=1.5 lib_run_own_group take_then_disconnect_mashed dev1@team-a false false yolo-1)"
+check "Ctrl-C mashed while the launcher's cleanup runs pingbus does not stop it" "rc=0" \
+    "$(FAKE_PINGBUS_SLEEP=1.5 lib_run_own_group take_then_cleanup_mashed dev1@team-a false false yolo-1)"
 check "  pingbus finished" "1" "$(grep -c '^pingbus done$' "$FAKE_BUS_LOG")"
 check "  and nothing was said to have failed" "no" "$(has "failed" "$work/lib.err")"
-check "  SIGINT is the launcher's again afterwards (a restart's exec inherits it)" "rc=0" \
-    "$(lib_run disconnect_then_show_int dev1@team-a false false yolo-1)"
+check "  SIGINT and SIGHUP are the launcher's again afterwards (a restart's exec inherits them)" "rc=0" \
+    "$(lib_run cleanup_then_show_signals dev1@team-a false false yolo-1)"
+
+# G3 of Plan 00194's acceptance: a closed tmux window. The launcher (the pane's session leader)
+# gets SIGHUP while podman runs in the foreground; bash runs its EXIT trap at once, without
+# waiting for podman, and podman hears of the hangup only once the launcher has gone. So the
+# cleanup finds the container still running, and holding the seats: it is stopped first. A
+# second SIGHUP during the cleanup (any further signal from the terminal side) is ignored.
+disconnect_log="$work/.claude/ccy/pingbus/disconnect.log"
+rm -f "$disconnect_log" "$FAKE_CTR_PID" "$FAKE_LAUNCHER_PID"
+: >"$FAKE_BUS_LOG"
+(cd "$work" && PATH="$bus_bin:$PATH" CCY_MOUNT_RELABEL=z CCY_TEAMS_PINGBUS="$bus_bin/pingbus" \
+    XDG_RUNTIME_DIR="$work/run" LIB_DIR="$LIB_DIR" FAKE_PINGBUS_SLEEP=1.5 \
+    setsid --wait bash "$work/lib-run.bash" launch_then_wait_on_the_container dev1@team-a false false yolo-1 \
+    >"$work/hangup.out" 2>"$work/lib.err") &
+hangup_run=$!
+for _ in $(seq 1 100); do
+    { [ -s "$FAKE_CTR_PID" ] || ! kill -0 "$hangup_run" 2>/dev/null; } && break
+    sleep 0.1
+done
+container_pid=$(cat "$FAKE_CTR_PID")
+kill -HUP "$(cat "$FAKE_LAUNCHER_PID")"
+for _ in $(seq 1 50); do
+    { grep -q '^pingbus seat disconnected' "$FAKE_BUS_LOG" || ! kill -0 "$hangup_run" 2>/dev/null; } && break
+    sleep 0.1
+done
+kill -HUP "$(cat "$FAKE_LAUNCHER_PID")"
+wait "$hangup_run"
+check "a hangup while the container runs: the container is stopped, then pingbus is run, to its end" \
+    "podman ps -q --filter name=^yolo-1\$|podman stop -t 10 yolo-1|pingbus|pingbus done" \
+    "$(awk '/^(podman|pingbus)/ { sub(/^pingbus seat disconnected .*/, "pingbus"); print }' "$FAKE_BUS_LOG" | paste -sd'|')"
+check "  the container's process has ended" "no" "$(yes_no kill -0 "$container_pid" 2>/dev/null)"
+check "  the disconnect log says so, owner-only" "600|1|1" \
+    "$(stat -c %a "$disconnect_log")|$(grep -c 'launcher session=ccy-proj-1 the container yolo-1 still ran at the launcher.s exit' "$disconnect_log")|$(grep -c 'launcher session=ccy-proj-1 pingbus seat disconnected exited 0$' "$disconnect_log")"
+
+rm -f "$disconnect_log"
+lib_run take_then_disconnect dev1@team-a false false yolo-1 >/dev/null
+check "a container already gone is not stopped; the disconnect log has pingbus's exit" "0|1" \
+    "$(grep -c '^podman stop' "$FAKE_BUS_LOG")|$(grep -c 'pingbus seat disconnected exited 0$' "$disconnect_log")"
+rm -f "$disconnect_log"
+FAKE_PINGBUS_RC=1 lib_run take_then_disconnect dev1@team-a false false yolo-1 >/dev/null
+check "a pingbus failure is in the disconnect log too" "1" "$(grep -c 'pingbus seat disconnected failed (exit 1' "$disconnect_log")"
+rm -f "$disconnect_log"
+check "a container that cannot be asked about: said, logged, and the teams are still told" "rc=0|1|1" \
+    "$(FAKE_PS_RC=125 lib_run take_then_disconnect dev1@team-a false false yolo-1)|$(grep -c 'could not ask whether the container yolo-1' "$disconnect_log")|$(grep -cE "$disconnect_re" "$FAKE_BUS_LOG")"
+check "  on stderr too" "yes" "$(has "could not ask whether the container yolo-1" "$work/lib.err")"
 started=$(date +%s)
 check "a pingbus that hangs is ended at the bound, said, and not the launcher's" "rc=0" \
     "$(CCY_BUS_DISCONNECT_TIMEOUT_S=1 FAKE_PINGBUS_SLEEP=20 lib_run take_then_disconnect dev1@team-a false false yolo-1)"
@@ -829,8 +910,9 @@ check "Quick Launch's summary names each seat with its role, through ccy-teams" 
     "$(grep -c -F 'ccy-teams describe-seats' "$LAUNCHER")"
 check "the flag and the Quick Launch team go through the one function (definition and two calls)" "3" \
     "$(grep -c -E '^ *ccy_launch_teams' "$LAUNCHER")"
-check "the launcher's cleanup tells what ended without a goodbye, last (Plan 00194)" "    ccy_bus_disconnected" \
-    "$(awk '/^cleanup\(\) \{$/ {p=1; next} p && /^\}$/ {exit} p && NF {last=$0} END {print last}' "$LAUNCHER")"
+check "the launcher's cleanup ignores SIGHUP and SIGINT first, tells what ended without a goodbye last, then puts them back (Plan 00194)" \
+    "    trap '' HUP INT|    ccy_bus_disconnected|    trap - HUP INT" \
+    "$(awk '/^cleanup\(\) \{$/ {p=1; next} p && /^\}$/ {exit} p && NF && !/^ *#/ {if (!first) first=$0; prev=last; last=$0} END {print first "|" prev "|" last}' "$LAUNCHER")"
 check "  cleanup runs at every exit, and before a restart's exec" "2" \
     "$(grep -c -E '^trap cleanup EXIT$|^    cleanup$' "$LAUNCHER")"
 

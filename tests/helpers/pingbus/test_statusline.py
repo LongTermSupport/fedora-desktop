@@ -29,7 +29,7 @@ from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import cli, config, hooks, inbox, membership, protocol, statusline
+from helpers.pingbus import cli, config, hooks, inbox, membership, protocol, seat, statusline
 
 CYAN, RED, RESET = "\033[36m", "\033[31m", "\033[0m"
 
@@ -368,17 +368,17 @@ class StatusLineTest(unittest.TestCase):
                       stdin=io.BytesIO(self.payload()))
         self.assertEqual((out.getvalue(), rc), (f"inner\n{CYAN}👥 alpha (worker){RESET}\n", 0))
 
-    def test_the_kit_settings_make_it_the_status_line_refreshed_every_second(self) -> None:
-        """The interval is the project's (1 s): the kit's statusLine replaces the project's whole,
-        and ccy --supervise reads a context sidecar the daemon's status line writes on each
-        render, which goes stale in an idle session without it."""
+    def test_the_kit_settings_make_it_the_status_line_at_the_seated_interval(self) -> None:
+        """Plan 00213 Task 1.3: the kit and a ccy seated session (seat.py) refresh at one
+        interval, under the 30 s after which ccy --supervise holds the context sidecar the inner
+        daemon line writes on each render to be stale (an idle session renders only on the timer)."""
         repo = pathlib.Path(__file__).resolve().parents[3]
         kit = repo / "files/opt/claude-yolo/optional/agent-bus"
         settings = json.loads((kit / "settings.json").read_text(encoding="utf-8"))
         self.assertEqual(settings["statusLine"],
-                         {"type": "command", "command": statusline.COMMAND, "refreshInterval": 1})
-        project = json.loads((repo / ".claude/settings.json").read_text(encoding="utf-8"))
-        self.assertEqual(settings["statusLine"]["refreshInterval"], project["statusLine"]["refreshInterval"])
+                         {"type": "command", "command": statusline.COMMAND,
+                          "refreshInterval": seat.STATUS_LINE_REFRESH_S})
+        self.assertLess(seat.STATUS_LINE_REFRESH_S, 30)
 
     # ── cheap to run: only a segment with teams imports the role reader's modules ──────
 

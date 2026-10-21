@@ -1,5 +1,9 @@
 #!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
 ---
+# The prompt's background fetch runs git-prompt-fetch, a Go binary built here from src-go, so
+# the Go toolchain is installed first. play-golang.yml stays its one source of truth.
+- import_playbook: play-golang.yml
+
 # Git is already installed as it was used to clone this repo,
 # so we just need to configure it
 - hosts: desktop
@@ -220,6 +224,23 @@
               fi
           fi
 
+    # The prompt's background fetch, run from the bashrc block below, installed root-owned on
+    # the system PATH before the block that names it.
+    - name: Build and Install the git-prompt-fetch Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: git-prompt-fetch
+        go_command_dest: /usr/local/bin/git-prompt-fetch
+        go_command_mode: "0755"
+        go_command_owner: root
+
+    # bash-git-prompt runs its remote fetch, and nothing else, through async_run, as
+    # GIT_TERMINAL_PROMPT=0 git fetch, which still lets ssh ask for a key passphrase on the
+    # terminal when the key is not in the agent (#52). The async_run defined after the source
+    # replaces it with git-prompt-fetch, which can ask for nothing; the acceptance of Plan 00183
+    # checks the installed copy still calls async_run only for that fetch. A failed fetch is
+    # shown by the prompt mark (git-fetch-age), and its words are kept, the last run only, in
+    # ~/.cache/git-prompt-fetch.log (the build task above makes ~/.cache).
     - name: Update ~/.bashrc File for the Bash Git Prompt
       ansible.builtin.blockinfile:
         path: /home/{{ user_login }}/.bashrc
@@ -229,6 +250,9 @@
           GIT_PROMPT_THEME=Solarized
           GIT_PROMPT_START=$PS1
           source ~/.bash-git-prompt/gitprompt.sh
+          function async_run() {
+            { git-prompt-fetch > ~/.cache/git-prompt-fetch.log 2>&1; } 3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&- &
+          }
 
     # https://github.com/cli/cli/blob/trunk/docs/install_linux.md#fedora-centos-red-hat-enterprise-linux-dnf
     # --overwrite re-fetches the repofile every run: upstream rotates the signing

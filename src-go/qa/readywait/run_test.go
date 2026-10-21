@@ -299,7 +299,7 @@ func TestAPythonRuleThatFailsItsFixtureIsExitOneWithSemgrepsOutput(t *testing.T)
 	}
 	for _, argv := range w.fake.argvs {
 		if slices.Contains(argv, "--test") {
-			for _, want := range []string{"--metrics=off", "--disable-version-check", "--config", filepath.Join(w.root, ".semgrep/ready-wait.yml"), filepath.Join(w.root, ".semgrep/ready-wait.py")} {
+			for _, want := range []string{"--metrics=off", semgrepreport.TimeoutFlag, "--disable-version-check", "--config", filepath.Join(w.root, ".semgrep/ready-wait.yml"), filepath.Join(w.root, ".semgrep/ready-wait.py")} {
 				if !slices.Contains(argv, want) {
 					t.Fatalf("semgrep --test lacks %q: %v", want, argv)
 				}
@@ -428,7 +428,7 @@ func TestTheScanIsRunInTheRootWithTheDocumentedArguments(t *testing.T) {
 	if argv[0] != w.root {
 		t.Fatalf("ran in %q", argv[0])
 	}
-	want := []string{"semgrep", "--metrics=off", "--disable-version-check", "--config", filepath.Join(w.root, ".semgrep/ready-wait.yml"), "--no-rewrite-rule-ids", "--scan-unknown-extensions", "--json", "--quiet", "helpers/mod.py"}
+	want := []string{"semgrep", "--metrics=off", "--disable-version-check", "--config", filepath.Join(w.root, ".semgrep/ready-wait.yml"), "--no-rewrite-rule-ids", "--scan-unknown-extensions", "--json", semgrepreport.TimeoutFlag, "--quiet", "helpers/mod.py"}
 	if !slices.Equal(argv[1:], want) {
 		t.Fatalf("argv %v\nwant %v", argv[1:], want)
 	}

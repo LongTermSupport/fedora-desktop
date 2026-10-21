@@ -210,7 +210,8 @@ class FakeGuest:
             if not self.config_ok:
                 raise members.MemberError(f"{what}: failed (exit 78): bundle unreadable")
             return b""
-        assert list(argv[:3]) == ["python3", "-I", "-c"], argv
+        # Plan 00213: the interpreter the zipapp's shebang runs, so the 3.11 gate judges that one.
+        assert list(argv[:3]) == ["/usr/bin/python3", "-I", "-c"], argv
         if argv[3] == members.SOURCE_PY:
             return (self.source + "\n").encode()
         run = subprocess.run([sys.executable, "-I", "-c", *argv[3:]], input=stdin,
@@ -327,11 +328,19 @@ class ParseMembersTest(unittest.TestCase):
             member.handle("proj")
 
     def test_seat_and_repo_given(self) -> None:
-        (member,) = members.parse_members([entry(seat=2, repo="Owner-Proj", role="coordinator",
+        (member,) = members.parse_members([entry(seat=2, repo="Owner-Proj", role="worker",
                                                  human_text=False)])
         self.assertEqual((member.seat, member.repo, member.role, member.human_text),
-                         ("2", "owner-proj", "coordinator", False))
+                         ("2", "owner-proj", "worker", False))
         self.assertEqual(member.handle("proj"), "proj.2+box.lxc")
+
+    def test_a_coordinator_must_take_human_text(self) -> None:
+        # Plan 00211 SPEC 4.5: every message in the questions room is a human's, so a
+        # coordinator dropping human text would hear none of them.
+        with self.assertRaisesRegex(members.MemberError, "entry 1: a coordinator must take human text"):
+            members.parse_members([entry(role="coordinator", human_text=False)])
+        (member,) = members.parse_members([entry(role="coordinator", human_text=False, state="absent")])
+        self.assertEqual(member.state, "absent")
 
     def test_an_entry_still_saying_orchestrator_is_a_coordinator(self) -> None:
         (member,) = members.parse_members([entry(role="orchestrator")])
@@ -563,7 +572,7 @@ class PresentPhaseTest(Fixture):
         self.run_phase("present", [entry()])
         changed = self.run_phase("present", [entry(role="coordinator")])
         self.assertEqual(changed, [f"{HANDLE} is now coordinator in team {TEAM}"])
-        changed = self.run_phase("present", [entry(role="coordinator", human_text=False)])
+        changed = self.run_phase("present", [entry(role="worker", human_text=False)])
         self.assertIn(f"{HANDLE} joined team {TEAM} (agent@devbox)", changed)
         member = json.loads((self.bundle_dir() / "member.json").read_text())
         self.assertIs(member["human_text"], False)
@@ -1415,7 +1424,7 @@ class MarkerLinesTest(StoppedFixture):
 
 class KitSyncTest(Fixture):
     def sync(self) -> bytes:
-        return self.guest.root(["python3", "-I", "-c", members.KIT_SYNC_PY, self.guest.kit_parent,
+        return self.guest.root(["/usr/bin/python3", "-I", "-c", members.KIT_SYNC_PY, self.guest.kit_parent,
                                 self.guest.bin_dir, str(self.guest.kit_owner)], "kit",
                                members.kit_tar(self.kit_parent))
 
@@ -1469,7 +1478,7 @@ class UmaskTest(Fixture):
         return [parent.parent, parent, parent / "kit", parent / "kit" / "plugin"]
 
     def sync(self) -> list[str]:
-        out = self.guest.root(["python3", "-I", "-c", members.KIT_SYNC_PY, self.guest.kit_parent,
+        out = self.guest.root(["/usr/bin/python3", "-I", "-c", members.KIT_SYNC_PY, self.guest.kit_parent,
                                self.guest.bin_dir, str(self.guest.kit_owner)], "kit",
                               members.kit_tar(self.kit_parent))
         return out.decode().splitlines()

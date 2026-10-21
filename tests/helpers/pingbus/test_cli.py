@@ -488,6 +488,23 @@ class GoodbyePostTest(BusCase):
         (content,) = self.a.messages_from_me()
         self.assertNotIn(self.a.peer, json.dumps(content))
 
+    def test_two_sessions_ending_alike_inside_the_duplicate_window_both_say_goodbye(self):
+        """Plan 00194 Task 2.0i: each session says goodbye once (its own record); a relaunch
+        that ends again within 60 s is a second session, and its goodbye is posted too."""
+        self.joined()
+        self.post()
+        self.now += 19
+        self.post()
+        self.assertEqual(len(self.a.messages_from_me()), 2)
+
+    def test_a_goodbye_still_spends_a_send_token(self):
+        self.joined()
+        self.a.write_bundle(member_limits={"send_burst": 1})
+        self.post()
+        with self.assertRaises(hooks.GoodbyeFailed) as caught:
+            self.post()
+        self.assertIn("rate limited: rate", str(caught.exception))
+
     def test_a_homeserver_that_cannot_be_reached_is_a_goodbye_failure(self):
         self.joined()
         self.a.write_bundle(base_url="http://127.0.0.1:1")
@@ -700,7 +717,7 @@ class RecvTest(BusCase):
                          [["PING", "1", TEAM_A, ping, ORCH_LP, "review", PATH_REF, "-", "trusted", "-", "-"]])
         self.assertEqual(self.lines(out, "HUMAN"),
                          [["HUMAN", "1", TEAM_A, human, "alice", str(int(T0 * 1000)),
-                           json.dumps("line one\nline two")]])
+                           json.dumps("line one\nline two"), "-"]])
         self.assertEqual(self.run_cli("recv")[0], cli.EXIT_NOTHING)
 
     def test_recv_refetches_and_prints_the_fetched_copy(self):
@@ -714,7 +731,7 @@ class RecvTest(BusCase):
         self.a.fake.http_log.clear()
         code, out, _ = self.run_cli("recv")
         self.assertEqual(code, cli.EXIT_OK)
-        self.assertEqual(self.lines(out, "HUMAN")[0][-1], json.dumps("the server's words"))
+        self.assertEqual(self.lines(out, "HUMAN")[0][6], json.dumps("the server's words"))
         fetched = [r.path for r in self.a.fake.http_log if "/event/" in r.path]
         self.assertEqual(fetched, [f"/_matrix/client/v3/rooms/{q(self.a.room)}/event/{q(event)}"])
 
@@ -883,7 +900,7 @@ class WaitTest(BusCase):
         self.later(0.8, lambda: self.a.human("after the drop"))
         code, out, err = self.run_cli("wait", "--timeout", "20")
         self.assertEqual(code, cli.EXIT_OK)
-        self.assertEqual(self.lines(out, "HUMAN")[0][-1], json.dumps("after the drop"))
+        self.assertEqual(self.lines(out, "HUMAN")[0][6], json.dumps("after the drop"))
         self.assertIn("DROPPED\t1\t1\tschema=1", err)
 
     def test_wait_with_only_drops_reaches_its_timeout_not_exit_6(self):

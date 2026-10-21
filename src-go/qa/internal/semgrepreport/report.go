@@ -14,6 +14,13 @@ import (
 	"strings"
 )
 
+// TimeoutFlag is semgrep's limit on one rule over one file (parse included), which every scan
+// passes. semgrep's default is 5 s, measured in wall time, so on a loaded host a clean file it
+// was starved on comes back as a Timeout error, which a gate must treat as not analysed. The
+// largest tracked scripts take well under a second; 120 s is far beyond any honest file and still
+// names the file that a runaway rule stalls on, inside the gates' own whole-run deadline.
+const TimeoutFlag = "--timeout=120"
+
 // Result is one match of a rule.
 type Result struct {
 	CheckID string `json:"check_id"`

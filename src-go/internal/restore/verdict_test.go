@@ -1,6 +1,8 @@
 package restore
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/screen"
@@ -46,6 +48,30 @@ func TestVerdictGoldenCases(t *testing.T) {
 		if got.String() != c.want {
 			t.Errorf("%s: got %q, want %q", c.name, got.String(), c.want)
 		}
+	}
+}
+
+// A session restored with --resume sits at Claude Code's conversation picker: claude runs
+// and the container is up, but nobody is there to choose a conversation (fedora-desktop#86).
+func TestASessionAtTheConversationPickerIsWaitingNotOK(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "screen", "testdata", "picker-80.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		prefix    string
+		container ContainerState
+	}{{"ccy", ContainerUp}, {"cc", ContainerNone}} {
+		got := Judge(c.prefix, true, string(raw), c.container, GoingOutcome{Kind: OutcomeStarted})
+		if got.String() != "WAITING-AT-PROMPT thread-picker" {
+			t.Errorf("%s: got %q", c.prefix, got.String())
+		}
+	}
+	if got := Judge("ccy", true, string(raw), ContainerUp, GoingOutcome{}); got.String() != "WAITING-AT-PROMPT thread-picker" {
+		t.Errorf("found running: got %q", got.String())
+	}
+	if got := Judge("ccy", false, string(raw), ContainerUp, GoingOutcome{}); got.String() != "DEAD session-not-running" {
+		t.Errorf("not live: got %q", got.String())
 	}
 }
 

@@ -89,6 +89,15 @@ linters:
       # SPEC-team-add-and-restart C1), snake_case like the rest of pingbus's files.
       - path: internal/conversation/conversation\.go
         linters: [tagliatelle]
+      # The status-line oracle's scenarios.json is the pingbus oracle's literal input (Plan 00213
+      # SPEC-status-line.md S40), snake_case like the rest of pingbus's files.
+      - path: internal/pingbus/statusline/golden/golden_test\.go
+        linters: [tagliatelle]
+      # The status line refuses files others can read; its tests build such files, and edit
+      # the cache file of their own temporary world.
+      - path: internal/pingbus/statusline/.*_test\.go
+        linters: [gosec]
+        text: "G302|G304|G306|G703"
       # The play lock's tests give the runtime directory a mode others can write: the state the
       # lock must refuse to use.
       - path: internal/playlock/playlock_test\.go
@@ -192,6 +201,16 @@ linters:
       - path: internal/rclonerc/rclonerc\.go
         linters: [gosec]
         text: "G304"
+      # rclone-cache-status decodes rclone's vfs/stats answer, whose opt keys are rclone's own
+      # Go field names (CacheMaxSize, CacheMaxAge).
+      - path: internal/rclonecache/stats\.go
+        linters: [tagliatelle]
+        text: "CacheMax"
+      # wsi-lower-media-volume decodes pactl's JSON sink inputs, whose keys are pactl's own
+      # (channel_map) and the sound server's property names (application.process.id).
+      - path: internal/wsimedia/app\.go
+        linters: [tagliatelle]
+        text: "channel_map|application\\.(process\\.id|process\\.binary|name)"
       # ftp-camera's job is files by computed path: it reads its config and the uploads under
       # the camera account's home, and copies each sorted upload into the rclone mount, creating
       # its directories with the user's umask as cp and mkdir -p did (SPEC-ftp-camera.md E63).
@@ -204,6 +223,15 @@ linters:
       - path: internal/watermark/image\.go
         linters: [gosec]
         text: "G304"
+      # open reads the desktop entries it found in the XDG application directories, by the path
+      # the search gave (SPEC-open.md E9, E10). Its tests build home and application trees with
+      # the modes a real one has.
+      - path: internal/open/desktop\.go
+        linters: [gosec]
+        text: "G304"
+      - path: internal/open/.*_test\.go
+        linters: [gosec]
+        text: "G301|G302|G306"
       # wsi reads its PID file and its recording in /dev/shm and its log under the user's home,
       # each a fixed name (SPEC-wsi-watermark.md W5-W7); its tests read back what it wrote there,
       # copy the recording as the fake sox does, and write an executable stand-in recorder.
@@ -219,6 +247,11 @@ linters:
       - path: internal/wsi/.*_test\.go
         linters: [gosec]
         text: "G304|G306|G703"
+      # git-fetch-age reads the git directory of the checkout the prompt is in, by the paths git
+      # itself writes there: a .git file's gitdir line and a worktree's commondir (Plan 00183).
+      - path: internal/fetchage/fetchage\.go
+        linters: [gosec]
+        text: "G304|G703"
   settings:
     cyclop:
       max-complexity: 15

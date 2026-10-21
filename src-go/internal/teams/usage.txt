@@ -47,9 +47,9 @@ too (? there shows every key, explained). The shortcuts:
            `ccy-teams session ...` below, run for you, with its question and its steps.
            Back to the teams, or Esc, comes back
 A key works only on a row whose menu has it.
-The menu of a team row also has Restart the team's desktop sessions and Shut down every
-session of <team> (no shortcut): the same as `ccy-teams restart <team>` and
-`ccy-teams shutdown <team>` below.
+The menu of a team row also has Restart the team's desktop sessions, Wind down the team's
+sessions and Shut down every session of <team> (no shortcut): the same as
+`ccy-teams restart <team>`, `ccy-teams wind-down <team>` and `ccy-teams shutdown <team>` below.
 The menu of a team row also has Edit settings (no shortcut): every field of the team's entry
 with its value. Each editable one is checked as it is typed; Save and apply writes the changes
 to the host_vars in one edit and applies the team, as ccy-teams apply does. The coordinator
@@ -165,7 +165,26 @@ Usage:
                                    do and asks (default No; with no terminal, --yes is
                                    required). One line per session: done, failed or left
                                    as it is; exit 1 if any failed. Nothing goes on the bus
-  ccy-teams for-checkout         print the team(s) that work on this checkout's GitHub
+  ccy-teams wind-down <team> [--yes]
+                                   tell every running session of the team on this
+                                   desktop, the coordinator included, that we are about
+                                   to shut down and the work is not done: into each tmux
+                                   pane, at an idle moment (a busy one is waited for, up
+                                   to 300 s, never interrupted), it types /goal clear, then
+                                   the instruction to commit work in progress, stop
+                                   sub-agents, push what passes its QA gate, write down
+                                   where unfinished work stands, and stop. It is your turn
+                                   in the session, not a team message. An LXC member in a
+                                   running container gets the same in its service unit's
+                                   agent-bus-claude tmux session, through sudo lxc-attach
+                                   as its user. It lists what it will do, and the members
+                                   it cannot type into (a stopped or held-back container,
+                                   another machine), and asks (default
+                                   No; with no terminal, --yes is required). One line per
+                                   member; exit 1 unless every running session got both
+                                   lines and none was out of reach, whose text it prints
+                                   to give by hand. Nothing is ended; shutdown does that
+  ccy-teams for-checkout        print the team(s) that work on this checkout's GitHub
                                    OWNER/REPO (an organisation team by its owner, unless
                                    it excludes the repository), one per line on stdout, the
                                    rest on stderr. With none, it fails saying so. For scripts;

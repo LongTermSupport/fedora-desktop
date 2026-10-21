@@ -104,6 +104,24 @@ type Client struct {
 	Err    io.Writer
 }
 
+// WithStderr is a copy of the client whose commands' stderr goes to wrap(w) for each stream w
+// it would have gone to: Err, and the terminal Root copies a failed root command's stderr to. A
+// caller running calls side by side keeps each call's words apart this way. A nil Err stays nil,
+// captured into the CommandError. The client itself is not changed.
+func (c *Client) WithStderr(wrap func(io.Writer) io.Writer) *Client {
+	out := *c
+	if c.Err != nil {
+		out.Err = wrap(c.Err)
+	}
+	if c.Root != nil && c.Root.Term != nil {
+		root, terminal := *c.Root, *c.Root.Term
+		terminal.Err = wrap(c.Root.Term.Err)
+		root.Term = &terminal
+		out.Root = &root
+	}
+	return &out
+}
+
 // SeatList is "agent-bus seat list" run as the user in the checkout dir. The wrapper exits
 // 78 when one seat is unreadable but the others were still printed: that is not an error,
 // it returns the seats it did print and unreadable true.

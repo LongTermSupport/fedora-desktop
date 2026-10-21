@@ -45,7 +45,7 @@ func (g *gate) proveRules(ctx context.Context) error {
 	if len(semgrepreport.Annotated(string(body))) == 0 {
 		return fmt.Errorf("%s marks no ruleid line; the self-test proves nothing", fixturePath)
 	}
-	res, err := g.runTool(ctx, semgrepTimeout, g.root, "semgrep", "--test", "--config", rules, fixture, "--metrics=off")
+	res, err := g.runTool(ctx, semgrepTimeout, g.root, "semgrep", "--test", "--config", rules, fixture, "--metrics=off", semgrepreport.TimeoutFlag)
 	if err != nil {
 		return err
 	}
@@ -111,7 +111,7 @@ func (g *gate) scanIn(ctx context.Context, work string, scripts []script) (scanR
 	}
 	// The rules sit beside the mirror and are named relative to it: a config file outside the
 	// scan root makes semgrep prefix every rule id with that file's dotted absolute path.
-	run, err := g.runTool(ctx, semgrepTimeout, mirror, "semgrep", "--config", "../rules.yml", "--json-output", out, "--metrics=off", "--quiet", "--max-target-bytes=0", ".")
+	run, err := g.runTool(ctx, semgrepTimeout, mirror, "semgrep", "--config", "../rules.yml", "--json-output", out, "--metrics=off", "--quiet", semgrepreport.TimeoutFlag, "--max-target-bytes=0", ".")
 	if err != nil {
 		return scanResult{}, err
 	}

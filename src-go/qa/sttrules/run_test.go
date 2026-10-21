@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
 )
 
 type failWriter struct{}
@@ -201,8 +202,8 @@ func TestTheSelfTestRunsTheRulesOverEachFixtureWithMetricsOff(t *testing.T) {
 	got := w.fake.tests()
 	rules := filepath.Join(w.root, ruleFile)
 	want := [][]string{
-		{"semgrep", "--test", "--metrics=off", "--disable-version-check", "--config", rules, filepath.Join(w.root, jsFixtureFile)},
-		{"semgrep", "--test", "--metrics=off", "--disable-version-check", "--config", rules, filepath.Join(w.root, pyFixtureFile)},
+		{"semgrep", "--test", "--metrics=off", semgrepreport.TimeoutFlag, "--disable-version-check", "--config", rules, filepath.Join(w.root, jsFixtureFile)},
+		{"semgrep", "--test", "--metrics=off", semgrepreport.TimeoutFlag, "--disable-version-check", "--config", rules, filepath.Join(w.root, pyFixtureFile)},
 	}
 	if !slices.EqualFunc(got, want, slices.Equal) {
 		t.Fatalf("self-test argv\n%v\nwant\n%v", got, want)
@@ -521,7 +522,7 @@ func TestAScanHandsTheFilesByNameFromTheRoot(t *testing.T) {
 	argv := w.fake.configs[0].argv
 	want := []string{
 		"semgrep", "--metrics=off", "--disable-version-check", "--config", w.fake.configs[0].path,
-		"--no-rewrite-rule-ids", "--scan-unknown-extensions", "--json", "--quiet", "--max-target-bytes=0", "helpers/mod.py",
+		"--no-rewrite-rule-ids", "--scan-unknown-extensions", "--json", "--quiet", semgrepreport.TimeoutFlag, "--max-target-bytes=0", "helpers/mod.py",
 	}
 	if !slices.Equal(argv, want) {
 		t.Fatalf("argv\n%v\nwant\n%v", argv, want)

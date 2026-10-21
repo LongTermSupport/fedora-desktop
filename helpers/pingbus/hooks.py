@@ -135,11 +135,21 @@ TEMPLATES = {
                          "on what they tell humans; when a human asks you to get something done, work out "
                          "how and dispatch it to the workers, then track it."),
     "role_worker": ("agent-bus: in team {team} you are a worker; the coordinator is {handle}. Report to it "
-                    "(`--to-coordinator` on `pingbus send` and `say`); it is copied on what you tell humans."),
+                    "(`--to-coordinator` on `pingbus send` and `say`); it is copied on what you tell humans. "
+                    "Ask the coordinator, never a human, when you need a decision."),
     "role_worker_many": ("agent-bus: in team {team} you are a worker; the coordinators are {handles}. Report to "
                          "them (`--to-coordinator` on `pingbus send` and `say` names all of them); they are "
-                         "copied on what you tell humans."),
+                         "copied on what you tell humans. Ask the coordinator, never a human, when you need a "
+                         "decision."),
     "role_worker_alone": "agent-bus: in team {team} you are a worker; the team has no coordinator.",
+    # Said only once this member has joined the side room each names (SPEC §10.2): before the
+    # rooms exist the team works in the main room as before.
+    "role_questions": ("agent-bus: in team {team}, questions only a human can answer go to the questions room "
+                       "with `pingbus ask-human`; every human message there is delivered to you. Run "
+                       "`pingbus questions` now and pass on any answer not yet passed on."),
+    "role_reports": "agent-bus: in team {team}, report what the humans should know with `pingbus report`.",
+    "questions_refused": ("agent-bus: in team {team} you cannot join the questions room: "
+                          + inbox.REASON_NO_HUMAN_TEXT + "."),
     "no_socket": ("agent-bus: this session has no inbox socket. To be woken, run `pingbus wait` "
                   "with run_in_background."),
     "joined": "agent-bus: you joined team {team} as seat {seat}, {handle}.",
@@ -278,18 +288,30 @@ def fill(name: str, **fields: object) -> str:
 
 def role_lines(views: tuple[TeamView, ...]) -> list[str]:
     """SessionStart's role context: for each team whose record was read, what this member is
-    and, for a worker, who the coordinator is. Offline."""
+    and, for a worker, who the coordinator is; and the side rooms' commands once this member
+    has joined them. Offline."""
     lines: list[str] = []
     for view in views:
         if view.role == protocol.ROLE_COORDINATOR:
             lines.append(fill("role_coordinator", team=view.team))
+            if protocol.PURPOSE_QUESTIONS in view.joined:
+                lines.append(fill("role_questions", team=view.team))
         elif view.role == protocol.ROLE_WORKER and len(view.coordinators) == 1:
             lines.append(fill("role_worker", team=view.team, handle=view.coordinators[0]))
         elif view.role == protocol.ROLE_WORKER and view.coordinators:
             lines.append(fill("role_worker_many", team=view.team, handles=", ".join(view.coordinators)))
         elif view.role == protocol.ROLE_WORKER:
             lines.append(fill("role_worker_alone", team=view.team))
+        else:
+            continue
+        if protocol.PURPOSE_REPORTS in view.joined:
+            lines.append(fill("role_reports", team=view.team))
     return lines
+
+
+def side_room_lines(views: tuple[TeamView, ...]) -> list[str]:
+    """SessionStart's line per team whose questions invite this member must leave pending."""
+    return [fill("questions_refused", team=view.team) for view in views if view.questions_refused]
 
 
 def about_lines(views: tuple[TeamView, ...]) -> list[str]:
@@ -493,6 +515,10 @@ class TeamView:
     coordinators: tuple[str, ...] = ()
     #: What the team is for, from the cached room topic (None where it has none).
     description: str | None = None
+    #: The questions invite is left pending because this bundle refuses human text (SPEC §4.5).
+    questions_refused: bool = False
+    #: The side rooms this member has joined, by purpose (empty before the play makes them).
+    joined: frozenset[str] = frozenset()
 
     @property
     def waker(self) -> bool:
@@ -569,10 +595,14 @@ def _team_view(member: config.Member) -> TeamView:
                     for user in protocol.coordinators(record.roles))
     try:
         description = state.about()
+        side = state.side_rooms()
     except inbox.StateError:
         return TeamView(member.team, holder, None, "state")
+    questions = side.get(protocol.PURPOSE_QUESTIONS)
+    refused = questions is not None and questions.reason == inbox.REASON_NO_HUMAN_TEXT
+    joined = frozenset(purpose for purpose, room in side.items() if room.state == "join")
     return TeamView(member.team, holder, pending, None, record.roles.get(member.user_id), handles,
-                    description)
+                    description, refused, joined)
 
 
 def survey(environ: Mapping[str, str]) -> Survey:
@@ -793,6 +823,7 @@ class _Hook:
             seat_failure = "state"
         lines += about_lines(surveyed.teams)
         lines += role_lines(surveyed.teams)
+        lines += side_room_lines(surveyed.teams)
         self._role_lines(surveyed, baseline=True)
         lines += self._pending_and_failure(surveyed, seat_failure)
         return _context(self.event, lines)
