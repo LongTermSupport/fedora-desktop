@@ -47,7 +47,8 @@ properly. Sources:
   fields, backups and restores; which session holds which seat is guarded by the owner's uid and
   the container mounts only, so a host process running as the owner can re-seat sessions, and,
   holding a pool seat's own password, can change that seat's account (its password, its devices,
-  its deactivation), which the health tick reports (C10, DC16, K12);
+  its deactivation); the health tick reports a new device or a deactivation within a tick, and a
+  password change shows only at the seat's next take (C10, DC16, K12);
 - the four `RESEARCH-*.md` digests (v1's commands, files, locks, Matrix calls, Tuwunel quirks,
   LXC fragility, stopped containers, incidents, ccy-teams' calls and their costs);
 - the specs already written from v1:
