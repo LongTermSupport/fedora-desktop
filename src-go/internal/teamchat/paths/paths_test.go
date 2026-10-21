@@ -21,6 +21,9 @@ func TestTeamDerivedNames(t *testing.T) {
 		{HomeserverState(team), "/var/lib/teamchat/ops"},
 		{HomeserverPrivateState(team), "/var/lib/private/teamchat/ops"},
 		{AdminState(team), "/var/lib/teamchat-admin/ops"},
+		{ServerConfig(team), "/var/lib/teamchat-admin/ops/config.toml"},
+		{TeamDeclaration(team), "/var/lib/teamchat-admin/ops/team.json"},
+		{RestoreBlock(team), "/var/lib/teamchat-admin/ops/restore.block"},
 		{MigrationDir(team), "/var/lib/teamchat-admin/ops/migration"},
 		{FenceFile(team), "/var/lib/teamchat-admin/ops/migration/fence.nft"},
 		{FirewallRecord(team), "/var/lib/teamchat-admin/ops/firewall.json"},
@@ -29,6 +32,8 @@ func TestTeamDerivedNames(t *testing.T) {
 		{StatusTeamDir(team), "/var/lib/teamchat-status/teams/ops"},
 		{StampFile(team), "/var/lib/teamchat-status/teams/ops/stamp.json"},
 		{StatusFile(team), "/var/lib/teamchat-status/teams/ops/status.json"},
+		{ApprovedFile(team), "/var/lib/teamchat-status/teams/ops/approved.json"},
+		{LXCOnlineFile(team), "/var/lib/teamchat-status/teams/ops/lxc-online.json"},
 		{LXCRecord(team), "/var/lib/teamchat-status/lxc/ops.json"},
 		{ElementProfile(team), "teamchat-ops"},
 	} {
@@ -59,12 +64,15 @@ func TestOtherIDDerivedNames(t *testing.T) {
 		{SetRecord(set), "/var/lib/teamchat-status/sets/s1.json"},
 		{SetLock(set), "/var/lib/teamchat-admin/_sets/s1.lock"},
 		{SessionUnit(user), "teamchat-session-dev.service"},
+		{GuestRuntimeDir(user), "/run/teamchat-session-dev"},
 		{ServerBinary(version), "/usr/local/lib/teamchat/server/tuwunel-1.2.3"},
-		{HostKitDir(digest), "/usr/local/lib/teamchat/kit/abc123"},
-		{KitBinary(HostKitCurrent), "/usr/local/lib/teamchat/kit/current/bin/teamchat"},
-		{KitPluginDir(CCYKitDir), "/opt/claude-yolo/optional/teamchat/plugin/teamchat"},
-		{KitSettings(CCYKitDir), "/opt/claude-yolo/optional/teamchat/settings.json"},
-		{ElementLauncherName("Ops"), "Ops team (teamchat)"},
+		{AdminBinaryCopy(digest), "/usr/local/lib/teamchat/teamchat-admin-abc123"},
+		{string(HostKitDir(digest)), "/usr/local/lib/teamchat/kit/abc123"},
+		{HostKitCurrent.Binary(), "/usr/local/lib/teamchat/kit/current/bin/teamchat"},
+		{CCYKitDir.PluginDir(), "/opt/claude-yolo/optional/teamchat/plugin/teamchat"},
+		{CCYKitDir.PluginHooks(), "/opt/claude-yolo/optional/teamchat/plugin/teamchat/hooks/hooks.json"},
+		{CCYKitDir.Settings(), "/opt/claude-yolo/optional/teamchat/settings.json"},
+		{ElementLauncherName(mustDisplay(t, "Ops")), "Ops team (teamchat)"},
 	} {
 		if c.got != c.want {
 			t.Errorf("got %q, want %q", c.got, c.want)
@@ -94,10 +102,12 @@ func TestFixedNames(t *testing.T) {
 		{SyslogBackup, "teamchat-backup"},
 		{ServerPinFile, "/usr/local/lib/teamchat/server/tuwunel.pin"},
 		{ShareDir, "/usr/local/share/teamchat"},
+		{ResolverStub, "/usr/local/share/teamchat/resolv.conf"},
+		{AdminLXCDir, "/var/lib/teamchat-admin/_lxc"},
 		{OwnerGroupFile, "/etc/teamchat/owner-group"},
 		{StatusInstalledFile, "/var/lib/teamchat-status/installed.json"},
 		{AdminRunDir, "/run/teamchat-admin"},
-		{HostKitCurrent, "/usr/local/lib/teamchat/kit/current"},
+		{string(HostKitCurrent), "/usr/local/lib/teamchat/kit/current"},
 		{SessionSeatMount, "/run/teamchat/seats"},
 		{SessionMembershipMount, "/run/teamchat/membership"},
 		{MatrixPrefix, "teamchat."},
@@ -130,7 +140,7 @@ func TestCCYLayout(t *testing.T) {
 	run := mustRun(t)
 	for _, c := range []struct{ got, want string }{
 		{l.KitRoot, "/opt/claude-yolo/optional/teamchat"},
-		{l.CurrentKit, "/opt/claude-yolo/optional/teamchat"},
+		{string(l.CurrentKit), "/opt/claude-yolo/optional/teamchat"},
 		{l.State, "/run/teamchat/seats"},
 		{l.Desired, "/run/teamchat/membership"},
 		{l.RunRoot, "/tmp/teamchat"},
@@ -152,7 +162,7 @@ func TestHomeLayout(t *testing.T) {
 	}
 	for _, c := range []struct{ got, want string }{
 		{l.KitRoot, "/usr/local/lib/teamchat/kit"},
-		{l.CurrentKit, "/usr/local/lib/teamchat/kit/current"},
+		{string(l.CurrentKit), "/usr/local/lib/teamchat/kit/current"},
 		{l.State, "/home/u/.config/teamchat/seats"},
 		{l.Desired, "/home/u/.config/teamchat/membership"},
 		{l.RunRoot, "/run/user/1000/teamchat/run"},
@@ -175,6 +185,7 @@ func TestSessionRuntimeFiles(t *testing.T) {
 		{r.LinkLog(), "link.log"},
 		{r.Settings(), "settings.json"},
 		{r.Session(), "session.json"},
+		{r.PID(), "session.pid"},
 		{r.Status(), "status.json"},
 	} {
 		if want := r.Dir + "/" + c.want; c.got != want {
@@ -220,8 +231,14 @@ func TestOwnerSeatStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	probe, err := ProbeState(stateHome, mustTeam(t, "ops"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, c := range []struct{ got, want string }{
 		{stateHome, "/home/u/.local/state"},
+		{probe, "/home/u/.local/state/teamchat/probe/ops"},
+		{store.PoolCheckoutRecord(key), "/home/u/.local/state/teamchat/seats/pool/" + strings.Repeat("ab", 16) + "/checkout.json"},
 		{store.Root, "/home/u/.local/state/teamchat/seats"},
 		{store.Pool(), "/home/u/.local/state/teamchat/seats/pool"},
 		{store.PoolCheckout(key), "/home/u/.local/state/teamchat/seats/pool/" + strings.Repeat("ab", 16)},
@@ -247,6 +264,11 @@ func TestStateHomeHonoursAnAbsoluteXDGStateHome(t *testing.T) {
 		got, err := StateHome("/home/u", c.xdg)
 		if err != nil || got != c.want {
 			t.Errorf("StateHome(%q) = %q, %v; want %q", c.xdg, got, err, c.want)
+		}
+	}
+	for _, root := range []string{"/", "//", "/.."} {
+		if got, err := StateHome("/home/u", root); !errors.Is(err, ErrInvalid) {
+			t.Errorf("StateHome(%q) = %q, %v; want ErrInvalid", root, got, err)
 		}
 	}
 }
@@ -293,9 +315,11 @@ func TestBaseDirectoriesMustBeAbsoluteAndClean(t *testing.T) {
 		"ElementConfigDir":   func(d string) error { _, err := ElementConfigDir(d, team); return err },
 		"ElementLauncher":    func(d string) error { _, err := ElementLauncher(d, team); return err },
 		"ElementConsentFile": func(d string) error { _, err := ElementConsentFile(d); return err },
+		"ProbeState":         func(d string) error { _, err := ProbeState(d, team); return err },
 	}
 	for name, call := range calls {
-		for _, bad := range []string{"", "home/u", "/home/u/", "/home/../u", "/home//u"} {
+		// The root is refused too: joined to it, a name would begin with two slashes.
+		for _, bad := range []string{"", "home/u", "/home/u/", "/home/../u", "/home//u", "/"} {
 			if err := call(bad); !errors.Is(err, ErrInvalid) {
 				t.Errorf("%s(%q) = %v, want ErrInvalid", name, bad, err)
 			}

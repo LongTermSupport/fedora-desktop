@@ -122,7 +122,7 @@ func TestK2ACleanTreePasses(t *testing.T) {
 	if code := w.run(); code != ExitOK {
 		t.Fatalf("exit %d: %s", code, w.err.String())
 	}
-	want := "✓ teamchat-keeps-off-v1: 2 v2 file(s) hold no v1 name (13 listed, 0 allowed reference(s))\n"
+	want := "✓ teamchat-keeps-off-v1: 2 v2 file(s) hold no v1 name (14 listed, 0 allowed reference(s))\n"
 	if w.out.String() != want || w.err.String() != "" {
 		t.Fatalf("out=%q err=%q", w.out.String(), w.err.String())
 	}

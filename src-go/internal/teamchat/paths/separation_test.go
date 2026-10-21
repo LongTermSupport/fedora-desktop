@@ -1,52 +1,58 @@
 package paths
 
 import (
-	"bufio"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
 )
 
-// v1NamesFile is the static gate's v1 name list (D 4.1), read here so the list has one home.
-const v1NamesFile = "../../../qa/teamchatseparate/v1-names.txt"
+// The static gate's data (D 4.1), read here so each has one home: the v1 name list, and the
+// corpus of lines both this test and the gate's own test must judge alike.
+const (
+	gateDataDir  = "../../../qa/teamchatseparate"
+	v1NamesFile  = "v1-names.txt"
+	v1CorpusFile = "v1-names-corpus.tsv"
+)
 
 // v1Name is one entry of the list: a name found in any case, or, with next set, a name found
 // exactly as written wherever next does not follow it.
 type v1Name struct{ name, next string }
 
+// dataLines is a gate data file's lines that are not blank and not a # comment.
+func dataLines(t *testing.T, name string) []string {
+	t.Helper()
+	data, err := fs.ReadFile(os.DirFS(gateDataDir), name)
+	if err != nil {
+		t.Fatalf("read the gate's %s: %v", name, err)
+	}
+	var lines []string
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if strings.TrimSpace(line) != "" && !strings.HasPrefix(line, "#") {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) == 0 {
+		t.Fatalf("%s is empty: a check against nothing proves nothing", name)
+	}
+	return lines
+}
+
 func loadV1Names(t *testing.T) []v1Name {
 	t.Helper()
-	f, err := os.Open(v1NamesFile)
-	if err != nil {
-		t.Fatalf("open the v1 name list: %v", err)
-	}
-	defer func() {
-		if cerr := f.Close(); cerr != nil {
-			t.Errorf("close the v1 name list: %v", cerr)
-		}
-	}()
-	var names []v1Name
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		name, next, exact := strings.Cut(line, " !")
+	lines := dataLines(t, v1NamesFile)
+	names := make([]v1Name, 0, len(lines))
+	for _, line := range lines {
+		name, next, exact := strings.Cut(strings.TrimSpace(line), " !")
 		if !exact {
 			next = ""
 		}
 		names = append(names, v1Name{name: name, next: next})
-	}
-	if err := sc.Err(); err != nil {
-		t.Fatalf("read the v1 name list: %v", err)
-	}
-	if len(names) == 0 {
-		t.Fatal("the v1 name list is empty: a check against nothing proves nothing")
 	}
 	return names
 }
@@ -91,9 +97,29 @@ func TestV1NameMatcherDiscriminates(t *testing.T) {
 	}
 }
 
+// The matcher here and the gate's are two codes of one rule (the nested qa module cannot be
+// imported): both judge the shared corpus, so they cannot drift apart.
+func TestV1NameMatcherAgreesWithTheSharedCorpus(t *testing.T) {
+	names := loadV1Names(t)
+	for _, row := range dataLines(t, v1CorpusFile) {
+		want, line, ok := strings.Cut(row, "\t")
+		if !ok || want != "hit" && want != "clean" {
+			t.Fatalf("corpus row %q: want hit or clean, a tab, and the line", row)
+		}
+		got := slices.ContainsFunc(names, func(v v1Name) bool { return v.holds(line) })
+		if got != (want == "hit") {
+			t.Errorf("%q: held a v1 name = %v, the corpus says %s", line, got, want)
+		}
+	}
+}
+
+// sampleTeams are the team ids every team-derived name is sampled for: the shortest, a typical
+// and the longest.
+var sampleTeams = []string{"x", "ops", strings.Repeat("z", 22)}
+
 // sampleNames is every exported name of the package, expanded: a constant by its value, a
-// function by its value for sample identifiers (the shortest, a typical and the longest team
-// id). The completeness test below holds this table to the package's exported identifiers.
+// function by its value for sample identifiers. The completeness test below holds this table
+// to the package's exported identifiers.
 func sampleNames(t *testing.T) map[string][]string {
 	t.Helper()
 	names := constNames()
@@ -115,11 +141,12 @@ func constNames() map[string][]string {
 		"MemberBinaryPath": MemberBinaryPath, "AdminBinaryPath": AdminBinaryPath,
 		"PluginName": PluginName, "SkillName": SkillName, "TmuxSocket": TmuxSocket,
 		"TmuxSession": TmuxSession, "CtlUser": CtlUser, "Interface": Interface,
-		"LibDir": LibDir, "ShareDir": ShareDir, "EtcDir": EtcDir, "OwnerGroupFile": OwnerGroupFile,
-		"ServerDir": ServerDir, "ServerPinFile": ServerPinFile, "HostKitRoot": HostKitRoot,
-		"HostKitCurrent": HostKitCurrent, "HomeserverStateRoot": HomeserverStateRoot,
-		"HomeserverPrivateStateRoot": HomeserverPrivateStateRoot, "AdminStateRoot": AdminStateRoot,
-		"CtlStateRoot": CtlStateRoot, "StatusRoot": StatusRoot, "StatusInstalledFile": StatusInstalledFile,
+		"LibDir": LibDir, "ShareDir": ShareDir, "ResolverStub": ResolverStub, "EtcDir": EtcDir,
+		"OwnerGroupFile": OwnerGroupFile, "ServerDir": ServerDir, "ServerPinFile": ServerPinFile,
+		"HostKitRoot": HostKitRoot, "HostKitCurrent": string(HostKitCurrent),
+		"HomeserverStateRoot": HomeserverStateRoot, "HomeserverPrivateStateRoot": HomeserverPrivateStateRoot,
+		"AdminStateRoot": AdminStateRoot, "AdminLXCDir": AdminLXCDir, "CtlStateRoot": CtlStateRoot,
+		"StatusRoot": StatusRoot, "StatusInstalledFile": StatusInstalledFile,
 		"AdminRunDir": AdminRunDir, "ServerUnitTemplate": ServerUnitTemplate,
 		"FenceUnitTemplate": FenceUnitTemplate, "ServerStateDirectory": ServerStateDirectory,
 		"HealthService": HealthService, "HealthTimer": HealthTimer, "BackupService": BackupService,
@@ -129,7 +156,7 @@ func constNames() map[string][]string {
 		"HostVarLXCMembers": HostVarLXCMembers, "HostVarElementTeams": HostVarElementTeams,
 		"HostVarMigrations": HostVarMigrations, "OnlyTeamsVar": OnlyTeamsVar, "PlayFile": PlayFile,
 		"ElementPlayFile": ElementPlayFile, "AnsibleTag": AnsibleTag, "TeamPortField": TeamPortField,
-		"CCYKitDir": CCYKitDir, "SessionSeatMount": SessionSeatMount,
+		"CCYKitDir": string(CCYKitDir), "SessionSeatMount": SessionSeatMount,
 		"SessionMembershipMount": SessionMembershipMount, "CCYRunRoot": CCYRunRoot,
 	}
 	names := map[string][]string{}
@@ -139,32 +166,41 @@ func constNames() map[string][]string {
 	return names
 }
 
-// idNames is every function of an identifier other than a team id, for a sample of each.
+// idNames is every function of an identifier other than a team id, for a sample of each, and the
+// kit's files in each kit kind.
 func idNames(t *testing.T) map[string][]string {
 	t.Helper()
-	set, user, version, digest := sampleSetID(t), sampleGuestUser(t), sampleServerVersion(t), sampleKitDigest(t)
-	return map[string][]string{
+	set, user, version, digest := sampleSetID(t), sampleGuestUser(t), sampleServerVersion(t), sampleDigest(t)
+	names := map[string][]string{
 		"SessionUnit":         {SessionUnit(user)},
+		"GuestRuntimeDir":     {GuestRuntimeDir(user)},
 		"ServerBinary":        {ServerBinary(version)},
-		"HostKitDir":          {HostKitDir(digest)},
-		"KitBinary":           {KitBinary(HostKitCurrent), KitBinary(CCYKitDir)},
-		"KitPluginDir":        {KitPluginDir(HostKitCurrent)},
-		"KitSettings":         {KitSettings(CCYKitDir)},
+		"AdminBinaryCopy":     {AdminBinaryCopy(digest)},
+		"HostKitDir":          {string(HostKitDir(digest))},
 		"SetLock":             {SetLock(set)},
 		"SetRecord":           {SetRecord(set)},
-		"ElementLauncherName": {ElementLauncherName("Ops")},
+		"ElementLauncherName": {ElementLauncherName(mustDisplay(t, "Ops"))},
 	}
+	for _, kit := range []Kit{HostKitCurrent, HostKitDir(digest), CCYKitDir} {
+		for ident, value := range map[string]string{
+			"Kit.Binary": kit.Binary(), "Kit.PluginDir": kit.PluginDir(),
+			"Kit.PluginHooks": kit.PluginHooks(), "Kit.Settings": kit.Settings(),
+		} {
+			names[ident] = append(names[ident], value)
+		}
+	}
+	return names
 }
 
 // baseNames is every function of a base directory, and the owner's seat store under one.
 func baseNames(t *testing.T) map[string][]string {
 	t.Helper()
 	session, key := sampleSessionName(t), sampleCheckoutKey(t)
-	store, err := SeatStore("/home/u/.local/state")
+	stateHome, err := StateHome("/home/u", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	stateHome, err := StateHome("/home/u", "")
+	store, err := SeatStore(stateHome)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,19 +213,21 @@ func baseNames(t *testing.T) map[string][]string {
 		t.Fatal(err)
 	}
 	return map[string][]string{
-		"StateHome":          {stateHome},
-		"AllocLock":          {alloc},
-		"ElementConsentFile": {consent},
-		"Store.Pool":         {store.Pool()},
-		"Store.PoolCheckout": {store.PoolCheckout(key)},
-		"Store.Session":      {store.Session(session)},
-		"Store.Control":      {store.Control(session)},
-		"Store.DesiredFile":  {store.DesiredFile(session)},
-		"Store.Released":     {store.Released()},
+		"StateHome":                {stateHome},
+		"SeatStore":                {store.Root},
+		"AllocLock":                {alloc},
+		"ElementConsentFile":       {consent},
+		"Store.Pool":               {store.Pool()},
+		"Store.PoolCheckout":       {store.PoolCheckout(key)},
+		"Store.PoolCheckoutRecord": {store.PoolCheckoutRecord(key)},
+		"Store.Session":            {store.Session(session)},
+		"Store.Control":            {store.Control(session)},
+		"Store.DesiredFile":        {store.DesiredFile(session)},
+		"Store.Released":           {store.Released()},
 	}
 }
 
-// layoutNames is both member layouts and a session runtime under each.
+// layoutNames is both member layouts by their fields, and a session runtime under each.
 func layoutNames(t *testing.T) map[string][]string {
 	t.Helper()
 	home, err := HomeLayout("/home/u", "/run/user/1000")
@@ -197,12 +235,13 @@ func layoutNames(t *testing.T) map[string][]string {
 		t.Fatal(err)
 	}
 	names := map[string][]string{}
-	for _, l := range []Layout{CCYLayout(), home} {
+	for ident, l := range map[string]Layout{"CCYLayout": CCYLayout(), "HomeLayout": home} {
 		r := l.Run(sampleRunID(t))
 		for name, value := range map[string][]string{
+			ident:                     {l.KitRoot, string(l.CurrentKit), l.State, l.Desired, l.RunRoot},
 			"Layout.DesiredFile":      {l.DesiredFile()},
 			"Layout.ConversationFile": {l.ConversationFile()},
-			"Layout fields":           {l.KitRoot, l.CurrentKit, l.State, l.Desired, l.RunRoot},
+			"Layout.Run":              {r.Dir},
 			"Run.KeeperLock":          {r.KeeperLock()},
 			"Run.KeeperJSON":          {r.KeeperJSON()},
 			"Run.KeeperLog":           {r.KeeperLog()},
@@ -211,6 +250,7 @@ func layoutNames(t *testing.T) map[string][]string {
 			"Run.LinkLog":             {r.LinkLog()},
 			"Run.Settings":            {r.Settings()},
 			"Run.Session":             {r.Session()},
+			"Run.PID":                 {r.PID()},
 			"Run.Status":              {r.Status()},
 		} {
 			names[name] = append(names[name], value...)
@@ -219,17 +259,21 @@ func layoutNames(t *testing.T) map[string][]string {
 	return names
 }
 
-// teamNames is every function of a team id, for the shortest, a typical and the longest id.
+// teamNames is every function of a team id, for each sample team.
 func teamNames(t *testing.T) map[string][]string {
 	t.Helper()
 	names := map[string][]string{}
-	for _, s := range []string{"x", "ops", strings.Repeat("z", 22)} {
+	for _, s := range sampleTeams {
 		team := mustTeam(t, s)
 		dir, err := ElementConfigDir("/home/u", team)
 		if err != nil {
 			t.Fatal(err)
 		}
 		launcher, err := ElementLauncher("/home/u", team)
+		if err != nil {
+			t.Fatal(err)
+		}
+		probe, err := ProbeState("/home/u/.local/state", team)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -245,6 +289,9 @@ func teamNames(t *testing.T) map[string][]string {
 			"HomeserverState":        HomeserverState(team),
 			"HomeserverPrivateState": HomeserverPrivateState(team),
 			"AdminState":             AdminState(team),
+			"ServerConfig":           ServerConfig(team),
+			"TeamDeclaration":        TeamDeclaration(team),
+			"RestoreBlock":           RestoreBlock(team),
 			"MigrationDir":           MigrationDir(team),
 			"FenceFile":              FenceFile(team),
 			"FirewallRecord":         FirewallRecord(team),
@@ -253,10 +300,14 @@ func teamNames(t *testing.T) map[string][]string {
 			"StatusTeamDir":          StatusTeamDir(team),
 			"StampFile":              StampFile(team),
 			"StatusFile":             StatusFile(team),
+			"ApprovedFile":           ApprovedFile(team),
+			"LXCOnlineFile":          LXCOnlineFile(team),
 			"LXCRecord":              LXCRecord(team),
 			"ElementProfile":         ElementProfile(team),
 			"ElementConfigDir":       dir,
 			"ElementLauncher":        launcher,
+			"ProbeState":             probe,
+			"Layout.Seat":            seat.Dir,
 			"Seat.Bundle":            seat.Bundle(),
 			"Seat.Token":             seat.Token(),
 			"Seat.Lock":              seat.Lock(),
@@ -270,17 +321,25 @@ func teamNames(t *testing.T) map[string][]string {
 	return names
 }
 
-// notNames are the exported identifiers that return a string but are not v2 names: an id's own
-// text.
-var notNames = []string{"TeamID.String"}
+// notName is whether an exported identifier is not a v2 name: a parser, an id's own text, or
+// the error the parsers wrap.
+func notName(ident string) bool {
+	return strings.HasPrefix(ident, "Parse") || ident == "TeamID.String" || ident == "ErrInvalid"
+}
 
-// Every exported constant, and every exported function or method that returns a string, is in
-// sampleNames, so the checks below cannot miss a name added later.
+// Every exported constant, variable, function and method is either in sampleNames or not a
+// name, so the checks below cannot miss a name added later, whatever its type.
 func TestEveryExportedNameIsSampled(t *testing.T) {
 	sampled := sampleNames(t)
-	for _, ident := range exportedStringIdents(t) {
-		if _, ok := sampled[ident]; !ok && !slices.Contains(notNames, ident) {
+	idents := exportedIdents(t)
+	for _, ident := range idents {
+		if _, ok := sampled[ident]; !ok && !notName(ident) {
 			t.Errorf("%s is exported but not in sampleNames: add it, so the v1 checks cover it", ident)
+		}
+	}
+	for ident := range sampled {
+		if !slices.Contains(idents, ident) {
+			t.Errorf("sampleNames has %s, which the package does not export", ident)
 		}
 	}
 }
@@ -353,9 +412,90 @@ func TestEveryNameIsDerivedFromTheProduct(t *testing.T) {
 	}
 }
 
-// exportedStringIdents lists the package's exported constants, and its exported functions and
-// methods whose first result is a string, as Name or Type.Name.
-func exportedStringIdents(t *testing.T) []string {
+// A team id would make a team-derived name equal a fixed one when it is what follows teamchat-
+// in a fixed name (team ctl's homeserver user teamchat-ctl is CtlUser). Each such id, cut where
+// the team grammar ends, is reserved, and reservedTeamIDs holds exactly these.
+func TestReservedTeamIDsAreExactlyTheFixedNamesTails(t *testing.T) {
+	var tails []string
+	for _, values := range constNames() {
+		for part := range strings.SplitSeq(values[0], "/") {
+			tail, ok := strings.CutPrefix(part, Product+"-")
+			if !ok {
+				continue
+			}
+			if end := strings.IndexFunc(tail, func(r rune) bool {
+				return (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-'
+			}); end >= 0 {
+				tail = tail[:end]
+			}
+			if !slices.Contains(tails, tail) {
+				tails = append(tails, tail)
+			}
+		}
+	}
+	slices.Sort(tails)
+	if !slices.Equal(tails, reservedTeamIDs) {
+		t.Fatalf("the fixed names' tails are %q; reservedTeamIDs is %q", tails, reservedTeamIDs)
+	}
+	for _, tail := range tails {
+		if _, err := ParseTeamID(tail); err == nil {
+			t.Errorf("team id %q is accepted, yet a fixed name is teamchat-%s", tail, tail)
+		}
+	}
+}
+
+// perTeamRoots are the directories whose children are named by team id.
+var perTeamRoots = []string{
+	HomeserverStateRoot, HomeserverPrivateStateRoot, AdminStateRoot, CtlStateRoot, StatusRoot + "/teams",
+}
+
+// A fixed child of a per-team root can never be a team's directory: every first segment under
+// one that is not a sample team is refused as a team id (C's LXC records are under _lxc, the
+// migration sets' locks under _sets).
+func TestNoFixedChildOfAPerTeamRootIsATeamID(t *testing.T) {
+	for ident, values := range sampleNames(t) {
+		for _, value := range values {
+			if segment := teamLikeChild(value); segment != "" {
+				t.Errorf("%s = %q: %s under a per-team root is a valid team id", ident, value, segment)
+			}
+		}
+	}
+}
+
+var firstSegment = regexp.MustCompile(`^[^/]*`)
+
+// teamLikeChild is the first segment of value under a per-team root when it is a valid team id
+// other than a sample team, else "".
+func teamLikeChild(value string) string {
+	for _, root := range perTeamRoots {
+		rest, ok := strings.CutPrefix(value, root+"/")
+		if !ok {
+			continue
+		}
+		segment := firstSegment.FindString(rest)
+		if _, err := ParseTeamID(segment); err == nil && !slices.Contains(sampleTeams, segment) {
+			return segment
+		}
+	}
+	return ""
+}
+
+// The check above can fail: C's LXC records where C first put them, under lxc/, are reported,
+// and the same records under _lxc/ are not.
+func TestThePerTeamRootCheckDiscriminates(t *testing.T) {
+	if got := teamLikeChild(AdminStateRoot + "/lxc/c1/dev.json"); got != "lxc" {
+		t.Errorf("lxc/ under %s: got %q, want lxc", AdminStateRoot, got)
+	}
+	for _, value := range []string{AdminLXCDir + "/c1/dev.json", AdminStateRoot + "/ops/team.json", StatusRoot + "/lxc/ops.json"} {
+		if got := teamLikeChild(value); got != "" {
+			t.Errorf("%s: got %q, want nothing", value, got)
+		}
+	}
+}
+
+// exportedIdents lists the package's exported constants, variables, functions and methods, as
+// Name or Type.Name.
+func exportedIdents(t *testing.T) []string {
 	t.Helper()
 	fset := token.NewFileSet()
 	entries, err := os.ReadDir(".")
@@ -384,15 +524,15 @@ func exportedStringIdents(t *testing.T) []string {
 func declIdents(decl ast.Decl) []string {
 	switch d := decl.(type) {
 	case *ast.GenDecl:
-		return constIdents(d)
+		return valueIdents(d)
 	case *ast.FuncDecl:
 		return funcIdents(d)
 	}
 	return nil
 }
 
-func constIdents(d *ast.GenDecl) []string {
-	if d.Tok != token.CONST {
+func valueIdents(d *ast.GenDecl) []string {
+	if d.Tok != token.CONST && d.Tok != token.VAR {
 		return nil
 	}
 	var idents []string
@@ -411,20 +551,20 @@ func constIdents(d *ast.GenDecl) []string {
 }
 
 func funcIdents(d *ast.FuncDecl) []string {
-	if !d.Name.IsExported() || d.Type.Results == nil {
-		return nil
-	}
-	if first, ok := d.Type.Results.List[0].Type.(*ast.Ident); !ok || first.Name != "string" {
+	if !d.Name.IsExported() {
 		return nil
 	}
 	if d.Recv == nil {
 		return []string{d.Name.Name}
 	}
-	recv, ok := d.Recv.List[0].Type.(*ast.Ident)
-	if !ok {
-		return []string{"(unnamed receiver)." + d.Name.Name}
+	recv := d.Recv.List[0].Type
+	if star, ok := recv.(*ast.StarExpr); ok {
+		recv = star.X
 	}
-	return []string{recv.Name + "." + d.Name.Name}
+	if ident, ok := recv.(*ast.Ident); ok {
+		return []string{ident.Name + "." + d.Name.Name}
+	}
+	return []string{"(unnamed receiver)." + d.Name.Name}
 }
 
 func sampleRunID(t *testing.T) RunID {
@@ -459,7 +599,7 @@ func sampleServerVersion(t *testing.T) ServerVersion {
 	return v
 }
 
-func sampleKitDigest(t *testing.T) Digest {
+func sampleDigest(t *testing.T) Digest {
 	t.Helper()
 	v, err := ParseDigest("abc123")
 	if err != nil {

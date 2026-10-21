@@ -147,6 +147,15 @@ func TestParsePortIsOneTo65535(t *testing.T) {
 	}
 }
 
+func mustDisplay(t *testing.T, s string) DisplayName {
+	t.Helper()
+	d, err := ParseDisplayName(s)
+	if err != nil {
+		t.Fatalf("ParseDisplayName(%q): %v", s, err)
+	}
+	return d
+}
+
 func mustTeam(t *testing.T, s string) TeamID {
 	t.Helper()
 	id, err := ParseTeamID(s)

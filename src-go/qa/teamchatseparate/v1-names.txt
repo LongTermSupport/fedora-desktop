@@ -17,6 +17,7 @@ CCY_TEAMS_PINGBUS
 CC_TEAMS_
 /run/ccy/membership
 $XDG_RUNTIME_DIR/ccy/membership
+/ccy/membership
 .claude/ccy/pingbus
 /opt/claude-yolo/optional/agent-bus
 Element- !teamchat-

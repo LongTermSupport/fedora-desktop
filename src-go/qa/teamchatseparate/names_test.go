@@ -78,7 +78,40 @@ func TestExactNameIsFoundUnlessNextFollows(t *testing.T) {
 	}
 }
 
-// The shipped list is D 4.1's, parses, and finds each of its own names.
+// The matcher here and the unit test of internal/teamchat/paths are two codes of one rule: both
+// judge the shared corpus, so they cannot drift apart.
+func TestFindAgreesWithTheSharedCorpus(t *testing.T) {
+	data, err := os.ReadFile("v1-names-corpus.tsv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	names, err := ParseNames(shippedList(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := 0
+	for row := range strings.SplitSeq(string(data), "\n") {
+		if strings.TrimSpace(row) == "" || strings.HasPrefix(row, "#") {
+			continue
+		}
+		rows++
+		want, line, ok := strings.Cut(row, "\t")
+		if !ok || want != "hit" && want != "clean" {
+			t.Fatalf("corpus row %q: want hit or clean, a tab, and the line", row)
+		}
+		got := slices.ContainsFunc(names, func(n Name) bool { return len(n.Find(line)) > 0 })
+		if got != (want == "hit") {
+			t.Errorf("%q: found a v1 name = %v, the corpus says %s", line, got, want)
+		}
+	}
+	if rows == 0 {
+		t.Fatal("the corpus is empty")
+	}
+}
+
+// The shipped list is D 4.1's with /ccy/membership, which also catches the runtime directory
+// however it is spelt (${XDG_RUNTIME_DIR}, a template, a join); it parses and finds each of its
+// own names.
 func TestTheShippedListIsD41s(t *testing.T) {
 	data, err := os.ReadFile(namesFile[len(packageDir):])
 	if err != nil {
@@ -94,7 +127,7 @@ func TestTheShippedListIsD41s(t *testing.T) {
 	}
 	want := []string{
 		"agent-bus", "agent_bus", "agentbus", "pingbus", "PINGBUS_", "AGENT_BUS_", "CCY_TEAMS_PINGBUS",
-		"CC_TEAMS_", "/run/ccy/membership", "$XDG_RUNTIME_DIR/ccy/membership", ".claude/ccy/pingbus",
+		"CC_TEAMS_", "/run/ccy/membership", "$XDG_RUNTIME_DIR/ccy/membership", "/ccy/membership", ".claude/ccy/pingbus",
 		"/opt/claude-yolo/optional/agent-bus", "Element-",
 	}
 	if !slices.Equal(texts, want) {
