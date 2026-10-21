@@ -75,8 +75,8 @@ today; rewriting them is out of scope.
     files) and breaks only the build. Red/green proven with a throwaway fixture package.
     go-qa-ci has the same stage, merged to its main at `7fc4547e92f2` after a Fable review
     (no binary left behind, go.mod and go.sum never rewritten, go.work and vendor/ respected).
-  - Interim, until Task 3.3 puts go-qa-ci in its place; govulncheck comes with it, since
-    go-qa-ci already runs it.
+  - Retired by Task 3.3: `scripts/qa-go-qa.bash` (go-qa-ci) is the Go gate now, and
+    govulncheck, deadcode and the bundled analyzers came with it.
 
 ### Phase 2: ccy-teams in Go
 
@@ -104,20 +104,98 @@ today; rewriting them is out of scope.
   Before Fix toolchain spec read from its first-party repository:
   [RESEARCH-go-qa-ci.md](RESEARCH-go-qa-ci.md).
 
-- [x] ✅ **Task 3.2**: Create `LongTermSupport/go-qa-ci` (created private; the owner makes it
-  public after review) and build it by milestones, self-hosted. It is a generic DBF toolchain
+- [x] ✅ **Task 3.2**: Create `LongTermSupport/go-qa-ci` (public) and build it by milestones, self-hosted. It is a generic DBF toolchain
   for Go: it names no consumer. Milestones M0-M14 each passed an independent verifier; its
   conformance is declared with recorded gaps, never claimed in full. The verifiers' deferred
   minor items are in `subagent-reports/261014-go-qa-ci-deferred-run*.md`, for a polish pass.
 
-- [ ] ⬜ **Task 3.3**: This repository's Go QA runs go-qa-ci, pinned. Waits on the owner
-  making go-qa-ci public (CI and the host cannot fetch a private module); until then the
-  interim `scripts/qa-go.bash` gates `src-go/`. Ready on go-qa-ci's side since M15/M16 (Plan
-  00192): it builds a project driver from a nested module (`src-go/qa`), counts disabled linters
-  as the chosen defence set rather than suppressions, and ships nine bundled analyzers. When
-  adopted, its pinned tools (ast-grep, gremlins, deadcode, govulncheck, gitleaks, actionlint)
-  are installed by go-qa itself (Task 3.7): the image and CI run one go-qa install command
-  at build time, not one task per tool.
+- [x] ✅ **Task 3.3**: This repository's Go QA runs go-qa-ci, pinned. `scripts/qa-go-qa.bash`
+  runs `go-qa run --no-fix` over both modules; go-qa is pinned at go-qa-ci `ccf4c1751f05` (Task 3.11) by the
+  `tool` directive of `src-go/qa/go.mod` (one pin for the driver import and the binary) and
+  configured by `src-go/qa/go-qa.toml`; it installs its own pinned tools (Task 3.7).
+  `scripts/qa-go.bash` is deleted. qa-all runs the gate whole, qa-changed in diff mode for a
+  `src-go/` change; the toolchain gate takes the higher go directive of the two modules and holds
+  the `.qa-versions` golangci-lint pin to go-qa-ci's `tools.lock`. The bundled analyzers'
+  findings (map order, a wall-clock test, `os.Exit` outside `main`) are fixed with no
+  suppression; the `TestMain` re-exec is `qa/internal/cmdmaintest`. semgrep timed out clean
+  files on a loaded host (its 5 s default per rule per file is wall time): every semgrep scan now
+  passes `--timeout=120` (`semgrepreport.TimeoutFlag`), and the large-script test pads with
+  comments. Full gate green, coverage
+  included. Report: `subagent-reports/261019-go-qa-ci-pin-opus.md`.
+
+- [ ] ⬜ **Task 3.8**: The owner signs a go-qa project record for this repository (go-qa-ci adopt
+  step B2), then `[tools] record` and `suppression` are switched on in `src-go/qa/go-qa.toml`.
+  Both are off until then: without a record every `.golangci.yml` exclusion would fail the
+  suppression detector. `qa-go.bash` had neither check, so nothing was lost by Task 3.3.
+
+- [x] ✅ **Task 3.9**: Re-derive the coverage floor from go-qa's measurement (Fable's review of
+  Task 3.3, finding 4; `subagent-reports/261019-go-qa-ci-pin-review-fable.md`). `qa-go.bash`
+  measured each package by its own tests (no `-coverpkg`); go-qa measures `-coverpkg=./...`
+  across the module, so statements one package's tests execute in another now count. The floor
+  stayed at 90 and passes, but it is compared to a different, generally higher number (the old
+  gate printed 94.8% and 94.4%). Measure the module total the new way, choose the floor from
+  it, and record the choice. go-qa prints the percentage only when the floor is missed, so the
+  measurement needs a run with a deliberately high floor or a profile of its own.
+
+  - Measured 2026-10-19, full mode, floor set to 100 for the run only:
+    `scripts/qa-go-qa.bash -t coverage` printed `.: statement coverage 92.1%` and
+    `qa: statement coverage 94.3%`.
+  - Floor kept at 90: one floor serves both modules, and 90 is 2.1 points under the lower
+    total. The `go-qa.toml` comment now cites these figures.
+
+- [x] ✅ **Task 3.10**: go-qa-ci diff mode must not fail on a test-only package (found by
+  Fable). The build stage named the changed packages and their importers to `go build`, which
+  refuses a package with no non-test Go file, although `./...` skips it. Here
+  `src-go/internal/freeze/golden` is test-only and imports lxcfreeze, so any change to lxcfreeze
+  or podfreeze failed the build stage of `qa-changed.bash`.
+
+  - Fixed test first in go-qa-ci (`240fbf2`, Fable-approved, merged to its main as `8e17b43`):
+    the named patterns are resolved with `go list -e` and a package that loads with only test
+    files is left out of `go build`; the test stage still compiles its tests, and a named
+    package that does not load still fails.
+  - Pinned at `v0.0.0-20261019182226-8e17b432bfd3` in `src-go/qa/go.mod`, `go mod tidy`;
+    `qa-changed.bash` passes on the bump.
+  - Evidence: with the bump committed and a throwaway edit to `src-go/internal/lxcfreeze`
+    (reverted), the narrowed go-qa run scoped `./internal/freeze/golden` and its `build` and
+    `test` steps passed. The same run failed `coverage`, a separate defect: Task 3.11.
+
+- [x] ✅ **Task 3.11**: A narrowed go-qa run fails the coverage floor that the full run meets.
+  With only an lxcfreeze file changed, the diff-mode coverage step measured the 11 affected
+  packages at 88.8% statements, which is under the module floor of 90 (`src-go/qa/go-qa.toml`).
+  The uncovered functions are in packages the change did not touch (the two `main`s,
+  `teams/hot`, `teams/lxcadd`). So until this is fixed, `qa-changed.bash` still fails the go
+  stage for a change to lxcfreeze. The fix belongs in go-qa-ci.
+
+  - Fixed test first in go-qa-ci (`6a352d6`, Fable-approved, merged to its main as `ccf4c17`):
+    in diff mode `-coverpkg` names only the changed packages (less test-only ones); the
+    importers are still tested, since their tests may reach the changed code. Full mode is
+    unchanged.
+  - Pinned at `v0.0.0-20261019185407-ccf4c1751f05` in `src-go/qa/go.mod`, `go mod tidy`;
+    `qa-changed.bash` passes on the bump.
+  - Evidence: with the bump committed and a throwaway edit to `src-go/internal/lxcfreeze`
+    (reverted), `qa-changed.bash` passed its go stage, and `qa-go-qa.bash --changed --base HEAD`
+    scoped 12 packages (now including `teams/winddown`) and passed `build`, `test` and
+    `coverage`.
+  - Possible follow-up, not this task: judge each changed package against the floor on its own.
+
+- [x] ✅ **Task 3.12**: CI's Go is older than the qa module requires. Since Task 3.3 the qa
+  module says `go 1.26.9`, but CI's `actions/setup-go@v5` read `src-go/go.mod`, which says
+  `go 1.26.0` (its `toolchain go1.26.9` line is ignored by setup-go). CI installed 1.26.0, and
+  `qa-toolchain` correctly failed "Install QA tooling" on every F44 run since.
+
+  - Fix: setup-go reads `src-go/qa/go.mod`, the go.mod with the higher go directive.
+    `src-go/go.mod` stays at `go 1.26.0`, so the host build (`GOTOOLCHAIN=local`, Fedora
+    golang) does not need a newer Go.
+  - Gate: `TestEveryWorkflowSetsUpTheGoFloor` (`src-go/qa/toolchain`) fails when a workflow's
+    setup-go names a go.mod whose go directive is not the floor. Red on the old workflow, green
+    on the fix.
+  - Review follow-ups: the comments say `setup-go@v5` (later majors read the toolchain line
+    unless `GOTOOLCHAIN=local`); Plan 00204's note is corrected; `qa-routing.tsv` sends
+    `.github/workflows/*.yml` and `*.yaml` to the go check (SPEC-qa-changed B50), and the gate
+    reads both extensions.
+  - Verified: CI run 39318237801 (commit `8a4def2d`, which holds `ae9bc47e` and `03822051`) is
+    green, "Install QA tooling" included. The issue text in the journal was not filed: the
+    defect was fixed before an issue was needed.
 
 - [x] ✅ **Task 3.4**: go-qa-ci diff mode, `go-qa run --changed [--base <ref>]` (M13):
   per-package engines on the affected packages and their importers, repo-wide defences always,
@@ -167,7 +245,8 @@ today; rewriting them is out of scope.
   works as before or better (owner's host test after meta-deploy: "seems good").
 - [ ] The parity suite and the Go unit tests pass in `qa-all.bash`, with golangci-lint strict
   and race-detector tests.
-- [ ] `go-qa-ci` exists, tests itself, and this repository's Go QA runs it.
+- [x] `go-qa-ci` exists, tests itself, and this repository's Go QA runs it (Task 3.3; its
+  record and suppression checks follow the owner's record, Task 3.8).
 
 ## Delivery & Milestones
 

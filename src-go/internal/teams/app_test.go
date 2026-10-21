@@ -248,6 +248,7 @@ func TestUsageTextNamesTheLauncherSubcommandsAndTheCoordinator(t *testing.T) {
 	h.app.Run([]string{"--help"})
 	wants := []string{
 		"choose-seat", "describe-seats", "coordinator", "ccy-teams shutdown <team> [--yes]", "ccy-teams restart <team> [--yes]",
+		"ccy-teams wind-down <team> [--yes]",
 		"ccy-teams internal membership-init <session> <checkout> <seats>",
 		"ccy-teams internal restart-args <session>", "ccy-teams session list",
 		"ccy-teams internal claim-container-name <project> <suffix> <owner-pid>",
@@ -280,6 +281,8 @@ func TestSubcommandsReachTheirRealFlowsWithTheirUsageErrors(t *testing.T) {
 		{[]string{"shutdown", "alpha", "--now"}, "ccy-teams: unknown shutdown option '--now'. See ccy-teams --help."},
 		{[]string{"restart"}, "ccy-teams: 'restart' needs a team. See ccy-teams --help."},
 		{[]string{"restart", "alpha", "--now"}, "ccy-teams: unknown restart option '--now'. See ccy-teams --help."},
+		{[]string{"wind-down"}, "ccy-teams: 'wind-down' needs a team. See ccy-teams --help."},
+		{[]string{"wind-down", "alpha", "--now"}, "ccy-teams: unknown wind-down option '--now'. See ccy-teams --help."},
 	}
 	for _, c := range cases {
 		h := newHarness(t)

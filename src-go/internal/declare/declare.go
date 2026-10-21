@@ -578,9 +578,14 @@ func (c *Client) Remove(ctx context.Context, team string, purge bool) (Change, e
 	return c.edit(ctx, "remove", args...)
 }
 
+// systemPython runs the helper: the interpreter agent-bus itself runs on, named by path because a
+// bare python3 resolves through a pyenv shim on a host that has one, a bash script that costs a
+// tenth of a second before Python starts, on every redraw.
+const systemPython = "/usr/bin/python3"
+
 func (c *Client) run(ctx context.Context, sub string, args ...string) (string, error) {
 	res, err := c.Runner.Run(ctx, execx.Cmd{Name: "env", Args: slices.Concat(
-		[]string{"PYTHONPATH=" + c.Root, "python3", "-P", "-m", "helpers.agent_bus.declare", sub}, args)})
+		[]string{"PYTHONPATH=" + c.Root, systemPython, "-P", "-m", "helpers.agent_bus.declare", sub}, args)})
 	if err != nil {
 		if exit, ok := errors.AsType[*execx.ExitError](err); ok {
 			return "", &Error{Code: exit.Code, Stderr: strings.TrimSpace(exit.Stderr), cause: err}

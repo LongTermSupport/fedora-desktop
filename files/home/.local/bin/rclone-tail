@@ -300,12 +300,14 @@ render_tick() {
     done <<<"$mounts"
 }
 
-# Snapshot the VFS cache, scoped to the same mount filter as the monitor.
+# Snapshot the VFS cache, scoped to the same mount filter as the monitor. --no-dir: the
+# snapshot is the mount summary; run from inside a mount, the directory walk would be slow and
+# exits 1 on an unreadable entry, which would end this script under set -e.
 cache_status() {
     if [[ -n "$FILTER" ]]; then
-        rclone-cache-status "$FILTER"
+        rclone-cache-status --no-dir "$FILTER"
     else
-        rclone-cache-status
+        rclone-cache-status --no-dir
     fi
 }
 

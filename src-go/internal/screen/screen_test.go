@@ -83,6 +83,39 @@ func TestInputLineEmptyEdgeCases(t *testing.T) {
 	}
 }
 
+// The fixtures are tmux captures of Claude Code 2.1.303 run as `claude --resume` in a
+// project with saved conversations, at several pane widths: the footer wraps differently at
+// each, so only the header is the same on every one.
+func TestConversationPickerIsSeenOnRealCaptures(t *testing.T) {
+	for _, name := range []string{
+		"picker-wide.txt", "picker-120-escapes.txt", "picker-80.txt", "picker-60.txt",
+		"picker-scrolling.txt", "picker-preview.txt",
+	} {
+		raw, err := os.ReadFile(filepath.Clean(filepath.Join("testdata", name)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !AtConversationPicker(string(raw)) {
+			t.Errorf("%s: the picker was not seen", name)
+		}
+	}
+}
+
+func TestConversationPickerIsNotSeenElsewhere(t *testing.T) {
+	cases := map[string]string{
+		"a conversation that quotes the header": lines("● The picker says:", "  Resume session", "", rule, "❯ ", rule),
+		"the header text inside a sentence":     lines("Building image...", "We will Resume session state later"),
+		"a launcher prompt":                     "Use same configuration? [Y/n] ",
+		"empty":                                 "",
+		"Claude at its prompt":                  lines(" ▐▛███▜▌   Claude Code", "", rule, "❯ ", rule),
+	}
+	for name, pane := range cases {
+		if AtConversationPicker(pane) {
+			t.Errorf("%s: seen as the picker", name)
+		}
+	}
+}
+
 func TestKnownPromptsAreUniqueAndNonEmpty(t *testing.T) {
 	seen := map[string]bool{}
 	for _, p := range KnownPrompts() {

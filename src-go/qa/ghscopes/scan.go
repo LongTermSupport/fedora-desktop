@@ -38,7 +38,7 @@ func (g *gate) proveRule(ctx context.Context) (ExitCode, error) {
 	if len(semgrepreport.Annotated(string(fixture))) == 0 {
 		return ExitCannotRun, fmt.Errorf("%s marks no ruleid line; the self-test proves nothing", fixtureFile)
 	}
-	res, err := g.runTool(ctx, semgrepTimeout, "semgrep", "--test", "--config", g.path(ruleFile), g.path(fixtureFile), "--metrics=off")
+	res, err := g.runTool(ctx, semgrepTimeout, "semgrep", "--test", "--config", g.path(ruleFile), g.path(fixtureFile), "--metrics=off", semgrepreport.TimeoutFlag)
 	if err != nil {
 		return ExitCannotRun, err
 	}
@@ -103,7 +103,7 @@ type semgrepReport struct {
 // scan hands the files to semgrep by name, never as a directory: a directory scan applies
 // semgrep's default ignore list, which skips tests/ and would hide a copy there.
 func (g *gate) scan(ctx context.Context, files []string) (semgrepReport, error) {
-	argv := append([]string{"semgrep", "--config", g.path(ruleFile), "--json", "--quiet", "--metrics=off", "--max-target-bytes=0"}, files...)
+	argv := append([]string{"semgrep", "--config", g.path(ruleFile), "--json", "--quiet", "--metrics=off", semgrepreport.TimeoutFlag, "--max-target-bytes=0"}, files...)
 	res, err := g.runTool(ctx, semgrepTimeout, argv...)
 	if err != nil {
 		return semgrepReport{}, err

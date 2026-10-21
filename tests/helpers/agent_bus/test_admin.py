@@ -150,6 +150,9 @@ class AdminTestCase(unittest.TestCase):
     def room(self) -> str:
         return (self.team_dir / "room_id").read_text(encoding="utf-8")
 
+    def reports(self) -> str:
+        return (self.team_dir / "room_id.reports").read_text(encoding="utf-8")
+
     def state(self, event_type: str, key: str = "", event: bool = False) -> tuple[int, dict]:
         room = urllib.parse.quote(self.room(), safe="")
         return self.fake.request("GET", f"/_matrix/client/v3/rooms/{room}/state/{event_type}/{urllib.parse.quote(key, safe='')}",
@@ -410,7 +413,7 @@ class BootstrapTest(AdminTestCase):
         self.assertEqual(record.humans, frozenset({BOB}))
         self.assertEqual(record.path_prefixes, ("docs/",))
         self.assertEqual(self.transport.deactivated, {ALICE})
-        self.assertEqual(self.transport.kicked, [(self.room(), ALICE)])
+        self.assertEqual(self.transport.kicked, [(self.room(), ALICE), (self.reports(), ALICE)])
         self.assertEqual(self.bootstrap(), [])
 
     def test_a_failed_removal_is_retried_on_the_next_run(self) -> None:
@@ -421,7 +424,7 @@ class BootstrapTest(AdminTestCase):
             self.bootstrap()
         self.assertEqual(self.transport.deactivated, set())
         self.bootstrap()
-        self.assertEqual(self.transport.kicked, [(self.room(), ALICE)])
+        self.assertEqual(self.transport.kicked, [(self.room(), ALICE), (self.reports(), ALICE)])
         self.assertEqual(self.transport.deactivated, {ALICE})
         _, record_event = self.state(protocol.EVENT_TEAM, event=True)
         record = protocol.parse_team_event(record_event, ADMIN_ID, SN, "team-a")
@@ -500,6 +503,16 @@ class AddMemberTest(AdminTestCase):
     def test_no_human_text(self) -> None:
         member = json.loads(read_member(self.add_member(human_text=False), "member.json"))
         self.assertIs(member["human_text"], False)
+
+    def test_a_coordinator_must_take_human_text(self) -> None:
+        # Plan 00211 SPEC 4.5: refused before any homeserver call, so nothing is created.
+        calls = len(self.transport.calls) if hasattr(self.transport, "calls") else None
+        with self.assertRaisesRegex(admin.AdminError, "a coordinator must take human text: drop --no-human-text"):
+            self.add_member(role="coordinator", human_text=False)
+        if calls is not None:
+            self.assertEqual(len(self.transport.calls), calls)
+        self.assertFalse((self.team_dir / "registry.json").exists()
+                         and registry.load_registry(self.team_dir / "registry.json", "team-a").members)
 
     def test_seat_numbers_increase(self) -> None:
         self.add_member()
@@ -617,6 +630,8 @@ class MemberCommandsTest(AdminTestCase):
         self.assertEqual(lines, [
             "HUMAN\talice\tinvite",
             f"MEMBER\t{self.handle}\tworker\tinvite\tactive",
+            f"ROOM\t{ALICE}\treports\tinvite",
+            f"ROOM\t{self.user_id}\treports\t-",
         ])
 
     def test_rotate_refuses_a_parked_member(self) -> None:

@@ -65,7 +65,7 @@ ACTIVE_FLAG = membership.FLAG_FILE
 SESSION_SETTINGS = "settings.json"
 STATUS_LINE_INNER = "statusline-inner"
 STATUS_LINE_GUARD = (f'[ -e "$PINGBUS_HOME/{ACTIVE_FLAG}" ] || exec sh "$PINGBUS_HOME/{STATUS_LINE_INNER}"; '
-                     "exec pingbus status-line")
+                     "exec pingbus-status-line")
 _SESSION_FILE_MODE = 0o600
 #: The session home a claim builds inside the container (D50), private to the session.
 SESSION_HOME = pathlib.Path("/tmp/pingbus-home")
@@ -82,6 +82,10 @@ SAID_GOODBYE_FILE = "said-goodbye.json"
 #: the goodbye (`hooks.GOODBYE_TIMEOUT_S`, 4 s) off before pingbus had even started.
 SESSION_END_BUDGET_VAR = "CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS"
 SESSION_END_BUDGET_MS = 8000
+#: A seated session's status line refresh (s), the same as the member kit's settings.json (a
+#: test pins the two). Paced for the inner hooks daemon line, not the bus: ccy --supervise
+#: treats the context sidecar that line writes as stale after 30 s (Plan 00213 Task 1.3).
+STATUS_LINE_REFRESH_S = 25
 
 HELD, FREE = "held", "free"
 SELF = "self"
@@ -449,7 +453,7 @@ def session_settings(inner: Mapping[str, object] | None, *, seated: bool, guard:
     it from becoming a turn or a review for the human; a `--settings` value outranks the
     user's settings, which the session can write. Its first join relaunches it once. The status line is a
     shell guard: the inner one with no `active` flag, `pingbus status-line` with it. A seated
-    session refreshes each second as before; a plain one keeps the inner line's own interval
+    session refreshes every `STATUS_LINE_REFRESH_S`; a plain one keeps the inner line's own interval
     and padding. Without `guard` (a settings file could not be read) no status line is set,
     so Claude Code's own applies and there is no bus segment. Every session gets the
     SessionEnd bound its goodbye needs (`SESSION_END_BUDGET_MS`), seated or not, since a seat
@@ -460,7 +464,7 @@ def session_settings(inner: Mapping[str, object] | None, *, seated: bool, guard:
         return settings
     line: dict[str, object] = {"type": "command", "command": STATUS_LINE_GUARD}
     if seated:
-        line["refreshInterval"] = 1
+        line["refreshInterval"] = STATUS_LINE_REFRESH_S
     elif inner is not None and "refreshInterval" in inner:
         line["refreshInterval"] = inner["refreshInterval"]
     if inner is not None and "padding" in inner:

@@ -63,6 +63,9 @@ marker=$(cd "$REPO_ROOT" && python3 -s -m helpers.pingbus.bundle --source "$REPO
     --out "$image/pingbus" pingbus 2>"$work/step.err")
 check "the zipapp builds" "BUNDLE-CHANGED $image/pingbus" "$marker"
 chmod 755 "$image/pingbus"
+# The step only requires it to be there; the Go golden test judges what it prints.
+printf '#!/bin/sh\nexit 0\n' >"$image/pingbus-status-line"
+chmod 755 "$image/pingbus-status-line"
 check "the kit has the plugin manifest the step needs" "yes" \
     "$(yes_no test -f "$image/plugin/pingbus/.claude-plugin/plugin.json")"
 
@@ -235,6 +238,10 @@ mv "$image/plugin/pingbus/hooks/hooks.json" "$work/hooks.json.away"
 check "an image without the kit: refused" "rc=1" "$(run_step - claude)"
 check "that refusal says to rebuild" "yes" "$(err_has "ccy --rebuild")"
 mv "$work/hooks.json.away" "$image/plugin/pingbus/hooks/hooks.json"
+mv "$image/pingbus-status-line" "$work/pingbus-status-line.away"
+check "an image without the Go status line (Plan 00213): refused" "rc=1" "$(run_step - claude)"
+check "that refusal names it" "yes" "$(err_has "$image/pingbus-status-line is missing")"
+mv "$work/pingbus-status-line.away" "$image/pingbus-status-line"
 mv "$desired/membership.json" "$work/membership.json.away"
 check "no membership file in the mount: refused" "rc=1" "$(run_step - claude)"
 check "that refusal names the file" "yes" "$(err_has "$desired/membership.json is missing")"
@@ -396,6 +403,14 @@ check "the play builds the zipapp with the shared builder into the build context
     "$(yes_no grep -q 'helpers.pingbus.bundle' "$PLAY")"
 check "the play builds it where the image COPYs it from" "yes" \
     "$(yes_no grep -q -- '- /opt/claude-yolo/optional/agent-bus/pingbus' "$PLAY")"
+check "the play builds the Go status line static, where the image COPYs it from" "yes" \
+    "$(yes_no awk '/go_command_name: pingbus-status-line/ { n = NR } n && NR <= n + 4 && /go_command_static: true/ { s = 1 }
+        n && NR <= n + 1 && /go_command_dest: \/opt\/claude-yolo\/optional\/agent-bus\/pingbus-status-line$/ { d = 1 }
+        END { exit !(s && d) }' "$PLAY")"
+check "the Dockerfile links it onto PATH, where the seated guard runs it by name" "yes" \
+    "$(yes_no grep -qF 'ln -s /opt/claude-yolo/optional/agent-bus/pingbus-status-line /usr/local/bin/pingbus-status-line' "$CCY_DIR/Dockerfile")"
+check "  by the name the seated guard runs" "yes" \
+    "$(cd "$REPO_ROOT" && python3 -I -c 'import sys; sys.path.insert(0, "."); from helpers.pingbus import seat; print("yes" if seat.STATUS_LINE_GUARD.endswith("exec pingbus-status-line") else "no")')"
 check "the step's settings path is the claim's session home" "yes" \
     "$(yes_no grep -qF -- '--settings /tmp/pingbus-home/settings.json' "$ENTRYPOINT")"
 check "  which is pingbus's SESSION_HOME" "/tmp/pingbus-home" \

@@ -27,16 +27,22 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-// The seat and team grammar, pingbus's own (helpers/pingbus/protocol.py HANDLE_SEAT_PATTERN and
-// TEAM_NAME_PATTERN; a test pins the copy).
+// The seat, team and handle grammar, pingbus's own (helpers/pingbus/protocol.py
+// HANDLE_SEAT_PATTERN, TEAM_NAME_PATTERN, HANDLE_REPO_PATTERN, HANDLE_HOST_PATTERN and
+// HANDLE_TYPES; a test pins the copy).
 const (
-	seatPattern = `[1-9][0-9]{0,5}|[a-z][a-z0-9]{0,11}`
-	teamPattern = `[a-z][a-z0-9-]{0,23}`
+	seatPattern       = `[1-9][0-9]{0,5}|[a-z][a-z0-9]{0,11}`
+	teamPattern       = `[a-z][a-z0-9-]{0,23}`
+	handleRepoPattern = `[a-z0-9][a-z0-9_-]{0,47}`
+	handleHostPattern = `[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?`
+	handleTypes       = `podman|lxc|docker|vm|host`
 )
 
 var (
-	seatName = regexp.MustCompile(`^(?:` + seatPattern + `)$`)
-	teamName = regexp.MustCompile(`^(?:` + teamPattern + `)$`)
+	seatName   = regexp.MustCompile(`^(?:` + seatPattern + `)$`)
+	teamName   = regexp.MustCompile(`^(?:` + teamPattern + `)$`)
+	handleName = regexp.MustCompile(`^` + handleRepoPattern + `\.(?:` + seatPattern + `)\+` +
+		handleHostPattern + `\.(?:` + handleTypes + `)$`)
 	// sessionName is a registry name or a container name: no slash, no leading dot, nothing a
 	// file name or a reader would trip on.
 	sessionName = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.@+-]{0,254}$`)
@@ -192,10 +198,12 @@ func (m *Init) desired(args []string) (Desired, error) {
 	if err != nil {
 		return Desired{}, fmt.Errorf("the seats %q: %w", args[2], err)
 	}
-	return Desired{
+	d := Desired{
 		V: 1, Session: session, Kind: kind, Checkout: checkout, Generation: 1,
 		WrittenMS: m.Now().UnixMilli(), Seats: seats, Farewell: []Farewell{},
-	}, nil
+	}
+	// The launch stops here, with the reason, on anything pingbus would refuse to read.
+	return d, d.checkWrite()
 }
 
 // writeDesired makes the directory and its parents the owner's alone, then replaces the file.

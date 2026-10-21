@@ -131,6 +131,18 @@ that play.
    keeps the team's data (its whole room history); deleting the data as well needs the
    team's name typed.
 
+**Wind a team down** before shutting it down. `ccy-teams wind-down <team>` (or Enter on the
+team, then **Wind down the team's sessions**) types `/goal clear` into each running session's
+tmux pane on this desktop, the coordinator's included, then one instruction: we are about to
+shut down, the work is not done, so commit work in progress, stop sub-agents, push what passes
+its QA gate, write down where unfinished work stands, and stop. It waits for each session to be
+idle (up to 300 s, never interrupting a turn) and never types over unsent text. It is typed, so
+it is your own turn in the session, not a team message. An LXC agent run with `service: true`
+gets the same in its `agent-bus-claude` tmux session in the container, through `sudo lxc-attach` as its user. One whose container is stopped, and sessions elsewhere, are named and
+fail the run, with the text to give them by hand. The ccy supervisor types at the same idle
+moments, so its line and the wind-down's can interleave. Nothing is ended. Spec: Plan 00203
+`SPEC-team-wind-down.md`.
+
 **Shut down a team's sessions** (the team stays up). `ccy-teams shutdown <team>` (or Enter on
 the team, then **Shut down every session of `<team>`**) lists the team's sessions on this host
 and the members it cannot reach, asks (default No; `--yes` where there is no terminal), then
@@ -206,15 +218,22 @@ are not ccy sessions.
 **Only a message that mentions an agent reaches it.** Type `@`, then **pick the agent from
 the list Element offers** (it is named by its handle, like `myrepo.1+local.podman`). A name
 typed out in full but not picked from the list is plain text: it mentions nobody, and no agent
-receives the message. `@room` reaches every agent of the team, and costs each one a turn.
+receives the message. `@room` reaches every agent of the team, and costs each one a turn;
+it too must be picked from the list (Element shows it as a pill). `@room` typed out and sent
+as plain text mentions nobody, so no agent receives it.
 
+- **A message that reached no agent is logged.** Each agent's sync (`recv`, `wait` and the watcher) writes one line per such
+  message (event ID, sender, reason, time; never the text) to `ignored.log` in its team's
+  state directory, and `pingbus status` counts them as `ignored=` on the team's line. No agent
+  is woken for it. Rules: [agent-bus-protocol.md §9](agent-bus-protocol.md#on-receive-recv-wait-watch).
 - **Read receipts show who got it.** When a message reaches an agent's conversation (found in
   its session's transcript), that agent marks it read, and Element shows the agent's avatar under it. A message with no avatar
   under it after a few seconds reached no agent: check the mention, and that the agent's
   session is running (`ccy-teams` shows its seat as held). Only the default socket delivery
   sends receipts; a session started with `PINGBUS_DELIVERY=relay`, or an agent reading with
   `pingbus recv` or `wait` alone, gets the message but shows no avatar.
-- **Edits are ignored.** An agent never sees an edited version; write a new message instead.
+- **Edits are ignored in the main room.** An agent never sees an edited version there; write a
+  new message instead. (The questions room below is the exception.)
   Element's Reply is fine (the quoted part is removed before the agent reads it).
 - **Answers are replies.** An agent answers with its `reply:` command, which makes the answer
   an Element reply to your message, so two answers to two questions stay apart. It appears
@@ -224,6 +243,25 @@ receives the message. `@room` reaches every agent of the team, and costs each on
 - **In the agent's terminal** your message shows under Claude Code's label "Another Claude
   session sent a message", followed by a delivery block (its first line starts "agent-bus
   delivery") with `kind: HUMAN` and `from: <you>`. The label is Claude Code's own; the block says who sent it.
+
+### The reports and questions rooms
+
+Besides its main room, each team has two quieter rooms, which the agent-bus play creates and
+invites you to (Plan 00211):
+
+- **`<team> · reports`** is for you to read. Agents post there what you would want to know: a
+  milestone, a merge, a deploy queued, a decision taken for you, a risk. Reports never notify,
+  nobody is woken by one, and you cannot post there (the composer is disabled).
+- **`<team> · questions`** is between you and the coordinator. Workers ask the coordinator in
+  the main room; the coordinator answers what it can and asks you only what it cannot, one
+  self-contained question per message, numbered `Q1`, `Q2` and so on. Each question notifies
+  you. **Answer with "Reply in thread"** on the question. Every message you post in this room
+  reaches the coordinator, mention or not, and an edit reaches it as a correction. Reactions
+  are switched off here: answer in words.
+
+You can mute the main room and follow only these two. A reply you post in the main room
+without a mention reaches no agent, so answer questions in the questions room. The protocol
+is in [agent-bus-protocol.md §8](agent-bus-protocol.md#8-the-team-room-record-status-power-levels).
 
 ## Teams
 
@@ -508,7 +546,8 @@ or the tmux window, a crash, a kill) cannot say goodbye: in ccy the container en
 The ccy launcher then posts `<handle> disconnected: session ended without a goodbye` for each
 seat it held, from the host, after the container has gone; never both messages for one
 session. A closed terminal, or Ctrl-C pressed again meanwhile, does not stop it. A host
-reboot tells nothing; teammates then see only that the seat is free. The
+reboot tells nothing; teammates then see only that the seat is free. Each notice, posted or
+not and why, is a line in the checkout's `.claude/ccy/pingbus/disconnect.log`. The
 detail is in [agent-bus-protocol.md](agent-bus-protocol.md) §12.
 
 **How messages reach the session.** A session in a team gets each message in its
@@ -573,7 +612,12 @@ stopped or failed.
 **Running the team.** On the homeserver host:
 
 - `sudo agent-bus list <team>` shows the members, their roles, room membership and whether
-  each is active or parked (no tokens).
+  each is active or parked (no tokens), then a `ROOM` line per account for each of the
+  reports and questions rooms.
+- `sudo agent-bus check-rooms <team>` reads the reports and questions rooms and prints a
+  `PROBLEM` line for each fault, with its repair: a room missing or changed, a human not in
+  one, a worker in questions, a coordinator that has not joined (restart its session). It
+  changes nothing and exits 1 on any problem.
 - `sudo agent-bus set-role <team> <handle> --role=coordinator` changes a role; a second
   coordinator is refused, naming the holder, so the current one is first set back to
   `worker`. `ccy-teams` does the same from a seat's menu, and bare `ccy --teams` offers it
@@ -654,16 +698,19 @@ every refresh from the same team record the live role notice reads, so a role ch
 `(role?)`, never a guess, and says why in one line on the status line command's stderr. A team
 whose homeserver does not answer is marked `(down)` after its role: each team is shown as its
 name, its role, then its marks. The member kit's `settings.json`
-makes `pingbus status-line` the status line command, and settings given on the command line
+makes `pingbus-status-line` the status line command (a Go binary that starts in milliseconds,
+built into the kit and the ccy image by the plays; `pingbus status-line` is the same command in
+Python, kept as its reference), and settings given on the command line
 outrank the project's, so it applies in a checkout that has never heard of the bus. It runs
 the status line the checkout or your user settings already set (a hooks daemon's, for
 example) and adds the segment on rows of its own below it, so nothing you had is lost. Claude
 Code cuts a row wider than the terminal with an ellipsis, and the hooks daemon's status line
 already fills its rows to the width, so the teams are never appended to its last row: they
 wrap at the terminal's width (`COLUMNS`, which Claude Code sets) after a comma, under the 👥,
-and are never cut; a team and its role stay on one row. With no `COLUMNS` the segment is one unbroken row. It refreshes every second,
-as this repository's status line does (ccy `--supervise` reads what the hooks daemon's status
-line writes on each render), whatever interval the replaced status line had. A failing, hung or
+and are never cut; a team and its role stay on one row. With no `COLUMNS` the segment is one unbroken row. It refreshes every 25
+seconds as well as on Claude Code's own events, whatever interval the replaced status line had:
+often enough for ccy `--supervise`, which ignores what the hooks daemon's status line wrote on
+its last render once that is 30 seconds old. A failing, hung or
 unreadable status line underneath is shown in red rather than blanking the line. The segment comes from a record the SessionStart hook
 writes for the session. If that record could not be written, the status line shows
 `👥 no record of this session's teams (pingbus status)` in red rather than nothing, and the

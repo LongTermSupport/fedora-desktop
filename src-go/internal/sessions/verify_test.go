@@ -107,6 +107,26 @@ func TestVerifyRestoreNamesEachSessionByItsState(t *testing.T) {
 	contains(t, "why", h.stderr(), "Not every restored session is running and past its prompts; attach with ccy-sessions to answer or look.")
 }
 
+// fedora-desktop#86: a session restored with --resume is at Claude Code's conversation
+// picker, its container up and claude running. It is not restored, and the non-zero exit is
+// what fedora-desktop-self-update verify reads as a failed restore.
+func TestVerifyRestoreReportsASessionAtTheConversationPicker(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "screen", "testdata", "picker-wide.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := verifyHost(t)
+	writeEntries(t, h, kept("ccy-a", "ccy", "/srv/a"), kept("cc-c", "cc", "/srv/a"))
+	h.sessions("ccy-a 0 /srv/a", "cc-c 0 /srv/a")
+	showScreen(h, "ccy-a", string(raw))
+	showScreen(h, "cc-c", "claude is running\n")
+	report, code := verifyReport(h)
+	if code != 1 || report != "ccy-a WAITING-AT-PROMPT thread-picker|cc-c OK" {
+		t.Fatalf("%d %q", code, report)
+	}
+	contains(t, "why", h.stderr(), "Not every restored session is running and past its prompts")
+}
+
 func TestVerifyRestorePassesWhenEverythingIsPastItsPrompts(t *testing.T) {
 	h := verifyHost(t)
 	writeEntries(t, h, kept("ccy-a", "ccy", "/srv/a"), kept("cc-c", "cc", "/srv/a"))

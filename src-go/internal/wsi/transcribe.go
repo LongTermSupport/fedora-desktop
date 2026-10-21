@@ -154,6 +154,7 @@ func (r *run) claude(ctx context.Context, text string) (string, error) {
 		return "", r.fail(ctx, "wsi-claude-process not found (re-run play-speech-to-text.yml)")
 	}
 	r.log.debug("Post-processing through Claude Code (model: " + r.o.claudeModel + ")")
+	r.panel.notifyState(ctx, stateClaude, "Claude is post-processing...", "")
 	args := []string{"--model", r.o.claudeModel, "--style", r.o.claudeStyle}
 	if r.o.debug {
 		args = append(args, "--debug")

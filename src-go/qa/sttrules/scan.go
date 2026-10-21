@@ -68,7 +68,7 @@ func (g *gate) scanAll(ctx context.Context, set ruleSet, sets fileSets, dir stri
 func (g *gate) scanLanguage(ctx context.Context, lang language, rules string, files []string) (outcome, error) {
 	argv := slices.Concat([]string{
 		"semgrep", "--metrics=off", "--disable-version-check", "--config", rules,
-		"--no-rewrite-rule-ids", "--scan-unknown-extensions", "--json", "--quiet", "--max-target-bytes=0",
+		"--no-rewrite-rule-ids", "--scan-unknown-extensions", "--json", "--quiet", semgrepreport.TimeoutFlag, "--max-target-bytes=0",
 	}, files)
 	res, err := g.runTool(ctx, semgrepTimeout, argv...)
 	if err != nil {

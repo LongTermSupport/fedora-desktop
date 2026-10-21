@@ -131,7 +131,8 @@ These playbooks are executed automatically by `playbook-main.yml` during initial
   automation is a ladder to root (headless runs get their credential from the preflight
   contract instead — see [headless-provisioning.md](headless-provisioning.md))
 - Sets up Vim with Deus colorscheme
-- Configures bash environment and custom PS1 prompt
+- Configures bash environment and custom PS1 prompt, with its stale-fetch mark
+  (`git-fetch-age`, a Go binary built from `src-go/`, so this play imports `play-golang.yml`)
 - Moves bash history (user and root) to a private `~/.local/state/bash/history`, written at
   every prompt and never truncated, and gives the desktop user a Ctrl+R that ranks the
   current directory's commands first, with up-arrow kept to the current terminal — see
@@ -261,7 +262,9 @@ skips the read-back.
 **Actions**:
 
 - Configures git user name and email
-- Installs bash-git-prompt with Solarized theme
+- Installs bash-git-prompt with Solarized theme; its background fetch runs `git-prompt-fetch`
+  (a Go binary from `src-go/`, so this play imports `play-golang.yml`), which can never ask
+  for a passphrase
 - Installs GitHub CLI (gh)
 - Adds a bashrc prompt offering to start `ssh-agent` on SSH sessions without one
 - Signs every commit and tag with this machine's login key, `~/.ssh/id`, through the
@@ -839,10 +842,19 @@ CLI Tools — the one home for small command-line utilities (rule:
   numbered menu; `-a` forces it). It never offers a GUI app with no display: over SSH you
   get terminal viewers, and only installed ones. `open .`, `open -l FILE` (what could
   open this), `open -d FILE` (choose and remember), `open -t FILE` (terminal only),
-  `open -n FILE` (print the command, run nothing). Installs the MIME and viewer stack it
+  `open -n FILE` (print the command, run nothing). A Go binary built from
+  `src-go/cmd/open` (the play installs the Go toolchain first); desktop apps are listed,
+  registered as defaults and started through `gio`. Installs the MIME and viewer stack it
   delegates to (`xdg-utils`, `perl-File-MimeInfo`, `fzf`, `chafa`, `w3m`,
   `poppler-utils`, `bsdtar`, `jq`, `tree` and others). Fedora ships no `/usr/bin/open`,
   so nothing is masked
+- **`convert FILE --to FORMAT[,FORMAT...]`** writes FILE in each format beside it
+  (`convert notes.md --to docx` makes `notes.docx`); `convert FILE` lists what FILE can
+  become. It calls a proven converter for each pair and converts nothing itself: Markdown
+  to DOCX through `pandoc`, which the play installs. An existing output is kept unless
+  `--force`, and a failed conversion leaves no half-written file. A Go binary built from
+  `src-go/cmd/convert`. In the login user's shells it shadows ImageMagick's legacy
+  `/usr/bin/convert` alias; run ImageMagick as `magick`
 - **`reclaim`** is a bash menu that reports what is using disk and runs targeted cleanups
   (dnf autoremove/clean, old kernels, journal vacuum, container prune,
   flatpak/cache/trash), **each behind an explicit confirmation**. Installs `ncdu`, `duf`
@@ -852,8 +864,8 @@ CLI Tools — the one home for small command-line utilities (rule:
   any supported archive into `./NAME/`. The play refuses to run while the `ncompress`
   package is installed, because its legacy `/usr/bin/compress` would shadow the wrappers
 
-Run one tool alone with `--tags imgpaste`, `open-command`, `disk-reclaim` or
-`compression-helpers`. The play is `scope: general` and in the `server-recommended` bundle.
+Run one tool alone with `--tags imgpaste`, `open-command`, `convert-command`,
+`disk-reclaim` or `compression-helpers`. The play is `scope: general` and in the `server-recommended` bundle.
 
 #### play-cloudflare-dns.yml
 

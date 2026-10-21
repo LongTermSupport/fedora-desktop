@@ -46,14 +46,17 @@ jobs:
         with:
           node-version: "20"
 
-      # The Go version is src-go/go.mod's own: its toolchain line (the release the CCY image's
-      # GO_VERSION and Fedora carry), so govulncheck judges the standard library CI builds with.
+      # setup-go@v5 installs the go directive of this file and ignores a toolchain line (later
+      # majors read the toolchain line unless GOTOOLCHAIN=local), so it names
+      # the go.mod with the higher go directive: the Go floor qa-toolchain asserts, and the
+      # release the CCY image's GO_VERSION carries. TestEveryWorkflowSetsUpTheGoFloor
+      # (src-go/qa/toolchain) fails when it does not.
       # src-go builds from its committed vendor/; the qa module and govulncheck (its tool
       # directive) come from the module proxy. golangci-lint is installed at the pin below.
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: src-go/go.mod
+          go-version-file: src-go/qa/go.mod
 
       # Every QA tool is pinned from the single source of truth (.qa-versions),
       # the same file the host playbook and the CCY image read. A gate's verdict

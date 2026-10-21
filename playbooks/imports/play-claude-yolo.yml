@@ -1,7 +1,7 @@
 #!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
 ---
-# ccy-teams and ccy-sessions are Go binaries built here, so the Go toolchain is installed
-# first. play-golang.yml stays its one source of truth.
+# ccy-teams, ccy-sessions, cc-project-dir and pingbus-status-line are Go binaries built here,
+# so the Go toolchain is installed first. play-golang.yml stays its one source of truth.
 - import_playbook: play-golang.yml
 
 - hosts: desktop
@@ -408,6 +408,21 @@
         - scripts
         - skills
 
+    # A seated session's status line (Plan 00213): the Go port of `pingbus status-line`, which
+    # starts no Python on a refresh. The entrypoint links it beside pingbus. Static, because the
+    # image is Debian and the host's glibc is newer than the image's.
+    - name: Build the pingbus-status-line Command into Docker Build Context
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: pingbus-status-line
+        go_command_dest: /opt/claude-yolo/optional/agent-bus/pingbus-status-line
+        go_command_mode: "0755"
+        go_command_owner: root
+        go_command_static: true
+      tags:
+        - scripts
+        - skills
+
     - name: Remove Obsolete Browsing Skill Files from Docker Build Context
       become: true
       ansible.builtin.file:
@@ -643,6 +658,23 @@
         owner: root
         group: root
         mode: "0755"
+      tags:
+        - scripts
+        - launchers
+
+    # The directory cc starts its session in (Plan 00167): the top of the git work tree it
+    # was typed in, or, outside one, this checkout if the person accepts it. A Go binary
+    # (src-go/cmd/cc-project-dir) with the checkout baked in by -X main.RootDir, because cc
+    # is copied, not templated. Root-owned beside cc, and installed before it, so a failed
+    # build stops the play before a cc that runs it is in place.
+    - name: Build and Install the cc-project-dir Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: cc-project-dir
+        go_command_dest: /var/local/claude-code/cc-project-dir
+        go_command_mode: "0755"
+        go_command_ldflags: "-X main.RootDir={{ root_dir }}"
+        go_command_owner: root
       tags:
         - scripts
         - launchers

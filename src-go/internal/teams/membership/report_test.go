@@ -73,7 +73,7 @@ func TestToldRoleIsWhatTheSessionWasToldOfItsRole(t *testing.T) {
 		t.Fatalf("no told: %v", err)
 	}
 	teamtest.MustWrite(t, ReportPath(checkout, "s"), `{"v":1,"generation":2,"seats":[],"refused":[],"told":{"roles":7}}`)
-	if r, err = ReadReport(checkout, "s"); err != nil || r.ToldRole("alpha", "proj.3+local.podman") != "" {
-		t.Fatalf("a told it cannot read is nothing told: %v", err)
+	if _, err = ReadReport(checkout, "s"); err == nil {
+		t.Fatal("a told that is not what a keeper writes was accepted")
 	}
 }

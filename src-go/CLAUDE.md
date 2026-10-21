@@ -2,7 +2,9 @@
 
 One module, `github.com/LongTermSupport/fedora-desktop/src-go`, for this repository's large
 interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfreeze`,
-`lxcfreeze`, `vmtest`, `ftp-camera`, `watermark` and `wsi` live here; their bash originals are gone.
+`lxcfreeze`, `vmtest`, `ftp-camera`, `watermark`, `wsi`, `open` and `rclone-cache-status` live here; their bash
+originals are gone.
+`convert` is new, with no bash original.
 
 ## Layout
 
@@ -28,6 +30,11 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
   followers and teardown; root through `sudo`, systemctl through `systemd`, and the rclone
   remote control through `rclonerc` (the Go twin of `rclone-rc-auth.bash`, for the rclone
   helpers when they are ported).
+- `internal/rclonecache/` — the `rclone-cache-status` command (spec
+  `SPEC-rclone-cache-status.md`, E1-E21): the rclone mounts from `findmnt -J`, each mount
+  process's `--rc-addr` and `--cache-dir` from `/proc` (`rclonerc.MountProcess`), `vfs/stats`
+  through `rclonerc.Client.Call`, and a directory walked against its VFS cache mirror; no
+  Python, no `numfmt`.
 - `internal/<package>/` — shared adapters, each behind an interface with a fake: `execx`
   (the command runner every external call goes through, and its recording `Fake`), `term`
   (exit codes, error printing), `ui` (gum and fzf prompts), `sudo`, `systemd`, `tmuxccy`,
@@ -42,12 +49,37 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
   `wsi-resolve-model`) stay bash and Python and run from the binary's directory. Its batch
   limit's one home is `limit.go` (`scripts/qa-stt-limits.bash`); `scripts/test-wsi-stop-grace.bash`
   builds and drives the binary end to end.
+- `internal/open/` — the `open` command (spec `SPEC-open.md`, E1-E31): a target's type
+  (`mimetype`, `xdg-mime`, `file`), the desktop apps `gio mime` names, found in the XDG
+  application directories, and the terminal handlers as a table of argv (an optional pager fed
+  by an `os.Pipe`, no shell); the chooser is `ui.Picker`, or a numbered menu on `/dev/tty`
+  without fzf. Its one run-time program name is the handler the person chose (a
+  `dynamicNames` row).
+- `internal/convert/` — the `convert` command (Plan 00210 `SPEC-convert.md`, E1-E15): the
+  conversion table (input type, output formats, the engine for each pair) is data in
+  `table.go`; each engine spells its program in its own `execx.Cmd` (pandoc for Markdown to
+  DOCX) and writes a temporary that is renamed into place only on success.
 - `internal/wsipost/` — `wsi-postprocess`, the panel menu's Post-Process Last Transcription
   items (Plan 00208, P1-P8 in its package doc): Claude post-processing of the last
   transcription, through the sibling `wsi-claude-process`.
 - `internal/wsitoken/` — `wsi-claude-token`, the one chooser of the Claude account
   post-processing runs as (Plan 00208, K1-K8 in its package doc): the named token, or the one
   with the most allowance left by `ccy --token-usage --json`; `wsi-claude-process` runs it.
+- `internal/wsimedia/` — `wsi-lower-media-volume`, the playing media lowered to a third of its
+  volume while a recording runs (Plan 00212, V1-V10 in its package doc): the MPRIS players on
+  the session bus through `busctl`, their streams' volumes through `pactl --format=json`, held
+  until the panel's TERM or the parent's end; a stream still at the volume it set is restored
+  exactly, and a player with no stream found is paused and played again instead.
+- `internal/ccproject/` — `cc-project-dir`, the directory host `cc` starts its session in
+  (Plan 00167, P1-P7 in its package doc): the top of the git work tree, or outside one the
+  fedora-desktop checkout baked in with `-X main.RootDir`, offered `[Y/n]` at a terminal.
+- `internal/fetchage/` — `git-fetch-age`, the shell prompt's stale-fetch mark (Plan 00183,
+  A1-A15 in its package doc): the age of the newest `FETCH_HEAD` of the checkout's repository
+  with a record in it (an empty one is a fetch that failed or is running), read from files
+  only; it starts no process.
+- `internal/promptfetch/` — `git-prompt-fetch`, bash-git-prompt's background fetch made unable
+  to prompt (Plan 00183, F1-F6 in its package doc): `git fetch` with ssh in BatchMode (added to
+  the ssh command git would use), no terminal prompt, no askpass, stdin from `/dev/null`.
   Reuse these; a second way to run a command or prompt the user is a defect.
 
 ## Rules
@@ -147,6 +179,14 @@ difference is allowed only as a numbered bug of that plan's SPEC-freeze.md secti
 `go test ./internal/freeze/golden -update-deviations` rewrites the pinned files for the entries
 already listed. Behaviour the golden pins is changed in the same commit as its deviation entry.
 
+`pingbus status-line` (Plan 00213) has a recorded oracle on purpose, which makes it an
+exception to the rule above. The owner requires exact parity with the Python. The Python stays
+the implementation of the rest of pingbus, and the Go must read its on-disk formats the same
+way. The spec, `SPEC-status-line.md`, comes first. The oracle is
+`internal/pingbus/statusline/golden/testdata/`: `scenarios.json` is the hand-edited source, and
+`golden/` is recorded from the Python zipapp by `go test ./internal/pingbus/statusline/golden -update`. The default run judges the Go `statusline.Run`; `-impl=python` judges the zipapp and
+`-impl=<binary>` any other command.
+
 ## Build and deploy
 
 `tasks/build-go-command.yml` builds a command on the host from the checkout
@@ -154,23 +194,34 @@ already listed. Behaviour the golden pins is changed in the same commit as its d
 the login user, into `~/.cache/ccy-go-build`) and
 installs it with a checksum-compared `copy`; it takes the command name, install path, mode and
 optional ldflags. `playbooks/imports/play-claude-yolo.yml` imports it for both ccy binaries
-(`ccy-teams` also gets `-ldflags "-X main.RootDir=<checkout>"` and refuses to run without it),
-and `tasks/deploy-freeze.yml` for the freeze tools, which `play-podfreeze.yml` and
+and `cc-project-dir` (`ccy-teams` and `cc-project-dir` also get
+`-ldflags "-X main.RootDir=<checkout>"` and refuse to run without it), and `tasks/deploy-freeze.yml` for the freeze tools, which `play-podfreeze.yml` and
 `play-lxcfreeze.yml` import (both import `play-golang.yml` first for the toolchain), and
 `play-vm-test-lab.yml` for `vmtest`, `play-ftp-camera.yml` for `ftp-camera`,
-`play-image-watermarking.yml` for `watermark` and `play-speech-to-text.yml` for `wsi` (each
-imports `play-golang.yml` too);
-`watermark` is installed root-owned in `/usr/local/bin` (`go_command_owner: root`; only that
-copy runs as root). Each binary lands at its old path. A new deployed command takes a row in
+`play-image-watermarking.yml` for `watermark`, `play-speech-to-text.yml` for `wsi` and
+`play-cli-tools.yml` for `open` and `convert`, `play-rclone.yml` for `rclone-cache-status`,
+`play-basic-configs.yml` for `git-fetch-age` and `play-git-configure-and-tools.yml` for
+`git-prompt-fetch`, and `play-claude-yolo.yml` (into the ccy image's build context) and
+`play-agent-bus.yml` (into the member kit, which LXC members copy) for `pingbus-status-line`,
+built with `go_command_static: true` (`CGO_ENABLED=0`) because it runs in other distributions
+(each imports `play-golang.yml` too); `watermark`, `git-fetch-age` and
+`git-prompt-fetch` are installed root-owned
+in `/usr/local/bin` (`go_command_owner: root`; only that copy runs as root). Each binary lands
+at its old path. A new deployed command takes a row in
 `scripts/go-binary-suites.tsv`. Never
 install a binary by hand: the play is the only route
 ([InfrastructureAsCode.md](../CLAUDE/InfrastructureAsCode.md)).
 
 ## QA
 
-`scripts/qa-go.bash` (fmt, vet, `go test -race` with a coverage floor, golangci-lint) is the
-interim gate, run by `qa-all.bash` and by `qa-changed.bash` for a `src-go/` change, until the
-go-qa-ci toolchain replaces it. Details: [QA.md](../CLAUDE/QA.md).
+`scripts/qa-go-qa.bash` is the Go gate: go-qa-ci's `go-qa`, pinned by the `tool` directive of
+`qa/go.mod` and configured by `qa/go-qa.toml`, over both modules (format, golangci-lint, vet with
+its bundled analyzers and the project rules, dead code, govulncheck, module files, build,
+`go test -race -shuffle=on`, a 90% coverage floor per module). `qa-all.bash` runs it whole and
+`qa-changed.bash` in go-qa's diff mode for a `src-go/` change. A test that re-runs its own binary
+(the closed-stdout checks) does it through `qa/internal/cmdmaintest`, whose `Main` is the
+package's `TestMain`: the process ends only in a `main` or a `TestMain`. Details:
+[QA.md](../CLAUDE/QA.md).
 
 `qa/bashlimits` + `qa/cmd/qa-bash-limits` (in the nested `qa` module, which holds the
 `mvdan.cc/sh` parser dependency) are the QA gate that holds every bash file to the tooling-is-Go
@@ -184,7 +235,7 @@ of a changed file to checks is data (`scripts/qa-routing.tsv`, `scripts/qa-trees
 checks are a registry in `changed/checks.go`, and the proofs are its Go tests, a golden replay of
 the bash it replaced (`changed/golden_test.go`, difference only as a numbered bug pinned in
 `testdata/deviations.json`) and the black-box suite `scripts/test-qa-changed.bash`. The project
-rules run over this nested module too (`qa-go.bash` runs the driver a second time over it):
+rules run over this nested module too (go-qa runs the driver over both modules):
 every process it starts goes through the one seam `qa/internal/proc` (shared with
 `qa/bashlimits`' git runner), faked in tests, and its tests read no wall clock.
 
@@ -239,7 +290,7 @@ tests over real temporary git repositories with a fake validator and by the real
 `qa/cmd/qa-vmtest-manifest`.
 
 `qa/toolchain` + `qa/cmd/qa-toolchain` (same nested module) are `scripts/qa-toolchain.bash`, the
-gate that the QA tools are the versions `.qa-versions` pins (go: not older than `src-go/go.mod`):
+gate that the QA tools are the versions `.qa-versions` pins (go: not older than the higher go directive of `src-go/go.mod` and `qa/go.mod`):
 the script only builds and runs the command. The pin file is parsed with the `mvdan.cc/sh` parser
 and `go.mod` with `x/mod/modfile`, never sourced or awk-ed; tool drift is exit 1 (the machine is
 wrong), an unreadable pin file or go.mod exit 2 (the gate cannot judge). Version runs go through `qa/internal/proc`, faked in the
@@ -374,4 +425,6 @@ that writes a machine report wires `cmdmain.WriteReport` (mode 0644, read by oth
 stdout or stderr. `rootargs` is the `-h`/`--root DIR`/`--scripts DIR` grammar (a missing, empty or
 `-`-leading value is refused, an unknown argument is a typed error answered with the usage text);
 a gate with more flags keeps its own parser. `rootpath` (above) resolves what `rootargs` read.
-`cmdmaintest` is the test side: `RefusesClosedStdout` and `WritesReportWithMode`.
+`cmdmaintest` is the test side: `RefusesClosedStdout` (through `Child`, which re-runs the test
+binary; the package declares `func TestMain(m *testing.M) { os.Exit(cmdmaintest.Main(m)) }`) and
+`WritesReportWithMode`.

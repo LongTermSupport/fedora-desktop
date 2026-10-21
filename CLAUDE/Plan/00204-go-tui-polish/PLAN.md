@@ -180,7 +180,8 @@ the QA module's `go.mod` and runs as `go tool govulncheck`.
     `qa-changed`: [SPEC-qa-go-deps.md](SPEC-qa-go-deps.md).
   - `-mod=vendor` in `tasks/build-go-command.yml` for in-repository builds (md-viewer keeps
     `-mod=readonly`); `src-go/vendor` in `qa-trees.tsv` and the bash-limits exemptions; the
-    `toolchain go1.26.9` line CI's `setup-go` reads.
+    `toolchain go1.26.9` line. Correction: CI's `setup-go@v5` does not read that line, only
+    the go directive; CI now sets up Go from `src-go/qa/go.mod` (Plan 00191 Task 3.12).
   - The rule's new wording in GoProjectRules.md, src-go/CLAUDE.md and QA.md.
 - [ ] ⬜ **Task 2.2**: The `project_seam_imports` rule (only `internal/ui` imports the TUI
   library), and `project_hidden_bindings` extended to `key.Binding` (RESEARCH §5.3).

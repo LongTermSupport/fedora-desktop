@@ -34,6 +34,14 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00213-agent-bus-performance-go-carve-out](00213-agent-bus-performance-go-carve-out/) - Not Started. pingbus starts a Python interpreter on every status-line refresh and hook event, costing several CPU threads across a team; cut the refresh rate, skip the host pyenv shim, then port `pingbus status-line` and the per-event hooks to Go with parity tests
+
+- [00212-stt-pauses-media-while-recording](00212-stt-pauses-media-while-recording/) - In Progress. A speech-to-text recording lowers the playing media to a third of its own volume and restores it exactly when the microphone closes (a player whose sound is not found is paused instead); a panel menu switch, on by default
+
+- [00211-agent-bus-reports-and-questions-rooms](00211-agent-bus-reports-and-questions-rooms/) - In Progress (Phase 1 deployed and accepted; Phase 2, the admin side, queued as deploy 2). A reports room and a questions room per team, kept by the agent-bus play.
+
+- [00210-convert-cli-markdown-to-docx](00210-convert-cli-markdown-to-docx/) - In Progress. A Go `convert` command that turns a file into the formats its type supports, through proven engines; Markdown to DOCX through pandoc first (#102)
+
 - [00209-agent-bus-v2-in-go](00209-agent-bus-v2-in-go/) - Not Started. The agent bus rebuilt in Go from its requirements (a v2, not a port): one codebase, reads in-process plus one reader for every team run with no root, every state file and lock shared with v1, staged cut-over with the owner-visible wins first; design revised after Fable's review, owner decisions D1-D20
 
 - [00208-stt-paste-uses-stale-clipboard](00208-stt-paste-uses-stale-clipboard/) - In Progress. Speech-to-text auto-paste pasted the previous dictation: the paste key now waits until the clipboard reads back as this dictation's text, or nothing is pasted and the failure is said
@@ -60,23 +68,23 @@ Use these Unicode icons in plan documents:
 
 - [00202-ccy-claude-code-mod](00202-ccy-claude-code-mod/) - In Progress. Design a ccy Claude Code mod as the one place ccy extends the Claude Code UX, with its own GUI as the primary surface: a band, a ccy pane (Health, Mounts, Deploy) and a Teams pane (Status, Who, Pending, Homeserver); research and owner decisions, nothing built yet
 
-- [00207-team-roles-and-minimum-models](00207-team-roles-and-minimum-models/) - Not Started (design; owner decisions D1-D26, D19 decided). Explicit team roles (coordinator, worker, reviewer, outside collaborator, deployer) with a minimum model and effort per role, enforced at assignment, launch and run time; hub-and-spoke communication gates with a hard deployer lock, backed by homeserver-enforced channel rooms kept in sync by one reconciler; a coordinator-and-humans management room; the deployer's pre-deploy gate; per-team policy in the team settings pane
+- [00207-team-roles-and-minimum-models](00207-team-roles-and-minimum-models/) - Not Started (design; owner decisions D1-D26, D19 decided). Explicit team roles with a minimum model and effort per role, enforced at assignment, launch and run time
 
 - [00190-docker-podman-coexistence-on-host](00190-docker-podman-coexistence-on-host/) - Not Started. The Docker/Podman coexistence concerns left on #41 after Plan 00091
 
-- [00189-ouch-download-sha256-pin](00189-ouch-download-sha256-pin/) - Not Started. The ouch tarball is checked against a pinned sha256 (#63)
+- [00189-ouch-download-sha256-pin](00189-ouch-download-sha256-pin/) - In Progress. The ouch tarball is checked against a pinned sha256 (#63)
 
 - [00188-run-bash-rerun-noise](00188-run-bash-rerun-noise/) - Not Started. A `run.bash` re-run injects only missing pipx packages, with no warnings (#54)
 
-- [00187-stt-panel-robot-face](00187-stt-panel-robot-face/) - Not Started. The speech-to-text panel shows 🤖 or 💬 while Claude post-processes (#100)
+- [00187-stt-panel-robot-face](00187-stt-panel-robot-face/) - In Progress. The speech-to-text panel shows 🤖 or 💬 while Claude post-processes (#100); deployed, the owner's look after a logout is left
 
 - [00186-lxc-claude-session-reboot-warning](00186-lxc-claude-session-reboot-warning/) - Not Started (low priority). Claude sessions inside LXC containers get the reboot warning and restore (#55)
 
-- [00185-terminal-emoji-glyphs](00185-terminal-emoji-glyphs/) - Not Started. Triage why the terminal draws the wrong emoji, then defend in a play (#60)
+- [00185-terminal-emoji-glyphs](00185-terminal-emoji-glyphs/) - In Progress (triage queued). Triage why the terminal draws the wrong emoji, then defend in a play (#60)
 
 - [00184-deployed-tools-menu](00184-deployed-tools-menu/) - Not Started (low priority). One launcher and panel item for the deployed user tools (#81)
 
-- [00183-prompt-shows-stale-tracking-ref](00183-prompt-shows-stale-tracking-ref/) - Not Started. The git prompt never shows up-to-date against a stale tracking ref (#52)
+- [00183-prompt-shows-stale-tracking-ref](00183-prompt-shows-stale-tracking-ref/) - In Progress. The git prompt never shows up-to-date against a stale tracking ref (#52): a stale-fetch mark (`git-fetch-age`), deployed; the owner's look at a stale checkout is left
 
 - [00182-run-bash-private-plays-and-config-clone](00182-run-bash-private-plays-and-config-clone/) - Not Started. `run.bash` runs private plays from a local clone of the config repo (#49, #97)
 
@@ -114,7 +122,7 @@ Use these Unicode icons in plan documents:
 
 - [00168-managed-config-files-changed-out-of-band](00168-managed-config-files-changed-out-of-band/) - Not Started. Report play-managed files changed since their play ran. Issue #91.
 
-- [00167-cc-refuses-to-start-outside-a-repo](00167-cc-refuses-to-start-outside-a-repo/) - Not Started. `cc` outside a git working tree offers the checkout or refuses. Issue #90.
+- [00167-cc-refuses-to-start-outside-a-repo](00167-cc-refuses-to-start-outside-a-repo/) - In Progress. `cc` outside a git working tree offers the checkout or refuses. Issue #90. Deployed; the owner's `cc` checks are left.
 
 - [00165-ccy-container-uses-host-time-zone](00165-ccy-container-uses-host-time-zone/) - In Progress (owner's clock check left). ccy containers run in the host's time zone through `TZ`.
 
@@ -154,7 +162,7 @@ Use these Unicode icons in plan documents:
 
 - [00137-unattended-server-self-update](00137-unattended-server-self-update/) - In Progress (server proof left). A headless server updates itself, runs the affected plays and reboots with sessions restored.
 
-- [00135-ccy-sessions-survive-a-reboot](00135-ccy-sessions-survive-a-reboot/) - In Progress (reboot test left). ccy sessions are recorded and restored after a reboot. Issue #44.
+- [00135-ccy-sessions-survive-a-reboot](00135-ccy-sessions-survive-a-reboot/) - In Progress (reboot test and Phase 10 host check left). ccy sessions are recorded and restored after a reboot. Issue #44.
 
 - [00134-startup-log-triage-and-status-panel-unavailable](00134-startup-log-triage-and-status-panel-unavailable/) - In Progress (host checks left). False "crash" notices and the status panel's question mark after a reboot.
 

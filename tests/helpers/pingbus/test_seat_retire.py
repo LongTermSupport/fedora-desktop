@@ -146,6 +146,15 @@ class FarewellTest(SeatBusCase):
         self.assertEqual(set(content["m.mentions"]["user_ids"]), {self.a.alice, self.a.orch})
         self.assertIsNone(inbox.probe_lock_at(seat.lock_path(self.root, seat.SeatRef("1", bus.TEAM_A))))
 
+    def test_a_seat_removed_twice_inside_the_duplicate_window_says_goodbye_twice(self):
+        """Plan 00194 Task 2.0i: removed, added back, removed again within 60 s."""
+        self.joined()
+        self.assertEqual(self.farewell()[0], cli.EXIT_OK)
+        self.now += 19
+        code, _, err = self.farewell()
+        self.assertEqual(code, cli.EXIT_OK, err)
+        self.assertEqual(len(self.a.messages_from_me()), 2)
+
     def test_a_held_seat_is_refused_75(self):
         lock = inbox.acquire_lock_at(seat.lock_path(self.root, seat.SeatRef("1", bus.TEAM_A)),
                                      inbox.SEAT_KIND, claimed_ms=1)

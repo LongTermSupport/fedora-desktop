@@ -172,6 +172,12 @@ class TeamCase(unittest.TestCase):
             return []
         return [line.split("\t") for line in path.read_text(encoding="ascii").splitlines()]
 
+    def ignored_log(self) -> list[list[str]]:
+        path = self.state.path / inbox.IGNORED_LOG
+        if not path.exists():
+            return []
+        return [line.split("\t") for line in path.read_text(encoding="ascii").splitlines()]
+
     def sync_queries(self) -> list[dict[str, str]]:
         return [r.query for r in self.fake.http_log if r.path == "/_matrix/client/v3/sync"]
 
@@ -182,10 +188,12 @@ class FilterTest(unittest.TestCase):
         flt = json.loads(recorded["query"]["filter"])
         room = flt["room"]["rooms"][0]
         ours = syncer.sync_filter(room, flt["room"]["timeline"]["limit"])
-        # The probe predates the description: the topic is the one type added to it.
+        # The probe predates the description and the rooms index (Plan 00211): those two
+        # types are the ones added to it.
         for part in ("state", "timeline"):
-            self.assertIn(syncer.TOPIC, ours["room"][part]["types"])
-            ours["room"][part]["types"].remove(syncer.TOPIC)
+            for added in (syncer.TOPIC, protocol.EVENT_ROOMS):
+                self.assertIn(added, ours["room"][part]["types"])
+                ours["room"][part]["types"].remove(added)
         self.assertEqual(ours, flt)
 
     def test_gap_fill_filter_is_the_one_probe_h4_recorded(self):
@@ -425,6 +433,24 @@ class HumanPipelineTest(TeamCase):
         self.assertEqual(batch.accepted, (mine, room))
         self.assertEqual(sorted(self.stored()), sorted([mine, room]))
         self.assertEqual(dict(batch.drops), {})
+
+    def test_a_human_message_naming_no_agent_is_logged_as_unheard(self):
+        """The incident: `@room` typed as plain text has no `m.mentions.room`, so no agent
+        receives it. Each member logs it in `ignored.log` (no body, no turn, no drop); a
+        message for another agent is that agent's, and is not logged here."""
+        s = self.ready()
+        typed = self.human("@room MARKER-never-logged", to=[])
+        human_only = self.human("for alice herself", to=[self.alice])
+        self.human("for the coordinator", to=[self.orch])
+        self.send(self.orch, protocol.build_text([self.alice], "status: all green"))
+        self.ping(self.orch, "halt", to=[self.peer])
+        batch = s.sync_once()
+        now = str(int(self.now * 1000))
+        self.assertEqual((batch.accepted, dict(batch.drops), self.drop_log()), ((), {}, []))
+        self.assertEqual(self.ignored_log(), [[TEAM, typed, self.alice, "not-addressed", now],
+                                              [TEAM, human_only, self.alice, "not-addressed", now]])
+        self.assertNotIn("MARKER", (self.state.path / inbox.IGNORED_LOG).read_text(encoding="ascii"))
+        self.assertEqual(self.state.ignored_count(), 2)
 
     def test_reply_fallback_removed(self):
         s = self.ready()

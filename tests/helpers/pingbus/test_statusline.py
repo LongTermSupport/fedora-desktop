@@ -29,7 +29,7 @@ from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import cli, config, hooks, inbox, membership, protocol, statusline
+from helpers.pingbus import cli, config, hooks, inbox, membership, protocol, seat, statusline
 
 CYAN, RED, RESET = "\033[36m", "\033[31m", "\033[0m"
 
@@ -345,6 +345,14 @@ class StatusLineTest(unittest.TestCase):
         self.settings(self.home / ".claude/settings.json", "echo user")
         self.assertEqual(self.render()[0], f"user\n{CYAN}👥 alpha (worker){RESET}")
 
+    def test_it_never_runs_the_kits_go_command_either(self) -> None:
+        """Plan 00213 Task 2.3: the kit runs the Go port by its own name, so a settings file
+        that names it would loop just as one naming `pingbus status-line` would."""
+        self.record("sess-1", "alpha")
+        self.settings(self.project / ".claude/settings.json", " pingbus-status-line ")
+        self.settings(self.home / ".claude/settings.json", "echo user")
+        self.assertEqual(self.render()[0], f"user\n{CYAN}👥 alpha (worker){RESET}")
+
     def test_the_project_dir_falls_back_to_the_variable(self) -> None:
         self.record("sess-1", "alpha")
         self.settings(self.project / ".claude/settings.json", "echo project")
@@ -368,17 +376,21 @@ class StatusLineTest(unittest.TestCase):
                       stdin=io.BytesIO(self.payload()))
         self.assertEqual((out.getvalue(), rc), (f"inner\n{CYAN}👥 alpha (worker){RESET}\n", 0))
 
-    def test_the_kit_settings_make_it_the_status_line_refreshed_every_second(self) -> None:
-        """The interval is the project's (1 s): the kit's statusLine replaces the project's whole,
-        and ccy --supervise reads a context sidecar the daemon's status line writes on each
-        render, which goes stale in an idle session without it."""
+    def test_the_kit_settings_make_it_the_status_line_at_the_seated_interval(self) -> None:
+        """Plan 00213 Task 1.3: the kit and a ccy seated session (seat.py) refresh at one
+        interval, under the 30 s after which ccy --supervise holds the context sidecar the inner
+        daemon line writes on each render to be stale (an idle session renders only on the timer)."""
         repo = pathlib.Path(__file__).resolve().parents[3]
         kit = repo / "files/opt/claude-yolo/optional/agent-bus"
         settings = json.loads((kit / "settings.json").read_text(encoding="utf-8"))
         self.assertEqual(settings["statusLine"],
-                         {"type": "command", "command": statusline.COMMAND, "refreshInterval": 1})
-        project = json.loads((repo / ".claude/settings.json").read_text(encoding="utf-8"))
-        self.assertEqual(settings["statusLine"]["refreshInterval"], project["statusLine"]["refreshInterval"])
+                         {"type": "command", "command": statusline.KIT_COMMAND,
+                          "refreshInterval": seat.STATUS_LINE_REFRESH_S})
+        self.assertLess(seat.STATUS_LINE_REFRESH_S, 30)
+
+    def test_the_kit_and_a_seated_session_run_the_go_port(self) -> None:
+        """Plan 00213 Task 2.3: both run the Go binary by the name this module passes over."""
+        self.assertTrue(seat.STATUS_LINE_GUARD.endswith(f"; exec {statusline.KIT_COMMAND}"))
 
     # ── cheap to run: only a segment with teams imports the role reader's modules ──────
 

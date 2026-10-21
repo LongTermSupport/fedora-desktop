@@ -35,7 +35,7 @@
           - make
           - cmake
           - gcc-c++
-          - gcc # also what `go test -race` links against (cgo); without it qa-go cannot run
+          - gcc # also what `go test -race` links against (cgo); without it the Go gate cannot run
           - patch
           - zlib-ng-compat-devel # F44+: zlib-devel was dropped; zlib-ng-compat-devel provides the same headers/lib (pyenv wiki)
           - bzip2
@@ -72,7 +72,8 @@
     # versions is running different gates. Two shellchecks four minor releases
     # apart reported 141 and 173 issues on this same tree. Only tools a gate
     # runs are pinned: ruff (qa-python), semgrep (qa-patterns), shellcheck
-    # (qa-bash), golangci-lint (qa-go).
+    # (qa-bash), golangci-lint (the hooks daemon lints every Go edit with it;
+    # a Go test holds the pin equal to the one go-qa-ci installs for the Go gate).
     #
     # The Python tools come from pipx rather than dnf specifically so they CAN
     # be pinned. Fedora's ruff package tracks whatever Fedora ships, so it moves
@@ -165,7 +166,7 @@
         shellcheck_installed.rc != 0
         or ('version: ' ~ qa_versions.SHELLCHECK) not in shellcheck_installed.stdout
 
-    # golangci-lint (qa-go) is a static Go binary too, at the same pin the CCY image and CI
+    # golangci-lint (the Go edit lint) is a static Go binary too, at the same pin the CCY image and CI
     # install. The Go toolchain itself and the gcc `go test -race` links against come from
     # the play-golang.yml imported above and the dnf list at the top of this play.
     - name: Check the installed golangci-lint version

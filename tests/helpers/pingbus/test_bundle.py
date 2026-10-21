@@ -26,7 +26,7 @@ import zipfile
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
-from helpers.pingbus import bundle, cli, protocol
+from helpers.pingbus import bundle, cli, config, protocol
 
 AGENT_BUS_CLI = REPO_ROOT / "helpers" / "agent_bus" / "cli.py"
 
@@ -131,6 +131,39 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(info.date_time, bundle.ZIP_EPOCH)
             self.assertEqual(info.external_attr, bundle.ENTRY_MODE << 16)
             self.assertEqual(info.compress_type, zipfile.ZIP_STORED)
+
+    def test_the_shebang_names_the_system_interpreter(self) -> None:
+        """Plan 00213 Task 1.4: never `env python3`, which resolves through PATH (on the host a
+        pyenv shim, about 0.16 CPU-s on every start)."""
+        self.assertEqual(bundle.SHEBANG, b"#!/usr/bin/python3\n")
+
+    def test_the_ccy_image_build_holds_its_usr_bin_python3_to_the_minimum(self) -> None:
+        """The image keeps the shebang as built, so its /usr/bin/python3 must meet MIN_PYTHON;
+        the build fails otherwise (an LXC member's copy names its own, members.py)."""
+        dockerfile = (REPO_ROOT / "files" / "var" / "local" / "claude-yolo" / "Dockerfile").read_text()
+        gate = [line for line in dockerfile.splitlines() if f"sys.version_info >= {config.MIN_PYTHON}" in line]
+        self.assertEqual(len(gate), 1, gate)
+        self.assertIn("/usr/bin/python3 -I -c", gate[0])
+        self.assertIn(bundle.SHEBANG.decode().strip().removeprefix("#!"), gate[0])
+
+    def test_the_archive_runs_with_no_python3_on_path(self) -> None:
+        """Executed by its own shebang with a PATH whose only python3 fails: it still runs, so
+        PATH played no part in finding the interpreter."""
+        archive = self.tmp / "pingbus.pyz"
+        archive.write_bytes(bundle.build("pingbus", REPO_ROOT))
+        archive.chmod(0o755)
+        shim = self.tmp / "shim"
+        shim.mkdir()
+        (shim / "python3").write_text("#!/bin/sh\necho shim >&2\nexit 97\n")
+        (shim / "python3").chmod(0o755)
+        # No user settings either: a statusLine there would run its inner on the shim's PATH.
+        env = {key: value for key, value in os.environ.items()
+               if not key.startswith(("PYTHON", "PINGBUS", "CLAUDE_"))}
+        env.update(PATH=str(shim), HOME=str(self.tmp))
+        with tempfile.TemporaryDirectory() as cwd:
+            done = subprocess.run([str(archive), "status-line"], cwd=cwd, env=env, input="{}",
+                                  capture_output=True, text=True, check=False, timeout=60)
+        self.assertEqual((done.returncode, done.stdout), (0, "\n"), done.stderr)
 
     def test_main_module_calls_the_entry_point(self) -> None:
         archive = zipfile.ZipFile(io.BytesIO(bundle.build("pingbus", REPO_ROOT)))

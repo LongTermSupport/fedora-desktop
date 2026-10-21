@@ -20,9 +20,9 @@ installed are offered) and **a chooser when it is not sure** (no default, or an
 unrecognised file type ⇒ fzf, or a numbered menu when fzf is absent).
 
 The wrapper delegates rather than reimplements: `mimetype`/`xdg-mime`/`file` for
-type resolution, `xdg-mime query default` + `gio mime` for the registered app
-list, `gio launch` to start a `.desktop` app, and `mimeopen --ask-default` as the
-documented way to register a new default.
+type resolution, `gio mime` for the registered default and app list, `gio launch`
+to start a `.desktop` app, and `open --set-default` (`gio mime TYPE ID`) to
+register a new default.
 
 ## Prior Art Reviewed (Task 1.1)
 
@@ -85,8 +85,10 @@ not, terminal-aware when headless". Build the wrapper; delegate everything else.
 - [x] ✅ **Task 2.1**: Write `files/home/.local/bin/open`
   - [x] ✅ MIME resolution chain: `mimetype` → `xdg-mime` → `file`, with a
     fail-fast message naming the packages when all three are absent
-  - [x] ✅ GUI candidates: `xdg-mime query default` first, then `gio mime`,
-    resolved to `.desktop` paths across `XDG_DATA_HOME`/`XDG_DATA_DIRS`
+  - [x] ✅ GUI candidates: the default `gio mime` names first, then its other
+    registered apps, resolved to `.desktop` paths across
+    `XDG_DATA_HOME`/`XDG_DATA_DIRS` (the bash asked `xdg-mime query default` for
+    the default; the Go port asks `gio mime` alone, Plan 00192 SPEC-open B5)
   - [x] ✅ Terminal candidate table by MIME type, every entry gated on
     `command -v` so only installed handlers are ever offered
   - [x] ✅ Confidence rule: GUI default, or a known type with at least one real
@@ -115,6 +117,11 @@ not, terminal-aware when headless". Build the wrapper; delegate everything else.
 
 ### Phase 4: HOST deployment and live verification
 
+The command is now a Go binary (Plan 00192,
+[SPEC-open.md](../00192-bash-line-in-the-sand-go-for-tooling/SPEC-open.md)): its host checks
+H1-H5 are these tasks, run on the Go command, and it reads the default and registers one
+through `gio` rather than `xdg-mime` (that spec's B5, B6).
+
 - [ ] ⬜ **Task 4.1**: (HOST) Run
   `ansible-playbook playbooks/imports/optional/common/play-cli-tools.yml --tags open-command`
   (`play-open-command.yml` was merged into `play-cli-tools.yml` by Plan 00150)
@@ -142,6 +149,11 @@ from the freedesktop spec; (C) wrap `mimetype`/`xdg-mime`/`gio`, all packaged in
 Fedora.
 **Decision**: C. Every hard part is delegated to a packaged tool.
 **Date**: 2026-07-29
+**Note (Plan 00192 Go port)**: the port stays within option C but moved the default from
+`xdg-mime query default` / `xdg-mime default` to `gio mime TYPE` / `gio mime TYPE ID`
+(SPEC-open B5, B6). Both read and write the same `~/.config/mimeapps.list`, so no default
+the person set is lost. Pending the owner's confirmation at host check H3 (Task 4.2's
+`open -d <image>`).
 
 ### Decision 2: "Not sure" means ask — and an uninstalled handler is not sure
 
@@ -179,11 +191,11 @@ hang on an unanswerable prompt).
 
 ## Risks & Mitigations
 
-| Risk                                                      | Impact | Probability | Mitigation                                                                                                |
-| --------------------------------------------------------- | ------ | ----------- | --------------------------------------------------------------------------------------------------------- |
-| The name `open` masks another command                     | M      | L           | Fedora ships no `/usr/bin/open`; documented in the play header and docs. `openvt` remains callable.       |
-| `gio mime` output format changes                          | L      | L           | Only the `*.desktop` IDs are parsed, not the localised headings; the `xdg-mime` default path is separate. |
-| A handler is offered but unusable in the current terminal | L      | M           | Every handler is `command -v` gated; `--list` and `--dry-run` let the user inspect before anything runs.  |
+| Risk                                                      | Impact | Probability | Mitigation                                                                                                                                                                                                                               |
+| --------------------------------------------------------- | ------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The name `open` masks another command                     | M      | L           | Fedora ships no `/usr/bin/open`; documented in the play header and docs. `openvt` remains callable.                                                                                                                                      |
+| `gio mime` output format changes                          | L      | L           | `gio mime` runs in the C locale, so the untranslated `Default application for` line and the tab-indented `*.desktop` IDs are what is read; the default and the app list come from it alone, and the Go tests pin the format glib prints. |
+| A handler is offered but unusable in the current terminal | L      | M           | Every handler is `command -v` gated; `--list` and `--dry-run` let the user inspect before anything runs.                                                                                                                                 |
 
 ## Delivery & Milestones
 

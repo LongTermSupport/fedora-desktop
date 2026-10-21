@@ -437,6 +437,7 @@ by itself afterwards. Ctrl+Insert and Alt+Insert follow the same rules.
 | Red badge with the time: recording                                | Stops, after the [stop grace](#stop-grace)                                   | Discards the dictation |
 | Orange "…": the stop grace (microphone still open)                | Nothing (no-entry flash)                                                     | Discards the dictation |
 | Orange "…" transcribing, or orange hourglass: finishing           | Nothing (no-entry flash); press again once the icon is ready                 | Nothing                |
+| 🤖 or 💬: Claude is post-processing the transcript                | Nothing (no-entry flash); press again once the icon is ready                 | Nothing                |
 | Red record dot: a recording the panel did not start               | Stops it after the grace, once (starts nothing; press again once ready)      | Nothing                |
 
 A recording the panel did not start is one that outlived its panel: GNOME turns
@@ -454,6 +455,18 @@ seconds and the menu shows why (the server's log, `server.log`, names every refu
 Click the extension icon in the top bar to access:
 
 - **Auto-paste at cursor** and **Debug Logging** — quick toggles
+- **Lower media volume while recording** (on by default) — music or video that is playing
+  drops to a third of its own volume (70% becomes 23.3%) when a recording starts, and gets
+  exactly its old volume back when the microphone closes (or on Escape, or if the recorder
+  dies). It is the playing app's own volume (its slider under Settings, Sound, Volume
+  Levels), never the system volume. A volume you change yourself during the recording is
+  left as you set it. A new stream of the same app that the sound server started at the
+  lowered volume (the next track) is put back too; if the app's stream ended and none of it
+  is left, the panel shows an error, since the app may start its next stream at the lowered
+  volume. A player whose sound cannot be found (one that is not using the
+  PipeWire pulse server under its own process or name) is paused instead and played again.
+  Done by `wsi-lower-media-volume` over MPRIS and `pactl` (Plan 00212). If that command is
+  killed outright, the volume stays low and the panel shows an error.
 - **Copy Last Transcription**, **View Debug Log...**, **Create Article...**
 - **Post-Process Last Transcription: Corporate** and **: Natural** — run the
   [Claude post-processing](#claude-code-post-processing) of Ctrl+Insert or Alt+Insert on
@@ -748,12 +761,14 @@ a loading icon while transcribing):
 | Red badge with the elapsed time | Recording   | Listening to your voice (Insert to stop); amber when behind       |
 | Red record dot                  | Not ours    | A recording the panel did not start is running (Insert stops it)  |
 | Orange, loading icon            | Processing  | Transcribing audio                                                |
+| 🤖 or 💬 in place of the icon   | Claude      | Claude is post-processing the transcript (Ctrl+ or Alt+Insert)    |
 | Green (2 seconds)               | Success     | Transcription delivered (the only green)                          |
 | Red microphone (2 seconds)      | Error       | The panel menu says why; check the debug log                      |
 
 The ready icon is shown only when no recorder the panel started is still running, so a
 press on it always starts a recording. In Claude post-processing modes the panel
-**label** is additionally prefixed with 🤖 (corporate) or 💬 (natural).
+**label** is additionally prefixed with 🤖 (corporate, Ctrl+Insert) or 💬 (natural,
+Alt+Insert), and the same emoji replaces the icon while Claude post-processes.
 
 **Desktop notifications** also show:
 

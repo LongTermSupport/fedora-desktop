@@ -20,6 +20,7 @@ import io
 import json
 import os
 import pathlib
+import shlex
 import shutil
 import stat
 import subprocess
@@ -35,6 +36,8 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from helpers.agent_bus import teamfile
 from helpers.agent_bus_lxc import derive, members
+from helpers.pingbus import config
+from helpers.pingbus import bundle as zipapp
 
 TEAM = "team-a"
 OTHER_TEAM = "team-b"
@@ -54,6 +57,33 @@ HANDLE = "proj.devbox+box.lxc"
 CHECKOUT = "/srv/proj"
 AGENT_SCRIPTS = (members.OBSERVE_PY, members.PLACE_PY, members.REMOVE_PY, members.WRITE_ENV_PY)
 ROOT_SCRIPTS = (members.KIT_SYNC_PY, members.SOURCE_PY)
+#: The kit's pingbus as the host builds it: its first line names the host's interpreter.
+HOST_SHEBANG = b"#!/usr/bin/python3\n"
+#: The interpreter an EL9-like member is found to have (EL9_LAYOUT).
+NEW_PY = "/usr/local/bin/python3.13"
+OLD = "old"
+NEW = "new"
+#: An EL9 container as it was met on a host: /usr/bin/python3 is the 3.9 system interpreter,
+#: python3 on PATH a 3.13 in /usr/local/bin, and a packaged 3.13 also in /usr/bin.
+EL9_LAYOUT = {"usr/bin/python3.9": OLD, "usr/bin/python3": "python3.9", "usr/bin/python3.13": NEW,
+              "usr/local/bin/python3.13": NEW, "usr/local/bin/python3": "python3.13",
+              "usr/local/bin/python3.13-config": OLD}
+
+
+def make_interpreters(root: pathlib.Path, layout: dict[str, str]) -> None:
+    """`layout` made under `root`: NEW runs this test's Python, OLD stands for one below the
+    minimum and fails whatever it is asked to run, any other value is a symlink to it."""
+    for name, what in layout.items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if what == NEW:
+            path.write_text(f"#!/bin/sh\nexec {shlex.quote(sys.executable)} \"$@\"\n")
+        elif what == OLD:
+            path.write_text("#!/bin/sh\necho 'this is Python 3.9.21, below the minimum' >&2\nexit 1\n")
+        else:
+            path.symlink_to(what)
+            continue
+        path.chmod(0o755)
 
 
 def entry(**overrides: object) -> dict:
@@ -124,8 +154,15 @@ class FakeGuest:
     """One container: guest scripts run here, against a temporary directory."""
 
     def __init__(self, root: pathlib.Path, *, source: str = SOURCE, suggest: str = SUGGEST,
-                 users: Sequence[str] = ("agent",), config_ok: bool = True) -> None:
+                 users: Sequence[str] = ("agent",), config_ok: bool = True,
+                 interpreters: dict[str, str] | None = None) -> None:
         self.dir = root
+        self.container = root.name
+        # The container's own interpreters, at their paths under its root (EL9-like by default).
+        make_interpreters(root, EL9_LAYOUT if interpreters is None else interpreters)
+        #: The interpreter of every guest script run, by its path in the container.
+        self.interpreters: list[str] = []
+        self.python_searches = 0
         self.kit_parent = str(root / "share" / "agent-bus")
         self.bin_dir = str(root / "bin")
         self.kit_owner = os.getuid()
@@ -189,6 +226,15 @@ class FakeGuest:
             if self.tmux is None:
                 raise members.MemberError(f"{what} failed (exit 4): no tmux")
             return f"{self.tmux}\n".encode()
+        if list(argv[:3]) == ["sh", "-c", members.PYTHON_FIND_SH]:
+            # The real search, over this container's root: what it prints is said as the
+            # container sees it.
+            assert tuple(argv[4:]) == members.PYTHON_DIRS, argv
+            self.python_searches += 1
+            done = subprocess.run(["sh", "-c", members.PYTHON_FIND_SH, "sh",
+                                   *(f"{self.dir}{d}" for d in members.PYTHON_DIRS)],
+                                  capture_output=True, text=True, check=True)
+            return "".join(line.removeprefix(str(self.dir)) + "\n" for line in done.stdout.splitlines()).encode()
         return self._run(argv, what, stdin, ())
 
     def agent(self, user: str, home: str, cwd: str, argv: Sequence[str], what: str,
@@ -210,10 +256,13 @@ class FakeGuest:
             if not self.config_ok:
                 raise members.MemberError(f"{what}: failed (exit 78): bundle unreadable")
             return b""
-        assert list(argv[:3]) == ["python3", "-I", "-c"], argv
+        # The container's own interpreter by its path there, run from under this root: one
+        # the container lacks, or one below the minimum, fails as it would in the container.
+        assert argv[0].startswith("/") and list(argv[1:3]) == ["-I", "-c"], argv
+        self.interpreters.append(argv[0])
         if argv[3] == members.SOURCE_PY:
             return (self.source + "\n").encode()
-        run = subprocess.run([sys.executable, "-I", "-c", *argv[3:]], input=stdin,
+        run = subprocess.run([f"{self.dir}{argv[0]}", *argv[1:]], input=stdin,
                              capture_output=True, check=False)
         if run.returncode != 0:
             raise members.MemberError(f"{what}: failed (exit {run.returncode}): {run.stderr.decode().strip()}")
@@ -226,7 +275,7 @@ class Fixture(unittest.TestCase):
         self.tmp = pathlib.Path(self._tmp.name)
         kit_parent = self.tmp / "host-share"
         (kit_parent / "kit" / "plugin").mkdir(parents=True)
-        (kit_parent / "kit" / "pingbus").write_bytes(b"zipapp")
+        (kit_parent / "kit" / "pingbus").write_bytes(HOST_SHEBANG + b"zipapp")
         (kit_parent / "kit" / "pingbus").chmod(0o755)
         (kit_parent / "kit" / "agent-bus-claude").write_bytes(b"#!/bin/sh\n")
         (kit_parent / "kit" / "agent-bus-claude").chmod(0o755)
@@ -327,11 +376,19 @@ class ParseMembersTest(unittest.TestCase):
             member.handle("proj")
 
     def test_seat_and_repo_given(self) -> None:
-        (member,) = members.parse_members([entry(seat=2, repo="Owner-Proj", role="coordinator",
+        (member,) = members.parse_members([entry(seat=2, repo="Owner-Proj", role="worker",
                                                  human_text=False)])
         self.assertEqual((member.seat, member.repo, member.role, member.human_text),
-                         ("2", "owner-proj", "coordinator", False))
+                         ("2", "owner-proj", "worker", False))
         self.assertEqual(member.handle("proj"), "proj.2+box.lxc")
+
+    def test_a_coordinator_must_take_human_text(self) -> None:
+        # Plan 00211 SPEC 4.5: every message in the questions room is a human's, so a
+        # coordinator dropping human text would hear none of them.
+        with self.assertRaisesRegex(members.MemberError, "entry 1: a coordinator must take human text"):
+            members.parse_members([entry(role="coordinator", human_text=False)])
+        (member,) = members.parse_members([entry(role="coordinator", human_text=False, state="absent")])
+        self.assertEqual(member.state, "absent")
 
     def test_an_entry_still_saying_orchestrator_is_a_coordinator(self) -> None:
         (member,) = members.parse_members([entry(role="orchestrator")])
@@ -540,7 +597,7 @@ class PresentPhaseTest(Fixture):
         self.assertEqual((bundle / "token").read_text(), "tok1")
         self.assertEqual(self.env_file().read_text(), f"PINGBUS_TEAMS={TEAM}\nHOOKS_DAEMON_HOSTNAME=box\n")
         kit = pathlib.Path(self.guest.kit_parent) / "kit"
-        self.assertEqual((kit / "pingbus").read_bytes(), b"zipapp")
+        self.assertEqual((kit / "pingbus").read_bytes(), f"#!{NEW_PY}\n".encode() + b"zipapp")
         self.assertEqual(os.readlink(pathlib.Path(self.guest.bin_dir) / "pingbus"), str(kit / "pingbus"))
         suggest_cwd = [cwd for _, cwd, env in self.guest.agent_runs if env]
         self.assertEqual(suggest_cwd, [CHECKOUT])
@@ -563,7 +620,7 @@ class PresentPhaseTest(Fixture):
         self.run_phase("present", [entry()])
         changed = self.run_phase("present", [entry(role="coordinator")])
         self.assertEqual(changed, [f"{HANDLE} is now coordinator in team {TEAM}"])
-        changed = self.run_phase("present", [entry(role="coordinator", human_text=False)])
+        changed = self.run_phase("present", [entry(role="worker", human_text=False)])
         self.assertIn(f"{HANDLE} joined team {TEAM} (agent@devbox)", changed)
         member = json.loads((self.bundle_dir() / "member.json").read_text())
         self.assertIs(member["human_text"], False)
@@ -1413,11 +1470,13 @@ class MarkerLinesTest(StoppedFixture):
         self.assertTrue(all(line.startswith("CHANGED\t") for line in out.getvalue().splitlines()))
 
 
+def kit_sync_argv(guest: FakeGuest, python: str = NEW_PY) -> list[str]:
+    return [python, "-I", "-c", members.KIT_SYNC_PY, guest.kit_parent, guest.bin_dir, str(guest.kit_owner), python]
+
+
 class KitSyncTest(Fixture):
     def sync(self) -> bytes:
-        return self.guest.root(["python3", "-I", "-c", members.KIT_SYNC_PY, self.guest.kit_parent,
-                                self.guest.bin_dir, str(self.guest.kit_owner)], "kit",
-                               members.kit_tar(self.kit_parent))
+        return self.guest.root(kit_sync_argv(self.guest), "kit", members.kit_tar(self.kit_parent))
 
     def test_a_kit_directory_others_can_write_is_refused(self) -> None:
         self.sync()
@@ -1450,6 +1509,66 @@ class KitSyncTest(Fixture):
             members.kit_tar(self.kit_parent)
 
 
+class InterpreterTest(Fixture):
+    """Plan 00213 Task 1.4 regression: the kit's pingbus was built to start /usr/bin/python3,
+    which in an EL9 member is the 3.9 system interpreter, so the member step failed for every
+    LXC member (exit 78, "this container has 3.9.21"). Each member's interpreter is found in
+    the member, once, and named on the first line of its copy of pingbus."""
+
+    def test_an_el9_member_runs_everything_under_its_newest_python(self) -> None:
+        self.run_phase("present", [entry()])
+        pingbus = (pathlib.Path(self.guest.kit_parent) / "kit" / "pingbus").read_bytes()
+        self.assertEqual(pingbus, f"#!{NEW_PY}\n".encode() + b"zipapp")
+        self.assertEqual(set(self.guest.interpreters), {NEW_PY})
+        self.assertEqual(self.guest.python_searches, 1)
+        self.assertEqual(self.run_phase("present", [entry()]), [])
+
+    def test_a_member_with_only_usr_bin_python3_new_enough_keeps_it(self) -> None:
+        self.guest = FakeGuest(self.tmp / "fedora", interpreters={"usr/bin/python3.14": NEW,
+                                                                  "usr/bin/python3": "python3.14"})
+        self.run_phase("present", [entry()])
+        pingbus = (pathlib.Path(self.guest.kit_parent) / "kit" / "pingbus").read_bytes()
+        self.assertTrue(pingbus.startswith(b"#!/usr/bin/python3.14\n"), pingbus)
+
+    def test_no_python_new_enough_is_refused_before_any_change(self) -> None:
+        self.guest = FakeGuest(self.tmp / "old", interpreters={"usr/bin/python3.9": OLD, "usr/bin/python3.10": OLD,
+                                                               "usr/bin/python3": "python3.9"})
+        with self.assertRaisesRegex(members.MemberError, r"container old has no Python 3\.11 or later "
+                                    r"in /usr/local/bin or /usr/bin \(it has python3\.9, python3\.10\)"):
+            self.run_phase("present", [entry(container="old")])
+        self.assertFalse(pathlib.Path(self.guest.kit_parent).exists())
+        self.assertEqual(self.bus.calls, [])
+
+    def test_the_newest_by_number_is_chosen_and_others_are_ignored(self) -> None:
+        listing = ("/usr/local/bin/python3.9\n/usr/local/bin/python3.12-config\n/usr/bin/python3.12\n"
+                   "/usr/local/bin/python3.12\n/usr/bin/python3.11\n/usr/bin/python3.x\n")
+        self.assertEqual(members.choose_python(listing, "box"), "/usr/local/bin/python3.12")
+        self.assertEqual(members.choose_python("/usr/bin/python3.10\n/usr/bin/python3.11\n", "box"),
+                         "/usr/bin/python3.11")
+
+    def test_the_kit_gate_is_pingbus_minimum(self) -> None:
+        self.assertIn(f"sys.version_info < {config.MIN_PYTHON}", members.KIT_SYNC_PY)
+        self.assertEqual(members.MIN_PYTHON, config.MIN_PYTHON)
+
+    def test_the_real_zipapp_runs_after_its_first_line_is_rewritten(self) -> None:
+        """A longer first line moves every offset in the archive; zipimport finds its entries
+        from the end, as zipapp's own interpreter change relies on."""
+        (self.kit_parent / "kit" / "pingbus").write_bytes(zipapp.build("pingbus", REPO_ROOT))
+        self.guest.root(kit_sync_argv(self.guest), "kit", members.kit_tar(self.kit_parent))
+        pingbus = pathlib.Path(self.guest.kit_parent) / "kit" / "pingbus"
+        with pingbus.open("rb") as handle:
+            self.assertEqual(handle.readline(), f"#!{NEW_PY}\n".encode())
+        with tempfile.TemporaryDirectory() as cwd:
+            done = subprocess.run([f"{self.guest.dir}{NEW_PY}", str(pingbus), "version"], cwd=cwd,
+                                  capture_output=True, text=True, check=False, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr)
+
+    def test_a_kit_pingbus_without_a_first_line_is_refused(self) -> None:
+        (self.kit_parent / "kit" / "pingbus").write_bytes(b"zipapp")
+        with self.assertRaisesRegex(members.MemberError, "no #! line"):
+            self.guest.root(kit_sync_argv(self.guest), "kit", members.kit_tar(self.kit_parent))
+
+
 def mode_of(path: pathlib.Path) -> int:
     return stat.S_IMODE(os.lstat(path).st_mode)
 
@@ -1469,10 +1588,7 @@ class UmaskTest(Fixture):
         return [parent.parent, parent, parent / "kit", parent / "kit" / "plugin"]
 
     def sync(self) -> list[str]:
-        out = self.guest.root(["python3", "-I", "-c", members.KIT_SYNC_PY, self.guest.kit_parent,
-                               self.guest.bin_dir, str(self.guest.kit_owner)], "kit",
-                              members.kit_tar(self.kit_parent))
-        return out.decode().splitlines()
+        return self.guest.root(kit_sync_argv(self.guest), "kit", members.kit_tar(self.kit_parent)).decode().splitlines()
 
     def test_under_umask_077_the_kit_is_traversable(self) -> None:
         self.with_umask(0o077)
