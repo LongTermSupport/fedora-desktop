@@ -348,7 +348,12 @@ today; rewriting them is out of scope.
     rules (a file dated today usable, the newest file wins); port it onto `tokens`. Phase 2
     states how the launcher combines Foreground with SignalContext (the child's status from
     `Exit`), and tests that tokens reach only their consumer (`TakeSecret`). `ui.Lines`'
-    `Colour` flag is the opposite sense of `ui.Gum`'s `Plain`.
+    `Colour` flag is the opposite sense of `ui.Gum`'s `Plain`. From the round-2 review
+    (`subagent-reports/261021-launcher-phase1-review-2-opus.md`), before phase 2 uses
+    `ui.Lines`: each `Lines` leaks its stdin reader goroutine, which after a cancelled question
+    would take the first line typed to a later `Foreground` child (give `Lines` a `Close`, or
+    exit the flow after a cancel); the send at `lines.go:187` sits outside the `select`, so a
+    copied `Lines` can hang (move it in, or use `Lines` by pointer only).
   - Phase 2 (the standalone-mode cut-overs) follows.
 
 ### Phase 5: Review
