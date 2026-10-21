@@ -199,7 +199,8 @@ its first caller.
 
 - [ ] ⬜ **Task 3.1**: The N3 spec from area B. It says that net/http may resend a dropped `/sync`
   (a GET retried on some connection errors), and that this is safe because a sync with a since
-  token is idempotent; and it carries 00194's 2.0e and 2.0g (Requirements carried).
+  token is idempotent within one database, and across a restore because no answer is persisted
+  before B 2.6 step 08's epoch check (H-C14); and it carries 00194's 2.0e and 2.0g (Requirements carried).
 - [ ] ⬜ **Task 3.2**: The `teamchat` binary: CLI, member state, the keeper (`run`) and the link, locks, sync,
   delivery, hooks, status line, plugin and skill (B 2.1-2.12).
 - [ ] ⬜ **Task 3.3**: LXC members: guest operations (B 2.13), LXC apply from the host (C 3.9),
