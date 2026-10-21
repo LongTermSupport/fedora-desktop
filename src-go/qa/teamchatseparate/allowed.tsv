@@ -1,0 +1,9 @@
+# The v1 references a v2 file may hold outside the two named homes, src-go/internal/teamchat/v1names
+# and src-go/internal/teamchat/migrate/v1 (Plan 00209, DESIGN-v2-D-migration.md section 4.1). One
+# row per reference, tab separated; # starts a comment line.
+#
+#   path      the v2 file, relative to the repository root
+#   literal   text on a line of that file which covers the v1 name found there
+#   reason    why the reference cannot live in a named home
+#
+# A row that covers no finding fails the gate teamchat-keeps-off-v1, so this list cannot go stale.

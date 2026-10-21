@@ -80,6 +80,11 @@ also	@listed:bash-limits.allowlist	bash-limits	-
 # The no-kill gate judges the container-watch watchdog and the two panel files that show it, and
 # runs whole when its own script or Go package changes (so it is not also picked as a suite).
 also	scripts/qa-nokill-containerwatch.bash,src-go/qa/nokill/*,src-go/qa/cmd/qa-nokill-containerwatch/*,helpers/containerwatch/*,extensions/fedora-desktop@fedora-desktop/containerReport.js,extensions/fedora-desktop@fedora-desktop/sections/containers.js,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	nokill-containerwatch	-
+# The teamchat-keeps-off-v1 gate (Plan 00209 D 4.1) runs whole when a file v2 owns changes or is
+# deleted, or its own wrapper, Go package or command; its name list and allowlist are its own data
+# and count as covered.
+also	src-go/qa/teamchatseparate/v1-names.txt,src-go/qa/teamchatseparate/allowed.tsv	teamchat-keeps-off-v1	covered
+also	src-go/internal/teamchat/*,src-go/cmd/teamchat*,files/*teamchat*,tasks/*teamchat*,playbooks/imports/play-teamchat*.yml,scripts/qa-teamchat-separate.bash,src-go/qa/teamchatseparate/*,src-go/qa/cmd/qa-teamchat-separate/*,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	teamchat-keeps-off-v1	-
 also	extensions/*.js,extensions/*.mjs	eslint	tree:shell,rel:extensions
 # The pause gate judges the YAML under playbooks/ and tasks/ and runs whole when one changes, or
 # its own script, Go package or shared discovery. Its fixtures are read only by the Go tests of
@@ -175,4 +180,4 @@ first	@sh	bash-syntax,shellcheck,shell-directives,semgrep,ready-wait-files	cover
 post	any:@sh	bash-limits	-
 post	any:@sh,any:@py	toolchain	-
 post	any:@sh,any:@py	hidden-bindings	-
-perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go-qa qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-ansible-pause qa-gh-scopes qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings
+perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go-qa qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-teamchat-separate qa-ansible-pause qa-gh-scopes qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings
