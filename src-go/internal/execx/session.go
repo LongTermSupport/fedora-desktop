@@ -45,8 +45,8 @@ func (o OS) session(ctx context.Context, c Cmd, pipes *sessionPipes) (Result, er
 	cmd.Cancel = func() error { return killGroup(cmd.Process.Pid) }
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Dir = c.Dir
-	if len(c.Env) > 0 || len(c.Unset) > 0 {
-		cmd.Env = ChildEnv(os.Environ(), c.Env, c.Unset)
+	if env, ok := c.childEnv(); ok {
+		cmd.Env = env
 	}
 	cmd.ExtraFiles = c.ExtraFiles
 	var out, errOut bytes.Buffer

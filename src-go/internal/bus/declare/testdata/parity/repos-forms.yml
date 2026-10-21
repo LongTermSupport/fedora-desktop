@@ -1,0 +1,15 @@
+agent_bus_teams:
+  - team: alpha
+    port: 6167
+    repos: example-org/proj
+    path_prefixes: ["x"]
+  - team: beta
+    port: 6168
+    repos: {"repo": "example-org/proj"}
+  - team: gamma
+    port: 6169
+    repos: [{"branches": []}, "example-org/proj", {"repo": "example-org/proj"}]
+  - team: delta
+    port: 6170
+    repos: []
+    org: ""

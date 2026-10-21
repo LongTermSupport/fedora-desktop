@@ -13,9 +13,9 @@ import (
 )
 
 // parallel is how many agent-bus calls a pass runs at once unless Parallel says otherwise. Each
-// call is mostly Python starting (about half a second, more on a loaded host), so calls run
+// root call is mostly Python starting (about half a second, more on a loaded host), so calls run
 // together cost about one call's time; the bound keeps a busy host from being handed every
-// interpreter at once.
+// interpreter at once. The seat reads are in-process and take a slot each, as briefly.
 const parallel = 8
 
 // reads is everything a pass asks agent-bus, asked before the rows are built.
@@ -26,7 +26,7 @@ type reads struct {
 	rosters map[string]*rosterRead
 }
 
-// seatRead is agent-bus seat list in one checkout.
+// seatRead is what agent-bus seat list answers in one checkout, read in-process.
 type seatRead struct {
 	seats      []agentbus.Seat
 	unreadable bool
@@ -71,7 +71,7 @@ func (c *Collector) read(ctx context.Context, s *Snapshot) reads {
 	return r
 }
 
-// readSeats starts a seat list in each checkout of s with a seat directory, its read kept in
+// readSeats reads the seats of each checkout of s with a seat directory, its read kept in
 // into under the folder's name; a folder already asked under another name (a symlink, a bind mount) shares
 // that read.
 func (c *Collector) readSeats(ctx context.Context, p *pool, s *Snapshot, into map[string]*seatRead) {

@@ -1,5 +1,5 @@
 // Package agentbus runs the agent-bus wrapper and its installer and parses the tab-separated
-// marker lines they print (SEAT, MEMBER, HUMAN, DEVICE, BACKUP). Lines of any other kind
+// marker lines they print (MEMBER, HUMAN, DEVICE, BACKUP). Lines of any other kind
 // (CHANGED, notes) are not this package's and are skipped; a known marker with the wrong
 // shape is an error, so a changed wrapper fails loudly instead of yielding half a row.
 package agentbus
@@ -13,12 +13,11 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/marker"
 )
 
-// Seat is one SEAT line of "agent-bus seat list".
+// Seat is one seat of a checkout, as "agent-bus seat list" named it (SeatList reads it in-process).
 type Seat struct {
 	Team   string
 	Seat   string
 	Held   bool
-	Self   bool // held by the checkout the command ran in
 	Handle string
 }
 
@@ -134,34 +133,6 @@ func ParseChoices(out string) (Choices, error) {
 		return Choices{}, errors.New("agent-bus seat choose gave no usable rows")
 	}
 	return c, nil
-}
-
-// ParseSeats reads the SEAT lines of out.
-func ParseSeats(out string) ([]Seat, error) {
-	rows, err := marker.Fields(out, "SEAT", 6)
-	if err != nil {
-		return nil, err
-	}
-	seats := make([]Seat, 0, len(rows))
-	for _, f := range rows {
-		s := Seat{Team: f[1], Seat: f[2], Handle: f[5]}
-		switch f[3] {
-		case "held":
-			s.Held = true
-		case "free":
-		default:
-			return nil, fmt.Errorf("SEAT %s@%s: state %q is neither held nor free", f[2], f[1], f[3])
-		}
-		switch f[4] {
-		case "self":
-			s.Self = true
-		case "-":
-		default:
-			return nil, fmt.Errorf("SEAT %s@%s: owner %q is neither self nor -", f[2], f[1], f[4])
-		}
-		seats = append(seats, s)
-	}
-	return seats, nil
 }
 
 // ParseRoster reads the HUMAN and MEMBER lines of out.

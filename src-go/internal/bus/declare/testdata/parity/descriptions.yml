@@ -1,0 +1,43 @@
+agent_bus_teams:
+  - team: alpha
+    port: 6167
+    description: Plain words
+  - team: beta
+    port: 6168
+    description: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  - team: gamma
+    port: 6169
+    description: " padded "
+  - team: delta
+    port: 6170
+    description: "tab\there"
+  - team: eps
+    port: 6171
+    description: !vault |
+      $ANSIBLE_VAULT;1.1;AES256
+      30303030303030303030303030303030
+  - team: zeta
+    port: 6172
+    description: -
+  - team: eta
+    port: 6173
+    description: "-"
+  - team: theta
+    port: 6174
+    description: "zero\u200bwidth"
+  - team: iota
+    port: 6175
+    description: 42
+  - team: kappa
+    port: 6176
+    description: true
+  - team: lambda
+    port: 6177
+    description: "\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9"
+  - team: mu
+    port: 6178
+    description:
+      - a
+  - team: nu
+    port: 6179
+    description:
