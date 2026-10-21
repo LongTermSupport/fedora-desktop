@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.13.13 — container 2.78.11
+
+Follows 3.99.13.12. The launcher only; the image is unchanged, so no rebuild.
+
+- **Two paths the launcher read from the host can be pointed elsewhere, for the launcher's
+  differential harness** (Plan 00191, `src-go/internal/ccylaunch/difftest`):
+  `CCY_DOCKERFILE_DIR` (the build context, default `/opt/claude-yolo`; the startup text
+  handed to Claude is now read from it too, where the play already puts it) and
+  `CCY_GPU_DEVICE_DIR` (default `/dev/dri`). Unset, nothing changes.
+
 ## 3.99.13.12 — container 2.78.11
 
 Follows 3.99.13.11. The launcher's library only; the image is unchanged, so no rebuild.

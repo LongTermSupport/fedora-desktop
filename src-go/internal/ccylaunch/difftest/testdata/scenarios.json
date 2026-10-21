@@ -1,0 +1,45 @@
+{
+  "v": 1,
+  "now": "2030-01-15T12:00:00Z",
+  "secrets": ["difftest-gh-token"],
+  "worlds": {
+    "bare": {"about": "nothing installed, nothing logged in"},
+    "token": {
+      "about": "one named token, valid until mid 2030",
+      "files": [
+        {"path": "home/.claude-tokens/ccy/tokens/work.2030-06-01.token", "mode": "0600",
+         "content": "{token:work}\n"}
+      ]
+    },
+    "host": {
+      "about": "a working rootless podman host, SELinux off, gh logged in",
+      "rules": [
+        {"tool": "getenforce", "args": [], "stdout": "Disabled\n"},
+        {"tool": "podman", "args": ["info", "--format", "{{.Host.Security.SELinuxEnabled}}"], "stdout": "false\n"},
+        {"tool": "podman", "args": ["info", "--format", "{{.Host.Security.Rootless}}"], "stdout": "true\n"},
+        {"tool": "gh", "args": ["auth", "token"], "stdout": "difftest-gh-token\n"},
+        {"tool": "podman", "args": ["run", "--rm", "-e", "CLAUDE_CODE_OAUTH_TOKEN", "--entrypoint", "claude"], "stdout": "2.0.0 (Claude Code)\n"},
+        {"tool": "podman", "args": ["image", "inspect", "claude-yolo:latest", "--format", "{{index .Config.Labels \"claude-yolo-version\"}}"], "stdout": "{image_version}\n"},
+        {"tool": "podman", "args": ["image", "inspect", "claude-yolo:latest", "--format", "{{index .Config.Labels \"claude-yolo-dockerfile-hash\"}}"], "stdout": "{image_hash}\n"},
+        {"tool": "podman", "args": ["image", "inspect", "claude-yolo:latest"], "stdout": "[]\n"},
+        {"tool": "podman", "args": ["run", "--rm", "--entrypoint", "claude", "claude-yolo:latest", "--version"], "stdout": "2.0.0 (Claude Code)\n"},
+        {"tool": "curl", "args": ["-fsSL", "https://registry.npmjs.org/@anthropic-ai/claude-code/latest"], "stdout": "{\"name\":\"@anthropic-ai/claude-code\",\"version\":\"2.0.0\"}\n"},
+        {"tool": "podman", "args": ["network", "ls", "--format", "{{.Name}}"], "stdout": "podman\n"},
+        {"tool": "podman", "args": ["run", "--rm", "--network", "podman", "alpine", "wget"], "stdout": "<html></html>\n"},
+        {"tool": "ccy-teams", "args": ["internal", "claim-container-name", "difftest-project", "yolo"], "stdout": "difftest-project_yolo\n"},
+        {"tool": "timedatectl", "args": ["show", "-p", "Timezone", "--value"], "stdout": "Europe/London\n"},
+        {"tool": "podman", "args": ["run", "-it", "--rm"]},
+        {"tool": "hostname", "args": [], "stdout": "difftest-host\n"},
+        {"tool": "uname", "args": ["-n"], "stdout": "difftest-host\n"},
+        {"tool": "id", "args": ["-u"], "stdout": "1000\n"},
+        {"tool": "id", "args": ["-un"], "stdout": "tester\n"},
+        {"tool": "id", "args": ["-g"], "stdout": "1000\n"}
+      ]
+    }
+  },
+  "scenarios": [
+    {"name": "version", "area": "standalone", "about": "--version outside a repository", "worlds": ["bare"], "args": ["--version"], "cwd": "outside"},
+    {"name": "version-short", "area": "standalone", "about": "-v outside a repository", "worlds": ["bare"], "args": ["-v"], "cwd": "outside"},
+    {"name": "launch-plain", "area": "launch", "about": "a plain launch", "worlds": ["host", "token"], "args": ["--token", "work"]}
+  ]
+}
