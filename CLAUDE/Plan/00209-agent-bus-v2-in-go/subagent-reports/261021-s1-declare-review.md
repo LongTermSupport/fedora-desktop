@@ -102,3 +102,62 @@ claims of V42 are proven for systemctl, declare.py and the user's agent-bus, and
 mutation-checked.
 
 VERDICT: FIX-FIRST
+
+## Round 2
+
+Scope: commit 267069c3 (the round 1 fixes), then `git diff f460abb7...HEAD -- src-go scripts`
+hunted again. No code changed: each mutation was made in the worktree, run, and restored,
+and `git status` was clean afterwards.
+
+### Runs
+
+- `cd src-go && go test -race ./internal/bus/... ./internal/declare/... ./internal/agentbus/... ./internal/teams/...`:
+  all 30 packages `ok`, exit 0.
+- `bash scripts/test-ccy-teams-command.bash`: `passed: 383  failed: 0`, exit 0.
+
+### Mutations repeated against the fixes
+
+| Mutation                                                                    | Result                                                                                                    |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| drop `h.Declare.Edited = c.ForgetTeams` from `board.Wired` (collect.go:91)  | killed: `TestAnEditOfTheHostVarsDuringTheStartUpIsReadAgain`                                              |
+| a stray `p.Board.Tmux.List(ctx)` before `offerPathLimits` (picker.go)       | killed: `TestAnOpenWithNothingToOfferAndARedrawStartFewTeamReads` (`tmux:2`, want `tmux:1`)               |
+| drop `helpers/agent_bus_lxc` from `verdictTrees` (verdict.go:26)            | killed: `TestEachInputOfTheVerdictChangedRunsItAgain/an_agent_bus_lxc_file's_size` (status ran 1, want 2) |
+| `teams.Wire` builds `board.New(h)` instead of `board.Wired(h)` (app.go:106) | survived (finding 1)                                                                                      |
+
+Round 1's findings 1-3 are closed: the wiring now has one home and a test that is red without
+it, the open's whole `Spawned()` map is pinned (so a stray process of a scripted kind fails it;
+an unscripted kind already failed the fake), and a change under `helpers/agent_bus_lxc` makes
+the verdict run again. `treeKey` skips `__pycache__`, so byte-compiling that tree does not
+invalidate. Finding 4 is closed by the V41 sentence.
+
+### Re-hunt
+
+- The hold (`HoldTeams` .. first `Collect`) is reached only from `pickerSession`. Every edit
+  the start-up can make is followed by `ApplyTeams` (`offerPathLimits`, `offerDescriptions`),
+  whose deferred `changed()` drops the shared read, or by leaving (`offerCreate` returns
+  `flow.Leave(p.Create.Run(...))`; a failed `DropLimit`/`Describe` leaves). `offerUpdate`'s
+  `Apply` pre-check uses the shared read, as v1's pre-check used the read made just before;
+  its post-check is fresh, since `runPlay` now calls `o.changed()` (round 1 mutation-checked).
+- The shared `teamsRead` is only read by `collectTeams`: `addDeclared` and the status loop copy
+  values into the snapshot and never write the shared slices, so one pass cannot corrupt the
+  next.
+- Non-picker commands (`apply`, `--list`, `remove`) never hold, so they read every time, as v1.
+- `scripts/test-ccy-teams-command.bash`: the removed lines are the fake `seat list` and its
+  `$STATE/seats` files, replaced by real seat folders the Go reader reads; no assertion was
+  removed.
+
+### Findings
+
+1. **note: `teams.Wire`'s use of `board.Wired` is not pinned.** Reverting app.go:106 to
+   `board.New(h)` fails no test: the board test calls `Wired` itself and the picker rig calls
+   `Wired` rather than `teams.Wire`. It is not observable today, because every start-up edit is
+   followed by `ApplyTeams` (its deferred `changed()`) or by leaving, which the builder's
+   commit message also says. It becomes observable only if a start-up offer ever edits without
+   applying. Wanted fix (optional): one `app_test` assertion that, after `Wire(w.Host)`, a
+   declare edit drops the board's held read (or build the picker rig with `teams.Wire`).
+
+No blocker or should-fix remains. No behaviour drift from v1 was found outside B-S1-B-S6, no
+test was weakened, and the V42 process counts are now proven over every process the open and
+the redraw start.
+
+VERDICT: MERGE
