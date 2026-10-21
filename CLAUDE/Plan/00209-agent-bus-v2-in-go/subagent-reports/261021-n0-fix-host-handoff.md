@@ -1,5 +1,8 @@
 # Plan 00209 N0 fix pass, theme host: handoff
 
+The second host fixer took this up and finished every item below; the disposition of every finding
+is `261021-n0-fix-host.md`. This file is kept as the record of the decisions the first fixer took.
+
 Worktree `/workspace/untracked/worktrees/bus-v2-n0-f3-host`, branch `feat/bus-v2-n0-f3-host`, tip
 503c05bf. The binding rules are `/workspace/untracked/scratch/n0-fixer-common.txt` and
 `n0-designer-common.txt`. Owned: `DESIGN-v2-C-host.md` (all), B 2.13 (LXC guest operations), and the
