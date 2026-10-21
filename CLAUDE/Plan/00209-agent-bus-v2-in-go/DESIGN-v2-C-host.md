@@ -1125,7 +1125,8 @@ What changed from v1's keys, and why:
   and a new team, never a rename. `name` is the display name (A §2.2 grammar: 1-64 Unicode scalar
   values, no control, format or newline characters; default: the id). It is display only, never
   an identifier and never compared, and changing it is a rename (C44, 3.5.2). A migrated v1 team
-  keeps its v1 name as its id.
+  keeps its v1 name as its id when the name fits the grammar, and otherwise takes the short id
+  declared with its move; its `name` starts as the v1 name (D 3.5, 5.10).
 - `coordinator` is a team-level key, the one place the role is declared (C30, DC6). LXC entries
   lose `role`. A ccy member's role used to live only in the registry, set by `set-role`, and an LXC
   member's role in its entry: two truths that a live change and the next apply could fight over.
