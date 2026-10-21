@@ -487,3 +487,96 @@ func (p *parser) hex4() (rune, error) {
 	p.pos += 6
 	return rune(n), nil
 }
+
+// fields reads one object's members by key and keeps the first rule a member broke, so a
+// decoder reads every field in a straight line and asks once whether all were well formed. A
+// member of the wrong kind breaks its rule; null is never taken for absent.
+type fields struct {
+	obj  Value
+	rule string
+}
+
+func readFields(v Value, rule string) *fields {
+	f := &fields{obj: v}
+	if v.kind != KindObject {
+		f.rule = rule
+	}
+	return f
+}
+
+func (f *fields) fail(rule string) {
+	if f.rule == "" {
+		f.rule = rule
+	}
+}
+
+func (f *fields) has(key string) bool {
+	_, ok := f.obj.Get(key)
+	return ok
+}
+
+func (f *fields) get(key string, kind Kind, required bool, rule string) (Value, bool) {
+	v, ok := f.obj.Get(key)
+	if !ok {
+		if required {
+			f.fail(rule)
+		}
+		return Value{}, false
+	}
+	if v.kind != kind {
+		f.fail(rule)
+		return Value{}, false
+	}
+	return v, true
+}
+
+func (f *fields) integer(key string, required bool, def int64, rule string) int64 {
+	if v, ok := f.get(key, KindInt, required, rule); ok {
+		return v.i
+	}
+	return def
+}
+
+func (f *fields) str(key string, required bool, rule string) string {
+	if v, ok := f.get(key, KindString, required, rule); ok {
+		return v.s
+	}
+	return ""
+}
+
+func (f *fields) boolean(key string, def bool, rule string) bool {
+	if v, ok := f.get(key, KindBool, false, rule); ok {
+		return v.b
+	}
+	return def
+}
+
+func (f *fields) object(key string, required bool, rule string) (Value, bool) {
+	return f.get(key, KindObject, required, rule)
+}
+
+// need is a required member of kind: null when it is missing or of another kind, which breaks
+// rule here and again in any reader of the null.
+func (f *fields) need(key string, kind Kind, rule string) Value {
+	if v, ok := f.get(key, kind, true, rule); ok {
+		return v
+	}
+	return Null()
+}
+
+// strs is an array of strings; nil when absent.
+func (f *fields) strs(key string, required bool, rule string) []string {
+	v, ok := f.get(key, KindArray, required, rule)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(v.items))
+	for _, item := range v.items {
+		if item.kind != KindString {
+			f.fail(rule)
+			return nil
+		}
+		out = append(out, item.s)
+	}
+	return out
+}

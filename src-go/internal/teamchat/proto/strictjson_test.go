@@ -204,6 +204,63 @@ func TestBuilders(t *testing.T) {
 	}
 }
 
+func mustParse(t *testing.T, s string) Value {
+	t.Helper()
+	v, err := Parse([]byte(s))
+	if err != nil {
+		t.Fatalf("Parse(%q): %v", s, err)
+	}
+	return v
+}
+
+func TestFieldsReadsTypedMembers(t *testing.T) {
+	f := readFields(mustParse(t, `{"i":7,"s":"x","b":false,"o":{},"l":["a","b"]}`), "shape")
+	if f.integer("i", true, 0, "i") != 7 || f.integer("absent", false, 3, "i") != 3 {
+		t.Fatal("integer wrong")
+	}
+	if f.str("s", true, "s") != "x" || f.str("absent", false, "s") != "" {
+		t.Fatal("str wrong")
+	}
+	if f.boolean("b", true, "b") || !f.boolean("absent", true, "b") {
+		t.Fatal("boolean wrong")
+	}
+	if _, ok := f.object("o", true, "o"); !ok {
+		t.Fatal("object missing")
+	}
+	if got := f.strs("l", true, "l"); len(got) != 2 || got[1] != "b" {
+		t.Fatalf("strs = %v", got)
+	}
+	if got := f.strs("absent", false, "l"); got != nil {
+		t.Fatalf("absent strs = %v", got)
+	}
+	if !f.has("i") || f.has("absent") || f.rule != "" {
+		t.Fatalf("has wrong or rule %q set", f.rule)
+	}
+}
+
+func TestFieldsKeepsTheFirstBrokenRule(t *testing.T) {
+	cases := map[string]func(f *fields){
+		"i": func(f *fields) { f.integer("s", false, 0, "i") },
+		"s": func(f *fields) { f.str("i", false, "s") },
+		"b": func(f *fields) { f.boolean("i", false, "b") },
+		"o": func(f *fields) { f.object("i", false, "o") },
+		"l": func(f *fields) { f.strs("i", false, "l") },
+		"e": func(f *fields) { f.strs("ln", false, "e") },
+		"r": func(f *fields) { f.integer("absent", true, 0, "r") },
+	}
+	for want, read := range cases {
+		f := readFields(mustParse(t, `{"i":1,"s":"x","ln":[1]}`), "shape")
+		read(f)
+		f.integer("absent", true, 0, "later")
+		if f.rule != want {
+			t.Errorf("rule = %q, want %q", f.rule, want)
+		}
+	}
+	if f := readFields(Int(1), "shape"); f.rule != "shape" {
+		t.Fatalf("a non-object gave rule %q", f.rule)
+	}
+}
+
 func FuzzParse(f *testing.F) {
 	for _, seed := range []string{`{}`, `{"a":[1,"😀",null]}`, `"\ud800"`, `1.5`, `{"a":1,"a":1}`} {
 		f.Add([]byte(seed))
