@@ -5,37 +5,22 @@ homeserver instances, the host programs and their privilege, the install lock, a
 seats and the bundle a seat receives, the host_vars declarations, the play, LXC member apply,
 Element profiles, health, backups and restore, and what ccy-teams reads.
 
-Placeholders, until area D's names merge:
+Names (area D, merged). Every name this area used as a placeholder is now area D's final name
+(`DESIGN-v2-D-migration.md` section 3.2, and the name table of the N0 integration), written out
+in full below. The host program is `teamchat-admin` (root, control-user and owner modes; section
+3.3), the member program `teamchat`, the control user `teamchat-ctl`, the homeserver unit
+`teamchat-server@<team>.service`, the host-wide timers `teamchat-health` and `teamchat-backup`, and
+the host_vars keys `teamchat_*` (section 3.8). The only placeholders left are values:
 
-| Placeholder       | What it names                                                                                           |
-| ----------------- | ------------------------------------------------------------------------------------------------------- |
-| `<v2-host>`       | the one host program (root, control-user and owner modes; section 3.3)                                  |
-| `<v2-bin>`        | the member program (area B), also installed on the host and copied into LXC                             |
-| `<v2-ctl>`        | the system user that holds every team's admin credential (not the homeservers)                          |
-| `<v2-hs@>`        | the per-team homeserver unit template (`<v2-hs@><team>.service`)                                        |
-| `<v2-health>`     | the host-wide health timer and service                                                                  |
-| `<v2-backup>`     | the host-wide backup timer and service                                                                  |
-| `<v2-state>`      | root-owned state root (control state, homeserver state, root records)                                   |
-| `<v2-applied>`    | the owner-group-readable records root writes for the owner (stamps, status)                             |
-| `<v2-run>`        | the root runtime directory holding the host locks                                                       |
-| `<v2-seats>`      | the owner's seat pool and session seat directories                                                      |
-| `<v2-kit>`        | the versioned member kit root on the host and in an LXC guest                                           |
-| `<v2-if>`         | the v2 bus address interface (a NetworkManager dummy connection)                                        |
-| `<v2>_teams` etc. | the host_vars keys (section 3.8)                                                                        |
-| `<port>`          | a team's homeserver port, from a v2 range area D assigns                                                |
-| `<v2-lib>`        | the root-owned directory of v2's programs (`<v2-host>` and Tuwunel, versioned)                          |
-| `<v2-share>`      | root-owned read-only data (the resolver stub)                                                           |
-| `<v2-etc>`        | root-owned configuration the play writes (the owner group record)                                       |
-| `<v2-hs>`         | the prefix of each homeserver's dynamic user name, at most 6 characters, so `<v2-hs>-<team>` fits in 31 |
-| `<v2-hs-state>`   | the homeserver state directory name under `/var/lib` (systemd `StateDirectory=`)                        |
-| `<v2-consent>`    | the owner's recorded consent to an Element profile beside host-kind members                             |
-| `<v2-seat-mount>` | where a ccy session sees its own seats (read-write)                                                     |
-| `<v2-ctl-mount>`  | where a ccy session sees its desired membership (read-only)                                             |
-| `<v2>`            | the short v2 name used in file and key names (`play-<v2>.yml`, `<v2>_teams`, `~/.config/<v2>/`)         |
-| `<owner group>`   | the desktop user's primary group, recorded by the play in `<v2-etc>/owner-group`                        |
-| `<iface>`         | the interface that carries a team's `listen` address (often `<v2-if>`)                                  |
-| `<bus_ip>`        | the v2 bus address, `<v2>_address`                                                                      |
-| `<staging port>`  | a free loopback port chosen by `restore` for its staging instance                                       |
+| Placeholder      | What it names                                                                             |
+| ---------------- | ----------------------------------------------------------------------------------------- |
+| `<team>`         | the team id (A §2.2 grammar, at most 22 characters), fixed at creation                    |
+| `<server_name>`  | the team's Matrix server name, `<team>.teamchat.internal` by default                      |
+| `<port>`         | a team's homeserver port, declared per team in `teamchat_teams[].port`; there is no range |
+| `<owner group>`  | the desktop user's primary group, recorded by the play in `/etc/teamchat/owner-group`     |
+| `<iface>`        | the interface that carries a team's `listen` address (often `teamchat0`)                  |
+| `<bus_ip>`       | the v2 bus address, the value of `teamchat_address`                                       |
+| `<staging port>` | a free loopback port chosen by `restore` for its staging instance                         |
 
 Source keys used in the "from" column and in the text: `R<n>` = `DESIGN.md` section 2; `H 7.nn` =
 `RESEARCH-host.md` hard-won behaviours; `LR` = `RESEARCH-lxc-robustness.md`; `GC` =
@@ -65,7 +50,8 @@ fixes in section 6.
 | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
 | C1  | One private homeserver per team: federation off, registration closed, encryption off, room creation by the team's admin account only, every room invite-only or restricted as area A's layout says.                                                             | R1                     |
 | C2  | A team's homeserver listens on loopback and on each declared `listen` address only, on one port. Inbound traffic is admitted only from `allow_from` CIDRs, by both the firewall and the unit's IP filter. The live LXC bridge subnet is admitted automatically. | R3, H 7.21, H 7.36     |
-| C3  | A team's `server_name` never changes once the team exists; a change is refused by name before anything is touched.                                                                                                                                              | R4, H 7.08             |
+| C3  | A team's id and its `server_name` never change once the team exists; a change is refused by name before anything is touched. A changed id is a removal and a new team.                                                                                          | R4, H 7.08             |
+| C44 | A team can be renamed: its display name and description change, and nothing else does.                                                                                                                                                                          | 00201 Task 2.16; new   |
 | C4  | Each homeserver runs under its own kernel identity: no homeserver can read another team's files, its own team's admin credential, or any host secret it does not need.                                                                                          | R5 (strengthened), new |
 | C5  | Hardened units: no resolver, no D-Bus, no home, private devices and PIDs, strict system protection, `Type=notify` with a watchdog, `Restart=always` with no start limit, dependency on each listen interface.                                                   | R5, H 7.22, H 7.23     |
 | C6  | The homeserver restarts only when its config, its binary or its unit text changes; a converged apply restarts nothing and prints nothing.                                                                                                                       | R2, H 7.12             |
@@ -76,7 +62,7 @@ fixes in section 6.
 | ID  | Requirement                                                                                                                                                                                                 | From                        |
 | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
 | C8  | Every host tool is Go, built from this repository, installed root-owned and not writable by the owner or by any service user. No bash wrapper, no Python, no zipapp on the host for v2.                     | BUILD-BRIEF, CLAUDE.md, R49 |
-| C9  | Root does only what needs root: system files, units, firewall, interfaces, service users, LXC entry, reading root-only state. Homeserver calls run as `<v2-ctl>`, never as root.                            | DESIGN 6.1                  |
+| C9  | Root does only what needs root: system files, units, firewall, interfaces, service users, LXC entry, reading root-only state. Homeserver calls run as `teamchat-ctl`, never as root.                        | DESIGN 6.1                  |
 | C10 | Every change to a team's accounts, roles or humans needs the owner's password at the time (password sudo). A caller that used sudo drops the cached credential before it ends, and a failing drop stops it. | R13, DESIGN 6.2, H 7.28     |
 | C11 | The board's open and redraw run nothing as root and nothing through sudo: they read files only. (Reads a human asks for on purpose, `human devices` and `backups`, stay password-sudo verbs.)               | R35, DESIGN 12 (B1), new    |
 | C12 | One set of host locks serialises every mutating host operation: the play, the timers and ccy-teams' direct calls all take them. A wait is bounded and a refusal names the holder.                           | I-B16, DESIGN 7, R34        |
@@ -84,17 +70,17 @@ fixes in section 6.
 
 ### 2.3 Admin operations
 
-| ID  | Requirement                                                                                                                                                                                                                                                                       | From                     |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
-| C14 | Bootstrap asserts exactly one server admin on every apply and survives a kill at any point: the admin password is stored before the account is registered and deleted only after the token is stored.                                                                             | R40, H 7.02              |
-| C15 | Rooms, their state and their power levels are converged to area A's layout on every apply and after every roster change: compare first, write only what differs, kick before invite, and remove a human from every room before any power-level rewrite.                           | S11 5.1, R40             |
-| C16 | A room created but not recorded (a crash between create and record) is adopted, never duplicated.                                                                                                                                                                                 | S11 5.1, M35             |
-| C17 | At most one coordinator per team at every instant: every role change demotes before it promotes, across every member kind.                                                                                                                                                        | R10, LR 1.3              |
-| C18 | Handles follow area A's grammar (v1's is `<repo>.<seat>+<host>.<type>`, P5), never the machine hostname. Seat numbers per prefix never go down, a restore included. A parked handle returns with a new token and its account. A retired handle never returns, a restore included. | R9, P5                   |
-| C19 | Park revokes (password reset with device logout, the one revoke the homeserver has) before it marks. Retire kicks from every room, deactivates, and records the handle as never to return.                                                                                        | R11, H 7.10, M29         |
-| C20 | An admin operation that dies part-way is completed by the next run of the same operation (roll forward from a recorded intent), never left half-done and never silently re-minting a credential.                                                                                  | new (fixes v1 undo gaps) |
-| C21 | A lost bundle is recovered by one explicit operation that revokes the lost token and issues a new one for the same handle.                                                                                                                                                        | LR 6 item 8, new         |
-| C22 | Humans are declared; a human's password is printed once to the owner and never stored; a human's device count and newest sign-in are visible on the board.                                                                                                                        | R11, R35, DESIGN B2      |
+| ID  | Requirement                                                                                                                                                                                                                                                                                              | From                     |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| C14 | Bootstrap asserts exactly one server admin on every apply and survives a kill at any point: the admin password is stored before the account is registered and deleted only after the token is stored.                                                                                                    | R40, H 7.02              |
+| C15 | Rooms, their state and their power levels are converged to area A's layout on every apply and after every roster change: compare first, write only what differs, kick before invite, and remove a human from every room before any power-level rewrite.                                                  | S11 5.1, R40             |
+| C16 | A room created but not recorded (a crash between create and record) is adopted, never duplicated.                                                                                                                                                                                                        | S11 5.1, M35             |
+| C17 | At most one coordinator per team at every instant: every role change demotes before it promotes, across every member kind.                                                                                                                                                                               | R10, LR 1.3              |
+| C18 | Handles follow area A's grammar, `<repo>.<seat>+<site>.<type>` (A §2.3; v1's P5 shape, with `site` never the machine hostname). Seat numbers per prefix never go down, a restore included. A parked handle returns with a new token and its account. A retired handle never returns, a restore included. | R9, P5                   |
+| C19 | Park revokes (password reset with device logout, the one revoke the homeserver has) before it marks. Retire kicks from every room, deactivates, and records the handle as never to return.                                                                                                               | R11, H 7.10, M29         |
+| C20 | An admin operation that dies part-way is completed by the next run of the same operation (roll forward from a recorded intent), never left half-done and never silently re-minting a credential.                                                                                                         | new (fixes v1 undo gaps) |
+| C21 | A lost bundle is recovered by one explicit operation that revokes the lost token and issues a new one for the same handle.                                                                                                                                                                               | LR 6 item 8, new         |
+| C22 | Humans are declared; a human's password is printed once to the owner and never stored; a human's device count and newest sign-in are visible on the board.                                                                                                                                               | R11, R35, DESIGN B2      |
 
 ### 2.4 Seats and bundles
 
@@ -107,18 +93,18 @@ fixes in section 6.
 | C27 | The host can tell whether a seat is held (the member's seat lock) without entering any container.                                                                                                                                                            | R27, H7 (DESIGN 16)                               |
 | C41 | Nothing a container wrote is trusted by the host or handed to another session: a seat's bundle is the host's copy, and a session's member state never travels to another session.                                                                            | R39, 00203 D2/D3, new                             |
 | C42 | A session's teams are changed while it runs (join and leave) through a desired-membership record the host writes and the session can only read; the host writes the session record before the desired record; an active team is one both seated and desired. | R31, R32, 00203 H5/H8                             |
-| C43 | When a session ends without saying goodbye on a team, a disconnected notice is posted from the host for that seat, once per claim, never as well as a goodbye.                                                                                               | R29                                               |
+| C43 | When a session ends without saying goodbye on a team, the member's own disconnected notice is posted for that seat, by the host as the owner with the seat's token, once per claim, never as well as a goodbye.                                              | R29                                               |
 
 ### 2.5 Declarations, the play, LXC
 
-| ID  | Requirement                                                                                                                                                                                                                             | From                   |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| C28 | host_vars stays the IaC store; the play is the one route that turns a declaration into a running team. v2 keys are its own and v1's keys are never read or written by v2.                                                               | D6, R2, FRAME          |
-| C29 | Every change that runs a play or writes host_vars takes the play lock first and writes host_vars only once it holds it.                                                                                                                 | R34                    |
-| C30 | The declaration has one truth per fact: the team's coordinator is declared in one place, not in both a roster and a member entry, and a coordinator can be declared before its member exists.                                           | LR 6 item 6, new       |
-| C31 | LXC members are applied by the play from the host. The container's checkout and accounts are read from the host side with no-follow walks and size caps. No container program runs as root, and no container needs Python.              | R33, R48, LR 6 item 10 |
-| C32 | A stopped LXC container is ordinary (its member held back and recorded); only a missing container, or a failure in a running one, fails the apply. Everything checkable is checked for every running container before anything changes. | R33, R48, LR 1.5       |
-| C33 | Kits are versioned directories resolved once at launch, never replaced in place under a running session.                                                                                                                                | R49, DESIGN B9         |
+| ID  | Requirement                                                                                                                                                                                                                              | From                   |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| C28 | host_vars stays the IaC store; the play is the one route that turns a declaration into a running team. v2 keys are its own; v1's keys are never written by v2, and the one read is `agent_bus_teams[].port` by `declare check` (D §3.8). | D6, R2, FRAME          |
+| C29 | Every change that runs a play or writes host_vars takes the play lock first and writes host_vars only once it holds it.                                                                                                                  | R34                    |
+| C30 | The declaration has one truth per fact: the team's coordinator is declared in one place, not in both a roster and a member entry, and a coordinator can be declared before its member exists.                                            | LR 6 item 6, new       |
+| C31 | LXC members are applied by the play from the host. The container's checkout and accounts are read from the host side with no-follow walks and size caps. No container program runs as root, and no container needs Python.               | R33, R48, LR 6 item 10 |
+| C32 | A stopped LXC container is ordinary (its member held back and recorded); only a missing container, or a failure in a running one, fails the apply. Everything checkable is checked for every running container before anything changes.  | R33, R48, LR 1.5       |
+| C33 | Kits are versioned directories resolved once at launch, never replaced in place under a running session.                                                                                                                                 | R49, DESIGN B9         |
 
 ### 2.6 Element, health, backups, the board
 
@@ -136,13 +122,13 @@ fixes in section 6.
 
 ### 3.1 Who runs what
 
-| Identity                  | Runs                                                                                                                      | Holds                                                                      |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| root                      | `<v2-host>` root verbs: install, team apply/remove, backup, restore, health, LXC apply, and the entry of every admin verb | root records, backup tars, rendered homeserver configs (with their secret) |
-| `<v2-ctl>` (system user)  | `<v2-host> ctl-child`, started only by root, for every homeserver call                                                    | each team's admin token, roster and room records                           |
-| one dynamic uid per team  | that team's homeserver (`DynamicUser=yes`)                                                                                | that team's database only                                                  |
-| the owner (desktop user)  | ccy-teams, seat placement, Element profiles, `<v2-host> status`                                                           | the seat pool and session seat directories, Element profiles               |
-| an LXC guest's agent user | `<v2-bin>` (area B), and `<v2-bin> guest` operations started by the host through `lxc-attach -u`                          | its own bundles in its home                                                |
+| Identity                     | Runs                                                                                                                           | Holds                                                                      |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| root                         | `teamchat-admin` root verbs: install, team apply/remove, backup, restore, health, LXC apply, and the entry of every admin verb | root records, backup tars, rendered homeserver configs (with their secret) |
+| `teamchat-ctl` (system user) | `teamchat-admin ctl-child`, started only by root, for every homeserver call                                                    | each team's admin token, roster and room records                           |
+| one dynamic uid per team     | that team's homeserver (`DynamicUser=yes`)                                                                                     | that team's database only                                                  |
+| the owner (desktop user)     | ccy-teams, seat placement, Element profiles, `teamchat-admin status`                                                           | the seat pool and session seat directories, Element profiles               |
+| an LXC guest's agent user    | `teamchat` (area B), and `teamchat guest` operations started by the host through `lxc-attach -u`                               | its own bundles in its home                                                |
 
 Nothing in this table is resident on the host except the homeservers. The health and backup
 timers start a short-lived process. There is no daemon, no socket and no reader with a sudoers
@@ -150,11 +136,11 @@ rule (decision DC4).
 
 The flows the owner sees, each in one line:
 
-- **Apply** (play, or ccy-teams running the play): render the declaration, `<v2-host> team apply`
+- **Apply** (play, or ccy-teams running the play): render the declaration, `teamchat-admin team apply`
   per team as root, which writes system files, starts the homeserver, and runs bootstrap in a
-  `<v2-ctl>` child.
-- **Change** (ccy-teams, launcher): `sudo <v2-host> member add|park|...` with the owner's password;
-  root takes the team lock, runs the change in a `<v2-ctl>` child, prints a typed JSON answer; the
+  `teamchat-ctl` child.
+- **Change** (ccy-teams, launcher): `sudo teamchat-admin member add|park|...` with the owner's password;
+  root takes the team lock, runs the change in a `teamchat-ctl` child, prints a typed JSON answer; the
   owner's process places any bundle itself.
 - **Read** (ccy-teams): host_vars, the per-team stamp and status records, one systemd query, the
   owner's own seat directories. No sudo.
@@ -212,29 +198,32 @@ not a boundary. It still matters: the token and the registration secret survive 
 are copied into restores, and there is no reason for the network-facing process to hold the
 credential that every admin operation and every backup trusts.
 
-Files of one team (paths relative to `<v2-state>`, D names the root, except the homeserver's own
-state, which systemd places at `/var/lib/private/<v2-hs-state>/<team>/`, reached through the
-`/var/lib/<v2-hs-state>/<team>` link it maintains):
+Files of one team. They live under the two root-owned state roots, `/var/lib/teamchat-admin/`
+(root's records) and `/var/lib/teamchat-ctl/` (the control user's). Here and below `root/<team>/`
+stands for `/var/lib/teamchat-admin/<team>/` and `ctl/<team>/` for `/var/lib/teamchat-ctl/<team>/`.
+The homeserver's own state is the exception: systemd places it at
+`/var/lib/private/teamchat/<team>/`, reached through the `/var/lib/teamchat/<team>` link it
+maintains.
 
-| Path                                                                                      | Owner and mode       | Content                                                                                                                                                                                                                 |
-| ----------------------------------------------------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/var/lib/private/<v2-hs-state>/<team>/` (systemd StateDirectory, not under `<v2-state>`) | dynamic uid, 0700    | `db/`, `backups/` (Tuwunel's own backup engine output)                                                                                                                                                                  |
-| `root/<team>/config.toml`                                                                 | root, 0600           | the rendered Tuwunel config, including the registration shared secret; reaches the unit only through `LoadCredential=`                                                                                                  |
-| `root/<team>/team.json`                                                                   | root, 0600           | the rendered team declaration last applied (canonical JSON); `server_name` is checked against it (C3)                                                                                                                   |
-| `root/<team>/firewall.json`                                                               | root, 0600           | the firewall rules this team added, written before any firewall change (H 7.11)                                                                                                                                         |
-| `root/<team>/units.json`                                                                  | root, 0600           | the restart and reload digest sets (3.5.2), and the Tuwunel version, port and listen set last started, so a team brought back can be started on its old version first (a port another team now holds refuses it, named) |
-| `root/<team>/backups/<n>.tar`                                                             | root, 0600, dir 0700 | the control state paired with database backup `<n>` (3.12)                                                                                                                                                              |
-| `root/<team>/server-name`                                                                 | root, 0600           | the team's `server_name`, written before the homeserver's first start; C3 is checked against it (3.5.2)                                                                                                                 |
-| `ctl/<team>/`                                                                             | `<v2-ctl>`, 0700     | `admin.token` 0600, `admin.password` 0600 (only during bootstrap), `roster.json` 0600, `rooms.json` 0600, `intent.json` 0600 (3.6)                                                                                      |
+| Path                                                                                   | Owner and mode       | Content                                                                                                                                                                                                                 |
+| -------------------------------------------------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/var/lib/private/teamchat/<team>/` (systemd StateDirectory, under neither state root) | dynamic uid, 0700    | `db/`, `backups/` (Tuwunel's own backup engine output)                                                                                                                                                                  |
+| `root/<team>/config.toml`                                                              | root, 0600           | the rendered Tuwunel config, including the registration shared secret; reaches the unit only through `LoadCredential=`                                                                                                  |
+| `root/<team>/team.json`                                                                | root, 0600           | the rendered team declaration last applied (canonical JSON); `server_name` is checked against it (C3)                                                                                                                   |
+| `root/<team>/firewall.json`                                                            | root, 0600           | the firewall rules this team added, written before any firewall change (H 7.11)                                                                                                                                         |
+| `root/<team>/units.json`                                                               | root, 0600           | the restart and reload digest sets (3.5.2), and the Tuwunel version, port and listen set last started, so a team brought back can be started on its old version first (a port another team now holds refuses it, named) |
+| `root/<team>/backups/<n>.tar`                                                          | root, 0600, dir 0700 | the control state paired with database backup `<n>` (3.12)                                                                                                                                                              |
+| `root/<team>/server-name`                                                              | root, 0600           | the team's `server_name`, written before the homeserver's first start; C3 is checked against it (3.5.2)                                                                                                                 |
+| `ctl/<team>/`                                                                          | `teamchat-ctl`, 0700 | `admin.token` 0600, `admin.password` 0600 (only during bootstrap), `roster.json` 0600 (its `pending` is the recorded intent, 3.6), `rooms.json` 0600                                                                    |
 
-`<v2-state>/root` is 0700 root and `<v2-state>/ctl` is 0700 `<v2-ctl>`. Root writes under
-`ctl/` only through the `<v2-ctl>` child, never directly, so the control user cannot steer a root
+`/var/lib/teamchat-admin` is 0700 root and `/var/lib/teamchat-ctl` is 0700 `teamchat-ctl`. Root writes under
+`ctl/` only through the `teamchat-ctl` child, never directly, so the control user cannot steer a root
 write (the same reasoning that kept v1's root records out of the homeserver user's tree, H 5).
 That holds for a restore as well (3.12.2).
 
 The registration secret is created once by root at the first apply of a team (64 random bytes as
 128 lowercase hex, no newline) and lives in one place only: `root/<team>/config.toml`. Creation is
-link-not-replace (H 7.03), and the team lock (3.4) already excludes a second run. The `<v2-ctl>`
+link-not-replace (H 7.03), and the team lock (3.4) already excludes a second run. The `teamchat-ctl`
 child never stores it. Root reads it from the config and passes it on the child's stdin, inside
 the one request, only for the operation that registers the admin account (bootstrap step 2,
 3.6.2); every other request carries no secret but the child's own admin token, which it reads
@@ -242,13 +231,13 @@ itself.
 
 #### 3.2.3 The unit
 
-The template `<v2-hs@>` (installed by `software`, 0644 root):
+The template `teamchat-server@` (installed by `software`, 0644 root):
 
 ```ini
 [Unit]
 Description=v2 team homeserver %i
 StartLimitIntervalSec=0
-AssertPathExists=!<v2-state>/root/%i/restore.block
+AssertPathExists=!/var/lib/teamchat-admin/%i/restore.block
 
 [Service]
 Type=notify
@@ -261,10 +250,10 @@ RestartSec=5s
 RestartSteps=5
 RestartMaxDelaySec=60s
 DynamicUser=yes
-User=<v2-hs>-%i
-StateDirectory=<v2-hs-state>/%i
+User=teamchat-%i
+StateDirectory=teamchat/%i
 StateDirectoryMode=0700
-LoadCredential=config.toml:<v2-state>/root/%i/config.toml
+LoadCredential=config.toml:/var/lib/teamchat-admin/%i/config.toml
 Environment=TUWUNEL_CONFIG=%d/config.toml
 UMask=0077
 NoNewPrivileges=yes
@@ -294,12 +283,12 @@ IPAccounting=yes
 IPAddressDeny=any
 SocketBindDeny=any
 TemporaryFileSystem=/run/systemd/resolve:ro
-BindReadOnlyPaths=<v2-share>/resolv.conf:/run/systemd/resolve/stub-resolv.conf
-BindReadOnlyPaths=<v2-share>/resolv.conf:/run/systemd/resolve/resolv.conf
+BindReadOnlyPaths=/usr/local/share/teamchat/resolv.conf:/run/systemd/resolve/stub-resolv.conf
+BindReadOnlyPaths=/usr/local/share/teamchat/resolv.conf:/run/systemd/resolve/resolv.conf
 InaccessiblePaths=-/run/dbus
 ```
 
-The base unit has no `ExecStart=`. The per-team drop-in `<v2-hs@><team>.service.d/team.conf`,
+The base unit has no `ExecStart=`. The per-team drop-in `teamchat-server@<team>.service.d/team.conf`,
 rendered by `team apply`, names the binary by version:
 
 ```ini
@@ -308,7 +297,7 @@ After=sys-subsystem-net-devices-<iface>.device
 Wants=sys-subsystem-net-devices-<iface>.device
 
 [Service]
-ExecStart=<v2-lib>/tuwunel-<version>
+ExecStart=/usr/local/lib/teamchat/server/tuwunel-<version>
 MemoryHigh=<from H-C1>
 IPAddressAllow=127.0.0.1/32 ::1/128 <each listen /32 or /128> <each allow_from>
 SocketBindAllow=tcp:<port>
@@ -317,12 +306,12 @@ SocketBindAllow=tcp:<port>
 What each choice is for, beyond v1's reasons (H 5, H 7.22-7.23), which all still apply:
 
 - `DynamicUser` and `StateDirectory` replace the shared user, `TemporaryFileSystem` over the
-  state root and `BindPaths` (C4). `User=<v2-hs>-%i` fixes the dynamic user's name. Without it
+  state root and `BindPaths` (C4). `User=teamchat-%i` fixes the dynamic user's name. Without it
   systemd derives the name from the unit name, which holds an `@` and so falls back to a hashed
   name. More to the point, the restore's transient unit (3.12.2) names the same user and so gets
-  the same uid, and nothing is ever chowned. `<v2-hs>` is at most 6 characters and a team name at
-  most 24 (an assumption on area A's team-name grammar, section 7), so the name fits the 31-character limit; `declare check` refuses a
-  longer team name by name.
+  the same uid, and nothing is ever chowned. A team id is at most 22 characters (A §2.2), so
+  `teamchat-<team>` fits systemd's 31-character limit; `declare check` refuses a longer team id by
+  name.
 - The binary is named per team, in the drop-in, by version. A team's homeserver changes binary
   only when `team apply` rewrites that team's drop-in, and `team apply` backs the team up first
   (3.5.2 step 6). A crash restart, a watchdog kill, the health tick's restart, an apply that
@@ -332,7 +321,7 @@ What each choice is for, beyond v1's reasons (H 5, H 7.22-7.23), which all still
   no drop-in names it, no `units.json` of a team that still has a database (one removed without
   `--purge` included) records it, and it is not the pinned version.
 - The base unit is shared by every team, so its text cannot be pinned per team. A play that
-  changes the base unit's text therefore applies every present team, whatever `<v2>_only_teams`
+  changes the base unit's text therefore applies every present team, whatever `teamchat_only_teams`
   says, and prints that it did so and why (3.5.1); otherwise an unscoped team would first meet a
   new hardening directive at an unplanned crash restart.
 - `LoadCredential` puts the config, with its secret, in a directory only this unit's uid can read,
@@ -368,18 +357,20 @@ one for 1.9.4); a pin bump that drops or renames a key fails the test before the
 
 #### 3.2.5 Network
 
-- Each team has one `<port>` from area D's v2 range. `team apply` refuses a port another v2 team
-  holds (from the root records), a port anything is listening on while this team's unit is
-  inactive, and a port in v1's records (read, never written, so v2 cannot collide with a v1 team
-  that is stopped).
+- Each team has one `<port>`, declared per team in `teamchat_teams[].port`; there is no range.
+  `declare check` refuses, by D §3.8's rule, a port that another `teamchat_teams` entry declares,
+  that any `agent_bus_teams` entry declares (the declaration only, never v1's runtime files, so
+  v2 cannot collide with a v1 team that is stopped), or that is listening now and is not this
+  team's own `teamchat-server@<team>`. `team apply`, which sees one team, checks again at its
+  step 2 against the ports other v2 teams' `units.json` record and against the live listeners.
 - Listen addresses: loopback plus each declared `listen` address, each of which must be on exactly
   one interface. After start, the bound address set is asserted equal to that list before
   bootstrap (H 7.21). Both this check and the port checks above read `/proc/net/tcp` and
   `/proc/net/tcp6` in-process (state `LISTEN`, address and port decoded from the fixed hex
   columns); no `ss` and no text from another program is parsed.
-- v2 has its own bus address interface `<v2-if>` (a NetworkManager dummy connection with one
+- v2 has its own bus address interface `teamchat0` (a NetworkManager dummy connection with one
   address), so retiring v1's interface later cannot break a v2 team. Its address comes from the
-  declaration (`<v2>_address`).
+  declaration (`teamchat_address`).
 - Firewall: per-team firewalld rich rules, one per `allow_from` CIDR, in the zone of the interface
   that routes that CIDR (the default zone if none). The rule set is recorded in
   `root/<team>/firewall.json` before any firewall change, and only recorded rules are ever removed
@@ -392,31 +383,34 @@ one for 1.9.4); a pin bump that drops or renames a key fails the test before the
 
 ### 3.3 The host program
 
-One Go binary, `<v2-host>`, built from `src-go/cmd/<v2-host>` by the play as the login user and
+One Go binary, `teamchat-admin`, built from `src-go/cmd/teamchat-admin` by the play as the login user and
 installed by root, 0755 root:root, in a root-owned directory (C8). The first thing `main` does is
 decide the caller class from the real and effective uid, and each verb belongs to exactly one
 class. A verb asked of the wrong class exits 77 naming the class it needs (DESIGN 3.1).
 
-| Caller class | How it is reached                                              | Verbs                                                                                                                                                                                                   |
-| ------------ | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| root         | the play (`become`), the two timers, the owner's password sudo | `team apply`, `team remove`, `member add\|return\|park\|retire\|reissue`, `role apply`, `human password\|devices\|logout\|lock\|unlock`, `backup`, `backups`, `restore`, `health`, `lxc apply`, `check` |
-| `<v2-ctl>`   | only `ctl-child`, started by root with `os/exec` `Credential`  | `ctl-child` (reads one typed request on stdin, answers one typed response on stdout)                                                                                                                    |
-| anyone else  | the owner, the play before any root task, the Element play     | `declare check`, `element check\|apply`, `status`, `version`                                                                                                                                            |
+| Caller class   | How it is reached                                              | Verbs                                                                                                                                                                                                                                                                                                               |
+| -------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| root           | the play (`become`), the two timers, the owner's password sudo | `team apply`, `team remove`, `member add\|return\|park\|retire\|reissue`, `role apply`, `human password\|devices\|logout\|lock\|unlock`, `backup`, `backups`, `restore`, `health`, `lxc apply`, `check`, `migrate stage\|fence\|unfence\|fence-status\|carry\|commit\|archive\|archive-check --team T`, `footprint` |
+| `teamchat-ctl` | only `ctl-child`, started by root with `os/exec` `Credential`  | `ctl-child` (reads one typed request on stdin, answers one typed response on stdout)                                                                                                                                                                                                                                |
+| anyone else    | the owner, the play before any root task, the Element play     | `declare check`, `element check\|apply`, `status`, `version`                                                                                                                                                                                                                                                        |
+
+The `migrate` verbs and `footprint` behave as area D says (D §5.4, §5.5); C provides them in the
+same binary, and each `migrate` verb takes the team lock like every root verb.
 
 `version` answers for every class and prints the binary's source digest (the scheme of Plan 00192:
 `go.mod` plus every non-test file of the command and the module packages it imports, baked in with
 `-ldflags -X`). The board compares it with the digest of the checkout (3.13).
 
-Why one binary rather than one per privilege: the root verbs and the `<v2-ctl>` child share almost
+Why one binary rather than one per privilege: the root verbs and the `teamchat-ctl` child share almost
 every package (declaration types, roster, rooms engine, Matrix client), one binary has one digest
 to compare and one install step, and the caller-class check is a single table tested once. The
 reason v1's design had a separate reader (a NOPASSWD sudoers rule needs a narrow target) is gone
 with DC4. Decision DC3 holds the alternative.
 
-The root and `<v2-ctl>` halves talk only over a pipe in typed JSON:
+The root and `teamchat-ctl` halves talk only over a pipe in typed JSON:
 
 ```json
-{"v": 1, "op": "member.add", "team": "<team>", "args": {"prefix": "<repo>+<host>.<type>", "seat": "3", "human_text": true}}
+{"v": 1, "op": "member.add", "team": "<team>", "args": {"prefix": "<repo>+<site>.<type>", "seat": "3", "human_text": true}}
 ```
 
 ```json
@@ -426,7 +420,7 @@ The root and `<v2-ctl>` halves talk only over a pipe in typed JSON:
 Root decodes the answer strictly (unknown or duplicate keys refused, sizes capped), because it is
 the one thing root parses that a less-privileged process wrote. The child starts with no
 supplementary groups, `chdir /`, an empty environment except `PATH`, and the request on stdin; it
-refuses arguments other than `ctl-child`. No other caller can become `<v2-ctl>`: it has no shell,
+refuses arguments other than `ctl-child`. No other caller can become `teamchat-ctl`: it has no shell,
 no password and no sudoers entry.
 
 Exit codes are one table for every verb: 0 done, 1 failed, 64 usage, 69 homeserver unreachable,
@@ -434,25 +428,26 @@ Exit codes are one table for every verb: 0 done, 1 failed, 64 usage, 69 homeserv
 configuration. A child process's exit code is never passed through as one of these (I-B3); its
 failure is 1 with a message. Output contract: stdout carries only the payload (`CHANGED<TAB><what>`
 lines for root verbs the play runs, one JSON document for verbs ccy-teams runs), everything else
-goes to stderr as `<v2-host>: <message>`.
+goes to stderr as `teamchat-admin: <message>`.
 
 ### 3.4 Locks
 
-| Lock                           | Kind and place                                     | Taken by                                                                                                                                                                          |
-| ------------------------------ | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| play lock                      | owner, `flock`, owner runtime directory            | every play run and every host_vars write (C29). It is the repository's lock for every play, not part of v1's bus, so v2 using it touches nothing of v1. Root verbs never take it. |
-| team lock                      | root, `flock` on `<v2-run>/team-<team>.lock`, 0600 | exclusive by every root verb that changes or restarts one team: apply, remove, member, role, human, backup, restore, the health restart and status write, LXC apply per team      |
-| allocation lock (per checkout) | owner, `flock`, owner runtime directory            | ccy-teams around choosing and taking a seat in one checkout (C26)                                                                                                                 |
-| seat lock                      | member, `flock`, in the seat directory             | the member's keeper while it holds the seat (area B); the host only probes it                                                                                                     |
+| Lock                           | Kind and place                                                        | Taken by                                                                                                                                                                                                                        |
+| ------------------------------ | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| play lock                      | owner, `flock`, owner runtime directory                               | every play run and every host_vars write (C29). It is the repository's lock for every play, not part of v1's bus, so v2 using it touches nothing of v1. Root verbs never take it.                                               |
+| team lock                      | root, `flock` on `/run/teamchat-admin/team-<team>.lock`, 0600         | exclusive by every root verb that changes or restarts one team: apply, remove, member, role, human, backup, restore, the health restart and status write, LXC apply per team, each `migrate` verb (inside D's set lock, D §5.3) |
+| allocation lock (per checkout) | owner, `flock`, `$XDG_RUNTIME_DIR/teamchat/alloc/<checkout key>.lock` | ccy-teams around choosing and taking a seat in one checkout (C26)                                                                                                                                                               |
+| seat lock                      | member, `flock`, in the seat directory                                | the member's keeper while it holds the seat (area B); the host only probes it                                                                                                                                                   |
 
 Rules:
 
 - There is no host-wide lock, because nothing host-wide changes outside the play's static tasks
-  (3.5.1), and those swap every file atomically: a new `<v2-host>` is a new versioned file and a
+  (3.5.1), and those swap every file atomically: a new `teamchat-admin` is a new versioned file and a
   link swap, so a verb already running keeps its open file and the next one starts on the new
   one. A new Tuwunel is only a new versioned file; no homeserver uses it until its own team's
   apply names it (3.2.3).
-- Order: play lock, then allocation lock, then (inside root) team locks in team name order. A
+- Order: play lock, then allocation lock, then (inside root) D's migration set lock where a
+  `migrate` verb holds one, then team locks in team id order. A
   verb that touches several teams (LXC apply, the timers) takes each team's lock in turn, never
   two at once, except where one change spans two teams, which none does today. Root never takes
   an owner lock, and an owner process never takes a root lock, so the two halves cannot deadlock.
@@ -492,56 +487,60 @@ seat take in another.
 v1 put everything in its installer, static install included, because ccy-teams and the timers
 called it too. v2 splits by what each part is: what Ansible does well (packages, users,
 directories, a checksummed download, unit files, a group record) is plain play tasks, and what
-needs ordering against readiness, typed validation or Matrix calls is `<v2-host>`.
+needs ordering against readiness, typed validation or Matrix calls is `teamchat-admin`.
 
 #### 3.5.1 The play's static tasks
 
-The v2 play (`play-<v2>.yml`, area D names it; its own file, so v1's play is untouched) runs in
+The v2 play (`play-teamchat.yml`, its own file, so v1's play is untouched) runs in
 this order. Steps 1 and 2 run as the login user and change nothing outside the build cache; every
 later step is root.
 
-01. `<v2-host>` and `<v2-bin>`: built by `tasks/build-go-command.yml` as the login user (no
+01. `teamchat-admin` and `teamchat`: built by `tasks/build-go-command.yml` as the login user (no
     toolchain runs as root), into the user's build output, not yet installed.
-02. The freshly built `<v2-host> declare check`, run unprivileged (it is an "anyone" verb, 3.3),
-    with the Ansible-parsed `<v2>_teams`, `<v2>_lxc_members` and `<v2>_element_teams` as JSON on
-    stdin (3.8). So the binary that will apply the schema is the one that judges it, on a fresh
+02. The freshly built `teamchat-admin declare check`, run unprivileged (it is an "anyone" verb, 3.3),
+    with the Ansible-parsed `teamchat_teams`, `teamchat_lxc_members` and `teamchat_element_teams`, and the
+    ports of `agent_bus_teams`, as JSON on stdin (3.8). So the binary that will apply the schema is the one that judges it, on a fresh
     host as on an upgrade. Nothing after this step runs if it refuses.
-03. Install: root copies the built `<v2-host>` to `<v2-lib>/<v2-host>-<digest>` 0755 root and
-    swaps the link; `<v2-bin>` goes to `<v2-kit>/<digest>/` with a `current` link (C33). Root
+03. Install: root copies the built `teamchat-admin` to `/usr/local/lib/teamchat/teamchat-admin-<digest>` 0755 root and
+    swaps the link `/usr/local/sbin/teamchat-admin`; `teamchat` goes to
+    `/usr/local/lib/teamchat/kit/<digest>/` with a `current` link (C33). (The ccy image carries its
+    own single kit at `/opt/claude-yolo/optional/teamchat`, area B; the play does not write it.) Root
     opens each build output with `O_NOFOLLOW|O_NONBLOCK`, `fstat`s it (a regular file owned by
     the login user, under a size cap), and hashes the bytes it copies from that one fd, so the
     copy can never be turned into a read of a root-only file. The hash is checked against the one
     the build step reported; both come from the owner's side, so this guards against a torn or
-    swapped file, not against the owner (K9). No root step below runs an older `<v2-host>`.
+    swapped file, not against the owner (K9). No root step below runs an older `teamchat-admin`.
 04. Packages: `firewalld`, `NetworkManager`, `zstd`, `lxc` only if any LXC member is declared.
     Nothing else: no Python, no `curl`, no `jq`, no `tcpdump` (v1 needed each for its bash or its
     acceptance).
-05. The `<v2-ctl>` system user (no home, `nologin`), the `<v2-state>` tree (`root/` 0700 root,
-    `ctl/` 0700 `<v2-ctl>`), `<v2-applied>` 0750 root:`<owner group>`, `<v2-etc>/owner-group`
+05. The `teamchat-ctl` system user (no home, `nologin`), the two state roots
+    (`/var/lib/teamchat-admin/` 0700 root, `/var/lib/teamchat-ctl/` 0700 `teamchat-ctl`), `/var/lib/teamchat-status` 0750 root:`<owner group>` (it holds `installed.json`,
+    `teams/<team>/stamp.json` and `status.json`, `lxc/<team>.json`, and `sets/<set-id>.json`,
+    which D's migration verbs write, D §5.3), `/etc/teamchat/owner-group`
     (root 0644, one group name from `getent` of the desktop user, read by every writer of an
     owner-readable record; no default, as v1's stamp-group file, H 7.18).
 06. Tuwunel: `get_url` of the pinned release asset with `checksum: sha256:<pin>` into a root-only
-    staging directory, `zstd -d` with `creates:`, install as `<v2-lib>/tuwunel-<version>` 0755
+    staging directory, `zstd -d` with `creates:`, install as `/usr/local/lib/teamchat/server/tuwunel-<version>` 0755
     (atomic rename of a complete file). There is no shared link: no homeserver runs it until its
     own team's `team apply` names it in that team's drop-in, after that team's backup (3.2.3,
     3.5.2). The pin lives in `vars/version-pins.yml` beside every other pin, so the
     `update-versions` skill sees it. The release is unsigned, so the pin is the supply-chain
     check, as in v1.
-07. Units: `<v2-hs@>.service`, `<v2-health>.{service,timer}`, `<v2-backup>.{service,timer}`, the
+07. Units: `teamchat-server@.service`, `teamchat-health.{service,timer}`, `teamchat-backup.{service,timer}`, the
     resolver stub, all 0644 root; one `daemon_reload` if any changed. The two timers are enabled
     only while at least one team is present, so a v2 install with no teams starts nothing (C40).
-08. The bus address: a NetworkManager dummy connection `<v2-if>` with `<v2>_address`, if declared.
-09. `<v2-applied>/installed.json` (0640 root:`<owner group>`): the digest of the installed
-    `<v2-host>`, the Tuwunel version and the kit digest, which the board reads (3.13).
-10. `<v2-host> lxc apply --phase absent` with the LXC member declaration on stdin, while every
+08. The bus address: a NetworkManager dummy connection `teamchat0` with `teamchat_address`, if declared.
+09. `/var/lib/teamchat-status/installed.json` (0640 root:`<owner group>`): the digest of the installed
+    `teamchat-admin`, the Tuwunel version and the kit digest, which the board reads (3.13).
+10. `teamchat-admin lxc apply --phase absent` with the LXC member declaration on stdin, while every
     team's homeserver still runs, so a member that leaves is parked on a live server (3.9.2,
     LR 1.6).
-11. For each absent team: `<v2-host> team remove`.
-12. For each present team: `<v2-host> team apply` with the team's rendered declaration on stdin.
-13. `<v2-host> lxc apply --phase present` with the LXC member declaration on stdin.
+11. For each absent team: `teamchat-admin team remove`.
+12. For each present team: `teamchat-admin team apply` with the team's rendered declaration on stdin.
+13. `teamchat-admin lxc apply --phase present` with the LXC member declaration on stdin.
 
-Every `<v2-host>` step reports changed only on a `^CHANGED\t` line. `<v2>_only_teams`
-(D names it) scopes steps 10-13 to the teams ccy-teams is changing, as v1's `agent_bus_only_teams`
+Every `teamchat-admin` step reports changed only on a `^CHANGED\t` line. `teamchat_only_teams`
+scopes steps 10-13 to the teams ccy-teams is changing, as v1's `agent_bus_only_teams`
 does. A team outside the scope keeps its drop-in, and so its Tuwunel version, until a play
 applies it. The one exception: when step 7 changed the base unit's text, steps 12 and 13 run for
 every present team, scope ignored, and the play prints a task saying so (3.2.3). No step supports `--check` except step 2, which is read-only.
@@ -556,8 +555,9 @@ declaration check uses. Steps, each failing the verb with the step named:
 
 01. Root, Fedora, input valid, the team lock (wait up to 10 minutes).
 02. Refusals before any change: a `server_name` different from `root/<team>/server-name` (C3); a
-    port held by another v2 team, by a v1 team's record, or by any listener while this unit is
-    inactive; a `listen` address on no interface or on more than one; a wildcard `listen`.
+    port another v2 team's `units.json` records, or that is listening and is not this team's own
+    `teamchat-server@<team>` (the declared collisions, v1's included, are `declare check`'s, 3.2.5,
+    D §3.8); a `listen` address on no interface or on more than one; a wildcard `listen`.
 03. Render in memory: `config.toml`, the drop-in, the canonical `team.json`. Compare with what is
     installed. `units.json` keeps two digest sets. The restart set is the base unit text, the
     drop-in's `ExecStart=` (the Tuwunel version) and the config: a change there needs a restart.
@@ -565,7 +565,7 @@ declaration check uses. Steps, each failing the verb with the step named:
     `[Unit]` ordering: cgroup properties take effect on `daemon-reload`, and ordering does not
     touch a running unit, so a change there needs only `daemon-reload` and drops nobody's sync (C6).
     The answer is one of: nothing to do; write without restart (`team.json` only, for example a
-    description change); write and reload; write and restart; first start.
+    rename or a description change, below); write and reload; write and restart; first start.
 04. First apply only, before the homeserver ever starts: create the `root/<team>/` and
     `ctl/<team>/` directories, the registration secret (3.2.2), and `root/<team>/server-name`
     (link-not-replace). From this point the `server_name` is fixed, whether or not the rest of
@@ -587,15 +587,26 @@ declaration check uses. Steps, each failing the verb with the step named:
     An inactive or failed unit fails at once with the journal tail printed only as explanation; the
     verdict is the unit state, never a journal scan (H 7.13).
 09. Assert the bound address set is exactly loopback plus `listen` (H 7.21).
-10. Bootstrap in the `<v2-ctl>` child (3.6.2).
-11. Write `team.json` and `units.json`, then the stamp `<v2-applied>/teams/<team>/stamp.json` last,
-    so a stamp always means fully applied (H 6). Then refresh the status record (3.11).
+10. Bootstrap in the `teamchat-ctl` child (3.6.2).
+11. Write `team.json` and `units.json`, then the stamp `/var/lib/teamchat-status/teams/<team>/stamp.json` last,
+    so a stamp always means fully applied (H 6). Then refresh the status record (3.11). The first
+    apply of a team writes `"origin": "v2"` in it, or `"origin": "migration"` when the team is
+    under a migration (`root/<team>/migration/state.json` exists, D §3.9, §5.3); later applies
+    keep the value.
 
 The stamp:
 
 ```json
-{"v": 1, "team": "<team>", "config": "<sha256 of canonical team.json>", "software": "<v2-host digest>", "tuwunel": "<version>", "applied_ms": 0}
+{"v": 1, "team": "<team>", "config": "<sha256 of canonical team.json>", "software": "<teamchat-admin digest>", "tuwunel": "<version>", "applied_ms": 0}
 ```
+
+**A rename** (C44, Plan 00201 Task 2.16). The owner edits `name` (and, if wanted, `description`)
+in host_vars and runs the play. `team apply` sees the changed `name` or `description` in step 3 as
+a write without restart, and in bootstrap's rooms step (3.6.2) rewrites A's `teamchat.roster` event (`rev` + 1, A §5.1 `name`), the
+three rooms' `m.room.name` (and the main room's topic for a description), then in step 11 the
+status record. The Element play rewrites the launcher's `Name=` (3.10). Nothing restarts, and no
+account, token, bundle, path or unit changes: the id, `server_name` and every name built from them
+stay as they are.
 
 #### 3.5.3 `team remove [--purge]`
 
@@ -616,7 +627,7 @@ exits 1 on any `FAIL`. It is what the acceptance runs; it changes nothing.
 #### 3.6.1 The roster
 
 Each team's runtime account state lives in `ctl/<team>/roster.json`, written only by the
-`<v2-ctl>` child under the team lock, with the atomic writer of `bus/state` (temp file beside the
+`teamchat-ctl` child under the team lock, with the atomic writer of `bus/state` (temp file beside the
 target, `O_EXCL|O_NOFOLLOW`, `fchmod`, fsync, rename, directory fsync; S15). It is decoded strictly
 (unknown or duplicate keys refused, sizes capped, exit 78 naming the file).
 
@@ -624,7 +635,7 @@ target, `O_EXCL|O_NOFOLLOW`, `fchmod`, fsync, rename, directory fsync; S15). It 
 {
   "v": 1,
   "team": "<team>",
-  "counters": {"<repo>+<host>.<type>": 3},
+  "counters": {"<repo>+<site>.<type>": 3},
   "members": {
     "<handle>": {"state": "active", "kind": "podman", "human_text": true, "since_ms": 0, "token_ms": 0, "needs": null}
   },
@@ -690,7 +701,7 @@ Every change appends a `CHANGED` line, so a converged team prints nothing.
 
 #### 3.6.3 Members
 
-Every member verb runs as root under the team lock, does its homeserver work in the `<v2-ctl>`
+Every member verb runs as root under the team lock, does its homeserver work in the `teamchat-ctl`
 child, refreshes the status record at the end, and answers one JSON document on stdout. Verbs and
 their state machine:
 
@@ -699,8 +710,8 @@ their state machine:
 | `member add --prefix P --seat S\|next --kind K` | (none)             | claim the handle in the roster (counter raised); create the account; mint a token; invite per A's specs | `active`  |
 | `member return --handle H`                      | `parked`, `lost`   | revoke (password reset with device logout), or for `lost` create the account; mint; re-invite per A     | `active`  |
 | `member reissue --handle H`                     | `active`           | revoke; mint (the lost-bundle recovery, C21)                                                            | `active`  |
-| `member park --handle H`                        | `active`           | revoke; mark                                                                                            | `parked`  |
-| `member retire --handle H`                      | `active`, `parked` | kick from every room; deactivate; mark                                                                  | `retired` |
+| `member park --handle H`                        | `active`           | revoke; post the admin's `parked` notice; mark                                                          | `parked`  |
+| `member retire --handle H`                      | `active`, `parked` | kick from every room; deactivate; post the admin's `removed` notice; mark                               | `retired` |
 
 - **Roll forward, never undo** (C20). If an operation dies, `pending` names it and its step. Any
   later verb on that team first completes the pending operation from its step, because every step
@@ -729,6 +740,9 @@ their state machine:
   succeeds and prints its bundle, `coordinator_wanted` stays, and the status record carries the
   refusal as a problem with its fix (change the declaration or the member's `human_text`).
 - `retire` refuses the declared coordinator: the declaration has to change first (C30).
+- `park` and `retire` post the admin's notice in the main room, `parked` or `removed` (A §7.4),
+  as the last step before marking. These two are the only notices the admin's account posts; a
+  member's `left` and `disconnected` are always posted with the member's own token (3.7.5).
 - Park keeps the account joined to its rooms (its history stays attributed) and keeps its role in
   the roster; parking the coordinator is allowed and the board says the coordinator is parked.
 
@@ -810,19 +824,19 @@ of fd tricks.
 v2 moves seats out of the checkout (C25, decision DC5), and keeps the authoritative bundle where
 no container can write it (C41, decision DC15):
 
-| Path (under `<v2-seats>`, owner 0700, never mounted whole)         | Holds                                                                                                                                              |
-| ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pool/<checkout key>/checkout.json`                                | the checkout's real path, so the pool can be listed per checkout (`<checkout key>` = first 32 hex of SHA-256 of the real path)                     |
-| `pool/<checkout key>/<team>/<seat>/`                               | the seat's authoritative bundle (`seat.json`, `token`), and `held.json` while a session holds it. Never mounted into any container                 |
-| `sessions/<session>/<team>/`                                       | the copy of the bundle a session holds, plus area B's member state and seat lock. Mounted read-write into that session's container                 |
-| `control/<session>/desired.json`                                   | the session's desired membership (3.7.5). Mounted read-only into that session's container                                                          |
-| `released/sessions/<session>/<team>-<claim>/`, `released/pool/...` | a released session seat directory, moved out of reach of every session and never read again except to be removed (quarantine, pruned after 7 days) |
+| Path (under `~/.local/state/teamchat/seats`, owner 0700, never mounted whole) | Holds                                                                                                                                              |
+| ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pool/<checkout key>/checkout.json`                                           | the checkout's real path, so the pool can be listed per checkout (`<checkout key>` = first 32 hex of SHA-256 of the real path)                     |
+| `pool/<checkout key>/<team>/<seat>/`                                          | the seat's authoritative bundle (`seat.json`, `token`), and `held.json` while a session holds it. Never mounted into any container                 |
+| `sessions/<session>/<team>/`                                                  | the copy of the bundle a session holds, plus area B's member state and seat lock. Mounted read-write into that session's container                 |
+| `control/<session>/desired.json`                                              | the session's desired membership (3.7.5). Mounted read-only into that session's container                                                          |
+| `released/sessions/<session>/<team>-<claim>/`, `released/pool/...`            | a released session seat directory, moved out of reach of every session and never read again except to be removed (quarantine, pruned after 7 days) |
 
 - A ccy session's container gets `sessions/<session>/` bind-mounted read-write at
-  `<v2-seat-mount>` and `control/<session>/` read-only at `<v2-ctl-mount>` (area D names both),
-  and nothing else of `<v2-seats>`. A sibling session sees only its own seats.
+  `/run/teamchat/seats` and `control/<session>/` read-only at `/run/teamchat/membership`,
+  and nothing else of `~/.local/state/teamchat/seats`. A sibling session sees only its own seats.
 - A host `cc` session uses its session directory directly. It runs as the owner, so it can read
-  every file under `<v2-seats>`, the pool included; that is risk K12, not a property this design
+  every file under `~/.local/state/teamchat/seats`, the pool included; that is risk K12, not a property this design
   gives.
 - `held.json` (`{"v": 1, "session": "<session>", "claim": "<claim id>", "since_ms": 0}`, 0600) is
   the holding record. It is written by the owner process under the checkout's allocation lock,
@@ -854,28 +868,30 @@ directory; everything else in a session seat directory (member state, the seat l
   "server_name": "<server_name>",
   "user_id": "@<handle>:<server_name>",
   "admin_id": "@admin:<server_name>",
+  "main_room": "!<main room ID>",
   "base_url": "http://<address>:<port>",
   "plain_http_hosts": ["<address>"],
   "human_text": true,
   "issued_ms": 0,
-  "issuer": "<v2-host digest>"
+  "issuer": "<teamchat-admin digest>"
 }
 ```
 
-- `base_url` is the team's member URL from the declaration (default: `<v2>_address` and the port).
+- `base_url` is the team's member URL from the declaration (default: `teamchat_address` and the port).
   An `http://` URL is only ever to an IP literal listed in `plain_http_hosts` (M14).
-- Room IDs, the team record, limits and trust settings are not in the bundle by default: a member
-  reads them from the main room, where the admin keeps them current, so a change never requires
-  re-issuing a bundle (the Plan 00211 reasoning). Area A decides; if A wants the main room's ID in
-  the bundle (to avoid a lookup at start), it is one more key here.
-- v1's `README` file is dropped: it was text for a human that the member never read. `<v2-bin>`
+- The main room's ID is one of A's anchors (A §6.2), so it is in the bundle as `main_room`. The
+  other room IDs, the roster, limits and trust settings are read from the main room, where the
+  admin keeps them current, so a change to them never re-issues a bundle (the Plan 00211
+  reasoning).
+- The member's handle is the localpart of `user_id`; its seat number is the handle's `<seat>`.
+- v1's `README` file is dropped: it was text for a human that the member never read. `teamchat`
   explains a seat on request (area B).
 - Each seat gets its own account and token; two seats never share either (C23).
 
 #### 3.7.3 How it is placed
 
 - The answer of `member add|return|reissue` carries `seat.json`'s content and the token in one JSON
-  document on root's stdout. The token passes from the `<v2-ctl>` child to root to the owner's
+  document on root's stdout. The token passes from the `teamchat-ctl` child to root to the owner's
   process over pipes only; it is never in argv, environment, a log or an error (C13).
 - The owner's process (ccy-teams, with `bus/seat`) always places a bundle into a new directory
   and then swaps it into place, so `add`, `return`, `reissue` and the recovery below are one
@@ -904,8 +920,8 @@ directory; everything else in a session seat directory (member state, the seat l
   restorable session), naming the leave that releases it: the holding session's copy would be
   revoked with nothing to deliver the new one. The owner leaves the team from that session, which
   releases the seat (below), reissues, and joins again, which is a fresh take.
-- For an LXC member, placement is the same code inside the guest: `<v2-bin> guest place` run as the
-  agent user, reading the same JSON on stdin, into `~/.config/<v2>/seats/<team>.new-<claim>/`
+- For an LXC member, placement is the same code inside the guest: `teamchat guest place` run as the
+  agent user, reading the same JSON on stdin, into `~/.config/teamchat/seats/<team>.new-<claim>/`
   and swapped the same way, the old bundle removed (3.9). The held-seat refusal above is for pool
   seats; `lxc apply` reissues a guest's seat only when the guest's bundle is missing or its token
   refused, so no keeper is running on it.
@@ -989,8 +1005,9 @@ What C owns is seat numbering and allocation, unchanged in substance from v1 (R9
 section 2.10), now computed in-process by ccy-teams from the pool's `held.json` records, the
 session records and the status record's roster:
 
-- The prefix a seat number is counted under is the handle with its seat number taken out, as A's
-  formatter gives it.
+- The prefix a seat number is counted under names the handle's repo, site and type
+  (`<repo>+<site>.<type>`, the form `member add --prefix` takes); the seat number is given
+  separately (`--seat`) or counted. A §2.3 owns the grammar, and A's formatter joins the two.
 - The offered seat is the lowest number that is free in this checkout and held by no active member
   of the same prefix; a parked handle's number is offered for its return first.
 - `seat take` waits, bounded, for a homeserver that is still starting (up to 180 s, after a boot),
@@ -1008,9 +1025,11 @@ the seat lock to come free, and nothing would ask the keeper to free it. (b) is 
 `control/<session>/desired.json`, 0600, written atomically by ccy-teams as the owner:
 
 ```json
-{"v": 1, "session": "<session>", "generation": 3, "written_ms": 0, "seats": [{"team": "<team>", "seat": "2"}], "farewell": [{"team": "<team>", "seat": "1", "reason": "removed"}]}
+{"v": 1, "session": "<session>", "generation": 3, "written_ms": 0, "seats": [{"team": "<team>", "seat": "2"}], "farewell": [{"team": "<team>", "seat": "1", "reason": "released"}], "inbound": "accept"}
 ```
 
+- `inbound` is `accept` or `refuse`, written for every launch (B's BD10): a session launched on
+  no team refuses inbound messages until its first join relaunches it.
 - Order: ccy-teams writes the session record first (00203 H5), then the seat (3.7.3 take), then
   `desired.json` with `generation` raised. A reboot restore or an age restart replays the record.
 - A team is active in the session when it has a seat directory in the session directory and is
@@ -1019,12 +1038,15 @@ the seat lock to come free, and nothing would ask the keeper to free it. (b) is 
 - **Join:** take the seat (3.7.3), then write `desired.json` with it. A session started on no team
   is relaunched once on its first join (R32, `relaunch.json` beside `desired.json`, kept from v1).
 - **Leave:** write `desired.json` without the seat and with a `farewell` entry for it. Area B's
-  keeper sees the change, posts the goodbye as that member, drains its outbox, and releases the
-  seat lock. ccy-teams then releases the seat (3.7.3 release). The host never posts a goodbye
-  itself for a live session: the member says it.
+  keeper sees the change, posts the goodbye as that member (A's `left`, reason `released`: the
+  member stays in the team, A §7.4), drains its outbox, and releases the seat lock. ccy-teams then
+  releases the seat (3.7.3 release). The host never posts a goodbye or a `left`: the member says
+  it. There is no admin-posted farewell and no "farewell owed" record.
 - **Disconnected (R29, C43):** when the host releases a seat whose session ended (not a leave),
-  it runs area B's `<v2-bin> seat disconnected` as the owner with the pool's bundle, never the
-  session's copy, and with the claim id from `held.json`. Whether a goodbye was already said is
+  it posts A's `disconnected` notice as the subject itself (A §7.4), by running area B's
+  `teamchat seat disconnected --bundle <pool seat dir> --claim <claim id>` as the owner: the pool's
+  bundle, never the session's copy, and the claim id from `held.json`. The admin's account never
+  posts it. Whether a goodbye was already said is
   judged from the room on the server, from the member's own events since the claim, never from a
   file the container wrote. The notice is sent with a Matrix transaction id derived from the
   claim id, so a second release of the same claim cannot post twice (transaction ids are scoped
@@ -1046,21 +1068,23 @@ assumptions on B.
 
 host_vars stays the IaC store (C28, DESIGN D6). v2 has its own keys, so v1's play, v1's
 `declare.py` and the stage-1 line reader on `feat/bus-v2-s1-declare` (which reads v1's keys while
-v1 lives) never see them, and v2 never reads or writes `agent_bus_*`.
+v1 lives) never see them, and v2 never writes `agent_bus_*`. The one v1 value v2 reads is each
+`agent_bus_teams` entry's `port`, which `declare check` refuses to reuse (3.2.5, D §3.8).
 
 ```yaml
-<v2>_address: <bus_ip>                  # optional; the <v2-if> dummy address
+teamchat_address: <bus_ip>                  # optional; the teamchat0 dummy address
 
-<v2>_teams:
-  - team: <team>                        # [a-z][a-z0-9-]{0,23}, unique
+teamchat_teams:
+  - team: <team>                        # the team id: ^[a-z][a-z0-9-]{0,21}$ (A §2.2), unique, never changes
+    name: <display name>                # optional; default: the id; display only
     state: present                      # present | absent
     purge: false                        # only with absent
-    port: <port>                        # from area D's v2 range
-    server_name: <server_name>          # optional; default from area D; never changes
+    port: <port>                        # declared per team; there is no range (D §3.8)
+    server_name: <server_name>          # optional; default <team>.teamchat.internal; never changes
     description: "<what the team is for>"   # 1-120 characters
     listen: ["<bus_ip>"]
     allow_from: ["<cidr>"]
-    url: http://<bus_ip>:<port>         # optional; the members' base URL; default from <v2>_address
+    url: http://<bus_ip>:<port>         # optional; the members' base URL; default from teamchat_address
     humans: ["<name>"]                  # 1-16
     coordinator: <handle>               # optional; at most one per team
     trust:                              # area A owns the meaning AND the shape; this shape is an example
@@ -1072,24 +1096,31 @@ v1 lives) never see them, and v2 never reads or writes `agent_bus_*`.
       path_prefixes: ["docs/"]
       forge_api: https://api.github.com
 
-<v2>_lxc_members:
+teamchat_lxc_members:
   - team: <team>                        # a team declared present
     container: <container>
     user: <agent-user>
     checkout: /home/<agent-user>/<repo> # read from the host side (3.9)
-    host: <role>                        # optional
+    site: <site>                        # optional; the handle's site (A §2.3)
     seat: <n>                           # optional
     human_text: true                    # optional, default true
     service: false                      # optional: a supervised session in the guest
     state: present                      # present | absent
 
-<v2>_element_teams:
+teamchat_element_teams:
   - team: <team>
     base_url: http://<bus_ip>:<port>    # optional; default the team's url
 ```
 
 What changed from v1's keys, and why:
 
+- `team` holds the team id (A §2.2: at most 22 characters, so the homeserver's dynamic user
+  `teamchat-<team>` fits systemd's limit, 3.2.3), chosen at creation and never changed. It is the
+  entry's identity: `declare check` matches entries by `team`, so a changed `team` is a removal
+  and a new team, never a rename. `name` is the display name (A §2.2 grammar: 1-64 Unicode scalar
+  values, no control, format or newline characters; default: the id). It is display only, never
+  an identifier and never compared, and changing it is a rename (C44, 3.5.2). A migrated v1 team
+  keeps its v1 name as its id.
 - `coordinator` is a team-level key, the one place the role is declared (C30, DC6). LXC entries
   lose `role`. A ccy member's role used to live only in the registry, set by `set-role`, and an LXC
   member's role in its entry: two truths that a live change and the next apply could fight over.
@@ -1106,14 +1137,14 @@ What changed from v1's keys, and why:
 
 Reading and writing:
 
-- The play gets the values as Ansible parsed them and hands them to `<v2-host> declare check` as
+- The play gets the values as Ansible parsed them and hands them to `teamchat-admin declare check` as
   JSON on stdin (3.5.1), so what is applied is judged by the Go validator, not by Jinja.
 - ccy-teams reads the same file with a Go YAML decode (`go.yaml.in/yaml/v3`, added to the
   production module by decision DC17). host_vars is one file, `host_vars/<host>.yml`; a
   `host_vars/<host>/` directory is refused by name, since ccy-teams could not then know which
   file to edit. The file is decoded to a `yaml.Node` tree first, and the strict rules apply only
-  to the subtrees under the v2 top-level keys (`<v2>_address`, `<v2>_teams`, `<v2>_lxc_members`,
-  `<v2>_element_teams`). Every other top-level key is ignored whatever it holds: `!vault` values,
+  to the subtrees under the v2 top-level keys (`teamchat_address`, `teamchat_teams`, `teamchat_lxc_members`,
+  `teamchat_element_teams`). Every other top-level key is ignored whatever it holds: `!vault` values,
   `yes`/`no`, anchors and v1's keys are not v2's business. Within the v2 subtrees: known fields
   only, duplicate keys refused, and, so that the two parsers cannot read one file two ways, only
   strings, integers, `true`/`false`, lists and mappings. The Go reader refuses there what YAML 1.1
@@ -1137,7 +1168,7 @@ Reading and writing:
 
 #### 3.9.1 Shape
 
-`<v2-host> lxc apply --phase absent|present [--only-teams T,...]`, as root, run by the play (3.5.1)
+`teamchat-admin lxc apply --phase absent|present [--only-teams T,...]`, as root, run by the play (3.5.1)
 with the declared members as JSON on stdin. ccy-teams' `lxc-add` edits host_vars under the play
 lock and runs the play scoped to the team, as v1 does. The play stays the one route (C31).
 
@@ -1151,11 +1182,11 @@ What changes: no container program ever runs as root, and no container needs Pyt
 | v1                                                                                            | v2                                                                                                                                                                            |
 | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `python3 -I -c <script>` run inside the guest as root (kit sync, user lookup, env file, unit) | no guest program run as root; root writes only root-owned paths of the guest, from the host side, with `openat2(RESOLVE_IN_ROOT\|RESOLVE_NO_SYMLINKS\|RESOLVE_NO_MAGICLINKS)` |
-| `python3 -I -c` as the agent user (bundle, `pingbus config check`)                            | `<v2-bin> guest <op>` as the agent user, through `lxc-attach -u <uid> -g <gid> --clear-env` with `HOME`, `USER`, `LOGNAME` and `PATH` set, reading typed JSON on stdin        |
+| `python3 -I -c` as the agent user (bundle, `pingbus config check`)                            | `teamchat guest <op>` as the agent user, through `lxc-attach -u <uid> -g <gid> --clear-env` with `HOME`, `USER`, `LOGNAME` and `PATH` set, reading typed JSON on stdin        |
 | `getent passwd` inside the guest                                                              | the guest's `/etc/passwd` read from the host side, size-capped                                                                                                                |
 | the source-address check by a UDP connect inside the guest                                    | the guest's addresses from `lxc-info -iH` and its link from the container config, checked against `allow_from` on the host                                                    |
-| a kit copied file by file into one directory, replaced in place                               | the kit written as `<v2-kit>/<digest>/` and a `current` link swapped atomically; a digest kept while any process runs from it (C33)                                           |
-| Python 3.11 or later required in every guest                                                  | one static `<v2-bin>`; the guest needs no interpreter and no library                                                                                                          |
+| a kit copied file by file into one directory, replaced in place                               | the kit written as `/usr/local/lib/teamchat/kit/<digest>/` and a `current` link swapped atomically; a digest kept while any process runs from it (C33)                        |
+| Python 3.11 or later required in every guest                                                  | one static `teamchat`; the guest needs no interpreter and no library                                                                                                          |
 
 Why `lxc-attach -u` is safe where `lxc-attach` as root was not: an exec as uid 0 into a guest is
 how a hostile guest binary can reach the host (the class of CVE-2019-5736, where a container binary
@@ -1163,12 +1194,12 @@ overwrote the host runtime through `/proc/self/exe`). As the agent uid it can do
 user can already do inside its own guest, and the program run is the one root wrote from the host
 side a moment before.
 
-How each `lxc-attach` is made: `lxc-attach -n <container> -u <uid> -g <gid> --clear-env --set-var HOME=<home> --set-var USER=<user> --set-var LOGNAME=<user> --set-var PATH=/usr/local/bin:/usr/bin:/bin -- <v2-kit>/<digest>/<v2-bin> guest <op>`, with uid, gid and
+How each `lxc-attach` is made: `lxc-attach -n <container> -u <uid> -g <gid> --clear-env --set-var HOME=<home> --set-var USER=<user> --set-var LOGNAME=<user> --set-var PATH=/usr/local/bin:/usr/bin:/bin -- /usr/local/lib/teamchat/kit/<digest>/teamchat guest <op>`, with uid, gid and
 home from the guest's `/etc/passwd` as read on the host side, and the kit path resolved once by
 the host (never `current`, so a swap mid-phase cannot change what runs). `--clear-env` alone would
 leave `HOME` unset, and `guest place` and `guest check` need it to find `~/.config/...` and the
 forge CLI's login. Whether `-u`/`-g` drop the attaching process's supplementary groups is checked
-by host check H-C10; `<v2-bin> guest` also checks `getgroups()` at start and refuses to run with
+by host check H-C10; `teamchat guest` also checks `getgroups()` at start and refuses to run with
 any group but the agent user's own.
 
 #### 3.9.2 Order of one present phase
@@ -1201,27 +1232,27 @@ any group but the agent user's own.
      includes the live bridge subnet), on a link that is a host bridge.
      Any refusal here fails the phase before any container is changed.
 4. Kit: for each running container whose `current` kit digest differs, write the new kit
-   directory from the host side (root-owned, 0755 directories, 0755 `<v2-bin>`, 0644 files, modes
+   directory from the host side (root-owned, 0755 directories, 0755 `teamchat`, 0644 files, modes
    explicit so no inherited umask can matter, LR 6 item 2), then swap `current`. An old digest
    is deleted only when no process of that guest runs a binary from it: the host lists the
    processes in the container's cgroup (from the host's `/proc`, by `/proc/<pid>/cgroup`) and
    reads each one's `/proc/<pid>/exe` link target as a path inside the guest. The same rule keeps
-   the host's own `<v2-kit>` digests while any of the owner's processes runs from one (C33). A
+   the host's own `/usr/local/lib/teamchat/kit` digests while any of the owner's processes runs from one (C33). A
    session resolves its kit once at launch (area B), so a digest it uses outlives every swap.
-5. Guest check: `<v2-bin> guest check` as the agent user in each running container (what the member
+5. Guest check: `teamchat guest check` as the agent user in each running container (what the member
    needs to work, for example the forge CLI signed in; area B defines the list). Any failure fails
    the phase before any roster change.
 6. Roster changes, under each team's lock in turn: every demotion of every team first, then every
    join (`member add`, `return` or `reissue` as the state requires), then every promotion,
    including each team's `coordinator_wanted` that one of these joins has just created (3.6.4).
-7. Place each new bundle: `<v2-bin> guest place --team <team>` as the agent user, bundle on stdin;
-   it writes `~/.config/<v2>/seats/<team>.new-<claim>/` (0700) with `token` and `seat.json`
-   (0600) and swaps it in as `~/.config/<v2>/seats/<team>/`, by the same code as 3.7.3, and the member's own config (area B).
+7. Place each new bundle: `teamchat guest place --team <team>` as the agent user, bundle on stdin;
+   it writes `~/.config/teamchat/seats/<team>.new-<claim>/` (0700) with `token` and `seat.json`
+   (0600) and swaps it in as `~/.config/teamchat/seats/<team>/`, by the same code as 3.7.3, and the member's own config (area B).
 8. Supervised session (`service: true`): see 3.9.4.
 9. Write the LXC record (3.9.3), only after the phase succeeded.
 
 The absent phase runs first in the play (before any team is removed): for each running container,
-`<v2-bin> guest leave --team <team>` as the agent user, then `member park`; for a stopped one, the
+`teamchat guest leave --team <team>` as the agent user, then `member park`; for a stopped one, the
 handle the record holds is parked from the host side at once and the guest's files are left until it
 next runs.
 
@@ -1245,7 +1276,7 @@ Output: `CHANGED|SKIPPED|DEFERRED<TAB><team><TAB><user>@<container><TAB><why>` l
 `LXC-SUMMARY<TAB><text>`; the play shows the held-back lines in a task of their own, so they show
 without `-v`.
 
-The record `<v2-applied>/lxc/<team>.json`, 0640 root:`<owner group>`, written atomically and only on
+The record `/var/lib/teamchat-status/lxc/<team>.json`, 0640 root:`<owner group>`, written atomically and only on
 change:
 
 ```json
@@ -1277,29 +1308,30 @@ and removed.
 
 ### 3.10 Element profiles
 
-`<v2-host> element check|apply`, run as the desktop user by the optional Element play (its own file,
+`teamchat-admin element check|apply`, run as the desktop user by the optional Element play (its own file,
 `become: false`), with the profiles as JSON on stdin (R50). What it writes is v1's, under v2's own
 names so no v1 profile is touched: one Element Desktop profile per team (`config.json` 0600 in a
 0700 directory, every outbound key overridden explicitly because Element shallow-merges over its
 bundled config, the spell checker seeded off once because Chromium fetches dictionaries, the keyring
-grant written before the first start) and one launcher per team (0644). Each team opens in its own
+grant written before the first start) and one launcher per team (0644), whose `Name=` is the
+team's display name, so a rename (C44) rewrites only that line. Each team opens in its own
 window because each team is its own server. Writes are temporary file plus rename, only on change.
 
 The refusal stays (R37): an Element profile holds the human's session token where every process of
 that user can read it, so `apply` refuses a user who runs `host`-kind members (a host `cc` session,
 which runs as the owner with no container between it and the profile), unless the owner has recorded
-consent in `<v2-consent>` (0600 in a 0700 directory, v1's `element-accepted` rule, Plan 00161 D26).
+consent in `~/.config/teamchat/element-consent` (0600 in a 0700 directory, v1's `element-accepted` rule, Plan 00161 D26).
 ccy sessions do not count: a container sees only what is mounted into it, and no profile is.
 
 ### 3.11 Health and the status record
 
 #### 3.11.1 One timer for every team
 
-`<v2-health>.timer` (`OnActiveSec=30s`, `OnUnitActiveSec=60s`, `AccuracySec=5s`) starts
-`<v2-health>.service`: `Type=oneshot`, `ExecStart=<v2-lib>/<v2-host> health --all`,
-`TimeoutStartSec=120`, `NoNewPrivileges`, `ProtectSystem=strict`, `ReadWritePaths=<v2-applied> <v2-run>`, `ProtectHome`, `PrivateTmp`, `PrivateDevices`, `ProtectKernel*`, `ProtectControlGroups`,
+`teamchat-health.timer` (`OnActiveSec=30s`, `OnUnitActiveSec=60s`, `AccuracySec=5s`) starts
+`teamchat-health.service`: `Type=oneshot`, `ExecStart=/usr/local/sbin/teamchat-admin health --all`,
+`TimeoutStartSec=120`, `NoNewPrivileges`, `ProtectSystem=strict`, `ReadWritePaths=/var/lib/teamchat-status /run/teamchat-admin`, `ProtectHome`, `PrivateTmp`, `PrivateDevices`, `ProtectKernel*`, `ProtectControlGroups`,
 `CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_CHOWN CAP_SETUID CAP_SETGID` (to read the root-only
-records, to set the record's group, and to start the `<v2-ctl>` child), `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`, `IPAddressDeny=any`, `IPAddressAllow=localhost`.
+records, to set the record's group, and to start the `teamchat-ctl` child), `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`, `IPAddressDeny=any`, `IPAddressAllow=localhost`.
 
 v1 had one health timer and one backup timer per team. One of each for the host is fewer units, one
 process a minute instead of one per team, and no per-team timer state for a removed team to leak into
@@ -1321,7 +1353,7 @@ Step 3 also probes each LXC member's seat lock (3.9.2) for its `online` entry.
    with the same `InvocationID` still active, restart the unit: the team lock is taken without
    waiting only for the restart, and a busy lock means the holder owns the team's state (3.4). A
    rise in `NRestarts` is recorded once and kept for 24 hours; a fall means a manual restart.
-3. Roster and room view, in the `<v2-ctl>` child, read-only: the roster; each member's and each
+3. Roster and room view, in the `teamchat-ctl` child, read-only: the roster; each member's and each
    human's membership of each room; each human's device count and newest sign-in; and the drift of
    every room against A's specs (3.6.2), each drift with its repair (`ccy-teams apply <team>`). The
    read-only child never completes a `pending` operation (3.6.3): it reports it as a problem whose
@@ -1334,7 +1366,7 @@ Step 3 also probes each LXC member's seat lock (3.9.2) for its `online` entry.
 
 #### 3.11.3 The status record
 
-`<v2-applied>/teams/<team>/status.json`, 0640 root:`<owner group>`, written atomically by the tick
+`/var/lib/teamchat-status/teams/<team>/status.json`, 0640 root:`<owner group>`, written atomically by the tick
 and again at the end of every change verb, every apply, `human devices`, every backup and every
 restore, so the board sees a change at once:
 
@@ -1342,12 +1374,17 @@ restore, so the board sees a change at once:
 {
   "v": 1,
   "team": "<team>",
+  "name": "<display name>",
+  "origin": "v2",
+  "set": null,
+  "migration": null,
   "seq": 812,
   "written_ms": 0,
   "expires_ms": 0,
   "homeserver": {"unit": "active", "since_ms": 0, "nrestarts": 0, "probe": "ok"},
   "members": [
-    {"handle": "<handle>", "kind": "podman", "role": "coordinator", "state": "active", "rooms": {"main": "join", "reports": "join", "questions": "join"}}
+    {"handle": "<handle>", "kind": "podman", "role": "coordinator", "state": "active", "rooms": {"main": "join", "reports": "join", "questions": "join"}},
+    {"handle": "<handle>", "kind": "lxc", "role": "worker", "state": "active", "online": true, "rooms": {"main": "join", "reports": "join"}}
   ],
   "humans": [
     {"name": "<name>", "state": "active", "rooms": {"main": "join", "reports": "invite"}, "devices": 2, "last_seen_ms": 0}
@@ -1358,6 +1395,15 @@ restore, so the board sees a change at once:
 }
 ```
 
+- `name` is the team's display name (3.8), rewritten on a rename (C44).
+- `origin` is `v2` for a team created on v2 or `migration` for one a migration brought (D §3.9),
+  written at the team's first apply (3.5.2 step 11) and never inferred from a missing field.
+- `set` is the id of the team's current migration set, or null; `migration` is
+  `{"phase": "<phase>", "accepted": <acceptance result>}` or null (D §3.9, §5.3). Both are
+  written by D's `migrate` verbs. They are copies and never decide: the set record
+  `/var/lib/teamchat-status/sets/<set-id>.json` does.
+- `online` is present on LXC member entries only: the tick's probe of the member's seat lock
+  (3.11.2), up to about 70 s old.
 - `seq` is raised by one on every write, by every writer, always under the team lock. A writer
   that computed its view before taking the lock (only the tick does) writes only if `seq` is
   still the one it read, so the record never goes backwards (3.4). A record that is missing or
@@ -1367,7 +1413,7 @@ restore, so the board sees a change at once:
 - Room purposes are A's; the record carries whatever purposes A's specs name. The names `main`,
   `reports` and `questions` above are v1's, used as examples only.
 - No token, password or device ID is in it (device IDs stay behind `human devices`, DESIGN B2).
-- `<v2-host> status [<team>...]` prints these records for a human, and exits 1 if any has a problem.
+- `teamchat-admin status [<team>...]` prints these records for a human, and exits 1 if any has a problem.
 
 This record replaces v1's NOPASSWD reader design (DC4). Checked against what the owner needs:
 
@@ -1390,7 +1436,7 @@ This record replaces v1's NOPASSWD reader design (DC4). Checked against what the
   from the record.
 - **The login flow re-reads.** After `human password` prints a password, ccy-teams keeps the same
   password-sudo session (the change is not over) and polls
-  `sudo -n <v2-host> human devices --team T --name N` every 2 s. The poll is bounded: it ends when
+  `sudo -n teamchat-admin human devices --team T --name N` every 2 s. The poll is bounded: it ends when
   a new device appears, when the owner ends the wait, when 5 minutes have passed since the
   password was typed, or when `sudo -n` fails. Whichever ends it, ccy-teams runs `sudo -k` (C10),
   and on a timeout or a failed `sudo -n` it says that the sign-in was not seen yet and the board
@@ -1407,12 +1453,12 @@ explicitly.
 
 #### 3.12.1 Backups
 
-`<v2-backup>.timer` (`OnCalendar=daily`, `RandomizedDelaySec=1h`, `Persistent=true`) starts
-`<v2-backup>.service`: `Type=oneshot`, `ExecStart=<v2-lib>/<v2-host> backup --all`,
-`TimeoutStartSec=30min`, with the health unit's sandbox (3.11.1) except `ReadWritePaths=<v2-state>/root <v2-applied> <v2-run>`
+`teamchat-backup.timer` (`OnCalendar=daily`, `RandomizedDelaySec=1h`, `Persistent=true`) starts
+`teamchat-backup.service`: `Type=oneshot`, `ExecStart=/usr/local/sbin/teamchat-admin backup --all`,
+`TimeoutStartSec=30min`, with the health unit's sandbox (3.11.1) except `ReadWritePaths=/var/lib/teamchat-admin /var/lib/teamchat-status /run/teamchat-admin`
 (the tars and the record) and the same capability set: it reads `ctl/<team>/` with no-follow
 opens of regular files only (reading is not steered by the control user the way a write would
-be), and it starts the `<v2-ctl>` child for the status refresh. `backup --team T` is also run by ccy-teams. Inside
+be), and it starts the `teamchat-ctl` child for the status refresh. `backup --team T` is also run by ccy-teams. Inside
 `team apply` (3.5.2 step 6) the backup is an internal function called under the team lock the
 apply already holds (3.4), never a second `flock`. Otherwise, per team, under its team lock
 (waiting up to 10 minutes):
@@ -1433,7 +1479,7 @@ between its halves. Copying backups off the machine is not built, as the owner d
 
 #### 3.12.2 Restore
 
-`<v2-host> restore --team T --backup N` (password sudo from ccy-teams), under the team lock. v1's
+`teamchat-admin restore --team T --backup N` (password sudo from ccy-teams), under the team lock. v1's
 restore was not atomic: after it stopped the homeserver, any failure left the team down (I-B8). v2
 stages first and swaps (C37, DC8):
 
@@ -1449,7 +1495,7 @@ are used only as evidence that the backup belongs to this team.
    `config.restore.toml` or control `*.previous` file when no `restore.json` exists (below).
    Nothing stops before this passes; the tar is held in memory from here on.
 2. Stage: a transient unit (`systemd-run --collect`) with the base unit's whole sandbox and the
-   same identity, `DynamicUser=yes`, `User=<v2-hs>-<team>` and `StateDirectory=<v2-hs-state>/<team>`,
+   same identity, `DynamicUser=yes`, `User=teamchat-<team>` and `StateDirectory=teamchat/<team>`,
    so it gets the live unit's uid and its state directory, and nothing is chowned (systemd shares a
    dynamic uid between units that name the same user). It runs the binary the team's drop-in
    names, with `SocketBindAllow=tcp:<staging port>` and `IPAddressAllow=127.0.0.1/32 ::1/128`
@@ -1467,12 +1513,12 @@ are used only as evidence that the backup belongs to this team.
 4. Build the merged roster in memory (below).
 5. Write the restore record `root/<team>/restore.json` (`{"v": 1, "backup": N, "pre": M, "step": "swap"}`, 0600, fsync) and the start block `root/<team>/restore.block` (empty, 0600).
    While the block exists the homeserver cannot start: the base unit carries
-   `AssertPathExists=!<v2-state>/root/%i/restore.block`, so a boot, a crash restart or a stray
+   `AssertPathExists=!/var/lib/teamchat-admin/%i/restore.block`, so a boot, a crash restart or a stray
    start fails visibly instead of creating an empty database where `db` is missing. Stop the live
    homeserver. In the state directory, opened as a directory fd with
    `O_DIRECTORY|O_NOFOLLOW` (the homeserver's uid owns its contents), rename `db` to
    `db.previous` and `db.restore-<N>` to `db`, each by `renameat2(RENAME_NOREPLACE)` relative to
-   that fd. Replace the control state through the `<v2-ctl>` child, never by root directly
+   that fd. Replace the control state through the `teamchat-ctl` child, never by root directly
    (3.2.2): root sends the tar's `admin.token` and `rooms.json` and the merged roster on the
    child's stdin in one `restore.swap` request, and the child writes them with its atomic writer,
    keeping the current files as `*.previous`. Root's own state is not touched. Once every swap is
@@ -1550,15 +1596,15 @@ unit runs under the live unit's uid and that no file in the state directory chan
 
 An open (picker or `--list`) reads, all in-process, as the owner:
 
-| Read                                                     | Cost on a desktop     | Notes                                                                                                                                                                                                                                               |
-| -------------------------------------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| host_vars: one strict decode of the v2 keys              | ~2 ms                 | once per open, shared by every view (fixes v1's three `declare overview` runs)                                                                                                                                                                      |
-| `<v2-applied>/installed.json`                            | \<1 ms                | installed `<v2-host>` digest, Tuwunel version, kit digest                                                                                                                                                                                           |
-| per team: `stamp.json`, `status.json`, `lxc/<team>.json` | \<1 ms each           | three small files per team, whatever the number of members or people                                                                                                                                                                                |
-| one D-Bus `ListUnitsByPatterns(['<v2-hs@>*'])` (DC17)    | ~5 ms                 | live unit states, in case the status record is up to a minute old                                                                                                                                                                                   |
-| the seat store: pool and session directories             | ~1 ms per seat        | the pool's `seat.json` and `held.json` of each seat, and the L3 probe of the seat lock in the holding session's directory, through `openat2` with `RESOLVE_BENEATH\|RESOLVE_NO_SYMLINKS` from that directory's fd, `O_NONBLOCK` and `fstat` (3.7.3) |
-| the checkout's source digest                             | ~5 ms, cached by stat | for "software out of date" (below)                                                                                                                                                                                                                  |
-| session records, tmux list, git probes for "join here"   | ~30 ms                | as the stage-1 board already does                                                                                                                                                                                                                   |
+| Read                                                          | Cost on a desktop     | Notes                                                                                                                                                                                                                                               |
+| ------------------------------------------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| host_vars: one strict decode of the v2 keys                   | ~2 ms                 | once per open, shared by every view (fixes v1's three `declare overview` runs)                                                                                                                                                                      |
+| `/var/lib/teamchat-status/installed.json`                     | \<1 ms                | installed `teamchat-admin` digest, Tuwunel version, kit digest                                                                                                                                                                                      |
+| per team: `stamp.json`, `status.json`, `lxc/<team>.json`      | \<1 ms each           | three small files per team, whatever the number of members or people                                                                                                                                                                                |
+| one D-Bus `ListUnitsByPatterns(['teamchat-server@*'])` (DC17) | ~5 ms                 | live unit states, in case the status record is up to a minute old                                                                                                                                                                                   |
+| the seat store: pool and session directories                  | ~1 ms per seat        | the pool's `seat.json` and `held.json` of each seat, and the L3 probe of the seat lock in the holding session's directory, through `openat2` with `RESOLVE_BENEATH\|RESOLVE_NO_SYMLINKS` from that directory's fd, `O_NONBLOCK` and `fstat` (3.7.3) |
+| the checkout's source digest                                  | ~5 ms, cached by stat | for "software out of date" (below)                                                                                                                                                                                                                  |
+| session records, tmux list, git probes for "join here"        | ~30 ms                | as the stage-1 board already does                                                                                                                                                                                                                   |
 
 Seat releases the board finds due (a timed-out leave, a session that is over, 3.7.3) are never
 run on the open path: the board draws from files first, shows those seats as "leaving" or
@@ -1579,13 +1625,13 @@ The APPLIED verdict per team, computed in-process with the same Go code `team ap
 - **decide**: a stamp for a team declared absent or not declared;
 - **unreadable**: a record ccy-teams cannot decode, shown on the team row.
 
-The checkout's source digest is computed over a tracked list of the files `<v2-host>` is built from
+The checkout's source digest is computed over a tracked list of the files `teamchat-admin` is built from
 (its package closure), which a QA gate keeps exact against `go list -deps`, so ccy-teams hashes the
 right files without running the Go toolchain on every open (the "software digest needs a v2
 definition" gap of SPEC-view 3.7).
 
 Changes go the other way: ccy-teams takes the play lock for anything that edits host_vars or runs
-the play, and calls `sudo <v2-host> <verb>` with the owner's password for member, role, human,
+the play, and calls `sudo teamchat-admin <verb>` with the owner's password for member, role, human,
 backup and restore verbs, parsing the one JSON answer each prints.
 
 ### 3.14 How each part is tested
@@ -1610,14 +1656,14 @@ backup and restore verbs, parsing the one JSON answer each prints.
 
 ### 3.15 Resident cost, honestly
 
-| Scope            | Resident                                                                                                                          | Units, ports, other                                                                                                                                        |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| v2 with no teams | nothing                                                                                                                           | unit files installed but nothing enabled; no timer runs; no port; no firewall rule                                                                         |
-| per team         | one Tuwunel, 100-135 MB RSS as measured in the 00161 spike (to be re-measured, and reduced if the cache modifier allows, H-C1)    | one service and its drop-in; one TCP port on loopback and each `listen` address; one firewall rule set; no timer of its own; one `<v2-ctl>` child per tick |
-| host, with teams | nothing                                                                                                                           | two timers: one oneshot a minute, one a day. Each minute: one `<v2-host>` process, plus one `<v2-ctl>` child per team                                      |
-| per member       | the homeserver's memory for the member's long-poll sync and its share of the caches (inside the team's Tuwunel, measured by H-C1) | the pool bundle and a session copy; the member's keeper and worker are area B's cost and are measured there                                                |
-| per human        | the same, while the human's Element is open                                                                                       | an account on the team's homeserver                                                                                                                        |
-| per LXC guest    | nothing beyond what area B runs                                                                                                   | each kit digest a guest process still runs, the seat directories, and with `service: true` one unit in the guest                                           |
+| Scope            | Resident                                                                                                                          | Units, ports, other                                                                                                                                            |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| v2 with no teams | nothing                                                                                                                           | unit files installed but nothing enabled; no timer runs; no port; no firewall rule                                                                             |
+| per team         | one Tuwunel, 100-135 MB RSS as measured in the 00161 spike (to be re-measured, and reduced if the cache modifier allows, H-C1)    | one service and its drop-in; one TCP port on loopback and each `listen` address; one firewall rule set; no timer of its own; one `teamchat-ctl` child per tick |
+| host, with teams | nothing                                                                                                                           | two timers: one oneshot a minute, one a day. Each minute: one `teamchat-admin` process, plus one `teamchat-ctl` child per team                                 |
+| per member       | the homeserver's memory for the member's long-poll sync and its share of the caches (inside the team's Tuwunel, measured by H-C1) | the pool bundle and a session copy; the member's keeper and worker are area B's cost and are measured there                                                    |
+| per human        | the same, while the human's Element is open                                                                                       | an account on the team's homeserver                                                                                                                            |
+| per LXC guest    | nothing beyond what area B runs                                                                                                   | each kit digest a guest process still runs, the seat directories, and with `service: true` one unit in the guest                                               |
 
 The health tick's homeserver calls grow as teams × rooms × (members + humans) per minute: one
 membership read per room and person, and one device read per human, all on loopback. With a team
@@ -1637,9 +1683,9 @@ on v2.
 | ID   | Decision                                         | Options                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Default and why                                                                                                                                                                                                                                                                                             |
 | ---- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | DC1  | Homeserver topology                              | (a) one per team; (b) one for every v2 team                                                                                                                                                                                                                                                                                                                                                                                                                | (a): isolation, per-team restore and removal, per-team throttling, clean per-team migration and rollback; the cost is 100-135 MB per team, tunable (3.2.1)                                                                                                                                                  |
-| DC2  | Homeserver identity                              | (a) `DynamicUser` per team, admin credential held by `<v2-ctl>`; (b) one service user for every homeserver, kept apart by mounts as v1                                                                                                                                                                                                                                                                                                                     | (a): separation by uid rather than by a sandbox detail; the network-facing process no longer holds the admin credential (3.2.2)                                                                                                                                                                             |
-| DC3  | Host programs                                    | (a) one `<v2-host>` with caller classes; (b) one binary per privilege (installer, admin, reader)                                                                                                                                                                                                                                                                                                                                                           | (a): one digest, one install, shared packages; the narrow-target reason for (b) went with DC4 (3.3)                                                                                                                                                                                                         |
-| DC4  | How the board reads members, rooms and devices   | (a) a status record root writes each minute and after each change, read with no privilege; (b) a reader run as `<v2-ctl>` through a NOPASSWD Runas sudoers line (v1 DESIGN D1); (c) a daemon with a socket                                                                                                                                                                                                                                                 | (a): no sudoers file at all, no process holding every admin token run on an agent's request, and the open needs no PAM or process per team; the cost is that a change made outside any verb (a member's own room join, a new device) shows within about 70 s; the sign-in flow re-reads explicitly (3.11.3) |
+| DC2  | Homeserver identity                              | (a) `DynamicUser` per team, admin credential held by `teamchat-ctl`; (b) one service user for every homeserver, kept apart by mounts as v1                                                                                                                                                                                                                                                                                                                 | (a): separation by uid rather than by a sandbox detail; the network-facing process no longer holds the admin credential (3.2.2)                                                                                                                                                                             |
+| DC3  | Host programs                                    | (a) one `teamchat-admin` with caller classes; (b) one binary per privilege (installer, admin, reader)                                                                                                                                                                                                                                                                                                                                                      | (a): one digest, one install, shared packages; the narrow-target reason for (b) went with DC4 (3.3)                                                                                                                                                                                                         |
+| DC4  | How the board reads members, rooms and devices   | (a) a status record root writes each minute and after each change, read with no privilege; (b) a reader run as `teamchat-ctl` through a NOPASSWD Runas sudoers line (v1 DESIGN D1); (c) a daemon with a socket                                                                                                                                                                                                                                             | (a): no sudoers file at all, no process holding every admin token run on an agent's request, and the open needs no PAM or process per team; the cost is that a change made outside any verb (a member's own room join, a new device) shows within about 70 s; the sign-in flow re-reads explicitly (3.11.3) |
 | DC5  | Where seats live                                 | (a) a seat store outside the checkout, with one session directory mounted per ccy session; (b) in the checkout, as v1                                                                                                                                                                                                                                                                                                                                      | (a): a coordinator's token is no longer readable by workers sharing the checkout, no inbox can be consumed by a sibling, and no token can be committed; needs the launcher to mount one directory (3.7.1)                                                                                                   |
 | DC6  | Where the coordinator is declared                | (a) team-level `coordinator` in host_vars, converged by apply and by `role apply`; (b) the roster as truth, set by `set-role`, and LXC entries' `role`, as v1                                                                                                                                                                                                                                                                                              | (a): one truth that the hot path and the play converge to alike. A coordinator declared before its member exists is recorded as `coordinator_wanted`, shown with its fix, and promoted by the operation that creates the handle; demotions are never deferred (3.6.4)                                       |
 | DC7  | Timers                                           | (a) one health timer and one backup timer for the host; (b) one of each per team, as v1                                                                                                                                                                                                                                                                                                                                                                    | (a): fewer units and processes, no timer state to leak into a new team of an old name (3.11.1)                                                                                                                                                                                                              |
@@ -1669,7 +1715,7 @@ on v2.
 | K9  | Root installs programs built from a checkout the owner can write, and every agent running as the owner (a host `cc` session, and ccy containers, whose root is the owner's uid) can change that checkout before the next play | the repository-wide boundary of every play, unchanged from v1 and stated, not solved here; the build runs as the user so no toolchain runs as root                                                                                           |
 | K10 | `openat2` through `/proc/<pid>/root` of a running guest: the root itself is a magic link                                                                                                                                      | the directory fd is opened first with a plain `open` of `/proc/<pid>/root` (pid checked against `lxc-info` before and after); every later path is resolved from it with `RESOLVE_IN_ROOT\|RESOLVE_NO_SYMLINKS\|RESOLVE_NO_MAGICLINKS`; H-C10 |
 | K11 | One host-wide health process: a crash in it leaves every team unchecked                                                                                                                                                       | the unit fails visibly, and every team's status record expires within five minutes and shows as a problem on the board                                                                                                                       |
-| K12 | A host `cc` session runs as the owner with no container, so it can read every seat under `<v2-seats>`, the pool's coordinator token included, and every Element profile                                                       | stated, as for Element (3.10): C25's isolation is between ccy sessions only. The option offered, not built: refuse a coordinator seat in a checkout while a host-kind member runs there                                                      |
+| K12 | A host `cc` session runs as the owner with no container, so it can read every seat under `~/.local/state/teamchat/seats`, the pool's coordinator token included, and every Element profile                                    | stated, as for Element (3.10): C25's isolation is between ccy sessions only. The option offered, not built: refuse a coordinator seat in a checkout while a host-kind member runs there                                                      |
 | K13 | With DC16 (a), a session that held a seat and was hostile can keep a copy of its token after release, and use it while the next session holds the seat                                                                        | the board shows when each seat's token was last issued (the roster's `token_ms`); `member reissue` or `park` revokes the token; DC16 (b) closes it at the price of a password per session start                                              |
 
 ## 6. What v2 drops from v1, and what is new
@@ -1678,21 +1724,21 @@ on v2.
 
 | v1                                                                                                                           | Why it goes                                                                                                                                                                                                                                                                               |
 | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| the bash installer, the bash root wrapper, the Python zipapps, `runuser`, `setpriv`, the tar hand-over                       | one Go program (C8); a typed JSON pipe between root and `<v2-ctl>` instead of a tar root unpacks                                                                                                                                                                                          |
+| the bash installer, the bash root wrapper, the Python zipapps, `runuser`, `setpriv`, the tar hand-over                       | one Go program (C8); a typed JSON pipe between root and `teamchat-ctl` instead of a tar root unpacks                                                                                                                                                                                      |
 | the installer's `software` command, its `curl` download and self-copy                                                        | plain play tasks (`get_url` with a checksum, `copy`), which Ansible does better (3.5.1)                                                                                                                                                                                                   |
 | `AGENT_BUS_INSTALL_TEST_PREFIX` and every test hook in production code                                                       | fakes and build tags only                                                                                                                                                                                                                                                                 |
 | one `agent-bus` user for every homeserver, with `TemporaryFileSystem` and `BindPaths` to keep them apart                     | `DynamicUser` per team (DC2)                                                                                                                                                                                                                                                              |
 | per-team backup and health timers, and the timer-state clean-up for removed teams                                            | one of each for the host (DC7)                                                                                                                                                                                                                                                            |
 | the NOPASSWD sudoers rule for `list` and `human devices`, and v1 DESIGN's planned `view` Runas reader                        | the status record (DC4)                                                                                                                                                                                                                                                                   |
-| seats inside the checkout, the `git check-ignore` proof, the seat `README`                                                   | the seat store (DC5); `<v2-bin>` explains a seat on request                                                                                                                                                                                                                               |
+| seats inside the checkout, the `git check-ignore` proof, the seat `README`                                                   | the seat store (DC5); `teamchat` explains a seat on request                                                                                                                                                                                                                               |
 | undo on a failed member change                                                                                               | roll forward from `pending` (C20)                                                                                                                                                                                                                                                         |
 | `rotate-token`                                                                                                               | `reissue`, which revokes before it mints                                                                                                                                                                                                                                                  |
 | `set-role` as a write of its own, and the LXC entry's `role`                                                                 | the declared `coordinator` and `role apply` (DC6)                                                                                                                                                                                                                                         |
 | `removed_humans`                                                                                                             | lock and unlock (DC9)                                                                                                                                                                                                                                                                     |
 | a seat's member state kept for the next session in the checkout, and the container-written `said-goodbye.json` the host read | the pool bundle only travels (DC15); a goodbye is judged from the room on the server (3.7.5)                                                                                                                                                                                              |
 | the LXC entry's `repo`                                                                                                       | the LXC record's handle map                                                                                                                                                                                                                                                               |
-| Python run inside guests, as root and as the agent user; the Python 3.11 prerequisite                                        | host-side writes and `<v2-bin> guest` as the agent user (3.9.1)                                                                                                                                                                                                                           |
-| `bridge.py`, `config_restart.py`, `timer_state.py`, `render`, `stamp-group` as separate processes                            | functions of `<v2-host>`, or gone with DC7                                                                                                                                                                                                                                                |
+| Python run inside guests, as root and as the agent user; the Python 3.11 prerequisite                                        | host-side writes and `teamchat guest` as the agent user (3.9.1)                                                                                                                                                                                                                           |
+| `bridge.py`, `config_restart.py`, `timer_state.py`, `render`, `stamp-group` as separate processes                            | functions of `teamchat-admin`, or gone with DC7                                                                                                                                                                                                                                           |
 | the play's backup of every running team before a software swap                                                               | the binary is named per team in its drop-in, so it changes only when that team's `team apply` rewrites the drop-in, and that apply backs the team up first (3.2.3, 3.5.2 step 6); a crash, watchdog or health restart, and every team a scoped play leaves alone, stays on its old binary |
 | the packages `python3`, `curl`, `jq`, `tcpdump`, `util-linux` for the bus                                                    | nothing on the v2 path calls them                                                                                                                                                                                                                                                         |
 | v1's legacy forms (`orchestrator`, registry v1, container-name LXC seats)                                                    | v2 never reads them; area D's migration maps what it carries over                                                                                                                                                                                                                         |
@@ -1723,40 +1769,43 @@ validated before anything stops, and the Element profile's lock-down and refusal
 
 ## 7. Assumptions on other areas
 
+Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the seam contract.
+
 **Area A (protocol and rooms).**
 
 1. A's package provides `Desired(team, roster) []RoomSpec`, a typed value naming each room's purpose,
    create parameters, state events (type, key, content), wanted members (join or invite), unwanted
    members and the kick reason. C's engine (3.6.2) applies it and knows nothing of what a room is
    for.
-2. Members find room IDs, the team record and limits in the main room, not in the bundle. If A wants
-   the main room's ID in the bundle, it is one more `seat.json` key.
+2. The bundle carries the main room's ID (`main_room`, A §6.2's anchor); members find the other
+   room IDs, the roster and limits in the main room, not in the bundle.
 3. The team record's roles are derived from the roster and the declared coordinator. A defines
    the record, and both the meaning and the shape of the `trust` block; the shape in 3.8 is v1's,
    shown as an example, and C decodes the block with A's Go type.
 4. The admin account's localpart stays `admin`, and the drift check in the status record uses A's
    specs as its reference. The room names in 3.11.3 are examples; the record carries A's purposes.
 5. A's package owns the handle grammar, its parser and formatter, and the member type set (3.7.4).
-   A's team-name grammar allows at most 24 characters, so `<v2-hs>-<team>` fits the 31-character
-   user-name limit (3.2.3); a longer limit in A would need a shorter `<v2-hs>` or a hashed name.
+   A's team id grammar (A §2.2) allows at most 22 characters, so `teamchat-<team>` fits systemd's
+   31-character user-name limit (3.2.3). A team's display name (`name`) is display only and never
+   part of a user, unit or path name.
 6. A defines the goodbye and disconnected message types that B posts (3.7.5).
 
 **Area B (member).**
 
-1. `<v2-bin>` has `guest check`, `guest place --team T` and `guest leave --team T`, run as the agent
+1. `teamchat` has `guest check`, `guest place --team T` and `guest leave --team T`, run as the agent
    user with typed JSON on stdin, and the code `guest place` uses for files is the same `bus/seat`
    code ccy-teams uses.
 2. B reads `seat.json` and `token` and owns everything else in a session seat directory, including
    the seat lock, which is a `flock` the host can probe with a shared non-blocking lock (L3). B
    never expects the host to read back anything B wrote there.
-3. B finds the session's seats at `<v2-seat-mount>` and its desired membership at
-   `<v2-ctl-mount>`; a seat may appear while the session runs (hot join), and a team is active
+3. B finds the session's seats at `/run/teamchat/seats` and its desired membership at
+   `/run/teamchat/membership`; a seat may appear while the session runs (hot join), and a team is active
    only when it is both seated and desired (3.7.5).
 4. B's keeper watches `desired.json`: on a `farewell` entry it posts the goodbye as that member,
    drains its outbox, and only then releases the seat lock.
 5. A session that takes a seat starts with no member state. B resumes from the server's state
    (its own read receipts and the room timeline), never from state another session left (DC15).
-6. B provides `<v2-bin> seat disconnected`, run by the host as the owner with the pool bundle and
+6. B provides `teamchat seat disconnected`, run by the host as the owner with the pool bundle and
    the claim id, which judges from the room whether this member already said goodbye since the
    claim and otherwise posts the disconnected notice once, with a transaction id derived from the
    claim id (C43).
@@ -1768,22 +1817,21 @@ validated before anything stops, and the Element profile's lock-down and refusal
 
 **Area D (coexistence and migration).**
 
-1. D names every placeholder in the table at the top: binaries, users, paths, units, the host_vars
-   key prefix, the play's file name, the session mount path, the default server name domain, the v2
-   port range and the `<v2-if>` interface and address.
-2. D's migration of a team uses C's verbs: `team apply` for the v2 team, `member add --seat <n>` to
-   keep each v1 handle's seat number, `human password` for each human's new Element sign-in, and
-   `team remove` for rollback. If D needs to carry room history or keep accounts, it needs a verb C
-   does not have yet, and says so.
+1. Settled: D's names are merged throughout this file (D §3.2). There is no port range: ports are
+   declared per team (D §3.8). The server-name domain is `teamchat.internal`.
+2. D's migration of a team uses C's `migrate` verbs and `footprint` (3.3, behaviour in D §5.4,
+   §5.5), plus `team apply` for the v2 team, `member add --seat <n>` to keep each v1 handle's seat
+   number, `human password` for each human's new Element sign-in, and `team remove` for rollback.
 3. C supplies, for D's proof that v2 does not touch v1, the full list of what v2 creates: users,
    paths, units, ports, firewall records and interfaces, from the play's tasks and `team apply`'s
    writes, checked in the VM lab.
-4. The ccy launcher (D's, with B) mounts `<v2-seats>/sessions/<session>/` read-write at
-   `<v2-seat-mount>` and `<v2-seats>/control/<session>/` read-only at `<v2-ctl-mount>`, and
-   nothing else of `<v2-seats>`. Neither `<v2-seats>` itself nor the owner runtime directory that
+4. The ccy launcher (D's, with B) mounts `~/.local/state/teamchat/seats/sessions/<session>/` read-write at
+   `/run/teamchat/seats` and `~/.local/state/teamchat/seats/control/<session>/` read-only at `/run/teamchat/membership`, and
+   nothing else of `~/.local/state/teamchat/seats`. Neither `~/.local/state/teamchat/seats` itself nor the owner runtime directory that
    holds the play lock and the allocation locks may lie under any path a ccy container mounts:
-   C25, C26 and C41 rest on it. D's naming of those paths has to be checked against ccy's mount
-   list.
+   C25, C26 and C41 rest on it. D's names put the seat store at `~/.local/state/teamchat/seats`
+   (`$XDG_STATE_HOME` honoured) and the allocation locks under `$XDG_RUNTIME_DIR/teamchat/alloc/`,
+   both on no ccy mount; ccy's mount list is checked against them.
 5. When a ccy session ends by the owner's choice, the launcher removes its session record and
    then runs ccy-teams' seat release for that session (3.7.3), so the disconnected notice is
    posted then, not at the next board open. A container that dies with its record in place is
@@ -1803,13 +1851,13 @@ Each runs on the host through meta-deploy once the code exists; each states what
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
 | H-C1  | RSS of one Tuwunel per team at the default and at a reduced `cache_capacity_modifier`, idle and under a burst of member traffic, reported per team and per connected member; the health tick's run time and the homeserver's CPU per tick, per team                                                                 | C7, the `MemoryHigh` and modifier values |
 | H-C2  | the hardened unit starts the pinned Tuwunel, with each directive new in v2 (empty capability set, system call filter, `PrivateIPC`, `ProtectProc`, `LoadCredential` with `%d`)                                                                                                                                      | 3.2.3                                    |
-| H-C3  | the `DynamicUser` uid named by `User=<v2-hs>-<team>` is stable across restart and reboot, is shared with a transient unit naming the same user, and no file changes owner; `systemctl clean --what=state` removes the state                                                                                         | DC2                                      |
+| H-C3  | the `DynamicUser` uid named by `User=teamchat-<team>` is stable across restart and reboot, is shared with a transient unit naming the same user, and no file changes owner; `systemctl clean --what=state` removes the state                                                                                        | DC2                                      |
 | H-C4  | `SIGUSR2` through D-Bus `KillUnit` (whom `main`) to the main process yields a numbered backup within 60 s                                                                                                                                                                                                           | 3.12.1                                   |
 | H-C5  | `--restore-backup` into a staging `database_path` on another loopback port under the live unit's uid (no chown), then the swap, and a forced failure swapped back; after the restore, a member token reissued after the backup and a human password reset after it are both refused                                 | DC8, C37                                 |
 | H-C6  | `firewall-cmd --query-rich-rule` exit status, and the zone chosen for a CIDR whose interface has no zone                                                                                                                                                                                                            | DC12                                     |
 | H-C7  | `ccy-teams --list` and the interactive open timed with several teams, checkouts and humans; a redraw timed; an open with a seat release due, which must draw before the release ends                                                                                                                                | C39                                      |
 | H-C8  | a seat taken into a running ccy container's mounted session directory (mkdirat and openat copies) is visible inside it; `desired.json` in the read-only control mount cannot be written from inside; the host's probe of a seat lock held inside reports held; a release leaves nothing of that seat visible inside | DC5, C27                                 |
 | H-C9  | from the host, the guest's systemd over `/proc/<pid>/root/run/systemd/private`: reload, start, stop a unit                                                                                                                                                                                                          | DC13                                     |
-| H-C10 | `openat2` with `RESOLVE_IN_ROOT` through `/proc/<pid>/root` of a running overlay-store guest; `lxc-attach -u -g --clear-env --set-var` running the host-written `<v2-bin>` with `HOME` set and no supplementary group (`getgroups()` empty but the agent's own)                                                     | 3.9.1, K10                               |
+| H-C10 | `openat2` with `RESOLVE_IN_ROOT` through `/proc/<pid>/root` of a running overlay-store guest; `lxc-attach -u -g --clear-env --set-var` running the host-written `teamchat` with `HOME` set and no supplementary group (`getgroups()` empty but the agent's own)                                                     | 3.9.1, K10                               |
 | H-C11 | the play with no v2 team: nothing resident, no timer enabled, no port bound; v1's units, users, paths and rules unchanged                                                                                                                                                                                           | C40                                      |
 | H-C12 | under the real Tuwunel: a restricted join to a room A's layout restricts, a power-0 post refused, pending invites left pending                                                                                                                                                                                      | the S11 probes, carried                  |
