@@ -1,308 +1,210 @@
 # Plan 00209: agent bus v2 in go
 
-**Status**: In Progress (the plan of record for the whole Go rewrite, host side included; D1-D20
-defaulted to the design's recommendations, see Owner decisions; a dedicated build session does
-the work to [BUILD-BRIEF.md](BUILD-BRIEF.md), milestone M0 done, M1 and stage 1 next)
+**Status**: In Progress (the plan of record for v2, `teamchat`, a separate system beside v1; N0's
+design is integrated in [DESIGN-v2.md](DESIGN-v2.md) and its review is open; a dedicated build
+session does the work to [BUILD-BRIEF.md](BUILD-BRIEF.md))
 **Created**: 2026-10-19
 **Owner**: joseph
 **Priority**: High
 
 ## Overview
 
-The agent team bus is Python (the admin tool, `pingbus`, the LXC helper, `declare.py`,
+The agent team bus (v1) is Python (the admin tool, `pingbus`, the LXC helper, `declare.py`,
 `element.py`), bash (the installer, the root wrapper) and Go (`ccy-teams`), glued by marker lines,
-exit codes and `sudo`. Opening `ccy-teams` takes 9-23 s (measured on the host: `--list` 9.3-23.0 s
-at a heavy load) because every bus read is a serial Python process (about 0.45 s each, 22 of them
-at six checkouts, three teams and six people), and every running session starts a Python process
-for its status line on every refresh and for each hook.
+exit codes and `sudo`. Opening `ccy-teams` takes 9-23 s on the host because every bus read is a
+serial Python process, and every running session starts a Python process for its status line and
+for each hook. LXC members are the most fragile part: EL9 guests have Python 3.9.
 
-The owner asked for a version 2: the bus rebuilt in Go from its requirements, properly
-optimised, not translated. [DESIGN.md](DESIGN.md) is that design: a new process model and
-privilege model on v1's data model. One Go codebase (`agent-bus` CLI, installer, member client),
-reads `ccy-teams` makes in-process plus one short-lived reader for every team run as `agent-bus`
-with no root, protocol 1 and every state file and lock unchanged so v1 and v2 run side by side,
-and a staged cut-over with rollback that ships the owner-visible wins first. Its requirements
-(R1-R50) come from four research digests of v1 (`RESEARCH-*.md`) and Fable's review.
+v2 is the bus rebuilt in Go as a separate system named `teamchat`, designed from the requirements
+and not from v1. It installs beside v1, touches nothing v1 uses, and is inert with no team. Teams
+move to it one at a time, by a migration the owner chooses to run. v1 is retired only when every
+team has moved, and that is raised with the owner then.
 
-**Plan of record.** This plan owns the whole rewrite, stages 1-8, host side included. Plan 00213
-keeps the work it has in flight, which is stage 2's status-line part: its Task 1.1 (the measure
-script), Task 1.2 (why a session renders about twice a second), Task 2.2 (the status line's parity oracle) and Task 2.3 (the cut-over). Its Tasks 3.1
-(the hooks port) and 3.2 (what stays in Python) are this plan's Task 3.1 and
-[RESEARCH-python-scope.md](RESEARCH-python-scope.md). No bus module is Ansible-loaded, so all of
-it is in scope (that file has the evidence per module).
+## The owner's directions
 
-## Owner direction: v1 is a prototype
+1. "the python version is NOT a golden archetype. its a prototype and first draft. this go version
+   DOES NOT have to stick to python approaches etc. FIX THINGS IMPROVE THINGS MAKE IT EXCELLENT"
+2. "i dont even care about staying compatible - now is the time for breaking changes and really
+   making this system PROPERLY DECENT"
+3. "already running teams like yours msut keep workiing", "teams v2 can be a different thing"
 
-Binding, from the owner to the build session: the Python is not a golden archetype. It is a
-prototype and a first draft. The Go version does not have to keep the Python's approaches; it
-fixes things, improves things, and is made excellent.
+Clarified with direction 3: **v2 is a separate system.** None of its wire, files, locks, CLI or
+process model has to stay compatible with v1, so there is no compatibility contract and no parity
+oracle against the Python. The owner's standing instruction "DO NOT GATE ON ME" stands: decisions
+are defaulted and may be overturned (Decisions, below).
 
-- **Specs come from requirements, not from the Python.** The Python is read for what the bus must
-  do and what it learnt the hard way. Where it is wrong, awkward, slow or over-complicated, the
-  spec designs it better.
-- **Every improvement is a numbered departure with its reason** (DESIGN.md section 17, and each
-  stage spec's own). A Python bug, quirk or workaround is never copied.
-- **Only the compatibility contract binds**, not the Python's internals. While v1 and v2 run side
-  by side, these stay compatible: the shared on-disk formats and locks, wire protocol 1, and the
-  CLI output that agents and scripts parse. A parity oracle checks that contract only. It does not
-  pin the Python's internal behaviour, its wording, or its process structure.
-- **Where the contract itself is bad**, the spec says so as a departure. It changes once v1 is
-  retired (stage 8), or sooner through a versioned format that v1 tolerates.
+**Plan of record.** [DESIGN-v2.md](DESIGN-v2.md) is the design: the shape, the seam contract, the
+names, the cost, the owner decisions and the trace of v1's requirements, over four chapters (A
+protocol and rooms, B member client, C host side, D coexistence and migration).
+[DESIGN.md](DESIGN.md), the earlier staged in-place replacement of v1, is superseded and stays as a
+record; its requirements R1-R50 are traced in DESIGN-v2.md section 8. Plan 00213 keeps v1's
+status-line work.
 
 ## Goals
 
-- `ccy-teams` opens in about 1 s at the owner's scale (D13), with one bus process (the reader)
-  started by an open.
-- No Python and no bash on any bus path: one Go codebase in `src-go`, deployed by the plays.
-- No root on any read; every change still needs the owner's password.
-- Every v1 requirement and hard-won behaviour kept (DESIGN.md section 2, and the requirements
-  carried from other plans below), each as a numbered expectation in its stage's spec. A v1
-  quirk or workaround is not a requirement: outside the compatibility contract, behaviour may
-  change by a numbered departure (Owner direction).
-- v1 and v2 coexist on the same state and locks until v1 is retired; each stage can be rolled
-  back by a redeploy.
+- `ccy-teams` opens in about 0.1 s whatever the number of teams, with no sudo, no Python and no
+  process per checkout, team or person (C 3.13, H-C7); it shows both systems in one board.
+- No Python and no bash on any v2 path: Go in `src-go`, deployed by the plays.
+- No root on any read and no sudoers file; every change needs the owner's password (DC4).
+- v2 touches nothing v1 uses, proven by a static gate and a VM-lab footprint diff (D 4).
+- Each team moves with an acceptance and a rollback, and nothing is lost silently (D 5, 6).
+- Every v1 requirement and hard-won lesson carried where it still applies (DESIGN-v2.md section 8).
 
 ## Non-Goals
 
-- A wire protocol 2 (D5), or changes to the data model before stage 8.
-- A resident host daemon, and Plan 00197's seat broker (D1, D11): the broker's own plan decides
-  whether it needs one.
-- The supervisor-plugin delivery path of Plan 00194 Task 2.1 (D4), until its upstream API ships.
-- Reworking the git, tmux and podman probes of the board.
+- Compatibility with v1's wire, files, locks or CLI.
+- Relay mode, until the hooks-daemon plugin API (#119) ships; it is then specified on v2.
+- Importing v1 room history (OD-D4: an export, the v1 archive and a link).
+- Retiring v1: its own plan, raised with the owner when no team is v1-live (D 7.2).
+- Plan 00197's seat broker, and reworking the board's git, tmux and podman probes.
 
-## Owner decisions
+## Decisions
 
-The owner's standing instruction is "DO NOT GATE ON ME", so each decision of DESIGN.md section 14
-takes the design's recommended option, **defaulted 2026-10-21, and the owner may overturn it**.
-The coordinator hears of any decision that turns out to be irreversible, or that contradicts the
-owner's words, before the stage that acts on it. D4 and D15 are the two that wait, as exceptions
-to "do not wait", because a stage acts on each before the owner would otherwise see it: the
-coordinator answers each (confirming the default itself, or taking it to the owner). Spec, build
-and review of the tasks they gate go ahead on their branches; only the merge to F44 waits.
+Every decision is in [DESIGN-v2.md section 7](DESIGN-v2.md#7-the-owner-decisions), each
+**defaulted; the owner may overturn it**, and the build follows the default until then. The
+coordinator hears of each one flagged there (IRREVERSIBLE, CONTRADICTS or VISIBLE) before the
+milestone that acts on it.
 
-| #   | Option taken                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D1  | (c'): one Go reader as `agent-bus` by a NOPASSWD Runas rule, no root, no daemon (stage 4)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| D2  | moot under D1 (c')                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| D3  | `sudo agent-bus` as root with the password, the change done by a child as `agent-bus`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| D4  | relay mode dropped from v2; specified against v2 when the upstream plugin API ships; `relay/lock` stays the delivery lock. **Overrides the owner's own design** (Plan 00194, decisions A-G: relay as the one delivery path, the supervisor plugin owning `pingbus watch`), and with it parks 00194's delivery goal (Tasks 2.1, 2.1b, 2.2) behind stage 6b. Stage 2 already acts on it (the Go hook refuses relay mode, so a stage-2 kit has no relay path): raised with the coordinator at the M0 hand-over, and answered by the coordinator before Task 3.1 merges the relay refusal |
-| D5  | wire protocol 1 kept through and after the migration                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| D6  | host_vars, edited by a Go YAML node editor (`go.yaml.in/yaml/v3`, an allowlist row)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| D7  | LXC apply ported to Go at stage 7, play-driven as today                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| D8  | static amd64 only                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| D9  | legacy forms dropped at stage 8 after a migration that reports clean. **One-way**: raised with the coordinator before stage 8 starts                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| D10 | Plan 00192 Task 3.2's Go installer adopted, merged after the owner's root test                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| D11 | the seat broker in its own plan                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| D12 | the admin commands no program calls are kept                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| D13 | 1 s open at six checkouts, three teams, six people; redraw under 200 ms; `--list` and the interactive open                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| D14 | a reader failure is shown as v1 shows a refused `sudo -n agent-bus list`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| D15 | a keeper and a worker in every member. **A new resident process on every member machine**, which DESIGN.md asks the owner about: raised with the coordinator at the M0 hand-over, and answered by the coordinator before 6b merges                                                                                                                                                                                                                                                                                                                                                    |
-| D16 | **not the design's 1 s**: `refreshInterval` is 25 s, set by Plan 00213 Task 1.3 (the coordinator's option A, the owner may change it), because the supervisor's context sidecar goes stale at 30 s                                                                                                                                                                                                                                                                                                                                                                                    |
-| D17 | one ccy image bump per stage that changes the image (2, 6a, 6b, 8)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| D18 | versioned kits, resolved at launch                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| D19 | `element.py` ported to `agent-bus element` at stage 5                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| D20 | DESIGN.md 10.2's stage order, with the milestones below                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ID     | Decision                                                                                                                                                | State                                                                                                       |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| D4     | no relay mode in v2; specified on v2 when the plugin API ships                                                                                          | accepted by the coordinator                                                                                 |
+| D15    | a keeper and a worker in every member, the resident cost measured (B 2.14)                                                                              | accepted by the coordinator                                                                                 |
+| TID    | a team has a stable id (at most 22 characters) fixed at creation; its name is display only; `server_name` and handles carry the id and survive a rename | defaulted, the coordinator agreed; it goes to the owner in the coordinator's next digest                    |
+| INT3   | a v1 name over 22 characters migrates under a short id declared with the move, and stays its display name                                               | defaulted; to the coordinator                                                                               |
+| others | OD-A1-A9, BD1-BD15, DC1-DC17, OD-D1-D7, INT1, INT2                                                                                                      | defaulted; the flagged ones (OD-A7, BD15, DC1, DC4, DC5, DC15-DC17, OD-D1, OD-D5, OD-D6) to the coordinator |
 
-## Milestones
-
-| Milestone | What                                                                                                                                                              | Stage (DESIGN.md 10.2) | Tasks                  |
-| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | ---------------------- |
-| M0        | Bookkeeping: plan of record, decisions defaulted, Python scope, other plans' open tasks                                                                           | none                   | 1.4, 1.5               |
-| M1        | Go foundations: `bus/proto`, `bus/state`, `bus/matrix` with `fakehs`, the shared corpora `tests/fixtures/agent-bus-protocol` and `tests/fixtures/agent-bus-state` | none                   | 1.6-1.8                |
-| (early)   | In-process `ccy-teams` reads, built beside M1                                                                                                                     | 1                      | 2.1, 2.2               |
-| M2        | Hooks and status line in Go, versioned kits                                                                                                                       | 2                      | 3.1-3.3, 00213 2.2-2.3 |
-| (between) | The installer, the reader, the admin CLI and `agent-bus element`, in that order                                                                                   | 3, 4, 5                | 4.1-6.2                |
-| M3        | The short pingbus verbs in Go (6a)                                                                                                                                | 6, first part          | 7.1                    |
-| M4        | Keeper, worker and delivery (6b)                                                                                                                                  | 6, second part         | 7.2, 7.3               |
-| M5        | LXC                                                                                                                                                               | 7                      | 8.1                    |
-| M6        | Retire v1                                                                                                                                                         | 8                      | 9.1-9.3                |
-
-Two points on how the milestones fit the design:
-
-- **M1 builds ahead of a caller**, and DESIGN.md 3.2 says no stage ships code nothing calls. The
-  corpora have callers at once: the Python tests run them. A Go package merges to F44 with its
-  first caller: stage 1 for the declarations and the state decoders it reads; stage 2 for the
-  member files the hooks read, and for `bus/matrix` and `fakehs`, because the Go SessionEnd hook
-  posts the goodbye itself (R28, R45) and charges the send gate in `outbox.json` (R42); stage 4
-  for the admin endpoints the reader uses. It may be developed earlier on its own branch.
-- **Stage 6 is split** into 6a (every remaining short verb in Go, the Python watcher still the
-  receiver) and 6b (keeper, worker, delivery, and the status line reading `status-row.json`). This
-  follows B10's rule of one implementation per command per kit version. 6a's coexistence tests
-  (R47) run against the Python watcher. 6b's run against v1 sessions.
+DESIGN.md's D1-D20 belonged to the in-place design and are superseded with it.
 
 ## Requirements carried from other plans
 
-Each is an expectation of the stage named, as well as DESIGN.md section 2.
+| From                                      | What                                                                                                                                                                       | Carried by                                                                                                               | Milestone |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | --------- |
+| Plan 00201 Task 2.16                      | rename a team end to end                                                                                                                                                   | the stable team id (TID): a rename edits `name` and runs the play; nothing restarts, nothing is re-issued (C44, C 3.5.2) | N4        |
+| Plan 00211                                | reports, questions, threads and asking a human, the side rooms and their drift check (its [SPEC.md](../00211-agent-bus-reports-and-questions-rooms/SPEC.md), as behaviour) | A 4.3, 6.3, 10; B6                                                                                                       | N1-N3     |
+| Plan 00194 Task 2.0e                      | a scheduled restart posts no goodbye (waits on hooks-daemon #127)                                                                                                          | B28's goodbye: the N3 spec skips `left` for a restart the supervisor records, once #127 ships                            | N3        |
+| Plan 00194 Task 2.0g                      | an addressed reply that is only the quote fallback is ignored as `empty` and logged by no one                                                                              | A 7.5 (`empty`, the unheard count) and B18-B24: the N3 spec decides whether `empty` counts as unheard                    | N3        |
+| Plan 00194 Tasks 2.1, 2.1b, 2.2           | the supervisor-plugin delivery path                                                                                                                                        | specified on v2 when #119 ships (D4)                                                                                     | later     |
+| Plan 00194 SPEC-inject E1-E26, Plan 00203 | delivery into a session; hot control                                                                                                                                       | B18-B24, B31-B35                                                                                                         | N3        |
+| Plan 00213                                | the status line's own TTL cache, the 25 s refresh, stderr shape, empty stays empty                                                                                         | B27, B 2.9                                                                                                               | N3        |
 
-- **Plan 00211, the reports and questions rooms** (live in Python; its files are not edited from
-  here): pingbus 0.2.0's `report`, `ask-human`, `thread` (`--ask`, `--close`), `questions` and
-  `history --room` verbs; the `room:`, `question:` and `revises:` envelope lines; the `ROOM` lines
-  of `agent-bus list`; the side rooms (`_ensure_side_rooms`, `_sync_questions_members` in
-  `bootstrap`); the side-room drift check in health; `report_per_hour`; the role lines in the
-  hooks. Its [SPEC.md](../00211-agent-bus-reports-and-questions-rooms/SPEC.md) is the authority.
-  The stages: hooks at 2, health at 3, `ROOM` lines in the reader at 4, admin at 5, verbs at 6a,
-  sync and room routing at 6b.
-- **Plan 00213, the status line**: the bus segment's own TTL cache (SPEC-status-line S32-S36),
-  separate from the hooks daemon's refresh; the 25 s refresh (D16); stderr may differ in wording
-  and keeps its shape, and empty stays empty (S24, S37). At 6b the line reads `status-row.json`.
-  The 6b spec says whether the cache still earns its place, and the owner's separate-TTL rule
-  holds either way.
-- **Plan 00194**: pingbus's own notices (the disconnected notice, the session-end goodbye and
-  `seat farewell`) skip the 60 s duplicate window and keep the token bucket (its Task 2.0i; the
-  goodbye at stage 2, the seat commands at 6a). `seat disconnected` and the launcher write each outcome to the owner-only
-  `.claude/ccy/pingbus/disconnect.log` (2.0h, stage 6a). An unaddressed human message gets one
-  `ignored.log` line per member and `pingbus status` counts `ignored=` (2.0f, stage 6b).
-- **Plan 00201**, when each reaches F44: the client-side security findings (2.11, 2.12) and the
-  team-settings rules S-F1 to S-F14 (2.15) are expectations of stages 5 and 6b, and also: 2.12's
-  N5 (the pre-swap backup on a rendered config change, in `config_restart.py`) of stage 3, where
-  Task 4.2 makes it an installer function; 2.15's S-F14 (`removed_humans`, the name refused for
-  good, in `teamfile.py` and `declare.py`) of stage 1, whose decoders accept it, and stage 3,
-  whose installer validation keeps the refusal; 2.17's `internal/hostcheckout` refusal and single
-  handle renderer of stage 1, whose in-process seats rewire `teams/board/collect.go` and the
-  picker; 2.18's play-lock hold across the host_vars write and the apply (S-G1 to S-G11) of
-  stage 5's `bus/declare` write side.
-- **The plan acceptance suites** of Plans 00161, 00201, 00203 and 00211 run v1's Python and
-  zipapps. Stage 8 re-points or retires each before it deletes the Python.
+Tasks M0 folded in here from other plans, and what the clean break does to each:
 
-## Folded in from other plans
-
-Recommended to the coordinator, who decides; those plans' files are not edited from here. On
-accepting a fold, the coordinator marks the folded task ❌ in its own plan, pointing to the 00209
-task that now owns it, so that no task has an owner in two plans.
-
-| Plan task                          | State there                               | Recommendation                                                                                                                                                                                                                                                                                |
-| ---------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 00213 3.1                          | the hooks port                            | **moved here**: Task 3.1                                                                                                                                                                                                                                                                      |
-| 00213 3.2                          | what stays in Python                      | **moved here**: answered by [RESEARCH-python-scope.md](RESEARCH-python-scope.md)                                                                                                                                                                                                              |
-| 00194 1.2                          | the owner's tick on the design            | stays in 00194; its relay part is overtaken by D4                                                                                                                                                                                                                                             |
-| 00194 2.0c                         | merged; host checks H1-H7 pending         | stays in 00194 (v1's acceptance); SPEC-inject E1-E26 are 6b expectations                                                                                                                                                                                                                      |
-| 00194 2.0d                         | merged; the owner's restart check pending | stays in 00194; E25 and E26 (R24) are 6b expectations                                                                                                                                                                                                                                         |
-| 00194 2.0e                         | waits on hooks-daemon #127                | **fold into Task 3.1**: the SessionEnd hook is Go from stage 2, so build it there once #127 ships                                                                                                                                                                                             |
-| 00194 2.0f                         | merged; the owner's check pending         | stays in 00194; `ignored.log` is a 6b expectation                                                                                                                                                                                                                                             |
-| 00194 2.0g                         | not started: should `empty` be logged     | **fold into Task 7.2**: a receive rule, decided in its spec                                                                                                                                                                                                                                   |
-| 00194 2.1, 2.1b, 2.2               | wait on hooks-daemon #119                 | stay in 00194; when #119 ships they are specified against v2 (D4), not on the Python relay. This parks 00194's delivery goal behind 6b, and a stage-2 kit already refuses relay mode, so D4 goes to the coordinator at the M0 hand-over and the coordinator answers it before Task 3.1 merges |
-| 00201 2.8                          | relay-mode spool lacks a `REPLY` line     | **superseded** by D4: relay mode is not carried; cancel in 00201                                                                                                                                                                                                                              |
-| 00201 2.11, 2.12, 2.15, 2.17, 2.18 | in-flight Python and Go fixes             | stay in 00201; carried as expectations (above)                                                                                                                                                                                                                                                |
-| 00201 2.16                         | team rename, not designed                 | stays its own work; build it on v2 after stage 5 (Go installer and admin), not in Python                                                                                                                                                                                                      |
-| 00201 2.7, 2.13, 2.14, 2.19        | acceptance, ccy-teams Go, run.bash        | unaffected                                                                                                                                                                                                                                                                                    |
+- **00213 Task 3.1** (the v1 hooks in Go): not built. v1's hooks stay Python until v1 retires;
+  v2's are `teamchat hook` (B 2.8). `feat/bus-v2-m2-hooks` is superseded.
+- **00213 Task 3.2** (what stays in Python): answered by [RESEARCH-python-scope.md](RESEARCH-python-scope.md).
+- **00201 Task 2.8** (the relay spool's `REPLY` line): superseded, relay mode is not carried (D4).
 
 ## Tasks
 
-Each stage's acceptance includes the `qa-reviewer` agent over that stage's diff, the owner's host
-checks it names (DESIGN.md section 16), and H10.
+Each milestone's acceptance includes an adversarial review to MERGE, the `qa-reviewer` agent over
+its diff, and the host checks it names, run through meta-deploy. A Go package merges to F44 with
+its first caller.
 
-### Phase 1: Design, bookkeeping and foundations (M0, M1)
+### Phase 0: N0, the design
 
-- [x] ✅ **Task 1.1**: Research v1 (four digests, committed as `RESEARCH-*.md`).
-- [x] ✅ **Task 1.2**: [DESIGN.md](DESIGN.md): requirements, shape, read model, state and
-  versions, privilege, concurrency, member client, homeserver, migration, tests, what is not
-  carried, observability, decisions, risks, host checks.
-- [x] ✅ **Task 1.3**: Fable reviewed DESIGN.md (REWORK); the one rework round addressed findings
-  1-12 (`subagent-reports/261019-v2-design-review-fable.md`, dispositions in
-  `subagent-reports/261019-v2-design-opus.md`).
-- [x] ✅ **Task 1.4**: D1-D20 decided by default (Owner decisions above), D16 by Plan 00213, D17 and
-  D20 amended for the stage 6 split; D4 and D15 are raised with the coordinator at the M0
-  hand-over, D9 before stage 8, each answered by the point its row gives. The owner may overturn any. DESIGN.md section 14 points here.
-- [x] ✅ **Task 1.5**: M0: this plan made the plan of record and 00213 split to match; the
-  milestones; the Python scope per module
-  ([RESEARCH-python-scope.md](RESEARCH-python-scope.md)); the other plans' open tasks and
-  requirements (above).
-- [ ] ⬜ **Task 1.6**: The shared corpora (DESIGN.md 5.4), `tests/fixtures/agent-bus-protocol`
-  and `tests/fixtures/agent-bus-state`, run by the Python tests first, with Plan 00211's room
-  forms and the Unicode-15 envelope cases.
-- [ ] ⬜ **Task 1.7**: `bus/proto` and `bus/state`, test first against the corpora; each part
-  merges with its first caller.
-- [ ] ⬜ **Task 1.8**: `bus/matrix` and `bus/matrix/fakehs` with Tuwunel's recorded quirks as
-  switches; the client and send path merge with the Go goodbye (stage 2), the admin endpoints with
-  the reader (stage 4).
+- [x] ✅ **Task 0.1**: Research v1 (`RESEARCH-*.md`); [DESIGN.md](DESIGN.md), reviewed by Fable and
+  reworked once (`subagent-reports/261019-*`); M0's bookkeeping (`subagent-reports/261021-m0-*`).
+- [x] ✅ **Task 0.2**: The frame ([DESIGN-v2-FRAME.md](DESIGN-v2-FRAME.md)) and the four area
+  designs A-D, each reviewed adversarially (`subagent-reports/261021-n0-*`).
+- [x] ✅ **Task 0.3**: The integration: [DESIGN-v2.md](DESIGN-v2.md), the chapters edited at their
+  seams (section 3), 17 contradictions settled (section 5), the team id and INT3; DESIGN.md marked
+  superseded (`subagent-reports/261021-n0-integration.md`).
+- [ ] ⬜ **Task 0.4**: The N0 review: one adversarial review of the whole design to MERGE, checking
+  everything DESIGN-v2.md section 9 lists, and area B's defaults the build notes challenge (BD9's
+  `disconnected` on the next start, BD2's exit 69 with no worker, BD11's dropped SessionEnd lift).
+- [ ] ⬜ **Task 0.5**: The coordinator's answers on the flagged decisions (Decisions, above).
 
-### Phase 2: In-process reads (stage 1)
+### Phase 1: N1, foundations
 
-- [ ] ⬜ **Task 2.1**: H1 at an ordinary load, with the interactive open, before any change.
-- [ ] ⬜ **Task 2.2**: `SPEC-view.md` (stage 1 part); `bus/declare` read side, seats in-process,
-  one systemd call, one `declare overview` kept for APPLIED; the decoders and corpus cases they
-  need; ccy-teams switched; H10.
+- [ ] ⬜ **Task 1.1**: `internal/teamchat/paths`, the one source of every name and path (D 3.3).
+- [ ] ⬜ **Task 1.2**: The static gate `teamchat-keeps-off-v1` with its v1 name list (D 4.1), in
+  `qa-changed.bash` and `qa-all.bash` before the first v2 package merges.
+- [ ] ⬜ **Task 1.3**: `teamchat/proto`, test first: the wire, the roster type, the verdict and
+  room-trust check, kinds, references, limits, the envelope, the shared corpus (A 2-13), and the
+  room specs exported as data (seam 13).
+- [ ] ⬜ **Task 1.4**: A's host checks HC-A1 to HC-A7 (host or VM lab), before `proto` fixes the
+  rules they decide.
+- [ ] ⬜ **Task 1.5**: The matrix client and `fakehs`, built and reviewed on
+  `feat/bus-v2-m1-matrix` (58c7b6e1): rebuilt off 35acceab (Phase 7), placed under
+  `internal/teamchat/` (D 3.3), merged with its first caller (N2 or N3), not alone.
+- [ ] ⬜ **Task 1.6**: GO-2026-6809: the Go toolchain bump, with the coordinator, before the matrix
+  client merges.
 
-### Phase 3: Hooks and status line in Go (stage 2, M2)
+### Phase 2: N2, the host side
 
-The status line is Plan 00213's: its Task 2.1 is done (`src-go/internal/pingbus/statusline`),
-Task 2.2 is the parity oracle and Task 2.3 the cut-over; its Task 1.1 measures before and after,
-and its Task 1.2 (in progress) finds why a session renders about twice a second.
+- [ ] ⬜ **Task 2.1**: The N2 spec from area C; `teamchat-admin` with caller classes and the
+  `teamchat-ctl` child (C 3.3); DC17's dependencies with their go-deps allowlist rows.
+- [ ] ⬜ **Task 2.2**: The homeserver instance per team (C 3.2): the pinned Tuwunel, the hardened
+  `teamchat-server@<team>` unit carrying D's `InaccessiblePaths=`, checked by D's gate (seam 49).
+- [ ] ⬜ **Task 2.3**: Install and apply (C 3.5), the rooms engine from A's specs (C 3.6), the
+  roster, members, humans and roles; the service-account localpart reserved by HC-A6 (seam 18).
+- [ ] ⬜ **Task 2.4**: Seats and bundles in the seat store (C 3.7), the declarations (C 3.8),
+  Element profiles (C 3.10), health and the status records (C 3.11), backups and restore (C 3.12).
+- [ ] ⬜ **Task 2.5**: Acceptance: C 3.14's tests; the M44 real-Tuwunel test, and Tuwunel's answers
+  for a locked and a deactivated account recorded into `fakehs` (host or VM lab); VM-lab scenario
+  `teamchat-coexist` (P1); the install on the host with the footprint before and after (P2); host
+  checks H-C1 to H-C12.
 
-- [ ] ⬜ **Task 3.1**: Not merged until the coordinator has answered D4 (its refusal of relay
-  mode acts on D4); spec, build and review go ahead. `SPEC-pingbus-hooks.md`; Go `hook` reading v1 files, the dispatch to
-  `pingbus.pyz` for the rest (B10), `goodbye.json` dropped (B7), a parity oracle per hook on
-  00213's golden pattern, over the compatibility contract only (Owner direction). Port order by measured cost (00213 Task 1.1): in socket mode the hooks
-  that start pingbus are SessionStart, UserPromptSubmit, Stop and SessionEnd, since PostToolUse
-  runs it only in relay mode. Plan 00211's role lines; Plan 00194 Task 2.0e (a scheduled restart
-  posts no goodbye) once hooks-daemon #127 ships. Two coexistence tests from the start, because
-  stage 2 shares `state/` with v1 (R47): the Go goodbye charging the send gate in `outbox.json`
-  under the outbox lock (R42) against a v1 `send` in a second real process, and the
-  `said-goodbye.json` it writes read by v1's `seat disconnected` (H11). The goodbye finishes
-  inside the plugin hook's 6 s timeout, under the session's 8 s SessionEnd budget; the spec states
-  and keeps both. Formerly 00213 Task 3.1.
-- [ ] ⬜ **Task 3.2**: Versioned host and LXC kits resolved at launch (R49, B9); H13.
-- [ ] ⬜ **Task 3.3**: The ccy image: the container-version gate covers pingbus's Go sources, the
-  container version bump, and the host's `pingbus` added to the deployed tools (Plan 00206).
+### Phase 3: N3, the member client, LXC members first
 
-### Phase 4: Installer (stage 3)
+- [ ] ⬜ **Task 3.1**: The N3 spec from area B. It says that net/http may resend a dropped `/sync`
+  (a GET retried on some connection errors), and that this is safe because a sync with a since
+  token is idempotent; and it carries 00194's 2.0e and 2.0g (Requirements carried).
+- [ ] ⬜ **Task 3.2**: The `teamchat` binary: CLI, member state, keeper and worker, locks, sync,
+  delivery, hooks, status line, plugin and skill (B 2.1-2.12).
+- [ ] ⬜ **Task 3.3**: LXC members: guest operations (B 2.13), LXC apply from the host (C 3.9),
+  `teamchat-session-<user>.service`; the container's own config stays with its own play (seam 52).
+- [ ] ⬜ **Task 3.4**: Acceptance: B 2.15's tests, the resident-cost bars by
+  `acceptance-member-cost.bash` (B 2.14), an LXC member on a real team in the VM lab.
 
-- [ ] ⬜ **Task 4.1**: Plan 00192 Task 3.2's Go installer merged after the owner's root test (D10).
-- [ ] ⬜ **Task 4.2**: The install lock, the health check in Go with its sandbox (R7) and Plan
-  00211's side-room drift check, the source digest in the stamp (B4) and the last
-  `declare overview` removed; `render`, `bridge.py`, `config_restart` and `timer_state` become
-  installer functions and their play tasks go; H6.
+### Phase 4: N4, ccy members and the board
 
-### Phase 5: The reader (stage 4)
+- [ ] ⬜ **Task 4.1**: The v2 kit in the ccy image (D 3.5), with the CCY version bump.
+- [ ] ⬜ **Task 4.2**: The launcher: the session directory mounts, refusing a checkout that contains
+  the seat store (seam 53); removing the session record before the release, which runs `teamchat seat disconnected` (seam 54, 27); resolving each team's system, OD-D2's refusal (seam 55).
+- [ ] ⬜ **Task 4.3**: ccy-teams on both systems: the board from the status records (C 3.13, D 3.9),
+  the flows (C45), creating a team and renaming it (00201 Task 2.16).
+- [ ] ⬜ **Task 4.4**: Acceptance: H-C7 and H-C8; the v2-native pilot `teamchat-pilot` with one ccy
+  session and one LXC member, its cost measured (P3).
 
-- [ ] ⬜ **Task 5.1**: `SPEC-view.md` (reader part); `agent-bus view` and the Runas sudoers line,
-  Plan 00211's `ROOM` lines included; ccy-teams and the seat flows read it; H3-H5, H10.
-- [ ] ⬜ **Task 5.2**: The old `(root)` sudoers lines removed, after the owner accepts Task 5.1.
+### Phase 5: N5, other member kinds
 
-### Phase 6: Admin changes and Element (stage 5)
+- [ ] ⬜ **Task 5.1**: Host `cc` members on v2 (seam 56), refused until then (D 3.9).
+- [ ] ⬜ **Task 5.2**: Docker and VM guests, after LXC (B 2.13), when a team needs one.
 
-- [ ] ⬜ **Task 6.1**: Admin changes in the Go `agent-bus` CLI (a child as `agent-bus`), the bash
-  wrapper deleted, `bus/declare` write side, seat take and remove in Go, Plan 00211's side rooms
-  in `bootstrap`; the registry coexistence test; H12.
-- [ ] ⬜ **Task 6.2**: `agent-bus element` replaces `element.py` in `play-agent-bus-element.yml`
-  (R50, D19).
+### Phase 6: N6, migration
 
-### Phase 7: Keeper and worker (stage 6, M3 and M4)
+- [ ] ⬜ **Task 6.1**: The N6 spec from area D; `internal/teamchat/migrate/v1`, the only package
+  that names v1 (D 5.5); `teamchat-admin migrate <step>` M0-M8, the fence, the carry plan, the
+  commit and rollback (D 5); `ccy-teams migrate` and `migrate-declared.bash` (D 5.10, seam 55).
+- [ ] ⬜ **Task 6.2**: Acceptance: VM-lab scenarios `teamchat-migrate` and
+  `teamchat-migrate-rollback` (P1); the migration pilot (P4); the first real team, the owner's
+  choice (P5); then teams one at a time at the owner's pace.
+- [ ] ⬜ **Task 6.3**: When no team is v1-live, raise v1's retirement with the owner (its own plan).
 
-- [ ] ⬜ **Task 7.1**: 6a: `SPEC-pingbus.md`; every remaining short verb in Go (`recv`, `wait`,
-  `history`, `send`, `say`, `status`, `seat disconnected`, `seat farewell`, `seat retire`, `reach`, Plan
-  00211's verbs), with `seat exec` and `seat keep` left for 6b, the Python watcher
-  still the receiver; the lock coexistence tests against it (R47); a ccy image bump.
-- [ ] ⬜ **Task 7.2**: 6b, merged once the coordinator has answered D15: keeper and worker with every member lock kept (R47), delivery
-  (SPEC-inject E1-E26), the status row and the status line switched to it, Plan 00194 Task 2.0g's
-  rule; the coexistence tests; H7-H9, H11; a ccy image bump.
+### Phase 7: v1 while it runs
 
-### Phase 8: LXC (stage 7, M5)
-
-- [ ] ⬜ **Task 8.1**: LXC member apply in Go (R33, R48), guest ops through `pingbus guest`, the
-  kit sync without Python; H8.
-
-### Phase 9: Retire v1 (stage 8, M6)
-
-- [ ] ⬜ **Task 9.1**: D9 raised with the coordinator; the legacy-form migration run and
-  reported clean; then the Go decoders drop the legacy forms.
-- [ ] ⬜ **Task 9.2**: The plan acceptance suites that run v1 re-pointed or retired; delete the
-  Python and bash bus code, the zipapps and `bundle.py`'s play tasks, with the ccy container
-  version bump.
-- [ ] ⬜ **Task 9.3**: `qa-reviewer` over the plan's whole diff.
+- [ ] 🔄 **Task 7.1**: Stage 1 for v1's ccy-teams, in-process reads (`SPEC-view.md`), on
+  `feat/bus-v2-s1-declare`; its open time measured against F44 b18e91f5.
+- [ ] ⬜ **Task 7.2**: The branches holding 35acceab (`feat/bus-v2-m1-proto*`, `m1-state*`,
+  `m1-matrix`, `m2-hooks*`, `s1-declare`) are not pushed or merged until rebuilt onto e918261b, or
+  dropped where v2 supersedes them. s1-declare: a new branch at e918261b, F44 b18e91f5 merged,
+  then its own commits cherry-picked from ce87e241 and d342732b on, skipping the f460abb7 merge.
+- [ ] ⬜ **Task 7.3**: Plan 00213's status-line golden pins the Python's exact stdout; it is
+  loosened to what callers parse when the Go status line takes over from the Python one.
 
 ## Success Criteria
 
-- [ ] An open of `ccy-teams` meets D13's bar on the host (H10).
-- [ ] No sudoers rule runs a bus process as root; no Python is started by the bus on the host or
-  in a member.
-- [ ] CPU per status-line render and per hook event measured before and after (00213 Task 1.1).
-- [ ] Every stage's expectations pass, and the corpora and coexistence tests pass against v1 until
-  stage 8.
-- [ ] The rollback drill (H9) passed before stage 6b was accepted.
+- [ ] The N0 review is at MERGE, and each milestone's review and `qa-reviewer` pass.
+- [ ] With v2 installed and no team, nothing is resident and v1's footprint is unchanged (P2, H-C11).
+- [ ] A ccy-teams open meets C 3.13's bar on the host (H-C7).
+- [ ] The member resident-cost bars hold (B 2.14), and the pilot's cost is recorded (P3).
+- [ ] No sudoers file, no root on a read, and no Python started by v2 on the host or in a member.
+- [ ] Every team that moves passes its acceptance (A1-A8, D 6.1), with no duplicate on a re-run.
 
 ## Delivery & Milestones
 
-- Design proposed on `feat/agent-bus-v2-design`; revised after Fable's review on
-  `feat/agent-bus-v2-design-2`.
-- M0 on `feat/bus-v2-m0-plan`.
+- The in-place design on `feat/agent-bus-v2-design`, revised on `feat/agent-bus-v2-design-2`; M0
+  on `feat/bus-v2-m0-plan`.
+- N0's area designs on `feat/bus-v2-n0-{a-protocol,b-member,c-host,d-migration}`, integrated on
+  `feat/bus-v2-n0`.
