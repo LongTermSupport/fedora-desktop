@@ -378,8 +378,19 @@ one for 1.9.4); a pin bump that drops or renames a key fails the test before the
   never by reading text (I-B12): 0 is present, 1 is absent, and any other code fails the verb
   with the code named. The permanent configuration (`--permanent`) and the runtime are queried
   separately, and each is converged on its own. Decision DC12 holds the D-Bus alternative.
-- The live LXC bridge subnet is added to every team's `allow_from` at render time, computed
-  in-process from the bridge interface, as v1's `bridge.py` did (R3).
+- The live LXC bridge subnet is added at render time, computed in-process from the bridge
+  interface, as v1's `bridge.py` did (R3), but only to the `allow_from` of a team that declares
+  an LXC member (3.8). A team with no LXC member is not reachable from the bridge at all.
+- `allow_from` is not a boundary between teams on one host (security 14). Every ccy container
+  reaches the bus address as host-local traffic, and every guest on the bridge reaches each team
+  that admits the bridge, a guest that is a member of no team included. Between teams on one
+  host, the boundary is the member's token and, for humans, their password with the homeserver's
+  login rate limits; `allow_from` keeps out other machines, not other teams. Risk K16; area A's
+  threat table (A 6.9) states the same.
+- No TLS, as in v1 (R3): every member URL is plain HTTP to an IP literal on loopback, the bus
+  interface or the bridge, never routed off the machine, and M14 refuses `http://` to anything not
+  listed in the bundle's `plain_http_hosts` (3.7.2). Traffic between local processes is visible
+  only to root and to the processes' own owners, who can read the tokens anyway.
 
 ### 3.3 The host program
 
@@ -388,14 +399,17 @@ installed by root, 0755 root:root, in a root-owned directory (C8). The first thi
 decide the caller class from the real and effective uid, and each verb belongs to exactly one
 class. A verb asked of the wrong class exits 77 naming the class it needs (DESIGN 3.1).
 
-| Caller class   | How it is reached                                              | Verbs                                                                                                                                                                                                                                                                                                               |
-| -------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| root           | the play (`become`), the two timers, the owner's password sudo | `team apply`, `team remove`, `member add\|return\|park\|retire\|reissue`, `role apply`, `human password\|devices\|logout\|lock\|unlock`, `backup`, `backups`, `restore`, `health`, `lxc apply`, `check`, `migrate stage\|fence\|unfence\|fence-status\|carry\|commit\|archive\|archive-check --team T`, `footprint` |
-| `teamchat-ctl` | only `ctl-child`, started by root with `os/exec` `Credential`  | `ctl-child` (reads one typed request on stdin, answers one typed response on stdout)                                                                                                                                                                                                                                |
-| anyone else    | the owner, the play before any root task, the Element play     | `declare check`, `element check\|apply`, `status`, `version`                                                                                                                                                                                                                                                        |
+| Caller class   | How it is reached                                              | Verbs                                                                                                                                                                                                                                                                                                                                                                                                          |
+| -------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| root           | the play (`become`), the two timers, the owner's password sudo | `team apply`, `team approve`, `team remove`, `member add\|return\|park\|retire\|reissue\|set`, `role apply`, `human password\|devices\|logout\|lock\|unlock`, `redact`, `backup`, `backups`, `restore [--resume\|--discard\|--lost]`, `health`, `lxc apply`, `check`, `migrate preflight\|stage\|fence\|fence-status\|capture\|carry\|commit\|archive\|archive-check\|unfence\|rollback --team T`, `footprint` |
+| `teamchat-ctl` | only `ctl-child`, started by root with `os/exec` `Credential`  | `ctl-child` (reads one typed request on stdin, answers one typed response on stdout)                                                                                                                                                                                                                                                                                                                           |
+| anyone else    | the owner, the play before any root task, the Element play     | `declare check`, `element check\|apply`, `status`, `version`                                                                                                                                                                                                                                                                                                                                                   |
 
 The `migrate` verbs and `footprint` behave as area D says (D §5.4, §5.5); C provides them in the
-same binary, and each `migrate` verb takes the team lock like every root verb.
+same binary, and each `migrate` verb takes the team lock like every root verb. The list is one
+root verb per root act of D's steps (M0 `preflight`, M2 `fence`, M3 `capture`, M4 `carry`, the
+commit, the archive acts, and the rollback's `unfence` and `rollback`); D 5.4 names which of its
+acts run as the owner instead (coherence 17), and no step reaches root by any other verb.
 
 `version` answers for every class and prints the binary's source digest (the scheme of Plan 00192:
 `go.mod` plus every non-test file of the command and the module packages it imports, baked in with
@@ -500,7 +514,10 @@ later step is root.
 02. The freshly built `teamchat-admin declare check`, run unprivileged (it is an "anyone" verb, 3.3),
     with the Ansible-parsed `teamchat_teams`, `teamchat_lxc_members` and `teamchat_element_teams`, and the
     ports of `agent_bus_teams`, as JSON on stdin (3.8). So the binary that will apply the schema is the one that judges it, on a fresh
-    host as on an upgrade. Nothing after this step runs if it refuses.
+    host as on an upgrade. Nothing after this step runs if it refuses. It also compares each
+    present team's security fields with the owner's last approval (decision DC18, below) and
+    prints one `SECURITY<TAB><team><TAB><field><TAB><old> -> <new>` line per difference; the play
+    shows those lines in a task of its own and then fails, naming `ccy-teams approve <team>`.
 03. Install: root copies the built `teamchat-admin` to `/usr/local/lib/teamchat/teamchat-admin-<digest>` 0755 root and
     swaps the link `/usr/local/sbin/teamchat-admin`; `teamchat` goes to
     `/usr/local/lib/teamchat/kit/<digest>/` with a `current` link (C33). (The ccy image carries its
@@ -525,7 +542,11 @@ later step is root.
     own team's `team apply` names it in that team's drop-in, after that team's backup (3.2.3,
     3.5.2). The pin lives in `vars/version-pins.yml` beside every other pin, so the
     `update-versions` skill sees it. The release is unsigned, so the pin is the supply-chain
-    check, as in v1.
+    check, as in v1. Since the pin file is one an agent can edit (K9), the play prints the pinned
+    version and hash in a task of its own whenever they differ from `installed.json`'s, so the
+    owner sees a pin change on the run that applies it, and the `update-versions` flow for this
+    pin cross-checks the hash against the checksum upstream publishes with the release (or its
+    signature, if Tuwunel starts signing) before it writes the pin (security 15).
 07. Units: `teamchat-server@.service`, `teamchat-health.{service,timer}`, `teamchat-backup.{service,timer}`, the
     resolver stub, all 0644 root; one `daemon_reload` if any changed. The two timers are enabled
     only while at least one team is present, so a v2 install with no teams starts nothing (C40).
@@ -544,6 +565,25 @@ scopes steps 10-13 to the teams ccy-teams is changing, as v1's `agent_bus_only_t
 does. A team outside the scope keeps its drop-in, and so its Tuwunel version, until a play
 applies it. The one exception: when step 7 changed the base unit's text, steps 12 and 13 run for
 every present team, scope ignored, and the play prints a task saying so (3.2.3). No step supports `--check` except step 2, which is read-only.
+
+The play never enables, disables, starts, stops or prunes a `teamchat-fence@` instance: the fence
+is area D's migration runtime state, owned by the `migrate` verbs (D 3.5), and a play run during
+a migration leaves it as it is. A VM-lab test runs the play with a fence up and checks it is
+still up (operations 22).
+
+**Security policy approval (decision DC18, security 2).** `host_vars` is a file every ccy session on
+the repository can write, so a declaration edit alone must not change who can reach a team or
+act in it. The security fields are each team's `humans`, `coordinator`, `allow_from`, `listen`,
+`url` and `trust`, and the team's existence itself. `teamchat-admin team approve --team T` (root,
+password sudo, the declaration on stdin) writes them to
+`/var/lib/teamchat-status/teams/<team>/approved.json` (0640 root:`<owner group>`) after
+`ccy-teams approve <team>` has shown the owner the difference. Step 2 compares against that file
+(a team with none differs in its existence); `team apply` compares again as root and refuses with
+70 on any difference, so a play that skipped step 2 still cannot apply an unapproved field.
+ccy-teams' own flows that change a security field (create, humans, coordinator) run `team approve`
+inside the password-sudo session they already open, so the owner is not asked twice. The gate
+stops a data edit, not a code edit: an agent that can edit the declaration can also edit the
+source the play builds `teamchat-admin` from, which K9 already states.
 
 There is no sudoers file in v2 (DC4), and there is no v2 change to the ccy image except what area
 B needs for the member program and the seat mount (3.7).
@@ -861,12 +901,27 @@ reverted by the next apply, LR 6 item 6).
 - The board's per-human device count and newest sign-in come from the status record (3.11), not
   from a call per person.
 
+**Redacting one event (decision DC20, quality 6).** Members' and humans' redaction stays closed
+(A 4.2). A human who pastes a secret into a room from Element, though, has no secret check before
+posting as agents have (A 7.3), and without a way to remove it the leak spreads to every backup
+and to a migration's export. `teamchat-admin redact --team T --event ID --reason secret` (root,
+password sudo from ccy-teams, under the team lock) has the child redact that one event as the
+admin, the only account A lets redact; the reason is the fixed word `secret`, so the verb is not a
+general moderation tool. Members already drop an event that carries `redacted_because` (A 7.6
+rule 2), so nothing on the member side changes. The answer says that backups taken before the
+redaction still hold the text until Tuwunel prunes them (seven, 3.12.1), and names them. Area A's
+"Delete a message" (A 12.2) gains this one admin path.
+
 #### 3.6.6 The presence check
 
 Every verb in 3.6 and every `backup`, `backups` and `restore` call from ccy-teams is reached through
-`sudo` with the owner's password (C10). ccy-teams makes sudo ready once per change (the
-`internal/sudo` path, which handles hosts where only some sudoers entries are NOPASSWD), runs the
-calls, and ends with `sudo -k`, and a failing `sudo -k` stops it. Root cannot tell a password sudo
+`sudo` with the owner's password (C10). ccy-teams makes sudo ready at the start of a change (the
+`internal/sudo` path, which handles hosts where only some sudoers entries are NOPASSWD), runs
+`sudo -n -v` before each root call and every 60 s while the change waits between calls, so that a
+change longer than sudo's timestamp (a migration's waits, D 5.4) never meets a password prompt
+half-way with the owner away (operations 14), and ends with `sudo -k`, and a failing `sudo -k`
+stops it. A `sudo -n -v` that fails anyway stops the change before its next root call, naming the
+step; the change's own roll-forward (3.6.3) or D's resume completes it. Root cannot tell a password sudo
 from a blanket NOPASSWD rule: an owner who gives themselves passwordless sudo makes every agent
 running as them as trusted as they are. That caveat is v1's, and is stated in the user docs, not
 solved here (see risk K3).
