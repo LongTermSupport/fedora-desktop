@@ -144,6 +144,16 @@ func TestARedactionKeepsItsReason(t *testing.T) {
 	if field(t, got, "content", "reason") != "secret" || field(t, got, "content", "redacts") != sent {
 		t.Fatalf("the redaction %v", got)
 	}
+	target := tm.ok(tm.call(tm.agent, "GET", tm.roomPath("event/"+q(sent)), nil, nil))
+	if field(t, target, "unsigned", "redacted_because", "event_id") != redaction || mustJSON(t, field(t, target, "content")) != "{}" {
+		t.Fatalf("the redacted event %v", target)
+	}
+	page := tm.ok(tm.call(tm.agent, "GET", tm.roomPath("messages"), url.Values{"dir": {"b"}, "limit": {"10"}}, nil))
+	for _, ev := range list(t, page["chunk"]) {
+		if field(t, ev, "event_id") == sent && field(t, ev, "unsigned", "redacted_because") == nil {
+			t.Fatalf("/messages gave the redacted event without redacted_because: %v", ev)
+		}
+	}
 }
 
 func TestPresenceIsKeptPerAccount(t *testing.T) {

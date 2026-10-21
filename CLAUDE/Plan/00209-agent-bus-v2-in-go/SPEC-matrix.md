@@ -235,7 +235,9 @@ is the shape the endpoint promises).
   when it is not empty, and must be `online`, `offline` or `unavailable`; `SetPresence`
   (`PUT /presence/{u}/status` with `{"presence": p}`) takes the same three. Anything else is
   refused before a request.
-- **M51.** `fakehs` keeps a redaction's reason in its content, and keeps each account's presence:
+- **M51.** `fakehs` keeps a redaction's reason in its content and marks the redacted event with
+  `unsigned.redacted_because` (the specification's shape, which A 7.6 rule 02 drops on; H4
+  recorded no redacted event), and keeps each account's presence:
   `PUT /presence/{u}/status` by its own account sets it, `Presence(u)` reads it for a test, and a
   sync's `set_presence` is recorded with the request but changes nothing (what Tuwunel does with
   it is HC-A1's question). Another account's presence, or a value beyond the three, is unmodelled.

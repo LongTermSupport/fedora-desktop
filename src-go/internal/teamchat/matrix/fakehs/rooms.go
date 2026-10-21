@@ -29,6 +29,8 @@ type event struct {
 	ts       int64
 	stateKey *string
 	txn      *txnRef
+	// redactedBy is the redaction of this event, nil while there is none.
+	redactedBy *event
 }
 
 func (e *event) client(withRoom bool, unsigned map[string]any) map[string]any {
@@ -613,7 +615,8 @@ func (s *Server) redact(r *request, args []string) (any, error) {
 		if body, isObject := r.body.(map[string]any); isObject && stringAt(body, "reason") != "" {
 			content["reason"] = stringAt(body, "reason")
 		}
-		return s.appendEvent(rm, redactionType, r.userID, content, nil, "", ref), nil
+		target.redactedBy = s.appendEvent(rm, redactionType, r.userID, content, nil, "", ref)
+		return target.redactedBy, nil
 	})
 }
 
@@ -621,6 +624,11 @@ func (s *Server) unsigned(e *event, r *request) map[string]any {
 	out := map[string]any{"age": max(0, s.nowMS()-e.ts)}
 	if e.txn != nil && e.txn.userID == r.userID && e.txn.deviceID == r.deviceID {
 		out["transaction_id"] = e.txn.txn
+	}
+	// The specification's mark of a redacted event, which A 7.6 rule 02 drops on; H4 recorded no
+	// redacted event, so this is the specification's shape, not Tuwunel's recorded one.
+	if e.redactedBy != nil {
+		out["redacted_because"] = e.redactedBy.client(true, nil)
 	}
 	return out
 }
