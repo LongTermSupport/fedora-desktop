@@ -1,0 +1,19 @@
+{
+ "v": 1,
+ "contexts": {
+  "limits-twins": {
+   "server_name": "server.test",
+   "humans": [
+    "@alice:server.test"
+   ],
+   "roles": {
+    "@app.1+desk.podman:server.test": "coordinator",
+    "@app.1+box.lxc:server.test": "worker"
+   },
+   "repos": {},
+   "path_prefixes": [],
+   "org": null,
+   "exclude": []
+  }
+ }
+}

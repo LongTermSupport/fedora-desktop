@@ -1,0 +1,3487 @@
+{
+ "v": 1,
+ "suite": "limits",
+ "cases": [
+  {
+   "id": "parse-absent",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": null
+   },
+   "expect": {
+    "send_per_minute": 20,
+    "send_burst": 10,
+    "recv_per_sender_minute": 60,
+    "ack_timeout_s": 900,
+    "halt_ack_timeout_s": 300,
+    "human_max_age_s": 86400,
+    "wait_timeout_s": 1500,
+    "report_per_hour": 6
+   }
+  },
+  {
+   "id": "parse-empty",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {}
+   },
+   "expect": {
+    "send_per_minute": 20,
+    "send_burst": 10,
+    "recv_per_sender_minute": 60,
+    "ack_timeout_s": 900,
+    "halt_ack_timeout_s": 300,
+    "human_max_age_s": 86400,
+    "wait_timeout_s": 1500,
+    "report_per_hour": 6
+   }
+  },
+  {
+   "id": "parse-one-override",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "send_per_minute": 60
+    }
+   },
+   "expect": {
+    "send_per_minute": 60,
+    "send_burst": 10,
+    "recv_per_sender_minute": 60,
+    "ack_timeout_s": 900,
+    "halt_ack_timeout_s": 300,
+    "human_max_age_s": 86400,
+    "wait_timeout_s": 1500,
+    "report_per_hour": 6
+   }
+  },
+  {
+   "id": "parse-all-low",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "send_per_minute": 1,
+     "send_burst": 1,
+     "recv_per_sender_minute": 10,
+     "ack_timeout_s": 60,
+     "halt_ack_timeout_s": 30,
+     "human_max_age_s": 3600,
+     "wait_timeout_s": 1,
+     "report_per_hour": 1
+    }
+   },
+   "expect": {
+    "send_per_minute": 1,
+    "send_burst": 1,
+    "recv_per_sender_minute": 10,
+    "ack_timeout_s": 60,
+    "halt_ack_timeout_s": 30,
+    "human_max_age_s": 3600,
+    "wait_timeout_s": 1,
+    "report_per_hour": 1
+   }
+  },
+  {
+   "id": "parse-all-high",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "send_per_minute": 60,
+     "send_burst": 30,
+     "recv_per_sender_minute": 600,
+     "ack_timeout_s": 86400,
+     "halt_ack_timeout_s": 3600,
+     "human_max_age_s": 604800,
+     "wait_timeout_s": 1790,
+     "report_per_hour": 60
+    }
+   },
+   "expect": {
+    "send_per_minute": 60,
+    "send_burst": 30,
+    "recv_per_sender_minute": 600,
+    "ack_timeout_s": 86400,
+    "halt_ack_timeout_s": 3600,
+    "human_max_age_s": 604800,
+    "wait_timeout_s": 1790,
+    "report_per_hour": 60
+   }
+  },
+  {
+   "id": "parse-bool",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "send_burst": true
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-float",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "send_per_minute": 20.0
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-string",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "send_per_minute": "20"
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-null-value",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "send_per_minute": null
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-huge",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "ack_timeout_s": 1000000000000000000000000000000
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-negative",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "send_burst": -1
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-unknown-key",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "bogus": 1
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-key-case",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "Send_per_minute": 20
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-unknown-beside-good",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "send_burst": 5,
+     "x": 1
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-list",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": []
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-string-value",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": "limits"
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-zero",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": 0
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-false",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": false
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-send_per_minute-below",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "send_per_minute": 0
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-send_per_minute-above",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "send_per_minute": 61
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-send_burst-below",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "send_burst": 0
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-send_burst-above",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "send_burst": 31
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-recv_per_sender_minute-below",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "recv_per_sender_minute": 9
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-recv_per_sender_minute-above",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "recv_per_sender_minute": 601
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-ack_timeout_s-below",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "ack_timeout_s": 59
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-ack_timeout_s-above",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "ack_timeout_s": 86401
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-halt_ack_timeout_s-below",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "halt_ack_timeout_s": 29
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-halt_ack_timeout_s-above",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "halt_ack_timeout_s": 3601
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-human_max_age_s-below",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "human_max_age_s": 3599
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-human_max_age_s-above",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "human_max_age_s": 604801
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-wait_timeout_s-below",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "wait_timeout_s": 0
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-wait_timeout_s-above",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "wait_timeout_s": 1791
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-report_per_hour-below",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "report_per_hour": 0
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "parse-report_per_hour-above",
+   "spec": "P59",
+   "fn": "parse_limits",
+   "args": {
+    "value": {
+     "report_per_hour": 61
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "wait-low",
+   "spec": "P59",
+   "fn": "check_wait_timeout",
+   "args": {
+    "value": 1
+   },
+   "expect": 1
+  },
+  {
+   "id": "wait-high",
+   "spec": "P59",
+   "fn": "check_wait_timeout",
+   "args": {
+    "value": 1790
+   },
+   "expect": 1790
+  },
+  {
+   "id": "wait-zero",
+   "spec": "P59",
+   "fn": "check_wait_timeout",
+   "args": {
+    "value": 0
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "wait-above",
+   "spec": "P59",
+   "fn": "check_wait_timeout",
+   "args": {
+    "value": 1791
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "wait-bool",
+   "spec": "P59",
+   "fn": "check_wait_timeout",
+   "args": {
+    "value": true
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "wait-float",
+   "spec": "P59",
+   "fn": "check_wait_timeout",
+   "args": {
+    "value": 1.0
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "wait-string",
+   "spec": "P59",
+   "fn": "check_wait_timeout",
+   "args": {
+    "value": "5"
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "wait-null",
+   "spec": "P59",
+   "fn": "check_wait_timeout",
+   "args": {
+    "value": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "ack-timeout-fetch",
+   "spec": "P60",
+   "fn": "ack_timeout_s",
+   "args": {
+    "verb": "fetch",
+    "limits": null
+   },
+   "expect": 900
+  },
+  {
+   "id": "ack-timeout-sync",
+   "spec": "P60",
+   "fn": "ack_timeout_s",
+   "args": {
+    "verb": "sync",
+    "limits": null
+   },
+   "expect": 900
+  },
+  {
+   "id": "ack-timeout-review",
+   "spec": "P60",
+   "fn": "ack_timeout_s",
+   "args": {
+    "verb": "review",
+    "limits": null
+   },
+   "expect": 900
+  },
+  {
+   "id": "ack-timeout-run-qa",
+   "spec": "P60",
+   "fn": "ack_timeout_s",
+   "args": {
+    "verb": "run-qa",
+    "limits": null
+   },
+   "expect": 900
+  },
+  {
+   "id": "ack-timeout-halt",
+   "spec": "P60",
+   "fn": "ack_timeout_s",
+   "args": {
+    "verb": "halt",
+    "limits": null
+   },
+   "expect": 300
+  },
+  {
+   "id": "ack-timeout-ack",
+   "spec": "P60",
+   "fn": "ack_timeout_s",
+   "args": {
+    "verb": "ack",
+    "limits": null
+   },
+   "expect": null
+  },
+  {
+   "id": "ack-timeout-nack",
+   "spec": "P60",
+   "fn": "ack_timeout_s",
+   "args": {
+    "verb": "nack",
+    "limits": null
+   },
+   "expect": null
+  },
+  {
+   "id": "ack-timeout-done",
+   "spec": "P60",
+   "fn": "ack_timeout_s",
+   "args": {
+    "verb": "done",
+    "limits": null
+   },
+   "expect": null
+  },
+  {
+   "id": "ack-timeout-blocked",
+   "spec": "P60",
+   "fn": "ack_timeout_s",
+   "args": {
+    "verb": "blocked",
+    "limits": null
+   },
+   "expect": null
+  },
+  {
+   "id": "ack-timeout-review-override",
+   "spec": "P60",
+   "fn": "ack_timeout_s",
+   "args": {
+    "verb": "review",
+    "limits": {
+     "ack_timeout_s": 60,
+     "halt_ack_timeout_s": 3600
+    }
+   },
+   "expect": 60
+  },
+  {
+   "id": "ack-timeout-halt-override",
+   "spec": "P60",
+   "fn": "ack_timeout_s",
+   "args": {
+    "verb": "halt",
+    "limits": {
+     "ack_timeout_s": 60,
+     "halt_ack_timeout_s": 3600
+    }
+   },
+   "expect": 3600
+  },
+  {
+   "id": "ack-timeout-unknown-verb",
+   "spec": "P60",
+   "fn": "ack_timeout_s",
+   "args": {
+    "verb": "HALT",
+    "limits": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "ack-timeout-empty-verb",
+   "spec": "P60",
+   "fn": "ack_timeout_s",
+   "args": {
+    "verb": "",
+    "limits": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "deadline-review",
+   "spec": "P60",
+   "fn": "ack_deadline_ms",
+   "args": {
+    "sent_ms": 1000,
+    "verb": "review",
+    "limits": null
+   },
+   "expect": 901000
+  },
+  {
+   "id": "deadline-halt",
+   "spec": "P60",
+   "fn": "ack_deadline_ms",
+   "args": {
+    "sent_ms": 1000,
+    "verb": "halt",
+    "limits": null
+   },
+   "expect": 301000
+  },
+  {
+   "id": "deadline-done-none",
+   "spec": "P60",
+   "fn": "ack_deadline_ms",
+   "args": {
+    "sent_ms": 1000,
+    "verb": "done",
+    "limits": null
+   },
+   "expect": null
+  },
+  {
+   "id": "deadline-negative-sent",
+   "spec": "P60",
+   "fn": "ack_deadline_ms",
+   "args": {
+    "sent_ms": -5000,
+    "verb": "review",
+    "limits": null
+   },
+   "expect": 895000
+  },
+  {
+   "id": "deadline-bool",
+   "spec": "P60",
+   "fn": "ack_deadline_ms",
+   "args": {
+    "sent_ms": true,
+    "verb": "review",
+    "limits": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "deadline-float",
+   "spec": "P60",
+   "fn": "ack_deadline_ms",
+   "args": {
+    "sent_ms": 1.5,
+    "verb": "review",
+    "limits": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "deadline-unknown-verb",
+   "spec": "P60",
+   "fn": "ack_deadline_ms",
+   "args": {
+    "sent_ms": 1,
+    "verb": "bogus",
+    "limits": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "deadline-past-int64",
+   "spec": "P60 D13",
+   "fn": "ack_deadline_ms",
+   "args": {
+    "sent_ms": 9223372036854775807,
+    "verb": "review",
+    "limits": null
+   },
+   "expect": {
+    "error": true
+   },
+   "expect_python": {
+    "departure": "D13",
+    "value": 9223372036855675807
+   }
+  },
+  {
+   "id": "deadline-sent-past-int64",
+   "spec": "P60 D13",
+   "fn": "ack_deadline_ms",
+   "args": {
+    "sent_ms": 9223372036854775808,
+    "verb": "review",
+    "limits": null
+   },
+   "expect": {
+    "error": true
+   },
+   "expect_python": {
+    "departure": "D13",
+    "value": 9223372036855675808
+   }
+  },
+  {
+   "id": "overdue-at-deadline",
+   "spec": "P60",
+   "fn": "ack_overdue",
+   "args": {
+    "sent_ms": 1000,
+    "verb": "review",
+    "now_ms": 901000,
+    "limits": null
+   },
+   "expect": false
+  },
+  {
+   "id": "overdue-past-deadline",
+   "spec": "P60",
+   "fn": "ack_overdue",
+   "args": {
+    "sent_ms": 1000,
+    "verb": "review",
+    "now_ms": 901001,
+    "limits": null
+   },
+   "expect": true
+  },
+  {
+   "id": "overdue-halt-at",
+   "spec": "P60",
+   "fn": "ack_overdue",
+   "args": {
+    "sent_ms": 1000,
+    "verb": "halt",
+    "now_ms": 301000,
+    "limits": null
+   },
+   "expect": false
+  },
+  {
+   "id": "overdue-halt-past",
+   "spec": "P60",
+   "fn": "ack_overdue",
+   "args": {
+    "sent_ms": 1000,
+    "verb": "halt",
+    "now_ms": 301001,
+    "limits": null
+   },
+   "expect": true
+  },
+  {
+   "id": "overdue-done-never",
+   "spec": "P60",
+   "fn": "ack_overdue",
+   "args": {
+    "sent_ms": 0,
+    "verb": "done",
+    "now_ms": 1000000000000,
+    "limits": null
+   },
+   "expect": false
+  },
+  {
+   "id": "overdue-unknown-verb",
+   "spec": "P60",
+   "fn": "ack_overdue",
+   "args": {
+    "sent_ms": 0,
+    "verb": "bogus",
+    "now_ms": 0,
+    "limits": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "overdue-now-bool",
+   "spec": "P60",
+   "fn": "ack_overdue",
+   "args": {
+    "sent_ms": 0,
+    "verb": "review",
+    "now_ms": true,
+    "limits": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "overdue-sent-string",
+   "spec": "P60",
+   "fn": "ack_overdue",
+   "args": {
+    "sent_ms": "0",
+    "verb": "review",
+    "now_ms": 0,
+    "limits": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "overdue-sent-string-no-ack-verb",
+   "spec": "P60 D13",
+   "fn": "ack_overdue",
+   "args": {
+    "sent_ms": "0",
+    "verb": "done",
+    "now_ms": 0,
+    "limits": null
+   },
+   "expect": {
+    "error": true
+   },
+   "expect_python": {
+    "departure": "D13",
+    "value": false
+   }
+  },
+  {
+   "id": "overdue-sent-max-no-overflow",
+   "spec": "P60",
+   "fn": "ack_overdue",
+   "args": {
+    "sent_ms": 9223372036854775807,
+    "verb": "review",
+    "now_ms": 9223372036854775807,
+    "limits": null
+   },
+   "expect": false
+  },
+  {
+   "id": "overdue-widest-span",
+   "spec": "P60",
+   "fn": "ack_overdue",
+   "args": {
+    "sent_ms": -9223372036854775808,
+    "verb": "review",
+    "now_ms": 9223372036854775807,
+    "limits": null
+   },
+   "expect": true
+  },
+  {
+   "id": "overdue-override",
+   "spec": "P60",
+   "fn": "ack_overdue",
+   "args": {
+    "sent_ms": 0,
+    "verb": "fetch",
+    "now_ms": 60001,
+    "limits": {
+     "ack_timeout_s": 60,
+     "halt_ack_timeout_s": 3600
+    }
+   },
+   "expect": true
+  },
+  {
+   "id": "stale-review-at",
+   "spec": "P60",
+   "fn": "ping_stale",
+   "args": {
+    "origin_ms": 0,
+    "verb": "review",
+    "now_ms": 900000,
+    "limits": null
+   },
+   "expect": false
+  },
+  {
+   "id": "stale-review-past",
+   "spec": "P60",
+   "fn": "ping_stale",
+   "args": {
+    "origin_ms": 0,
+    "verb": "review",
+    "now_ms": 900001,
+    "limits": null
+   },
+   "expect": true
+  },
+  {
+   "id": "stale-halt-at",
+   "spec": "P60",
+   "fn": "ping_stale",
+   "args": {
+    "origin_ms": 0,
+    "verb": "halt",
+    "now_ms": 300000,
+    "limits": null
+   },
+   "expect": false
+  },
+  {
+   "id": "stale-halt-past",
+   "spec": "P60",
+   "fn": "ping_stale",
+   "args": {
+    "origin_ms": 0,
+    "verb": "halt",
+    "now_ms": 300001,
+    "limits": null
+   },
+   "expect": true
+  },
+  {
+   "id": "stale-done-uses-ack-timeout-at",
+   "spec": "P60",
+   "fn": "ping_stale",
+   "args": {
+    "origin_ms": 0,
+    "verb": "done",
+    "now_ms": 900000,
+    "limits": null
+   },
+   "expect": false
+  },
+  {
+   "id": "stale-done-uses-ack-timeout-past",
+   "spec": "P60",
+   "fn": "ping_stale",
+   "args": {
+    "origin_ms": 0,
+    "verb": "done",
+    "now_ms": 900001,
+    "limits": null
+   },
+   "expect": true
+  },
+  {
+   "id": "stale-ack-override",
+   "spec": "P60",
+   "fn": "ping_stale",
+   "args": {
+    "origin_ms": 0,
+    "verb": "ack",
+    "now_ms": 60001,
+    "limits": {
+     "ack_timeout_s": 60,
+     "halt_ack_timeout_s": 3600
+    }
+   },
+   "expect": true
+  },
+  {
+   "id": "stale-future-origin",
+   "spec": "P60",
+   "fn": "ping_stale",
+   "args": {
+    "origin_ms": 5000,
+    "verb": "review",
+    "now_ms": 0,
+    "limits": null
+   },
+   "expect": false
+  },
+  {
+   "id": "stale-widest-span",
+   "spec": "P60",
+   "fn": "ping_stale",
+   "args": {
+    "origin_ms": -9223372036854775808,
+    "verb": "done",
+    "now_ms": 9223372036854775807,
+    "limits": null
+   },
+   "expect": true
+  },
+  {
+   "id": "stale-unknown-verb",
+   "spec": "P60",
+   "fn": "ping_stale",
+   "args": {
+    "origin_ms": 0,
+    "verb": "bogus",
+    "now_ms": 0,
+    "limits": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "stale-origin-float",
+   "spec": "P60",
+   "fn": "ping_stale",
+   "args": {
+    "origin_ms": 0.0,
+    "verb": "review",
+    "now_ms": 0,
+    "limits": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "human-stale-at",
+   "spec": "P60",
+   "fn": "human_stale",
+   "args": {
+    "origin_ms": 0,
+    "now_ms": 86400000,
+    "limits": null
+   },
+   "expect": false
+  },
+  {
+   "id": "human-stale-past",
+   "spec": "P60",
+   "fn": "human_stale",
+   "args": {
+    "origin_ms": 0,
+    "now_ms": 86400001,
+    "limits": null
+   },
+   "expect": true
+  },
+  {
+   "id": "human-stale-override",
+   "spec": "P60",
+   "fn": "human_stale",
+   "args": {
+    "origin_ms": 0,
+    "now_ms": 3600001,
+    "limits": {
+     "human_max_age_s": 3600
+    }
+   },
+   "expect": true
+  },
+  {
+   "id": "human-stale-override-at",
+   "spec": "P60",
+   "fn": "human_stale",
+   "args": {
+    "origin_ms": 0,
+    "now_ms": 3600000,
+    "limits": {
+     "human_max_age_s": 3600
+    }
+   },
+   "expect": false
+  },
+  {
+   "id": "human-stale-future",
+   "spec": "P60",
+   "fn": "human_stale",
+   "args": {
+    "origin_ms": 10,
+    "now_ms": 0,
+    "limits": null
+   },
+   "expect": false
+  },
+  {
+   "id": "human-stale-widest-span",
+   "spec": "P60",
+   "fn": "human_stale",
+   "args": {
+    "origin_ms": -9223372036854775808,
+    "now_ms": 9223372036854775807,
+    "limits": null
+   },
+   "expect": true
+  },
+  {
+   "id": "human-stale-now-bool",
+   "spec": "P60",
+   "fn": "human_stale",
+   "args": {
+    "origin_ms": 0,
+    "now_ms": false,
+    "limits": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "human-stale-origin-float",
+   "spec": "P60",
+   "fn": "human_stale",
+   "args": {
+    "origin_ms": 1.0,
+    "now_ms": 0,
+    "limits": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "human-stale-origin-past-int64",
+   "spec": "P60 D13",
+   "fn": "human_stale",
+   "args": {
+    "origin_ms": 9223372036854775808,
+    "now_ms": 0,
+    "limits": null
+   },
+   "expect": {
+    "error": true
+   },
+   "expect_python": {
+    "departure": "D13",
+    "value": false
+   }
+  },
+  {
+   "id": "bucket-burst-then-refuse",
+   "spec": "P61",
+   "fn": "token_bucket_run",
+   "args": {
+    "limits": null,
+    "state": null,
+    "start_ms": 0,
+    "takes": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "expect": {
+    "took": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     false
+    ],
+    "state": {
+     "credit": 0,
+     "at_ms": 0
+    }
+   }
+  },
+  {
+   "id": "bucket-refill-exact",
+   "spec": "P61",
+   "fn": "token_bucket_run",
+   "args": {
+    "limits": null,
+    "state": null,
+    "start_ms": 0,
+    "takes": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     2999,
+     3000
+    ]
+   },
+   "expect": {
+    "took": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     false,
+     true
+    ],
+    "state": {
+     "credit": 0,
+     "at_ms": 3000
+    }
+   }
+  },
+  {
+   "id": "bucket-clock-back",
+   "spec": "P61",
+   "fn": "token_bucket_run",
+   "args": {
+    "limits": null,
+    "state": {
+     "credit": 0,
+     "at_ms": 10000
+    },
+    "start_ms": 0,
+    "takes": [
+     5000,
+     13000
+    ]
+   },
+   "expect": {
+    "took": [
+     false,
+     true
+    ],
+    "state": {
+     "credit": 0,
+     "at_ms": 13000
+    }
+   }
+  },
+  {
+   "id": "bucket-refill-capped",
+   "spec": "P61",
+   "fn": "token_bucket_run",
+   "args": {
+    "limits": null,
+    "state": {
+     "credit": 0,
+     "at_ms": 0
+    },
+    "start_ms": 0,
+    "takes": [
+     1000000000
+    ]
+   },
+   "expect": {
+    "took": [
+     true
+    ],
+    "state": {
+     "credit": 540000,
+     "at_ms": 1000000000
+    }
+   }
+  },
+  {
+   "id": "bucket-load-caps",
+   "spec": "P61",
+   "fn": "token_bucket_run",
+   "args": {
+    "limits": null,
+    "state": {
+     "credit": 1000000,
+     "at_ms": 0
+    },
+    "start_ms": 0,
+    "takes": [
+     0
+    ]
+   },
+   "expect": {
+    "took": [
+     true
+    ],
+    "state": {
+     "credit": 540000,
+     "at_ms": 0
+    }
+   }
+  },
+  {
+   "id": "bucket-load-caps-huge",
+   "spec": "P61",
+   "fn": "token_bucket_run",
+   "args": {
+    "limits": null,
+    "state": {
+     "credit": 1000000000000000000000000000000,
+     "at_ms": 5
+    },
+    "start_ms": 0,
+    "takes": [
+     5
+    ]
+   },
+   "expect": {
+    "took": [
+     true
+    ],
+    "state": {
+     "credit": 540000,
+     "at_ms": 5
+    }
+   }
+  },
+  {
+   "id": "bucket-load-no-take",
+   "spec": "P61",
+   "fn": "token_bucket_run",
+   "args": {
+    "limits": null,
+    "state": {
+     "credit": 7,
+     "at_ms": -3
+    },
+    "start_ms": 0,
+    "takes": []
+   },
+   "expect": {
+    "took": [],
+    "state": {
+     "credit": 7,
+     "at_ms": -3
+    }
+   }
+  },
+  {
+   "id": "bucket-custom",
+   "spec": "P61",
+   "fn": "token_bucket_run",
+   "args": {
+    "limits": {
+     "send_per_minute": 60,
+     "send_burst": 1
+    },
+    "state": null,
+    "start_ms": 0,
+    "takes": [
+     0,
+     999,
+     1000
+    ]
+   },
+   "expect": {
+    "took": [
+     true,
+     false,
+     true
+    ],
+    "state": {
+     "credit": 0,
+     "at_ms": 1000
+    }
+   }
+  },
+  {
+   "id": "bucket-widest-span",
+   "spec": "P61",
+   "fn": "token_bucket_run",
+   "args": {
+    "limits": null,
+    "state": {
+     "credit": 0,
+     "at_ms": -9223372036854775808
+    },
+    "start_ms": 0,
+    "takes": [
+     9223372036854775807
+    ]
+   },
+   "expect": {
+    "took": [
+     true
+    ],
+    "state": {
+     "credit": 540000,
+     "at_ms": 9223372036854775807
+    }
+   }
+  },
+  {
+   "id": "bucket-state-list",
+   "spec": "P61",
+   "fn": "token_bucket_run",
+   "args": {
+    "limits": null,
+    "state": [],
+    "start_ms": 0,
+    "takes": []
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "bucket-state-missing-key",
+   "spec": "P61",
+   "fn": "token_bucket_run",
+   "args": {
+    "limits": null,
+    "state": {
+     "credit": 0
+    },
+    "start_ms": 0,
+    "takes": []
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "bucket-state-extra-key",
+   "spec": "P61",
+   "fn": "token_bucket_run",
+   "args": {
+    "limits": null,
+    "state": {
+     "credit": 0,
+     "at_ms": 0,
+     "x": 1
+    },
+    "start_ms": 0,
+    "takes": []
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "bucket-state-negative-credit",
+   "spec": "P61",
+   "fn": "token_bucket_run",
+   "args": {
+    "limits": null,
+    "state": {
+     "credit": -1,
+     "at_ms": 0
+    },
+    "start_ms": 0,
+    "takes": []
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "bucket-state-bool-credit",
+   "spec": "P61",
+   "fn": "token_bucket_run",
+   "args": {
+    "limits": null,
+    "state": {
+     "credit": true,
+     "at_ms": 0
+    },
+    "start_ms": 0,
+    "takes": []
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "bucket-state-float-credit",
+   "spec": "P61",
+   "fn": "token_bucket_run",
+   "args": {
+    "limits": null,
+    "state": {
+     "credit": 1.0,
+     "at_ms": 0
+    },
+    "start_ms": 0,
+    "takes": []
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "bucket-state-string-at",
+   "spec": "P61",
+   "fn": "token_bucket_run",
+   "args": {
+    "limits": null,
+    "state": {
+     "credit": 0,
+     "at_ms": "0"
+    },
+    "start_ms": 0,
+    "takes": []
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "bucket-state-null-at",
+   "spec": "P61",
+   "fn": "token_bucket_run",
+   "args": {
+    "limits": null,
+    "state": {
+     "credit": 0,
+     "at_ms": null
+    },
+    "start_ms": 0,
+    "takes": []
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "bucket-state-at-past-int64",
+   "spec": "P61 D13",
+   "fn": "token_bucket_run",
+   "args": {
+    "limits": null,
+    "state": {
+     "credit": 0,
+     "at_ms": 9223372036854775808
+    },
+    "start_ms": 0,
+    "takes": []
+   },
+   "expect": {
+    "error": true
+   },
+   "expect_python": {
+    "departure": "D13",
+    "value": {
+     "took": [],
+     "state": {
+      "credit": 0,
+      "at_ms": 9223372036854775808
+     }
+    }
+   }
+  },
+  {
+   "id": "dup-key-sorted-set",
+   "spec": "P62",
+   "fn": "duplicate_key",
+   "args": {
+    "verb": "review",
+    "ref": "commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567",
+    "re": null,
+    "to": [
+     "@app.2+desk.podman:server.test",
+     "@app.1+desk.podman:server.test",
+     "@app.2+desk.podman:server.test"
+    ]
+   },
+   "expect": "[\"review\",\"commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567\",null,[\"@app.1+desk.podman:server.test\",\"@app.2+desk.podman:server.test\"]]"
+  },
+  {
+   "id": "dup-key-re",
+   "spec": "P62",
+   "fn": "duplicate_key",
+   "args": {
+    "verb": "ack",
+    "ref": null,
+    "re": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+    "to": []
+   },
+   "expect": "[\"ack\",null,\"$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\",[]]"
+  },
+  {
+   "id": "dup-key-ascii-escapes",
+   "spec": "P62",
+   "fn": "duplicate_key",
+   "args": {
+    "verb": "a\tb\u007f",
+    "ref": null,
+    "re": null,
+    "to": [
+     "\u00e9"
+    ]
+   },
+   "expect": "[\"a\\tb\\u007f\",null,null,[\"\\u00e9\"]]"
+  },
+  {
+   "id": "dup-key-code-point-order",
+   "spec": "P62",
+   "fn": "duplicate_key",
+   "args": {
+    "verb": "v",
+    "ref": null,
+    "re": null,
+    "to": [
+     "\ud83d\ude00",
+     "b",
+     "\ue000",
+     "B",
+     "a"
+    ]
+   },
+   "expect": "[\"v\",null,null,[\"B\",\"a\",\"b\",\"\\ue000\",\"\\ud83d\\ude00\"]]"
+  },
+  {
+   "id": "dup-key-lone-surrogate",
+   "spec": "P62",
+   "fn": "duplicate_key",
+   "args": {
+    "verb": "v",
+    "ref": null,
+    "re": null,
+    "to": [
+     "\ud800"
+    ]
+   },
+   "expect": "[\"v\",null,null,[\"\\ud800\"]]"
+  },
+  {
+   "id": "window-seen-for-60s",
+   "spec": "P62",
+   "fn": "duplicate_window_run",
+   "args": {
+    "state": {},
+    "ops": [
+     [
+      "record",
+      "k",
+      1000
+     ],
+     [
+      "seen",
+      "k",
+      1000
+     ],
+     [
+      "seen",
+      "k",
+      60999
+     ],
+     [
+      "seen",
+      "k",
+      61000
+     ],
+     [
+      "seen",
+      "other",
+      1000
+     ]
+    ]
+   },
+   "expect": {
+    "results": [
+     null,
+     true,
+     true,
+     false,
+     false
+    ],
+    "state": {
+     "k": 1000
+    }
+   }
+  },
+  {
+   "id": "window-record-drops-expired",
+   "spec": "P62",
+   "fn": "duplicate_window_run",
+   "args": {
+    "state": {
+     "old": 0,
+     "fresh": 50000
+    },
+    "ops": [
+     [
+      "record",
+      "new",
+      60000
+     ]
+    ]
+   },
+   "expect": {
+    "results": [
+     null
+    ],
+    "state": {
+     "fresh": 50000,
+     "new": 60000
+    }
+   }
+  },
+  {
+   "id": "window-future-entry-seen",
+   "spec": "P62",
+   "fn": "duplicate_window_run",
+   "args": {
+    "state": {
+     "k": 5000
+    },
+    "ops": [
+     [
+      "seen",
+      "k",
+      1000
+     ],
+     [
+      "record",
+      "x",
+      1000
+     ]
+    ]
+   },
+   "expect": {
+    "results": [
+     true,
+     null
+    ],
+    "state": {
+     "k": 5000,
+     "x": 1000
+    }
+   }
+  },
+  {
+   "id": "window-rerecord",
+   "spec": "P62",
+   "fn": "duplicate_window_run",
+   "args": {
+    "state": {
+     "k": 0
+    },
+    "ops": [
+     [
+      "record",
+      "k",
+      30000
+     ]
+    ]
+   },
+   "expect": {
+    "results": [
+     null
+    ],
+    "state": {
+     "k": 30000
+    }
+   }
+  },
+  {
+   "id": "window-widest-span",
+   "spec": "P62",
+   "fn": "duplicate_window_run",
+   "args": {
+    "state": {
+     "k": -9223372036854775808
+    },
+    "ops": [
+     [
+      "seen",
+      "k",
+      9223372036854775807
+     ]
+    ]
+   },
+   "expect": {
+    "results": [
+     false
+    ],
+    "state": {
+     "k": -9223372036854775808
+    }
+   }
+  },
+  {
+   "id": "window-state-list",
+   "spec": "P62",
+   "fn": "duplicate_window_run",
+   "args": {
+    "state": [],
+    "ops": []
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "window-state-string-value",
+   "spec": "P62",
+   "fn": "duplicate_window_run",
+   "args": {
+    "state": {
+     "k": "1"
+    },
+    "ops": []
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "window-state-bool-value",
+   "spec": "P62",
+   "fn": "duplicate_window_run",
+   "args": {
+    "state": {
+     "k": true
+    },
+    "ops": []
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "window-state-float-value",
+   "spec": "P62",
+   "fn": "duplicate_window_run",
+   "args": {
+    "state": {
+     "k": 1.5
+    },
+    "ops": []
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "window-state-past-int64",
+   "spec": "P62 D13",
+   "fn": "duplicate_window_run",
+   "args": {
+    "state": {
+     "k": 9223372036854775808
+    },
+    "ops": []
+   },
+   "expect": {
+    "error": true
+   },
+   "expect_python": {
+    "departure": "D13",
+    "value": {
+     "results": [],
+     "state": {
+      "k": 9223372036854775808
+     }
+    }
+   }
+  },
+  {
+   "id": "gate-duplicate-first",
+   "spec": "P63",
+   "fn": "send_gate_run",
+   "args": {
+    "limits": null,
+    "state": null,
+    "start_ms": 0,
+    "sends": [
+     {
+      "verb": "review",
+      "ref": "commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567",
+      "re": null,
+      "to": [
+       "@app.2+desk.podman:server.test"
+      ],
+      "now": 0,
+      "dedupe": true
+     },
+     {
+      "verb": "review",
+      "ref": "commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567",
+      "re": null,
+      "to": [
+       "@app.2+desk.podman:server.test"
+      ],
+      "now": 1000,
+      "dedupe": true
+     },
+     {
+      "verb": "review",
+      "ref": "commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567",
+      "re": null,
+      "to": [
+       "@app.2+desk.podman:server.test",
+       "@app.2+desk.podman:server.test"
+      ],
+      "now": 2000,
+      "dedupe": true
+     },
+     {
+      "verb": "review",
+      "ref": "commit:example-org/myrepo@ffffffffffffffffffffffffffffffffffffffff",
+      "re": null,
+      "to": [
+       "@app.2+desk.podman:server.test"
+      ],
+      "now": 3000,
+      "dedupe": true
+     },
+     {
+      "verb": "review",
+      "ref": "commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567",
+      "re": null,
+      "to": [
+       "@app.2+desk.podman:server.test"
+      ],
+      "now": 60000,
+      "dedupe": true
+     }
+    ]
+   },
+   "expect": {
+    "results": [
+     "ok",
+     "duplicate",
+     "duplicate",
+     "ok",
+     "ok"
+    ],
+    "state": {
+     "bucket": {
+      "credit": 540000,
+      "at_ms": 60000
+     },
+     "recent": {
+      "[\"review\",\"commit:example-org/myrepo@ffffffffffffffffffffffffffffffffffffffff\",null,[\"@app.2+desk.podman:server.test\"]]": 3000,
+      "[\"review\",\"commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567\",null,[\"@app.2+desk.podman:server.test\"]]": 60000
+     }
+    }
+   }
+  },
+  {
+   "id": "gate-rate-records-nothing",
+   "spec": "P63",
+   "fn": "send_gate_run",
+   "args": {
+    "limits": {
+     "send_burst": 1,
+     "send_per_minute": 1
+    },
+    "state": null,
+    "start_ms": 0,
+    "sends": [
+     {
+      "verb": "done",
+      "ref": "issue:someone/project#7",
+      "re": null,
+      "to": [
+       "@alice:server.test"
+      ],
+      "now": 0,
+      "dedupe": true
+     },
+     {
+      "verb": "done",
+      "ref": "issue:someone/project#7",
+      "re": null,
+      "to": [
+       "@bob:server.test"
+      ],
+      "now": 1,
+      "dedupe": true
+     },
+     {
+      "verb": "done",
+      "ref": "issue:someone/project#7",
+      "re": null,
+      "to": [
+       "@bob:server.test"
+      ],
+      "now": 2,
+      "dedupe": true
+     }
+    ]
+   },
+   "expect": {
+    "results": [
+     "ok",
+     "rate",
+     "rate"
+    ],
+    "state": {
+     "bucket": {
+      "credit": 2,
+      "at_ms": 2
+     },
+     "recent": {
+      "[\"done\",\"issue:someone/project#7\",null,[\"@alice:server.test\"]]": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "gate-no-dedupe",
+   "spec": "P63",
+   "fn": "send_gate_run",
+   "args": {
+    "limits": null,
+    "state": null,
+    "start_ms": 0,
+    "sends": [
+     {
+      "verb": "ack",
+      "ref": null,
+      "re": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+      "to": [
+       "@app.1+desk.podman:server.test"
+      ],
+      "now": 0,
+      "dedupe": false
+     },
+     {
+      "verb": "ack",
+      "ref": null,
+      "re": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+      "to": [
+       "@app.1+desk.podman:server.test"
+      ],
+      "now": 1,
+      "dedupe": false
+     },
+     {
+      "verb": "ack",
+      "ref": null,
+      "re": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+      "to": [
+       "@app.1+desk.podman:server.test"
+      ],
+      "now": 2,
+      "dedupe": true
+     },
+     {
+      "verb": "ack",
+      "ref": null,
+      "re": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+      "to": [
+       "@app.1+desk.podman:server.test"
+      ],
+      "now": 3,
+      "dedupe": true
+     },
+     {
+      "verb": "ack",
+      "ref": null,
+      "re": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+      "to": [
+       "@app.1+desk.podman:server.test"
+      ],
+      "now": 4,
+      "dedupe": false
+     }
+    ]
+   },
+   "expect": {
+    "results": [
+     "ok",
+     "ok",
+     "ok",
+     "duplicate",
+     "ok"
+    ],
+    "state": {
+     "bucket": {
+      "credit": 360080,
+      "at_ms": 4
+     },
+     "recent": {
+      "[\"ack\",null,\"$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\",[\"@app.1+desk.podman:server.test\"]]": 2
+     }
+    }
+   }
+  },
+  {
+   "id": "gate-loaded-state",
+   "spec": "P63",
+   "fn": "send_gate_run",
+   "args": {
+    "limits": null,
+    "state": {
+     "bucket": {
+      "credit": 60000,
+      "at_ms": 100
+     },
+     "recent": {
+      "[\"ack\",null,\"$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\",[\"@app.1+desk.podman:server.test\"]]": 90
+     }
+    },
+    "start_ms": 0,
+    "sends": [
+     {
+      "verb": "ack",
+      "ref": null,
+      "re": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_",
+      "to": [
+       "@app.1+desk.podman:server.test"
+      ],
+      "now": 100,
+      "dedupe": true
+     },
+     {
+      "verb": "done",
+      "ref": "issue:someone/project#7",
+      "re": null,
+      "to": [
+       "@alice:server.test"
+      ],
+      "now": 100,
+      "dedupe": true
+     }
+    ]
+   },
+   "expect": {
+    "results": [
+     "duplicate",
+     "ok"
+    ],
+    "state": {
+     "bucket": {
+      "credit": 0,
+      "at_ms": 100
+     },
+     "recent": {
+      "[\"ack\",null,\"$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\",[\"@app.1+desk.podman:server.test\"]]": 90,
+      "[\"done\",\"issue:someone/project#7\",null,[\"@alice:server.test\"]]": 100
+     }
+    }
+   }
+  },
+  {
+   "id": "gate-state-missing-recent",
+   "spec": "P63",
+   "fn": "send_gate_run",
+   "args": {
+    "limits": null,
+    "state": {
+     "bucket": {
+      "credit": 0,
+      "at_ms": 0
+     }
+    },
+    "start_ms": 0,
+    "sends": []
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "gate-state-extra-key",
+   "spec": "P63",
+   "fn": "send_gate_run",
+   "args": {
+    "limits": null,
+    "state": {
+     "bucket": {
+      "credit": 0,
+      "at_ms": 0
+     },
+     "recent": {},
+     "x": 1
+    },
+    "start_ms": 0,
+    "sends": []
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "gate-state-bad-bucket",
+   "spec": "P63",
+   "fn": "send_gate_run",
+   "args": {
+    "limits": null,
+    "state": {
+     "bucket": {
+      "credit": -1,
+      "at_ms": 0
+     },
+     "recent": {}
+    },
+    "start_ms": 0,
+    "sends": []
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "gate-state-bad-recent",
+   "spec": "P63",
+   "fn": "send_gate_run",
+   "args": {
+    "limits": null,
+    "state": {
+     "bucket": {
+      "credit": 0,
+      "at_ms": 0
+     },
+     "recent": []
+    },
+    "start_ms": 0,
+    "sends": []
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "gate-state-list",
+   "spec": "P63",
+   "fn": "send_gate_run",
+   "args": {
+    "limits": null,
+    "state": [],
+    "start_ms": 0,
+    "sends": []
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "report-sliding-hour",
+   "spec": "P64",
+   "fn": "report_window_run",
+   "args": {
+    "state": [],
+    "per_hour": 2,
+    "ops": [
+     [
+      "admit",
+      0
+     ],
+     [
+      "admit",
+      1000
+     ],
+     [
+      "check",
+      2000
+     ],
+     [
+      "admit",
+      2000
+     ],
+     [
+      "admit",
+      3600000
+     ],
+     [
+      "check",
+      3600999
+     ],
+     [
+      "admit",
+      3601000
+     ]
+    ]
+   },
+   "expect": {
+    "results": [
+     "ok",
+     "ok",
+     "rate",
+     "rate",
+     "ok",
+     "rate",
+     "ok"
+    ],
+    "state": [
+     3600000,
+     3601000
+    ]
+   }
+  },
+  {
+   "id": "report-check-records-nothing",
+   "spec": "P64",
+   "fn": "report_window_run",
+   "args": {
+    "state": [
+     5
+    ],
+    "per_hour": 1,
+    "ops": [
+     [
+      "check",
+      10
+     ],
+     [
+      "check",
+      3600005
+     ]
+    ]
+   },
+   "expect": {
+    "results": [
+     "rate",
+     "ok"
+    ],
+    "state": [
+     5
+    ]
+   }
+  },
+  {
+   "id": "report-future-entry-counts",
+   "spec": "P64",
+   "fn": "report_window_run",
+   "args": {
+    "state": [
+     10000
+    ],
+    "per_hour": 1,
+    "ops": [
+     [
+      "admit",
+      0
+     ]
+    ]
+   },
+   "expect": {
+    "results": [
+     "rate"
+    ],
+    "state": [
+     10000
+    ]
+   }
+  },
+  {
+   "id": "report-admit-prunes",
+   "spec": "P64",
+   "fn": "report_window_run",
+   "args": {
+    "state": [
+     0,
+     100,
+     3599999
+    ],
+    "per_hour": 6,
+    "ops": [
+     [
+      "admit",
+      3600050
+     ]
+    ]
+   },
+   "expect": {
+    "results": [
+     "ok"
+    ],
+    "state": [
+     100,
+     3599999,
+     3600050
+    ]
+   }
+  },
+  {
+   "id": "report-state-object",
+   "spec": "P64",
+   "fn": "report_window_run",
+   "args": {
+    "state": {},
+    "per_hour": 1,
+    "ops": []
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "report-state-string",
+   "spec": "P64",
+   "fn": "report_window_run",
+   "args": {
+    "state": [
+     "1"
+    ],
+    "per_hour": 1,
+    "ops": []
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "report-state-bool",
+   "spec": "P64",
+   "fn": "report_window_run",
+   "args": {
+    "state": [
+     true
+    ],
+    "per_hour": 1,
+    "ops": []
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "report-state-float",
+   "spec": "P64",
+   "fn": "report_window_run",
+   "args": {
+    "state": [
+     1.0
+    ],
+    "per_hour": 1,
+    "ops": []
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "report-state-past-int64",
+   "spec": "P64 D13",
+   "fn": "report_window_run",
+   "args": {
+    "state": [
+     9223372036854775808
+    ],
+    "per_hour": 1,
+    "ops": []
+   },
+   "expect": {
+    "error": true
+   },
+   "expect_python": {
+    "departure": "D13",
+    "value": {
+     "results": [],
+     "state": [
+      9223372036854775808
+     ]
+    }
+   }
+  },
+  {
+   "id": "flood-sliding-minute",
+   "spec": "P65",
+   "fn": "receive_flood_run",
+   "args": {
+    "limits": {
+     "recv_per_sender_minute": 10
+    },
+    "admits": [
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      1
+     ],
+     [
+      "alice",
+      2
+     ],
+     [
+      "alice",
+      3
+     ],
+     [
+      "alice",
+      4
+     ],
+     [
+      "alice",
+      5
+     ],
+     [
+      "alice",
+      6
+     ],
+     [
+      "alice",
+      7
+     ],
+     [
+      "alice",
+      8
+     ],
+     [
+      "alice",
+      9
+     ],
+     [
+      "alice",
+      10
+     ],
+     [
+      "bob",
+      10
+     ],
+     [
+      "alice",
+      59999
+     ],
+     [
+      "alice",
+      60000
+     ],
+     [
+      "alice",
+      60001
+     ],
+     [
+      "alice",
+      60001
+     ]
+    ]
+   },
+   "expect": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    false,
+    true,
+    false,
+    true,
+    true,
+    false
+   ]
+  },
+  {
+   "id": "flood-default-60",
+   "spec": "P65",
+   "fn": "receive_flood_run",
+   "args": {
+    "limits": null,
+    "admits": [
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ]
+    ]
+   },
+   "expect": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    false
+   ]
+  },
+  {
+   "id": "flood-refusals-not-counted",
+   "spec": "P65",
+   "fn": "receive_flood_run",
+   "args": {
+    "limits": {
+     "recv_per_sender_minute": 10
+    },
+    "admits": [
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      0
+     ],
+     [
+      "alice",
+      30000
+     ],
+     [
+      "alice",
+      30000
+     ],
+     [
+      "alice",
+      30000
+     ],
+     [
+      "alice",
+      30000
+     ],
+     [
+      "alice",
+      30000
+     ],
+     [
+      "alice",
+      60000
+     ]
+    ]
+   },
+   "expect": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    true
+   ]
+  },
+  {
+   "id": "wait-retry-after",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": {
+     "Retry-After": "7"
+    },
+    "body": null,
+    "reset_header": null,
+    "now_s": 0
+   },
+   "expect": 7000
+  },
+  {
+   "id": "wait-retry-after-stripped",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": {
+     "Retry-After": " 12 "
+    },
+    "body": null,
+    "reset_header": null,
+    "now_s": 0
+   },
+   "expect": 12000
+  },
+  {
+   "id": "wait-retry-after-unicode-space",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": {
+     "Retry-After": "\u00a04\u3000"
+    },
+    "body": null,
+    "reset_header": null,
+    "now_s": 0
+   },
+   "expect": 4000
+  },
+  {
+   "id": "wait-retry-after-zero",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": {
+     "Retry-After": "0"
+    },
+    "body": null,
+    "reset_header": null,
+    "now_s": 0
+   },
+   "expect": 0
+  },
+  {
+   "id": "wait-retry-after-leading-zeros",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": {
+     "Retry-After": "007"
+    },
+    "body": null,
+    "reset_header": null,
+    "now_s": 0
+   },
+   "expect": 7000
+  },
+  {
+   "id": "wait-retry-after-decimal-falls-through",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": {
+     "Retry-After": "1.5"
+    },
+    "body": {
+     "retry_after_ms": 2500
+    },
+    "reset_header": null,
+    "now_s": 0
+   },
+   "expect": 2500
+  },
+  {
+   "id": "wait-retry-after-negative",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": {
+     "Retry-After": "-3"
+    },
+    "body": null,
+    "reset_header": null,
+    "now_s": 0
+   },
+   "expect": 5000
+  },
+  {
+   "id": "wait-retry-after-empty",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": {
+     "Retry-After": ""
+    },
+    "body": null,
+    "reset_header": null,
+    "now_s": 0
+   },
+   "expect": 5000
+  },
+  {
+   "id": "wait-retry-after-not-string",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": {
+     "Retry-After": 7
+    },
+    "body": null,
+    "reset_header": null,
+    "now_s": 0
+   },
+   "expect": 5000
+  },
+  {
+   "id": "wait-retry-after-wins",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": {
+     "Retry-After": "2"
+    },
+    "body": {
+     "retry_after_ms": 9000
+    },
+    "reset_header": null,
+    "now_s": 0
+   },
+   "expect": 2000
+  },
+  {
+   "id": "wait-retry-after-huge-saturates",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": {
+     "Retry-After": "99999999999999999999"
+    },
+    "body": null,
+    "reset_header": null,
+    "now_s": 0
+   },
+   "expect": 9223372036854775807
+  },
+  {
+   "id": "wait-retry-after-arabic-indic",
+   "spec": "P66 D14",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": {
+     "Retry-After": "\u0663"
+    },
+    "body": null,
+    "reset_header": null,
+    "now_s": 0
+   },
+   "expect": 5000,
+   "expect_python": {
+    "departure": "D14",
+    "value": 3000
+   }
+  },
+  {
+   "id": "wait-retry-after-superscript",
+   "spec": "P66 D14",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": {
+     "Retry-After": "\u00b2"
+    },
+    "body": null,
+    "reset_header": null,
+    "now_s": 0
+   },
+   "expect": 5000,
+   "expect_python": {
+    "departure": "D14",
+    "value": {
+     "error": true
+    }
+   }
+  },
+  {
+   "id": "wait-no-headers",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": null,
+    "body": null,
+    "reset_header": null,
+    "now_s": 0
+   },
+   "expect": 5000
+  },
+  {
+   "id": "wait-reset",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": {
+     "x-ratelimit-reset": "1000060"
+    },
+    "body": null,
+    "reset_header": "x-ratelimit-reset",
+    "now_s": 1000000
+   },
+   "expect": 60000
+  },
+  {
+   "id": "wait-reset-past",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": {
+     "x-ratelimit-reset": "999990"
+    },
+    "body": null,
+    "reset_header": "x-ratelimit-reset",
+    "now_s": 1000000
+   },
+   "expect": 0
+  },
+  {
+   "id": "wait-reset-stripped",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": {
+     "x-ratelimit-reset": " 1000010 "
+    },
+    "body": null,
+    "reset_header": "x-ratelimit-reset",
+    "now_s": 1000000
+   },
+   "expect": 10000
+  },
+  {
+   "id": "wait-reset-after-retry-after",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": {
+     "Retry-After": "3",
+     "x-ratelimit-reset": "1000060"
+    },
+    "body": null,
+    "reset_header": "x-ratelimit-reset",
+    "now_s": 1000000
+   },
+   "expect": 3000
+  },
+  {
+   "id": "wait-reset-named-absent",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": {},
+    "body": {
+     "retry_after_ms": 1500
+    },
+    "reset_header": "x-ratelimit-reset",
+    "now_s": 1000000
+   },
+   "expect": 1500
+  },
+  {
+   "id": "wait-reset-not-named",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": {
+     "x-ratelimit-reset": "1000060"
+    },
+    "body": null,
+    "reset_header": null,
+    "now_s": 1000000
+   },
+   "expect": 5000
+  },
+  {
+   "id": "wait-reset-not-digits",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": {
+     "x-ratelimit-reset": "soon"
+    },
+    "body": {
+     "retry_after_ms": 1
+    },
+    "reset_header": "x-ratelimit-reset",
+    "now_s": 1000000
+   },
+   "expect": 1
+  },
+  {
+   "id": "wait-body-zero",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": null,
+    "body": {
+     "retry_after_ms": 0
+    },
+    "reset_header": null,
+    "now_s": 0
+   },
+   "expect": 0
+  },
+  {
+   "id": "wait-body-negative",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": null,
+    "body": {
+     "retry_after_ms": -1
+    },
+    "reset_header": null,
+    "now_s": 0
+   },
+   "expect": 5000
+  },
+  {
+   "id": "wait-body-float",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": null,
+    "body": {
+     "retry_after_ms": 1500.0
+    },
+    "reset_header": null,
+    "now_s": 0
+   },
+   "expect": 5000
+  },
+  {
+   "id": "wait-body-bool",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": null,
+    "body": {
+     "retry_after_ms": true
+    },
+    "reset_header": null,
+    "now_s": 0
+   },
+   "expect": 5000
+  },
+  {
+   "id": "wait-body-string",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": null,
+    "body": {
+     "retry_after_ms": "1500"
+    },
+    "reset_header": null,
+    "now_s": 0
+   },
+   "expect": 5000
+  },
+  {
+   "id": "wait-body-list",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": null,
+    "body": [
+     1500
+    ],
+    "reset_header": null,
+    "now_s": 0
+   },
+   "expect": 5000
+  },
+  {
+   "id": "wait-body-huge-saturates",
+   "spec": "P66",
+   "fn": "server_retry_wait",
+   "args": {
+    "headers": null,
+    "body": {
+     "retry_after_ms": 9223372036854775808
+    },
+    "reset_header": null,
+    "now_s": 0
+   },
+   "expect": 9223372036854775807
+  },
+  {
+   "id": "limits-constants",
+   "spec": "P66",
+   "fn": "limits_constants",
+   "args": {},
+   "expect": {
+    "duplicate_window_s": 60,
+    "report_window_s": 3600,
+    "sync_long_poll_s": 30,
+    "server_429_max_tries": 3,
+    "server_429_default_wait_s": 5,
+    "server_429_wait_max_s": 60
+   }
+  }
+ ]
+}
