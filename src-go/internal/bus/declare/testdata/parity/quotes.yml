@@ -1,0 +1,16 @@
+agent_bus_teams:
+  - team: "alpha"
+    port: "6167"
+    state: 'present'
+    server_name: "alpha.example.com"
+    org: 'example-org'
+    description: "a \"quoted\" word"
+  - team: 'beta'
+    port: 6168
+    description: 'single'
+    org: "unterminated
+  - team: gamma
+    port: 6169
+    description: ""
+    org: ''
+    humans: '["a"]'

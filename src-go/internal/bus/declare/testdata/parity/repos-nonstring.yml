@@ -1,0 +1,4 @@
+agent_bus_teams:
+  - team: alpha
+    port: 6167
+    repos: [{"repo": 5}, {"repo": "example-org/proj"}]

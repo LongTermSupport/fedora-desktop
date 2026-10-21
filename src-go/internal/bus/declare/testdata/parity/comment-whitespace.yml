@@ -1,0 +1,9 @@
+agent_bus_address: 192.0.2.10	# tab before the hash
+agent_bus_teams:	# tab
+  - team: alpha # nbsp
+    port: 6167　# ideographic space
+    org: example-org	#tab comment
+    description: Words #em space
+    server_name: s.example.com# unit separator
+    humans: ["a"] # nbsp
+    path_prefixes: ["docs/"] #narrow nbsp

@@ -1,0 +1,31 @@
+agent_bus_teams:
+  - team: alpha
+    port: 6167
+agent_bus_lxc_members:
+  - team: alpha
+    container: web-1
+    user: agent
+    checkout: /srv/agent/proj
+    host: Work Laptop
+    seat: 2
+    role: orchestrator
+    service: true
+  - team: alpha
+    container: web-2
+    user: agent
+    repo: Proj.Name
+    state: absent
+  - team: beta
+    container: web-1
+    user: agent
+    checkout: "/srv/agent/proj"
+    human_text: false
+    service: true
+    seat: worker
+    host: "\u0130x"
+  - team: alpha
+    container: Web.3_x
+    user: _a-b
+    checkout: /srv/x
+    role: worker
+    port: 1

@@ -1,0 +1,6 @@
+agent_bus_address　: 192.0.2.7
+agent_bus_teams :
+  - team: alpha
+    port: 6167
+    org: example-org 
+    description: 　Padded　

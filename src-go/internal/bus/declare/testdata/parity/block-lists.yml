@@ -1,0 +1,23 @@
+agent_bus_teams:
+  - team: alpha
+    port: 6167
+    humans:
+      - owner
+      - 'helper' # c
+      # skipped
+
+      - "third"
+    allow_from:
+      - 192.0.2.0/24
+      - 7
+      - true
+      - ["nested"]
+    repos:
+      - repo: example-org/proj
+        branches: ["main", "dev"]
+      - repo: "example-org/legacy"
+      - repo: other-org/tool
+        branches:   [] # none
+    exclude:
+    - a
+    - b

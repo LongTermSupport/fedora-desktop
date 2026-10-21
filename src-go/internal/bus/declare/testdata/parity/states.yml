@@ -1,0 +1,14 @@
+agent_bus_teams:
+  - team: alpha
+    port: 6167
+    state: absent
+    org: example-org
+  - team: beta
+    state: present
+    org: example-org
+  - team: gamma
+    port: 6169
+    org: example-org
+  - team: old
+    port: 6170
+    state: "absent"

@@ -1,0 +1,9 @@
+agent_bus_teams:
+  - team: alpha
+    port: 6167
+agent_bus_lxc_members:
+  - team: alpha
+    container: c
+    user: u
+    checkout: /x
+    state: ["absent"]

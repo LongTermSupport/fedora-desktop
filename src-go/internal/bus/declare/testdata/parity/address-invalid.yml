@@ -1,0 +1,4 @@
+agent_bus_address: 192.0.2.256
+agent_bus_teams:
+  - team: alpha
+    port: 6167

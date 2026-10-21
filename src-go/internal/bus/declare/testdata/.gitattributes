@@ -1,0 +1,2 @@
+# The parity fixtures are exact bytes (CRLF, lone CR, BOM, invalid UTF-8): no conversion.
+* -text

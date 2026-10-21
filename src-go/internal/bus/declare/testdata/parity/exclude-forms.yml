@@ -1,0 +1,29 @@
+agent_bus_teams:
+  - team: alpha
+    port: 6167
+    org: example-org
+    exclude: legacy
+  - team: beta
+    port: 6168
+    org: example-org
+    exclude: ["proj", 1]
+  - team: gamma
+    port: 6169
+    org: example-org
+    exclude: []
+  - team: delta
+    port: 6170
+    org: other-org
+    exclude: 7
+  - team: eps
+    port: 6171
+    org: example-org
+    exclude: !vault |
+      $ANSIBLE_VAULT;1.1;AES256
+      30303030303030303030303030303030
+  - team: zeta
+    port: 6172
+    org: example-org
+    exclude:
+      - legacy
+      - tool

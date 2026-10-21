@@ -1,0 +1,24 @@
+agent_bus_teams:
+  - team: alpha
+    port: 6167
+    path_prefixes: docs
+  - team: beta
+    port: 6168
+    path_prefixes: {"docs/": 1, "src/": 2}
+  - team: gamma
+    port: 6169
+    path_prefixes: []
+  - team: delta
+    port: 6170
+    path_prefixes: [1, true, null, 1.5, ["a"], {"k": "v"}]
+  - team: eps
+    state: absent
+    path_prefixes: 5
+  - team: zeta
+    port: 6171
+    path_prefixes: ""
+  - team: eta
+    port: 6172
+    path_prefixes:
+      - docs/
+      - 'src/'

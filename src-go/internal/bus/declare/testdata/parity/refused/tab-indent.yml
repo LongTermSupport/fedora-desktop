@@ -1,0 +1,3 @@
+agent_bus_teams:
+  - team: alpha
+	port: 6167

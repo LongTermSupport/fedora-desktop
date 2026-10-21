@@ -1,0 +1,3 @@
+agent_bus_teams: !vault |
+      $ANSIBLE_VAULT;1.1;AES256
+      30303030303030303030303030303030

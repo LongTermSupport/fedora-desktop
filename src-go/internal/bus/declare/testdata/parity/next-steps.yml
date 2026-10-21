@@ -1,0 +1,12 @@
+agent_bus_teams:
+  - team: alpha
+    port: 6167
+    org: example-org
+    repos: [{"repo": "other-org/tool"}]
+  - team: beta
+    port: 6168
+  - team: gamma
+    port: 6169
+    org: ["a"]
+  - team: old
+    org: example-org
