@@ -17,6 +17,19 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.13.9 — container 2.78.9
+
+Follows 3.99.13.8 (container 2.78.8). The image gains a binary and its entrypoint changed, so
+it is rebuilt once.
+
+- **A bus session's status line starts no Python** (Plan 00213). It is now
+  `pingbus-status-line`, a Go binary that prints what `pingbus status-line` prints (a parity
+  test over recorded Python output holds them equal) and
+  keeps the team segment for up to 60 seconds unless a file it was read from changes. The
+  image carries it beside the pingbus zipapp, linked onto PATH, and a session launched with
+  `--teams` refuses to start on an image without it. `cc --teams` and `agent-bus-claude`
+  refuse a member kit without it too, naming the play that builds it.
+
 ## 3.99.13.8 — container 2.78.8
 
 Follows 3.99.13.7 (container 2.78.7). The image carries the pingbus zipapp and the agent-bus

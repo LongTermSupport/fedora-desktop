@@ -130,7 +130,7 @@ as hooks-daemon issue #131 and is not this plan's to fix.
   golden passes 104/104 in-process and against the built binary; departures D2 to D4, the
   refusals and the racy rule are in SPEC section 9 and the journal.
 
-- [ ] 🔄 **Task 2.2**: A parity test that runs the Python and Go versions on the same fixtures
+- [x] ✅ **Task 2.2**: A parity test that runs the Python and Go versions on the same fixtures
   (team records, roles, widths, a hung or failing inner command) and requires identical stdout.
   It covers a fresh cache (a repeat render with no input changed) and an invalidated one (an
   input changed between renders: the output is Python's for the new inputs).
@@ -151,8 +151,25 @@ as hooks-daemon issue #131 and is not this plan's to fix.
   merged: no golden diff. The formats of SPEC section 8 are each written by their real writer
   in `TestReadsWhatTheRealWritersWrite`, so a writer's format change fails a Go test.
 
-- [ ] ⬜ **Task 2.3**: Point the kit's `statusLine` at the Go binary, through the play that
+- [ ] 🔄 **Task 2.3**: Point the kit's `statusLine` at the Go binary, through the play that
   installs the kit, with the ccy version bump. Measure again with 1.1.
+
+  Code done; the host deploy and its acceptance are queued (`deploy.bash` in
+  `meta-deploy.list`). The binary is `pingbus-status-line`, built static (`go_command_static`,
+  SPEC D5) by `tasks/build-go-command.yml`:
+
+  - `play-agent-bus.yml` builds it into the member kit right after `agent-bus-install software`. LXC members get it with the kit copy, and host members through `agent-bus-claude`
+    and `cc --teams`, which put the kit on PATH. Both refuse a kit without it.
+  - `play-claude-yolo.yml` builds it into the image's build context. The Dockerfile links it
+    onto PATH, and the entrypoint refuses a kit session on an image without it.
+  - The kit `settings.json` and the seated guard (`seat.STATUS_LINE_GUARD`) run it by name.
+    S7 passes over both names. The Python stays as the oracle.
+
+  There is no Python fallback. `acceptance.bash` checks C1 to C5: the installed binaries are
+  this checkout's build in the kit, the image and each declared LXC member; the goldens pass
+  for the installed Python and Go; and one Go render costs under a fifth of a Python render's
+  CPU. In the container that was about 4 ms against 42 ms. Measuring the idle member with 1.1
+  is still to do.
 
 ### Phase 3: per-event hooks in Go
 

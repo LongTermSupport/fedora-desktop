@@ -552,7 +552,8 @@ fi
 # `pingbus seat exec` derives the last two), means a launcher older than this image, refused
 # rather than started teamless. So is a launch in which ccy.env (tracked) or ccy.env.local set,
 # changed or unset any PINGBUS_* variable (D62). With the kit, pingbus goes on PATH (the
-# plugin's hooks run it by name), claude gets the plugin and the session's own settings, which
+# plugin's hooks run it by name; pingbus-status-line, the seated status line, is linked there
+# by the image and required here), claude gets the plugin and the session's own settings, which
 # `pingbus seat exec` writes into the session home (H34: the inbound accept and a shell-guarded
 # status line), right after `claude` so they land inside a supervisor wrapper's `--`, and
 # `pingbus seat exec --` goes in front of both final exec lines: it claims every desired seat,
@@ -577,7 +578,7 @@ done
 case "${_ccy_bus_old:+old:}${PINGBUS_MEMBERSHIP-}" in
 off) ;;
 /run/ccy/membership)
-    for _ccy_need in "$_ccy_agent_bus/pingbus" "$_ccy_agent_bus/plugin/pingbus/.claude-plugin/plugin.json" "$_ccy_agent_bus/plugin/pingbus/hooks/hooks.json" "$PINGBUS_MEMBERSHIP/membership.json"; do
+    for _ccy_need in "$_ccy_agent_bus/pingbus" "$_ccy_agent_bus/pingbus-status-line" "$_ccy_agent_bus/plugin/pingbus/.claude-plugin/plugin.json" "$_ccy_agent_bus/plugin/pingbus/hooks/hooks.json" "$PINGBUS_MEMBERSHIP/membership.json"; do
         if [ ! -f "$_ccy_need" ]; then
             printf '✗ CCY: this session was launched with the agent team bus kit, but %s is missing.\n  An image older than the kit (rebuild it: ccy --rebuild), or a launch that did not mount the membership (update ccy).\n' "$_ccy_need" >&2
             exit 1
