@@ -336,7 +336,7 @@ class ParseMembersTest(unittest.TestCase):
     def test_a_coordinator_must_take_human_text(self) -> None:
         # Plan 00211 SPEC 4.5: every message in the questions room is a human's, so a
         # coordinator dropping human text would hear none of them.
-        with self.assertRaisesRegex(members.MemberError, "entry 0: a coordinator must take human text"):
+        with self.assertRaisesRegex(members.MemberError, "entry 1: a coordinator must take human text"):
             members.parse_members([entry(role="coordinator", human_text=False)])
         (member,) = members.parse_members([entry(role="coordinator", human_text=False, state="absent")])
         self.assertEqual(member.state, "absent")

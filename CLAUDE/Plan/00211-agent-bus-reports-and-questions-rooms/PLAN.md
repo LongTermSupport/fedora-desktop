@@ -1,6 +1,6 @@
 # Plan 00211: agent bus reports and questions rooms
 
-**Status**: Not Started (spec revised after review; D9 needs the owner's sign-off; the other defaulted decisions are open to override)
+**Status**: In Progress (Phase 1, the member side, in code and not deployed; the Phase 0 spike has not run; D9 needs the owner's sign-off; the other defaulted decisions are open to override)
 **Created**: 2026-10-21
 **Owner**: joseph
 **Priority**: High
@@ -104,9 +104,10 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   rules, the report and question content and format checks, and room-aware `validate_event`
   with edits (SPEC §3.2, §4, §6, §7, §8.2). Done in code, not deployed: 418ae31c (the
   question index and attachment rules of §8.3 are in `protocol` too, pure).
-- [ ] ⬜ **Task 1.2**: `inbox`: every stored item records its room, and re-validation passes the
-  room on (SPEC §6).
-- [ ] ⬜ **Task 1.3**: `syncer`. SPEC §4.3-§4.5, §6, §8.3:
+- [x] ✅ **Task 1.2**: `inbox`: every stored item records its room, and re-validation passes the
+  room on (SPEC §6). Also `rooms.json` (the side rooms) and `reports.json` (report send times,
+  apart from the outbox gate). Done in code, not deployed.
+- [x] ✅ **Task 1.3**: `syncer` (done in code, not deployed). SPEC §4.3-§4.5, §6, §8.3:
   - side-room trust;
   - the reports join on reading the index;
   - the invite rule;
@@ -114,20 +115,22 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   - the questions-room receive path;
   - `history --room`;
   - the attachment rules.
-- [ ] ⬜ **Task 1.4**: A coordinator with `human_text: false` is refused where the role is
+- [ ] 🔄 **Task 1.4**: A coordinator with `human_text: false` is refused where the role is
   assigned: `members.py` in an LXC entry, and `admin.add_member`. A sync never refuses it; the
   member leaves the questions invite pending, and `status` and the hook context name the
   reason (SPEC §4.5).
-- [ ] ⬜ **Task 1.5**: `limits`: `report_per_hour`, with its bounds (SPEC §7).
+- [x] ✅ **Task 1.5**: `limits`: `report_per_hour`, with its bounds (SPEC §7). Done in code, not
+  deployed.
 - [ ] ⬜ **Task 1.6**: `cli`: `report`, `ask-human`, `thread` (with `--ask` and `--close`),
   `questions`, and `history --room`. The `HUMAN` line gains an appended `ROOM` field, and the
   `REPLY` command changes for questions-room items (SPEC §7, §8).
 - [ ] ⬜ **Task 1.7**: `envelope`: the `room:`, `question:` and `revises:` lines (SPEC §8.3).
 - [ ] ⬜ **Task 1.8**: `hooks`: the role lines. The pingbus skill text (SPEC §10.1, §10.2).
-- [ ] 🔄 **Task 1.9**: A change to `helpers/pingbus/` needs the container version bump: the
+- [x] ✅ **Task 1.9**: A change to `helpers/pingbus/` needs the container version bump: the
   pre-commit gate requires it (CLAUDE/ContainerRules.md, "every other file the image bakes
   in"), so SPEC §1 and §5.6's "no bump" was wrong. Each Phase 1 commit that touches the image
-  bumps it (3.99.13.0, container 2.78.0, first). Left: correct SPEC §1 and §5.6.
+  bumps it (3.99.13.0, container 2.78.0, first; then the patch digit per commit). SPEC §1 and
+  §5.6 are corrected.
 - [ ] ⬜ **Task 1.10**: Go, test-first: the `agent-bus list` parser skips `ROOM` lines, pinned
   by a test (SPEC §5.5, §11.1).
 - [ ] ⬜ **Task 1.11**: `docs/agent-bus-protocol.md` and `docs/agent-bus.md` (SPEC §10.3).

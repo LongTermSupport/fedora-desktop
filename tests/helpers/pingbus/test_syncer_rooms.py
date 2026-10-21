@@ -131,14 +131,13 @@ class ReportsJoinTest(SideRoomCase):
         s = self.ready()
         self.assertEqual((s.side, self.state.side_rooms()), ({}, {}))
 
-    def test_an_index_from_anyone_but_admin_is_not_read(self):
+    def test_an_index_not_in_its_exact_form_is_not_read(self):
         reports = self.make_side("reports")
-        self.fake.rooms[self.room].levels()["events"][protocol.EVENT_ROOMS] = 0
-        self.call(self.orch, "PUT", f"/_matrix/client/v3/rooms/{q(self.room)}/state/{protocol.EVENT_ROOMS}/",
-                  {"v": 1, "reports": reports})
+        self.index(reports=reports, main=self.room)
         s = self.ready()
         self.assertEqual(s.side, {})
         self.assertIsNone(self.membership(reports))
+        self.assertTrue(any("rooms index" in line for line in self.logged), self.logged)
 
 
 class QuestionsJoinTest(SideRoomCase):
@@ -230,6 +229,7 @@ class SideTrustTest(SideRoomCase):
     def joined(self, **make: object) -> tuple[syncer.Syncer, str]:
         reports = self.make_side("reports", invite=(self.alice,))
         questions = self.make_side("questions", invite=(self.alice, self.me), **make)
+        self.call(self.alice, "POST", f"/_matrix/client/v3/rooms/{q(questions)}/join", {})
         self.index(reports=reports, questions=questions)
         return self.ready(), questions
 
@@ -344,7 +344,8 @@ class QuestionsReceiveTest(SideRoomCase):
         self.assertEqual(self.s.history(10).items, ())
 
     def test_history_needs_a_joined_questions_room(self):
-        self.s.side["questions"] = inbox.SideRoom(self.questions, "untrusted", "power levels")
+        self.call(self.admin, "PUT", f"/_matrix/client/v3/rooms/{q(self.questions)}/state/{protocol.JOIN_RULES}/",
+                  {"join_rule": "public"})
         with self.assertRaises(syncer.RoomUntrusted):
             self.s.history(10, room="questions")
 

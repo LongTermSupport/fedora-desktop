@@ -40,7 +40,7 @@ Terms, as in the protocol: *main room* is today's team room (protocol §8, the b
 | A member is invited to the main room by `add_member`; `set_role` and `remove_member` re-sync the record; `remove_member` kicks and deactivates.                                                                                                                             | `helpers/agent_bus/admin.py:724-773`, `:798-827`, `:618-626`                                                                                                                                             |
 | The play is a thin caller of `agent-bus-install`; `software` builds the zipapps and the member kit, then `team` runs `bootstrap` per team. The LXC kit (with `pingbus`) is copied into each running container **only** by the "Join the LXC members" task, after the teams. | `playbooks/imports/play-agent-bus.yml:182-195`, `:272-333`, `:373-384`; `files/usr/local/sbin/agent-bus-install:387-395`, `:493-498`, `:831`; `helpers/agent_bus_lxc/members.py:1008-1015`, `:1228-1231` |
 | An LXC member may be declared with `human_text: false` (`--no-human-text`).                                                                                                                                                                                                 | `helpers/agent_bus_lxc/members.py:456`                                                                                                                                                                   |
-| A ccy session's `pingbus` and the plugin come from the image build context; the launcher compares the base image ID, so a changed zipapp needs no version bump unless the launcher itself changes.                                                                          | `playbooks/imports/play-claude-yolo.yml:342-360`; `files/var/local/claude-yolo/claude-yolo:2096-2098`                                                                                                    |
+| A ccy session's `pingbus` and the plugin come from the image build context; the launcher compares the base image ID. A change to what the image bakes in (`helpers/pingbus/` included) still needs the container version bump: the pre-commit gate requires it (5.6).       | `playbooks/imports/play-claude-yolo.yml:342-360`; `files/var/local/claude-yolo/claude-yolo:2096-2098`                                                                                                    |
 | The bundle names exactly one `room`; every member-side read and write uses `member.room`.                                                                                                                                                                                   | `helpers/pingbus/config.py:53`, `:103`, `:519-541`; `helpers/agent_bus/admin.py:685-702`                                                                                                                 |
 | The syncer's `/sync` filter names only that room; an invite is accepted only to it, from `admin`, and every other invite is rejected with `POST /leave`. After a join the room's history is skipped.                                                                        | `helpers/pingbus/syncer.py:119-134`, `:137-160`, `:367-379`, `:381-390`; protocol §8                                                                                                                     |
 | Room trust: create event by `admin`, version 12, event ID derived from the room ID, power levels exactly `expected_power_levels(humans)`, a valid admin-sent record. A change to create, power levels or the record re-verifies.                                            | `helpers/pingbus/syncer.py:46-48`, `:295-313`; `helpers/pingbus/protocol.py:1021-1031`; protocol §8                                                                                                      |
@@ -367,10 +367,12 @@ ccy-teams binary from before Phase 3 keeps working through deploy 2.
 - **LXC members (top priority).** Covered by deploy 1's whole-play run and the deploy-2
   pre-flight (5.3). An LXC coordinator syncs from inside its container like any member; nothing
   changes on the host side.
-- **ccy members.** The new zipapp and plugin go into the image build context. The launcher
-  rebuilds on a new base image ID, so no version bump is needed unless the launcher itself
-  changes; Task 1.9 confirms that on the host. A running container keeps its old pingbus until
-  its session restarts, and the deploy-2 questions-join leg (5.3) covers that.
+- **ccy members.** The new zipapp and plugin go into the image build context. Each commit that
+  changes `helpers/pingbus/` (or anything else the image bakes in) bumps the container version
+  and `CCY_VERSION`: the pre-commit gate requires it (CLAUDE/ContainerRules.md), so the first
+  version of this spec, which said no bump was needed, was wrong (Task 1.9). A running
+  container keeps its old pingbus until its session restarts, and the deploy-2 questions-join
+  leg (5.3) covers that.
 - **Host `cc` sessions** use the host's `/usr/local/bin/pingbus` and pick it up on relaunch.
 
 ## 6. Who is woken by what
@@ -423,7 +425,10 @@ ccy-teams binary from before Phase 3 keeps working through deploy 2.
 - **Limits (reused):**
   - a report is charged to the member's existing send gate (the `limits` token bucket,
     `admit_send` with a `report` gate verb);
-  - `report_per_hour` (default 6, bounds 1-60, per member) is kept in the outbox's `gate`;
+  - `report_per_hour` (default 6, bounds 1-60, per member). Its send times are kept in their own
+    file, `state/reports.json`, not in the outbox's `gate`: an older reader checks that the
+    gate's keys are exactly `{bucket, recent}`, and would refuse the outbox during deploy 1's
+    in-place upgrades. (A departure from the first version of this spec, accepted in Phase 1.)
   - a report equal to the member's previous report within the duplicate window is refused
     (exit 9).
     These are the bucket and window `say` already uses; there is no new rate machinery.
@@ -478,7 +483,9 @@ stdin.
   - content key `agent_bus.question`, `{"v": 1, "n": <int>, "asked_by": [<user IDs>], "re": [<event IDs>]}`.
     `asked_by` and `re` are the coordinator's record of whom to answer. Each `--asked-by` name is
     resolved as `say --to` resolves it, and each `--re` must be an event in the main room.
-- **Output:** `SENT`, plus a `QUESTION 1 TEAM Q<n> EVENT_ID` line.
+- **Output:** `SENT`, plus one `QUESTION` line in the one layout §8.4 gives it,
+  `QUESTION 1 TEAM Q<n> open EVENT_ID ASKED_BY 0`. (The first version of this spec gave a
+  shorter form here that conflicted with §8.4; one layout was accepted in Phase 1.)
 
 ### 8.3 Threads, replies and attaching an answer (D5)
 

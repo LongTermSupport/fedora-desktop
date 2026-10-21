@@ -96,6 +96,16 @@ LOCK_RETRY_S = 0.05
 DIR_MODE = 0o700
 FILE_MODE = 0o600
 STORED_KEYS = ("type", "event_id", "sender", "origin_server_ts", "content")
+#: A questions-room item's further top-level keys (Plan 00211 SPEC §6): `room` is
+#: `questions` and `question` is `{"n", "headline"}` or null. A main-room item has neither,
+#: so it stays byte-identical to what older code writes and reads.
+ROOM_KEY = "room"
+QUESTION_KEY = "question"
+#: The side rooms this member has met (`save_side_rooms`), and its report send times, kept
+#: apart from the outbox's gate, whose keys an older reader checks exactly.
+SIDE_ROOMS_FILE = "rooms.json"
+REPORTS_FILE = "reports.json"
+SIDE_ROOM_STATES = ("join", "pending", "untrusted", "refused")
 #: Stored JSON is ASCII-escaped, which can grow a 64 KiB Matrix event up to six times.
 MAX_INBOX_FILE_BYTES = 6 * 65536
 MAX_STATE_FILE_BYTES = 1 << 20
@@ -132,6 +142,20 @@ class Item:
     event_id: str
     origin_server_ts: int
     outcome: protocol.Outcome
+    #: The room the item came from: `main` or `questions` (Plan 00211 SPEC §6).
+    room: str = protocol.ROOM_MAIN
+    #: A questions-room item's question, (n, headline), or None when unattached.
+    question: tuple[int, str] | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class SideRoom:
+    """A side room this member has met: its ID, `join`, `pending` (not invited, or not this
+    member's to take), `untrusted` or `refused`, and why when it is not joined."""
+
+    room: str
+    state: str
+    reason: str | None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -220,6 +244,49 @@ def _read_regular(path: pathlib.Path, max_bytes: int) -> bytes:
     if len(data) > max_bytes:
         raise _Unusable("too large")
     return data
+
+
+def _question_of(value: object) -> tuple[int, str] | None:
+    """A stored item's `question`: null, or `{"n": <positive int>, "headline": <1 to 120
+    characters>}`. `ValueError` on anything else."""
+    if value is None:
+        return None
+    if (not isinstance(value, dict) or set(value) != {"n", "headline"} or not _is_int(value["n"])
+            or value["n"] < 1 or not isinstance(value["headline"], str)
+            or not 0 < len(value["headline"]) <= protocol.HEADLINE_MAX):
+        raise ValueError("a stored question is {n, headline}")
+    return value["n"], value["headline"]
+
+
+def _stored(event: Mapping[str, object]) -> dict:
+    """The inbox copy of an accepted event: its stored keys, and for a questions-room item its
+    room and question."""
+    data = {key: event[key] for key in STORED_KEYS if key in event}
+    if ROOM_KEY not in event:
+        if QUESTION_KEY in event:
+            raise ValueError("only a questions-room item carries a question")
+        return data
+    if event[ROOM_KEY] != protocol.PURPOSE_QUESTIONS:
+        raise ValueError("a stored item's room is the questions room or absent")
+    _question_of(event.get(QUESTION_KEY))
+    data[ROOM_KEY] = protocol.PURPOSE_QUESTIONS
+    data[QUESTION_KEY] = event.get(QUESTION_KEY)
+    return data
+
+
+def _check_side_rooms(rooms: object, where: object) -> dict[str, SideRoom]:
+    if not isinstance(rooms, dict) or not set(rooms) <= set(protocol.PURPOSES):
+        raise ValueError(f"{where}: the side rooms are keyed by purpose")
+    found = {}
+    for purpose, entry in rooms.items():
+        if isinstance(entry, SideRoom):
+            entry = dataclasses.asdict(entry)
+        if (not isinstance(entry, dict) or set(entry) != {"room", "state", "reason"}
+                or not protocol.is_room_id(entry["room"]) or entry["state"] not in SIDE_ROOM_STATES
+                or not (entry["reason"] is None or _is_reason(entry["reason"]))):
+            raise ValueError(f"{where}: a malformed side room")
+        found[purpose] = SideRoom(entry["room"], entry["state"], entry["reason"])
+    return found
 
 
 def _dump(value: object) -> bytes:
@@ -337,7 +404,7 @@ class TeamState:
             if not isinstance(event, Mapping):
                 raise ValueError("an event is not an object")
             event_id = _check_event_id(event.get("event_id"))
-            data = _dump({key: event[key] for key in STORED_KEYS if key in event})
+            data = _dump(_stored(event))
             if len(data) > MAX_INBOX_FILE_BYTES:
                 raise ValueError(f"event {event_id} is larger than an inbox file may be")
             prepared.append((event_id, data))
@@ -386,23 +453,25 @@ class TeamState:
         for name in sorted(os.listdir(self.inbox_dir)):
             if _TMP_NAME_RE.fullmatch(name):
                 continue
-            outcome = self._revalidate(name, ctx, self_user_id, human_text)
-            if outcome is None:
+            found = self._revalidate(name, ctx, self_user_id, human_text)
+            if found is None:
                 continue
+            outcome, room, question = found
             if outcome.kind != protocol.ACCEPT:
                 rejected += 1
                 continue
             item_ts = outcome.item.origin_server_ts
-            items.append(Item(name[: -len(".json")], item_ts, outcome))
+            items.append(Item(name[: -len(".json")], item_ts, outcome, room, question))
         items.sort(key=lambda item: (item.origin_server_ts, item.event_id))
         return Pending(tuple(items), rejected)
 
     def _revalidate(
         self, name: str, ctx: protocol.Context, self_user_id: str, human_text: bool
-    ) -> protocol.Outcome | None:
-        """The stored file's outcome; a DROP outcome for anything unusable; None when the
-        file went away (consumed meanwhile)."""
-        rejected = protocol.Outcome(protocol.DROP, "schema")
+    ) -> tuple[protocol.Outcome, str, tuple[int, str] | None] | None:
+        """The stored file's (outcome, room, question); a DROP outcome for anything unusable;
+        None when the file went away (consumed meanwhile). A file with no `room` is a main-room
+        item; a questions-room one must carry its `question`, null or not."""
+        rejected = (protocol.Outcome(protocol.DROP, "schema"), protocol.ROOM_MAIN, None)
         m = _INBOX_NAME_RE.fullmatch(name)
         if m is None:
             return rejected
@@ -418,7 +487,18 @@ class TeamState:
             return rejected
         if not isinstance(event, dict) or event.get("event_id") != m[1]:
             return rejected
-        return protocol.validate_event(event, ctx, self_user_id, human_text=human_text)
+        room, question = protocol.ROOM_MAIN, None
+        if ROOM_KEY in event or QUESTION_KEY in event:
+            if event.get(ROOM_KEY) != protocol.PURPOSE_QUESTIONS or QUESTION_KEY not in event:
+                return rejected
+            try:
+                question = _question_of(event[QUESTION_KEY])
+            except ValueError:
+                return rejected
+            room = protocol.PURPOSE_QUESTIONS
+            event = {key: event[key] for key in STORED_KEYS if key in event}
+        outcome = protocol.validate_event(event, ctx, self_user_id, human_text=human_text, room=room)
+        return outcome, room, question
 
     def in_inbox(self, event_id: str) -> bool:
         """Whether the item is still in the inbox, that is, no one has consumed it."""
@@ -476,6 +556,7 @@ class TeamState:
         _write_atomic(self.path / UNTRUSTED_FILE, _dump({"v": STATE_VERSION, "reason": reason}))
         self.forget_team_record()
         (self.path / ABOUT_FILE).unlink(missing_ok=True)
+        (self.path / SIDE_ROOMS_FILE).unlink(missing_ok=True)
         _fsync_dir(self.path)
 
     def untrusted_reason(self) -> str | None:
@@ -504,6 +585,27 @@ class TeamState:
             return {}, {}
         _check_room_view(data, self.path / ROOM_FILE)
         return dict(data["members"]), dict(data["statuses"])
+
+    def save_side_rooms(self, rooms: Mapping[str, SideRoom]) -> None:
+        """Replace `rooms.json` with the side rooms the syncer met, keyed by purpose."""
+        checked = _check_side_rooms(dict(rooms), "side rooms")
+        self.ensure_dirs()
+        write_json_file(self.path / SIDE_ROOMS_FILE, {
+            "v": STATE_VERSION, "rooms": {p: dataclasses.asdict(r) for p, r in checked.items()}})
+
+    def side_rooms(self) -> dict[str, SideRoom]:
+        """The side rooms from `rooms.json`, empty before the first save; `StateError` when the
+        file is not what `save_side_rooms` writes."""
+        path = self.path / SIDE_ROOMS_FILE
+        data = read_json_file(path)
+        if data is None:
+            return {}
+        if not isinstance(data, dict) or set(data) != {"v", "rooms"} or data["v"] != STATE_VERSION:
+            raise StateError(f"{path} is not a side rooms file")
+        try:
+            return _check_side_rooms(data["rooms"], path)
+        except ValueError as exc:
+            raise StateError(str(exc)) from None
 
     def forget_team_record(self) -> bool:
         """Remove `team.json` when the room stops being trusted; False when there was none."""
@@ -607,6 +709,27 @@ class TeamState:
         `RateLimited` propagates having recorded nothing."""
         with self.outbox() as box:
             box.send_gate(member_limits, now_ms).admit(verb, ref, re_, to, now_ms, deduplicate)
+
+    def admit_report(self, member_limits: limits.Limits, digest: str, now_ms: int) -> None:
+        """Plan 00211 SPEC §7 for one report, in one transaction under the outbox's lock: the
+        hourly cap, then the send gate `say` uses (its duplicate window keyed on `digest`, then
+        the bucket), then the send time. `RateLimited` propagates having recorded nothing."""
+        path = self.path / REPORTS_FILE
+        with self.outbox() as box:
+            data = self._load_json(path)
+            if data is None:
+                window = limits.ReportWindow()
+            else:
+                if not isinstance(data, dict) or set(data) != {"v", "sent"} or data["v"] != STATE_VERSION:
+                    raise StateError(f"{path} is not a report times file")
+                try:
+                    window = limits.ReportWindow.from_dict(data["sent"])
+                except ValueError:
+                    raise StateError(f"{path} holds a malformed send time") from None
+            window.check(member_limits.report_per_hour, now_ms)
+            box.send_gate(member_limits, now_ms).admit("report", digest, None, (), now_ms)
+            window.admit(member_limits.report_per_hour, now_ms)
+            _write_atomic(path, _dump({"v": STATE_VERSION, "sent": window.to_dict()}))
 
     def _load_json(self, path: pathlib.Path) -> object | None:
         return read_json_file(path)
