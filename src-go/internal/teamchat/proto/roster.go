@@ -99,11 +99,11 @@ func DecodeRoster(v Value, server, team, mainRoom string) (Roster, error) {
 		RestoreEpoch:  f.integer("restore_epoch", false, 0, "shape"),
 		QuestionFloor: f.integer("question_floor", false, 0, "shape"),
 		Humans:        f.strs("humans", true, "shape"),
-		Members:       decodeMembers(f, f.need("members", KindObject, "shape")),
-		Rooms:         decodeRooms(f, f.need("rooms", KindObject, "shape")),
+		Members:       decodeMembers(f, f.need("members", "shape")),
+		Rooms:         decodeRooms(f, f.need("rooms", "shape")),
 		Limits:        DefaultLimits(),
 	}
-	forge, err := decodeForgeShape(f.need("forge", KindObject, "shape"))
+	forge, err := decodeForgeShape(f.need("forge", "shape"))
 	if f.rule != "" {
 		return Roster{}, &RosterError{Rule: f.rule}
 	}

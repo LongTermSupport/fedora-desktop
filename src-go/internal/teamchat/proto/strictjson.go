@@ -564,10 +564,10 @@ func (f *fields) optObject(key, rule string) Value {
 	return Obj()
 }
 
-// need is a required member of kind: null when it is missing or of another kind, which breaks
+// need is a required object member: null when it is missing or of another kind, which breaks
 // rule here and again in any reader of the null.
-func (f *fields) need(key string, kind Kind, rule string) Value {
-	if v, ok := f.get(key, kind, true, rule); ok {
+func (f *fields) need(key, rule string) Value {
+	if v, ok := f.get(key, KindObject, true, rule); ok {
 		return v
 	}
 	return Null()
