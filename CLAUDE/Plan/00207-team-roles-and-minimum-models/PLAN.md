@@ -85,6 +85,9 @@ decisions the owner must make before M1 starts.
   membership notice), Plan 00201 (many teams, the chooser's external-scope choice, the
   settings pane to come), Plan 00204 (TUI toolkit), Plan 00205 (SSH team members: roles apply
   to every member kind).
+- Plan 00211 (reports and questions rooms) supersedes this plan's management room (SPEC §11):
+  its questions room is that room, and its reports room takes the briefs. M6a and M6b build on
+  its `agent_bus.rooms` index (Plan 00211 SPEC §2, §4.1), not beside it.
 - Research facts are in SPEC §1. The research reports are saved under `untracked/agent-reports/`.
   The key facts: no launcher sets a model or an effort today; Claude Code 2.1.301 has
   `--model`, `--effort` and `--fallback-model`; the status line JSON carries `model.id` and
