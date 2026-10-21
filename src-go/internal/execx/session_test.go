@@ -185,6 +185,25 @@ func TestSessionAProgramThatCannotStartIsNotAnExit(t *testing.T) {
 	}
 }
 
+// A run that cannot start closes the stdin pipe it made as well as the child's ends: nothing
+// will ever feed it, and an open write end is a descriptor lost per failed start.
+func TestSessionAFailedStartClosesTheStdinPipe(t *testing.T) {
+	pipes := &sessionPipes{}
+	c := Cmd{Name: "/nonexistent/program", Stdin: strings.NewReader("payload"), NewSession: true}
+	if _, err := (OS{}).session(context.Background(), c, pipes); err == nil {
+		t.Fatal("want a start failure")
+	}
+	if pipes.stdin == nil {
+		t.Fatal("no stdin pipe was made")
+	}
+	if _, err := pipes.stdin.Write([]byte("x")); !errors.Is(err, os.ErrClosed) {
+		t.Errorf("the stdin pipe is still open: write gave %v", err)
+	}
+	if err := pipes.closeReaders(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // A cancel kills the whole group at once, grandchildren included, and the run returns the cause.
 func TestSessionCancelKillsTheWholeGroup(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "grandchild")

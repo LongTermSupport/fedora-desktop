@@ -46,6 +46,14 @@ const (
 	innerNote   = "[oracle: the inner never started, no signal sent]\n"
 	dirMode     = 0o750
 	fileMode    = 0o600
+	// settleBy is how far past the world's newest change the in-process run's clock is set: more
+	// than the cache's 2 s racy window, so a render the cache may keep is kept. It is far inside
+	// the 300 s a down mark counts for, and no scenario's mark sits within it of that edge.
+	settleBy     = 3 * time.Second
+	cachePrefix  = "cache-"
+	cacheStored  = "stored"
+	cacheHit     = "hit"
+	cacheFileRel = "statusline-cache.json"
 )
 
 var (
@@ -89,6 +97,10 @@ type step struct {
 	Env    map[string]string `json:"env"`
 	Signal string            `json:"signal"`
 	Gone   []string          `json:"gone"`
+	// Cache is what the in-process Go run must do to the cache file in this step: cacheStored
+	// (a miss, and a new file written) or cacheHit (served: the file was there and is unchanged).
+	// Every step of a cache- scenario names one; no other step may.
+	Cache string `json:"cache"`
 }
 
 type scenario struct {
@@ -333,11 +345,36 @@ func startedOrDone(root string, done <-chan struct{}) bool {
 }
 
 // goRender runs statusline.Run in-process. The signal reaches it as the context's cancel cause,
-// as main delivers it, so the renderer needs no copy of it.
+// as main delivers it, so the renderer needs no copy of it. Its clock is settleBy past the
+// world's newest change, so the cache stores what it may and every scenario meets the real
+// cache: a world built moments before would be racy, and never cached.
 func goRender(ctx context.Context, root string, env map[string]string, stdin []byte, _ syscall.Signal) ([]byte, []byte, int, error) {
+	newest, err := newestChange(root)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	at := newest.Add(settleBy)
 	var stderr bytes.Buffer
-	out, code := statusline.Run(ctx, statusline.Input{Env: env, Cwd: root, Stdin: stdin}, &stderr)
+	in := statusline.Input{Env: env, Cwd: root, Stdin: stdin, Now: func() time.Time { return at }}
+	out, code := statusline.Run(ctx, in, &stderr)
 	return out, stderr.Bytes(), code, nil
+}
+
+// newestChange is the latest ctime of anything under root, not following links.
+func newestChange(root string) (time.Time, error) {
+	var newest int64
+	err := filepath.WalkDir(root, func(path string, _ fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		var st syscall.Stat_t
+		if err := syscall.Lstat(path, &st); err != nil {
+			return err
+		}
+		newest = max(newest, st.Ctim.Nano())
+		return nil
+	})
+	return time.Unix(0, newest), err
 }
 
 // execRender runs an external binary through execx, the one process seam, in the world's
@@ -462,8 +499,9 @@ func applyStep(t *testing.T, st step, root string, env map[string]string, stdin 
 	return stdin
 }
 
-// runScenario builds the scenario's world and renders each step in it.
-func runScenario(t *testing.T, render renderer, sc scenario) []stepResult {
+// runScenario builds the scenario's world and renders each step in it. With checkCache, each
+// step's cache expectation is judged against the cache file before and after the render.
+func runScenario(t *testing.T, render renderer, sc scenario, checkCache bool) []stepResult {
 	t.Helper()
 	root := t.TempDir()
 	env, stdin := buildWorld(t, sc, root)
@@ -473,19 +511,61 @@ func runScenario(t *testing.T, render renderer, sc scenario) []stepResult {
 		if err := os.Remove(filepath.Join(root, startedName)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			t.Fatal(err)
 		}
+		before := readCache(t, env)
 		out, errOut, code, err := renderStep(render, root, env, stdin, st)
 		if err != nil {
 			t.Fatalf("render: %v", err)
+		}
+		problems := gone(t, root, st.Gone)
+		if checkCache {
+			problems = append(problems, cacheProblems(st.Cache, before, readCache(t, env))...)
 		}
 		marker := []byte(root)
 		results = append(results, stepResult{
 			stdout:   bytes.ReplaceAll(out, marker, []byte(worldMark)),
 			stderr:   bytes.ReplaceAll(errOut, marker, []byte(worldMark)),
 			code:     code,
-			problems: gone(t, root, st.Gone),
+			problems: problems,
 		})
 	}
 	return results
+}
+
+// readCache is the cache file under the step's PINGBUS_HOME, or nil when there is none.
+func readCache(t *testing.T, env map[string]string) []byte {
+	t.Helper()
+	home, ok := env["PINGBUS_HOME"]
+	if !ok {
+		return nil
+	}
+	raw, err := os.ReadFile(filepath.Join(home, cacheFileRel))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+// cacheProblems judges one step's expectation: stored is a cache file that is new or rewritten,
+// hit is one that was there before the render and is unchanged by it.
+func cacheProblems(want string, before, after []byte) []string {
+	switch want {
+	case "":
+		return nil
+	case cacheStored:
+		if after == nil || bytes.Equal(before, after) {
+			return []string{fmt.Sprintf("cache: want a new entry stored; before %d bytes, after %d bytes", len(before), len(after))}
+		}
+	case cacheHit:
+		if before == nil || !bytes.Equal(before, after) {
+			return []string{fmt.Sprintf("cache: want a hit, the file unchanged; before %d bytes, after %d bytes", len(before), len(after))}
+		}
+	default:
+		return []string{fmt.Sprintf("cache: unknown expectation %q", want)}
+	}
+	return nil
 }
 
 // stderrMatches is byte equality, except for the role line of S24, which is compared by shape:
@@ -598,10 +678,11 @@ func TestStatusLineGolden(t *testing.T) {
 		return
 	}
 	render := rendererFor(t)
+	inProcess := *implFlag == ""
 	for _, sc := range loadScenarios(t) {
 		t.Run(sc.Name, func(t *testing.T) {
 			t.Parallel()
-			results := runScenario(t, render, sc)
+			results := runScenario(t, render, sc, inProcess)
 			if len(results) != len(sc.Steps) {
 				t.Fatalf("ran %d steps, want %d", len(results), len(sc.Steps))
 			}
@@ -609,6 +690,22 @@ func TestStatusLineGolden(t *testing.T) {
 				checkStep(t, sc.Name, i+1, got)
 			}
 		})
+	}
+}
+
+// A cache- scenario must judge the cache at every step, so none can pass on the uncached path;
+// a scenario of another kind leaves it unjudged.
+func TestEveryCacheScenarioJudgesTheCache(t *testing.T) {
+	for _, sc := range loadScenarios(t) {
+		isCache := strings.HasPrefix(sc.Name, cachePrefix)
+		for i, st := range sc.Steps {
+			if isCache && st.Cache == "" {
+				t.Errorf("%s step %d: a cache- scenario's step names no cache expectation", sc.Name, i+1)
+			}
+			if !isCache && st.Cache != "" {
+				t.Errorf("%s step %d: a cache expectation outside a cache- scenario", sc.Name, i+1)
+			}
+		}
 	}
 }
 
@@ -639,7 +736,7 @@ func recordGolden(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, sc := range loadScenarios(t) {
-		results := runScenario(t, render, sc)
+		results := runScenario(t, render, sc, false)
 		for i, r := range results {
 			recordStep(t, sc, i, r)
 		}

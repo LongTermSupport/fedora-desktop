@@ -298,9 +298,9 @@ one gets a Go test that reads a file the Python wrote, so drift fails a test:
 | `$PINGBUS_HOME/<team>/state/team.json`      | the watcher (`inbox.TeamState`)          | `inbox.load_cached_record`                        |
 | `$PINGBUS_HOME/down/<team>`                 | the watcher (`statusline.set_team_down`) | `statusline._is_down`                             |
 
-Plan 00211 is changing `seat.py`, `inbox`, `protocol` and `cli` on another branch. Re-record the
-oracle (`go test ./internal/pingbus/statusline/golden -update`) after it merges, before the Go
-draft is judged.
+A change to a status-line input or output in the Python is followed by a re-record of the
+oracle (`go test ./internal/pingbus/statusline/golden -update`) in the same change, and the
+golden diff is reviewed.
 
 ## 9. Candidate departures (to decide, not yet taken)
 
@@ -326,8 +326,11 @@ Departures the Go port has taken (Task 2.1), each where the Python crashes or ha
   host member with no passwd home is refused (Python raises `KeyError`).
 - **The racy rule (S33)** A render that read any path whose ctime is within 2 s of its clock is
   not cached: a same-size rewrite inside one file-system tick keeps every other mark of the
-  fingerprint. The oracle's worlds are built moments before each step, so it mostly exercises
-  the uncached path; the cache is proved by the unit tests with an injected clock.
+  fingerprint. The oracle's worlds are built moments before each step, so its in-process Go
+  run sets the clock 3 s past the world's newest change: every scenario then meets the real
+  cache, and each step of a `cache-` scenario states whether the cache file must be newly
+  stored or left unchanged (a hit). The unit tests prove the hits by poisoning the stored
+  segment.
 
 ## 10. The parity oracle
 

@@ -217,6 +217,120 @@ func TestCacheEntryExpiresAtTheTTLOrTheMarksAgeOut(t *testing.T) {
 	}
 }
 
+// cachedThenPoisoned renders the world settled, proves the render was stored and that a repeat is
+// served from the cache, and leaves every stored segment replaced by POISON.
+func (cw *cacheWorld) cachedThenPoisoned(want string) {
+	cw.t.Helper()
+	now := cw.settled(0)
+	if first := cw.render(now); !strings.Contains(first.out, want) {
+		cw.t.Fatalf("first render %q, want %q", first.out, want)
+	}
+	raw, err := os.ReadFile(cw.cacheFile())
+	if err != nil {
+		cw.t.Fatalf("the settled render was not cached: %v", err)
+	}
+	var content cacheContent
+	if err = json.Unmarshal(raw, &content); err != nil {
+		cw.t.Fatal(err)
+	}
+	for i := range content.Entries {
+		content.Entries[i].Segment = "POISON"
+	}
+	if raw, err = json.Marshal(content); err != nil {
+		cw.t.Fatal(err)
+	}
+	cw.file("pingbus/"+cacheFile, string(raw), 0o600)
+	if again := cw.render(now); !strings.Contains(again.out, "POISON") {
+		cw.t.Fatalf("the repeat was not served from the cache: %q", again.out)
+	}
+}
+
+// renderAfterChange renders settled past the latest change, and fails on a stale segment.
+func (cw *cacheWorld) renderAfterChange(what, want string, absent ...string) {
+	cw.t.Helper()
+	got := cw.render(cw.settled(0))
+	if strings.Contains(got.out, "POISON") || !strings.Contains(got.out, want) {
+		cw.t.Errorf("after %s: %q, want %q at once", what, got.out, want)
+	}
+	for _, a := range absent {
+		if strings.Contains(got.out, a) {
+			cw.t.Errorf("after %s: %q still shows %q", what, got.out, a)
+		}
+	}
+}
+
+func (cw *cacheWorld) betaBundle() {
+	cw.t.Helper()
+	cw.dir("pingbus/beta")
+	cw.file("pingbus/beta/member.json", strings.ReplaceAll(alphaMember, "alpha", "beta"), 0o644)
+	cw.file("pingbus/beta/token", "syt_token", 0o600)
+	cw.dir("pingbus/beta/state")
+	cw.file("pingbus/beta/state/team.json", strings.ReplaceAll(alphaRecord("worker"), "alpha", "beta"), 0o600)
+}
+
+func membershipRecord(teams ...string) string {
+	seats := make([]string, 0, len(teams))
+	for i, team := range teams {
+		seats = append(seats, `{"team": "`+team+`", "seat": "`+string(rune('1'+i))+`"}`)
+	}
+	return `{"v": 1, "session": "ccy-x-1", "kind": "ccy", "checkout": "/srv/x", "generation": 3, ` +
+		`"written_ms": 1, "seats": [` + strings.Join(seats, ", ") + `], "farewell": []}`
+}
+
+func appliedRecord(teams ...string) string {
+	seats := make([]string, 0, len(teams))
+	for i, team := range teams {
+		seats = append(seats, `{"handle": "myrepo.1+local.podman", "seat": "`+string(rune('1'+i))+
+			`", "state": "held", "team": "`+team+`"}`)
+	}
+	return `{"generation": 3, "refused": [], "v": 1, "seats": [` + strings.Join(seats, ", ") + `]}`
+}
+
+// The owner's case (S33): in a membership session, a seat added and then one dropped show at
+// once, though the segment before each change was being served from the cache.
+func TestCacheShowsAMembershipChangeAtOnce(t *testing.T) {
+	cw := newCacheWorld(t)
+	cw.betaBundle()
+	delete(cw.env, "PINGBUS_TEAMS")
+	cw.env[membershipVar] = cw.root + "/membership"
+	cw.dir("membership")
+	cw.file("membership/membership.json", membershipRecord("alpha"), 0o644)
+	cw.file("pingbus/applied.json", appliedRecord("alpha"), 0o600)
+	cw.cachedThenPoisoned("alpha (coordinator)")
+
+	cw.file("membership/membership.json", membershipRecord("alpha", "beta"), 0o644)
+	cw.file("pingbus/applied.json", appliedRecord("alpha", "beta"), 0o600)
+	cw.renderAfterChange("a seat added", "alpha (coordinator), beta (worker)")
+
+	cw.cachedThenPoisoned("beta (worker)")
+	cw.file("membership/membership.json", membershipRecord("beta"), 0o644)
+	cw.file("pingbus/applied.json", appliedRecord("beta"), 0o600)
+	cw.renderAfterChange("a seat dropped", "beta (worker)", "alpha")
+}
+
+// S33: a role changed in the team record shows at once over a cached segment.
+func TestCacheShowsARoleChangeAtOnce(t *testing.T) {
+	cw := newCacheWorld(t)
+	cw.cachedThenPoisoned("alpha (coordinator)")
+	cw.file("pingbus/alpha/state/team.json", alphaRecord("worker"), 0o600)
+	cw.renderAfterChange("the role changed", "alpha (worker)")
+}
+
+// S33: a down mark made, then removed, shows and clears at once over a cached segment.
+func TestCacheShowsADownMarkAtOnce(t *testing.T) {
+	cw := newCacheWorld(t)
+	cw.cachedThenPoisoned("alpha (coordinator)")
+	cw.dir("pingbus/down")
+	cw.file("pingbus/down/alpha", "", 0o600)
+	cw.renderAfterChange("a mark made", "alpha (coordinator) (down)")
+
+	cw.cachedThenPoisoned("(down)")
+	if err := os.Remove(filepath.Join(cw.root, "pingbus/down/alpha")); err != nil {
+		t.Fatal(err)
+	}
+	cw.renderAfterChange("the mark removed", "alpha (coordinator)", "(down)")
+}
+
 func poison(t *testing.T, path string) {
 	t.Helper()
 	raw, err := os.ReadFile(path)

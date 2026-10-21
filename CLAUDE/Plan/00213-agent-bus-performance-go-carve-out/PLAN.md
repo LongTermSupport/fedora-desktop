@@ -145,6 +145,11 @@ as hooks-daemon issue #131 and is not this plan's to fix.
   104 scenarios and a stand-in impl fails every step. The stderr shape rule (S24, S37) is the
   owner's call taken in SPEC section 4.
 
+  Go side: the in-process run's clock is settled past the world's changes, so the `cache-`
+  scenarios run through the real cache, and each step states stored or hit. A `lookup` that
+  ignores the fingerprints fails ten of them. Re-recorded from the Python after Plan 00211
+  merged: no golden diff. Still open: the per-format writer tests of SPEC section 8.
+
 - [ ] ⬜ **Task 2.3**: Point the kit's `statusLine` at the Go binary, through the play that
   installs the kit, with the ccy version bump. Measure again with 1.1.
 

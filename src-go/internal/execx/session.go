@@ -51,10 +51,10 @@ func (o OS) session(ctx context.Context, c Cmd, pipes *sessionPipes) (Result, er
 	cmd.ExtraFiles = c.ExtraFiles
 	var out, errOut bytes.Buffer
 	if err := pipes.wire(cmd, c, &out, &errOut); err != nil {
-		return Result{}, errors.Join(err, pipes.closeChildEnds())
+		return Result{}, errors.Join(err, pipes.closeUnstarted())
 	}
 	if err := cmd.Start(); err != nil {
-		return Result{}, errors.Join(startError(c.Name, err), pipes.closeChildEnds())
+		return Result{}, errors.Join(startError(c.Name, err), pipes.closeUnstarted())
 	}
 	run := &sessionRun{
 		waiting: true, copying: true,
@@ -219,6 +219,20 @@ func (p *sessionPipes) closeChildEnds() error {
 	}
 	p.childEnds = nil
 	return errors.Join(errs...)
+}
+
+// closeUnstarted closes the child's ends and the stdin write end of a run that never started,
+// which no feed will ever close.
+func (p *sessionPipes) closeUnstarted() error {
+	err := p.closeChildEnds()
+	if p.stdin == nil {
+		return err
+	}
+	if closeErr := p.stdin.Close(); closeErr != nil {
+		err = errors.Join(err, fmt.Errorf("close the stdin pipe: %w", closeErr))
+	}
+	p.stdinClosed = true
+	return err
 }
 
 // closeReaders closes the output ends once nothing reads them.
