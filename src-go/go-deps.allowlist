@@ -35,3 +35,6 @@ module	github.com/rivo/uniseg	Unicode grapheme clusters and widths (Lip Gloss).
 module	github.com/xo/terminfo	Reads the terminfo database to learn the terminal's colour support (colorprofile).
 module	golang.org/x/sync	errgroup, from the Go project (Ultraviolet).
 module	golang.org/x/sys	The ioctl and system calls of terminal handling, from the Go project (Bubble Tea, x/term, Ultraviolet), and directly the window-size ioctl of term.FileColumns, which ccy-teams lays its table out to.
+
+# The teamchat protocol (Plan 00209).
+module	golang.org/x/text	Unicode NFKC normalisation (unicode/norm), from the Go project: the delivery envelope's escaper shows a character only when its NFKC form holds no quote, backslash, angle bracket or control (teamchat/proto, A 13.4); its tables are pinned equal to unicode.Version by a test.
