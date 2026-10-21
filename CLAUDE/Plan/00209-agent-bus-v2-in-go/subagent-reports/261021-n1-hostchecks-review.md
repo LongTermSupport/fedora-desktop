@@ -131,3 +131,78 @@ What holds up:
    decisions 1 and 2 of `261021-n1-hostchecks.md` (no Element mode, no host script).
 
 Counts: 0 blocker, 4 major, 4 minor.
+
+## Round 2
+
+MERGE
+
+Re-review of the fix commit `a548c19a` (`e747082f..a548c19a`), read against the full task diff
+`db3c8350..a548c19a` and against A 6.6, A 16, C 3.7.3 (the take steps, the fallback paragraph and
+the health tick's foreign-device report), DC16 and C 15's seats row. The probe was not re-run.
+
+Mechanical results: `python3 -m unittest test_hca` (from the plan folder) runs 23 tests, OK.
+`ruff check` passes on all three files (ruff 0.16.8), and `ruff format --check` reports all three
+already formatted.
+
+The run report matches the probe code. Every new fact name in `261021-n1-hostchecks-run.md` is the
+string the code builds: the two `online_fact` baselines ("after its default sync", "again after a
+default sync, before the PUT"), the two admin positive controls, the renamed other-device delete,
+`self_delete_fact`'s fallback fact, and the reworded config-key fact. The changed room and event
+IDs, the `last_active_ago`, the device ID and the `since`/`next_batch` numbers are the new run's
+own values, as a regenerated report should show. No absolute paths, user names or host names
+appear in it or in `261021-n1-hostchecks.md`: the scratch and binary paths stay `<scratch>`, and
+the only names are the probe's own (`hca.invalid`, `hca.N+lab.<kind>`).
+
+### Round 1 findings
+
+1. **FIXED.** `online_fact` reads `GET /presence/{a}/status` and requires `online` right after the
+   first default sync and again right after the re-sync, before the `PUT`. Both hold in the run,
+   so the `set_presence=offline` FAIL and the `PUT` PASS are each judged against a baseline of the
+   same endpoint. The report says so in the HC-A1 row and in finding 1.
+2. **FIXED.** (a) `self_delete_fact` deletes the device `HCACLAIM` with the claim's own token by
+   UIA by password, and requires the token to answer `M_UNKNOWN_TOKEN` afterwards. That is C
+   3.7.3's fallback shape (release has only `held/token`). It runs on the invitee account, so the
+   seat account's burst of five logins is not exceeded: the seat takes four. The other-device
+   delete is renamed for what it shows. (b) Finding 2 names C 3.7.3's per-claim device as the
+   design path, and lists logout-before-login (needs the old token) and login-logout-login (two
+   logins per take against the rate limit) with their costs. The statement that a crashed claim's
+   device is cleared by the health tick's foreign-device report and the hot reissue matches C
+   3.7.3's own text (design line 1285). (c) K13 is stated to stay closed, quoting K13's condition.
+   (d) Step 3's "so the previous holder's token dies here" and C 15's seats row are named.
+3. **FIXED.** PLAN.md gains Task 1.4a (⬜) for the design pass. It covers the presence clause in A
+   6.6, A 14, A 15, A 16 and B 2.6 step 09, both timers and `server_user_localpart` in C 3.2.4,
+   DC16's choice with C 3.7.3 step 3 and C 15's seats row, and the A 16 note that HC-A2's display,
+   HC-A3 and HC-A5 are owner steps after gate A, with 7.5 and 10.4 in `proto` provisional until
+   HC-A3 is run. Decision 1 of the report records the same consequence. Task 1.4 ✅ is right with
+   that task open.
+4. **FIXED.** Finding 1 now proposes that every sync is the link's, runs only while the seat is
+   held, and uses the default `set_presence`, with `set_presence=offline` never used. It keeps B 2.6
+   step 01 (c)'s timeline-limit-0 sync explicitly and lists all five places the clause appears.
+5. **FIXED.** The admin (100) sends a reaction (the same content as the human's refused one) and an
+   `m.poll.start`, and both answer 200. See new finding N1 on the poll's content.
+6. **FIXED.** Finding 4 names `server_user_localpart` as Tuwunel's default and proposes that C 3.2.4
+   sets it explicitly. Task 1.4a carries it.
+7. **FIXED.** The fact's name and the report's wording are now "a config key whose name mentions
+   password or deactivation", which is what the scan measures.
+8. **FIXED.** The handoff opens with a line saying it is superseded by decisions 1-3 of the report.
+   Decisions 1, 2 and 3 exist and cover the Element mode, the host script, the meta-deploy entry and
+   the Python probes.
+
+### New findings
+
+N1. **minor — the admin's poll control does not send the content the human's poll was refused
+with.** `hca_probe.py:318-320`: the human's `m.poll.start` is refused with
+`{"m.text": [{"body": "p"}]}` (line 293), but the admin's control sends `{"body": "p"}`. The
+reaction control reuses `refused[0][3]` exactly, so the reaction refusals are shown to be the
+power levels'; the poll control proves the type is accepted, not that the refused content is. The
+conclusion is unaffected in practice (Tuwunel does not validate poll content), but the fact name
+claims more than the code shows. **Fix:** send `refused[2][3]` for the poll, as is done for the
+reaction, when the probe is next touched or in the regression Go test.
+
+N2. **nit — the report's markdown was not re-flowed after the edits.** In
+`261021-n1-hostchecks.md` the HC-A4, HC-A1 and H-C13 rows of the checks table are longer than the
+other rows (the table is no longer aligned), and decision 1's third line runs to 139 characters
+while the rest wraps at 100. No QA gate checks this, and nothing reads differently. **Fix:** re-flow
+on the next edit of the file.
+
+Counts: 8 of 8 round-1 findings FIXED; new: 0 blocker, 0 major, 1 minor, 1 nit.
