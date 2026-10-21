@@ -165,15 +165,23 @@ its first caller.
   test once the matrix client merges. **Gate A** (Task 0.5): a check that would leave the
   `teamchat` name in a unit or path on the host runs in the VM lab until the owner has confirmed
   the irreversible decisions.
-- [ ] ⬜ **Task 1.4a**: The design-text fixes Task 1.4's checks call for, for the design pass
+- [x] ✅ **Task 1.4a**: The design-text fixes Task 1.4's checks call for, for the design pass
   (`261021-n1-hostchecks.md` findings 1, 2 and 4): presence never uses `set_presence=offline`
   (A 6.6, A 14, A 15, A 16, B 2.6 step 09) and C 3.2.4 sets both presence timers and
   `server_user_localpart`; DC16's take chosen from the options given, with C 3.7.3 step 3 and C
   15's seats row changed to match; A 16 notes that HC-A2's display, HC-A3 and HC-A5 are owner
   steps after gate A, and that 7.5 and 10.4 in `proto` stay provisional until HC-A3 is run.
+  Done: H-C13 makes a take log in, log out, then log in; only the link syncs, with presence
+  timers of 120 s and a further 60 s; restore_epoch is checked after each sync answer, before
+  anything is saved (`261021-n1-hc-design.md`, narrow check MERGE in
+  `261021-n1-hc-design-check.md`).
 - [ ] ⬜ **Task 1.5**: The matrix client and `fakehs`, built and reviewed on
   `feat/bus-v2-m1-matrix` (58c7b6e1): rebuilt off 35acceab (Phase 7), placed under
   `internal/teamchat/` (D 3.3), merged with its first caller (N2 or N3), not alone.
+  Built and reviewed on `feat/bus-v2-n1-matrix` (9f42a773; review MERGE in round 3, `261021-n1-matrix.md`):
+  the move, `LoginDevice`, `Logout`, `DeleteDevice`, room account data, `Redact` and presence, with fakehs
+  following the Task 1.4 facts. Its only red check is GO-2026-6809 (Task 1.6). It stays on the
+  N1 branch until its first caller (N2 or N3) is ready to merge with it.
 - [ ] ⬜ **Task 1.6**: GO-2026-6809: the Go toolchain bump, with the coordinator, before the matrix
   client merges.
 - [ ] ⬜ **Task 1.7**: The two minors carried out of N0: the re-add mode the store must record (B 2.6
