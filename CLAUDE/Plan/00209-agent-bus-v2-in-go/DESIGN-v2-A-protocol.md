@@ -410,3 +410,254 @@ The topic is display only and never affects trust (R41). C sets:
 
 A member reads the main topic as the team description only when the admin sent it and it passes
 P16; otherwise it has no description, which is not a trust failure (v1 `syncer.py:350-359`).
+
+---
+
+## 5. The admin's records
+
+### 5.1 The roster
+
+One state event in the main room: type `<ns>.roster`, state key `""`, sent by the admin. It is the
+only source of who is in the team, what each may do, and the team's policy. It replaces v1's
+`agent_bus.team` record and `agent_bus.rooms` index, and the trust half of v1's bundle fields
+(`human_text`, `limits`).
+
+```json
+{
+  "v": 1,
+  "team": "<team>",
+  "rev": 42,
+  "proto": {"send": 1},
+  "humans": ["@alice:<server_name>"],
+  "members": {
+    "@myrepo.1+desk.podman:<server_name>": {"role": "coordinator"},
+    "@myrepo.2+desk.podman:<server_name>": {"role": "worker"},
+    "@myrepo.3+desk.lxc:<server_name>": {"role": "worker", "human_text": false},
+    "@other.4+desk.podman:<server_name>": {"role": "worker", "parked": true}
+  },
+  "rooms": {"reports": "!<43 chars>", "questions": "!<43 chars>"},
+  "forge": {
+    "kind": "github",
+    "api": "https://api.github.com",
+    "org": "example-org",
+    "repos": [{"repo": "example-org/myrepo", "branches": ["main"]}, {"repo": "example-org/docs"}],
+    "exclude": ["example-org/private-notes"],
+    "path_prefixes": []
+  },
+  "limits": {"send_per_minute": 20, "send_burst": 10}
+}
+```
+
+| Key                                              | Rule                                                                                                                                                | Source        |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| `v`                                              | integer 1                                                                                                                                           | P43           |
+| `features`                                       | optional, section 3                                                                                                                                 | new           |
+| `team`                                           | team grammar, equal to the bundle's team                                                                                                            | P43           |
+| `rev`                                            | integer at least 1, raised by one on every write; diagnostic only (6.5)                                                                             | new           |
+| `proto.send`                                     | an accepted major (3.2)                                                                                                                             | new           |
+| `humans`                                         | 1-16 distinct human user IDs                                                                                                                        | P43, P59      |
+| `members`                                        | 0-64 agent user IDs; each value has `role` (`coordinator` or `worker`), optional `human_text` (default `true`), optional `parked` (default `false`) | P18, P43, R10 |
+| at most one coordinator                          | a roster naming two non-parked coordinators is invalid                                                                                              | R10           |
+| coordinator `human_text`                         | a coordinator with `human_text: false` is invalid (it would drop every questions-room message, 00211 lesson g)                                      | 00211         |
+| `rooms`                                          | both `reports` and `questions`, distinct room IDs, neither the main room                                                                            | P47           |
+| `forge.kind`                                     | `github` (the only forge v2 checks; a second forge is a new feature)                                                                                | R16           |
+| `forge.api`                                      | `https://` origin with optional path, no query, no credentials                                                                                      | P43           |
+| `forge.org`, `repos`, `exclude`, `path_prefixes` | v1's allow-list, P15 and P27 semantics, P59 counts; at least one of `org` or a repo; an excluded repo is not also listed                            | P15, P27, P59 |
+| `limits`                                         | optional; keys and bounds of section 11; an absent key takes its default; a value outside its bounds makes the roster invalid (never clamped)       | P59           |
+
+Unknown keys are ignored (section 3). `parked` makes a member's events drop `sender` and makes it
+unaddressable; its account stays in the rooms. A removed member is absent from `members` (C kicks
+and deactivates it). No `orchestrator` alias: v2 writes and reads `coordinator` only.
+
+**Why `human_text` and `limits` move from the bundle to the roster.** In v1 each bundle carried
+them, so two members of one team could apply different flood limits, and a sender could not know an
+addressee would drop human text. In the roster they are one fact every member sees, and the admin
+is the only writer.
+
+**Why the room index joins the roster.** v1 kept a separate `agent_bus.rooms` event only because a
+new record key would have made older members distrust the room. With section 3 that reason is gone,
+and one event read verifies the whole team.
+
+**Why the description stays out.** It is display text and Element already shows the room topic, so
+it stays `m.room.topic` (R41) and can never affect trust.
+
+### 5.2 Writing order
+
+C owns the operations; A fixes the order the receiver rules depend on:
+
+- Demote before promote: the roster never names two coordinators (R10).
+- A removed member is dropped from `members` in the same write that the kicks follow; a removed
+  human is kicked from every room before the roster and power levels are rewritten (00211).
+- `rev` rises by exactly one per write.
+
+### 5.3 The side-room link
+
+Each side room carries `<ns>.room`, state key `""`, sent by the admin as initial state:
+
+```json
+{"v": 1, "team": "<team>", "purpose": "reports", "main": "!<main room ID>"}
+```
+
+A side room is believed only when the roster names it under a purpose and its link names the same
+purpose, this team and this member's main room (P48). The link stops a room ID from the roster being
+believed for the wrong purpose, which a swapped write could otherwise cause.
+
+---
+
+## 6. Trust
+
+### 6.1 What it rests on
+
+The homeserver authenticates every event's `sender`; federation is off, so there is one server and
+no other origin. The admin account is the creator of every room and the only account with power to
+change state. Its token is held by root on the homeserver host (C). So: **an event in a verified room
+was sent by the account named in `sender`, and state in it was set by the admin.** Root on that host
+and anyone holding a backup can act as the admin; that is the whole trusted set, and v2 adds no
+member to it (AR16, R38).
+
+### 6.2 Anchors
+
+The bundle (C writes it, B reads it) pins: the homeserver URL, `server_name`, the admin user ID
+(`@admin:<server_name>`), the main room ID, this member's user ID and team, and the token. Nothing
+in a room can change an anchor. Anchors are re-pinned only by a new bundle.
+
+### 6.3 Invites
+
+A member accepts an invite only when every condition of its row holds; it rejects (`leave`) every
+other invite and logs it by room ID only (v1 `syncer.py:177-220`, 00211 section 3):
+
+| Room      | Conditions                                                                                                                                                 |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| main      | room ID equals the bundle's; inviter and the stripped `m.room.create` sender are the admin                                                                 |
+| questions | main is verified; the roster names this room under `questions`; inviter and stripped create sender are the admin; the roster names this member coordinator |
+
+An admin invite to a room the verified roster does not yet name is left pending, not rejected, so a
+roster write racing an invite does not cost a re-invite (00211). Reports needs no invite: the member
+joins it by the restricted rule once main is verified.
+
+### 6.4 Verifying a room
+
+A room is **verified** when every check of its column holds. The member reads the room's state with
+one `GET /rooms/{room}/state` (the create event with its sender, since the state list carries
+senders) and checks:
+
+| Check        | Main                                                                                                       | Reports, questions                                                          |
+| ------------ | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| create       | sender admin; `room_version` `12`; no `additional_creators`; event ID is `$` + room ID without `!`         | same                                                                        |
+| join rule    | `invite`                                                                                                   | reports: `restricted`, allow exactly main's membership; questions: `invite` |
+| power levels | the safety invariants below                                                                                | the same invariants                                                         |
+| roster       | present, sender admin, state key `""`, valid (5.1), every feature known, this member listed and not parked | (main's roster) names this room under its purpose                           |
+| link         | -                                                                                                          | `<ns>.room` present, sender admin, matches (5.3)                            |
+
+**The power-level invariants.** Let `top` be the highest level of any user other than the creator:
+the largest of `users_default` and every value in `users`. A room passes when:
+
+- I1. `state_default` > `top`;
+- I2. `invite`, `kick`, `ban` and `redact` are each > `top`;
+- I3. every key in `events` other than `m.room.message` has a value > `top`;
+- I4. `events_default` > `top`.
+
+Every sentence of 4.2's "nobody but the admin can..." follows from I1-I4, and they hold for every
+form in 4.2. They are what trust needs: no one but the admin can change state, membership or
+history, or send any type but `m.room.message`. They are not the layout: which humans sit at 50 and
+whether questions is open are functional facts, which the server enforces and C's health check
+compares exactly against 4.2. A member does not fail trust because the owner opened reactions (OD-A5)
+or a later release changes a level within the invariants.
+
+Two designs were weighed: (a) v1's exact match, simple to state but a protocol break for any change
+and duplicated between member and host; (b) invariants at the member and exact match at the host
+(chosen), where the member checks what its safety depends on and the host checks what the owner
+designed.
+
+### 6.5 When trust is checked again
+
+A member holds one verified snapshot per room, keyed by the event IDs of the state it checked. The
+snapshot is checked again before any further event of that room is judged when:
+
+- the member's sync stream starts or restarts (first sync, after a homeserver outage, after the
+  worker restarts);
+- the member joins the room;
+- a sync batch for the room is `limited` (a gap may hide a state change);
+- a sync batch for the room holds, in `state` or `timeline`, any event of type `m.room.create`,
+  `m.room.power_levels`, `m.room.join_rules`, `<ns>.roster` or `<ns>.room`, or this member's own
+  `m.room.member` leaving;
+- the server answers 403 to an action the snapshot says is allowed (then, if the room still
+  verifies, the 403 is a fault reported as such, not retried).
+
+A process without a live sync stream (a one-shot command) verifies before it sends. B decides which
+process holds the snapshot and how a one-shot command gets one (v1 ran three GETs per send; v2
+reaches the worker's).
+
+Each event is judged against the roster **as it stands when the event is processed**, never as it
+stood when the event was sent. A member removed or parked a moment ago is dropped at once, including
+for events it sent before; that fails closed and costs at most a resend.
+
+`rev` is shown in `status` and on the board beside the host's expected value, so a member that lags
+a roster write is visible. It does not block anything: a restored backup lowers it legitimately.
+
+**When a room fails.** Main failing makes the team **untrusted** for this member: nothing from it is
+delivered, every send to it is refused, the session is told once (B's failure line), and the status
+line shows it. A side room failing is untrusted alone: `report`, `ask-human` and `thread` refuse
+naming the room, the coordinator stops reading questions, main stays trusted (00211). Transient
+failures (no connection, 5xx, 429 past retries) are not trust failures: B retries them.
+
+### 6.6 Presence and what a member accepts
+
+A member's liveness and the majors and features it accepts are published with the Matrix presence
+API, not as room state:
+
+- While its seat is held, the member's keeper sets presence `online` with
+  `status_msg` `<ns> wire=<majors> features=<names>` (majors comma-separated ascending; names
+  comma-separated or `-`; the whole string printable ASCII, at most 200 bytes). On a clean exit it
+  sets `offline`. The server's own timeout marks a dead member offline.
+- Readers take a presence event only from its own user (`sender` equals the user), only for a roster
+  member, and only when `status_msg` parses; anything else reads as unknown.
+- `who` and the board show online or offline; C's raise operation (3.2) reads `wire` and `features`.
+
+Element shows the online dot beside each agent, so a human sees who is live without asking.
+
+The alternative is v1's: a `<ns>.member` state event under the member's own user ID, refreshed on a
+timer. It needs `events["<ns>.member"]` open to agents (a second exception to I3), lets any member
+write the type under a key that is not a user ID (v1 had to have the admin empty those), and adds a
+state event to the room's history every refresh for every member for ever. Presence has none of
+those costs, but whether Tuwunel serves presence with federation off, to sync filters naming the
+team's rooms, is not yet recorded: host check HC-A1 decides before the design is frozen. If it
+fails, the state-event form is specified with the invariant exception named and the sweep given to
+C. This is owner decision OD-A1.
+
+### 6.7 Sender classes
+
+| Class         | Who                                                                           | May send                                                                     |
+| ------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `admin`       | the bundle's admin user ID                                                    | state; `<ns>.notice` (section 7.4); nothing else is read                     |
+| `human`       | a user ID in `humans`                                                         | human messages (7.5)                                                         |
+| `coordinator` | a non-parked member with that role                                            | pings (by the verb table), texts, notices about itself, questions-room posts |
+| `worker`      | a non-parked member with that role                                            | pings (by the verb table), texts, notices about itself                       |
+| none          | anyone else: parked or removed members, unknown accounts, the service account | nothing; dropped `sender`                                                    |
+
+### 6.8 Signing the roster
+
+Option weighed and not taken by default (owner decision OD-A4): the admin signs the roster with an
+Ed25519 key and every bundle pins the public key. It would defend against a homeserver that accepts
+a state event from someone other than the admin (an authorisation bug), and would let a copy of the
+roster be checked away from the server. It would not defend against the realistic attacker, root on
+the host, who holds the signing key beside the admin token; it adds key custody, rotation and a
+canonical-JSON signing scheme to C and B; and it does not cover power levels or messages, which
+would still rest on the server's authorisation. The server's authorisation of state is the core of
+Matrix and is exercised by the Tuwunel-tagged test (section 14), so it is the cheaper place to put
+the test effort.
+
+### 6.9 Threats
+
+| Threat                                                                      | Defence                                                                                                                    |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| An agent posts text shaped like a human request                             | kind from the roster class of `sender` (7.6); a human is never an agent's class                                            |
+| An agent bypasses `<v2-bin>` and posts raw events (`curl` with its token)   | every rule is checked by every receiver; the server enforces only power levels (v1 known gap)                              |
+| An agent sets a per-room display name equal to a human's                    | no rule reads names; envelope shows the localpart; Element shows the user ID on a name clash (12.3)                        |
+| A container writes a forged inbox item or seat report                       | caches are never delivered; only a homeserver re-fetch is (AR15)                                                           |
+| A member is removed while its messages are queued                           | events judged against the current roster (6.5)                                                                             |
+| A room ID from a stale or swapped roster                                    | the side-room link (5.3)                                                                                                   |
+| A member lags a roster change                                               | re-verify on any trust-type event; `rev` shown                                                                             |
+| A homeserver restart or an outage                                           | re-verify on stream restart; transient failures retried, not trusted through                                               |
+| Root on the homeserver host or a backup holder                              | not defended in-band; it is the root of trust (R38); per-member `human_text: false` limits what a human account can direct |
+| A process holding the session's inbox socket token writes a forged envelope | not defended in-band (SPEC-inject T4); the history check in the frame text (13.6)                                          |
