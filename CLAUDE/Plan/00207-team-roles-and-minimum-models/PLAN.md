@@ -87,7 +87,9 @@ decisions the owner must make before M1 starts.
   to every member kind).
 - Plan 00211 (reports and questions rooms) supersedes this plan's management room (SPEC §11):
   its questions room is that room, and its reports room takes the briefs. M6a and M6b build on
-  its `agent_bus.rooms` index (Plan 00211 SPEC §2, §4.1), not beside it.
+  its `agent_bus.rooms` index (Plan 00211 SPEC §2, §4.1), not beside it. Its reports room is
+  joined by a restricted join (members of the main room), which ends SPEC-roles §12.2's
+  invariant that no room uses restricted joins.
 - Research facts are in SPEC §1. The research reports are saved under `untracked/agent-reports/`.
   The key facts: no launcher sets a model or an effort today; Claude Code 2.1.301 has
   `--model`, `--effort` and `--fallback-model`; the status line JSON carries `model.id` and
