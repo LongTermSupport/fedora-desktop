@@ -189,6 +189,10 @@ func TestSyncDroppedByARestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The held sync must be on a new connection: net/http replays a GET, once, when a reused
+	// keep-alive connection closes before any answer byte, which would carry it to the
+	// restarted server.
+	m.Close()
 	fail := make(chan error, 1)
 	go func() {
 		_, syncErr := m.Sync(t.Context(), SyncRequest{Since: first.NextBatch, Timeout: 30 * time.Second})
