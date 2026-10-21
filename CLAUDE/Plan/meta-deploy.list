@@ -41,7 +41,7 @@ playbooks/imports/play-basic-configs.yml
 # old settings until they are relaunched.
 playbooks/imports/play-claude-yolo.yml
 # Plan 00213 Task 1.4: play-agent-bus.yml, the normal agent-bus software run (agent-bus-install
-# software). It rebuilds the host's pingbus.pyz and every running LXC member's kit copy, so `pingbus` on the host starts /usr/bin/python3, not the pyenv shim.
+# software). It rebuilds the host's pingbus.pyz and the member kit copy, so `pingbus` on the host starts /usr/bin/python3, not the pyenv shim.
 # It also installs the new kit settings.json (25 s refresh) for agent-bus-claude. Teams are not
 # restarted unless the Tuwunel pin or the units changed, which this change does not do. Needs
 # sudo.
