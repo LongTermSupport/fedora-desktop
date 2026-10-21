@@ -104,9 +104,10 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   - `open` (P6): done, `go-port/open` and `go-port/open-2` both merged into F44 and deployed
     (`8c2de08c`); its host checks H1-H5 are the owner's, by hand at the desktop, not queued in
     `meta-deploy.list`. Spec [SPEC-open.md](SPEC-open.md).
-  - `rclone-cache-status` (P6): ported and cut over on its own branch, spec
-    [SPEC-rclone-cache-status.md](SPEC-rclone-cache-status.md); Fable review and merge to come;
-    host run queued in `meta-deploy.list` (`deploy-rclone-cache-status.bash`).
+  - `rclone-cache-status` (P6): ported, merged into F44, deployed and live-checked on the host
+    (`deploy-rclone-cache-status.bash` passed), spec
+    [SPEC-rclone-cache-status.md](SPEC-rclone-cache-status.md); left: the owner's hand checks
+    inside a mount (H2, H3) and `rclone-cache-warm`/`rclone-tail`.
   - Still to do: the remaining programmes in [INVENTORY.md](INVENTORY.md) (account/setup tools
     after `rclone-cache-status`) and the `ccy` launcher.
 

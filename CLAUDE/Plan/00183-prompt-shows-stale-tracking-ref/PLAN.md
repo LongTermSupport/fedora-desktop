@@ -68,8 +68,10 @@ agent at all. The cause is unknown, so this plan triages first.
   test first (A14, A15 in `internal/fetchage`): an empty `FETCH_HEAD` is
   ` [fetch failed or running]`, and the last fetch is the newest one with a record in it.
   `acceptance.bash` (checks in `check-fetch-age.bash`) proves the installed binary on the
-  host, with a real failing fetch and the deployed PS1. Left: the `play-basic-configs.yml`
-  run that installs it and that acceptance run, both queued in `meta-deploy.list`.
+  host, with a real failing fetch and the deployed PS1. Deployed on the host; its acceptance
+  legs install, marks (incl. empty FETCH_HEAD), failed (a real failed fetch) passed. Left: the
+  acceptance re-run, since the `prompt` leg failed on a checker bug (a prefix assignment to
+  the readonly `PROMPT_FILE`), now fixed by passing the path as an argument.
 - [ ] 🔄 **Task 2.5**: the prompt's background fetch can ask for nothing (Goal 2, Decision 2).
   Done in code, test first: `git-prompt-fetch` (`src-go/internal/promptfetch`, F1-F6) runs
   `git fetch` with ssh in BatchMode, added to the ssh command git would use
@@ -79,7 +81,9 @@ agent at all. The cause is unknown, so this plan triages first.
   sourcing `gitprompt.sh`, the `async_run` bash-git-prompt runs its fetch through, so the fetch
   is `git-prompt-fetch` with its words in `~/.cache/git-prompt-fetch.log`. Seen in the lab: the
   ssh stand-in was handed `-o BatchMode=yes`. The acceptance's `fetcher` and `override` checks
-  prove it on the host. Left: the play run and the acceptance, queued in `meta-deploy.list`.
+  prove it on the host. Deployed on the host (`play-git-configure-and-tools.yml` passed); the
+  `fetcher` (BatchMode, no terminal) and `override` (async_run through git-prompt-fetch)
+  legs passed. Left: the acceptance re-run for the `prompt` leg (see Task 2.4).
 
 ## Technical Decisions
 
