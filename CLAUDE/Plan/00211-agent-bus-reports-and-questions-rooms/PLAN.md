@@ -100,9 +100,10 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
 
 ### Phase 1: member side (deploy 1)
 
-- [ ] ⬜ **Task 1.1**: `protocol`: the index, the back-link, both power-level forms, the join
+- [x] ✅ **Task 1.1**: `protocol`: the index, the back-link, both power-level forms, the join
   rules, the report and question content and format checks, and room-aware `validate_event`
-  with edits (SPEC §3.2, §4, §6, §7, §8.2).
+  with edits (SPEC §3.2, §4, §6, §7, §8.2). Done in code, not deployed: 418ae31c (the
+  question index and attachment rules of §8.3 are in `protocol` too, pure).
 - [ ] ⬜ **Task 1.2**: `inbox`: every stored item records its room, and re-validation passes the
   room on (SPEC §6).
 - [ ] ⬜ **Task 1.3**: `syncer`. SPEC §4.3-§4.5, §6, §8.3:
@@ -123,9 +124,10 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   `REPLY` command changes for questions-room items (SPEC §7, §8).
 - [ ] ⬜ **Task 1.7**: `envelope`: the `room:`, `question:` and `revises:` lines (SPEC §8.3).
 - [ ] ⬜ **Task 1.8**: `hooks`: the role lines. The pingbus skill text (SPEC §10.1, §10.2).
-- [ ] ⬜ **Task 1.9**: Confirm on the host that a new zipapp reaches new ccy containers through the
-  base image ID, without a version bump. Make the bump `CLAUDE/ContainerRules.md` requires if
-  the launcher changes (SPEC §5.6).
+- [ ] 🔄 **Task 1.9**: A change to `helpers/pingbus/` needs the container version bump: the
+  pre-commit gate requires it (CLAUDE/ContainerRules.md, "every other file the image bakes
+  in"), so SPEC §1 and §5.6's "no bump" was wrong. Each Phase 1 commit that touches the image
+  bumps it (3.99.13.0, container 2.78.0, first). Left: correct SPEC §1 and §5.6.
 - [ ] ⬜ **Task 1.10**: Go, test-first: the `agent-bus list` parser skips `ROOM` lines, pinned
   by a test (SPEC §5.5, §11.1).
 - [ ] ⬜ **Task 1.11**: `docs/agent-bus-protocol.md` and `docs/agent-bus.md` (SPEC §10.3).
