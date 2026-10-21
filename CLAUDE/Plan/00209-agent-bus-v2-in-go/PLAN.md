@@ -1,7 +1,7 @@
 # Plan 00209: agent bus v2 in go
 
 **Status**: In Progress (the plan of record for v2, `teamchat`, a separate system beside v1; N0's
-design is integrated in [DESIGN-v2.md](DESIGN-v2.md) and its review is open; a dedicated build
+design is integrated in [DESIGN-v2.md](DESIGN-v2.md), reviewed and fixed in three rounds, with its last check open; a dedicated build
 session does the work to [BUILD-BRIEF.md](BUILD-BRIEF.md))
 **Created**: 2026-10-19
 **Owner**: joseph
@@ -45,7 +45,9 @@ status-line work.
 - `ccy-teams` opens in about 0.1 s whatever the number of teams, with no sudo, no Python and no
   process per checkout, team or person (C 3.13, H-C7); it shows both systems in one board.
 - No Python and no bash on any v2 path: Go in `src-go`, deployed by the plays.
-- No root on any read and no sudoers file; every change needs the owner's password (DC4).
+- No root on any read and no sudoers file; every change to a team's accounts, roles, humans,
+  security fields, backups and restores needs the owner's password (DC4); which session holds which
+  seat is guarded by the owner's uid and the container mounts (DC19).
 - v2 touches nothing v1 uses, proven by a static gate and a VM-lab footprint diff (D 4).
 - Each team moves with an acceptance and a rollback, and nothing is lost silently (D 5, 6).
 - Every v1 requirement and hard-won lesson carried where it still applies (DESIGN-v2.md section 8).
@@ -65,13 +67,13 @@ Every decision is in [DESIGN-v2.md section 7](DESIGN-v2.md#7-the-owner-decisions
 coordinator hears of each one flagged there (IRREVERSIBLE, CONTRADICTS or VISIBLE) before the
 milestone that acts on it.
 
-| ID     | Decision                                                                                                                                                | State                                                                                                       |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| D4     | no relay mode in v2; specified on v2 when the plugin API ships                                                                                          | accepted by the coordinator                                                                                 |
-| D15    | a keeper (`teamchat run`) and a link (DESIGN.md called it the worker) in every member, the resident cost measured (B 2.14)                              | accepted by the coordinator                                                                                 |
-| TID    | a team has a stable id (at most 22 characters) fixed at creation; its name is display only; `server_name` and handles carry the id and survive a rename | defaulted, the coordinator agreed; it goes to the owner in the coordinator's next digest                    |
-| INT3   | a v1 name over 22 characters migrates under a short id declared with the move, and stays its display name                                               | defaulted; to the coordinator                                                                               |
-| others | OD-A1-A9, BD1-BD15, DC1-DC17, OD-D1-D7, INT1, INT2                                                                                                      | defaulted; the flagged ones (OD-A7, BD15, DC1, DC4, DC5, DC15-DC17, OD-D1, OD-D5, OD-D6) to the coordinator |
+| ID     | Decision                                                                                                                                                | State                                                                                                                                           |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| D4     | no relay mode in v2; specified on v2 when the plugin API ships                                                                                          | accepted by the coordinator                                                                                                                     |
+| D15    | a keeper (`teamchat run`) and a link (DESIGN.md called it the worker) in every member, the resident cost measured (B 2.14)                              | accepted by the coordinator                                                                                                                     |
+| TID    | a team has a stable id (at most 22 characters) fixed at creation; its name is display only; `server_name` and handles carry the id and survive a rename | defaulted, the coordinator agreed; it goes to the owner in the coordinator's next digest                                                        |
+| INT3   | a v1 name over 22 characters migrates under a short id declared with the move, and stays its display name                                               | defaulted; to the coordinator                                                                                                                   |
+| others | OD-A1-A11, BD1-BD18, DC1-DC21, OD-D1-D7, INT1, INT2, INT4-INT7                                                                                          | defaulted; the flagged ones (OD-A7, OD-A10, BD9, BD15, BD16, DC1, DC4, DC5, DC15-DC19, DC21, OD-D1, OD-D5, OD-D6, INT4-INT7) to the coordinator |
 
 DESIGN.md's D1-D20 belonged to the in-place design and are superseded with it.
 
@@ -111,10 +113,12 @@ its first caller.
   superseded (`subagent-reports/261021-n0-integration.md`).
 - [ ] ⬜ **Task 0.4**: The N0 review: one adversarial review of the whole design to MERGE, checking
   everything DESIGN-v2.md section 9 lists, and area B's defaults the build notes challenge (BD9's
-  `disconnected` on the next start, BD2's exit 69 with no link, BD11's dropped SessionEnd lift). The four integrated reviews were
-  FIX-FIRST; the fix pass for delivery, member and migration is merged
-  (`subagent-reports/261021-n0-merge.md`), the host fix pass is still running, and the final
-  verification review covers all four.
+  `disconnected` on the next start, BD2's exit 69 with no link, BD11's dropped SessionEnd lift).
+  Done so far: the four integrated reviews (FIX-FIRST), the fix pass for all four areas
+  (`subagent-reports/261021-n0-merge.md`), the verification (`261021-n0-verify-ab.md`,
+  `261021-n0-verify-cd.md`), the round-2 fixes (`261021-n0-r2-*.md`), the round-2 re-check
+  (`261021-n0-recheck.md`), the qa-reviewer pass (`261021-n0-qa-reviewer.md`) and the round-3
+  fixes (`261021-n0-r3-fix.md`). The build session runs the last check and marks this task.
 - [ ] ⬜ **Task 0.5**: The coordinator's answers on the flagged decisions (Decisions, above).
 
 ### Phase 1: N1, foundations

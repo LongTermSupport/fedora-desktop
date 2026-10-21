@@ -42,7 +42,7 @@ Use these Unicode icons in plan documents:
 
 - [00210-convert-cli-markdown-to-docx](00210-convert-cli-markdown-to-docx/) - In Progress. A Go `convert` command that turns a file into the formats its type supports, through proven engines; Markdown to DOCX through pandoc first (#102)
 
-- [00209-agent-bus-v2-in-go](00209-agent-bus-v2-in-go/) - In Progress. The agent bus rebuilt in Go from its requirements (a v2, not a port): one codebase, reads in-process plus one reader for every team run with no root, every state file and lock shared with v1, staged cut-over with the owner-visible wins first; owner decisions D1-D20 defaulted to the design's recommendations, milestones M0-M6
+- [00209-agent-bus-v2-in-go](00209-agent-bus-v2-in-go/) - In Progress. v2 of the agent bus, `teamchat`: a separate system in Go beside v1, sharing none of v1's wire, files or locks, inert with no team; teams move to it one at a time by a migration the owner runs. Design in DESIGN-v2.md (chapters A-D), its decisions defaulted in section 7; milestones N0-N6
 
 - [00208-stt-paste-uses-stale-clipboard](00208-stt-paste-uses-stale-clipboard/) - In Progress. Speech-to-text auto-paste pasted the previous dictation: the paste key now waits until the clipboard reads back as this dictation's text, or nothing is pasted and the failure is said
 
