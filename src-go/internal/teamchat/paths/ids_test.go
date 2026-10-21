@@ -138,7 +138,7 @@ func TestInvalidValueIsNotEchoed(t *testing.T) {
 func TestParsePortIsOneTo65535(t *testing.T) {
 	for _, n := range []int{1, 8448, 65535} {
 		p, err := ParsePort(n)
-		if err != nil || int(p) != n {
+		if err != nil || p.Int() != n {
 			t.Errorf("ParsePort(%d) = %d, %v", n, p, err)
 		}
 	}

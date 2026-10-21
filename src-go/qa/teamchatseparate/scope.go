@@ -61,17 +61,22 @@ var SharedFiles = map[string]string{
 }
 
 // reference is a tasks/, files/ or vars/ path from the repository root, at the start of a value,
-// after a quote, bracket or separator, or after ../, ./, a {{ }} directory or a quoted / (a
-// path joined to root_dir with ~ or +).
-var reference = regexp.MustCompile("(?:^|[\\s\"'=:,\\[(]|\\./|\\}\\}/|['\"]/)((?:tasks|files|vars)/[^\\s\"'`,;)\\]]+)")
+// after a quote, backtick, bracket or separator, or after ../, ./, a {{ }} directory, a quoted /
+// (a path joined to root_dir with ~ or +) or a shell variable's /.
+var reference = regexp.MustCompile("(?:^|[\\s\"'`=:,;\\[(]|\\./|\\}\\}/|['\"]/|\\$\\{?\\w+\\}?/)((?:tasks|files|vars)/[^\\s\"'`,;)\\]]+)")
 
-// References is every tasks/, files/ or vars/ path the line names. A path built by a template is named
-// up to its first {{, so it is judged, never skipped.
+// References is every tasks/, files/ or vars/ path the line names. A path built by a template is
+// named up to its first {{, so it is judged, never skipped. One full stop ending a sentence is
+// dropped; a path ending in /. or .. keeps it, so it is judged where it leads.
 func References(line string) []string {
 	matches := reference.FindAllStringSubmatch(line, -1)
 	refs := make([]string, 0, len(matches))
 	for _, m := range matches {
-		refs = append(refs, strings.TrimRight(m[1], "."))
+		ref := m[1]
+		if strings.HasSuffix(ref, ".") && !strings.HasSuffix(ref, "/.") && !strings.HasSuffix(ref, "..") {
+			ref = ref[:len(ref)-1]
+		}
+		refs = append(refs, ref)
 	}
 	return refs
 }

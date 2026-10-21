@@ -214,7 +214,8 @@ func baseNames(t *testing.T) map[string][]string {
 	}
 	return map[string][]string{
 		"StateHome":                {stateHome},
-		"SeatStore":                {store.Root},
+		"SeatStore":                {store.Root()},
+		"Store.Root":               {store.Root()},
 		"AllocLock":                {alloc},
 		"ElementConsentFile":       {consent},
 		"Store.Pool":               {store.Pool()},
@@ -238,10 +239,16 @@ func layoutNames(t *testing.T) map[string][]string {
 	for ident, l := range map[string]Layout{"CCYLayout": CCYLayout(), "HomeLayout": home} {
 		r := l.Run(sampleRunID(t))
 		for name, value := range map[string][]string{
-			ident:                     {l.KitRoot, l.CurrentKit.String(), l.State, l.Desired, l.RunRoot},
+			ident:                     {l.KitRoot(), l.CurrentKit().String(), l.State(), l.Desired(), l.RunRoot()},
 			"Layout.DesiredFile":      {l.DesiredFile()},
 			"Layout.ConversationFile": {l.ConversationFile()},
-			"Layout.Run":              {r.Dir},
+			"Layout.Run":              {r.Dir()},
+			"Run.Dir":                 {r.Dir()},
+			"Layout.KitRoot":          {l.KitRoot()},
+			"Layout.CurrentKit":       {l.CurrentKit().String()},
+			"Layout.State":            {l.State()},
+			"Layout.Desired":          {l.Desired()},
+			"Layout.RunRoot":          {l.RunRoot()},
 			"Run.KeeperLock":          {r.KeeperLock()},
 			"Run.KeeperJSON":          {r.KeeperJSON()},
 			"Run.KeeperLog":           {r.KeeperLog()},
@@ -282,7 +289,8 @@ func teamDerived(t *testing.T, team TeamID) map[string][]string {
 	for _, l := range []Layout{CCYLayout(), home} {
 		seat := l.Seat(team)
 		for name, value := range map[string]string{
-			"Layout.Seat":  seat.Dir,
+			"Layout.Seat":  seat.Dir(),
+			"Seat.Dir":     seat.Dir(),
 			"Seat.Bundle":  seat.Bundle(),
 			"Seat.Token":   seat.Token(),
 			"Seat.Lock":    seat.Lock(),
@@ -340,13 +348,13 @@ func teamDerived(t *testing.T, team TeamID) map[string][]string {
 	return names
 }
 
-// notName is whether an exported identifier is not a v2 name: a parser, an id's or a kit's own
-// text and its encoding, or the error the parsers wrap. (A kit's text is sampled as HostKitDir,
-// HostKitCurrent and CCYKitDir.)
+// notName is whether an exported identifier is not a v2 name: a parser, an id's, a kit's or a
+// port's own text or number and its encoding, or the error the parsers wrap. (A kit's text is
+// sampled as HostKitDir, HostKitCurrent and CCYKitDir.)
 func notName(ident string) bool {
 	_, method, ok := strings.Cut(ident, ".")
 	return strings.HasPrefix(ident, "Parse") || ident == "ErrInvalid" ||
-		ok && slices.Contains([]string{"String", "MarshalText", "UnmarshalText"}, method)
+		ok && slices.Contains([]string{"String", "MarshalText", "UnmarshalText", "Int", "MarshalJSON", "UnmarshalJSON"}, method)
 }
 
 // Every exported constant, variable, function and method is either in sampleNames or not a
@@ -527,7 +535,7 @@ func TestPerTeamRootsAreDerived(t *testing.T) {
 	roots := perTeamRoots(t)
 	for _, want := range []string{
 		HomeserverStateRoot, HomeserverPrivateStateRoot, AdminStateRoot, CtlStateRoot, StatusRoot + "/teams",
-		CCYLayout().State, "/home/u/.config/teamchat/seats", "/run/" + Product,
+		CCYLayout().State(), "/home/u/.config/teamchat/seats", "/run/" + Product,
 	} {
 		if !slices.Contains(roots, want) {
 			t.Errorf("per-team root %s is not derived; derived %q", want, roots)
@@ -574,7 +582,7 @@ func TestThePerTeamRootCheckDiscriminates(t *testing.T) {
 	if got := teamLikeChild(roots, AdminStateRoot+"/lxc/c1/dev.json"); got != "lxc" {
 		t.Errorf("lxc/ under %s: got %q, want lxc", AdminStateRoot, got)
 	}
-	if got := teamLikeChild(roots, CCYLayout().State+"/lock"); got != "lock" {
+	if got := teamLikeChild(roots, CCYLayout().State()+"/lock"); got != "lock" {
 		t.Errorf("lock under the seats directory: got %q, want lock", got)
 	}
 	for _, value := range []string{AdminLXCDir + "/c1/dev.json", AdminStateRoot + "/ops/team.json", StatusRoot + "/lxc/ops.json"} {

@@ -82,6 +82,13 @@ func TestReferencesAreTheTasksFilesAndVarsPathsALineNames(t *testing.T) {
 		// play-speech-to-text.yml).
 		{`                root_dir ~ '/files/home/.local/share/vmtest/*.bash', wantlist=true)`, []string{"files/home/.local/share/vmtest/*.bash"}},
 		{`        - lookup('file', root_dir + '/files/home/.config/speech-to-text/' + item.item, errors='ignore') != x`, []string{"files/home/.config/speech-to-text/"}},
+		// A shell block names a path after a variable, a backtick or a ;.
+		{`    cmd: cp "$ROOT/files/x" "${ROOT}/files/y" /z`, []string{"files/x", "files/y"}},
+		{"  msg: see `vars/x.yml`", []string{"vars/x.yml"}},
+		{`  cmd: a files/x;tasks/y`, []string{"files/x", "tasks/y"}},
+		// A sentence's full stop is not part of the path; a .. is.
+		{`  src: "{{ root_dir }}/files/teamchat/.."`, []string{"files/teamchat/.."}},
+		{`  src: "{{ root_dir }}/files/teamchat/."`, []string{"files/teamchat/."}},
 		{`    dest: /usr/local/share/files/x`, nil},
 		{`# the tasks/ directory and mytasks/x.yml`, nil},
 		{`- name: Build`, nil},

@@ -315,6 +315,8 @@ func TestK7APlayNamingAFileOutsideTheScopeFails(t *testing.T) {
 		"  vars_files: \"{{ root_dir }}/vars/version-pins.yml\"\n":                     "names vars/version-pins.yml, which v2 does not own",
 		"  include_tasks: \"{{ root_dir }}/tasks/teamchat/../render-units.yml\"\n":     "names tasks/render-units.yml, which v2 does not own",
 		"  include_tasks: \"{{ root_dir }}/tasks/../playbooks/x.yml\"\n":               "names playbooks/x.yml, which v2 does not own",
+		"  src: \"{{ root_dir }}/files/teamchat/..\"\n":                                "names files, which v2 does not own",
+		"  cmd: cp \"${ROOT}/files/home/x\" /tmp\n":                                    "names files/home/x, which v2 does not own",
 		"  include_tasks: \"{{ root_dir }}/tasks/../../etc/x.yml\"\n":                  "names ../etc/x.yml, which v2 does not own",
 		"  include_tasks: \"{{ root_dir }}/tasks/teamchat/../build-go-command.yml\"\n": "",
 	} {

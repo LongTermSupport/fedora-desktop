@@ -140,15 +140,15 @@ func TestCCYLayout(t *testing.T) {
 	team := mustTeam(t, "ops")
 	run := mustRun(t)
 	for _, c := range []struct{ got, want string }{
-		{l.KitRoot, "/opt/claude-yolo/optional/teamchat"},
-		{l.CurrentKit.String(), "/opt/claude-yolo/optional/teamchat"},
-		{l.State, "/run/teamchat/seats"},
-		{l.Desired, "/run/teamchat/membership"},
-		{l.RunRoot, "/tmp/teamchat"},
+		{l.KitRoot(), "/opt/claude-yolo/optional/teamchat"},
+		{l.CurrentKit().String(), "/opt/claude-yolo/optional/teamchat"},
+		{l.State(), "/run/teamchat/seats"},
+		{l.Desired(), "/run/teamchat/membership"},
+		{l.RunRoot(), "/tmp/teamchat"},
 		{l.DesiredFile(), "/run/teamchat/membership/desired.json"},
 		{l.ConversationFile(), "/run/teamchat/seats/conversation.json"},
-		{l.Seat(team).Dir, "/run/teamchat/seats/ops"},
-		{l.Run(run).Dir, "/tmp/teamchat/0123456789abcdef"},
+		{l.Seat(team).Dir(), "/run/teamchat/seats/ops"},
+		{l.Run(run).Dir(), "/tmp/teamchat/0123456789abcdef"},
 	} {
 		if c.got != c.want {
 			t.Errorf("got %q, want %q", c.got, c.want)
@@ -162,12 +162,12 @@ func TestHomeLayout(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, c := range []struct{ got, want string }{
-		{l.KitRoot, "/usr/local/lib/teamchat/kit"},
-		{l.CurrentKit.String(), "/usr/local/lib/teamchat/kit/current"},
-		{l.State, "/home/u/.config/teamchat/seats"},
-		{l.Desired, "/home/u/.config/teamchat/membership"},
-		{l.RunRoot, "/run/user/1000/teamchat/run"},
-		{l.Run(mustRun(t)).Dir, "/run/user/1000/teamchat/run/0123456789abcdef"},
+		{l.KitRoot(), "/usr/local/lib/teamchat/kit"},
+		{l.CurrentKit().String(), "/usr/local/lib/teamchat/kit/current"},
+		{l.State(), "/home/u/.config/teamchat/seats"},
+		{l.Desired(), "/home/u/.config/teamchat/membership"},
+		{l.RunRoot(), "/run/user/1000/teamchat/run"},
+		{l.Run(mustRun(t)).Dir(), "/run/user/1000/teamchat/run/0123456789abcdef"},
 	} {
 		if c.got != c.want {
 			t.Errorf("got %q, want %q", c.got, c.want)
@@ -189,7 +189,7 @@ func TestSessionRuntimeFiles(t *testing.T) {
 		{r.PID(), "session.pid"},
 		{r.Status(), "status.json"},
 	} {
-		if want := r.Dir + "/" + c.want; c.got != want {
+		if want := r.Dir() + "/" + c.want; c.got != want {
 			t.Errorf("got %q, want %q", c.got, want)
 		}
 	}
@@ -240,7 +240,7 @@ func TestOwnerSeatStore(t *testing.T) {
 		{stateHome, "/home/u/.local/state"},
 		{probe, "/home/u/.local/state/teamchat/probe/ops"},
 		{store.PoolCheckoutRecord(key), "/home/u/.local/state/teamchat/seats/pool/" + strings.Repeat("ab", 16) + "/checkout.json"},
-		{store.Root, "/home/u/.local/state/teamchat/seats"},
+		{store.Root(), "/home/u/.local/state/teamchat/seats"},
 		{store.Pool(), "/home/u/.local/state/teamchat/seats/pool"},
 		{store.PoolCheckout(key), "/home/u/.local/state/teamchat/seats/pool/" + strings.Repeat("ab", 16)},
 		{store.Session(session), "/home/u/.local/state/teamchat/seats/sessions/sess-1"},

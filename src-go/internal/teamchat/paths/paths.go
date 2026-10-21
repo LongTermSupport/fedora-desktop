@@ -7,8 +7,10 @@
 // here, so no other v2 package writes a name of its own.
 //
 // A name derived from a team, run, session, kit or other identifier takes that identifier's
-// type, which only its Parse function (for a kit, this package) makes, so a derived name never
-// holds an unchecked string. A function that takes a base directory (a home, an XDG directory)
+// type, which only its Parse function (for a kit, a layout, a seat, a run or a store, this
+// package) makes, so a derived name never holds an unchecked string; a name derived from a zero
+// value panics. A decoded struct's missing or null id field reaches that panic unless its
+// decoder requires the field. A function that takes a base directory (a home, an XDG directory)
 // refuses one that is not absolute and clean, or is the root.
 //
 // Every v2 name starts with teamchat (paths, binaries, units, users), teamchat_ (host_vars
@@ -124,45 +126,45 @@ const (
 )
 
 // HomeserverUser is the team's homeserver DynamicUser.
-func HomeserverUser(t TeamID) string { return Product + "-" + t.s }
+func HomeserverUser(t TeamID) string { return Product + "-" + t.text() }
 
 // ServerName is the team's Matrix server name.
-func ServerName(t TeamID) string { return t.s + "." + Product + ".internal" }
+func ServerName(t TeamID) string { return t.text() + "." + Product + ".internal" }
 
 // ServerUnit is the team's homeserver unit.
-func ServerUnit(t TeamID) string { return Product + "-server@" + t.s + ".service" }
+func ServerUnit(t TeamID) string { return Product + "-server@" + t.text() + ".service" }
 
 // ServerUnitDropIn is the drop-in directory of the team's homeserver unit.
 func ServerUnitDropIn(t TeamID) string { return ServerUnit(t) + ".d" }
 
 // ServerRuntimeDirectory is the RuntimeDirectory= value of the team's homeserver unit.
-func ServerRuntimeDirectory(t TeamID) string { return Product + "/" + t.s }
+func ServerRuntimeDirectory(t TeamID) string { return Product + "/" + t.text() }
 
 // FenceUnit is the team's migration fence unit (D 3.5).
-func FenceUnit(t TeamID) string { return Product + "-fence@" + t.s + ".service" }
+func FenceUnit(t TeamID) string { return Product + "-fence@" + t.text() + ".service" }
 
 // FenceTable is the name of the team's nftables fence table, in family inet.
-func FenceTable(t TeamID) string { return Product + "_fence_" + t.s }
+func FenceTable(t TeamID) string { return Product + "_fence_" + t.text() }
 
 // SessionUnit is an LXC guest's supervised session unit.
-func SessionUnit(u GuestUser) string { return Product + "-session-" + u.s + ".service" }
+func SessionUnit(u GuestUser) string { return Product + "-session-" + u.text() + ".service" }
 
 // GuestRuntimeDir is the XDG_RUNTIME_DIR the guest's session unit gives the session (C 3.9.4).
-func GuestRuntimeDir(u GuestUser) string { return "/run/" + Product + "-session-" + u.s }
+func GuestRuntimeDir(u GuestUser) string { return "/run/" + Product + "-session-" + u.text() }
 
 // ServerBinary is the pinned homeserver binary of a version.
-func ServerBinary(v ServerVersion) string { return ServerDir + "/tuwunel-" + v.s }
+func ServerBinary(v ServerVersion) string { return ServerDir + "/tuwunel-" + v.text() }
 
 // AdminBinaryCopy is root's immutable copy of one teamchat-admin build, which the units run
 // (C 3.5).
-func AdminBinaryCopy(d Digest) string { return LibDir + "/" + AdminBinary + "-" + d.s }
+func AdminBinaryCopy(d Digest) string { return LibDir + "/" + AdminBinary + "-" + d.text() }
 
 // Kit is a kit directory, opaque like the ids: one in the host kit root (HostKitDir,
 // HostKitCurrent) or the ccy image's one kit (CCYKitDir).
 type Kit struct{ s string }
 
 // HostKitDir is one kit digest's directory on a host or LXC guest.
-func HostKitDir(d Digest) Kit { return Kit{HostKitRoot + "/" + d.s} }
+func HostKitDir(d Digest) Kit { return Kit{HostKitRoot + "/" + d.text()} }
 
 // HostKitCurrent is the link, in the host kit root of digests, to the newest kit (D 3.5).
 func HostKitCurrent() Kit { return Kit{HostKitRoot + "/current"} }
@@ -174,28 +176,30 @@ func CCYKitDir() Kit { return Kit{"/opt/claude-yolo/optional/" + Product} }
 func (k Kit) String() string { return k.s }
 
 // Binary is the member binary inside the kit.
-func (k Kit) Binary() string { return k.s + "/bin/" + MemberBinary }
+func (k Kit) Binary() string { return k.text() + "/bin/" + MemberBinary }
 
 // PluginDir is the plugin directory inside the kit.
-func (k Kit) PluginDir() string { return k.s + "/plugin/" + PluginName }
+func (k Kit) PluginDir() string { return k.text() + "/plugin/" + PluginName }
 
 // PluginHooks is the plugin's hooks file, which names the kit's binary by absolute path (B 2.12).
 func (k Kit) PluginHooks() string { return k.PluginDir() + "/hooks/hooks.json" }
 
 // Settings is the session settings file inside the kit.
-func (k Kit) Settings() string { return k.s + "/" + settingsFile }
+func (k Kit) Settings() string { return k.text() + "/" + settingsFile }
+
+func (k Kit) text() string { return must("kit", k.s) }
 
 // HomeserverState is the team's homeserver state (StateDirectory=, kept by systemd in
 // HomeserverPrivateState).
-func HomeserverState(t TeamID) string { return HomeserverStateRoot + "/" + t.s }
+func HomeserverState(t TeamID) string { return HomeserverStateRoot + "/" + t.text() }
 
 // HomeserverPrivateState is where systemd keeps HomeserverState for a DynamicUser.
 func HomeserverPrivateState(t TeamID) string {
-	return HomeserverPrivateStateRoot + "/" + t.s
+	return HomeserverPrivateStateRoot + "/" + t.text()
 }
 
 // AdminState is the team's root-only records.
-func AdminState(t TeamID) string { return AdminStateRoot + "/" + t.s }
+func AdminState(t TeamID) string { return AdminStateRoot + "/" + t.text() }
 
 // ServerConfig is the team's rendered homeserver config, which its unit loads as a credential.
 func ServerConfig(t TeamID) string { return AdminState(t) + "/config.toml" }
@@ -217,17 +221,17 @@ func FenceFile(t TeamID) string { return MigrationDir(t) + "/fence.nft" }
 func FirewallRecord(t TeamID) string { return AdminState(t) + "/firewall.json" }
 
 // CtlState is the team's admin token, roster and rooms, owned by CtlUser.
-func CtlState(t TeamID) string { return CtlStateRoot + "/" + t.s }
+func CtlState(t TeamID) string { return CtlStateRoot + "/" + t.text() }
 
 // TeamLock is root's lock for the team.
-func TeamLock(t TeamID) string { return AdminRunDir + "/team-" + t.s + ".lock" }
+func TeamLock(t TeamID) string { return AdminRunDir + "/team-" + t.text() + ".lock" }
 
 // SetLock is the lock all the steps of one migration set run under. Its directory starts with
 // an underscore, which no team id can, so it never meets a team's AdminState.
-func SetLock(s SetID) string { return AdminStateRoot + "/_sets/" + s.s + ".lock" }
+func SetLock(s SetID) string { return AdminStateRoot + "/_sets/" + s.text() + ".lock" }
 
 // StatusTeamDir is the team's status records, readable without sudo.
-func StatusTeamDir(t TeamID) string { return StatusRoot + "/teams/" + t.s }
+func StatusTeamDir(t TeamID) string { return StatusRoot + "/teams/" + t.text() }
 
 // StampFile is the team's install stamp.
 func StampFile(t TeamID) string { return StatusTeamDir(t) + "/stamp.json" }
@@ -242,24 +246,24 @@ func ApprovedFile(t TeamID) string { return StatusTeamDir(t) + "/approved.json" 
 func LXCOnlineFile(t TeamID) string { return StatusTeamDir(t) + "/lxc-online.json" }
 
 // LXCRecord is the team's LXC record.
-func LXCRecord(t TeamID) string { return StatusRoot + "/lxc/" + t.s + ".json" }
+func LXCRecord(t TeamID) string { return StatusRoot + "/lxc/" + t.text() + ".json" }
 
 // SetRecord is a migration set's record, the one source of which system a migrating team is
 // live on (D 5.3).
-func SetRecord(s SetID) string { return StatusRoot + "/sets/" + s.s + ".json" }
+func SetRecord(s SetID) string { return StatusRoot + "/sets/" + s.text() + ".json" }
 
 // ElementProfile is the --profile of the team's Element.
-func ElementProfile(t TeamID) string { return Product + "-" + t.s }
+func ElementProfile(t TeamID) string { return Product + "-" + t.text() }
 
 // ElementLauncherName is the Name= of the team's Element launcher, by its display name.
-func ElementLauncherName(d DisplayName) string { return d.s + " team (" + Product + ")" }
+func ElementLauncherName(d DisplayName) string { return d.text() + " team (" + Product + ")" }
 
 // ElementConfigDir is the team's Element profile directory under a home.
 func ElementConfigDir(home string, t TeamID) (string, error) {
 	if err := checkBase("home", home); err != nil {
 		return "", err
 	}
-	return home + "/.var/app/im.riot.Riot/config/Element-teamchat-" + t.s, nil
+	return home + "/.var/app/im.riot.Riot/config/Element-teamchat-" + t.text(), nil
 }
 
 // ElementLauncher is the team's Element desktop launcher under a home.
@@ -267,7 +271,7 @@ func ElementLauncher(home string, t TeamID) (string, error) {
 	if err := checkBase("home", home); err != nil {
 		return "", err
 	}
-	return home + "/.local/share/applications/" + Product + "-" + t.s + "-element.desktop", nil
+	return home + "/.local/share/applications/" + Product + "-" + t.text() + "-element.desktop", nil
 }
 
 // ElementConsentFile is the owner's consent to an Element profile beside host members.
@@ -298,22 +302,40 @@ const (
 // kind: the kit root and the kit in use, the persistent state root, the read-only desired
 // membership directory, and the root of the per-session runtime directories.
 type Layout struct {
-	KitRoot    string
-	CurrentKit Kit
-	State      string
-	Desired    string
-	RunRoot    string
+	kitRoot    string
+	currentKit Kit
+	state      string
+	desired    string
+	runRoot    string
 }
+
+// KitRoot is the directory the member's kits are under.
+func (l Layout) KitRoot() string { return must("layout", l.kitRoot) }
+
+// CurrentKit is the kit the member runs.
+func (l Layout) CurrentKit() Kit {
+	must("layout", l.kitRoot)
+	return l.currentKit
+}
+
+// State is the member's persistent state root, where its seats are.
+func (l Layout) State() string { return must("layout", l.state) }
+
+// Desired is the read-only directory of the session's desired membership.
+func (l Layout) Desired() string { return must("layout", l.desired) }
+
+// RunRoot is the root of the per-session runtime directories.
+func (l Layout) RunRoot() string { return must("layout", l.runRoot) }
 
 // CCYLayout is a ccy session's layout: one kit in the image, the session's seat and membership
 // mounts, and runtime directories in the container-private /tmp.
 func CCYLayout() Layout {
 	return Layout{
-		KitRoot:    CCYKitDir().s,
-		CurrentKit: CCYKitDir(),
-		State:      SessionSeatMount,
-		Desired:    SessionMembershipMount,
-		RunRoot:    CCYRunRoot,
+		kitRoot:    CCYKitDir().s,
+		currentKit: CCYKitDir(),
+		state:      SessionSeatMount,
+		desired:    SessionMembershipMount,
+		runRoot:    CCYRunRoot,
 	}
 }
 
@@ -328,81 +350,87 @@ func HomeLayout(home, runtimeDir string) (Layout, error) {
 	}
 	config := home + "/.config/" + Product
 	return Layout{
-		KitRoot:    HostKitRoot,
-		CurrentKit: HostKitCurrent(),
-		State:      config + "/seats",
-		Desired:    config + "/membership",
-		RunRoot:    runtimeDir + "/" + Product + "/run",
+		kitRoot:    HostKitRoot,
+		currentKit: HostKitCurrent(),
+		state:      config + "/seats",
+		desired:    config + "/membership",
+		runRoot:    runtimeDir + "/" + Product + "/run",
 	}, nil
 }
 
 // DesiredFile is the session's desired membership.
-func (l Layout) DesiredFile() string { return l.Desired + "/" + desiredFile }
+func (l Layout) DesiredFile() string { return l.Desired() + "/" + desiredFile }
 
 // ConversationFile is the member's persistent conversation record (B43).
-func (l Layout) ConversationFile() string { return l.State + "/" + conversationFile }
+func (l Layout) ConversationFile() string { return l.State() + "/" + conversationFile }
 
 // Seat is the member's directory for one team: its state, seat lock and bundle together.
-func (l Layout) Seat(t TeamID) Seat { return Seat{Dir: l.State + "/" + t.s} }
+func (l Layout) Seat(t TeamID) Seat { return Seat{dir: l.State() + "/" + t.text()} }
 
 // Run is one session's runtime directory.
-func (l Layout) Run(r RunID) Run { return Run{Dir: l.RunRoot + "/" + r.s} }
+func (l Layout) Run(r RunID) Run { return Run{dir: l.RunRoot() + "/" + r.text()} }
 
 // Seat is a member's directory for one team.
-type Seat struct{ Dir string }
+type Seat struct{ dir string }
+
+// Dir is the seat's directory.
+func (s Seat) Dir() string { return must("seat", s.dir) }
 
 // Bundle is the seat's bundle record, placed by area C.
-func (s Seat) Bundle() string { return s.Dir + "/seat.json" }
+func (s Seat) Bundle() string { return s.Dir() + "/seat.json" }
 
 // Token is the seat's login token, placed by area C.
-func (s Seat) Token() string { return s.Dir + "/token" }
+func (s Seat) Token() string { return s.Dir() + "/token" }
 
 // Lock is the seat lock.
-func (s Seat) Lock() string { return s.Dir + "/seat.lock" }
+func (s Seat) Lock() string { return s.Dir() + "/seat.lock" }
 
 // Store is the member's state for the team.
-func (s Seat) Store() string { return s.Dir + "/store.json" }
+func (s Seat) Store() string { return s.Dir() + "/store.json" }
 
 // Report is the seat's report, which carries the run id of the session that wrote it.
-func (s Seat) Report() string { return s.Dir + "/report.json" }
+func (s Seat) Report() string { return s.Dir() + "/report.json" }
 
 // LastLog is the last session's log, kept with the seat.
-func (s Seat) LastLog() string { return s.Dir + "/last.log" }
+func (s Seat) LastLog() string { return s.Dir() + "/last.log" }
 
 // Run is one session's runtime directory: the keeper (teamchat run) and the link
 // (teamchat link) and what each holds (B 2.4).
-type Run struct{ Dir string }
+type Run struct{ dir string }
+
+// Dir is the session's runtime directory.
+func (r Run) Dir() string { return must("run", r.dir) }
 
 // KeeperLock is held by the keeper for the session's life.
-func (r Run) KeeperLock() string { return r.Dir + "/keeper.lock" }
+func (r Run) KeeperLock() string { return r.Dir() + "/keeper.lock" }
 
 // KeeperJSON is the keeper's record.
-func (r Run) KeeperJSON() string { return r.Dir + "/keeper.json" }
+func (r Run) KeeperJSON() string { return r.Dir() + "/keeper.json" }
 
 // KeeperLog is the keeper's log.
-func (r Run) KeeperLog() string { return r.Dir + "/keeper.log" }
+func (r Run) KeeperLog() string { return r.Dir() + "/keeper.log" }
 
 // LinkSock is the link's socket.
-func (r Run) LinkSock() string { return r.Dir + "/link.sock" }
+func (r Run) LinkSock() string { return r.Dir() + "/link.sock" }
 
 // LinkLock is held by the link while it runs.
-func (r Run) LinkLock() string { return r.Dir + "/link.lock" }
+func (r Run) LinkLock() string { return r.Dir() + "/link.lock" }
 
 // LinkLog is the link's log.
-func (r Run) LinkLog() string { return r.Dir + "/link.log" }
+func (r Run) LinkLog() string { return r.Dir() + "/link.log" }
 
 // Settings is the per-launch copy of the kit's session settings.
-func (r Run) Settings() string { return r.Dir + "/" + settingsFile }
+func (r Run) Settings() string { return r.Dir() + "/" + settingsFile }
 
 // Session is the session's record.
-func (r Run) Session() string { return r.Dir + "/session.json" }
+func (r Run) Session() string { return r.Dir() + "/session.json" }
 
 // PID is the keeper's and the session's pids with their start times (B 2.4.1), which the
 // leftover sweep and the host's kit pruning read.
-func (r Run) PID() string { return r.Dir + "/session.pid" }
+func (r Run) PID() string { return r.Dir() + "/session.pid" }
 
 // Status is the status line's record for the session.
-func (r Run) Status() string { return r.Dir + "/status.json" }
+func (r Run) Status() string { return r.Dir() + "/status.json" }
 
 // StateHome is the XDG state home: $XDG_STATE_HOME when it is absolute (the XDG spec ignores a
 // relative one), else <home>/.local/state.
@@ -425,7 +453,7 @@ func ProbeState(stateHome string, t TeamID) (string, error) {
 	if err := checkBase("state", stateHome); err != nil {
 		return "", err
 	}
-	return stateHome + "/" + Product + "/probe/" + t.s, nil
+	return stateHome + "/" + Product + "/probe/" + t.text(), nil
 }
 
 // SeatStore is the owner's seat store under an XDG state home (C 3.7), outside every checkout
@@ -434,17 +462,20 @@ func SeatStore(stateHome string) (Store, error) {
 	if err := checkBase("state", stateHome); err != nil {
 		return Store{}, err
 	}
-	return Store{Root: stateHome + "/" + Product + "/seats"}, nil
+	return Store{root: stateHome + "/" + Product + "/seats"}, nil
 }
 
 // Store is the owner's seat store.
-type Store struct{ Root string }
+type Store struct{ root string }
+
+// Root is the seat store's directory.
+func (s Store) Root() string { return must("seat store", s.root) }
 
 // Pool is the seats' authoritative records, never mounted into a container.
-func (s Store) Pool() string { return s.Root + "/pool" }
+func (s Store) Pool() string { return s.Root() + "/pool" }
 
 // PoolCheckout is one checkout's seats in the pool.
-func (s Store) PoolCheckout(k CheckoutKey) string { return s.Pool() + "/" + k.s }
+func (s Store) PoolCheckout(k CheckoutKey) string { return s.Pool() + "/" + k.text() }
 
 // PoolCheckoutRecord is the checkout's real path, so the pool can be listed per checkout.
 func (s Store) PoolCheckoutRecord(k CheckoutKey) string {
@@ -452,21 +483,21 @@ func (s Store) PoolCheckoutRecord(k CheckoutKey) string {
 }
 
 // Session is the seats a ccy session holds, mounted read-write at SessionSeatMount.
-func (s Store) Session(n SessionName) string { return s.Root + "/sessions/" + n.s }
+func (s Store) Session(n SessionName) string { return s.Root() + "/sessions/" + n.text() }
 
 // Control is the session's control directory, mounted read-only at SessionMembershipMount.
-func (s Store) Control(n SessionName) string { return s.Root + "/control/" + n.s }
+func (s Store) Control(n SessionName) string { return s.Root() + "/control/" + n.text() }
 
 // DesiredFile is the session's desired membership in its control directory.
 func (s Store) DesiredFile(n SessionName) string { return s.Control(n) + "/" + desiredFile }
 
 // Released is the quarantine of released seat directories.
-func (s Store) Released() string { return s.Root + "/released" }
+func (s Store) Released() string { return s.Root() + "/released" }
 
 // AllocLock is the owner's allocation lock for one checkout, under $XDG_RUNTIME_DIR.
 func AllocLock(runtimeDir string, k CheckoutKey) (string, error) {
 	if err := checkBase("runtime", runtimeDir); err != nil {
 		return "", err
 	}
-	return runtimeDir + "/" + Product + "/alloc/" + k.s + ".lock", nil
+	return runtimeDir + "/" + Product + "/alloc/" + k.text() + ".lock", nil
 }

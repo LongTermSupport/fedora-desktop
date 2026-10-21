@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -17,8 +18,10 @@ var ErrInvalid = errors.New("invalid")
 
 // Each identifier below is opaque: only its Parse function makes one, a decode (JSON, YAML, any
 // encoding.TextUnmarshaler user) goes through that Parse, and no conversion from a string
-// compiles, so a derived name never holds an unchecked string. The zero value was never parsed
-// and is refused by MarshalText.
+// compiles, so a derived name never holds an unchecked string. The zero value was never parsed:
+// MarshalText refuses it, and a name derived from it panics, since a decode leaves it for a
+// missing or null field without calling UnmarshalText, and the name would be the parent
+// directory of every team or session.
 
 // TeamID is a team's stable id (A 2.2): fixed at creation, never changed, and the one key of
 // every name derived from a team.
@@ -50,7 +53,7 @@ type DisplayName struct{ s string }
 type ServerVersion struct{ s string }
 
 // Port is a team's homeserver port. Ports are declared per team, never computed (D 3.8).
-type Port uint16
+type Port struct{ n uint16 }
 
 var (
 	teamIDGrammar      = regexp.MustCompile(`^[a-z][a-z0-9-]{0,21}$`)
@@ -146,9 +149,34 @@ func ParseServerVersion(s string) (ServerVersion, error) {
 // ParsePort checks a declared port: 1 to 65535.
 func ParsePort(n int) (Port, error) {
 	if n < 1 || n > 65535 {
-		return 0, fmt.Errorf("%w port: not in 1-65535", ErrInvalid)
+		return Port{}, fmt.Errorf("%w port: not in 1-65535", ErrInvalid)
 	}
-	return Port(n), nil
+	return Port{uint16(n)}, nil
+}
+
+// Int is the port's number; the zero value panics, as a zero id does.
+func (p Port) Int() int {
+	if p.n == 0 {
+		panic("paths: a port used before it was parsed")
+	}
+	return int(p.n)
+}
+
+// MarshalJSON encodes the port as a JSON number, and refuses the zero value.
+func (p Port) MarshalJSON() ([]byte, error) {
+	if p.n == 0 {
+		return nil, fmt.Errorf("%w port: the zero value was never parsed", ErrInvalid)
+	}
+	return strconv.AppendUint(nil, uint64(p.n), 10), nil
+}
+
+// UnmarshalJSON decodes a JSON number through ParsePort; null and a string are refused.
+func (p *Port) UnmarshalJSON(b []byte) error {
+	n, err := strconv.Atoi(string(b))
+	if err != nil {
+		return fmt.Errorf("%w port: not a JSON integer", ErrInvalid)
+	}
+	return unmarshal(p, ParsePort, n)
 }
 
 // marshal is an id's text, refused for the zero value, which was never parsed.
@@ -159,9 +187,17 @@ func marshal(kind, s string) ([]byte, error) {
 	return []byte(s), nil
 }
 
-// unmarshal sets *dst to the parse of text, or leaves it and returns the parse's error.
-func unmarshal[T any](dst *T, parse func(string) (T, error), text []byte) error {
-	v, err := parse(string(text))
+// must is an id's text, and panics on the zero value, which was never parsed.
+func must(kind, s string) string {
+	if s == "" {
+		panic("paths: a " + kind + " used before it was parsed")
+	}
+	return s
+}
+
+// unmarshal sets *dst to the parse of in, or leaves it and returns the parse's error.
+func unmarshal[T, In any](dst *T, parse func(In) (T, error), in In) error {
+	v, err := parse(in)
 	if err != nil {
 		return err
 	}
@@ -176,7 +212,7 @@ func (t TeamID) String() string { return t.s }
 func (t TeamID) MarshalText() ([]byte, error) { return marshal("team id", t.s) }
 
 // UnmarshalText decodes a team id through ParseTeamID.
-func (t *TeamID) UnmarshalText(b []byte) error { return unmarshal(t, ParseTeamID, b) }
+func (t *TeamID) UnmarshalText(b []byte) error { return unmarshal(t, ParseTeamID, string(b)) }
 
 // String is the run id's text.
 func (r RunID) String() string { return r.s }
@@ -185,7 +221,7 @@ func (r RunID) String() string { return r.s }
 func (r RunID) MarshalText() ([]byte, error) { return marshal("run id", r.s) }
 
 // UnmarshalText decodes a run id through ParseRunID.
-func (r *RunID) UnmarshalText(b []byte) error { return unmarshal(r, ParseRunID, b) }
+func (r *RunID) UnmarshalText(b []byte) error { return unmarshal(r, ParseRunID, string(b)) }
 
 // String is the checkout key's text.
 func (k CheckoutKey) String() string { return k.s }
@@ -194,7 +230,7 @@ func (k CheckoutKey) String() string { return k.s }
 func (k CheckoutKey) MarshalText() ([]byte, error) { return marshal("checkout key", k.s) }
 
 // UnmarshalText decodes a checkout key through ParseCheckoutKey.
-func (k *CheckoutKey) UnmarshalText(b []byte) error { return unmarshal(k, ParseCheckoutKey, b) }
+func (k *CheckoutKey) UnmarshalText(b []byte) error { return unmarshal(k, ParseCheckoutKey, string(b)) }
 
 // String is the guest user's text.
 func (u GuestUser) String() string { return u.s }
@@ -203,7 +239,7 @@ func (u GuestUser) String() string { return u.s }
 func (u GuestUser) MarshalText() ([]byte, error) { return marshal("guest user", u.s) }
 
 // UnmarshalText decodes a guest user through ParseGuestUser.
-func (u *GuestUser) UnmarshalText(b []byte) error { return unmarshal(u, ParseGuestUser, b) }
+func (u *GuestUser) UnmarshalText(b []byte) error { return unmarshal(u, ParseGuestUser, string(b)) }
 
 // String is the set id's text.
 func (s SetID) String() string { return s.s }
@@ -212,7 +248,7 @@ func (s SetID) String() string { return s.s }
 func (s SetID) MarshalText() ([]byte, error) { return marshal("set id", s.s) }
 
 // UnmarshalText decodes a set id through ParseSetID.
-func (s *SetID) UnmarshalText(b []byte) error { return unmarshal(s, ParseSetID, b) }
+func (s *SetID) UnmarshalText(b []byte) error { return unmarshal(s, ParseSetID, string(b)) }
 
 // String is the session name's text.
 func (n SessionName) String() string { return n.s }
@@ -221,7 +257,7 @@ func (n SessionName) String() string { return n.s }
 func (n SessionName) MarshalText() ([]byte, error) { return marshal("session name", n.s) }
 
 // UnmarshalText decodes a session name through ParseSessionName.
-func (n *SessionName) UnmarshalText(b []byte) error { return unmarshal(n, ParseSessionName, b) }
+func (n *SessionName) UnmarshalText(b []byte) error { return unmarshal(n, ParseSessionName, string(b)) }
 
 // String is the digest's text.
 func (d Digest) String() string { return d.s }
@@ -230,7 +266,7 @@ func (d Digest) String() string { return d.s }
 func (d Digest) MarshalText() ([]byte, error) { return marshal("digest", d.s) }
 
 // UnmarshalText decodes a digest through ParseDigest.
-func (d *Digest) UnmarshalText(b []byte) error { return unmarshal(d, ParseDigest, b) }
+func (d *Digest) UnmarshalText(b []byte) error { return unmarshal(d, ParseDigest, string(b)) }
 
 // String is the display name's text.
 func (d DisplayName) String() string { return d.s }
@@ -239,7 +275,7 @@ func (d DisplayName) String() string { return d.s }
 func (d DisplayName) MarshalText() ([]byte, error) { return marshal("display name", d.s) }
 
 // UnmarshalText decodes a display name through ParseDisplayName.
-func (d *DisplayName) UnmarshalText(b []byte) error { return unmarshal(d, ParseDisplayName, b) }
+func (d *DisplayName) UnmarshalText(b []byte) error { return unmarshal(d, ParseDisplayName, string(b)) }
 
 // String is the server version's text.
 func (v ServerVersion) String() string { return v.s }
@@ -248,4 +284,24 @@ func (v ServerVersion) String() string { return v.s }
 func (v ServerVersion) MarshalText() ([]byte, error) { return marshal("server version", v.s) }
 
 // UnmarshalText decodes a server version through ParseServerVersion.
-func (v *ServerVersion) UnmarshalText(b []byte) error { return unmarshal(v, ParseServerVersion, b) }
+func (v *ServerVersion) UnmarshalText(b []byte) error {
+	return unmarshal(v, ParseServerVersion, string(b))
+}
+
+func (t TeamID) text() string { return must("team id", t.s) }
+
+func (r RunID) text() string { return must("run id", r.s) }
+
+func (k CheckoutKey) text() string { return must("checkout key", k.s) }
+
+func (u GuestUser) text() string { return must("guest user", u.s) }
+
+func (s SetID) text() string { return must("set id", s.s) }
+
+func (n SessionName) text() string { return must("session name", n.s) }
+
+func (d Digest) text() string { return must("digest", d.s) }
+
+func (d DisplayName) text() string { return must("display name", d.s) }
+
+func (v ServerVersion) text() string { return must("server version", v.s) }
