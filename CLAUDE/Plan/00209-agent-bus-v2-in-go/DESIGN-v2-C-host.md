@@ -12,15 +12,14 @@ in full below. The host program is `teamchat-admin` (root, control-user and owne
 `teamchat-server@<team>.service`, the host-wide timers `teamchat-health` and `teamchat-backup`, and
 the host_vars keys `teamchat_*` (section 3.8). The only placeholders left are values:
 
-| Placeholder      | What it names                                                                             |
-| ---------------- | ----------------------------------------------------------------------------------------- |
-| `<team>`         | the team id (A §2.2 grammar, at most 22 characters), fixed at creation                    |
-| `<server_name>`  | the team's Matrix server name, `<team>.teamchat.internal` by default                      |
-| `<port>`         | a team's homeserver port, declared per team in `teamchat_teams[].port`; there is no range |
-| `<owner group>`  | the desktop user's primary group, recorded by the play in `/etc/teamchat/owner-group`     |
-| `<iface>`        | the interface that carries a team's `listen` address (often `teamchat0`)                  |
-| `<bus_ip>`       | the v2 bus address, the value of `teamchat_address`                                       |
-| `<staging port>` | a free loopback port chosen by `restore` for its staging instance                         |
+| Placeholder     | What it names                                                                             |
+| --------------- | ----------------------------------------------------------------------------------------- |
+| `<team>`        | the team id (A §2.2 grammar, at most 22 characters), fixed at creation                    |
+| `<server_name>` | the team's Matrix server name, `<team>.teamchat.internal` by default                      |
+| `<port>`        | a team's homeserver port, declared per team in `teamchat_teams[].port`; there is no range |
+| `<owner group>` | the desktop user's primary group, recorded by the play in `/etc/teamchat/owner-group`     |
+| `<iface>`       | the interface that carries a team's `listen` address (often `teamchat0`)                  |
+| `<bus_ip>`      | the v2 bus address, the value of `teamchat_address`                                       |
 
 Source keys used in the "from" column and in the text: `R<n>` = `DESIGN.md` section 2; `H 7.nn` =
 `RESEARCH-host.md` hard-won behaviours; `LR` = `RESEARCH-lxc-robustness.md`; `GC` =
@@ -1734,12 +1733,15 @@ apply already holds (3.4), never a second `flock`. Otherwise, per team, under it
 
 A pair (database backup `<n>`, tar `<n>`) is taken under one team lock, so no admin change can fall
 between its halves. Copying backups off the machine is not built, as the owner decided for v1 (DC14).
+Area D's migration files (the v1 export, the carry plan, the migration log, D 5.6) are not in
+this backup: they stay where D writes them, on the same disk as the backups, so DC14's limit
+applies to them too (operations 17).
 
 #### 3.12.2 Restore
 
 `teamchat-admin restore --team T --backup N` (password sudo from ccy-teams), under the team lock. v1's
 restore was not atomic: after it stopped the homeserver, any failure left the team down (I-B8). v2
-stages first and swaps (C37, DC8):
+stages first, secures the staged copy, and only then swaps (C37, C47, DC8).
 
 A restore replaces the database only. The config, the drop-in, the firewall record and the
 binary stay the ones the team runs now, because they were rendered for today's declaration and
@@ -1747,75 +1749,116 @@ Tuwunel version: a backup's config may bind a port the drop-in now denies, or ca
 pinned Tuwunel refuses (`error_on_unknown_config_opts`). The tar's `config.toml` and `team.json`
 are used only as evidence that the backup belongs to this team.
 
-1. Validate the tar fully (exact member set, regular files, sizes, strict JSON for the roster and
-   rooms record), that database backup `N` exists, and that the tar's `server_name` equals
-   `root/<team>/server-name`. Refuse, naming them, any leftover `db.previous`, `db.restore-*`,
-   `config.restore.toml` or control `*.previous` file when no `restore.json` exists (below).
-   Nothing stops before this passes; the tar is held in memory from here on.
-2. Stage: a transient unit (`systemd-run --collect`) with the base unit's whole sandbox and the
-   same identity, `DynamicUser=yes`, `User=teamchat-<team>` and `StateDirectory=teamchat/<team>`,
-   so it gets the live unit's uid and its state directory, and nothing is chowned (systemd shares a
-   dynamic uid between units that name the same user). It runs the binary the team's drop-in
-   names, with `SocketBindAllow=tcp:<staging port>` and `IPAddressAllow=127.0.0.1/32 ::1/128`
-   (the base unit denies every bind), and `LoadCredential=` from `root/<team>/config.restore.toml`
-   (0600): the team's current config re-rendered with only two keys changed, `database_path` is
-   `db.restore-<N>` and the port is the free loopback staging port. It runs
-   `tuwunel --restore-backup N`, which restores into the staging path and then serves; once it
-   answers, it is stopped. The live homeserver keeps serving meanwhile.
-3. Only now back up the team as it is, through the internal backup function under the held team
-   lock (3.4), while the live homeserver serves (C36). The order matters: Tuwunel keeps
-   `database_backups_to_keep` backups (3.2.4) and prunes the oldest when it takes one, so taking
-   `M` before staging could delete `N` itself when `N` is the oldest. Staged first, `N` is already
-   copied into `db.restore-<N>` and its tar is in memory, and its pruning no longer matters. `M`
-   is in the restore's answer, so a restore of the wrong `N` is undone by one `restore --backup M`.
-4. Build the merged roster in memory (below).
-5. Write the restore record `root/<team>/restore.json` (`{"v": 1, "backup": N, "pre": M, "step": "swap"}`, 0600, fsync) and the start block `root/<team>/restore.block` (empty, 0600).
-   While the block exists the homeserver cannot start: the base unit carries
-   `AssertPathExists=!/var/lib/teamchat-admin/%i/restore.block`, so a boot, a crash restart or a stray
-   start fails visibly instead of creating an empty database where `db` is missing. Stop the live
-   homeserver. In the state directory, opened as a directory fd with
-   `O_DIRECTORY|O_NOFOLLOW` (the homeserver's uid owns its contents), rename `db` to
-   `db.previous` and `db.restore-<N>` to `db`, each by `renameat2(RENAME_NOREPLACE)` relative to
-   that fd. Replace the control state through the `teamchat-ctl` child, never by root directly
-   (3.2.2): root sends the tar's `admin.token` and `rooms.json` and the merged roster on the
-   child's stdin in one `restore.swap` request, and the child writes them with its atomic writer,
-   keeping the current files as `*.previous`. Root's own state is not touched. Once every swap is
-   on disk, update the record to `"step": "bootstrap"` (fsync), and only then remove the block.
-6. Start, wait ready, assert listening, bootstrap. Bootstrap converges the restored database to
-   the merged roster: every handle the roster holds `retired` is kicked and deactivated again,
-   every handle it holds `parked` is revoked again, every member with `needs: reissue` is revoked
-   (password reset with device logout), every human whose `revoked_ms` is after the backup's time
-   is revoked the same way and set to `needs: password`, every human the roster holds `locked` is
-   locked again, and every room is converged (a room created after the backup is gone from the
-   database and is recreated or adopted, 3.6.2). So no token or password that was revoked after
-   the backup works again.
-7. On any failure in 5-6: write the block again and the record with `"step": "revert"`, stop,
-   swap every renamed directory and file back (the control files by a `restore.revert` request to
-   the child), remove `config.restore.toml`, the record and then the block, start, wait ready,
-   and report that the restore failed and the team is as it was. Only a failure of this
-   swap-back leaves the team down, and it is reported as that, with the record and the block left
-   in place.
-8. On success: delete `db.previous`, `config.restore.toml` and the `*.previous` files
-   (fd-relative removal that never follows a link), remove the record, refresh the status record,
-   and print the answer: `M`, and the handles and humans that need `reissue`, `return` or
-   `human password`. The stamp stays valid, since the config is the current one.
+Two designs were weighed for where the restored database is brought to today's roster: (a) in
+the live unit after the swap (the earlier text), or (b) in the staged copy before the swap. (a)
+leaves a window, after the start block is removed, in which a crash or a boot serves every
+credential revoked since `N` until a manual resume (operations 5). (b) is chosen: the staged copy
+is secured while nothing but the controller can reach it, so whatever happens after the swap,
+no revoked credential is ever served.
 
-A kill or power loss at any point of steps 5-8 leaves `restore.json` behind. Every root verb on
-that team (`team apply`, `team remove`, `restore`, `backup`, the member, role and human verbs, and
-the health tick's restart) first looks for it and refuses with exit 70, naming
-`restore --team T --resume`. The resume reads the record and goes on from what is on disk, each
-rename checked against the directory before it is made, so a second resume is harmless:
+01. **Validate.** The tar fully (exact member set, regular files, sizes, strict JSON for the
+    roster and rooms record), that database backup `N` exists, and that the tar's `server_name`
+    equals `root/<team>/server-name`. Refuse a backup roster with a `pending` operation, and refuse
+    a current roster with one, naming the verb that completes it. Refuse a backup taken before
+    the team's v1 carry (area D's set record for the team names the carry time, D 5.4 M4) unless
+    the owner passes `--accept-carry-loss`: such a restore would drop the carried items and the
+    welcome notice. Refuse, naming them, any leftover `db.restore-*` or `config.restore.toml` or
+    control `*.previous` file when no `restore.json` exists. Nothing stops before this passes; the
+    tar is held in memory from here on.
+02. **Merge.** Build the merged roster in memory (below).
+03. **Record.** Write `root/<team>/restore.json` (`{"v": 1, "backup": N, "pre": null, "step": "staging"}`, 0600, fsync) before anything is created, so every leftover of this restore is
+    named by a record.
+04. **Stage.** A transient unit (`systemd-run --collect`, unit `teamchat-restore@<team>`) with the
+    base unit's whole sandbox and the same identity, `DynamicUser=yes`, `User=teamchat-<team>` and
+    `StateDirectory=teamchat/<team>`, so it gets the live unit's uid and state directory and
+    nothing is chowned (systemd shares a dynamic uid between units that name the same user), and
+    `PrivateNetwork=yes`: it has a loopback of its own and no route out, so no process on the host
+    or in any container can reach it, and it needs no staging port (security 7). It runs the
+    binary the team's drop-in names, with `LoadCredential=` from `root/<team>/config.restore.toml`
+    (0600): the team's current config with one key changed, `database_path` is `db.restore-<N>`.
+    It runs `tuwunel --restore-backup N`, which restores into the staging path and then serves on
+    its own loopback. The live homeserver keeps serving meanwhile.
+05. **Secure the staged copy.** A second transient unit, the `teamchat-ctl` child as 3.2.2 runs it,
+    with `JoinsNamespaceOf=teamchat-restore@<team>.service` and `PrivateNetwork=yes`, so it shares
+    the staging unit's network namespace and nothing else, run by `systemd-run --pipe --wait`. Root
+    sends it on stdin, in one `restore.secure` request, the tar's `admin.token` (the admin token
+    the restored database knows) and the merged roster. It waits for the staged instance to answer
+    on its loopback and applies the merged roster's revocations to it: every handle `retired` is
+    kicked from every room and deactivated; every handle `parked` and every member with
+    `needs: reissue` is revoked (password reset with device logout); every human whose credential
+    changed after `N` (below) is revoked the same way and set to `needs: password`; every human
+    `locked` is locked. It then writes the roster event (3.6.1) with `rev` above the live roster's
+    `rev` and `restore_epoch` one above the live one. Root stops the staging unit and records
+    `"step": "staged"`.
+06. **Pre-restore backup.** Back up the team as it is, `M`, through the internal backup function
+    under the held team lock (3.4), while the live homeserver serves (C36), and record `"pre": M`.
+    The order matters: Tuwunel keeps `database_backups_to_keep` backups (3.2.4) and prunes the
+    oldest when it takes one, so taking `M` before staging could delete `N` itself when `N` is the
+    oldest. Staged first, `N` is already copied into `db.restore-<N>` and its tar is in memory.
+07. **Export what the restore loses.** Through the child, against the live homeserver: every event
+    in the team's rooms with a server time after `N`'s, in order, to
+    `ctl/<team>/restore-<N>-lost.jsonl` (0600, read by the owner through `restore --lost`), and
+    counted. Events posted between this export and the stop in step 8 are not in it; the answer
+    says so and gives the export's end time.
+08. **Swap.** Record `"step": "swap"` (fsync) and write the start block
+    `root/<team>/restore.block` (empty, 0600). While the block exists the homeserver cannot start:
+    the base unit carries `AssertPathExists=!/var/lib/teamchat-admin/%i/restore.block`, so a boot,
+    a crash restart or a stray start fails visibly. Stop the live homeserver. In the state
+    directory, opened as a directory fd with `O_DIRECTORY|O_NOFOLLOW` (the homeserver's uid owns
+    its contents), rename `db` to `db.previous` and `db.restore-<N>` to `db`, each by
+    `renameat2(RENAME_NOREPLACE)` relative to that fd. Replace the control state through the
+    child in one `restore.swap` request (the tar's `admin.token` and `rooms.json` and the merged
+    roster, written with its atomic writer, the current files kept as `*.previous`), never by root
+    directly (3.2.2). Root's own state is not touched. Record `"step": "start"` (fsync), and only
+    then remove the block. The block covers only the renames: the database now in place is the
+    secured one, so a crash or a boot from here on serves no revoked credential.
+09. **Start.** Start, wait ready, assert listening, and run the normal bootstrap (3.6.2), which
+    converges the rooms (a room created after `N` is gone from the database and is recreated or
+    adopted).
+10. **Clean up.** Delete `db.previous`, `config.restore.toml` and the `*.previous` files
+    (fd-relative removal that never follows a link), remove the record, refresh the status record,
+    and print the answer: `M`, the count of lost events and the export's path and end time, and
+    the handles and humans that need `reissue`, `return` or `human password`. The stamp stays
+    valid, since the config is the current one.
 
-- `"step": "swap"` or `"revert"` (the block is still there): roll the swap back to the state
-  before step 5, remove `config.restore.toml`, the record and then the block, and start the team;
-  the restore is reported as not done.
-- `"step": "bootstrap"` (the block is gone, the restored database is in place): start if needed,
-  run step 6's bootstrap, then step 8. The revocations of step 6 are done before the team is
-  reported restored.
+**Failures.** A failure in steps 3-5 stops the staging units, removes `db.restore-<N>` and
+`config.restore.toml` under the team lock, then the record, and reports the restore not done;
+`N` is untouched, since `M` was not yet taken. A failure in steps 6-9 swaps back whatever step 8
+swapped (the block written again first, the control files by a `restore.revert` request to the
+child, the block removed once the old `db` is back), starts the team on its old database, and
+keeps `db.restore-<N>` with the record at `"step": "staged"`: after `M` is taken, the staged copy
+may be the only copy of `N` (operations 4). `restore --team T --resume` retries from it (steps 6
+on, `M` taken only if the record has none), and `restore --team T --discard` removes it and the
+record. Only a failure of the swap-back itself leaves the team down, and it is reported as that,
+with the record and the block left in place.
 
-The status record shows the team as "restore interrupted" with that fix. So no crash leaves a
-team serving an empty database, no revoked credential stays valid after a resumed restore, and
-no state needs a hand-made rename to recover.
+**A kill or power loss** leaves `restore.json` behind. Every root verb on that team (`team apply`,
+`team remove`, `restore`, `backup`, the member, role and human verbs, and the health tick's
+restart) first looks for it and refuses with exit 70, naming `restore --team T --resume` and
+`--discard`. The resume reads the record and goes on from what is on disk, each rename checked
+against the directory before it is made, so a second resume is harmless:
+
+- `"step": "staging"`: as a failure in steps 3-5, then report the restore not done.
+- `"step": "staged"`: the live database serves; resume from step 6, or discard.
+- `"step": "swap"` (the block is there): go forward. Every rename not yet made is made, the
+  control swap is repeated (the child's writer is idempotent), and steps 9-10 run. Going forward
+  is safe because the staged copy was secured in step 5.
+- `"step": "start"` (the block is gone, the secured database in place): steps 9-10.
+
+The status record shows the team as "restore staged" or "restore interrupted", with the fix. So no
+crash leaves a team serving an empty database or a revoked credential, no failure loses `N`, and no
+state needs a hand-made rename to recover.
+
+**After a restore, members' sync positions are ahead of the database** (operations 3): the
+restored stream counter is behind every `next_batch` a member stored. The raised `restore_epoch`
+in the roster event (A's roster, section 7) tells area B's worker to drop its `next_batch` and
+resume as for a seat with no member store (B 2.6 step 01), its ledger and floors removing
+duplicates. The worker cannot rely on `/sync` to bring it that event, since its `since` is the
+very thing that is wrong; but a restore always stops the homeserver, so every worker sees an
+outage, and on each reconnect after one it reads the roster by a direct state request
+(`GET /rooms/<main>/state/<roster type>/`), not by sync, and compares `restore_epoch` (section 7,
+B). What Tuwunel answers to a `since` ahead of its database is host check H-C14; with the epoch
+read this way the design does not depend on that answer.
 
 The merged roster. A backup's roster is older than the team, and restoring it whole would break
 C18 (counters falling, a retired handle coming back) and would forget every member added since.
@@ -1826,29 +1869,36 @@ So the current roster stays the truth for handles, and the database is brought t
 - A handle in the current roster but not in the backup's has no account in the restored
   database: it becomes `lost`, and the board names `member return` as its fix, which creates the
   account again and issues a new bundle (`member return` accepts `parked` and `lost`).
-- A handle `active` in both, whose current `token_ms` is after the backup's time, holds a token
-  the restored database never issued, and the database holds the older token that a reissue had
-  revoked: it gets `needs: reissue`, and step 6 revokes the older token before anything else can
-  use it.
-- A human whose current `revoked_ms` is after the backup's time had a password set or a device
-  logged out since: the restored database would accept the old password and the lost device
-  again, so step 6 revokes them and the human gets `needs: password` (`human password` clears it).
+- "After the backup" is decided by the roster's own counter, never by a clock (operations 18): a
+  credential write is after `N` when its `seq` (`cred_seq` of a member, `revoked_seq` of a human,
+  3.6.1) is above the backup roster's `seq`. A backward clock step cannot move a write before `N`.
+- A handle `active` in both whose `cred_seq` is after `N` holds a credential the restored database
+  never issued, and the database holds the older one that a reissue had revoked: it gets
+  `needs: reissue`, and step 5 revokes the older one before anything else can use it.
+- A human whose `revoked_seq` is after `N` had a password set or a device logged out since: the
+  restored database would accept the old password and the lost device again, so step 5 revokes
+  them and the human gets `needs: password` (`human password` clears it). A password a human
+  changed from Element after `N` is lost the same way, and is in the same list.
 - Every other handle keeps its current state; `coordinator` and `coordinator_wanted` are the
-  current ones, and `pending` must be empty (a restore refuses a team with a pending operation,
-  naming the verb that completes it).
+  current ones, and `pending` is empty (step 1).
 - A human `locked` in the current roster (`human lock`, or removed from the declaration, DC9) is
-  locked again by step 6, since the restored database may have the account unlocked.
+  locked again by step 5, since the restored database may have the account unlocked.
+- `seq` is the larger of the two rosters' plus one, `rev` is above the live `rev`, and
+  `restore_epoch` is the live one plus one (step 5).
 - If the current roster cannot be read, the restore refuses unless the owner passes
   `--roster-from-backup`. That takes the backup's roster, then raises its counters and its
   retired set from every handle named anywhere the host still has: the status record, the LXC
   records and the pool's `seat.json` files (a handle seen there and retired in no record is
   `lost`). So C18 holds even then. What remains unknown is printed.
 
-Host check H-C5 proves that `--restore-backup` writes into a different `database_path` than the one
-the backup was taken from, and that the transient instance can serve on a different port; if it
-cannot, the stage step becomes "restore into the live path after the stop", with the swap-back of
-step 7 still covering failure, and the decision is raised. H-C5 also checks that the transient
-unit runs under the live unit's uid and that no file in the state directory changes owner.
+Host check H-C5 proves that `--restore-backup` writes into a different `database_path` than the
+one the backup was taken from, that the transient unit runs under the live unit's uid with no file
+in the state directory changing owner, and that with `PrivateNetwork=yes` it serves on its own
+loopback while the live unit serves on the same port. H-C15 proves that a second transient unit
+with `JoinsNamespaceOf=` and `PrivateNetwork=yes`, started by `systemd-run --pipe --wait`, reaches
+it there and nothing on the host does. If either fails, the stage step becomes "restore into the
+live path after the stop, secured before the block is removed", with the swap-back still covering
+failure, and the decision is raised.
 
 ### 3.13 What ccy-teams reads
 
