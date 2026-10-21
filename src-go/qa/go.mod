@@ -1,6 +1,6 @@
 module github.com/LongTermSupport/fedora-desktop/src-go/qa
 
-go 1.26.9
+go 1.26.10
 
 require (
 	github.com/LongTermSupport/go-qa-ci v0.0.0-20261019185407-ccf4c1751f05
