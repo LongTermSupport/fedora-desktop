@@ -22,8 +22,11 @@ func TestScopeIsWhatV2Owns(t *testing.T) {
 		// Most plays live in a category under optional/, as v1's Element play does.
 		"playbooks/imports/optional/common/play-teamchat-element.yml",
 		"playbooks/imports/sub/play-teamchat.yml",
+		"playbooks/imports/play-teamchat.yaml",
 		"tasks/teamchat-install.yml",
 		"tasks/teamchat/units.yml",
+		"vars/teamchat.yml",
+		"vars/teamchat/pins.yml",
 	}
 	for _, p := range in {
 		if !InScope(p) {
@@ -44,10 +47,11 @@ func TestScopeIsWhatV2Owns(t *testing.T) {
 		"files/opt/claude-yolo/optional/agent-bus/settings.json",
 		"playbooks/imports/play-agent-bus.yml",
 		"playbooks/imports/optional/common/play-agent-bus-element.yml",
-		"playbooks/imports/play-teamchat.yaml",
 		"playbooks/imports/optional/play-teamchat/x.yml",
+		"playbooks/imports/play-teamchat.json",
 		"playbooks/play-teamchat.yml",
 		"tasks/build-go-command.yml",
+		"vars/version-pins.yml",
 		"docs/teamchat.md",
 		"scripts/test-teamchat-install.bash",
 		"untracked/files/teamchat/x",
@@ -59,10 +63,10 @@ func TestScopeIsWhatV2Owns(t *testing.T) {
 	}
 }
 
-// A play or task file names the files it includes or installs by a path from the repository
-// root, often after ../ or a {{ }} directory; a path inside a longer one, or prose, is no
-// reference.
-func TestReferencesAreTheTasksAndFilesPathsALineNames(t *testing.T) {
+// A play or task file names the files it includes, installs or loads by a path from the
+// repository root, often after ../, a {{ }} directory or a quoted / joined to root_dir; a path
+// inside a longer one, or prose, is no reference.
+func TestReferencesAreTheTasksFilesAndVarsPathsALineNames(t *testing.T) {
 	for _, c := range []struct {
 		line string
 		want []string
@@ -73,6 +77,11 @@ func TestReferencesAreTheTasksAndFilesPathsALineNames(t *testing.T) {
 		{`  include_tasks: ./tasks/a.yml # then tasks/b.yml.`, []string{"tasks/a.yml", "tasks/b.yml"}},
 		{`  include_tasks: "tasks/{{ step }}.yml"`, []string{"tasks/{{"}},
 		{`  with_items: [files/a, 'files/b']`, []string{"files/a", "files/b"}},
+		{`  vars_files: "{{ root_dir }}/vars/teamchat.yml"`, []string{"vars/teamchat.yml"}},
+		// The two concatenated shapes the repository already uses (play-vm-test-lab.yml and
+		// play-speech-to-text.yml).
+		{`                root_dir ~ '/files/home/.local/share/vmtest/*.bash', wantlist=true)`, []string{"files/home/.local/share/vmtest/*.bash"}},
+		{`        - lookup('file', root_dir + '/files/home/.config/speech-to-text/' + item.item, errors='ignore') != x`, []string{"files/home/.config/speech-to-text/"}},
 		{`    dest: /usr/local/share/files/x`, nil},
 		{`# the tasks/ directory and mytasks/x.yml`, nil},
 		{`- name: Build`, nil},
@@ -101,7 +110,7 @@ func TestScanPathsCoverTheScope(t *testing.T) {
 	for _, p := range []string{
 		"src-go/internal/teamchat/a.go", "src-go/cmd/teamchat/main.go", "files/teamchat/x",
 		"playbooks/imports/play-teamchat.yml", "playbooks/imports/optional/common/play-teamchat-element.yml",
-		"tasks/teamchat.yml",
+		"tasks/teamchat.yml", "vars/teamchat.yml",
 	} {
 		covered := false
 		for _, root := range ScanPaths() {

@@ -84,7 +84,7 @@ also	scripts/qa-nokill-containerwatch.bash,src-go/qa/nokill/*,src-go/qa/cmd/qa-n
 # deleted, or its own wrapper, Go package or command; its name list and allowlist are its own data
 # and count as covered.
 also	src-go/qa/teamchatseparate/v1-names.txt,src-go/qa/teamchatseparate/v1-names-corpus.tsv,src-go/qa/teamchatseparate/allowed.tsv	teamchat-keeps-off-v1	covered
-also	src-go/internal/teamchat/*,src-go/cmd/teamchat*,files/*teamchat*,tasks/*teamchat*,playbooks/imports/*play-teamchat*.yml,scripts/qa-teamchat-separate.bash,src-go/qa/teamchatseparate/*,src-go/qa/cmd/qa-teamchat-separate/*,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	teamchat-keeps-off-v1	-
+also	src-go/internal/teamchat/*,src-go/cmd/teamchat*,files/*teamchat*,tasks/*teamchat*,vars/*teamchat*,playbooks/imports/*play-teamchat*.yml,playbooks/imports/*play-teamchat*.yaml,scripts/qa-teamchat-separate.bash,src-go/qa/teamchatseparate/*,src-go/qa/cmd/qa-teamchat-separate/*,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	teamchat-keeps-off-v1	-
 also	extensions/*.js,extensions/*.mjs	eslint	tree:shell,rel:extensions
 # The pause gate judges the YAML under playbooks/ and tasks/ and runs whole when one changes, or
 # its own script, Go package or shared discovery. Its fixtures are read only by the Go tests of

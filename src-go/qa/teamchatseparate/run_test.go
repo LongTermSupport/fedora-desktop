@@ -308,9 +308,33 @@ func TestK7APlayNamingAFileOutsideTheScopeFails(t *testing.T) {
 	if !strings.Contains(w.err.String(), v2Play+":3: names tasks/render-units.yml, which v2 does not own") {
 		t.Fatalf("stderr:\n%s", w.err.String())
 	}
+	// A path joined to root_dir, a vars file, and a path that climbs out of v2's directory are
+	// each judged where they lead.
+	for line, want := range map[string]string{
+		"  src: \"{{ root_dir ~ '/files/home/.local/bin/x' }}\"\n":                     "names files/home/.local/bin/x, which v2 does not own",
+		"  vars_files: \"{{ root_dir }}/vars/version-pins.yml\"\n":                     "names vars/version-pins.yml, which v2 does not own",
+		"  include_tasks: \"{{ root_dir }}/tasks/teamchat/../render-units.yml\"\n":     "names tasks/render-units.yml, which v2 does not own",
+		"  include_tasks: \"{{ root_dir }}/tasks/../playbooks/x.yml\"\n":               "names playbooks/x.yml, which v2 does not own",
+		"  include_tasks: \"{{ root_dir }}/tasks/../../etc/x.yml\"\n":                  "names ../etc/x.yml, which v2 does not own",
+		"  include_tasks: \"{{ root_dir }}/tasks/teamchat/../build-go-command.yml\"\n": "",
+	} {
+		red := cleanWorld(t)
+		red.set(v2Tasks, line)
+		code := red.run()
+		if want == "" {
+			if code != ExitOK {
+				t.Errorf("%q: exit %d: %s", line, code, red.err.String())
+			}
+			continue
+		}
+		if code != ExitFailed || !strings.Contains(red.err.String(), v2Tasks+":1: "+want) {
+			t.Errorf("%q: exit %d, stderr:\n%s", line, code, red.err.String())
+		}
+	}
 	for name, text := range map[string]string{
 		"shared":  "- ansible.builtin.import_tasks: \"{{ playbook_dir }}/../../tasks/build-go-command.yml\"\n",
 		"v2's":    "- ansible.builtin.include_tasks: tasks/teamchat-units.yml\n  src: \"{{ root_dir }}/files/etc/teamchat/owner-group\"\n",
+		"vars":    "  vars_files: \"{{ root_dir }}/vars/teamchat.yml\"\n",
 		"no path": "- name: Render\n  ansible.builtin.command: teamchat-admin unit render server\n",
 	} {
 		green := cleanWorld(t)

@@ -22,8 +22,9 @@
 //   - K6 A run that cannot judge is exit 2, never a pass: git failing, no v2 file in scope, the
 //     name list missing, empty or malformed, the allowlist missing or malformed, a scoped file
 //     unreadable, or stdout or stderr unwritable.
-//   - K7 A scoped YAML file names only files the scope holds and the SharedFiles: every tasks/
-//     or files/ path References finds on its lines is either, or it is a finding. A v2 task
+//   - K7 A scoped YAML file names only files the scope holds and the SharedFiles: every tasks/,
+//     files/ or vars/ path References finds on its lines, judged where it leads (path.Clean, so
+//     a ../ out of v2's directory is seen), is either, or it is a finding. A v2 task
 //     file named without teamchat would otherwise be outside the scope unseen.
 //
 // D 4.1's part 2, the analyzer over the v1 adapter, is not here: it is a go/analysis rule of
@@ -36,6 +37,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -244,6 +246,8 @@ func (g *gate) judgeFile(p string, rowLines [][]int, errOut *emit.Emitter) int {
 			continue
 		}
 		for _, ref := range References(line) {
+			// Judged where it leads: tasks/teamchat/../x.yml is tasks/x.yml.
+			ref = path.Clean(ref)
 			if _, shared := SharedFiles[ref]; !shared && !InScope(ref) {
 				findings++
 				errOut.Line(fmt.Sprintf("%s:%d: names %s, which v2 does not own: %s", p, i+1, ref, strings.TrimSpace(line)))

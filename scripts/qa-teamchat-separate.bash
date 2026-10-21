@@ -3,17 +3,20 @@
 # section 4.1 part 1): no file v2 of the agent-team bus (teamchat) owns holds a v1 name.
 #
 # The scope is what git would publish that v2 owns: src-go/internal/teamchat/ (bar the two named
-# homes of deliberate v1 references, v1names and migrate/v1), src-go/cmd/teamchat*, files/ and
-# tasks/ below a teamchat* component, and playbooks/imports/play-teamchat*.yml. The v1 names are
-# src-go/qa/teamchatseparate/v1-names.txt; the remaining allowed references, each with its
-# reason, are allowed.tsv beside it, and a row that allows nothing fails the gate.
+# homes of deliberate v1 references, v1names and migrate/v1), src-go/cmd/teamchat*, files/,
+# tasks/ and vars/ below a teamchat* component, and any play-teamchat*.yml or .yaml under
+# playbooks/imports/. A v2 play or task file may name only those files and the shared ones the
+# gate lists. The v1 names are src-go/qa/teamchatseparate/v1-names.txt; the remaining allowed
+# references, each with its reason, are allowed.tsv beside it, one row per line.
 #
 # The tool is Go (src-go/qa/teamchatseparate, command src-go/qa/cmd/qa-teamchat-separate);
 # lib/go-tool.bash builds it into a private directory under the cache and runs it, so the exit
 # code reaches the caller.
 #
-# Exit codes: 0 clean, 1 a v1 reference in a v2 file or a stale allowlist row, 2 bad usage or the
-# run could not judge (git failing, no v2 file, a missing or malformed list, an unreadable file).
+# Exit codes: 0 clean, 1 a v1 reference in a v2 file, a v2 play or task file naming a file v2
+# does not own, or an allowlist row that allows nothing or names on more than one line, 2 bad
+# usage or the run could not judge (git failing, no v2 file, a missing or malformed list, an
+# unreadable file).
 
 set -euo pipefail
 
