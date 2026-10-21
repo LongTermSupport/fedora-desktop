@@ -35,6 +35,12 @@ type Foregrounder interface {
 //     tmux pane), to the child, and waits for it.
 //
 // The error is only a child that could not be started; a child that ran reports in Exit.
+//
+// Go hands a signal to every channel registered for it, so a SignalContext live around
+// Foreground also sees the SIGINT this process outlives, and its context ends. A caller that
+// reports the child's status must read it from Exit, not from that context's cause, which
+// would make a Ctrl-C the child handled exit 130. With `podman run -it` a raw-mode terminal
+// turns Ctrl-C into a byte, so no SIGINT is sent at all.
 func (OS) Foreground(c Cmd) (Exit, error) {
 	if err := c.checkSecrets(); err != nil {
 		return Exit{}, err

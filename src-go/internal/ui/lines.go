@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -30,8 +31,13 @@ type Choice struct {
 // Lines asks plain line questions: a prompt on Out, one line read from In. They are the
 // launcher's questions (Plan 00191 decision D5) where gum would be a second dependency and the
 // answers can be piped. Each validates strictly and asks again on a bad answer, at most Tries
-// times (DefaultTries when zero); the end of input cancels. Every question draws its heading
-// first and refuses to ask without one (ErrNoHeading).
+// times (DefaultTries when zero); the end of input cancels, and so does the end of the
+// question's context (a signal SignalContext caught), with the context's cause. Every question
+// draws its heading first and refuses to ask without one (ErrNoHeading).
+//
+// In is read by one goroutine, a line at a time and only when a question asks for one; a read
+// that a cancel abandoned is the answer to the next question. That goroutine waits for the
+// next question for as long as the process runs.
 type Lines struct {
 	In  io.Reader
 	Out io.Writer
@@ -41,18 +47,27 @@ type Lines struct {
 	Width  int
 	Tries  int
 
-	reader *bufio.Reader
+	want    chan struct{}
+	replies chan lineRead
+	pending bool
+	ended   *lineRead
+}
+
+// lineRead is one read of In: a line, or the error that ended the input.
+type lineRead struct {
+	line string
+	err  error
 }
 
 // YesNo is a [y/N] (or [Y/n]) question: y, yes, n or no in any of their usual cases, or Enter
 // for the default.
-func (l *Lines) YesNo(h Heading, question string, defaultYes bool) (bool, error) {
+func (l *Lines) YesNo(ctx context.Context, h Heading, question string, defaultYes bool) (bool, error) {
 	hint := "[y/N]"
 	if defaultYes {
 		hint = "[Y/n]"
 	}
 	var answer bool
-	err := l.ask(h, "", question+" "+hint+" ", func(reply string) (string, bool) {
+	err := l.ask(ctx, h, "", question+" "+hint+" ", func(reply string) (string, bool) {
 		switch reply {
 		case "y", "Y", "yes", "Yes", "YES":
 			answer = true
@@ -70,9 +85,9 @@ func (l *Lines) YesNo(h Heading, question string, defaultYes bool) (bool, error)
 
 // Ask is a line of text that check accepts (any line when check is nil); check's error is
 // what the person is shown before the question is asked again.
-func (l *Lines) Ask(h Heading, prompt string, check func(string) error) (string, error) {
+func (l *Lines) Ask(ctx context.Context, h Heading, prompt string, check func(string) error) (string, error) {
 	var answer string
-	err := l.ask(h, "", prompt+": ", func(reply string) (string, bool) {
+	err := l.ask(ctx, h, "", prompt+": ", func(reply string) (string, bool) {
 		if check != nil {
 			if err := check(reply); err != nil {
 				return err.Error(), false
@@ -86,7 +101,7 @@ func (l *Lines) Ask(h Heading, prompt string, check func(string) error) (string,
 
 // Choose is a numbered menu: each choice on its own line with its key, the key typed back. The
 // keys must be distinct and every line labelled.
-func (l *Lines) Choose(h Heading, prompt string, choices []Choice) (string, error) {
+func (l *Lines) Choose(ctx context.Context, h Heading, prompt string, choices []Choice) (string, error) {
 	if err := checkMenu(choices); err != nil {
 		return "", err
 	}
@@ -97,7 +112,7 @@ func (l *Lines) Choose(h Heading, prompt string, choices []Choice) (string, erro
 		keys[i] = c.Key
 	}
 	var answer string
-	err := l.ask(h, menu.String(), prompt+": ", func(reply string) (string, bool) {
+	err := l.ask(ctx, h, menu.String(), prompt+": ", func(reply string) (string, bool) {
 		if !slices.Contains(keys, reply) {
 			return "Choose one of: " + strings.Join(keys, ", ") + ".", false
 		}
@@ -126,7 +141,7 @@ func checkMenu(choices []Choice) error {
 
 // ask draws the heading and the body once, then asks the prompt until judge accepts a reply,
 // showing judge's complaint after each one it refuses.
-func (l *Lines) ask(h Heading, body, prompt string, judge func(reply string) (complaint string, ok bool)) error {
+func (l *Lines) ask(ctx context.Context, h Heading, body, prompt string, judge func(reply string) (complaint string, ok bool)) error {
 	heading, err := h.Draw(l.Colour, l.Width)
 	if err != nil {
 		return err
@@ -142,7 +157,7 @@ func (l *Lines) ask(h Heading, body, prompt string, judge func(reply string) (co
 		if err := l.write(prompt); err != nil {
 			return err
 		}
-		reply, err := l.readLine()
+		reply, err := l.readLine(ctx)
 		if err != nil {
 			return err
 		}
@@ -158,12 +173,33 @@ func (l *Lines) ask(h Heading, body, prompt string, judge func(reply string) (co
 }
 
 // readLine is one line, trimmed of surrounding spaces. A line the input ends inside is not an
-// answer: the end of input cancels.
-func (l *Lines) readLine() (string, error) {
-	if l.reader == nil {
-		l.reader = bufio.NewReader(l.In)
+// answer: the end of input cancels, as does the end of ctx, whichever comes first.
+func (l *Lines) readLine(ctx context.Context) (string, error) {
+	if ctx.Err() != nil {
+		return "", fmt.Errorf("%w: %w", ErrCancelled, context.Cause(ctx))
 	}
-	line, err := l.reader.ReadString('\n')
+	got := l.ended
+	if got == nil {
+		if l.want == nil {
+			l.want, l.replies = make(chan struct{}), make(chan lineRead, 1)
+			go readLines(bufio.NewReader(l.In), l.want, l.replies)
+		}
+		if !l.pending {
+			l.want <- struct{}{}
+			l.pending = true
+		}
+		select {
+		case r := <-l.replies:
+			l.pending = false
+			if r.err != nil {
+				l.ended = &r
+			}
+			got = &r
+		case <-ctx.Done():
+			return "", fmt.Errorf("%w: %w", ErrCancelled, context.Cause(ctx))
+		}
+	}
+	line, err := got.line, got.err
 	switch {
 	case errors.Is(err, io.EOF):
 		if writeErr := l.write("\n"); writeErr != nil {
@@ -174,6 +210,18 @@ func (l *Lines) readLine() (string, error) {
 		return "", fmt.Errorf("read the answer: %w", err)
 	}
 	return strings.TrimSpace(line), nil
+}
+
+// readLines reads one line of r for each request on want and replies with it, until a read
+// fails (the end of input included).
+func readLines(r *bufio.Reader, want <-chan struct{}, replies chan<- lineRead) {
+	for range want {
+		line, err := r.ReadString('\n')
+		replies <- lineRead{line: line, err: err}
+		if err != nil {
+			return
+		}
+	}
 }
 
 func (l *Lines) write(s string) error {

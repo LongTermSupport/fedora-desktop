@@ -17,7 +17,10 @@ var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // Secret is a value handed to one child in its environment under a name, never in argv: the
 // child reads it by name (`podman run -e NAME`, gh's GH_TOKEN). It prints as its name only, so
 // a log, an error or a %v of a Cmd cannot show it. It is held in memory and in the
-// environment of the child it is given to, and of no other.
+// environment of the child it is given to, and of no other, except that the child's own
+// children inherit it, and a value TakeSecret moved stays readable in this process's
+// /proc/self/environ (the kernel's copy of the starting environment, which Unsetenv does not
+// change).
 type Secret struct {
 	name, value string
 }

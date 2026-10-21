@@ -17,10 +17,11 @@
 //   - T4. A name is letters, digits, _ and - only.
 //   - T5. A name's other files are its other <name>.<date>.token files, never an undated file,
 //     another name or a name that merely starts with this one; a name launches with its
-//     earliest-dated file, and the shadow warning names the rest.
+//     earliest-dated file, and the shadow warning names the rest. Bash's --token NAME globbed
+//     NAME.*.token, so an undated NAME.x.token could be picked; here it never is.
 //   - T6. The listing names each token file with its expiry and status, or says there are none.
 //   - T7. A pool with no usable token: the container launcher refuses (a missing directory is
-//     a usage error, an empty pool or an expired-only pool exit 3); the host launcher falls
+//     a failure, exit 1; an empty pool or an expired-only pool exit 3); the host launcher falls
 //     through to the Desktop account only for a pool that is missing or empty, and refuses an
 //     expired-only pool, which would otherwise sign in as another account without a word.
 //   - T8. The import's CCY_TOKEN_IMPORT_REMOVE_OTHERS is 1 (remove), 0 (keep) or unset (ask);
