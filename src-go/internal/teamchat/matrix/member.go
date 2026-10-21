@@ -64,14 +64,22 @@ func (c *Client) Whoami(ctx context.Context) (Identity, error) {
 
 // Login signs in with a password as a new device (SPEC M28); it sends no token.
 func (c *Client) Login(ctx context.Context, userName, password, deviceName string) (Session, error) {
-	body := map[string]any{
-		"type":                        "m.login.password",
-		"identifier":                  map[string]string{"type": "m.id.user", "user": userName},
-		keyPassword:                   password,
-		"initial_device_display_name": deviceName,
+	body := passwordLogin(userName, password)
+	body["initial_device_display_name"] = deviceName
+	return c.session(ctx, loginCall(body))
+}
+
+// passwordLogin is the body of an m.login.password login as userName.
+func passwordLogin(userName, password string) map[string]any {
+	return map[string]any{
+		"type":       "m.login.password",
+		"identifier": map[string]string{"type": "m.id.user", "user": userName},
+		keyPassword:  password,
 	}
-	cl := call{method: http.MethodPost, path: clientPrefix + "/login", body: jsonBody(body), noAuth: true}
-	return c.session(ctx, cl)
+}
+
+func loginCall(body map[string]any) call {
+	return call{method: http.MethodPost, path: clientPrefix + "/login", body: jsonBody(body), noAuth: true}
 }
 
 // session reads an answer that signs a device in.

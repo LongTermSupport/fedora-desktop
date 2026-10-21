@@ -198,8 +198,39 @@ is the shape the endpoint promises).
 
 - **M44.** `go test -tags tuwunel` runs the client against a real Tuwunel binary when
   `FAKEHS_TUWUNEL_BIN` names one: registration, the admin flow, a room, a send with a reused
-  transaction ID, sync, messages and a receipt. Without the variable the test skips with its
+  transaction ID, sync, messages and a receipt, and a pool seat's two takes and a release
+  (M45-M47: the second login as the fixed device refuses the first token, the logout refuses
+  its own, the `teamchat.floor` marker outlives both). Without the variable the test skips with its
   reason; without the tag it is not built.
+
+## 7a. Seat sessions and the resume marker (Task 1.5; B 2.3.2, B 2.6 step 01 (b), C 3.7.3)
+
+- **M45.** `LoginDevice` (`POST /login`, `m.login.password` with an `m.id.user` identifier, the
+  given `device_id`, no display name and no `refresh_token`) signs in as that device: C 3.7.3
+  take step 3, with the seat's fixed device ID. A device ID that is not 1 to 255 bytes of printable
+  ASCII without a space is refused before a request. The answer must name the device asked for,
+  or it is malformed. The Matrix specification has a login with an existing device ID replace
+  that device's token, so the previous holder's token dies; host check H-C13 proves it on
+  Tuwunel. A login whose answer was lost is not retried by the client.
+- **M46.** `Logout` (`POST /logout` with `{}`) ends the token and its device (C 3.7.3 release step
+  4). A token already dead is `ErrAuthRefused` with `Errcode` `M_UNKNOWN_TOKEN`, which the caller
+  counts as done; the client does not decide that. Room account data outlives a logout.
+- **M47.** `RoomAccountData` (`GET /user/{u}/rooms/{r}/account_data/{type}`) is the content as raw
+  JSON, `found=false` for a 404; the answer must be one JSON object, and decoding it strictly is
+  the caller's (B 2.6 step 01 (b)). `PutRoomAccountData` (`PUT` the same path) takes content that
+  must be one JSON object, refused before a request otherwise (M26). This is the `teamchat.floor`
+  resume marker of B 2.3.2.
+- **M48.** `fakehs` models them. A login with a `device_id` makes that device, or, when the account
+  has it already, ends the device's tokens and gives it a new one; a `device_id` that is not a
+  string is unmodelled. `POST /logout` ends the token and deletes its device. Room account data is
+  kept per account, room and type: a read of none is 404 `M_NOT_FOUND`, a write by another
+  account, to a room the server does not know, or of content that is not an object is
+  unmodelled (H4 recorded none of these, and none of the 404 text), and the data outlives a
+  logout, a password reset with device logout and `Restart` (B 6 C13).
+
+A dropped `/sync` may be resent by net/http (once, a GET on a reused keep-alive connection closed
+before any answer byte). That is safe, because a sync with a `since` token is idempotent: the
+resent request is answered from the same point, and nothing is skipped or delivered twice.
 
 ## 8. What the callers own
 

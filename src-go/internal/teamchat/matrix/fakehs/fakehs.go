@@ -1,7 +1,8 @@
 // Package fakehs is an in-memory homeserver that answers as Tuwunel does, for the tests of
 // both sides of teamchat, the v2 agent bus (Plan 00209 SPEC-matrix.md M37-M43).
 //
-// It models what teamchat/matrix calls and nothing else: password login, whoami, createRoom (room
+// It models what teamchat/matrix calls and nothing else: password login (as a new device or a
+// named one, M48), logout, room account data, whoami, createRoom (room
 // version 12, private_chat), invite, join (with a restricted join rule), leave, kick, send with
 // transaction IDs per device, state get and put, the whole room state, redact, GET event, read
 // receipts, /messages, /joined_rooms, /sync with an inline filter, long-polling and lazy-loaded
@@ -179,6 +180,7 @@ type Server struct {
 	faults        []*pendingFault
 	nonces        map[string]bool
 	receipts      []Receipt
+	accountData   map[accountDataKey]json.RawMessage
 	unmodelled    []string
 	loginFailures map[string]int
 	pos           int
@@ -205,6 +207,7 @@ func New(opts Options) *Server {
 		rooms:         map[string]*room{},
 		txns:          map[txnKey]string{},
 		nonces:        map[string]bool{},
+		accountData:   map[accountDataKey]json.RawMessage{},
 		loginFailures: map[string]int{},
 		changed:       make(chan struct{}),
 	}
@@ -360,7 +363,10 @@ type route struct {
 	auth    authKind
 }
 
-const roomPrefix = `/_matrix/client/v3/rooms/([^/]+)`
+const (
+	roomPrefix         = `/_matrix/client/v3/rooms/([^/]+)`
+	accountDataPattern = `/_matrix/client/v3/user/([^/]+)/rooms/([^/]+)/account_data/([^/]+)`
+)
 
 func (s *Server) routeTable() []route {
 	table := []struct {
@@ -372,6 +378,9 @@ func (s *Server) routeTable() []route {
 		{http.MethodGet, `/_tuwunel/server_version`, staticAnswer("server-version.json"), authNone},
 		{http.MethodGet, `/_matrix/client/v3/login`, staticAnswer("login-flows.json"), authNone},
 		{http.MethodPost, `/_matrix/client/v3/login`, s.login, authNone},
+		{http.MethodPost, `/_matrix/client/v3/logout`, s.logout, authUser},
+		{http.MethodGet, accountDataPattern, s.getAccountData, authUser},
+		{http.MethodPut, accountDataPattern, s.putAccountData, authUser},
 		{http.MethodGet, `/_matrix/client/v3/account/whoami`, whoami, authUser},
 		{http.MethodPost, `/_matrix/client/v1/login/get_token`, getToken, authUser},
 		{http.MethodGet, `/_matrix/client/v3/joined_rooms`, s.joinedRooms, authUser},
@@ -599,12 +608,14 @@ func (s *Server) newToken(userID, displayName string) session {
 	sess := session{
 		userID:   userID,
 		deviceID: strings.ToUpper(hex.EncodeToString(randomBytes(5))),
-		token:    base64.RawURLEncoding.EncodeToString(randomBytes(24)),
+		token:    newTokenText(),
 	}
 	s.tokens[sess.token] = sess
 	s.devices = append(s.devices, &device{userID: userID, id: sess.deviceID, displayName: displayName})
 	return sess
 }
+
+func newTokenText() string { return base64.RawURLEncoding.EncodeToString(randomBytes(24)) }
 
 // signedIn is the answer of a login or a registration.
 func (s *Server) signedIn(sess session) map[string]any {
@@ -667,7 +678,11 @@ func (s *Server) login(r *request, _ []string) (any, error) {
 	if u.deactivated {
 		return nil, unmodelled("signing in to the deactivated account %s", u.id)
 	}
-	return s.signedIn(s.newToken(u.id, stringAt(body, "initial_device_display_name"))), nil
+	deviceID, err := deviceIDOf(body)
+	if err != nil {
+		return nil, err
+	}
+	return s.signedIn(s.signIn(u.id, deviceID, stringAt(body, "initial_device_display_name"))), nil
 }
 
 func whoami(r *request, _ []string) (any, error) {

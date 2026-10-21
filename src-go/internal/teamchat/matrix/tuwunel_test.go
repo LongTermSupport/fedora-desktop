@@ -330,7 +330,61 @@ func TestTuwunel(t *testing.T) {
 	if err := bob.ReadReceipt(ctx, room, sent); err != nil {
 		t.Fatalf("ReadReceipt: %v", err)
 	}
+	seatCycle(ctx, t, hs, admin, alice, room)
 	retire(ctx, t, admin, bob, bobID)
+}
+
+// seatCycle is two takes of a pool seat and a release (C 3.7.3, part of host check H-C13): a
+// login as the seat's fixed device kills the previous holder's token, a logout kills the token,
+// and the seat's teamchat.floor marker outlives both.
+func seatCycle(ctx context.Context, t *testing.T, hs tuwunel, admin *Admin, inviter *Client, room string) {
+	t.Helper()
+	seatID, password, device := "@seat:"+serverName, randomKey(t), "TCSEAT"
+	if _, err := admin.CreateAccount(ctx, seatID, password, ""); err != nil {
+		t.Fatalf("CreateAccount %s: %v", seatID, err)
+	}
+	if err := inviter.Invite(ctx, room, seatID); err != nil {
+		t.Fatalf("Invite: %v", err)
+	}
+	anon, err := NewMember(Config{BaseURL: hs.base, PlainHTTPHosts: []string{loopback}, Token: "unused"})
+	if err != nil {
+		t.Fatalf("NewMember: %v", err)
+	}
+	t.Cleanup(anon.Close)
+	takeSeat := func() *Client {
+		sess, loginErr := anon.LoginDevice(ctx, "seat", password, device)
+		if loginErr != nil {
+			t.Fatalf("LoginDevice: %v", loginErr)
+		}
+		held, tokenErr := anon.WithToken(sess.AccessToken.Reveal())
+		if tokenErr != nil {
+			t.Fatalf("WithToken: %v", tokenErr)
+		}
+		t.Cleanup(held.Close)
+		return held
+	}
+	first := takeSeat()
+	if _, err = first.Join(ctx, room); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	marker := json.RawMessage(`{"floor_ms":1,"restore_epoch":0,"v":1}`)
+	if err = first.PutRoomAccountData(ctx, seatID, room, "teamchat.floor", marker); err != nil {
+		t.Fatalf("PutRoomAccountData: %v", err)
+	}
+	second := takeSeat()
+	if _, err = first.Whoami(ctx); !errors.Is(err, ErrAuthRefused) {
+		t.Fatalf("the previous holder's whoami = %v, want the token refused", err)
+	}
+	if err = second.Logout(ctx); err != nil {
+		t.Fatalf("Logout: %v", err)
+	}
+	if _, err = second.Whoami(ctx); !errors.Is(err, ErrAuthRefused) {
+		t.Fatalf("whoami after logout = %v, want the token refused", err)
+	}
+	content, found, err := takeSeat().RoomAccountData(ctx, seatID, room, "teamchat.floor")
+	if err != nil || !found || !json.Valid(content) {
+		t.Fatalf("the marker after a release = %s, %v, %v", content, found, err)
+	}
 }
 
 // retire locks, unlocks and deactivates the account, reading each state back, and checks the
