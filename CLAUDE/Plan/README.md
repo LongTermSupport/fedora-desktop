@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00211-agent-bus-reports-and-questions-rooms](00211-agent-bus-reports-and-questions-rooms/) - Not Started (spec revised after review; D9 needs the owner's sign-off, D1-D16 defaulted). Two more rooms per team: a reports room the owner only reads, where any agent posts what the human should know, and a questions room where the coordinator asks only what it cannot answer, long-form, and is woken by every human reply; created and migrated by the agent-bus play, LXC teams included
+
 - [00210-convert-cli-markdown-to-docx](00210-convert-cli-markdown-to-docx/) - In Progress. A Go `convert` command that turns a file into the formats its type supports, through proven engines; Markdown to DOCX through pandoc first (#102)
 
 - [00208-stt-paste-uses-stale-clipboard](00208-stt-paste-uses-stale-clipboard/) - In Progress. Speech-to-text auto-paste pasted the previous dictation: the paste key now waits until the clipboard reads back as this dictation's text, or nothing is pasted and the failure is said
