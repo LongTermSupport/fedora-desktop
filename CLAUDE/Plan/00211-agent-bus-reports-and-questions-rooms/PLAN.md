@@ -188,14 +188,16 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
 - [x] ✅ **Task 2.5**: `acceptance.bash` gains stage 2 (A1-A4) and `--after-owner` (A5), and
   `ACCEPTANCE-owner.md` is written. Both are committed before Task 2.6 (SPEC §11.2, §11.3).
   A1-A2 are `agent-bus check-rooms` per team. A3's worker is a throwaway host member on
-  loopback, added and removed by the run (a seat name used once). A4 and the test question run
-  in an LXC container through the guest path; the question comes from the first LXC member
-  declared `role: coordinator`, and with none A5 cannot run and says so. `--fake --stage 2`
-  passes in the container, deploy 2's wait included.
+  loopback, added and removed by the run (a seat name used once). A4 runs in an LXC container
+  through the guest path, and is NOT JUDGED (never PASS) when no LXC member is declared. The
+  test question and A5 run in the registry's coordinator's own session, a ccy seat (`podman exec`) or an LXC member; no coordinator, or one in no session the host can drive, is
+  REJECTED. A2 also judges the running ccy seats' reports joins, A3 that no inbox took the
+  report, A5 that the session took the reply and edit. `--fake --stage 2` passes in the
+  container, the joins included.
 - [ ] 🔄 **Task 2.6**: `deploy.bash --stage 2` with the legs of SPEC §5.3: pre-flight (the
   passed-spike check; `acceptance.bash --stage 1` again, for LXC containers up and new), the
-  agent-bus play, the ccy play (the image carries the admin tool, container 2.78.10), the
-  questions-join wait, then acceptance. Written and queued as `deploy-stage-2.bash`, whose
+  agent-bus play, the ccy play (the image carries the admin tool, container 2.78.10), then
+  acceptance, whose first leg is the joins wait (it primes sudo again first). Written and queued as `deploy-stage-2.bash`, whose
   description asks the owner to restart every team's sessions first; the merge and the run are
   left. `acceptance-after-owner.bash` is queued only once the owner has done the Element steps.
 

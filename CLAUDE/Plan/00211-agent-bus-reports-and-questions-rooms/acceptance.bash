@@ -8,20 +8,29 @@
 #      `pingbus version` line: 0.2.0 is the release that knows the reports and questions rooms;
 #   S2 every LXC container named by a present agent_bus_lxc_members entry is RUNNING and its
 #      kit's pingbus prints that same line; a container that is down is refused, named.
-# STAGE 2 (deploy 2, the admin side):
+# STAGE 2 (deploy 2, the admin side). The sessions it drives are the seats held in running ccy
+# sessions (podman exec) and the declared LXC members (lxc-attach), _acceptance-stage2.inc.bash:
+#   the joins: up to 180 s for every coordinator to have joined its questions room and every
+#      seat held in a running ccy session its reports room (SPEC §5.3 leg 3, and A2's running
+#      members), each that has not named;
 #   A1, A2 `sudo agent-bus check-rooms <team>` passes for every present team: the rooms, the
 #      index, the back-links, exact power levels and join rules, every human in, no worker in
 #      questions, every coordinator joined to both rooms;
-#   A3 a throwaway worker, added for the run as a host member on loopback and removed again on
-#      cleanup, posts a `pingbus report`; with its token, reading, joining and posting in the
-#      questions room are each refused 403 M_FORBIDDEN (in the first team with a coordinator);
-#   A4 the first present LXC member's `pingbus report`, run inside its container through the
-#      guest path members.py uses, is taken by the homeserver;
-#   then the first LXC member declared role coordinator asks a test question, which the owner
-#   answers in Element (ACCEPTANCE-owner.md).
-# --after-owner (A5, after the owner's Element steps): that coordinator's
-#   `pingbus history --room questions`, in its container, shows the owner's thread reply and its
-#   edit attached to the test question. The raw lines are kept for Task 4.2.
+#   the coordinator: the first team whose registry names one, and the session it runs in, ccy
+#      or LXC. No team with a coordinator, or a coordinator in no session this host can drive,
+#      is REJECTED, named, before anything is changed;
+#   A3 a throwaway worker in that team, added for the run as a host member on loopback and
+#      removed again on cleanup, posts a `pingbus report`; with its token, reading, joining and
+#      posting in the questions room are each refused 403 M_FORBIDDEN; after 15 s the report
+#      is in the inbox of no session of the team;
+#   A4 the first declared LXC member's `pingbus report`, run inside its container, is taken by
+#      the homeserver. With no LXC member declared, A4 is reported NOT JUDGED, never PASS;
+#   then the coordinator asks a test question in its own session, which the owner answers in
+#   Element (ACCEPTANCE-owner.md).
+# --after-owner (A5, after the owner's Element steps): the coordinator's
+#   `pingbus history --room questions`, in its session, shows the owner's thread reply and its
+#   edit attached to the test question, and its session took both (consumed, none dropped).
+#   The raw lines are kept for Task 4.2.
 #
 # RUN ON THE HOST, as the desktop user (not root): deploy.bash --stage N runs --stage N as its
 # last leg. The one prompt is sudo's, before the log opens (R3). `--fake` runs the verdict
@@ -62,10 +71,12 @@ PLAN_USAGE="usage: acceptance.bash --stage 1|2 [--fake] | --after-owner [-h|--he
 Plan 00211's verdict on each deploy:
   --stage 1      deploy 1: the host's, the ccy image's and every declared LXC member's pingbus
                  are this checkout's (S1, S2)
-  --stage 2      deploy 2: every team's side rooms are sound (A1, A2), a worker is kept out of
-                 questions (A3), an LXC member reports (A4); then the test question is asked
+  --stage 2      deploy 2: the coordinators and running ccy seats have joined, every team's
+                 side rooms are sound (A1, A2), a worker is kept out of questions and wakes
+                 no inbox (A3), an LXC member reports (A4, or NOT JUDGED with none); then the
+                 coordinator, in its ccy or LXC session, asks the test question
   --after-owner  after the Element steps of ACCEPTANCE-owner.md: the reply and its edit reached
-                 the coordinator (A5)
+                 the coordinator and its session took both (A5)
   --fake         the stage's verdicts over fixtures; runs anywhere, changes nothing
 Exit 0 ACCEPTED, 1 REJECTED, 64 usage. Prompts for sudo once, before the run log opens."
 
@@ -113,6 +124,7 @@ STAGED_PINGBUS="/opt/claude-yolo/optional/agent-bus/pingbus"
 LXC_INFO=(sudo -n lxc-info)
 LXC_ATTACH=(sudo -n lxc-attach)
 AGENT_BUS=(sudo -n agent-bus)
+PODMAN=(podman)
 CURL=(curl)
 MEMBERS_JSON=""
 TEAMS_JSON=""
@@ -139,6 +151,12 @@ check_leg() {
     fi
     printf 'PASS  %s\n' "${name}"
     printf '## PASS %s\n\n' "${name}" >>"${REPORT}"
+}
+
+# not_judged <name> <why> — a check that had nothing to run on: said, never reported as PASS.
+not_judged() {
+    printf '\n==> [check] %s\nNOT JUDGED  %s: %s\n' "$1" "$1" "$2"
+    printf '## NOT JUDGED %s: %s\n\n' "$1" "$2" >>"${REPORT}"
 }
 
 # reject_leg <name> <cmd...> — the fake mode's negative check: the verdict must refuse it.
@@ -189,11 +207,21 @@ if [[ "${FAKE}" -eq 1 ]]; then
     reject_leg "A1/A2 (fake) a team with a problem" fake_a12 "${TEAMS2}" t1=0 t2=1
     reject_leg "A1/A2 (fake) check-rooms cannot run" fake_a12 "${TEAMS2}" t1=70 t2=0
     reject_leg "A1/A2 (fake) no present team" fake_a12 '[{"team":"t3","state":"absent"}]'
-    check_leg "deploy 2's wait (fake) the coordinator joined" fake_join join
-    check_leg "deploy 2's wait (fake) a team with no coordinator" fake_join absent
-    reject_leg "deploy 2's wait (fake) the coordinator is only invited" fake_join invite
-    reject_leg "deploy 2's wait (fake) the coordinator rejected the invite" fake_join leave
-    reject_leg "deploy 2's wait (fake) the coordinator has no ROOM line" fake_join none
+    check_leg "the joins (fake) the coordinator and the running ccy seat joined" fake_join join join
+    check_leg "the joins (fake) a team with no coordinator" fake_join_nocoord
+    reject_leg "the joins (fake) the coordinator is only invited" fake_join invite join
+    reject_leg "the joins (fake) the coordinator rejected the invite" fake_join leave join
+    reject_leg "the joins (fake) the coordinator has no ROOM line" fake_join absent join
+    reject_leg "the joins (fake) a running ccy seat has not joined reports" fake_join join invite
+    check_leg "the coordinator (fake) found in its ccy session" fake_pick alpha ccy
+    check_leg "the coordinator (fake) found as an LXC member" fake_pick alpha lxc
+    reject_leg "the coordinator (fake) in no session this host can drive" fake_pick alpha none
+    reject_leg "the coordinator (fake) no team has one" fake_pick none ccy
+    check_leg "A3 (fake) the report is in no inbox" inbox_clear "a fixture inbox" $'STATE\tpresent\n$r1\t-\tkept'
+    reject_leg "A3 (fake) the report reached an inbox" inbox_clear "a fixture inbox" $'STATE\tpresent\n$r1\tinbox\tkept'
+    reject_leg "A3 (fake) the report was consumed" inbox_clear "a fixture inbox" $'STATE\tpresent\n$r1\tconsumed\tkept'
+    reject_leg "A3 (fake) a session with no state directory proves nothing" \
+        inbox_clear "a fixture inbox" $'STATE\tmissing\n$r1\t-\tkept'
     check_leg "A3 (fake) 403 M_FORBIDDEN is a refusal" fake_refused 403 '{"errcode":"M_FORBIDDEN","error":"no"}'
     reject_leg "A3 (fake) 200 is no refusal" fake_refused 200 '{"event_id":"x"}'
     reject_leg "A3 (fake) another 403 is no refusal" fake_refused 403 '{"errcode":"M_UNKNOWN_TOKEN"}'
@@ -203,6 +231,16 @@ if [[ "${FAKE}" -eq 1 ]]; then
     check_leg "A5 (fake) the reply and its edit attached to Q3" replies_ok Q3 "${HISTORY_TWO}"
     reject_leg "A5 (fake) one reply only (the other lines are another question and a send)" \
         replies_ok Q3 "${HISTORY_ONE}"
+    check_leg "A5 (fake) the attached events are Q3's two" attached_are "\$e1 \$e2" Q3 "${HISTORY_TWO}"
+    check_leg "A5 (fake) the session took both" envelopes_ok "a fixture session" \
+        $'STATE\tpresent\n$e1\tconsumed\tkept\n$e2\tconsumed\tkept'
+    reject_leg "A5 (fake) one is still in the inbox" envelopes_ok "a fixture session" \
+        $'STATE\tpresent\n$e1\tconsumed\tkept\n$e2\tinbox\tkept'
+    reject_leg "A5 (fake) one was dropped" envelopes_ok "a fixture session" \
+        $'STATE\tpresent\n$e1\tconsumed\tkept\n$e2\tconsumed\tdropped'
+    reject_leg "A5 (fake) one never arrived" envelopes_ok "a fixture session" \
+        $'STATE\tpresent\n$e1\tconsumed\tkept\n$e2\t-\tkept'
+    not_judged "A4 (fake) the NOT JUDGED line" "printed for a stage with no LXC member, never PASS"
     printf '\nFAKE ACCEPTED: the stage-2 and A5 verdicts accept sound fixtures and refuse each fault\n' | tee -a "${REPORT}"
     plan_finish
 fi
@@ -212,7 +250,7 @@ if [[ "${EUID}" -eq 0 ]]; then
     printf '[FATAL] run this as the desktop user, not root: it uses sudo for agent-bus and the LXC tools\n' >&2
     exit 1
 fi
-for tool in jq python3 lxc-info lxc-attach ansible curl agent-bus; do
+for tool in jq python3 lxc-info lxc-attach podman ansible curl agent-bus; do
     if ! command -v "${tool}" >/dev/null; then
         printf '[FATAL] %s is not installed: its play has not run on this host\n' "${tool}" >&2
         exit 1
@@ -227,7 +265,9 @@ TEAMS_JSON="${PLAN_RUN_DIR}/teams.json"
 
 if [[ "${AFTER_OWNER}" -eq 1 ]]; then
     printf '# Plan 00211 acceptance, after the owner (A5)\n\nRun directory: %s\n\n' "${PLAN_RUN_DIR}" >"${REPORT}"
-    check_leg "A5 the owner's reply and its edit reached the coordinator" a5_check
+    plan_deploy_leg "read agent_bus_lxc_members" read_members
+    plan_deploy_leg "the sessions this host can drive (ccy seats, LXC members)" read_sessions
+    check_leg "A5 the owner's reply and its edit reached the coordinator, and its session took both" a5_check
     printf '\nACCEPTED: the questions room carries a human answer and its edit to the coordinator\n' | tee -a "${REPORT}"
     plan_finish
 fi
@@ -243,13 +283,25 @@ if [[ "${STAGE}" == "1" ]]; then
 fi
 
 plan_deploy_leg "read agent_bus_teams" read_teams
+plan_deploy_leg "the sessions this host can drive (ccy seats, LXC members)" read_sessions
+# The wait runs here, straight after this script primed sudo, not after the image rebuild.
+check_leg "the joins: every coordinator joins questions, every running ccy seat reports (up to ${JOIN_WAIT_S} s)" rooms_joined
 check_leg "A1/A2 every team's side rooms are sound (agent-bus check-rooms)" a12_check
-plan_deploy_leg "A3 pick the team" a3_pick
+check_leg "the coordinator: a team has one, in a session this host can drive" pick_coordinator
 plan_deploy_leg "A3 add a throwaway worker (removed on cleanup)" a3_take
 check_leg "A3 a worker reports, and is refused the questions room" a3_check
-check_leg "A4 an LXC member reports from inside its container" a4_check
-plan_deploy_leg "ask the test question for the owner" ask_test_question
-printf '\nACCEPTED: deploy 2 made every team'\''s side rooms, kept a worker out of questions and took reports\n' | tee -a "${REPORT}"
+check_leg "A3 the worker's report is in no inbox of its team" a3_inbox_check
+a4_said="took an LXC member's report"
+if [[ -n "$(a4_member)" ]]; then
+    check_leg "A4 an LXC member reports from inside its container" a4_check
+else
+    not_judged "A4 an LXC member reports from inside its container" \
+        "no agent_bus_lxc_members entry is present, so this host has no LXC member to report"
+    a4_said="did not judge A4 (no LXC member is declared)"
+fi
+check_leg "the test question, asked by the coordinator in its own session" ask_test_question
+printf '\nACCEPTED: deploy 2 made every team'\''s side rooms, kept a worker out of questions and every inbox, %s, and asked the test question\n' \
+    "${a4_said}" | tee -a "${REPORT}"
 printf '\n==> NEXT (the owner): the Element steps in ACCEPTANCE-owner.md, then meta-deploy runs\n'
 printf '    acceptance-after-owner.bash (A5).\n'
 plan_finish

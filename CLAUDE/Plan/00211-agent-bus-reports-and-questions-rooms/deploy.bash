@@ -19,11 +19,12 @@
 #      each team's reports room, and its questions room once the team has a coordinator, writes
 #      the index, and invites the humans and every coordinator; and the LXC members again;
 #   3. play-claude-yolo.yml, the whole play: the ccy image carries the new admin tool;
-#   4. the questions joins: up to 180 s for every coordinator to have JOINED its team's
-#      questions room, read from `agent-bus list`'s ROOM lines. Only a coordinator running
-#      pingbus 0.2.0 joins; one that has not is named with its membership;
-#   5. acceptance.bash --stage 2 (A1-A4, then the test question for the owner).
-# Under --check the plays rehearse, and legs 4 and 5 are skipped, saying so.
+#   4. acceptance.bash --stage 2. It primes sudo again itself, then its first leg is the joins
+#      (SPEC §5.3 leg 3): up to 180 s for every coordinator to have JOINED its questions room,
+#      read from `agent-bus list`'s ROOM lines (only a coordinator running pingbus 0.2.0
+#      joins), then A1-A4 and the test question, asked by the coordinator in its own ccy or
+#      LXC session.
+# Under --check the plays rehearse, and leg 4 is skipped, saying so.
 #
 # meta-deploy.list queues deploy-stage-1.bash and deploy-stage-2.bash, never the plan folder:
 # a folder entry would run this script and acceptance.bash with no --stage, which both refuse.
@@ -57,9 +58,9 @@ Plan 00211's deploys, on the HOST:
              play-claude-yolo.yml (the staged pingbus and skill; the ccy image), then
              acceptance.bash --stage 1. Then restart the teams' sessions.
   --stage 2  the admin side: the passed-spike and stage-1 pre-flight, play-agent-bus.yml (the
-             rooms), play-claude-yolo.yml (the image's admin tool), the wait for every
-             coordinator to join its questions room, then acceptance.bash --stage 2.
---check rehearses the plays and skips the waits and the acceptance."
+             rooms), play-claude-yolo.yml (the image's admin tool), then acceptance.bash
+             --stage 2, whose first leg waits for every coordinator to join questions.
+--check rehearses the plays and skips the acceptance."
 
 plan_mode deploy
 plan_parse_common_flags "$@"
@@ -108,15 +109,6 @@ spike_passed() {
     printf '==> the spike passed: %s\n' "${report}"
 }
 
-# What the questions-join wait reads; the include's read_teams fills TEAMS, and its
-# questions_joined is the wait.
-AGENT_BUS=(sudo -n agent-bus)
-TEAMS_JSON=""
-REPORT=""
-# shellcheck source-path=SCRIPTDIR
-# shellcheck source=_acceptance-stage2.inc.bash
-source "${PLAN_SCRIPT_DIR}/_acceptance-stage2.inc.bash"
-
 if [[ "${STAGE}" == "2" ]]; then
     spike_passed
 fi
@@ -135,7 +127,7 @@ plan_deploy_leg "play-claude-yolo.yml (the ccy image)" \
     plan_ansible_playbook playbooks/imports/play-claude-yolo.yml
 
 if [[ "${PLAN_CHECK}" == "1" ]]; then
-    printf '\n==> the questions-join wait and acceptance.bash --stage %s SKIPPED: --check deployed nothing to judge\n' "${STAGE}"
+    printf '\n==> acceptance.bash --stage %s SKIPPED: --check deployed nothing to judge\n' "${STAGE}"
     plan_finish
 fi
 
@@ -147,12 +139,7 @@ if [[ "${STAGE}" == "1" ]]; then
     plan_finish
 fi
 
-REPORT="${PLAN_RUN_DIR}/deploy-report.md"
-TEAMS_JSON="${PLAN_RUN_DIR}/teams.json"
-printf '# Plan 00211 deploy 2\n\n' >"${REPORT}"
-plan_deploy_leg "read agent_bus_teams" read_teams
-plan_deploy_leg "every coordinator joins its questions room (up to ${JOIN_WAIT_S} s)" questions_joined
-plan_deploy_leg "acceptance.bash --stage 2" "${PLAN_SCRIPT_DIR}/acceptance.bash" --stage 2
+plan_deploy_leg "acceptance.bash --stage 2 (the joins first)" "${PLAN_SCRIPT_DIR}/acceptance.bash" --stage 2
 
 printf '\n==> NEXT (the owner): the Element steps in ACCEPTANCE-owner.md, then the after-owner\n'
 printf '    acceptance (A5), which an agent queues in meta-deploy.list once you say they are done.\n\n'

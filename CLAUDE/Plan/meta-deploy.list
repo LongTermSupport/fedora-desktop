@@ -54,10 +54,13 @@ playbooks/imports/play-agent-bus.yml
 # member's pingbus is 0.2.0, and a declared container that is down is refused, named). Then the
 # whole play-agent-bus.yml creates each team's reports room, and its questions room when the
 # team has a coordinator, writes the index and invites you and the coordinators; the whole
-# play-claude-yolo.yml rebuilds the ccy image once (container 2.78.10). It waits up to 180 s for
-# every coordinator to join its questions room, naming any that has not, and acceptance.bash
-# --stage 2 checks the rooms, adds and removes one throwaway worker that must be refused the
-# questions room, posts two test reports (one from an LXC member) and asks a test question from
-# an LXC coordinator. Needs sudo once. Afterwards do the Element steps of the plan's
-# ACCEPTANCE-owner.md.
+# play-claude-yolo.yml rebuilds the ccy image once (container 2.78.10). Then acceptance.bash
+# --stage 2 waits up to 180 s for every coordinator to join its questions room and every running
+# ccy seat its reports room, naming any that has not, and checks the rooms. It finds the first
+# team's coordinator in its running ccy session or LXC member; with no team coordinator, or one
+# whose session is not running, it is REJECTED, named, before it changes anything. It adds and
+# removes one throwaway worker that must be refused the questions room and whose test report
+# must reach no inbox, posts a second test report from inside an LXC member when one is
+# declared (else it says that check was not judged), and has the coordinator ask a test
+# question. Needs sudo once. Afterwards do the Element steps of the plan's ACCEPTANCE-owner.md.
 00211-agent-bus-reports-and-questions-rooms/deploy-stage-2.bash
