@@ -2,6 +2,10 @@ package membership
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"go/types"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -203,6 +207,53 @@ func TestInitRefusesWhatIsNotItsThreeArguments(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(r.runtime, "ccy")); err == nil {
 			t.Fatalf("%s: wrote before refusing", name)
 		}
+	}
+}
+
+func TestInitRefusalSaysWhatIsWrongAndWhatToDo(t *testing.T) {
+	cases := map[string]struct {
+		args []string
+		why  string
+	}{
+		"a control in the checkout": {[]string{"s", "/c\tx", ""}, "the checkout"},
+		"a checkout not UTF-8":      {[]string{"s", "/c\xff", ""}, "is not UTF-8"},
+		"65 seats":                  {[]string{"s", "/c", many65()}, "more than 64 seats"},
+	}
+	for name, c := range cases {
+		r := newRig(t)
+		if code := r.init.Run(t.Context(), c.args); code != term.ExitUsage {
+			t.Fatalf("%s: exit %d", name, code)
+		}
+		got := r.ErrOut.String()
+		for _, want := range []string{c.why, "Nothing was written", "launch again"} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("%s: stderr lacks %q:\n%s", name, want, got)
+			}
+		}
+	}
+}
+
+// The launcher and Write reach the disk only through writeDesired, and it takes a membership
+// that has passed checkWrite (the type checked), so no write path can skip the check.
+func TestOnlyACheckedMembershipCanBeWritten(t *testing.T) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "membership.go", readFile(t, "membership.go"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var param string
+	ast.Inspect(file, func(n ast.Node) bool {
+		if fn, ok := n.(*ast.FuncDecl); ok && fn.Recv == nil && fn.Name.Name == "writeDesired" {
+			param = types.ExprString(fn.Type.Params.List[1].Type)
+		}
+		return true
+	})
+	if param != "checked" {
+		t.Fatalf("writeDesired takes %q, want the type checked", param)
+	}
+	r := newRig(t)
+	if code := r.init.Run(t.Context(), []string{"s", "/c", "1@a"}); code != term.ExitOK {
+		t.Fatalf("a valid launch: exit %d: %s", code, r.ErrOut.String())
 	}
 }
 
