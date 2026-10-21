@@ -8,3 +8,6 @@
 #
 # A row that covers no finding, or covers findings on more than one line, fails the gate
 # teamchat-keeps-off-v1, so this list can neither go stale nor grow unseen.
+src-go/internal/teamchat/matrix/fakehs/replay_test.go	tests/helpers/pingbus/fixtures/tuwunel	the recorded real-Tuwunel captures the replay reads, which v1's tests own
+src-go/internal/teamchat/matrix/fakehs/replay_test.go	probe.agent-bus.internal	the server name the capture was recorded under; the replay must match it byte for byte
+src-go/internal/teamchat/matrix/fakehs/replay_test.go	"agent_bus.status"	the v1 event type the capture recorded, which the replay picks out of the recorded sync
