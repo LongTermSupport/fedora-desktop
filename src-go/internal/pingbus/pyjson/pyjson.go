@@ -3,7 +3,8 @@
 // encoding/json differs from it: it refuses NaN and Infinity, cannot tell 1 from 1.0, accepts
 // invalid UTF-8 in a string, and turns a lone surrogate escape into U+FFFD.
 //
-// A value is Null, a bool, a string, a Number, a []any or an Object. A string is UTF-8, except
+// A value is Null, a bool, a string, a Number, a []any or an Object (an Ordered under
+// Options.Ordered); Encode writes one back in a Python writer's style. A string is UTF-8, except
 // that a lone surrogate (Python keeps "\ud800" as one) is kept as its three-byte generalised
 // UTF-8 form, so two different lone surrogates stay different strings. A duplicate key takes its
 // last value, as in Python, unless Options.NoDuplicateKeys refuses it.
@@ -74,6 +75,9 @@ type Object map[string]any
 type Options struct {
 	// NoDuplicateKeys refuses a key given twice in any object (config._no_duplicate_keys).
 	NoDuplicateKeys bool
+	// Ordered decodes every object as an Ordered, its keys in the text's order, so a
+	// read-modify-write keeps the order Python would.
+	Ordered bool
 }
 
 // Decode is json.loads of a str: text must be the decoded document.
@@ -346,28 +350,20 @@ func (p *parser) object() (any, error) {
 		return nil, err
 	}
 	defer func() { p.depth-- }()
-	obj := Object{}
+	obj, ordered := Object{}, Ordered{}
+	done := func() any {
+		if p.opts.Ordered {
+			return ordered
+		}
+		return obj
+	}
 	p.space()
 	if p.at('}') {
 		p.i++
-		return obj, nil
+		return done(), nil
 	}
 	for {
-		if !p.at('"') {
-			return nil, p.fail("expecting property name enclosed in double quotes")
-		}
-		p.i++
-		key, err := p.str()
-		if err != nil {
-			return nil, err
-		}
-		p.space()
-		if !p.at(':') {
-			return nil, p.fail("expecting ':' delimiter")
-		}
-		p.i++
-		p.space()
-		v, err := p.value()
+		key, v, err := p.member()
 		if err != nil {
 			return nil, err
 		}
@@ -375,10 +371,13 @@ func (p *parser) object() (any, error) {
 			return nil, ErrDuplicateKey
 		}
 		obj[key] = v
+		if p.opts.Ordered {
+			ordered = ordered.set(key, v)
+		}
 		p.space()
 		if p.at('}') {
 			p.i++
-			return obj, nil
+			return done(), nil
 		}
 		if !p.at(',') {
 			return nil, p.fail("expecting ',' delimiter")
@@ -386,6 +385,26 @@ func (p *parser) object() (any, error) {
 		p.i++
 		p.space()
 	}
+}
+
+// member reads one `"key": value` of an object.
+func (p *parser) member() (string, any, error) {
+	if !p.at('"') {
+		return "", nil, p.fail("expecting property name enclosed in double quotes")
+	}
+	p.i++
+	key, err := p.str()
+	if err != nil {
+		return "", nil, err
+	}
+	p.space()
+	if !p.at(':') {
+		return "", nil, p.fail("expecting ':' delimiter")
+	}
+	p.i++
+	p.space()
+	v, err := p.value()
+	return key, v, err
 }
 
 func (p *parser) array() (any, error) {
@@ -483,6 +502,12 @@ func Canonical(v any) string {
 			parts[i] = Canonical(item)
 		}
 		return "[" + strings.Join(parts, ",") + "]"
+	case Ordered:
+		obj := Object{}
+		for _, m := range x {
+			obj[m.Key] = m.Value
+		}
+		return Canonical(obj)
 	case Object:
 		keys := make([]string, 0, len(x))
 		for k := range x {
