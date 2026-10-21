@@ -1,7 +1,6 @@
 package membership
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -59,10 +58,8 @@ func ReadReport(checkout, session string) (Report, error) {
 	if err = errors.Join(err, f.Close()); err != nil {
 		return Report{}, fmt.Errorf("could not read the seat keeper's report %s: %w", path, err)
 	}
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
 	var r Report
-	if err := dec.Decode(&r); err != nil || r.V != 1 || len(data) > maxDesiredBytes {
+	if err := decodeStrict(data, &r); err != nil || r.V != 1 || len(data) > maxDesiredBytes {
 		return Report{}, fmt.Errorf("the seat keeper's report %s is not what a keeper writes: %w", path, errors.Join(err, errNotAReport))
 	}
 	return r, nil

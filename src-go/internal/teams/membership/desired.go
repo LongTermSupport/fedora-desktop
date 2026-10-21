@@ -1,7 +1,6 @@
 package membership
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,14 +40,9 @@ func Read(dir string) (Desired, error) {
 	if len(data) > maxDesiredBytes {
 		return Desired{}, fmt.Errorf("the desired membership %s is larger than %d bytes", path, maxDesiredBytes)
 	}
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
 	var d Desired
-	if err := dec.Decode(&d); err != nil {
+	if err := decodeStrict(data, &d); err != nil {
 		return Desired{}, fmt.Errorf("the desired membership %s is not what ccy-teams writes: %w", path, err)
-	}
-	if dec.More() {
-		return Desired{}, fmt.Errorf("the desired membership %s holds more than one object", path)
 	}
 	if err := d.check(); err != nil {
 		return Desired{}, fmt.Errorf("the desired membership %s: %w", path, err)
