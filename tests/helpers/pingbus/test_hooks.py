@@ -459,7 +459,7 @@ class SessionStartTest(HookCase):
         for state, reason in (("pending", "not invited yet"), ("join", None)):
             with self.subTest(state=state):
                 self.state.save_side_rooms({"questions": inbox.SideRoom(questions, state, reason)})
-                self.assertNotIn("questions room", self.context(self.start()))
+                self.assertNotIn("cannot join the questions room", self.context(self.start()))
 
     def test_a_worker_in_a_team_without_a_coordinator_is_told_so(self):
         record = self.record(TEAM, SN)

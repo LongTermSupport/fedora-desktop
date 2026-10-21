@@ -85,7 +85,7 @@ INVITE_REJECT = "reject"
 #: Why a side room is not joined, as `status` and the hook context print it.
 REASON_NOT_INVITED = "not invited yet"
 REASON_NOT_COORDINATOR = "this member is not a coordinator"
-REASON_NO_HUMAN_TEXT = "human_text is false; re-issue the bundle without --no-human-text"
+REASON_NO_HUMAN_TEXT = inbox.REASON_NO_HUMAN_TEXT
 REASON_JOIN_REFUSED = "the homeserver refused the join"
 
 

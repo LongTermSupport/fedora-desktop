@@ -106,6 +106,9 @@ QUESTION_KEY = "question"
 SIDE_ROOMS_FILE = "rooms.json"
 REPORTS_FILE = "reports.json"
 SIDE_ROOM_STATES = ("join", "pending", "untrusted", "refused")
+#: Why a coordinator leaves its questions invite pending (SPEC §4.5): `status` and the hook
+#: context both name it.
+REASON_NO_HUMAN_TEXT = "human_text is false; re-issue the bundle without --no-human-text"
 #: Stored JSON is ASCII-escaped, which can grow a 64 KiB Matrix event up to six times.
 MAX_INBOX_FILE_BYTES = 6 * 65536
 MAX_STATE_FILE_BYTES = 1 << 20
