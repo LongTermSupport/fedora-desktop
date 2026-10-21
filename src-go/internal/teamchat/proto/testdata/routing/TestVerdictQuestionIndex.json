@@ -1,0 +1,62 @@
+[
+  {
+    "name": "admin question",
+    "receiver": "@myrepo.1+desk.podman:myteam.teamchat.internal",
+    "room": "questions",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@admin:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.text\",\"body\":\"Q1 Which?\",\"teamchat.question\":{\"v\":1,\"n\":1}}}",
+    "outcome": "index"
+  },
+  {
+    "name": "admin thread",
+    "receiver": "@myrepo.1+desk.podman:myteam.teamchat.internal",
+    "room": "questions",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@admin:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.notice\",\"body\":\"Q1 closed.\",\"m.relates_to\":{\"rel_type\":\"m.thread\",\"event_id\":\"$ooooooooooooooooooooooooooooooooooooooooooo\",\"is_falling_back\":true,\"m.in_reply_to\":{\"event_id\":\"$ooooooooooooooooooooooooooooooooooooooooooo\"}},\"teamchat.thread\":{\"v\":1,\"n\":1,\"close\":true}}}",
+    "outcome": "drop",
+    "reason": "sender"
+  },
+  {
+    "name": "bad question",
+    "receiver": "@myrepo.1+desk.podman:myteam.teamchat.internal",
+    "room": "questions",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@myrepo.2+desk.podman:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"body\":\"Q2 x\",\"teamchat.question\":{\"v\":1,\"n\":1}}}",
+    "outcome": "drop",
+    "reason": "schema"
+  },
+  {
+    "name": "former coordinator",
+    "receiver": "@myrepo.1+desk.podman:myteam.teamchat.internal",
+    "room": "questions",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@other.4+desk.podman:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.text\",\"body\":\"Q1 Which?\",\"teamchat.question\":{\"v\":1,\"n\":1}}}",
+    "outcome": "index"
+  },
+  {
+    "name": "human with question",
+    "receiver": "@myrepo.1+desk.podman:myteam.teamchat.internal",
+    "room": "questions",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@alice:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.text\",\"body\":\"Q1 Which?\",\"teamchat.question\":{\"v\":1,\"n\":1}}}",
+    "outcome": "deliver",
+    "kind": "HUMAN"
+  },
+  {
+    "name": "own question",
+    "receiver": "@myrepo.1+desk.podman:myteam.teamchat.internal",
+    "room": "questions",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@myrepo.1+desk.podman:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.text\",\"body\":\"Q1 Which?\",\"teamchat.question\":{\"v\":1,\"n\":1}}}",
+    "outcome": "index"
+  },
+  {
+    "name": "seen first",
+    "receiver": "@myrepo.1+desk.podman:myteam.teamchat.internal",
+    "room": "questions",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj\",\"sender\":\"@myrepo.1+desk.podman:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.text\",\"body\":\"Q1 Which?\",\"teamchat.question\":{\"v\":1,\"n\":1}}}",
+    "outcome": "ignore",
+    "reason": "seen"
+  },
+  {
+    "name": "thread",
+    "receiver": "@myrepo.1+desk.podman:myteam.teamchat.internal",
+    "room": "questions",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@myrepo.2+desk.podman:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.notice\",\"body\":\"Q1 closed.\",\"m.relates_to\":{\"rel_type\":\"m.thread\",\"event_id\":\"$ooooooooooooooooooooooooooooooooooooooooooo\",\"is_falling_back\":true,\"m.in_reply_to\":{\"event_id\":\"$ooooooooooooooooooooooooooooooooooooooooooo\"}},\"teamchat.thread\":{\"v\":1,\"n\":1,\"close\":true}}}",
+    "outcome": "index"
+  }
+]

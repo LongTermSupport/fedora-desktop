@@ -19,7 +19,10 @@
 //   - escape.go, envelope.go: the body escaper over one Unicode version and the delivery
 //     envelope (A 13).
 //
-// The corpus in testdata/ is A 14's: JSON cases of (roster, room, receiver, event) to their
-// outcome, the envelope golden files and the pinned sync filters. There is no second
-// implementation to agree with; every case is written from the design.
+// The corpus in testdata/ is A 14's: JSON cases of (receiver, room, event) to their outcome
+// in routing/, judged in the world of routing-world.json (the roster, rooms and store facts);
+// the envelope golden files in envelope/; the escaper's character classes and cases in
+// escape-classes.json; and the pinned sync filters. The Go test tables are its authoring form
+// (`go test -update` rewrites it); every file is also walked and judged on its own. There is
+// no second implementation to agree with; every case is written from the design.
 package proto

@@ -151,6 +151,7 @@ func checkVerdicts(t *testing.T, cases map[string]verdictCase) {
 			t.Errorf("%s: verdict %v %q %q, want %v %q %q", name, v.Outcome, v.Reason, v.Kind, tc.outcome, tc.reason, tc.kind)
 		}
 	}
+	pinRouting(t, cases)
 }
 
 func TestVerdictRulesOneToFive(t *testing.T) {

@@ -34,12 +34,13 @@ func TestUnicodeVersionIsPinned(t *testing.T) {
 	}
 }
 
-func TestEscapeJSON(t *testing.T) {
+// escapeCases are text and its rendering; the corpus carries them (escape-classes.json).
+func escapeCases() map[string]string {
 	zwjS, vs16, keycap := string(rune(0x200D)), string(rune(0xFE0F)), string(rune(0x20E3))
 	acute, thumb, tone := string(rune(0x0301)), string(rune(0x1F44D)), string(rune(0x1F3FD))
 	woman, girl, smile := string(rune(0x1F469)), string(rune(0x1F467)), string(rune(0x263A))
 	shown := "caf" + string(rune(0xE9)) + " " + string(rune(0x65E5)) + string(rune(0x672C)) + " " + string(rune(0x2190))
-	cases := map[string]string{
+	return map[string]string{
 		"hello":                            q("hello"),
 		`a"b\c`:                            q(`a\"b\\c`),
 		"\n\r\t\b\f":                       q(`\n\r\t\b\f`),
@@ -66,7 +67,10 @@ func TestEscapeJSON(t *testing.T) {
 		smile + vs16:                       q(smile + vs16),
 		"a" + vs16:                         q("a" + ue(0xfe0f)),
 	}
-	for text, want := range cases {
+}
+
+func TestEscapeJSON(t *testing.T) {
+	for text, want := range escapeCases() {
 		if got := EscapeJSON(text); got != want {
 			t.Errorf("EscapeJSON(%+q) = %s, want %s", text, got, want)
 		}
