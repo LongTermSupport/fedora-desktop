@@ -43,9 +43,11 @@ properly. Sources:
 - `DESIGN.md` section 2 (R1-R50), section 3.3 (why no daemon), section 6 (privilege), section 7
   (concurrency) and section 12 (what v1 got wrong). Section 6's rule that nothing an agent in a
   `cc` session can run changes membership without the owner's password is narrowed in v2 (C's
-  DC19): the password guards every change to accounts, roles, humans, security fields, backups and
-  restores; which session holds which seat is guarded by the owner's uid and the container mounts
-  only, so a host process running as the owner can re-seat sessions (C10, K12);
+  DC19): the password guards every change the admin makes to accounts, roles, humans, security
+  fields, backups and restores; which session holds which seat is guarded by the owner's uid and
+  the container mounts only, so a host process running as the owner can re-seat sessions, and,
+  holding a pool seat's own password, can change that seat's account (its password, its devices,
+  its deactivation), which the health tick reports (C10, DC16, K12);
 - the four `RESEARCH-*.md` digests (v1's commands, files, locks, Matrix calls, Tuwunel quirks,
   LXC fragility, stopped containers, incidents, ccy-teams' calls and their costs);
 - the specs already written from v1:
