@@ -111,14 +111,13 @@ its first caller.
 - [x] ✅ **Task 0.3**: The integration: [DESIGN-v2.md](DESIGN-v2.md), the chapters edited at their
   seams (section 3), 17 contradictions settled (section 5), the team id and INT3; DESIGN.md marked
   superseded (`subagent-reports/261021-n0-integration.md`).
-- [ ] ⬜ **Task 0.4**: The N0 review: one adversarial review of the whole design to MERGE, checking
-  everything DESIGN-v2.md section 9 lists, and area B's defaults the build notes challenge (BD9's
-  `disconnected` on the next start, BD2's exit 69 with no link, BD11's dropped SessionEnd lift).
-  Done so far: the four integrated reviews (FIX-FIRST), the fix pass for all four areas
-  (`subagent-reports/261021-n0-merge.md`), the verification (`261021-n0-verify-ab.md`,
-  `261021-n0-verify-cd.md`), the round-2 fixes (`261021-n0-r2-*.md`), the round-2 re-check
-  (`261021-n0-recheck.md`), the qa-reviewer pass (`261021-n0-qa-reviewer.md`) and the round-3
-  fixes (`261021-n0-r3-fix.md`). The build session runs the last check and marks this task.
+- [x] ✅ **Task 0.4**: The N0 review: the four integrated adversarial reviews (1 blocker, 37 majors,
+  FIX-FIRST), the four-theme fix pass (`subagent-reports/261021-n0-merge.md`), verification in two
+  scopes (`261021-n0-verify-ab.md`, `261021-n0-verify-cd.md`; 10 new majors), round 2
+  (`261021-n0-r2-*.md`), the re-check (`261021-n0-recheck.md`; 5 majors), the qa-reviewer pass
+  (`261021-n0-qa-reviewer.md`), round 3 (`261021-n0-r3-fix.md`) and the narrow check, verdict MERGE
+  (`261021-n0-r3-check.md`); its two launch-line minors are fixed and its third is carried to N1
+  (Task 1.7).
 - [ ] ⬜ **Task 0.5**: The coordinator's answers on the flagged decisions (Decisions, above).
 
 ### Phase 1: N1, foundations
@@ -136,6 +135,10 @@ its first caller.
   `internal/teamchat/` (D 3.3), merged with its first caller (N2 or N3), not alone.
 - [ ] ⬜ **Task 1.6**: GO-2026-6809: the Go toolchain bump, with the coordinator, before the matrix
   client merges.
+- [ ] ⬜ **Task 1.7**: The two minors carried out of N0: the re-add mode the store must record (B 2.6
+  step 01 (c); `261021-n0-r3-fix.md` minor 6), and the LXC tick's false notice for a launch-failed
+  run once a later run has rewritten the lock file (C 3.11.2 step 6; `261021-n0-r3-check.md`
+  minor 3).
 
 ### Phase 2: N2, the host side
 

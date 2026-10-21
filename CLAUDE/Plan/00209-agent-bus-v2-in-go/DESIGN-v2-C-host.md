@@ -1350,7 +1350,7 @@ the seat lock to come free, and nothing would ask the keeper to free it. (b) is 
   it posts A's `disconnected` notice as the subject itself (A §7.4), by running area B's
   `teamchat seat disconnected --bundle <pool seat dir>/held --since <since_ms> --seed <run id>` as the
   owner: `held/`'s bundle, never the session's copy, `since_ms` from `held/held.json`, and the
-  ended run's id from the free seat lock file (B 2.5, checked against its grammar). The admin's
+  ended run's id from the free seat lock file (B 2.5, checked against its grammar); a run whose lock file records `launch_failed_ms` is skipped, as the LXC caller does (INT7). The admin's
   account never posts it. Whether a goodbye was already said is
   judged from the room on the server, from the member's own latest lifecycle event since the
   claim, never from a file the container wrote. The notice is sent with a Matrix transaction id
@@ -1370,7 +1370,7 @@ the seat lock to come free, and nothing would ask the keeper to free it. (b) is 
   at once, as v1's launcher did. When `podman` returns and the session's record remains, the
   launcher, and the seat sweep for a launcher that died too, runs the same
   `teamchat seat disconnected --bundle <pool seat dir>/held --since <since_ms> --seed <run id>` for each seat
-  whose seat lock is free (the L3 probe, 3.7.3 release step 1) and whose lock file names a run id,
+  whose seat lock is free (the L3 probe, 3.7.3 release step 1) and whose lock file names a run id and records no `launch_failed_ms` (INT7),
   records `held/notice.json` for that run, and keeps the seat held. The same transaction id means
   a later release for the same run cannot post it again, and step 3 of that release skips it; a
   restored run that crashes in turn has its own run id, so it is announced. A restored session posts A's `back` notice
@@ -1385,7 +1385,7 @@ the seat lock to come free, and nothing would ask the keeper to free it. (b) is 
   `TimeoutStartSec=120`) run the board's background pass headless once a minute. For every pool
   seat with a `held/`, it releases a seat whose session is over (3.7.3), re-runs a timed-out
   leave, and, for a restorable session whose seat lock is free (L3), whose lock file names a run
-  id and whose `held/notice.json` does not record that run, runs the `seat disconnected` above and
+  id with no `launch_failed_ms` (INT7) and whose `held/notice.json` does not record that run, runs the `seat disconnected` above and
   keeps the seat held. "Seen held" is that run id: the keeper writes it only once it holds the
   lock (`run` step 6, B 2.5), so a container still starting (record written and seat taken, the
   keeper not yet running) has a missing or empty lock file and is never announced. It
@@ -1744,7 +1744,7 @@ rendered declaration would heal it on its own; it is held as decision DC10 and n
 
 #### 3.9.4 The supervised session in a guest
 
-`service: true` gives the agent user a supervised session: B's `teamchat run --kind lxc` in a tmux
+`service: true` gives the agent user a supervised session: B's `teamchat run --claude --kind lxc` in a tmux
 pane, restarted on exit (area B owns what runs and its arguments, B 2.2). v1 wrote a system unit
 with a guest script as root and ran the guest's `systemctl` as root. v2 writes the unit file and its
 `multi-user.target.wants` link into the guest from the host side (3.9.1's rules), and asks the
@@ -1788,7 +1788,7 @@ WantedBy=multi-user.target
   restart of the unit resumes the conversation the last session recorded (B43) instead of starting
   a new one. A test renders this unit from its template and parses the `ExecStart` command line,
   after tmux's own arguments, with `run`'s argument parser (3.14); the same test parses the ccy
-  launch line of B 6 C3.
+  and host launch lines of B 6 C3 and B 2.11's kinds table.
 
 - `RuntimeDirectory=` gives the session a runtime directory without a login session, and is one of
   the runtime parents 3.9.2 step 4 reads.
