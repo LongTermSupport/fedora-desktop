@@ -454,3 +454,202 @@ move the file aside, which makes the next start a fresh sync (history skipped, B
 {"v": 1, "run": "<16 hex>", "started_ms": 1760000000000, "seat": "<team>/<seat>", "handle": "<repo>.2+<host>.podman",
  "worker": "running|restarting|failed", "last_sync_ok_ms": 1760000000000, "pending": 0, "delivery": "socket|wait|none"}
 ```
+
+### 2.4 The process model
+
+#### 2.4.1 `run`: how a session starts
+
+The launcher of every member kind ends in `<v2-bin> run --desired <v2-desired> -- claude <args>`.
+`run`:
+
+1. refuses an environment that carries v1's bus variables (`PINGBUS_HOME`, `PINGBUS_MEMBERSHIP`,
+   `PINGBUS_TEAMS`), exit 78, so no session is on both systems (frame: no team mixed across v1 and
+   v2);
+2. draws a run id (16 hex from `crypto/rand`) and creates `<v2-run>` with `mkdir` 0700, refusing an
+   existing path;
+3. locks its main goroutine to the main OS thread (`runtime.LockOSThread` in `init`) and starts
+   `<v2-bin> keeper --parent <own pid> --run <dir> --desired <dir>` through `execx`, in a new
+   process group, with one extra file: the write end of a pipe for READY;
+4. waits up to 30 s for `READY\n` on the pipe. Before writing it, the keeper has taken its lock,
+   read the desired membership, taken every desired seat's lock, and started a worker that is
+   listening on its socket. A desired seat held by another session fails the launch (exit 75,
+   naming the seat), because launching into a held seat is the launcher's mistake; once the session
+   runs, a refused seat is reported and the others carry on (2.10);
+5. sets `<V2>_RUNTIME=<v2-run>` and execs CMD. Claude Code then has `run`'s pid.
+
+The keeper learns of the session's end through a **pidfd** on that pid (`pidfd_open`, Linux 5.3, in
+every kernel a member runs on: EL9's 5.14 and later), not through `PR_SET_PDEATHSIG`. Go starts
+processes from whichever OS thread the goroutine runs on, and `PR_SET_PDEATHSIG` fires when that
+*thread* ends, which in Go can happen while the parent process lives (golang/go#27505). A pidfd
+names the process, survives the `exec`, is unaffected by threads, and is polled like any file
+descriptor. The keeper opens it first thing and then checks that `getppid()` still equals
+`--parent`, which closes the window in which the parent could have died before the pidfd existed.
+The one pid written to a file is the session's, in `<v2-run>/session.pid`, for `repair` (2.4.5);
+`<v2-run>` is private to the session's own namespace, and no pid is ever compared across one.
+
+#### 2.4.2 The keeper
+
+The keeper is a small event loop over five sources, each a goroutine blocked in the kernel, so an
+idle keeper does not wake:
+
+| Source                      | On an event                                                                                              |
+| --------------------------- | -------------------------------------------------------------------------------------------------------- |
+| pidfd of the session        | the session ended: end the worker (below), release, remove `<v2-run>`, exit 0                            |
+| inotify on `<v2-desired>`   | re-read the desired membership; reconcile (2.10)                                                         |
+| pidfd of the worker         | the worker exited: restart it, or mark it failed                                                         |
+| the worker's control socket | the worker's state (for `report.json`), its requests for session facts                                   |
+| signals                     | `SIGTERM`: as a session end; `SIGINT` and `SIGHUP`: ignored (a terminal's Ctrl-C belongs to Claude Code) |
+
+It holds `keeper.lock` and the seat locks, writes `report.json` for each held seat, keeps the
+inbox socket's path and token in memory (handed to it by the worker after a hook supplied them, and
+handed back to each new worker at start), and makes no network call. Its only run-time failures
+are reads of the desired membership, which it reports and does not act on.
+
+**Supervising the worker.** The worker is the keeper's child, started with a `socketpair` as fd 3 for
+control. On exit it is restarted after 1 s, doubling to 60 s, the backoff reset after 10 minutes
+of running. An exit of 78 (the runtime's own configuration is refused: `<v2-run>` or `<v2-state>`
+has the wrong owner or mode, a store does not decode) is final: no restart, `report.json` and
+`status.json` say `failed`, the hooks say it once. Per-team failures never end the worker (2.6).
+
+**When the session ends** (the pidfd fires, or `SIGTERM`): the keeper tells the worker `end` on the
+control socket and waits up to 5 s for it to exit. In those 5 s the worker finishes any goodbye
+(2.11), sets each lease to expired, persists every store, and exits. After 5 s the keeper kills it.
+The keeper then records `run.ended` for a seat whose worker could not (`"reason": "killed"`),
+releases the seat locks, removes `<v2-run>` and exits. Because this happens after Claude Code has
+gone, it is outside Claude Code's SessionEnd hook budget (2.8).
+
+#### 2.4.3 The worker
+
+The worker runs, for each active team, one goroutine that owns that team's homeserver traffic (2.6),
+and, for the session, one delivery goroutine (2.7), one RPC server (2.4.4), one transcript watcher
+(2.7.4) and the control link to the keeper. All member state is owned by one **state goroutine**:
+team goroutines hand it sync batches and send results, RPC handlers hand it requests, the delivery
+goroutine asks it for the next delivery and reports writes. The state goroutine persists a store
+before it answers anything that depends on the change. It never makes a network call, so a slow
+homeserver cannot stall a hook; every network call is made by a team goroutine with the request's
+own deadline.
+
+#### 2.4.4 The worker socket
+
+`<v2-run>/worker.sock`, a Unix stream socket, 0600 in the 0700 run directory; the worker checks the
+peer's uid with `SO_PEERCRED` and closes any other. One request per connection:
+
+```json
+{"v":1,"op":"reply","kit":"<source digest>","args":{"id":"$<43>","verb":null},"stdin":"Done, pushed as <sha>."}
+```
+
+The worker answers with zero or more record lines, exactly as the verb prints them, then one final
+line:
+
+```json
+{"done":{"exit":0}}
+{"done":{"exit":12,"error":{"v":2,"kind":"error","exit":12,"code":"no-room","team":"<team>","message":"..."}}}
+```
+
+The CLI is a pass-through: it copies records to stdout, the error to stderr, and exits with `exit`.
+So every verb has one implementation, inside the worker, tested in-process through the same request
+type; the CLI process only frames the request. A request is at most 64 KiB; the worker refuses
+anything larger with exit 10. A `kit` digest that differs from the worker's is refused with exit 78
+(`kit changed under the session`), which B38's versioned kits make impossible but which would
+otherwise be a silent mixed-version session.
+
+Deadlines, set by the worker per operation: hook operations 300 ms; local reads (`recv`, `inbox`,
+`status`) 2 s; sends 30 s (three tries with the same transaction id, M22); `history` and `questions`
+60 s; `wait` its own timeout. A client that cannot connect exits 69 (`no-worker`); one with no
+`<V2>_RUNTIME` exits 69 (`no-session`).
+
+#### 2.4.5 Failure modes
+
+| What fails                                 | What happens                                                                                                                                                                                                                                   |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| the worker crashes                         | the keeper restarts it with backoff; the new worker loads every store, resolves `inflight` by the transcript (2.7.3), re-sends `sending` with the same transaction ids, takes the inbox socket facts from the keeper; nothing waits for a hook |
+| the keeper crashes                         | the kernel releases the seat locks; the worker sees the keeper's pidfd fire, persists, sets leases expired and exits; the session runs on without the bus; hooks say so once per window and the status line shows it; the owner runs `repair`  |
+| Claude Code is killed (`SIGKILL`)          | as a session end, without a SessionEnd hook: no goodbye reason is known, so `run.ended.reason` is `killed` and the next start of the seat posts "disconnected" (2.11)                                                                          |
+| the container or guest is stopped          | everything dies at once; the next start of each seat posts "disconnected"; for ccy the host's launcher cleanup runs `seat close-ended` sooner (2.11)                                                                                           |
+| the homeserver restarts or is unreachable  | the team goroutine retries (2.6); the team is marked down after 15 s; nothing else is affected                                                                                                                                                 |
+| a freeze and thaw, or a suspend and resume | the team goroutine sees its request deadline long overdue, or a gap between `CLOCK_BOOTTIME` and `CLOCK_MONOTONIC`: it drops the connection, re-verifies the room, renews its lease at once and logs one line with the pause's length (B37)    |
+| the disk is full                           | a store write fails: that team stops taking new items (its sync position does not advance, so nothing is lost), the error is reported once, and the team goroutine retries the write with the transient backoff                                |
+| `<v2-run>` is removed under a live session | the RPC server's listener fails: the worker exits 78 and the keeper reports it failed; a missing runtime is a bug or an operator's mistake, never repaired silently                                                                            |
+
+`repair` (run by the owner, or by ccy-teams' `session repair`, inside the member's namespace): it
+reads `<V2>_RUNTIME` and the session pid the keeper wrote into `<v2-run>/session.pid` at start, takes
+`keeper.lock` (75 if a keeper holds it), and starts a keeper on that pid as `run` would. It is the
+one deliberate path back; nothing calls it on its own.
+
+### 2.5 Locks
+
+Three kinds, all `flock(2)` on files opened `O_NOFOLLOW|O_CLOEXEC`, each acquisition on its own file
+description (L11), released by `LOCK_UN` then `close` (L2), never a PID:
+
+| Lock          | Path                                 | Held by                       | Guards                                                                                              |
+| ------------- | ------------------------------------ | ----------------------------- | --------------------------------------------------------------------------------------------------- |
+| `keeper.lock` | `<v2-run>/keeper.lock`               | the keeper                    | one keeper per session runtime                                                                      |
+| seat lock     | `<v2-state>/<team>/<seat>/seat.lock` | the keeper, one per held seat | one session per seat, so one worker per store; presence for the host's views                        |
+| `worker.lock` | `<v2-run>/worker.lock`               | the worker                    | one worker per runtime (guards against a stray process); probed by the status line for `(bus down)` |
+
+What v1 needed seven locks for is now one goroutine's ordering: the sync lock (one syncer per team),
+the delivery lock (an item shown by one of the watcher and `recv`), the outbox lock (the outbox's
+read-modify-write), the watch lock (one deliverer per socket) and the told lock (a notice once) are
+all properties of the worker owning its state alone.
+
+- **Acquisition.** Every acquire is non-blocking (`LOCK_EX|LOCK_NB`), tried three times 50 ms apart
+  where a probe may hold a momentary shared lock (L1, L3; `worker.lock` only, since only the status
+  line probes). A held lock is a typed `Busy` error; nothing waits on a lock indefinitely.
+- **Order, enforced by the API.** A `SeatLock` can only be obtained from a held `KeeperLock`
+  (`func (k *KeeperLock) TakeSeat(team, seat string) (*SeatLock, error)`), so no code path holds a
+  seat without being the session's one keeper. Since every acquire is non-blocking, two keepers
+  reaching for overlapping seats cannot deadlock: one of them is refused.
+- **The store has no lock.** Its single-writer rule rests on the seat lock: only the worker of the
+  session whose keeper holds the seat writes it. The only other writer is `seat close-ended`, which
+  takes the seat lock first, so it runs only when no session holds the seat.
+- **Content.** After taking a seat lock the keeper writes `{"v":1,"run":"<id>","started_ms":N}` into
+  it, for a human diagnosing a held seat. The lock, not the content, is the truth.
+- **Proof.** Each rule is a test against a second real process (the test binary re-run through
+  `cmdmaintest`), including a `SIGKILL`ed holder.
+
+The host's own locks (the allocation and change locks, the play lock) are area C's and stay out of
+any container's reach (R14; RL 6.09).
+
+### 2.6 The sync engine (one goroutine per team)
+
+Area A owns which events exist, what makes a room trusted, and every validation rule. This section is
+how the worker applies them.
+
+01. **Start.** Load the store. With no store (a new seat, or a team re-added after removal): verify
+    the room (A's trust check), then sync with a timeline limit of 0, persist the position with
+    `"fresh": false`, and skip history (B33; P5.18). With a store: verify the room, then sync from
+    the stored position.
+02. **Long-poll.** `GET /sync?since=<pos>&timeout=30000` with A's filter; the request deadline is
+    45 s (M6). One kept-alive connection per team.
+03. **A limited timeline** is filled forward from `prev_batch` with `/messages` (100 per page, at most
+    20 pages); events already in the ledger are skipped. A gap larger than that is not an error that
+    stops the team: the position moves on, and one `gap` item is queued for the agent ("N messages on
+    `<team>` could not be fetched; read them with `<v2-bin> history --team <team>`"), so the loss is
+    said, not hidden.
+04. **Trust** is re-verified at start, after a join, on a limited timeline and on any event of a type A
+    marks as trust-bearing. A failed verification stops the team with exit 22 for its verbs and one
+    hook line; the worker does not drop its store, so the owner's fix resumes where it stopped.
+05. **Each event** gets A's verdict: accept (queued as an item), ignore (counted in `status`), or drop
+    (counted, one line in `worker.log` with the reason). An answer to one of the member's pings
+    updates the outbox by its `origin_server_ts` against the deadline, even when read late (R42).
+06. **Persist, then announce.** The state goroutine appends the batch's accepted items to `pending`
+    and writes `next_batch` in the same store write, then wakes the delivery goroutine. A crash before
+    the write re-fetches the batch from the old position; ids already in `pending` or the ledger are
+    skipped.
+07. **Due TIMEOUTs** come from the outbox on the state goroutine's timer (the earliest `due_ms`), not
+    from a tick.
+08. **Failures.** Unreachable, timeout, 5xx and 429 past its retries are transient: retry from the
+    stored position after 1 s, doubling to 30 s, with jitter. The team is marked `down` once a failure
+    has lasted 15 s, until a sync succeeds; `worker.log` gets one line at each end of the outage. A
+    401, a 403 or lost trust is permanent for that team: it stops, its verbs exit 21 or 22, the hooks
+    say so once, and the worker retries it only when it is next started. No team's failure touches
+    another's (B17).
+09. **Presence lease.** At start and every 5 minutes the team goroutine publishes A's presence state
+    with a 10-minute expiry; at a clean end it publishes it expired.
+10. **Side rooms.** A coordinator's filter includes the questions room; nobody syncs the reports room,
+    which is send-only and verified at each send (Q 6).
+11. **The forge.** A ping's reference is checked with the member's own `gh` login (R16): the worker
+    runs `gh auth token --hostname github.com` through `execx` when a check needs it, holds the
+    credential in memory for at most 10 minutes and drops it at once after a 401 (R44), and keeps
+    positive results for 3600 s in memory. A missing or logged-out `gh` is a configuration failure of
+    the forge only (exit 78, `forge-login`, on a verb that needs it).
