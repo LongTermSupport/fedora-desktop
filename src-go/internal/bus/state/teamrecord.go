@@ -252,10 +252,10 @@ func decodeSideRoom(path string, m pyjson.Member) (SideRoom, error) {
 	if err != nil {
 		return SideRoom{}, err
 	}
-	if err = checkKeys(path, entry, []string{"room", "state", reasonKey}, nil, unknownFirst); err != nil {
+	if err = checkKeys(path, entry, []string{roomKey, "state", reasonKey}, nil, unknownFirst); err != nil {
 		return SideRoom{}, err
 	}
-	room, err := strField(path, "room", field(entry, "room"), anyText)
+	room, err := strField(path, roomKey, field(entry, roomKey), anyText)
 	if err != nil {
 		return SideRoom{}, err
 	}
@@ -282,7 +282,7 @@ func (t Team) SaveSideRooms(rooms []SideRoom) error {
 		}
 		purposes = append(purposes, r.Purpose)
 		keyed = append(keyed, pyjson.Member{Key: r.Purpose, Value: pyjson.Ordered{
-			{Key: "room", Value: r.Room}, {Key: "state", Value: r.State}, {Key: reasonKey, Value: nullable(r.Reason)},
+			{Key: roomKey, Value: r.Room}, {Key: "state", Value: r.State}, {Key: reasonKey, Value: nullable(r.Reason)},
 		}})
 	}
 	if !distinct(purposes) {
