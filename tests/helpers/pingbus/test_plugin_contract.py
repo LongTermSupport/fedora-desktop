@@ -97,7 +97,8 @@ class PluginLayoutTest(unittest.TestCase):
         # Plan 00194 Task 2.0b: the SessionEnd bound a ccy session's settings raise (seat.py).
         self.assertEqual(load_json(SETTINGS), {
             "crossSessionInbound": "accept",
-            "statusLine": {"type": "command", "command": "pingbus status-line", "refreshInterval": 1},
+            "statusLine": {"type": "command", "command": "pingbus status-line",
+                           "refreshInterval": seat.STATUS_LINE_REFRESH_S},
             "env": {"CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS": str(seat.SESSION_END_BUDGET_MS)},
         })
 

@@ -68,3 +68,8 @@ playbooks/imports/optional/common/play-speech-to-text.yml
 # touched: paused and played again at TERM, left alone when stopped by hand, nothing done when
 # nothing plays, and played again when its parent ends. No sudo, no prompts.
 00212-stt-pauses-media-while-recording
+# Plan 00213 Task 1.3: play-claude-yolo.yml, so the host gets CCY 3.99.12.20 (container
+# 2.77.16). Bus sessions' status line then refreshes every 25 s instead of every second (the
+# member kit settings and a seated session's settings). The image is rebuilt once at the next
+# ccy launch. Running sessions keep their old settings until they are relaunched.
+playbooks/imports/play-claude-yolo.yml
