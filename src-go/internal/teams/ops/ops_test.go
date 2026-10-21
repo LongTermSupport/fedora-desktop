@@ -212,7 +212,9 @@ func TestEveryFlowThatMayChangeATeamSaysSo(t *testing.T) {
 	if changed != 3 {
 		t.Fatalf("apply, remove and restore said so %d times, want 3", changed)
 	}
-	if err := r.ops.ApplyTeams(ctx, []string{"alpha"}); err == nil || changed != 4 {
+	// ApplyTeams says so twice: once its play has run, before the stamps are read back (so a read
+	// of the teams an open kept is not given to that check, SPEC-view.md V41), and as it returns.
+	if err := r.ops.ApplyTeams(ctx, []string{"alpha"}); err == nil || changed != 5 {
 		t.Fatalf("applyTeams: err %v, said so %d times in all", err, changed)
 	}
 }

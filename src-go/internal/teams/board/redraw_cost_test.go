@@ -35,7 +35,9 @@ func bigWorld(t *testing.T) rig {
 // and one is-active per team, tmux, the user's agent-bus seat list, one sudo agent-bus list per
 // team and one sudo agent-bus human devices per person). A redraw happens after every key.
 // The seats and the declaration are read in-process, so no seat list process starts and
-// declare.py runs once, for status.
+// declare.py runs once, for status. Nothing the verdict is computed from changes between the
+// draws, so the redraw reuses the first draw's status answer and starts no declare.py
+// (SPEC-view.md V40).
 func TestARedrawStartsFewProcessesAndTheFirstDrawReadsEachPersonOnce(t *testing.T) {
 	h := bigWorld(t)
 	first := map[string]int{
@@ -43,7 +45,7 @@ func TestARedrawStartsFewProcessesAndTheFirstDrawReadsEachPersonOnce(t *testing.
 		"agent-bus list": 3, "agent-bus human devices": 9,
 	}
 	redraw := map[string]int{
-		"declare.py status": 1, "systemctl": 1, "tmux": 1,
+		"systemctl": 1, "tmux": 1,
 		"agent-bus list": 3,
 	}
 	if _, err := h.c.Collect(t.Context()); err != nil {
