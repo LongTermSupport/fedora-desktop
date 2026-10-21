@@ -26,12 +26,29 @@ func write(t *testing.T, path, content string) {
 	}
 }
 
-func touch(t *testing.T, path string, at time.Time) {
+// fetchRecord is a line of the FETCH_HEAD that a fetch which reached the remote writes.
+const fetchRecord = "0123456789abcdef0123456789abcdef01234567\t\tbranch 'main' of example.com:o/r\n"
+
+// stamp writes content to path, dated at.
+func stamp(t *testing.T, path, content string, at time.Time) {
 	t.Helper()
-	write(t, path, "")
+	write(t, path, content)
 	if err := os.Chtimes(path, at, at); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// touch records a fetch that reached the remote, at.
+func touch(t *testing.T, path string, at time.Time) {
+	t.Helper()
+	stamp(t, path, fetchRecord, at)
+}
+
+// attempt leaves what git leaves of a fetch that failed or is still running: git empties
+// FETCH_HEAD before it contacts the remote.
+func attempt(t *testing.T, path string, at time.Time) {
+	t.Helper()
+	stamp(t, path, "", at)
 }
 
 // repo makes a checkout at root/repo whose .git holds config, and returns the checkout.
@@ -185,6 +202,39 @@ func TestBrokenRepositoryIsAnError(t *testing.T) {
 	write(t, filepath.Join(gone, ".git"), "gitdir: "+filepath.Join(gone, "missing")+"\n")
 	if _, err := Mark(gone, now); err == nil {
 		t.Fatal("gitdir pointing nowhere: no error")
+	}
+}
+
+// A14: git empties FETCH_HEAD before it contacts the remote, so a fetch that failed (no key
+// in the agent, no network) leaves it empty and newly dated, as does one still running. That
+// is never a fetch: it is marked however young it is.
+func TestEmptyFetchHeadIsAFailedOrRunningFetch(t *testing.T) {
+	for _, at := range []time.Time{now.Add(-time.Second), now.Add(-14 * 24 * time.Hour)} {
+		dir := repo(t, remoteConfig)
+		attempt(t, filepath.Join(dir, ".git", "FETCH_HEAD"), at)
+		if got := mark(t, dir); got != FailedMark {
+			t.Errorf("empty FETCH_HEAD dated %v: got %q, want %q", at, got, FailedMark)
+		}
+	}
+}
+
+// A15: across worktrees the last fetch is the newest FETCH_HEAD with a record in it. A fresh
+// one means the shared tracking refs are fresh, whatever failed since; a failed attempt newer
+// than a stale fetch is marked as failed; a stale fetch newer than a failed attempt by its age.
+func TestLinkedWorktreesWeighFailedAttemptsAgainstTheLastFetch(t *testing.T) {
+	common, wt := linked(t)
+	touch(t, filepath.Join(common, "FETCH_HEAD"), now.Add(-10*time.Minute))
+	attempt(t, filepath.Join(common, "worktrees", "wt", "FETCH_HEAD"), now.Add(-time.Minute))
+	if got := mark(t, wt); got != "" {
+		t.Fatalf("fresh fetch elsewhere, failed attempt here: got %q", got)
+	}
+	touch(t, filepath.Join(common, "FETCH_HEAD"), now.Add(-5*24*time.Hour))
+	if got := mark(t, wt); got != FailedMark {
+		t.Fatalf("stale fetch, newer failed attempt: got %q", got)
+	}
+	attempt(t, filepath.Join(common, "worktrees", "wt", "FETCH_HEAD"), now.Add(-6*24*time.Hour))
+	if got := mark(t, wt); got != " [fetched 5d ago]" {
+		t.Fatalf("stale fetch newer than the failed attempt: got %q", got)
 	}
 }
 

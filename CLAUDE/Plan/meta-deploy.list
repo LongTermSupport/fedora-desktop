@@ -30,12 +30,30 @@
 # play-basic-configs.yml (no plan owns it): the GRUB auto-hide probe fix is proven (the probe ran,
 # the unset was skipped, changed=0), but the last run stopped at the fwupd task on an LVFS 503,
 # so the tasks after it (the ABRT policy onward) have not run. Run the whole play again; its
-# other tasks (firmware updates among them) run too, as on any run.
+# other tasks (firmware updates among them) run too, as on any run. The same run rebuilds
+# and installs git-fetch-age with Plan 00183's fix (an empty FETCH_HEAD, left by a fetch that
+# failed, is marked [fetch failed or running] instead of being read as a fresh fetch).
 playbooks/imports/play-basic-configs.yml
 # Plan 00192 Task 3.3 (rclone-cache-status ported to Go): runs play-rclone.yml with only
 # --tags rclone-cache-status, which builds the Go command from this checkout and installs it at
 # ~/.local/bin/rclone-cache-status in place of the bash script (the Go toolchain too if
-# missing), and installs the updated ~/.local/bin/rclone-tail, which now calls it with --no-dir. The rclone mounts are not stopped or restarted. Needs sudo once. Then it checks the
+# missing), and installs the updated ~/.local/bin/rclone-tail, which now calls it with
+# --no-dir. The rclone mounts are not stopped or restarted. Needs sudo once. Then it checks the
 # installed command is the compiled one and that `rclone-cache-status --no-dir` reports live
 # cache figures for every mount, with no `error:` line.
 00192-bash-line-in-the-sand-go-for-tooling/deploy-rclone-cache-status.bash
+# play-git-configure-and-tools.yml (Plan 00183 Task 2.5): builds and installs git-prompt-fetch
+# root-owned to /usr/local/bin and rewrites the bashrc Git Bash Prompt block so bash-git-prompt's
+# background fetch runs it (ssh in BatchMode: it can never ask for a passphrase). The rest of the
+# play runs too, as on any run: git config, commit signing, the gh repository and package. Open
+# terminals pick the new block up in a new shell.
+playbooks/imports/play-git-configure-and-tools.yml
+# Plan 00183 (#52, stale tracking ref in the prompt): triage.bash, then acceptance.bash. Both
+# are READ-ONLY, need no sudo and never prompt. The triage records the installed
+# bash-git-prompt and its fetch settings, every FETCH_HEAD of this checkout with its size and
+# age, the SSH agent's keys, and whether the remote answers with the agent and with none (git
+# ls-remote with no terminal, so no passphrase can be asked; nothing is fetched). The
+# acceptance checks the git-fetch-age and git-prompt-fetch the plays above installed, in
+# scratch repositories it makes and removes, with fetches through a failing ssh or a recording
+# stand-in that reach no remote, and the interactive shell's async_run.
+00183-prompt-shows-stale-tracking-ref

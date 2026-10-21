@@ -69,8 +69,12 @@ originals are gone.
   (Plan 00167, P1-P7 in its package doc): the top of the git work tree, or outside one the
   fedora-desktop checkout baked in with `-X main.RootDir`, offered `[Y/n]` at a terminal.
 - `internal/fetchage/` — `git-fetch-age`, the shell prompt's stale-fetch mark (Plan 00183,
-  A1-A13 in its package doc): the age of the newest `FETCH_HEAD` of the checkout's repository,
-  read from files only; it starts no process.
+  A1-A15 in its package doc): the age of the newest `FETCH_HEAD` of the checkout's repository
+  with a record in it (an empty one is a fetch that failed or is running), read from files
+  only; it starts no process.
+- `internal/promptfetch/` — `git-prompt-fetch`, bash-git-prompt's background fetch made unable
+  to prompt (Plan 00183, F1-F6 in its package doc): `git fetch` with ssh in BatchMode (added to
+  the ssh command git would use), no terminal prompt, no askpass, stdin from `/dev/null`.
   Reuse these; a second way to run a command or prompt the user is a defect.
 
 ## Rules
@@ -182,8 +186,10 @@ and `cc-project-dir` (`ccy-teams` and `cc-project-dir` also get
 `play-lxcfreeze.yml` import (both import `play-golang.yml` first for the toolchain), and
 `play-vm-test-lab.yml` for `vmtest`, `play-ftp-camera.yml` for `ftp-camera`,
 `play-image-watermarking.yml` for `watermark`, `play-speech-to-text.yml` for `wsi` and
-`play-cli-tools.yml` for `open` and `convert`, `play-rclone.yml` for `rclone-cache-status`, and `play-basic-configs.yml` for `git-fetch-age`
-(each imports `play-golang.yml` too); `watermark` and `git-fetch-age` are installed root-owned
+`play-cli-tools.yml` for `open` and `convert`, `play-rclone.yml` for `rclone-cache-status`,
+`play-basic-configs.yml` for `git-fetch-age` and `play-git-configure-and-tools.yml` for
+`git-prompt-fetch` (each imports `play-golang.yml` too); `watermark`, `git-fetch-age` and
+`git-prompt-fetch` are installed root-owned
 in `/usr/local/bin` (`go_command_owner: root`; only that copy runs as root). Each binary lands
 at its old path. A new deployed command takes a row in
 `scripts/go-binary-suites.tsv`. Never
