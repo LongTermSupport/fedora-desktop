@@ -923,7 +923,8 @@ class MembershipClaimTest(SeatCase):
         settings = json.loads(self.home_file(seat.SESSION_SETTINGS))
         self.assertEqual(settings, {
             "crossSessionInbound": "accept",
-            "statusLine": {"type": "command", "command": seat.STATUS_LINE_GUARD, "refreshInterval": 1},
+            "statusLine": {"type": "command", "command": seat.STATUS_LINE_GUARD,
+                           "refreshInterval": seat.STATUS_LINE_REFRESH_S},
             "env": {"CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS": "8000"},
         })
         for name in (seat.SESSION_SETTINGS, seat.STATUS_LINE_INNER, seat.ACTIVE_FLAG):
