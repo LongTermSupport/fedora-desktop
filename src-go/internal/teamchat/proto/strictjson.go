@@ -555,6 +555,15 @@ func (f *fields) object(key string, required bool, rule string) (Value, bool) {
 	return f.get(key, KindObject, required, rule)
 }
 
+// optObject is an optional object member: an empty object when it is absent or of another kind
+// (which breaks rule).
+func (f *fields) optObject(key, rule string) Value {
+	if v, ok := f.get(key, KindObject, false, rule); ok {
+		return v
+	}
+	return Obj()
+}
+
 // need is a required member of kind: null when it is missing or of another kind, which breaks
 // rule here and again in any reader of the null.
 func (f *fields) need(key string, kind Kind, rule string) Value {
