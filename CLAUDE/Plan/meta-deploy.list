@@ -33,35 +33,15 @@
 # installs the fetch-age command with Plan 00183's fix and applies the tasks that stopped behind
 # fwupd before (the ABRT policy onward).
 playbooks/imports/play-basic-configs.yml
-# Plan 00211 Task 0.1 (reports and questions rooms): the SPIKE, a throwaway test. It starts the
-# installed Tuwunel as you, on a free loopback port, with scratch accounts and rooms under its own
-# run directory, and removes them when it ends. No unit, team, play or real homeserver is touched.
-# It records whether a restricted join, the power-level refusals and a pending invite behave as the
-# design needs, and whether the side rooms' power levels and join rules read back exactly; a fact
-# that does not hold fails the run, and its report says which. Deploy 1 below runs either way (it
-# makes no room); deploy 2 will refuse to run until a spike report says every fact holds.
-00211-agent-bus-reports-and-questions-rooms/spike.bash
-# Plan 00211 deploy 1 (Task 1.13), after the spike above: deploy.bash --stage 1, the member side
-# only, so no room is created yet. It runs the whole play-agent-bus.yml (the host's pingbus
-# becomes 0.2.0, which knows the reports and questions rooms, and every running LXC member's kit
-# is copied again) and the whole play-claude-yolo.yml (the staged pingbus and skill, and the ccy
-# image rebuilt once as container 2.78.8, which also carries Plan 00213 below). Needs sudo once.
-# Then acceptance.bash --stage 1 checks the host's, the ccy build context's and each declared LXC
-# container's pingbus version, and refuses a declared container that is down, naming it. The
-# agent-bus play also fails, naming the entry, if a present LXC member is declared role
-# coordinator with human_text false (a coordinator must read human text). Afterwards restart the
-# teams' agent sessions so they run the new pingbus.
-00211-agent-bus-reports-and-questions-rooms/deploy-stage-1.bash
 # Plan 00213 Tasks 1.3 and 1.4: play-claude-yolo.yml, so the host gets CCY 3.99.13.8 (container
-# 2.78.8); a no-op if the 00211 entry above already ran it. Bus sessions' status line then
+# 2.78.8). Bus sessions' status line then
 # refreshes every 25 s instead of every second (the member kit settings and a seated session's
 # settings), and the image's pingbus zipapp starts /usr/bin/python3 directly instead of finding
 # python3 on PATH. The image is rebuilt once at the next ccy launch. Running sessions keep their
 # old settings until they are relaunched.
 playbooks/imports/play-claude-yolo.yml
 # Plan 00213 Task 1.4: play-agent-bus.yml, the normal agent-bus software run (agent-bus-install
-# software); a no-op if the 00211 entry above already ran it. It rebuilds the host's pingbus.pyz
-# and the member kit copy, so `pingbus` on the host starts /usr/bin/python3, not the pyenv shim.
+# software). It rebuilds the host's pingbus.pyz and every running LXC member's kit copy, so `pingbus` on the host starts /usr/bin/python3, not the pyenv shim.
 # It also installs the new kit settings.json (25 s refresh) for agent-bus-claude. Teams are not
 # restarted unless the Tuwunel pin or the units changed, which this change does not do. Needs
 # sudo.
