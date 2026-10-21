@@ -8,16 +8,19 @@
 #
 #   lowers          Playing at 70%: 23.3% while held, exactly 70% again at TERM, never paused
 #   changed-by-hand the volume set by hand during the hold is left at TERM
-#   stream-ended    the stream ends during the hold: skipped at TERM, exit 0
+#   stream-ended    the stream ends during the hold, nothing of the app left: exit 1 at TERM,
+#                   saying the next stream may start at the lowered volume
+#   recreated       the stream is re-created during the hold at the lowered volume (the next
+#                   track): the new stream is put back to 70% at TERM, exit 0
 #   no-stream       no stream: paused while held, played again at TERM
 #   left-stopped    no stream, then stopped "by hand" during the hold: not played at TERM
 #   not-playing     Stopped at the start: exit 0 at once, nothing touched
 #   parent-gone     the process that started it ends: the volume restored, no TERM sent
 #
-# Usage: check-media-volume.bash lowers|changed-by-hand|stream-ended|no-stream|left-stopped|not-playing|parent-gone
+# Usage: check-media-volume.bash lowers|changed-by-hand|stream-ended|recreated|no-stream|left-stopped|not-playing|parent-gone
 set -euo pipefail
 
-checks='lowers|changed-by-hand|stream-ended|no-stream|left-stopped|not-playing|parent-gone'
+checks='lowers|changed-by-hand|stream-ended|recreated|no-stream|left-stopped|not-playing|parent-gone'
 usage="usage: check-media-volume.bash ${checks}"
 [[ $# -ge 1 ]] || {
     printf '%s\n' "${usage}" >&2
@@ -119,12 +122,12 @@ hold() {
     hold=$!
 }
 
-# release: TERM to the hold, which must then exit 0
+# release [WANT]: TERM to the hold, which must then exit WANT (default 0)
 release() {
-    local rc=0
+    local rc=0 want="${1:-0}"
     kill -TERM "${hold}"
     wait "${hold}" || rc=$?
-    [[ "${rc}" -eq 0 ]] || fail "exit ${rc} after TERM, want 0"
+    [[ "${rc}" -eq "${want}" ]] || fail "exit ${rc} after TERM, want ${want}"
 }
 
 case "${check}" in
@@ -136,15 +139,16 @@ case "${check}" in
         [[ ! -s "${FAKE_PACTL_STATE}.log" ]] || fail "a volume was changed"
         grep -q 'nothing is playing' "${scratch}/hold.err" || fail "it did not say nothing was playing"
         ;;
-    lowers | changed-by-hand | stream-ended)
+    lowers | changed-by-hand | stream-ended | recreated)
         hold
         until_is volume "${lowered}" "${hold}"
         [[ "$(status)" == 's "Playing"' ]] || fail "the player was paused as well: $(status)"
         case "${check}" in
             changed-by-hand) pactl set-sink-input-volume 7 30000 30000 ;;
             stream-ended) pactl end-stream 7 ;;
+            recreated) pactl recreate-stream 7 8 ;;
         esac
-        release
+        if [[ "${check}" == stream-ended ]]; then release 1; else release; fi
         case "${check}" in
             lowers)
                 [[ "$(volume)" == "${full}" ]] || fail "not restored to ${full}: $(volume)"
@@ -155,7 +159,11 @@ case "${check}" in
                 grep -q 'left as it is' "${scratch}/hold.err" || fail "it did not say it left the volume"
                 ;;
             stream-ended)
-                grep -q 'has ended' "${scratch}/hold.err" || fail "it did not say the stream had ended"
+                grep -q 'has ended, and no stream of it is left' "${scratch}/hold.err" || fail "it did not report the stream that ended"
+                ;;
+            recreated)
+                [[ "$(volume)" == "${full}" ]] || fail "the new stream was not put back to ${full}: $(volume)"
+                grep -q 'stream 8, a new stream of it' "${scratch}/hold.err" || fail "it did not say it restored the new stream"
                 ;;
         esac
         ;;

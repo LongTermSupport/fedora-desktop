@@ -73,8 +73,30 @@ restores.
   panel's error) and every playing player is paused instead, so the music still gets out of
   the way.
 - **The command is renamed** `wsi-pause-media` to `wsi-lower-media-volume`, and the GSettings
-  key `pause-media-while-recording` to `lower-media-volume-while-recording` (never deployed:
-  the play was still queued). The play removes the old binary (`state: absent`).
+  key `pause-media-while-recording` to `lower-media-volume-while-recording`. The play removes
+  the old binary (`state: absent`).
+- **The old key is migrated, in the extension.** The pause version was deployed on the host,
+  so an owner may have turned the old switch off. The repo has no earlier GSettings key
+  rename to follow, so: the old key stays in the schema (marked replaced; GSettings cannot
+  read a key its schema does not name), and at each enable `migratePauseMediaKey`
+  (`mediaHold.js`) copies an owner-set old value to the new key unless the new one is set
+  already, then resets the old key, so it runs once. In the extension rather than the play
+  because it is a pure function tested under Node, and the play cannot be run here.
+- **New streams of a lowered application (F1 of the Phase 4 review).** WirePlumber's
+  `restore-stream` (on by default) saves each application's stream volume and gives the
+  application's next stream that volume. So the lowered 23.3% is very likely saved, and a
+  stream that is re-created during the hold (the next track, a new video) or a second stream
+  opened then would start at 23.3%. At restore, every stream that was not there when the
+  volumes were lowered, of a lowered stream's application (same process, or same
+  `application.name`), at that stream's lowered volume, is set to its volume before; that
+  set is saved by WirePlumber in turn. A lowered stream that has ended with no stream of its
+  application left cannot be fixed: nothing is left to set, and WirePlumber's saved state has
+  no command to write it. That is reported (exit 1, the panel's error notification), so the
+  owner knows to check the app's slider. Whether WirePlumber really keeps the lowered volume
+  is settled by the owner's manual check 5.
+- **Proxy players are not handled** (V1): `playerctld` mirrors the most recent player, and
+  GSConnect exports a phone's players as `org.mpris.MediaPlayer2.GSConnect.*`. Pausing
+  playerctld would pause the real player through it, which is lowered already.
 
 ## Spec (`wsi-lower-media-volume`, numbered as its tests are)
 
@@ -84,7 +106,8 @@ D-Bus is reached through `busctl --user --json=short --timeout=5`, the streams t
 - **V1.** The players are the session-bus names beginning `org.mpris.MediaPlayer2.`
   (`ListNames`), in name order. Each is reached through its unique name (`GetNameOwner`), so a
   player that quits and is replaced under the same name is a different player; two names owned
-  by one connection are one player.
+  by one connection are one player. A proxy (`playerctld`, `GSConnect.*`) is not handled, with
+  a line on stderr.
 - **V2.** A player whose `PlaybackStatus` is `Playing` is playing; any other is not touched.
   Its streams are found as the decision above says (`pactl --format=json list sink-inputs`,
   read once before any change).
@@ -101,7 +124,10 @@ D-Bus is reached through `busctl --user --json=short --timeout=5`, the streams t
   same process) whose every channel is within 1% (655 of 65536) of the volume it was set to is
   set back to exactly the volume before. One whose volume is otherwise (the owner changed it
   during the recording) is left as it is, and one that has gone is skipped, each with a line on
-  stderr.
+  stderr. A stream not there at the lowering, of a lowered stream's application (same process,
+  or same `application.name` ignoring case), within 1% of that stream's lowered volume, is set
+  to its volume before too. A lowered stream that has gone with no stream of its application
+  left is a problem (V9, exit 1): the sound server may give the next stream the lowered volume.
 - **V8.** Each paused player is played again (`Play`) only if its unique name is still on the
   bus and its `PlaybackStatus` is `Paused`. Gone, `Stopped` or `Playing` is left as it is,
   with a line on stderr.
@@ -149,8 +175,17 @@ D-Bus is reached through `busctl --user --json=short --timeout=5`, the streams t
 - **A stale status after a very short recording (paused players only).** Some players update
   `PlaybackStatus` after `Pause` has returned; a TERM within milliseconds can read a stale
   `Playing` and leave the player paused.
-- **A stream that starts during the recording** (a new track in a new stream, a second tab) is
-  not lowered, and a lowered stream that ends is not restored, since its volume ended with it.
+- **A stream that starts during the recording** is not lowered by this command; if
+  WirePlumber starts it at the saved lowered volume, it is put back at restore (V7).
+- **A lowered stream that ends with nothing of its app left at restore** (the playlist ended,
+  the tab closed) cannot be put back, and WirePlumber may start the app's next stream at
+  23.3%. It is reported with the panel's error; the owner sets the app's slider back.
+- **Every playing stream of a browser is lowered**, not only the tab whose player is Playing:
+  the streams are found by the browser's process tree, and all its tabs share it, so a call
+  in another tab is lowered too (and restored with the rest).
+- **A proxy player is never paused** (`playerctld`, GSConnect's phone players). A phone's
+  music therefore plays on during a recording; a proxy not on the list (another name) is
+  handled as a player, and if it has no stream it is paused, which reaches the real player.
 - **A screen lock restores the volume** while the recorder may still run (the panel's
   `destroy()` releases the hold). A decision above, listed so the owner is not surprised.
 
@@ -193,13 +228,21 @@ D-Bus is reached through `busctl --user --json=short --timeout=5`, the streams t
 - [ ] 🔄 **Task 4.4**: `acceptance.bash`: the installed command against the fake MPRIS player
   on a private bus and a fake `pactl` (`fake-pactl.py`, first on `PATH`), so no real volume or
   player is touched: lowered to a third and restored at TERM; a volume changed by hand during
-  the hold is left; a stream that ended is skipped; no stream found is paused and played again;
+  the hold is left; a stream that ended with nothing of its app left is reported (exit 1); a
+  stream re-created at the lowered volume is put back; no stream found is paused and played again;
   stopped by hand during the hold is not played again; nothing playing exits at once; the
   parent ending restores. Written; it runs on the host (the container has no python3-gobject
   for the fake player; `fake-pactl.py` was exercised on its own).
 - [x] ✅ **Task 4.5**: The two `meta-deploy.list` entries (the play, then this plan) describe
   Phase 4.
-- [ ] ⬜ **Task 4.6**: qa-reviewer pass.
+- [ ] 🔄 **Task 4.6**: qa-reviewer pass. The Opus stand-in's review
+  (`subagent-reports/261021-review-00212-phase4-opus.md`): FIX-FIRST on F1; Task 4.7 fixes it.
+- [x] ✅ **Task 4.7**: The review's fixes, tests first: new streams of a lowered application at
+  the lowered volume restored, an ended stream with nothing of its app left reported (V7, the
+  fake pactl models a re-created stream); the old key migrated (`migratePauseMediaKey`);
+  proxy players skipped (V1); the browser-tab limitation recorded. `acceptance.bash` gains
+  the `recreated` leg, and `stream-ended` now expects exit 1.
+- [ ] ⬜ **Task 4.8**: A fresh qa-reviewer pass over Task 4.7.
 
 ## Owner's manual check (after logging out and in)
 
@@ -210,7 +253,18 @@ D-Bus is reached through `busctl --user --json=short --timeout=5`, the streams t
 3. Play music; press Insert; move that app's slider during the recording; stop: your setting
    stays.
 4. Turn "Lower media volume while recording" off in the panel menu; press Insert: the music
-   keeps its volume.
+   keeps its volume. (If you had turned "Pause media while recording" off before, the new
+   switch is already off after the login.)
+5. Does WirePlumber keep the lowered volume? Play a playlist in a music app at 70%; press
+   Insert; while it records, skip to the next track (in a browser: start another video in the
+   same tab); stop. The next track must be at 70% again in Settings, Sound, Volume Levels,
+   and the journal (`journalctl --user -b --no-pager -g wsi-lower-media-volume`) shows either
+   "a new stream of it at the lowered volume" (WirePlumber did keep 23.3%, and it was put
+   back) or nothing about a new stream (the app kept its stream). Then play, press Insert,
+   close the app during the recording, stop, and reopen it: the error notification appeared,
+   and the app's volume is 23.3% if WirePlumber keeps it (set it back by hand), 70% if not.
+   Record which it was in the journal; if 70%, the exit 1 for an ended stream is too loud and
+   becomes a plain line.
 
 ## Success Criteria
 

@@ -13,9 +13,26 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-const {LOWER_MEDIA_KEY, startMediaHold} =
+const {LOWER_MEDIA_KEY, PAUSE_MEDIA_KEY, migratePauseMediaKey, startMediaHold} =
     await import(new URL('../../extensions/speech-to-text@fedora-desktop/mediaHold.js',
         import.meta.url).href);
+
+/** A fake Gio.Settings: `user` holds the keys the owner has set; the rest read as their
+ * schema default (true for both switches). */
+function settingsWith(user) {
+    const s = {user: {...user}, calls: []};
+    s.get_user_value = key => (key in s.user ? {value: s.user[key]} : null);
+    s.get_boolean = key => (key in s.user ? s.user[key] : true);
+    s.set_boolean = (key, value) => {
+        s.calls.push(`set ${key} ${value}`);
+        s.user[key] = value;
+    };
+    s.reset = key => {
+        s.calls.push(`reset ${key}`);
+        delete s.user[key];
+    };
+    return s;
+}
 
 const ARGV = ['/home/u/.local/bin/wsi-lower-media-volume'];
 
@@ -40,6 +57,30 @@ function world({enabled = true, spawnError = null} = {}) {
 
 test('the setting key is the schema key the menu switch writes', () => {
     assert.equal(LOWER_MEDIA_KEY, 'lower-media-volume-while-recording');
+});
+
+test('the replaced pause key turned off carries over: the new switch starts off', () => {
+    assert.equal(PAUSE_MEDIA_KEY, 'pause-media-while-recording');
+    const s = settingsWith({[PAUSE_MEDIA_KEY]: false});
+    assert.equal(migratePauseMediaKey(s), true);
+    assert.equal(s.get_boolean(LOWER_MEDIA_KEY), false);
+    assert.deepEqual(s.calls, [`set ${LOWER_MEDIA_KEY} false`, `reset ${PAUSE_MEDIA_KEY}`]);
+    assert.equal(migratePauseMediaKey(s), false, 'a second run changes nothing');
+    assert.equal(s.calls.length, 2);
+});
+
+test('the replaced key never set by the owner is no migration: the new switch keeps its default', () => {
+    const s = settingsWith({});
+    assert.equal(migratePauseMediaKey(s), false);
+    assert.deepEqual(s.calls, []);
+    assert.equal(s.get_boolean(LOWER_MEDIA_KEY), true);
+});
+
+test('a new switch the owner has already set wins over the replaced key', () => {
+    const s = settingsWith({[PAUSE_MEDIA_KEY]: false, [LOWER_MEDIA_KEY]: true});
+    assert.equal(migratePauseMediaKey(s), true);
+    assert.deepEqual(s.calls, [`reset ${PAUSE_MEDIA_KEY}`]);
+    assert.equal(s.get_boolean(LOWER_MEDIA_KEY), true);
 });
 
 test('the switch off is no hold and starts nothing', () => {

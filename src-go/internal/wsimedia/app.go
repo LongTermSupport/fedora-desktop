@@ -10,7 +10,9 @@
 //   - V1. The players are the session-bus names beginning `org.mpris.MediaPlayer2.`
 //     (ListNames), in name order. Each is reached through its unique name (GetNameOwner), so
 //     a player that quits and is replaced under the same name is a different player; two
-//     names owned by one connection are one player.
+//     names owned by one connection are one player. A proxy that mirrors another player
+//     (playerctld, or GSConnect's `GSConnect.` names for a phone's players) is not handled, with
+//     a line on stderr: the player it mirrors is handled itself, or is not this desktop's.
 //   - V2. A player whose PlaybackStatus is Playing is playing; any other is not touched. Its
 //     streams are the sink inputs (`pactl --format=json list sink-inputs`, read once before
 //     any change) that are not corked and whose application.process.id is the player's
@@ -30,7 +32,14 @@
 //   - V7. The sink inputs are listed again. Each lowered stream still there (same index, same
 //     process) whose every channel is within 1% (655 of 65536) of what it was set to is set
 //     back to exactly the volume before; one at another volume (the owner changed it) is left,
-//     and one gone is skipped, each with a line on stderr.
+//     and one gone is skipped, each with a line on stderr. A stream that was not there when the
+//     volumes were lowered, of the same application as a lowered one (the same process, or the
+//     same application.name ignoring case), within 1% of the volume that one was set to, is set
+//     to that one's volume before too: WirePlumber's restore-stream gives an application's new
+//     stream (the next track, a new video) the volume it last saved for it, which is the
+//     lowered one. A lowered stream that has gone with no stream of its application left is a
+//     problem (V9): the saved volume may still be the lowered one, and only the owner can put
+//     it back.
 //   - V8. Each paused player is played again (Play) only if its unique name is still on the
 //     bus and its PlaybackStatus is Paused. Gone, Stopped or Playing (changed by hand during
 //     the recording) is left as it is, with a line on stderr.
@@ -86,6 +95,10 @@ const (
 	maxAncestors = 64
 )
 
+// proxies are the first words, ignoring case, of the MPRIS names of players that mirror
+// another (V1).
+var proxies = []string{"playerctld", "gsconnect"}
+
 // busArgs are on every busctl run: the session bus, JSON replies, and a player that does not
 // answer is a failure rather than a hang.
 var busArgs = []string{"--user", "--json=short", "--timeout=5"}
@@ -136,20 +149,28 @@ type stream struct {
 type lowered struct {
 	player        string
 	index         int
-	pid           string
+	pid, name     string
 	before, after []int
+}
+
+// sameApp is whether s is of the application l's stream was: the same process, or the same
+// application.name, ignoring case.
+func (l lowered) sameApp(s stream) bool {
+	return (l.pid != "" && s.pid == l.pid) || (l.name != "" && strings.EqualFold(s.name, l.name))
 }
 
 // run is one invocation's state: whether anything failed, and the first stderr write error.
 type run struct {
-	env      Env
-	failed   bool
+	env    Env
+	failed bool
+	// atStart is the index of every sink input listed when the volumes were lowered (V7).
+	atStart  map[int]bool
 	writeErr error
 }
 
 // Run is V1-V10.
 func (a App) Run(ctx context.Context, args []string) term.ExitCode {
-	r := &run{env: a.Env}
+	r := &run{env: a.Env, atStart: map[int]bool{}}
 	switch {
 	case len(args) == 1 && (args[0] == "-h" || args[0] == "--help"):
 		r.write(usage)
@@ -220,6 +241,10 @@ func (r *run) playing(ctx context.Context) ([]mpris, error) {
 		if !strings.HasPrefix(name, mprisPrefix) {
 			continue
 		}
+		if slices.Contains(proxies, playerWord(name)) {
+			r.say(name + ": a proxy for another player; left to that player")
+			continue
+		}
 		owner, err := r.owner(ctx, name)
 		if err != nil {
 			r.skip(name, err)
@@ -256,6 +281,10 @@ func (r *run) lower(ctx context.Context, players []mpris) ([]lowered, []held) {
 	}
 	for _, index := range slices.Sorted(maps.Keys(unreadable)) {
 		r.skip("stream "+strconv.Itoa(index), unreadable[index])
+		r.atStart[index] = true
+	}
+	for _, s := range streams {
+		r.atStart[s.index] = true
 	}
 	var lows []lowered
 	var holds []held
@@ -278,7 +307,7 @@ func (r *run) lower(ctx context.Context, players []mpris) ([]lowered, []held) {
 				continue
 			}
 			r.say(fmt.Sprintf("lowered %s: stream %d from %s to %s", p.name, s.index, percent(s.volume), percent(after)))
-			lows = append(lows, lowered{player: p.name, index: s.index, pid: s.pid, before: s.volume, after: after})
+			lows = append(lows, lowered{player: p.name, index: s.index, pid: s.pid, name: s.name, before: s.volume, after: after})
 		}
 	}
 	return lows, holds
@@ -312,7 +341,7 @@ func (r *run) streamsOf(p mpris, streams []stream, claimed map[int]bool) []strea
 		}
 	}
 	if len(mine) == 0 {
-		word := strings.ToLower(strings.SplitN(strings.TrimPrefix(p.name, mprisPrefix), ".", 2)[0])
+		word := playerWord(p.name)
 		for _, s := range streams {
 			if free(s) && (strings.ToLower(s.binary) == word || strings.ToLower(s.name) == word) {
 				mine = append(mine, s)
@@ -323,6 +352,11 @@ func (r *run) streamsOf(p mpris, streams []stream, claimed map[int]bool) []strea
 		claimed[s.index] = true
 	}
 	return mine
+}
+
+// playerWord is the first word of an MPRIS name after the prefix, in lower case.
+func playerWord(name string) string {
+	return strings.ToLower(strings.SplitN(strings.TrimPrefix(name, mprisPrefix), ".", 2)[0])
 }
 
 // descends is whether the process pid (a stream's, as pactl prints it) is ancestor or one of
@@ -373,6 +407,7 @@ func (r *run) restore(ctx context.Context, lows []lowered) {
 		r.say("cannot read the audio streams, so no volume is restored: " + err.Error())
 		return
 	}
+	var ended []lowered
 	for _, l := range lows {
 		if err, bad := unreadable[l.index]; bad {
 			r.problem(l.player, fmt.Errorf("stream %d: %w", l.index, err))
@@ -380,7 +415,7 @@ func (r *run) restore(ctx context.Context, lows []lowered) {
 		}
 		i := slices.IndexFunc(streams, func(s stream) bool { return s.index == l.index && s.pid == l.pid })
 		if i < 0 {
-			r.say(fmt.Sprintf("%s: stream %d has ended; nothing to restore", l.player, l.index))
+			ended = append(ended, l)
 			continue
 		}
 		if now := streams[i].volume; !near(now, l.after) {
@@ -393,6 +428,37 @@ func (r *run) restore(ctx context.Context, lows []lowered) {
 			continue
 		}
 		r.say(fmt.Sprintf("restored %s: stream %d to %s", l.player, l.index, percent(l.before)))
+	}
+	r.restoreNew(ctx, lows, streams)
+	for _, l := range ended {
+		if slices.ContainsFunc(streams, l.sameApp) {
+			r.say(fmt.Sprintf("%s: stream %d has ended; nothing to restore", l.player, l.index))
+			continue
+		}
+		r.problem(l.player, fmt.Errorf("stream %d has ended, and no stream of it is left to restore: "+
+			"the sound server may start its next stream at the lowered %s; set it back in Settings, Sound, if so",
+			l.index, percent(l.after)))
+	}
+}
+
+// restoreNew is V7's new streams: each that was not there at the start, of a lowered stream's
+// application and at its lowered volume, is set to that stream's volume before.
+func (r *run) restoreNew(ctx context.Context, lows []lowered, streams []stream) {
+	for _, s := range streams {
+		if r.atStart[s.index] {
+			continue
+		}
+		i := slices.IndexFunc(lows, func(l lowered) bool { return l.sameApp(s) && near(s.volume, l.after) })
+		if i < 0 {
+			continue
+		}
+		l := lows[i]
+		if err := r.setVolume(ctx, s.index, l.before); err != nil {
+			r.problem(l.player, fmt.Errorf("stream %d: %w", s.index, err))
+			continue
+		}
+		r.say(fmt.Sprintf("restored %s: stream %d, a new stream of it at the lowered volume, to %s",
+			l.player, s.index, percent(l.before)))
 	}
 }
 

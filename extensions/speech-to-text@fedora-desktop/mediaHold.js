@@ -16,6 +16,22 @@
 /** The GSettings key of the menu switch. */
 export const LOWER_MEDIA_KEY = 'lower-media-volume-while-recording';
 
+/** The key the switch had when it paused the media; still in the schema so it can be read. */
+export const PAUSE_MEDIA_KEY = 'pause-media-while-recording';
+
+/** Carry the owner's choice on the replaced key over to the new one, once: an owner who
+ * turned the old switch off finds the new one off, unless they have already set the new one.
+ * The old key is then reset, so it is read only once. Returns whether there was anything
+ * to carry over. */
+export function migratePauseMediaKey(settings) {
+    if (settings.get_user_value(PAUSE_MEDIA_KEY) === null)
+        return false;
+    if (settings.get_user_value(LOWER_MEDIA_KEY) === null)
+        settings.set_boolean(LOWER_MEDIA_KEY, settings.get_boolean(PAUSE_MEDIA_KEY));
+    settings.reset(PAUSE_MEDIA_KEY);
+    return true;
+}
+
 const JOURNAL_HINT = 'its reason is in the session journal (journalctl --user -b --no-pager -g wsi-lower-media-volume)';
 
 /** Start the hold for one recording: null when `enabled` is false or the command could not

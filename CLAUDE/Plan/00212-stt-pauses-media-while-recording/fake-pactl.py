@@ -5,6 +5,9 @@
     fake-pactl.py set-sink-input-volume INDEX V...
     fake-pactl.py init PID VOLUME          (test only: one stream, index 7, of process PID)
     fake-pactl.py end-stream INDEX         (test only: the stream ends)
+    fake-pactl.py recreate-stream INDEX NEW (test only: the stream ends and the same app opens
+                                           stream NEW at the volume it last had, as
+                                           WirePlumber's restore-stream would give it)
 
 The sink inputs are kept in $FAKE_PACTL_STATE as pactl --format=json prints them (the fields
 wsi-lower-media-volume reads, and a few it does not). Each set-sink-input-volume appends
@@ -58,6 +61,14 @@ def main(argv):
         save(path, [stream(7, int(argv[1]), int(argv[2]))])
         return 0
     streams = load(path)
+    if len(argv) == 3 and argv[0] == "recreate-stream":
+        found = [s for s in streams if s["index"] == int(argv[1])]
+        if not found:
+            return refuse("No such entity")
+        new = json.loads(json.dumps(found[0]))
+        new["index"] = int(argv[2])
+        save(path, [s for s in streams if s is not found[0]] + [new])
+        return 0
     if len(argv) == 2 and argv[0] == "end-stream":
         save(path, [s for s in streams if s["index"] != int(argv[1])])
         return 0

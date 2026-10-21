@@ -460,7 +460,10 @@ Click the extension icon in the top bar to access:
   exactly its old volume back when the microphone closes (or on Escape, or if the recorder
   dies). It is the playing app's own volume (its slider under Settings, Sound, Volume
   Levels), never the system volume. A volume you change yourself during the recording is
-  left as you set it. A player whose sound cannot be found (one that is not using the
+  left as you set it. A new stream of the same app that the sound server started at the
+  lowered volume (the next track) is put back too; if the app's stream ended and none of it
+  is left, the panel shows an error, since the app may start its next stream at the lowered
+  volume. A player whose sound cannot be found (one that is not using the
   PipeWire pulse server under its own process or name) is paused instead and played again.
   Done by `wsi-lower-media-volume` over MPRIS and `pactl` (Plan 00212). If that command is
   killed outright, the volume stays low and the panel shows an error.

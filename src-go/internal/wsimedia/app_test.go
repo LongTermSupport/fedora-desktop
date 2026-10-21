@@ -172,6 +172,19 @@ func (a *audio) add(index int, pid string, volume ...int) *fakeStream {
 	return s
 }
 
+// recreate is the player ending stream index and opening a new one at newIndex (the next
+// track, a new video). The new stream is the same application's, and starts at the volume the
+// old one last had, as WirePlumber's restore-stream gives an application's new stream the
+// volume it saved for that application.
+func (a *audio) recreate(index, newIndex int) {
+	old := a.find(index)
+	old.gone = true
+	a.streams = append(a.streams, &fakeStream{
+		index: newIndex, pid: old.pid, binary: old.binary, name: old.name,
+		channels: slices.Clone(old.channels), volume: slices.Clone(old.volume),
+	})
+}
+
 func (a *audio) find(index int) *fakeStream {
 	for _, s := range a.streams {
 		if s.index == index && !s.gone {
@@ -567,6 +580,75 @@ func TestV7AStreamTheOwnerChangedOrThatEndedIsLeftAsItIs(t *testing.T) {
 	wantSaid(t, w, "org.mpris.MediaPlayer2.a: stream 1 is at 1.8% now, not the 0.5% it was lowered to; left as it is")
 	wantSaid(t, w, "org.mpris.MediaPlayer2.a: stream 2 has ended; nothing to restore")
 	wantSaid(t, w, "org.mpris.MediaPlayer2.a: stream 3 has ended; nothing to restore")
+}
+
+func TestV7AStreamRecreatedDuringTheHoldAtTheLoweredVolumeIsRestored(t *testing.T) {
+	w := newWorld().stop()
+	w.bus.add("org.mpris.MediaPlayer2.a", ":1.1", "Playing", true)
+	w.audio.add(1, "10", 900, 900).name = "A Player"
+	w.during = func(w *world) { w.audio.recreate(1, 2) } // the next track, at the saved 300
+	wantExit(t, w, w.run(t), term.ExitOK)
+	wantSets(t, w.audio, "1 300 300", "2 900 900")
+	wantSaid(t, w, "org.mpris.MediaPlayer2.a: stream 1 has ended; nothing to restore")
+	wantSaid(t, w, "restored org.mpris.MediaPlayer2.a: stream 2, a new stream of it at the lowered volume, to 1.4%")
+}
+
+func TestV7ANewStreamOfTheSameApplicationAtTheLoweredVolumeIsRestored(t *testing.T) {
+	w := newWorld().stop()
+	w.bus.add("org.mpris.MediaPlayer2.a", ":1.1", "Playing", true)
+	w.audio.add(1, "10", 900, 900).name = "A Player"
+	w.during = func(w *world) {
+		w.audio.add(3, "10", 300, 300)                   // a second tab, same process
+		w.audio.add(4, "77", 301, 299).name = "a player" // another process, the same application
+		w.audio.add(5, "10", 1200, 1200)                 // not at the lowered volume: left
+		w.audio.add(6, "88", 300, 300).name = "Other"    // another application: left
+	}
+	wantExit(t, w, w.run(t), term.ExitOK)
+	wantSets(t, w.audio, "1 300 300", "1 900 900", "3 900 900", "4 900 900")
+}
+
+func TestV7V9ANewStreamWhoseRestoreFailsIsReportedAndIsExitOne(t *testing.T) {
+	w := newWorld().stop()
+	w.bus.add("org.mpris.MediaPlayer2.a", ":1.1", "Playing", true)
+	w.audio.add(1, "10", 900, 900)
+	w.during = func(w *world) { w.audio.recreate(1, 2) }
+	w.audio.fail["set-sink-input-volume 2 900 900"] = "Failure: No such entity"
+	wantExit(t, w, w.run(t), term.ExitFailure)
+	wantSets(t, w.audio, "1 300 300")
+	wantSaid(t, w, "wsi-lower-media-volume: org.mpris.MediaPlayer2.a: stream 2: pactl exited 1: Failure: No such entity")
+}
+
+func TestV7AStreamThatWasThereAtTheStartIsNeverTakenForANewOne(t *testing.T) {
+	w := newWorld().stop()
+	w.bus.add("org.mpris.MediaPlayer2.a", ":1.1", "Playing", true)
+	w.audio.add(1, "10", 900, 900)
+	w.audio.add(2, "10", 300, 300).corked = true // paused at a third already: not lowered, not raised
+	wantExit(t, w, w.run(t), term.ExitOK)
+	wantSets(t, w.audio, "1 300 300", "1 900 900")
+}
+
+func TestV7V9AStreamThatEndedWithNothingOfItsApplicationLeftIsExitOne(t *testing.T) {
+	w := newWorld().stop()
+	w.bus.add("org.mpris.MediaPlayer2.a", ":1.1", "Playing", true)
+	w.audio.add(1, "10", 900, 900).name = "A Player"
+	w.bus.add("org.mpris.MediaPlayer2.other", ":1.9", "Playing", true) // process 90
+	w.audio.add(2, "99", 900, 900).name = "other"                      // its by name
+	w.during = func(w *world) { w.audio.find(1).gone = true }
+	wantExit(t, w, w.run(t), term.ExitFailure)
+	wantSets(t, w.audio, "1 300 300", "2 300 300", "2 900 900")
+	wantSaid(t, w, "org.mpris.MediaPlayer2.a: stream 1 has ended, and no stream of it is left to restore: "+
+		"the sound server may start its next stream at the lowered 0.5%")
+}
+
+func TestV1AProxyThatMirrorsAnotherPlayerIsNotHandled(t *testing.T) {
+	w := newWorld()
+	w.bus.add("org.mpris.MediaPlayer2.playerctld", ":1.5", "Playing", true)
+	w.bus.add("org.mpris.MediaPlayer2.GSConnect.phone_Spotify", ":1.6", "Playing", true)
+	wantExit(t, w, w.run(t), term.ExitOK)
+	wantCalls(t, w.bus)
+	wantSaid(t, w, "org.mpris.MediaPlayer2.playerctld: a proxy for another player; left to that player")
+	wantSaid(t, w, "org.mpris.MediaPlayer2.GSConnect.phone_Spotify: a proxy for another player; left to that player")
+	wantSaid(t, w, "nothing is playing; nothing to lower")
 }
 
 func TestV7AVolumeWithinOnePercentOfTheOneSetIsTheServersRoundingAndIsRestored(t *testing.T) {

@@ -63,7 +63,8 @@ plan_start_log auto
 checker="${PLAN_SCRIPT_DIR}/check-media-volume.bash"
 plan_gather_leg "a playing stream is lowered to a third while held and restored exactly at TERM" bash "${checker}" lowers
 plan_gather_leg "a volume changed by hand during the hold is left as set" bash "${checker}" changed-by-hand
-plan_gather_leg "a stream that ends during the hold is skipped, exit 0" bash "${checker}" stream-ended
+plan_gather_leg "a stream that ends during the hold, with nothing of its app left, is reported, exit 1" bash "${checker}" stream-ended
+plan_gather_leg "a stream re-created during the hold at the lowered volume is put back at TERM" bash "${checker}" recreated
 plan_gather_leg "a player with no stream found is paused while held and played again at TERM" bash "${checker}" no-stream
 plan_gather_leg "a paused player stopped by hand during the hold is not played again" bash "${checker}" left-stopped
 plan_gather_leg "nothing playing: exit 0 at once, nothing touched" bash "${checker}" not-playing

@@ -27,7 +27,7 @@ import { spawnWatched, killArgv, discardSignal } from './recorderLaunch.js';
 import { lookFor, isKnownState, recordingBadgeColor, articleBadgeColor, shownState, claudeEmoji, COLOURS } from './panelLook.js';
 import { POST_PROCESS_STYLES, LastTranscriptPostProcessor, unusableKeybindings } from './postProcess.js';
 import { TOKEN_WARNING_FILE, tokenWarning } from './tokenWarning.js';
-import { LOWER_MEDIA_KEY, startMediaHold } from './mediaHold.js';
+import { LOWER_MEDIA_KEY, migratePauseMediaKey, startMediaHold } from './mediaHold.js';
 
 // DBus interface for wsi communication
 const DBUS_PATH = '/org/fedoradesktop/SpeechToText';
@@ -202,6 +202,8 @@ export default class SpeechToTextExtension extends Extension {
 
                 // Load ALL settings FIRST (before building menu)
                 this._loadDebugSetting();
+                if (migratePauseMediaKey(this._settings))
+                    this._log('The Pause Media switch carried over to Lower Media Volume');
 
                 this._log('Attempting to add keybinding...');
                 const bindingAdded = Main.wm.addKeybinding(
