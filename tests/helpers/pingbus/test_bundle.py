@@ -26,7 +26,7 @@ import zipfile
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
-from helpers.pingbus import bundle, cli, protocol
+from helpers.pingbus import bundle, cli, config, protocol
 
 AGENT_BUS_CLI = REPO_ROOT / "helpers" / "agent_bus" / "cli.py"
 
@@ -136,6 +136,15 @@ class BuildTests(unittest.TestCase):
         """Plan 00213 Task 1.4: never `env python3`, which resolves through PATH (on the host a
         pyenv shim, about 0.16 CPU-s on every start)."""
         self.assertEqual(bundle.SHEBANG, b"#!/usr/bin/python3\n")
+
+    def test_the_ccy_image_build_holds_its_usr_bin_python3_to_the_minimum(self) -> None:
+        """The image keeps the shebang as built, so its /usr/bin/python3 must meet MIN_PYTHON;
+        the build fails otherwise (an LXC member's copy names its own, members.py)."""
+        dockerfile = (REPO_ROOT / "files" / "var" / "local" / "claude-yolo" / "Dockerfile").read_text()
+        gate = [line for line in dockerfile.splitlines() if f"sys.version_info >= {config.MIN_PYTHON}" in line]
+        self.assertEqual(len(gate), 1, gate)
+        self.assertIn("/usr/bin/python3 -I -c", gate[0])
+        self.assertIn(bundle.SHEBANG.decode().strip().removeprefix("#!"), gate[0])
 
     def test_the_archive_runs_with_no_python3_on_path(self) -> None:
         """Executed by its own shebang with a PATH whose only python3 fails: it still runs, so

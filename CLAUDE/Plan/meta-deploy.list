@@ -33,16 +33,21 @@
 # installs the fetch-age command with Plan 00183's fix and applies the tasks that stopped behind
 # fwupd before (the ABRT policy onward).
 playbooks/imports/play-basic-configs.yml
-# Plan 00213 Tasks 1.3 and 1.4: play-claude-yolo.yml, so the host gets CCY 3.99.13.8 (container
-# 2.78.8). Bus sessions' status line then
+# Plan 00213 Tasks 1.3 and 1.4: play-claude-yolo.yml, so the host gets CCY 3.99.13.10 (container
+# 2.78.10). Bus sessions' status line then
 # refreshes every 25 s instead of every second (the member kit settings and a seated session's
 # settings), and the image's pingbus zipapp starts /usr/bin/python3 directly instead of finding
-# python3 on PATH. The image is rebuilt once at the next ccy launch. Running sessions keep their
+# python3 on PATH; the image build fails if that interpreter is older than 3.11. The image is
+# rebuilt once at the next ccy launch. Running sessions keep their
 # old settings until they are relaunched.
 playbooks/imports/play-claude-yolo.yml
-# Plan 00213 Task 1.4: play-agent-bus.yml, the normal agent-bus software run (agent-bus-install
-# software). It rebuilds the host's pingbus.pyz and the member kit copy, so `pingbus` on the host starts /usr/bin/python3, not the pyenv shim.
-# It also installs the new kit settings.json (25 s refresh) for agent-bus-claude. Teams are not
-# restarted unless the Tuwunel pin or the units changed, which this change does not do. Needs
-# sudo.
+# Plan 00213 Task 1.4 (re-run after the LXC regression fix): play-agent-bus.yml, the normal
+# agent-bus software run (agent-bus-install software). It rebuilds the host's pingbus.pyz and the
+# member kit copy, so `pingbus` on the host starts /usr/bin/python3, not the pyenv shim, and
+# installs the new kit settings.json (25 s refresh) for agent-bus-claude. It then re-runs the
+# member kit step (README.lxc step 1) for every LXC member: each member's copy of pingbus names
+# that member's own newest Python 3.11 or later, found in it (the last run stopped there with
+# exit 78 on an EL9 member, whose /usr/bin/python3 is 3.9, before replacing anything). A member
+# with no Python 3.11 or later fails the play, naming what to install. Teams are not restarted
+# unless the Tuwunel pin or the units changed, which this change does not do. Needs sudo.
 playbooks/imports/play-agent-bus.yml

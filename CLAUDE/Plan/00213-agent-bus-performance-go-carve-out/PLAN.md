@@ -108,6 +108,24 @@ as hooks-daemon issue #131 and is not this plan's to fix.
   have `/usr/bin/python3`. The host's copy is built by `play-agent-bus.yml` and the image's by
   `play-claude-yolo.yml`, both queued. ccy version bump made.
 
+  **Regression, fixed**: the host run of `play-agent-bus.yml` failed (exit 78) at the LXC
+  member kit step for an EL9 LXC member, whose `/usr/bin/python3` is the 3.9 system
+  interpreter (python3 on PATH there is a 3.13 in `/usr/local/bin`, which `env python3` had
+  found). The kit carries the host's archive, so its pin is wrong for such a member. The
+  earlier review's F4 pointed here: its fix moved the guest scripts and the 3.11 gate to
+  `/usr/bin/python3`, which made the gate judge the pinned interpreter and so refuse. Fix
+  (option (a), chosen over the member keeping `env python3`, which would bring back PATH
+  lookup and its shim cost and let a PATH change pick the interpreter): `members.py` finds
+  the member's newest `python3.N` of at least `MIN_PYTHON` in `/usr/local/bin` and `/usr/bin`
+  once per container, before any change, and fails naming what it found and what to install
+  when there is none. The kit sync runs under it, rewrites the first line of the member's
+  copy of `pingbus` to name it, and every guest script runs under it. The host's build keeps
+  the `/usr/bin/python3` pin. The ccy image keeps it too: its Debian `/usr/bin/python3` is
+  3.11, and the image build now fails if it is below the minimum (a test holds the Dockerfile
+  gate to `MIN_PYTHON`). Tested against an EL9-like member root in `test_members.py`
+  (`InterpreterTest`; red first, with the host's exact error). CCY 3.99.13.10, container
+  2.78.10. `play-agent-bus.yml` is queued to re-run the member kit step.
+
 ### Phase 2: `pingbus status-line` in Go
 
 - [x] ✅ **Task 2.1**: Port `helpers/pingbus/statusline.py` to a Go command under `src-go/cmd/`.
