@@ -1,7 +1,7 @@
 // Package fakehs is an in-memory homeserver that answers as Tuwunel does, for the tests of
-// both sides of the agent bus (Plan 00209 SPEC-matrix.md M37-M43).
+// both sides of teamchat, the v2 agent bus (Plan 00209 SPEC-matrix.md M37-M43).
 //
-// It models what bus/matrix calls and nothing else: password login, whoami, createRoom (room
+// It models what teamchat/matrix calls and nothing else: password login, whoami, createRoom (room
 // version 12, private_chat), invite, join (with a restricted join rule), leave, kick, send with
 // transaction IDs per device, state get and put, the whole room state, redact, GET event, read
 // receipts, /messages, /joined_rooms, /sync with an inline filter, long-polling and lazy-loaded

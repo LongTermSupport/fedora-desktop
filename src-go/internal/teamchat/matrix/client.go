@@ -1,5 +1,6 @@
-// Package matrix is the Matrix client-server client both sides of the v2 agent bus use, and the
-// Synapse-compatible admin endpoints the host needs (Plan 00209 SPEC-matrix.md M1-M36).
+// Package matrix is the Matrix client-server client both sides of teamchat (the v2 agent bus)
+// use, and the Synapse-compatible admin endpoints the host needs (Plan 00209 SPEC-matrix.md
+// M1-M36).
 //
 // It moves JSON and maps failures. It validates nothing an event carries: events, state content
 // and invite state are handed on as raw JSON for the caller to judge. It checks only what the
@@ -10,7 +11,9 @@
 // header of the request it was given to, caps every answer, and never puts the token, a query
 // or the server's error text into an error. A 429 is waited out through an injected Clock.
 // net/http itself resends a GET, once, when a reused keep-alive connection closes before any
-// answer byte; a dropped held sync is then held again rather than reported.
+// answer byte; a dropped held sync is then held again rather than reported. That resend is
+// safe: a sync with a since token is idempotent, so the resent request is answered from the same
+// point in the timeline and nothing is skipped or delivered twice.
 package matrix
 
 import (

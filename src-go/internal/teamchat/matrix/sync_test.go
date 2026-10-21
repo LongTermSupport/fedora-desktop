@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/bus/matrix/fakehs"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix/fakehs"
 )
 
 const syncPath = "/sync"

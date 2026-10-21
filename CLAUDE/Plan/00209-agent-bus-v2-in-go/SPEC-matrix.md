@@ -1,4 +1,7 @@
-# SPEC: `bus/matrix` and `bus/matrix/fakehs` (Plan 00209 milestone M1)
+# SPEC: `teamchat/matrix` and `teamchat/matrix/fakehs` (Plan 00209 milestone M1, Task 1.5)
+
+The packages are `src-go/internal/teamchat/matrix` and its `fakehs`, under D 3.3's package
+root. They were first built as `bus/matrix`; the expectations are unchanged by the move.
 
 The Matrix client-server client both sides of the v2 bus use (DESIGN.md 3.2, 9), and the
 in-memory homeserver their tests run against (DESIGN.md 11). Each expectation below is
@@ -13,8 +16,8 @@ transport and endpoints), the v1 fakes `tests/helpers/pingbus/fake_client_api.py
 `tests/helpers/pingbus/fixtures/tuwunel/` (73 fixtures). Plan 00211's SPEC.md 4-8 names what
 the side rooms need.
 
-`bus/matrix` moves JSON and maps failures. It validates nothing an event carries: events,
-state content and invite state are handed on as raw JSON (`json.RawMessage`) for `bus/proto`
+`teamchat/matrix` moves JSON and maps failures. It validates nothing an event carries: events,
+state content and invite state are handed on as raw JSON (`json.RawMessage`) for `teamchat/proto`
 to validate. It checks only what the transport needs (a path segment is safe to send, an answer
 is the shape the endpoint promises).
 
@@ -137,7 +140,7 @@ is the shape the endpoint promises).
 - **M31.** `ServerAdmins` (`GET /_synapse/admin/v2/users?admins=true`): the names; a `users`
   that is not a list, or a `next_token` that is not null, is malformed (`admin.py:505-513`).
 - **M32.** `Devices` (`GET /_synapse/admin/v2/users/{id}/devices`): each device's ID and last-seen
-  time (absent or null is none) (`admin.py:904-920`; grammar checks stay `bus/admin`'s).
+  time (absent or null is none) (`admin.py:904-920`; grammar checks stay the host side's, `teamchat-admin`).
 - **M33.** `Membership` reads `m.room.member` state for a user: its `membership`, or empty when
   there is no such state (404) (`admin.py:392-395`). `Invite`, `Kick` with a reason
   (`admin.py:397-403`).
@@ -200,16 +203,17 @@ is the shape the endpoint promises).
 
 ## 8. What the callers own
 
-`bus/proto`: every grammar (room and event IDs in their room-version-12 form, user IDs, event
-content), so the receive and send rules are applied there. `bus/member`: the sync engine (which
-types, first sync, post-join, gap fill loops, trust re-verification). `bus/admin`: the bootstrap
+`teamchat/proto` (A): every grammar (room and event IDs in their room-version-12 form, user IDs,
+event content), so the receive and send rules are applied there. `teamchat/member` (B): the sync
+engine (which types, first sync, post-join, gap fill loops, trust re-verification). The host side,
+`teamchat-admin` (C): the bootstrap
 and member flows, device-ID grammar, what a non-200 means for each step.
 
 ## 9. Departures from v1
 
 - **MB1.** Room and event IDs are checked here only as safe path segments and as `!`/`$`-led
   printable text, not by protocol's room-version-12 grammar (`![A-Za-z0-9_-]{43}`): that grammar
-  is `bus/proto`'s, and the callers validate an ID before it is used. v1 refused a non-v12 ID in
+  is `teamchat/proto`'s, and the callers validate an ID before it is used. v1 refused a non-v12 ID in
   the client (`matrix.py:117-126`).
 - **MB2.** A segment that is not printable ASCII, or over 255 bytes, is refused before a request
   for every segment, not only room and event IDs.
