@@ -230,10 +230,26 @@ today; rewriting them is out of scope.
   is deleted; the four oracle suites are Go-only (the bash library cases stay); `qa-changed.bash`
   runs them for any `src-go/` file in the binary's build closure; docs updated; CCY 3.95.7.
   Done pending the owner's host run (`meta-deploy.bash` lists `play-claude-yolo.yml`).
-- [ ] 🔄 **Task 4.2**: The ccy launcher: assess and plan; decide with the owner. Assessed in
+- [x] ✅ **Task 4.2**: The ccy launcher: assess and plan. Assessed in
   [ASSESS-ccy-launcher.md](ASSESS-ccy-launcher.md) (about 15,400 lines with its lib and cc, all
-  of it host-side; a strangler port at the same install path, phased); waiting on the owner's
-  decisions D1-D10 there.
+  of it host-side; a strangler port at the same install path, phased). Decisions D1-D10
+  defaulted by the coordinator under the owner's standing "do not gate on me"; each can be
+  overruled before the phase it shapes merges:
+  - D1 (a) strangler at the same path; D2 keep `/var/local/claude-yolo/claude-yolo`, root-owned;
+    D5 plain line prompts first; D6 keep both Python pieces; D7 no partial hand-over inside the
+    launch path; D8 delete the dead bash now. These are the assessment's recommendations.
+  - D3: the version by `-ldflags -X`, the integrity hash over the binary itself; Quick Launch
+    keeps its hash check; the pre-commit bump rule extends to the launcher's `src-go/` paths.
+  - D4 and D10: phases 0 to 2 only (dead code, harness, standalone modes); phases 3 to 5 wait
+    until the owner hits launcher defects or asks. The reversible choice.
+  - D9: keep Docker support. Dropping it removes a working capability, which is the
+    owner's call, not a default.
+- [ ] 🔄 **Task 4.3**: Launcher phase 0.1: delete the dead bash of the assessment's section
+  5.3, after re-proving each name dead on current F44 (the assessment predates later work;
+  the goodbye acceptance now uses `ccy_known_prompts`, so that one is live). CCY bump.
+- [ ] ⬜ **Task 4.4**: Launcher phase 0.2: the differential harness, proven able to fail.
+- [ ] ⬜ **Task 4.5**: Launcher phases 1 and 2: the foundation packages, then `--version`,
+  `--help` and the other standalone modes, each a one-flag cut-over.
 
 ### Phase 5: Review
 
