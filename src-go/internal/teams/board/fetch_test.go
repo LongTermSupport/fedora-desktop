@@ -103,8 +103,9 @@ func busy(t *testing.T, teams []string, checkouts int) *teamtest.World {
 	t.Helper()
 	w := teamtest.New(t)
 	var declared, status, units, tmux strings.Builder
+	declared.WriteString("agent_bus_teams:\n")
 	for i, team := range teams {
-		fmt.Fprintf(&declared, "TEAM\t%s\t%d\tpresent\t%s.agent-bus.internal\t-\t-\n", team, 6167+i, team)
+		fmt.Fprintf(&declared, "  - team: %s\n    port: %d\n", team, 6167+i)
 		fmt.Fprintf(&status, "STATUS\t%s\tcurrent\t-\n", team)
 		fmt.Fprintf(&units, "agent-bus-hs@%s.service loaded active running Homeserver %s\n", team, team)
 		w.On(teamtest.SudoBus+"list "+team, "HUMAN\towner\tjoin\nMEMBER\tp0.1+local.podman\tdev\tjoin\tactive\n", 0)
@@ -115,7 +116,7 @@ func busy(t *testing.T, teams []string, checkouts int) *teamtest.World {
 		w.AddSeat(t, dir, teams[0], "1", filepath.Base(dir)+".1+local.podman")
 		fmt.Fprintf(&tmux, "ccy-p%d 0 %s\n", i, dir)
 	}
-	w.OnDeclare("declared", declared.String())
+	w.WriteHostVars(t, declared.String())
 	w.OnDeclare("status", status.String())
 	w.On("systemctl list-units", units.String(), 0)
 	w.On("tmux -L ccy list-sessions", tmux.String(), 0)

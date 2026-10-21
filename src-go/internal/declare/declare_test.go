@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 
@@ -68,51 +67,6 @@ func lastLine(t *testing.T, f *execx.Fake) string {
 	return last.Line()
 }
 
-func TestDeclared(t *testing.T) {
-	f := &execx.Fake{}
-	script(f, "declared", "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\t\"Builds: the \\\"site\\\"\"\n"+
-		"TEAM\told\t-\tabsent\told.agent-bus.internal\t-\t-\n"+
-		"TEAM\tdash\t-\tabsent\tdash.agent-bus.internal\t-\t\"-\"\n"+
-		"TEAM\tsafe\t-\tabsent\tsafe.agent-bus.internal\t-\t!vaulted\n"+
-		"TEAM\tbad\t-\tabsent\tbad.agent-bus.internal\t-\t!invalid\n")
-	teams, err := newClient(f).Declared(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []Team{
-		{
-			Name: "alpha", Port: 6167, Present: true, ServerName: "alpha.agent-bus.internal", URL: "http://192.0.2.10:6167",
-			Description: `Builds: the "site"`,
-		},
-		{Name: "old", ServerName: "old.agent-bus.internal"},
-		{Name: "dash", ServerName: "dash.agent-bus.internal", Description: "-"},
-		{Name: "safe", ServerName: "safe.agent-bus.internal", DescriptionState: DescriptionVaulted},
-		{Name: "bad", ServerName: "bad.agent-bus.internal", DescriptionState: DescriptionInvalid},
-	}
-	if !reflect.DeepEqual(teams, want) {
-		t.Fatalf("got %+v", teams)
-	}
-	if got := lastLine(t, f); got != prefix+" declared --file /hv.yml" {
-		t.Fatalf("ran %q", got)
-	}
-}
-
-func TestDeclaredRejectsAMalformedLine(t *testing.T) {
-	for _, line := range []string{
-		"TEAM\talpha\t6167\tpresent\tsrv",
-		"TEAM\talpha\t6167\tpresent\tsrv\t-",
-		"TEAM\talpha\tport\tpresent\tsrv\t-\t-",
-		"TEAM\talpha\t6167\tgone\tsrv\t-\t-",
-		"TEAM\talpha\t6167\tpresent\tsrv\t-\tunquoted words",
-	} {
-		f := &execx.Fake{}
-		script(f, "declared", line+"\n")
-		if _, err := newClient(f).Declared(context.Background()); err == nil {
-			t.Fatalf("accepted %q", line)
-		}
-	}
-}
-
 func TestStatusSortsInstalledAndParsesRows(t *testing.T) {
 	f := &execx.Fake{}
 	script(f, "status", "STATUS\talpha\tcurrent\t-\nSTATUS\tbeta\toutdated\tconfig,software\n")
@@ -130,142 +84,11 @@ func TestStatusSortsInstalledAndParsesRows(t *testing.T) {
 	}
 }
 
-func TestOverviewIsTheDeclaredTeamsAndTheirStatesFromOneRun(t *testing.T) {
-	f := &execx.Fake{}
-	script(f, "overview", "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\t-\n"+
-		"STATUS\talpha\tcurrent\t-\nSTATUS\tzeta\tdecide\tundeclared\n")
-	teams, states, err := newClient(f).Overview(context.Background(), "/src", "/applied", []string{"beta", "alpha"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantTeams := []Team{{Name: "alpha", Port: 6167, Present: true, ServerName: "alpha.agent-bus.internal", URL: "http://192.0.2.10:6167"}}
-	wantStates := []Status{{Team: "alpha", State: "current"}, {Team: "zeta", State: "decide", Detail: "undeclared"}}
-	if !reflect.DeepEqual(teams, wantTeams) || !reflect.DeepEqual(states, wantStates) {
-		t.Fatalf("got %+v %+v", teams, states)
-	}
-	line := prefix + " overview --file /hv.yml --source /src --applied /applied --installed alpha --installed beta"
-	if got := lastLine(t, f); got != line || len(f.Calls()) != 1 {
-		t.Fatalf("ran %q in %d calls", got, len(f.Calls()))
-	}
-}
-
-func TestOverviewRejectsAMalformedLineOfEitherKind(t *testing.T) {
-	for _, out := range []string{"TEAM\talpha\tport\tpresent\tsrv\t-\t-\n", "STATUS\talpha\tcurrent\n"} {
-		f := &execx.Fake{}
-		script(f, "overview", out)
-		if _, _, err := newClient(f).Overview(context.Background(), "/s", "/a", nil); err == nil {
-			t.Fatalf("accepted %q", out)
-		}
-	}
-}
-
 func TestStatusRejectsAShortLine(t *testing.T) {
 	f := &execx.Fake{}
 	script(f, "status", "STATUS\talpha\tcurrent\n")
 	if _, err := newClient(f).Status(context.Background(), "/s", "/a", nil); err == nil {
 		t.Fatal("accepted a short STATUS line")
-	}
-}
-
-func TestLimitedKeepsTheScopeWordsField(t *testing.T) {
-	f := &execx.Fake{}
-	script(f, "limited", "LIMITED\talpha\tdocs/, CLAUDE/Plan/\tany repository of example-org or example-org/proj\n")
-	got, err := newClient(f).Limited(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []Limit{{Team: "alpha", Prefixes: "docs/, CLAUDE/Plan/", Trusts: "any repository of example-org or example-org/proj"}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %+v", got)
-	}
-	script(f, "limited", "LIMITED\talpha\tdocs/\n")
-	if _, err := newClient(f).Limited(context.Background()); err == nil {
-		t.Fatal("accepted a LIMITED line with no scope words")
-	}
-}
-
-func TestUndescribedKeepsTheScopeWordsField(t *testing.T) {
-	f := &execx.Fake{}
-	script(f, "undescribed", "UNDESCRIBED\talpha\tany repository of example-org\nUNDESCRIBED\tbeta\texample-org/proj\n")
-	got, err := newClient(f).Undescribed(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []Undescribed{{Team: "alpha", Trusts: "any repository of example-org"}, {Team: "beta", Trusts: "example-org/proj"}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %+v", got)
-	}
-	if line := lastLine(t, f); line != prefix+" undescribed --file /hv.yml" {
-		t.Fatalf("ran %q", line)
-	}
-	script(f, "undescribed", "UNDESCRIBED\talpha\n")
-	if _, err := newClient(f).Undescribed(context.Background()); err == nil {
-		t.Fatal("accepted an UNDESCRIBED line with no scope words")
-	}
-}
-
-func TestElementTeams(t *testing.T) {
-	f := &execx.Fake{}
-	script(f, "element-teams", "ELEMENT\talpha\thttp://192.0.2.10:6167\n")
-	got, err := newClient(f).ElementTeams(context.Background())
-	if err != nil || !reflect.DeepEqual(got, []Profile{{Team: "alpha", BaseURL: "http://192.0.2.10:6167"}}) {
-		t.Fatalf("%+v %v", got, err)
-	}
-	script(f, "element-teams", "ELEMENT\talpha\n")
-	if _, err := newClient(f).ElementTeams(context.Background()); err == nil {
-		t.Fatal("accepted a short ELEMENT line")
-	}
-}
-
-func TestTeamsFor(t *testing.T) {
-	f := &execx.Fake{}
-	script(f, "teams-for", "TEAM\talpha\nTEAM\tbeta\n")
-	got, err := newClient(f).TeamsFor(context.Background(), "example-org/proj")
-	if err != nil || !slices.Equal(got, []string{"alpha", "beta"}) {
-		t.Fatalf("%v %v", got, err)
-	}
-	if line := lastLine(t, f); line != prefix+" teams-for --file /hv.yml --repo example-org/proj" {
-		t.Fatalf("ran %q", line)
-	}
-	script(f, "teams-for", "TEAM\n")
-	if _, err := newClient(f).TeamsFor(context.Background(), "example-org/proj"); err == nil {
-		t.Fatal("accepted a TEAM line with no name")
-	}
-}
-
-func TestChoicesParsesStandingAndDescription(t *testing.T) {
-	f := &execx.Fake{}
-	script(f, "choices", "CHOICE\talpha\tcovers\t\"Builds the site\"\nCHOICE\tbeta\twiden\t-\n"+
-		"CHOICE\tgamma\texcluded\t!vaulted\nCHOICE\tdelta\tunreadable\t!invalid\n")
-	got, err := newClient(f).Choices(context.Background(), "example-org/proj")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []Choice{
-		{Team: "alpha", Standing: StandingCovers, Description: "Builds the site"},
-		{Team: "beta", Standing: StandingWiden},
-		{Team: "gamma", Standing: StandingExcluded, DescriptionState: DescriptionVaulted},
-		{Team: "delta", Standing: StandingUnreadable, DescriptionState: DescriptionInvalid},
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %+v", got)
-	}
-	if line := lastLine(t, f); line != prefix+" choices --file /hv.yml --repo example-org/proj" {
-		t.Fatalf("ran %q", line)
-	}
-}
-
-func TestChoicesRefusesWhatItDoesNotKnow(t *testing.T) {
-	for name, out := range map[string]string{
-		"a standing it does not know": "CHOICE\talpha\tmaybe\t-\n",
-		"a short line":                "CHOICE\talpha\tcovers\n",
-		"a description not JSON":      "CHOICE\talpha\tcovers\tplain\n",
-	} {
-		f := &execx.Fake{}
-		script(f, "choices", out)
-		if _, err := newClient(f).Choices(context.Background(), "example-org/proj"); err == nil {
-			t.Errorf("%s: accepted", name)
-		}
 	}
 }
 
@@ -278,42 +101,6 @@ func TestAddRepo(t *testing.T) {
 	}
 	if line := lastLine(t, f); line != prefix+" add-repo --file /hv.yml --team beta --repo example-org/proj" {
 		t.Fatalf("ran %q", line)
-	}
-}
-
-func TestPlainValueSubcommands(t *testing.T) {
-	f := &execx.Fake{}
-	script(f, "github-remote", "example-org/proj\n")
-	script(f, "address", "192.0.2.10\n")
-	script(f, "suggest-team", "example-org\n")
-	script(f, "next-steps", "Team alpha is up.\n  Sign in\n")
-	c := newClient(f)
-	ctx := context.Background()
-	if got, err := c.GithubRemote(ctx, "git@github.com:Example-Org/proj.git"); err != nil || got != "example-org/proj" {
-		t.Fatalf("remote %q %v", got, err)
-	}
-	if line := lastLine(t, f); line != prefix+" github-remote --url git@github.com:Example-Org/proj.git" {
-		t.Fatalf("ran %q", line)
-	}
-	if got, err := c.Address(ctx); err != nil || got != "192.0.2.10" {
-		t.Fatalf("address %q %v", got, err)
-	}
-	if got, err := c.SuggestTeam(ctx, "example-org"); err != nil || got != "example-org" {
-		t.Fatalf("suggest %q %v", got, err)
-	}
-	if line := lastLine(t, f); line != prefix+" suggest-team --file /hv.yml --name example-org" {
-		t.Fatalf("ran %q", line)
-	}
-	if got, err := c.NextSteps(ctx, "alpha"); err != nil || got != "Team alpha is up.\n  Sign in\n" {
-		t.Fatalf("next-steps %q %v", got, err)
-	}
-}
-
-func TestEmptyPlainValueIsNothing(t *testing.T) {
-	f := &execx.Fake{}
-	script(f, "address", "")
-	if got, err := newClient(f).Address(context.Background()); err != nil || got != "" {
-		t.Fatalf("%q %v", got, err)
 	}
 }
 
@@ -478,17 +265,6 @@ func TestExitCodesBecomeTypedErrors(t *testing.T) {
 	}
 }
 
-func TestACommandThatCannotRunIsNotAnError(t *testing.T) {
-	_, err := newClient(&execx.Fake{}).Declared(context.Background())
-	if !errors.Is(err, execx.ErrUnexpected) {
-		t.Fatalf("got %v", err)
-	}
-	if declErr, ok := errors.AsType[*Error](err); ok {
-		t.Fatalf("a command that did not run is not a declare Error: %v", declErr)
-	}
-}
-
-// The constants are the words declare.py status prints.
 func TestApplyStatesAreDeclaresWords(t *testing.T) {
 	want := map[ApplyState]string{
 		ApplyCurrent: "current", ApplyOutdated: "outdated", ApplyUnbuilt: "unbuilt",
@@ -502,38 +278,6 @@ func TestApplyStatesAreDeclaresWords(t *testing.T) {
 }
 
 // SPEC-many-teams.md S-F2: a SETTING line per key; a key the entry does not set has no value.
-func TestSettingsParsesEachKeyAndItsJSONValue(t *testing.T) {
-	f := &execx.Fake{}
-	script(f, "settings", "SETTING\tteam\t\"alpha\"\nSETTING\tdescription\t-\nSETTING\thumans\t!vaulted\n"+
-		"SETTING\trepos\t[{\"repo\": \"a/b\", \"branches\": [\"main\"]}]\nSETTING\torg\t!invalid\n")
-	got, err := newClient(f).Settings(context.Background(), "alpha")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []Setting{
-		{Key: "team", Value: []byte(`"alpha"`)},
-		{Key: "description"},
-		{Key: "humans", State: SettingVaulted},
-		{Key: "repos", Value: []byte(`[{"repo": "a/b", "branches": ["main"]}]`)},
-		{Key: "org", State: SettingInvalid},
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %+v", got)
-	}
-	if line := lastLine(t, f); line != prefix+" settings --file /hv.yml --team alpha" {
-		t.Fatalf("ran %q", line)
-	}
-}
-
-func TestSettingsRefusesAValueThatIsNotJSON(t *testing.T) {
-	f := &execx.Fake{}
-	script(f, "settings", "SETTING\thumans\t[owner\n")
-	if _, err := newClient(f).Settings(context.Background(), "alpha"); err == nil {
-		t.Fatal("a value that is not JSON was accepted")
-	}
-}
-
-// S-F3: every change is one --value pair of one set run; CheckSet adds --check.
 func TestSetPassesEveryValueInOneRun(t *testing.T) {
 	f := &execx.Fake{}
 	script(f, "set", "CHANGED\tteam alpha: humans, org\n")

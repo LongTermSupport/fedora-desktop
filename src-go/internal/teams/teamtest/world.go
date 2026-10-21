@@ -8,14 +8,17 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/hostcheckout"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/playlock"
@@ -31,7 +34,10 @@ const (
 		"MEMBER\tproj.1+local.podman\tdev\tjoin\tactive\n" +
 		"MEMBER\tproj.2+local.podman\tdev\tjoin\tparked\n" +
 		"MEMBER\tproj.box+role.lxc\tops\tjoin\tactive\n"
-	DeclaredAlpha = "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\t-\n"
+	// HostVarsAlpha is a host_vars declaring team alpha present on port 6167 at the bus address
+	// 192.0.2.10, with no description: declared, it reads as alpha.agent-bus.internal at
+	// http://192.0.2.10:6167.
+	HostVarsAlpha = "agent_bus_address: 192.0.2.10\nagent_bus_teams:\n  - team: alpha\n    port: 6167\n"
 	UnitAlpha     = "agent-bus-hs@alpha.service loaded active running Homeserver alpha\n"
 	// LxcPath is where root's LXC keeps its containers (hostcheckout's default); LxcContainer is
 	// one of them.
@@ -51,8 +57,7 @@ type World struct {
 	Env    map[string]string
 	Root   string
 
-	overview map[string]string
-	counted  int
+	counted int
 
 	seatMu    sync.Mutex
 	seatLocks map[string]*os.File
@@ -68,7 +73,6 @@ func New(t *testing.T) *World {
 	MustWrite(t, filepath.Join(root, "helpers", "agent_bus", "declare.py"), "")
 	w := &World{
 		Out: &bytes.Buffer{}, ErrOut: &bytes.Buffer{}, Fake: &execx.Fake{}, Root: root,
-		overview: map[string]string{},
 	}
 	// The runtime directory the play lock is taken in: the user's own, which only it can write.
 	run := filepath.Join(root, "run")
@@ -109,7 +113,7 @@ func Populated(t *testing.T) *World {
 	w.AddSeat(t, w.Checkout(), "alpha", "1", "proj.1+local.podman")
 	w.AddSeat(t, w.Checkout(), "alpha", "dev", "proj.dev+local.podman")
 	w.HoldSeat(t, w.Checkout(), "alpha", "1", true)
-	w.OnDeclare("declared", DeclaredAlpha)
+	w.WriteHostVars(t, HostVarsAlpha)
 	w.OnDeclare("status", "STATUS\talpha\tcurrent\t-\n")
 	w.On("systemctl list-units", UnitAlpha, 0)
 	w.On("systemctl is-active agent-bus-hs@alpha.service", "active\n", 0)
@@ -154,18 +158,67 @@ func (w *World) DeclarePrefix(sub string) string {
 	return "env PYTHONPATH=" + w.Host.RootDir + " /usr/bin/python3 -P -m helpers.agent_bus.declare " + sub
 }
 
-// OnDeclare scripts one declare.py subcommand. The list is read with "overview", which prints
-// what "declared" prints and then what "status" prints, so scripting either of those scripts
-// its half of the overview.
+// declareReads are the declare.py subcommands ccy-teams answers in-process from the host_vars
+// file: a test gives them a file (WriteHostVars), never a script.
+var declareReads = []string{
+	"declared", "overview", "limited", "undescribed", "element-teams", "teams-for", "choices",
+	"github-remote", "address", "settings", "next-steps", "lxc-members",
+}
+
+// OnDeclare scripts one declare.py subcommand that still runs Python: status, an edit or a
+// check. A read panics: no process answers it, so scripting one would prove nothing.
 func (w *World) OnDeclare(sub, stdout string) {
-	if sub != "declared" && sub != "status" {
-		w.On(w.DeclarePrefix(sub), stdout, 0)
-		return
+	if slices.Contains(declareReads, sub) {
+		panic("teamtest: declare " + sub + " is read in-process; write the host_vars with WriteHostVars")
 	}
-	w.overview[sub] = stdout
-	w.Fake.OnFunc(strings.Fields(w.DeclarePrefix("overview")), func(execx.Cmd) (execx.Result, error) {
-		return execx.Result{Stdout: []byte(w.overview["declared"] + w.overview["status"])}, nil
+	w.On(w.DeclarePrefix(sub), stdout, 0)
+}
+
+// WriteHostVars makes text the host_vars file the reads answer from.
+func (w *World) WriteHostVars(t *testing.T, text string) {
+	t.Helper()
+	MustWrite(t, w.Host.HostVars, text)
+}
+
+// OnDeclareEdit scripts an edit of declare.py (an editing subcommand, still Python) that
+// prints stdout and leaves the host_vars as after, as the real edit writes it, so the reads
+// that follow it answer from the edited file.
+func (w *World) OnDeclareEdit(sub, stdout, after string) {
+	w.Fake.OnFunc(strings.Fields(w.DeclarePrefix(sub)), func(execx.Cmd) (execx.Result, error) {
+		if err := os.WriteFile(w.Host.HostVars, []byte(after), 0o600); err != nil {
+			return execx.Result{}, err
+		}
+		return execx.Result{Stdout: []byte(stdout)}, nil
 	})
+}
+
+// HostVarsWithLxc is HostVarsAlpha with these agent_bus_lxc_members entries, each written as
+// the entry the reader answers it from: an empty Host, Role, State, Checkout or Seat is left out.
+func HostVarsWithLxc(members ...declare.LxcMember) string {
+	var text strings.Builder
+	text.WriteString(HostVarsAlpha)
+	if len(members) > 0 {
+		text.WriteString("agent_bus_lxc_members:\n")
+	}
+	for _, m := range members {
+		fmt.Fprintf(&text, "  - team: %s\n    container: %s\n    user: %s\n", m.Team, m.Container, m.User)
+		for _, kv := range [][2]string{{"host", m.Host}, {"role", m.Role}, {"state", m.State}, {"checkout", m.Checkout}, {"seat", m.Seat}} {
+			if kv[1] != "" {
+				fmt.Fprintf(&text, "    %s: %s\n", kv[0], kv[1])
+			}
+		}
+	}
+	return text.String()
+}
+
+// WriteHostVarsIfAbsent is WriteHostVars when the world has no host_vars file yet.
+func (w *World) WriteHostVarsIfAbsent(t *testing.T, text string) {
+	t.Helper()
+	if _, err := os.Stat(w.Host.HostVars); errors.Is(err, fs.ErrNotExist) {
+		w.WriteHostVars(t, text)
+	} else if err != nil {
+		t.Fatal(err)
+	}
 }
 
 // Spawned counts the processes the fake runner was asked to start since the last call, by

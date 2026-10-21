@@ -428,7 +428,7 @@ func TestRemoveOrParkOnAHumanAndOnATeamAndOnAnUnreadableSeat(t *testing.T) {
 	h = newRig(t)
 	snap = h.pass(t)
 	// a team that cannot be read cannot be taken down: remove answers exit 1
-	h.OnErr(h.DeclarePrefix("overview"), "declare: no", 78)
+	h.WriteHostVars(t, strings.Replace(teamtest.HostVarsAlpha, "port: 6167", "port: none", 1))
 	if _, err := h.s.RemoveOrPark(context.Background(), snap, h.row(t, snap, board.NoDescription)); err != nil {
 		t.Fatal(err)
 	}

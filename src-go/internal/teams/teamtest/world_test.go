@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 )
 
 func TestPopulatedWorldIsAHostWithTeamAlphaUp(t *testing.T) {
@@ -103,16 +104,65 @@ func TestThePlayLockIsTheWorldsOwnAndCanBeHeldAsAnotherRunHoldsIt(t *testing.T) 
 	}
 }
 
-func TestOnDeclareScriptsTheTwoHalvesOfTheOverview(t *testing.T) {
+// The overview reads the host_vars in-process and runs declare.py once, for status.
+func TestTheOverviewReadsTheHostVarsAndRunsOnlyStatus(t *testing.T) {
 	w := New(t)
-	w.OnDeclare("declared", DeclaredAlpha)
+	w.WriteHostVars(t, HostVarsAlpha)
 	w.OnDeclare("status", "STATUS\talpha\tcurrent\t-\n")
 	teams, states, err := w.Host.Declare.Overview(t.Context(), w.Root, w.Host.AppliedDir, nil)
-	if err != nil || len(teams) != 1 || len(states) != 1 {
+	want := []declare.Team{{
+		Name: "alpha", Port: 6167, Present: true, ServerName: "alpha.agent-bus.internal", URL: "http://192.0.2.10:6167",
+	}}
+	if err != nil || !reflect.DeepEqual(teams, want) || len(states) != 1 {
 		t.Fatalf("overview %+v %+v %v", teams, states, err)
 	}
-	w.OnDeclare("limited", "")
-	if !w.Fake.Called("env PYTHONPATH") {
-		t.Fatal("the overview ran through declare.py")
+	if got := w.Spawned(); !reflect.DeepEqual(got, map[string]int{"declare.py status": 1}) {
+		t.Fatalf("started %v", got)
+	}
+}
+
+func TestAScriptedEditLeavesTheFileTheReadsThenAnswerFrom(t *testing.T) {
+	w := New(t)
+	w.WriteHostVars(t, "agent_bus_teams:\n  - team: alpha\n    port: 6167\n")
+	w.OnDeclareEdit("remove", "CHANGED\tteam alpha absent\n", "agent_bus_teams:\n  - team: alpha\n    state: absent\n")
+	if change, err := w.Host.Declare.Remove(t.Context(), "alpha", false); err != nil || !change.Changed {
+		t.Fatalf("%+v %v", change, err)
+	}
+	if teams, err := w.Host.Declare.Declared(t.Context()); err != nil || len(teams) != 1 || teams[0].Present {
+		t.Fatalf("%+v %v", teams, err)
+	}
+}
+
+func TestHostVarsWithLxcIsReadBackAsItsMembers(t *testing.T) {
+	w := New(t)
+	members := []declare.LxcMember{
+		{Team: "alpha", Container: "container-a", User: "agent", Host: "worker", Role: "coordinator", State: "present", Checkout: "/srv/agent/one", Seat: "dev"},
+		{Team: "alpha", Container: "container-b", User: "agent", Host: "worker", Role: "worker", State: "absent", Checkout: "/srv/agent/two"},
+	}
+	w.WriteHostVars(t, HostVarsWithLxc(members...))
+	if got, err := w.Host.Declare.LxcMembers(t.Context()); err != nil || !reflect.DeepEqual(got, members) {
+		t.Fatalf("%+v %v", got, err)
+	}
+}
+
+func TestOnDeclareRefusesARead(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("a read was scripted")
+		}
+	}()
+	New(t).OnDeclare("limited", "")
+}
+
+func TestInteractiveKeepsAHostVarsAlreadyWritten(t *testing.T) {
+	w := Populated(t)
+	Interactive(t, w)
+	if teams, err := w.Host.Declare.Declared(t.Context()); err != nil || len(teams) != 1 {
+		t.Fatalf("%+v %v", teams, err)
+	}
+	empty := New(t)
+	Interactive(t, empty)
+	if limits, err := empty.Host.Declare.Limited(t.Context()); err != nil || len(limits) != 0 {
+		t.Fatalf("%+v %v", limits, err)
 	}
 }

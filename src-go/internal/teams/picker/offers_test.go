@@ -15,7 +15,9 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-const limitedLegacy = "LIMITED\talpha\tdocs/, CLAUDE/\tany repository of example-org\n"
+// hostVarsLimited is alpha made when teams were limited to some folders: limited to docs/ and
+// CLAUDE/, for any repository of example-org.
+const hostVarsLimited = teamtest.HostVarsAlpha + "    org: example-org\n    path_prefixes: [\"docs/\", \"CLAUDE/\"]\n"
 
 // marker is alpha's limit marker.
 func (h rig) marker() string {
@@ -24,7 +26,7 @@ func (h rig) marker() string {
 
 func TestPathLimitYesDropsTheLimitAndAppliesTheTeam(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("limited", limitedLegacy)
+	h.WriteHostVars(t, hostVarsLimited)
 	h.OnDeclare("drop-limit", "CHANGED\talpha\n")
 	h.Script.Gum = []string{"CHOOSE:Remove alpha's limit now"}
 	if err := h.p.offerPathLimits(context.Background()); err != nil {
@@ -96,7 +98,7 @@ func notNow(t *testing.T, h rig, offer func() error, marker, answer string) {
 
 func TestPathLimitNeverIsRememberedAndNeverAskedAgain(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("limited", limitedLegacy)
+	h.WriteHostVars(t, hostVarsLimited)
 	h.Script.Gum = []string{"CHOOSE:Keep alpha's limit and never ask again"}
 	declinedOnce(t, h, func() error { return h.p.offerPathLimits(context.Background()) }, h.marker(),
 		"Kept. ccy-teams will not ask about alpha's limit again; the menu of alpha's row has Ask me about alpha's limit again.\n")
@@ -105,7 +107,7 @@ func TestPathLimitNeverIsRememberedAndNeverAskedAgain(t *testing.T) {
 func TestPathLimitNotNowAndEscAreAskedAgain(t *testing.T) {
 	for _, answer := range []string{"CHOOSE:Not now (ask again next time)", "CANCEL"} {
 		h := newRig(t)
-		h.OnDeclare("limited", limitedLegacy)
+		h.WriteHostVars(t, hostVarsLimited)
 		notNow(t, h, func() error { return h.p.offerPathLimits(context.Background()) }, h.marker(), answer)
 	}
 }
@@ -122,8 +124,7 @@ func TestAnOldNoIsTakenAsNotNow(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newRig(t)
-			h.OnDeclare("limited", limitedLegacy)
-			h.OnDeclare("undescribed", undescribedAlpha)
+			h.WriteHostVars(t, hostVarsLimited)
 			marker := filepath.Join(h.p.StateDir, "declined", tc.marker)
 			teamtest.MustWrite(t, marker, "")
 			h.Script.Gum = []string{tc.answer}
@@ -142,14 +143,14 @@ func TestAnOldNoIsTakenAsNotNow(t *testing.T) {
 
 func TestPathLimitFailuresAreFatal(t *testing.T) {
 	h := newRig(t)
-	h.OnErr(h.DeclarePrefix("limited"), "declare: cannot read", 78)
+	h.WriteHostVars(t, teamtest.HostVarsAlpha+"    path_prefixes: !vault x\n")
 	err := h.p.offerPathLimits(context.Background())
 	if code, ok := flow.ExitCodeOf(err); !ok || code != term.ExitFailure {
 		t.Fatalf("limited failing: %v", err)
 	}
 
 	h = newRig(t)
-	h.OnDeclare("limited", limitedLegacy)
+	h.WriteHostVars(t, hostVarsLimited)
 	h.OnErr(h.DeclarePrefix("drop-limit"), "declare: refused", 78)
 	h.Script.Gum = []string{"CHOOSE:Remove alpha's limit now"}
 	err = h.p.offerPathLimits(context.Background())
@@ -160,7 +161,7 @@ func TestPathLimitFailuresAreFatal(t *testing.T) {
 
 func TestPathLimitApplyFailureIsSaidAndGoesOn(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("limited", limitedLegacy)
+	h.WriteHostVars(t, hostVarsLimited)
 	h.OnDeclare("drop-limit", "CHANGED\talpha\n")
 	h.OnErr(h.Host.Play, "play failed", 1)
 	h.Script.Gum = []string{"CHOOSE:Remove alpha's limit now"}
@@ -172,7 +173,8 @@ func TestPathLimitApplyFailureIsSaidAndGoesOn(t *testing.T) {
 	}
 }
 
-const undescribedAlpha = "UNDESCRIBED\talpha\tany repository of example-org\n"
+// hostVarsUndescribed is alpha with no description, for any repository of example-org.
+const hostVarsUndescribed = teamtest.HostVarsAlpha + "    org: example-org\n"
 
 func (h rig) declined() string {
 	return filepath.Join(h.p.StateDir, "declined", "description-alpha")
@@ -180,7 +182,7 @@ func (h rig) declined() string {
 
 func TestDescriptionYesAsksChecksDescribesAndAppliesTheTeam(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("undescribed", undescribedAlpha)
+	h.askAboutAlphasDescription(t)
 	h.OnDeclare("check", "")
 	h.OnDeclare("describe", "CHANGED\tteam alpha description\n")
 	h.Script.Gum = []string{"CHOOSE:Describe alpha now", "CHOOSE:Builds the example site"}
@@ -207,7 +209,7 @@ func TestDescriptionYesAsksChecksDescribesAndAppliesTheTeam(t *testing.T) {
 
 func TestDescriptionNeverIsRememberedAndNeverAskedAgain(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("undescribed", undescribedAlpha)
+	h.askAboutAlphasDescription(t)
 	h.Script.Gum = []string{"CHOOSE:Never ask about alpha"}
 	declinedOnce(t, h, func() error { return h.p.offerDescriptions(context.Background()) }, h.declined(),
 		"Kept. ccy-teams will not ask about alpha's description again; the menu of alpha's row has Ask me to describe alpha again.\n")
@@ -216,7 +218,7 @@ func TestDescriptionNeverIsRememberedAndNeverAskedAgain(t *testing.T) {
 func TestDescriptionNotNowAndEscAreAskedAgain(t *testing.T) {
 	for _, answer := range []string{"CHOOSE:Not now (ask again next time)", "CANCEL"} {
 		h := newRig(t)
-		h.OnDeclare("undescribed", undescribedAlpha)
+		h.askAboutAlphasDescription(t)
 		notNow(t, h, func() error { return h.p.offerDescriptions(context.Background()) }, h.declined(), answer)
 	}
 }
@@ -254,7 +256,7 @@ func TestATeamMarkedNeverCanBeAskedAboutAgainFromItsRowMenu(t *testing.T) {
 
 func TestARefusedDescriptionIsAskedAgainWithWhatWasTyped(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("undescribed", undescribedAlpha)
+	h.askAboutAlphasDescription(t)
 	h.OnDeclare("check", "")
 	h.OnErr(h.DeclarePrefix("check")+" --file "+h.Host.HostVars+" --description bad", "declare: --description: nope", 64)
 	h.OnDeclare("describe", "CHANGED\tteam alpha description\n")
@@ -272,7 +274,7 @@ func TestARefusedDescriptionIsAskedAgainWithWhatWasTyped(t *testing.T) {
 
 func TestADescriptionWhoseApplyFailsFailsTheFlowAndNamesTheRetry(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("undescribed", undescribedAlpha)
+	h.askAboutAlphasDescription(t)
 	h.OnDeclare("check", "")
 	h.OnDeclare("describe", "CHANGED\tteam alpha description\n")
 	h.OnErr(h.Host.Play, "play failed", 1)
@@ -290,7 +292,7 @@ func TestADescriptionWhoseApplyFailsFailsTheFlowAndNamesTheRetry(t *testing.T) {
 // The description is written and applied in one hold of the play lock.
 func TestADescriptionIsWrittenAndAppliedInOneHoldOfThePlayLock(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("undescribed", undescribedAlpha)
+	h.askAboutAlphasDescription(t)
 	h.OnDeclare("check", "")
 	heldAtWrite := false
 	h.Fake.OnFunc(strings.Fields(h.DeclarePrefix("describe")), func(execx.Cmd) (execx.Result, error) {
@@ -310,7 +312,7 @@ func TestADescriptionIsWrittenAndAppliedInOneHoldOfThePlayLock(t *testing.T) {
 // screen naming the holder; stopping it writes nothing, so nothing is left saved but not applied.
 func TestStoppingTheWaitForThePlayLockLeavesTheDescriptionUnwritten(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("undescribed", undescribedAlpha)
+	h.askAboutAlphasDescription(t)
 	h.OnDeclare("check", "")
 	h.OnDeclare("describe", "CHANGED\tteam alpha description\n")
 	h.HoldPlayLock(t)
@@ -341,7 +343,7 @@ func TestStoppingTheWaitForThePlayLockLeavesTheDescriptionUnwritten(t *testing.T
 
 func TestStoppingTheWaitForThePlayLockKeepsThePathLimit(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("limited", limitedLegacy)
+	h.WriteHostVars(t, hostVarsLimited)
 	h.OnDeclare("drop-limit", "CHANGED\talpha\n")
 	h.HoldPlayLock(t)
 	h.Script.Gum = []string{"CHOOSE:Remove alpha's limit now"}
@@ -359,7 +361,7 @@ func TestStoppingTheWaitForThePlayLockKeepsThePathLimit(t *testing.T) {
 
 func TestCancellingTheDescriptionQuestionLeavesNothingWritten(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("undescribed", undescribedAlpha)
+	h.askAboutAlphasDescription(t)
 	h.Script.Gum = []string{"CHOOSE:Describe alpha now", "ABORT"}
 	if err := h.p.offerDescriptions(context.Background()); err == nil {
 		t.Fatal("Ctrl-C ends the picker")
@@ -371,7 +373,7 @@ func TestCancellingTheDescriptionQuestionLeavesNothingWritten(t *testing.T) {
 
 func TestOfferUpdateListsTeamsInOrderAndDeclinedDoesNothing(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("declared", teamtest.DeclaredAlpha+"TEAM\tbeta\t6168\tpresent\tbeta.agent-bus.internal\t-\t-\n")
+	h.WriteHostVars(t, teamtest.HostVarsAlpha+"  - team: beta\n    port: 6168\n")
 	h.On("systemctl list-units", teamtest.UnitAlpha, 0)
 	h.OnDeclare("status", "STATUS\talpha\tcurrent\t-\nSTATUS\tbeta\tunbuilt\t-\n")
 	h.Script.Gum = []string{"NO"}
@@ -398,7 +400,7 @@ func TestOfferUpdateSaysNothingWhenAllIsCurrent(t *testing.T) {
 
 func TestOfferUpdateFailsWhenStatusCannotBeRead(t *testing.T) {
 	h := newRig(t)
-	h.OnErr(h.DeclarePrefix("overview"), "declare: bad", 78)
+	h.OnErr(h.DeclarePrefix("status"), "declare: bad", 78)
 	err := h.p.offerUpdate(context.Background())
 	if code, ok := flow.ExitCodeOf(err); !ok || code != term.ExitFailure {
 		t.Fatalf("%v", err)
@@ -429,9 +431,8 @@ func TestOfferUpdateCancelledAndFailedApplyAreKept(t *testing.T) {
 func TestOfferJoinHereAsksForTeamsThatCoverTheCheckout(t *testing.T) {
 	h := newRig(t)
 	h.inProject()
-	h.On("git remote get-url origin", "git@example.com:example-org/proj.git\n", 0)
-	h.OnDeclare("github-remote", "example-org/proj\n")
-	h.OnDeclare("teams-for", "TEAM\talpha\n")
+	h.On("git remote get-url origin", "git@github.com:example-org/proj.git\n", 0)
+	h.WriteHostVars(t, hostVarsUndescribed)
 	h.Script.Gum = []string{"YES"}
 	s, err := h.b.Collect(context.Background())
 	if err != nil {
@@ -465,9 +466,7 @@ func TestOfferJoinHereAsksForTeamsThatCoverTheCheckout(t *testing.T) {
 func TestOfferJoinHereWithNoTeamForTheRepositoryOffersToCreateOne(t *testing.T) {
 	h := newRig(t)
 	h.inProject()
-	h.On("git remote get-url origin", "git@example.com:example-org/proj.git\n", 0)
-	h.OnDeclare("github-remote", "example-org/proj\n")
-	h.OnDeclare("teams-for", "")
+	h.On("git remote get-url origin", "git@github.com:example-org/proj.git\n", 0)
 	h.Script.Gum = []string{"NO", "NO"}
 	r := &run{p: h.p, snap: board.NewSnapshot()}
 	if err := r.offerJoinHere(context.Background()); err != nil {
@@ -495,9 +494,7 @@ func TestOfferJoinHereWithNoTeamForTheRepositoryOffersToCreateOne(t *testing.T) 
 
 	h = newRig(t)
 	h.inProject()
-	h.On("git remote get-url origin", "git@example.com:example-org/proj.git\n", 0)
-	h.OnDeclare("github-remote", "example-org/proj\n")
-	h.OnDeclare("teams-for", "")
+	h.On("git remote get-url origin", "git@github.com:example-org/proj.git\n", 0)
 	// yes to the offer; the wizard runs and stops at gh, which is not logged in
 	h.OnErr("gh auth status", "not logged in", 1)
 	h.Script.Gum = []string{"YES"}
@@ -529,19 +526,21 @@ func TestOfferJoinHereSkipsWhatItCannotDecide(t *testing.T) {
 	// declare cannot answer: said, and skipped
 	h = newRig(t)
 	h.inProject()
+	h.On("git remote get-url origin", "git@github.com:example-org/proj.git\n", 0)
+	// github-remote is read in-process and cannot fail: the nearest case is a remote that is
+	// not on GitHub, which names no repository to look teams up for
 	h.On("git remote get-url origin", "git@example.com:example-org/proj.git\n", 0)
-	h.OnErr(h.DeclarePrefix("github-remote"), "declare: nope", 64)
 	r = &run{p: h.p, snap: board.NewSnapshot()}
-	if err := r.offerJoinHere(context.Background()); err != nil || !strings.Contains(h.ErrOut.String(), "declare: nope") {
-		t.Fatalf("%v %q", err, h.ErrOut.String())
+	if err := r.offerJoinHere(context.Background()); err != nil || len(h.Script.GumLog) != 0 {
+		t.Fatalf("%v %v", err, h.Script.GumLog)
 	}
 	h = newRig(t)
 	h.inProject()
-	h.On("git remote get-url origin", "git@example.com:example-org/proj.git\n", 0)
-	h.OnDeclare("github-remote", "example-org/proj\n")
-	h.OnErr(h.DeclarePrefix("teams-for"), "declare: nope", 64)
+	h.On("git remote get-url origin", "git@github.com:example-org/proj.git\n", 0)
+	h.WriteHostVars(t, teamtest.HostVarsAlpha+"    repos: !vault x\n")
 	r = &run{p: h.p, snap: board.NewSnapshot()}
-	if err := r.offerJoinHere(context.Background()); err != nil || !strings.Contains(h.ErrOut.String(), "declare: nope") {
+	refused := "declare: alpha's repos on line 5 is tagged (vault-encrypted?); ccy-teams reads only plain values"
+	if err := r.offerJoinHere(context.Background()); err != nil || !strings.Contains(h.ErrOut.String(), refused) {
 		t.Fatalf("%v %q", err, h.ErrOut.String())
 	}
 }
@@ -549,9 +548,7 @@ func TestOfferJoinHereSkipsWhatItCannotDecide(t *testing.T) {
 func TestOfferJoinHereWithNoTeamForTheRepositoryCanStartASessionThatChoosesItsTeams(t *testing.T) {
 	h := newRig(t)
 	h.inProject()
-	h.On("git remote get-url origin", "git@example.com:example-org/proj.git\n", 0)
-	h.OnDeclare("github-remote", "example-org/proj\n")
-	h.OnDeclare("teams-for", "")
+	h.On("git remote get-url origin", "git@github.com:example-org/proj.git\n", 0)
 	h.Script.Gum = []string{"NO", "YES"}
 	r := &run{p: h.p, snap: board.NewSnapshot()}
 	err := r.offerJoinHere(context.Background())

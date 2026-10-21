@@ -2,6 +2,8 @@ package picker
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -67,7 +69,6 @@ func newRig(t *testing.T) rig {
 	l := login.New(h, kit, b, o)
 	s := seats.New(h, kit, o)
 	w.On(h.Play, "", 0)
-	w.OnDeclare("element-teams", "")
 	p := New(h, kit, b, o, create.New(h, o, l), l, s, lxcadd.New(h, kit, o))
 	p.Shutdown = shutdown.New(h, kit, b)
 	p.Restart = restart.New(h, kit, b)
@@ -75,7 +76,25 @@ func newRig(t *testing.T) rig {
 	p.Settings = settings.New(h, kit, o.ApplyTeams, o.Locked, s.ChangeRole)
 	ses := &fakeSessions{}
 	p.Session = ses
+	// Populated's alpha has no description, so the reader lists it undescribed and the picker
+	// offers to describe it at every start. The fake world these tests were written on answered
+	// "undescribed" with nothing, which no host_vars can do for a team with no description; the
+	// nearest real machine is one whose owner answered that offer "never". The tests of the offer
+	// ask for it back with askAboutAlphasDescription. Beta, which withBeta declares, is the same.
+	for _, team := range []string{"alpha", "beta"} {
+		teamtest.MustWrite(t, filepath.Join(p.StateDir, "declined", "description-"+team), neverRecord)
+	}
 	return rig{World: w, Console: c, b: b, o: o, p: p, ses: ses}
+}
+
+// askAboutAlphasDescription makes alpha an undescribed team of example-org whose description
+// the picker offers to write: the "never" answer newRig gives is forgotten.
+func (h rig) askAboutAlphasDescription(t *testing.T) {
+	t.Helper()
+	h.WriteHostVars(t, hostVarsUndescribed)
+	if err := os.Remove(h.declined()); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // run1 is one collection of the machine, and the picker state the key handlers act on.
@@ -132,11 +151,11 @@ func (h rig) outdatedUntilApplied(detail string) {
 		applied = true
 		return execx.Result{}, nil
 	})
-	h.Fake.OnFunc(strings.Fields(h.DeclarePrefix("overview")), func(execx.Cmd) (execx.Result, error) {
+	h.Fake.OnFunc(strings.Fields(h.DeclarePrefix("status")), func(execx.Cmd) (execx.Result, error) {
 		state := "STATUS\talpha\toutdated\t" + detail + "\n"
 		if applied {
 			state = "STATUS\talpha\tcurrent\t-\n"
 		}
-		return execx.Result{Stdout: []byte(teamtest.DeclaredAlpha + state)}, nil
+		return execx.Result{Stdout: []byte(state)}, nil
 	})
 }
