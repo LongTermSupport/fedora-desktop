@@ -40,7 +40,11 @@ originals are gone.
   (exit codes, error printing), `ui` (gum and fzf prompts), `sudo`, `systemd`, `tmuxccy`,
   `gitx`, `registry`, `agentbus`, `declare`, `marker`, `screen`, `transcript`, `restore`,
   `sessprobe`, `fsx` (atomic file writes), `ccyenv` (is CCY installed, is this a container),
-  `shellword` (POSIX shell quoting for a command shown to a person or a value a shell reads).
+  `shellword` (POSIX shell quoting for a command shown to a person or a value a shell reads),
+  `engine` (the ccy launcher's container engine: selection, the questions it asks podman or
+  docker, the rootless and SELinux verdicts, the relabel preflight; E1-E9 in its package doc)
+  and `tokens` (the token pool ccy and cc share: file names, expiry, the listing, the pool
+  verdict; T1-T8).
 - `internal/watermark/` — the watermark command (spec `SPEC-wsi-watermark.md`, M1-M14): its
   config files read as `KEY=VALUE` data, the magick and exiftool argv, through `execx`.
 - `internal/wsi/` — the batch speech-to-text recorder the panel starts (same spec, W1-W35):
@@ -96,7 +100,10 @@ originals are gone.
   every run function returns one and only a `main` turns it into the `int` for `os.Exit`;
   diagnostics go to stderr, the payload to stdout ([StderrHygiene.md](../CLAUDE/StderrHygiene.md)).
 
-- **Secrets never in argv.** A password goes to its consumer on stdin.
+- **Secrets never in argv.** A password goes to its consumer on stdin; a token a program reads
+  by name (`podman run -e NAME`, gh's `GH_TOKEN`) goes as an `execx.Secret` in `Cmd.Secrets`,
+  which refuses a command whose argv holds the value and prints as its name only. Take one
+  from the environment with `execx.TakeSecret`, so no unrelated child inherits it.
 
 - **Pickers and menus: visible choices, not magic keys.** Every action in a `ui` picker is
   a named row or menu line; a key is only an accelerator, printed beside its action

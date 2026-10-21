@@ -313,8 +313,43 @@ today; rewriting them is out of scope.
     instead, and the dead `CCY_LIFECYCLE_PLUGIN_PATH` export goes.
   - Review (Opus, FIX-FIRST): `subagent-reports/261021-launcher-harness-review-opus.md`; every
     finding fixed as above.
-- [ ] ⬜ **Task 4.5**: Launcher phases 1 and 2: the foundation packages, then `--version`,
+- [ ] 🔄 **Task 4.5**: Launcher phases 1 and 2: the foundation packages, then `--version`,
   `--help` and the other standalone modes, each a one-flag cut-over.
+  - Phase 1 built (nothing cut over or installed, no play change, no CCY bump), each package
+    to the intended behaviour its package doc numbers, test first, bash suites' cases ported
+    as Go tables: `internal/engine` (E1-E9: selection, a runner for image inspect, ps, rm -f,
+    network ls, info and the uid map, the rootless and SELinux verdicts with every case of
+    `rootless-guard` and `selinux-verdict`, the relabel preflight's pure parts with the pure
+    cases of `relabel-preflight`; an Engine is built only by `engine.New`, podman or docker);
+    `internal/tokens` (T1-T8: file names and expiry, validity, expiry colours, the shadow
+    warning, the listing, the pool verdict per mode and the import switch, with the cases of
+    `token-mode` and `token-import-cleanup` that need no container); `execx` (`Secret`: a
+    value passed to one child by name, refused in argv, never printed, the child seeing that
+    one value of its name; `TakeSecret` moves it out of the environment; `Foreground`: the
+    child in the terminal's group, TERM and HUP forwarded, INT and QUIT outlived, its status
+    returned, proven with real `sh` children and real signals; `Cleanups` and
+    `SignalContext`); `ui.Lines` (plain line questions: y/N, text, a keyed menu, three tries,
+    end of input or the end of the context cancels).
+  - Departures from bash, decided: an unknown engine is refused at selection and a dangling
+    `--engine` is a usage error; a failed image inspect is not a missing image; docker's
+    unreadable SELinux report relabels; a token stamp must be `<name>.<calendar date>.token`;
+    `--token NAME` never picks an undated file; expiry colour only on a terminal; tokens are
+    never exported to unrelated children.
+  - Review (`subagent-reports/261021-launcher-phase1-review-opus.md`, FIX-FIRST) fixed: the
+    relabel fix argv lacked find's closing `+` (now the printed fix quotes the argv, and a
+    test runs it under the real find); a Secret or Env name the parent also exported reached
+    an exec'd child twice (`execx.ChildEnv` now gives each name once); `Engine.cmd`'s
+    exemption rested on an unchecked kind (now unexported, set by `engine.New`); `ui.Lines`
+    takes a context; the Foreground and SignalContext interplay, the Secret residues and the
+    `Secret` rule in `src-go/CLAUDE.md` are documented; the flaky
+    `TestSessionDeadlineKillsTheGroupAfterTheShellExited` read a process reaped mid-read
+    (ESRCH) as an error, and now counts it as ended.
+  - Follow-ups, not phase 1: `internal/wsitoken` parses the same token pool with opposite
+    rules (a file dated today usable, the newest file wins); port it onto `tokens`. Phase 2
+    states how the launcher combines Foreground with SignalContext (the child's status from
+    `Exit`), and tests that tokens reach only their consumer (`TakeSecret`). `ui.Lines`'
+    `Colour` flag is the opposite sense of `ui.Gum`'s `Plain`.
+  - Phase 2 (the standalone-mode cut-overs) follows.
 
 ### Phase 5: Review
 

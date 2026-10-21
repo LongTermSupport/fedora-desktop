@@ -126,6 +126,11 @@ var dynamicNames = []allowance{
 		reason: "a project's daemon CLI path, or the container engine that execs it inside the project's container",
 	},
 	{
+		pkg:    "internal/engine",
+		fn:     "Engine.cmd",
+		reason: "the ccy launcher's container engine, podman or docker: an Engine's kind is unexported and set only by engine.New, which refuses any other name",
+	},
+	{
 		pkg:    hostPkg,
 		fn:     "launcherVia",
 		reason: "the ccy launcher path the process is replaced with, given by the environment",
