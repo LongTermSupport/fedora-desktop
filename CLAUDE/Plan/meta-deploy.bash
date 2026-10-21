@@ -136,6 +136,10 @@ BAD=0
 
 for planDir in "${PLAN_DIRS[@]}"; do
     planName="$(basename "${planDir}")"
+    # The unit whose exit status is judged after this if: none for a plan whose acceptance
+    # did not run.
+    unit=""
+    status=0
 
     # A playbook or a single plan script: one unit, one log, one verdict.
     if [[ "${planDir}" == *.yml || "${planDir}" == *.bash ]]; then
@@ -143,108 +147,106 @@ for planDir in "${PLAN_DIRS[@]}"; do
             planName="$(basename "$(dirname "${planDir}")")-${planName}"
         fi
         printf '\n===> %s\n' "${planName}"
+        unit="${planName}"
         status=0
         "${planDir}" 2>&1 | tee "${CAPTURE_DIR}/${planName}.log" || status="${PIPESTATUS[0]}"
-        if [[ "${status}" == "0" ]]; then
-            RESULTS+=("PASS  ${planName}")
-        else
-            RESULTS+=("FAIL  ${planName} (exit ${status})")
-            BAD=$((BAD + 1))
+    else
+        triageArgs=()
+        read -r -a triageArgs <<<"${TRIAGE_ARGS["${planDir}"]}"
+
+        # ACCEPTANCE IS SKIPPED WHEN THE DEPLOY FAILED, and this is not tidiness.
+        # acceptance.bash judges the machine's CURRENT state, so after a failed deploy it
+        # judges whatever the last successful deploy left behind — and returns PASS for code
+        # that never landed. That is a green verdict about something that did not happen,
+        # which is worse than a red one. It has already occurred: plan 032 reported
+        # "FAIL deploy / PASS acceptance" in one run.
+        #
+        # Fail-fast, per CLAUDE.md: never decouple dependent operations.
+        # TRIAGE BRACKETS THE DEPLOY, before and after.
+        #
+        # Two reasons, and neither is tidiness. First, some gates need the pair: plan 00112's
+        # check [5] asks whether the deploy REMOVED anything from the enabled list, which no
+        # single reading can answer — without a before and an after it reports COULD NOT
+        # ESTABLISH, so under a deploy-then-acceptance harness that plan can never exit 0
+        # however healthy the machine is. Second, when something does fail, the pair is the
+        # evidence: one reading says what the host looks like, two say what the deploy did.
+        #
+        # Triage is read-only and renders no verdict, so its exit status is recorded but does
+        # NOT gate the deploy — a fact-finder that could not collect everything is not a
+        # reason to refuse to deploy.
+        if [[ -x "${planDir}/triage.bash" ]]; then
+            printf '\n===> %s / triage.bash (before)\n' "${planName}"
+            if "${planDir}/triage.bash" "${triageArgs[@]}" 2>&1 | tee "${CAPTURE_DIR}/${planName}-triage-before.log"; then
+                RESULTS+=("PASS  ${planName}/triage.bash (before)")
+            else
+                RESULTS+=("note  ${planName}/triage.bash (before) exit ${PIPESTATUS[0]} — read-only, does not gate the deploy")
+            fi
         fi
-        continue
-    fi
 
-    triageArgs=()
-    read -r -a triageArgs <<<"${TRIAGE_ARGS["${planDir}"]}"
-
-    # ACCEPTANCE IS SKIPPED WHEN THE DEPLOY FAILED, and this is not tidiness.
-    # acceptance.bash judges the machine's CURRENT state, so after a failed deploy it
-    # judges whatever the last successful deploy left behind — and returns PASS for code
-    # that never landed. That is a green verdict about something that did not happen,
-    # which is worse than a red one. It has already occurred: plan 032 reported
-    # "FAIL deploy / PASS acceptance" in one run.
-    #
-    # Fail-fast, per CLAUDE.md: never decouple dependent operations.
-    # TRIAGE BRACKETS THE DEPLOY, before and after.
-    #
-    # Two reasons, and neither is tidiness. First, some gates need the pair: plan 00112's
-    # check [5] asks whether the deploy REMOVED anything from the enabled list, which no
-    # single reading can answer — without a before and an after it reports COULD NOT
-    # ESTABLISH, so under a deploy-then-acceptance harness that plan can never exit 0
-    # however healthy the machine is. Second, when something does fail, the pair is the
-    # evidence: one reading says what the host looks like, two say what the deploy did.
-    #
-    # Triage is read-only and renders no verdict, so its exit status is recorded but does
-    # NOT gate the deploy — a fact-finder that could not collect everything is not a
-    # reason to refuse to deploy.
-    if [[ -x "${planDir}/triage.bash" ]]; then
-        printf '\n===> %s / triage.bash (before)\n' "${planName}"
-        if "${planDir}/triage.bash" "${triageArgs[@]}" 2>&1 | tee "${CAPTURE_DIR}/${planName}-triage-before.log"; then
-            RESULTS+=("PASS  ${planName}/triage.bash (before)")
-        else
-            RESULTS+=("note  ${planName}/triage.bash (before) exit ${PIPESTATUS[0]} — read-only, does not gate the deploy")
-        fi
-    fi
-
-    deployOk=1
-    if [[ -x "${planDir}/deploy.bash" ]]; then
-        printf '\n===> %s / deploy.bash\n' "${planName}"
-        # PIPESTATUS[0] is the script's status, not tee's; the `||` branch runs only when the
-        # pipeline failed (pipefail), and keeps errexit from ending the batch before the verdict.
-        status=0
-        "${planDir}/deploy.bash" 2>&1 | tee "${CAPTURE_DIR}/${planName}-deploy.log" || status="${PIPESTATUS[0]}"
-        if [[ "${status}" == "0" ]]; then
-            RESULTS+=("PASS  ${planName}/deploy.bash")
-        else
-            RESULTS+=("FAIL  ${planName}/deploy.bash (exit ${status})")
-            deployOk=0
-            BAD=$((BAD + 1))
-        fi
-    fi
-
-    # The second half of the bracket — and it must come BEFORE acceptance, since the
-    # gates that want a pair read it from triage's own run logs.
-    if [[ -x "${planDir}/triage.bash" && -x "${planDir}/deploy.bash" && "${deployOk}" == "1" ]]; then
-        printf '\n===> %s / triage.bash (after)\n' "${planName}"
-        if "${planDir}/triage.bash" "${triageArgs[@]}" 2>&1 | tee "${CAPTURE_DIR}/${planName}-triage-after.log"; then
-            RESULTS+=("PASS  ${planName}/triage.bash (after)")
-        else
-            RESULTS+=("note  ${planName}/triage.bash (after) exit ${PIPESTATUS[0]} — read-only, does not gate acceptance")
-        fi
-    fi
-
-    if [[ -x "${planDir}/acceptance.bash" ]]; then
-        if [[ "${deployOk}" == "1" ]]; then
-            printf '\n===> %s / acceptance.bash\n' "${planName}"
+        deployOk=1
+        if [[ -x "${planDir}/deploy.bash" ]]; then
+            printf '\n===> %s / deploy.bash\n' "${planName}"
+            # PIPESTATUS[0] is the script's status, not tee's; the `||` branch runs only when the
+            # pipeline failed (pipefail), and keeps errexit from ending the batch before the verdict.
             status=0
-            "${planDir}/acceptance.bash" 2>&1 | tee "${CAPTURE_DIR}/${planName}-acceptance.log" || status="${PIPESTATUS[0]}"
-            # EXIT 2 IS A THIRD VERDICT, NOT A FAILURE. An acceptance gate here may answer
-            # ACCEPTED (0), REJECTED (1) or COULD NOT ESTABLISH (2) — the last meaning
-            # nothing failed but some check had no evidence to judge on. Collapsing it into
-            # FAIL reports a broken machine where the truth is an unanswered question, and
-            # that is precisely the distinction those gates were written to preserve. It
-            # still counts as bad, because an unanswered question is not a pass.
-            case "${status}" in
-                0)
-                    RESULTS+=("PASS  ${planName}/acceptance.bash")
-                    ;;
-                2)
-                    RESULTS+=("UNSET ${planName}/acceptance.bash (exit 2 — COULD NOT ESTABLISH: nothing failed, but some check had no evidence)")
-                    BAD=$((BAD + 1))
-                    ;;
-                *)
-                    RESULTS+=("FAIL  ${planName}/acceptance.bash (exit ${status})")
-                    BAD=$((BAD + 1))
-                    ;;
-            esac
-        else
-            printf '\n===> %s / acceptance.bash SKIPPED — its deploy failed\n' "${planName}"
-            RESULTS+=("SKIP  ${planName}/acceptance.bash (deploy failed; a verdict here would judge the previous deploy)")
-            # A skipped acceptance is a plan left unjudged, so it counts as bad. Exiting 0
-            # with an unjudged plan in the batch is the same false green in a new place.
-            BAD=$((BAD + 1))
+            "${planDir}/deploy.bash" 2>&1 | tee "${CAPTURE_DIR}/${planName}-deploy.log" || status="${PIPESTATUS[0]}"
+            if [[ "${status}" == "0" ]]; then
+                RESULTS+=("PASS  ${planName}/deploy.bash")
+            else
+                RESULTS+=("FAIL  ${planName}/deploy.bash (exit ${status})")
+                deployOk=0
+                BAD=$((BAD + 1))
+            fi
+        fi
+
+        # The second half of the bracket — and it must come BEFORE acceptance, since the
+        # gates that want a pair read it from triage's own run logs.
+        if [[ -x "${planDir}/triage.bash" && -x "${planDir}/deploy.bash" && "${deployOk}" == "1" ]]; then
+            printf '\n===> %s / triage.bash (after)\n' "${planName}"
+            if "${planDir}/triage.bash" "${triageArgs[@]}" 2>&1 | tee "${CAPTURE_DIR}/${planName}-triage-after.log"; then
+                RESULTS+=("PASS  ${planName}/triage.bash (after)")
+            else
+                RESULTS+=("note  ${planName}/triage.bash (after) exit ${PIPESTATUS[0]} — read-only, does not gate acceptance")
+            fi
+        fi
+
+        if [[ -x "${planDir}/acceptance.bash" ]]; then
+            if [[ "${deployOk}" == "1" ]]; then
+                printf '\n===> %s / acceptance.bash\n' "${planName}"
+                unit="${planName}/acceptance.bash"
+                status=0
+                "${planDir}/acceptance.bash" 2>&1 | tee "${CAPTURE_DIR}/${planName}-acceptance.log" || status="${PIPESTATUS[0]}"
+            else
+                printf '\n===> %s / acceptance.bash SKIPPED — its deploy failed\n' "${planName}"
+                RESULTS+=("SKIP  ${planName}/acceptance.bash (deploy failed; a verdict here would judge the previous deploy)")
+                # A skipped acceptance is a plan left unjudged, so it counts as bad. Exiting 0
+                # with an unjudged plan in the batch is the same false green in a new place.
+                BAD=$((BAD + 1))
+            fi
         fi
     fi
+
+    # EXIT 2 IS A THIRD VERDICT, NOT A FAILURE, for a plan script. An acceptance gate may
+    # answer ACCEPTED (0), REJECTED (1) or COULD NOT ESTABLISH (2) — the last meaning nothing
+    # failed but some check had no evidence to judge on. Collapsing it into FAIL reports a
+    # broken machine where the truth is an unanswered question, and that is precisely the
+    # distinction those gates were written to preserve. It still counts as bad, because an
+    # unanswered question is not a pass. A playbook's 2 is a failure: ansible-playbook exits 2
+    # when a host failed.
+    case "${status}:${unit}" in
+        *:) ;;
+        0:*)
+            RESULTS+=("PASS  ${unit}")
+            ;;
+        2:*.bash)
+            RESULTS+=("UNSET ${unit} (exit 2 — COULD NOT ESTABLISH: nothing failed, but some check had no evidence)")
+            BAD=$((BAD + 1))
+            ;;
+        *)
+            RESULTS+=("FAIL  ${unit} (exit ${status})")
+            BAD=$((BAD + 1))
+            ;;
+    esac
 done
 
 # The summary is written into the capture directory as well as the terminal, so the agent
