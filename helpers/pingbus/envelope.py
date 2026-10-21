@@ -51,7 +51,12 @@ _NONCE_RE = re.compile(r"[0-9a-f]{8}")
 _TOKEN_RE = re.compile(r"[\x21-\x7e]{1,1200}")
 _COMMAND_RE = re.compile(r"[\x20-\x7e]{1,400}")
 _TS_RE = re.compile(r"[0-9]{1,32}")
-_FIELDS = {"HUMAN": 7, "PEER": 8, "PING": 11, "TIMEOUT": 7}
+_FIELDS = {"HUMAN": 8, "PEER": 8, "PING": 11, "TIMEOUT": 7}
+#: Plan 00211 SPEC §8.3: the HUMAN line's ROOM field: `-` (the main room), or the questions
+#: room with the question the message is attached to, or `-` when it is unattached.
+_ROOM_RE = re.compile(r"-|questions:(?:Q([1-9][0-9]{0,8})|-)")
+HEADLINE_MAX = 120
+QUESTIONS_ROOM = "questions"
 
 KIND_LINES = {
     "HUMAN": "kind: HUMAN (a human listed in the team record)",
@@ -159,6 +164,9 @@ class Entry:
     trust: str | None = None
     branch: str | None = None
     reply: str | None = None
+    room: str | None = None
+    question: tuple[int, str] | None = None
+    revises: str | None = None
 
 
 def _absent(value: str) -> str | None:
@@ -195,11 +203,35 @@ def _text(value: str) -> str:
     return text
 
 
-def entry_from_line(line: str, *, handle: str, ts_ms: int | None, reply: str | None) -> Entry:
+def _room(value: str, headline: str | None, revises: str | None) -> dict[str, object]:
+    """The room keys of a HUMAN entry from its ROOM field, the attached question's headline
+    and the event an edit revises. Only a questions-room message carries any."""
+    match = _ROOM_RE.fullmatch(value)
+    if match is None:
+        raise ValueError("room field fails its grammar")
+    if value == "-":
+        if headline is not None or revises is not None:
+            raise ValueError("a main-room message has no question or revision")
+        return {}
+    if revises is not None and not protocol.is_event_id(revises):
+        raise ValueError("revises fails its grammar")
+    question = None
+    if match.group(1) is not None:
+        if not isinstance(headline, str) or not 0 < len(headline) <= HEADLINE_MAX:
+            raise ValueError("an attached message needs its question's headline")
+        question = (int(match.group(1)), headline)
+    elif headline is not None:
+        raise ValueError("an unattached message has no question headline")
+    return {"room": QUESTIONS_ROOM, "question": question, "revises": revises}
+
+
+def entry_from_line(line: str, *, handle: str, ts_ms: int | None, reply: str | None,
+                    question_headline: str | None = None, revises: str | None = None) -> Entry:
     """The entry of one §15 `HUMAN`, `PEER`, `PING` or `TIMEOUT` line (without a spool `cut`).
     `handle` is this session's in the line's team; `ts_ms` is used where the line carries no
-    timestamp (a ping); `reply` is `recv`'s REPLY command for a HUMAN or PEER line. ValueError
-    for any field that fails its grammar."""
+    timestamp (a ping); `reply` is `recv`'s REPLY command for a HUMAN or PEER line. For a
+    questions-room HUMAN line, `question_headline` is the attached question's headline and
+    `revises` the event an edit revises. ValueError for any field that fails its grammar."""
     fields = line.split("\t")
     kind = fields[0]
     if kind not in _FIELDS or len(fields) != _FIELDS[kind] or fields[1] != str(protocol.PROTOCOL_VERSION):
@@ -217,8 +249,11 @@ def entry_from_line(line: str, *, handle: str, ts_ms: int | None, reply: str | N
                 raise ValueError("the sender's class does not match the kind")
             if reply is None:
                 raise ValueError("a HUMAN or PEER entry needs its reply command")
-            return Entry(**common, ts_ms=_ts(fields[5]), text=_text(fields[6]),
-                         copy=_copy(fields[7]) if kind == "PEER" else (), reply=reply)
+            if kind == "HUMAN":
+                return Entry(**common, ts_ms=_ts(fields[5]), text=_text(fields[6]), reply=reply,
+                             **_room(fields[7], question_headline, revises))
+            return Entry(**common, ts_ms=_ts(fields[5]), text=_text(fields[6]), copy=_copy(fields[7]),
+                         reply=reply)
         verb, ref = fields[5], _absent(fields[6])
         if verb not in protocol.VERBS or (ref is not None and protocol.parse_ref(ref) is None):
             raise ValueError("verb or ref fails its grammar")
@@ -352,12 +387,24 @@ def _check(value: str | None, pattern: re.Pattern[str] = _TOKEN_RE) -> str:
     return value
 
 
+def _question_line(question: tuple[int, str] | None) -> str:
+    if question is None:
+        return "question: none"
+    number, headline = question
+    return f"question: Q{number} {_render(headline)}"
+
+
 def _entry_lines(entry: Entry) -> list[str]:
     kind = entry.kind
     lines = [KIND_LINES[kind]]
     if kind != "TIMEOUT":
         lines.append(f"from: {_check(entry.sender)}")
-    lines += [f"team: {_check(entry.team)}", f"to: this session, as {_check(entry.handle)}"]
+    lines.append(f"team: {_check(entry.team)}")
+    if entry.room is not None:
+        lines += [f"room: {_check(entry.room)}", _question_line(entry.question)]
+        if entry.revises is not None:
+            lines.append(f"revises: {_check(entry.revises)}")
+    lines.append(f"to: this session, as {_check(entry.handle)}")
     if kind != "TIMEOUT":
         lines.append(f"sent: {_sent(entry.ts_ms)}")
     lines.append(f"id: {_check(entry.event_id)}")

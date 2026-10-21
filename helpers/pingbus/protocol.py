@@ -1331,6 +1331,17 @@ def check_report_text(text: str) -> str:
     return headline
 
 
+def check_thread_text(text: str, *, closing: bool) -> None:
+    """A coordinator's thread post (SPEC §8.4): at most `MAX_THREAD_BYTES`, not empty unless it
+    closes the question, with no secret's shape."""
+    if len(text.encode("utf-8")) > MAX_THREAD_BYTES:
+        raise Refusal("body", f"a thread post is at most {MAX_THREAD_BYTES} bytes")
+    if text == "" and not closing:
+        raise Refusal("body", "the post's text is on stdin")
+    if secret_shaped(text) is not None:
+        raise Refusal("secret")
+
+
 def build_report(text: str) -> dict:
     """A report: a notice with no mentions, so Element never notifies it (SPEC §7)."""
     return {"msgtype": MSGTYPE_TEXT, "body": text, "m.mentions": {}, REPORT_KEY: {"v": PROTOCOL_VERSION}}

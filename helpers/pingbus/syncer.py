@@ -449,9 +449,9 @@ class Syncer:
             except (matrix.Forbidden, matrix.NotFound):
                 return inbox.SideRoom(room_id, "pending", REASON_NOT_INVITED)
             self._fresh_questions = True
-        return self._verify_side(protocol.PURPOSE_QUESTIONS, room_id, record)
+        return self.verify_side(protocol.PURPOSE_QUESTIONS, room_id, record)
 
-    def _verify_side(self, purpose: str, room_id: str, record: protocol.TeamRecord) -> inbox.SideRoom:
+    def verify_side(self, purpose: str, room_id: str, record: protocol.TeamRecord) -> inbox.SideRoom:
         """SPEC §4.3: the create event, the back-link, the power levels the record calls for
         and the join rules. A failure is this room's alone."""
         member = self.member
@@ -501,7 +501,7 @@ class Syncer:
         limited = timeline.get("limited") is True
         if limited or any(_type_of(e) in SIDE_TRUST_TYPES for e in state_events + events):
             side = dict(self.side)
-            side[protocol.PURPOSE_QUESTIONS] = self._verify_side(protocol.PURPOSE_QUESTIONS, room_id, self.record)
+            side[protocol.PURPOSE_QUESTIONS] = self.verify_side(protocol.PURPOSE_QUESTIONS, room_id, self.record)
             self._set_side(side)
         if self._listening_room() != room_id or self.side[protocol.PURPOSE_QUESTIONS].state != "join":
             return []
@@ -618,7 +618,7 @@ class Syncer:
                 self.client.join(room_id)
                 self._fresh_questions = True
                 side = dict(self.side)
-                side[protocol.PURPOSE_QUESTIONS] = self._verify_side(protocol.PURPOSE_QUESTIONS, room_id, self.record)
+                side[protocol.PURPOSE_QUESTIONS] = self.verify_side(protocol.PURPOSE_QUESTIONS, room_id, self.record)
                 self._set_side(side)
             elif action == INVITE_PENDING:
                 self._say(f"left an invite to room {room_id} pending")

@@ -195,6 +195,17 @@ class ReportTest(unittest.TestCase):
                 p.check_report_content(bad)
 
 
+class ThreadTextTest(unittest.TestCase):
+    def test_cap_empty_and_secret(self):
+        p.check_thread_text("x" * p.MAX_THREAD_BYTES, closing=False)
+        p.check_thread_text("", closing=True)
+        for text, closing, reason in (("x" * (p.MAX_THREAD_BYTES + 1), False, "body"), ("", False, "body"),
+                                      ("ghp_" + "a" * 36, True, "secret")):
+            with self.subTest(reason=reason, closing=closing), self.assertRaises(p.Refusal) as caught:
+                p.check_thread_text(text, closing=closing)
+            self.assertEqual(caught.exception.reason, reason)
+
+
 class QuestionTextTest(unittest.TestCase):
     def test_a_full_question_parses(self):
         headline, question = p.check_question_text(QUESTION_TEXT)

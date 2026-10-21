@@ -95,7 +95,7 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   - that a power-0 human is refused `m.room.message` when `events_default` is 10;
   - that a power-50 human is refused `m.reaction` at 100;
   - that a pending invite does no harm across syncs.
-  Written (`spike.bash`, `spike_probe.py`) and queued in `meta-deploy.list`; not run yet.
+    Written (`spike.bash`, `spike_probe.py`) and queued in `meta-deploy.list`; not run yet.
 - [ ] ⬜ **Task 0.2**: Findings journalled. If the restricted join fails, SPEC §3.1, §4.4 and
   §5.3 are amended to another way into the reports room before Phase 1 starts.
 
@@ -122,10 +122,11 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   reason (SPEC §4.5). Done in code, not deployed: `status` prints a `ROOM` line per side room.
 - [x] ✅ **Task 1.5**: `limits`: `report_per_hour`, with its bounds (SPEC §7). Done in code, not
   deployed.
-- [ ] ⬜ **Task 1.6**: `cli`: `report`, `ask-human`, `thread` (with `--ask` and `--close`),
+- [x] ✅ **Task 1.6**: `cli`: `report`, `ask-human`, `thread` (with `--ask` and `--close`),
   `questions`, and `history --room`. The `HUMAN` line gains an appended `ROOM` field, and the
-  `REPLY` command changes for questions-room items (SPEC §7, §8).
-- [ ] ⬜ **Task 1.7**: `envelope`: the `room:`, `question:` and `revises:` lines (SPEC §8.3).
+  `REPLY` command changes for questions-room items (SPEC §7, §8). Done in code, not deployed.
+- [x] ✅ **Task 1.7**: `envelope`: the `room:`, `question:` and `revises:` lines (SPEC §8.3).
+  Done in code, not deployed.
 - [ ] 🔄 **Task 1.8**: `hooks`: the role lines (done in code). The pingbus skill text (SPEC §10.1, §10.2).
 - [x] ✅ **Task 1.9**: A change to `helpers/pingbus/` needs the container version bump: the
   pre-commit gate requires it (CLAUDE/ContainerRules.md, "every other file the image bakes
@@ -134,7 +135,8 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   §5.6 are corrected.
 - [x] ✅ **Task 1.10**: Go, test-first: the `agent-bus list` parser skips `ROOM` lines, pinned
   by a test (SPEC §5.5, §11.1). `TestParseRosterSkipsRoomLines`.
-- [ ] 🔄 **Task 1.11**: `docs/agent-bus-protocol.md` and `docs/agent-bus.md` (SPEC §10.3).
+- [x] ✅ **Task 1.11**: `docs/agent-bus-protocol.md` and `docs/agent-bus.md` (SPEC §10.3).
+  The protocol doc's §2, §8.1, §9, §10, §12, §13 and §15; the owner's guide's three rooms.
 - [ ] ⬜ **Task 1.12**: `acceptance.bash` with `--fake` and stage 1 legs S1-S2. `deploy.bash --stage 1` runs the **whole** `play-agent-bus.yml` and the ccy staging, then `acceptance.bash --stage 1`. Its closing message asks the owner to restart the teams' sessions (SPEC §5.3,
   §11.2). `ansible-playbook --syntax-check` only.
 - [ ] ⬜ **Task 1.13**: Merge Phase 1 to F44, then queue `deploy.bash --stage 1` in

@@ -103,7 +103,7 @@ ABSENT = "-"
 #: Spec §15: each line's stream and the fields after `<KIND>` and the version.
 LINES = {
     "PING": (STDOUT, ("team", "event ID", "sender", "verb", "ref", "re", "trust", "branch", "copy")),
-    "HUMAN": (STDOUT, ("team", "event ID", "sender", "origin_server_ts", "text as a JSON string")),
+    "HUMAN": (STDOUT, ("team", "event ID", "sender", "origin_server_ts", "text as a JSON string", "room")),
     "PEER": (STDOUT, ("team", "event ID", "sender", "origin_server_ts", "text as a JSON string", "copy")),
     "REPLY": (STDOUT, ("team", "event ID", "command")),
     "ABOUT": (STDOUT, ("team", "description as a JSON string")),
@@ -111,6 +111,8 @@ LINES = {
     "SENT": (STDOUT, ("team", "event ID")),
     "DROPPED": (STDERR, ("count", "reason=count pairs joined by ,")),
     "HISTORY": (STDOUT, ("direction", "origin_server_ts", "line", "its fields after 1")),
+    "QUESTION": (STDOUT, ("team", "question", "state", "event ID", "asked by", "unanswered")),
+    "REPLY_TO": (STDOUT, ("team", "question", "event ID")),
 }
 #: A `HISTORY` line's directions: received by this member, or sent by it.
 HISTORY_DIRECTIONS = (syncer.HISTORY_IN, syncer.HISTORY_OUT)
@@ -228,7 +230,21 @@ def ping_line(team: str, server_name: str, ping: protocol.Ping) -> str:
     )
 
 
-def human_line(team: str, server_name: str, message: protocol.HumanMessage) -> str:
+def room_field(room: str, question: tuple[int, str] | None) -> str | None:
+    """The `HUMAN` line's ROOM field (Plan 00211 SPEC §8.3): absent for the main room,
+    `questions:Q<n>` for a questions-room message attached to question n, `questions:-` for
+    one attached to none."""
+    if room == protocol.ROOM_MAIN:
+        if question is not None:
+            raise ValueError("a main-room item has no question")
+        return None
+    if room != protocol.PURPOSE_QUESTIONS:
+        raise ValueError("room field is not a receiving room")
+    return f"{room}:{ABSENT if question is None else f'Q{question[0]}'}"
+
+
+def human_line(team: str, server_name: str, message: protocol.HumanMessage,
+               room: str = protocol.ROOM_MAIN, question: tuple[int, str] | None = None) -> str:
     if not protocol.is_human_user_id(message.sender, server_name):
         raise ValueError("sender field is not a human user ID")
     ts = message.origin_server_ts
@@ -237,7 +253,7 @@ def human_line(team: str, server_name: str, message: protocol.HumanMessage) -> s
     return format_line(
         "HUMAN", _team(team), _event_id(message.event_id),
         _localpart(message.sender, server_name), str(ts),
-        json.dumps(message.text, ensure_ascii=True),
+        json.dumps(message.text, ensure_ascii=True), room_field(room, question),
     )
 
 
@@ -255,27 +271,35 @@ def peer_line(team: str, server_name: str, message: protocol.PeerText) -> str:
     )
 
 
-def item_line(team: str, server_name: str, outcome: protocol.Outcome) -> str:
-    """The `PING`, `HUMAN` or `PEER` line of an accepted item."""
+def item_line(team: str, server_name: str, outcome: protocol.Outcome, room: str = protocol.ROOM_MAIN,
+              question: tuple[int, str] | None = None) -> str:
+    """The `PING`, `HUMAN` or `PEER` line of an accepted item; a human's from `room`, with its
+    question there."""
     if outcome.ping is not None:
         return ping_line(team, server_name, outcome.ping)
     if outcome.human is not None:
-        return human_line(team, server_name, outcome.human)
+        return human_line(team, server_name, outcome.human, room, question)
     if outcome.peer is not None:
         return peer_line(team, server_name, outcome.peer)
     raise ValueError("an accepted outcome carries a ping, a human message or a peer text")
 
 
 def reply_line(team: str, server_name: str, record: protocol.TeamRecord,
-               outcome: protocol.Outcome) -> str | None:
+               outcome: protocol.Outcome, room: str = protocol.ROOM_MAIN,
+               question: tuple[int, str] | None = None) -> str | None:
     """The ready `say` command that answers a `HUMAN` or `PEER` item; None for a ping, whose
     answer is a verb the agent chooses. The name is the sender's short name when no other
     member of the team has it, else the full handle; a human's is the localpart. `--re` names
     the item, single-quoted for the shell (an event ID starts with `$`), so the answer is
-    threaded under it in Element."""
+    threaded under it in Element. A questions-room item is answered in its question's thread,
+    or, unattached, as a reply to it (Plan 00211 SPEC §8.3)."""
     message = outcome.human or outcome.peer
     if message is None:
         return None
+    if room == protocol.PURPOSE_QUESTIONS:
+        event_id = _event_id(message.event_id)
+        target = f"Q{question[0]}" if question is not None else f"--re '{event_id}'"
+        return format_line("REPLY", _team(team), event_id, f"{PROG} --team {team} thread {target}")
     name = _localpart(message.sender, server_name)
     if outcome.peer is not None:
         short = name.partition(protocol.HANDLE_SEP)[0]
@@ -299,7 +323,8 @@ def sent_line(team: str, event_id: str) -> str:
     return format_line("SENT", _team(team), _event_id(event_id))
 
 
-def relay_line(team: str, server_name: str, outcome: protocol.Outcome) -> str:
+def relay_line(team: str, server_name: str, outcome: protocol.Outcome, room: str = protocol.ROOM_MAIN,
+               question: tuple[int, str] | None = None) -> str:
     """The spool line of an accepted item: its §15 line with the text capped to
     `relay.BODY_MAX_BYTES`, and one final field, `cut`: `-` or `shown/total` bytes."""
     cut = relay.CUT_NONE
@@ -309,7 +334,7 @@ def relay_line(team: str, server_name: str, outcome: protocol.Outcome) -> str:
     elif outcome.peer is not None:
         text, cut = relay.cap_text(outcome.peer.text)
         outcome = dataclasses.replace(outcome, peer=dataclasses.replace(outcome.peer, text=text))
-    return f"{item_line(team, server_name, outcome)}\t{cut}"
+    return f"{item_line(team, server_name, outcome, room, question)}\t{cut}"
 
 
 def history_line(team: str, server_name: str, item: syncer.HistoryItem) -> str:
@@ -323,7 +348,7 @@ def history_line(team: str, server_name: str, item: syncer.HistoryItem) -> str:
     if item.ping is not None:
         inner = ping_line(team, server_name, item.ping)
     elif item.human is not None:
-        inner = human_line(team, server_name, item.human)
+        inner = human_line(team, server_name, item.human, item.room, item.question)
     elif item.peer is not None:
         inner = peer_line(team, server_name, item.peer)
     elif item.sent_event_id is not None:
@@ -1079,6 +1104,196 @@ def cmd_say(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, e
     return EXIT_OK
 
 
+# ---------------------------------------------------------------- reports and questions
+
+
+QUESTION_RE = re.compile(r"Q([1-9][0-9]{0,8})")
+NO_ROOM = "team {team} has no {purpose} room yet; it is created by the agent-bus play"
+
+
+def _read_side_text(stdin: BinaryIO, cap: int) -> str:
+    """A report's, question's or thread post's text: stdin as UTF-8, less one trailing
+    newline. Over `cap` bytes is refused as `body`, never cut (Plan 00211 SPEC §7)."""
+    raw = stdin.read(cap + 2)
+    if raw.endswith(b"\n"):
+        raw = raw[:-1]
+    if len(raw) > cap:
+        raise protocol.Refusal("body", f"at most {cap} bytes")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise protocol.Refusal("schema") from None
+
+
+def _no_token(member: config.Member, text: str) -> None:
+    if config.read_token(member) in text:
+        raise protocol.Refusal("secret")
+
+
+def _side_room(seat: _Seat, purpose: str) -> str:
+    """The side room `purpose` of a verified team: `no-room` before the play made it; exit 10
+    naming it when it is not joined or fails its trust check (SPEC §4.3). The reports room is
+    never synced, so it is verified here, at each send."""
+    found = seat.syncer.side.get(purpose)
+    if found is None:
+        raise protocol.Refusal("no-room", NO_ROOM.format(team=seat.member.team, purpose=purpose))
+    if found.state == "join" and purpose == protocol.PURPOSE_REPORTS:
+        found = seat.syncer.verify_side(purpose, found.room, seat.syncer.record)
+    if found.state != "join":
+        raise syncer.RoomUntrusted(f"the {purpose} room {found.room} is {found.state}: "
+                                   f"{found.reason or 'not joined'}")
+    return found.room
+
+
+def _coordinator(member: config.Member, record: protocol.TeamRecord, command: str) -> None:
+    if record.roles.get(member.user_id) != protocol.ROLE_COORDINATOR:
+        raise protocol.Refusal("role", f"{command} is the coordinator's; a worker asks the coordinator "
+                                       "with pingbus say --to-coordinator")
+
+
+def _digest(text: str) -> str:
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def cmd_report(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
+    """SPEC §7: stdin as a quiet notice in the reports room, for the humans to read."""
+    rt: Runtime = args.runtime
+    member = _one_member(environ, args.team)
+    text = _read_side_text(args.stdin, protocol.MAX_REPORT_BYTES)
+    seat = _seat(member, environ, rt, err)
+    record = seat.syncer.verify_room()
+    protocol.check_report_text(text)
+    _no_token(member, text)
+    protocol.check_text_sender(member.user_id, record.context(member.server_name))
+    room_id = _side_room(seat, protocol.PURPOSE_REPORTS)
+    seat.state.admit_report(member.limits, _digest(text), rt.clock_ms())
+    emit(sent_line(member.team, seat.client.send_message(room_id, protocol.build_report(text))), out, err)
+    return EXIT_OK
+
+
+def _asked_by(args: argparse.Namespace, record: protocol.TeamRecord, member: config.Member) -> list[str]:
+    if args.asked_by is None:
+        return []
+    found = _user_ids(args.asked_by, record, member)
+    if not all(protocol.is_agent_user_id(user, member.server_name) and user in record.roles for user in found):
+        raise protocol.Refusal("target", "--asked-by names the team's agents")
+    return list(dict.fromkeys(found))
+
+
+def _main_room_events(seat: _Seat, names: str | None) -> list[str]:
+    """`--re`'s event IDs, each an event of the team room (`re` otherwise)."""
+    if names is None:
+        return []
+    found = list(dict.fromkeys(names.split(",")))
+    for event_id in found:
+        if not protocol.is_event_id(event_id):
+            raise protocol.Refusal("re")
+        try:
+            seat.client.get_event(seat.member.room, event_id)
+        except matrix.NotFound:
+            raise protocol.Refusal("re", f"{event_id} is not a message of the team room") from None
+    return found
+
+
+def question_line(team: str, server_name: str, view: protocol.QuestionView) -> str:
+    """A `QUESTION` line: the number, state, root event, who asked and the replies unanswered."""
+    asked = [protocol.parse_user_id(user, server_name) for user in view.question.asked_by]
+    return format_line("QUESTION", _team(team), f"Q{view.question.n}", view.state,
+                       _event_id(view.question.event_id), ",".join(a for a in asked if a) or None,
+                       str(len(view.unanswered)))
+
+
+def cmd_ask_human(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
+    """SPEC §8.2: a coordinator's question, numbered `Q<n>` after the highest in the room."""
+    rt: Runtime = args.runtime
+    member = _one_member(environ, args.team)
+    text = _read_side_text(args.stdin, protocol.MAX_QUESTION_BYTES)
+    seat = _seat(member, environ, rt, err)
+    record = seat.syncer.verify_room()
+    _coordinator(member, record, "ask-human")
+    _, asked = protocol.check_question_text(text)
+    _no_token(member, text)
+    asked_by = _asked_by(args, record, member)
+    re_ = _main_room_events(seat, args.re)
+    room_id = _side_room(seat, protocol.PURPOSE_QUESTIONS)
+    index = seat.syncer.question_index()
+    same = index.open_duplicate(asked)
+    if same is not None:
+        err.write(f"{PROG}: team {member.team}: Q{same.n} is open and asks the same question\n")
+        raise limits.RateLimited("duplicate")
+    n = index.next_number()
+    content = protocol.build_question(n, text, record.humans, asked_by, re_)
+    seat.state.admit_send(member.limits, "question", _digest(asked), None, (), rt.clock_ms())
+    event_id = seat.client.send_message(room_id, content)
+    emit(sent_line(member.team, event_id), out, err)
+    view = protocol.QuestionView(protocol.Question(n, event_id, member.user_id, "", asked, tuple(asked_by),
+                                                   tuple(re_)), protocol.STATE_OPEN, (), ())
+    emit(question_line(member.team, member.server_name, view), out, err)
+    return EXIT_OK
+
+
+def _thread_target(args: argparse.Namespace) -> int | None:
+    """`thread`'s question number, checked before anything is read: a question, or `--re`."""
+    if args.question is None:
+        if args.re is None:
+            raise config.UsageError("thread: name the question (Q<n>) or the message it answers (--re)")
+        if args.close:
+            raise config.UsageError("thread --close: name the question it closes (Q<n>)")
+        return None
+    match = QUESTION_RE.fullmatch(args.question)
+    if match is None:
+        raise config.UsageError(f"thread: {args.question} is not a question number (Q<n>)")
+    return int(match[1])
+
+
+def cmd_thread(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
+    """SPEC §8.4: a coordinator's post in a question's thread; `--ask` notifies the humans,
+    `--close` closes it in the same message."""
+    rt: Runtime = args.runtime
+    n = _thread_target(args)
+    if args.re is not None and not protocol.is_event_id(args.re):
+        raise protocol.Refusal("re")
+    member = _one_member(environ, args.team)
+    text = _read_side_text(args.stdin, protocol.MAX_THREAD_BYTES)
+    protocol.check_thread_text(text, closing=args.close)
+    seat = _seat(member, environ, rt, err)
+    record = seat.syncer.verify_room()
+    _coordinator(member, record, "thread")
+    _no_token(member, text)
+    room_id = _side_room(seat, protocol.PURPOSE_QUESTIONS)
+    index = seat.syncer.question_index()
+    root = None
+    if n is not None:
+        if n not in index.by_n:
+            raise config.UsageError(f"thread: team {member.team} has no question Q{n}")
+        root = index.by_n[n].event_id
+    if args.re is not None and not (args.re in index.attached or args.re in index.by_event
+                                    or args.re in index.thread_of):
+        raise protocol.Refusal("re", f"{args.re} is not a message of the questions room")
+    content = protocol.build_thread_post(root, text, record.humans, ask=args.ask,
+                                         close=n if args.close else None, re=args.re)
+    seat.state.admit_send(member.limits, "thread", _digest(f"{root}\n{text}"), None, (), rt.clock_ms())
+    emit(sent_line(member.team, seat.client.send_message(room_id, content)), out, err)
+    return EXIT_OK
+
+
+def cmd_questions(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
+    """SPEC §8.4: one `QUESTION` line per question, each followed by its `REPLY_TO` lines."""
+    rt: Runtime = args.runtime
+    member = _one_member(environ, args.team)
+    seat = _seat(member, environ, rt, err)
+    record = seat.syncer.verify_room()
+    _coordinator(member, record, "questions")
+    _side_room(seat, protocol.PURPOSE_QUESTIONS)
+    for view in seat.syncer.question_index().views():
+        if view.state == protocol.STATE_CLOSED and not args.all:
+            continue
+        emit(question_line(member.team, member.server_name, view), out, err)
+        for event_id in view.unanswered:
+            emit(format_line("REPLY_TO", _team(member.team), f"Q{view.question.n}", _event_id(event_id)), out, err)
+    return EXIT_OK
+
+
 def _send_text(seat: _Seat, ctx: protocol.Context, to: list[str], text: str, rt: Runtime,
                re: str | None = None, deduplicate: bool = True) -> tuple[str, int, list[str]]:
     """§9 steps from the build of an agent text to its send; the event ID, the send time
@@ -1121,19 +1336,32 @@ def _post_to_humans_and_coordinators(member: config.Member, environ: Mapping[str
     _send_text(seat, ctx, to, text, rt, deduplicate=False)
 
 
-def _refetch(seat: _Seat, ctx: protocol.Context, event_id: str) -> tuple[protocol.Outcome, object]:
-    """§9 reading the inbox: the item as the homeserver serves it, re-validated; and
-    its sender, for a drop line. A copy the server no longer has is a `schema` drop."""
+def _room_id(seat: _Seat, room: str) -> str | None:
+    """The room ID of an item's room: the team room, or the questions room this member met;
+    None when it has met none (its `rooms.json` is gone)."""
+    if room == protocol.ROOM_MAIN:
+        return seat.member.room
+    found = seat.syncer.side.get(room)
+    return None if found is None else found.room
+
+
+def _refetch(seat: _Seat, ctx: protocol.Context, item: inbox.Item) -> tuple[protocol.Outcome, object]:
+    """§9 reading the inbox: the item as the homeserver serves it, re-validated as an event
+    of its own room; and its sender, for a drop line. A copy the server no longer has, or
+    one from a room this member no longer knows, is a `schema` drop."""
     member = seat.member
     if seat.fetcher is None:
         raise TypeError("a seat that reads the inbox is built with reads=True")
+    room_id = _room_id(seat, item.room)
+    if room_id is None:
+        return protocol.Outcome(protocol.DROP, "schema"), None
     try:
-        event = seat.fetcher.get_event(member.room, event_id)
+        event = seat.fetcher.get_event(room_id, item.event_id)
     except matrix.NotFound:
         return protocol.Outcome(protocol.DROP, "schema"), None
-    if event.get("event_id") != event_id:
+    if event.get("event_id") != item.event_id:
         return protocol.Outcome(protocol.DROP, "schema"), None
-    outcome = protocol.validate_event(event, ctx, member.user_id, human_text=member.human_text)
+    outcome = protocol.validate_event(event, ctx, member.user_id, human_text=member.human_text, room=item.room)
     return outcome, event.get("sender")
 
 
@@ -1169,18 +1397,19 @@ def _deliver(seat: _Seat, record: protocol.TeamRecord, rt: Runtime, out: TextIO,
     for item in state.pending(ctx, member.user_id, human_text=member.human_text).items:
         if relaying and spool.has(member.team, item.event_id):
             continue
-        outcome, sender = _refetch(seat, ctx, item.event_id)
+        outcome, sender = _refetch(seat, ctx, item)
         with _held(spool):
             if not state.in_inbox(item.event_id):
                 continue
             if outcome.kind == protocol.ACCEPT:
                 if relaying:
-                    spool.write(member.team, item.event_id, relay_line(member.team, member.server_name, outcome))
+                    spool.write(member.team, item.event_id, relay_line(
+                        member.team, member.server_name, outcome, item.room, item.question))
                     printed += 1
                     continue
-                emit(item_line(member.team, member.server_name, outcome), out, err)
+                emit(item_line(member.team, member.server_name, outcome, item.room, item.question), out, err)
                 printed += 1
-                reply = reply_line(member.team, member.server_name, record, outcome)
+                reply = reply_line(member.team, member.server_name, record, outcome, item.room, item.question)
                 if reply is not None:
                     emit(reply, out, err)
             elif outcome.kind == protocol.DROP:
@@ -1633,6 +1862,8 @@ class _Candidate:
     entry: envelope.Entry
     event_id: str
     timeout: inbox.Timeout | None = None
+    #: The room the item came from, for its read receipt.
+    room: str = protocol.ROOM_MAIN
 
 
 @dataclasses.dataclass
@@ -1665,8 +1896,8 @@ class _Injector:
 
 
 def _reply_command(team: str, server_name: str, record: protocol.TeamRecord,
-                   outcome: protocol.Outcome) -> str | None:
-    line = reply_line(team, server_name, record, outcome)
+                   outcome: protocol.Outcome, item: inbox.Item) -> str | None:
+    line = reply_line(team, server_name, record, outcome, item.room, item.question)
     return None if line is None else line.rsplit("\t", 1)[1]
 
 
@@ -1709,20 +1940,22 @@ def _choose(seats: Sequence[_Seat], inj: _Injector, rt: Runtime) -> _Batch:
             entry = envelope.entry_from_line(line, handle=member.handle, ts_ms=None, reply=None)
             batch.chosen.append(_Candidate(seat, entry, timeout.event_id, timeout))
             continue
-        outcome, sender = _refetch(seat, record.context(member.server_name), item.event_id)
+        outcome, sender = _refetch(seat, record.context(member.server_name), item)
         if outcome.kind != protocol.ACCEPT:
             batch.dropped.append((seat, item.event_id, sender, outcome))
             continue
         entry = envelope.entry_from_line(
-            item_line(member.team, member.server_name, outcome), handle=member.handle,
+            item_line(member.team, member.server_name, outcome, item.room, item.question), handle=member.handle,
             ts_ms=item.origin_server_ts,
-            reply=_reply_command(member.team, member.server_name, record, outcome))
+            reply=_reply_command(member.team, member.server_name, record, outcome, item),
+            question_headline=None if item.question is None else item.question[1],
+            revises=None if outcome.human is None else outcome.human.revises)
         key = (entry.team, entry.sender)
         if not inj.budget.allowed(entry.team, entry.sender, entry.kind, chosen=per_sender[key]):
             batch.held.append((seat, item.event_id, key))
             continue
         per_sender[key] += 1
-        batch.chosen.append(_Candidate(seat, entry, item.event_id))
+        batch.chosen.append(_Candidate(seat, entry, item.event_id, room=item.room))
     held = collections.Counter(inj.held)
     held.update(key for _, _, key in batch.held)
     fits = envelope.fit([c.entry for c in batch.chosen], held_back=held, more=batch.more)
@@ -1817,8 +2050,13 @@ def _read_receipts(delivered: Sequence[_Candidate], err: TextIO) -> None:
     failure is one stderr line, never raised."""
     for candidate in delivered:
         member = candidate.seat.member
+        room_id = _room_id(candidate.seat, candidate.room)
+        if room_id is None:
+            err.write(f"{PROG}: message {candidate.event_id} on {member.team} was delivered, but its "
+                      f"{candidate.room} room is no longer known, so no read receipt was sent\n")
+            continue
         try:
-            candidate.seat.client.read_receipt(member.room, candidate.event_id)
+            candidate.seat.client.read_receipt(room_id, candidate.event_id)
         except FAILURES as exc:
             err.write(f"{PROG}: message {candidate.event_id} on {member.team} was delivered, but its read "
                       f"receipt was not sent, so Element does not show it read: {failure(exc)[1]}\n")
@@ -2191,7 +2429,7 @@ def cmd_history(args: argparse.Namespace, environ: Mapping[str, str], out: TextI
     first_failure: int | None = None
     for member in config.load_active(environ, team=args.team):
         try:
-            found = _seat(member, environ, rt, err).syncer.history(limit)
+            found = _seat(member, environ, rt, err).syncer.history(limit, args.room)
             lines = [history_line(member.team, member.server_name, item) for item in found.items]
         except FAILURES as exc:
             code, message = failure(exc)
@@ -2813,6 +3051,25 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
     history.add_argument("--limit", type=int, default=syncer.HISTORY_DEFAULT_ITEMS, metavar="N",
                          help=f"at most N items per team (default {syncer.HISTORY_DEFAULT_ITEMS}, "
                               f"at most {syncer.HISTORY_MAX_ITEMS})")
+    history.add_argument("--room", choices=protocol.RECEIVING_ROOMS, default=protocol.ROOM_MAIN,
+                         help="the team room (main, the default) or, for a coordinator, the questions room")
+    command("report", cmd_report, "post stdin to the team's reports room, for the humans to read (wakes nobody)")
+    ask = command("ask-human", cmd_ask_human,
+                  "a coordinator's question for the humans, from stdin, in the questions room")
+    ask.add_argument("--asked-by", metavar="NAME[,NAME...]",
+                     help="the agents who asked, resolved as say --to resolves them")
+    ask.add_argument("--re", metavar="EVENT_ID[,EVENT_ID...]",
+                     help="the main-room messages the question came from")
+    thread = command("thread", cmd_thread,
+                     "a coordinator's post from stdin in a question's thread of the questions room")
+    thread.add_argument("question", nargs="?", metavar="Q<n>")
+    thread.add_argument("--ask", action="store_true", help="mention the humans, so Element notifies")
+    thread.add_argument("--close", action="store_true", help="close the question; the text may be empty")
+    thread.add_argument("--re", metavar="EVENT_ID",
+                        help="the questions-room message this answers (the REPLY command gives it)")
+    questions = command("questions", cmd_questions,
+                        "the questions room's questions, their state and the replies not yet answered")
+    questions.add_argument("--all", action="store_true", help="closed questions too")
     command("inbox", cmd_inbox, "list pending items without consuming them (offline)")
     command("status", cmd_status, "per team: trust, wake path, counts and members (offline)")
     hook = command("hook", cmd_hook, "a Claude Code hook: stdin hook JSON, stdout hook JSON")

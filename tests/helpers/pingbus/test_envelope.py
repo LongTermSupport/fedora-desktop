@@ -429,10 +429,15 @@ class CapTest(unittest.TestCase):
         for body in ("\x00" * 5000, "é" * 5000, '"' * 5000, "\U0001F600" * 2000, "\\" * 5000):
             peer_line = "\t".join(("PEER", "1", team, EID, handle, str(TS), json.dumps(body),
                                    "copy:" + ",".join(humans.split(",")[:16])))
-            for line in (ping_line, peer_line):
+            human_line = "\t".join(("HUMAN", "1", team, EID, "h00" + "x" * 29, str(TS), json.dumps(body),
+                                    "questions:Q999999999"))
+            for line in (ping_line, peer_line, human_line):
                 with self.subTest(body=body[:1], kind=line[:4]):
+                    asked = line.startswith("HUMAN")
                     entry = envelope.entry_from_line(line, handle=handle, ts_ms=TS,
-                                                     reply=reply if line.startswith("PEER") else None)
+                                                     reply=reply if line[:4] in ("PEER", "HUMA") else None,
+                                                     question_headline="\x00" * 120 if asked else None,
+                                                     revises=EID2 if asked else None)
                     rendered = envelope.render([entry], NONCE, held_back={(team, handle): 99}, more=99)
                     self.assertLess(envelope.wire_bytes(rendered), envelope.ENTRY_MAX_BYTES)
         self.assertLess(envelope.ENTRY_MAX_BYTES, envelope.DELIVERY_MAX_BYTES)
