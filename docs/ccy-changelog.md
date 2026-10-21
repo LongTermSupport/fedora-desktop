@@ -48,6 +48,15 @@ changed, so it is rebuilt once.
   and topics, invites the humans and every coordinator, kicks a demoted coordinator before
   inviting the new one, and removes a removed account from every room. `agent-bus list`
   gains `ROOM` lines; `agent-bus check-rooms` reports drift and any coordinator not joined.
+## 3.99.13.9 — container 2.78.9
+
+Follows 3.99.13.8 (container 2.78.8). The image carries the pingbus zipapp, which changed, so
+it is rebuilt once.
+
+- **pingbus refuses a farewell reason that is a list or an object** instead of crashing. The
+  membership file's farewell and the told record's left entries tested the reason for
+  membership in a dict, which raised `TypeError` for an unhashable value. Both now check the
+  reason is a string first and refuse it with the same error as any other bad reason.
 
 ## 3.99.13.8 — container 2.78.8
 
