@@ -94,7 +94,7 @@ type fakeConfig struct {
 type call struct {
 	Tool string   `json:"tool"`
 	Args []string `json:"args"`
-	Env  []string `json:"env"` // names only, never values: what the launcher added
+	Env  []string `json:"env"` // names only, never values: those the program reads (readsEnv)
 }
 
 func fakeTool() (string, bool) {
@@ -259,6 +259,69 @@ func fixedDateArgs(args []string, epoch int64) []string {
 	return append([]string{"-d", "@" + strconv.FormatInt(epoch, 10)}, args...)
 }
 
+// Which environment names a call records. A name is recorded only where the program the call
+// starts reads it, so a golden pins what the launcher hands on and not what bash happens to
+// leave exported: bash exports GH_TOKEN, CLAUDE_CODE_OAUTH_TOKEN and its CCY_* settings to
+// every child (getenforce, curl, timedatectl, ...), which a port must not copy (Plan 00191
+// Task 4.4). Recorded names are the ones set in the call's environment, whoever set them (the
+// launcher or the scenario), less the runner's own (fakeConfig.Base) and bash's (bashNoise).
+//
+//   - wholeEnvTools hand their whole environment on: systemd-run --scope runs tmux as its own
+//     child, and the tmux server it starts gives that environment to every session and pane,
+//     where the relaunched launcher reads its CCY_* hand-over. Every name is recorded.
+//   - passByNameTools (the engines and compose) see the environment only through the names a
+//     call passes by name (-e NAME, --env NAME, --build-arg NAME): the container gets those,
+//     and whether each was set decides whether it gets it. Those names alone are recorded.
+//     The token setup (an engine run of claude setup-token) passes none, so records none.
+//   - readEnvNames are the names a tool reads for itself: gh its token, the host's claude its
+//     token, ssh and ssh-add their agent and askpass.
+//
+// Every other call records no environment.
+var (
+	wholeEnvTools   = []string{"systemd-run", "tmux"}
+	passByNameTools = []string{"docker", "docker-compose", "podman", "podman-compose"}
+	sshEnvNames     = []string{"DISPLAY", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE", "SSH_AUTH_SOCK"}
+	readEnvNames    = map[string][]string{
+		"claude":  {"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"},
+		"gh":      {"GH_HOST", "GH_TOKEN", "GITHUB_TOKEN"},
+		"ssh":     sshEnvNames,
+		"ssh-add": sshEnvNames,
+	}
+	// passFlags are the options whose value, when it has no "=", names a variable the engine
+	// copies from its own environment.
+	passFlags = []string{"-e", "--env", "--build-arg"}
+)
+
+// readsEnv reports whether tool, called with args, reads the variable name.
+func readsEnv(tool string, args []string, name string) bool {
+	switch {
+	case slices.Contains(wholeEnvTools, tool):
+		return true
+	case slices.Contains(passByNameTools, tool):
+		return slices.Contains(passedByName(args), name)
+	default:
+		return slices.Contains(readEnvNames[tool], name)
+	}
+}
+
+// passedByName are the variables an engine call passes by name: "-e NAME", "--env NAME",
+// "--env=NAME", and the same for --build-arg; "-e NAME=value" carries its own value.
+func passedByName(args []string) []string {
+	var names []string
+	for i, a := range args {
+		for _, f := range passFlags {
+			value, ok := strings.CutPrefix(a, f+"=")
+			if a == f && i+1 < len(args) {
+				value, ok = args[i+1], true
+			}
+			if ok && value != "" && !strings.Contains(value, "=") {
+				names = append(names, value)
+			}
+		}
+	}
+	return names
+}
+
 func recordCall(sandbox string, cfg fakeConfig, tool string, args []string) error {
 	var names []string
 	for _, kv := range os.Environ() {
@@ -266,7 +329,9 @@ func recordCall(sandbox string, cfg fakeConfig, tool string, args []string) erro
 		if slices.Contains(cfg.Base, name) || slices.Contains(bashNoise, name) || strings.HasPrefix(name, "BASH_FUNC_") {
 			continue
 		}
-		names = append(names, name)
+		if readsEnv(tool, args, name) {
+			names = append(names, name)
+		}
 	}
 	slices.Sort(names)
 	line, err := json.Marshal(call{Tool: tool, Args: args, Env: names})

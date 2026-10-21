@@ -29,7 +29,8 @@ import (
 const (
 	sandboxName  = "difftest"
 	buildContext = "opt/claude-yolo"
-	gpuDir       = "dev/dri" // absent unless a scenario places a file in it
+	gpuDir       = "dev/dri" // absent unless a scenario places a file in it; dev always exists
+	zoneinfoDir  = "zoneinfo"
 	imageHashLen = 16
 	sandboxMark  = "{sandbox}"
 	pidMark      = "{pid}"
@@ -47,8 +48,11 @@ const (
 
 // sandboxDirs are made in every sandbox. home is HOME; project is a git repository root with
 // one commit, the directory a launch starts in; outside is a directory in no repository; tmp is
-// TMPDIR and run is XDG_RUNTIME_DIR.
-var sandboxDirs = []string{"bin", "home", cwdProject, cwdOutside, "tmp", "run"}
+// TMPDIR and run is XDG_RUNTIME_DIR. dev holds the GPU directory (the launcher refuses an
+// override under no directory) and zoneinfo is the zone database, holding only the zones a
+// world places there (the launcher checks a zone's file exists, nothing more): so neither the
+// machine's GPU nor its tzdata decides a golden.
+var sandboxDirs = []string{"bin", "home", cwdProject, cwdOutside, "tmp", "run", "dev", zoneinfoDir}
 
 // snapshotDirs are the sandbox directories whose files the golden records after a run.
 var snapshotDirs = []string{"home", cwdProject, cwdOutside, "tmp", "run"}
@@ -358,6 +362,7 @@ func (s sandbox) baseEnv() map[string]string {
 		"GIT_CONFIG_NOSYSTEM": "1",
 		"CCY_DOCKERFILE_DIR":  filepath.Join(s.root, buildContext),
 		"CCY_GPU_DEVICE_DIR":  filepath.Join(s.root, gpuDir),
+		"CCY_ZONEINFO_DIR":    filepath.Join(s.root, zoneinfoDir),
 		sandboxEnv:            s.root,
 	}
 }
@@ -507,11 +512,30 @@ func runScenario(t *testing.T, m matrix, l launcher, sc scenario) outcome {
 	return l.normalise(out, s.root, launcherPid(t, s.root), strings.NewReplacer(back...))
 }
 
-// launcherPid matches the launcher's pid as a word.
-func launcherPid(t *testing.T, root string) *regexp.Regexp {
+// pidContexts are the places the launcher writes its own pid ($$): a container named
+// ccy-claude-update-$$, a launch id launch-<epoch>-$$-<random>. A pid is a small number, so
+// it is marked only there and in an argument that is the pid alone (ccy-teams'
+// claim-container-name owner), never wherever the same digits happen to occur.
+const pidContexts = `(ccy-claude-update-|launch-[0-9]+-)`
+
+// pidMarker writes the launcher's pid as {pid} where the launcher puts it.
+type pidMarker struct {
+	pid string
+	re  *regexp.Regexp
+}
+
+func launcherPid(t *testing.T, root string) pidMarker {
 	t.Helper()
 	pid := readFile(t, filepath.Join(root, pidFile))
-	return regexp.MustCompile(`\b` + regexp.QuoteMeta(pid) + `\b`)
+	return pidMarker{pid: pid, re: regexp.MustCompile(pidContexts + regexp.QuoteMeta(pid) + `\b`)}
+}
+
+// mark is s with the pid written as its mark; s is one argument or one line of text.
+func (p pidMarker) mark(s string) string {
+	if s == p.pid {
+		return pidMark
+	}
+	return p.re.ReplaceAllString(s, "${1}"+pidMark)
 }
 
 func readCalls(t *testing.T, root string) []call {
@@ -606,10 +630,9 @@ func contentLines(raw []byte) []string {
 
 // normalise writes the sandbox, the tokens, the image, the launcher's pid, its version and its
 // hash as their marks, and the volatile parts as fixed text.
-func (l launcher) normalise(o outcome, root string, pid *regexp.Regexp, marks *strings.Replacer) outcome {
+func (l launcher) normalise(o outcome, root string, pid pidMarker, marks *strings.Replacer) outcome {
 	fix := func(s string) string {
-		s = marks.Replace(strings.ReplaceAll(s, root, sandboxMark))
-		s = pid.ReplaceAllString(s, pidMark)
+		s = pid.mark(marks.Replace(strings.ReplaceAll(s, root, sandboxMark)))
 		if l.hash != "" {
 			s = strings.ReplaceAll(s, l.hash, hashMark)
 		}

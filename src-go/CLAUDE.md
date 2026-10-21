@@ -191,7 +191,8 @@ The ccy launcher's differential harness, `internal/ccylaunch/difftest` (Plan 001
 is a second recorded oracle on purpose: the launcher's main path had no black-box test, and its
 port at the same install path is gated on doing what the bash does. `testdata/scenarios.json`
 builds each scenario's sandbox (a scratch HOME and repository, fakes of podman, docker, tmux,
-gh, curl and the rest, which record argv and the names of the environment the launcher added);
+gh, curl and the rest, which record argv and the names of the environment variables each
+program reads, so bash's leftover exports are not pinned);
 `testdata/golden/` is recorded from the bash launcher with `-update`. `LAUNCHER=<path>` runs the
 matrix against any other program, and `TestOracleCanFail` proves a one-flag change is caught.
 

@@ -260,21 +260,32 @@ today; rewriting them is out of scope.
 - [ ] 🔄 **Task 4.4**: Launcher phase 0.2: the differential harness, proven able to fail.
   Built as the Go test package `src-go/internal/ccylaunch/difftest` (test only; a recorded
   oracle on purpose, noted in `src-go/CLAUDE.md`). Each scenario runs the launcher once in a
-  sandbox: scratch HOME, a one-commit repository, TMPDIR and XDG_RUNTIME_DIR, a PATH of only the
-  sandbox's bin. The test binary is every fake (podman, docker, tmux, gh, curl, ssh-add,
-  ccy-teams, ...): it records argv and the names, never values, of the environment the launcher
-  added, and answers from the scenario's rules; hostname, id and uname answer unrecorded; date
-  and stat run on a pinned clock. Goldens (`testdata/golden/<scenario>.txt`: exit, stdout,
-  stderr, calls, every file left with mode and content) are recorded from the bash launcher
-  with `-update`; `LAUNCHER=<path>` runs the matrix against any program. A token never appears
-  in a tracked file (`{token:NAME}`), and a check fails any call whose argv carries one. Two
-  launcher seams made it deterministic, CCY 3.99.13.13: `CCY_DOCKERFILE_DIR` (default
-  `/opt/claude-yolo`, now also the startup text's directory) and `CCY_GPU_DEVICE_DIR` (default
-  `/dev/dri`). qa-changed routes the launcher, `lib/*.bash` and the Dockerfile to the Go gate.
-  - Matrix: 74 scenarios. Standalone modes 36 (`--version`/`-v`, `--help`/`-h` with and without
+  sandbox: scratch HOME, a one-commit repository, TMPDIR and XDG_RUNTIME_DIR, TZ=UTC, a PATH of
+  only the sandbox's bin. The test binary is every fake (podman, docker, tmux, gh, curl,
+  ssh-add, ccy-teams, ...): it records argv and the names, never values, of the environment
+  variables that program reads (the names an engine call passes by name, the whole environment
+  for tmux and systemd-run, a token for gh and claude, the agent for ssh; `readsEnv` in
+  `fake_test.go`), and answers from the scenario's rules; hostname, id and uname answer
+  unrecorded; date and stat run on a pinned clock. Goldens (`testdata/golden/<scenario>.txt`:
+  exit, stdout, stderr, calls, every file left with mode and content) are recorded from the
+  bash launcher with `-update`, which refuses with `LAUNCHER` set; `LAUNCHER=<path>` runs the
+  matrix against any program. A token never appears in a tracked file (`{token:NAME}`), and a
+  check fails any call whose argv carries one. Launcher seams made it hermetic, CCY 3.99.13.13 and 3.99.13.14 (the commit hook requires a
+  bump per launcher commit),
+  in `lib/host-paths.bash`: `CCY_DOCKERFILE_DIR` (default `/opt/claude-yolo`, also the startup
+  text's and `--custom` templates' directory), `CCY_GPU_DEVICE_DIR` (default `/dev/dri`) and
+  `CCY_ZONEINFO_DIR` (default `/usr/share/zoneinfo`; the sandbox holds only the zone its world
+  names), each failing at start when set to no directory or to `/` or `/dev`
+  (`scripts/test-ccy-gpu-device.bash` and four `override-*` scenarios); and every temporary
+  file follows `TMPDIR`. The machine still answers `/etc/localtime`, read only when timedatectl
+  names no zone, which no world does. The launcher's pid is marked only where the launcher
+  writes it. qa-changed routes the launcher, `lib/*.bash` and the Dockerfile to the Go gate.
+  - Not redirected, on purpose: `CCY_LIFECYCLE_PLUGIN_PATH` (`lib/session-lifecycle.bash`)
+    names the plugin's path inside the image, not on the host, and nothing reads the export.
+  - Matrix: 78 scenarios. Standalone modes 40 (`--version`/`-v`, `--help`/`-h` with and without
     the image, `--list-tokens`, `--token-usage` table, JSON, API down and its refusals,
     `--export-token`, `--prevent`, `--top`, allowed-hostnames, outside a repository, usage
-    errors); engine selection 10; token choice 9 (refusals with no terminal); launch path 19
+    errors, the four refused overrides); engine selection 10; token choice 9 (refusals with no terminal); launch path 19
     (plain, prompt argument and flag, headless, `--no-ssh`, `--github-443`, `--network`,
     `--no-network`, GPU, SELinux enforcing, gh logged out or `GH_TOKEN`, image missing or old,
     `--rebuild=claude`, Quick Launch replay, container exit status).
@@ -283,14 +294,25 @@ today; rewriting them is out of scope.
     `--custom-docker`, `--teams`, a real `--connect`/`--disconnect`, compose, the restart
     relaunch (exit 75) and restore. A pseudo-terminal driver is the next step for them.
   - Red and green: `TestOracleCanFail` edits a scratch install of the launcher and must see its
-    scenario differ: dropping `--dangerously-skip-permissions` from the run line fails
-    `launch-plain`, and `-v` answering as `-V` fails `version-short`. By hand with
-    `LAUNCHER=`: an unmodified scratch copy is green (74 of 74); the same copy with
+    scenario differ on the line it changed: dropping `--dangerously-skip-permissions` from the
+    run line fails `launch-plain`, and `-v` answering as `-V` fails `version-short`; it does
+    not run under `-update`. By hand with
+    `LAUNCHER=`: an unmodified scratch copy is green (78 of 78 after the review fixes); the same copy with
     `--label ccy=true` changed to `--label ccy=yes` is red, 22 scenarios failing on that line.
   - Bash behaviour the goldens now pin, for the port to decide deliberately: a trailing
     `--engine` is ignored; under docker one `podman network ls` still runs; an unknown
     `CCY_CONTAINER_ENGINE` fails at token validation, not at the engine check;
     `--update-token` with no terminal exits 1 after its banner, saying nothing.
+  - Pinned bash behaviour the port must NOT keep: tokens are exported to every child. Bash
+    exports `GH_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN` (`claude-yolo` and
+    `lib/token-management.bash`), with its `CCY_*` settings, so getenforce, curl, timedatectl
+    and every other program it starts get them. The goldens record a variable only where the
+    program reads it, so they do not pin the leak; the port hands each token only to the call
+    that needs it (the engine run that passes it by name, gh). Follow-up, not on this branch:
+    the bash launcher stops exporting them, passing each by name or as a prefix assignment
+    instead, and the dead `CCY_LIFECYCLE_PLUGIN_PATH` export goes.
+  - Review (Opus, FIX-FIRST): `subagent-reports/261021-launcher-harness-review-opus.md`; every
+    finding fixed as above.
 - [ ] ⬜ **Task 4.5**: Launcher phases 1 and 2: the foundation packages, then `--version`,
   `--help` and the other standalone modes, each a one-flag cut-over.
 

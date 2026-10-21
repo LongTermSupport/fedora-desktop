@@ -480,6 +480,7 @@
       loop:
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/common-pure.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/common.bash"
+        - "{{ root_dir }}/files/var/local/claude-yolo/lib/host-paths.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/ssh-handling.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/token-management.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/network-management.bash"

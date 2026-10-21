@@ -225,5 +225,4 @@ then run 'ccy --help' again to see Claude Code options.
 === stderr
 === calls
 podman image inspect claude-yolo:latest
-    env: CCY_LIFECYCLE_PLUGIN_PATH CCY_RESTART_DEFAULT_MAX CCY_RESTART_DEFAULT_WINDOW_SECONDS CCY_RESTART_EXIT_STATUS CCY_RESTART_REQUEST_REL CONTAINER_ENGINE
 === files

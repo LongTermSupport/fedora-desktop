@@ -1229,7 +1229,7 @@ create_token() {
     echo ""
 
     # Create temporary output file for token
-    tmp_output=$(mktemp "/tmp/${tool_name}-token-setup-XXXXXX")
+    tmp_output=$(mktemp "${TMPDIR:-/tmp}/${tool_name}-token-setup-XXXXXX")
 
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo ""

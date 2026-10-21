@@ -64,44 +64,26 @@ More info: https://github.com/LongTermSupport/fedora-desktop/blob/main/docs/cont
 ✓ Writing .claude/ccy/ccy.env.local.dist (version 3); commit it
 === calls
 getenforce
-    env: CCY_LIFECYCLE_DEADLINE_EPOCH CCY_LIFECYCLE_MAX_AGE_SECONDS CCY_LIFECYCLE_PLUGIN_PATH CCY_LIFECYCLE_WARN_MINUTES CCY_RESTART_DEFAULT_MAX CCY_RESTART_DEFAULT_WINDOW_SECONDS CCY_RESTART_EXIT_STATUS CCY_RESTART_REQUEST_REL CONTAINER_ENGINE GITHUB_SSH_443
 docker info --format '{{.SecurityOptions}}'
-    env: (as above)
 gh auth token
-    env: CCY_LIFECYCLE_DEADLINE_EPOCH CCY_LIFECYCLE_MAX_AGE_SECONDS CCY_LIFECYCLE_PLUGIN_PATH CCY_LIFECYCLE_WARN_MINUTES CCY_MOUNT_RELABEL CCY_RESTART_DEFAULT_MAX CCY_RESTART_DEFAULT_WINDOW_SECONDS CCY_RESTART_EXIT_STATUS CCY_RESTART_REQUEST_REL CCY_SELINUX_MODE CONTAINER_ENGINE GITHUB_SSH_443 SSH_AGENT_FORWARDED SSH_CONFIG_EXTRA_B64 SSH_KNOWN_HOSTS_PINS
 docker run --rm -e CLAUDE_CODE_OAUTH_TOKEN --entrypoint claude claude-yolo:latest --version
-    env: CCY_LIFECYCLE_DEADLINE_EPOCH CCY_LIFECYCLE_MAX_AGE_SECONDS CCY_LIFECYCLE_PLUGIN_PATH CCY_LIFECYCLE_WARN_MINUTES CCY_MOUNT_RELABEL CCY_RESTART_DEFAULT_MAX CCY_RESTART_DEFAULT_WINDOW_SECONDS CCY_RESTART_EXIT_STATUS CCY_RESTART_REQUEST_REL CCY_SELINUX_MODE CLAUDE_CODE_OAUTH_TOKEN CONTAINER_ENGINE GITHUB_SSH_443 SSH_AGENT_FORWARDED SSH_CONFIG_EXTRA_B64 SSH_KNOWN_HOSTS_PINS
+    env: CLAUDE_CODE_OAUTH_TOKEN
 docker info --format '{{.SecurityOptions}}'
-    env: CCY_LIFECYCLE_DEADLINE_EPOCH CCY_LIFECYCLE_MAX_AGE_SECONDS CCY_LIFECYCLE_PLUGIN_PATH CCY_LIFECYCLE_WARN_MINUTES CCY_MOUNT_RELABEL CCY_RESTART_DEFAULT_MAX CCY_RESTART_DEFAULT_WINDOW_SECONDS CCY_RESTART_EXIT_STATUS CCY_RESTART_REQUEST_REL CCY_SELINUX_MODE CONTAINER_ENGINE GITHUB_SSH_443 SSH_AGENT_FORWARDED SSH_CONFIG_EXTRA_B64 SSH_KNOWN_HOSTS_PINS
 docker ps -a --filter name=_yolo --filter status=exited --format '{{.Names}}'
-    env: (as above)
 docker ps --filter name=_yolo --format '{{.Names}}'
-    env: (as above)
 docker ps --filter name=difftest-project_yolo --format '{{.Names}}'
-    env: (as above)
 docker image inspect claude-yolo:latest
-    env: (as above)
 docker image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-version"}}'
-    env: (as above)
 docker image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-dockerfile-hash"}}'
-    env: (as above)
 docker run --rm --entrypoint claude claude-yolo:latest --version
-    env: (as above)
 curl -fsSL https://registry.npmjs.org/@anthropic-ai/claude-code/latest
-    env: (as above)
 docker network ls --format '{{.Name}}'
-    env: (as above)
 podman network ls --format '{{.Name}}'
-    env: (as above)
 docker network ls --format '{{.Name}}'
-    env: (as above)
 ccy-teams internal claim-container-name difftest-project yolo '{pid}'
-    env: (as above)
 docker rm -f difftest-project_yolo
-    env: (as above)
 timedatectl show -p Timezone --value
-    env: CCY_LIFECYCLE_DEADLINE_EPOCH CCY_LIFECYCLE_MAX_AGE_SECONDS CCY_LIFECYCLE_PLUGIN_PATH CCY_LIFECYCLE_WARN_MINUTES CCY_MOUNT_RELABEL CCY_RESTART_DEFAULT_MAX CCY_RESTART_DEFAULT_WINDOW_SECONDS CCY_RESTART_EXIT_STATUS CCY_RESTART_REQUEST_REL CCY_SELINUX_MODE CLAUDE_CODE_OAUTH_TOKEN CONTAINER_ENGINE GH_TOKEN GITHUB_SSH_443 SSH_AGENT_FORWARDED SSH_CONFIG_EXTRA_B64 SSH_KNOWN_HOSTS_PINS
-docker run -it --rm --name difftest-project_yolo --label ccy=true --label ccy-project=difftest-project --label ccy-github=none --label ccy-token=work --label ccy-ssh-keys=none -e PINGBUS_MEMBERSHIP=off -v '{sandbox}/project:/workspace' -v /tmp/claude-yolo-XXXXXX:/tmp/claude-config-import:ro -e CLAUDE_CODE_OAUTH_TOKEN -e GH_TOKEN -e GITHUB_USERNAME= -e DEBUG_MODE=false -e DEBUG_ENTRYPOINT=false -e SSH_KEY_PATHS= -e SSH_AGENT_FORWARDED=0 -e SSH_CONFIG_EXTRA_B64= -e SSH_KNOWN_HOSTS_PINS= -e GITHUB_SSH_443=0 -e CCY_HOST_HOSTNAME=difftest-host -e TZ=Europe/London -e CCY_CLAUDE_WRAPPER= -e CCY_NO_SUPERVISOR= -e 'CCY_LIFECYCLE_LAUNCH_ID=launch-1894708800-{pid}-{random}' -e CCY_LIFECYCLE_MAX_AGE_SECONDS= -e CCY_LIFECYCLE_DEADLINE_EPOCH= -e CCY_LIFECYCLE_WARN_MINUTES= -e CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 -e CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000 -e MAX_THINKING_TOKENS= -e TERM=xterm-256color -e COLORTERM=truecolor -e FORCE_COLOR=1 -w /workspace claude-yolo:latest claude --dangerously-skip-permissions --append-system-prompt 'difftest startup info: the engine is Docker.
+docker run -it --rm --name difftest-project_yolo --label ccy=true --label ccy-project=difftest-project --label ccy-github=none --label ccy-token=work --label ccy-ssh-keys=none -e PINGBUS_MEMBERSHIP=off -v '{sandbox}/project:/workspace' -v '{sandbox}/tmp/claude-yolo-XXXXXX:/tmp/claude-config-import:ro' -e CLAUDE_CODE_OAUTH_TOKEN -e GH_TOKEN -e GITHUB_USERNAME= -e DEBUG_MODE=false -e DEBUG_ENTRYPOINT=false -e SSH_KEY_PATHS= -e SSH_AGENT_FORWARDED=0 -e SSH_CONFIG_EXTRA_B64= -e SSH_KNOWN_HOSTS_PINS= -e GITHUB_SSH_443=0 -e CCY_HOST_HOSTNAME=difftest-host -e TZ=Europe/London -e CCY_CLAUDE_WRAPPER= -e CCY_NO_SUPERVISOR= -e 'CCY_LIFECYCLE_LAUNCH_ID=launch-1894708800-{pid}-{random}' -e CCY_LIFECYCLE_MAX_AGE_SECONDS= -e CCY_LIFECYCLE_DEADLINE_EPOCH= -e CCY_LIFECYCLE_WARN_MINUTES= -e CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 -e CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000 -e MAX_THINKING_TOKENS= -e TERM=xterm-256color -e COLORTERM=truecolor -e FORCE_COLOR=1 -w /workspace claude-yolo:latest claude --dangerously-skip-permissions --append-system-prompt 'difftest startup info: the engine is Docker.
 
 💡 TIP: This project doesn'\''t have a custom Dockerfile yet!
 
@@ -111,7 +93,7 @@ You can create one to add project-specific tools (Python, Go, Rust, databases, c
 
 Custom Dockerfiles get cached per-project and rebuild automatically when changed.
 More info: https://github.com/LongTermSupport/fedora-desktop/blob/main/docs/containerization.md#custom-dockerfiles'
-    env: CCY_LIFECYCLE_DEADLINE_EPOCH CCY_LIFECYCLE_LAUNCH_ID CCY_LIFECYCLE_MAX_AGE_SECONDS CCY_LIFECYCLE_PLUGIN_PATH CCY_LIFECYCLE_WARN_MINUTES CCY_MOUNT_RELABEL CCY_RESTART_DEFAULT_MAX CCY_RESTART_DEFAULT_WINDOW_SECONDS CCY_RESTART_EXIT_STATUS CCY_RESTART_REQUEST_REL CCY_SELINUX_MODE CLAUDE_CODE_OAUTH_TOKEN CONTAINER_ENGINE GH_TOKEN GITHUB_SSH_443 SSH_AGENT_FORWARDED SSH_CONFIG_EXTRA_B64 SSH_KNOWN_HOSTS_PINS
+    env: CLAUDE_CODE_OAUTH_TOKEN GH_TOKEN
 === files
 dir  home/.cache 0700
 dir  home/.cache/claude-yolo-update-checks 0700

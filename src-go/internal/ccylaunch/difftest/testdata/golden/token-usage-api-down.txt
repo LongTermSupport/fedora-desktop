@@ -12,7 +12,6 @@
 === stderr
 === calls
 curl --config - --silent --request POST --header 'content-type: application/json' --header 'anthropic-version: 2023-06-01' --header 'anthropic-beta: oauth-2025-04-20' --data '{"model":"claude-haiku-4-5-20251001","max_tokens":1,"messages":[{"role":"user","content":"."}]}' --dump-header '{sandbox}/tmp/tmp.XXXXXXXXXX' --connect-timeout 5 --max-time 20 --output '{sandbox}/tmp/tmp.XXXXXXXXXX' --write-out '%{http_code}' https://api.anthropic.com/v1/messages
-    env: CCY_LIFECYCLE_PLUGIN_PATH CCY_RESTART_DEFAULT_MAX CCY_RESTART_DEFAULT_WINDOW_SECONDS CCY_RESTART_EXIT_STATUS CCY_RESTART_REQUEST_REL CONTAINER_ENGINE
 === files
 dir  home/.claude-tokens 0700
 dir  home/.claude-tokens/ccy 0700

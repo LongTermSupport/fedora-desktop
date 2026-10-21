@@ -17,6 +17,21 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.13.14 — container 2.78.11
+
+Follows 3.99.13.13. The launcher and its library only; the image is unchanged, so no rebuild.
+
+- **The host paths are resolved and checked in the new `lib/host-paths.bash`** (Plan 00191):
+  `CCY_DOCKERFILE_DIR` and `CCY_GPU_DEVICE_DIR` as before, and `CCY_ZONEINFO_DIR` (the zone
+  database, default `/usr/share/zoneinfo`). `--custom`'s templates are read from the build
+  context too, where the play already puts them. Unset, nothing changes. A set override
+  fails at start when it names no directory (for the GPU, when its parent is none: an absent
+  GPU directory still means no GPU), and one that resolves to `/` or `/dev` is refused, since
+  it would hand a build or a device mount the whole tree.
+- **The launcher's temporary files follow `TMPDIR`** when it is set (the git configuration
+  handed to the container, build logs, the GitHub probe, the debug log, the token setup
+  output); unset, they stay in `/tmp`.
+
 ## 3.99.13.13 — container 2.78.11
 
 Follows 3.99.13.12. The launcher only; the image is unchanged, so no rebuild.

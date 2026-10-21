@@ -27,7 +27,8 @@
       ]
     },
     "common": {
-      "about": "what every working host answers whatever its engine: gh logged in, the npm registry, the quiet environment facts",
+      "about": "what every working host answers whatever its engine: gh logged in, the npm registry, the quiet environment facts, and the zone timedatectl names in the sandbox's zone database",
+      "files": [{"path": "zoneinfo/Europe/London", "content": ""}],
       "rules": [
         {"tool": "getenforce", "args": [], "stdout": "Disabled\n"},
         {"tool": "gh", "args": ["auth", "token"], "stdout": "difftest-gh-token\n"},
@@ -75,6 +76,10 @@
   "scenarios": [
     {"name": "version", "area": "standalone", "about": "--version outside a repository", "worlds": ["bare"], "args": ["--version"], "cwd": "outside"},
     {"name": "version-short", "area": "standalone", "about": "-v outside a repository", "worlds": ["bare"], "args": ["-v"], "cwd": "outside"},
+    {"name": "override-dockerfile-dir-missing", "area": "standalone", "about": "CCY_DOCKERFILE_DIR naming no directory fails at start, before any mode runs", "worlds": ["bare"], "args": ["--version"], "cwd": "outside", "env": {"CCY_DOCKERFILE_DIR": "no-such-build-context"}},
+    {"name": "override-dockerfile-dir-root", "area": "standalone", "about": "CCY_DOCKERFILE_DIR=/ is refused: a build from the whole tree", "worlds": ["bare"], "args": ["--version"], "cwd": "outside", "env": {"CCY_DOCKERFILE_DIR": "/"}},
+    {"name": "override-gpu-dir-whole-dev", "area": "standalone", "about": "CCY_GPU_DEVICE_DIR=/dev is refused: every device the user can open would reach the container", "worlds": ["bare"], "args": ["--version"], "cwd": "outside", "env": {"CCY_GPU_DEVICE_DIR": "/dev"}},
+    {"name": "override-gpu-dir-parent-missing", "area": "standalone", "about": "CCY_GPU_DEVICE_DIR under no directory fails at start, not as silently no GPU", "worlds": ["bare"], "args": ["--version"], "cwd": "outside", "env": {"CCY_GPU_DEVICE_DIR": "no-such-dev/dri"}},
     {"name": "help-no-image", "area": "standalone", "about": "--help with the image not built: ccy's own text, then the build hint", "worlds": ["bare"], "args": ["--help"], "cwd": "outside"},
     {"name": "help-image", "area": "standalone", "about": "--help with the image present: ccy's own text, then claude's help from the container", "worlds": ["podman"], "args": ["--help"], "cwd": "outside",
      "rules": [{"tool": "podman", "args": ["run", "--rm", "--entrypoint", "claude", "claude-yolo:latest", "--help"], "stdout": "Usage: claude [options] [prompt]\n\nOptions:\n  --model <model>  the model\n"}]},

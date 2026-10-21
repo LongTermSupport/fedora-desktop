@@ -14,11 +14,8 @@ To forward unrecognised flags raw to claude, use a -- separator:
   ccy [ccy-options] -- --resum
 === calls
 claude --help
-    env: CCY_LIFECYCLE_DEADLINE_EPOCH CCY_LIFECYCLE_MAX_AGE_SECONDS CCY_LIFECYCLE_PLUGIN_PATH CCY_LIFECYCLE_WARN_MINUTES CCY_RESTART_DEFAULT_MAX CCY_RESTART_DEFAULT_WINDOW_SECONDS CCY_RESTART_EXIT_STATUS CCY_RESTART_REQUEST_REL CONTAINER_ENGINE GITHUB_SSH_443
 podman image inspect claude-yolo:latest
-    env: (as above)
 podman run --rm --entrypoint claude claude-yolo:latest --help
-    env: (as above)
 === files
 dir  home/.claude-tokens 0700
 dir  home/.claude-tokens/ccy 0700

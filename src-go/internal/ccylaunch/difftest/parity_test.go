@@ -10,12 +10,18 @@
 // answers the fakes give, a git remote) and scenarios built from them (arguments, the directory
 // a launch starts in, stdin). Each scenario runs the launcher once in a sandbox of its own: a
 // scratch HOME, a git repository with one commit, a directory in no repository, TMPDIR and
-// XDG_RUNTIME_DIR, and a PATH that is only the sandbox's bin directory. In it the observed
-// programs (podman, docker, tmux, gh, curl, ssh-add, ...) are fakes that record their argv and
-// the names, never the values, of the environment the launcher added, and answer from the
-// scenario's rules; the quiet fakes (hostname, id) answer without being recorded; date is the
-// real date with "now" pinned to the matrix's clock; a short list of pure tools runs for real.
-// Nothing reaches a real engine, the network or a real token.
+// XDG_RUNTIME_DIR, its own build context, GPU directory and zone database (the launcher's
+// CCY_DOCKERFILE_DIR, CCY_GPU_DEVICE_DIR and CCY_ZONEINFO_DIR), TZ=UTC, and a PATH that is only
+// the sandbox's bin directory. In it the observed programs (podman, docker, tmux, gh, curl,
+// ssh-add, ...) are fakes that record their argv and the names, never the values, of the
+// environment variables that program reads (readsEnv in fake_test.go says which and why: the
+// names an engine call passes by name, the whole environment for tmux, a token for gh and
+// claude; never bash's leftovers), and answer from the scenario's rules; the quiet fakes
+// (hostname, id) answer without being recorded; date is the real date with "now" pinned to the
+// matrix's clock; a short list of pure tools runs for real. Nothing reaches a real engine, the
+// network or a real token. The machine still answers two things: /etc/localtime, which the
+// launcher reads only when timedatectl names no zone (every world's timedatectl names one), and
+// the real tools' own installation.
 //
 // testdata/golden/<scenario>.txt is the exit status, stdout, stderr, the calls in order, and
 // every file the run left in the sandbox with its mode and content, with the sandbox's path, the
@@ -24,8 +30,10 @@
 //
 // LAUNCHER=<path> runs the matrix against that program; unset, it runs the checkout's bash
 // launcher, installed into a scratch directory as the play lays it out. `-update` re-records
-// the goldens from the launcher under test; review the diff before committing it.
-// TestOracleCanFail proves the matrix fails a launcher that differs by one flag.
+// the goldens from the bash launcher, and refuses with LAUNCHER set: the goldens are the bash's
+// behaviour, never another program's. Review the diff before committing it.
+// TestOracleCanFail proves the matrix fails a launcher that differs by one flag, on the line
+// that flag is on; it does not run under -update, which is rewriting the goldens it reads.
 package difftest
 
 import (
@@ -59,6 +67,9 @@ func goldenPath(name string) string {
 
 // TestLauncherParity runs every scenario and compares it with its golden.
 func TestLauncherParity(t *testing.T) {
+	if *update && os.Getenv("LAUNCHER") != "" {
+		t.Fatal("-update records the goldens from the bash launcher; unset LAUNCHER")
+	}
 	m := loadMatrix(t)
 	l := probe(t, m, launcherUnderTest(t))
 	for _, sc := range m.Scenarios {
@@ -134,9 +145,10 @@ func TestScenariosWellFormed(t *testing.T) {
 	}
 }
 
-// mutation is one deliberate change to the bash launcher and a scenario that must then fail.
+// mutation is one deliberate change to the bash launcher and a scenario that must then fail,
+// on a golden line that holds shows: so a launcher that broke some other way does not pass.
 type mutation struct {
-	about, from, to, scenario string
+	about, from, to, scenario, shows string
 }
 
 // mutations prove the oracle can fail: each changes one flag of the launcher, in the text a
@@ -147,18 +159,23 @@ var mutations = []mutation{
 		from:     `    claude --dangerously-skip-permissions "${CLAUDE_CMD_ARGS[@]}"`,
 		to:       `    claude "${CLAUDE_CMD_ARGS[@]}"`,
 		scenario: "launch-plain",
+		shows:    "--dangerously-skip-permissions",
 	},
 	{
 		about:    "--version answers to -V instead of -v",
 		from:     `[ "$1" = "-v" ]`,
 		to:       `[ "$1" = "-V" ]`,
 		scenario: "version-short",
+		shows:    "ccy version {ccy_version}",
 	},
 }
 
 func TestOracleCanFail(t *testing.T) {
 	if os.Getenv("LAUNCHER") != "" {
 		t.Skip("the mutations edit the bash launcher; LAUNCHER names another program")
+	}
+	if *update {
+		t.Skip("-update is rewriting the goldens this test reads")
 	}
 	m := loadMatrix(t)
 	for _, mu := range mutations {
@@ -176,11 +193,28 @@ func TestOracleCanFail(t *testing.T) {
 				t.Fatalf("mutation %q names no scenario %s", mu.about, mu.scenario)
 			}
 			got := runScenario(t, m, l, m.Scenarios[idx]).render()
-			if got == readFile(t, goldenPath(mu.scenario)) {
-				t.Errorf("mutation %q: scenario %s still matches its golden; the oracle cannot see it", mu.about, mu.scenario)
+			want := readFile(t, goldenPath(mu.scenario))
+			if got == want {
+				t.Fatalf("mutation %q: scenario %s still matches its golden; the oracle cannot see it", mu.about, mu.scenario)
+			}
+			if !lostLine(want, got, mu.shows) {
+				t.Errorf("mutation %q: scenario %s differs, but no golden line holding %q is gone:\n%s",
+					mu.about, mu.scenario, mu.shows, lineDiff(want, got))
 			}
 		})
 	}
+}
+
+// lostLine reports whether a line of want that holds text is not in got: the difference is
+// on the line the mutation changed.
+func lostLine(want, got, text string) bool {
+	gotLines := strings.Split(got, "\n")
+	for line := range strings.SplitSeq(want, "\n") {
+		if strings.Contains(line, text) && !slices.Contains(gotLines, line) {
+			return true
+		}
+	}
+	return false
 }
 
 // commonTable is, at [i][j], the length of the longest common subsequence of w[i:] and g[j:].

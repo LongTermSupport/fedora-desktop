@@ -16,35 +16,21 @@ Validating token...
 Available networks:
 === calls
 getenforce
-    env: CCY_LIFECYCLE_DEADLINE_EPOCH CCY_LIFECYCLE_MAX_AGE_SECONDS CCY_LIFECYCLE_PLUGIN_PATH CCY_LIFECYCLE_WARN_MINUTES CCY_RESTART_DEFAULT_MAX CCY_RESTART_DEFAULT_WINDOW_SECONDS CCY_RESTART_EXIT_STATUS CCY_RESTART_REQUEST_REL CONTAINER_ENGINE GITHUB_SSH_443
 podman info --format '{{.Host.Security.SELinuxEnabled}}'
-    env: (as above)
 gh auth token
-    env: CCY_LIFECYCLE_DEADLINE_EPOCH CCY_LIFECYCLE_MAX_AGE_SECONDS CCY_LIFECYCLE_PLUGIN_PATH CCY_LIFECYCLE_WARN_MINUTES CCY_MOUNT_RELABEL CCY_RESTART_DEFAULT_MAX CCY_RESTART_DEFAULT_WINDOW_SECONDS CCY_RESTART_EXIT_STATUS CCY_RESTART_REQUEST_REL CCY_SELINUX_MODE CONTAINER_ENGINE GITHUB_SSH_443 SSH_AGENT_FORWARDED SSH_CONFIG_EXTRA_B64 SSH_KNOWN_HOSTS_PINS
 podman run --rm -e CLAUDE_CODE_OAUTH_TOKEN --entrypoint claude claude-yolo:latest --version
-    env: CCY_LIFECYCLE_DEADLINE_EPOCH CCY_LIFECYCLE_MAX_AGE_SECONDS CCY_LIFECYCLE_PLUGIN_PATH CCY_LIFECYCLE_WARN_MINUTES CCY_MOUNT_RELABEL CCY_RESTART_DEFAULT_MAX CCY_RESTART_DEFAULT_WINDOW_SECONDS CCY_RESTART_EXIT_STATUS CCY_RESTART_REQUEST_REL CCY_SELINUX_MODE CLAUDE_CODE_OAUTH_TOKEN CONTAINER_ENGINE GITHUB_SSH_443 SSH_AGENT_FORWARDED SSH_CONFIG_EXTRA_B64 SSH_KNOWN_HOSTS_PINS
+    env: CLAUDE_CODE_OAUTH_TOKEN
 podman info --format '{{.Host.Security.Rootless}}'
-    env: CCY_LIFECYCLE_DEADLINE_EPOCH CCY_LIFECYCLE_MAX_AGE_SECONDS CCY_LIFECYCLE_PLUGIN_PATH CCY_LIFECYCLE_WARN_MINUTES CCY_MOUNT_RELABEL CCY_RESTART_DEFAULT_MAX CCY_RESTART_DEFAULT_WINDOW_SECONDS CCY_RESTART_EXIT_STATUS CCY_RESTART_REQUEST_REL CCY_SELINUX_MODE CONTAINER_ENGINE GITHUB_SSH_443 SSH_AGENT_FORWARDED SSH_CONFIG_EXTRA_B64 SSH_KNOWN_HOSTS_PINS
 podman ps -a --filter name=_yolo --filter status=exited --format '{{.Names}}'
-    env: (as above)
 podman ps --filter name=_yolo --format '{{.Names}}'
-    env: (as above)
 podman ps --filter name=difftest-project_yolo --format '{{.Names}}'
-    env: (as above)
 podman image inspect claude-yolo:latest
-    env: (as above)
 podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-version"}}'
-    env: (as above)
 podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-dockerfile-hash"}}'
-    env: (as above)
 podman run --rm --entrypoint claude claude-yolo:latest --version
-    env: (as above)
 curl -fsSL https://registry.npmjs.org/@anthropic-ai/claude-code/latest
-    env: (as above)
 podman network ls --format '{{.Name}}'
-    env: (as above)
 podman network ls --format '  {{.Name}}'
-    env: (as above)
 === files
 dir  home/.cache 0700
 dir  home/.cache/claude-yolo-update-checks 0700
