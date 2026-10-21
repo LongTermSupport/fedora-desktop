@@ -1,24 +1,19 @@
 package statusline
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"regexp"
-	"slices"
-	"strconv"
 	"strings"
 	"syscall"
-	"unicode/utf8"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/pingbus/pyjson"
 )
 
-// The role reader (S20 to S24): this member's role in each team, from the bundle config.py
-// validates and the team record inbox.py caches. A role that cannot be read is absent from the
-// map and gives a reason in the diagnostic. Port status: the checks marked GAP in the spec are
-// not yet ported (see the plan's draft report); a file Python refuses for one of them is read here.
+// The role reader (S20 to S24): this member's role in each team, from the bundle
+// config.load_bundle validates and the team record inbox.load_cached_record reads. A role that
+// cannot be read is absent from the map and gives a reason in the diagnostic. The reasons are
+// worded here, without Python's exception names (S37: stderr is compared by shape).
 const (
 	memberFile       = "member.json"
 	tokenFile        = "token"
@@ -27,21 +22,21 @@ const (
 	memberMaxBytes   = 65536
 	tokenMaxBytes    = 4096
 	teamRecordMax    = 65536
+	tokenModeAllowed = 0o600
+	linkedBundleMode = 0o700
 	roleCoordinator  = "coordinator"
 	roleWorker       = "worker"
 	roleLegacyLeader = "orchestrator"
-)
+	hostType         = "host"
 
-var (
-	printablePattern = regexp.MustCompile(`^[\x21-\x7e]+$`)
-	memberKeys       = []string{"protocol", "team", "user_id", "server_name", "base_url", "plain_http_hosts", "token_file", "admin", "room"}
-	memberOptional   = []string{"human_text", "limits"}
+	// Where Element keeps a human's Matrix session, and the user's own record that they accept
+	// a host seat beside it (config.py).
+	elementFlatpakDir   = ".var/app/im.riot.Riot"
+	elementNativeParent = ".config"
+	elementNativeName   = "Element"
+	elementAcceptedDir  = ".config/pingbus"
+	elementAcceptedFile = "element-accepted"
 )
-
-// member is what a bundle's member.json and token make of one team.
-type member struct {
-	team, userID, stateDir string
-}
 
 // resolveHome is config.resolve_home: PINGBUS_HOME, else XDG_CONFIG_HOME, else HOME (S20).
 func resolveHome(env map[string]string) (string, error) {
@@ -49,21 +44,21 @@ func resolveHome(env map[string]string) (string, error) {
 		if !strings.HasPrefix(explicit, "/") {
 			return "", errors.New("PINGBUS_HOME must be an absolute path")
 		}
-		return explicit, nil
+		return pyJoin(explicit, "."), nil
 	}
 	if xdg := env["XDG_CONFIG_HOME"]; strings.HasPrefix(xdg, "/") {
-		return filepath.Join(xdg, "pingbus"), nil
+		return pyJoin(xdg, "pingbus"), nil
 	}
 	home := env["HOME"]
 	if !strings.HasPrefix(home, "/") {
 		return "", errors.New("PINGBUS_HOME is unset and HOME is not an absolute path")
 	}
-	return filepath.Join(home, ".config", "pingbus"), nil
+	return pyJoin(home, ".config/pingbus"), nil
 }
 
 // readRoles is each team's role and the one diagnostic line naming every team that failed
 // (S24), or "" when all were read. A failed home is named once with its reason (S20).
-func readRoles(env map[string]string, teams []string) (map[string]string, string) {
+func (w *world) readRoles(env map[string]string, teams []string) (map[string]string, string) {
 	roles := make(map[string]string, len(teams))
 	home, err := resolveHome(env)
 	if err != nil {
@@ -71,7 +66,7 @@ func readRoles(env map[string]string, teams []string) (map[string]string, string
 	}
 	var failed []string
 	for _, team := range teams {
-		role, err := roleOf(home, team)
+		role, err := w.roleOf(home, team)
 		if err != nil {
 			failed = append(failed, team+": "+err.Error())
 			continue
@@ -85,247 +80,206 @@ func readRoles(env map[string]string, teams []string) (map[string]string, string
 }
 
 // roleOf is one team's role for this member: its bundle loaded, then its cached record read.
-func roleOf(home, team string) (string, error) {
-	m, err := loadBundle(home, team)
+func (w *world) roleOf(home, team string) (string, error) {
+	if !teamNamePattern.MatchString(team) {
+		return "", errors.New("not a team name")
+	}
+	dir := pyJoin(home, team)
+	m, err := w.loadBundle(dir, team)
 	if err != nil {
 		return "", err
 	}
-	return cachedRole(m)
+	return w.cachedRole(dir, m)
 }
 
-// loadBundle is config.load_bundle for home/<team> (S21), with the checks listed in the spec's
-// section 4 that are ported; the rest are GAP.
-func loadBundle(home, team string) (member, error) {
-	if !teamNamePattern.MatchString(team) {
-		return member{}, errors.New("not a team name")
-	}
-	dir := filepath.Join(home, team)
-	if info, err := os.Lstat(dir); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		if err := checkLinkedBundle(dir); err != nil {
+// loadBundle is config.load_bundle for the bundle directory of team (S21).
+func (w *world) loadBundle(dir, team string) (member, error) {
+	linked := w.note(dir).isLink()
+	if linked {
+		if err := w.checkLinkedBundle(dir); err != nil {
 			return member{}, err
 		}
 	}
-	raw, err := readMember(filepath.Join(dir, memberFile))
+	data, err := w.readMember(pyJoin(dir, memberFile))
 	if err != nil {
 		return member{}, err
 	}
-	object, err := memberObject(raw)
+	m, err := parseMember(data, team)
 	if err != nil {
 		return member{}, err
 	}
-	m, err := parseMember(object, team)
-	if err != nil {
+	if err := w.checkToken(pyJoin(dir, tokenFile)); err != nil {
 		return member{}, err
 	}
-	m.stateDir = filepath.Join(dir, stateDir)
-	if err := checkToken(filepath.Join(dir, tokenFile)); err != nil {
-		return member{}, err
+	if m.memberType == hostType {
+		if err := w.checkBesideElement(linked); err != nil {
+			return member{}, err
+		}
 	}
 	return m, nil
 }
 
-// readMember reads member.json: a regular file of at most memberMaxBytes.
-func readMember(path string) ([]byte, error) {
-	raw, err := readRegular(path, memberMaxBytes)
-	if err != nil {
-		return nil, fmt.Errorf("member.json %w", err)
+// parentOf is pathlib's parent of a joined path.
+func parentOf(path string) string {
+	i := strings.LastIndexByte(path, '/')
+	switch {
+	case i < 0:
+		return "."
+	case i == 0:
+		return "/"
 	}
-	return raw, nil
+	return path[:i]
 }
 
-// memberObject decodes member.json: strict UTF-8, no duplicate key anywhere, a JSON object.
-func memberObject(raw []byte) (map[string]any, error) {
-	if err := refuseDuplicateKeys(raw); err != nil {
-		return nil, fmt.Errorf("member.json is not valid JSON (ValueError): %w", err)
-	}
-	data, err := decodeJSON(raw)
+// checkLinkedBundle is config._check_linked_bundle: the link, read one level, must name a real
+// directory (not another link) of this user's with mode exactly 0700.
+func (w *world) checkLinkedBundle(link string) error {
+	text, err := os.Readlink(w.abs(link))
 	if err != nil {
-		return nil, errors.New("member.json is not valid JSON (JSONDecodeError)")
+		return errors.New("the bundle link cannot be read")
 	}
-	object, ok := data.(map[string]any)
+	target := pyJoin(parentOf(link), text)
+	st := w.note(target)
+	where := "links to " + target
+	switch {
+	case st.Errno == int(syscall.ENOENT):
+		return errors.New(where + ": no such directory")
+	case !st.exists():
+		return fmt.Errorf("%s: cannot be read (%s)", where, syscall.Errno(st.Errno).Error())
+	case st.isLink():
+		return errors.New(where + ": a link onto a link is refused")
+	case !st.isDir():
+		return errors.New(where + ": not a directory")
+	case int(st.UID) != w.uid:
+		return fmt.Errorf("%s: owned by uid %d, not %d", where, st.UID, w.uid)
+	case st.perm() != linkedBundleMode:
+		return fmt.Errorf("%s: mode %04o, not %04o", where, st.perm(), linkedBundleMode)
+	}
+	return nil
+}
+
+// readMember is config._read_member_file: a regular file of at most memberMaxBytes (opened
+// without O_NOFOLLOW, as the Python opens it), strict UTF-8 JSON with no key twice in any
+// object, and an object.
+func (w *world) readMember(path string) (pyjson.Object, error) {
+	got, err := w.read(path, false, memberMaxBytes)
+	switch {
+	case isErrno(err, syscall.ENOENT):
+		return nil, errors.New("no bundle (member.json is missing)")
+	case errors.Is(err, errNotRegular):
+		return nil, errors.New("member.json is not a regular file")
+	case errors.Is(err, errTooLarge):
+		return nil, fmt.Errorf("member.json is larger than %d bytes", memberMaxBytes)
+	case err != nil:
+		return nil, fmt.Errorf("member.json cannot be read (%w)", err)
+	}
+	data, err := pyjson.DecodeUTF8(got.raw, pyjson.Options{NoDuplicateKeys: true})
+	if err != nil {
+		return nil, fmt.Errorf("member.json is not valid JSON (%w)", err)
+	}
+	object, ok := data.(pyjson.Object)
 	if !ok {
 		return nil, errors.New("member.json is not a JSON object")
 	}
 	return object, nil
 }
 
-// checkLinkedBundle is S21's rule for a bundle reached through a link: a real directory, this
-// user's, mode exactly 0700.
-func checkLinkedBundle(link string) error {
-	target, err := filepath.EvalSymlinks(link)
-	if err != nil {
-		return fmt.Errorf("the linked bundle cannot be followed (%s)", pythonExceptionName(err))
+// checkToken is config.read_token: a regular file, never followed through a symlink, of this
+// user's, mode 0600 or stricter (setuid, setgid and sticky count), at most tokenMaxBytes of
+// printable ASCII with no newline (S21). The token itself is never kept.
+func (w *world) checkToken(path string) error {
+	got, err := w.read(path, true, tokenMaxBytes)
+	switch {
+	case isErrno(err, syscall.ENOENT):
+		return errors.New("the token file: no such file")
+	case errors.Is(err, errTooLarge):
+		return fmt.Errorf("the token is longer than %d bytes", tokenMaxBytes)
+	case err != nil:
+		return fmt.Errorf("the token file: not a regular file (%w)", err)
 	}
-	info, err := os.Lstat(target)
-	if err != nil || !info.IsDir() {
-		return errors.New("the linked bundle is not a directory")
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || int(stat.Uid) != os.Getuid() || info.Mode().Perm() != 0o700 {
-		return errors.New("the linked bundle is not owned by this user with mode 0700")
+	mode := got.info.Mode & 0o7777
+	switch {
+	case int(got.info.Uid) != w.uid:
+		return fmt.Errorf("the token file: owned by uid %d, not %d", got.info.Uid, w.uid)
+	case mode&^tokenModeAllowed != 0:
+		return fmt.Errorf("the token file: mode %04o is looser than 0600", mode)
+	case !printablePattern.Match(got.raw):
+		return errors.New("the token must be one line of printable ASCII, no spaces, no newline")
 	}
 	return nil
 }
 
-// readRegular reads a regular file of at most limit bytes, never followed through a symlink,
-// and words each failure the way the Python does.
-func readRegular(path string, limit int) ([]byte, error) {
-	raw, err := readNoFollow(path, int64(limit))
-	switch {
-	case err == nil:
-		return raw, nil
-	case errors.Is(err, errNotRegular):
-		return nil, err
-	case errors.Is(err, errTooLarge):
-		return nil, fmt.Errorf("is larger than %d bytes", limit)
-	}
-	return nil, fmt.Errorf("cannot be read (%s)", pythonExceptionName(err))
-}
-
-// refuseDuplicateKeys fails on a key that appears twice in any object (S21, member.json only).
-func refuseDuplicateKeys(raw []byte) error {
-	if !utf8.Valid(raw) {
-		return errors.New("invalid UTF-8")
-	}
-	return walkValue(json.NewDecoder(bytes.NewReader(raw)))
-}
-
-// walkValue reads one JSON value from dec, failing on a duplicate key in any object of it.
-func walkValue(dec *json.Decoder) error {
-	tok, err := dec.Token()
+// checkBesideElement is load_bundle's rule for a host member: reached through a link with the
+// user's Element acceptance, or with no Element profile under the user's passwd home.
+func (w *world) checkBesideElement(linked bool) error {
+	home, err := w.userHome(w.uid)
 	if err != nil {
-		return err
+		return fmt.Errorf("a host member needs this user's home to look for an Element profile: %w", err)
 	}
-	delim, ok := tok.(json.Delim)
-	if !ok {
+	if linked && w.elementAccepted(home) {
 		return nil
 	}
-	if delim == '{' {
-		err = walkObject(dec)
-	} else {
-		err = walkArray(dec)
-	}
-	if err != nil {
-		return err
-	}
-	_, err = dec.Token() // the closing delimiter
-	return err
+	return w.refuseBesideElement(home)
 }
 
-func walkObject(dec *json.Decoder) error {
-	seen := map[string]bool{}
-	for dec.More() {
-		key, err := dec.Token()
-		if err != nil {
-			return err
-		}
-		name, isName := key.(string)
-		if !isName {
-			return errors.New("object key is not a string")
-		}
-		if seen[name] {
-			return fmt.Errorf("duplicate key %q", name)
-		}
-		seen[name] = true
-		if err := walkValue(dec); err != nil {
-			return err
+// elementAccepted is config.element_accepted: a regular file of this user's that no one else
+// can read or write, in a real directory of theirs under their home.
+func (w *world) elementAccepted(home string) bool {
+	dir := pyJoin(home, elementAcceptedDir)
+	dirInfo := w.note(dir)
+	info := w.note(pyJoin(dir, elementAcceptedFile))
+	return dirInfo.isDir() && int(dirInfo.UID) == w.uid && info.isRegular() && int(info.UID) == w.uid && info.perm()&0o077 == 0
+}
+
+// refuseBesideElement is config._refuse_beside_element: the Flatpak's tree (a dangling link
+// counts), or an Element or Element-<profile> entry in the native client's parent directory.
+func (w *world) refuseBesideElement(home string) error {
+	refusal := errors.New("a host member must not run as a user with an Element profile; run it as a dedicated agent user")
+	if w.note(pyJoin(home, elementFlatpakDir)).exists() {
+		return refusal
+	}
+	parent := pyJoin(home, elementNativeParent)
+	w.note(parent)
+	if !statOf(w.abs(parent), true).isDir() {
+		return nil
+	}
+	entries, err := os.ReadDir(w.abs(parent))
+	if err != nil {
+		return fmt.Errorf("%s cannot be listed to look for an Element profile (%w)", parent, err)
+	}
+	for _, entry := range entries {
+		if entry.Name() == elementNativeName || strings.HasPrefix(entry.Name(), elementNativeName+"-") {
+			return refusal
 		}
 	}
 	return nil
 }
 
-func walkArray(dec *json.Decoder) error {
-	for dec.More() {
-		if err := walkValue(dec); err != nil {
-			return err
-		}
+// cachedRole is inbox.cached_role: the member's role in the team record last verified (S22).
+func (w *world) cachedRole(dir string, m member) (string, error) {
+	got, err := w.read(pyJoin(pyJoin(dir, stateDir), teamFile), true, teamRecordMax)
+	switch {
+	case isErrno(err, syscall.ENOENT):
+		return "", errors.New("no verified team record yet (not joined)")
+	case isErrno(err, syscall.ELOOP):
+		return "", errors.New("the team record is a symlink")
+	case errors.Is(err, errNotRegular):
+		return "", errors.New("the team record is not a regular file")
+	case errors.Is(err, errTooLarge):
+		return "", errors.New("the team record is too large")
+	case err != nil:
+		return "", fmt.Errorf("the team record cannot be read (%w)", err)
 	}
-	return nil
-}
-
-// parseMember applies _parse_member's key checks and the ones the port has (S21). GAP: base_url,
-// plain_http_hosts, user_id's handle, admin, room and limits are not yet validated.
-func parseMember(object map[string]any, team string) (member, error) {
-	for _, key := range memberKeys {
-		if _, ok := object[key]; !ok {
-			return member{}, fmt.Errorf("member.json lacks %q", key)
-		}
-	}
-	for key := range object {
-		if !slices.Contains(memberKeys, key) && !slices.Contains(memberOptional, key) {
-			return member{}, fmt.Errorf("member.json has an unknown key %q", key)
-		}
-	}
-	if !isInt(object["protocol"], 1) {
-		return member{}, errors.New("member.json protocol is not 1")
-	}
-	if object["team"] != team {
-		return member{}, errors.New("member.json names another team")
-	}
-	userID, ok := object["user_id"].(string)
-	if !ok {
-		return member{}, errors.New("member.json user_id is not a string")
-	}
-	if object["token_file"] != tokenFile {
-		return member{}, errors.New("member.json token_file is not \"token\"")
-	}
-	return member{team: team, userID: userID}, nil
-}
-
-// isInt is Python's `type(v) is int and v == want`: a JSON integer literal, not 1.0 or true.
-func isInt(v any, want int) bool {
-	n, ok := v.(json.Number)
-	return ok && n.String() == strconv.Itoa(want)
-}
-
-// checkToken is the token file: regular, this user's, mode 0600 or stricter, at most 4096
-// bytes, printable ASCII with no trailing newline (S21).
-func checkToken(path string) error {
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() {
-		return errors.New("token is not a regular file")
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || int(stat.Uid) != os.Getuid() {
-		return errors.New("token is not owned by this user")
-	}
-	if info.Mode().Perm()&0o177 != 0 {
-		return errors.New("token is open to other users")
-	}
-	raw, err := readNoFollow(path, tokenMaxBytes)
-	if err != nil || !printablePattern.Match(raw) {
-		return errors.New("token is not a printable token")
-	}
-	return nil
-}
-
-// cachedRole is the member's role in the team record last verified (inbox.load_cached_record).
-// GAP: parse_team_record's field checks are not yet ported; only the role lookup is.
-func cachedRole(m member) (string, error) {
-	raw, err := readRegular(filepath.Join(m.stateDir, teamFile), teamRecordMax)
+	content, err := pyjson.DecodeBytes(got.raw)
 	if err != nil {
-		return "", fmt.Errorf("team record: %w", err)
+		return "", errors.New("the team record is not JSON")
 	}
-	data, err := decodeJSON(raw)
+	roles, err := parseTeamRecord(content, m.serverName, m.team)
 	if err != nil {
-		return "", errors.New("team record is not JSON")
+		return "", err
 	}
-	object, ok := data.(map[string]any)
+	role, ok := roles[m.userID]
 	if !ok {
-		return "", errors.New("team record is not a JSON object")
-	}
-	roles, ok := object["roles"].(map[string]any)
-	if !ok {
-		return "", errors.New("team record has no roles")
-	}
-	role, isRole := roles[m.userID].(string)
-	if !isRole {
-		return "", errors.New("the team record gives this member no role")
-	}
-	if role == roleLegacyLeader {
-		role = roleCoordinator
-	}
-	if role != roleCoordinator && role != roleWorker {
 		return "", errors.New("the team record gives this member no role")
 	}
 	return role, nil

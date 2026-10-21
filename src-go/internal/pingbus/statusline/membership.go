@@ -1,18 +1,13 @@
 package statusline
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
-	"unicode/utf8"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/pingbus/pyjson"
 )
 
 const (
@@ -29,90 +24,31 @@ const (
 // teamNamePattern is a team name (S17, S18).
 var teamNamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,23}$`)
 
-// errNotRegular is a path that opened but is not a regular file.
-var errNotRegular = errors.New("is not a regular file")
-
 // seat is one team and seat name from a membership file.
 type seat struct{ team, name string }
 
-// openNoFollow opens a path without following a final symlink and without blocking on a FIFO.
-func openNoFollow(path string) (*os.File, error) {
-	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
-	if err != nil {
-		return nil, err
-	}
-	return os.NewFile(uintptr(fd), path), nil
-}
-
-// readNoFollow reads a regular file of at most limit bytes, never followed through a symlink.
-// It returns errNotRegular, a read error, or errTooLarge.
-func readNoFollow(path string, limit int64) ([]byte, error) {
-	file, err := openNoFollow(path)
-	if err != nil {
-		return nil, err
-	}
-	raw, readErr := readOpened(file, limit)
-	closeErr := file.Close()
-	if readErr != nil {
-		return nil, readErr
-	}
-	return raw, closeErr
-}
-
-var errTooLarge = errors.New("is larger than the limit")
-
-func readOpened(file *os.File, limit int64) ([]byte, error) {
-	info, err := file.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if !info.Mode().IsRegular() {
-		return nil, errNotRegular
-	}
-	raw, err := io.ReadAll(io.LimitReader(file, limit+1))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(raw)) > limit {
-		return nil, errTooLarge
-	}
-	return raw, nil
-}
-
-// readObject is a JSON object from a regular file, never followed through a symlink, of at
-// most maxMembershipBytes that is strict UTF-8. Nil otherwise (S17).
-func readObject(path string) map[string]any {
-	raw, err := readNoFollow(path, maxMembershipBytes)
-	if err != nil || !utf8.Valid(raw) {
-		return nil
-	}
-	data, err := decodeJSON(raw)
+// readObject is statusline._read_object: a JSON object from a regular file never followed
+// through a symlink, of at most maxMembershipBytes of strict UTF-8 (S17); nil otherwise.
+func (w *world) readObject(path string) pyjson.Object {
+	got, err := w.read(path, true, maxMembershipBytes)
 	if err != nil {
 		return nil
 	}
-	object, ok := data.(map[string]any)
+	data, err := pyjson.DecodeUTF8(got.raw, pyjson.Options{})
+	if err != nil {
+		return nil
+	}
+	object, ok := data.(pyjson.Object)
 	if !ok {
 		return nil
 	}
 	return object
 }
 
-// isVersionOne is Python's `v == 1`, which holds for 1, 1.0 and true.
-func isVersionOne(v any) bool {
-	switch x := v.(type) {
-	case json.Number:
-		f, err := x.Float64()
-		return err == nil && f == 1
-	case bool:
-		return x
-	}
-	return false
-}
-
-// seatsOf reads the seats of a membership object (S17). With heldOnly, only seats whose state
-// is "held" count. False when the object is not one the keeper wrote.
-func seatsOf(data map[string]any, heldOnly bool) ([]seat, bool) {
-	if data == nil || !isVersionOne(data["v"]) {
+// seatsOf is statusline._pairs: the seats of a membership object (S17), with heldOnly only
+// those whose state is "held". False when the object is not one the keeper wrote.
+func seatsOf(data pyjson.Object, heldOnly bool) ([]seat, bool) {
+	if data == nil || !pyjson.EqualsInt(data["v"], 1) {
 		return nil, false
 	}
 	list, ok := data["seats"].([]any)
@@ -121,8 +57,8 @@ func seatsOf(data map[string]any, heldOnly bool) ([]seat, bool) {
 	}
 	var seats []seat
 	for _, item := range list {
-		object, ok := item.(map[string]any)
-		if !ok {
+		object, isObject := item.(pyjson.Object)
+		if !isObject {
 			return nil, false
 		}
 		team, teamOK := object["team"].(string)
@@ -130,7 +66,7 @@ func seatsOf(data map[string]any, heldOnly bool) ([]seat, bool) {
 		if !teamOK || !seatOK || !teamNamePattern.MatchString(team) {
 			return nil, false
 		}
-		if !heldOnly || object["state"] == "held" {
+		if state, isText := object["state"].(string); !heldOnly || (isText && state == "held") {
 			seats = append(seats, seat{team, name})
 		}
 	}
@@ -140,18 +76,18 @@ func seatsOf(data map[string]any, heldOnly bool) ([]seat, bool) {
 // membershipTeams is the teams the session is on under PINGBUS_MEMBERSHIP: the seats held in
 // the applied file that the desired file names, in desired order (S16, S17). It reports false
 // when a file cannot be read; an empty list (true) means no applied file yet.
-func membershipTeams(env map[string]string) ([]string, bool) {
-	desired, ok := seatsOf(readObject(filepath.Join(env[membershipVar], desiredFile)), false)
+func (w *world) membershipTeams(env map[string]string) ([]string, bool) {
+	desired, ok := seatsOf(w.readObject(pyJoin(env[membershipVar], desiredFile)), false)
 	home := env["PINGBUS_HOME"]
 	if !ok || !strings.HasPrefix(home, "/") {
 		return nil, false
 	}
-	applied := filepath.Join(home, appliedFile)
+	applied := pyJoin(home, appliedFile)
 	// Python's os.path.lexists: any failure to look is "no applied file yet".
-	if _, err := os.Lstat(applied); err != nil {
+	if !w.note(applied).exists() {
 		return []string{}, true
 	}
-	held, ok := seatsOf(readObject(applied), true)
+	held, ok := seatsOf(w.readObject(applied), true)
 	if !ok {
 		return nil, false
 	}
@@ -165,46 +101,36 @@ func membershipTeams(env map[string]string) ([]string, bool) {
 }
 
 // sessionRecordPath is the record of a session: PINGBUS_SESSIONS_DIR, else the per-uid default.
-func sessionRecordPath(env map[string]string, sessionID string) string {
+func (w *world) sessionRecordPath(env map[string]string, sessionID string) string {
 	dir := env[sessionsDirVar]
 	if dir == "" {
-		dir = fmt.Sprintf("/tmp/pingbus-sessions-%d", os.Getuid())
+		dir = fmt.Sprintf("/tmp/pingbus-sessions-%d", w.uid)
 	}
-	return filepath.Join(dir, sessionID)
+	return pyJoin(dir, sessionID)
 }
 
 // sessionTeams is the teams recorded for this session, or false when there is no usable record:
-// no id, no file, a file that is not this user's alone, or contents that are not distinct team
-// names (S18).
-func sessionTeams(env map[string]string, sessionID string) ([]string, bool) {
+// no id, no file, a file that is not this user's alone or is over maxRecord bytes, or contents
+// that are not distinct ASCII team names (S18).
+func (w *world) sessionTeams(env map[string]string, sessionID string) ([]string, bool) {
 	if sessionID == "" {
 		return nil, false
 	}
-	path := sessionRecordPath(env, sessionID)
-	if !ownRecord(path) {
+	path := w.sessionRecordPath(env, sessionID)
+	st := w.note(path)
+	if !st.isRegular() || int(st.UID) != w.uid || st.Mode&0o077 != 0 || st.Size > maxRecord {
 		return nil, false
 	}
-	raw, err := readNoFollow(path, maxRecord)
-	if err != nil || !isASCII(raw) {
+	got, err := w.read(path, true, maxRecord)
+	if err != nil || !isASCII(got.raw) {
 		return nil, false
 	}
-	return distinctTeams(string(raw))
-}
-
-// ownRecord is S18's test of the record file: a regular file, not followed, that only this user
-// can read or write, and of at most maxRecord bytes.
-func ownRecord(path string) bool {
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 || info.Size() > maxRecord {
-		return false
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	return ok && int(stat.Uid) == os.Getuid()
+	return distinctTeams(string(got.raw))
 }
 
 func isASCII(raw []byte) bool {
 	for _, c := range raw {
-		if c >= utf8.RuneSelf {
+		if c >= 0x80 {
 			return false
 		}
 	}
@@ -224,16 +150,21 @@ func distinctTeams(content string) ([]string, bool) {
 	return teams, true
 }
 
-// isDown is the watcher's H26 mark for team: a regular file under PINGBUS_HOME/down, not
-// followed, whose mtime is less than 300 s old (S25).
-func isDown(env map[string]string, team string) bool {
+// downUntil is the watcher's H26 mark for team: when PINGBUS_HOME/down/<team> is a regular file
+// (lstat, never followed) whose mtime is less than 300 s old, the moment it stops counting
+// (S25, S34); the zero time when the team is not down.
+func (w *world) downUntil(env map[string]string, team string) time.Time {
 	home := env["PINGBUS_HOME"]
 	if !strings.HasPrefix(home, "/") {
-		return false
+		return time.Time{}
 	}
-	info, err := os.Lstat(filepath.Join(home, downDir, team))
-	if err != nil || !info.Mode().IsRegular() {
-		return false
+	st := w.note(pyJoin(pyJoin(home, downDir), team))
+	if !st.isRegular() {
+		return time.Time{}
 	}
-	return time.Since(info.ModTime()) < downFreshFor
+	until := time.Unix(0, st.Mtime).Add(downFreshFor)
+	if !w.now.Before(until) {
+		return time.Time{}
+	}
+	return until
 }

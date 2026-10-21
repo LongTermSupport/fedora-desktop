@@ -217,6 +217,17 @@ var dynamicNames = []allowance{
 	},
 }
 
+// shellStrings are the functions that may hand a shell a string with -c, because the program's
+// own specification is a command line a user wrote for a shell to run. Every other shell -c is
+// the route round the argv the runner shows. fn is "func" or "Type.method".
+var shellStrings = []allowance{
+	{
+		pkg:    "internal/pingbus/statusline",
+		fn:     "runInner",
+		reason: "the statusLine command of the session's settings, which Claude Code itself runs as /bin/sh -c (Plan 00213 SPEC-status-line.md S9); the status line runs it the same way",
+	},
+}
+
 // bindingSubjects are not judged by project_hidden_bindings: the rules package and the
 // shell gate of the same rule name the fzf flags as the text they look for and build no fzf
 // argv (neither starts fzf).

@@ -26,7 +26,26 @@ func TestSeamCommandsDynamicNames(t *testing.T) {
 		{pkg: "internal/dynamic", fn: "Launch", reason: "the program is chosen at run time"},
 		{pkg: "internal/dynamic", fn: "Runner.Run", reason: "the program is chosen at run time"},
 	}
-	analysistest.Run(t, analysistest.TestData(), newSeamCommands(allow), "fix/internal/dynamic")
+	analysistest.Run(t, analysistest.TestData(), newSeamCommands(allow, nil), "fix/internal/dynamic")
+}
+
+// A shellStrings row excuses its function's shell string and nothing else: the neighbour is
+// flagged, and an owned program in the excused function still is.
+func TestSeamCommandsShellStrings(t *testing.T) {
+	allow := []allowance{
+		{pkg: "internal/shellstring", fn: "Configured", reason: "a command line the user configured"},
+		{pkg: "internal/shellstring", fn: "Runner.Run", reason: "a command line the user configured"},
+		{pkg: "internal/shellstring", fn: "OwnedInside", reason: "a command line the user configured"},
+	}
+	analysistest.Run(t, analysistest.TestData(), newSeamCommands(nil, allow), "fix/internal/shellstring")
+}
+
+func TestEveryShellStringHasAReason(t *testing.T) {
+	for _, a := range shellStrings {
+		if a.reason == "" || a.pkg == "" || a.fn == "" {
+			t.Errorf("allowance %+v needs a package, a function and a reason", a)
+		}
+	}
 }
 
 func TestTmuxTargets(t *testing.T) {
