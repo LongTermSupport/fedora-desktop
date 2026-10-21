@@ -32,6 +32,8 @@
 also	files/var/local/claude-yolo/lib/common-pure.bash	go	-
 also	files/var/local/claude-yolo/lib/session-registry.bash	go	-
 also	helpers/agent_bus/declare.py	go	-
+# rclonecache's caller test reads how these scripts call rclone-cache-status.
+also	files/home/.local/bin/rclone-tail,files/home/.local/bin/rclone-cache-warm	go	-
 # The bash-limits gate reads every bash file, template and the allowlist (whole: it is fast).
 also	*.bash,*.sh,*.j2	bash-limits	-
 also	src-go/qa/bashlimits/*,src-go/qa/cmd/qa-bash-limits/*,src-go/qa/internal/proc/*,src-go/qa/internal/cmdmain/*	bash-limits	-
