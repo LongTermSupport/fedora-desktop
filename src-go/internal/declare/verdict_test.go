@@ -220,7 +220,7 @@ func TestAnEditKeepingSizeAndTimeIsNotSeen(t *testing.T) {
 
 func TestAFailedStatusRunIsNotKept(t *testing.T) {
 	w := newVerdictWorld(t)
-	w.f.On([]string{"env", "PYTHONPATH=/root", "python3", "-P", "-m", "helpers.agent_bus.declare", "status"},
+	w.f.On([]string{"env", "PYTHONPATH=/root", systemPython, "-P", "-m", "helpers.agent_bus.declare", "status"},
 		execx.Result{Stderr: []byte("declare: boom\n"), ExitCode: 78})
 	if _, err := w.c.Status(context.Background(), w.src, w.applied, w.installed); !errors.Is(err, ErrRefused) {
 		t.Fatalf("got %v", err)
