@@ -1,0 +1,22 @@
+# The v1 names no v2 file may hold (Plan 00209, DESIGN-v2-D-migration.md section 4.1): the
+# gate teamchat-keeps-off-v1 (src-go/qa/teamchatseparate) and the unit test of
+# src-go/internal/teamchat/paths both read this file, so the list has one home.
+#
+# One name per line; a line starting with # is a comment, and a blank line is skipped.
+#   NAME          found in any letter case, anywhere in a line
+#   NAME !NEXT    found exactly as written wherever NEXT does not follow it. Used for Element's
+#                 v1 profile directory Element-<team>, which is v2's only when teamchat- follows;
+#                 the exact case keeps v2's own launcher teamchat-<team>-element.desktop clear.
+agent-bus
+agent_bus
+agentbus
+pingbus
+PINGBUS_
+AGENT_BUS_
+CCY_TEAMS_PINGBUS
+CC_TEAMS_
+/run/ccy/membership
+$XDG_RUNTIME_DIR/ccy/membership
+.claude/ccy/pingbus
+/opt/claude-yolo/optional/agent-bus
+Element- !teamchat-
