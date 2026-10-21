@@ -46,14 +46,20 @@ playbooks/imports/play-basic-configs.yml
 # repositories it makes and removes, with fetches through a failing ssh or a recording stand-in
 # that reach no remote, and the interactive shell's async_run.
 00183-prompt-shows-stale-tracking-ref
-# Plan 00212 (pause media while recording): the whole speech-to-text play. It builds and installs
-# the new wsi-pause-media command, deploys the panel extension with its new mediaHold.js and the
-# "Pause media while recording" menu switch (on by default; new GSettings key), and installs
-# python3-gobject and dbus-daemon (systemd's busctl is already there). The extension changes need
-# a log out and back in. Before the 00212 acceptance.
+# Plan 00212 (lower media volume while recording): the whole speech-to-text play. It builds and
+# installs the new wsi-lower-media-volume command (and removes the ~/.local/bin/wsi-pause-media
+# the earlier run installed), deploys the panel extension with its mediaHold.js and the "Lower
+# media volume while recording" menu switch (on by default; a new GSettings key, which starts off
+# at the next login if the old "Pause media" switch was turned off), and installs
+# python3-gobject, dbus-daemon, pulseaudio-utils (pactl) and pipewire-pulseaudio (normally
+# already there; systemd's busctl is too). The rest of the play runs too, as on any run. The
+# extension changes need a log out and back in. Before the 00212 acceptance.
 playbooks/imports/optional/common/play-speech-to-text.yml
-# Plan 00212 Task 3.1: acceptance.bash (no triage.bash or deploy.bash) runs the installed
-# wsi-pause-media against a fake media player on a private session bus, so no real player is
-# touched: paused and played again at TERM, left alone when stopped by hand, nothing done when
-# nothing plays, and played again when its parent ends. No sudo, no prompts.
+# Plan 00212 Task 4.4: acceptance.bash (no triage.bash or deploy.bash) runs the installed
+# wsi-lower-media-volume against a fake media player on a private session bus and a fake pactl
+# first on PATH, so no real player or volume is touched: a stream lowered from 70% to 23.3% and
+# restored exactly at TERM, a volume set by hand left alone, a stream that ended with nothing of
+# its app left reported (exit 1), a stream re-created at the lowered volume put back, a player
+# with no stream paused and played again (and left when stopped by hand), nothing done when
+# nothing plays, and the volume restored when its parent ends. No sudo, no prompts.
 00212-stt-pauses-media-while-recording

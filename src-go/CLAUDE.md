@@ -65,9 +65,11 @@ originals are gone.
 - `internal/wsitoken/` — `wsi-claude-token`, the one chooser of the Claude account
   post-processing runs as (Plan 00208, K1-K8 in its package doc): the named token, or the one
   with the most allowance left by `ccy --token-usage --json`; `wsi-claude-process` runs it.
-- `internal/wsimedia/` — `wsi-pause-media`, the media players paused while a recording runs
-  (Plan 00212, M1-M7 in its package doc): MPRIS on the session bus through `busctl`, held until
-  the panel's TERM or the parent's end, and only the players it paused, still Paused, resumed.
+- `internal/wsimedia/` — `wsi-lower-media-volume`, the playing media lowered to a third of its
+  volume while a recording runs (Plan 00212, V1-V10 in its package doc): the MPRIS players on
+  the session bus through `busctl`, their streams' volumes through `pactl --format=json`, held
+  until the panel's TERM or the parent's end; a stream still at the volume it set is restored
+  exactly, and a player with no stream found is paused and played again instead.
 - `internal/ccproject/` — `cc-project-dir`, the directory host `cc` starts its session in
   (Plan 00167, P1-P7 in its package doc): the top of the git work tree, or outside one the
   fedora-desktop checkout baked in with `-X main.RootDir`, offered `[Y/n]` at a terminal.

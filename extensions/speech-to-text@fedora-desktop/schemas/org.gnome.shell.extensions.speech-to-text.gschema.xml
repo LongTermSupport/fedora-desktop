@@ -26,10 +26,15 @@
       <summary>Wrap with Speech-to-Text Marker</summary>
       <description>Wrap transcribed text with speech-to-text:"..." to provide context to LLMs</description>
     </key>
+    <key name="lower-media-volume-while-recording" type="b">
+      <default>true</default>
+      <summary>Lower Media Volume While Recording</summary>
+      <description>Lower the media that is playing (MPRIS players: music, video, a browser tab) to a third of its own volume when a recording starts, and restore exactly that volume when its microphone closes. A volume changed by hand during the recording is left as it is. A player whose sound cannot be found is paused instead and played again. The system volume is never touched. Run by wsi-lower-media-volume, which the panel starts beside each recorder.</description>
+    </key>
     <key name="pause-media-while-recording" type="b">
       <default>true</default>
-      <summary>Pause Media While Recording</summary>
-      <description>Pause the media players that are playing (MPRIS: music, video, a browser tab) when a recording starts, and play them again when its microphone closes. A player paused, stopped or closed by hand during the recording is left as it is. Run by wsi-pause-media, which the panel starts beside each recorder.</description>
+      <summary>Pause Media While Recording (replaced)</summary>
+      <description>Replaced by lower-media-volume-while-recording. Kept so the extension can read an owner's choice on it once: turned off, the new key is turned off too, and this key is reset. Nothing else reads it.</description>
     </key>
     <key name="auto-enter" type="b">
       <default>true</default>

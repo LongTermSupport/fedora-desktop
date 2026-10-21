@@ -197,6 +197,11 @@ linters:
       - path: internal/rclonecache/stats\.go
         linters: [tagliatelle]
         text: "CacheMax"
+      # wsi-lower-media-volume decodes pactl's JSON sink inputs, whose keys are pactl's own
+      # (channel_map) and the sound server's property names (application.process.id).
+      - path: internal/wsimedia/app\.go
+        linters: [tagliatelle]
+        text: "channel_map|application\\.(process\\.id|process\\.binary|name)"
       # ftp-camera's job is files by computed path: it reads its config and the uploads under
       # the camera account's home, and copies each sorted upload into the rclone mount, creating
       # its directories with the user's umask as cp and mkdir -p did (SPEC-ftp-camera.md E63).
