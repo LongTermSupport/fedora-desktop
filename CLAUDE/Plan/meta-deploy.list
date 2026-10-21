@@ -100,3 +100,15 @@ playbooks/imports/play-agent-bus.yml
 # temporary files follow TMPDIR when it is set. The image is unchanged at container 2.78.11,
 # so no rebuild. Afterwards start a ccy session as usual: it must start and attach as before.
 playbooks/imports/play-claude-yolo.yml
+# Plan 00209 stage 1 host check, after the play-claude-yolo.yml entry above has installed the
+# ccy-teams that reads team, seat and declare state in-process. READ-ONLY: it changes nothing,
+# and keeps two builds and every output in its run directory. It checks the installed ccy-teams
+# is this checkout's build, builds the ccy-teams from before stage 1 from git, and runs each three
+# times in turn: `--list` must print the same bytes and run faster (it took 9-23 s before), and an
+# open, drawn on this terminal and answered with Esc at its first screen, must be faster and
+# start exactly one declare status and no agent-bus seat list. A live member.json that sets
+# report_per_hour must be listed, not refused. Needs sudo once (so both read the member rosters)
+# and a terminal. A failure names the check: a --list diff is in the report, and an open that
+# asks a question first (a team to describe, an update) is not judged, so answer it in ccy-teams
+# and run again.
+00209-agent-bus-v2-in-go/acceptance-s1.bash
