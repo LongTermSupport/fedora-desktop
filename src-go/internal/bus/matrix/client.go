@@ -9,6 +9,8 @@
 // The transport follows no redirect and no proxy, sends the token only in the Authorization
 // header of the request it was given to, caps every answer, and never puts the token, a query
 // or the server's error text into an error. A 429 is waited out through an injected Clock.
+// net/http itself resends a GET, once, when a reused keep-alive connection closes before any
+// answer byte; a dropped held sync is then held again rather than reported.
 package matrix
 
 import (

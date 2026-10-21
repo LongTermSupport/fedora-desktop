@@ -78,7 +78,7 @@ func TestSyncHeldUntilAnEvent(t *testing.T) {
 		}
 		done <- resp
 	}()
-	waitHeld(srv)
+	waitHeld(t, srv)
 	eventID, err := f.alice.Send(t.Context(), f.id, msgType, "", hello)
 	if err != nil {
 		t.Fatal(err)
@@ -198,7 +198,7 @@ func TestSyncDroppedByARestart(t *testing.T) {
 		_, syncErr := m.Sync(t.Context(), SyncRequest{Since: first.NextBatch, Timeout: 30 * time.Second})
 		fail <- syncErr
 	}()
-	waitHeld(srv)
+	waitHeld(t, srv)
 	if err = srv.Restart(); err != nil {
 		t.Fatal(err)
 	}
@@ -207,11 +207,17 @@ func TestSyncDroppedByARestart(t *testing.T) {
 	}
 }
 
-// waitHeld waits, a bounded while, for a sync with a since token to reach the server.
-func waitHeld(srv *fakehs.Server) {
-	for i := 0; i < 2000 && !held(srv.Requests(), ""); i++ {
+// waitHeld waits, a bounded while, for a sync with a since token to reach the server, and
+// fails the test if none does.
+func waitHeld(t *testing.T, srv *fakehs.Server) {
+	t.Helper()
+	for range 2000 {
+		if held(srv.Requests(), "") {
+			return
+		}
 		time.Sleep(time.Millisecond)
 	}
+	t.Fatal("no sync with a since token reached the server")
 }
 
 func held(reqs []fakehs.Request, since string) bool {

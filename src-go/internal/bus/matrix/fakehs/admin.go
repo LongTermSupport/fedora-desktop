@@ -262,6 +262,9 @@ func (s *Server) mint(r *request, args []string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if u.deactivated {
+		return nil, unmodelled("a token minted for the deactivated account %s", u.id)
+	}
 	return map[string]any{keyAccessToken: s.newToken(u.id, "").token}, nil
 }
 
