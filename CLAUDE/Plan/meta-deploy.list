@@ -44,3 +44,14 @@ playbooks/imports/play-claude-yolo.yml
 # after this may still show one change if the variable is set; the next shows none. The entry
 # runs the whole play, so its other tasks (firmware updates among them) run too, as on any run.
 playbooks/imports/play-basic-configs.yml
+# Plan 00212 (pause media while recording): the whole speech-to-text play. It builds and installs
+# the new wsi-pause-media command, deploys the panel extension with its new mediaHold.js and the
+# "Pause media while recording" menu switch (on by default; new GSettings key), and installs
+# python3-gobject and dbus-daemon (systemd's busctl is already there). The extension changes need
+# a log out and back in. Before the 00212 acceptance.
+playbooks/imports/optional/common/play-speech-to-text.yml
+# Plan 00212 Task 3.1: acceptance.bash (no triage.bash or deploy.bash) runs the installed
+# wsi-pause-media against a fake media player on a private session bus, so no real player is
+# touched: paused and played again at TERM, left alone when stopped by hand, nothing done when
+# nothing plays, and played again when its parent ends. No sudo, no prompts.
+00212-stt-pauses-media-while-recording

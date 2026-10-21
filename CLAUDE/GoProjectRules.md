@@ -85,7 +85,8 @@ assignment to `.Name`; test files are exempt, a test spells out the argv it expe
   `cannot see which program "env" runs` (so `declare` writes its `env` argv inline).
 - An owned program may be run only by its owner (the `commandOwners` table): `sudo` by
   `internal/sudo`, `tmux` by `internal/tmuxccy`, `gum` and `fzf` by `internal/ui`, `systemctl`
-  and `busctl` by `internal/systemd`, `git` by `internal/gitx`, `ps` and `docker` by
+  and `busctl` by `internal/systemd` (`busctl` also by `internal/wsimedia`, the media players
+  on the session bus), `git` by `internal/gitx`, `ps` and `docker` by
   `internal/sessprobe`, `podman` by `internal/sessprobe` (a session's container) and
   `internal/podfreeze` (pause, unpause, networks: a table entry may list several owners), and the
   `lxc-*` tools by `internal/lxcfreeze`, and `nmcli` by `internal/lxcfreeze` (inside a

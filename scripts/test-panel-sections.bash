@@ -44,6 +44,7 @@ TEST_FILES=(
     tests/extensions/test-stt-panel-look.mjs
     tests/extensions/test-stt-post-process.mjs
     tests/extensions/test-stt-token-warning.mjs
+    tests/extensions/test-stt-media-hold.mjs
 )
 
 if ! command -v node >/dev/null; then

@@ -24,6 +24,9 @@
  * A recorder's exit and its last signal can reach the panel in either order, so an exit
  * with no ending state yet is judged only after EXIT_SETTLE_MS.
  *
+ * Each recorder the panel starts holds the media (mediaHold.js) from just before its spawn
+ * until its microphone has closed, however the recording ends (Plan 00212).
+ *
  * No GNOME imports: the spawn, signals, PID file, timers and the icon are handed in, so
  * every decision is tested under Node (tests/extensions/test-stt-panel-session.mjs).
  */
@@ -49,8 +52,9 @@ const CAPTURING = ['PREPARING'];
 const MIC_OPEN = ['RECORDING', 'STOPPING'];
 
 export class PanelSession {
-    constructor({spawn, kill, abort, readRecorderPid, readStoppingPid, isAlive, newToken,
-        show, log, reportError, notify, addTimeout, removeTimeout}) {
+    constructor({holdMedia, spawn, kill, abort, readRecorderPid, readStoppingPid, isAlive,
+        newToken, show, log, reportError, notify, addTimeout, removeTimeout}) {
+        this._holdMedia = holdMedia;
         this._spawn = spawn;
         this._kill = kill;
         this._abort = abort;
@@ -155,6 +159,7 @@ export class PanelSession {
             return;
         }
         this._log(`Escape: discarding the dictation of ${session.pid}`);
+        this._releaseMedia(session);
         session.aborted = true;
         session.ended = 'IDLE';
         this._abort(session.pid, session.launch);
@@ -186,6 +191,8 @@ export class PanelSession {
         session.pressedAs = null;
         if (!STARTING.includes(state))
             session.cancelled = false;   // the start was under way before the press
+        if (!STARTING.includes(state) && !MIC_OPEN.includes(state))
+            this._releaseMedia(session);  // the microphone has closed
         if (ENDING.includes(state)) {
             session.ended = state;
             if (state !== 'IDLE')
@@ -214,6 +221,8 @@ export class PanelSession {
     /** The extension is being disabled: remove every timer, and take nothing more (a
      * recorder's exit can still be delivered). The recorder runs on. */
     destroy() {
+        // Nothing would release the media later, so it plays again even if the recorder runs on
+        this._releaseMedia(this._session);
         this._settleLaunch(this._session);
         this._clearExitSettle(this._session);
         this._clearUnownedPoll();
@@ -249,12 +258,15 @@ export class PanelSession {
         const session = {
             token, launch, pid: null, state: 'LAUNCHING', ended: null, pressedAs: null,
             exited: false, cancelled: false, stopAsked: false, aborted: false,
-            safetyTimer: null, settleTimer: null,
+            safetyTimer: null, settleTimer: null, media: null,
         };
         this._session = session;
+        // Before the spawn, so the music has stopped by the time the microphone opens
+        session.media = this._holdMedia(launch);
         try {
             session.pid = this._spawn(launch, token, (how, failed) => this._exited(session, how, failed));
         } catch (e) {
+            this._releaseMedia(session);
             this._session = null;
             this._reportError(`The recorder could not be started: ${e.message}`);
             this._render();
@@ -308,6 +320,7 @@ export class PanelSession {
                 'recorder it handed to');
             return;
         }
+        this._releaseMedia(session);   // whatever it was doing, its microphone is closed
         if (session.cancelled || session.aborted) {
             this._log(`Recorder ${session.pid} ended (${how}) as asked`);
             this._finish(session);
@@ -330,6 +343,14 @@ export class PanelSession {
         });
     }
 
+    /** The media the recording paused plays again (mediaHold.js); once per session. */
+    _releaseMedia(session) {
+        if (session?.media) {
+            session.media.release();
+            session.media = null;
+        }
+    }
+
     _clearExitSettle(session) {
         if (session?.settleTimer) {
             this._removeTimeout(session.settleTimer);
@@ -339,6 +360,7 @@ export class PanelSession {
 
     /** The session is over: the panel is ready. Nothing starts by itself. */
     _finish(session) {
+        this._releaseMedia(session);
         this._settleLaunch(session);
         this._clearExitSettle(session);
         if (this._session === session)
