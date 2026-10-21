@@ -156,7 +156,7 @@ class TestConstants(unittest.TestCase):
             p.Refusal("text")
 
     def test_send_only_refusals(self) -> None:
-        self.assertEqual(p.SEND_REFUSALS, ("secret",))
+        self.assertEqual(p.SEND_REFUSALS, ("secret", "no-room"))
         self.assertFalse(set(p.SEND_REFUSALS) & set(p.DROP_REASONS))
         self.assertEqual(p.Refusal("secret").reason, "secret")
 

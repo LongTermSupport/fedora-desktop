@@ -561,8 +561,9 @@ batch: one `DROPPED` line per team per pass (§15).
 `target`, `verb`, `ref`, `allowlist`, `excluded`, `re`, `body`, `stale`, `rate`, `forge-rate`, `unresolved`,
 `provenance`.
 
-**Send-only refusals**: `secret` (§7). It refuses a send and never names a receive drop: text
-already in the room is in every member account's view, so a receiver delivers it as it is.
+**Send-only refusals**: `secret` (§7), `no-room` (§8.1: the team has no reports or questions
+room yet). Each refuses a send and never names a receive drop: text already in the room is in
+every member account's view, so a receiver delivers it as it is.
 
 ## 10. Limits
 

@@ -287,7 +287,7 @@ class IndexAndAttachmentTest(unittest.TestCase):
         ]
 
     def index(self, extra: list[dict] = ()) -> p.QuestionIndex:
-        return p.build_question_index([*self.events, *extra], ctx(), SN)
+        return p.build_question_index([*self.events, *extra], ctx())
 
     def test_rules_in_order(self):
         cases = {
@@ -325,9 +325,9 @@ class IndexAndAttachmentTest(unittest.TestCase):
         self.assertEqual(views[1].unanswered, (eid(12),))
         self.assertEqual(views[2].state, "closed")
         self.assertEqual(index.next_number(), 3)
-        fresh = p.build_question_index([self.events[0]], ctx(), SN)
+        fresh = p.build_question_index([self.events[0]], ctx())
         self.assertEqual(fresh.views()[0].state, "open")
-        self.assertEqual(p.build_question_index([], ctx(), SN).next_number(), 1)
+        self.assertEqual(p.build_question_index([], ctx()).next_number(), 1)
 
     def test_an_open_duplicate_is_found_by_its_question_section(self):
         index = self.index()
