@@ -46,16 +46,17 @@ fixes in section 6.
 
 ### 2.1 Homeserver instances
 
-| ID  | Requirement                                                                                                                                                                                                                                                     | From                   |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| C1  | One private homeserver per team: federation off, registration closed, encryption off, room creation by the team's admin account only, every room invite-only or restricted as area A's layout says.                                                             | R1                     |
-| C2  | A team's homeserver listens on loopback and on each declared `listen` address only, on one port. Inbound traffic is admitted only from `allow_from` CIDRs, by both the firewall and the unit's IP filter. The live LXC bridge subnet is admitted automatically. | R3, H 7.21, H 7.36     |
-| C3  | A team's id and its `server_name` never change once the team exists; a change is refused by name before anything is touched. A changed id is a removal and a new team.                                                                                          | R4, H 7.08             |
-| C44 | A team can be renamed: its display name and description change, and nothing else does.                                                                                                                                                                          | 00201 Task 2.16; new   |
-| C4  | Each homeserver runs under its own kernel identity: no homeserver can read another team's files, its own team's admin credential, or any host secret it does not need.                                                                                          | R5 (strengthened), new |
-| C5  | Hardened units: no resolver, no D-Bus, no home, private devices and PIDs, strict system protection, `Type=notify` with a watchdog, `Restart=always` with no start limit, dependency on each listen interface.                                                   | R5, H 7.22, H 7.23     |
-| C6  | The homeserver restarts only when its config, its binary or its unit text changes; a converged apply restarts nothing and prints nothing.                                                                                                                       | R2, H 7.12             |
-| C7  | The resident cost of every homeserver, unit, timer and port is stated per team and measured on the host.                                                                                                                                                        | FRAME                  |
+| ID  | Requirement                                                                                                                                                                                                                                                                       | From                   |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| C1  | One private homeserver per team: federation off, registration closed, encryption off, room creation by the team's admin account only, every room invite-only or restricted as area A's layout says.                                                                               | R1                     |
+| C2  | A team's homeserver listens on loopback and on each declared `listen` address only, on one port. Inbound traffic is admitted only from `allow_from` CIDRs, by both the firewall and the unit's IP filter. The live LXC bridge subnet is admitted automatically.                   | R3, H 7.21, H 7.36     |
+| C3  | A team's id and its `server_name` never change once the team exists; a change is refused by name before anything is touched. A changed id is a removal and a new team.                                                                                                            | R4, H 7.08             |
+| C44 | A team can be renamed: its display name and description change, and nothing else does.                                                                                                                                                                                            | 00201 Task 2.16; new   |
+| C45 | Every ccy-teams flow the owner uses for a v1 team (create, add and remove members and humans, roles, hot add and remove, sign-in, backup, restore, LXC add) exists for a v2 team, with the same steps from the owner's side; its wording changes only where a v2 rule changes it. | R36                    |
+| C4  | Each homeserver runs under its own kernel identity: no homeserver can read another team's files, its own team's admin credential, or any host secret it does not need.                                                                                                            | R5 (strengthened), new |
+| C5  | Hardened units: no resolver, no D-Bus, no home, private devices and PIDs, strict system protection, `Type=notify` with a watchdog, `Restart=always` with no start limit, dependency on each listen interface.                                                                     | R5, H 7.22, H 7.23     |
+| C6  | The homeserver restarts only when its config, its binary or its unit text changes; a converged apply restarts nothing and prints nothing.                                                                                                                                         | R2, H 7.12             |
+| C7  | The resident cost of every homeserver, unit, timer and port is stated per team and measured on the host.                                                                                                                                                                          | FRAME                  |
 
 ### 2.2 Programs, privilege and locks
 
@@ -920,7 +921,7 @@ directory; everything else in a session seat directory (member state, the seat l
   restorable session), naming the leave that releases it: the holding session's copy would be
   revoked with nothing to deliver the new one. The owner leaves the team from that session, which
   releases the seat (below), reissues, and joins again, which is a fresh take.
-- For an LXC member, placement is the same code inside the guest: `teamchat guest place` run as the
+- For an LXC member, placement is the same code inside the guest: `teamchat guest place-bundle` run as the
   agent user, reading the same JSON on stdin, into `~/.config/teamchat/seats/<team>.new-<claim>/`
   and swapped the same way, the old bundle removed (3.9). The held-seat refusal above is for pool
   seats; `lxc apply` reissues a guest's seat only when the guest's bundle is missing or its token
@@ -1069,7 +1070,11 @@ assumptions on B.
 host_vars stays the IaC store (C28, DESIGN D6). v2 has its own keys, so v1's play, v1's
 `declare.py` and the stage-1 line reader on `feat/bus-v2-s1-declare` (which reads v1's keys while
 v1 lives) never see them, and v2 never writes `agent_bus_*`. The one v1 value v2 reads is each
-`agent_bus_teams` entry's `port`, which `declare check` refuses to reuse (3.2.5, D §3.8).
+`agent_bus_teams` entry's `port`, which `declare check` refuses to reuse (3.2.5, D §3.8), and
+its `team`: a `teamchat_teams` entry whose id is also a v1 team is accepted only while that team's
+migration set is at `preflighted` or later (D §5.1), and a v2 team `x` is refused while a v1 team
+`teamchat-x` is declared (D §3.7). Only `src-go/internal/teamchat/migrate/v1` names v1's keys (D
+§4.1), so this read lives there.
 
 ```yaml
 teamchat_address: <bus_ip>                  # optional; the teamchat0 dummy address
@@ -1197,7 +1202,7 @@ side a moment before.
 How each `lxc-attach` is made: `lxc-attach -n <container> -u <uid> -g <gid> --clear-env --set-var HOME=<home> --set-var USER=<user> --set-var LOGNAME=<user> --set-var PATH=/usr/local/bin:/usr/bin:/bin -- /usr/local/lib/teamchat/kit/<digest>/teamchat guest <op>`, with uid, gid and
 home from the guest's `/etc/passwd` as read on the host side, and the kit path resolved once by
 the host (never `current`, so a swap mid-phase cannot change what runs). `--clear-env` alone would
-leave `HOME` unset, and `guest place` and `guest check` need it to find `~/.config/...` and the
+leave `HOME` unset, and `guest place-bundle` and `guest check` need it to find `~/.config/...` and the
 forge CLI's login. Whether `-u`/`-g` drop the attaching process's supplementary groups is checked
 by host check H-C10; `teamchat guest` also checks `getgroups()` at start and refuses to run with
 any group but the agent user's own.
@@ -1239,20 +1244,20 @@ any group but the agent user's own.
    reads each one's `/proc/<pid>/exe` link target as a path inside the guest. The same rule keeps
    the host's own `/usr/local/lib/teamchat/kit` digests while any of the owner's processes runs from one (C33). A
    session resolves its kit once at launch (area B), so a digest it uses outlives every swap.
-5. Guest check: `teamchat guest check` as the agent user in each running container (what the member
+5. Guest check: `teamchat guest check --user <user> --team <team>` as the agent user in each running container (what the member
    needs to work, for example the forge CLI signed in; area B defines the list). Any failure fails
    the phase before any roster change.
 6. Roster changes, under each team's lock in turn: every demotion of every team first, then every
    join (`member add`, `return` or `reissue` as the state requires), then every promotion,
    including each team's `coordinator_wanted` that one of these joins has just created (3.6.4).
-7. Place each new bundle: `teamchat guest place --team <team>` as the agent user, bundle on stdin;
+7. Place each new bundle: `teamchat guest place-bundle --user <user>` as the agent user, bundle (with its team) on stdin;
    it writes `~/.config/teamchat/seats/<team>.new-<claim>/` (0700) with `token` and `seat.json`
    (0600) and swaps it in as `~/.config/teamchat/seats/<team>/`, by the same code as 3.7.3, and the member's own config (area B).
 8. Supervised session (`service: true`): see 3.9.4.
 9. Write the LXC record (3.9.3), only after the phase succeeded.
 
 The absent phase runs first in the play (before any team is removed): for each running container,
-`teamchat guest leave --team <team>` as the agent user, then `member park`; for a stopped one, the
+`teamchat guest remove --user <user> --team <team>` as the agent user, then `member park`; for a stopped one, the
 handle the record holds is parked from the host side at once and the guest's files are left until it
 next runs.
 
@@ -1792,8 +1797,9 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
 
 **Area B (member).**
 
-1. `teamchat` has `guest check`, `guest place --team T` and `guest leave --team T`, run as the agent
-   user with typed JSON on stdin, and the code `guest place` uses for files is the same `bus/seat`
+1. `teamchat` has B's guest operations (B 2.13): `guest check`, `guest place-bundle`, `guest membership`,
+   `guest unit` and `guest remove`, run as the agent user (`--user` must name the caller) with typed
+   JSON on stdin, and `guest install-self` as the guest's root; the code `guest place-bundle` uses for files is the same `bus/seat`
    code ccy-teams uses.
 2. B reads `seat.json` and `token` and owns everything else in a session seat directory, including
    the seat lock, which is a `flock` the host can probe with a shared non-blocking lock (L3). B

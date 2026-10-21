@@ -1005,13 +1005,13 @@ the owner each seat's pending count before the leave, so that nothing goes unsee
 
 **Part 2 runs after the move (M7).** It proves that the moved team works.
 
-| Check                      | Passes when                                                                                                                                                                                                                                                                                                                                   |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A5 sessions on v2          | Every ccy session that was in the team before M2, and is running, has restarted on the v2 kit. Its member's presence on v2 is fresh, and the session's process tree shows no v1 kit process.                                                                                                                                                  |
-| A6 carried items delivered | Every carried item addressed to a running member is delivered by B's proof (the transcript nonce), or still pending with B's stated reason. Items for stopped or remote members are pending on the server, and the report lists them by member.                                                                                               |
-| A7 a real exchange         | ccy-teams asks the team's coordinator (the first active worker if there is none) for one acknowledged ping through B's check verb. The acknowledgement must arrive within the verb's deadline. This is the one check that disturbs a live agent, and it costs one short turn.                                                                 |
-| A8 v1 fenced and unchanged | No v1 event exists after `v1_last_event`. A fresh footprint differs from footprint-fence only by the v1 changes M6 logged in `log.jsonl` (the allowed difference is generated from that log, not written by hand): for example the removed guest team directories, env lines and v1 services, and the handles parked by v1's absent handling. |
-| A9 the humans' view        | The owner opens the v2 Element window and sees the welcome notice. The v1 half (the old history in the v1 window) is checked after M8, through `ccy-teams archive open`, because the v1 server is fenced and the humans locked at M7. This is a look at the screen, asked for separately.                                                     |
+| Check                      | Passes when                                                                                                                                                                                                                                                                                                                                                    |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A5 sessions on v2          | Every ccy session that was in the team before M2, and is running, has restarted on the v2 kit. Its member's presence on v2 is fresh, and the session's process tree shows no v1 kit process.                                                                                                                                                                   |
+| A6 carried items delivered | Every carried item addressed to a running member is delivered by B's proof (the transcript nonce), or still pending with B's stated reason. Items for stopped or remote members are pending on the server, and the report lists them by member.                                                                                                                |
+| A7 a real exchange         | ccy-teams asks the team's coordinator (the first active worker if there is none) for one acknowledged ping, sent with `teamchat ping` and read back from the sender's outbox in `teamchat status` (B 2.2.1, 2.3.2). The acknowledgement must arrive within the ping's deadline. This is the one check that disturbs a live agent, and it costs one short turn. |
+| A8 v1 fenced and unchanged | No v1 event exists after `v1_last_event`. A fresh footprint differs from footprint-fence only by the v1 changes M6 logged in `log.jsonl` (the allowed difference is generated from that log, not written by hand): for example the removed guest team directories, env lines and v1 services, and the handles parked by v1's absent handling.                  |
+| A9 the humans' view        | The owner opens the v2 Element window and sees the welcome notice. The v1 half (the old history in the v1 window) is checked after M8, through `ccy-teams archive open`, because the v1 server is fenced and the humans locked at M7. This is a look at the screen, asked for separately.                                                                      |
 
 The result is written as `migration.accepted` in `/var/lib/teamchat-status/teams/<team>/status.json`, with the
 report path. ccy-teams shows the team as moved only after that.
@@ -1028,8 +1028,10 @@ What changes is what the relaunch resolves to:
   launcher takes the v2 seat `3` (the same number, D11) from C's seat store, mounts the session's
   seat directory at `/run/teamchat/seats` and its membership at `/run/teamchat/membership`, and
   loads only the v2 plugin and settings.
-- The v2 SessionStart hook tells the agent that the team moved to teamchat, that its v1 sends will
-  fail, and how many carried items are waiting. B owns the wording.
+- The admin's pinned welcome notice (M4) tells the agent that the team moved to teamchat, that its
+  v1 sends will fail, and that carried items follow. It reaches the session on its first v2 start
+  as a NOTICE, by the resume from the member's join (B 2.6 step 01 b); the SessionStart hook needs
+  nothing of its own.
 - When the old container exits, the launcher runs v1's `seat disconnected` for its v1 seat, and the
   v1 SessionEnd goodbye runs inside the container. While the fence holds, both fail to reach the
   server. Both are bounded, and v1's disconnected step never holds up a restart
@@ -1164,6 +1166,9 @@ Each decision has a default, and the work proceeds on it unless the owner says o
 - **The rule "never reuse a team name"** (LESSON 14) is kept within a system and dropped across
   systems: unit, timer and record names differ, and keeping the name keeps every `<seat>@<team>`
   working.
+- **Locks shared with v1** (DESIGN R47: the in-place design kept v1's lock paths and order until
+  its last stage). v2 is a separate system and takes no v1 lock (D2, D17); the one surface both
+  use is the user play lock (3.1), which every play run takes anyway.
 - **Not carried by the migration** (5.1): presence, the forge cache, read markers and mutes, and
   items consumed while a member was out. That last one is v1's own rule, kept.
 
@@ -1194,8 +1199,9 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
 - An answer to a carried ping is delivered to the original sender as a reply.
 - B uses the names and roots of 3.3, 3.4 and 3.6, the `TEAMCHAT_` prefix (hooks gated on
   `TEAMCHAT_RUNTIME`), and kits by digest.
-- B's SessionStart hook says when a team moved.
-- B has a check verb with an acknowledgement, for A7.
+- B delivers the admin's welcome notice on a member's first v2 start (B 2.6 step 01 b), so the
+  session learns the team moved.
+- B's `ping` and its outbox in `status` serve A7's acknowledged exchange.
 
 **C (host side)**
 

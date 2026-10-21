@@ -1,0 +1,394 @@
+# Plan 00209: the v2 design (teamchat)
+
+This is the integrated design of v2, the agent-team bus rebuilt as a separate system named
+`teamchat`. It supersedes [DESIGN.md](DESIGN.md), the staged in-place replacement of v1, which stays
+as a record; its requirement list (section 2) is traced in section 8 below.
+
+The design has four chapters, one per area. Each is complete in itself and is linked here, not
+copied:
+
+| Chapter                      | File                                                 | Owns                                                                                    |
+| ---------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| A. Protocol and rooms        | [DESIGN-v2-A-protocol.md](DESIGN-v2-A-protocol.md)   | the wire, the rooms and power levels, trust, kinds, pings, references, limits, envelope |
+| B. Member client             | [DESIGN-v2-B-member.md](DESIGN-v2-B-member.md)       | the `teamchat` binary, its CLI, member state, keeper and worker, delivery, hooks        |
+| C. Host side                 | [DESIGN-v2-C-host.md](DESIGN-v2-C-host.md)           | homeservers, `teamchat-admin`, privilege, seats and bundles, host_vars, health, backups |
+| D. Coexistence and migration | [DESIGN-v2-D-migration.md](DESIGN-v2-D-migration.md) | every name and path, the no-touch proof, the per-team migration, pilot, retirement      |
+
+The frame the four were written to is [DESIGN-v2-FRAME.md](DESIGN-v2-FRAME.md). This file holds what
+only the integration can say: how the chapters meet (section 3), the names (4), the contradictions
+found and how each was settled (5), the cost (6), the owner decisions (7), and the traceability of
+v1's requirements (8).
+
+## 1. The owner's directions
+
+1. "the python version is NOT a golden archetype. its a prototype and first draft. this go version
+   DOES NOT have to stick to python approaches etc. FIX THINGS IMPROVE THINGS MAKE IT EXCELLENT"
+2. "i dont even care about staying compatible - now is the time for breaking changes and really
+   making this system PROPERLY DECENT"
+3. "already running teams like yours msut keep workiing", "teams v2 can be a different thing"
+
+The clarification of direction 2, with direction 3: **v2 is a separate system**. It is designed from
+the requirements, not from v1, and none of its wire, files, locks, CLI or process model has to stay
+compatible with v1. It installs beside v1 and touches nothing v1 uses; a v2 install with no team is
+inert. Teams move one at a time, by a migration the owner chooses to run, which is fail-fast, has an
+acceptance and a rollback, and loses nothing silently. v1 is retired only when every team has moved,
+and that is raised with the owner then. No relay mode for now: it is specified on v2 when the
+hooks-daemon plugin API ships. Every member runs a keeper and a worker, with the cost measured.
+
+## 2. The shape on one page
+
+```text
+ HOST                                                     MEMBERS (one session each)
+ +--------------------------------------------------+
+ | teamchat-admin (root; password sudo for changes) |     ccy container          LXC guest
+ |   team apply, member, role, human, backup,       |     +----------------+     +---------------------+
+ |   restore, lxc apply, migrate <step>             |     | claude         |     | teamchat-session-   |
+ |   -> teamchat-ctl child (holds admin tokens)     |     |  teamchat run  |     |   <user>.service    |
+ | teamchat-health.timer (60 s) teamchat-backup.timer|    |   keeper       |     |  teamchat run       |
+ |                                                  |     |   worker --+   |     |   keeper, worker -+ |
+ | per team, by its id <team>:                      |     +------------|---+     +-------------------|-+
+ |   teamchat-server@<team>  (Tuwunel, DynamicUser  |<---- HTTP, one kept-alive connection per team ---+
+ |     teamchat-<team>, loopback + listen, <port>)  |<-----------+
+ |   server_name <team>.teamchat.internal           |
+ |   rooms: main (pings, text, notices, humans),    |     Element (humans), profile teamchat-<team>
+ |          reports (quiet), questions (Q<n>)       |<---- one window per team
+ |                                                  |
+ | /var/lib/teamchat-status/  --read, no sudo-->  ccy-teams (the owner's board and flows)
+ | ~/.local/state/teamchat/seats/  (seat store, outside every checkout)
+ |   sessions/<session>/  --> /run/teamchat/seats       (read-write, this session's seats only)
+ |   control/<session>/   --> /run/teamchat/membership  (read-only, desired.json)
+ +--------------------------------------------------+
+```
+
+- **Wire** (A): typed `teamchat.*` content in `m.room.message` events, wire major 1, strict JSON;
+  the roster is an admin-written state event in main; members verify invariants, the host verifies
+  the exact layout. Three rooms from creation; no aliases, no federation.
+- **Member** (B): one static binary. `teamchat run` wraps a session; the keeper (no network)
+  supervises; the worker owns all state and traffic and serves every verb over one Unix socket.
+  Agent verbs print JSON Lines. Delivery goes into Claude Code's inbox socket and is proven in the
+  transcript.
+- **Host** (C): one homeserver per team, its own kernel identity, hardened unit. One root program
+  with caller classes. ccy-teams reads files only. A seat's bundle is placed by fd into a seat
+  store no container can see beyond its own session's directory.
+- **Coexistence** (D): every v2 name starts `teamchat`; a static gate and a VM-lab footprint diff
+  prove v2 touches nothing of v1. A team moves through M0-M8 with a fence, a carry plan, one atomic
+  commit and an acceptance.
+
+**A team's identity.** A team is identified by a stable **id** (`^[a-z][a-z0-9-]{0,21}$`, A 2.2),
+fixed when it is created. The id is in the `server_name`, the unit, the dynamic user, every path,
+lock and record, the bundle, the roster's `team`, `--team` and the envelope's `team:` line. Its
+**display name** (`name`, 1-64 characters, default the id) is in the room names, the Element
+launcher, the board and `status`, and nothing else. A rename edits `name` and runs the play:
+`team apply` rewrites the roster, the three room names, the status record and the launcher; nothing
+restarts and no account, token, bundle, path or unit changes (C44, C 3.5.2). This answers Plan
+00201 Task 2.16. v1's R4 ("a team's name is its unit and data folder") is what made a rename hard
+there; v2 keeps R4's stability for the id and frees the name. A migrated team keeps its v1 name as
+its id, so every `<seat>@<team>` string keeps working (D 5.1).
+
+## 3. The seam contract
+
+Every "Assumptions on other areas" item of the four chapters, with the area that owns it, the
+interface, where it is defined, and its state. **Met**: the owning chapter already says it. **Fixed**:
+a GAP or contradiction, closed by an edit in the owning chapter during this integration (section 5
+lists them). **Later**: a known part of a later milestone's spec, named in PLAN.md.
+
+### 3.1 What B assumes of A, and A of B
+
+| #   | Assumption                                                                 | Owner | Interface and definition                                         | State |
+| --- | -------------------------------------------------------------------------- | ----- | ---------------------------------------------------------------- | ----- |
+| 1   | One verdict function and one room-trust check; B re-implements no rule     | A     | `teamchat/proto` (A 6.4, 7.6, 14); B applies it at B 2.6 step 05 | Met   |
+| 2   | The events B sends and which are trust-bearing                             | A     | A 7.1-7.5, 10; presence is not an event (A 6.6)                  | Fixed |
+| 3   | Replies thread by `m.relates_to`; question numbering                       | A     | A 8.2, 10.2-10.3, 6.5 (`question_floor`)                         | Fixed |
+| 4   | Handle and short-name grammar                                              | A     | A 2.3 (`<repo>.<seat>+<site>.<type>`; `teamchat` reserved)       | Fixed |
+| 5   | Receive limits inside the verdict; the delivery budget is B's              | A, B  | A 11.1 (`deliver_per_sender` read from the roster); B 2.7.3      | Met   |
+| 6   | The P74 character classes as shared corpus data                            | A     | A 13.4; corpus `src-go/internal/teamchat/proto/testdata/`        | Met   |
+| 7   | Plan 00211's side-room rules                                               | A     | A 4.3, 6.3; applied at B 2.6 step 10                             | Met   |
+| 8   | A strict decoder on every read path; one holder of verified snapshots      | B     | B 2.1 (BD1: the worker), B 2.3                                   | Met   |
+| 9   | Reply and forge caches untrusted                                           | B     | B 2.6 step 11, 2.7.3                                             | Met   |
+| 10  | Envelopes exactly to A 13; answers and acks recorded                       | B     | B 2.7.2, 2.3.2 (outbox); reply commands use B's verbs (A 13.2)   | Fixed |
+| 11  | Presence: only the worker's long-poll marks online; offline at a clean end | B     | B 2.6 step 09; the worker, not the keeper, sets offline (A 6.6)  | Fixed |
+| 12  | A read receipt only after transcript proof                                 | B     | B 2.7.5                                                          | Met   |
+
+### 3.2 What C assumes of A, and A of C
+
+| #   | Assumption                                                                 | Owner | Interface and definition                                                                                                                                                    | State      |
+| --- | -------------------------------------------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| 13  | A gives the desired rooms as data; C's engine applies them                 | A     | room specs of A 4.1-4.4 exported by `teamchat/proto`; applied by C 3.6.2                                                                                                    | Later (N2) |
+| 14  | Three rooms created at team creation, kept, write order                    | C     | C 3.6.2, A 5.2                                                                                                                                                              | Met        |
+| 15  | Room IDs: the main room is an anchor in the bundle, the rest in the roster | A, C  | A 6.2; `seat.json` `main_room` (C 3.7.2)                                                                                                                                    | Fixed      |
+| 16  | The roster and its `trust` and `limits` shape                              | A     | A 5.1; C decodes host_vars `trust` with A's Go type (C 3.8)                                                                                                                 | Met        |
+| 17  | C is the only roster writer, `rev` + 1, refuses an invalid roster          | C     | C 3.6.1                                                                                                                                                                     | Met        |
+| 18  | Admin localpart `admin`; service-account localpart                         | A, C  | A 2.3; the service account by host check HC-A6                                                                                                                              | Later (N2) |
+| 19  | Handle grammar, seat counters, the team-id length                          | A     | A 2.2, 2.3; C 3.7.4 (prefix plus seat); `teamchat-<team>` fits 31 (C 3.2.3)                                                                                                 | Fixed      |
+| 20  | The notices the admin posts; `disconnected`                                | A, C  | A 7.4: admin posts `added removed parked role`; the subject posts `left` and `disconnected`                                                                                 | Fixed      |
+| 21  | Health compares power levels, join rules and links exactly                 | C     | C 3.11.2 drift check against A 4.2                                                                                                                                          | Met        |
+| 22  | Tuwunel config: presence on, registration closed, federation off           | C     | C 3.2.4                                                                                                                                                                     | Met        |
+| 23  | What each member's version accepts, for a raise of the send level          | A, C  | a pure function in `teamchat/proto` (A 6.6); no raise is needed while v2 has one major and no features, so the raise verb and its version record wait for the first feature | Later      |
+
+### 3.3 What B assumes of C, and C of B
+
+| #   | Assumption                                                                 | Owner | Interface and definition                                                                                            | State |
+| --- | -------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------- | ----- |
+| 24  | The bundle: what is in it, where, which modes                              | C     | `seat.json` + `token` (C 3.7.2) in `<v2-bundle>` = `<v2-state>/<team>/` (B header); handle = localpart of `user_id` | Fixed |
+| 25  | The desired-membership record                                              | C     | `control/<session>/desired.json` with `inbound` (C 3.7.5), read-only at `/run/teamchat/membership`                  | Fixed |
+| 26  | Every bus launch ends in `teamchat run`; kits per digest, immutable        | C, D  | C 3.5.1, D 3.5 (`/usr/local/lib/teamchat/kit/<digest>/`, `current`)                                                 | Met   |
+| 27  | Host cleanup after a ccy session                                           | C     | the release runs `teamchat seat disconnected --bundle <pool> --claim <id>` (C 3.7.5, B 2.11)                        | Fixed |
+| 28  | LXC apply runs B's guest operations and checks the kit hash                | C     | C 3.9.2 with B 2.13's verb names                                                                                    | Fixed |
+| 29  | A farewell for a seat removed while its session is not running             | -     | dropped: a hot remove is the member's `left released`; a removal is the admin's `removed`                           | Fixed |
+| 30  | Sibling ccy isolation                                                      | C     | DC5: each container sees only its own session directory                                                             | Met   |
+| 31  | The persistent conversation record                                         | B     | `<v2-state>/conversation.json`, a resume hint only, strictly decoded (B 6 C9)                                       | Fixed |
+| 32  | A seat taken by a new session starts with no member state                  | B     | B 2.6 step 01 (b): resume from the member's own read receipt or join                                                | Fixed |
+| 33  | The seat lock is a `flock` the host can probe without entering a container | B     | B 2.5; probed by C 3.7.3 (L3)                                                                                       | Met   |
+| 34  | A session resolves its kit once and runs from that digest to its end       | B     | B38, B 2.4.1                                                                                                        | Met   |
+| 35  | A refused connection to the homeserver is transient                        | B     | B 2.6 step 08                                                                                                       | Met   |
+| 36  | ccy-teams may read `report.json` for display, never authority              | C     | C 3.13                                                                                                              | Met   |
+
+### 3.4 What D assumes of A, B and C, and they of D
+
+| #   | Assumption                                                               | Owner  | Interface and definition                                                          | State          |
+| --- | ------------------------------------------------------------------------ | ------ | --------------------------------------------------------------------------------- | -------------- |
+| 37  | Every name and path                                                      | D      | D 3.2 (the one table), 3.3-3.8                                                    | Fixed          |
+| 38  | A carried-item kind, admin-sent, believed as the admin's account         | A      | `teamchat.carried` (A 7.7), the `carried:` line (A 13.2)                          | Fixed          |
+| 39  | A pinned notice in main                                                  | A      | the admin's state power (A 4.2) covers `m.room.pinned_events`                     | Met            |
+| 40  | Questions numbering seeded above v1's highest                            | A      | roster `question_floor` (A 5.1, 6.5); admin-posted questions are counted          | Fixed          |
+| 41  | The handle mapping is the identity                                       | A, D   | A 2.3 grammar unchanged but for the `site` wording; D 5.1                         | Met            |
+| 42  | Carried items rendered and delivered on a member's first v2 start        | B      | B 2.7.2, B 2.6 step 01 (b); a reply to a carried ping reaches its sender (A 7.7)  | Fixed          |
+| 43  | The session learns the team moved                                        | D      | the admin's pinned welcome notice, delivered as a NOTICE (D 6.2)                  | Fixed          |
+| 44  | An acknowledged exchange for acceptance A7                               | B      | `teamchat ping` and the outbox in `status` (D 6.1)                                | Fixed          |
+| 45  | A session on teams of both systems                                       | D      | refused at launch (OD-D2); `run` reads no v1 variable (B BD14)                    | Fixed          |
+| 46  | Migration verbs, `origin`, `team remove --purge`                         | C      | C 3.3 (`migrate <step>`, `footprint`); `origin` written by `team apply` (C 3.5.2) | Fixed          |
+| 47  | Per-team server users                                                    | C      | DynamicUser `teamchat-<team>` (DC2, C 3.2.3)                                      | Met            |
+| 48  | The port check reads `agent_bus_teams`; v1-name collisions refused       | C, D   | C 3.2.5, 3.8; the read lives in `internal/teamchat/migrate/v1` (D 4.1)            | Fixed          |
+| 49  | v2 units carry D's `InaccessiblePaths=`                                  | C      | C 3.2.3 unit text, checked by D 4.1's gate                                        | Later (N2)     |
+| 50  | The status record carries `origin`, `set`, `migration`; `sets/` readable | C      | C 3.11.3                                                                          | Fixed          |
+| 51  | Element profile and launcher names                                       | C, D   | C 3.10, D 3.7 (`teamchat-<team>`, `Name=<name> team (teamchat)`)                  | Met            |
+| 52  | The play that owns an LXC container's own config (`lxc.start.auto`)      | D      | not v2's: the container's own play; v2 never edits container config (C 3.9)       | Later (N3)     |
+| 53  | The launcher's mounts, and the seat store off every ccy mount            | ccy    | D 3.6, C 3.7.1; the launcher refuses a checkout that contains the seat store      | Later (N4)     |
+| 54  | The launcher removes the session record before it runs the release       | ccy    | C 3.7.5, D 6.2                                                                    | Later (N4)     |
+| 55  | The launcher resolves each team's system; ccy-teams gains `migrate`      | ccy    | D 3.9, 5.10 (one Go function shared by both)                                      | Later (N4, N6) |
+| 56  | Host `cc` members on v2                                                  | B, ccy | refused until defined (D 3.9); B's `run` covers the kind                          | Later (N5)     |
+
+## 4. Names
+
+The names are area D's, and [D 3.2](DESIGN-v2-D-migration.md#32-the-names-behind-every-placeholder-of-areas-a-b-and-c)
+is the one table behind every placeholder the four chapters used while they were written. The
+integration applied it: A, B and C now use the names, and B keeps five path variables (`<v2-kit>`,
+`<v2-state>`, `<v2-bundle>`, `<v2-desired>`, `<v2-run>`) because their values differ by member
+kind; B's header gives each value. Where the chapters had chosen different names for one thing,
+the integration settled on the following, and D 3.5-3.6 now say the same:
+
+- the homeserver unit is `teamchat-server@<team>`; `teamchat-session-<user>.service` is the LXC
+  session unit (D's table had given one placeholder both meanings);
+- a member's per-team directory is `<v2-state>/<team>/` (state, seat lock and bundle together),
+  with no seat level; the session runtime of B is `/tmp/teamchat/<run id>` (ccy) or
+  `$XDG_RUNTIME_DIR/teamchat/run/<run id>`, and C's root lock directory is `/run/teamchat-admin`;
+- the seat store is C's, at `~/.local/state/teamchat/seats/`, not under a checkout;
+- the status records follow C's layout under D's root `/var/lib/teamchat-status/`, with D's `sets/`;
+- the owner-group record is `/etc/teamchat/owner-group`; the kit is `kit/<digest>/`, collected only
+  when no runtime names it;
+- the desired-membership file is `desired.json`; the transaction-id prefix is `tc`.
+
+## 5. Contradictions found, and how each was settled
+
+Each was fixed in the owning chapter, in this integration's commit.
+
+01. **No stable team id.** All four chapters used the team's name as its identity, so a rename would
+    have changed the server name, unit, user, paths, seats and records. Settled: a stable id and a
+    display name (section 2); A 2.2, 4.1, 5.1; C3, C44, C 3.5.2, 3.8; D 3.5, 3.7, 5.1.
+02. **Team-id length.** C's dynamic user needed a prefix of at most 6 characters for a 24-character
+    name; D's name is 8. Settled: the id is at most 22 characters (A 2.2); M0 refuses a longer v1 name.
+03. **Messages to a seat with no session.** C's DC15 quarantines a released session's state, while
+    B's first start skipped history, so anything sent while no session held a seat, and every
+    migration's carried items, would have been skipped. Settled: a seat with no store resumes from the
+    member's own read receipt or join (B 2.6 step 01 b); a team re-added after removal still skips
+    history (00203 H23a).
+04. **Carried items had no kind.** D needed `teamchat.carried`; A did not define it. Settled: A 7.7
+    (admin only, main only, delivered as a NOTICE, never a live request; a reply to a carried ping
+    reaches its original sender), A 13.2 `carried:`, and `question_floor` for numbering.
+05. **Presence.** B published a presence state event with a lease, which A 6.6 rules out. Settled:
+    Matrix presence by syncing (B 2.6 step 09); the worker sets offline at a clean end, since the
+    keeper makes no network call (B14), which A had got wrong.
+06. **Who posts `disconnected`.** A said the admin; B and C post it with the seat's own token, which
+    needs no privilege at release time. Settled: the subject posts it (A 7.4); C's release runs
+    `teamchat seat disconnected` with the pool bundle; B's checkout-walking `seat close-ended` is gone
+    (it read files a container wrote, against DC15).
+07. **The farewell.** B had the member post a "removed by the owner" farewell, and the admin post it
+    when the session was gone; A says `removed` is the admin's. Settled: a hot remove is the member's
+    `left` with reason `released`; a removal is the admin's `removed`; no "farewell owed" marker.
+08. **Reply commands.** A's envelope told agents to run `say --to --re` and `send <VERB>`, v1-style;
+    B's CLI has `reply '<id>' [--verb]` and `ask`. Settled: A 13.2 uses B's verbs; `ask` gains
+    `--remind-after` for OD-A6; `who` became `status`.
+09. **Guest operation names.** C called `guest place` and `guest leave`; B defines `guest place-bundle`, `guest remove`. Settled: C uses B's names (C 3.9.2).
+10. **The bundle's main room.** A pins the main room ID as an anchor; C left it out. Settled: `seat.json`
+    gains `main_room` (C 3.7.2).
+11. **Desired membership.** B read `membership.json` with an `inbound` key; C wrote `desired.json`
+    without it. Settled: `desired.json` with `inbound` (C 3.7.5).
+12. **Seat store location.** D put seats under the checkout; C's DC5 keeps them out of every checkout
+    (C25). Settled: C's store, with D's names.
+13. **Timers, sudoers and records.** D had per-team health and backup timers, a NOPASSWD sudoers file
+    and its own record layout; C chose one timer each per host (DC7), no sudoers file (DC4) and its
+    record layout. Settled: C's design, D's names (D 3.5, 4, 8).
+14. **The port check.** C refused a port found in v1's runtime records; D's rule reads v1's
+    declaration only. Settled: D's rule (C 3.2.5, 3.8), read inside the one package allowed to name
+    v1.
+15. **`teamchat` as a human name.** The MEMBERSHIP entry's `from: teamchat` was a valid human
+    localpart. Settled: `teamchat` is reserved (A 2.3).
+16. **The welcome and the acceptance check.** D assumed a SessionStart hook message and a B "check
+    verb" that B does not have. Settled: the admin's pinned welcome notice, and `teamchat ping` with
+    its outbox (D 6.1, 6.2).
+17. **Two v1 requirements with no home.** R47 (shared locks) is now a drop row (D 11); R36 (ccy-teams
+    flows keep their steps) is now C45.
+
+## 6. Resident cost
+
+| Situation                     | Resident                                                                                                                                       | Ports and units                                                                        |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| v2 installed, no team         | nothing                                                                                                                                        | no port; units installed, timers disabled; one dummy interface `teamchat0`             |
+| per team                      | one Tuwunel, `teamchat-server@<team>`, 100-135 MB RSS (to re-measure, H-C1)                                                                    | one TCP port on loopback and each `listen` address; firewall rules per `allow_from`    |
+| per host with a team          | none between ticks; each minute one `teamchat-admin` and one `teamchat-ctl` child per team                                                     | `teamchat-health.timer` (60 s), `teamchat-backup.timer` (daily)                        |
+| per member session, seat held | keeper (about 6-8 MiB) and worker (about 12-20 MiB); bars: under 1% of one thread over 10 idle minutes with three teams, under 48 MiB together | no TCP port; one Unix socket; one kept-alive connection per team                       |
+| per member session, no team   | keeper alone: under 0.1% of one thread, under 10 MiB, no wakeup of its own                                                                     | none                                                                                   |
+| per short command             | one process per hook event, per status-line render (25 s), per agent verb                                                                      | none                                                                                   |
+| per supervised LXC member     | the session above                                                                                                                              | one `teamchat-session-<user>.service` and its tmux                                     |
+| area A                        | nothing of its own                                                                                                                             | none                                                                                   |
+| a team during its migration   | two homeservers (v1 and v2), both systems' timers                                                                                              | two ports; the fence's nftables table and oneshot `teamchat-fence@<team>` (no process) |
+| a team after its move         | v2's only; v1's archive server stopped (OD-D6 b), started on demand                                                                            | none of v1's                                                                           |
+
+The health tick grows with teams times rooms times (members plus humans); H-C1 measures it. The
+member bars are acceptance criteria, measured by `acceptance-member-cost.bash` (B 2.14).
+
+## 7. The owner decisions
+
+Every decision the chapters defaulted, and the integration's own. Each was **defaulted; the owner
+may overturn it**, and the build follows the default until then. **Flag** marks what goes to the
+coordinator: IRREVERSIBLE (costly or impossible to undo once teams run), CONTRADICTS (departs from an
+owner instruction), or VISIBLE (an owner-visible trade-off the coordinator asked to see).
+
+| ID    | Decision                                             | Default taken                                                                                                                                       | Flag                                                             |
+| ----- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| TID   | A team's identity                                    | a stable id (at most 22 characters) fixed at creation; the name is display only; server_name and handles carry the id and do not change on a rename | IRREVERSIBLE: to coordinator (the owner's next digest)           |
+| OD-A1 | Liveness shown to members and humans                 | Matrix presence, display only; the seat lock is the truth (fallback: none on the wire, HC-A1)                                                       |                                                                  |
+| OD-A2 | An `ack` as its own delivery                         | no: recorded, shown as an `answered:` line in the next delivery                                                                                     |                                                                  |
+| OD-A3 | Where pings go                                       | main, with humans; no fourth room                                                                                                                   |                                                                  |
+| OD-A4 | Sign the roster                                      | no: the server's state authorisation                                                                                                                |                                                                  |
+| OD-A5 | Reactions                                            | closed everywhere                                                                                                                                   |                                                                  |
+| OD-A6 | Question reminders                                   | per question, `--remind-after`, off unless given                                                                                                    |                                                                  |
+| OD-A7 | Handle grammar                                       | v1's, with `host` renamed `site`                                                                                                                    | IRREVERSIBLE: to coordinator                                     |
+| OD-A8 | Human edits in main                                  | delivered as revisions                                                                                                                              |                                                                  |
+| OD-A9 | Rich text from agents                                | plain `body` only                                                                                                                                   |                                                                  |
+| BD1   | Who owns member state                                | the worker alone; every verb an RPC                                                                                                                 |                                                                  |
+| BD2   | A verb with no worker                                | exit 69 at once; no degraded path                                                                                                                   |                                                                  |
+| BD3   | Output agents read                                   | JSON Lines, `"v": 2`, error object last on stderr                                                                                                   |                                                                  |
+| BD4   | Verb names                                           | `ping`, `reply`, `ask`, `verify` added; v1 names not aliased                                                                                        |                                                                  |
+| BD5   | The store                                            | one JSON snapshot per seat, atomic replace                                                                                                          |                                                                  |
+| BD6   | Death with the session                               | pidfd (Linux 5.3)                                                                                                                                   |                                                                  |
+| BD7   | Flood-limited items                                  | stay pending, go out later                                                                                                                          |                                                                  |
+| BD8   | A delivery the transcript does not show              | returns to `recv`, held from the socket                                                                                                             |                                                                  |
+| BD9   | A session killed before SessionEnd                   | `disconnected`, by the subject: next worker (LXC, host) or the host's release (ccy)                                                                 |                                                                  |
+| BD10  | Inbound messages, session on no team                 | refused until the first join relaunches it                                                                                                          |                                                                  |
+| BD11  | The SessionEnd timeout lift                          | dropped                                                                                                                                             |                                                                  |
+| BD12  | The frame text                                       | at every SessionStart, `/clear` and compaction included                                                                                             |                                                                  |
+| BD13  | LXC hot control                                      | the same `desired.json`, written by `guest membership`                                                                                              |                                                                  |
+| BD14  | A session on teams of both systems                   | settled by OD-D2: refused at launch                                                                                                                 |                                                                  |
+| BD15  | A gap larger than 20 pages of 100                    | move on, one `gap` NOTICE naming `history`; counted in `status`                                                                                     | VISIBLE: a said, not silent, skip                                |
+| DC1   | Homeserver topology                                  | one per team                                                                                                                                        | IRREVERSIBLE: expensive once teams run                           |
+| DC2   | Homeserver identity                                  | `DynamicUser` per team; admin credential held by `teamchat-ctl`                                                                                     |                                                                  |
+| DC3   | Host programs                                        | one `teamchat-admin` with caller classes                                                                                                            |                                                                  |
+| DC4   | How the board reads                                  | status records written each minute and after each change; no sudoers file, no reader; board facts up to about 70 s old, a bounded poll at sign-in   | VISIBLE: to coordinator                                          |
+| DC5   | Where seats live                                     | a seat store outside every checkout; one session directory mounted per session                                                                      | IRREVERSIBLE: expensive once teams run; a ccy change             |
+| DC6   | The coordinator                                      | a team-level `coordinator` in host_vars, converged by apply                                                                                         |                                                                  |
+| DC7   | Health and backup timers                             | one each per host                                                                                                                                   |                                                                  |
+| DC8   | Restore                                              | stage into a new database path, swap, swap back on failure (host check H-C5)                                                                        |                                                                  |
+| DC9   | Removing a human                                     | kick from every room and lock; adding the name back unlocks                                                                                         |                                                                  |
+| DC10  | A deferred LXC member                                | heals when the play next runs                                                                                                                       |                                                                  |
+| DC11  | Locks                                                | per team; no host-wide lock                                                                                                                         |                                                                  |
+| DC12  | Firewall                                             | `firewall-cmd`, judged by exit status                                                                                                               |                                                                  |
+| DC13  | Supervised session start in a running guest          | guest systemd over a private socket if H-C9 proves it; else at next container start                                                                 |                                                                  |
+| DC14  | Off-machine backups                                  | not built (the owner's v1 decision stands)                                                                                                          |                                                                  |
+| DC15  | What travels between sessions on a seat              | only the host-held pool bundle; session state quarantined (B resumes from the server)                                                               | IRREVERSIBLE: expensive once teams run                           |
+| DC16  | A seat's token across sessions                       | the pool token is reused, no password at session start; a hostile released session keeps a valid token until `member reissue` or `park` (risk K13)  | VISIBLE: security trade-off, to coordinator                      |
+| DC17  | systemd and YAML mechanisms                          | add `godbus/dbus/v5` and `go.yaml.in/yaml/v3` to the production module, with go-deps allowlist rows                                                 | VISIBLE: new dependencies, to coordinator                        |
+| OD-D1 | The product name                                     | `teamchat`                                                                                                                                          | IRREVERSIBLE once deployed: to coordinator                       |
+| OD-D2 | A session on teams of both systems                   | refused (exit 64); run two sessions or migrate the other team                                                                                       |                                                                  |
+| OD-D3 | Linked teams                                         | moved together under one commit; leaving other teams first offered at M0                                                                            |                                                                  |
+| OD-D4 | v1 room history                                      | not imported: an export, the v1 archive and a link                                                                                                  |                                                                  |
+| OD-D5 | Reverse move after commit                            | none; fix forward                                                                                                                                   | IRREVERSIBLE: to coordinator                                     |
+| OD-D6 | The v1 archive after the move                        | stopped at M8; `ccy-teams archive open` starts it on demand; humans' v1 password issued at first open                                               | VISIBLE: to coordinator                                          |
+| OD-D7 | Open pings at the move                               | a `moved` notice to the sender, the ping carried, the answer delivered as a reply                                                                   |                                                                  |
+| INT1  | A seat with no store                                 | resumes from the member's own read receipt or join (B 2.6 step 01 b)                                                                                |                                                                  |
+| INT2  | `disconnected` and the farewell                      | posted by the subject; a hot remove is `left released`; no admin farewell                                                                           |                                                                  |
+| INT3  | Migrating a v1 team whose name is over 22 characters | M0 refuses it; the owner renames it on v1 first, or it stays on v1                                                                                  | CONTRADICTS (in part) direction 3's "teams move": to coordinator |
+
+Two decisions of DESIGN.md were raised with the coordinator at the M0 hand-over, and the
+coordinator accepted both: D4 (no relay mode in v2; it is specified on v2 when the hooks-daemon
+plugin API ships) and D15 (a keeper and a worker in every member). They stand in section 1 as
+decided, and the journal records the answers.
+
+## 8. v1's requirements, traced
+
+Every requirement R1-R50 of [DESIGN.md](DESIGN.md) section 2, and the v2 requirement that carries
+it. IDs are AR (A section 1), B (B section 1), C (C section 2) and D (D section 1).
+
+| v1  | What it asked                                                 | Carried by                 | Note                                                     |
+| --- | ------------------------------------------------------------- | -------------------------- | -------------------------------------------------------- |
+| R1  | private homeserver per team, federation off                   | AR10, AR11, C1             | three rooms from creation                                |
+| R2  | team file applied idempotently, CHANGED only on change        | C6, C28                    |                                                          |
+| R3  | loopback plus listen; `allow_from` by firewall and unit       | C2                         |                                                          |
+| R4  | server_name never changes; the team name is its unit          | C3, C44                    | the id is stable; the display name is free (section 2)   |
+| R5  | hardened units, watchdog, `Restart=always`                    | C4, C5                     | DynamicUser per team                                     |
+| R6  | daily backups, backup before restart, validated restore       | C36, C37                   | a failed restore swaps back                              |
+| R7  | minutely health probe, group-readable record                  | C35                        | the check unit's sandbox is in C 3.11.1                  |
+| R8  | applied stamp per team                                        | C38                        |                                                          |
+| R9  | handle grammar, seat counters, parked and removed handles     | AR7, AR8, C18              | `removed_humans` replaced by lock and unlock (DC9)       |
+| R10 | one coordinator, demote before promote                        | C17                        |                                                          |
+| R11 | token only in the bundle; password never stored; park revokes | C13, C19, C22              |                                                          |
+| R12 | root never writes under a user path; bundle by fd             | C24, C25                   | seats leave the checkout                                 |
+| R13 | owner consent by sudo; drop the cached credential             | C10                        |                                                          |
+| R14 | seat allocation lock; held seats; 180 s startup wait          | C26                        | the 180 s wait is in C 3.7.5                             |
+| R15 | wire protocol version 1 as documented                         | AR1, AR2, AR19, AR25       | a new namespace and majors                               |
+| R16 | every reference checked at the forge                          | AR21                       |                                                          |
+| R17 | room verified before trust, again on change                   | AR13                       |                                                          |
+| R18 | the inbox is an untrusted cache                               | AR15                       | no inbox directory; the worker's store                   |
+| R19 | skip history, gap fill, same transaction id, 429              | B9, B33                    | a new seat now resumes rather than skips (B 2.6 step 01) |
+| R20 | several teams; infer only when one fits                       | B5                         |                                                          |
+| R21 | own envelope; kind from the record, never the text            | AR6, AR14, AR18, AR27, B19 |                                                          |
+| R22 | delivered exactly once                                        | B20                        |                                                          |
+| R23 | read receipt only after the transcript shows it               | B22                        |                                                          |
+| R24 | survives a homeserver restart, says so once                   | B16, B17                   |                                                          |
+| R25 | hooks never block; Stop guard                                 | B25, B26                   |                                                          |
+| R26 | the status line                                               | B27                        |                                                          |
+| R27 | liveness is the seat lock alone                               | C27, B8, B13               | presence is display only (OD-A1)                         |
+| R28 | goodbye once per real end, to humans and coordinators         | B28                        | A's `left` notice                                        |
+| R29 | disconnected, never with a goodbye                            | B29, C43                   | posted as the subject (section 5, item 6)                |
+| R30 | membership notices once per change                            | B30                        |                                                          |
+| R31 | desired membership; reconcile within 2 s                      | B31, B32, C42              |                                                          |
+| R32 | a no-team session relaunched once on first join               | B35, C42                   |                                                          |
+| R33 | LXC members from the host; stopped containers ordinary        | AR8, B36, C31, C32         |                                                          |
+| R34 | play lock before a host_vars write                            | C12, C29                   |                                                          |
+| R35 | the board                                                     | C11, C22, C39              |                                                          |
+| R36 | ccy-teams flows keep their behaviour                          | C39, C45                   | C45 added by the integration                             |
+| R37 | no agent runs as a user holding a human's session             | AR16, C34, D17             |                                                          |
+| R38 | only root and backup holders can instruct agents              | AR16, D17                  |                                                          |
+| R39 | container-written files are never authority                   | AR15, C41, D17             |                                                          |
+| R40 | admin bootstrap, one admin, crash-safe order                  | C14, C15                   |                                                          |
+| R41 | the description only as the topic                             | A 5.1 (text)               | covered, not cited by a row                              |
+| R42 | outbox, acks, TIMEOUT, send gate                              | AR20                       | and B 2.3.2 `gate`, `reported`                           |
+| R43 | token re-read each use; shared token refused; secret check    | B11                        |                                                          |
+| R44 | forge credential re-read; repository cache                    | AR21                       | held 10 minutes (B 2.6 step 11)                          |
+| R45 | hook signals, goodbye budget, `stop_hook_active`              | B26, B28                   | and B's signals table                                    |
+| R46 | the conversation record and resume by it                      | B43                        | `<v2-state>/conversation.json`                           |
+| R47 | locks shared with v1 until the last stage                     | dropped                    | v2 takes no v1 lock (D 11)                               |
+| R48 | LXC detail: units, pre-checks, the absent phase               | B36, C31, C32              | the source-address pre-check is on the host (C)          |
+| R49 | one kit version per session; versioned kit directories        | B38, C8, C33               |                                                          |
+| R50 | Element profiles                                              | C34                        | profile `teamchat-<team>`                                |
+
+## 9. What the integrated review must check
+
+The N0 review (PLAN.md) reads the whole design, and in particular what no reviewer has seen yet:
+
+- area A's last five minor fixes after its round-3 MERGE;
+- area C's last fixes after its round-3 FIX-FIRST: majors 43 (a restore's own backup could delete the
+  backup being restored) and 44 (a crash mid-restore left an empty database) and seven minors;
+- area D section by section, the verifier's last seven fixes (one blocker) above all; the fence is
+  v2-owned (an nftables table and `teamchat-fence@`), and D6 is option (b);
+- every edit of this integration (section 5), which touched all four chapters.
