@@ -1,5 +1,9 @@
 # N1 Task 1.4 (hostchecks): handoff
 
+Superseded by decisions 1-3 of [261021-n1-hostchecks.md](261021-n1-hostchecks.md): no Element
+mode, no host script and no meta-deploy entry, the probes kept as Python in the plan folder. What
+follows is the handoff as it was written.
+
 ## Constraints from the lead, after the WIP commits (they override what follows)
 
 1. **No new Python tooling.** The delivered probe is Go: a Go test behind a build tag (as M44 is) or

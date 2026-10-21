@@ -39,7 +39,7 @@ replaced by placeholders. Room and event IDs are the throwaway server's own.
 
 - holds: the state list holds one create event: one
 - holds: the create event carries its sender, the admin: @admin:hca.invalid
-- holds: its event ID is $ and the room ID without !: $zTPX4gOKMWiov0vcqos47BLKYFZrPXpP9uBHil3GgoQ for !zTPX4gOKMWiov0vcqos47BLKYFZrPXpP9uBHil3GgoQ
+- holds: its event ID is $ and the room ID without !: $d7k50BZCm4XJWTx4-zopi6JcnPVW6YY6UrKKG9gP_Hw for !d7k50BZCm4XJWTx4-zopi6JcnPVW6YY6UrKKG9gP_Hw
 - holds: room_version 12 and no additional_creators: {"room_version": "12"}
 
 ### HC-A4: PASS
@@ -55,6 +55,8 @@ replaced by placeholders. Room and event IDs are the throwaway server's own.
 - holds: main: a human's poll (m.poll.start) is refused: HTTP 403 M_FORBIDDEN
 - holds: main: a human's poll (org.matrix.msc3381.poll.start) is refused: HTTP 403 M_FORBIDDEN
 - holds: main: an agent's reaction is refused: HTTP 403 M_FORBIDDEN
+- holds: main: the admin's (100) reaction is accepted, so the refusals are the power levels': HTTP 200
+- holds: main: the admin's (100) poll (m.poll.start) is accepted, so the refusals are the power levels': HTTP 200
 - holds: main: a human's redaction of their own message is refused: HTTP 403 M_FORBIDDEN
 - holds: main: a human's state event (m.room.topic) is refused: HTTP 403 M_FORBIDDEN
 - holds: main: an agent's state event (teamchat.roster) is refused: HTTP 403 M_FORBIDDEN
@@ -83,8 +85,10 @@ replaced by placeholders. Room and event IDs are the throwaway server's own.
 
 ### HC-A1: FAIL
 
-- holds: a link's default sync shows it online in another member's filtered sync: [{"currently_active": true, "displayname": "hca.1+lab.host", "last_active_ago": 6, "presence": "online"}]
+- holds: a link's default sync shows it online in another member's filtered sync: [{"currently_active": true, "displayname": "hca.1+lab.host", "last_active_ago": 1, "presence": "online"}]
+- holds: the status read shows the link online after its default sync: presence: online
 - FAILS: a sync with set_presence=offline leaves presence unchanged: presence after it: offline
+- holds: the status read shows the link online again after a default sync, before the PUT: presence: online
 - holds: a link's PUT /presence of offline takes effect: presence after it: offline
 - holds: the timers a team's config leaves at Tuwunel's defaults: presence_idle_timeout_s 300, presence_offline_timeout_s 1800
 - holds: a member that stops syncing goes offline by the server's timers: with presence_idle_timeout_s 10, presence_offline_timeout_s 10: online at 0 s, then unavailable at 10 s, then offline at 20 s
@@ -96,15 +100,16 @@ replaced by placeholders. Room and event IDs are the throwaway server's own.
 - holds: the token alone cannot change the password: HTTP 401, stages ['m.login.password']
 - holds: the token alone cannot deactivate the account: HTTP 401, stages ['m.login.password']
 - holds: the token alone cannot mint a login token (so cannot add a device): HTTP 403 M_FORBIDDEN
-- holds: a config key refuses a member's own password change and deactivation: no such key, so the config sets none (the health tick is the watch); the keys that match do other things: login_with_password: turns password login off for every account, which DC16 (c') needs; turn_password: the TURN server's credential; auto_deactivate_banned_room_attempts: deactivates a user who joins a banned room; emergency_password: the service account's own password
-- holds: an admin read lists a member's devices and its deactivated flag: devices ['0hzmORhQId', 'HCASEAT'], deactivated False
+- holds: a config key whose name mentions password or deactivation refuses a member's own password change and deactivation: no such key, so the config sets none (the health tick is the watch); the keys that match do other things: login_with_password: turns password login off for every account, which DC16 (c') needs; turn_password: the TURN server's credential; auto_deactivate_banned_room_attempts: deactivates a user who joins a banned room; emergency_password: the service account's own password
+- holds: an admin read lists a member's devices and its deactivated flag: devices ['HCASEAT', 'lmtxEUK0KP'], deactivated False
 - holds: the admin read shows a deactivated account as deactivated: deactivated True; its token answers HTTP 401 M_UNKNOWN_TOKEN
-- holds: the fallback: DELETE /devices/<id> with UIA by password kills that device's token: without auth 401, with it HTTP 200; the device's token then answers HTTP 401 M_UNKNOWN_TOKEN, the deleting one HTTP 200
+- holds: a device's token deletes another device by UIA by password, killing that token: without auth 401, with it HTTP 200; the device's token then answers HTTP 401 M_UNKNOWN_TOKEN, the deleting one HTTP 200
+- holds: the fallback (C 3.7.3): a claim's token deletes its own device by UIA by password, and is refused afterwards: without auth 401, with it HTTP 200; the token then answers HTTP 401 M_UNKNOWN_TOKEN
 
 ### H-C14: PASS
 
-- holds: what /sync answers to a since ahead of the database: a wait for the timeout (3.0 s of a 3 s timeout): since 344, next_batch 335, errcode -
+- holds: what /sync answers to a since ahead of the database: a wait for the timeout (3.0 s of a 3 s timeout): since 353, next_batch 344, errcode -
 - holds: a direct state read of the roster answers at once, as the backup holds it: HTTP 200 in 0.00 s: {"hca": "before the backup"}
-- holds: (recorded) a post after the restore reaches a member still holding the old since: NOT delivered (next_batch 338): a member must drop its since after a restore
+- holds: (recorded) a post after the restore reaches a member still holding the old since: NOT delivered (next_batch 347): a member must drop its since after a restore
 
 Verdict: FAIL (exit 1)

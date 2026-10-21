@@ -136,6 +136,12 @@ its first caller.
   `261021-n1-hostchecks-run.md`). The Element checks (HC-A2's display, HC-A3, HC-A5) are owner
   steps in A 14's Element row, after gate A. The regression form is the `tuwunel`-tagged Go
   test once the matrix client merges.
+- [ ] ⬜ **Task 1.4a**: The design-text fixes Task 1.4's checks call for, for the design pass
+  (`261021-n1-hostchecks.md` findings 1, 2 and 4): presence never uses `set_presence=offline`
+  (A 6.6, A 14, A 15, A 16, B 2.6 step 09) and C 3.2.4 sets both presence timers and
+  `server_user_localpart`; DC16's take chosen from the options given, with C 3.7.3 step 3 and C
+  15's seats row changed to match; A 16 notes that HC-A2's display, HC-A3 and HC-A5 are owner
+  steps after gate A, and that 7.5 and 10.4 in `proto` stay provisional until HC-A3 is run.
 - [ ] ⬜ **Task 1.5**: The matrix client and `fakehs`, built and reviewed on
   `feat/bus-v2-m1-matrix` (58c7b6e1): rebuilt off 35acceab (Phase 7), placed under
   `internal/teamchat/` (D 3.3), merged with its first caller (N2 or N3), not alone.

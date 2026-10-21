@@ -315,6 +315,18 @@ def check_power_levels(run: Run) -> list[Fact]:
         facts.append(
             Fact(f"main: {what} is refused", status == 403, run.code(status, err))
         )
+    for what, event_type, content in (
+        ("reaction", "m.reaction", refused[0][3]),
+        ("poll (m.poll.start)", "m.poll.start", {"body": "p"}),
+    ):
+        status, err, _ = t.send(main, t.admin, event_type, content)
+        facts.append(
+            Fact(
+                f"main: the admin's (100) {what} is accepted, so the refusals are the power levels'",
+                status == 200,
+                run.code(status, err),
+            )
+        )
     t.txn += 1
     status, obj = t.call(
         "PUT", f"{CLIENT}/rooms/{q(main)}/redact/{q(own)}/hca{t.txn}", {}, t.tokens[h]
@@ -602,6 +614,16 @@ def check_presence(run: Run) -> list[Fact]:
             json.dumps(seen) if seen else "no presence event",
         )
     ]
+
+    def online_fact(when: str) -> Fact:
+        now = status_of(a).get("presence")
+        return Fact(
+            f"the status read shows the link online {when}",
+            now == "online",
+            f"presence: {now}",
+        )
+
+    facts.append(online_fact("after its default sync"))
     t.sync(a, filt, None, set_presence="offline")
     after = status_of(a)
     facts.append(
@@ -612,6 +634,7 @@ def check_presence(run: Run) -> list[Fact]:
         )
     )
     t.sync(a, filt, None)
+    facts.append(online_fact("again after a default sync, before the PUT"))
     t.ok(
         "PUT presence offline",
         "PUT",
@@ -759,7 +782,10 @@ def check_seat_credentials(run: Run) -> list[Fact]:
 
 
 def config_key_fact(run: Run) -> Fact:
-    name = "a config key refuses a member's own password change and deactivation"
+    name = (
+        "a config key whose name mentions password or deactivation refuses a member's own "
+        "password change and deactivation"
+    )
     if not run.config_dump:
         return Fact(name, None, "show-config gave no answer")
     found = keys_matching(run.config_dump, ("password", "deactivat"))
@@ -833,7 +859,7 @@ def admin_read_facts(run: Run, token: str) -> list[Fact]:
     done, obj = t.call("DELETE", path, {"auth": auth}, token)
     facts.append(
         Fact(
-            "the fallback: DELETE /devices/<id> with UIA by password kills that device's token",
+            "a device's token deletes another device by UIA by password, killing that token",
             status == 401
             and done == 200
             and whoami(run, other) == "HTTP 401 M_UNKNOWN_TOKEN",
@@ -841,7 +867,33 @@ def admin_read_facts(run: Run, token: str) -> list[Fact]:
             f"the device's token then answers {whoami(run, other)}, the deleting one {whoami(run, token)}",
         )
     )
+    facts.append(self_delete_fact(run))
     return facts
+
+
+def self_delete_fact(run: Run) -> Fact:
+    """C 3.7.3's fallback: at release the claim's own token deletes its own device.
+
+    On another account than the seat's: the checks above take four of its burst of five logins."""
+    t, seat = run.team, run.invitee
+    own = token_of(run, seat, "HCACLAIM")
+    path = f"{CLIENT}/devices/HCACLAIM"
+    status, uia = t.call("DELETE", path, {}, own)
+    auth = {
+        "type": "m.login.password",
+        "identifier": {"type": "m.id.user", "user": seat},
+        "password": t.passwords[seat],
+        "session": uia.get("session"),
+    }
+    done, obj = t.call("DELETE", path, {"auth": auth}, own)
+    answer = whoami(run, own)
+    return Fact(
+        "the fallback (C 3.7.3): a claim's token deletes its own device by UIA by password, "
+        "and is refused afterwards",
+        status == 401 and done == 200 and answer == "HTTP 401 M_UNKNOWN_TOKEN",
+        f"without auth {status}, with it {run.code(done, str(obj.get('errcode', '-')))}; "
+        f"the token then answers {answer}",
+    )
 
 
 def check_restore(run: Run) -> list[Fact]:
