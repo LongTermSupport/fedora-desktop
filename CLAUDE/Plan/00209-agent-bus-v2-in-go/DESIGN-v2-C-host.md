@@ -1036,9 +1036,9 @@ bytes, mode 0600 (S19). Its one other copy is in the pool's `held/`, for the rel
   `held/seat.json`); the pool's own `seat.json` has neither. `claim` is the take's claim id.
   `released_ms` is the time of this seat's last release, from the pool's `released.json`, or
   `null` for a seat never released. Area B starts a seat that has no member store from the earlier
-  of the member's own read receipt and `released_ms` (B 2.6 step 01): a receipt is set with a
-  token, so a receipt alone is not a fact the host wrote, and an item after the last release is new
-  by construction (security 1).
+  of the seat's own resume marker (its `teamchat.floor` room account data, B 2.3.2) and
+  `released_ms` (B 2.6 step 01): a marker is set with a token, so a marker alone is not a fact the
+  host wrote, and an item after the last release is new by construction (security 1).
 - `human_text` is not in the bundle: it is read from the roster in the main room, where the admin
   keeps it current, like every other roster fact (coherence 15).
 - `device_id` is the seat's one fixed device id. Every take logs in with it (3.7.3).
@@ -2283,7 +2283,8 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
     (B 2.10); the keeper makes no network call.
 05. A session that takes a seat starts with no member state. B resumes from the server's state,
     never from state another session left (DC15): a seat with no member store starts from the
-    earlier of the member's own read receipt and `seat.json`'s `released_ms` (3.7.2), and B reads
+    earlier of the seat's `teamchat.floor` resume marker and `seat.json`'s `released_ms` (3.7.2),
+    a restore leaves every account's room account data as the backup holds it (B 6 C13), and B reads
     `claim` from `seat.json`.
 06. B provides `teamchat seat disconnected --bundle <dir> --since <ms> --seed <id>`, run by the host as
     the owner with the pool's `held/` bundle, which judges from the room whether this member
