@@ -84,8 +84,8 @@ playbooks/imports/play-agent-bus.yml
 # Element steps of the plan's ACCEPTANCE-owner.md.
 00211-agent-bus-reports-and-questions-rooms/deploy-stage-2.bash
 # Plan 00201 Task 2.7 (M7): the automated two-team acceptance again, because its M3 check
-# (the session's status line) changed since it last passed, and Plan 00213 above has just
-# made that status line the Go one. acceptance.bash only: it makes two throwaway teams declared
+# (the session's status line) changed since it last passed, and Plan 00213's cut-over made
+# that status line the Go one. acceptance.bash only: it makes two throwaway teams declared
 # in a run-directory host_vars (your host_vars and teams are never touched), runs one headless
 # ccy session on both and a plain one (each one short turn on haiku), checks descriptions,
 # launch block, per-session record, status line, `say` and SessionEnd, then purges both teams
