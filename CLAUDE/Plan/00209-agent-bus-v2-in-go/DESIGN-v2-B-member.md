@@ -40,11 +40,11 @@ requirement states the need and section 5 states the drop.
 - **B2.** Every verb an agent uses prints a versioned, typed record per line on stdout, a message
   body only ever as a JSON string, and exits with a code that has exactly one meaning. New: v1 had
   two line families (versioned and not) and exit codes shared by several meanings (3, 4, 7, 9,
-  10\) [CLI digest E1-E6].
+  10\) \[RP 1 "report lines without version"; protocol §14; `helpers/pingbus/cli.py:56-86`\].
 - **B3.** Every verb is argument-only and never prompts; text arrives on stdin [protocol §13].
 - **B4.** A reply needs no addressing by the agent: the event it answers decides the team, room,
   thread and addressee. New: v1 made agents copy a `REPLY` command with a quoted event id, and
-  retyping names was the known failure [CLI digest E9, E10].
+  retyping names was the known failure [RP 5.27; MT S-D1; the v1 skill's "do not rebuild the name"].
 - **B5.** Several teams in one session: no verb guesses a team. A verb names its team, or it acts
   on an event whose team is known, or exactly one team is active; otherwise usage error listing
   the teams with their descriptions [R20; RP 5.26; MT S-C8/C9].
@@ -100,7 +100,7 @@ requirement states the need and section 5 states the drop.
   transcript instead of always repeating.
 - **B21.** Proof of delivery by the transcript; a delivery not found is reported loudly and its
   items return to `recv`. New: v1 left a missing delivery consumed, reachable only through
-  `history` [E16; delivery digest O2].
+  `history` [E16; SPEC-inject R2].
 - **B22.** Read receipts for a human's message only after its delivery is proven; pending
   receipts survive a worker restart. New: v1 kept them in memory [R23; E16].
 - **B23.** Pacing and caps keep each delivery its own entry under the socket's duplicate filter
@@ -108,7 +108,7 @@ requirement states the need and section 5 states the drop.
   and 12 KiB per delivery, body cap 2048 rendered bytes, per-sender flood budget, humans never
   held back [E4, E8, E9, E13, E19].
 - **B24.** Humans first: within a delivery, HUMAN entries come before PEER and PING entries. New:
-  v1 ordered strictly by time, so a human waited behind agent chatter [delivery digest O6].
+  v1 ordered strictly by time, so a human waited behind agent chatter [E20].
 
 ### 1.5 Hooks, status line, notices
 
@@ -143,7 +143,7 @@ requirement states the need and section 5 states the drop.
   umask and every leaf mode, open with no-follow and place with `O_EXCL`, and never run
   container-controlled code on the host [R33, R48; RL 6.02, 1.2].
 - **B37.** A frozen and thawed member resumes as a reconnect, not as a failure. New: no source
-  says what v1 did on thaw [multi-team digest 4].
+  says what v1 did on thaw; a frozen container is only "not reachable" [RL 1.5; WD F3].
 - **B38.** One kit version per session from launch to exit [R49; D18].
 
 ### 1.7 Cost and tests
@@ -153,7 +153,7 @@ requirement states the need and section 5 states the drop.
   1 s\].
 - **B40.** The resident cost per member (CPU, RSS, wakeups, file descriptors, connections) is
   measured by an acceptance and reported live by `status`. New: v1 never recorded RSS or wakeups
-  [multi-team digest 5; Plan 00213 Task 1.1].
+  [RP 4; Plan 00213's triage figures and Task 1.1].
 - **B41.** Every rule above is an expectation with a test through fakes: a fake homeserver, a fake
   Claude Code inbox socket and transcript, an injected clock, real processes for the locks and the
   supervision, crash points, a real Tuwunel behind a build tag and the VM lab for LXC \[DESIGN 11;
@@ -312,7 +312,7 @@ reading prose. `message` is a fixed template filled with grammar-checked names o
 `recv`, `wait`, `inbox`, `history`, `status` and `questions` (without `--team`) run over every active
 team. A team that fails produces one record on stdout, `{"v":2,"kind":"team-failed","team":"<t>", "exit":20,"code":"unreachable"}`, the other teams' records still print, and the verb exits 5. So an
 agent never mistakes a partial answer for a whole one, which v1's "exit 0 if anything printed"
-allowed [CLI digest E6].
+allowed (`helpers/pingbus/cli.py` recv's exit rule).
 
 #### 2.2.4 Exit codes
 
@@ -952,11 +952,11 @@ told once.
 
 - **The run record.** Each seat's store has `run`: a new record when a session takes the seat,
   `ended` set when it ends.
-- **Goodbye** (B28). The SessionEnd hook records `ended = {reason, goodbye: "attempted"}` for every
-  held seat and returns; the worker posts `<handle> left the team: session ended (<reason>)` to the
-  team's humans and coordinators (at most 16; every agent addressed costs a model turn), each send
-  with its transaction id recorded in `sending` first, and sets `goodbye: "sent"` on the answer. The
-  keeper's 5 s end gives it the time; Claude Code's SessionEnd bound no longer applies. `clear` and
+- **Goodbye** (B28). On the SessionEnd hook's request the worker records `ended = {reason, goodbye: "attempted"}` in every held seat's store, the hook returns, and the worker at once starts posting
+  `<handle> left the team: session ended (<reason>)` to each team's humans and coordinators (at most
+  16; every agent addressed costs a model turn), in parallel, each send with its transaction id
+  recorded in `sending` first, setting `goodbye: "sent"` on the answer. The keeper's 5 s end gives it
+  the time after Claude Code exits; Claude Code's SessionEnd bound no longer applies. `clear` and
   `resume` are not ends.
 - **Disconnected** (B29). When a seat is next taken, before its team goroutine starts, the worker
   closes the previous run: a `goodbye` still `attempted` is re-sent with its recorded transaction id,
@@ -1090,3 +1090,130 @@ operations from nothing, hot add and remove, freeze and thaw, a stopped containe
 next start's disconnected notice, inotify across a ccy container's bind mount); and host checks
 H1-H7 re-run against v2 for each Claude Code version the kit pins (idle wake, busy queue, the
 transcript shapes, the socket's message size).
+
+---
+
+## 3. Decisions for the owner
+
+Each has a recommended default, taken unless the owner overturns it ("DO NOT GATE ON ME").
+
+| #    | Question                                                                | Options                                                                                                                       | Default and why                                                                                                                               |
+| ---- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| BD1  | Who owns member state?                                                  | (a) shared files and seven locks, as v1; (b) the worker alone, every verb an RPC                                              | (b): one writer removes six locks, the untrusted inbox, the recv/watcher race and per-hook surveys (2.1). Its cost, no direct mode, is BD2    |
+| BD2  | A verb when no worker runs?                                             | (a) exit 69 and say why; (b) a degraded direct path that reads the store and the token itself                                 | (a): a second path is a fallback between two implementations, which the frame forbids; a human with no session runs `<v2-bin> run -- bash`    |
+| BD3  | The output agents read?                                                 | (a) JSON Lines, `"v": 2`, error object on stderr; (b) v1's tab lines; (c) text with a `--json` switch                         | (a): one parser, nests, text is a JSON string by construction (2.2.2)                                                                         |
+| BD4  | Verb names                                                              | (a) `ping`, `reply`, `ask`, `verify` added; (b) v1's `send`, `say --re`, `ask-human`                                          | (a): `reply` removes the addressing agents got wrong; v2 is a separate system with its own skill, so nothing aliases                          |
+| BD5  | The store                                                               | (a) one JSON snapshot per seat, atomic replace; (b) bbolt; (c) v1's file per item                                             | (a): one writer needs no database; inspectable with `jq`; no new dependency (2.3.2)                                                           |
+| BD6  | Death with the session                                                  | (a) pidfd; (b) `PR_SET_PDEATHSIG`                                                                                             | (a): Go's thread hazard makes (b) fire while the parent lives (2.4.1); pidfd needs Linux 5.3, met by every member kernel                      |
+| BD7  | Flood-limited items                                                     | (a) stay pending and go out when the budget refills; (b) consumed undelivered, as v1                                          | (a): a limit should slow a sender, not lose its messages                                                                                      |
+| BD8  | A delivery the transcript does not show                                 | (a) its items return to `recv`, held from the socket; (b) consumed, reachable only in `history`, as v1                        | (a): the agent can still get them, and the socket is not asked again to deliver into a session that holds its messages                        |
+| BD9  | A session killed before SessionEnd                                      | (a) "disconnected" when the seat is next taken, and at once for ccy by the host's cleanup; (b) the host's cleanup only, as v1 | (a): it covers LXC, docker and VM, which v1 never told; the late notice carries the time the session ended                                    |
+| BD10 | Inbound socket messages in a session launched on no team                | (a) refused until the first join relaunches it, as v1; (b) always accepted when the kit is loaded                             | (a): least privilege; an idle teamless session should not take cross-session messages; the cost is one relaunch on first join                 |
+| BD11 | The SessionEnd timeout lift (`CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS`) | (a) dropped; (b) kept as a margin                                                                                             | (a): the hook now returns at once and the goodbye is posted outside Claude Code's bound (2.8); a setting with no reason left is a moving part |
+| BD12 | The frame text                                                          | (a) at every SessionStart, including after `/clear` and compaction; (b) once per session                                      | (a): after a clear or compaction the earlier text may be gone from context, and its rules matter most then                                    |
+| BD13 | Hot control for LXC members                                             | (a) the same desired-membership file, written into the guest by `guest membership`; (b) v1's env file and a play              | (a): one model for every member kind (B34), no play run for a membership change                                                               |
+
+None of these is irreversible: each lives inside the member binary and its kit, which a later kit
+version can change without touching another area's data.
+
+---
+
+## 4. Risks
+
+| Risk                                                                                                            | Mitigation                                                                                                                                                                                       |
+| --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| The transcript is not a documented interface; a Claude Code release can change how socket messages are recorded | the needle is format-blind ASCII; the fake transcript pins both known shapes; a host check per pinned Claude Code version; a change shows as `missing`, loudly, and the items return to `recv`   |
+| A homeserver may not keep transaction ids across its own restart, so a re-sent goodbye or send could post twice | the `-tags tuwunel` suite restarts Tuwunel between a send and its re-send and records the result; if Tuwunel forgets, the re-send first searches the room's recent events for the transaction id |
+| inotify events may not cross a ccy container's bind mount of `<v2-desired>`                                     | a VM-lab check before the hot-control stage; inotify is inode-based and the host replaces the file inside the mounted directory, so it is expected to hold                                       |
+| The socket's real message limit is unmeasured (H4); 12 KiB per delivery is provisional                          | host check H4 before the caps are frozen; the caps are one constant each                                                                                                                         |
+| The worker is a single point of failure for the session's bus                                                   | the keeper restarts it with backoff; everything durable is in the store; the status line and the hooks say when it is down; nothing is lost while it is                                          |
+| A hung worker (alive, holding its lock, not answering)                                                          | the heartbeat in `status.json` (2.9) shows it; hooks time out at 300 ms and say so; the keeper does not judge liveness by RPC, by design, so a slow homeserver never gets a worker killed        |
+| Sibling ccy containers of one checkout share a uid, so one can read another seat's token and edit its store     | stated, not hidden (2.3.1); the store holds ids only and restored items are re-fetched; isolating siblings is area C's (assumptions)                                                             |
+| A store that does not decode stops its team                                                                     | loud (exit 78, status line, `status`), never repaired silently; the owner moves the file aside, and the team restarts with a fresh sync                                                          |
+| Go's runtime wakes on its own (forced GC every 2 minutes, `sysmon`)                                             | measured by B40's acceptance rather than assumed away; `GOGC` and `GOMEMLIMIT` are set only if the measurement asks for it                                                                       |
+
+---
+
+## 5. What v1 does that v2's member does not carry
+
+| v1                                                                                                 | Why not                                                                                                                                           |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| seven member locks (sync, seat, keeper, watch, delivery, outbox, told) and their order             | one owner of member state (2.1, 2.5); three locks remain                                                                                          |
+| the inbox and `consumed/` directories as an untrusted cache, re-validated by every reader          | items reach the worker straight from the homeserver; the store holds ids; a restored item is re-fetched once                                      |
+| the watch supervisor, watch child, hook revive and the waiter as a receiver                        | the keeper supervises one worker (B16); `wait` is a request to the worker, not a receiver                                                         |
+| hooks surveying every pending file, lock and record on every prompt                                | one RPC; the worker already knows                                                                                                                 |
+| `socket.json` holding the inbox socket token at rest                                               | the token stays in the keeper's memory (B11)                                                                                                      |
+| `PR_SET_PDEATHSIG` as the death signal                                                             | pidfd (BD6)                                                                                                                                       |
+| the 0.5 s keeper tick, the 1 s watcher tick, the transcript polled up to 16 MiB per pass           | inotify, pidfds and timers (B39)                                                                                                                  |
+| two output-line families, a frozen `TOOL_VERSION`, exit codes with several meanings                | JSON Lines with `"v": 2`, the source digest, one meaning per code (2.2)                                                                           |
+| team inference from where `--to` names resolve                                                     | a guess that is wrong exactly when names resolve in two teams (2.10)                                                                              |
+| the `REPLY` line and hand-built `--re` replies                                                     | `reply '<id>'` (B4)                                                                                                                               |
+| `validate` and `validate --event`                                                                  | `ping` and `say` refuse with the validator's code; testing the validator is the test suite's job                                                  |
+| `config check` as a separate verb                                                                  | folded into `status`, which shows configuration failures per team                                                                                 |
+| `suggest-handle`                                                                                   | handles are derived by the host (area C), never from inside a member (R33)                                                                        |
+| `seat exec`, `seat keep`, `seat retire`, `seat farewell`, `seat disconnected`                      | `run` and `keeper`; retire and farewell are the worker's removal step (2.10); disconnected is `seat close-ended` and the next start's step (2.11) |
+| `goodbye.json` beside `said-goodbye.json`, and goodbye recorded before the attempt only            | the run record in the store, with the send's transaction id, so a goodbye is neither lost nor doubled (2.11)                                      |
+| relay mode, its spool, `sent.jsonl`, the PostToolUse hook                                          | not built (frame decision)                                                                                                                        |
+| the status line's own membership, role and fingerprint-cache logic                                 | the worker pushes `status.json` (2.9)                                                                                                             |
+| `told.json`, `told-roles.json`, `told.lock`, `stop-guard.json`, the `inject/` marks, `down/<team>` | `session.json` and `status.json`, written by the worker                                                                                           |
+| the `sh` guard in `hooks.json`                                                                     | a hook with no runtime answers `{}` in milliseconds (2.8)                                                                                         |
+| the SessionEnd timeout lift                                                                        | BD11                                                                                                                                              |
+| the Python 3.11 prerequisite in every guest, and Python strings run in guests                      | one static binary and `guest` operations (2.13)                                                                                                   |
+| the `orchestrator` role alias, `PINGBUS_SEATS`, `PINGBUS_DELIVERY`                                 | v2 has no legacy readers; v1 keeps its own                                                                                                        |
+
+---
+
+## 6. Assumptions on other areas
+
+**Area A (protocol and rooms).**
+
+- A1. A gives B one verdict function over an event and the verified team record: accept as a kind
+  (HUMAN, PEER, PING, TIMEOUT-relevant answer), ignore, or drop with a reason from a closed set; and
+  one room-trust check (create event, admin-written team record, power levels, own role). B calls
+  them and never re-implements a rule.
+- A2. A defines the events B sends: ping, agent text, report, question, thread reply, question
+  closing, goodbye, disconnected and farewell texts (fixed templates), the presence lease (a state
+  event with an expiry) and read receipts; and which of them are trust-bearing (2.6 step 4).
+- A3. Replies thread by `m.relates_to` as A specifies, so `reply` needs only the item's id, room and
+  thread; question numbering and the mention rules for `ask --ask` are A's.
+- A4. The short-name rule for `from` (a human's localpart, an agent's handle when its short name is
+  not unique) and the handle grammar are A's; B renders them.
+- A5. The receive limits (per-sender rate, body sizes) are A's and are applied inside the verdict;
+  the delivery flood budget (2.7.3) is B's.
+- A6. The P74 allow-list's character classes are shared corpus data; B owns the renderer that uses
+  them. If A wants the envelope's wording changed for what a human sees in Element, that is A's text
+  and B's layout.
+
+**Area C (host side).**
+
+- C1. The bundle a seat receives holds at least: team, seat, user id, server name, base URL (with the
+  plain-HTTP rule, M14), and a token file; C places it at `<v2-bundle>`, 0700 and 0600, owned by the
+  member's uid, proven uncommittable in a checkout. B reads it and checks the token's owner and mode
+  on every read.
+- C2. C writes the desired membership (2.10: generation, seats, farewells, inbound) into
+  `<v2-desired>`, read-only to the member, by directory mount (ccy) or `guest membership` (LXC); and
+  owns the relaunch on a first join (R32).
+- C3. Every launcher ends in `<v2-bin> run`; the kit (binary, plugin, settings) is placed per version
+  with a `current` link resolved at launch; the ccy image carries the binary, with the container
+  version bump that requires.
+- C4. The host's ccy launcher cleanup calls `<v2-bin> seat close-ended` after a container has gone.
+- C5. C's LXC apply calls the guest operations of 2.13 and keeps handle derivation on the host;
+  whether an idmapped container can be supported now that guest steps run inside the guest is C's
+  call.
+- C6. C posts the farewell for a seat whose session is not running when it is removed, with the
+  admin's account.
+- C7. C decides whether sibling ccy containers of one checkout get separate uids or per-container
+  bundle mounts, which is what would stop one reading another's token (2.3.1).
+- C8. ccy-teams may read `report.json` (2.3.3) for its board; it is a report, never authority.
+
+**Area D (coexistence and migration).**
+
+- D1. D names everything in the placeholder table at the top, including `<v2-name>`, the word in the
+  envelope's first line and markers (it is also the transcript needle, so it must not occur in v1's
+  envelopes).
+- D2. A session is on v1 or on v2 for its whole life: `run` refuses an environment that carries v1's
+  bus variables (2.4.1). A running session moves by ending and relaunching under v2; what happens to
+  its v1 queue is D's. B's part is that a v2 seat's first start is a fresh sync that skips history, so
+  D's migration must deliver or hand over anything it wants carried before that start, or B is asked
+  for a seeded start position.
+- D3. Nothing B writes is under a v1 path, and no v2 hook or status line reads a `PINGBUS_*` variable.
