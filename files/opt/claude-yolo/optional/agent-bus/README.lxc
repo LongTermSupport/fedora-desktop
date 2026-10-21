@@ -23,9 +23,13 @@ Elsewhere, by hand:
 
 1. The kit inside the container. Copy this kit, /usr/local/share/agent-bus/kit/, to the
    same path inside the container and link its `pingbus` and `agent-bus-claude` into
-   /usr/local/bin. The container needs Python 3.11 or later at /usr/bin/python3, the
-   interpreter `pingbus` starts (it does not look python3 up on PATH); `pingbus` refuses an
-   older one (exit 78).
+   /usr/local/bin. The container needs Python 3.11 or later. `pingbus` starts the
+   interpreter its first line names (it does not look python3 up on PATH), which is
+   /usr/bin/python3 as built; where that is older (EL9's is 3.9), name a newer one with
+   `python3.N -m zipapp ./pingbus -p /usr/bin/python3.N -o pingbus.new` (3.11 or later) and
+   put pingbus.new in its place. The play does this itself, naming the newest python3.N it
+   finds in /usr/local/bin or /usr/bin.
+   `pingbus` refuses an older one (exit 78).
 
 2. The network. The container reaches the homeserver host's bus address, `<bus_ip>`,
    routed through the LXC bridge. On a fedora-desktop host the play admits the bridge's

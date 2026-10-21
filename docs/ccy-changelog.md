@@ -17,6 +17,38 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.13.11 — container 2.78.11
+
+Follows 3.99.13.8 (container 2.78.8). The image gains a binary, and its build, entrypoint,
+pingbus zipapp and agent-bus admin tool changed, so it is rebuilt once.
+
+- **An LXC member's pingbus names the member's own Python** (Plan 00213). The kit's pingbus
+  starts `/usr/bin/python3`, which is 3.9 on an EL9 member, so the member kit step stopped
+  with exit 78. The kit copy now names the member's newest Python 3.11 or later
+  (`helpers/agent_bus_lxc/members.py`), and fails naming what to install when there is none.
+  The image build fails when its own `/usr/bin/python3` is older than 3.11.
+- **A bus session's status line starts no Python** (Plan 00213). It is now
+  `pingbus-status-line`, a static Go binary that prints what `pingbus status-line` prints (a
+  parity test over recorded Python output holds them equal, `report_per_hour` included) and
+  keeps the team segment for up to 60 seconds unless a file it was read from changes. The
+  image carries it beside the pingbus zipapp, linked onto PATH, and a session launched with
+  `--teams` refuses to start on an image without it. `cc --teams` and `agent-bus-claude`
+  refuse a member kit without it too, naming the play that builds it.
+- **The agent-bus admin tool creates and keeps a team's reports and questions rooms** (Plan
+  00211, the admin side). `bootstrap` creates the reports room for every team and the
+  questions room once the team has a coordinator, or adopts one a crashed run left
+  unrecorded (the first created, when crashes left more than one); it writes the main room's
+  index of them, keeps their power levels, join rules and topics, invites the humans and
+  every coordinator, kicks a demoted coordinator before inviting the new one, and removes a
+  removed account from every room. `agent-bus list` gains `ROOM` lines; `agent-bus check-rooms` reports drift and any coordinator not joined.
+- **pingbus refuses a farewell reason that is a list or an object** instead of crashing. The
+  membership file's farewell and the told record's left entries tested the reason for
+  membership in a dict, which raised `TypeError` for an unhashable value. Both now check the
+  reason is a string first and refuse it with the same error as any other bad reason.
+- **The project image's Go is 1.26.10** (`.claude/ccy/Dockerfile`), which fixes
+  GO-2026-6809 (crypto/x509 Verify); the host's play-golang.yml keeps Fedora's newest golang
+  and asserts at least 1.26.10.
+
 ## 3.99.13.8 — container 2.78.8
 
 Follows 3.99.13.7 (container 2.78.7). The image carries the pingbus zipapp and the agent-bus

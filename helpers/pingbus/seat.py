@@ -65,7 +65,7 @@ ACTIVE_FLAG = membership.FLAG_FILE
 SESSION_SETTINGS = "settings.json"
 STATUS_LINE_INNER = "statusline-inner"
 STATUS_LINE_GUARD = (f'[ -e "$PINGBUS_HOME/{ACTIVE_FLAG}" ] || exec sh "$PINGBUS_HOME/{STATUS_LINE_INNER}"; '
-                     "exec pingbus status-line")
+                     "exec pingbus-status-line")
 _SESSION_FILE_MODE = 0o600
 #: The session home a claim builds inside the container (D50), private to the session.
 SESSION_HOME = pathlib.Path("/tmp/pingbus-home")

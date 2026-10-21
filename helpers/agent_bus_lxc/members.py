@@ -8,7 +8,9 @@ in its order, after README.lxc's requirement is checked for every container befo
 (gh installed and logged in to github.com for the agent user; never provided here):
 
   1. the kit, /usr/local/share/agent-bus/kit, copied into the container (only what differs
-     is written) and its `pingbus` and `agent-bus-claude` linked into /usr/local/bin;
+     is written) and its `pingbus` and `agent-bus-claude` linked into /usr/local/bin, the
+     first line of its `pingbus` naming the container's newest python3.N of at least 3.11
+     (PYTHON_DIRS), which also runs every script below;
   2. the container's source address towards the bus address must be on a bridge of this
      host and inside the team's `allow_from` (the play adds the default LXC bridge's subnet
      to every team): refused otherwise, naming the subnet to add;
@@ -67,12 +69,13 @@ import subprocess
 import sys
 import tarfile
 import time
+import weakref
 from collections.abc import Callable, Collection, Mapping, Sequence
 from typing import TextIO, TypeVar
 
 from helpers.agent_bus import checkout, registry, teamfile
 from helpers.agent_bus_lxc import applied_record, derive
-from helpers.pingbus import protocol
+from helpers.pingbus import config, protocol
 
 T = TypeVar("T")
 PROG = "agent-bus-lxc-members"
@@ -125,19 +128,30 @@ _SUGGEST_RE = re.compile(r"--repo=(\S+) --host=(\S+) --type=(\S+)")
 # Root's scripts (the kit, the unit) use 022, the agent's (bundle, env file) use 077, and each
 # file and leaf directory still names its mode.
 
+#: Where a member's interpreter is looked for, in its PATH's order (GUEST_PATH). The kit's
+#: pingbus names /usr/bin/python3, the host's, which in a member can be older than
+#: MIN_PYTHON (EL9's is 3.9): each member's copy names the newest python3.N found here.
+PYTHON_DIRS = ("/usr/local/bin", "/usr/bin")
+MIN_PYTHON = config.MIN_PYTHON
+#: As root, with PYTHON_DIRS as its arguments: each python3.N file there that can be run.
+PYTHON_FIND_SH = ('for dir do for path in "$dir"/python3.*; do '
+                  'if [ -f "$path" ] && [ -x "$path" ]; then echo "$path"; fi; done; done')
+_PYTHON_RE = re.compile(r"(/[A-Za-z0-9._/-]+)/python3\.([0-9]+)")
+
 #: The member's own source address towards the bus address (no packet is sent).
 SOURCE_PY = ("import socket, sys; s = socket.socket(socket.AF_INET6 if ':' in sys.argv[1] else "
              "socket.AF_INET, socket.SOCK_DGRAM); s.connect((sys.argv[1], 9)); print(s.getsockname()[0])")
 
-#: As root: the kit tar on stdin made the container's KIT_PARENT/kit (only what differs is
-#: written, what the tar lacks is removed), its two commands linked into BIN. Prints one
-#: line per change; a kit directory it repairs to 0755 is also said on stderr.
+#: As root, run by PYTHON (its last argument): the kit tar on stdin made the container's
+#: KIT_PARENT/kit (only what differs is written, what the tar lacks is removed), with
+#: PYTHON on the first line of its pingbus, and its two commands linked into BIN. Prints
+#: one line per change; a kit directory it repairs to 0755 is also said on stderr.
 KIT_SYNC_PY = r'''
 import os, stat, sys, tarfile
 os.umask(0o022)
 if sys.version_info < (3, 11):
     sys.exit("pingbus needs Python 3.11 or later; this container has " + sys.version.split()[0])
-parent, bindir, owner = sys.argv[1], sys.argv[2], int(sys.argv[3])
+parent, bindir, owner, python = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]
 kit = os.path.join(parent, "kit")
 changed = []
 def directory(path, st):
@@ -168,7 +182,13 @@ with tarfile.open(fileobj=sys.stdin.buffer, mode="r|") as tar:
         if m.isdir():
             want[m.name] = None
         elif m.isreg():
-            want[m.name] = (tar.extractfile(m).read(), m.mode & 0o777)
+            data = tar.extractfile(m).read()
+            if m.name == "kit/pingbus":
+                # The zipapp's interpreter is its first line; zipimport reads from the end.
+                if not data.startswith(b"#!") or b"\n" not in data:
+                    sys.exit("the kit's pingbus has no #! line")
+                data = b"#!" + python.encode() + data[data.index(b"\n"):]
+            want[m.name] = (data, m.mode & 0o777)
         else:
             sys.exit("the kit tar holds " + repr(m.name) + ", not a file or directory")
 try:
@@ -930,10 +950,39 @@ class Host:
     now: Callable[[], float]
 
 
-def _python(script: str, *args: str) -> list[str]:
-    """In the container, the interpreter the pingbus zipapp's shebang names (Plan 00213), so
-    KIT_SYNC_PY's version gate judges the Python that will run pingbus, not PATH's first."""
-    return ["/usr/bin/python3", "-I", "-c", script, *args]
+def choose_python(listing: str, container: str) -> str:
+    """The newest python3.N at least MIN_PYTHON among PYTHON_FIND_SH's lines (of equals, the
+    one in the earlier of PYTHON_DIRS); none fails, naming what was found. KIT_SYNC_PY's gate
+    then holds the chosen one to MIN_PYTHON by its real version, not its name."""
+    found = [(int(match[2]), -PYTHON_DIRS.index(match[1]), line) for line in listing.splitlines()
+             if (match := _PYTHON_RE.fullmatch(line)) and match[1] in PYTHON_DIRS]
+    usable = [item for item in found if (3, item[0]) >= MIN_PYTHON]
+    if not usable:
+        names = ", ".join(f"python3.{minor}" for minor in sorted({item[0] for item in found})) or "none"
+        need = ".".join(map(str, MIN_PYTHON))
+        raise MemberError(f"LXC container {container} has no Python {need} or later in "
+                          f"{' or '.join(PYTHON_DIRS)} (it has {names}), which pingbus needs: install "
+                          f"python{need} or later in the container from its distribution, then run the "
+                          "play again")
+    return max(usable)[2]
+
+
+#: Each guest's interpreter, found once (choose_python).
+_INTERPRETERS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
+def _interpreter(guest) -> str:
+    if guest not in _INTERPRETERS:
+        listing = guest.root(["sh", "-c", PYTHON_FIND_SH, "sh", *PYTHON_DIRS],
+                             f"container {guest.container}: looking for python3.N in {', '.join(PYTHON_DIRS)}")
+        _INTERPRETERS[guest] = choose_python(listing.decode(), guest.container)
+    return _INTERPRETERS[guest]
+
+
+def _python(guest, script: str, *args: str) -> list[str]:
+    """`script` run in the container by its own interpreter (_interpreter), the one its copy
+    of pingbus names, so KIT_SYNC_PY's gate judges the Python that will run pingbus."""
+    return [_interpreter(guest), "-I", "-c", script, *args]
 
 
 def _existing_state(host: Host, container: str) -> str:
@@ -954,7 +1003,7 @@ def _home(guest, member: Member) -> str:
 
 
 def _observe(guest, member: Member, home: str) -> tuple[Found, str | None]:
-    out = guest.agent(member.user, home, home, _python(OBSERVE_PY, f"{home}/{PINGBUS_DIR}", member.team),
+    out = guest.agent(member.user, home, home, _python(guest, OBSERVE_PY, f"{home}/{PINGBUS_DIR}", member.team),
                       f"{member.label}: reading its bundle for team {member.team}")
     data = json.loads(out)
     parsed = None
@@ -982,12 +1031,12 @@ def _suggest(guest, member: Member, home: str) -> str:
 
 
 def _write_env(guest, member: Member, home: str, text: str | None) -> None:
-    guest.agent(member.user, home, home, _python(WRITE_ENV_PY, f"{home}/{PINGBUS_DIR}/env"),
+    guest.agent(member.user, home, home, _python(guest, WRITE_ENV_PY, f"{home}/{PINGBUS_DIR}/env"),
                 f"{member.label}: writing {ENV_PATH}", stdin=(text or "").encode())
 
 
 def _remove_bundle(guest, member: Member, home: str) -> None:
-    guest.agent(member.user, home, home, _python(REMOVE_PY, f"{home}/{PINGBUS_DIR}", member.team),
+    guest.agent(member.user, home, home, _python(guest, REMOVE_PY, f"{home}/{PINGBUS_DIR}", member.team),
                 f"{member.label}: removing its bundle for team {member.team}")
 
 
@@ -1012,7 +1061,8 @@ def _check_gh(guest, member: Member, home: str) -> None:
 
 def _sync_kit(host: Host, guest, container: str, emit: Callable[[str], None],
               say: Callable[[str], None]) -> None:
-    out = guest.root(_python(KIT_SYNC_PY, guest.kit_parent, guest.bin_dir, str(guest.kit_owner)),
+    out = guest.root(_python(guest, KIT_SYNC_PY, guest.kit_parent, guest.bin_dir, str(guest.kit_owner),
+                             _interpreter(guest)),
                      f"container {container}: the member kit (README.lxc step 1)", stdin=host.kit_tar())
     for line in out.decode().splitlines():
         emit(f"container {container}: kit {line}")
@@ -1022,7 +1072,7 @@ def _sync_kit(host: Host, guest, container: str, emit: Callable[[str], None],
 
 def _check_route(host: Host, guest, members: Sequence[Member], bus: str) -> None:
     container = members[0].container
-    source = guest.root(_python(SOURCE_PY, bus), f"container {container}: its source address").decode().strip()
+    source = guest.root(_python(guest, SOURCE_PY, bus), f"container {container}: its source address").decode().strip()
     dev, cidr = host_network(source, host.ip_json())
     if not host.is_bridge(dev):
         raise MemberError(f"LXC container {container} ({source}) reaches {bus} through {dev}, which is "
@@ -1062,7 +1112,7 @@ def _join(host: Host, guest, member: Member, home: str, bus: str, emit: Callable
             checkout.read_bundle(bundle)
         except checkout.CheckoutError as exc:
             raise MemberError(f"{handle}: agent-bus add-member printed no usable bundle: {exc}") from None
-        guest.agent(member.user, home, home, _python(PLACE_PY, f"{home}/{PINGBUS_DIR}", member.team),
+        guest.agent(member.user, home, home, _python(guest, PLACE_PY, f"{home}/{PINGBUS_DIR}", member.team),
                     f"{member.label}: placing its bundle for team {member.team}", stdin=bundle)
         emit(f"{handle} joined team {member.team} ({member.label})")
     if plan.set_role:
@@ -1103,7 +1153,7 @@ def _ensure_service(guest, member: Member, home: str, tmux: str, emit: Callable[
     label = f"container {member.container}: {unit}"
     state = _service_state(guest, member.container, unit)
     text = render_member_unit(member.user, home, str(member.checkout), tmux)
-    wrote = guest.root(_python(UNIT_WRITE_PY, f"{guest.unit_dir}/{unit}"), f"{label}: writing it",
+    wrote = guest.root(_python(guest, UNIT_WRITE_PY, f"{guest.unit_dir}/{unit}"), f"{label}: writing it",
                        stdin=text.encode()).strip() == b"changed"
     if wrote:
         _systemctl(guest, member.container, "daemon-reload")
@@ -1123,15 +1173,15 @@ def _drop_service(guest, container: str, user: str, emit: Callable[[str], None])
     """No supervised session for `user`: its unit stopped, disabled and removed, if there is one."""
     unit = service_unit(user)
     path = f"{guest.unit_dir}/{unit}"
-    if guest.root(_python(SYSTEMD_PROBE_PY), f"container {container}: is systemd its init?").strip() != b"systemd":
+    if guest.root(_python(guest, SYSTEMD_PROBE_PY), f"container {container}: is systemd its init?").strip() != b"systemd":
         # No systemd, so no unit can be loaded or running: only a stray file can be left.
-        if guest.root(_python(UNIT_REMOVE_PY, path), f"container {container}: removing {unit}").strip() == b"removed":
+        if guest.root(_python(guest, UNIT_REMOVE_PY, path), f"container {container}: removing {unit}").strip() == b"removed":
             emit(f"container {container}: {unit} removed")
         return
     loaded = _service_state(guest, container, unit)["LoadState"] != "not-found"
     if loaded:
         _systemctl(guest, container, "disable", "--now", unit)
-    removed = guest.root(_python(UNIT_REMOVE_PY, path),
+    removed = guest.root(_python(guest, UNIT_REMOVE_PY, path),
                          f"container {container}: removing {unit}").strip() == b"removed"
     if loaded or removed:
         _systemctl(guest, container, "daemon-reload")
@@ -1215,6 +1265,7 @@ def run_present(members: Sequence[Member], teams_present: Sequence[str], host: H
         guest = host.guest(container)
         home = _home(guest, group[0])
         _check_gh(guest, group[0], home)
+        _interpreter(guest)
         _check_route(host, guest, group, bus)
         if group[0].service:
             tmux_of[(container, user)] = _check_service(host, guest, container)

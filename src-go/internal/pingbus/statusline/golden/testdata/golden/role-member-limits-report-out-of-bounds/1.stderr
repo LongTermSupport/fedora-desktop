@@ -1,0 +1,1 @@
+pingbus status-line: the role cannot be read (beta: team beta: {world}/pingbus/beta/member.json: limits.report_per_hour must be an integer from 1 to 60)

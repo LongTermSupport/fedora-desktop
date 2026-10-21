@@ -33,7 +33,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.78.8"
+LABEL claude-yolo-version="2.78.11"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -397,14 +397,20 @@ COPY skills/browsing/ /opt/claude-yolo/skills/browsing/
 #
 # optional/agent-bus/ is the agent team bus member kit (Plan 00161): the pingbus zipapp,
 # which play-claude-yolo.yml builds from helpers/ with the same reproducible builder as
-# agent-bus-install, the Claude Code plugin and its settings. The entrypoint links pingbus,
-# loads the plugin and claims the desired seats (none for a session on no team) when the
+# agent-bus-install, pingbus-status-line (the Go status line, Plan 00213, built static by the
+# same play), the Claude Code plugin and its settings. pingbus-status-line is linked onto PATH
+# here: a seated session's status line guard runs it by name, and nothing else does. The
+# entrypoint links pingbus, loads the plugin and claims the desired seats (none for a session on no team) when the
 # launch passed PINGBUS_MEMBERSHIP=/run/ccy/membership, and does nothing with off (Plan 00203).
 # ccy passes claude the session's own settings, written by the claim into its session home;
 # the kit's settings.json here is agent-bus-claude's (LXC, VM and other members), not ccy's.
+# The image's pingbus starts /usr/bin/python3 (its first line), so the build fails when that is
+# older than pingbus's minimum (helpers/pingbus/config.py MIN_PYTHON).
 COPY optional/ /opt/claude-yolo/optional/
 RUN chmod 755 /opt/claude-yolo/optional/child-claude/bin/ccy-claude \
-    && chmod 755 /opt/claude-yolo/optional/agent-bus/pingbus
+    && chmod 755 /opt/claude-yolo/optional/agent-bus/pingbus /opt/claude-yolo/optional/agent-bus/pingbus-status-line \
+    && ln -s /opt/claude-yolo/optional/agent-bus/pingbus-status-line /usr/local/bin/pingbus-status-line \
+    && /usr/bin/python3 -I -c 'import sys; sys.exit(None if sys.version_info >= (3, 11) else "pingbus needs Python 3.11 or later at /usr/bin/python3; this image has " + sys.version.split()[0])'
 
 # Supervisor plugins (hooks-daemon plugin API). Staged here, outside the project bind mount, as
 # root-owned files: the supervisor refuses a plugin file that is group- or world-writable or

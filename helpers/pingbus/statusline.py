@@ -55,6 +55,10 @@ from collections.abc import Callable, Mapping
 from typing import TextIO
 
 COMMAND = "pingbus status-line"
+#: The Go port of this command (src-go/cmd/pingbus-status-line, Plan 00213), which the member
+#: kit and a seated session run; this module is its parity oracle. A settings file naming
+#: either is passed over.
+KIT_COMMAND = "pingbus-status-line"
 #: Set for the inner status line, so a settings file that names this command cannot loop.
 INNER_VAR = "PINGBUS_STATUS_LINE_INNER"
 SESSIONS_DIR_VAR = "PINGBUS_SESSIONS_DIR"
@@ -179,7 +183,7 @@ def inner_command(project: pathlib.Path | None, environ: Mapping[str, str]) -> s
             raise SettingsError(f"{path} is not valid JSON") from exc
         line = settings.get("statusLine") if isinstance(settings, dict) else None
         command = line.get("command") if isinstance(line, dict) else None
-        if isinstance(command, str) and command.strip() and command.strip() != COMMAND:
+        if isinstance(command, str) and command.strip() and command.strip() not in (COMMAND, KIT_COMMAND):
             return command
     return None
 
