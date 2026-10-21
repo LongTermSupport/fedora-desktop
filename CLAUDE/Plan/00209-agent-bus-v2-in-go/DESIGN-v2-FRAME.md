@@ -31,7 +31,8 @@ What follows from them:
   exactly what happens to queued and in-flight messages, room history, accounts and seats.
 - **v1 is retired** only once every team has moved, and that is raised with the owner then.
 - **Decided:** no relay mode in v2 for now. It is deferred, not abandoned, and is specified on v2
-  when the hooks-daemon plugin API (#119) ships. There is a keeper and a worker in every member,
+  when the hooks-daemon plugin API (#119) ships. There is a keeper and a link in every member (the
+  processes; "worker" is a team role only),
   with the resident cost measured and reported.
 
 ## What every area keeps
@@ -40,7 +41,11 @@ The requirements and the hard-won lessons, wherever they still apply to a system
 properly. Sources:
 
 - `DESIGN.md` section 2 (R1-R50), section 3.3 (why no daemon), section 6 (privilege), section 7
-  (concurrency) and section 12 (what v1 got wrong);
+  (concurrency) and section 12 (what v1 got wrong). Section 6's rule that nothing an agent in a
+  `cc` session can run changes membership without the owner's password is narrowed in v2 (C's
+  DC19): the password guards every change to accounts, roles, humans, security fields, backups and
+  restores; which session holds which seat is guarded by the owner's uid and the container mounts
+  only, so a host process running as the owner can re-seat sessions (C10, K12);
 - the four `RESEARCH-*.md` digests (v1's commands, files, locks, Matrix calls, Tuwunel quirks,
   LXC fragility, stopped containers, incidents, ccy-teams' calls and their costs);
 - the specs already written from v1:
@@ -62,12 +67,12 @@ it drops, it states why. For every new idea, it states what it fixes.
 
 ## The four areas and their seams
 
-| Area                         | File                       | Owns                                                                                                                                                                                                                                                                                                                                                                                                            |
-| ---------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A. Protocol and rooms        | `DESIGN-v2-A-protocol.md`  | The Matrix event schema of v2 (types, content, versions), the rooms of a team (main, reports, questions, any new ones) and their power levels, the trust model (what a member verifies before it believes anything), identities and handles, message kinds, threads and replies, references and the forge checks, limits and rate rules, and what a human sees in Element.                                      |
-| B. Member client             | `DESIGN-v2-B-member.md`    | Everything in a member session: the one static binary and its CLI (every verb, output contract for agents, exit codes), the on-disk state of a member, the keeper and worker process model, locks, sync, delivery into Claude Code (envelope, inbox socket, transcript proof, receipts), hooks, the status line, multi-team and hot control, the plugin and skill, LXC guest operations, and the resident cost. |
-| C. Host side                 | `DESIGN-v2-C-host.md`      | The homeserver instance per team, the installer and its lock, the privilege model (what needs root, the reader, sudoers), admin operations, seats and bundles, the host_vars declarations, Element profiles, the health check and backups, LXC member apply, and what ccy-teams reads and how fast.                                                                                                             |
-| D. Coexistence and migration | `DESIGN-v2-D-migration.md` | The v2 product name and every name, path, port, unit, plugin and skill name, chosen so nothing collides with v1. Proof that a v2 install does not touch v1. The per-team migration: what moves (accounts, rooms, history, seats, roles, humans' Element logins, queued and in-flight messages, outboxes), its steps, acceptance and rollback, how a running session moves, and how v1 is retired at the end.    |
+| Area                         | File                       | Owns                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ---------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A. Protocol and rooms        | `DESIGN-v2-A-protocol.md`  | The Matrix event schema of v2 (types, content, versions), the rooms of a team (main, reports, questions, any new ones) and their power levels, the trust model (what a member verifies before it believes anything), identities and handles, message kinds, threads and replies, references and the forge checks, limits and rate rules, and what a human sees in Element.                                    |
+| B. Member client             | `DESIGN-v2-B-member.md`    | Everything in a member session: the one static binary and its CLI (every verb, output contract for agents, exit codes), the on-disk state of a member, the keeper and link process model, locks, sync, delivery into Claude Code (envelope, inbox socket, transcript proof, receipts), hooks, the status line, multi-team and hot control, the plugin and skill, LXC guest operations, and the resident cost. |
+| C. Host side                 | `DESIGN-v2-C-host.md`      | The homeserver instance per team, the installer and its lock, the privilege model (what needs root, the reader, sudoers), admin operations, seats and bundles, the host_vars declarations, Element profiles, the health check and backups, LXC member apply, and what ccy-teams reads and how fast.                                                                                                           |
+| D. Coexistence and migration | `DESIGN-v2-D-migration.md` | The v2 product name and every name, path, port, unit, plugin and skill name, chosen so nothing collides with v1. Proof that a v2 install does not touch v1. The per-team migration: what moves (accounts, rooms, history, seats, roles, humans' Element logins, queued and in-flight messages, outboxes), its steps, acceptance and rollback, how a running session moves, and how v1 is retired at the end.  |
 
 **Seams.** Where two areas meet, the area named first below owns the decision. The other cites
 it and does not restate it.
