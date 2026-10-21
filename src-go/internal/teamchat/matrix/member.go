@@ -111,6 +111,40 @@ func NewTxnID() (string, error) {
 // own crash passes one it stored first. An answer that was lost is retried with the same
 // transaction ID, 3 tries in all, 1 s apart, so the server stores the event once.
 func (c *Client) Send(ctx context.Context, roomID, eventType, txnID string, content json.RawMessage) (string, error) {
+	txnID, err := transactionID(txnID)
+	if err != nil {
+		return "", err
+	}
+	if err = rawObject(content); err != nil {
+		return "", err
+	}
+	path, err := pathf(clientPrefix+"/rooms/%s/send/%s/%s", roomID, eventType, txnID)
+	if err != nil {
+		return "", err
+	}
+	return c.putOnce(ctx, call{method: http.MethodPut, path: path, body: content})
+}
+
+// Redact redacts one event, with the reason when one is given (SPEC M49); the transaction ID is
+// made and retried as Send's is.
+func (c *Client) Redact(ctx context.Context, roomID, eventID, txnID, reason string) (string, error) {
+	txnID, err := transactionID(txnID)
+	if err != nil {
+		return "", err
+	}
+	path, err := pathf(clientPrefix+"/rooms/%s/redact/%s/%s", roomID, eventID, txnID)
+	if err != nil {
+		return "", err
+	}
+	body := map[string]string{}
+	if reason != "" {
+		body["reason"] = reason
+	}
+	return c.putOnce(ctx, call{method: http.MethodPut, path: path, body: jsonBody(body)})
+}
+
+// transactionID is txnID checked, or a fresh one when it is empty.
+func transactionID(txnID string) (string, error) {
 	if txnID == "" {
 		fresh, err := NewTxnID()
 		if err != nil {
@@ -121,14 +155,12 @@ func (c *Client) Send(ctx context.Context, roomID, eventType, txnID string, cont
 	if !txnRE.MatchString(txnID) {
 		return "", invalid("a transaction ID is 1 to 64 of [A-Za-z0-9._~-]")
 	}
-	if err := rawObject(content); err != nil {
-		return "", err
-	}
-	path, err := pathf(clientPrefix+"/rooms/%s/send/%s/%s", roomID, eventType, txnID)
-	if err != nil {
-		return "", err
-	}
-	cl := call{method: http.MethodPut, path: path, body: content}
+	return txnID, nil
+}
+
+// putOnce sends a PUT under a transaction ID, retrying a lost answer with the same ID, 3 tries
+// in all, 1 s apart, so the server stores the event once.
+func (c *Client) putOnce(ctx context.Context, cl call) (string, error) {
 	for try := 1; ; try++ {
 		id, err := c.eventID(ctx, cl)
 		var e *Error

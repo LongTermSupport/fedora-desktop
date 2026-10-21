@@ -1,6 +1,7 @@
 package fakehs
 
 import (
+	"net/url"
 	"testing"
 )
 
@@ -132,6 +133,50 @@ func TestRoomAccountDataOutlivesLogoutResetAndRestart(t *testing.T) {
 	}
 	if got := tm.ok(tm.call(seat, "GET", path, nil, nil)); got["floor_ms"] != 5.0 {
 		t.Fatalf("the marker after a logout, a reset and a restart %v", got)
+	}
+}
+
+func TestARedactionKeepsItsReason(t *testing.T) {
+	tm := newTeam(t)
+	sent := text(t, tm.ok(tm.send(tm.agent, "t1", map[string]any{"msgtype": "m.text", "body": "a secret"}))["event_id"])
+	redaction := text(t, tm.ok(tm.call(tm.admin, "PUT", tm.roomPath("redact/"+q(sent)+"/r1"), nil, map[string]any{"reason": "secret"}))["event_id"])
+	got := tm.ok(tm.call(tm.admin, "GET", tm.roomPath("event/"+q(redaction)), nil, nil))
+	if field(t, got, "content", "reason") != "secret" || field(t, got, "content", "redacts") != sent {
+		t.Fatalf("the redaction %v", got)
+	}
+}
+
+func TestPresenceIsKeptPerAccount(t *testing.T) {
+	tm := newTeam(t)
+	if got := tm.s.Presence(tm.agent); got != "" {
+		t.Fatalf("presence before any = %q", got)
+	}
+	path := "/_matrix/client/v3/presence/" + q(tm.agent) + "/status"
+	if got := tm.ok(tm.call(tm.agent, "PUT", path, nil, map[string]any{"presence": "offline"})); len(got) != 0 {
+		t.Fatalf("put presence answered %v", got)
+	}
+	if got := tm.s.Presence(tm.agent); got != "offline" {
+		t.Fatalf("presence = %q, want offline", got)
+	}
+	tm.ok(tm.call(tm.agent, "GET", "/_matrix/client/v3/sync", url.Values{"set_presence": {"online"}, "timeout": {"0"}}, nil))
+	if got := tm.s.Presence(tm.agent); got != "offline" || tm.s.CheckModelled() != nil {
+		t.Fatalf("a sync's set_presence changed presence to %q, or was unmodelled", got)
+	}
+	for name, body := range map[string]any{
+		"a value beyond the three": map[string]any{"presence": "away"},
+		"no presence":              map[string]any{},
+		"a body that is not one":   []any{},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fresh := newTeam(t)
+			own := "/_matrix/client/v3/presence/" + q(fresh.agent) + "/status"
+			if got := fresh.call(fresh.agent, "PUT", own, nil, body); got.status != 500 || fresh.s.CheckModelled() == nil {
+				t.Fatalf("answered %d, want 500 and unmodelled", got.status)
+			}
+		})
+	}
+	if got := tm.call(tm.other, "PUT", path, nil, map[string]any{"presence": "offline"}); got.status != 500 || tm.s.CheckModelled() == nil {
+		t.Fatalf("another account's presence answered %d, want 500 and unmodelled", got.status)
 	}
 }
 

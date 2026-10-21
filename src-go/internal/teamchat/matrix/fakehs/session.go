@@ -87,6 +87,33 @@ func (s *Server) getAccountData(r *request, args []string) (any, error) {
 	return content, nil
 }
 
+// Presence is the presence the account last set with PUT /presence, empty when it set none. A
+// sync's set_presence does not change it: what Tuwunel does with that is host check HC-A1's.
+func (s *Server) Presence(userID string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.presence[userID]
+}
+
+// putPresence sets the caller's own presence. H4 recorded no presence request, so another
+// account's, or a value the specification does not name, is not guessed at.
+func (s *Server) putPresence(r *request, args []string) (any, error) {
+	if args[0] != r.userID {
+		return nil, unmodelled("the presence of %s set by %s", args[0], r.userID)
+	}
+	body, isObject := r.body.(map[string]any)
+	value := ""
+	if isObject {
+		value = stringAt(body, "presence")
+	}
+	switch value {
+	case "online", "offline", "unavailable":
+		s.presence[r.userID] = value
+		return map[string]any{}, nil
+	}
+	return nil, unmodelled("a presence of %v", r.body)
+}
+
 func (s *Server) putAccountData(r *request, args []string) (any, error) {
 	key, err := s.accountDataAt(r, args)
 	if err != nil {

@@ -132,6 +132,7 @@ func TestSyncRefusedBeforeARequest(t *testing.T) {
 		{Timeout: 1500 * time.Microsecond},
 		{Since: "a b"},
 		{Since: strings.Repeat("s", 4097)},
+		{SetPresence: "away"},
 	} {
 		_, err := m.Sync(t.Context(), req)
 		wantErr(t, err, ErrInvalid, "")
@@ -140,9 +141,37 @@ func TestSyncRefusedBeforeARequest(t *testing.T) {
 		t.Error("a refused sync reached the server")
 	}
 	cl, err := m.syncCall(SyncRequest{Timeout: 30 * time.Second})
-	if err != nil || cl.limit != 45*time.Second || cl.query.Get("timeout") != "30000" {
+	if err != nil || cl.limit != 45*time.Second || cl.query.Get("timeout") != "30000" || cl.query.Has("set_presence") {
 		t.Errorf("a 30 s sync: limit %v query %v, %v", cl.limit, cl.query, err)
 	}
+}
+
+func TestPresence(t *testing.T) {
+	srv := newServer(t)
+	m := user(t, srv, "alice")
+	if _, err := m.Sync(t.Context(), SyncRequest{SetPresence: "offline"}); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	if got := lastRequest(t, srv).Query.Get("set_presence"); got != "offline" {
+		t.Errorf("set_presence = %q, want offline", got)
+	}
+	if err := m.SetPresence(t.Context(), m.uid, "offline"); err != nil {
+		t.Fatalf("setPresence: %v", err)
+	}
+	if req := lastRequest(t, srv); req.Method != http.MethodPut || req.Path != "/_matrix/client/v3/presence/%40alice%3Aexample.org/status" {
+		t.Errorf("setPresence sent %s %s", req.Method, req.Path)
+	}
+	if got := srv.Presence(m.uid); got != "offline" {
+		t.Errorf("presence = %q, want offline", got)
+	}
+	before := len(srv.Requests())
+	wantErr(t, m.SetPresence(t.Context(), m.uid, "away"), ErrInvalid, "")
+	wantErr(t, m.SetPresence(t.Context(), "", "online"), ErrInvalid, detailBadSegment)
+	if len(srv.Requests()) != before {
+		t.Error("a refused presence reached the server")
+	}
+	inject(srv, http.MethodPut, "/presence/", http.StatusOK, `[]`)
+	wantErr(t, m.SetPresence(t.Context(), m.uid, "online"), ErrUnreachable, detailNotObject)
 }
 
 func TestSyncMalformed(t *testing.T) {

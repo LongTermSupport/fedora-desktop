@@ -44,11 +44,29 @@ func (f RoomFilter) JSON() string {
 }
 
 // SyncRequest is one /sync: Since empty for a first sync, Timeout the long-poll (0 to 30 s,
-// whole milliseconds), Filter nil for none.
+// whole milliseconds), Filter nil for none, SetPresence empty for the server's default.
 type SyncRequest struct {
-	Since   string
-	Timeout time.Duration
-	Filter  *RoomFilter
+	Since       string
+	Timeout     time.Duration
+	Filter      *RoomFilter
+	SetPresence string
+}
+
+// presenceOK says p is a presence the specification names.
+func presenceOK(p string) bool { return p == "online" || p == "offline" || p == "unavailable" }
+
+const detailBadPresence = "a presence is online, offline or unavailable"
+
+// SetPresence sets the account's presence (SPEC M50): a link sets offline at a clean end.
+func (c *Client) SetPresence(ctx context.Context, userID, presence string) error {
+	if !presenceOK(presence) {
+		return invalid(detailBadPresence)
+	}
+	path, err := pathf(clientPrefix+"/presence/%s/status", userID)
+	if err != nil {
+		return err
+	}
+	return c.empty(ctx, call{method: http.MethodPut, path: path, body: jsonBody(map[string]string{"presence": presence})})
 }
 
 // SyncResponse is a sync answer: the batch to sync from next, and per room the joined, invited
@@ -132,6 +150,12 @@ func (c *Client) syncCall(req SyncRequest) (call, error) {
 	}
 	if req.Filter != nil {
 		query.Set("filter", req.Filter.JSON())
+	}
+	if req.SetPresence != "" {
+		if !presenceOK(req.SetPresence) {
+			return call{}, invalid(detailBadPresence)
+		}
+		query.Set("set_presence", req.SetPresence)
 	}
 	return call{method: http.MethodGet, path: clientPrefix + "/sync", query: query, limit: req.Timeout + syncGrace}, nil
 }

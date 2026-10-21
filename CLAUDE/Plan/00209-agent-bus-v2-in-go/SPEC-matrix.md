@@ -227,6 +227,18 @@ is the shape the endpoint promises).
   account, to a room the server does not know, or of content that is not an object is
   unmodelled (H4 recorded none of these, and none of the 404 text), and the data outlives a
   logout, a password reset with device logout and `Restart` (B 6 C13).
+- **M49.** `Redact` (`PUT /rooms/{r}/redact/{event}/{txn}` with the reason when one is given)
+  gives the redaction's event ID; the transaction ID is made and checked, and a lost answer
+  retried, as `Send` does (M22). It is the admin's one-event redact of C DC20; which reason is
+  allowed is the caller's.
+- **M50.** Presence (A 6.6, B 2.6 step 09): `SyncRequest.SetPresence` is sent as `set_presence`
+  when it is not empty, and must be `online`, `offline` or `unavailable`; `SetPresence`
+  (`PUT /presence/{u}/status` with `{"presence": p}`) takes the same three. Anything else is
+  refused before a request.
+- **M51.** `fakehs` keeps a redaction's reason in its content, and keeps each account's presence:
+  `PUT /presence/{u}/status` by its own account sets it, `Presence(u)` reads it for a test, and a
+  sync's `set_presence` is recorded with the request but changes nothing (what Tuwunel does with
+  it is HC-A1's question). Another account's presence, or a value beyond the three, is unmodelled.
 
 A dropped `/sync` may be resent by net/http (once, a GET on a reused keep-alive connection closed
 before any answer byte). That is safe, because a sync with a `since` token is idempotent: the

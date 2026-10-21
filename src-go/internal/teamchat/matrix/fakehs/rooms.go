@@ -609,7 +609,11 @@ func (s *Server) redact(r *request, args []string) (any, error) {
 			return nil, unmodelled("redacting a state event: the spec keeps per-type content keys")
 		}
 		target.content = map[string]any{}
-		return s.appendEvent(rm, redactionType, r.userID, map[string]any{"redacts": eventID}, nil, "", ref), nil
+		content := map[string]any{"redacts": eventID}
+		if body, isObject := r.body.(map[string]any); isObject && stringAt(body, "reason") != "" {
+			content["reason"] = stringAt(body, "reason")
+		}
+		return s.appendEvent(rm, redactionType, r.userID, content, nil, "", ref), nil
 	})
 }
 

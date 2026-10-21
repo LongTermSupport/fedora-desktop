@@ -199,6 +199,55 @@ func TestSendCancelledBetweenTries(t *testing.T) {
 	wantErr(t, err, ErrUnreachable, detailCancelled)
 }
 
+func TestRedact(t *testing.T) {
+	srv := newServer(t)
+	f := room(t, srv)
+	leaked, err := f.bob.Send(t.Context(), f.id, msgType, "", hello)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.Inject(fakehs.Fault{Method: http.MethodPut, Path: "/redact/", DropAfter: true})
+	redaction, err := f.alice.Redact(t.Context(), f.id, leaked, "", "secret")
+	if err != nil || !strings.HasPrefix(redaction, "$") {
+		t.Fatalf("redact = %q, %v", redaction, err)
+	}
+	if got := f.alice.clk.waits(); !slices.Equal(got, []time.Duration{time.Second}) {
+		t.Errorf("waits %v, want [1s]", got)
+	}
+	if n := count(t, f.alice, f.id, "m.room.redaction"); n != 1 {
+		t.Errorf("%d redactions stored, want 1", n)
+	}
+	raw, err := f.alice.GetEvent(t.Context(), f.id, redaction)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ev struct {
+		Content map[string]string `json:"content"`
+	}
+	if jsonErr := json.Unmarshal(raw, &ev); jsonErr != nil || ev.Content["reason"] != "secret" || ev.Content["redacts"] != leaked {
+		t.Fatalf("redaction event %s, %v", raw, jsonErr)
+	}
+	other, err := f.bob.Send(t.Context(), f.id, msgType, "", hello)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unreasoned, err := f.alice.Redact(t.Context(), f.id, other, "txn-r", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw, err = f.alice.GetEvent(t.Context(), f.id, unreasoned); err != nil || strings.Contains(string(raw), "reason") {
+		t.Fatalf("a redaction with no reason = %s, %v", raw, err)
+	}
+	before := len(srv.Requests())
+	_, err = f.alice.Redact(t.Context(), f.id, other, "has space", "")
+	wantErr(t, err, ErrInvalid, "")
+	_, err = f.alice.Redact(t.Context(), f.id, "", "", "")
+	wantErr(t, err, ErrInvalid, detailBadSegment)
+	if len(srv.Requests()) != before {
+		t.Error("a refused redact reached the server")
+	}
+}
+
 func TestState(t *testing.T) {
 	srv := newServer(t)
 	f := room(t, srv)

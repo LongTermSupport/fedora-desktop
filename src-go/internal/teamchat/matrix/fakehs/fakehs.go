@@ -2,7 +2,7 @@
 // both sides of teamchat, the v2 agent bus (Plan 00209 SPEC-matrix.md M37-M43).
 //
 // It models what teamchat/matrix calls and nothing else: password login (as a new device or a
-// named one, M48), logout, room account data, whoami, createRoom (room
+// named one, M48), logout, room account data, presence (M51), whoami, createRoom (room
 // version 12, private_chat), invite, join (with a restricted join rule), leave, kick, send with
 // transaction IDs per device, state get and put, the whole room state, redact, GET event, read
 // receipts, /messages, /joined_rooms, /sync with an inline filter, long-polling and lazy-loaded
@@ -181,6 +181,7 @@ type Server struct {
 	nonces        map[string]bool
 	receipts      []Receipt
 	accountData   map[accountDataKey]json.RawMessage
+	presence      map[string]string
 	unmodelled    []string
 	loginFailures map[string]int
 	pos           int
@@ -208,6 +209,7 @@ func New(opts Options) *Server {
 		txns:          map[txnKey]string{},
 		nonces:        map[string]bool{},
 		accountData:   map[accountDataKey]json.RawMessage{},
+		presence:      map[string]string{},
 		loginFailures: map[string]int{},
 		changed:       make(chan struct{}),
 	}
@@ -381,6 +383,7 @@ func (s *Server) routeTable() []route {
 		{http.MethodPost, `/_matrix/client/v3/logout`, s.logout, authUser},
 		{http.MethodGet, accountDataPattern, s.getAccountData, authUser},
 		{http.MethodPut, accountDataPattern, s.putAccountData, authUser},
+		{http.MethodPut, `/_matrix/client/v3/presence/([^/]+)/status`, s.putPresence, authUser},
 		{http.MethodGet, `/_matrix/client/v3/account/whoami`, whoami, authUser},
 		{http.MethodPost, `/_matrix/client/v1/login/get_token`, getToken, authUser},
 		{http.MethodGet, `/_matrix/client/v3/joined_rooms`, s.joinedRooms, authUser},
