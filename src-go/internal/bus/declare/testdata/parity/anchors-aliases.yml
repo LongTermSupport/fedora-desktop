@@ -1,0 +1,11 @@
+agent_bus_teams:
+  - team: alpha
+    port: 6167
+    org: &owner example-org
+    humans: &h ["owner"]
+  - team: beta
+    port: 6168
+    org: *owner
+    humans: *h
+    description: &d Anchored text
+    path_prefixes: *p

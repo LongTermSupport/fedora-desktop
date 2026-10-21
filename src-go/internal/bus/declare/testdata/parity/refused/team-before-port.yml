@@ -1,0 +1,4 @@
+agent_bus_teams:
+  - team: alpha
+    port: x
+  - team: alpha
