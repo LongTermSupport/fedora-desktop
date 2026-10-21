@@ -142,9 +142,13 @@ func (a *Admin) Account(ctx context.Context, userID string) (Account, bool, erro
 
 // CreateAccount makes a plain account with a password. The body has no admin key (Tuwunel
 // answers an "admin": false for a non-admin with a 500), and the answer must be the account
-// asked for and not an admin.
+// asked for and not an admin. An empty display name is left out, so the server picks one.
 func (a *Admin) CreateAccount(ctx context.Context, userID, password, displayName string) (Account, error) {
-	out, cl, err := a.putUser(ctx, userID, map[string]any{"password": password, "displayname": displayName})
+	body := map[string]any{"password": password}
+	if displayName != "" {
+		body["displayname"] = displayName
+	}
+	out, cl, err := a.putUser(ctx, userID, body)
 	if err != nil {
 		return Account{}, err
 	}

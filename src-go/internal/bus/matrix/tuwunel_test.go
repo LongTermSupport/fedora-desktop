@@ -94,9 +94,11 @@ func startTuwunel(ctx context.Context, t *testing.T) tuwunel {
 	return hs
 }
 
-// stoppedCleanly is a run that ended on the test's SIGTERM, by exiting or by the signal.
+// stoppedCleanly is a run that ended on the test's SIGTERM: exit 0 after the cancel (which
+// exec reports as context.Canceled; the test's deadline is DeadlineExceeded and fails), or the
+// signal itself.
 func stoppedCleanly(err error) bool {
-	if err == nil {
+	if err == nil || errors.Is(err, context.Canceled) {
 		return true
 	}
 	exitErr, ok := errors.AsType[*execx.ExitError](err)
@@ -327,5 +329,33 @@ func TestTuwunel(t *testing.T) {
 	}
 	if err := bob.ReadReceipt(ctx, room, sent); err != nil {
 		t.Fatalf("ReadReceipt: %v", err)
+	}
+	retire(ctx, t, admin, bob, bobID)
+}
+
+// retire locks, unlocks and deactivates the account, reading each state back, and checks the
+// deactivation revoked its token (fakehs models that much; what a locked or deactivated
+// account's own requests are answered it leaves unmodelled).
+func retire(ctx context.Context, t *testing.T, admin *Admin, c *Client, uid string) {
+	t.Helper()
+	for _, step := range []struct {
+		name  string
+		set   func() error
+		check func(Account) bool
+	}{
+		{"lock", func() error { return admin.SetLocked(ctx, uid, true) }, func(a Account) bool { return a.Locked }},
+		{"unlock", func() error { return admin.SetLocked(ctx, uid, false) }, func(a Account) bool { return !a.Locked }},
+		{"deactivate", func() error { return admin.SetDeactivated(ctx, uid, true) }, func(a Account) bool { return a.Deactivated }},
+	} {
+		if err := step.set(); err != nil {
+			t.Fatalf("%s %s: %v", step.name, uid, err)
+		}
+		acct, found, err := admin.Account(ctx, uid)
+		if err != nil || !found || !step.check(acct) {
+			t.Fatalf("after %s, Account %s = %+v, %v, %v", step.name, uid, acct, found, err)
+		}
+	}
+	if _, err := c.Whoami(ctx); !errors.Is(err, ErrAuthRefused) {
+		t.Fatalf("whoami after deactivation = %v, want the token refused", err)
 	}
 }

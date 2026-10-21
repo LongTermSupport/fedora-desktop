@@ -48,24 +48,39 @@ func TestDeactivationRevokesAndRefusesLogin(t *testing.T) {
 		t.Fatalf("deactivated %v", got)
 	}
 	tm.refused(tm.whoami(user), 401, "M_UNKNOWN_TOKEN", "Unknown access token.")
-	tm.refused(tm.call("", "POST", "/_matrix/client/v3/login", nil, map[string]any{
-		"type": "m.login.password", "user": user, "password": "pw",
-	}), 403, "M_USER_DEACTIVATED", "deactivated")
 	tm.ok(tm.putUser(user, map[string]any{"deactivated": true}))
+	if tm.s.CheckModelled() != nil {
+		t.Fatal("deactivation was reported unmodelled")
+	}
+	signIn := tm.call("", "POST", "/_matrix/client/v3/login", nil, map[string]any{
+		"type": "m.login.password", "user": user, "password": "pw",
+	})
+	if signIn.status != 500 || tm.s.CheckModelled() == nil {
+		t.Fatalf("signing in after deactivation answered %d, want 500 and unmodelled", signIn.status)
+	}
+	if mint := tm.call(tm.admin, "POST", "/_synapse/admin/v1/users/"+user+"/login", nil, map[string]any{}); mint.status != 500 {
+		t.Fatalf("a mint for a deactivated account answered %d, want 500", mint.status)
+	}
 	if again := tm.putUser(user, map[string]any{"deactivated": false}); again.status != 500 || tm.s.CheckModelled() == nil {
 		t.Fatalf("reactivation answered %d", again.status)
 	}
 }
 
-func TestALockedAccountsTokenIsRefused(t *testing.T) {
+func TestALockedAccountsRequestIsUnmodelled(t *testing.T) {
 	tm := newTeam(t)
 	got := tm.ok(tm.putUser(tm.agent, map[string]any{"locked": true}))
 	if got["locked"] != true {
 		t.Fatalf("locked %v", got)
 	}
-	tm.refused(tm.whoami(tm.agent), 401, "M_USER_LOCKED", "locked")
 	tm.ok(tm.putUser(tm.agent, map[string]any{"locked": false}))
 	tm.ok(tm.whoami(tm.agent))
+	if tm.s.CheckModelled() != nil {
+		t.Fatal("locking and unlocking was reported unmodelled")
+	}
+	tm.ok(tm.putUser(tm.agent, map[string]any{"locked": true}))
+	if locked := tm.whoami(tm.agent); locked.status != 500 || tm.s.CheckModelled() == nil {
+		t.Fatalf("a locked account's whoami answered %d, want 500 and unmodelled", locked.status)
+	}
 	if bad := tm.putUser(tm.agent, map[string]any{"locked": "yes"}); bad.status != 500 {
 		t.Fatalf("a locked that is not a boolean answered %d", bad.status)
 	}

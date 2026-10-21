@@ -558,8 +558,9 @@ func (s *Server) authenticate(r *request, token string, kind authKind) error {
 		return &apiError{status: http.StatusUnauthorized, errcode: "M_UNKNOWN_TOKEN", text: "M_UNKNOWN_TOKEN: Unknown access token."}
 	}
 	u := s.users[sess.userID]
+	// H4 recorded no request by a locked account, so what Tuwunel answers is not guessed.
 	if u.locked {
-		return &apiError{status: http.StatusUnauthorized, errcode: "M_USER_LOCKED", text: "This account has been locked."}
+		return unmodelled("a request by the locked account %s", sess.userID)
 	}
 	seen := s.nowMS()
 	u.lastSeen = &seen
@@ -662,8 +663,9 @@ func (s *Server) login(r *request, _ []string) (any, error) {
 		s.loginFailures[name]++
 		return nil, forbidden("Wrong username or password.")
 	}
+	// H4 recorded no sign-in to a deactivated account, so what Tuwunel answers is not guessed.
 	if u.deactivated {
-		return nil, &apiError{status: http.StatusForbidden, errcode: "M_USER_DEACTIVATED", text: "This account has been deactivated."}
+		return nil, unmodelled("signing in to the deactivated account %s", u.id)
 	}
 	return s.signedIn(s.newToken(u.id, stringAt(body, "initial_device_display_name"))), nil
 }
