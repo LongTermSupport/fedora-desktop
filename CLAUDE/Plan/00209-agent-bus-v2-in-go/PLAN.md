@@ -188,7 +188,8 @@ its first caller.
 - [ ] ⬜ **Task 2.2**: The homeserver instance per team (C 3.2): the pinned Tuwunel, the hardened
   `teamchat-server@<team>` unit carrying D's `InaccessiblePaths=`, checked by D's gate (seam 49).
 - [ ] ⬜ **Task 2.3**: Install and apply (C 3.5), the rooms engine from A's specs (C 3.6), the
-  roster, members, humans and roles; the service-account localpart reserved by HC-A6 (seam 18).
+  roster, members, humans and roles; the service-account localpart `conduit` reserved by HC-A6
+  (seam 18).
 - [ ] ⬜ **Task 2.4**: Seats and bundles in the seat store (C 3.7), the declarations (C 3.8),
   Element profiles (C 3.10), health and the status records (C 3.11), backups and restore (C 3.12).
 - [ ] ⬜ **Task 2.5**: Acceptance: C 3.14's tests; the M44 real-Tuwunel test, and Tuwunel's answers
@@ -202,16 +203,18 @@ its first caller.
     such as 3.3) merge to F44, and the install on the host runs, only after the owner has
     confirmed OD-A7, DC1, DC5, DC15, OD-D1, OD-D5 and TID. The VM-lab parts of this task do not
     wait.
-  - **Gate B** (Task 0.5): no pool seat is added on the host (H-C13 to H-C15 where they run on
-    the host) until the owner has confirmed INT6 or chosen
-    [DESIGN-v2.md section 7.1](DESIGN-v2.md#71-int6s-narrower-alternative-a-pool-seat-with-no-password)
+  - **Gate B** (Task 0.5): no pool seat is added on the host (H-C13 to H-C15, less H-C15's
+    held-ccy-session clause, where they run on the host) until the owner has confirmed INT6 or
+    chosen [DESIGN-v2.md section 7.1](DESIGN-v2.md#71-int6s-narrower-alternative-a-pool-seat-with-no-password)
     in its place. The VM lab is not a deploy and does not wait.
 
 ### Phase 3: N3, the member client, LXC members first
 
 - [ ] ⬜ **Task 3.1**: The N3 spec from area B. It says that net/http may resend a dropped `/sync`
   (a GET retried on some connection errors), and that this is safe because a sync with a since
-  token is idempotent; and it carries 00194's 2.0e and 2.0g (Requirements carried).
+  token is idempotent within one database, and across a restore because no answer is persisted
+  before B 2.6 step 08's epoch check (H-C14); and it carries 00194's 2.0e and 2.0g
+  (Requirements carried).
 - [ ] ⬜ **Task 3.2**: The `teamchat` binary: CLI, member state, the keeper (`run`) and the link, locks, sync,
   delivery, hooks, status line, plugin and skill (B 2.1-2.12).
 - [ ] ⬜ **Task 3.3**: LXC members: guest operations (B 2.13), LXC apply from the host (C 3.9),
