@@ -327,11 +327,19 @@ class ParseMembersTest(unittest.TestCase):
             member.handle("proj")
 
     def test_seat_and_repo_given(self) -> None:
-        (member,) = members.parse_members([entry(seat=2, repo="Owner-Proj", role="coordinator",
+        (member,) = members.parse_members([entry(seat=2, repo="Owner-Proj", role="worker",
                                                  human_text=False)])
         self.assertEqual((member.seat, member.repo, member.role, member.human_text),
-                         ("2", "owner-proj", "coordinator", False))
+                         ("2", "owner-proj", "worker", False))
         self.assertEqual(member.handle("proj"), "proj.2+box.lxc")
+
+    def test_a_coordinator_must_take_human_text(self) -> None:
+        # Plan 00211 SPEC 4.5: every message in the questions room is a human's, so a
+        # coordinator dropping human text would hear none of them.
+        with self.assertRaisesRegex(members.MemberError, "entry 0: a coordinator must take human text"):
+            members.parse_members([entry(role="coordinator", human_text=False)])
+        (member,) = members.parse_members([entry(role="coordinator", human_text=False, state="absent")])
+        self.assertEqual(member.state, "absent")
 
     def test_an_entry_still_saying_orchestrator_is_a_coordinator(self) -> None:
         (member,) = members.parse_members([entry(role="orchestrator")])
@@ -563,7 +571,7 @@ class PresentPhaseTest(Fixture):
         self.run_phase("present", [entry()])
         changed = self.run_phase("present", [entry(role="coordinator")])
         self.assertEqual(changed, [f"{HANDLE} is now coordinator in team {TEAM}"])
-        changed = self.run_phase("present", [entry(role="coordinator", human_text=False)])
+        changed = self.run_phase("present", [entry(role="worker", human_text=False)])
         self.assertIn(f"{HANDLE} joined team {TEAM} (agent@devbox)", changed)
         member = json.loads((self.bundle_dir() / "member.json").read_text())
         self.assertIs(member["human_text"], False)
