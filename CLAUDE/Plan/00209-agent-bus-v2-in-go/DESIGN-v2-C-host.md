@@ -2296,11 +2296,14 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
     guest token copy, the run id as the seed and the run's `since_ms` (3.11.2 step 6).
 07. For an LXC member, the next link on a seat checks the room for the member's own `left` or
     `disconnected` since the last run before it posts a disconnected of its own, and uses
-    transaction id `tc-disc-<run id>`, the id the health tick uses (3.11.2 step 6); the run id is
-    the one B writes into the seat lock file, in a grammar the host checks.
+    transaction id `tc-disc-<run id>`, the id the health tick uses (3.11.2 step 6): the ended
+    run's id, which the tick read from the seat lock file while that run held it, in a grammar the
+    host checks, and which the next link reads from its surviving store's `run.id` (the lock file
+    by then names the new run). A ccy link uses `tc-disc-<claim>`, the seed the host passes.
 08. A link that sees the roster's `restore_epoch` change drops its `next_batch` and resumes as a
     seat with no member store; on every reconnect after a homeserver outage it reads the roster by
-    a direct state request, not by sync, to see the change (3.12.2).
+    a direct state request, not by sync, to see the change (3.12.2), and a store found at start is
+    compared with the verified roster before its first sync.
 09. `teamchat run` (the LXC supervised session, 3.9.4) waits, bounded, for the keeper to end
     before it exits, and handles the stop the unit's default `KillMode` sends to every process
     (each of its processes, the link included, gets `SIGTERM`), so that the link still posts its
