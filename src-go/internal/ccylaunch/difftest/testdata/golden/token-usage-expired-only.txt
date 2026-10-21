@@ -1,0 +1,19 @@
+=== exit 1
+=== stdout
+{
+  "schema": 1,
+  "generated_at": "2030-01-15T12:00:00Z",
+  "scale": "fraction",
+  "error": "usage could not be read for any token",
+  "tokens": [
+    {"name": "old", "file": "old.2030-01-14.token", "expires": "2030-01-14", "status": "unavailable", "reason": "token expired on 2030-01-14; renew: ccy --update-token=old", "five_hour_pct": null, "seven_day_pct": null, "resets": {"five_hour": null, "seven_day": null}, "binding_limit": null, "http_status": null, "fetched_at": null, "warnings": [], "shadowed": []}
+  ]
+}
+=== stderr
+=== calls
+=== files
+dir  home/.claude-tokens 0700
+dir  home/.claude-tokens/ccy 0700
+dir  home/.claude-tokens/ccy/tokens 0700
+file home/.claude-tokens/ccy/tokens/old.2030-01-14.token 0600
+     | {token:old}

@@ -2,14 +2,18 @@ package difftest
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -24,6 +28,7 @@ const (
 	sandboxEnv  = "CCY_DIFFTEST_SANDBOX"
 	starterName = "ccy-difftest-start"
 	dateName    = "date"
+	statName    = "stat"
 	fakesFile   = "fakes.json"
 	callsFile   = "calls.jsonl"
 	pidFile     = "launcher.pid"
@@ -53,7 +58,7 @@ var realTools = []string{
 	"awk", "base64", "basename", "bash", "cat", "chmod", "cmp", "comm", "cp", "cut", "dirname",
 	"du", "env", "expr", "false", "find", "flock", "getent", "git", "grep", "head", "jq", "ln",
 	"ls", "md5sum", "mkdir", "mktemp", "mv", "nproc", "numfmt", "od", "printf", "readlink",
-	"realpath", "rm", "rmdir", "sed", "seq", "sh", "sha256sum", "sleep", "sort", "stat",
+	"realpath", "rm", "rmdir", "sed", "seq", "sh", "sha256sum", "sleep", "sort",
 	"systemd-escape", "tail", "tee", "test", "timeout", "touch", "tr", "true", "uniq",
 	"wc", "xargs",
 }
@@ -62,21 +67,27 @@ var realTools = []string{
 // choice, so not recorded.
 var bashNoise = []string{"OLDPWD", "PWD", "SHLVL", "_"}
 
-// rule answers the calls of one program whose arguments start with Args.
+// rule answers the calls of one program whose arguments start with Args. ArgFiles writes
+// files the way the program would: for each option, the content goes to the path that follows
+// the option in the call (curl's --dump-header), which must be inside the sandbox.
 type rule struct {
-	Tool   string   `json:"tool"`
-	Args   []string `json:"args"`
-	Stdout string   `json:"stdout"`
-	Stderr string   `json:"stderr"`
-	Exit   int      `json:"exit"`
+	Tool     string            `json:"tool"`
+	Args     []string          `json:"args"`
+	Stdout   string            `json:"stdout"`
+	Stderr   string            `json:"stderr"`
+	Exit     int               `json:"exit"`
+	ArgFiles map[string]string `json:"argFiles"`
 }
 
 // fakeConfig is what the runner writes into the sandbox for the fakes to read.
 type fakeConfig struct {
-	Rules    []rule   `json:"rules"`
-	RealDate string   `json:"realDate"`
-	Epoch    int64    `json:"epoch"`
-	Base     []string `json:"base"` // the environment names the runner set: not recorded
+	Rules []rule            `json:"rules"`
+	Real  map[string]string `json:"real"` // the real date and stat the clock fakes run
+	Epoch int64             `json:"epoch"`
+	// Shift is how far the machine's clock is ahead of the pinned one: a file the launcher
+	// writes is stamped by the machine, and stat reports its time shifted back by this much.
+	Shift int64    `json:"shift"`
+	Base  []string `json:"base"` // the environment names the runner set: not recorded
 }
 
 // call is one recorded call of an observed program.
@@ -91,7 +102,7 @@ func fakeTool() (string, bool) {
 		return "", false
 	}
 	name := filepath.Base(os.Args[0])
-	if name == starterName || name == dateName || slices.Contains(observedTools, name) ||
+	if name == starterName || slices.Contains(clockTools, name) || slices.Contains(observedTools, name) ||
 		slices.Contains(quietTools, name) {
 		return name, true
 	}
@@ -108,7 +119,9 @@ func runFake(tool string) int {
 	case starterName:
 		return brokenFake(tool, startLauncher(sandbox))
 	case dateName:
-		return brokenFake(tool, execx.OS{}.Exec(execx.Cmd{Name: cfg.RealDate, Args: fixedDateArgs(os.Args[1:], cfg.Epoch)}))
+		return brokenFake(tool, execx.OS{}.Exec(execx.Cmd{Name: cfg.Real[dateName], Args: fixedDateArgs(os.Args[1:], cfg.Epoch)}))
+	case statName:
+		return shiftedStat(cfg, os.Args[1:])
 	}
 	if slices.Contains(observedTools, tool) {
 		if err := recordCall(sandbox, cfg, tool, os.Args[1:]); err != nil {
@@ -123,6 +136,9 @@ func runFake(tool string) int {
 		return brokenFake(tool, fmt.Errorf("no rule answers %s %s", tool, strings.Join(os.Args[1:], " ")))
 	case !ok:
 		return 1
+	}
+	if err := writeArgFiles(sandbox, r, os.Args[1:]); err != nil {
+		return brokenFake(tool, err)
 	}
 	if _, err := os.Stdout.WriteString(r.Stdout); err != nil {
 		return brokenFake(tool, err)
@@ -170,9 +186,68 @@ func startLauncher(sandbox string) error {
 // ownDateFlags are the date options that name a date or a clock of their own.
 var ownDateFlags = []string{"-d", "--date", "-r", "--reference", "-f", "--file", "-s", "--set"}
 
+// clockTools are the real programs that tell the time, run with the pinned clock.
+var clockTools = []string{dateName, statName}
+
+// mtimeFormats are the stat arguments that ask for a modification time in seconds alone.
+var mtimeFormats = []string{"%Y", "-c%Y", "--format=%Y", "--printf=%Y"}
+
+// shiftedStat is the real stat; a call that asks for %Y alone gets each time on the pinned
+// clock, so a file's age is the same whichever machine and day the scenario runs on.
+func shiftedStat(cfg fakeConfig, args []string) int {
+	if !slices.ContainsFunc(args, func(a string) bool { return slices.Contains(mtimeFormats, a) }) {
+		return brokenFake(statName, execx.OS{}.Exec(execx.Cmd{Name: cfg.Real[statName], Args: args}))
+	}
+	res, err := execx.OS{}.Run(context.Background(), execx.Cmd{Name: cfg.Real[statName], Args: args})
+	var exitErr *execx.ExitError
+	if err != nil && !errors.As(err, &exitErr) {
+		return brokenFake(statName, err)
+	}
+	var out strings.Builder
+	for line := range strings.Lines(string(res.Stdout)) {
+		text := strings.TrimSuffix(line, "\n")
+		if n, perr := strconv.ParseInt(text, 10, 64); perr == nil {
+			text = strconv.FormatInt(pinnedTime(n, cfg), 10)
+		}
+		out.WriteString(text + line[len(strings.TrimSuffix(line, "\n")):])
+	}
+	if _, werr := os.Stdout.WriteString(out.String()); werr != nil {
+		return brokenFake(statName, werr)
+	}
+	if _, werr := os.Stderr.Write(res.Stderr); werr != nil {
+		return brokenFake(statName, werr)
+	}
+	return res.ExitCode
+}
+
+// runWindow bounds one run: a time the machine gave a file during it reads as the pinned now,
+// so how long the run took never shows.
+const runWindow = 300
+
+// pinnedTime is a machine time on the pinned clock.
+func pinnedTime(machine int64, cfg fakeConfig) int64 {
+	pinned := machine - cfg.Shift
+	if pinned >= cfg.Epoch && pinned < cfg.Epoch+runWindow {
+		return cfg.Epoch
+	}
+	return pinned
+}
+
+// relativeDate is a -d value counted from now ("+90 days", "3 days ago", "tomorrow").
+var relativeDate = regexp.MustCompile(`^\s*([+-]?\d+\s*[a-z]+(\s+ago)?|now|today|tomorrow|yesterday)\s*$`)
+
 // fixedDateArgs pins "now" for a date call that asks for it: one that names no date of its
-// own gets -d @epoch first, so every run of a scenario sees the same day.
+// own gets -d @epoch first, and a -d counted from now is counted from the epoch, so every
+// run of a scenario sees the same day.
 func fixedDateArgs(args []string, epoch int64) []string {
+	anchor := time.Unix(epoch, 0).UTC().Format("2006-01-02 15:04:05 UTC")
+	for i, a := range args {
+		if a == "-d" && i+1 < len(args) && relativeDate.MatchString(args[i+1]) {
+			out := slices.Clone(args)
+			out[i+1] = anchor + " " + args[i+1]
+			return out
+		}
+	}
 	for _, a := range args {
 		for _, own := range ownDateFlags {
 			short := len(own) == 2 && strings.HasPrefix(a, own)
@@ -227,6 +302,23 @@ func writeIn(sandbox, name string, data []byte) error {
 		return err
 	}
 	return errors.Join(root.WriteFile(name, data, logFileMode), root.Close())
+}
+
+func writeArgFiles(sandbox string, r rule, args []string) error {
+	for _, opt := range slices.Sorted(maps.Keys(r.ArgFiles)) {
+		i := slices.Index(args, opt)
+		if i < 0 || i+1 >= len(args) {
+			return fmt.Errorf("the call has no %s PATH to write", opt)
+		}
+		rel, err := filepath.Rel(sandbox, args[i+1])
+		if err != nil || !filepath.IsLocal(rel) {
+			return fmt.Errorf("%s %s is outside the sandbox", opt, args[i+1])
+		}
+		if err := writeIn(sandbox, rel, []byte(r.ArgFiles[opt])); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // silenceStderr points this process's stderr at /dev/null.

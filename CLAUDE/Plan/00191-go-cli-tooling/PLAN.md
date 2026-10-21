@@ -257,7 +257,40 @@ today; rewriting them is out of scope.
   gone), `ccy_known_prompts` (Plan 00194's goodbye harness, `screen_test.go`) and
   `_ccy_tmux_clients` (`ccy_tmux_attach`, `ccy_tmux_is_detached`). The restore chain can go
   only with the Go parity cases that call it: the owner's call.
-- [ ] ⬜ **Task 4.4**: Launcher phase 0.2: the differential harness, proven able to fail.
+- [ ] 🔄 **Task 4.4**: Launcher phase 0.2: the differential harness, proven able to fail.
+  Built as the Go test package `src-go/internal/ccylaunch/difftest` (test only; a recorded
+  oracle on purpose, noted in `src-go/CLAUDE.md`). Each scenario runs the launcher once in a
+  sandbox: scratch HOME, a one-commit repository, TMPDIR and XDG_RUNTIME_DIR, a PATH of only the
+  sandbox's bin. The test binary is every fake (podman, docker, tmux, gh, curl, ssh-add,
+  ccy-teams, ...): it records argv and the names, never values, of the environment the launcher
+  added, and answers from the scenario's rules; hostname, id and uname answer unrecorded; date
+  and stat run on a pinned clock. Goldens (`testdata/golden/<scenario>.txt`: exit, stdout,
+  stderr, calls, every file left with mode and content) are recorded from the bash launcher
+  with `-update`; `LAUNCHER=<path>` runs the matrix against any program. A token never appears
+  in a tracked file (`{token:NAME}`), and a check fails any call whose argv carries one. Two
+  launcher seams made it deterministic, CCY 3.99.13.13: `CCY_DOCKERFILE_DIR` (default
+  `/opt/claude-yolo`, now also the startup text's directory) and `CCY_GPU_DEVICE_DIR` (default
+  `/dev/dri`). qa-changed routes the launcher, `lib/*.bash` and the Dockerfile to the Go gate.
+  - Matrix: 74 scenarios. Standalone modes 36 (`--version`/`-v`, `--help`/`-h` with and without
+    the image, `--list-tokens`, `--token-usage` table, JSON, API down and its refusals,
+    `--export-token`, `--prevent`, `--top`, allowed-hostnames, outside a repository, usage
+    errors); engine selection 10; token choice 9 (refusals with no terminal); launch path 19
+    (plain, prompt argument and flag, headless, `--no-ssh`, `--github-443`, `--network`,
+    `--no-network`, GPU, SELinux enforcing, gh logged out or `GH_TOKEN`, image missing or old,
+    `--rebuild=claude`, Quick Launch replay, container exit status).
+  - Not covered yet: everything behind a terminal prompt beyond its refusal (token picker,
+    Quick Launch Y/n, SSH key menu and passphrase, tmux insulation), `--custom`,
+    `--custom-docker`, `--teams`, a real `--connect`/`--disconnect`, compose, the restart
+    relaunch (exit 75) and restore. A pseudo-terminal driver is the next step for them.
+  - Red and green: `TestOracleCanFail` edits a scratch install of the launcher and must see its
+    scenario differ: dropping `--dangerously-skip-permissions` from the run line fails
+    `launch-plain`, and `-v` answering as `-V` fails `version-short`. By hand with
+    `LAUNCHER=`: an unmodified scratch copy is green (74 of 74); the same copy with
+    `--label ccy=true` changed to `--label ccy=yes` is red, 22 scenarios failing on that line.
+  - Bash behaviour the goldens now pin, for the port to decide deliberately: a trailing
+    `--engine` is ignored; under docker one `podman network ls` still runs; an unknown
+    `CCY_CONTAINER_ENGINE` fails at token validation, not at the engine check;
+    `--update-token` with no terminal exits 1 after its banner, saying nothing.
 - [ ] ⬜ **Task 4.5**: Launcher phases 1 and 2: the foundation packages, then `--version`,
   `--help` and the other standalone modes, each a one-flag cut-over.
 

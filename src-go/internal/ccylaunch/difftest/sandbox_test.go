@@ -245,10 +245,24 @@ func probe(t *testing.T, m matrix, path string) launcher {
 	return launcher{path: path, version: match[1], hash: match[2]}
 }
 
-// sandbox is one scenario's scratch world.
+// sandbox is one scenario's scratch world. epoch is the pinned clock; machineNow is the
+// machine's, read once from the file system (a test reads no wall clock).
 type sandbox struct {
-	root  string
-	epoch int64
+	root       string
+	epoch      int64
+	machineNow time.Time
+}
+
+// machineClock is the time the file system gives a file written now.
+func machineClock(t *testing.T, root string) time.Time {
+	t.Helper()
+	path := filepath.Join(root, "clock")
+	writeFile(t, path, "", logFileMode)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info.ModTime()
 }
 
 func newSandbox(t *testing.T, epoch int64) sandbox {
@@ -284,10 +298,10 @@ func newSandbox(t *testing.T, epoch int64) sandbox {
 		}
 		link(name, path)
 	}
-	for _, name := range slices.Concat(observedTools, quietTools, []string{starterName, dateName}) {
+	for _, name := range slices.Concat(observedTools, quietTools, clockTools, []string{starterName}) {
 		link(name, self)
 	}
-	return sandbox{root: root, epoch: epoch}
+	return sandbox{root: root, epoch: epoch, machineNow: machineClock(t, root)}
 }
 
 // gitEnv keeps the machine's git configuration out of the sandbox's repository.
@@ -322,7 +336,8 @@ func (s sandbox) place(t *testing.T, f fileSpec) {
 		t.Fatal(err)
 	}
 	writeFile(t, path, expandTokens(strings.ReplaceAll(f.Content, sandboxMark, s.root)), fs.FileMode(perm))
-	stamp := time.Unix(s.epoch, 0).Add(-time.Duration(f.AgeDays) * hoursPerDay * time.Hour)
+	// Stamped on the machine's clock, as a file the launcher writes is: stat shifts both.
+	stamp := s.machineNow.Add(-time.Duration(f.AgeDays) * hoursPerDay * time.Hour)
 	if err := os.Chtimes(path, stamp, stamp); err != nil {
 		t.Fatal(err)
 	}
@@ -356,7 +371,7 @@ const startupText = "difftest startup info: the engine is __CONTAINER_ENGINE__.\
 // play stages it, with startupText beside it, and returns the marks a rule's output may use for
 // the image the Dockerfile would build: {image_version}, its claude-yolo-version label, and
 // {image_hash}, the hash the launcher compares (the first 16 hex digits of its md5).
-func (s sandbox) stageBuildContext(t *testing.T) *strings.Replacer {
+func (s sandbox) stageBuildContext(t *testing.T) imageMarks {
 	t.Helper()
 	dir := filepath.Join(s.root, buildContext)
 	if err := os.MkdirAll(dir, dirMode); err != nil {
@@ -370,8 +385,17 @@ func (s sandbox) stageBuildContext(t *testing.T) *strings.Replacer {
 		t.Fatal("the Dockerfile has no claude-yolo-version label")
 	}
 	sum := md5.Sum([]byte(dockerfile))
-	return strings.NewReplacer("{image_version}", label[1], "{image_hash}", hex.EncodeToString(sum[:])[:imageHashLen],
-		sandboxMark, s.root)
+	return imageMarks{version: label[1], hash: hex.EncodeToString(sum[:])[:imageHashLen]}
+}
+
+// imageMarks are the image the staged Dockerfile builds: rules name them as marks, and the
+// golden writes them back as marks, so a Dockerfile change does not move a golden.
+type imageMarks struct {
+	version, hash string
+}
+
+func (im imageMarks) expand(s, root string) string {
+	return strings.NewReplacer("{image_version}", im.version, "{image_hash}", im.hash, sandboxMark, root).Replace(s)
 }
 
 var imageLabel = regexp.MustCompile(`(?m)^LABEL claude-yolo-version="([^"]+)"`)
@@ -406,6 +430,28 @@ func compose(t *testing.T, m matrix, sc scenario) composed {
 	return c
 }
 
+// writeFakeConfig writes what the fakes read: the rules, the real clock programs, the pinned
+// clock and the environment names the runner sets.
+func (s sandbox) writeFakeConfig(t *testing.T, rules []rule, base []string) {
+	t.Helper()
+	programs := map[string]string{}
+	for _, name := range clockTools {
+		path, err := exec.LookPath(name)
+		if err != nil {
+			t.Fatalf("%s is needed inside the sandbox: %v", name, err)
+		}
+		programs[name] = path
+	}
+	cfg := fakeConfig{
+		Rules: rules, Real: programs, Epoch: s.epoch, Shift: s.machineNow.Unix() - s.epoch, Base: base,
+	}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(s.root, fakesFile), string(raw), logFileMode)
+}
+
 // runScenario builds the sandbox, runs the launcher in it once and collects what it did.
 func runScenario(t *testing.T, m matrix, l launcher, sc scenario) outcome {
 	t.Helper()
@@ -421,19 +467,10 @@ func runScenario(t *testing.T, m matrix, l launcher, sc scenario) outcome {
 	}
 	marks := s.stageBuildContext(t)
 	for i := range world.rules {
-		world.rules[i].Stdout = expandTokens(marks.Replace(world.rules[i].Stdout))
+		world.rules[i].Stdout = expandTokens(marks.expand(world.rules[i].Stdout, s.root))
 	}
 	env := s.baseEnv()
-	realDate, err := exec.LookPath(dateName)
-	if err != nil {
-		t.Fatalf("date is needed inside the sandbox: %v", err)
-	}
-	cfg := fakeConfig{Rules: world.rules, RealDate: realDate, Epoch: s.epoch, Base: slices.Sorted(maps.Keys(env))}
-	raw, err := json.Marshal(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, filepath.Join(s.root, fakesFile), string(raw), logFileMode)
+	s.writeFakeConfig(t, world.rules, slices.Sorted(maps.Keys(env)))
 	maps.Copy(env, world.env)
 	args := make([]string, 0, 1+len(env)+2+len(sc.Args))
 	args = append(args, "-i")
@@ -462,7 +499,12 @@ func runScenario(t *testing.T, m matrix, l launcher, sc scenario) outcome {
 	out := outcome{exit: res.ExitCode, stdout: string(res.Stdout), stderr: string(res.Stderr)}
 	out.calls = readCalls(t, s.root)
 	out.files = snapshot(t, s.root)
-	return l.normalise(out, s.root, launcherPid(t, s.root), m.tokens)
+	back := make([]string, 0, 4+2*len(m.tokens))
+	back = append(back, marks.hash, "{image_hash}", marks.version, "{image_version}")
+	for _, name := range m.tokens {
+		back = append(back, tokenValue(name), "{token:"+name+"}")
+	}
+	return l.normalise(out, s.root, launcherPid(t, s.root), strings.NewReplacer(back...))
 }
 
 // launcherPid matches the launcher's pid as a word.
@@ -562,13 +604,11 @@ func contentLines(raw []byte) []string {
 	return out
 }
 
-// normalise writes the sandbox, the launcher's pid, its version and its hash as their marks.
-func (l launcher) normalise(o outcome, root string, pid *regexp.Regexp, tokens []string) outcome {
+// normalise writes the sandbox, the tokens, the image, the launcher's pid, its version and its
+// hash as their marks, and the volatile parts as fixed text.
+func (l launcher) normalise(o outcome, root string, pid *regexp.Regexp, marks *strings.Replacer) outcome {
 	fix := func(s string) string {
-		s = strings.ReplaceAll(s, root, sandboxMark)
-		for _, name := range tokens {
-			s = strings.ReplaceAll(s, tokenValue(name), "{token:"+name+"}")
-		}
+		s = marks.Replace(strings.ReplaceAll(s, root, sandboxMark))
 		s = pid.ReplaceAllString(s, pidMark)
 		if l.hash != "" {
 			s = strings.ReplaceAll(s, l.hash, hashMark)
@@ -602,6 +642,7 @@ var volatile = []struct {
 	{regexp.MustCompile(`(/tmp/claude-yolo-)[A-Za-z0-9]{6}\b`), "${1}XXXXXX"},
 	{regexp.MustCompile(`(/tmp/ccy-[a-z-]+-)[A-Za-z0-9]{6}(\.log|\.txt)`), "${1}XXXXXX${2}"},
 	{regexp.MustCompile(`(launch-[0-9]+-\{pid\}-)[0-9]+`), "${1}{random}"},
+	{regexp.MustCompile(`(\{sandbox\}/tmp/tmp\.)[A-Za-z0-9]{10}\b`), "${1}XXXXXXXXXX"},
 }
 
 // render is the golden text of one outcome.
