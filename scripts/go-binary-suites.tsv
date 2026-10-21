@@ -23,4 +23,5 @@ stt	qa-go
 open	qa-go
 cc-project-dir	qa-go
 git-fetch-age	qa-go
+git-prompt-fetch	qa-go
 convert	qa-go

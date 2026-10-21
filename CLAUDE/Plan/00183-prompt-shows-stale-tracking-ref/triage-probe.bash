@@ -56,7 +56,8 @@ probe_prompt() {
         return 1
     fi
     run "installed bash-git-prompt commit" git -C "${PROMPT_DIR}" log -1 --format='%H %ci %s'
-    run "installed bash-git-prompt: shallow? and remote" git -C "${PROMPT_DIR}" rev-parse --is-shallow-repository
+    run "installed bash-git-prompt: a shallow clone?" git -C "${PROMPT_DIR}" rev-parse --is-shallow-repository
+    run "the last background fetch's words (git-prompt-fetch)" cat "${HOME}/.cache/git-prompt-fetch.log"
     run "local changes to the installed copy (empty = none)" git -C "${PROMPT_DIR}" status --porcelain
     run "its fetch code (FETCH_HEAD path, timer, fetch command)" grep -nE 'FETCH_HEAD|FETCH_TIMEOUT|FETCH_REMOTE_STATUS|git fetch|git-common-dir|olderThanMinutes \(' "${PROMPT_DIR}/gitprompt.sh"
     run "GIT_PROMPT_ settings in ~/.bashrc" grep -n 'GIT_PROMPT_\|bash-git-prompt' "${HOME}/.bashrc"

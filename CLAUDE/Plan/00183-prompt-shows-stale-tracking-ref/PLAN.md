@@ -59,7 +59,10 @@ agent at all. The cause is unknown, so this plan triages first.
   fetch); docs (`docs/configuration.md`, `docs/playbooks.md`, `src-go/CLAUDE.md`) done.
   Left: `qa-all.bash`, the `qa-reviewer` agent, and the owner's hand check, the yellow mark in
   a stale checkout's prompt. That "printed nothing" is no proof of a fresh fetch: before Task
-  2.4 a failed fetch read as fresh too.
+  2.4 a failed fetch read as fresh too. The hand check should expect
+  `[fetch failed or running]` to show briefly on a prompt drawn during each five-minute
+  background fetch; it lasting past the next prompt means the fetch failed
+  (`~/.cache/git-prompt-fetch.log` has why).
 - [ ] 🔄 **Task 2.4**: the root fetch bug (Decision 2): a failed fetch empties `FETCH_HEAD`
   and dates it now, so the mark read the prompt's own failing fetch as fresh. Done in code,
   test first (A14, A15 in `internal/fetchage`): an empty `FETCH_HEAD` is
@@ -67,6 +70,16 @@ agent at all. The cause is unknown, so this plan triages first.
   `acceptance.bash` (checks in `check-fetch-age.bash`) proves the installed binary on the
   host, with a real failing fetch and the deployed PS1. Left: the `play-basic-configs.yml`
   run that installs it and that acceptance run, both queued in `meta-deploy.list`.
+- [ ] 🔄 **Task 2.5**: the prompt's background fetch can ask for nothing (Goal 2, Decision 2).
+  Done in code, test first: `git-prompt-fetch` (`src-go/internal/promptfetch`, F1-F6) runs
+  `git fetch` with ssh in BatchMode, added to the ssh command git would use
+  (`GIT_SSH_COMMAND`, else `core.sshCommand`, else `GIT_SSH`, else `ssh`), with
+  `GIT_TERMINAL_PROMPT=0`, no askpass and stdin from `/dev/null`.
+  `play-git-configure-and-tools.yml` builds it root-owned to `/usr/local/bin` and defines, after
+  sourcing `gitprompt.sh`, the `async_run` bash-git-prompt runs its fetch through, so the fetch
+  is `git-prompt-fetch` with its words in `~/.cache/git-prompt-fetch.log`. Seen in the lab: the
+  ssh stand-in was handed `-o BatchMode=yes`. The acceptance's `fetcher` and `override` checks
+  prove it on the host. Left: the play run and the acceptance, queued in `meta-deploy.list`.
 
 ## Technical Decisions
 
@@ -114,9 +127,19 @@ fresh fetch, so the mark never showed in exactly #52's case.
 **Decision**: `git-fetch-age` reads size as well as date. An empty `FETCH_HEAD` is shown as
 ` [fetch failed or running]`, however young; the last fetch is the newest `FETCH_HEAD` with
 a record in it. A prompt drawn while a working fetch runs is marked too, which is true: its
-counts are not yet fresh. The fetch failing when the key is not in the agent is upstream
-behaviour and an environment fact, not changed here (Decision 1 rules out a fetch of our
-own); the triage records whether the host's agent holds the key.
+counts are not yet fresh. So is a successful fetch that matches no ref (a remote with no
+branches yet), which also leaves `FETCH_HEAD` empty; the file cannot tell it from a failure,
+and it is rare enough to accept (A14 says so).
+
+Upstream's fetch asking for a passphrase breaks Goal 2, so it is changed too, without
+replacing the fetch (Decision 1 still holds: no fetch of our own, upstream's timer decides
+when). bash-git-prompt runs that fetch, and nothing else, through its `async_run`; the play
+defines `async_run` after sourcing it to run `git-prompt-fetch`, which puts ssh in BatchMode
+on top of whatever ssh command git would use, so a per-account `core.sshCommand` key still
+works. A fetch that would need a passphrase now fails without a word on the terminal, and the
+mark shows it. The acceptance checks the installed `gitprompt.sh` still calls `async_run` only
+for the fetch, since a newer upstream could use it for more. The triage still records
+whether the host's agent holds the key.
 
 **Date**: 2026-10-21
 

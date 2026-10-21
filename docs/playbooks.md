@@ -262,7 +262,9 @@ skips the read-back.
 **Actions**:
 
 - Configures git user name and email
-- Installs bash-git-prompt with Solarized theme
+- Installs bash-git-prompt with Solarized theme; its background fetch runs `git-prompt-fetch`
+  (a Go binary from `src-go/`, so this play imports `play-golang.yml`), which can never ask
+  for a passphrase
 - Installs GitHub CLI (gh)
 - Adds a bashrc prompt offering to start `ssh-agent` on SSH sessions without one
 - Signs every commit and tag with this machine's login key, `~/.ssh/id`, through the

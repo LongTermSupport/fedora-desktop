@@ -6,9 +6,11 @@
 # play-basic-configs.yml built and installed, the real git, and the deployed prompt file. It
 # checks the binary and the prompt are installed, the marks in scratch repositories, that a
 # real fetch which cannot reach its remote leaves an empty FETCH_HEAD that is marked rather
-# than read as fresh (the cause of #52), and that the deployed PS1 shows the mark. HOST ONLY.
+# than read as fresh (the cause of #52), and that the deployed PS1 shows the mark. Then that
+# the prompt's background fetch is git-prompt-fetch (play-git-configure-and-tools.yml), which
+# hands ssh BatchMode and no terminal, so it can never ask for a passphrase. HOST ONLY.
 #
-# It never reaches a remote: the one fetch it runs goes through ssh replaced by false. It
+# It never reaches a remote: its fetches go through ssh replaced by false or a stand-in. It
 # changes nothing but the scratch directories it makes with mktemp -d and removes. No
 # prompts. The yellow mark in a real terminal is the owner's look.
 #
@@ -36,9 +38,11 @@ plan_init "${BASH_SOURCE[0]}"
 
 PLAN_USAGE="usage: acceptance.bash [-h|--help]
 
-The Plan 00183 acceptance gate. Run play-basic-configs.yml first (meta-deploy.bash does).
-It runs the installed git-fetch-age in scratch repositories, after a real fetch that cannot
-reach its remote, and through the deployed prompt. It never reaches a remote.
+The Plan 00183 acceptance gate. Run play-basic-configs.yml and play-git-configure-and-tools.yml
+first (meta-deploy.bash does). It runs the installed git-fetch-age in scratch repositories,
+after a real fetch that cannot reach its remote, and through the deployed prompt; then
+git-prompt-fetch through a recording ssh stand-in, and checks the interactive shell's
+async_run. It never reaches a remote.
 
 EXIT STATUS
   0  ACCEPTED — every check ran and passed
@@ -62,4 +66,6 @@ plan_gather_leg "git-fetch-age installed root-owned, and the prompt calls it" ba
 plan_gather_leg "marks: fresh none, 3 days old, none recorded, empty FETCH_HEAD" bash "${checker}" marks
 plan_gather_leg "a real fetch that cannot reach its remote is marked, not read as fresh" bash "${checker}" failed
 plan_gather_leg "the deployed prompt shows the mark" bash "${checker}" prompt
+plan_gather_leg "git-prompt-fetch gives ssh BatchMode and no terminal" bash "${checker}" fetcher
+plan_gather_leg "the prompt's fetch runs through git-prompt-fetch" bash "${checker}" override
 plan_finish

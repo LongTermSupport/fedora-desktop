@@ -11,14 +11,20 @@
 #               mark then says so: the prompt's own failing fetch is not read as fresh (#52)
 #   prompt      the deployed prompt's PS1, expanded by bash in a stale scratch checkout,
 #               shows the mark
+#   fetcher     git-prompt-fetch hands ssh the repository's own ssh command with BatchMode
+#               added, and no terminal on stdin, so the prompt's fetch can ask for nothing
+#   override    the installed bash-git-prompt calls async_run only for its fetch, and an
+#               interactive shell's async_run runs git-prompt-fetch
 #
 # Exit 0 when the check passed, 1 when it failed (the reason on stderr).
 set -euo pipefail
 
-check="${1:?usage: check-fetch-age.bash <installed|marks|failed|prompt>}"
+check="${1:?usage: check-fetch-age.bash <installed|marks|failed|prompt|fetcher|override>}"
 # CHECK_FETCH_AGE_BIN runs the checks against a build instead, before it is deployed.
 readonly BIN="${CHECK_FETCH_AGE_BIN:-/usr/local/bin/git-fetch-age}"
 readonly PROMPT_FILE=/var/local/ps1-prompt
+readonly FETCHER="${CHECK_PROMPT_FETCH_BIN:-/usr/local/bin/git-prompt-fetch}"
+readonly GITPROMPT="${HOME}/.bash-git-prompt/gitprompt.sh"
 readonly FAILED_MARK=' [fetch failed or running]'
 
 scratch="$(mktemp -d)"
@@ -102,8 +108,50 @@ EOF
     printf '  ok: the deployed prompt shows%s in a checkout whose fetch failed\n' "${FAILED_MARK}"
 }
 
+# fetcher: git-prompt-fetch, run in a scratch checkout whose core.sshCommand is a recording
+# stand-in, hands ssh that command with BatchMode added, and nothing to read.
+check_fetcher() {
+    local dir stub argv
+    [[ -x "${FETCHER}" && "$(stat -c %U "${FETCHER}")" == root ]] ||
+        fail "${FETCHER} is missing, not executable or not root-owned; play-git-configure-and-tools.yml installs it"
+    dir="$(repo fetcher)"
+    stub="${scratch}/ssh-stub"
+    argv="${scratch}/ssh-argv"
+    printf '#!/bin/sh\nprintf "%%s\\n" "$*" > "%s"\n[ -t 0 ] && echo stdin-is-a-terminal >> "%s"\nexit 255\n' \
+        "${argv}" "${argv}" >"${stub}"
+    chmod +x "${stub}"
+    git -C "${dir}" config core.sshCommand "${stub} -F /dev/null"
+    if (cd "${dir}" && env -u GIT_SSH_COMMAND "${FETCHER}"); then
+        fail "git-prompt-fetch succeeded through an ssh that always fails"
+    fi
+    [[ -s "${argv}" ]] || fail "git-prompt-fetch never ran the repository's core.sshCommand"
+    grep -q -- '^-F /dev/null -o BatchMode=yes ' "${argv}" ||
+        fail "ssh was not given the repository's options then BatchMode: $(cat "${argv}")"
+    if grep -q stdin-is-a-terminal "${argv}"; then
+        fail "the fetch's ssh had a terminal on stdin"
+    fi
+    printf '  ok: ssh ran as [%s], no terminal on stdin\n' "$(head -n 1 "${argv}")"
+}
+
+# override: the installed bash-git-prompt runs async_run only for its fetch, and the interactive
+# shell's async_run is the one the play defines, which runs git-prompt-fetch.
+check_override() {
+    local calls defined
+    [[ -f "${GITPROMPT}" ]] || fail "${GITPROMPT} is missing"
+    calls="$(grep -E '^[[:space:]]*async_run ' "${GITPROMPT}")" || fail "${GITPROMPT} no longer calls async_run"
+    if grep -v 'git fetch' <<<"${calls}"; then
+        fail "${GITPROMPT} calls async_run for something besides its fetch (above); the override would replace it"
+    fi
+    defined="$(bash -ic 'declare -f async_run' < /dev/null 2>"${scratch}/bashrc-stderr")" ||
+        fail "an interactive bash defines no async_run; its stderr: $(cat "${scratch}/bashrc-stderr")"
+    [[ "${defined}" == *git-prompt-fetch* ]] || fail "the interactive async_run does not run git-prompt-fetch: ${defined}"
+    printf '  ok: bash-git-prompt calls async_run only for its fetch, and it runs git-prompt-fetch\n'
+}
+
 case "${check}" in
     installed) check_installed ;;
+    fetcher) check_fetcher ;;
+    override) check_override ;;
     marks) check_marks ;;
     failed) check_failed ;;
     prompt) check_prompt ;;

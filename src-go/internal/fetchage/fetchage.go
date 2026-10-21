@@ -27,7 +27,9 @@
 //   - A14 git empties FETCH_HEAD before it contacts the remote, so a fetch that failed (the
 //     prompt's own background fetch with no key in the agent) leaves an empty, newly dated
 //     FETCH_HEAD, as does one still running. An empty FETCH_HEAD is never a fetch: it is
-//     FailedMark, however young.
+//     FailedMark, however young. A fetch that succeeds but matches no ref (a remote with no
+//     branches yet, a refspec that matches nothing) also leaves it empty, and is marked the
+//     same until a fetch writes a record: the file cannot tell the two apart.
 //   - A15 across worktrees the last fetch is the newest FETCH_HEAD with a record in it; within
 //     Threshold it is no mark whatever failed since, and an empty one newer than a stale fetch
 //     is FailedMark.

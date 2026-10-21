@@ -12,6 +12,9 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
+// gitProgram is the one program this package runs.
+const gitProgram = "git"
+
 // Git runs git through a Runner.
 type Git struct {
 	runner execx.Runner
@@ -38,7 +41,7 @@ const notARepository = "fatal: not a git repository"
 // corrupt one) or git being unrunnable is an error carrying git's words.
 func (g *Git) ProjectHere(ctx context.Context, dir string) (bool, error) {
 	args := []string{"rev-parse", "--is-inside-work-tree"}
-	res, err := g.runner.Run(ctx, execx.Cmd{Name: "git", Args: args, Dir: dir, Env: []string{"LC_ALL=C"}})
+	res, err := g.runner.Run(ctx, execx.Cmd{Name: gitProgram, Args: args, Dir: dir, Env: []string{"LC_ALL=C"}})
 	if err != nil {
 		if exitErr, ok := errors.AsType[*execx.ExitError](err); ok &&
 			strings.HasPrefix(strings.TrimSpace(exitErr.Stderr), notARepository) {
@@ -234,7 +237,7 @@ func lines(b []byte) []string {
 }
 
 func (g *Git) run(ctx context.Context, dir string, args ...string) (execx.Result, error) {
-	res, err := g.runner.Run(ctx, execx.Cmd{Name: "git", Args: args, Dir: dir})
+	res, err := g.runner.Run(ctx, execx.Cmd{Name: gitProgram, Args: args, Dir: dir})
 	if err != nil {
 		return res, fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 	}
