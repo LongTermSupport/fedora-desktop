@@ -1,5 +1,18 @@
 # N1 Task 1.4 (hostchecks): handoff
 
+## Constraints from the lead, after the WIP commits (they override what follows)
+
+1. **No new Python tooling.** The delivered probe is Go: a Go test behind a build tag (as M44 is) or
+   a small Go program, driven by the plan script. `hca_server.py`, `hca_probe.py` and `test_hca.py`
+   (committed in b8c3fcb3 and 3b7be112, not pushed) are the reference to port, then `git rm`. The
+   findings and API answers below stay valid: they are Tuwunel's, not the language's.
+2. **Gate A.** On the host the throwaway Tuwunel uses no `teamchat` name in any unit or path: a
+   mktemp directory, a plain process (no unit), a random free port, nothing left behind; the script
+   refuses anything else, or else targets the VM lab. Rename the server name `hca.teamchat.internal`
+   to a neutral one (for example `hca.invalid`), and the Element profile `Element-teamchat-hca` must
+   not carry the name either (or the Element mode is dropped). Move the work directory out of the
+   run directory into `mktemp -d`; keep only the report in `PLAN_RUN_DIR`.
+
 Worktree `untracked/worktrees/bus-v2-n1-hostchecks`, branch `feat/bus-v2-n1-hostchecks`, WIP commit
 b8c3fcb3 on db3c8350. Read `untracked/scratch/n1-common.txt` (common rules) first.
 
