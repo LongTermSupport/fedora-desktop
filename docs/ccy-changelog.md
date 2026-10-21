@@ -17,6 +17,20 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.13.19 — container 2.78.13
+
+Follows 3.99.13.18. The image is unchanged, so there is no rebuild.
+
+- **The token hand-off reader asks `id -u` who the user is.** It used `$EUID`, which bash
+  takes from an exported variable of that name, so an environment that set `EUID` could make
+  the reader accept another user's hand-off directory. `/run/user/<uid>` and every ownership
+  check now use one `id -u`, and the launch ends with an error if that fails.
+- **A hand-off file holding only a newline** gets the same "is empty" error, and the same
+  removal, as an empty file; before, it ended the launch with no message.
+- **Correction to 3.99.13.18:** a base the reader's environment does not name is still
+  refused, but the error lists the four accepted bases; it does not name which one was
+  missing.
+
 ## 3.99.13.18 — container 2.78.13
 
 Follows 3.99.13.17. The image is unchanged, so there is no rebuild.

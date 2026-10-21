@@ -27,25 +27,29 @@
 # refused, unread and left in place, and the caller ends the launch. An empty file is
 # refused and removed.
 ccy_token_handoff_take() {
-    local file="${CCY_GH_TOKEN_HANDOFF:-}" dir base candidate known=no
+    local file="${CCY_GH_TOKEN_HANDOFF:-}" dir candidate known=no uid
     unset CCY_GH_TOKEN_HANDOFF
     [ -n "$file" ] || return 0
-    dir="${file%/token}" base="${file%/*/token}"
-    for candidate in "${XDG_RUNTIME_DIR:-}" "/run/user/$EUID" "${TMPDIR:-}" /tmp; do
-        if [ -d "$candidate" ] && [ "$(cd -P -- "$candidate" && pwd)" = "$base" ]; then known=yes; fi
+    # id -u, not $EUID (bash takes EUID from an exported variable of that name), and the
+    # system's id, not one a PATH entry puts first.
+    uid="$(command -p id -u)" || return 1
+    dir="${file%/token}"
+    for candidate in "${XDG_RUNTIME_DIR:-}" "/run/user/$uid" "${TMPDIR:-}" /tmp; do
+        [ ! -d "$candidate" ] || [ "$(cd -P -- "$candidate" && pwd)" != "${dir%/*}" ] || known=yes
     done
+    # %y%m is type and mode: "d700 f600 " is a real directory and a regular file, the file alone with one link.
     if [ "$known" != yes ] || [[ ! "$file" =~ ^/.*/ccy-gh-token\.[[:alnum:]]{6}/token$ ]] \
-        || [ "$(find "$dir" -maxdepth 0 -type d -user "$EUID" -perm 700 -printf ok)" != ok ] \
-        || [ "$(find "$file" -maxdepth 0 -type f -user "$EUID" -perm 600 -links 1 -printf ok)" != ok ]; then
+        || [ "$(find "$dir" "$file" -maxdepth 0 -user "$uid" \( -type d -o -links 1 \) -printf '%y%m ')" != 'd700 f600 ' ]; then
         printf 'ERROR: CCY_GH_TOKEN_HANDOFF=%s is not a GitHub token hand-off file made by ccy (<XDG_RUNTIME_DIR, /run/user/%s, TMPDIR or /tmp>/ccy-gh-token.XXXXXX/token, 0600 and one link, in a 0700 directory, both yours); it was not read and is left in place.\n' \
-            "$file" "$EUID" >&2
+            "$file" "$uid" >&2
         return 1
     fi
-    # read fails at an end of file with no newline, which a launcher before 3.99.13.17 wrote.
-    IFS= read -r GH_TOKEN <"$file" || [ -n "${GH_TOKEN:+set}" ] \
+    # read fails at an end of file with no newline, which a launcher before 3.99.13.17 wrote,
+    # and succeeds with an empty value on a file of one newline: the value is what counts.
+    { IFS= read -r GH_TOKEN || [ -n "${GH_TOKEN:+set}" ]; } <"$file" \
+        && [ -n "${GH_TOKEN:+set}" ] \
         || printf 'ERROR: the GitHub token hand-off file %s (CCY_GH_TOKEN_HANDOFF) is empty; it is removed.\n' "$file" >&2
-    rm -f -- "$file" && rmdir -- "$dir" || return 1
-    [ -n "${GH_TOKEN:+set}" ]
+    rm -f -- "$file" && rmdir -- "$dir" && [ -n "${GH_TOKEN:+set}" ]
 }
 
 # ccy_token_handoff_give — write GH_TOKEN, when set, to a fresh hand-off file and set
@@ -80,9 +84,7 @@ ccy_token_handoff_drop() {
 # handed on. When insulation does not apply it returns here, and this launcher takes the
 # file back itself.
 ccy_token_handoff_insulate() {
-    ccy_token_handoff_give || return 1
-    ccy_tmux_insulate "$@" || return 1
-    ccy_token_handoff_take
+    ccy_token_handoff_give && ccy_tmux_insulate "$@" && ccy_token_handoff_take
 }
 
 ccy_token_handoff_take || exit 1
