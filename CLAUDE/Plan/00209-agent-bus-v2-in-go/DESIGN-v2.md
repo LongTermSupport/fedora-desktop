@@ -377,14 +377,15 @@ default until the owner chooses.
 
 **(d) Tokens only.** No pool seat's password is kept anywhere an owner process can read.
 
-- ccy-teams asks `member add|return|reissue` for `--credential token` for a pool seat too, the
-  path a guest seat already takes (C 3.6.3): inside the password-sudo call, the `teamchat-ctl`
-  child sets a fresh random password that is not kept, logs in once as the seat's one device
-  (`TCSEAT`), and answers the token. The password exists only in that call's memory, so only
-  `teamchat-admin` ever uses it. The roster's `cred` for the seat is a third value,
-  `pool_token`, so that a restore still tells a pool seat from a guest seat (below). The child
-  writes the `ctl/<team>/guest/<handle>.token` copy for guest seats only: the health tick has no
-  use for a pool seat's token (it cannot announce owner seats, C24).
+- C 3.6.3's verbs gain a third credential, `--credential pool_token`, which ccy-teams passes
+  to `member add|return|reissue` for a pool seat in place of `password`. It issues as
+  `--credential token` does for a guest seat: inside the password-sudo call, the
+  `teamchat-ctl` child sets a fresh random password that is not kept, logs in once as the
+  seat's one device (`TCSEAT`), and answers the token. The password exists only in that call's
+  memory, so only `teamchat-admin` ever uses it. Two things differ from `token`. The roster
+  records `cred` `pool_token` (C 3.6.1), so a restore still tells a pool seat from a guest seat
+  (below). The child writes no `ctl/<team>/guest/<handle>.token` copy: the health tick has no use
+  for a pool seat's token (it cannot announce owner seats, C24).
 - The owner's keyring would not be narrower. The owner's Secret Service collection, while it is
   unlocked, answers any process that runs as the owner, so a password kept there is as readable
   as one in the pool. Not keeping the password at all is what "used only by `teamchat-admin`"
@@ -404,8 +405,8 @@ its account clause.
 release cannot both log out (release step 4) and leave the next take a credential. The owner
 picks one of two shapes:
 
-- **(d1) the token is reused** (DC16 (a)). Take step 3 checks the pool's `token` with `whoami`
-  and copies it into `held/`. A refused token (`M_UNKNOWN_TOKEN`: a restore or a reset outside
+- **(d1) the token is reused** (DC16 (a)). Take step 3 makes no login: it checks the pool's
+  `token` with `whoami`, and step 4 writes it as `held/token`. A refused token (`M_UNKNOWN_TOKEN`: a restore or a reset outside
   the pool) stops the take, naming `member reissue`, and takes the place of the `M_FORBIDDEN`
   case. Release step 4 is dropped. No owner password at any take. A released session keeps a
   live token until the seat's next reissue. K13 is open: it can go on reading the seat's traffic
@@ -418,8 +419,8 @@ picks one of two shapes:
   token, which is the same token the session held, and release step 5 removes the pool's
   `token`. Take step 1 reads a pool record with `seat.json` and no `token` as a released seat
   and runs `member reissue`, which asks the owner's password; the reissue places a fresh `token`,
-  and take step 3 then copies it into `held/` with no login and no `whoami` (it was minted inside
-  this take). K13 is closed. That is a password
+  take step 3 then makes no login and no `whoami` (the token was minted inside this take), and
+  step 4 writes it as `held/token`. K13 is closed. That is a password
   at almost every session start; only a session restarted from its record (a crash or a reboot,
   00203 H5) keeps its seat, and its token, without asking.
 
@@ -431,14 +432,15 @@ Under either shape, the rest of C 3.7 changes as follows:
 - **Placement (3.7.3):** the answer's credential for a pool seat is the token. The `.new-`
   directory receives `token`, then `seat.json`. The old bundle moved to quarantine has its
   `token` unlinked, in place of its `password`.
-- **The hot reissue:** step 1 writes the answer's token over the pool's `token`. Step 2 makes no
+- **The hot reissue:** step 1 writes the answer's token as `token.new-<claim>` (`O_EXCL|O_NOFOLLOW`,
+  0600, fsync) and renames it over the pool's `token`. Step 2 makes no
   login: it writes the answer's token as `held/token.new` and renames it over `held/token`.
   Steps 3 and 4 as now. The holder's old token died inside the call, at the password reset with
   device logout (C 3.6.3).
 - **After a restore (C 3.12.2):** the merge rule that gives every `active` handle with `cred`
   `password` a `needs: reissue` applies to `cred` `pool_token` too: the restored database holds
   the token live at the backup, and under (d2) a logout since then would be undone. The recovery
-  runs `member reissue --credential token` for each such handle with a pool record on this host,
+  runs `member reissue --credential pool_token` for each such handle with a pool record on this host,
   in place of `--credential password`, still in the restore's own password-sudo session. LXC
   guest seats keep their own path (`lxc apply`).
 - **DC16's fallbacks are gone.** A device per claim deleted by UIA needs the password. The
@@ -451,9 +453,10 @@ Under either shape, the rest of C 3.7 changes as follows:
   DC19's placement by the owner's uid.
 
 For the build, N2's spec keeps a pool seat's credential behind one type in
-`internal/teamchat/seat`, so that choosing (d) is confined to the changes listed here: the pool
-record and take step 1, take step 3, release steps 4 and 5, placement and its quarantine, the
-hot reissue's step 2, the roster's `cred` value, and the restore's merge rule and recovery.
+`internal/teamchat/seat`, so that choosing (d) is confined to the changes listed here: C 3.6.3's
+`--credential pool_token` and the roster's `cred` value, the pool record and take step 1, take
+steps 3 and 4, release steps 4 and 5, placement and its quarantine, the hot reissue's steps 1
+and 2, and the restore's merge rule and recovery.
 
 ## 8. v1's requirements, traced
 

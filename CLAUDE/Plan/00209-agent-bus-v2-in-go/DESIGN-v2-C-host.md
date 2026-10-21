@@ -1267,7 +1267,7 @@ Decision DC16 holds what a pool seat keeps across sessions. Three designs were w
   container. The `released_ms` bound (3.7.2) holds whatever the `teamchat.floor` marker says,
   since a store-less start begins at the earlier of the two (B 2.6 step 01).
 - (d) the owner's alternative, not built unless the owner chooses it (INT6, gate B): tokens only,
-  the pool keeping a token from `--credential token` and no password anywhere, with either the
+  the pool keeping a token from a new `--credential pool_token` (3.6.3) and no password anywhere, with either the
   token reused (as (a)) or a reissue per take after a release (as (b)). It is set out, with what
   it changes in this section, in [DESIGN-v2.md section 7.1](DESIGN-v2.md#71-int6s-narrower-alternative-a-pool-seat-with-no-password).
 
