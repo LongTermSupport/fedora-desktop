@@ -298,8 +298,9 @@ one gets a Go test that reads a file the Python wrote, so drift fails a test:
 | `$PINGBUS_HOME/<team>/state/team.json`      | the watcher (`inbox.TeamState`)          | `inbox.load_cached_record`                        |
 | `$PINGBUS_HOME/down/<team>`                 | the watcher (`statusline.set_team_down`) | `statusline._is_down`                             |
 
-Plan 00211 is changing `seat.py`, `inbox`, `protocol` and `cli` on another branch. Rerun the
-oracle's `capture` after it merges, before the Go draft is judged.
+Plan 00211 is changing `seat.py`, `inbox`, `protocol` and `cli` on another branch. Re-record the
+oracle (`go test ./internal/pingbus/statusline/golden -update`) after it merges, before the Go
+draft is judged.
 
 ## 9. Candidate departures (to decide, not yet taken)
 
@@ -320,17 +321,15 @@ oracle's `capture` after it merges, before the Go draft is judged.
   this checkout and run through its own shebang. `{world}` stands for the temporary world's
   root. The steps of a scenario share one world, so a cache meets fresh and invalidated
   states, while the Python renders each step from scratch.
-- The recorder and checker is `golden-capture/capture.py` in this plan folder:
-  - `capture.py capture` writes `scenarios.json` from its builders and records the Python's
-    output.
-  - `capture.py check` re-runs the Python against the record, which proves the record can be
-    reproduced.
-  - `capture.py check --impl "<go binary>"` runs a Go draft over the same worlds and lists
-    every difference. It exits 0 when every step matches, 1 on a difference, and 2 when the
-    oracle cannot run.
+- The recorder and checker is the Go test `internal/pingbus/statusline/golden`
+  (`golden_test.go`); the Python builders were retired with `capture.py`, and
+  `scenarios.json` is now the hand-edited source:
+  - `go test ./internal/pingbus/statusline/golden -update` re-records `golden/` from the
+    Python zipapp built from this checkout.
+  - The default run judges the Go `statusline.Run` in-process; `-impl=python` judges the
+    zipapp; `-impl=<command>` judges any binary (split on spaces, run without a shell).
   - Steps can cancel with a signal once the inner has started (it creates `inner-started`),
     and can require pids from pid files to be gone afterwards (S10 to S12).
-- Task 2.1 adds the Go side: a test in `internal/pingbus/statusline/golden` that reads the same
-  testdata, builds each world, drives the Go `run`, and compares byte for byte. A difference
-  is allowed only as a numbered departure (section 9) pinned in `testdata/deviations.json`,
-  on the model of `internal/freeze/golden`.
+- stdout and the exit status are byte for byte. stderr is byte for byte except the one role
+  line, which is compared by shape (S24, S37): the same prefix and the same failed teams. No
+  `deviations.json` is kept, because the shape rule is the pinned departure itself.

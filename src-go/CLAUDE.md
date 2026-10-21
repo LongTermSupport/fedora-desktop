@@ -181,9 +181,9 @@ already listed. Behaviour the golden pins is changed in the same commit as its d
 exception to the rule above. The owner requires exact parity with the Python. The Python stays
 the implementation of the rest of pingbus, and the Go must read its on-disk formats the same
 way. The spec, `SPEC-status-line.md`, comes first. The oracle is
-`internal/pingbus/statusline/golden/testdata/`, recorded from the Python zipapp by that plan's
-`golden-capture/capture.py`. The same script's `check --impl` runs a Go draft over the
-recorded worlds before the Go golden test exists.
+`internal/pingbus/statusline/golden/testdata/`: `scenarios.json` is the hand-edited source, and
+`golden/` is recorded from the Python zipapp by `go test ./internal/pingbus/statusline/golden -update`. The default run judges the Go `statusline.Run`; `-impl=python` judges the zipapp and
+`-impl=<binary>` any other command.
 
 ## Build and deploy
 

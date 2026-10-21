@@ -135,16 +135,11 @@ as hooks-daemon issue #131 and is not this plan's to fix.
   that are not boilerplate. The oracle is `src-go/internal/pingbus/statusline/golden/testdata/`:
   104 scenarios and 122 steps, each recording stdout, stderr and exit, captured from the
   zipapp. They cover inner commands, settings, payloads, records, the membership, roles and
-  refusals, down marks, widths, the timeout, SIGTERM/INT/HUP and the cache. They are recorded
-  and checked by `golden-capture/capture.py`:
-
-  - `capture` writes `scenarios.json` and records the Python.
-  - `check` re-runs the Python and compares.
-  - `check --impl "<bin>"` judges a Go draft.
-
-  `check` passes against the Python, and a stand-in impl fails every step. Still to do, with
-  Task 2.1: the Go golden test over the same testdata, and the owner's call on stderr parity
-  (S24).
+  refusals, down marks, widths, the timeout, SIGTERM/INT/HUP and the cache. The Go golden test
+  (`internal/pingbus/statusline/golden`) reads them: `-update` re-records from the Python,
+  `-impl=python` judges the zipapp, and the default judges the Go code. The Python passes all
+  104 scenarios and a stand-in impl fails every step. The stderr shape rule (S24, S37) is the
+  owner's call taken in SPEC section 4.
 
 - [ ] ⬜ **Task 2.3**: Point the kit's `statusLine` at the Go binary, through the play that
   installs the kit, with the ccy version bump. Measure again with 1.1.

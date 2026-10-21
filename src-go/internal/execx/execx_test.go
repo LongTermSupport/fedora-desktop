@@ -4,12 +4,65 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
+
+// NewSession starts the child as a session leader, so its pid is its process group id (the
+// status line's inner command relies on it to kill everything it started with one signal).
+func TestOSRunnerNewSessionMakesTheChildItsOwnGroup(t *testing.T) {
+	res, err := (OS{}).Run(context.Background(), Cmd{
+		Name:       "sh",
+		Args:       []string{"-c", `echo $$; cut -d' ' -f5 /proc/$$/stat`},
+		NewSession: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Fields(string(res.Stdout))
+	if len(lines) != 2 || lines[0] != lines[1] {
+		t.Fatalf("want the shell's pid as its process group, got %q", res.Stdout)
+	}
+}
+
+// A cancel kills the whole group, grandchildren included, so nothing it started outlives the run.
+func TestOSRunnerCancelKillsTheWholeNewSessionGroup(t *testing.T) {
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := (OS{}).Run(ctx, Cmd{
+			Name:       "sh",
+			Args:       []string{"-c", "sleep 30 & echo $! > " + filepath.Join(dir, "grandchild") + "; wait"},
+			NewSession: true,
+		})
+		done <- err
+	}()
+	pidDir := os.DirFS(dir)
+	for range 500 {
+		if raw, err := fs.ReadFile(pidDir, "grandchild"); err == nil && len(raw) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	if err := <-done; err == nil {
+		t.Fatal("want the cancelled run to fail")
+	}
+	raw, err := fs.ReadFile(pidDir, "grandchild")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fs.Stat(os.DirFS("/proc"), strings.TrimSpace(string(raw))); err == nil {
+		t.Fatal("the grandchild outlived the cancel")
+	}
+}
 
 func TestOSRunnerCapturesOutputAndExitCode(t *testing.T) {
 	r := OS{}

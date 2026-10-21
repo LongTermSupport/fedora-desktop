@@ -38,6 +38,10 @@ type Cmd struct {
 	// ExtraFiles are open files the child inherits from descriptor 3 on (a held lock
 	// delegated to a child).
 	ExtraFiles []*os.File
+	// NewSession starts the child in a new session, so its pid is its process group id, and a
+	// cancel kills that whole group with SIGKILL (not Interrupt): nothing it started outlives
+	// the run. For a command whose children must not outlive it (the status line's inner).
+	NewSession bool
 }
 
 // Line is the argv as one space-joined string, for logs and test matching.
@@ -105,6 +109,10 @@ func (o OS) Run(ctx context.Context, c Cmd) (Result, error) {
 		interrupt = c.Interrupt
 	}
 	cmd.Cancel = func() error { return cmd.Process.Signal(interrupt) }
+	if c.NewSession {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	}
 	cmd.WaitDelay = DefaultGrace
 	if o.Grace > 0 {
 		cmd.WaitDelay = o.Grace
