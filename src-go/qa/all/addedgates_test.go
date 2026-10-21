@@ -20,6 +20,7 @@ var addedAfterPort = []struct{ name, reason string }{
 	{"ccy-container-name", "Plan 00203, the container name race: ccy's name claim (ccy-teams internal claim-container-name) gets its own suite"},
 	{"go-deps", "Plan 00204 D2: src-go may have dependencies, vendored, pinned and allowlisted, and this gate holds them to that"},
 	{"go-vuln", "Plan 00204 D2: govulncheck over src-go's vendored dependencies"},
+	{"run-bash-pipx-inject", "Plan 00188: run.bash injects only the missing Ansible dependencies, and its own suite proves it"},
 }
 
 func isAddedAfterPort(name string) bool {
@@ -80,6 +81,33 @@ var retiredAfterPort = []struct{ row, before, reason string }{
 	},
 }
 
+// replacedAfterPort are the gate rows the table has changed since the bash was recorded: the same
+// gate, in the same place, run by another command. The goldens are what the bash printed over the
+// row it had, so the replay puts the recorded row back in place of the current one.
+var replacedAfterPort = []struct{ row, reason string }{
+	{
+		"gate\tgo\tscripts/qa-go.bash\tGo format, vet, tests or golangci-lint failed (or go/golangci-lint missing)\tdetail:GO-OK [0-9]+ package[(]s[)]",
+		"Plan 00191 Task 3.3: the interim scripts/qa-go.bash is retired for go-qa-ci's go-qa (scripts/qa-go-qa.bash)",
+	},
+}
+
+// A replaced row that is the table's row again, or names a gate the table no longer has, is rot.
+func TestEveryGateReplacedAfterThePortStillDiffersFromItsRecordedRow(t *testing.T) {
+	body, gs := realTable(t)
+	for _, r := range replacedAfterPort {
+		name := gateName(r.row)
+		if name == "" || r.reason == "" {
+			t.Errorf("%q is listed with no gate name or no reason", r.row)
+		}
+		if !slices.ContainsFunc(gs, func(g gates.Gate) bool { return g.Name == name }) {
+			t.Errorf("%s is listed as replaced but is no longer in scripts/qa-gates.tsv", name)
+		}
+		if slices.Contains(strings.Split(body, "\n"), r.row) {
+			t.Errorf("%s is as recorded again: drop it from replacedAfterPort", name)
+		}
+	}
+}
+
 // gateName is a table row's gate name, or "" for a line that is not a gate row.
 func gateName(line string) string {
 	fields := strings.Split(line, "\t")
@@ -89,11 +117,19 @@ func gateName(line string) string {
 	return fields[1]
 }
 
-// tableAsRecorded is the real table with the retired rows put back where they stood.
+// tableAsRecorded is the real table with the retired rows put back where they stood and the
+// replaced rows as they were.
 func tableAsRecorded(t *testing.T) (string, []gates.Gate) {
 	t.Helper()
 	body, current := realTable(t)
 	lines := strings.Split(body, "\n")
+	for _, r := range replacedAfterPort {
+		at := slices.IndexFunc(lines, func(l string) bool { return gateName(l) == gateName(r.row) })
+		if at < 0 {
+			t.Fatalf("replaced row %s is no longer in the table", gateName(r.row))
+		}
+		lines[at] = r.row
+	}
 	for _, r := range retiredAfterPort {
 		at := slices.IndexFunc(lines, func(l string) bool { return gateName(l) == r.before })
 		if at < 0 {
@@ -129,8 +165,11 @@ func TestEveryGateRetiredAfterThePortIsGoneFromTheTable(t *testing.T) {
 		}
 	}
 	restored, all := tableAsRecorded(t)
+	replaced := func(line string) bool {
+		return slices.ContainsFunc(replacedAfterPort, func(r struct{ row, reason string }) bool { return gateName(r.row) == gateName(line) })
+	}
 	for line := range strings.SplitSeq(body, "\n") {
-		if !strings.Contains(restored, line) {
+		if !replaced(line) && !strings.Contains(restored, line) {
 			t.Fatalf("the restored table lost %q", line)
 		}
 	}

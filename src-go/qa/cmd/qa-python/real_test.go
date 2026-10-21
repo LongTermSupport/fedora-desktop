@@ -8,9 +8,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/cmdmaintest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/python"
 )
+
+func TestMain(m *testing.M) { os.Exit(cmdmaintest.Main(m)) }
 
 // Y22: a ruff config nested under the root cannot replace the repository's ruleset, whether it
 // is a pyproject.toml or a ruff.toml; the file is still listed by --show-files, so only the
@@ -55,15 +58,10 @@ func TestRealToolsAcceptARelativeAndATrailingSlashRoot(t *testing.T) {
 	}
 }
 
-// closedStdoutChild names the environment variable that turns this test binary into the command.
-const closedStdoutChild = "QA_PYTHON_CLOSED_STDOUT_CHILD"
-
 // Y3: with stdout closed (>&-) the run is exit 2, it does not report a verdict nobody can read.
-// The test re-runs its own binary as the command, with fd 1 closed by the shell.
+// The test re-runs its own binary as the command over a real tree, with fd 1 closed by the shell.
 func TestAClosedStdoutIsExitTwo(t *testing.T) {
-	if args := os.Getenv(closedStdoutChild); args != "" {
-		os.Exit(run(strings.Fields(args)))
-	}
+	t.Setenv("QA_JSON_OUT", filepath.Join(t.TempDir(), "r.json"))
 	root := t.TempDir()
 	if res, err := (proc.OS{}).Run(context.Background(), proc.Cmd{Argv: []string{"git", "init", "-q"}, Dir: root}); err != nil || res.Code != 0 {
 		t.Fatalf("git init: %v %+v", err, res)
@@ -84,15 +82,5 @@ func TestAClosedStdoutIsExitTwo(t *testing.T) {
 			t.Fatal(wrErr)
 		}
 	}
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	res, runErr := proc.OS{}.Run(context.Background(), proc.Cmd{
-		Argv: []string{"bash", "-c", `exec "$0" -test.run='^TestAClosedStdoutIsExitTwo$' >&-`, self},
-		Env:  []string{closedStdoutChild + "=--root " + root, "QA_JSON_OUT=" + filepath.Join(t.TempDir(), "r.json")},
-	})
-	if runErr != nil || res.Code != int(python.ExitCannotRun) || !strings.Contains(res.Stderr, "ERROR: stdout is closed") {
-		t.Fatalf("closed stdout: %v exit %d\nstderr:\n%s", runErr, res.Code, res.Stderr)
-	}
+	cmdmaintest.RefusesClosedStdout(t, func() int { return run([]string{"--root", root}) }, int(python.ExitCannotRun))
 }

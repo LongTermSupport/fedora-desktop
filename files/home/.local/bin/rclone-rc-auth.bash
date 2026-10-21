@@ -125,9 +125,10 @@ rclone_rc_available() {
 # vfs/stats for a copy happening somewhere else. Asking the process is the only
 # answer that stays right when a mount is added.
 #
-# `rclone-cache-status` and `rclone-tail` carry their own richer form of this
-# walk because they also need --cache-dir per mount; converting them onto this
-# is worth doing and is not free, so it is named here rather than left implicit.
+# `rclone-tail` carries its own richer form of this walk because it also needs
+# --cache-dir per mount; converting it onto this is worth doing and is not free,
+# so it is named here rather than left implicit. (`rclone-cache-status` is Go and
+# asks src-go/internal/rclonerc, the Go twin of this library.)
 rclone_rc_addr_for_mount() {
     local mountpoint="$1"
     local pid cmdline addr

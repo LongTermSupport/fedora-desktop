@@ -6,10 +6,10 @@
 # login user's default application for text/markdown, so a double-click on a .md file in
 # Nautilus opens it rendered.
 #
-# The Go toolchain comes from play-golang.yml, its one source of truth. That play only makes
-# golang present, but md-viewer's go.mod can need the newest patch release and the build runs
-# with GOTOOLCHAIN=local (it never downloads a toolchain), so this play upgrades golang to
-# Fedora's newest build and asserts it meets md_viewer_go_min before building.
+# The Go toolchain comes from play-golang.yml, its one source of truth, which keeps golang at
+# Fedora's newest build. md-viewer's go.mod is its own minimum and the build runs with
+# GOTOOLCHAIN=local (it never downloads a toolchain), so this play asserts the installed Go
+# meets md_viewer_go_min before building.
 - import_playbook: ../../play-golang.yml
 
 - hosts: desktop
@@ -59,14 +59,6 @@
           - vulkan-headers          # vulkan/vulkan.h, which Gio's Vulkan backend includes
           - desktop-file-utils      # desktop-file-validate, update-desktop-database
         state: present
-      tags:
-        - packages
-        - md-viewer
-
-    - name: Upgrade golang to the Newest Fedora Build
-      ansible.builtin.dnf:
-        name: golang
-        state: latest
       tags:
         - packages
         - md-viewer

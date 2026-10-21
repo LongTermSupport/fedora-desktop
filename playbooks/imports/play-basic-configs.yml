@@ -1,5 +1,9 @@
 #!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
 ---
+# The prompt runs git-fetch-age, a Go binary built here from src-go, so the Go toolchain is
+# installed first. play-golang.yml stays its one source of truth.
+- import_playbook: play-golang.yml
+
 - hosts: desktop
   name: Basic Configs
   become: true
@@ -159,6 +163,16 @@
         owner: root
         group: root
         mode: "0644"
+
+    # The prompt calls it at every draw, for root and the user alike, so it is installed
+    # root-owned on the system PATH before the prompt that names it.
+    - name: Build and Install the git-fetch-age Prompt Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: git-fetch-age
+        go_command_dest: /usr/local/bin/git-fetch-age
+        go_command_mode: "0755"
+        go_command_owner: root
 
     - name: Basic Bash Tweaks Prompt File
       ansible.builtin.copy:
@@ -606,47 +620,21 @@
         - { key: timeout, value: "15" }
 
     # Always show GRUB menu — useful for kernel selection and recovery
-    - name: Disable GRUB Menu Auto-Hide
-      ansible.builtin.command: grub2-editenv - unset menu_auto_hide
-      changed_when: true
+    # `check_mode: false` because this reads and changes nothing. Without it the
+    # command module is skipped under `--check`, `stdout_lines` is undefined, and the
+    # `when:` of the task below errors instead of reporting.
+    - name: Read GRUB Environment Block
+      ansible.builtin.command: grub2-editenv list
+      register: grub_env_block
+      changed_when: false
+      check_mode: false
       tags: grub
 
-    - name: Check and Apply Firmware Updates via fwupd
-      ansible.builtin.shell: |
-        set -e
-        fwupdmgr get-devices
-        # Plain refresh respects the fwupd metadata-age cache and exits quickly when fresh
-        # (no forced LVFS re-download every run, PERF-04). rc 2 means metadata already current.
-        rc=0
-        fwupdmgr refresh || rc=$?
-        if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then
-          exit "$rc"
-        fi
-        rc=0
-        fwupdmgr get-updates || rc=$?
-        if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then
-          exit "$rc"
-        fi
-        rc=0
-        fwupdmgr update || rc=$?
-        if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then
-          exit "$rc"
-        fi
-      args:
-        executable: /bin/bash
-      register: fwupd_result
-      # Report changed only when an update was actually staged/applied, not on no-op runs.
-      changed_when: >-
-        'Successfully installed firmware' in fwupd_result.stdout
-        or 'has been updated' in fwupd_result.stdout
-        or 'reboot is required' in fwupd_result.stdout | lower
-      # Firmware updating is a physical-hardware concern with no consumer on a VM /
-      # headless target: fwupd is not installed there and `fwupdmgr get-devices` (or a
-      # no-device `refresh`) exits non-zero under bare `set -e`, aborting the whole run
-      # via any_errors_fatal at play 3. Gate it off on the server profile (same pattern
-      # as the USB-audio task above). Bare-metal servers wanting firmware updates can
-      # revisit this behind an explicit opt-in probe.
-      when: provisioning_profile != 'server'
+    - name: Disable GRUB Menu Auto-Hide
+      ansible.builtin.command: grub2-editenv - unset menu_auto_hide
+      when: grub_env_block.stdout_lines | select('match', '^menu_auto_hide=') | list | length > 0
+      changed_when: true
+      tags: grub
 
     # ABRT crash handling policy (Plan 00134). Two decisions, both stated here rather
     # than left to Fedora's defaults:
@@ -662,7 +650,7 @@
     # read as `abrt_retention_days: {{ abrt_retention_days | default(30) }}`, which is
     # the ansible-core 2.19 self-referential shape the QA gate rejects.
     # The whole policy is a DESKTOP concern (the applet and µReports are desktop-shaped), so
-    # it is gated off the server profile the same way fwupd is above. Nothing else in this
+    # it is gated off the server profile the same way fwupd (the last task) is. Nothing else in this
     # repo installs ABRT: the Workstation image ships it, a leaner desktop image may not, and
     # the probe below needs `abrt-auto-reporting` on PATH — so the block declares the two
     # packages it depends on rather than trusting the image. A host that later resolves to
@@ -753,3 +741,48 @@
               - "{{ abrt_policy_days }}"
           register: abrt_prune_result
           changed_when: "'ABRT-PRUNE-CHANGED' in abrt_prune_result.stdout"
+
+    # Last on purpose: fwupd depends on the external LVFS CDN, which can fail for long
+    # stretches (503 on the signature file). Every task above is independent of it and
+    # must not sit behind it. It still fails loudly when LVFS is down.
+    - name: Check and Apply Firmware Updates via fwupd
+      ansible.builtin.shell: |
+        set -e
+        fwupdmgr get-devices
+        # Plain refresh respects the fwupd metadata-age cache and exits quickly when fresh
+        # (no forced LVFS re-download every run, PERF-04). rc 2 means metadata already current.
+        rc=0
+        fwupdmgr refresh || rc=$?
+        if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then
+          exit "$rc"
+        fi
+        rc=0
+        fwupdmgr get-updates || rc=$?
+        if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then
+          exit "$rc"
+        fi
+        rc=0
+        fwupdmgr update || rc=$?
+        if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then
+          exit "$rc"
+        fi
+      args:
+        executable: /bin/bash
+      register: fwupd_result
+      # The LVFS CDN answers a transient 503 now and then; retry before failing the play.
+      # The task still fails once the retries are spent.
+      until: fwupd_result.rc == 0
+      retries: 3
+      delay: 60
+      # Report changed only when an update was actually staged/applied, not on no-op runs.
+      changed_when: >-
+        'Successfully installed firmware' in fwupd_result.stdout
+        or 'has been updated' in fwupd_result.stdout
+        or 'reboot is required' in fwupd_result.stdout | lower
+      # Firmware updating is a physical-hardware concern with no consumer on a VM /
+      # headless target: fwupd is not installed there and `fwupdmgr get-devices` (or a
+      # no-device `refresh`) exits non-zero under bare `set -e`, aborting the whole run
+      # via any_errors_fatal at play 3. Gate it off on the server profile (same pattern
+      # as the USB-audio task above). Bare-metal servers wanting firmware updates can
+      # revisit this behind an explicit opt-in probe.
+      when: provisioning_profile != 'server'

@@ -24,7 +24,7 @@ type memberCase struct {
 }
 
 const limitKeys = "send_per_minute, send_burst, recv_per_sender_minute, ack_timeout_s, " +
-	"halt_ack_timeout_s, human_max_age_s, wait_timeout_s"
+	"halt_ack_timeout_s, human_max_age_s, wait_timeout_s, report_per_hour"
 
 func refuse(key, why string) string { return key + " " + why }
 
@@ -195,7 +195,7 @@ func limitCases() []memberCase {
 		{about: "limits an unknown key", doc: limits(`{"send_burst": 2, "bogus": 1}`), want: "limits may hold only these keys: " + limitKeys},
 		{about: "limits empty", doc: limits("{}")},
 		{about: "limits every bound", doc: limits(`{"send_per_minute": 60, "send_burst": 1, "recv_per_sender_minute": 600, ` +
-			`"ack_timeout_s": 60, "halt_ack_timeout_s": 3600, "human_max_age_s": 3600, "wait_timeout_s": 1790}`)},
+			`"ack_timeout_s": 60, "halt_ack_timeout_s": 3600, "human_max_age_s": 3600, "wait_timeout_s": 1790, "report_per_hour": 60}`)},
 		{
 			about: "limits the first bad in file order", doc: limits(`{"send_burst": 0, "send_per_minute": 0}`),
 			want: "limits.send_burst must be an integer from 1 to 30",

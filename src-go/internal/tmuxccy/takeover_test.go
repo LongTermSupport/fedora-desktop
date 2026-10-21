@@ -309,12 +309,20 @@ func TestTakeOverDefaultsToTheRealClockAndSleep(t *testing.T) {
 		t.Fatal(err)
 	}
 	tm.Runner = takeOverScript(func(int) execx.Result { return ok("/dev/pts/3 1\n") }, ok(""), "")
-	start := time.Now()
-	if _, err := tm.TakeOver(context.Background(), "alpha", 1); err == nil {
-		t.Fatal("want a timeout")
-	}
-	if time.Since(start) < 90*time.Millisecond {
+	// One tenth of a second to wait means one real 100 ms sleep: the take-over must still be
+	// running when a 90 ms timer fires, and then end in the timeout.
+	done := make(chan error, 1)
+	go func() {
+		_, err := tm.TakeOver(context.Background(), "alpha", 1)
+		done <- err
+	}()
+	select {
+	case <-done:
 		t.Fatal("the real sleep did not run")
+	case <-time.After(90 * time.Millisecond):
+	}
+	if err := <-done; err == nil {
+		t.Fatal("want a timeout")
 	}
 }
 

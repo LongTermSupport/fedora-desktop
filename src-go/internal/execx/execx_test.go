@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -25,6 +26,27 @@ func TestOSRunnerCapturesOutputAndExitCode(t *testing.T) {
 	}
 	if !strings.Contains(exit.Error(), "sh exited 3") {
 		t.Fatalf("error text %q", exit.Error())
+	}
+}
+
+func TestOSRunnerNamesTheSignalThatEndedTheCommand(t *testing.T) {
+	_, err := OS{}.Run(context.Background(), Cmd{Name: "sh", Args: []string{"-c", "kill -TERM $$"}})
+	exit, ok := errors.AsType[*ExitError](err)
+	if !ok {
+		t.Fatalf("want *ExitError, got %v", err)
+	}
+	if exit.Signal != syscall.SIGTERM || exit.Code != -1 {
+		t.Fatalf("signal %v code %d", exit.Signal, exit.Code)
+	}
+	if exit.Error() != "sh killed by SIGTERM" {
+		t.Fatalf("error text %q", exit.Error())
+	}
+}
+
+func TestOSRunnerAnExitIsNoSignal(t *testing.T) {
+	_, err := OS{}.Run(context.Background(), Cmd{Name: "sh", Args: []string{"-c", "exit 130"}})
+	if exit, ok := errors.AsType[*ExitError](err); !ok || exit.Signal != 0 || exit.Code != 130 {
+		t.Fatalf("got %#v", err)
 	}
 }
 

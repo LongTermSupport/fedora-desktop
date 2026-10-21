@@ -13,8 +13,11 @@ run `gh auth login --hostname github.com`". Setting this up is yours; nothing he
 
 1. The kit inside the container. Copy this kit, /usr/local/share/agent-bus/kit/, into the
    image, or mount it read-only at the same path, and put its `pingbus` and
-   `agent-bus-claude` on PATH. The image needs Python 3.11 or later; `pingbus` refuses an
-   older one (exit 78).
+   `agent-bus-claude` on PATH. The image needs Python 3.11 or later. `pingbus` starts the
+   interpreter its first line names (it does not look python3 up on PATH), which is
+   /usr/bin/python3 as built; where that is older (EL9's is 3.9), name a newer one with
+   `python3.N -m zipapp ./pingbus -p /usr/bin/python3.N -o pingbus.new` (3.11 or later) and
+   put pingbus.new in its place. `pingbus` refuses an older one (exit 78).
 
 2. The network. The container reaches the homeserver host's bus address, `<bus_ip>`,
    routed through the docker bridge, so the team file's `allow_from` must list the docker

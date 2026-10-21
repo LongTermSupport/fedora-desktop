@@ -48,6 +48,7 @@ var limitBounds = []struct {
 	{"halt_ack_timeout_s", 30, 3600},
 	{"human_max_age_s", 3600, 604800},
 	{"wait_timeout_s", 1, 1790},
+	{"report_per_hour", 1, 60},
 }
 
 const dnsLabel = `[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?`

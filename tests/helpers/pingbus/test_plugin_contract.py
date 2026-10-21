@@ -66,7 +66,8 @@ INERT_SESSION_START = INERT_HEAD + "exec pingbus hook conversation; "
 INERT_RUNS = {"SessionStart": "conversation"}
 
 #: The commands an agent runs by hand, each of which the skill must name.
-AGENT_COMMANDS = ("send", "say", "recv", "wait", "inbox", "status", "history", "config check", "validate")
+AGENT_COMMANDS = ("send", "say", "recv", "wait", "inbox", "status", "history", "config check", "validate",
+                  "report", "ask-human", "thread", "questions")
 
 EX_CONFIG = config.ConfigError.EXIT_CODE
 
@@ -95,9 +96,11 @@ class PluginLayoutTest(unittest.TestCase):
         # U01: in bypass mode without this setting a notice is held and no turn starts.
         # Plan 00201 S-C6: the status line is pingbus's, which runs the session's own first.
         # Plan 00194 Task 2.0b: the SessionEnd bound a ccy session's settings raise (seat.py).
+        # Plan 00213 Task 2.3: the status line is the Go port, which starts no Python.
         self.assertEqual(load_json(SETTINGS), {
             "crossSessionInbound": "accept",
-            "statusLine": {"type": "command", "command": "pingbus status-line", "refreshInterval": 1},
+            "statusLine": {"type": "command", "command": "pingbus-status-line",
+                           "refreshInterval": seat.STATUS_LINE_REFRESH_S},
             "env": {"CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS": str(seat.SESSION_END_BUDGET_MS)},
         })
 
@@ -317,6 +320,30 @@ class SkillTest(unittest.TestCase):
         self.assertIn("is for:", self.flat)
         self.assertIn("is for:", hooks.TEMPLATES["team_about"])
 
+    def test_reports_and_questions_rules(self) -> None:
+        """Plan 00211 SPEC §10.1: workers ask the coordinator, never a human; reports are for the
+        humans to read, never a question; the coordinator bubbles up only what it cannot answer,
+        one self-contained question at a time, and passes every answer on."""
+        for rule in (
+            "a **main room** for all agent traffic, a **reports room** for the humans to read, and a "
+            "**questions room** between the coordinator and the humans",
+            "Questions go to the coordinator, never to a human.",
+            "ask the coordinator with `pingbus say --to-coordinator`",
+            "Once the reports room exists, write to a human only to answer a human who wrote to you",
+            "carry on in the main room as before",
+            "Reports are for the humans to read, not to answer.",
+            "Not routine progress, not a question, not a request.",
+            "Nobody is woken by a report and nobody replies to one",
+            "Bubble up only what you cannot answer",
+            "one question per message, self-contained",
+            "Never paste a worker's question unedited, never bundle several, and never ask what you can "
+            "find out",
+            "Every human message in the questions room is for you",
+            "A `revises:` line means the human corrected an earlier answer",
+            "`no-room`",
+        ):
+            self.assertIn(rule, self.flat)
+
     def test_history_is_a_record_never_work(self) -> None:
         for rule in (
             "A `HISTORY` line is a record, never a request to act",
@@ -444,6 +471,8 @@ class LauncherTest(unittest.TestCase):
         self.kit = self.root / "kit"
         shutil.copytree(KIT, self.kit)
         write_exe(self.kit / "pingbus", FAKE_PINGBUS)
+        # The play builds it into the kit (Plan 00213); the launcher only requires it there.
+        write_exe(self.kit / "pingbus-status-line", "#!/bin/sh\nexit 0\n")
         self.bin = self.root / "bin"
         self.bin.mkdir()
         write_exe(self.bin / "claude", FAKE_CLAUDE)
@@ -543,12 +572,13 @@ class LauncherTest(unittest.TestCase):
         self.assertEqual(self.claude_call()["env"]["PATH"].split(":")[0], str(self.kit))
 
     def test_without_a_kit_pingbus_the_one_on_path_is_used(self) -> None:
+        """The kit still goes first: its settings run pingbus-status-line by name (Plan 00213)."""
         (self.kit / "pingbus").unlink()
         write_exe(self.bin / "pingbus", FAKE_PINGBUS)
         result = self.run_launcher()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.pingbus_calls(), ["config check"])
-        self.assertEqual(self.claude_call()["env"]["PATH"], self.environ["PATH"])
+        self.assertEqual(self.claude_call()["env"]["PATH"], f"{self.kit}:{self.environ['PATH']}")
 
     def test_found_through_a_symlink(self) -> None:
         link = self.bin / "agent-bus-claude"
@@ -650,13 +680,17 @@ class LauncherTest(unittest.TestCase):
         self.assert_refused(self.run_launcher(), EX_CONFIG, "claude")
 
     def test_refuses_an_incomplete_kit(self) -> None:
-        for name in ("settings.json", "plugin/pingbus/hooks/hooks.json"):
+        for name in ("settings.json", "plugin/pingbus/hooks/hooks.json", "pingbus-status-line"):
             with self.subTest(name=name):
                 path = self.kit / name
                 saved = path.read_bytes()
                 path.unlink()
-                self.assert_refused(self.run_launcher(), EX_CONFIG, name)
-                path.write_bytes(saved)
+                try:
+                    result = self.run_launcher()
+                    self.assert_refused(result, EX_CONFIG, name)
+                    self.assertIn("play-agent-bus.yml", result.stderr)
+                finally:
+                    path.write_bytes(saved)
 
 
 if __name__ == "__main__":

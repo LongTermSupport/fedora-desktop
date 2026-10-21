@@ -118,7 +118,7 @@ func Populated(t *testing.T) *World {
 	w.On("systemctl list-units", UnitAlpha, 0)
 	w.On("systemctl is-active agent-bus-hs@alpha.service", "active\n", 0)
 	w.On("tmux -L ccy list-sessions", "ccy-proj 0 "+w.Checkout()+"\n", 0)
-	w.On("git rev-parse --is-inside-work-tree", "", 128)
+	w.OnNotARepository()
 	w.On(SudoBus+"list alpha", BusList, 0)
 	w.On(SudoBus+"human devices alpha owner", "", 0)
 	w.On(SudoBus+"human devices alpha guest", "DEVICE\ta\t-\nDEVICE\tb\t1\n", 0)
@@ -144,9 +144,18 @@ func (w *World) OnErr(prefix, stderr string, code int) {
 	w.Fake.On(strings.Fields(prefix), execx.Result{Stderr: []byte(stderr), ExitCode: code})
 }
 
+// NotARepository is git's own refusal for a folder in no repository, the one refusal
+// gitx.ProjectHere reads as "not a checkout".
+const NotARepository = "fatal: not a git repository (or any of the parent directories): .git"
+
+// OnNotARepository scripts git to say the folder is in no repository.
+func (w *World) OnNotARepository() {
+	w.OnErr("git rev-parse --is-inside-work-tree", NotARepository, 128)
+}
+
 // DeclarePrefix is the argv start of one declare.py subcommand.
 func (w *World) DeclarePrefix(sub string) string {
-	return "env PYTHONPATH=" + w.Host.RootDir + " python3 -P -m helpers.agent_bus.declare " + sub
+	return "env PYTHONPATH=" + w.Host.RootDir + " /usr/bin/python3 -P -m helpers.agent_bus.declare " + sub
 }
 
 // declareReads are the declare.py subcommands ccy-teams answers in-process from the host_vars

@@ -8,10 +8,10 @@ Every value comes from arguments (`--opt=value`) or, for `render`, the team file
 stdin; nothing prompts.
 
 Streams (CLAUDE/StderrHygiene.md): stdout is the payload only: `CHANGED <what>` marker
-lines, `list` / `human devices` lines, the `render` output, the bundle tar, or the
+lines, `list` / `human devices` lines, `check-rooms`' `PROBLEM <what>` lines, the `render` output, the bundle tar, or the
 password `human password` prints once. Diagnostics go to stderr and hold no secret.
 
-Exit codes: 0 done; 64 usage; 69 homeserver unreachable; 70 refused (by the homeserver,
+Exit codes: 0 done; 1 `check-rooms` found a problem; 64 usage; 69 homeserver unreachable; 70 refused (by the homeserver,
 or because the team's state does not allow it); 78 configuration (team file, team
 directory, secret files, registry).
 """
@@ -33,6 +33,7 @@ TOOL_VERSION = "0.1.0"
 STATE_ROOT = pathlib.Path(render.STATE_ROOT)
 
 EXIT_OK = 0
+EXIT_PROBLEM = 1
 EXIT_USAGE = 64
 EXIT_UNREACHABLE = 69
 EXIT_REFUSED = 70
@@ -128,6 +129,12 @@ def cmd_rotate_token(args: argparse.Namespace, team: admin.Team, transport: admi
 def cmd_list(args: argparse.Namespace, team: admin.Team, transport: admin.Transport, io: _Io) -> int:
     io.lines(admin.list_members(team, transport))
     return EXIT_OK
+
+
+def cmd_check_rooms(args: argparse.Namespace, team: admin.Team, transport: admin.Transport, io: _Io) -> int:
+    problems = admin.check_rooms(team, transport)
+    io.lines([f"PROBLEM\t{problem}" for problem in problems])
+    return EXIT_PROBLEM if problems else EXIT_OK
 
 
 def cmd_human(args: argparse.Namespace, team: admin.Team, transport: admin.Transport, io: _Io) -> int:
@@ -306,6 +313,8 @@ def build_parser(stdout: BinaryIO) -> argparse.ArgumentParser:
     rotate = team_command("rotate-token", cmd_rotate_token, "log a member out; a new token to --out")
     rotate.add_argument("handle", metavar="HANDLE")
     team_command("list", cmd_list, "members, roles and room membership; no tokens")
+    team_command("check-rooms", cmd_check_rooms,
+                 "the side rooms' drift and membership, read-only; a PROBLEM line each, exit 1 on any")
     human = commands.add_parser("human", help="a team human's account")
     human.add_argument("action", choices=HUMAN_ACTIONS)
     human.add_argument("team", metavar="TEAM")

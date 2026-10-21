@@ -39,7 +39,9 @@ func (c *conf) read(path string) ([]byte, error) {
 func finder(top string, c *conf) *Finder {
 	fake := &execx.Fake{}
 	if top == "" {
-		fake.On([]string{"git", "rev-parse", "--is-inside-work-tree"}, execx.Result{ExitCode: 128})
+		fake.On([]string{"git", "rev-parse", "--is-inside-work-tree"}, execx.Result{
+			ExitCode: 128, Stderr: []byte("fatal: not a git repository (or any of the parent directories): .git"),
+		})
 	} else {
 		fake.On([]string{"git", "rev-parse", "--is-inside-work-tree"}, execx.Result{Stdout: []byte("true\n")})
 		fake.On([]string{"git", "rev-parse", "--show-toplevel"}, execx.Result{Stdout: []byte(top + "\n")})

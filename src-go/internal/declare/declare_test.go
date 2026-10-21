@@ -13,7 +13,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
-const prefix = "env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare"
+const prefix = "env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare"
 
 func newClient(f *execx.Fake) *Client {
 	return &Client{Runner: f, Root: "/root", File: "/hv.yml"}
@@ -50,7 +50,7 @@ func TestSuccessfulRunStderrIsForwardedEvenWithNoErrWriter(t *testing.T) {
 }
 
 func script(f *execx.Fake, sub, stdout string) {
-	f.On([]string{"env", "PYTHONPATH=/root", "python3", "-P", "-m", "helpers.agent_bus.declare", sub},
+	f.On([]string{"env", "PYTHONPATH=/root", "/usr/bin/python3", "-P", "-m", "helpers.agent_bus.declare", sub},
 		execx.Result{Stdout: []byte(stdout)})
 }
 

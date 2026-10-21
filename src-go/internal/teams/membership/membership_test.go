@@ -1,6 +1,7 @@
 package membership
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -153,6 +154,15 @@ func TestInitNeedsAnAbsoluteRuntimeDirectory(t *testing.T) {
 	}
 }
 
+// many65 is a --teams list of one seat more than pingbus takes.
+func many65() string {
+	items := make([]string, maxSeats+1)
+	for i := range items {
+		items[i] = fmt.Sprintf("1@t%d", i)
+	}
+	return strings.Join(items, ",")
+}
+
 func TestInitRefusesWhatIsNotItsThreeArguments(t *testing.T) {
 	cases := map[string][]string{
 		"no arguments":              nil,
@@ -178,6 +188,9 @@ func TestInitRefusesWhatIsNotItsThreeArguments(t *testing.T) {
 		"a seven-digit seat":        {"s", "/c", "1000000@a"},
 		"a 25-character team":       {"s", "/c", "1@" + strings.Repeat("a", 25)},
 		"a newline in the seat":     {"s", "/c", "1\n@a"},
+		"a control in the checkout": {"s", "/c\tx", ""},
+		"a checkout not UTF-8":      {"s", "/c\xff", ""},
+		"65 seats":                  {"s", "/c", many65()},
 	}
 	for name, args := range cases {
 		r := newRig(t)
@@ -197,7 +210,10 @@ func TestInitRefusesWhatIsNotItsThreeArguments(t *testing.T) {
 // copy so the launcher's list is checked before anything is written. The copy is pinned here.
 func TestTheGrammarIsPingbusOwn(t *testing.T) {
 	src := readFile(t, filepath.Join(repoRoot(t), "helpers/pingbus/protocol.py"))
-	for name, ours := range map[string]string{"HANDLE_SEAT_PATTERN": seatPattern, "TEAM_NAME_PATTERN": teamPattern} {
+	for name, ours := range map[string]string{
+		"HANDLE_SEAT_PATTERN": seatPattern, "TEAM_NAME_PATTERN": teamPattern,
+		"HANDLE_REPO_PATTERN": handleRepoPattern, "HANDLE_HOST_PATTERN": handleHostPattern,
+	} {
 		m := regexp.MustCompile(name + ` = r"([^"]+)"`).FindStringSubmatch(src)
 		if m == nil {
 			t.Fatalf("%s not found in protocol.py", name)
@@ -205,6 +221,13 @@ func TestTheGrammarIsPingbusOwn(t *testing.T) {
 		if m[1] != ours {
 			t.Fatalf("%s is %q in protocol.py, %q here", name, m[1], ours)
 		}
+	}
+	if !strings.Contains(src, `HANDLE_SEP = "+"`) || !strings.Contains(handleName.String(), seatPattern+`)\+`+handleHostPattern) {
+		t.Fatal(`HANDLE_SEP is not "+" in protocol.py, or the handle grammar here does not use it`)
+	}
+	m := regexp.MustCompile(`HANDLE_TYPES = \(([^)]+)\)`).FindStringSubmatch(src)
+	if want := `"` + strings.ReplaceAll(handleTypes, "|", `", "`) + `"`; m == nil || m[1] != want {
+		t.Fatalf("HANDLE_TYPES in protocol.py is %v, %s here", m, want)
 	}
 }
 

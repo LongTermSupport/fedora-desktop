@@ -12,10 +12,10 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-const (
-	pinFile   = ".qa-versions"
-	goModFile = "src-go/go.mod"
-)
+const pinFile = ".qa-versions"
+
+// goModFiles are the modules of src-go: the module and the nested qa module.
+var goModFiles = []string{"src-go/go.mod", "src-go/qa/go.mod"}
 
 // readPins parses .qa-versions (never executes it) into key -> version. Each problem is a line of
 // the error; the file must pin exactly the keys of pinnedTools.
@@ -109,21 +109,41 @@ func isPinned(key string) bool {
 	return false
 }
 
-// readGoFloor is the go directive of src-go/go.mod.
-func readGoFloor(fsys fs.FS) (string, error) {
-	data, err := fs.ReadFile(fsys, goModFile)
-	if err != nil {
-		return "", fmt.Errorf("cannot read %s, which holds the Go floor: %w", goModFile, err)
+// goFloor is the oldest go that builds both modules, and the go.mod that sets it.
+type goFloor struct {
+	version, file string
+}
+
+// readGoFloor is the higher of the go directives of goModFiles: the same go builds both.
+func readGoFloor(fsys fs.FS) (goFloor, error) {
+	var floor goFloor
+	for _, file := range goModFiles {
+		v, err := readGoDirective(fsys, file)
+		if err != nil {
+			return goFloor{}, err
+		}
+		if floor.file == "" || version.Compare("go"+v, "go"+floor.version) > 0 {
+			floor = goFloor{version: v, file: file}
+		}
 	}
-	mod, err := modfile.ParseLax(goModFile, data, nil)
+	return floor, nil
+}
+
+// readGoDirective is the go directive of one go.mod, validated as a Go version.
+func readGoDirective(fsys fs.FS, file string) (string, error) {
+	data, err := fs.ReadFile(fsys, file)
 	if err != nil {
-		return "", fmt.Errorf("cannot parse %s: %w", goModFile, err)
+		return "", fmt.Errorf("cannot read %s, which holds the Go floor: %w", file, err)
+	}
+	mod, err := modfile.ParseLax(file, data, nil)
+	if err != nil {
+		return "", fmt.Errorf("cannot parse %s: %w", file, err)
 	}
 	if mod.Go == nil || mod.Go.Version == "" {
-		return "", fmt.Errorf("%s has no go directive", goModFile)
+		return "", fmt.Errorf("%s has no go directive", file)
 	}
 	if !version.IsValid("go" + mod.Go.Version) {
-		return "", fmt.Errorf("%s names the Go floor %q, which is not a Go version", goModFile, mod.Go.Version)
+		return "", fmt.Errorf("%s names the Go floor %q, which is not a Go version", file, mod.Go.Version)
 	}
 	return mod.Go.Version, nil
 }

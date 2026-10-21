@@ -41,6 +41,7 @@ class DefaultsAndBoundsTest(unittest.TestCase):
                 "halt_ack_timeout_s": 300,
                 "human_max_age_s": 86400,
                 "wait_timeout_s": 1500,
+                "report_per_hour": 6,
             },
         )
 
@@ -55,6 +56,7 @@ class DefaultsAndBoundsTest(unittest.TestCase):
                 "halt_ack_timeout_s": (30, 3600),
                 "human_max_age_s": (3600, 604800),
                 "wait_timeout_s": (1, 1790),
+                "report_per_hour": (1, 60),
             },
         )
 
@@ -392,9 +394,57 @@ class SendGateTest(unittest.TestCase):
             again.admit("halt", None, None, [A], T0 + 1)
         self.assertEqual(ctx.exception.reason, "duplicate")
 
+    def test_a_notice_is_not_a_duplicate_but_still_spends_a_token(self):
+        """Plan 00194 Task 2.0i: pingbus's own fixed-text notices (goodbye, farewell,
+        disconnected) are told once per claim by the seat, so the window would only lose one."""
+        limits = lim.parse_limits({"send_per_minute": 1, "send_burst": 2})
+        gate = lim.SendGate.fresh(limits, T0)
+        gate.admit("text", REF, None, [A], T0, deduplicate=False)
+        gate.admit("text", REF, None, [A], T0 + 1, deduplicate=False)
+        with self.assertRaises(lim.RateLimited) as ctx:
+            gate.admit("text", REF, None, [A], T0 + 2, deduplicate=False)
+        self.assertEqual(ctx.exception.reason, "rate")
+
+    def test_a_notice_does_not_enter_the_window_of_a_later_say(self):
+        limits = lim.parse_limits({"send_per_minute": 1, "send_burst": 2})
+        gate = lim.SendGate.fresh(limits, T0)
+        gate.admit("text", REF, None, [A], T0, deduplicate=False)
+        gate.admit("text", REF, None, [A], T0 + 1)
+
     def test_rate_limited_is_not_a_value_error(self):
         # A refusal by limit is exit 9, never confused with a validator refusal (exit 4).
         self.assertFalse(issubclass(lim.RateLimited, ValueError))
+
+
+class ReportWindowTest(unittest.TestCase):
+    """Plan 00211 SPEC §7: at most `report_per_hour` reports in any sliding hour."""
+
+    def test_the_cap_slides_with_the_hour(self):
+        window = lim.ReportWindow()
+        for i in range(3):
+            window.admit(3, T0 + i)
+        with self.assertRaises(lim.RateLimited) as caught:
+            window.admit(3, T0 + 10)
+        self.assertEqual(caught.exception.reason, "rate")
+        window.admit(3, T0 + lim.REPORT_WINDOW_S * 1000)
+        self.assertEqual(window.to_dict(), [T0 + 1, T0 + 2, T0 + lim.REPORT_WINDOW_S * 1000])
+
+    def test_check_records_nothing(self):
+        window = lim.ReportWindow()
+        window.check(1, T0)
+        self.assertEqual(window.to_dict(), [])
+
+    def test_state_round_trips_and_bad_state_is_refused(self):
+        self.assertEqual(lim.ReportWindow.from_dict([T0, T0 + 1]).to_dict(), [T0, T0 + 1])
+        for bad in ({}, ["x"], [True], [1.5], "1"):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                lim.ReportWindow.from_dict(bad)
+
+    def test_the_bound_is_refused_never_clamped(self):
+        for bad in (0, 61):
+            with self.subTest(bad=bad), self.assertRaises(lim.LimitsError):
+                lim.parse_limits({"report_per_hour": bad})
+        self.assertEqual(lim.parse_limits({"report_per_hour": 60}).report_per_hour, 60)
 
 
 class ReceiveFloodTest(unittest.TestCase):

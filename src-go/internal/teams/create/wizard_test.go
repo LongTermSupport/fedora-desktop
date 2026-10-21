@@ -139,16 +139,17 @@ func (s *wzScript) matching(prefix string) []string {
 
 func wzOK(out string) execx.Result     { return execx.Result{Stdout: []byte(out)} }
 func wzExit(code int) execx.Result     { return execx.Result{ExitCode: code} }
+func wzNotARepo() execx.Result         { return wzRefuse(teamtest.NotARepository) }
 func wzRefuse(msg string) execx.Result { return execx.Result{ExitCode: 64, Stderr: []byte(msg + "\n")} }
 
 // dp is the argv prefix of a declare.py call on the host_vars file.
 func wzDP(sub string, rest ...string) []string {
-	return append([]string{"env", "PYTHONPATH=" + wzRoot, "python3", "-P", "-m", "helpers.agent_bus.declare", sub, "--file", wzHostVars}, rest...)
+	return append([]string{"env", "PYTHONPATH=" + wzRoot, "/usr/bin/python3", "-P", "-m", "helpers.agent_bus.declare", sub, "--file", wzHostVars}, rest...)
 }
 
 // dpBare is the prefix of the declare.py calls that take no file.
 func wzDPBare(sub string, rest ...string) []string {
-	return append([]string{"env", "PYTHONPATH=" + wzRoot, "python3", "-P", "-m", "helpers.agent_bus.declare", sub}, rest...)
+	return append([]string{"env", "PYTHONPATH=" + wzRoot, "/usr/bin/python3", "-P", "-m", "helpers.agent_bus.declare", sub}, rest...)
 }
 
 // wzNoColour is an environment that asks for no colour.
@@ -336,9 +337,9 @@ func (h *wzHarness) locked(ctx context.Context, purpose string, fn func(context.
 		h.locks = append(h.locks, purpose+" (not taken)")
 		return h.lockErr
 	}
-	before := h.run.called("env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare create")
+	before := h.run.called("env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare create")
 	err := fn(ctx)
-	after := h.run.called("env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare create")
+	after := h.run.called("env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare create")
 	h.locks = append(h.locks, fmt.Sprintf("%s: declared before %v, after %v, applied %d", purpose, before, after, len(h.applied)))
 	return err
 }
@@ -532,10 +533,10 @@ func TestWizardRunsItsStepsInTheDocumentedOrder(t *testing.T) {
 	wzCode(t, h.invoke(), 0, h)
 	order := []string{
 		"gum style --bold", "gum choose", "gum input --header Repositories", "gh api repos/example-org/proj",
-		"env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare create --file " + wzHostVars + " --team proj --human owner --repo example-org/proj --description Builds the example site --dry-run",
+		"env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare create --file " + wzHostVars + " --team proj --human owner --repo example-org/proj --description Builds the example site --dry-run",
 		"gum confirm --default=true Create team",
-		"env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare create --file " + wzHostVars + " --team proj --human owner --repo example-org/proj --description Builds the example site",
-		"env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare element",
+		"env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare create --file " + wzHostVars + " --team proj --human owner --repo example-org/proj --description Builds the example site",
+		"env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare element",
 		"gum confirm --default=true Sign owner in",
 		"gum confirm --default=true Open proj",
 		// the next steps and the teams covering the checkout are read in-process, no process
@@ -559,7 +560,7 @@ func TestWizardRunsItsStepsInTheDocumentedOrder(t *testing.T) {
 
 func TestWizardOutsideACheckoutOffersTheOwnerFirstAndNoDefaults(t *testing.T) {
 	h := newWzHarness(t)
-	h.run.queue("git rev-parse", wzExit(128)) // not a work tree
+	h.run.queue("git rev-parse", wzNotARepo())
 	h.run.queue("gum choose", wzOK(scopeOwner+"\n"))
 	h.run.queue("gum input", wzOK("Example-Org\n"), wzOK("example-org\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1))
@@ -627,7 +628,7 @@ func TestThreeRefusedTriesEndTheRunWithNothingChanged(t *testing.T) {
 	if n := len(h.run.matching("gum input --header Team name")); n != 3 {
 		t.Errorf("%d tries", n)
 	}
-	if h.run.called("env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare create") {
+	if h.run.called("env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare create") {
 		t.Error("something was written")
 	}
 }
@@ -815,7 +816,7 @@ func TestCancellingBeforeTheSummaryWritesNothing(t *testing.T) {
 	h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
 	h.run.queue("gum input", wzExit(130))
 	wzCode(t, h.invoke(), 130, h)
-	if h.run.called("env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare create") || len(h.applied) != 0 {
+	if h.run.called("env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare create") || len(h.applied) != 0 {
 		t.Error("something was written or installed")
 	}
 }
@@ -834,7 +835,7 @@ func TestNoAtTheSummaryAddsNothing(t *testing.T) {
 	if !h.run.called(strings.Join(wzDP("create", "--team", "proj"), " ")) {
 		t.Error("no dry run")
 	}
-	if got := len(h.run.matching("env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare create")); got != 1 {
+	if got := len(h.run.matching("env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare create")); got != 1 {
 		t.Errorf("%d create calls", got)
 	}
 }
@@ -872,13 +873,13 @@ func TestYesWithEveryValueCreatesInstallsAndPrintsTheNextSteps(t *testing.T) {
 	if len(h.pwd) != 0 || len(h.element) != 0 || len(h.execd) != 0 {
 		t.Error("--yes offered something")
 	}
-	if h.run.called("env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare create --file " + wzHostVars + " --team beta --human owner --org example-org --dry-run") {
+	if h.run.called("env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare create --file " + wzHostVars + " --team beta --human owner --org example-org --dry-run") {
 		t.Error("--yes dry-ran")
 	}
 	// the team, then Element, then the install; the next steps, read in-process from the file
 	// the create wrote, name team beta (above)
-	create := h.run.first("env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare create")
-	elem := h.run.first("env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare element")
+	create := h.run.first("env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare create")
+	elem := h.run.first("env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare element")
 	if create < 0 || elem < create {
 		t.Errorf("order create %d element %d", create, elem)
 	}
@@ -901,7 +902,7 @@ func TestYesChecksTheOrgOnGitHubAsTheQuestionWould(t *testing.T) {
 		"GitHub has no user or organisation called 'nope' that your gh login can see.",
 		"ERROR: create stopped: fix the organisation above (or drop it); nothing was written.")
 	wzLack(t, "stderr", h.err(), "Try again")
-	if h.run.called("env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare create") || len(h.applied) != 0 {
+	if h.run.called("env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare create") || len(h.applied) != 0 {
 		t.Error("something was written")
 	}
 }
@@ -931,7 +932,7 @@ func TestYesChecksEveryRepositoryAndNamesTheBadOnes(t *testing.T) {
 	wzContain(t, "stderr", e, "example-org/readonly: read-only", "other/missing: not found", "bad: not OWNER/REPO",
 		"ERROR: create stopped: fix the repositories above (or drop them); nothing was written.")
 	wzLack(t, "stderr", e, "example-org/proj:", "Try again")
-	if h.run.called("env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare create") || len(h.applied) != 0 {
+	if h.run.called("env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare create") || len(h.applied) != 0 {
 		t.Error("something was written or installed")
 	}
 }
@@ -981,7 +982,7 @@ func TestAPlayLockNotTakenAddsNothing(t *testing.T) {
 	h.tty = false
 	h.lockErr = fmt.Errorf("gave up: %w", playlock.ErrNotTaken)
 	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--org", "example-org"), 1, h)
-	if h.run.called("env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare create") || len(h.applied) != 0 {
+	if h.run.called("env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare create") || len(h.applied) != 0 {
 		t.Fatal("declared or installed without the lock")
 	}
 	wzContain(t, "stderr", h.err(), "ERROR: nothing was added: team beta was not saved, as the play lock was not free (above). "+
@@ -1272,7 +1273,7 @@ func TestNextStepsThatCannotBeReadEndTheRun(t *testing.T) {
 func TestNoSessionIsOfferedOutsideACheckout(t *testing.T) {
 	h := newWzHarness(t)
 	h.happyAnswers()
-	h.run.queue("git rev-parse", wzOK("true\n"), wzExit(128)) // here: a work tree; offer: not one
+	h.run.queue("git rev-parse", wzOK("true\n"), wzNotARepo()) // here: a work tree; offer: not one
 	h.run.queues["gum confirm"] = []execx.Result{wzOK(""), wzExit(1), wzExit(1)}
 	wzCode(t, h.invoke(), 0, h)
 	if h.run.called("gum confirm --default=true Start a ccy session") || len(h.execd) != 0 {
@@ -1416,7 +1417,7 @@ func TestYesNeedsADescription(t *testing.T) {
 	h.tty = false
 	wzCode(t, h.invoke("--yes", "--team", "beta", "--human", "owner", "--org", "example-org"), 64, h)
 	wzContain(t, "stderr", h.err(), "create's --yes needs --description", "See ccy-teams --help.")
-	if h.run.called("env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare create") || len(h.applied) != 0 {
+	if h.run.called("env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare create") || len(h.applied) != 0 {
 		t.Error("something was written or installed")
 	}
 }

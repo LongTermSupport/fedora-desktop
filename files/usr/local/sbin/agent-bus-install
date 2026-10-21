@@ -46,6 +46,10 @@ readonly TEAM_RE='^[a-z][a-z0-9-]{0,23}$'
 readonly UNIT_FILES=(agent-bus-hs@.service agent-bus-backup@.service agent-bus-backup@.timer
     agent-bus-hs-health@.service agent-bus-hs-health@.timer)
 # The member kit beside its pingbus, relative to files/opt/claude-yolo/optional/agent-bus.
+# Not here: the kit's pingbus-status-line, the Go status line its settings.json runs (Plan
+# 00213). It is built from the checkout's src-go by tasks/build-go-command.yml, which
+# play-agent-bus.yml runs right after `software`; IaC that runs this installer without that
+# play builds it the same way. agent-bus-claude and cc --teams refuse a kit without it.
 readonly KIT_FILES=(agent-bus-claude settings.json plugin/pingbus/.claude-plugin/plugin.json
     plugin/pingbus/hooks/hooks.json plugin/pingbus/skills/pingbus/SKILL.md
     README.podman README.host README.lxc README.docker README.vm)

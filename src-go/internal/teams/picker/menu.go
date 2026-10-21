@@ -32,6 +32,7 @@ const (
 	actElementAll = "element-all"
 	actShutdown   = "shutdown"
 	actRestart    = "restart"
+	actWindDown   = "wind-down"
 	actSettings   = "settings"
 	// actAskDescription and actAskLimit undo a never answer to an offer: menu lines of a team
 	// marked never, with no shortcut.
@@ -40,8 +41,8 @@ const (
 )
 
 // The shortcut keys, as fzf names them. Attaching, the coordinator role, adding an LXC
-// container's agent, opening every team, restarting a team's sessions and shutting them down
-// have none: they are menu lines only, and a key that ends sessions is too easy to press by
+// container's agent, opening every team, restarting a team's sessions, winding them down and
+// shutting them down have none: they are menu lines only, and a key that ends sessions is too easy to press by
 // mistake.
 const (
 	keyNew      = "ctrl-n"
@@ -52,6 +53,9 @@ const (
 	keyUpdate   = "ctrl-u"
 	keyHelp     = "?"
 )
+
+// windDownLabel is the team row's wind-down line (Plan 00203 SPEC-team-wind-down.md W12).
+const windDownLabel = "Wind down the team's sessions (clear goals, save and push work, stop)"
 
 // backToList is the last line of every question: leaving it does nothing and shows the list.
 const backToList = "Back to the list"
@@ -119,6 +123,7 @@ func (r *run) kindActions(row board.Row) []action {
 			{actSettings, "", "Edit settings", "edit " + team + "'s settings"},
 			{actUpdate, keyUpdate, "Update every team that is out of date or not built", "update out-of-date teams"},
 			{actRestart, "", "Restart the team's desktop sessions", "restart " + team + "'s desktop sessions"},
+			{actWindDown, "", windDownLabel, "wind down " + team + "'s sessions"},
 			{actShutdown, "", "Shut down every session of " + team, "shut down " + team + "'s sessions"},
 			{actRemove, keyRemove, "Take " + team + " down", "take " + team + " down"},
 		}, r.askAgainActions(team)...), help)

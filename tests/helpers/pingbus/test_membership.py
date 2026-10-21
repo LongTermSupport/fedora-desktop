@@ -112,7 +112,9 @@ class DesiredParseTest(unittest.TestCase):
             "seats": ("team-a", None, [{"team": "team-a"}], [{"team": "Team", "seat": "1"}],
                       [{"team": "team-a", "seat": "0"}], [{"team": "team-a", "seat": "1", "x": 1}]),
             "farewell": (None, [{"team": "team-a", "seat": "1"}],
-                         [{"team": "team-a", "seat": "1", "reason": "kicked"}]),
+                         [{"team": "team-a", "seat": "1", "reason": "kicked"}],
+                         [{"team": "team-a", "seat": "1", "reason": ["removed"]}],
+                         [{"team": "team-a", "seat": "1", "reason": {"removed": 1}}]),
         }
         for key, values in cases.items():
             for value in values:
@@ -376,7 +378,9 @@ class ToldFileTest(unittest.TestCase):
         bad = [told(v=2), told(extra=1), told(generation=-1),
                told(teams=[{"team": "Team", "seat": "1", "handle": "myrepo.1+local.podman", "role": "worker"}]),
                told(teams=[{"team": "team-a", "seat": "1", "handle": "myrepo.1+local.podman", "role": "admin"}]),
-               told(left=[{"team": "team-c", "reason": "bored"}])]
+               told(left=[{"team": "team-c", "reason": "bored"}]),
+               told(left=[{"team": "team-c", "reason": ["removed"]}]),
+               told(left=[{"team": "team-c", "reason": {"removed": 1}}])]
         for data in bad:
             with self.subTest(data=data), self.assertRaises(membership.MembershipError):
                 membership.parse_told(data)

@@ -114,6 +114,24 @@ type Client struct {
 	uid func() int
 }
 
+// WithStderr is a copy of the client whose commands' stderr goes to wrap(w) for each stream w
+// it would have gone to: Err, and the terminal Root copies a failed root command's stderr to. A
+// caller running calls side by side keeps each call's words apart this way. A nil Err stays nil,
+// captured into the CommandError. The client itself is not changed.
+func (c *Client) WithStderr(wrap func(io.Writer) io.Writer) *Client {
+	out := *c
+	if c.Err != nil {
+		out.Err = wrap(c.Err)
+	}
+	if c.Root != nil && c.Root.Term != nil {
+		root, terminal := *c.Root, *c.Root.Term
+		terminal.Err = wrap(c.Root.Term.Err)
+		root.Term = &terminal
+		out.Root = &root
+	}
+	return &out
+}
+
 // SeatList is what "agent-bus seat list" answered in the checkout dir, read in-process by
 // bus/seat ("" is the working directory's git top level, one git run; a named dir starts no
 // process). A seat that cannot be read is left out and named on Err, and a refusal of the

@@ -1,7 +1,6 @@
 package membership
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
 )
@@ -22,8 +22,37 @@ const RelaunchFile = "relaunch.json"
 // ReasonRemoved is the one farewell reason: removed by the owner.
 const ReasonRemoved = "removed"
 
-// maxDesiredBytes bounds what Read takes in; the file is a few hundred bytes.
-const maxDesiredBytes = 65536
+// pingbus's bounds on a membership file (helpers/pingbus/membership.py MAX_FILE_BYTES,
+// MAX_SEATS and MAX_FAREWELLS): a desired file's seats and farewells, and a report's seats,
+// refusals and told roles.
+const (
+	maxDesiredBytes = 65536
+	maxSeats        = 64
+	maxFarewells    = 256
+)
+
+// isCheckout is pingbus's checkout grammar (membership.py _CHECKOUT_RE): a slash and at most
+// 4095 more characters, none a control character. RE2 caps a repeat at 1000, so it is code.
+func isCheckout(s string) bool {
+	return strings.HasPrefix(s, "/") && characters(s) <= 4096 &&
+		!strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f })
+}
+
+// characters is the length of s as Python counts the str pyjson decoded it from: a lone
+// surrogate, which pyjson keeps as its three-byte generalised UTF-8 form (0xED 0xA0-0xBF x),
+// is one character, not three invalid bytes.
+func characters(s string) int {
+	n := 0
+	for i := 0; i < len(s); n++ {
+		if i+2 < len(s) && s[i] == 0xED && s[i+1] >= 0xA0 && s[i+1] <= 0xBF {
+			i += 3
+			continue
+		}
+		_, size := utf8.DecodeRuneInString(s[i:])
+		i += size
+	}
+	return n
+}
 
 // Read is the desired membership in dir, refused unless it is exactly what this package
 // writes (section 3.1). A missing file is os.ErrNotExist.
@@ -41,19 +70,36 @@ func Read(dir string) (Desired, error) {
 	if len(data) > maxDesiredBytes {
 		return Desired{}, fmt.Errorf("the desired membership %s is larger than %d bytes", path, maxDesiredBytes)
 	}
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-	var d Desired
-	if err := dec.Decode(&d); err != nil {
+	d, err := parseDesired(data)
+	if err != nil {
 		return Desired{}, fmt.Errorf("the desired membership %s is not what ccy-teams writes: %w", path, err)
-	}
-	if dec.More() {
-		return Desired{}, fmt.Errorf("the desired membership %s holds more than one object", path)
 	}
 	if err := d.check(); err != nil {
 		return Desired{}, fmt.Errorf("the desired membership %s: %w", path, err)
 	}
 	return d, nil
+}
+
+// parseDesired is section 3.1's keys and their JSON types; check judges the values.
+func parseDesired(data []byte) (Desired, error) {
+	doc, err := decodeDoc(data)
+	if err != nil {
+		return Desired{}, err
+	}
+	var dec decoder
+	o := dec.object(doc, "", []string{"v", "session", "kind", "checkout", "generation", "written_ms", "seats", "farewell"})
+	d := Desired{
+		V: o.integer("v"), Session: o.str("session"), Kind: o.str("kind"), Checkout: o.str("checkout"),
+		Generation: o.integer("generation"), WrittenMS: o.integer64("written_ms"),
+		Seats: []Seat{}, Farewell: []Farewell{},
+	}
+	for _, s := range o.objects("seats", maxSeats, "team", "seat") {
+		d.Seats = append(d.Seats, Seat{Team: s.str("team"), Seat: s.str("seat")})
+	}
+	for _, f := range o.objects("farewell", maxFarewells, "team", "seat", "reason") {
+		d.Farewell = append(d.Farewell, Farewell{Team: f.str("team"), Seat: f.str("seat"), Reason: f.str("reason")})
+	}
+	return d, dec.err
 }
 
 func (d Desired) check() error {
@@ -64,15 +110,33 @@ func (d Desired) check() error {
 		return fmt.Errorf("%q is not a session name", d.Session)
 	case d.Kind != "ccy" && d.Kind != "cc":
 		return fmt.Errorf("kind %q is neither ccy nor cc", d.Kind)
-	case !filepath.IsAbs(d.Checkout):
-		return fmt.Errorf("the checkout %q is not absolute", d.Checkout)
+	case !isCheckout(d.Checkout):
+		return fmt.Errorf("the checkout %q is not an absolute path free of control characters", d.Checkout)
 	case d.Generation < 1:
 		return errors.New("the generation is not a positive integer")
-	case d.WrittenMS < 0 || d.Seats == nil || d.Farewell == nil:
-		return errors.New("written_ms, seats or farewell is missing")
+	case d.WrittenMS < 0:
+		return errors.New("written_ms is negative")
 	}
-	if _, err := ParseSeats(Canonical(d.Seats)); err != nil {
-		return fmt.Errorf("seats: %w", err)
+	return d.checkEntries()
+}
+
+// checkEntries judges the seats and farewells, at most as many as pingbus takes.
+func (d Desired) checkEntries() error {
+	switch {
+	case d.Seats == nil || d.Farewell == nil:
+		return errors.New("seats or farewell is missing")
+	case len(d.Seats) > maxSeats || len(d.Farewell) > maxFarewells:
+		return fmt.Errorf("more than %d seats or %d farewells", maxSeats, maxFarewells)
+	}
+	teams := map[string]bool{}
+	for _, s := range d.Seats {
+		switch {
+		case !seatName.MatchString(s.Seat) || !teamName.MatchString(s.Team):
+			return fmt.Errorf("seats: %q@%q is not a seat of a team", s.Seat, s.Team)
+		case teams[s.Team]:
+			return fmt.Errorf("seats: team %s has two seats: one seat per team", s.Team)
+		}
+		teams[s.Team] = true
 	}
 	for _, f := range d.Farewell {
 		if !seatName.MatchString(f.Seat) || !teamName.MatchString(f.Team) || f.Reason != ReasonRemoved {
@@ -103,10 +167,24 @@ func Canonical(seats []Seat) string {
 // Write replaces the desired membership in dir atomically, making dir and its two parents
 // private to the owner.
 func Write(dir string, d Desired) error {
-	if err := d.check(); err != nil {
+	if err := d.checkWrite(); err != nil {
 		return fmt.Errorf("refusing to write the desired membership: %w", err)
 	}
 	return writeDesired(dir, d)
+}
+
+// checkWrite is check for a membership about to be written, by Write or the launcher.
+// encoding/json writes each byte of invalid UTF-8 as U+FFFD, so a checkout that is not UTF-8
+// would be written as another checkout. That includes the lone surrogate a read file may hold
+// (pyjson keeps it as generalised UTF-8): such a membership is read, but never rewritten.
+func (d Desired) checkWrite() error {
+	if err := d.check(); err != nil {
+		return err
+	}
+	if !utf8.ValidString(d.Checkout) {
+		return fmt.Errorf("the checkout %q is not UTF-8", d.Checkout)
+	}
+	return nil
 }
 
 type relaunch struct {

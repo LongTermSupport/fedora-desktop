@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -518,5 +519,57 @@ func TestSeatTakeAllocatedSaysTheCallerHoldsTheAllocationLock(t *testing.T) {
 	}
 	if c := r.last(t); c.Line() != "agent-bus seat take 2@alpha --type=podman --no-prompt --alloc-held" {
 		t.Fatalf("ran %q", c.Line())
+	}
+}
+
+// A user command's stderr, the in-process seat list's words and a root command's stderr all go
+// through wrap.
+func TestWithStderrSendsEachStderrThroughWrapAndLeavesTheClientAlone(t *testing.T) {
+	r := newRig()
+	top := seatCheckout(t, []string{"1", "2"}, "2")
+	r.fake.On([]string{"agent-bus", "seat", "take"}, execx.Result{ExitCode: 69, Stderr: []byte("down\n")})
+	r.fake.On([]string{"sudo", "-n", "/usr/local/bin/agent-bus", "list", "alpha"}, execx.Result{ExitCode: 70, Stderr: []byte("refused\n")})
+	rootErr, ok := r.c.Root.Term.Err.(*bytes.Buffer)
+	if !ok {
+		t.Fatal("the rig's root terminal is a buffer")
+	}
+	var user, root bytes.Buffer
+	instead := map[io.Writer]io.Writer{r.errw: &user, rootErr: &root}
+	c := r.c.WithStderr(func(w io.Writer) io.Writer { return instead[w] })
+	if _, unreadable, err := c.SeatList(context.Background(), top); err != nil || !unreadable {
+		t.Fatalf("seat list: %v %v", unreadable, err)
+	}
+	if err := c.SeatTake(context.Background(), top, "1@alpha", "podman", true); !errors.Is(err, ErrUnreachable) {
+		t.Fatalf("seat take: %v", err)
+	}
+	if _, err := c.List(context.Background(), "alpha"); !errors.Is(err, ErrRefused) {
+		t.Fatalf("list: %v", err)
+	}
+	seatTwo := "agent-bus: seat 2@alpha: team alpha: " + filepath.Join(top, ".claude", "ccy", "pingbus", "seats", "alpha", "2", "member.json") +
+		": no bundle (member.json is missing)\n"
+	if user.String() != seatTwo+"down\n" || root.String() != "refused\n" {
+		t.Fatalf("user stderr %q, root stderr %q", user.String(), root.String())
+	}
+	if r.errw.Len() != 0 || rootErr.Len() != 0 {
+		t.Fatalf("the original streams were written: %q %q", r.errw.String(), rootErr.String())
+	}
+	if r.c.Err != r.errw || r.c.Root.Term.Err != rootErr {
+		t.Fatal("the original client was changed")
+	}
+}
+
+func TestWithStderrKeepsACapturedStderrCaptured(t *testing.T) {
+	r := newRig()
+	r.c.Err = nil
+	r.fake.On([]string{"agent-bus", "seat", "take"}, execx.Result{ExitCode: 69, Stderr: []byte("down\n")})
+	c := r.c.WithStderr(func(w io.Writer) io.Writer {
+		if w == nil {
+			t.Error("wrap was given the nil stream")
+		}
+		return w
+	})
+	err := c.SeatTake(context.Background(), "/co", "1@alpha", "podman", true)
+	if cmdErr, ok := errors.AsType[*CommandError](err); !ok || cmdErr.Stderr != "down\n" {
+		t.Fatalf("a nil Err still captures the stderr into the error: %v", err)
 	}
 }

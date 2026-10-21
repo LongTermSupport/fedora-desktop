@@ -2,7 +2,7 @@
 # qa-hidden-bindings.bash — the rule project_hidden_bindings outside Go.
 #
 # Every action is a visible, named choice; a key is only a shortcut to one. The Go analyzer of
-# the same name (scripts/qa-go.bash) holds the Go tools; this gate holds shell (fzf --expect, and
+# the same name (the Go gate, scripts/qa-go-qa.bash) holds the Go tools; this gate holds shell (fzf --expect, and
 # fzf --bind of a key to anything but navigation) and Python (a Textual binding whose action no
 # Button runs). The rule's reasoning, and how to fix a finding, are in CLAUDE/GoProjectRules.md
 # under project_hidden_bindings.

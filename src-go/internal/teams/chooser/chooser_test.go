@@ -260,7 +260,7 @@ func TestAddingTheRepositoryAppliesOnceAndThenStarts(t *testing.T) {
 	if len(r.applied) != 1 || !slices.Equal(r.applied[0], []string{"beta"}) {
 		t.Fatalf("applied %v", r.applied)
 	}
-	if !r.Fake.Called("env PYTHONPATH=" + r.Host.RootDir + " python3 -P -m helpers.agent_bus.declare add-repo --file " + r.Host.HostVars + " --team beta --repo " + repo) {
+	if !r.Fake.Called("env PYTHONPATH=" + r.Host.RootDir + " /usr/bin/python3 -P -m helpers.agent_bus.declare add-repo --file " + r.Host.HostVars + " --team beta --repo " + repo) {
 		t.Fatal("the scope was not edited by declare.py add-repo")
 	}
 	contains(t, "stderr", r.stderr(), "host_vars", "play-agent-bus.yml", "sudo", "no homeserver restart", "trusts "+repo)
@@ -353,7 +353,7 @@ func TestJoiningWithoutAddingKeepsTheTeamAndSaysItsReferencesAreExternal(t *test
 		t.Fatalf("payload %q applied %v", r.payload.String(), r.applied)
 	}
 	contains(t, "stderr", r.stderr(), "beta", repo+" references external")
-	if r.Fake.Called("env PYTHONPATH=" + r.Host.RootDir + " python3 -P -m helpers.agent_bus.declare add-repo") {
+	if r.Fake.Called("env PYTHONPATH=" + r.Host.RootDir + " /usr/bin/python3 -P -m helpers.agent_bus.declare add-repo") {
 		t.Fatal("the scope was edited")
 	}
 }
@@ -384,7 +384,7 @@ func TestEscOnTheScopeQuestionLeavesWithNothingChosen(t *testing.T) {
 func TestOutsideAGitHubCheckoutEveryTeamIsListedAndJoinedWithoutWidening(t *testing.T) {
 	r := newRig(t, "  - team: alpha\n    port: 6167\n    description: Builds the site\n"+
 		"  - team: beta\n    port: 6168\n  - team: gone\n    port: 6169\n    state: absent\n")
-	r.On("git rev-parse --is-inside-work-tree", "", 128)
+	r.OnNotARepository()
 	r.Script.Fzf = []string{"|beta"}
 	exit(t, r.run("--type=podman"), term.ExitOK, r)
 	rows := strings.Join(r.Script.Rows[0], "\n")

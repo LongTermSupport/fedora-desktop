@@ -149,8 +149,8 @@ RUN wget -qO /tmp/gum.tgz "https://github.com/charmbracelet/gum/releases/downloa
 # 1.19, so the upstream toolchain is pinned to the version Fedora 44 ships, which is what
 # play-claude-yolo.yml builds the tools with on the host. Bump it with the host's version.
 # golangci-lint is a QA tool, so its version lives in /.qa-versions like the others.
-ARG GO_VERSION=1.26.9
-ARG GO_SHA256=42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d
+ARG GO_VERSION=1.26.10
+ARG GO_SHA256=ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5
 RUN wget -qO /tmp/go.tgz "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
     && echo "${GO_SHA256}  /tmp/go.tgz" | sha256sum -c - \
     && tar -C /usr/local -xzf /tmp/go.tgz \

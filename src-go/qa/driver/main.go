@@ -2,12 +2,14 @@
 //
 //	go vet -vettool=<built driver> ./...
 //
-// scripts/qa-go.bash builds it once and runs it over src-go.
+// go-qa (go-qa-ci, configured by src-go/qa/go-qa.toml) builds it for each run and uses it as go
+// vet's tool over src-go and this module; go-qa-ci's driver registers its bundled analyzers
+// beside the rules here.
 package main
 
 import (
+	"github.com/LongTermSupport/go-qa-ci/driver"
 	"golang.org/x/tools/go/analysis"
-	"golang.org/x/tools/go/analysis/unitchecker"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/rules"
 )
@@ -17,5 +19,5 @@ func analyzers() []*analysis.Analyzer {
 }
 
 func main() {
-	unitchecker.Main(analyzers()...)
+	driver.Main(analyzers()...)
 }

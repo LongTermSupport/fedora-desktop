@@ -150,7 +150,7 @@ cc_teams_command() {
 cc_teams_prepare() {
     local tmp="${1:?cc_teams_prepare requires a private directory}" checkout need
     shift
-    for need in "$CC_TEAMS_KIT/pingbus" "$CC_TEAMS_KIT/settings.json" \
+    for need in "$CC_TEAMS_KIT/pingbus" "$CC_TEAMS_KIT/pingbus-status-line" "$CC_TEAMS_KIT/settings.json" \
         "$CC_TEAMS_KIT/plugin/pingbus/.claude-plugin/plugin.json" "$CC_TEAMS_DENY_SETTINGS"; do
         [ -f "$need" ] || { print_error "--teams and --bus need $need, and it is missing: run play-agent-bus.yml and play-claude-yolo.yml."; return 78; }
     done

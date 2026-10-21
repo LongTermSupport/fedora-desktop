@@ -57,7 +57,8 @@ if ! SCRATCH="$(mktemp -d)"; then
     echo "FAIL: could not create a scratch directory" >&2
     exit 1
 fi
-trap 'rm -rf "$SCRATCH"' EXIT
+OUTSIDE=""
+trap 'rm -rf "$SCRATCH" ${OUTSIDE:+"$OUTSIDE"}' EXIT
 STUBS="$SCRATCH/stubs"
 mkdir -p "$STUBS"
 OUT="$SCRATCH/out"
@@ -404,7 +405,8 @@ check "a host that is not Fedora is refused (78)" "78" "$RC"
 check "the refusal names os-release" "yes" "$(says 'os-release' "$ERR")"
 
 if [[ $EUID -eq 0 ]]; then
-    if ! OUTSIDE="$(mktemp -d)"; then
+    # /var/tmp, not /tmp: /tmp can be mode 0700, and nobody must reach the tool to be refused by it
+    if ! OUTSIDE="$(mktemp -d /var/tmp/agent-bus-install-test.XXXXXX)"; then
         echo "FAIL: could not create a scratch directory" >&2
         exit 1
     fi
@@ -412,7 +414,6 @@ if [[ $EUID -eq 0 ]]; then
     install -m 755 "$TOOL" "$OUTSIDE/agent-bus-install"
     runuser -u nobody -- "$OUTSIDE/agent-bus-install" check --team alpha >"$OUT" 2>"$ERR"
     RC=$?
-    rm -rf "$OUTSIDE"
 else
     env -u AGENT_BUS_INSTALL_TEST_PREFIX "$TOOL" check --team alpha >"$OUT" 2>"$ERR"
     RC=$?

@@ -33,10 +33,12 @@ TS = 1792069331000  # 2026-10-15T13:02:11Z
 NONCE = "3f9c2a71"
 
 
-def human(text: str, *, eid: str = EID, team: str = TEAM, ts: int = TS) -> envelope.Entry:
-    line = "\t".join(("HUMAN", "1", team, eid, "alice", str(ts), json.dumps(text, ensure_ascii=True)))
+def human(text: str, *, eid: str = EID, team: str = TEAM, ts: int = TS, room: str = "-",
+          headline: str | None = None, revises: str | None = None, reply: str | None = None) -> envelope.Entry:
+    line = "\t".join(("HUMAN", "1", team, eid, "alice", str(ts), json.dumps(text, ensure_ascii=True), room))
     return envelope.entry_from_line(line, handle=ME, ts_ms=None,
-                                    reply=f"pingbus --team {team} say --to alice --re '{eid}'")
+                                    reply=reply or f"pingbus --team {team} say --to alice --re '{eid}'",
+                                    question_headline=headline, revises=revises)
 
 
 def peer(text: str, *, sender: str = ORCH, copy: str = "-", team: str = TEAM, eid: str = EID2,
@@ -83,6 +85,35 @@ class RenderTest(unittest.TestCase):
             'body: "Please stop the refactor, commit what you have, and push the branch.\\nThen tell me the commit."',
             "<<end agent-bus 3f9c2a71 1/1>>",
         )))
+
+    def test_a_questions_room_answer_names_its_room_question_and_revision(self):
+        """Plan 00211 SPEC §8.3: `room:`, `question:` and `revises:` after `team:`."""
+        reply = "pingbus --team alpha thread Q3"
+        text = envelope.render([human("cap it at 10", room="questions:Q3", headline='Pick the "cost" limit',
+                                      revises=EID2, reply=reply)], NONCE)
+        lines = text.splitlines()
+        at = lines.index("team: alpha")
+        self.assertEqual(lines[at + 1:at + 4], [
+            "room: questions", 'question: Q3 "Pick the \\"cost\\" limit"', f"revises: {EID2}"])
+        self.assertIn(f"reply: {reply}", lines)
+
+    def test_an_unattached_questions_room_message_says_question_none(self):
+        text = envelope.render([human("unprompted", room="questions:-",
+                                      reply=f"pingbus --team alpha thread --re '{EID}'")], NONCE)
+        lines = text.splitlines()
+        at = lines.index("team: alpha")
+        self.assertEqual(lines[at + 1:at + 3], ["room: questions", "question: none"])
+        self.assertNotIn("revises:", text)
+
+    def test_a_main_room_message_has_no_room_lines(self):
+        text = envelope.render([human("hello")], NONCE)
+        self.assertNotIn("room:", text)
+        self.assertNotIn("question:", text)
+
+    def test_a_room_field_outside_its_grammar_is_refused(self):
+        for room in ("main", "questions:Q0", "questions:", "reports:-", "questions:Q1x"):
+            with self.subTest(room=room), self.assertRaises(ValueError):
+                human("x", room=room, headline="h")
 
     def test_a_peers_note_copied_to_a_human(self):
         text = envelope.render([peer("I am on the docs; the tests are yours.", copy="copy:alice")], "9b04e5d1")
@@ -398,10 +429,15 @@ class CapTest(unittest.TestCase):
         for body in ("\x00" * 5000, "é" * 5000, '"' * 5000, "\U0001F600" * 2000, "\\" * 5000):
             peer_line = "\t".join(("PEER", "1", team, EID, handle, str(TS), json.dumps(body),
                                    "copy:" + ",".join(humans.split(",")[:16])))
-            for line in (ping_line, peer_line):
+            human_line = "\t".join(("HUMAN", "1", team, EID, "h00" + "x" * 29, str(TS), json.dumps(body),
+                                    "questions:Q999999999"))
+            for line in (ping_line, peer_line, human_line):
                 with self.subTest(body=body[:1], kind=line[:4]):
+                    asked = line.startswith("HUMAN")
                     entry = envelope.entry_from_line(line, handle=handle, ts_ms=TS,
-                                                     reply=reply if line.startswith("PEER") else None)
+                                                     reply=reply if line[:4] in ("PEER", "HUMA") else None,
+                                                     question_headline="\x00" * 120 if asked else None,
+                                                     revises=EID2 if asked else None)
                     rendered = envelope.render([entry], NONCE, held_back={(team, handle): 99}, more=99)
                     self.assertLess(envelope.wire_bytes(rendered), envelope.ENTRY_MAX_BYTES)
         self.assertLess(envelope.ENTRY_MAX_BYTES, envelope.DELIVERY_MAX_BYTES)
@@ -426,7 +462,7 @@ class FieldTest(unittest.TestCase):
     """E3, E21: every header passes its grammar; a timestamp out of range is shown as -."""
 
     def test_a_field_that_fails_its_grammar_is_refused(self):
-        good = ("HUMAN", "1", TEAM, EID, "alice", str(TS), '"x"')
+        good = ("HUMAN", "1", TEAM, EID, "alice", str(TS), '"x"', "-")
         for index, bad in ((2, "Alpha"), (3, "$short"), (4, "Alice Smith"), (5, "-1"), (6, "not json"),
                            (1, "2"), (0, "SENT")):
             fields = list(good)
@@ -435,7 +471,7 @@ class FieldTest(unittest.TestCase):
                 envelope.entry_from_line("\t".join(fields), handle=ME, ts_ms=None, reply="pingbus say")
 
     def test_a_reply_with_a_control_character_is_refused(self):
-        line = "\t".join(("HUMAN", "1", TEAM, EID, "alice", str(TS), '"x"'))
+        line = "\t".join(("HUMAN", "1", TEAM, EID, "alice", str(TS), '"x"', "-"))
         with self.assertRaises(ValueError):
             envelope.render([envelope.entry_from_line(line, handle=ME, ts_ms=None, reply="say\x1b")], NONCE)
 
