@@ -886,21 +886,26 @@ of fd tricks.
 v2 moves seats out of the checkout (C25, decision DC5), and keeps the authoritative bundle where
 no container can write it (C41, decision DC15):
 
-| Path (under `~/.local/state/teamchat/seats`, owner 0700, never mounted whole) | Holds                                                                                                                                              |
-| ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pool/<checkout key>/checkout.json`                                           | the checkout's real path, so the pool can be listed per checkout (`<checkout key>` = first 32 hex of SHA-256 of the real path)                     |
-| `pool/<checkout key>/<team>/<seat>/`                                          | the seat's authoritative bundle (`seat.json`, `token`), and `held.json` while a session holds it. Never mounted into any container                 |
-| `sessions/<session>/<team>/`                                                  | the copy of the bundle a session holds, plus area B's member state and seat lock. Mounted read-write into that session's container                 |
-| `control/<session>/desired.json`                                              | the session's desired membership (3.7.5). Mounted read-only into that session's container                                                          |
-| `released/sessions/<session>/<team>-<claim>/`, `released/pool/...`            | a released session seat directory, moved out of reach of every session and never read again except to be removed (quarantine, pruned after 7 days) |
+| Path (under `~/.local/state/teamchat/seats`, owner 0700, never mounted whole) | Holds                                                                                                                                                                                       |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pool/<checkout key>/checkout.json`                                           | the checkout's real path, so the pool can be listed per checkout (`<checkout key>` = first 32 hex of SHA-256 of the real path)                                                              |
+| `pool/<checkout key>/<team>/<seat>/`                                          | the seat's authoritative record: `seat.json` and `password` (DC16), `released.json` after a release, and `held/` while a session holds it. Never mounted into any container                 |
+| `pool/<checkout key>/<team>/<seat>/held/`                                     | the holding session's bundle as the pool keeps it: `held.json`, `token` (this session's login), `seat.json` (the session copy's text), `notice.json` once a disconnected notice is recorded |
+| `sessions/<session>/<team>/`                                                  | the copy of the bundle a session holds, plus area B's member state and seat lock. Mounted read-write into that session's container                                                          |
+| `control/<session>/desired.json`                                              | the session's desired membership (3.7.5). Mounted read-only into that session's container                                                                                                   |
+| `released/sessions/<session>/<team>-<claim>/`, `released/pool/...`            | a released session seat directory, moved out of reach of every session and never read again except to be removed (quarantine, pruned after 7 days)                                          |
 
 - A ccy session's container gets `sessions/<session>/` bind-mounted read-write at
   `/run/teamchat/seats` and `control/<session>/` read-only at `/run/teamchat/membership`,
   and nothing else of `~/.local/state/teamchat/seats`. A sibling session sees only its own seats.
+  The launcher refuses any other mount whose real source (symlinks resolved) is an ancestor of,
+  equal to, or inside the seat store root: a mount of `~/.local`, `~/.local/state`, or a directory
+  `$XDG_STATE_HOME` points into would expose the whole pool. This is N4's acceptance, with a VM-lab
+  test that tries each of the three.
 - A host `cc` session uses its session directory directly. It runs as the owner, so it can read
   every file under `~/.local/state/teamchat/seats`, the pool included; that is risk K12, not a property this design
   gives.
-- `held.json` (`{"v": 1, "session": "<session>", "claim": "<claim id>", "since_ms": 0}`, 0600) is
+- `held/held.json` (`{"v": 1, "session": "<session>", "claim": "<claim id>", "since_ms": 0}`, 0600) is
   the holding record. It is written by the owner process under the checkout's allocation lock,
   in the pool, where no container can reach it. A seat is held when its `held.json` names a
   session that is live (its seat lock is held) or restorable (its session record exists, 00203
@@ -910,16 +915,22 @@ no container can write it (C41, decision DC15):
   handed to another session (C41). The session's copy is a copy: the host never reads it back.
   Member state (area B's files) stays with the session that wrote it, for as long as that session
   is live or restorable, and goes to quarantine when it is released. The next session to take the
-  seat starts with the pool's bundle and no member state.
+  seat starts with a fresh login from the pool's password, no member state, and the last release
+  time (`released_ms`, 3.7.2), which bounds where area B's store-less start may begin.
 - LXC members keep their seats inside the guest, in the agent user's own home (3.9), where only
   that user can read them. The host never moves an LXC seat; it only probes it (3.9.2).
 
 #### 3.7.2 What a seat receives
 
-C writes two files into the pool seat directory, and the same two as copies into a session seat
-directory; everything else in a session seat directory (member state, the seat lock) is area B's.
+The pool seat directory holds `password` and `seat.json`; a session seat directory receives
+`token` and `seat.json`; everything else in a session seat directory (member state, the seat lock)
+is area B's.
 
-`token`: the access token alone, printable ASCII, no newline, at most 4096 bytes, mode 0600 (S19).
+`password`: the seat account's password alone, printable ASCII, no newline, 0600, in the pool
+only. It is never copied to a session and never mounted (DC16).
+
+`token`: the access token of this session's login, printable ASCII, no newline, at most 4096
+bytes, mode 0600 (S19). Its one other copy is in the pool's `held/`, for the release.
 
 `seat.json`, mode 0600, written last so its presence means the bundle is complete:
 
@@ -933,12 +944,26 @@ directory; everything else in a session seat directory (member state, the seat l
   "main_room": "!<main room ID>",
   "base_url": "http://<address>:<port>",
   "plain_http_hosts": ["<address>"],
-  "human_text": true,
+  "device_id": "TCSEAT",
   "issued_ms": 0,
-  "issuer": "<teamchat-admin digest>"
+  "issuer": "<teamchat-admin digest>",
+  "claim": "<claim id>",
+  "released_ms": 0
 }
 ```
 
+- `claim` and `released_ms` are written only into the copies a take makes (the session's and
+  `held/seat.json`); the pool's own `seat.json` has neither. `claim` is the take's claim id.
+  `released_ms` is the time of this seat's last release, from the pool's `released.json`, or
+  `null` for a seat never released. Area B starts a seat that has no member store from the earlier
+  of the member's own read receipt and `released_ms` (B 2.6 step 01): a receipt is set with a
+  token, so a receipt alone is not a fact the host wrote, and an item after the last release is new
+  by construction (security 1).
+- `human_text` is not in the bundle: it is read from the roster in the main room, where the admin
+  keeps it current, like every other roster fact (coherence 15).
+- `device_id` is the seat's one fixed device id. Every take logs in with it (3.7.3).
+- `released.json` (`{"v": 1, "claim": "<claim id>", "released_ms": 0}`, 0600, pool only) is
+  written at release step 4 and replaced at each release.
 - `base_url` is the team's member URL from the declaration (default: `teamchat_address` and the port).
   An `http://` URL is only ever to an IP literal listed in `plain_http_hosts` (M14).
 - The main room's ID is one of A's anchors (A §6.2), so it is in the bundle as `main_room`. The
@@ -952,33 +977,34 @@ directory; everything else in a session seat directory (member state, the seat l
 
 #### 3.7.3 How it is placed
 
-- The answer of `member add|return|reissue` carries `seat.json`'s content and the token in one JSON
-  document on root's stdout. The token passes from the `teamchat-ctl` child to root to the owner's
-  process over pipes only; it is never in argv, environment, a log or an error (C13).
-- The owner's process (ccy-teams, with `bus/seat`) always places a bundle into a new directory
-  and then swaps it into place, so `add`, `return`, `reissue` and the recovery below are one
-  path. The whole placement, from the held check through the swap, runs under the checkout's
-  allocation lock (the root call is already inside it, 3.4), so no take can write `held.json`
-  between the check and the swap; that lock, not the directory name, is what stops two racing
-  launches reaching the homeserver. Before calling sudo it claims
+- The answer of `member add|return|reissue` carries `seat.json`'s content and the credential (the
+  password for a pool seat, the token for a guest seat, 3.6.3) in one JSON document on root's
+  stdout. The credential passes from the `teamchat-ctl` child to root to the owner's process over
+  pipes only; it is never in argv, environment, a log or an error (C13).
+- The owner's process (ccy-teams, with `internal/teamchat/seat`) always places a pool record into
+  a new directory and then swaps it into place, so `add`, `return`, `reissue` and the recovery
+  below are one path. The whole placement, from the held check through the swap, runs under the
+  checkout's allocation lock (the root call is already inside it, 3.4), so no take can create
+  `held/` between the check and the swap; that lock, not the directory name, is what stops two
+  racing launches reaching the homeserver. Before calling sudo it claims
   `pool/<checkout key>/<team>/<seat>.new-<claim id>` with `mkdirat`, and refuses if any
   `<seat>.new-*` already exists, naming it: a leftover is a placement that died, recovered only by
-  `reissue` (below), which moves it to quarantine first. A stale `held.json` (its session over)
-  is released, with its notice, before a swap, so the old directory carries no live record into
-  quarantine. After the answer it opens that directory, creates `token` and then `seat.json`
-  with `openat(O_CREAT|O_EXCL|O_NOFOLLOW)`, mode 0600, `fsync`, and `fsync`s the directory (C24).
+  `reissue` (below), which moves it to quarantine first. A stale `held/` (its session over) is
+  released, with its notice and logout, before a swap, so the old directory carries no live
+  record into quarantine. After the answer it opens that directory, creates `password` and then
+  `seat.json` with `openat(O_CREAT|O_EXCL|O_NOFOLLOW)`, mode 0600, `fsync`, and `fsync`s the
+  directory (C24).
   Then, by directory fds: if `<seat>/` does not exist, `renameat2(<seat>.new-<claim>, <seat>, RENAME_NOREPLACE)`; if it does, `renameat2(..., RENAME_EXCHANGE)` and the old bundle, now
   under the `.new-` name, is moved to `released/pool/<checkout key>/<team>/<seat>-<claim>/` (the
   quarantine has two namespaces, `released/pool/` and `released/sessions/`, so no session id can
-  collide with the pool's) and
-  its `token` unlinked. Root never writes here.
+  collide with the pool's) and its `password` unlinked. Root never writes here.
 - A refusal from root (for example a seat number another checkout just took, 3.6.3) removes the
   empty claimed directory, which only this process ever saw.
 - A failure after the sudo call and before the swap leaves a `.new-` directory without a complete
-  bundle. The next take names it and offers `reissue`, which revokes whatever token was minted
-  and issues a new one into a fresh `.new-` directory. The bundle is never silently re-minted
+  record. The next take names it and offers `reissue`, which resets whatever password was set
+  and issues a new one into a fresh `.new-` directory. The credential is never silently re-minted
   (LR 6 item 8).
-- A `reissue` or `return` is refused while the seat is held (`held.json` names a live or
+- A `reissue` or `return` is refused while the seat is held (`held/held.json` names a live or
   restorable session), naming the leave that releases it: the holding session's copy would be
   revoked with nothing to deliver the new one. The owner leaves the team from that session, which
   releases the seat (below), reissues, and joins again, which is a fresh take.
@@ -991,31 +1017,47 @@ directory; everything else in a session seat directory (member state, the seat l
 **Taking a seat for a session** (ccy-teams or the launcher, as the owner, under the checkout's
 allocation lock):
 
-1. The pool seat has a complete bundle and no `held.json`, or its `held.json` names a session
-   that is over, which is released first (below). The handle's state, from the status record's
-   roster, decides what follows: `active` with no `needs` is copied; `parked` or `lost` goes to
-   `member return` and `needs: reissue` to `member reissue` (each a placement, above, and asking
-   the owner's password); `retired` is refused and its pool directory moved to quarantine. A
-   bundle whose token the homeserver no longer accepts is never handed to a session.
-2. Write `held.json` with a fresh claim id (`openat(O_CREAT|O_EXCL|O_NOFOLLOW)`, 0600, fsync).
-3. Open `sessions/<session>/` by directory fd with `O_DIRECTORY|O_NOFOLLOW` from the fd of
+1. The pool seat has a complete record (`password`, `seat.json`) and no `held/`, or its `held/`
+   names a session that is over, which is released first (below). A `held/` with no complete
+   `held.json` is a take that died before step 2 finished: it is moved to quarantine, and its
+   token, if one was written, dies at this take's login (step 3). The handle's state, from the
+   status record's roster, decides what follows: `active` with no `needs` goes on; `parked` or
+   `lost` goes to `member return` and `needs: reissue` to `member reissue` (each a placement,
+   above, and asking the owner's password); `retired` is refused and its pool directory moved to
+   quarantine.
+2. `mkdirat(held)` in the pool seat directory and write `held/held.json` with a fresh claim id
+   (`openat(O_CREAT|O_EXCL|O_NOFOLLOW)`, 0600, fsync each and the directory).
+3. Log in as the seat (`POST /login`, `m.login.password` with the pool's `password`, `device_id`
+   from `seat.json`, no refresh token), over the member URL. The Matrix spec has a login with an
+   existing device id replace that device's access token, so the previous holder's token dies here
+   (host check H-C13 proves it on Tuwunel). A login refused with `M_FORBIDDEN` means the password
+   was reset outside this pool: the take stops naming `member reissue`, and `held/` is removed.
+   A homeserver that is still starting is waited for as 3.7.4 says.
+4. Write `held/token`, then `held/seat.json` (the pool's `seat.json` with `claim` and
+   `released_ms`, 3.7.2), `O_EXCL|O_NOFOLLOW`, 0600, fsync each and the directory. `held/` is now
+   a complete bundle that only the pool can reach, used by the release (below).
+5. Open `sessions/<session>/` by directory fd with `O_DIRECTORY|O_NOFOLLOW` from the fd of
    `sessions/`, which no container sees (the container sees only the inside of its own session
    directory, never the directory entry itself).
-4. `mkdirat(<team>)` relative to that fd. `EEXIST` is refused, naming the path: something already
+6. `mkdirat(<team>)` relative to that fd. `EEXIST` is refused, naming the path: something already
    there, whoever made it, is never written into. Open the new directory `O_DIRECTORY|O_NOFOLLOW`,
    `fstat` it (a directory, owned by the owner, mode 0700) and check it is empty.
-5. Write copies of `token`, then `seat.json`, with `openat(O_CREAT|O_EXCL|O_NOFOLLOW)` 0600
-   relative to that fd, fsync each and the directory.
+7. Write copies of `token`, then `seat.json`, from `held/`, with
+   `openat(O_CREAT|O_EXCL|O_NOFOLLOW)` 0600 relative to that fd, fsync each and the directory.
 
-A container that races step 4 (swaps in a directory of its own, or a link) gains nothing: a link
+A failure at any step leaves `held/` naming a session that holds nothing yet; the session's own
+start fails fast, the launcher removes the session record, and the next take finds the session
+over and releases it (below), the logout included.
+
+A container that races step 6 (swaps in a directory of its own, or a link) gains nothing: a link
 fails `O_NOFOLLOW`, and a directory of its own, if empty and owner-owned, only receives the copy
 the session was about to get anyway, by `openat` with no path walk. Joining a team mid-session
 (hot control) is the same take into a directory the container already has mounted, so no new
 mount is needed in a running container; 3.7.5 says how the session learns of it.
 
 **Releasing a seat** (a leave, a remove, or a session that is over), as the owner. The waits and
-the homeserver call run without the allocation lock, so a launcher's take in the same checkout
-never queues behind a draining keeper; the lock is taken only for steps 2 and 4.
+the homeserver calls run without the allocation lock, so a launcher's take in the same checkout
+never queues behind a draining keeper; the lock is taken only for steps 2 and 5.
 
 1. Wait, bounded (60 s), for the session's seat lock to be free, or for the session to be over.
    The probe is L3, made safe against the container that owns the path: from the dirfd of
@@ -1024,23 +1066,28 @@ never queues behind a draining keeper; the lock is taken only for steps 2 and 4.
    so a planted link cannot point the owner's lock probe at the play lock or any other owner
    file. A wait that ends with the lock still held exits 75 naming the holder; the seat stays
    held and the board shows it as leaving. The board (in the background, 3.13) re-runs the release for every seat whose
-   `held.json` names a live session that no longer desires it (a timed-out leave).
+   `held/held.json` names a live session that no longer desires it (a timed-out leave).
 2. Under the allocation lock: `renameat2(sessions/<session>/<team>, released/sessions/<session>/<team>-<claim id>, RENAME_NOREPLACE)` by directory fds. The rename moves
    whatever is there, a link included, without following it. From that moment the session sees
    nothing of that seat.
-3. If the session is over rather than leaving, the disconnected notice (3.7.5), with the pool's
-   bundle, outside the lock. Its outcome decides the next step:
+3. If the session is over rather than leaving, the disconnected notice (3.7.5), with `held/`'s
+   bundle, outside the lock; skipped when `held/notice.json` already records it for this claim.
+   Its outcome decides the next step:
    - posted, or a goodbye found: go on;
    - not due, or not possible for good: the handle is not `active` in the status record's roster
      (parked, retired, lost, or with `needs: reissue`), the homeserver answers `M_UNKNOWN_TOKEN`
      or `M_FORBIDDEN`, the team is declared absent, or its homeserver is not installed. The
-     reason is recorded in the pool as `notice.json` (`{"v": 1, "claim": "<claim id>", "posted": false, "why": "<reason>"}`), the board shows "notice not posted: <why>", and the
+     reason is recorded as `held/notice.json` (`{"v": 1, "claim": "<claim id>", "posted": false, "why": "<reason>"}`), the board shows "notice not posted: <why>", and the
      release goes on;
    - a transient failure (unreachable, a 5xx, a 429 after M6's retries): the release stops here,
-     `held.json` stays, the board shows the seat as leaving, and the next release retries from
+     `held/` stays, the board shows the seat as leaving, and the next release retries from
      this step (step 2 finds the session seat already gone and moves on).
-4. Under the allocation lock: unlink `held.json` in the pool. The pool bundle is unchanged and
-   authoritative.
+4. `POST /logout` with `held/token`, outside the lock. `M_UNKNOWN_TOKEN` counts as done (the
+   token is already dead); a transient failure stops the release here as in step 3. From this
+   moment the token the session held, and every copy of it, is dead.
+5. Under the allocation lock: write `released.json` (this claim, now), then move `held/` to
+   `released/pool/<checkout key>/<team>/<seat>-<claim id>/` and unlink its `token`. The pool's
+   `password` and `seat.json` are unchanged and authoritative.
 
 A session is over when its session record is gone (00203 H5): the launcher removes the record
 when the session ends by the owner's choice (a normal exit or `ccy-teams` stop), and then runs
@@ -1053,18 +1100,31 @@ The quarantine is removed by an fd-relative walk that never follows a link (Go's
 read: it exists so that a hostile or broken session's last state can be looked at by the owner,
 not reused.
 
-Decision DC16 holds whether the token is reused across sessions. Default (a): the pool's bundle
-is reused as it is, so a session start needs no password. The cost, stated as risk K13: a session
-that held the seat and was hostile may have kept a copy of the token, which stays valid until the
-owner runs `member reissue` or `member park`. (b) reissue on every take: no released session
-keeps a valid token, but every session start asks the owner's password.
+Decision DC16 holds what a pool seat keeps across sessions. Three designs were weighed:
+
+- (a) the pool keeps a token, reused by each session that takes the seat. A session start needs
+  no password, but a released hostile session keeps a valid copy: it can go on reading the seat's
+  traffic, and set the member's read receipt so the next holder's store-less start silently skips
+  what arrived in between (security 1). Rejected.
+- (b) a reissue on every take: no released session keeps a valid token, but every session start
+  asks the owner's password. Rejected for the cost to the owner.
+- (c') chosen: the pool keeps a password, and each take logs in with the seat's one fixed device
+  id; each release logs that token out. A session start needs no owner password, and a released
+  session's token is dead at release. A hostile holder cannot keep the seat: changing the password
+  or adding a device needs the password (UIA), which never leaves the pool. The
+  `released_ms` bound (3.7.2) holds whatever the receipt says.
+
+If H-C13 shows that Tuwunel does not replace a device's token on a new login with the same device
+id, the fallback is a device id per claim (`TC<claim>`) and, at release, `DELETE /devices/<id>`
+with UIA by the pool's password, in place of the logout; and if Tuwunel supports neither, (a) with
+the `released_ms` bound, K13 open.
 
 #### 3.7.4 Seat choice and handles
 
 The handle's grammar, its parts and the set of member types are area A's ("identities and
 handles" in the frame); C takes A's parser and formatter as a package and restates none of it.
 What C owns is seat numbering and allocation, unchanged in substance from v1 (R9, R14; digest 1,
-section 2.10), now computed in-process by ccy-teams from the pool's `held.json` records, the
+section 2.10), now computed in-process by ccy-teams from the pool's `held/held.json` records, the
 session records and the status record's roster:
 
 - The prefix a seat number is counted under names the handle's repo, site and type
@@ -1100,27 +1160,39 @@ the seat lock to come free, and nothing would ask the keeper to free it. (b) is 
 - **Join:** take the seat (3.7.3), then write `desired.json` with it. A session started on no team
   is relaunched once on its first join (R32, `relaunch.json` beside `desired.json`, kept from v1).
 - **Leave:** write `desired.json` without the seat and with a `farewell` entry for it. Area B's
-  keeper sees the change, posts the goodbye as that member (A's `left`, reason `released`: the
-  member stays in the team, A §7.4), drains its outbox, and releases the seat lock. ccy-teams then
-  releases the seat (3.7.3 release). The host never posts a goodbye or a `left`: the member says
-  it. There is no admin-posted farewell and no "farewell owed" record.
+  worker sees the change and posts the goodbye as that member (A's `left`, reason `released`: the
+  member stays in the team, A §7.4), and the session's processes for that seat end, which frees
+  the seat lock (B 2.10; the keeper makes no network call). ccy-teams then releases the seat
+  (3.7.3 release). The host never posts a goodbye or a `left`: the member says it. There is no
+  admin-posted farewell and no "farewell owed" record.
 - **Disconnected (R29, C43):** when the host releases a seat whose session ended (not a leave),
   it posts A's `disconnected` notice as the subject itself (A §7.4), by running area B's
-  `teamchat seat disconnected --bundle <pool seat dir> --claim <claim id>` as the owner: the pool's
-  bundle, never the session's copy, and the claim id from `held.json`. The admin's account never
-  posts it. Whether a goodbye was already said is
+  `teamchat seat disconnected --bundle <pool seat dir>/held --claim <claim id>` as the owner:
+  `held/`'s bundle, never the session's copy, and the claim id from `held/held.json`. The admin's
+  account never posts it. Whether a goodbye was already said is
   judged from the room on the server, from the member's own events since the claim, never from a
   file the container wrote. The notice is sent with a Matrix transaction id derived from the
-  claim id, so a second release of the same claim cannot post twice (transaction ids are scoped
-  to one token; across a reissue in between, the room check covers it). Only a transient failure
+  claim id (`tc-disc-<claim id>`), so a second post for the same claim cannot land twice
+  (transaction ids are scoped to one token, which is one claim's login; across claims the room
+  check covers it). Only a transient failure
   holds the seat for a retry; a notice that is not due or can never be posted (the handle no
   longer active, the token refused, the team gone) is recorded and the release goes on, so a seat
   is never held for ever by a notice (3.7.3 release step 3).
 - When a session is over (its record removed), the launcher runs the release for its seats, and
   the next take, or the board in the background after it has drawn, that finds a seat held by a
-  session that is over does the same;
-  this is the only moment the disconnected notice is due. A crashed or rebooted session whose
-  record remains is restorable, keeps its seats, and gets no notice.
+  session that is over does the same.
+- **A crashed session (ops 2):** a container that dies with its record still in place (a crash,
+  an OOM kill, a podman failure) is restorable and keeps its seats, but its members are announced
+  at once, as v1's launcher did. When `podman` returns and the session's record remains, the
+  launcher, and the board in the background for a launcher that died too, runs the same
+  `teamchat seat disconnected --bundle <pool seat dir>/held --claim <claim id>` for each seat
+  whose seat lock is free (the L3 probe, 3.7.3 release step 1), records `held/notice.json`, and
+  keeps the seat held. The same transaction id means a later release for the same claim cannot
+  post it again, and step 3 of that release skips it. A restored session posts A's `joined` back
+  (area B, with A's content; section 7). A reboot is the same case: the board posts on its first
+  open after it.
+- **An LXC member** is announced by the health tick, which holds a copy of the guest's token
+  (3.6.3, 3.11.2).
 
 B owns the content of the goodbye and the disconnected message (A's types), the keeper side of
 leave, and the decision that a member's own events show a goodbye; section 7 lists these as
@@ -1782,15 +1854,15 @@ unit runs under the live unit's uid and that no file in the state directory chan
 
 An open (picker or `--list`) reads, all in-process, as the owner:
 
-| Read                                                          | Cost on a desktop     | Notes                                                                                                                                                                                                                                               |
-| ------------------------------------------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| host_vars: one strict decode of the v2 keys                   | ~2 ms                 | once per open, shared by every view (fixes v1's three `declare overview` runs)                                                                                                                                                                      |
-| `/var/lib/teamchat-status/installed.json`                     | \<1 ms                | installed `teamchat-admin` digest, Tuwunel version, kit digest                                                                                                                                                                                      |
-| per team: `stamp.json`, `status.json`, `lxc/<team>.json`      | \<1 ms each           | three small files per team, whatever the number of members or people                                                                                                                                                                                |
-| one D-Bus `ListUnitsByPatterns(['teamchat-server@*'])` (DC17) | ~5 ms                 | live unit states, in case the status record is up to a minute old                                                                                                                                                                                   |
-| the seat store: pool and session directories                  | ~1 ms per seat        | the pool's `seat.json` and `held.json` of each seat, and the L3 probe of the seat lock in the holding session's directory, through `openat2` with `RESOLVE_BENEATH\|RESOLVE_NO_SYMLINKS` from that directory's fd, `O_NONBLOCK` and `fstat` (3.7.3) |
-| the checkout's source digest                                  | ~5 ms, cached by stat | for "software out of date" (below)                                                                                                                                                                                                                  |
-| session records, tmux list, git probes for "join here"        | ~30 ms                | as the stage-1 board already does                                                                                                                                                                                                                   |
+| Read                                                          | Cost on a desktop     | Notes                                                                                                                                                                                                                                                                     |
+| ------------------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| host_vars: one strict decode of the v2 keys                   | ~2 ms                 | once per open, shared by every view (fixes v1's three `declare overview` runs)                                                                                                                                                                                            |
+| `/var/lib/teamchat-status/installed.json`                     | \<1 ms                | installed `teamchat-admin` digest, Tuwunel version, kit digest                                                                                                                                                                                                            |
+| per team: `stamp.json`, `status.json`, `lxc/<team>.json`      | \<1 ms each           | three small files per team, whatever the number of members or people                                                                                                                                                                                                      |
+| one D-Bus `ListUnitsByPatterns(['teamchat-server@*'])` (DC17) | ~5 ms                 | live unit states, in case the status record is up to a minute old                                                                                                                                                                                                         |
+| the seat store: pool and session directories                  | ~1 ms per seat        | the pool's `seat.json`, `released.json` and `held/held.json` of each seat, and the L3 probe of the seat lock in the holding session's directory, through `openat2` with `RESOLVE_BENEATH\|RESOLVE_NO_SYMLINKS` from that directory's fd, `O_NONBLOCK` and `fstat` (3.7.3) |
+| the checkout's source digest                                  | ~5 ms, cached by stat | for "software out of date" (below)                                                                                                                                                                                                                                        |
+| session records, tmux list, git probes for "join here"        | ~30 ms                | as the stage-1 board already does                                                                                                                                                                                                                                         |
 
 Seat releases the board finds due (a timed-out leave, a session that is over, 3.7.3) are never
 run on the open path: the board draws from files first, shows those seats as "leaving" or
