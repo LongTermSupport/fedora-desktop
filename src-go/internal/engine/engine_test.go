@@ -9,9 +9,62 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
-func engineOn(kind Kind) (Engine, *execx.Fake) {
+func engineOn(t *testing.T, kind Kind) (Engine, *execx.Fake) {
+	t.Helper()
 	f := &execx.Fake{}
-	return Engine{Kind: kind, Runner: f}, f
+	return newOn(t, kind, f), f
+}
+
+func engineOf(t *testing.T, kind Kind) Engine {
+	t.Helper()
+	return newOn(t, kind, &execx.Fake{})
+}
+
+func newOn(t *testing.T, kind Kind, f *execx.Fake) Engine {
+	t.Helper()
+	e, err := New(kind, f)
+	if err != nil {
+		t.Fatalf("New(%s): %v", kind, err)
+	}
+	return e
+}
+
+// An Engine is built only by New, which takes podman or docker and nothing else, so the program
+// an Engine runs is always one of the two.
+func TestNewRefusesWhatIsNotAnEngine(t *testing.T) {
+	for _, kind := range []Kind{"nerdctl", "", "Podman", "/usr/bin/podman"} {
+		if e, err := New(kind, &execx.Fake{}); !errors.Is(err, ErrUnknownKind) {
+			t.Errorf("New(%q) = %v, %v; want ErrUnknownKind", kind, e.Kind(), err)
+		}
+	}
+	if got := engineOf(t, Docker).Kind(); got != Docker {
+		t.Fatalf("Kind = %s, want docker", got)
+	}
+	if e, err := New(Podman, nil); err == nil {
+		t.Fatalf("an engine with no runner was built: %v", e.Kind())
+	}
+}
+
+// The zero Engine names no program: every question refuses it and runs nothing.
+func TestTheZeroEngineRunsNothing(t *testing.T) {
+	var e Engine
+	ctx := context.Background()
+	errOf := func(_ any, err error) error { return err }
+	checks := map[string]error{
+		"ImageInspect": errOf(e.ImageInspect(ctx, "x", "{{.Id}}")),
+		"ImageExists":  errOf(e.ImageExists(ctx, "x")),
+		"Containers":   errOf(e.Containers(ctx, ContainerQuery{})),
+		"Remove":       e.Remove(ctx, "x"),
+		"Networks":     errOf(e.Networks(ctx)),
+		"Rootless":     errOf(e.Rootless(ctx)),
+		"SELinuxMode":  errOf(e.SELinuxMode(ctx)),
+		"UIDMap":       errOf(e.UIDMap(ctx)),
+	}
+	for name, err := range checks {
+		if !errors.Is(err, ErrUnknownKind) {
+			t.Errorf("%s of the zero Engine = %v, want ErrUnknownKind", name, err)
+		}
+	}
 }
 
 func TestImageExists(t *testing.T) {
@@ -28,7 +81,7 @@ func TestImageExists(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			e, f := engineOn(c.kind)
+			e, f := engineOn(t, c.kind)
 			f.On([]string{string(c.kind), "image", "inspect"}, c.result)
 			got, err := e.ImageExists(context.Background(), "claude-yolo:latest")
 			if err != nil {
@@ -48,7 +101,7 @@ func TestImageExists(t *testing.T) {
 // The bash launcher read every failed inspect as "no image" and went on to build one, so an
 // engine that was not running read as a missing image.
 func TestImageExistsReportsAnEngineThatFailed(t *testing.T) {
-	e, f := engineOn(Podman)
+	e, f := engineOn(t, Podman)
 	f.On([]string{"podman", "image", "inspect"}, execx.Result{ExitCode: 125, Stderr: []byte("Error: cannot connect to Podman\n")})
 	if _, err := e.ImageExists(context.Background(), "claude-yolo:latest"); err == nil {
 		t.Fatal("an engine that could not answer was read as an answer")
@@ -60,7 +113,7 @@ func TestImageExistsReportsAnEngineThatFailed(t *testing.T) {
 }
 
 func TestImageInspectReturnsTheFormattedField(t *testing.T) {
-	e, f := engineOn(Podman)
+	e, f := engineOn(t, Podman)
 	f.On([]string{"podman", "image", "inspect", "--format", "{{.Created}}", "x"}, execx.Result{Stdout: []byte("2026-01-01\n")})
 	got, err := e.ImageInspect(context.Background(), "x", "{{.Created}}")
 	if err != nil || got != "2026-01-01" {
@@ -73,7 +126,7 @@ func TestImageInspectReturnsTheFormattedField(t *testing.T) {
 }
 
 func TestContainers(t *testing.T) {
-	e, f := engineOn(Docker)
+	e, f := engineOn(t, Docker)
 	f.On([]string{"docker", "ps"}, execx.Result{Stdout: []byte("proj_ccy_1\n\nproj_ccy_2\n")})
 	got, err := e.Containers(context.Background(), ContainerQuery{All: true, Filters: []string{"name=_ccy"}})
 	if err != nil {
@@ -93,7 +146,7 @@ func TestContainers(t *testing.T) {
 }
 
 func TestContainersWithNoneRunningIsEmpty(t *testing.T) {
-	e, f := engineOn(Podman)
+	e, f := engineOn(t, Podman)
 	f.On([]string{"podman", "ps"}, execx.Result{})
 	got, err := e.Containers(context.Background(), ContainerQuery{})
 	if err != nil || len(got) != 0 {
@@ -105,7 +158,7 @@ func TestContainersWithNoneRunningIsEmpty(t *testing.T) {
 }
 
 func TestRemove(t *testing.T) {
-	e, f := engineOn(Podman)
+	e, f := engineOn(t, Podman)
 	f.On([]string{"podman", "rm", "-f", "proj_ccy_1"}, execx.Result{Stdout: []byte("proj_ccy_1\n")})
 	if err := e.Remove(context.Background(), "proj_ccy_1"); err != nil {
 		t.Fatal(err)
@@ -118,7 +171,7 @@ func TestRemove(t *testing.T) {
 }
 
 func TestNetworks(t *testing.T) {
-	e, f := engineOn(Podman)
+	e, f := engineOn(t, Podman)
 	f.On([]string{"podman", "network", "ls", "--format", "{{.Name}}"}, execx.Result{Stdout: []byte("podman\nproj_default\n")})
 	got, err := e.Networks(context.Background())
 	if err != nil || !slices.Equal(got, []string{"podman", "proj_default"}) {
@@ -151,7 +204,7 @@ func TestRootless(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			e, f := engineOn(c.kind)
+			e, f := engineOn(t, c.kind)
 			f.On([]string{string(c.kind), "info", "--format", c.format}, c.result)
 			got, err := e.Rootless(context.Background())
 			if err != nil {
@@ -166,13 +219,10 @@ func TestRootless(t *testing.T) {
 }
 
 func TestRootlessOfAnEngineThatCannotStart(t *testing.T) {
-	e, f := engineOn(Podman)
+	e, f := engineOn(t, Podman)
 	f.OnError([]string{"podman", "info"}, &execx.NotInstalledError{Name: "podman"})
 	if _, err := e.Rootless(context.Background()); !execx.IsNotInstalled(err) {
 		t.Fatalf("Rootless error = %v, want not installed", err)
-	}
-	if _, err := (Engine{Kind: "nerdctl", Runner: f}).Rootless(context.Background()); !errors.Is(err, ErrUnknownKind) {
-		t.Fatalf("Rootless of an unknown kind = %v, want ErrUnknownKind", err)
 	}
 }
 
@@ -207,7 +257,7 @@ func TestSELinuxMode(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			e, f := engineOn(c.kind)
+			e, f := engineOn(t, c.kind)
 			c.setup(f)
 			got, err := e.SELinuxMode(context.Background())
 			if err != nil {
@@ -221,24 +271,21 @@ func TestSELinuxMode(t *testing.T) {
 }
 
 func TestSELinuxModeOfAnEngineThatCannotStart(t *testing.T) {
-	e, f := engineOn(Podman)
+	e, f := engineOn(t, Podman)
 	f.On([]string{"getenforce"}, execx.Result{Stdout: []byte("Enforcing\n")})
 	f.OnError([]string{"podman", "info"}, &execx.NotInstalledError{Name: "podman"})
 	if _, err := e.SELinuxMode(context.Background()); !execx.IsNotInstalled(err) {
 		t.Fatalf("SELinuxMode error = %v, want not installed", err)
 	}
-	g, gf := engineOn(Podman)
+	g, gf := engineOn(t, Podman)
 	gf.OnError([]string{"getenforce"}, errors.New("fork failed"))
 	if _, err := g.SELinuxMode(context.Background()); err == nil {
 		t.Fatal("a getenforce that could not start for another reason was read as no SELinux")
 	}
-	if _, err := (Engine{Kind: "nerdctl", Runner: gf}).SELinuxMode(context.Background()); !errors.Is(err, ErrUnknownKind) {
-		t.Fatalf("SELinuxMode of an unknown kind = %v, want ErrUnknownKind", err)
-	}
 }
 
 func TestUIDMapReadsStdoutOnly(t *testing.T) {
-	e, f := engineOn(Podman)
+	e, f := engineOn(t, Podman)
 	f.On([]string{"podman", "unshare", "cat", "/proc/self/uid_map"}, execx.Result{
 		Stdout: []byte("         0       1000          1\n"),
 		Stderr: []byte("level=warning msg=\"a warning\"\n"),
@@ -253,7 +300,7 @@ func TestUIDMapReadsStdoutOnly(t *testing.T) {
 }
 
 func TestUIDMapRefusals(t *testing.T) {
-	e, f := engineOn(Podman)
+	e, f := engineOn(t, Podman)
 	f.On([]string{"podman", "unshare"}, execx.Result{ExitCode: 3, Stderr: []byte("Error: stub podman failed")})
 	if _, err := e.UIDMap(context.Background()); err == nil {
 		t.Fatal("podman could not report its uid map, and the launch went on")
@@ -262,7 +309,7 @@ func TestUIDMapRefusals(t *testing.T) {
 	if _, err := e.UIDMap(context.Background()); !errors.Is(err, ErrUnreadableUIDMap) {
 		t.Fatalf("UIDMap error = %v, want ErrUnreadableUIDMap", err)
 	}
-	docker := Engine{Kind: Docker, Runner: &execx.Fake{}}
+	docker := engineOf(t, Docker)
 	if _, err := docker.UIDMap(context.Background()); !errors.Is(err, ErrNoUIDMap) {
 		t.Fatalf("docker UIDMap error = %v, want ErrNoUIDMap", err)
 	}

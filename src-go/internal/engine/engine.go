@@ -29,7 +29,10 @@
 //     no range of no uids, at least one range; anything else refuses), which owners are
 //     foreign (Maps, ForeignOwnerArgs), whether foreign entries block (RelabelBlocks), when
 //     the check applies (NeedsRelabelCheck), and the look and fix commands shown to the
-//     person, the fix being exactly the argv that runs. The uid map is read from stdout only.
+//     person, the fix being exactly the argv that runs (FixCommand quotes FixArgv, `+`
+//     included). The uid map is read from stdout only.
+//   - E9. An Engine is built only by New, which refuses any kind but podman or docker; the
+//     zero Engine runs nothing. So the program an Engine runs is always one of the two.
 package engine
 
 import (
@@ -51,11 +54,31 @@ var ErrUnknownKind = errors.New("not a container engine ccy drives")
 // ErrNoUIDMap is a uid map asked of docker, which has no `unshare`.
 var ErrNoUIDMap = errors.New("only podman reports a user-namespace uid map")
 
-// Engine runs the questions a launch asks of one container engine.
+// ErrNoRunner is an Engine asked for with no runner to run it through.
+var ErrNoRunner = errors.New("a container engine needs a runner")
+
+// Engine runs the questions a launch asks of one container engine. Its fields are unexported
+// so that New is the only way to build one: the program it runs is podman or docker, never a
+// name from anywhere else. The zero Engine runs nothing (ErrUnknownKind).
 type Engine struct {
-	Kind   Kind
-	Runner execx.Runner
+	kind   Kind
+	runner execx.Runner
 }
+
+// New is the engine of the given kind, run through r; any kind but Podman or Docker is
+// ErrUnknownKind.
+func New(kind Kind, r execx.Runner) (Engine, error) {
+	if _, ok := parse(string(kind)); !ok {
+		return Engine{}, fmt.Errorf("%q: %w", kind, ErrUnknownKind)
+	}
+	if r == nil {
+		return Engine{}, ErrNoRunner
+	}
+	return Engine{kind: kind, runner: r}, nil
+}
+
+// Kind is the engine's program.
+func (e Engine) Kind() Kind { return e.kind }
 
 func lines(out []byte) []string {
 	var got []string
@@ -78,7 +101,7 @@ func missingImage(stderr []byte) bool {
 // ImageInspect is one field of an image, by an engine --format template, trimmed;
 // ErrNoImage when the engine does not have it.
 func (e Engine) ImageInspect(ctx context.Context, image, format string) (string, error) {
-	res, err := e.Runner.Run(ctx, e.cmd("image", "inspect", "--format", format, image))
+	res, err := e.run(ctx, "image", "inspect", "--format", format, image)
 	if err != nil {
 		if exit, ok := errors.AsType[*execx.ExitError](err); ok && exit != nil && missingImage(res.Stderr) {
 			return "", fmt.Errorf("%s: %w", image, ErrNoImage)
@@ -117,7 +140,7 @@ func (e Engine) Containers(ctx context.Context, q ContainerQuery) ([]string, err
 	for _, f := range q.Filters {
 		args = append(args, "--filter", f)
 	}
-	res, err := e.Runner.Run(ctx, e.cmd(append(args, "--format", "{{.Names}}")...))
+	res, err := e.run(ctx, append(args, "--format", "{{.Names}}")...)
 	if err != nil {
 		return nil, fmt.Errorf("list containers: %w", err)
 	}
@@ -126,7 +149,7 @@ func (e Engine) Containers(ctx context.Context, q ContainerQuery) ([]string, err
 
 // Remove removes a container, running or not (`rm -f`).
 func (e Engine) Remove(ctx context.Context, name string) error {
-	if _, err := e.Runner.Run(ctx, e.cmd("rm", "-f", name)); err != nil {
+	if _, err := e.run(ctx, "rm", "-f", name); err != nil {
 		return fmt.Errorf("remove container %s: %w", name, err)
 	}
 	return nil
@@ -134,7 +157,7 @@ func (e Engine) Remove(ctx context.Context, name string) error {
 
 // Networks is the names of the engine's networks.
 func (e Engine) Networks(ctx context.Context) ([]string, error) {
-	res, err := e.Runner.Run(ctx, e.cmd("network", "ls", "--format", "{{.Name}}"))
+	res, err := e.run(ctx, "network", "ls", "--format", "{{.Name}}")
 	if err != nil {
 		return nil, fmt.Errorf("list networks: %w", err)
 	}
@@ -153,22 +176,17 @@ type Report struct {
 
 // Rootless asks the engine whether it is rootless.
 func (e Engine) Rootless(ctx context.Context) (Report, error) {
-	var format string
-	switch e.Kind {
-	case Podman:
-		format = "{{.Host.Security.Rootless}}"
-	case Docker:
+	format := "{{.Host.Security.Rootless}}"
+	if e.kind == Docker {
 		format = "{{.SecurityOptions}}"
-	default:
-		return Report{}, fmt.Errorf("%s: %w", e.Kind, ErrUnknownKind)
 	}
 	out, code, err := e.info(ctx, format)
 	if err != nil {
 		return Report{}, err
 	}
 	return Report{
-		Posture:  RootlessVerdict(e.Kind, out),
-		Command:  string(e.Kind) + " info --format '" + format + "'",
+		Posture:  RootlessVerdict(e.kind, out),
+		Command:  string(e.kind) + " info --format '" + format + "'",
 		Output:   out,
 		ExitCode: code,
 	}, nil
@@ -178,16 +196,14 @@ func (e Engine) Rootless(ctx context.Context) (Report, error) {
 // installed is a host with no SELinux userland; one that fails says so in text the verdict
 // cannot read.
 func (e Engine) SELinuxMode(ctx context.Context) (SELinux, error) {
-	var format string
-	switch e.Kind {
-	case Podman:
-		format = "{{.Host.Security.SELinuxEnabled}}"
-	case Docker:
-		format = "{{.SecurityOptions}}"
-	default:
-		return SELinuxUnknown, fmt.Errorf("%s: %w", e.Kind, ErrUnknownKind)
+	if err := e.known(); err != nil {
+		return SELinuxUnknown, err
 	}
-	enforce, err := getenforce(ctx, e.Runner)
+	format := "{{.Host.Security.SELinuxEnabled}}"
+	if e.kind == Docker {
+		format = "{{.SecurityOptions}}"
+	}
+	enforce, err := getenforce(ctx, e.runner)
 	if err != nil {
 		return SELinuxUnknown, err
 	}
@@ -195,7 +211,7 @@ func (e Engine) SELinuxMode(ctx context.Context) (SELinux, error) {
 	if err != nil {
 		return SELinuxUnknown, err
 	}
-	if e.Kind == Docker {
+	if e.kind == Docker {
 		report = DockerSELinuxReport(report)
 	}
 	return SELinuxVerdict(enforce, report), nil
@@ -204,28 +220,50 @@ func (e Engine) SELinuxMode(ctx context.Context) (SELinux, error) {
 // UIDMap is the uid map of podman's user namespace, read from `podman unshare`'s stdout only,
 // so a warning podman prints is not read as part of the map.
 func (e Engine) UIDMap(ctx context.Context) ([]Range, error) {
-	if e.Kind != Podman {
-		return nil, fmt.Errorf("%s: %w", e.Kind, ErrNoUIDMap)
+	if err := e.known(); err != nil {
+		return nil, err
 	}
-	res, err := e.Runner.Run(ctx, e.cmd("unshare", "cat", "/proc/self/uid_map"))
+	if e.kind != Podman {
+		return nil, fmt.Errorf("%s: %w", e.kind, ErrNoUIDMap)
+	}
+	res, err := e.run(ctx, "unshare", "cat", "/proc/self/uid_map")
 	if err != nil {
 		return nil, fmt.Errorf("read the uid map of podman's user namespace: %w", err)
 	}
 	return ParseUIDMap(string(bytes.TrimSpace(res.Stdout)))
 }
 
-// cmd is one run of the engine's program.
+// known refuses the zero Engine, the one Engine whose kind New did not check.
+func (e Engine) known() error {
+	if e.runner == nil {
+		return fmt.Errorf("%q: %w", e.kind, ErrUnknownKind)
+	}
+	return nil
+}
+
+// run is one run of the engine's program, with its output captured.
+func (e Engine) run(ctx context.Context, args ...string) (execx.Result, error) {
+	if err := e.known(); err != nil {
+		return execx.Result{}, err
+	}
+	return e.runner.Run(ctx, e.cmd(args...))
+}
+
+// cmd is one run of the engine's program: podman or docker, as New checked.
 func (e Engine) cmd(args ...string) execx.Cmd {
-	return execx.Cmd{Name: string(e.Kind), Args: args}
+	return execx.Cmd{Name: string(e.kind), Args: args}
 }
 
 // info is `info --format F`, its output merged: a failed info's error is text the verdicts
 // cannot read, which is unknown, which is the safe side. Only an engine that could not be
 // started at all is an error.
 func (e Engine) info(ctx context.Context, format string) (string, int, error) {
-	out, code, err := merged(ctx, e.Runner, e.cmd("info", "--format", format))
+	if err := e.known(); err != nil {
+		return "", 0, err
+	}
+	out, code, err := merged(ctx, e.runner, e.cmd("info", "--format", format))
 	if err != nil {
-		return "", 0, fmt.Errorf("ask %s for its info: %w", e.Kind, err)
+		return "", 0, fmt.Errorf("ask %s for its info: %w", e.kind, err)
 	}
 	return out, code, nil
 }

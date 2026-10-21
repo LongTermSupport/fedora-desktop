@@ -128,7 +128,7 @@ var dynamicNames = []allowance{
 	{
 		pkg:    "internal/engine",
 		fn:     "Engine.cmd",
-		reason: "the ccy launcher's container engine, podman or docker, chosen by engine.Select from its own two-name table",
+		reason: "the ccy launcher's container engine, podman or docker: an Engine's kind is unexported and set only by engine.New, which refuses any other name",
 	},
 	{
 		pkg:    hostPkg,

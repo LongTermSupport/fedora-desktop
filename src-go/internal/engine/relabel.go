@@ -120,14 +120,15 @@ func LookCommand(dir string, preds []string) string {
 	return quoteAll(append(findArgv(dir, preds), "-printf", `%U:%G  %p\n`))
 }
 
-// FixArgv is the find that gives every foreign entry to uid:gid, run as root; `+` ends it.
+// FixArgv is the find that gives every foreign entry to uid:gid, run as root, complete with
+// the `+` that ends its -exec.
 func FixArgv(dir string, preds []string, uid, gid int) []string {
-	return append(findArgv(dir, preds), "-exec", "chown", "-h", strconv.Itoa(uid)+":"+strconv.Itoa(gid), "{}")
+	return append(findArgv(dir, preds), "-exec", "chown", "-h", strconv.Itoa(uid)+":"+strconv.Itoa(gid), "{}", "+")
 }
 
-// FixCommand is FixArgv as a person would type it, under sudo.
+// FixCommand is FixArgv as a person would type it, under sudo: the same words, quoted.
 func FixCommand(dir string, preds []string, uid, gid int) string {
-	return "sudo " + quoteAll(append(FixArgv(dir, preds, uid, gid), "+"))
+	return "sudo " + quoteAll(FixArgv(dir, preds, uid, gid))
 }
 
 func findArgv(dir string, preds []string) []string {

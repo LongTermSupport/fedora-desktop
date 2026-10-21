@@ -77,7 +77,8 @@ func (c Cmd) checkSecrets() error {
 }
 
 // childEnv is the child's environment when the command changes it (Env, Unset, Secrets); false
-// when the child simply inherits this process's. A secret is added last, so it wins.
+// when the child simply inherits this process's. A secret is added last, and ChildEnv drops
+// every other copy of its name, so the child sees the secret's value and only that.
 func (c Cmd) childEnv() ([]string, bool) {
 	if len(c.Env) == 0 && len(c.Unset) == 0 && len(c.Secrets) == 0 {
 		return nil, false

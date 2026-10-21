@@ -1,10 +1,17 @@
 package engine
 
 import (
+	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/shellword"
 )
 
 func args(t *testing.T, uidMap string) string {
@@ -134,10 +141,50 @@ func TestLookAndFixCommands(t *testing.T) {
 		t.Fatalf("FixCommand =\n %s\nwant\n %s", fix, want)
 	}
 	argv := FixArgv(dir, preds, 1000, 1000)
-	if argv[0] != "find" || argv[1] != dir || !slices.Equal(argv[len(argv)-5:], []string{"-exec", "chown", "-h", "1000:1000", "{}"}) {
-		t.Fatalf("FixArgv = %q", argv)
+	wantArgv := append(append([]string{"find", dir}, preds...), "-exec", "chown", "-h", "1000:1000", "{}", "+")
+	if !slices.Equal(argv, wantArgv) {
+		t.Fatalf("FixArgv =\n %q\nwant\n %q", argv, wantArgv)
 	}
-	if !strings.HasPrefix(fix, "sudo ") || strings.TrimPrefix(fix, "sudo ") != quoteAll(append(argv, "+")) {
+	if fix != "sudo "+quoteAll(argv) {
 		t.Fatalf("the printed fix is not the argv it runs: %q vs %q", fix, argv)
+	}
+}
+
+// The fix argv is run by find itself, with a chown on PATH that records its arguments: find
+// must accept it (a missing `+` is "missing argument to -exec") and hand it every foreign entry.
+func TestFixArgvRunsUnderFind(t *testing.T) {
+	bin := t.TempDir()
+	record := filepath.Join(t.TempDir(), "chown-args")
+	fake := "#!/bin/sh\nprintf '%s\\n' \"$@\" >> " + shellword.Quote(record) + "\n"
+	chown := filepath.Join(bin, "chown")
+	if err := os.WriteFile(chown, []byte(fake), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Chmod(chown, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "entry"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A map of one uid no account has, so every entry the test made is foreign.
+	ranges := []Range{{Inside: 0, Outside: 4000000000, Count: 1}}
+	argv := FixArgv(dir, ForeignOwnerArgs(ranges), 1000, 1000)
+	if argv[0] != "find" {
+		t.Fatalf("FixArgv runs %q, want find", argv[0])
+	}
+	res, err := execx.OS{}.Run(context.Background(), execx.Cmd{
+		Name: "find", Args: argv[1:], Env: []string{"PATH=" + bin + ":" + os.Getenv("PATH")},
+	})
+	if err != nil {
+		t.Fatalf("find %q: %v (stderr %q)", argv[1:], err, res.Stderr)
+	}
+	got, err := os.ReadFile(filepath.Clean(record))
+	if err != nil {
+		t.Fatalf("the fake chown never ran: %v", err)
+	}
+	want := "-h\n1000:1000\n" + dir + "\n" + filepath.Join(dir, "entry") + "\n"
+	if string(got) != want {
+		t.Fatalf("chown got\n%s\nwant\n%s", got, want)
 	}
 }
