@@ -495,6 +495,8 @@ Plan 00211 (its SPEC.md is the design) gives each team two more rooms, created b
   `{"join_rule": "restricted", "allow": [{"type": "m.room_membership", "room_id": "<main>"}]}`
   for reports and `{"join_rule": "invite"}` for questions. A side room that fails is untrusted
   alone: `report`, `ask-human` and `thread` exit 10 naming it, and the main room stays trusted.
+  So does any homeserver failure in a side room (a refused join, a 5xx, a rate limit, no usable
+  answer): it is logged and recorded as the room's reason, and the main room's commands go on.
 - **Power levels.** Reports: humans 0, `users_default` and `events_default` 10, `state_default`,
   `invite`, `kick`, `ban`, `redact`, `notifications.room`, `m.reaction` and `agent_bus.status`
   100, the rest as the main room's. Questions, open (the record names a coordinator): the main
@@ -510,7 +512,8 @@ Plan 00211 (its SPEC.md is the design) gives each team two more rooms, created b
   the room is not untrusted, the questions room; one token covers both and either is gap-filled
   by the same read. History before its own join is skipped.
 - **`no-room`.** A send to a side room the index does not name yet is refused, exit 4: the rooms
-  are created by the agent-bus play, so this means "not deployed", not "untrusted".
+  are created by the agent-bus play, so this means "not deployed", not "untrusted": the agent
+  carries on in the main room as before.
 
 ## 9. Validation
 
@@ -604,9 +607,10 @@ A coordinator's sync also receives the questions room (§8.1), and nobody receiv
 room. For each of its `m.room.message` events, steps 1 to 3 run as above, then:
 
 1. The record does not name this member `coordinator`: ignore (`not-coordinator`); a demoted
-   coordinator's stored items go unread.
+   coordinator's stored items go unread. The sender is another coordinator: ignore
+   (`coordinator-post`); its post is for the humans.
 2. The sender is not a listed human, or the bundle has `"human_text": false`: drop (`sender`).
-   No agent but the coordinator can post there, so an agent's post means drift.
+   No agent but a coordinator can post there, so any other agent's post means drift.
 3. `msgtype` not `m.text`: drop (`schema`). Body over the limit: drop (`size`).
 4. **Every human message is for the coordinator**, mentioned or not: there is no addressing
    step and nothing is logged as unheard.

@@ -733,6 +733,7 @@ class TeamState:
             box.send_gate(member_limits, now_ms).admit("report", digest, None, (), now_ms)
             window.admit(member_limits.report_per_hour, now_ms)
             _write_atomic(path, _dump({"v": STATE_VERSION, "sent": window.to_dict()}))
+            _fsync_dir(self.path)
 
     def _load_json(self, path: pathlib.Path) -> object | None:
         return read_json_file(path)

@@ -14,12 +14,13 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 import sys
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import inbox, protocol, syncer
+from helpers.pingbus import inbox, matrix, protocol, syncer
 from tests.helpers.pingbus.test_syncer import TEAM, TeamCase, q
 
 QUESTION = "Pick the cost limit\nContext: the nightly run costs money.\nQuestion: what is the cap?"
@@ -283,6 +284,95 @@ class SideTrustTest(SideRoomCase):
         self.answer(questions, "nobody reads this")
         s.sync_once()
         self.assertEqual(self.filter_rooms()[-1], [self.room])
+
+
+#: Every class of homeserver failure a side room can meet, as `inject` arguments: a refused
+#: restricted join, a server error, a rate limit past its retries, and an answer that is not
+#: JSON (what a transport failure looks like to the client: `Unreachable`).
+SIDE_FAILURES = {
+    "400 refused join": (400, {"errcode": "M_UNABLE_TO_AUTHORISE_JOIN", "error": "no"}),
+    "500": (500, {"errcode": "M_UNKNOWN", "error": "boom"}),
+    "429": (429, {"errcode": "M_LIMIT_EXCEEDED", "error": "slow", "retry_after_ms": 1}),
+    "transport": (200, []),
+}
+
+
+class SideRoomFailureTest(SideRoomCase):
+    """A homeserver failure in a side room is that room's alone (SPEC §4.3): it is recorded
+    with a reason and logged, and every main-room step goes on."""
+
+    def fail(self, method: str, pattern: str, failure: str) -> None:
+        status, body = SIDE_FAILURES[failure]
+        self.fake.inject(method, pattern, status, body, times=1000)
+
+    def assert_main_room_works(self, s: syncer.Syncer) -> None:
+        self.assertIsNotNone(s.record)
+        main = self.human("still heard")
+        s.sync_once()
+        self.assertIn(main, [i.event_id for i in self.items()])
+
+    def test_a_reports_join_failure_is_recorded_and_the_main_room_goes_on(self):
+        for failure in SIDE_FAILURES:
+            with self.subTest(failure):
+                self.state.forget_sync_token()
+                self.fake._faults.clear()
+                reports = self.make_side("reports", invite=(self.alice,))
+                self.index(reports=reports)
+                self.fail("POST", rf"/rooms/{re.escape(q(reports))}/join$", failure)
+                self.logged.clear()
+                s = self.ready()
+                self.assertEqual(s.side["reports"].state, "refused")
+                self.assertIn("homeserver", s.side["reports"].reason)
+                self.assertEqual(self.state.side_rooms()["reports"], s.side["reports"])
+                self.assertTrue(any("reports room" in line for line in self.logged), self.logged)
+                self.assert_main_room_works(s)
+
+    def test_a_questions_join_failure_is_recorded_and_the_main_room_goes_on(self):
+        for failure in SIDE_FAILURES:
+            with self.subTest(failure):
+                self.state.forget_sync_token()
+                self.fake._faults.clear()
+                reports, questions = self.both()
+                self.fail("POST", rf"/rooms/{re.escape(q(questions))}/join$", failure)
+                self.logged.clear()
+                s = self.ready()
+                self.assertEqual(s.side["questions"].state, "pending")
+                self.assertIn("homeserver", s.side["questions"].reason)
+                self.assertTrue(any("questions room" in line for line in self.logged), self.logged)
+                self.assert_main_room_works(s)
+
+    def test_a_side_state_read_failure_is_untrusted_and_the_main_room_goes_on(self):
+        for failure in SIDE_FAILURES:
+            with self.subTest(failure):
+                self.state.forget_sync_token()
+                self.fake._faults.clear()
+                reports, questions = self.both()
+                self.fail("GET", rf"/rooms/{re.escape(q(questions))}/state/", failure)
+                self.logged.clear()
+                s = self.ready()
+                self.assertEqual(s.side["questions"].state, "untrusted")
+                self.assertIn("homeserver", s.side["questions"].reason)
+                self.assertTrue(any("questions room" in line for line in self.logged), self.logged)
+                self.assert_main_room_works(s)
+
+    def test_the_main_rooms_own_failure_still_fails(self):
+        s = self.ready()
+        self.fail("GET", rf"/rooms/{re.escape(q(self.room))}/state/", "500")
+        with self.assertRaises(matrix.MatrixError):
+            s.verify_room()
+
+    def test_a_questions_gap_fill_failure_is_logged_and_the_main_room_goes_on(self):
+        reports, questions = self.both()
+        s = self.ready()
+        s.sync_once()
+        sent = [self.answer(questions, f"answer {n}") for n in range(syncer.TIMELINE_LIMIT + 5)]
+        main = self.human("still heard")
+        self.fail("GET", rf"/rooms/{re.escape(q(questions))}/messages$", "500")
+        self.logged.clear()
+        accepted = s.sync_once().accepted
+        self.assertIn(main, accepted)
+        self.assertIn(sent[-1], accepted)
+        self.assertTrue(any("pingbus questions" in line for line in self.logged), self.logged)
 
 
 class QuestionsReceiveTest(SideRoomCase):

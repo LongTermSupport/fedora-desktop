@@ -365,6 +365,15 @@ class QuestionsRoomValidateTest(unittest.TestCase):
         outcome = self.validate(human("fifty"), coordinator=WORKER)
         self.assertEqual((outcome.kind, outcome.reason), (p.IGNORE, p.IGNORE_NOT_COORDINATOR))
 
+    def test_another_coordinators_post_is_ignored_never_a_drop(self):
+        """Several coordinators share the questions room: each one's `ask-human` and thread
+        posts are traffic for the humans, not drops at the others."""
+        both = ctx()
+        both.roles[WORKER] = p.ROLE_COORDINATOR
+        outcome = p.validate_event(message(10, WORKER, human("Q1: the cap?")), both, ME, room=p.PURPOSE_QUESTIONS)
+        self.assertEqual((outcome.kind, outcome.reason), (p.IGNORE, p.IGNORE_COORDINATOR_POST))
+        self.assertEqual(self.validate(human("x"), sender=WORKER).reason, "sender")
+
     def test_an_edit_is_delivered_as_a_revision(self):
         edit = human("* fifty", {"rel_type": "m.replace", "event_id": eid(4)},
                      **{"m.new_content": {"msgtype": "m.text", "body": "fifty"}})

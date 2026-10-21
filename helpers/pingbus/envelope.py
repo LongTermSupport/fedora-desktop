@@ -55,8 +55,8 @@ _FIELDS = {"HUMAN": 8, "PEER": 8, "PING": 11, "TIMEOUT": 7}
 #: Plan 00211 SPEC §8.3: the HUMAN line's ROOM field: `-` (the main room), or the questions
 #: room with the question the message is attached to, or `-` when it is unattached.
 _ROOM_RE = re.compile(r"-|questions:(?:Q([1-9][0-9]{0,8})|-)")
-HEADLINE_MAX = 120
-QUESTIONS_ROOM = "questions"
+HEADLINE_MAX = protocol.HEADLINE_MAX
+QUESTIONS_ROOM = protocol.PURPOSE_QUESTIONS
 
 KIND_LINES = {
     "HUMAN": "kind: HUMAN (a human listed in the team record)",

@@ -201,6 +201,9 @@ IGNORE_NOT_ADDRESSED = "not-addressed"
 #: The ignore reason for a questions-room item at a member the record does not name
 #: coordinator (Plan 00211 SPEC §6): a demoted coordinator's stored items go unread.
 IGNORE_NOT_COORDINATOR = "not-coordinator"
+#: The ignore reason for a coordinator's post in the questions room, at another coordinator:
+#: it is for the humans, so it is skipped silently, never a drop.
+IGNORE_COORDINATOR_POST = "coordinator-post"
 #: The reasons `ignored.log` records (spec §9 "Unheard"): a team human's message that
 #: reached no agent. Every other ignore is traffic for others, and logs nothing.
 UNHEARD_REASONS = (IGNORE_NOT_ADDRESSED,)
@@ -875,9 +878,12 @@ def _questions_outcome(
 ) -> Outcome:
     """Plan 00211 SPEC §6: in the questions room only a coordinator receives, and only a
     human's message, addressed or not. An edit is a revision of the event it replaces, with
-    the edit's new body; it never replaces the original. Any agent's post is `sender`."""
+    the edit's new body; it never replaces the original. Another coordinator's post is
+    ignored; any other agent's post is `sender`."""
     if ctx.roles.get(self_user_id) != ROLE_COORDINATOR:
         return Outcome(IGNORE, IGNORE_NOT_COORDINATOR)
+    if ctx.roles.get(sender) == ROLE_COORDINATOR:
+        return Outcome(IGNORE, IGNORE_COORDINATOR_POST)
     if cls != SENDER_HUMAN or not human_text:
         return Outcome(DROP, "sender")
     if content.get("msgtype") != MSGTYPE_HUMAN:

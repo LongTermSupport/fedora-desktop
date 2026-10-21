@@ -2429,7 +2429,12 @@ def cmd_history(args: argparse.Namespace, environ: Mapping[str, str], out: TextI
     first_failure: int | None = None
     for member in config.load_active(environ, team=args.team):
         try:
-            found = _seat(member, environ, rt, err).syncer.history(limit, args.room)
+            seat = _seat(member, environ, rt, err)
+            if args.room == protocol.PURPOSE_QUESTIONS:
+                # The exits `questions` gives: `role` for a worker, `no-room` before the play.
+                _coordinator(member, seat.syncer.verify_room(), "history --room questions")
+                _side_room(seat, protocol.PURPOSE_QUESTIONS)
+            found = seat.syncer.history(limit, args.room)
             lines = [history_line(member.team, member.server_name, item) for item in found.items]
         except FAILURES as exc:
             code, message = failure(exc)

@@ -89,6 +89,14 @@ REASON_NO_HUMAN_TEXT = inbox.REASON_NO_HUMAN_TEXT
 REASON_JOIN_REFUSED = "the homeserver refused the join"
 
 
+def homeserver_reason(exc: matrix.MatrixError) -> str:
+    """A homeserver failure as a side room's reason: its status and checked errcode only, never
+    the server's own text, so it always passes the reason grammar."""
+    if isinstance(exc, matrix.Unreachable) or exc.status is None:
+        return "the homeserver gave no usable answer"
+    return f"the homeserver answered HTTP {exc.status}" + (f" {exc.errcode}" if exc.errcode else "")
+
+
 class RoomUntrusted(protocol.Untrusted):
     """The team room is not trusted (§8), or not joined: exit 10."""
 
@@ -430,7 +438,16 @@ class Syncer:
         except (matrix.Forbidden, matrix.NotFound):
             self._say(f"could not join the reports room {room_id}")
             return inbox.SideRoom(room_id, "refused", REASON_JOIN_REFUSED)
+        except matrix.MatrixError as exc:
+            return inbox.SideRoom(room_id, "refused", self._side_failure(protocol.PURPOSE_REPORTS, room_id,
+                                                                         "the join", exc))
         return inbox.SideRoom(room_id, "join", None)
+
+    def _side_failure(self, purpose: str, room_id: str, doing: str, exc: matrix.MatrixError) -> str:
+        """A side room's homeserver failure, logged in full; the reason `status` names. It is
+        that room's alone: the main room and every command on it go on (SPEC §4.3)."""
+        self._say(f"the {purpose} room {room_id}: {doing} failed: {exc}")
+        return f"{doing} failed: {homeserver_reason(exc)}"
 
     def _may_take_questions(self, record: protocol.TeamRecord | None) -> bool:
         return (record is not None and record.roles.get(self.member.user_id) == protocol.ROLE_COORDINATOR
@@ -444,11 +461,23 @@ class Syncer:
         if not self.member.human_text:
             return inbox.SideRoom(room_id, "refused", REASON_NO_HUMAN_TEXT)
         if prev is None or prev.state in ("pending", "refused"):
-            try:
-                self.client.join(room_id)
-            except (matrix.Forbidden, matrix.NotFound):
+            return self._join_questions(room_id, record, invited=False)
+        return self.verify_side(protocol.PURPOSE_QUESTIONS, room_id, record)
+
+    def _join_questions(self, room_id: str, record: protocol.TeamRecord, *, invited: bool) -> inbox.SideRoom:
+        """Join the questions room and verify it; `pending` when the join fails, retried at the
+        next verify."""
+        try:
+            self.client.join(room_id)
+        except (matrix.Forbidden, matrix.NotFound) as exc:
+            if not invited:
                 return inbox.SideRoom(room_id, "pending", REASON_NOT_INVITED)
-            self._fresh_questions = True
+            reason = self._side_failure(protocol.PURPOSE_QUESTIONS, room_id, "the join", exc)
+            return inbox.SideRoom(room_id, "pending", reason)
+        except matrix.MatrixError as exc:
+            reason = self._side_failure(protocol.PURPOSE_QUESTIONS, room_id, "the join", exc)
+            return inbox.SideRoom(room_id, "pending", reason)
+        self._fresh_questions = True
         return self.verify_side(protocol.PURPOSE_QUESTIONS, room_id, record)
 
     def verify_side(self, purpose: str, room_id: str, record: protocol.TeamRecord) -> inbox.SideRoom:
@@ -467,6 +496,8 @@ class Syncer:
             reason = str(exc)
         except (matrix.NotFound, matrix.Forbidden):
             reason = "not joined, or its state is missing"
+        except matrix.MatrixError as exc:
+            return inbox.SideRoom(room_id, "untrusted", self._side_failure(purpose, room_id, "reading its state", exc))
         else:
             return inbox.SideRoom(room_id, "join", None)
         self._say(f"the {purpose} room {room_id} is not trusted: {reason}")
@@ -506,7 +537,13 @@ class Syncer:
         if self._listening_room() != room_id or self.side[protocol.PURPOSE_QUESTIONS].state != "join":
             return []
         if limited:
-            events = self._fill_gap(room_id, since, timeline.get("prev_batch")) + events
+            try:
+                events = self._fill_gap(room_id, since, timeline.get("prev_batch")) + events
+            except matrix.MatrixError as exc:
+                # The main room's batch must not wait on this one; the room itself keeps the
+                # missed messages, and `pingbus questions` reads them from there.
+                self._side_failure(protocol.PURPOSE_QUESTIONS, room_id, "the gap fill", exc)
+                self._say(f"the questions room {room_id}: messages may be missed; run pingbus questions")
         return events
 
     def _room_messages(self, room_id: str) -> tuple[list, bool]:
@@ -533,6 +570,18 @@ class Syncer:
         room_id = self._joined_questions()
         events, _ = self._room_messages(room_id)
         return protocol.build_question_index(events, self.record.context(self.member.server_name))
+
+    def _question_index_or_none(self) -> protocol.QuestionIndex | None:
+        """The receive path's question index; None, logged, when the homeserver fails to give
+        it: the items are then stored with no question, and the main room's batch goes on."""
+        try:
+            return self.question_index()
+        except matrix.MatrixError as exc:
+            room_id = self.side[protocol.PURPOSE_QUESTIONS].room
+            self._side_failure(protocol.PURPOSE_QUESTIONS, room_id, "reading its questions", exc)
+            self._say(f"the questions room {room_id}: its messages are stored without their question; "
+                      "run pingbus questions")
+            return None
 
     def _joined_questions(self) -> str:
         found = self.side.get(protocol.PURPOSE_QUESTIONS)
@@ -615,10 +664,8 @@ class Syncer:
                 self.client.join(room_id)
                 joined = True
             elif action == INVITE_QUESTIONS:
-                self.client.join(room_id)
-                self._fresh_questions = True
                 side = dict(self.side)
-                side[protocol.PURPOSE_QUESTIONS] = self.verify_side(protocol.PURPOSE_QUESTIONS, room_id, self.record)
+                side[protocol.PURPOSE_QUESTIONS] = self._join_questions(room_id, self.record, invited=True)
                 self._set_side(side)
             elif action == INVITE_PENDING:
                 self._say(f"left an invite to room {room_id} pending")
@@ -728,9 +775,9 @@ class Syncer:
             elif room == protocol.ROOM_MAIN and protocol.reached_no_agent(event, ctx, outcome):
                 self.state.log_ignored(member.team, event_id, event.get("sender"), outcome.reason, now)
         if asked:
-            index = self.question_index()
+            index = self._question_index_or_none()
             for event in asked:
-                question = self._question_of(index, event)
+                question = None if index is None else self._question_of(index, event)
                 accepted.append({**event, inbox.ROOM_KEY: protocol.PURPOSE_QUESTIONS, inbox.QUESTION_KEY:
                                  None if question is None else {"n": question[0], "headline": question[1]}})
         if answers:

@@ -160,9 +160,17 @@ or at your next prompt: from then on act in the new role.
 
 ## Reports and questions
 
+- **The side rooms exist only once the agent-bus play has made them.** `pingbus status` prints
+  a `ROOM` line for each, and the session-start context names `pingbus report` and
+  `pingbus questions` only once you have joined the room. Until then, or whenever one of these
+  commands exits 4 `no-room`, carry on in the main room as before: skip the report, and the
+  coordinator asks a human there with `pingbus say --to NAME`. Do not retry and do not tell a
+  human that the room is missing.
+
 - **Questions go to the coordinator, never to a human.** If you are a worker and need a
   decision, a fact or a permission, ask the coordinator with `pingbus say --to-coordinator`.
-  Write to a human only to answer a human who wrote to you.
+  Once the reports room exists, write to a human only to answer a human who wrote to you, and
+  put what a human should know in a report.
 
 - **Reports are for the humans to read, not to answer.** Run `pingbus report` with the text on
   stdin when something a human would want to know has happened: a milestone, a merge, a deploy
@@ -343,7 +351,7 @@ wrote with `pingbus say --to NAME`; its text is not shown.
 | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 0    | success                                                                                                                                                    |
 | 3    | nothing pending (`recv`), or `wait` timed out: re-arm it                                                                                                   |
-| 4    | refused by the validator or by role: fix the ping or text, do not retry; `no-room`: the team's reports or questions room is not deployed yet, tell a human |
+| 4    | refused by the validator or by role: fix the ping or text, do not retry; `no-room`: the side room is not deployed yet, carry on in the main room as before |
 | 5    | the reference did not resolve at the forge: push first, check the SHA                                                                                      |
 | 6    | `recv` dropped every item: nothing to act on                                                                                                               |
 | 7, 8 | homeserver unreachable, or the token was refused: tell a human                                                                                             |

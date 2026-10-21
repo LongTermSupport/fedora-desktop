@@ -250,6 +250,31 @@ class QuestionsTest(RoomsCase):
         self.assertEqual(self.lines(out, "REPLY_TO"), [["REPLY_TO", "1", bus.TEAM_A, "Q2", reply]])
 
 
+class QuestionsExitCodesTest(RoomsCase):
+    """`history --room questions` exits as `questions` does for the same situation."""
+
+    def test_before_the_rooms_exist_both_are_no_room(self):
+        self.joined()
+        for args in (("questions",), ("history", "--room", "questions")):
+            with self.subTest(args=args):
+                code, _, err = self.run_cli(*args)
+                self.assertEqual(code, cli.EXIT_REFUSED, err)
+                self.assertIn("no-room", err)
+
+
+class WorkerQuestionsExitCodesTest(RoomsCase):
+    coordinator = False
+
+    def test_for_a_worker_both_are_refused_by_role(self):
+        self.rooms()
+        self.joined()
+        for args in (("questions",), ("history", "--room", "questions")):
+            with self.subTest(args=args):
+                code, _, err = self.run_cli(*args)
+                self.assertEqual(code, cli.EXIT_REFUSED, err)
+                self.assertIn("role", err)
+
+
 class HumanLineTest(RoomsCase):
     def setUp(self) -> None:
         super().setUp()

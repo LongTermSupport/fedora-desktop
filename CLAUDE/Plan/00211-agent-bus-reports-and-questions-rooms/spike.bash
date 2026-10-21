@@ -11,9 +11,12 @@
 # WHAT IT RECORDS (spike-report.md in the run directory, listed at the end):
 #   R1 a restricted join into reports by main-room membership (room version 12);
 #   R2 a power-0 human refused m.room.message in reports; R3 a power-50 human refused
-#   m.reaction in questions; R4 a pending invite harmless across filtered syncs.
-# A fact that does not hold fails the run: SPEC §3.1, §4.4 and §5.3 are then amended
-# before Phase 1 is deployed.
+#   m.reaction in questions; R4 a pending invite harmless across filtered syncs; R5 the side
+#   rooms' power levels and join rules, read back, pass verify_side's exact checks.
+# A fact that does not hold fails the run: SPEC §3.1, §4.3, §4.4 and §5.3 are then amended
+# before Phase 2. meta-deploy runs deploy 1 after this whatever its result (deploy 1 makes no
+# room); deploy.bash --stage 2 refuses to run unless the newest spike report ends with the
+# PASS verdict line.
 #
 # WHERE TO RUN: on the HOST, through meta-deploy (plan_require_host). Needs the agent-bus play
 # to have installed /usr/local/lib/agent-bus/tuwunel.
@@ -58,6 +61,11 @@ spike_cleanup() {
     if [[ -d "/proc/${pid}" ]]; then
       printf '==> stopping the spike homeserver (pid %s)\n' "${pid}"
       kill -TERM "${pid}"
+      local waited=0
+      while [[ -d "/proc/${pid}" ]] && [[ "${waited}" -lt 60 ]]; do
+        sleep 1
+        waited=$((waited + 1))
+      done
     fi
   fi
   if [[ -d "${SPIKE_WORK}" ]]; then

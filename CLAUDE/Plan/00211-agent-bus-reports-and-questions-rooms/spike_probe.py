@@ -14,10 +14,13 @@ the facts are about the rooms the admin tool will create. It records, in <report
 - R2: a power-0 human is refused `m.room.message` in reports (`events_default` 10);
 - R3: a power-50 human is refused `m.reaction` in questions (100), and may post a message;
 - R4: a pending invite to questions does no harm across syncs filtered to the main room,
-  and whether such a filtered sync shows the invite at all (SPEC §4.4's open point).
+  and whether such a filtered sync shows the invite at all (SPEC §4.4's open point);
+- R5: the power levels and join rules of reports, open questions and closed questions, read
+  back from the server, pass the exact checks `Syncer.verify_side` makes.
 
 Exit 0 when every fact holds as the design assumes, 1 when one does not (the report says
-which, and SPEC §3.1, §4.4 and §5.3 must then be amended), 2 when a probe could not run.
+which, and SPEC §3.1, §4.3, §4.4 and §5.3 must then be amended before Phase 2), 2 when a probe
+could not run. The report ends with a verdict line that deploy 2's pre-flight requires.
 The config keys follow Plan 00161's probe H4 (its DESIGN.md section 3.6).
 """
 
@@ -44,6 +47,9 @@ STOP_S = 60
 SYNCS = 3
 CLIENT = "/_matrix/client/v3"
 Fact = tuple[str, bool, str]
+#: The report's last line; deploy.bash --stage 2 refuses to run without the PASS line.
+VERDICT_PASS = "Verdict: every fact holds"
+VERDICT_FAIL = "Verdict: a fact does not hold"
 
 
 class ProbeError(Exception):
@@ -204,8 +210,35 @@ def probes(sp: Spike) -> list[Fact]:
     reports = sp.room(adm, protocol.side_power_levels("reports", [human], open_=True), [human], (
         {"type": "m.room.join_rules", "state_key": "", "content": protocol.expected_join_rules("reports", main)},))
     questions = sp.room(adm, protocol.side_power_levels("questions", [human], open_=True), [human, coord])
+    closed = sp.room(adm, protocol.side_power_levels("questions", [human], open_=False), [human])
+    rooms = {"reports": (reports, True), "questions (open)": (questions, True), "questions (closed)": (closed, False)}
     return reports_facts(sp, worker, outsider, human, reports, questions) + invite_facts(
-        sp, adm, worker, human, main, questions)
+        sp, adm, worker, human, main, questions) + readback_facts(sp, adm, human, main, rooms)
+
+
+def readback_facts(sp: Spike, adm: str, human: str, main: str, rooms: dict[str, tuple[str, bool]]) -> list[Fact]:
+    """R5: the power levels and join rules as the server gives them back pass the exact checks
+    `Syncer.verify_side` makes; a server that normalises either leaves every side room
+    untrusted."""
+    facts: list[Fact] = []
+    for name, (room, open_) in rooms.items():
+        purpose = name.split(" ")[0]
+        for what, event_type, check in (
+            ("power levels", "m.room.power_levels",
+             lambda c, p=purpose, o=open_: protocol.check_side_power_levels(c, p, [human], o)),
+            ("join rules", "m.room.join_rules",
+             lambda c, p=purpose: protocol.check_join_rules(c, p, main)),
+        ):
+            content = sp.ok(f"read the {name} {what}", "GET", f"{CLIENT}/rooms/{q(room)}/state/{event_type}/",
+                            token=sp.tokens[adm])
+            try:
+                check(content)
+            except protocol.Untrusted as exc:
+                facts.append((f"R5 the {name} {what} read back pass verify_side's check", False,
+                              f"{exc}: {json.dumps(content, sort_keys=True)}"))
+            else:
+                facts.append((f"R5 the {name} {what} read back pass verify_side's check", True, "exact"))
+    return facts
 
 
 def reports_facts(sp: Spike, worker: str, outsider: str, human: str, reports: str, questions: str) -> list[Fact]:
@@ -255,6 +288,7 @@ def write_report(path: pathlib.Path, facts: list[Fact]) -> None:
     lines = ["# Plan 00211 spike report", "", f"Tuwunel: {os.path.realpath(BINARY)}", "",
              "| Fact | Holds | Observed |", "| --- | --- | --- |"]
     lines += [f"| {name} | {'yes' if holds else 'NO'} | {seen} |" for name, holds, seen in facts]
+    lines += ["", VERDICT_PASS if all(holds for _, holds, _ in facts) else VERDICT_FAIL]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 

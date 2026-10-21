@@ -1,6 +1,7 @@
 # SPEC: a reports room and a questions room for every team
 
-Design only. Nothing here is built. [PLAN.md](PLAN.md) holds the milestones and the decisions
+Phase 1 (the member side) is built and not yet deployed; Phase 2 (the admin side) is not
+built. [PLAN.md](PLAN.md) holds the milestones and the decisions
 the owner may want to change; this document is what they build. It was revised after the
 design review (`FIX-FIRST`; the review's findings and their dispositions are journalled).
 
@@ -209,6 +210,13 @@ for another `admin` room on its own.
   - `report`, `ask-human` and `thread` exit 10, naming the room;
   - the coordinator stops syncing the room, and `pingbus status` shows why;
   - the main room stays trusted.
+- Any homeserver failure in a side room (a refused restricted join, which Synapse answers 400,
+  a 5xx, a rate limit past its retries, no usable answer) is that room's alone, as a failed
+  check is: it is logged in full, recorded with its status and errcode as the room's reason
+  (`refused` for a reports join, `pending` for a questions join, `untrusted` for a state read),
+  and every main-room command goes on. A questions gap fill or question read that fails is
+  logged with a pointer to `pingbus questions`, and the batch is stored without it. A
+  main-room failure still fails the command.
 
 ### 4.4 Joining and leaving
 
@@ -383,6 +391,7 @@ ccy-teams binary from before Phase 3 keeps working through deploy 2.
 | A human's message in the questions room           | every coordinator, mention or not                      | `HUMAN`, `room: questions`, with its question |
 | A human's edit of a message in the questions room | every coordinator                                      | `HUMAN`, `revises: <event>` (D6)              |
 | A coordinator's own post in questions             | nobody (self)                                          | nothing                                       |
+| Another coordinator's post in questions           | nobody: ignored (`coordinator-post`), never a drop     | nothing                                       |
 | Any other agent's post in questions               | nobody: dropped as `sender` (impossible without drift) | nothing                                       |
 | Main-room traffic                                 | as today                                               | as today                                      |
 
@@ -577,17 +586,23 @@ main room without a mention is still logged as unheard there. The owner's guide 
     corrected an earlier answer: act on the revision, and tell the askers if you already passed
     the original on."
 - Exit codes: 10 now also names a side room, and 4 `no-room` means the rooms are not deployed
-  yet.
+  yet: carry on in the main room as before (skip the report; the coordinator asks the human in
+  the main room), never "tell a human".
 
 ### 10.2 Session-start lines (`hooks.py`)
 
-- `role_coordinator` gains: "Questions only a human can answer go to the questions room with
-  `pingbus ask-human`; every human message there is delivered to you. Run `pingbus questions`
-  now and pass on any answer not yet passed on. Report what the humans should know with
-  `pingbus report`."
 - `role_worker` and `role_worker_many` gain: "Ask the coordinator, never a human, when you need
-  a decision. Report what the humans should know with `pingbus report`."
-- `role_worker_alone` gains only the report sentence.
+  a decision."
+- Two lines of their own, each said only once this member has joined the room it names
+  (`rooms.json` state `join`), so deploy 1, which ships the member code before deploy 2 makes
+  the rooms, sends no agent to a room it cannot use:
+  - `role_questions`, for the coordinator: "in team T, questions only a human can answer go to
+    the questions room with `pingbus ask-human`; every human message there is delivered to you.
+    Run `pingbus questions` now and pass on any answer not yet passed on."
+  - `role_reports`, for every role: "in team T, report what the humans should know with
+    `pingbus report`."
+- `questions_refused` is said only for the `human_text` refusal reason, not for any other
+  refused or pending questions room.
 
 ### 10.3 Docs
 
