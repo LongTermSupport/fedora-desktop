@@ -35,7 +35,7 @@ playbooks/imports/play-basic-configs.yml
 # Plan 00192 Task 3.3 (rclone-cache-status ported to Go): runs play-rclone.yml with only
 # --tags rclone-cache-status, which builds the Go command from this checkout and installs it at
 # ~/.local/bin/rclone-cache-status in place of the bash script (the Go toolchain too if
-# missing). The rclone mounts are not stopped or restarted. Needs sudo once. Then it checks the
+# missing), and installs the updated ~/.local/bin/rclone-tail, which now calls it with --no-dir. The rclone mounts are not stopped or restarted. Needs sudo once. Then it checks the
 # installed command is the compiled one and that `rclone-cache-status --no-dir` reports live
 # cache figures for every mount, with no `error:` line.
 00192-bash-line-in-the-sand-go-for-tooling/deploy-rclone-cache-status.bash

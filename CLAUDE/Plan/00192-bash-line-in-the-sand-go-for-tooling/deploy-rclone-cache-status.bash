@@ -4,7 +4,8 @@
 # WHAT THIS CHANGES (HOST-only; running it is the consent, CLAUDE/PlanScriptStandards.md R8):
 #   play-rclone.yml --tags rclone-cache-status — installs the Go toolchain if missing
 #   (play-golang.yml), builds src-go/cmd/rclone-cache-status from this checkout and installs it
-#   at ~/.local/bin/rclone-cache-status in place of the bash script. Only the tagged tasks run:
+#   at ~/.local/bin/rclone-cache-status in place of the bash script, and installs the updated
+#   ~/.local/bin/rclone-tail (it now calls rclone-cache-status --no-dir). Only the tagged tasks run:
 #   the mounts are not stopped, reconfigured or restarted.
 #   Then acceptance-rclone-cache-status.bash checks the installed command (skipped under
 #   --check).

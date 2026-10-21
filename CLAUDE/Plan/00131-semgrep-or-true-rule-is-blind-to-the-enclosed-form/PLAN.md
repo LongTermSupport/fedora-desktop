@@ -65,7 +65,7 @@ the list, since the files have moved since.
   (`rclone-cache-status` is gone from this task: Plan 00192 ported it to Go,
   `src-go/internal/rclonecache`, with no shell left to fix.) Mostly `grep … || true`, where
   no-match is an ANSWER and needs the `grep_rc` treatment, not suppression.
-  These three also carry their own copies of the mount cmdline walk that Plan 00099's
+  These two also carry their own copies of the mount cmdline walk that Plan 00099's
   `rclone_rc_addr_for_mount` now owns; converting them is named there and is not this
   plan's job.
 - [ ] ⬜ **Task 2.4**: Each fixed site gets its behaviour on the failing path checked,

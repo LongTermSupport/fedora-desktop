@@ -504,7 +504,10 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: '0755'
-      tags: rclone
+      # rclone-cache-status too: rclone-tail calls it with --no-dir, and the two ship together.
+      tags:
+        - rclone
+        - rclone-cache-status
 
     # =========================================================================
     # Per-mount push helpers — one <name>-push command per mount.
