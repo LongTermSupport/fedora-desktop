@@ -171,7 +171,7 @@ func TestASeatRowOffersAddingItsSessionToAnotherTeam(t *testing.T) {
 
 func TestAddThisSessionFromASeatRowRunsSessionAdd(t *testing.T) {
 	h := newRig(t)
-	h.withBeta()
+	h.withBeta(t)
 	h.On("agent-bus seat choose beta --type=podman", "CHOICE\t1\tnew\tproj.1+local.podman\tw\nDEFAULT\t1\n", 0)
 	h.ses.list = []hot.Session{h.seated()}
 	h.Script.Fzf = []string{"|alpha", "|beta", "|lowest free", "|worker", "|ABORT"}

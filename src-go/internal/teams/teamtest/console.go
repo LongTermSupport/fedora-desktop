@@ -242,14 +242,14 @@ type Console struct {
 }
 
 // Interactive makes w a plain terminal (no colour) with scripted fzf and gum, every tool on
-// PATH, and the launcher recorded in Execs. The working folder is the checkout's root.
+// PATH, and the launcher recorded in Execs. The working folder is the checkout's root. A world
+// with no host_vars file gets an empty one: no team is limited or undescribed.
 func Interactive(t *testing.T, w *World) *Console {
 	t.Helper()
 	c := &Console{Script: &Script{T: t}, TTY: "\n"}
 	w.Env["NO_COLOR"] = "1"
 	w.Env["PWD"] = w.Root
-	w.OnDeclare("limited", "")
-	w.OnDeclare("undescribed", "")
+	w.WriteHostVarsIfAbsent(t, "")
 	h := w.Host
 	h.IsTerminal = func(any) bool { return true }
 	h.Term.IsTerminal = h.IsTerminal
