@@ -1,0 +1,6 @@
+HOME={world}/home
+LANG=C.UTF-8
+PATH=/usr/bin:/bin
+PINGBUS_SESSIONS_DIR={world}/sessions
+PINGBUS_STATUS_LINE_INNER=1
+PWD={world}/project
