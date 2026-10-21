@@ -431,6 +431,70 @@ class SessionStartTest(HookCase):
         self.assertIn(hooks.fill("role_coordinator", team=TEAM), context)
         self.assertNotIn("you are a worker", context)
 
+    def coordinate(self) -> None:
+        record = self.record(TEAM, SN)
+        record["roles"] = {ME: "coordinator", ORCH: "worker"}
+        self.state.save_team_record(record)
+
+    def test_the_role_lines_teach_reports_and_questions_once_the_rooms_are_joined(self):
+        """Plan 00211 SPEC §10.2: the side rooms' commands are taught only once joined."""
+        reports, questions = "!" + "R" * 43, "!" + "Q" * 43
+        self.coordinate()
+        self.state.save_side_rooms({"reports": inbox.SideRoom(reports, "join", None),
+                                    "questions": inbox.SideRoom(questions, "join", None)})
+        context = self.context(self.start())
+        for phrase in ("`pingbus ask-human`", "`pingbus questions`", "`pingbus report`"):
+            self.assertIn(phrase, context)
+        for name in ("role_worker", "role_worker_many"):
+            self.assertIn("Ask the coordinator, never a human", hooks.TEMPLATES[name])
+        self.assertNotIn("never a human", hooks.TEMPLATES["role_worker_alone"])
+
+    def test_before_the_rooms_exist_no_side_room_command_is_taught(self):
+        """Deploy 1 ships the member code before deploy 2 makes the rooms: nothing may send
+        an agent to a room it cannot use, so the team carries on in the main room."""
+        for coordinator in (False, True):
+            with self.subTest(coordinator=coordinator):
+                if coordinator:
+                    self.coordinate()
+                context = self.context(self.start())
+                for phrase in ("pingbus ask-human", "pingbus questions", "pingbus report"):
+                    self.assertNotIn(phrase, context)
+
+    def test_a_room_not_yet_joined_is_not_taught(self):
+        reports, questions = "!" + "R" * 43, "!" + "Q" * 43
+        self.coordinate()
+        self.state.save_side_rooms({"reports": inbox.SideRoom(reports, "refused", "the homeserver refused the join"),
+                                    "questions": inbox.SideRoom(questions, "pending", "not invited yet")})
+        context = self.context(self.start())
+        self.assertNotIn("pingbus report", context)
+        self.assertNotIn("pingbus questions", context)
+
+    def test_only_the_no_human_text_refusal_says_so(self):
+        questions = "!" + "Q" * 43
+        self.coordinate()
+        self.state.save_side_rooms({"questions": inbox.SideRoom(questions, "pending",
+                                                                "the join failed: the homeserver answered HTTP 500")})
+        self.assertNotIn("cannot join the questions room", self.context(self.start()))
+
+    def test_a_refused_questions_room_is_named_with_its_reason(self):
+        """Plan 00211 SPEC §4.5: the hook context says what `status` says."""
+        record = self.record(TEAM, SN)
+        record["roles"] = {ME: "coordinator", ORCH: "worker"}
+        self.state.save_team_record(record)
+        questions = "!" + "Q" * 43
+        self.state.save_side_rooms({"questions": inbox.SideRoom(questions, "refused",
+                                                                inbox.REASON_NO_HUMAN_TEXT)})
+        context = self.context(self.start())
+        self.assertIn(hooks.fill("questions_refused", team=TEAM), context)
+        self.assertIn(inbox.REASON_NO_HUMAN_TEXT, hooks.fill("questions_refused", team=TEAM))
+
+    def test_a_pending_or_joined_questions_room_adds_no_line(self):
+        questions = "!" + "Q" * 43
+        for state, reason in (("pending", "not invited yet"), ("join", None)):
+            with self.subTest(state=state):
+                self.state.save_side_rooms({"questions": inbox.SideRoom(questions, state, reason)})
+                self.assertNotIn("cannot join the questions room", self.context(self.start()))
+
     def test_a_worker_in_a_team_without_a_coordinator_is_told_so(self):
         record = self.record(TEAM, SN)
         record["roles"] = {ME: "worker"}

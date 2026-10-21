@@ -79,7 +79,7 @@ func TestNoMatchSaysSoAndFails(t *testing.T) {
 
 func TestNotAGitCheckoutFails(t *testing.T) {
 	h := newRig(t, "TEAM\talpha\n")
-	h.On("git rev-parse --is-inside-work-tree", "", 128)
+	h.OnNotARepository()
 	if code := h.f.Run(t.Context(), nil); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
 	}

@@ -1,0 +1,16 @@
+Usage:
+  convert FILE                          list the formats FILE can become
+  convert FILE --to FORMAT[,FORMAT...]  write each one beside FILE
+  convert -h | --help                   this text
+
+Turns one file into other formats by calling a proven converter (Markdown to
+DOCX through pandoc). Each output is FILE's name with the format as its
+extension, in FILE's directory; the paths written are printed on stdout.
+
+Options:
+  --to LIST, --to=LIST  the formats to write, comma separated (e.g. docx)
+  -f, --force           replace an output that already exists
+  -h, --help            show this text
+
+Exit codes: 0 done, 1 failed (nothing half-written is left), 64 usage,
+130 cancelled.

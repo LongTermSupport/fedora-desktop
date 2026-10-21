@@ -5,9 +5,12 @@
 # this same tree. Unpinned, that divergence is silent: each environment is
 # confident and they disagree.
 #
-# Only tools a gate RUNS are pinned here. Asserting a tool nothing invokes is a
+# Only tools something RUNS are pinned here. Asserting a tool nothing invokes is a
 # gate on nothing, and pinning ansible-lint standalone would give it its own
 # ansible-core in a second venv, beside the one run.bash injects into ansible.
+# GOLANGCI_LINT is pinned because the hooks daemon runs it on every Go edit (the Go
+# gate installs its own copy); it must equal golangci-lint in go-qa-ci's tools.lock,
+# which a test in src-go/qa/toolchain holds.
 #
 # Read by all four consumers, so none of them can drift from the others:
 #   scripts/qa-toolchain.bash    asserts what is actually installed, every run

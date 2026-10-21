@@ -10,9 +10,12 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/cmdmain"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/cmdmaintest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/js"
 )
+
+func TestMain(m *testing.M) { os.Exit(cmdmaintest.Main(m)) }
 
 func TestRunDispatchesThroughTheCommand(t *testing.T) {
 	if code := run([]string{"--help"}); code != int(js.ExitOK) {
@@ -168,24 +171,10 @@ func TestRealMissingEslintToolingIsExitTwo(t *testing.T) {
 	}
 }
 
-// closedStdoutChild names the environment variable that turns this test binary into the command.
-const closedStdoutChild = "QA_JS_CLOSED_STDOUT_CHILD"
-
 // J2: with stdout closed (>&-) the run is exit 2, it does not report a verdict nobody can read.
 // The test re-runs its own binary as the command, with fd 1 closed by the shell.
 func TestAClosedStdoutIsExitTwo(t *testing.T) {
-	if args := os.Getenv(closedStdoutChild); args != "" {
-		os.Exit(run(strings.Fields(args)))
-	}
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	res, runErr := proc.OS{}.Run(context.Background(), proc.Cmd{
-		Argv: []string{"bash", "-c", `exec "$0" -test.run='^TestAClosedStdoutIsExitTwo$' >&-`, self},
-		Env:  []string{closedStdoutChild + "=--root " + t.TempDir(), "QA_JSON_OUT=" + filepath.Join(t.TempDir(), "r.json")},
-	})
-	if runErr != nil || res.Code != int(js.ExitCannotRun) || !strings.Contains(res.Stderr, "ERROR: stdout is closed") {
-		t.Fatalf("closed stdout: %v exit %d\nstderr:\n%s", runErr, res.Code, res.Stderr)
-	}
+	t.Setenv("QA_JSON_OUT", filepath.Join(t.TempDir(), "r.json"))
+	root := t.TempDir()
+	cmdmaintest.RefusesClosedStdout(t, func() int { return run([]string{"--root", root}) }, int(js.ExitCannotRun))
 }

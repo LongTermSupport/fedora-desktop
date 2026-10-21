@@ -456,6 +456,9 @@ def _parse_entry(position: int, entry: object) -> Member:
     human_text = entry.get("human_text", True)
     if not isinstance(human_text, bool):
         raise MemberError(f"{where}: human_text must be true or false")
+    if state == "present" and role == protocol.ROLE_COORDINATOR and not human_text:
+        # Every message the questions room delivers is a human's (Plan 00211 SPEC 4.5).
+        raise MemberError(f"{where}: a coordinator must take human text: drop human_text: false")
     service = entry.get("service", False)
     if not isinstance(service, bool):
         raise MemberError(f"{where}: service must be true or false")
@@ -928,7 +931,9 @@ class Host:
 
 
 def _python(script: str, *args: str) -> list[str]:
-    return ["python3", "-I", "-c", script, *args]
+    """In the container, the interpreter the pingbus zipapp's shebang names (Plan 00213), so
+    KIT_SYNC_PY's version gate judges the Python that will run pingbus, not PATH's first."""
+    return ["/usr/bin/python3", "-I", "-c", script, *args]
 
 
 def _existing_state(host: Host, container: str) -> str:

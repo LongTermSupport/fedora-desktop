@@ -449,6 +449,19 @@ func TestUnmatchedFileIsUncovered(t *testing.T) {
 	}
 }
 
+// GitHub runs a workflow under either extension, and toolchain's TestEveryWorkflowSetsUpTheGoFloor
+// reads both, so the real routing sends both to the go check, covered.
+func TestAWorkflowOfEitherExtensionRunsTheGoCheck(t *testing.T) {
+	for _, rel := range []string{".github/workflows/ci.yml", ".github/workflows/ci.yaml"} {
+		w := newWorld(t)
+		w.touch(rel, "name: x")
+		p := w.classify([]string{rel})
+		if !p.has("go") || !p.covered[rel] || len(p.uncovered) != 0 {
+			t.Errorf("%s: go check %v, covered %v, uncovered %v", rel, p.has("go"), p.covered[rel], p.uncovered)
+		}
+	}
+}
+
 // A .semgrep/ file that no gate reads is reported uncovered, not called covered and not hidden
 // as an excluded tree (SPEC-qa-changed B33).
 func TestASemgrepFileNothingReadsIsUncovered(t *testing.T) {

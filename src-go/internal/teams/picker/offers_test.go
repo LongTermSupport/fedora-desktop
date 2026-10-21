@@ -30,7 +30,7 @@ func TestPathLimitYesDropsTheLimitAndAppliesTheTeam(t *testing.T) {
 	if err := h.p.offerPathLimits(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if !h.Fake.Called("env PYTHONPATH=" + h.Host.RootDir + " python3 -P -m helpers.agent_bus.declare drop-limit --file " + h.Host.HostVars + " --team alpha") {
+	if !h.Fake.Called("env PYTHONPATH=" + h.Host.RootDir + " /usr/bin/python3 -P -m helpers.agent_bus.declare drop-limit --file " + h.Host.HostVars + " --team alpha") {
 		t.Fatalf("calls %v", h.Fake.Calls())
 	}
 	if h.plays() != 1 {

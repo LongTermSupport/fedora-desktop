@@ -39,7 +39,9 @@ APPS = {
 PACKAGES = ("helpers/pingbus", "helpers/agent_bus")
 #: Build-time only: no app imports it.
 EXCLUDE = frozenset({"helpers/pingbus/bundle.py"})
-SHEBANG = b"#!/usr/bin/env python3\n"
+#: The system interpreter by path, never `env python3`: PATH can put a pyenv shim first, which
+#: costs more than a status-line render on every start (Plan 00213 Task 1.4).
+SHEBANG = b"#!/usr/bin/python3\n"
 ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
 ENTRY_MODE = stat.S_IFREG | 0o644
 ARCHIVE_MODE = 0o755

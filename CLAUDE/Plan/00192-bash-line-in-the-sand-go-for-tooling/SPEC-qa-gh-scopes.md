@@ -60,7 +60,7 @@ through `qa/internal/proc`.
 - G8. No file left to hand over is exit 2, `ERROR: git named no files to scan; nothing was checked`.
 - G9. The files are handed to semgrep **by name**, never as a directory (a directory scan applies
   semgrep's default ignore list, which skips `tests/` and would hide a copy there), run from the root
-  so paths are relative: `semgrep --config <rule> --json --quiet --metrics=off --max-target-bytes=0 <files...>`.
+  so paths are relative: `semgrep --config <rule> --json --quiet --metrics=off --timeout=120 --max-target-bytes=0 <files...>` (`--timeout=120` is `semgrepreport.TimeoutFlag`: semgrep's 5 s default is wall time, and a loaded host turns a clean file into a Timeout error).
 
 ### Judging semgrep's answer (nothing unread is a pass)
 
@@ -92,17 +92,17 @@ through `qa/internal/proc`.
 
 ## 3. Departures from the bash
 
-| Id  | The bash                                                                  | Now                                                         |
-| --- | ------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| B1  | tracked files only (`git ls-files`)                                       | what git would publish: an unstaged new file too (G7)       |
-| B2  | ignored the report's `errors`                                             | exit 2 (G11)                                                |
-| B3  | semgrep's default 1 MB size limit skipped big files, accounted as skipped | no size limit (G9); anything still skipped is printed (G13) |
-| B4  | `passed: 0` on a run that scanned nothing                                 | exit 2 (G14)                                                |
-| B5  | excludes matched with `fnmatch`, where `*` crosses `/`                    | semgrep's glob meaning (G12)                                |
-| B6  | self-test sent metrics; no timeout on any process                         | `--metrics=off`; every process is time-bounded (G6, G10)    |
-| B7  | arguments ignored                                                         | unknown argument is exit 2 (G1)                             |
-| B8  | a missing semgrep and a missing rule file were different failures         | both exit 2 (G4, G5)                                        |
-| B9 | `--root` or `--scripts` given an empty value, or a value that begins with `-`, was taken as the value, and an empty root was read as "not given", so the gate judged the working directory | exit 2: `<flag> needs a directory`, with the usage (G1) |
+| Id  | The bash                                                                                                                                                                                   | Now                                                         |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| B1  | tracked files only (`git ls-files`)                                                                                                                                                        | what git would publish: an unstaged new file too (G7)       |
+| B2  | ignored the report's `errors`                                                                                                                                                              | exit 2 (G11)                                                |
+| B3  | semgrep's default 1 MB size limit skipped big files, accounted as skipped                                                                                                                  | no size limit (G9); anything still skipped is printed (G13) |
+| B4  | `passed: 0` on a run that scanned nothing                                                                                                                                                  | exit 2 (G14)                                                |
+| B5  | excludes matched with `fnmatch`, where `*` crosses `/`                                                                                                                                     | semgrep's glob meaning (G12)                                |
+| B6  | self-test sent metrics; no timeout on any process                                                                                                                                          | `--metrics=off`; every process is time-bounded (G6, G10)    |
+| B7  | arguments ignored                                                                                                                                                                          | unknown argument is exit 2 (G1)                             |
+| B8  | a missing semgrep and a missing rule file were different failures                                                                                                                          | both exit 2 (G4, G5)                                        |
+| B9  | `--root` or `--scripts` given an empty value, or a value that begins with `-`, was taken as the value, and an empty root was read as "not given", so the gate judged the working directory | exit 2: `<flag> needs a directory`, with the usage (G1)     |
 
 ## 4. Stated limits and decisions
 

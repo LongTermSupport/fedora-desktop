@@ -377,6 +377,57 @@ func TestW23ClaudeReplacesTheTextOrLeavesTheRawTextOnTheClipboard(t *testing.T) 
 	k.wantStderr("wsi-claude-process not found (re-run play-speech-to-text.yml)")
 }
 
+// Plan 00187 (#100): the panel is told when the transcript is done and Claude is working on
+// it, with the session's token, before wsi-claude-process runs.
+func TestW23ClaudeProcessingIsSignalledBeforeTheClaudeStep(t *testing.T) {
+	k := newKit(t)
+	k.run.On([]string{"wsi-claude-process"}, execx.Result{Stdout: []byte("Polished.\n")})
+	if code := k.exec("--claude-process", "--session-token", "tok-7"); code != 0 {
+		t.Fatalf("exit %d: %s", code, k.errb.String())
+	}
+	if !slices.Equal(k.states(), []string{"PREPARING", "RECORDING", "TRANSCRIBING", "CLAUDE_PROCESSING", "IDLE"}) {
+		t.Fatalf("states %q", k.states())
+	}
+	signalled, claude := -1, -1
+	for i, line := range k.calls() {
+		if strings.Contains(line, signalIface+"."+stateChanged+" CLAUDE_PROCESSING 'tok-7'") {
+			signalled = i
+		}
+		if strings.HasPrefix(line, "wsi-claude-process ") {
+			claude = i
+		}
+	}
+	if signalled < 0 || claude < 0 || signalled > claude {
+		t.Fatalf("CLAUDE_PROCESSING (call %d, token-tagged) must come before wsi-claude-process (call %d): %q",
+			signalled, claude, k.calls())
+	}
+
+	k = newKit(t)
+	k.desktop()
+	k.run.On([]string{"wsi-claude-process"}, execx.Result{ExitCode: 1, Stderr: []byte("wsi-claude-process: Not logged in\n")})
+	if code := k.exec("--claude-process"); code != 1 {
+		t.Fatalf("exit %d", code)
+	}
+	if !slices.Equal(k.states(), []string{"PREPARING", "RECORDING", "TRANSCRIBING", "CLAUDE_PROCESSING", "ERROR"}) {
+		t.Fatalf("a failed Claude step: states %q", k.states())
+	}
+
+	// No Claude step to run: the panel is never told one runs
+	k = newKit(t)
+	k.missing = []string{"wsi-claude-process"}
+	if code := k.exec("--claude-process"); code != 1 {
+		t.Fatalf("exit %d", code)
+	}
+	if slices.Contains(k.states(), "CLAUDE_PROCESSING") {
+		t.Fatalf("CLAUDE_PROCESSING without wsi-claude-process: states %q", k.states())
+	}
+
+	k = newKit(t)
+	if code := k.exec(); code != 0 || slices.Contains(k.states(), "CLAUDE_PROCESSING") {
+		t.Fatalf("a plain dictation: exit %d states %q", code, k.states())
+	}
+}
+
 func TestW24TheMarkerWrapsTheText(t *testing.T) {
 	k := newKit(t)
 	if code := k.exec("-w"); code != 0 || k.out.String() != "speech-to-text:\"Hello world\"\n" {

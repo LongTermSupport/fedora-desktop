@@ -15,6 +15,7 @@ func TestDriverRegistersEveryRule(t *testing.T) {
 		"project_seam_exec": true, "project_seam_commands": true,
 		"project_testclock": true, "project_homeabbrev": true,
 		"project_tmux_targets": true, "project_waitdelay": true, "project_hidden_bindings": true,
+		"project_package_tests": true,
 	}
 	for _, a := range as {
 		delete(want, a.Name)

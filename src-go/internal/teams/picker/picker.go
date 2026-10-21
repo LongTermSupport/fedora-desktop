@@ -32,6 +32,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/settings"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/shutdown"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/winddown"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -58,6 +59,8 @@ type Picker struct {
 	Shutdown *shutdown.Shutdown
 	// Restart is the team row's "Restart the team's desktop sessions"; teams.Wire sets it.
 	Restart *restart.Restart
+	// WindDown is the team row's "Wind down the team's sessions"; teams.Wire sets it.
+	WindDown *winddown.WindDown
 	// Settings is the team row's "Edit settings"; teams.Wire sets it.
 	Settings *settings.Settings
 	// Session is the Running sessions view's hot control (Tab); teams.Wire sets it.

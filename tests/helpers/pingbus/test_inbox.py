@@ -785,5 +785,49 @@ class DropLogTest(StateCase):
         self.assertFalse((self.root / "elsewhere.log").exists())
 
 
+class IgnoredLogTest(StateCase):
+    """§9 "Unheard": `ignored.log` holds, as `dropped.log` does, team, event ID, sender
+    user ID, reason code and time, for a human's message that reached no agent; never the body."""
+
+    def lines(self) -> list[list[str]]:
+        text = (self.state.path / "ignored.log").read_text(encoding="ascii")
+        return [line.split("\t") for line in text.splitlines()]
+
+    def test_name_matches_spec_section_12(self):
+        self.assertEqual(inbox.IGNORED_LOG, "ignored.log")
+
+    def test_one_line_per_message_with_exactly_the_five_fields(self):
+        self.assertEqual(self.state.ignored_count(), 0)
+        self.state.log_ignored("team-a", event_id(1), HUMAN, "not-addressed", T0)
+        self.state.log_ignored("team-a", event_id(2), HUMAN, "not-addressed", T0 + 1)
+        self.assertEqual(self.lines(), [
+            ["team-a", event_id(1), HUMAN, "not-addressed", str(T0)],
+            ["team-a", event_id(2), HUMAN, "not-addressed", str(T0 + 1)],
+        ])
+        self.assertEqual(stat.S_IMODE((self.state.path / "ignored.log").stat().st_mode), 0o600)
+        self.assertEqual((self.state.ignored_count(), self.state.drop_count()), (2, 0))
+
+    def test_fields_that_fail_their_grammar_are_written_absent(self):
+        self.state.log_ignored("team-a", "$bad\tid", "@evil\nINJECTED:x", "not-addressed", T0)
+        self.assertEqual(self.lines(), [["team-a", "-", "-", "not-addressed", str(T0)]])
+
+    def test_only_unheard_reason_codes_are_logged(self):
+        for reason in ("agent-text", "role", "empty", "seen"):
+            with self.assertRaises(ValueError):
+                self.state.log_ignored("team-a", event_id(1), HUMAN, reason, T0)
+        with self.assertRaises(ValueError):
+            self.state.log_ignored("Team A", event_id(1), HUMAN, "not-addressed", T0)
+        self.assertFalse((self.state.path / "ignored.log").exists())
+
+    def test_a_symlinked_log_is_refused(self):
+        self.state.ensure_dirs()
+        (self.state.path / "ignored.log").symlink_to(self.root / "elsewhere.log")
+        with self.assertRaises(inbox.StateError):
+            self.state.log_ignored("team-a", event_id(1), HUMAN, "not-addressed", T0)
+        with self.assertRaises(inbox.StateError):
+            self.state.ignored_count()
+        self.assertFalse((self.root / "elsewhere.log").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
