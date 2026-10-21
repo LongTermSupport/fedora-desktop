@@ -358,14 +358,20 @@ func (r seatRun) signIn(ctx context.Context, password, deviceID string) *Client 
 func (r seatRun) dead(ctx context.Context, what string, held *Client) {
 	r.t.Helper()
 	_, err := held.Whoami(ctx)
+	r.unknownToken(what, err)
+}
+
+// unknownToken checks that err is a token refused with M_UNKNOWN_TOKEN.
+func (r seatRun) unknownToken(what string, err error) {
+	r.t.Helper()
 	if e, isErr := errors.AsType[*Error](err); !isErr || !errors.Is(err, ErrAuthRefused) || e.Errcode != "M_UNKNOWN_TOKEN" {
-		r.t.Fatalf("%s: whoami = %v, want M_UNKNOWN_TOKEN", what, err)
+		r.t.Fatalf("%s = %v, want M_UNKNOWN_TOKEN", what, err)
 	}
 }
 
 // deleteAndReset deletes the seat's device from another device by password, which ends the
-// device's token and not the deleting one, then resets the password, which ends the rest; it
-// gives the new password.
+// device's token and not the deleting one, then has that token delete its own device (the C
+// 3.7.3 fallback), then resets the password, which ends a fresh token; it gives the new password.
 func (r seatRun) deleteAndReset(ctx context.Context, admin *Admin, seatID, password, device string) string {
 	r.t.Helper()
 	held, taker := r.signIn(ctx, password, device), r.signIn(ctx, password, "TCTAKER")
@@ -379,18 +385,23 @@ func (r seatRun) deleteAndReset(ctx context.Context, admin *Admin, seatID, passw
 	if _, err := taker.Whoami(ctx); err != nil {
 		r.t.Fatalf("the deleting token: %v", err)
 	}
+	if err := taker.DeleteDevice(ctx, "seat", password, "TCTAKER"); err != nil {
+		r.t.Fatalf("DeleteDevice of its own device: %v", err)
+	}
+	r.dead(ctx, "a token that deleted its own device", taker)
+	fresh := r.signIn(ctx, password, device)
 	reissued := randomKey(r.t)
 	if err := admin.ResetPassword(ctx, seatID, reissued); err != nil {
 		r.t.Fatalf("ResetPassword: %v", err)
 	}
-	r.dead(ctx, "a token after a password reset", taker)
+	r.dead(ctx, "a token after a password reset", fresh)
 	return reissued
 }
 
 // seatCycle is a pool seat's takes and releases (C 3.7.3, the facts host check H-C13 recorded):
 // a second login as the seat's fixed device leaves the first token valid, a logout ends every
-// token of the device, a device delete by password ends them from another device, a password
-// reset ends the rest, and the seat's teamchat.floor marker outlives them all.
+// token of the device, a device delete by password ends them from another device or its own, a
+// password reset ends the rest, and the seat's teamchat.floor marker outlives them all.
 func seatCycle(ctx context.Context, t *testing.T, hs tuwunel, admin *Admin, inviter *Client, room string) {
 	t.Helper()
 	seatID, password, device := "@seat:"+serverName, randomKey(t), "TCSEAT"
@@ -426,9 +437,7 @@ func seatCycle(ctx context.Context, t *testing.T, hs tuwunel, admin *Admin, invi
 	}
 	run.dead(ctx, "the logged-out token", second)
 	run.dead(ctx, "the other token of the logged-out device", first)
-	if e, isErr := errors.AsType[*Error](second.Logout(ctx)); !isErr || e.Errcode != "M_UNKNOWN_TOKEN" {
-		t.Fatalf("a second logout = %v, want M_UNKNOWN_TOKEN", e)
-	}
+	run.unknownToken("a second logout", second.Logout(ctx))
 	reissued := run.deleteAndReset(ctx, admin, seatID, password, device)
 	content, found, err := run.signIn(ctx, reissued, device).RoomAccountData(ctx, seatID, room, "teamchat.floor")
 	var read struct {

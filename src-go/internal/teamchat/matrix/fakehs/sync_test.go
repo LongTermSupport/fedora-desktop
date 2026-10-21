@@ -85,7 +85,8 @@ func TestHeldSyncEndsEmptyAtItsTimeout(t *testing.T) {
 
 // A since ahead of the server (a member's token from before a restore) is held to its timeout,
 // is answered with the server's own lower next_batch, and is not given what lands at or below
-// it, as host check H-C14 recorded.
+// it, as host check H-C14 recorded. The hold to the timeout is the one every held sync has
+// (TestHeldSyncEndsEmptyAtItsTimeout); this pins the answer at the end of it.
 func TestASinceAheadOfTheServerEndsAtItsLowerPosition(t *testing.T) {
 	tm := newTeam(t)
 	filter := syncFilter(t, nil, 10, false)

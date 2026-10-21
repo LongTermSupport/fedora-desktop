@@ -74,7 +74,8 @@ func (s *Server) logout(r *request, _ []string) (any, error) {
 }
 
 // uiaError is a 401 asking for user-interactive auth by password, in the specification's
-// shape (H-C13 recorded only the status); failed adds the refusal of a wrong password.
+// shape (H-C13 recorded only the status); failed adds the refusal of a wrong password, whose
+// status, errcode and text are the specification's and Synapse's, not a recorded Tuwunel answer.
 type uiaError struct {
 	session string
 	failed  bool
@@ -93,10 +94,15 @@ func (c *uiaError) answer() map[string]any {
 	return out
 }
 
+// uiaGrant is whom a user-interactive auth session was given to, and for which device delete.
+type uiaGrant struct {
+	userID, deviceID string
+}
+
 // deleteDevice is DELETE /devices/{id}: the first request is challenged, the second answers
 // with the account's password and the challenge's session, and then the device and every
-// token of it end (the H-C13 fallback). An unknown device, a session not given to the caller,
-// or an auth beyond a password for the caller's own account is not guessed at.
+// token of it end (the H-C13 fallback). An unknown device, a session not given to the caller
+// for that device, or an auth beyond a password for the caller's own account is not guessed at.
 func (s *Server) deleteDevice(r *request, args []string) (any, error) {
 	if s.device(r.userID, args[0]) == nil {
 		return nil, unmodelled("deleting the unknown device %s", args[0])
@@ -108,7 +114,7 @@ func (s *Server) deleteDevice(r *request, args []string) (any, error) {
 	raw, given := body["auth"]
 	if !given {
 		session := newTokenText()
-		s.uiaSessions[session] = r.userID
+		s.uiaSessions[session] = uiaGrant{userID: r.userID, deviceID: args[0]}
 		return nil, &uiaError{session: session}
 	}
 	auth, isObject := raw.(map[string]any)
@@ -116,8 +122,8 @@ func (s *Server) deleteDevice(r *request, args []string) (any, error) {
 		return nil, unmodelled("a device delete's auth %v", raw)
 	}
 	session := stringAt(auth, "session")
-	if owner, issued := s.uiaSessions[session]; !issued || owner != r.userID {
-		return nil, unmodelled("a device delete's session that was not given to %s", r.userID)
+	if grant, issued := s.uiaSessions[session]; !issued || grant != (uiaGrant{userID: r.userID, deviceID: args[0]}) {
+		return nil, unmodelled("a device delete's session that was not given to %s for %s", r.userID, args[0])
 	}
 	ident, isIdent := auth["identifier"].(map[string]any)
 	name := ""
@@ -169,10 +175,10 @@ func (s *Server) Presence(userID string) string {
 	return s.presence[userID]
 }
 
-// syncPresence applies a sync's set_presence as Tuwunel 1.9.4 does (host check HC-A1): absent
-// or online marks the caller online, and unavailable and offline each set themselves, where the
-// specification has offline change nothing. A value the specification does not name is not
-// guessed at.
+// syncPresence applies a sync's set_presence. Host check HC-A1 recorded Tuwunel 1.9.4 marking
+// the caller online for an absent one and setting offline for offline, where the specification
+// has offline change nothing; online and unavailable setting themselves is the specification's.
+// A value the specification does not name is not guessed at.
 func (s *Server) syncPresence(r *request) error {
 	value, given := queryValue(r, "set_presence")
 	if !given {

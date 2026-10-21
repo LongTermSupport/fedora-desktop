@@ -185,7 +185,7 @@ type Server struct {
 	receipts      []Receipt
 	accountData   map[accountDataKey]json.RawMessage
 	presence      map[string]string
-	uiaSessions   map[string]string
+	uiaSessions   map[string]uiaGrant
 	unmodelled    []string
 	loginFailures map[string]int
 	pos           int
@@ -214,7 +214,7 @@ func New(opts Options) *Server {
 		nonces:        map[string]bool{},
 		accountData:   map[accountDataKey]json.RawMessage{},
 		presence:      map[string]string{},
-		uiaSessions:   map[string]string{},
+		uiaSessions:   map[string]uiaGrant{},
 		loginFailures: map[string]int{},
 		changed:       make(chan struct{}),
 	}

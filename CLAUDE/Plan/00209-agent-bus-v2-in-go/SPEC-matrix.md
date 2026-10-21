@@ -205,9 +205,10 @@ is the shape the endpoint promises).
   M52, as host check H-C13 recorded them on Tuwunel 1.9.4): a second login as the fixed device
   leaves the first token valid, a logout ends both with `M_UNKNOWN_TOKEN` and a second logout
   answers the same, a wrong password is `ErrForbidden` for a login and for a device delete, a
-  device delete by password from another device ends the device's token and not its own, an
-  admin password reset ends the rest, and the `teamchat.floor` marker, decoded, outlives them
-  all. Without the variable the test skips with its
+  device delete by password from another device ends the device's token and not its own, a
+  token deleting its own device ends itself (C 3.7.3's fallback), an admin password reset ends
+  a fresh token, and the `teamchat.floor` marker, decoded, outlives them all. Presence is not in
+  the tagged test (the client reads none; HC-A1 is Task 1.4's probe). Without the variable the test skips with its
   reason; without the tag it is not built.
 
 ## 7a. Seat sessions and the resume marker (Task 1.5; B 2.3.2, B 2.6 step 01 (b), C 3.7.3)
@@ -250,9 +251,9 @@ is the shape the endpoint promises).
   `unsigned.redacted_because` (the specification's shape, which A 7.6 rule 02 drops on; H4
   recorded no redacted event), and keeps each account's presence:
   `PUT /presence/{u}/status` by its own account sets it, `Presence(u)` reads it for a test, and a
-  sync's `set_presence` acts as host check HC-A1 recorded Tuwunel 1.9.4 (absent or `online`
-  marks the caller online, and `unavailable` and `offline` each set themselves; the
-  specification has `offline` change nothing). Another account's presence, or a value beyond the three, is unmodelled. Transaction
+  sync's `set_presence` acts as host check HC-A1 recorded Tuwunel 1.9.4 for an absent one
+  (online) and `offline` (it sets offline, where the specification has it change nothing), and
+  as the specification says for `online` and `unavailable` (each sets itself). Another account's presence, or a value beyond the three, is unmodelled. Transaction
   IDs are kept per endpoint, and a redact under a transaction ID used before is unmodelled.
   Receiving presence (the filter's presence section, presence events in a sync, for `status`,
   A 6.6) is not built: it is owed to N3, with HC-A1.
@@ -272,9 +273,10 @@ is the shape the endpoint promises).
   specification's shape): the first request is a 401 with a fresh session, the one-stage
   password flow, `params` and `completed`; the answer with the caller's own password and that
   session deletes the device and ends every token of it, the deleting token living on unless it
-  is the device's own; a wrong password is a 401 `M_FORBIDDEN` with the same session. An unknown
-  device, a session not given to the caller, another account named, or an auth type or shape
-  beyond that is unmodelled. A sync whose `since` is ahead of the server (a token from before a
+  is the device's own. A wrong password is a 401 `M_FORBIDDEN` with the same session: the
+  specification's shape and Synapse's text, which H-C13 did not record and the tagged test (M44)
+  checks on the host. An unknown device, a session not given to the caller for that device,
+  another account named, or an auth type or shape beyond that is unmodelled. A sync whose `since` is ahead of the server (a token from before a
   restore) is held to its timeout and answered with the server's own lower `next_batch`, and is
   not given what lands at or below that `since`, as host check H-C14 recorded.
 

@@ -155,6 +155,11 @@ func TestADeviceDeleteBeyondTheModelIsUnmodelled(t *testing.T) {
 		"a session never given": func(tm *team, seat, _ string) answer {
 			return tm.call(seat, "DELETE", "/_matrix/client/v3/devices/TCSEAT", nil, passwordAuth("pw", "made-up"))
 		},
+		"a session given for another device": func(tm *team, seat, _ string) answer {
+			tm.ok(tm.loginSeat("pw", "TCOTHER"))
+			other := text(tm.t, tm.call(seat, "DELETE", "/_matrix/client/v3/devices/TCOTHER", nil, map[string]any{}).obj["session"])
+			return tm.call(seat, "DELETE", "/_matrix/client/v3/devices/TCSEAT", nil, passwordAuth("pw", other))
+		},
 		"another account named": func(tm *team, seat, session string) answer {
 			return tm.call(seat, "DELETE", "/_matrix/client/v3/devices/TCSEAT", nil, userAuth("alice", "pw", session))
 		},
