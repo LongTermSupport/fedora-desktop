@@ -286,8 +286,12 @@ every render. The segment is cached.
 
 ## 8. What the port reads, owned elsewhere
 
-These formats are owned by other modules, and the Go port must stay in step with them. Each
-one gets a Go test that reads a file the Python wrote, so drift fails a test:
+These formats are owned by other modules, and the Go port must stay in step with them.
+`TestReadsWhatTheRealWritersWrite` (`internal/pingbus/statusline/writers_test.go`) has each one
+written by its real writer on every run (the Python ones through `testdata/write_formats.py`,
+`membership.json` by the Go `membership.Write`) and requires the render to read them all, so a
+writer's change of format fails a test. The bundle is the admin's (`agent_bus.admin`'s bundle,
+unpacked by `agent_bus.checkout.read_bundle`):
 
 | File                                        | Owner (writer)                           | Reader in Python                                  |
 | ------------------------------------------- | ---------------------------------------- | ------------------------------------------------- |
