@@ -197,7 +197,10 @@ func TestInitRefusesWhatIsNotItsThreeArguments(t *testing.T) {
 // copy so the launcher's list is checked before anything is written. The copy is pinned here.
 func TestTheGrammarIsPingbusOwn(t *testing.T) {
 	src := readFile(t, filepath.Join(repoRoot(t), "helpers/pingbus/protocol.py"))
-	for name, ours := range map[string]string{"HANDLE_SEAT_PATTERN": seatPattern, "TEAM_NAME_PATTERN": teamPattern} {
+	for name, ours := range map[string]string{
+		"HANDLE_SEAT_PATTERN": seatPattern, "TEAM_NAME_PATTERN": teamPattern,
+		"HANDLE_REPO_PATTERN": handleRepoPattern, "HANDLE_HOST_PATTERN": handleHostPattern,
+	} {
 		m := regexp.MustCompile(name + ` = r"([^"]+)"`).FindStringSubmatch(src)
 		if m == nil {
 			t.Fatalf("%s not found in protocol.py", name)
@@ -205,6 +208,10 @@ func TestTheGrammarIsPingbusOwn(t *testing.T) {
 		if m[1] != ours {
 			t.Fatalf("%s is %q in protocol.py, %q here", name, m[1], ours)
 		}
+	}
+	m := regexp.MustCompile(`HANDLE_TYPES = \(([^)]+)\)`).FindStringSubmatch(src)
+	if want := `"` + strings.ReplaceAll(handleTypes, "|", `", "`) + `"`; m == nil || m[1] != want {
+		t.Fatalf("HANDLE_TYPES in protocol.py is %v, %s here", m, want)
 	}
 }
 
