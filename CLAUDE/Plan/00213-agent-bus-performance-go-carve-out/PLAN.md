@@ -118,9 +118,12 @@ as hooks-daemon issue #131 and is not this plan's to fix.
   `COLUMNS`, the red `no record` and `(role?)` states, and the rule that it always exits 0.
   **The bus segment has its own TTL cache** (owner's requirement): about 60 s, in a file under
   `PINGBUS_HOME`. It is invalidated early when an input changes, so a membership change shows
-  at once. The inputs are the mtimes of the membership desired and applied files, the
-  session-teams record, each team bundle's cached-role record, and the down marks. The
-  inner line is never cached. The Python stays uncached, because there the interpreter start
+  at once. The owner asked for mtime invalidation and a TTL. SPEC S32-S36 is the authority,
+  and it is wider than mtimes: an lstat fingerprint (dev, ino, size, mtime and ctime in ns,
+  mode, uid) of every file the render read. That covers the membership files, the session
+  record, each bundle entry and its link, `member.json`, `token`, `team.json` and the down
+  marks; ctime is what catches a `chmod` of the token. It also has an expiry at a down mark's
+  age-out. The inner line is never cached. The Python stays uncached, because there the interpreter start
   costs more than the cache would save. Behaviour: `SPEC-status-line.md`.
 
 - [ ] 🔄 **Task 2.2**: A parity test that runs the Python and Go versions on the same fixtures

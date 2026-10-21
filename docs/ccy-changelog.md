@@ -25,7 +25,8 @@ so it is rebuilt once.
 - **pingbus starts the system Python directly** (Plan 00213). The zipapp's first line was
   `#!/usr/bin/env python3`, so every `pingbus` start (each status-line render and each hook)
   looked `python3` up on PATH. On the host that meant a pyenv shim, which cost about 0.16 CPU
-  seconds on every start. It now names `/usr/bin/python3`.
+  seconds on every start. It now names `/usr/bin/python3`. The `agent-bus` zipapp shares
+  that first line, so it changes too.
 
 ## 3.99.12.20 — container 2.77.16
 

@@ -147,8 +147,10 @@ class BuildTests(unittest.TestCase):
         shim.mkdir()
         (shim / "python3").write_text("#!/bin/sh\necho shim >&2\nexit 97\n")
         (shim / "python3").chmod(0o755)
-        env = {key: value for key, value in os.environ.items() if not key.startswith(("PYTHON", "PINGBUS"))}
-        env["PATH"] = str(shim)
+        # No user settings either: a statusLine there would run its inner on the shim's PATH.
+        env = {key: value for key, value in os.environ.items()
+               if not key.startswith(("PYTHON", "PINGBUS", "CLAUDE_"))}
+        env.update(PATH=str(shim), HOME=str(self.tmp))
         with tempfile.TemporaryDirectory() as cwd:
             done = subprocess.run([str(archive), "status-line"], cwd=cwd, env=env, input="{}",
                                   capture_output=True, text=True, check=False, timeout=60)

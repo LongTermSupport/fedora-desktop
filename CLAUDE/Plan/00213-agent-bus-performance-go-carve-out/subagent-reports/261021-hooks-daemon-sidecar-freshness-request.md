@@ -13,7 +13,9 @@ from the dataclass default. No environment variable, config key or flag sets it.
 In an idle session, Claude Code renders the status line only on its `refreshInterval` timer.
 Its docs say the event-driven triggers "can go quiet when the main session is idle". Only a
 render writes the sidecar. So any project whose status line refreshes more slowly than every
-30 s loses automatic compaction for part of each cycle. The `_DEFAULT_FOREGROUND_MARGIN_SECONDS = 10.0` ambiguity margin is also sized at "roughly one status refresh interval".
+30 s loses automatic compaction for part of each cycle. The `_DEFAULT_FOREGROUND_MARGIN_SECONDS = 10.0` ambiguity margin is also sized at "roughly one status refresh interval". At a 25 s refresh,
+the ambiguity after an Agent-View thread switch can therefore last about 25 s rather than a
+tick or two. That only defers a compaction, but it is a real delay.
 
 This ties the status-line pace to the supervisor. A client cannot slow its status line (each
 refresh starts processes and costs CPU) without also delaying compaction.

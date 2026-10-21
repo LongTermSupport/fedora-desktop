@@ -202,9 +202,19 @@ in Go, and a file Python accepts must give its role.
 - **S24** One stderr line, when any role failed: `pingbus status-line: the role cannot be read (<team>: <message>; <team>: <message>)`. The messages are the Python `ConfigError` and
   `Untrusted` texts, which include paths and, in some cases, Python exception names
   (`member.json is not valid JSON (ValueError)` for a duplicate key, `(JSONDecodeError)` for
-  bad syntax). The oracle compares stderr by default. Whether the Go port must match this
-  wording byte for byte, or may declare a departure for the diagnostic text only, is an
-  **open owner decision**; `check --ignore-stderr` exists for the second answer.
+  bad syntax).
+
+  **Decided** by the coordinator, on the reviewer's advice: the Go wording may differ, and it
+  carries no Python exception names (S37). Stderr is compared by shape, not byte for byte:
+
+  - exactly one line, and only when a role failed
+  - the prefix `pingbus status-line: the role cannot be read (`, or the S20 line
+  - the failed teams in order, separated by `; `
+  - an empty stderr stays empty, and the inner's stderr (S4) still passes through byte for
+    byte
+
+  stdout and the exit code stay byte-exact. The Go golden test pins this as the numbered
+  departure S37 in `deviations.json`.
 
 ## 5. Down marks (Plan 00203 H26)
 
@@ -263,7 +273,9 @@ every render. The segment is cached.
 
 - **S34** The entry expires at the earliest of: 60 s after it was written (the owner's TTL),
   and, for each fresh down mark it shows, that mark's mtime + 300 s (the moment the mark stops
-  counting with no file changing: the oracle's `cache-down-ages-out`).
+  counting with no file changing). A Go unit test with an injected clock proves this. The
+  oracle uses no wall clock: its `cache-down-ages-out` re-dates the mark, which goes through
+  S33.
 
 - **S35** A cached render gives byte-identical stdout and stderr, so the role diagnostic of
   S24 is stored and printed again. This is what the oracle's fresh-cache and invalidated-cache
@@ -292,7 +304,9 @@ oracle's `capture` after it merges, before the Go draft is judged.
 ## 9. Candidate departures (to decide, not yet taken)
 
 - **S37** The Python exception names in S8 and S24 are an implementation detail leaking into
-  user-visible text. Keep them, or change both implementations together.
+  user-visible text. For S24 this is taken: the Go wording may differ, compared by shape. For
+  S8, which is on stdout, the names are still to be kept, or changed in both implementations
+  together.
 - **S38** S14's negative exit for a signal. `(status line killed by SIGTERM)` would be clearer.
   Changing it means changing the Python in the same commit, or recording a departure.
 - **S39** S11 drops any text the inner printed before it timed out.

@@ -197,7 +197,10 @@ def inner_scenarios() -> list[dict]:
         scenario("inner-only", "the project's status line, nothing else", [project_settings("echo inner")]),
         scenario("inner-reads-the-payload", "the inner gets the same stdin", [project_settings("cat")]),
         scenario("inner-environment", "the inner gets this environment plus PINGBUS_STATUS_LINE_INNER=1",
-                 [project_settings("env | LC_ALL=C sort")]),
+                 # Named, not `env`: bash as /bin/sh (Fedora) exports SHLVL and _, dash does not.
+                 [project_settings("for v in HOME LANG PATH PINGBUS_SESSIONS_DIR PINGBUS_STATUS_LINE_INNER "
+                                   "CLAUDE_PROJECT_DIR COLUMNS; do printf '%s=%s\\n' \"$v\" \"$(printenv \"$v\")\"; "
+                                   "done")]),
         scenario("inner-cwd-is-the-project", "the inner runs in the project directory", [project_settings("pwd")]),
         scenario("inner-cwd-missing-project", "a project dir that is not a directory: the inner runs here",
                  [user_settings("pwd")],
@@ -388,8 +391,10 @@ def cache_scenarios() -> list[dict]:
             steps=[{}, {"files": [file("pingbus/beta/member.json", "{", 0o644)]}]),
         bus("cache-down-appears-and-clears", "a mark made, then removed, shows and clears at once",
             steps=[{}, {"files": down("alpha")}, {"remove": ["pingbus/down/alpha"]}]),
-        bus("cache-down-ages-out", "a mark that ages past 300 s between renders stops counting",
-            down("alpha", 294), steps=[{}, {"sleep_s": 7}]),
+        # Deterministic: step 2 sets the mark's mtime to 301 s old instead of sleeping. A mark that
+        # ages out with no file changing is the cache's expiry (SPEC S34), a Go unit test's job.
+        bus("cache-down-ages-out", "a mark re-dated past 300 s between renders stops counting",
+            down("alpha", 200), steps=[{}, {"files": [file("pingbus/down/alpha", "", 0o600, 301)]}]),
         bus("cache-bundle-appears", "a bundle that appears between renders shows its role at once",
             record("alpha,gamma"), env={**BUS_ENV, "PINGBUS_TEAMS": "alpha,gamma"},
             steps=[{}, {"files": bundle("gamma", "coordinator")}]),
