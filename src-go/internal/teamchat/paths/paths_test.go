@@ -122,7 +122,8 @@ func TestFixedNames(t *testing.T) {
 		{HostVarMigrations, "teamchat_migrations"},
 		{OnlyTeamsVar, "teamchat_only_teams"},
 		{PlayFile, "playbooks/imports/play-teamchat.yml"},
-		{ElementPlayFile, "playbooks/imports/play-teamchat-element.yml"},
+		// Optional, like v1's Element play, so in a category under optional/.
+		{ElementPlayFile, "playbooks/imports/optional/common/play-teamchat-element.yml"},
 		{AnsibleTag, "teamchat"},
 		{TeamPortField, "port"},
 		{TmuxSocket, "teamchat"},

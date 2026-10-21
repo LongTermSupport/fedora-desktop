@@ -14,12 +14,17 @@
 //   - K4 The scope is what git would publish (tracked, or untracked and not ignored) that v2
 //     owns: InScope. The two named homes of deliberate v1 references, the v1names package and
 //     the migration's v1 adapter, are out of it, as is everything v2 does not own.
-//   - K5 allowed.tsv lists the remaining references (path, literal, reason): a finding on a line
-//     of the path that an occurrence of the literal covers is allowed. A row that allows
-//     nothing is stale, a finding: the list cannot outlive what it allows.
+//   - K5 allowed.tsv lists the remaining references (path, literal, reason), one row per
+//     reference: a finding on a line of the path that an occurrence of the literal covers is
+//     allowed. A row that allows nothing is stale, and a row that allows names on more than one
+//     line covers more than its one reference; each is a finding, so the list cannot outlive or
+//     outgrow what it allows.
 //   - K6 A run that cannot judge is exit 2, never a pass: git failing, no v2 file in scope, the
 //     name list missing, empty or malformed, the allowlist missing or malformed, a scoped file
 //     unreadable, or stdout or stderr unwritable.
+//   - K7 A scoped YAML file names only files the scope holds and the SharedFiles: every tasks/
+//     or files/ path References finds on its lines is either, or it is a finding. A v2 task
+//     file named without teamchat would otherwise be outside the scope unseen.
 //
 // D 4.1's part 2, the analyzer over the v1 adapter, is not here: it is a go/analysis rule of
 // GoProjectRules.md, built with the adapter. Part 3 is the unit test of
@@ -32,6 +37,7 @@ import (
 	"io"
 	"io/fs"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/emit"
@@ -173,47 +179,74 @@ func readData(fsys fs.FS, rel string) (string, error) {
 	return string(data), nil
 }
 
-// judge reports every finding and stale row on stderr, or the pass on stdout.
+// judge reports every finding and bad row on stderr, or the pass on stdout.
 func (g *gate) judge(out, errOut *emit.Emitter) ExitCode {
-	used := make([]bool, len(g.allowed))
+	// rowLines is, for each allowlist row, the lines on which it covered a hit.
+	rowLines := make([][]int, len(g.allowed))
 	findings, files := 0, 0
 	for _, p := range g.files {
-		n := g.judgeFile(p, used, errOut)
+		n := g.judgeFile(p, rowLines, errOut)
 		findings += n
 		if n > 0 {
 			files++
 		}
 	}
-	stale := 0
+	badRows := 0
 	for i, row := range g.allowed {
-		if !used[i] {
-			stale++
+		switch lines := rowLines[i]; {
+		case len(lines) == 0:
+			badRows++
 			errOut.Line(fmt.Sprintf("%s:%d: stale: %s covers no v1 name in %s", allowedFile, row.Line, row.Literal, row.Path))
+		case len(lines) > 1:
+			badRows++
+			errOut.Line(fmt.Sprintf("%s:%d: %s covers v1 names on lines %s of %s: one row per reference",
+				allowedFile, row.Line, row.Literal, joinLines(lines), row.Path))
 		}
 	}
-	if findings == 0 && stale == 0 {
+	if findings == 0 && badRows == 0 {
 		out.Line(fmt.Sprintf("✓ teamchat-keeps-off-v1: %d v2 file(s) hold no v1 name (%d listed, %d allowed reference(s))",
 			len(g.files), len(g.names), len(g.allowed)))
 		return ExitOK
 	}
 	errOut.Line("")
-	errOut.Line(fmt.Sprintf("✗ teamchat-keeps-off-v1: %d v1 reference(s) in %d v2 file(s), %d stale allowlist row(s)", findings, files, stale))
+	errOut.Line(fmt.Sprintf("✗ teamchat-keeps-off-v1: %d v1 reference(s) in %d v2 file(s), %d allowlist row(s) stale or covering more than one line",
+		findings, files, badRows))
 	errOut.Line("v2 touches nothing v1 uses (Plan 00209 D 4.1). Take the name from")
 	errOut.Line("src-go/internal/teamchat/paths, keep a v1 constant v2 needs in")
 	errOut.Line("src-go/internal/teamchat/v1names, or list a reference that cannot live there in")
-	errOut.Line(allowedFile + " with its reason; remove a stale row.")
+	errOut.Line(allowedFile + " with its reason, one row per line; remove a stale row. A v2 play")
+	errOut.Line("or task file names only v2's files (teamchat*) and the shared ones scope.go lists.")
 	return ExitFailed
 }
 
-// judgeFile reports the file's findings, marks the allowlist rows that allowed one, and returns
-// how many findings it reported.
-func (g *gate) judgeFile(p string, used []bool, errOut *emit.Emitter) int {
+// joinLines is "3 and 7", or "3, 5 and 7".
+func joinLines(lines []int) string {
+	parts := make([]string, len(lines))
+	for i, n := range lines {
+		parts[i] = strconv.Itoa(n)
+	}
+	return strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
+}
+
+// judgeFile reports the file's findings, records the lines on which each allowlist row covered a
+// hit, and returns how many findings it reported.
+func (g *gate) judgeFile(p string, rowLines [][]int, errOut *emit.Emitter) int {
 	findings := 0
+	yaml := strings.HasSuffix(p, ".yml") || strings.HasSuffix(p, ".yaml")
 	for i, line := range strings.Split(g.texts[p], "\n") {
 		for _, n := range g.names {
-			if g.unallowed(p, line, n.Find(line), used) {
+			if g.unallowed(p, line, i+1, n.Find(line), rowLines) {
 				findings++
 				errOut.Line(fmt.Sprintf("%s:%d: v1 name %s: %s", p, i+1, n.Text, strings.TrimSpace(line)))
+			}
+		}
+		if !yaml {
+			continue
+		}
+		for _, ref := range References(line) {
+			if _, shared := SharedFiles[ref]; !shared && !InScope(ref) {
+				findings++
+				errOut.Line(fmt.Sprintf("%s:%d: names %s, which v2 does not own: %s", p, i+1, ref, strings.TrimSpace(line)))
 			}
 		}
 	}
@@ -221,14 +254,17 @@ func (g *gate) judgeFile(p string, used []bool, errOut *emit.Emitter) int {
 }
 
 // unallowed is whether any hit on the line is covered by no allowlist row of the file. Every
-// row that covers a hit is marked used.
-func (g *gate) unallowed(p, line string, hits []Hit, used []bool) bool {
+// row that covers a hit has the line recorded.
+func (g *gate) unallowed(p, line string, lineNo int, hits []Hit, rowLines [][]int) bool {
 	bad := false
 	for _, h := range hits {
 		covered := false
 		for i, row := range g.allowed {
 			if row.Path == p && row.covers(line, h) {
-				used[i], covered = true, true
+				covered = true
+				if !slices.Contains(rowLines[i], lineNo) {
+					rowLines[i] = append(rowLines[i], lineNo)
+				}
 			}
 		}
 		bad = bad || !covered

@@ -282,7 +282,7 @@ script only builds and runs the command. Its spec is `SPEC-qa-nokill-containerwa
 `scripts/qa-teamchat-separate.bash`, the gate `teamchat-keeps-off-v1` (Plan 00209 D 4.1): no
 file v2 of the agent-team bus owns holds a v1 name. The script only builds and runs the command.
 The name list `v1-names.txt` and the allowlist `allowed.tsv` are its data; the expectations
-(K1-K6) are its package doc, proven by unit tests over a fake tree and a real work tree in the
+(K1-K7) are its package doc, proven by unit tests over a fake tree and a real work tree in the
 command package. `internal/teamchat/paths`, the one source of every v2 name, reads the same list
 in its own test.
 

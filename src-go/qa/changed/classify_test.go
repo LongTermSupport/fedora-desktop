@@ -994,9 +994,11 @@ func TestAV2EditRunsTheKeepsOffV1Gate(t *testing.T) {
 		"files/opt/claude-yolo/optional/teamchat/settings.json",
 		"tasks/teamchat-units.yml",
 		"playbooks/imports/play-teamchat.yml",
+		"playbooks/imports/optional/common/play-teamchat-element.yml",
 		"scripts/qa-teamchat-separate.bash",
 		"src-go/qa/teamchatseparate/run.go",
 		"src-go/qa/teamchatseparate/v1-names.txt",
+		"src-go/qa/teamchatseparate/v1-names-corpus.tsv",
 		"src-go/qa/teamchatseparate/allowed.tsv",
 		"src-go/qa/cmd/qa-teamchat-separate/main.go",
 	} {
@@ -1010,7 +1012,10 @@ func TestAV2EditRunsTheKeepsOffV1Gate(t *testing.T) {
 	if p := w.classify(nil, "src-go/internal/teamchat/paths/gone.go"); !p.has("teamchat-keeps-off-v1") {
 		t.Errorf("a deleted v2 file: %v", keys(p))
 	}
-	for _, f := range []string{"src-go/internal/teams/board/board.go", "playbooks/imports/play-agent-bus.yml"} {
+	for _, f := range []string{
+		"src-go/internal/teams/board/board.go", "playbooks/imports/play-agent-bus.yml",
+		"playbooks/imports/optional/common/play-agent-bus-element.yml",
+	} {
 		w := newWorld(t)
 		w.touch(f, "# x")
 		if p := w.classify([]string{f}); p.has("teamchat-keeps-off-v1") {

@@ -113,7 +113,7 @@ const (
 	HostVarMigrations   = "teamchat_migrations"
 	OnlyTeamsVar        = "teamchat_only_teams"
 	PlayFile            = "playbooks/imports/play-teamchat.yml"
-	ElementPlayFile     = "playbooks/imports/play-teamchat-element.yml"
+	ElementPlayFile     = "playbooks/imports/optional/common/play-teamchat-element.yml"
 	AnsibleTag          = Product
 	TeamPortField       = "port"
 )

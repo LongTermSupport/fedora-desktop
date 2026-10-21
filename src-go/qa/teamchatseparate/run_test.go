@@ -238,6 +238,95 @@ func TestK5AStaleRowFails(t *testing.T) {
 	}
 }
 
+// D 4.1 is one row per reference: a row whose literal covers v1 names on two lines fails, so a
+// second copy of an allowed reference cannot pass under the first one's row.
+func TestK5ARowCoversOneLineOnly(t *testing.T) {
+	w := cleanWorld(t)
+	w.set(fenceGo, "a \"Before=agent-bus-hs@%s.service\"\nb \"Before=agent-bus-hs@%s.service\"\n")
+	w.set(allowedFile, "# header\n"+fenceGo+"\t"+fenceLit+"\tthe fence unit orders itself before v1's server\n")
+	if code := w.run(); code != ExitFailed {
+		t.Fatalf("exit %d: %s", code, w.out.String())
+	}
+	want := allowedFile + ":2: " + fenceLit + " covers v1 names on lines 1 and 2 of " + fenceGo + ": one row per reference"
+	if !strings.Contains(w.err.String(), want) || !strings.Contains(w.err.String(), "1 allowlist row(s) stale or covering more than one line") {
+		t.Fatalf("stderr:\n%s", w.err.String())
+	}
+}
+
+// The v2 matrix client's replay test reads recorded real-Tuwunel captures, which hold v1 names:
+// the fixtures live under tests/, outside the scope, and the three lines of the test that name
+// what the capture recorded are allowed by one exact row each. These rows go into allowed.tsv
+// with the test file itself (a row for a file not in the tree is stale).
+const (
+	replayTest = "src-go/internal/teamchat/matrix/fakehs/replay_test.go"
+	replayRows = replayTest + "\ttests/helpers/pingbus/fixtures/tuwunel\tthe recorded real-Tuwunel captures the replay reads, which v1's tests own\n" +
+		replayTest + "\tprobe.agent-bus.internal\tthe server name the capture was recorded under; the replay must match it byte for byte\n" +
+		replayTest + "\t\"agent_bus.status\"\tthe v1 event type the capture recorded, which the replay picks out of the recorded sync\n"
+	replayText = "package fakehs\n\n" +
+		"const fixtureDir = \"../../../../../tests/helpers/pingbus/fixtures/tuwunel\"\n\n" +
+		"const probeServerName = \"probe.agent-bus.internal\"\n\n" +
+		"func status(ev map[string]any) bool {\n" +
+		"\treturn ev[\"type\"] == \"agent_bus.status\" && ev[\"state_key\"] == \"probe\"\n}\n"
+)
+
+func TestK5TheMatrixReplayRowsAllowExactlyItsThreeReferences(t *testing.T) {
+	w := cleanWorld(t)
+	w.set(replayTest, replayText)
+	w.set(allowedFile, replayRows)
+	if code := w.run(); code != ExitOK || !strings.Contains(w.out.String(), "3 allowed reference(s)") {
+		t.Fatalf("green: exit %d out=%q err=%q", code, w.out.String(), w.err.String())
+	}
+	// Red: any other v1 name in the same file still fails, on its own line or beside an allowed one.
+	for _, extra := range []string{
+		"// see agent-bus-hs@probe\n",
+		"const again = \"probe.agent-bus.internal\" // a second copy\n",
+		"var x = \"agent_bus.status\" + pingbus\n",
+	} {
+		red := cleanWorld(t)
+		red.set(replayTest, replayText+extra)
+		red.set(allowedFile, replayRows)
+		if code := red.run(); code != ExitFailed || !strings.Contains(red.err.String(), "✗ teamchat-keeps-off-v1") {
+			t.Errorf("red %q: exit %d err=%q", extra, code, red.err.String())
+		}
+	}
+	// Without the rows, each of the three lines is a finding.
+	w = cleanWorld(t)
+	w.set(replayTest, replayText)
+	if code := w.run(); code != ExitFailed || !strings.Contains(w.err.String(), "3 v1 reference(s) in 1 v2 file(s)") {
+		t.Fatalf("no rows: exit %d err=%q", code, w.err.String())
+	}
+}
+
+// A v2 play or task file names only v2's own files and the listed shared ones: a task file named
+// without teamchat would otherwise leave the scope unseen (fail fast, not a silent hole).
+func TestK7APlayNamingAFileOutsideTheScopeFails(t *testing.T) {
+	w := cleanWorld(t)
+	w.set(v2Play, "- name: teamchat\n  tasks:\n    - ansible.builtin.include_tasks: \"{{ playbook_dir }}/../../tasks/render-units.yml\"\n")
+	if code := w.run(); code != ExitFailed {
+		t.Fatalf("exit %d: %s", code, w.out.String())
+	}
+	if !strings.Contains(w.err.String(), v2Play+":3: names tasks/render-units.yml, which v2 does not own") {
+		t.Fatalf("stderr:\n%s", w.err.String())
+	}
+	for name, text := range map[string]string{
+		"shared":  "- ansible.builtin.import_tasks: \"{{ playbook_dir }}/../../tasks/build-go-command.yml\"\n",
+		"v2's":    "- ansible.builtin.include_tasks: tasks/teamchat-units.yml\n  src: \"{{ root_dir }}/files/etc/teamchat/owner-group\"\n",
+		"no path": "- name: Render\n  ansible.builtin.command: teamchat-admin unit render server\n",
+	} {
+		green := cleanWorld(t)
+		green.set(v2Tasks, text)
+		if code := green.run(); code != ExitOK {
+			t.Errorf("%s: exit %d: %s", name, code, green.err.String())
+		}
+	}
+	// Only YAML is read for references: Go code naming tasks/ is not an include.
+	w = cleanWorld(t)
+	w.set(pathsGo, "// not an include: tasks/render-units.yml\n")
+	if code := w.run(); code != ExitOK {
+		t.Fatalf("a Go file: exit %d: %s", code, w.err.String())
+	}
+}
+
 func TestK6TheRunThatCannotJudgeIsExit2(t *testing.T) {
 	for name, change := range map[string]func(w *world){
 		"git fails":         func(w *world) { w.gitErr = errors.New("not a git repository") },
