@@ -100,7 +100,7 @@ class WatchRelayTest(RelayCase):
         event = self.a.human("please halt")
         fields = self.spooled(event)
         self.assertEqual(fields, ["HUMAN", "1", bus.TEAM_A, event, "alice", str(int(bus.T0 * 1000)),
-                                  '"please halt"', "-"])
+                                  '"please halt"', "-", "-"])
         self.assertEqual(self.pending_ids(), [event], "not consumed until the plugin confirms")
 
     def test_no_line_reaches_stdout_and_no_socket_is_written(self):
@@ -445,7 +445,7 @@ class OffUnchangedTest(bus.BusCase):
         code, out, _ = self.run_cli("recv")
         self.assertEqual(code, cli.EXIT_OK)
         self.assertEqual(out, "\t".join(["HUMAN", "1", bus.TEAM_A, event, "alice",
-                                         str(int(bus.T0 * 1000)), '"hello"']) + "\n"
+                                         str(int(bus.T0 * 1000)), '"hello"', "-"]) + "\n"
                          + "\t".join(["REPLY", "1", bus.TEAM_A, event,
                                       f"pingbus --team {bus.TEAM_A} say --to alice --re '{event}'"]) + "\n")
         self.assertEqual(self.run_cli("send", "review", bus.PATH_REF, "--to", bus.ORCH_LP)[0], cli.EXIT_OK)

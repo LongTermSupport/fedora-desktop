@@ -160,6 +160,35 @@ STATUS_KEYS = ("v", "state", "until")
 
 HUMAN_POWER = 50
 
+#: The side rooms (Plan 00211 SPEC §3-§8): the index the admin keeps in the main room, the
+#: back-link in each side room, and the content keys of a report, a question and its state.
+EVENT_ROOMS = f"{PREFIX}.rooms"
+EVENT_ROOM_LINK = f"{PREFIX}.room"
+REPORT_KEY = f"{PREFIX}.report"
+QUESTION_KEY = f"{PREFIX}.question"
+QUESTION_STATE_KEY = f"{PREFIX}.question_state"
+JOIN_RULES = "m.room.join_rules"
+ROOM_MAIN = "main"
+PURPOSE_REPORTS = "reports"
+PURPOSE_QUESTIONS = "questions"
+PURPOSES = (PURPOSE_REPORTS, PURPOSE_QUESTIONS)
+#: The rooms an item is received from: nobody syncs the reports room.
+RECEIVING_ROOMS = (ROOM_MAIN, PURPOSE_QUESTIONS)
+#: Agents post in the reports room at this power; humans are held at 0.
+REPORTS_AGENT_POWER = 10
+CLOSED_POWER = 100
+HEADLINE_MAX = 120
+MAX_REPORT_BYTES = 1500
+MAX_QUESTION_BYTES = 8000
+MAX_THREAD_BYTES = 4000
+OPTIONS_MAX = 9
+QUESTION_SECTIONS = ("Context:", "Question:", "Options:")
+QUESTION_REQUIRED = ("Context:", "Question:")
+STATE_OPEN = "open"
+STATE_ANSWERED = "answered"
+STATE_CLOSED = "closed"
+QUESTION_STATES = (STATE_OPEN, STATE_ANSWERED, STATE_CLOSED)
+
 DROP_REASONS = (
     "version", "schema", "size", "edit", "sender", "role", "target", "verb", "ref",
     "allowlist", "excluded", "re", "body", "stale", "rate", "forge-rate", "unresolved", "provenance",
@@ -169,11 +198,15 @@ DROP_REASONS = (
 IGNORE_AGENT_TEXT = "agent-text"
 #: The ignore reason for a message (a human's, or a ping) not addressed to the receiving agent.
 IGNORE_NOT_ADDRESSED = "not-addressed"
+#: The ignore reason for a questions-room item at a member the record does not name
+#: coordinator (Plan 00211 SPEC §6): a demoted coordinator's stored items go unread.
+IGNORE_NOT_COORDINATOR = "not-coordinator"
 #: The reasons `ignored.log` records (spec §9 "Unheard"): a team human's message that
 #: reached no agent. Every other ignore is traffic for others, and logs nothing.
 UNHEARD_REASONS = (IGNORE_NOT_ADDRESSED,)
-#: Codes that refuse a send and never name a receive drop.
-SEND_REFUSALS = ("secret",)
+#: Codes that refuse a send and never name a receive drop. `no-room`: the team has no
+#: reports or questions room yet (the agent-bus play creates them).
+SEND_REFUSALS = ("secret", "no-room")
 #: Codes this module never produces: limits (`stale`, `rate`) and the forge check (`forge-rate`, `unresolved`, `provenance`).
 REASONS_DECIDED_ELSEWHERE = frozenset({"stale", "rate", "forge-rate", "unresolved", "provenance"})
 
@@ -360,6 +393,9 @@ class HumanMessage:
     sender: str
     origin_server_ts: int
     text: str
+    #: In the questions room, the event this edit revises; None for a message that is not
+    #: an edit (Plan 00211 SPEC §6).
+    revises: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -833,19 +869,59 @@ def _agent_text_outcome(
                                          _copy_of(text.to, self_user_id, ctx)))
 
 
+def _questions_outcome(
+    content: Mapping[str, object], event_id: str, sender: object, ts: int, cls: str | None,
+    ctx: Context, self_user_id: str, human_text: bool,
+) -> Outcome:
+    """Plan 00211 SPEC §6: in the questions room only a coordinator receives, and only a
+    human's message, addressed or not. An edit is a revision of the event it replaces, with
+    the edit's new body; it never replaces the original. Any agent's post is `sender`."""
+    if ctx.roles.get(self_user_id) != ROLE_COORDINATOR:
+        return Outcome(IGNORE, IGNORE_NOT_COORDINATOR)
+    if cls != SENDER_HUMAN or not human_text:
+        return Outcome(DROP, "sender")
+    if content.get("msgtype") != MSGTYPE_HUMAN:
+        return Outcome(DROP, "schema")
+    relates = content.get("m.relates_to")
+    if relates is not None and not isinstance(relates, dict):
+        return Outcome(DROP, "schema")
+    revises = None
+    body = content.get("body")
+    if "m.new_content" in content or (relates is not None and relates.get("rel_type") == "m.replace"):
+        new = content.get("m.new_content")
+        revises = relates.get("event_id") if relates is not None else None
+        if (relates is None or relates.get("rel_type") != "m.replace" or not is_event_id(revises)
+                or not isinstance(new, dict) or new.get("msgtype") != MSGTYPE_HUMAN):
+            return Outcome(DROP, "schema")
+        body = new.get("body")
+    if not isinstance(body, str):
+        return Outcome(DROP, "schema")
+    if len(body.encode("utf-8")) > MAX_HUMAN_BODY_BYTES:
+        return Outcome(DROP, "size")
+    if revises is None and relates is not None and "m.in_reply_to" in relates:
+        body = strip_reply_fallback(body)
+    if body == "":
+        return Outcome(IGNORE, "empty")
+    return Outcome(ACCEPT, human=HumanMessage(event_id, sender, ts, body, revises))
+
+
 def validate_event(
     event: object,
     ctx: Context,
     self_user_id: str,
     seen: Container[str] = frozenset(),
     human_text: bool = True,
+    room: str = ROOM_MAIN,
 ) -> Outcome:
-    """The offline receive steps of spec §9 for one timeline event.
+    """The offline receive steps of spec §9 for one timeline event of `room`.
 
     `seen` holds event IDs already processed; `human_text` is the bundle's flag. An event
     that is not `m.room.message` is ignored before anything else of it is read: only
-    messages are pings or human text.
+    messages are pings or human text. In the questions room every human message is for the
+    coordinator, edits included, and nothing else is received (`_questions_outcome`).
     """
+    if room not in RECEIVING_ROOMS:
+        raise ValueError(f"no item is received from room {room!r}")
     if not isinstance(event, dict):
         return Outcome(DROP, "schema")
     if event.get("type") != EVENT_MESSAGE:
@@ -865,6 +941,8 @@ def validate_event(
     if "state_key" in event or redacted or not isinstance(content, dict) or type(ts) is not int or ts < 0:
         return Outcome(DROP, "schema")
     cls = sender_class(sender, ctx)
+    if room == PURPOSE_QUESTIONS:
+        return _questions_outcome(content, event_id, sender, ts, cls, ctx, self_user_id, human_text)
     if cls is None:
         return Outcome(DROP, "sender")
     if cls == SENDER_HUMAN:
@@ -1155,3 +1233,373 @@ def check_text_sender(sender: str, ctx: Context) -> None:
     """Raise `Refusal("role")` unless `sender` is an agent holding a role (§7)."""
     if sender_class(sender, ctx) not in ROLES:
         raise Refusal("role")
+
+
+# ── the side rooms (Plan 00211 SPEC §3-§8) ───────────────────────────────────────────────
+
+
+def _state_event(event: object, kind: str, admin: str) -> dict:
+    """An `admin`-sent state event of `kind` with the empty state key, and its content."""
+    if (not isinstance(event, dict) or event.get("type") != kind or event.get("state_key") != ""
+            or event.get("sender") != admin):
+        raise Untrusted(f"the {kind} event")
+    content = event.get("content")
+    if not isinstance(content, dict) or type(content.get("v")) is not int or content["v"] != PROTOCOL_VERSION:
+        raise Untrusted(f"the {kind} content")
+    return content
+
+
+def parse_rooms_index(event: object, admin: str, main_room: str) -> dict[str, str]:
+    """The `agent_bus.rooms` index of the main room (SPEC §4.1): purpose -> room ID, each a
+    room other than the main room and the other side room. `Untrusted` on any deviation."""
+    content = _state_event(event, EVENT_ROOMS, admin)
+    rooms = {key: value for key, value in content.items() if key != "v"}
+    if not set(rooms) <= set(PURPOSES):
+        raise Untrusted("the rooms index keys")
+    if (not all(is_room_id(room) and room != main_room for room in rooms.values())
+            or len(set(rooms.values())) != len(rooms)):
+        raise Untrusted("the rooms index room IDs")
+    return rooms
+
+
+def check_room_link(event: object, admin: str, team: str, purpose: str, main_room: str) -> None:
+    """A side room's `agent_bus.room` back-link names exactly this team, purpose and main
+    room (SPEC §4.2), so no other admin room can stand in for it."""
+    content = _state_event(event, EVENT_ROOM_LINK, admin)
+    if content != {"v": PROTOCOL_VERSION, "team": team, "purpose": purpose, "main": main_room}:
+        raise Untrusted("the room's back-link")
+
+
+def side_power_levels(purpose: str, humans: Iterable[str], *, open_: bool) -> dict:
+    """The exact power levels of a side room (SPEC §3.2). Reports: humans 0, agents post at
+    `users_default` 10, `@room` and reactions closed. Questions: the main room's with
+    reactions closed; closed (`open_` false, no coordinator) holds humans at 0 as well, so
+    nobody can post a message nobody would read."""
+    if purpose == PURPOSE_REPORTS:
+        return {
+            "users": {h: 0 for h in sorted(humans)},
+            "users_default": REPORTS_AGENT_POWER, "events_default": REPORTS_AGENT_POWER,
+            "state_default": CLOSED_POWER, "invite": CLOSED_POWER, "kick": CLOSED_POWER,
+            "ban": CLOSED_POWER, "redact": CLOSED_POWER, "notifications": {"room": CLOSED_POWER},
+            "events": {"m.room.power_levels": 100, "m.room.tombstone": 150, "m.room.redaction": 100,
+                       "m.reaction": CLOSED_POWER, "m.sticker": 100, EVENT_STATUS: CLOSED_POWER},
+        }
+    if purpose != PURPOSE_QUESTIONS:
+        raise ValueError(f"not a side room purpose: {purpose!r}")
+    levels = expected_power_levels(humans)
+    levels["events"]["m.reaction"] = CLOSED_POWER
+    if not open_:
+        levels["users"] = {h: 0 for h in sorted(humans)}
+        levels["events_default"] = REPORTS_AGENT_POWER
+    return levels
+
+
+def check_side_power_levels(content: object, purpose: str, humans: Iterable[str], open_: bool) -> None:
+    """Raise `Untrusted` unless `content` is exactly `side_power_levels`, types included."""
+    if _canonical(content) != _canonical(side_power_levels(purpose, humans, open_=open_)):
+        raise Untrusted("power levels")
+
+
+def expected_join_rules(purpose: str, main_room: str) -> dict:
+    """Reports: members of the main room may join (a restricted join). Questions: invite."""
+    if purpose == PURPOSE_REPORTS:
+        return {"join_rule": "restricted", "allow": [{"type": "m.room_membership", "room_id": main_room}]}
+    return {"join_rule": "invite"}
+
+
+def check_join_rules(content: object, purpose: str, main_room: str) -> None:
+    if _canonical(content) != _canonical(expected_join_rules(purpose, main_room)):
+        raise Untrusted("join rules")
+
+
+def _check_headline(text: str) -> str:
+    """The first line of a report or question: not blank, at most `HEADLINE_MAX` characters."""
+    headline = text.split("\n", 1)[0]
+    if not headline.strip() or len(headline) > HEADLINE_MAX:
+        raise Refusal("body", f"the first line (the headline) must be 1 to {HEADLINE_MAX} characters")
+    return headline
+
+
+def check_report_text(text: str) -> str:
+    """A report's text (SPEC §7): a headline, then an optional body, at most
+    `MAX_REPORT_BYTES` in all, with no secret's shape. Its headline."""
+    if len(text.encode("utf-8")) > MAX_REPORT_BYTES:
+        raise Refusal("body", f"a report is at most {MAX_REPORT_BYTES} bytes")
+    headline = _check_headline(text)
+    if secret_shaped(text) is not None:
+        raise Refusal("secret")
+    return headline
+
+
+def check_thread_text(text: str, *, closing: bool) -> None:
+    """A coordinator's thread post (SPEC §8.4): at most `MAX_THREAD_BYTES`, not empty unless it
+    closes the question, with no secret's shape."""
+    if len(text.encode("utf-8")) > MAX_THREAD_BYTES:
+        raise Refusal("body", f"a thread post is at most {MAX_THREAD_BYTES} bytes")
+    if text == "" and not closing:
+        raise Refusal("body", "the post's text is on stdin")
+    if secret_shaped(text) is not None:
+        raise Refusal("secret")
+
+
+def build_report(text: str) -> dict:
+    """A report: a notice with no mentions, so Element never notifies it (SPEC §7)."""
+    return {"msgtype": MSGTYPE_TEXT, "body": text, "m.mentions": {}, REPORT_KEY: {"v": PROTOCOL_VERSION}}
+
+
+def check_report_content(content: object) -> None:
+    """Raise `Refusal("schema")` unless `content` is exactly a report's shape."""
+    if (not isinstance(content, dict) or set(content) != {"msgtype", "body", "m.mentions", REPORT_KEY}
+            or content["msgtype"] != MSGTYPE_TEXT or content["m.mentions"] != {}
+            or _canonical(content[REPORT_KEY]) != _canonical({"v": PROTOCOL_VERSION})
+            or not isinstance(content["body"], str)):
+        raise Refusal("schema")
+
+
+_OPTION_RE = re.compile(r"([1-9])\.\s")
+_Q_PREFIX_RE = re.compile(r"[Qq]([1-9][0-9]{0,5})[ :.]")
+
+
+def _sections(text: str) -> dict[str, str]:
+    """The `Context:`, `Question:` and `Options:` sections, each from its line to the next
+    section's; a section named twice is `body`."""
+    found: dict[str, list[str]] = {}
+    current: list[str] | None = None
+    for line in text.split("\n")[1:]:
+        name = next((s for s in QUESTION_SECTIONS if line.startswith(s)), None)
+        if name is not None:
+            if name in found:
+                raise Refusal("body", f"the {name} section is given twice")
+            current = found[name] = [line[len(name):]]
+        elif current is not None:
+            current.append(line)
+    return {name: "\n".join(lines).strip() for name, lines in found.items()}
+
+
+def _check_options(options: str) -> None:
+    lines = [line for line in options.split("\n") if line.strip()]
+    numbers = [m and int(m[1]) for m in (_OPTION_RE.match(line + " ") for line in lines)]
+    if not lines or numbers != list(range(1, len(lines) + 1)) or len(lines) > OPTIONS_MAX:
+        raise Refusal("body", f"Options: are lines numbered 1. to {OPTIONS_MAX}., in order")
+
+
+def check_question_text(text: str) -> tuple[str, str]:
+    """A question (SPEC §8.2): a headline, `Context:` and `Question:` sections, an optional
+    `Options:` numbered `1.` to `9.`, at most `MAX_QUESTION_BYTES`, no secret's shape.
+    (its headline, its `Question:` section)"""
+    if len(text.encode("utf-8")) > MAX_QUESTION_BYTES:
+        raise Refusal("body", f"a question is at most {MAX_QUESTION_BYTES} bytes")
+    headline = _check_headline(text)
+    if any(headline.startswith(s) for s in QUESTION_SECTIONS):
+        raise Refusal("body", "the first line is the headline, before the Context: section")
+    sections = _sections(text)
+    for name in QUESTION_REQUIRED:
+        if not sections.get(name):
+            raise Refusal("body", f"the {name} section is missing")
+    if "Options:" in sections:
+        _check_options(sections["Options:"])
+    if secret_shaped(text) is not None:
+        raise Refusal("secret")
+    return headline, sections["Question:"]
+
+
+def build_question(n: int, text: str, humans: Iterable[str], asked_by: Sequence[str],
+                   re: Sequence[str]) -> dict:
+    """A question as a thread root: `m.text` mentioning every human, so Element notifies,
+    its headline numbered `Q<n>`, and whom to answer (SPEC §8.2)."""
+    return {"msgtype": MSGTYPE_HUMAN, "body": f"Q{n} {text}", "m.mentions": {"user_ids": sorted(humans)},
+            QUESTION_KEY: {"v": PROTOCOL_VERSION, "n": n, "asked_by": list(asked_by), "re": list(re)}}
+
+
+@dataclasses.dataclass(frozen=True)
+class Question:
+    n: int
+    event_id: str
+    sender: str
+    headline: str
+    question: str
+    asked_by: tuple[str, ...]
+    re: tuple[str, ...]
+
+
+def _message_parts(event: object) -> tuple[str, str, dict] | None:
+    """(event ID, sender, content) of a message event, or None."""
+    if not isinstance(event, dict) or event.get("type") != EVENT_MESSAGE or not is_event_id(event.get("event_id")):
+        return None
+    content, sender = event.get("content"), event.get("sender")
+    if not isinstance(content, dict) or not isinstance(sender, str):
+        return None
+    return event["event_id"], sender, content
+
+
+def parse_question(event: object, server_name: str) -> Question | None:
+    """The question an agent's `ask-human` post is, or None for anything else."""
+    parts = _message_parts(event)
+    if parts is None or not is_agent_user_id(parts[1], server_name):
+        return None
+    event_id, sender, content = parts
+    obj, body = content.get(QUESTION_KEY), content.get("body")
+    if (not isinstance(obj, dict) or set(obj) != {"v", "n", "asked_by", "re"} or obj["v"] != PROTOCOL_VERSION
+            or type(obj["n"]) is not int or obj["n"] < 1 or not isinstance(body, str)
+            or not body.startswith(f"Q{obj['n']} ") or content.get("msgtype") != MSGTYPE_HUMAN
+            or not isinstance(obj["asked_by"], list) or not all(isinstance(u, str) for u in obj["asked_by"])
+            or not isinstance(obj["re"], list) or not all(is_event_id(e) for e in obj["re"])):
+        return None
+    text = body[len(f"Q{obj['n']} "):]
+    try:
+        headline, question = check_question_text(text)
+    except Refusal:
+        return None
+    return Question(obj["n"], event_id, sender, headline, question, tuple(obj["asked_by"]), tuple(obj["re"]))
+
+
+def build_thread_post(root: str | None, text: str, humans: Iterable[str], *, ask: bool,
+                      close: int | None = None, re: str | None = None) -> dict:
+    """A coordinator's post in a question's thread (`root`), or, without one, a reply to `re`
+    (SPEC §8.4). `ask` mentions the humans, so Element notifies; `close` closes question
+    `close` in the same message, whose text may then be empty."""
+    if root is None and re is None:
+        raise ValueError("a thread post names its question or the event it answers")
+    body = text if text != "" or close is None else f"Q{close} closed."
+    content: dict = {"msgtype": MSGTYPE_HUMAN if ask else MSGTYPE_TEXT, "body": body,
+                     "m.mentions": {"user_ids": sorted(humans)} if ask else {}}
+    if root is None:
+        content["m.relates_to"] = {"m.in_reply_to": {"event_id": re}}
+    else:
+        content["m.relates_to"] = {"rel_type": "m.thread", "event_id": root, "is_falling_back": re is None,
+                                   "m.in_reply_to": {"event_id": re or root}}
+    if close is not None:
+        content[QUESTION_STATE_KEY] = {"v": PROTOCOL_VERSION, "n": close, "state": STATE_CLOSED}
+    return content
+
+
+def _closes(content: Mapping[str, object]) -> int | None:
+    obj = content.get(QUESTION_STATE_KEY)
+    if (isinstance(obj, dict) and set(obj) == {"v", "n", "state"} and obj["v"] == PROTOCOL_VERSION
+            and type(obj["n"]) is int and obj["state"] == STATE_CLOSED):
+        return obj["n"]
+    return None
+
+
+@dataclasses.dataclass(frozen=True)
+class QuestionView:
+    """A question's state from the room (SPEC §8.4): `replies` are the human messages and
+    edits attached to it; `unanswered` those after the last agent post in its thread."""
+
+    question: Question
+    state: str
+    replies: tuple[str, ...]
+    unanswered: tuple[str, ...]
+
+
+class QuestionIndex:
+    """The questions of a questions room, read from its messages oldest first; no session
+    state, so a relaunched or replacement coordinator reads the same (Plan 00207 §11.2)."""
+
+    def __init__(self) -> None:
+        self.by_event: dict[str, Question] = {}
+        self.by_n: dict[int, Question] = {}
+        #: A post in a question's thread -> the question's event ID.
+        self.thread_of: dict[str, str] = {}
+        #: A human message -> the question's event ID it is attached to, or None.
+        self.attached: dict[str, str | None] = {}
+        self._closed: set[int] = set()
+        self._agent_pos: dict[str, int] = {}
+        self._replies: dict[str, list[tuple[int, str]]] = {}
+
+    def attached_to(self, event_id: object) -> Question | None:
+        root = self.attached.get(event_id) if isinstance(event_id, str) else None
+        return self.by_event.get(root) if root is not None else None
+
+    def next_number(self) -> int:
+        return max(self.by_n, default=0) + 1
+
+    def views(self) -> list[QuestionView]:
+        found = []
+        for n in sorted(self.by_n):
+            question = self.by_n[n]
+            replies = self._replies.get(question.event_id, [])
+            last = self._agent_pos.get(question.event_id, -1)
+            state = (STATE_CLOSED if n in self._closed else STATE_ANSWERED if replies else STATE_OPEN)
+            found.append(QuestionView(question, state, tuple(e for _, e in replies),
+                                      tuple(e for pos, e in replies if pos > last)))
+        return found
+
+    def open_duplicate(self, question: str) -> Question | None:
+        """An open or answered question whose `Question:` section is `question`."""
+        wanted = " ".join(question.split())
+        return next((view.question for view in self.views()
+                     if view.state != STATE_CLOSED and " ".join(view.question.question.split()) == wanted), None)
+
+
+def _relates(content: Mapping[str, object]) -> dict:
+    relates = content.get("m.relates_to")
+    return relates if isinstance(relates, dict) else {}
+
+
+def attach_question(event: object, index: QuestionIndex) -> Question | None:
+    """The question a human message or edit answers, by the first rule of SPEC §8.3 that
+    holds: its thread; the question or thread post it replies to; a `Q<n>` prefix; for an
+    edit, its original's question. None: unattached."""
+    parts = _message_parts(event)
+    if parts is None:
+        return None
+    content = parts[2]
+    relates = _relates(content)
+    if relates.get("rel_type") == "m.replace":
+        new = content.get("m.new_content")
+        body = new.get("body") if isinstance(new, dict) else None
+        found = _by_prefix(body, index)
+        return found if found is not None else index.attached_to(relates.get("event_id"))
+    if relates.get("rel_type") == "m.thread" and relates.get("event_id") in index.by_event:
+        return index.by_event[relates["event_id"]]
+    reply = relates.get("m.in_reply_to")
+    target = reply.get("event_id") if isinstance(reply, dict) else None
+    if isinstance(target, str):
+        found = index.by_event.get(target) or index.by_event.get(index.thread_of.get(target, ""))
+        if found is not None:
+            return found
+    body = content.get("body")
+    if isinstance(body, str) and "m.in_reply_to" in relates:
+        body = strip_reply_fallback(body)
+    return _by_prefix(body, index)
+
+
+def _by_prefix(body: object, index: QuestionIndex) -> Question | None:
+    m = _Q_PREFIX_RE.match(body) if isinstance(body, str) else None
+    return index.by_n.get(int(m[1])) if m else None
+
+
+def build_question_index(events: Iterable[object], ctx: Context) -> QuestionIndex:
+    """The question index of a questions room's messages, oldest first."""
+    index = QuestionIndex()
+    for pos, event in enumerate(events):
+        parts = _message_parts(event)
+        if parts is None:
+            continue
+        event_id, sender, content = parts
+        question = parse_question(event, ctx.server_name)
+        if question is not None and question.n not in index.by_n:
+            index.by_event[event_id] = question
+            index.by_n[question.n] = question
+            index._agent_pos[event_id] = pos
+            continue
+        relates = _relates(content)
+        root = relates.get("event_id") if relates.get("rel_type") == "m.thread" else None
+        if root not in index.by_event:
+            root = None
+        if is_agent_user_id(sender, ctx.server_name):
+            if root is not None:
+                index.thread_of[event_id] = root
+                index._agent_pos[root] = pos
+                closed = _closes(content)
+                if closed == index.by_event[root].n:
+                    index._closed.add(closed)
+        elif sender in ctx.humans:
+            if root is not None:
+                index.thread_of[event_id] = root
+            found = attach_question(event, index)
+            index.attached[event_id] = None if found is None else found.event_id
+            if found is not None:
+                index._replies.setdefault(found.event_id, []).append((pos, event_id))
+    return index
