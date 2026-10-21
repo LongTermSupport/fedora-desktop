@@ -6,6 +6,10 @@
 #                  was not alone on its line), which leaked literal echo/cat
 #                  fragments and dropped the $base_image / $dockerfile_path values
 #                  from the generated prompts.
+#
+# Each mode ends by re-running the launcher with exec. The launcher holds GH_TOKEN
+# unexported, so each exec gives the caller's token to the launcher it runs, in that one
+# command's environment (GH_TOKEN="${GH_TOKEN:-}" exec ...), as the caller's export did.
 
 # Function to create/update custom Dockerfile for project
 # Args: $1 = script_path ($0), $2 = project_subdir (".claude/ccy"), $3 = tool_name (for display)
@@ -13,7 +17,7 @@ custom_dockerfile() {
     local script_path="$1"
     local project_subdir="$2"
     local tool_name="$3"
-    local custom_dir="/opt/claude-yolo/custom-dockerfiles"
+    local custom_dir="$DOCKERFILE_DIR/custom-dockerfiles"
     local project_dockerfile="$project_subdir/Dockerfile"
 
     echo ""
@@ -42,7 +46,7 @@ custom_dockerfile() {
                     # Launch tool with customization prompt
                     echo "Launching Claude Code to help customize your Dockerfile..."
                     echo ""
-                    exec "$script_path" "Read $project_subdir/Dockerfile - it has instructions for you in the comments. Follow those instructions to customize this Dockerfile for the project."
+                    GH_TOKEN="${GH_TOKEN:-}" exec "$script_path" "Read $project_subdir/Dockerfile - it has instructions for you in the comments. Follow those instructions to customize this Dockerfile for the project."
                     ;;
                 2)
                     ${EDITOR:-vi} "$project_dockerfile"
@@ -161,7 +165,7 @@ custom_dockerfile() {
             1)
                 echo "Launching Claude Code to help customize..."
                 echo ""
-                exec "$script_path" "Read $project_subdir/Dockerfile - it has instructions for you in the comments. Follow those instructions to customize this Dockerfile for the project."
+                GH_TOKEN="${GH_TOKEN:-}" exec "$script_path" "Read $project_subdir/Dockerfile - it has instructions for you in the comments. Follow those instructions to customize this Dockerfile for the project."
                 ;;
             2)
                 ${EDITOR:-vi} "$project_dockerfile"
@@ -723,7 +727,7 @@ create_dockerfile_guided() {
                     # Analyze existing Dockerfile
                     echo "Launching Claude Code to analyze your Dockerfile..."
                     echo ""
-                    exec "$script_path" --prompt "$(get_dockerfile_improvement_prompt "$project_subdir" "$tool_name")"
+                    GH_TOKEN="${GH_TOKEN:-}" exec "$script_path" --prompt "$(get_dockerfile_improvement_prompt "$project_subdir" "$tool_name")"
                     ;;
                 2)
                     # Start fresh
@@ -766,7 +770,7 @@ create_dockerfile_guided() {
     # Launch with comprehensive prompt
     echo "Launching Claude Code..."
     echo ""
-    exec "$script_path" --prompt "$(get_dockerfile_creation_prompt "$project_subdir" "$tool_name")"
+    GH_TOKEN="${GH_TOKEN:-}" exec "$script_path" --prompt "$(get_dockerfile_creation_prompt "$project_subdir" "$tool_name")"
 }
 
 # Export functions

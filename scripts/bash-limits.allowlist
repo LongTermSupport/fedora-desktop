@@ -15,7 +15,7 @@
 # measurer: 2
 .claude/ccy/claude-supervise	68	4	74	-
 CLAUDE/Plan/_planlib.inc.bash	395	25	430	-
-CLAUDE/Plan/meta-deploy.bash	163	0	183	assoc
+CLAUDE/Plan/meta-deploy.bash	162	0	181	assoc
 extensions/scripts/gnome-shell-extract-js.bash	85	6	105	-
 fedora-install/pull-projects.bash	226	5	249	-
 fedora-install/push.bash	454	9	400	assoc,data
@@ -53,7 +53,7 @@ files/usr/local/sbin/fedora-desktop-self-update	94	2	99	-
 files/var/local/claude-code/cc	182	2	196	-
 files/var/local/claude-code/cc-teams.bash	87	7	159	-
 files/var/local/claude-yolo/agent-browser-session-guard	123	2	113	data
-files/var/local/claude-yolo/claude-yolo	2810	12	2741	-
+files/var/local/claude-yolo/claude-yolo	2802	12	2735	-
 files/var/local/claude-yolo/entrypoint.sh	440	5	443	data
 files/var/local/claude-yolo/lib/common-pure.bash	324	15	318	-
 files/var/local/claude-yolo/lib/common.bash	698	21	721	assoc
@@ -64,8 +64,8 @@ files/var/local/claude-yolo/lib/restart-request.bash	318	8	316	data
 files/var/local/claude-yolo/lib/session-lifecycle.bash	185	8	223	-
 files/var/local/claude-yolo/lib/session-registry.bash	865	36	871	data
 files/var/local/claude-yolo/lib/ssh-handling.bash	1398	40	1695	-
-files/var/local/claude-yolo/lib/tmux-session.bash	377	22	445	ui
-files/var/local/claude-yolo/lib/token-management.bash	1389	36	1455	assoc
+files/var/local/claude-yolo/lib/tmux-session.bash	315	19	372	ui
+files/var/local/claude-yolo/lib/token-management.bash	1386	36	1452	assoc
 files/var/local/colours	65	16	65	-
 files/var/local/docker-in-lxc	668	20	526	-
 files/var/local/ps1-prompt	76	6	78	-

@@ -98,6 +98,13 @@ linters:
       - path: internal/pingbus/statusline/.*_test\.go
         linters: [gosec]
         text: "G302|G304|G306|G703"
+      # The launcher's differential harness builds a scratch sandbox per scenario, installs the
+      # checkout's launcher into it (executable, as the play does) and reads back what the run
+      # left there: every path is computed from its own temporary directory or the checkout.
+      # md5 is the launcher's own Dockerfile hash, which the fake engine must report back.
+      - path: internal/ccylaunch/difftest/.*_test\.go
+        linters: [gosec]
+        text: "G302|G304|G306|G401|G501|G703"
       # The play lock's tests give the runtime directory a mode others can write: the state the
       # lock must refuse to use.
       - path: internal/playlock/playlock_test\.go

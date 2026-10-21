@@ -1,0 +1,124 @@
+# Plan 00209: which bus Python Ansible loads, and which stage replaces each module
+
+CLAUDE.md: "Python that Ansible loads stays Python; a standalone Python CLI is ported to Go when it
+is next reworked." This note applies that rule to every module of `helpers/agent_bus/`,
+`helpers/agent_bus_lxc/` and `helpers/pingbus/` (tests excluded), so the build session knows what
+is in scope.
+
+## The test
+
+A module is **Ansible-loaded** when Ansible's own process imports it: a filter, lookup, action or
+callback plugin, a `library/` module or a `module_utils`. A module that a play runs through
+`ansible.builtin.command: python3 -m helpers...` is a **standalone CLI the play runs**: Ansible
+only starts a process, as it would start any binary, so it is in scope to port.
+
+## What the repository holds
+
+- The one plugin directory is `callback_plugins/` (`ansible.cfg`: `callback_plugins = ./callback_plugins`), and its one file, `play_ledger.py`, imports nothing from the bus.
+- There is no `library/`, `module_utils/`, `filter_plugins/`, `lookup_plugins/` or
+  `action_plugins/` directory, and no project role (`roles_path = ./roles/vendor`, for vendored
+  roles only).
+- No play uses `ansible.builtin.script` on a bus module.
+
+**Verdict: no bus module is Ansible-loaded.** Every one is a standalone CLI, or a library that
+only such CLIs import. All of it is in scope, and stage 8 deletes it. The only exception is
+`helpers/pingbus/bundle.py`, the zipapp builder: it is retired, not ported (see its row).
+
+## How each entry point is started
+
+| Entry point                                   | Started by                                                                                                                                                                                                                                                                                                                                                 |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent-bus.pyz` (`helpers.agent_bus.cli`)     | the root wrapper `files/usr/local/bin/agent-bus:34,57,62` (`/usr/bin/python3 -I`, under `runuser` for the admin half); the installer's `admin_tool` (`files/usr/local/sbin/agent-bus-install:304,763-838`); the health unit (`files/etc/systemd/system/agent-bus-hs-health@.service:13`); ccy-teams through `src-go/internal/agentbus/agentbus.go:129-236` |
+| `pingbus.pyz` (`helpers.pingbus.cli`)         | the plugin hooks (`files/opt/claude-yolo/optional/agent-bus/plugin/pingbus/hooks/hooks.json:8-49`); the status line (kit `settings.json`, `seat.py`); `seat exec` in the image entrypoint (`files/var/local/claude-yolo/entrypoint.sh:590-592`); the host symlink and kit copy (`agent-bus-install:494,497`)                                               |
+| `python3 -m helpers.agent_bus.declare`        | ccy-teams through `src-go/internal/declare/declare.go:588` (`/usr/bin/python3 -P -m`, with `PYTHONPATH` the checkout)                                                                                                                                                                                                                                      |
+| `python3 -m helpers.agent_bus.config_restart` | `playbooks/imports/play-agent-bus.yml:143`                                                                                                                                                                                                                                                                                                                 |
+| `python3 -m helpers.agent_bus.bridge`         | `playbooks/imports/play-agent-bus.yml:287-292`                                                                                                                                                                                                                                                                                                             |
+| `python3 -m helpers.agent_bus.timer_state`    | `playbooks/imports/play-agent-bus.yml:362`                                                                                                                                                                                                                                                                                                                 |
+| `python3 -m helpers.agent_bus_lxc.members`    | `playbooks/imports/play-agent-bus.yml:243` (`--phase absent`) and `:375` (`--phase present`)                                                                                                                                                                                                                                                               |
+| `python3 -m helpers.agent_bus.element`        | `playbooks/imports/optional/common/play-agent-bus-element.yml:58` (`check`), `:107` (`apply`)                                                                                                                                                                                                                                                              |
+| `python3 -m helpers.pingbus.bundle`           | `playbooks/imports/play-claude-yolo.yml:390-399` (the image's `pingbus`); `agent-bus-install:390` (both zipapps)                                                                                                                                                                                                                                           |
+
+Each play task runs with `chdir: "{{ root_dir }}"`, the checkout, so it runs checkout code
+(Plan 00206 R1); DESIGN.md section 12 already counts that among the things v2 does not carry.
+
+## Per module
+
+Lines are counted without the tests. "Stage" is DESIGN.md section 10.2's stage that replaces the
+module, or the part of it named. A module used by several stages is gone only at stage 8.
+
+### helpers/agent_bus/ (6,170 lines)
+
+| Module              | Lines | How it is started                                                                               | Verdict and the stage that replaces it                                                                                                                                                                                                                                                                                                                     |
+| ------------------- | ----- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cli.py`            | 437   | `agent-bus.pyz`'s entry (`helpers/pingbus/bundle.py:37`); see the table above                   | port. Its verbs go by group: `render ...` at stage 3 (installer); `health check` at stage 3; `list` and `human devices` reads at stage 4 (the reader); the admin changes, `human password` and `seat take/remove` at stage 5; `seat list/choose/check` read in-process from stage 1. `health status` is not given a stage in DESIGN.md (see "Open points") |
+| `admin.py`          | 920   | imported by `cli.py:28`; runs as `agent-bus` under the wrapper                                  | port to `bus/admin`. Reads at stage 4, changes at stage 5. Plan 00211 Phase 2 adds `_ensure_side_rooms` and `_sync_questions_members` here, which stage 5 carries                                                                                                                                                                                          |
+| `checkout.py`       | 1,014 | imported by `cli.py`, `health.py`, `agent_bus_lxc/derive.py` and `members.py`                   | port to `bus/seat`. List and choose in-process at stage 1; take and remove at stage 5                                                                                                                                                                                                                                                                      |
+| `declare.py`        | 1,715 | `python3 -m` by ccy-teams (`src-go/internal/declare/declare.go:588`)                            | port to `bus/declare`. Read side at stage 1 (one `overview` kept for APPLIED); the last `overview` goes at stage 3; write side (`set`, `describe`, `add-repo`, `remove`, `lxc-*`) at stage 5                                                                                                                                                               |
+| `registry.py`       | 345   | imported by `admin`, `checkout`, `declare`, `derive`, `members` and `helpers/pingbus/cli.py:45` | port to `bus/state`. The decoder lands with its first caller (stage 1); the writer at stage 5                                                                                                                                                                                                                                                              |
+| `teamfile.py`       | 466   | imported by `admin`, `render`, `health`, `element`, `config_restart`, `declare`, `members`      | port to `bus/state`. The decoder lands with its first caller; validation for the installer at stage 3                                                                                                                                                                                                                                                      |
+| `render.py`         | 222   | `agent-bus render check/toml/dropin/stamp/stamp-group`, from the installer                      | port, as a function of `agent-bus-install` at stage 3                                                                                                                                                                                                                                                                                                      |
+| `health.py`         | 483   | the minutely root unit (`agent-bus-hs-health@.service:13`); `agent-bus health status`           | port. The check at stage 3 (`agent-bus-install`, R7's sandbox kept); ccy-teams already reads its record in Go (`src-go/internal/teams/board/health.go`). Plan 00211 Task 2.3 adds a side-room drift check here                                                                                                                                             |
+| `bridge.py`         | 103   | `python3 -m` from `play-agent-bus.yml:287-292`; imported by `declare.py:139`                    | port. A function of the installer at stage 3 (DESIGN.md 3.1); `declare`'s use of it moves with `bus/declare` at stage 1                                                                                                                                                                                                                                    |
+| `config_restart.py` | 70    | `python3 -m` from `play-agent-bus.yml:143`                                                      | port, as a function of the installer at stage 3                                                                                                                                                                                                                                                                                                            |
+| `timer_state.py`    | 67    | `python3 -m` from `play-agent-bus.yml:362`                                                      | port, as a function of the installer at stage 3                                                                                                                                                                                                                                                                                                            |
+| `element.py`        | 328   | `python3 -m` from `play-agent-bus-element.yml:58,107`, as the desktop user                      | port to `agent-bus element` at stage 5 (D19, R50)                                                                                                                                                                                                                                                                                                          |
+
+### helpers/agent_bus_lxc/ (2,279 lines)
+
+| Module              | Lines | How it is started                                                                       | Verdict and the stage that replaces it                                                                                                                                                                                                                                                                                                                 |
+| ------------------- | ----- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `members.py`        | 1,604 | `python3 -m` from `play-agent-bus.yml:243,375`; imported by `declare.py:140`            | port to `bus/lxc`: the parse and resolve part (`parse_members`, `resolve_members`, `MemberError`, which `declare.py:1228,1258,1353` call for its `lxc-*` write side) at stage 5 with `bus/declare`, the apply at stage 7 (R33, R48). The apply runs `python3 -I -c` inside each container, which stage 7 replaces with `pingbus guest` (DESIGN.md 8.5) |
+| `derive.py`         | 607   | imported by `members.py` and `declare.py` (`lxc-derive`, `lxc-checkouts`, `lxc-script`) | port to `bus/lxc` at stage 7; the parts `bus/declare` needs earlier come with it at stage 5                                                                                                                                                                                                                                                            |
+| `applied_record.py` | 68    | imported by `members.py`                                                                | port to `bus/state` (one LXC record writer, DESIGN.md section 12) at stage 7. ccy-teams already reads the record in Go (`internal/teams/lxcrecord`)                                                                                                                                                                                                    |
+
+### helpers/pingbus/ (13,135 lines)
+
+"Stage 6" below is split as PLAN.md splits it: the short verbs (`seat disconnected` and
+`seat farewell` included) at 6a, and the keeper, the worker, delivery, `watch`, `seat exec` and
+`seat keep` at 6b.
+
+| Module          | Lines | How it is started                                                                                                    | Verdict and the stage that replaces it                                                                                                                                                                            |
+| --------------- | ----- | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cli.py`        | 3,174 | `pingbus.pyz`'s entry; every verb                                                                                    | port. `hook` and `status-line` at stage 2, every other verb at stage 6, including Plan 00211's `report`, `ask-human`, `thread`, `questions` and `history --room`                                                  |
+| `statusline.py` | 445   | `pingbus status-line`, loaded without the CLI (`bundle.py:60`)                                                       | ported already: `src-go/internal/pingbus/statusline` (Plan 00213 Task 2.1). Parity and cut-over are 00213 Tasks 2.2 and 2.3 (stage 2). Stage 6 moves it to the worker's `status-row.json`                         |
+| `hooks.py`      | 1,190 | `pingbus hook <event>` from `hooks.json`                                                                             | port at stage 2 (00209 Task 3.1, formerly 00213 Task 3.1)                                                                                                                                                         |
+| `protocol.py`   | 1,611 | imported by nearly every module of all three packages                                                                | port to `bus/proto` (M1), grammars landing with their first caller                                                                                                                                                |
+| `config.py`     | 631   | imported by most member modules, `admin`, `checkout`, `element`                                                      | port to `bus/member` config (stage 2 for what the hooks read, stage 6 for the rest)                                                                                                                               |
+| `inbox.py`      | 1,039 | imported by `cli`, `hooks`, `seat`, `syncer`, `checkout`, `statusline` (roles)                                       | port to `bus/state` plus `bus/member` (stage 2 for what hooks read, stage 6 for the writers), every lock kept (R47)                                                                                               |
+| `limits.py`     | 332   | imported by `config`, `inbox`, `matrix`, `forge`, `syncer`                                                           | port to `bus/proto` limits (M1; Plan 00211's `report_per_hour` included)                                                                                                                                          |
+| `membership.py` | 495   | imported by `config`, `seat`, `checkout`, `hooks`                                                                    | port to `bus/member` membership (stage 2 for the hooks; the keeper's writer at stage 6)                                                                                                                           |
+| `seat.py`       | 813   | `pingbus seat exec/keep/disconnected/farewell/retire`, from the image entrypoint and the launcher                    | port at stage 6 (keeper). Its settings writer carries `STATUS_LINE_REFRESH_S` (25 s, Plan 00213 Task 1.3)                                                                                                         |
+| `notify.py`     | 137   | imported by `seat`, `hooks`, `cli`                                                                                   | port with the hooks at stage 2 (the inbox socket client), reused by delivery at stage 6                                                                                                                           |
+| `envelope.py`   | 541   | imported by `cli` (the watcher)                                                                                      | port at stage 6 (SPEC-inject E1-E26, DESIGN.md 8.3)                                                                                                                                                               |
+| `inject.py`     | 228   | imported by `seat`, `hooks`, `cli`                                                                                   | port: the transcript check at stage 2 for the hooks that read it, the rest at stage 6                                                                                                                             |
+| `matrix.py`     | 328   | imported by `cli`, `syncer`                                                                                          | port to `bus/matrix` (M1, with `fakehs`)                                                                                                                                                                          |
+| `syncer.py`     | 956   | imported by `cli` (the watcher)                                                                                      | port at stage 6 (the worker's sync loop); Plan 00211's room routing included                                                                                                                                      |
+| `forge.py`      | 620   | imported by `cli`, `syncer`, `agent_bus/teamfile.py:27` (one constant)                                               | port to `bus/forge` at stage 6; the constant to `bus/proto` with its first caller                                                                                                                                 |
+| `relay.py`      | 234   | imported by `cli`, `hooks`, `sentlog`; active only when a launch sets `PINGBUS_DELIVERY=relay`, which no launch does | not carried (D4). Its `relay/lock` stays as the delivery lock until stage 8 (DESIGN.md section 7). Deleted at stage 8                                                                                             |
+| `sentlog.py`    | 196   | imported by `cli`, `hooks`; relay mode only (the `SENT` echo of `sent.jsonl`)                                        | not carried (D4, DESIGN.md section 12). Deleted at stage 8                                                                                                                                                        |
+| `bundle.py`     | 165   | `python3 -m helpers.pingbus.bundle` from `play-claude-yolo.yml:390-399` and `agent-bus-install:390`                  | **retired, not ported**: a build step for the zipapps. `tasks/build-go-command.yml` builds the Go binaries; each play's call goes when its zipapp does (stage 2 or 6 for the image's `pingbus`, stage 8 for both) |
+
+## Open points for the build session
+
+- **`agent-bus health status`** has no stage in DESIGN.md. Its record's reader is Go already (the
+  board), so the verb can go with the health check at stage 3 or with the `agent-bus` CLI at
+  stage 5. Stage 3 is the smaller change: both halves of one record in one stage.
+- **PostToolUse runs pingbus only in relay mode** (`hooks.json:29`). In socket mode, the one any
+  launch uses, the per-event Python starts are SessionStart, UserPromptSubmit, Stop and
+  SessionEnd, and PostToolUse starts only a `/bin/sh`. Plan 00213 Task 3.1 guessed PostToolUse
+  would cost most. Measure the hook order with 00213's Task 1.1 script, not that guess. With D4
+  the Go `hook post-tool` is not needed, and a Go hook that finds `PINGBUS_DELIVERY=relay` set
+  should refuse loudly, not fall back to the spool (fail fast).
+- **The SessionEnd hook has two time limits, and both stay.** The plugin hook's own
+  `"timeout": 6` (`hooks.json:50`) bounds the pingbus hook; the session-wide SessionEnd budget
+  `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS: 8000` (`optional/agent-bus/settings.json:9`,
+  `seat.py:83`, written into a seated session's settings) bounds every SessionEnd hook
+  together. DESIGN.md 8.2's "the 8 s setting stays" means the second, and is right. The
+  stage-2 spec states and keeps both values, and the Go goodbye must finish inside the smaller
+  one, 6 s.
+- **The image's `pingbus` carries `helpers/agent_bus`** (`bundle.py:39`, both packages in both
+  archives). That is why `helpers/agent_bus` changes need a container version bump
+  (`scripts/git-hooks/pre-commit:236`). The stage-2 kit still executes `pingbus.pyz` for most
+  verbs (B10), so the zipapp stays in the image until stage 8 deletes it (from 6a it serves only
+  `watch`, `seat exec` and `seat keep`, and no verb from 6b). Until then the gate keeps both
+  Python packages in its set, and stage 2 adds the Go sources to it (DESIGN.md 8.4).
