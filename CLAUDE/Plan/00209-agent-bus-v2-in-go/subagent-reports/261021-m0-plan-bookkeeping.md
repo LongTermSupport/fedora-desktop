@@ -59,7 +59,10 @@ The table is in PLAN.md "Folded in from other plans". In short:
 04. **00194 2.0h and 2.0f.** `disconnect.log`, and `ignored.log` with `ignored=`, are not in DESIGN.
 05. **PostToolUse starts pingbus only in relay mode** (`hooks.json:29`), so 00213's port order was
     wrong. A Go hook should refuse `PINGBUS_DELIVERY=relay` loudly.
-06. **SessionEnd timeout mismatch.** `hooks.json:50` sets 6 s; DESIGN 8.2 says 8 s.
+06. **SessionEnd: two limits, not a mismatch** (corrected after review). `hooks.json:50` sets the
+    plugin hook's own 6 s timeout; DESIGN 8.2's 8 s is the session-wide
+    `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` budget (`settings.json:9`). Both stay, and the Go
+    goodbye must finish inside 6 s.
 07. **The goodbye needs the Matrix client at stage 2.** The Go SessionEnd hook posts the goodbye
     itself, so `bus/matrix` and `fakehs` are needed at stage 2, not stage 4.
 08. **M1 conflicts with DESIGN 3.2** ("no stage ships code nothing calls"). Resolved: corpora
@@ -69,7 +72,8 @@ The table is in PLAN.md "Folded in from other plans". In short:
 10. **Plan acceptance suites run v1.** Those of 00161, 00201, 00203 and 00211 run v1's Python and
     zipapps, so stage 8 must re-point or retire them.
 11. **Install-specific names in BUILD-BRIEF.md.** Its line 3 names the coordinator's seat handle
-    and team name. Check them against the public-repo rule. Not edited here.
+    and team name. Replaced with placeholders after review; the commit that introduced them
+    stays in unpushed branch history, which is the coordinator's call.
 
 ## For the owner or the coordinator
 

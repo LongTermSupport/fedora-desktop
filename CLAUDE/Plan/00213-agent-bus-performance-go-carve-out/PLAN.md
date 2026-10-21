@@ -12,7 +12,7 @@ interpreter for every status-line refresh and every hook event of every bus sess
 member kit's `settings.json` (`files/opt/claude-yolo/optional/agent-bus/settings.json`, used by
 `agent-bus-claude`) and a ccy seated session's own settings (written by
 `helpers/pingbus/seat.py`) both set `statusLine` to `pingbus status-line` with
-`refreshInterval: 1`. The plugin's
+`refreshInterval` (was 1, 25 since Task 1.3). The plugin's
 `hooks/hooks.json` runs `pingbus hook …` on SessionStart, UserPromptSubmit, PostToolUse, Stop and
 SessionEnd.
 
@@ -41,9 +41,6 @@ as hooks-daemon issue #131 and is not this plan's to fix.
   cgroup CPU of an idle member, before and after.
 - `pingbus status-line` is a Go binary that matches the Python output exactly (a parity oracle
   test), and starts in milliseconds.
-- The per-event `pingbus hook …` paths move to Go one at a time, each with a parity test, until
-  no Python interpreter starts on a tick or a hook event: Plan 00209 Task 3.1 does this, judged
-  by this plan's Task 1.1 measure.
 - The host stops paying a pyenv shim on every `python3` start of the kit.
 
 ## Non-Goals
@@ -51,7 +48,9 @@ as hooks-daemon issue #131 and is not this plan's to fix.
 - Porting the whole of pingbus or agent-bus in this plan. The long-lived watcher, the Matrix
   client and the admin CLI stay Python here; [Plan 00209](../00209-agent-bus-v2-in-go/PLAN.md)
   is the plan that ports them, and the plan of record for the whole Go rewrite. This plan's
-  status-line work (Tasks 1.1, 2.2, 2.3) is the status-line part of 00209's stage 2.
+  status-line work (Tasks 1.1, 1.2, 2.2, 2.3) is the status-line part of 00209's stage 2.
+- The per-event `pingbus hook …` paths in Go. That is Plan 00209 Task 3.1 (formerly this plan's
+  Task 3.1), judged by this plan's Task 1.1 measure; this plan completes without it.
 - The hooks daemon's own status-line forwarder (hooks-daemon issue #131).
 - CPU power limits and other host tuning. That is separate desktop triage.
 

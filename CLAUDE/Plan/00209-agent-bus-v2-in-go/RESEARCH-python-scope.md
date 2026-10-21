@@ -65,13 +65,17 @@ module, or the part of it named. A module used by several stages is gone only at
 
 ### helpers/agent_bus_lxc/ (2,279 lines)
 
-| Module              | Lines | How it is started                                                                       | Verdict and the stage that replaces it                                                                                                              |
-| ------------------- | ----- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `members.py`        | 1,604 | `python3 -m` from `play-agent-bus.yml:243,375`; imported by `declare.py:140`            | port to `bus/lxc` at stage 7 (R33, R48). It runs `python3 -I -c` inside each container, which stage 7 replaces with `pingbus guest` (DESIGN.md 8.5) |
-| `derive.py`         | 607   | imported by `members.py` and `declare.py` (`lxc-derive`, `lxc-checkouts`, `lxc-script`) | port to `bus/lxc` at stage 7; the parts `bus/declare` needs earlier come with it at stage 5                                                         |
-| `applied_record.py` | 68    | imported by `members.py`                                                                | port to `bus/state` (one LXC record writer, DESIGN.md section 12) at stage 7. ccy-teams already reads the record in Go (`internal/teams/lxcrecord`) |
+| Module              | Lines | How it is started                                                                       | Verdict and the stage that replaces it                                                                                                                                                                                                                                                                                                                 |
+| ------------------- | ----- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `members.py`        | 1,604 | `python3 -m` from `play-agent-bus.yml:243,375`; imported by `declare.py:140`            | port to `bus/lxc`: the parse and resolve part (`parse_members`, `resolve_members`, `MemberError`, which `declare.py:1228,1258,1353` call for its `lxc-*` write side) at stage 5 with `bus/declare`, the apply at stage 7 (R33, R48). The apply runs `python3 -I -c` inside each container, which stage 7 replaces with `pingbus guest` (DESIGN.md 8.5) |
+| `derive.py`         | 607   | imported by `members.py` and `declare.py` (`lxc-derive`, `lxc-checkouts`, `lxc-script`) | port to `bus/lxc` at stage 7; the parts `bus/declare` needs earlier come with it at stage 5                                                                                                                                                                                                                                                            |
+| `applied_record.py` | 68    | imported by `members.py`                                                                | port to `bus/state` (one LXC record writer, DESIGN.md section 12) at stage 7. ccy-teams already reads the record in Go (`internal/teams/lxcrecord`)                                                                                                                                                                                                    |
 
 ### helpers/pingbus/ (13,135 lines)
+
+"Stage 6" below is split as PLAN.md splits it: the short verbs (`seat disconnected` and
+`seat farewell` included) at 6a, and the keeper, the worker, delivery, `watch`, `seat exec` and
+`seat keep` at 6b.
 
 | Module          | Lines | How it is started                                                                                                    | Verdict and the stage that replaces it                                                                                                                                                                            |
 | --------------- | ----- | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -105,8 +109,13 @@ module, or the part of it named. A module used by several stages is gone only at
   would cost most. Measure the hook order with 00213's Task 1.1 script, not that guess. With D4
   the Go `hook post-tool` is not needed, and a Go hook that finds `PINGBUS_DELIVERY=relay` set
   should refuse loudly, not fall back to the spool (fail fast).
-- **The SessionEnd timeout** is 6 s in `hooks.json:50`; DESIGN.md 8.2 says "the 8 s setting
-  stays". The stage-2 spec should state the real value, and keep it.
+- **The SessionEnd hook has two time limits, and both stay.** The plugin hook's own
+  `"timeout": 6` (`hooks.json:50`) bounds the pingbus hook; the session-wide SessionEnd budget
+  `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS: 8000` (`optional/agent-bus/settings.json:9`,
+  `seat.py:83`, written into a seated session's settings) bounds every SessionEnd hook
+  together. DESIGN.md 8.2's "the 8 s setting stays" means the second, and is right. The
+  stage-2 spec states and keeps both values, and the Go goodbye must finish inside the smaller
+  one, 6 s.
 - **The image's `pingbus` carries `helpers/agent_bus`** (`bundle.py:39`, both packages in both
   archives). That is why `helpers/agent_bus` changes need a container version bump
   (`scripts/git-hooks/pre-commit:236`). The stage-2 kit still executes `pingbus.pyz` for most

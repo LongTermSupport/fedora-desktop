@@ -1,6 +1,6 @@
 # Brief: the full agent-team Go rewrite (for the dedicated build session)
 
-From the coordinator (seat 1, fedora-desktop.1+local.podman, team desktop). The owner asked for this
+From the coordinator (seat `<coordinator-handle>`, team `<team>`). The owner asked for this
 directly: "smash out the full agent team go rewrite - fully reviewed, optimised, fine tuned. Use
 haiku/sonnet/opus as required. Deliver this to an exceptionally high standard." You are the
 dedicated build session for it. The coordinator stays coordinator: it merges, runs the full QA
@@ -22,7 +22,7 @@ open time) is an early owner-visible win. No behaviour may be lost. On the sessi
 
 - `helpers/pingbus/` (about 13k lines of Python, shipped as a zipapp): every CLI verb, the hooks,
   the watcher and waiter, inbox, outbox, envelope, protocol, seat, the status line, limits,
-  config, and the relay.
+  config, and the relay's lock (relay mode itself dropped, D4).
 - The agent-bus Claude plugin's hooks and skill text, wherever they call pingbus.
 - The Go side that already exists: `src-go/cmd/ccy-teams` and `src-go/internal/agentbus` (its
   parser), and `src-go/internal/pingbus/statusline` (done by Plan 00213 Task 2.1, which passes the
@@ -100,7 +100,7 @@ home. Record the choice in both plans, and avoid having two plans for one thing.
 
 ## Hand-over to the coordinator
 
-Send short messages on the bus (`pingbus --team desktop say --to fedora-desktop.1 '<text>'`):
+Send short messages on the bus (`pingbus --team <team> say --to <coordinator-handle> '<text>'`):
 
 - when a milestone branch has passed review and qa-changed (give the branch, tip commit and the
   review verdict file);
