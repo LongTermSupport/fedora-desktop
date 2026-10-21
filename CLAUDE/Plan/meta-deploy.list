@@ -57,3 +57,14 @@ playbooks/imports/play-git-configure-and-tools.yml
 # scratch repositories it makes and removes, with fetches through a failing ssh or a recording
 # stand-in that reach no remote, and the interactive shell's async_run.
 00183-prompt-shows-stale-tracking-ref
+# Plan 00212 (pause media while recording): the whole speech-to-text play. It builds and installs
+# the new wsi-pause-media command, deploys the panel extension with its new mediaHold.js and the
+# "Pause media while recording" menu switch (on by default; new GSettings key), and installs
+# python3-gobject and dbus-daemon (systemd's busctl is already there). The extension changes need
+# a log out and back in. Before the 00212 acceptance.
+playbooks/imports/optional/common/play-speech-to-text.yml
+# Plan 00212 Task 3.1: acceptance.bash (no triage.bash or deploy.bash) runs the installed
+# wsi-pause-media against a fake media player on a private session bus, so no real player is
+# touched: paused and played again at TERM, left alone when stopped by hand, nothing done when
+# nothing plays, and played again when its parent ends. No sudo, no prompts.
+00212-stt-pauses-media-while-recording

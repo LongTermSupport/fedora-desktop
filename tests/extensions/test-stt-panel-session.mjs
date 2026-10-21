@@ -34,10 +34,19 @@ function harness({pidFile = null, alive = []} = {}) {
     const h = {
         spawned: [], kills: [], aborts: [], shown: [], logs: [], errors: [], notes: [],
         timers: new Map(), alive: new Set(alive), pidFile, stoppingFile: null, spawnError: null,
+        holds: [], mediaOff: false,
     };
     let nextTimer = 1;
     let tokens = 0;
     h.panel = new PanelSession({
+        holdMedia(launch) {
+            if (h.mediaOff)
+                return null;
+            const hold = {launch, released: 0, spawnedBefore: h.spawned.length};
+            hold.release = () => hold.released++;
+            h.holds.push(hold);
+            return hold;
+        },
         spawn(launch, token, onExit) {
             if (h.spawnError)
                 throw new Error(h.spawnError);
@@ -770,4 +779,117 @@ test('a recorder that exits after the panel was destroyed touches nothing', () =
     assert.equal(h.panel.onState('IDLE', h.recorder().token), false);
     assert.equal(h.shown.length, shown, 'a destroyed panel drew on the icon');
     assert.equal(h.spawned.length, 1);
+});
+
+// ── The media hold (Plan 00212) ─────────────────────────────────────────────────────
+// Each recorder the panel starts holds the media from before its spawn until the microphone
+// has closed, whichever way the recording ends; the hold is released exactly once.
+
+/** The one hold of `h`, released `times` times so far. */
+function released(h, times, why) {
+    assert.equal(h.holds.length, 1, 'one recording, one hold');
+    assert.equal(h.holds[0].released, times, why);
+}
+
+test('media: held before the recorder starts and through the microphone states', () => {
+    const h = harness();
+    h.panel.insert(DICTATION);
+    assert.equal(h.holds[0].spawnedBefore, 0, 'the hold was taken after the recorder started');
+    assert.equal(h.holds[0].launch, DICTATION);
+    for (const state of ['WAITING', 'PREPARING', 'RECORDING', 'STOPPING'])
+        h.report(state);
+    released(h, 0, 'the media was released while the microphone was open');
+});
+
+test('media: a normal stop releases at TRANSCRIBING, once, whatever follows', () => {
+    const h = recording();
+    h.panel.insert(DICTATION);
+    h.report('STOPPING');
+    h.report('TRANSCRIBING');
+    released(h, 1, 'not released when the microphone closed');
+    h.report('SUCCESS');
+    h.recorder().exit();
+    released(h, 1, 'released again after the end');
+});
+
+test('media: each state that closes the microphone releases it', () => {
+    for (const state of ['TRANSCRIBING', 'CLAUDE_PROCESSING', 'SUCCESS', 'ERROR', 'IDLE']) {
+        const h = recording();
+        h.report(state);
+        released(h, 1, state);
+    }
+});
+
+test('media: Escape releases at once', () => {
+    const h = recording();
+    h.panel.escape();
+    released(h, 1, 'Escape did not release');
+    h.recorder().exit('signal 9', true);
+    released(h, 1, 'the discarded recorder released again');
+});
+
+test('media: a recorder that dies while recording releases at its exit, not after the settle', () => {
+    const h = recording();
+    h.recorder().exit('signal 9', true);
+    released(h, 1, 'a killed recorder kept the media paused');
+    h.fire(EXIT_SETTLE_MS);
+    released(h, 1);
+});
+
+test('media: a cancelled start releases', () => {
+    const h = harness();
+    h.panel.insert(DICTATION);
+    h.report('PREPARING');
+    h.panel.insert(DICTATION);          // cancel
+    h.recorder().exit('exit status 0');
+    released(h, 1, 'the cancelled start kept the media paused');
+});
+
+test('media: a recorder that cannot start releases the hold it took', () => {
+    const h = harness();
+    h.spawnError = 'No such file or directory';
+    h.panel.insert(DICTATION);
+    released(h, 1, 'the failed spawn kept the media paused');
+});
+
+test('media: the panel destroyed (a screen lock) releases, since nothing would later', () => {
+    const h = recording();
+    h.panel.destroy();
+    released(h, 1, 'the destroyed panel kept the media paused');
+});
+
+test('media: an article releases at its ending state', () => {
+    const h = harness();
+    h.panel.article({kind: 'article'});
+    h.report('RECORDING');
+    released(h, 0);
+    h.report('SUCCESS');
+    released(h, 1, 'the article kept the media paused');
+});
+
+test('media: the switch off is no hold, and every ending still works', () => {
+    const h = harness();
+    h.mediaOff = true;
+    h.panel.insert(DICTATION);
+    h.report('RECORDING');
+    h.panel.escape();
+    h.recorder().exit('signal 9', true);
+    assert.equal(h.holds.length, 0);
+    assert.deepEqual(h.errors, []);
+});
+
+test('media: a recorder the panel did not start gets no hold', () => {
+    const h = harness({pidFile: '4242', alive: ['4242']});
+    h.panel.insert(DICTATION);          // asks the stranger to stop
+    assert.equal(h.holds.length, 0);
+});
+
+test('media: one hold per recording', () => {
+    const h = recording();
+    h.report('SUCCESS');
+    h.recorder().exit();
+    h.panel.insert(DICTATION);
+    assert.equal(h.holds.length, 2);
+    assert.equal(h.holds[0].released, 1);
+    assert.equal(h.holds[1].released, 0);
 });

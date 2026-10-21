@@ -59,6 +59,9 @@
           - wev  # Wayland event viewer for debugging keybindings
           - foot  # Wayland-native terminal; used by extension for model manager (supports --window-size-chars)
           - xdg-terminal-exec  # XDG default terminal launcher; fallback if foot unavailable
+          - python3-gobject  # gi: wsi-article-window's window, and the fake player wsi-pause-media is tested against
+          # Needed only by Plan 00212's acceptance.bash: dbus-run-session starts the private bus its fake player runs on
+          - dbus-daemon
           # gcc-gfortran removed: scipy>=1.16.1 ships cp314 wheels; source build no longer needed on F44
         state: present
 
@@ -358,6 +361,7 @@
         - recorderLaunch.js
         - postProcess.js
         - tokenWarning.js
+        - mediaHold.js
         - stt-hourglass-symbolic.svg
         - prefs.js
         - metadata.json
@@ -411,6 +415,16 @@
       vars:
         go_command_name: wsi-claude-token
         go_command_dest: "/home/{{ user_login }}/.local/bin/wsi-claude-token"
+        go_command_mode: "0755"
+
+    # The media players paused while a recording runs (src-go/cmd/wsi-pause-media, Plan 00212):
+    # the panel starts it beside each recorder when its Pause Media switch is on, and sends it
+    # TERM once the microphone has closed, so it plays again what it paused.
+    - name: Build and Install the wsi-pause-media Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: wsi-pause-media
+        go_command_dest: "/home/{{ user_login }}/.local/bin/wsi-pause-media"
         go_command_mode: "0755"
 
     # File transcription (src-go/cmd/stt, Plan 00179): recordings into .stt.md sidecars through

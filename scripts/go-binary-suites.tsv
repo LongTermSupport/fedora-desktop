@@ -26,3 +26,4 @@ git-fetch-age	qa-go
 git-prompt-fetch	qa-go
 convert	qa-go
 rclone-cache-status	qa-go
+wsi-pause-media	qa-go

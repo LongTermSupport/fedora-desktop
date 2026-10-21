@@ -26,6 +26,11 @@
       <summary>Wrap with Speech-to-Text Marker</summary>
       <description>Wrap transcribed text with speech-to-text:"..." to provide context to LLMs</description>
     </key>
+    <key name="pause-media-while-recording" type="b">
+      <default>true</default>
+      <summary>Pause Media While Recording</summary>
+      <description>Pause the media players that are playing (MPRIS: music, video, a browser tab) when a recording starts, and play them again when its microphone closes. A player paused, stopped or closed by hand during the recording is left as it is. Run by wsi-pause-media, which the panel starts beside each recorder.</description>
+    </key>
     <key name="auto-enter" type="b">
       <default>true</default>
       <summary>Auto Enter After Paste</summary>
