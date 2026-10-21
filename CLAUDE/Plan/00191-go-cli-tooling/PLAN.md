@@ -419,6 +419,12 @@ today; rewriting them is out of scope.
     - Red first: `scripts/test-ccy-token-handoff.bash` failed 8 of 91 (the relative path
       taken, the empty file silent and kept, a TMPDIR hand-off refused by a reader with a
       runtime directory); green 91 of 91.
+  - Narrow check of round 3 (Opus, MERGE):
+    `subagent-reports/261021-launcher-token-handoff-review-4-opus.md`. Follow-ups, not
+    blocking: take the uid from `id -u` once instead of `$EUID`, which bash reads from an
+    exported environment variable (same-user threat model only); a hand-off file holding
+    only a newline is removed with no message (test the value read, not `read`'s status);
+    the changelog line on a refused base should say the error lists the four bases.
 - [ ] 🔄 **Task 4.5**: Launcher phases 1 and 2: the foundation packages, then `--version`,
   `--help` and the other standalone modes, each a one-flag cut-over.
   - Phase 1 built (nothing cut over or installed, no play change, no CCY bump), each package
