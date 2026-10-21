@@ -419,6 +419,15 @@ today; rewriting them is out of scope.
     - Red first: `scripts/test-ccy-token-handoff.bash` failed 8 of 91 (the relative path
       taken, the empty file silent and kept, a TMPDIR hand-off refused by a reader with a
       runtime directory); green 91 of 91.
+  - Hand-off review round 4 (Opus, MERGE):
+    `subagent-reports/261021-launcher-token-handoff-review-4-opus.md`. CCY 3.99.13.19.
+    - [x] ✅ Finding 5: the reader computes the uid once with `id -u` (the launch ends if it
+      fails) and uses it for `/run/user/<uid>` and every `find -user`, not `$EUID`.
+    - [x] ✅ Finding 6: a newline-only hand-off file gets the "is empty" error and is removed.
+    - [x] ✅ Finding 7: the changelog says the refusal lists the accepted bases.
+    - Red first: `scripts/test-ccy-token-handoff.bash` failed 6 of 100 (the newline-only file
+      silent, a genuine hand-off refused under an exported `EUID`, another user's hand-off
+      taken under a forged `EUID`); green 100 of 100.
   - Narrow check of round 3 (Opus, MERGE):
     `subagent-reports/261021-launcher-token-handoff-review-4-opus.md`. Follow-ups, not
     blocking: take the uid from `id -u` once instead of `$EUID`, which bash reads from an

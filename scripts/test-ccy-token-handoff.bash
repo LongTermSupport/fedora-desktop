@@ -321,6 +321,33 @@ check "  saying it is empty" "yes" \
     "$(errors="$(grep -F 'ERROR' <<<"$out")"; [[ "$errors" == *"$RUNTIME/ccy-gh-token.Empty1/token"*empty* ]] && echo yes || echo no)"
 check "  and nothing ran" "0" "$(grep -c "^INNER" <<<"$out")"
 check "  and it and its directory are gone" "no" "$( [ -e "$RUNTIME/ccy-gh-token.Empty1" ] && echo yes || echo no)"
+# A file holding only a newline is as empty as an empty one: the same error, the same removal.
+mkdir -p "$RUNTIME/ccy-gh-token.Newlin"
+printf '\n' >"$RUNTIME/ccy-gh-token.Newlin/token"
+chmod 600 "$RUNTIME/ccy-gh-token.Newlin/token"
+chmod 700 "$RUNTIME/ccy-gh-token.Newlin"
+out="$(take "$RUNTIME/ccy-gh-token.Newlin/token")"
+check "a newline-only hand-off file ends the launch" "rc=1" "$(tail -n 1 <<<"$out")"
+check "  saying it is empty" "yes" \
+    "$(errors="$(grep -F 'ERROR' <<<"$out")"; [[ "$errors" == *"$RUNTIME/ccy-gh-token.Newlin/token"*empty* ]] && echo yes || echo no)"
+check "  and it and its directory are gone" "no" "$( [ -e "$RUNTIME/ccy-gh-token.Newlin" ] && echo yes || echo no)"
+# The user is what id -u says, not the EUID an environment exports (bash takes EUID from it).
+# take_as <euid> <path> — as take, with that EUID exported.
+take_as() {
+    (cd "$PROJ" && env -u GH_TOKEN EUID="$1" XDG_RUNTIME_DIR="$RUNTIME" CCY_GH_TOKEN_HANDOFF="$2" bash "$T_INNER" 2>&1)
+    echo "rc=$?"
+}
+REAL_UID="$(id -u)"
+f="$(handoff Forgd1 700 600)"
+out="$(take_as $((REAL_UID + 1)) "$f")"
+check "a genuine hand-off is taken whatever EUID the environment exports" "1 0" \
+    "$(grep -c "^INNER" <<<"$out") $(grep -c 'CCY_GH_TOKEN_HANDOFF' <<<"$out")"
+check "  and it is gone" "no" "$( [ -e "$f" ] && echo yes || echo no)"
+if [ "$REAL_UID" = 0 ]; then
+    f="$(handoff Forgd2 700 600)"
+    chown -R 65534 "$RUNTIME/ccy-gh-token.Forgd2"
+    refused "another user's hand-off under a forged EUID" "$f" "$(take_as 65534 "$f")"
+fi
 # The pane's environment is the tmux server's, not the outer launcher's: a hand-off made
 # under TMPDIR with no runtime directory is still taken by a launcher that has one.
 ALT_TMP="$SCRATCH/alt-tmp"
