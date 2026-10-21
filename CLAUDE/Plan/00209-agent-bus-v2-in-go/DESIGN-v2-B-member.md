@@ -1825,7 +1825,7 @@ fragile, EL9 guests have Python 3.9, and a static binary removes the whole Pytho
 **Two mechanisms, one per kind of path, and no guest program as root** (area C, C 3.9.1). The
 guest's system paths, the kit and the session unit, are written by root from the host side, through
 the container's root directory fd, with nothing run in the guest: the kit as
-`<v2-kit>/<digest>/` (`bin/teamchat`, `bin/teamchat-claude`, `plugin/`, `settings.json`, copied
+`<v2-kit>/<digest>/` (`bin/teamchat`, `plugin/`, `settings.json`, copied
 from the host's kit, whose digest the build recorded) and a `current` link swapped atomically (C
 3.9.2 step 4), and the unit `teamchat-session-<user>.service`, whose text is C's (C 3.9.4). The
 agent user's own home, its bundles and its desired membership, is written only by the operations

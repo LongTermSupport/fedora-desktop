@@ -411,17 +411,24 @@ installed by root, 0755 root:root, in a root-owned directory (C8). The first thi
 decide the caller class from the real and effective uid, and each verb belongs to exactly one
 class. A verb asked of the wrong class exits 77 naming the class it needs (DESIGN 3.1).
 
-| Caller class   | How it is reached                                              | Verbs                                                                                                                                                                                                                                                                                                                                                                                                          |
-| -------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Caller class   | How it is reached                                              | Verbs                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| -------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | root           | the play (`become`), the two timers, the owner's password sudo | `team apply`, `team approve`, `team remove`, `member add\|return\|park\|retire\|reissue\|set`, `role apply`, `human password\|devices\|logout\|lock\|unlock`, `redact`, `backup`, `backups`, `restore [--resume\|--discard\|--lost]`, `health`, `lxc apply\|restart`, `check`, `migrate preflight\|stage\|fence\|fence-status\|capture\|carry\|commit\|accept\|archive\|archive-check\|unfence\|rollback --team T`, `footprint` |
-| `teamchat-ctl` | only `ctl-child`, started by root with `os/exec` `Credential`  | `ctl-child` (reads one typed request on stdin, answers one typed response on stdout)                                                                                                                                                                                                                                                                                                                           |
-| anyone else    | the owner, the play before any root task, the Element play     | `declare check`, `element check\|apply`, `status`, `version`                                                                                                                                                                                                                                                                                                                                                   |
+| `teamchat-ctl` | only `ctl-child`, started by root with `os/exec` `Credential`  | `ctl-child` (reads one typed request on stdin, answers one typed response on stdout)                                                                                                                                                                                                                                                                                                                                            |
+| anyone else    | the owner, the play before any root task, the Element play     | `declare check`, `element check\|apply`, `status`, `version`                                                                                                                                                                                                                                                                                                                                                                    |
 
 The `migrate` verbs and `footprint` behave as area D says (D §5.4, §5.5); C provides them in the
 same binary, and each `migrate` verb takes the team lock like every root verb. The list is one
 root verb per root act of D's steps (M0 `preflight`, M2 `fence`, M3 `capture`, M4 `carry`, the
 commit, M7 `accept`, the archive acts, and the rollback's `unfence` and `rollback`); D 5.4 names which of its
 acts run as the owner instead (coherence 17), and no step reaches root by any other verb.
+
+**The acceptance probe** (D 6.1, A4 and A7) is the one host-kind runtime v2 starts. The `migrate`
+verb that runs the check (`accept` for A7) makes a temporary probe account and a probe seat outside
+the pool, then runs `teamchat run --plain --kind host` holding that seat, as the owner (`os/exec`
+`Credential`, never as root), in a fresh 0700 runtime directory that is under no ccy mount and is
+not the seat store. No `cc` session runs in it, so seam row 56's refusal of host `cc` members is
+untouched; the account, the seat and the directory are removed when the check ends, pass or fail.
 
 `version` answers for every class and prints the binary's source digest (the scheme of Plan 00192:
 `go.mod` plus every non-test file of the command and the module packages it imports, baked in with
@@ -702,7 +709,7 @@ decoded strictly (unknown or duplicate keys refused, sizes capped, exit 78 namin
 ```
 
 - `restore_epoch` is raised by one by a restore and by nothing else (3.12.2), and carried into the
-  roster event, where area B's worker reads it. The roster carries no `proto` and no `features`
+  roster event, where area B's link reads it. The roster carries no `proto` and no `features`
   key: those are A's (A 3.1-3.2), not the host's.
 - `seq` is raised by one on every write of the file and never goes down, a restore included
   (3.12.2). It is the clock the host compares by: a wall-clock time can step backwards (an NTP
@@ -856,7 +863,9 @@ any time (C23).
 **What the admin's account posts**, all of it, in the main room, with A's types and templates
 (A §7.4, 7.7): `added` (end of `add` and `return`), `parked` (end of `park`), `removed` (end of
 `retire`), `role` (each demotion and promotion, 3.6.4), and, during a migration only, area D's
-carried items and its welcome notice (D §5.6, through `migrate carry`). Nothing else. A member's
+carried items and its welcome (D §5.6, through `migrate carry`). The welcome is A 7.4's `moved`
+notice, posted once to every agent member not parked and pinned, its `body` the humans' welcome
+text. Nothing else. A member's
 `left` and `disconnected` are always posted with the member's own credential (3.7.5).
 
 The answer of `add`, `return` and `reissue` carries the bundle (3.7); every other answer carries only
@@ -1231,7 +1240,7 @@ the seat lock to come free, and nothing would ask the keeper to free it. (b) is 
 - **Join:** take the seat (3.7.3), then write `desired.json` with it. A session started on no team
   is relaunched once on its first join (R32, `relaunch.json` beside `desired.json`, kept from v1).
 - **Leave:** write `desired.json` without the seat and with a `farewell` entry for it. Area B's
-  worker sees the change and posts the goodbye as that member (A's `left`, reason `released`: the
+  link sees the change and posts the goodbye as that member (A's `left`, reason `released`: the
   member stays in the team, A §7.4), and the session's processes for that seat end, which frees
   the seat lock (B 2.10; the keeper makes no network call). ccy-teams then releases the seat
   (3.7.3 release). The host never posts a goodbye or a `left`: the member says it. There is no
@@ -1740,9 +1749,11 @@ Step 3 also probes each LXC member's seat lock (3.9.2) for its `online` entry.
    `ctl/<team>/guest/<handle>.token` (3.6.3) and transaction id `tc-disc-<run id>`, and the tick
    records the notice. A transient failure leaves the entry unposted for the next tick. The LXC
    absent phase (3.9.2) holds the team lock while it parks a member, so its stop never draws a
-   false notice: this step does not wait for a busy lock. The next worker on that seat checks the
+   false notice: this step does not wait for a busy lock. The next link on that seat checks the
    room the same way and uses the same transaction id (section 7, B), so the notice is posted
-   once.
+   once. When that run starts, the member posts A's `back` (A 7.4, B 2.11); the tick posts
+   nothing for it, and reads a `back` newer than the run's `disconnected` as the handle online
+   again, so the record's problem for that notice clears at the next tick.
 
 #### 3.11.3 The status record
 
@@ -1982,10 +1993,10 @@ state needs a hand-made rename to recover.
 
 **After a restore, members' sync positions are ahead of the database** (operations 3): the
 restored stream counter is behind every `next_batch` a member stored. The raised `restore_epoch`
-in the roster event (A's roster, section 7) tells area B's worker to drop its `next_batch` and
+in the roster event (A's roster, section 7) tells area B's link to drop its `next_batch` and
 resume as for a seat with no member store (B 2.6 step 01), its ledger and floors removing
-duplicates. The worker cannot rely on `/sync` to bring it that event, since its `since` is the
-very thing that is wrong; but a restore always stops the homeserver, so every worker sees an
+duplicates. The link cannot rely on `/sync` to bring it that event, since its `since` is the
+very thing that is wrong; but a restore always stops the homeserver, so every link sees an
 outage, and on each reconnect after one it reads the roster by a direct state request
 (`GET /rooms/<main>/state/<roster type>/`), not by sync, and compares `restore_epoch` (section 7,
 B). What Tuwunel answers to a `since` ahead of its database is host check H-C14; with the epoch
@@ -2108,7 +2119,7 @@ two host timers are enabled only while at least one v2 team is present (3.5.1 st
 | v2 with no teams | nothing                                                                                                                           | unit files installed but nothing enabled; no timer runs; no port; no firewall rule                                                                                   |
 | per team         | one Tuwunel, 100-135 MB RSS as measured in the 00161 spike (to be re-measured, and reduced if the cache modifier allows, H-C1)    | one service and its drop-in; one TCP port on loopback and each `listen` address; one firewall rule set; no timer of its own; one `teamchat-ctl` child per tick       |
 | host, with teams | nothing                                                                                                                           | two timers, enabled only while a team is present: one oneshot a minute, one a day. Each minute: one `teamchat-admin` process, plus one `teamchat-ctl` child per team |
-| per member       | the homeserver's memory for the member's long-poll sync and its share of the caches (inside the team's Tuwunel, measured by H-C1) | the pool record and a session copy; the member's keeper and worker are area B's cost and are measured there                                                          |
+| per member       | the homeserver's memory for the member's long-poll sync and its share of the caches (inside the team's Tuwunel, measured by H-C1) | the pool record and a session copy; the member's keeper and link are area B's cost and are measured there                                                            |
 | per human        | the same, while the human's Element is open                                                                                       | an account on the team's homeserver                                                                                                                                  |
 | per LXC guest    | nothing beyond what area B runs                                                                                                   | each kit digest a guest process still runs, the seat directories, and with `service: true` one unit in the guest                                                     |
 
@@ -2267,7 +2278,7 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
 03. B finds the session's seats at `/run/teamchat/seats` and its desired membership at
     `/run/teamchat/membership`; a seat may appear while the session runs (hot join), and a team is active
     only when it is both seated and desired (3.7.5).
-04. On a `farewell` entry in `desired.json`, B's worker posts the goodbye (`left`, the entry's
+04. On a `farewell` entry in `desired.json`, B's link posts the goodbye (`left`, the entry's
     reason) as that member, and the session's processes for that seat end, freeing the seat lock
     (B 2.10); the keeper makes no network call.
 05. A session that takes a seat starts with no member state. B resumes from the server's state,
@@ -2282,16 +2293,17 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
     A's `back`, and B's own disconnected path for the same claim uses the same transaction id, so
     the two never double. The health tick's child calls the same code as a package, with the
     guest token copy, the run id as the seed and the run's `since_ms` (3.11.2 step 6).
-07. For an LXC member, the next worker on a seat checks the room for the member's own `left` or
+07. For an LXC member, the next link on a seat checks the room for the member's own `left` or
     `disconnected` since the last run before it posts a disconnected of its own, and uses
     transaction id `tc-disc-<run id>`, the id the health tick uses (3.11.2 step 6); the run id is
     the one B writes into the seat lock file, in a grammar the host checks.
-08. A worker that sees the roster's `restore_epoch` change drops its `next_batch` and resumes as a
+08. A link that sees the roster's `restore_epoch` change drops its `next_batch` and resumes as a
     seat with no member store; on every reconnect after a homeserver outage it reads the roster by
     a direct state request, not by sync, to see the change (3.12.2).
 09. `teamchat run` (the LXC supervised session, 3.9.4) waits, bounded, for the keeper to end
-    before it exits, and the worker ignores `SIGTERM` from the unit's mixed kill so that it can
-    post its goodbye.
+    before it exits, and handles the stop the unit's default `KillMode` sends to every process
+    (each of its processes, the link included, gets `SIGTERM`), so that the link still posts its
+    goodbye and everything ends within B's end bound, below `TimeoutStopSec=30`.
 10. `human_text` is read from the roster, not from the bundle (B 2.6 step 10); the bundle no
     longer carries it (3.7.2).
 11. A session resolves its kit path once at launch and runs from that digest to its end (C33).
