@@ -71,14 +71,19 @@ func TestAddSaysWhyTheSeatListCannotBeRead(t *testing.T) {
 func TestAddSaysWhenTheSeatListCannotBeReadAfterTheSeatIsMade(t *testing.T) {
 	r := newRig(t)
 	r.m.heldBy["3@alpha"] = true
-	r.Fake.OnFunc([]string{"agent-bus", "seat", "take"}, func(execx.Cmd) (execx.Result, error) {
+	r.Fake.OnFunc([]string{"agent-bus", "seat", "take"}, func(c execx.Cmd) (execx.Result, error) {
+		r.m.mu.Lock()
+		r.m.exists[c.Args[2]] = "proj." + seatOfRef(c.Args[2]) + "+local.podman"
+		r.m.mu.Unlock()
 		r.CrashSeat(t, r.Checkout(), "alpha", "9")
 		return execx.Result{}, nil
 	})
 	if code := r.run(t, "add", session, "alpha", "--yes"); code != term.ExitFailure {
 		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
 	}
-	wantLines(t, r.ErrOut.String(), "✗ seat 4: agent-bus seat take ran, but agent-bus seat list does not show the seat free")
+	if want := "✗ seat 4: agent-bus seat take ran, but the seat list cannot be read: agent-bus seat list in " + r.Checkout() + ": "; !strings.Contains(r.ErrOut.String(), want) {
+		t.Fatalf("stderr lacks %q:\n%s", want, r.ErrOut.String())
+	}
 	if len(r.desired(t).Seats) != 0 {
 		t.Fatalf("the membership changed:\n%s", r.ErrOut.String())
 	}
@@ -132,7 +137,8 @@ func TestAddOfATeamAlreadyInSaysWhenItsSeatCannotBeShownHeld(t *testing.T) {
 	if code := r.run(t, "add", session, "alpha/3", "--yes"); code != term.ExitFailure {
 		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
 	}
-	if got := r.ErrOut.String(); !strings.Contains(got, "✗ session: seat 3 not held after ") || strings.Contains(got, "Nothing to do") {
+	if got := r.ErrOut.String(); !strings.Contains(got, "✗ session: seat 3 not held after ") ||
+		!strings.Contains(got, ": the seat list cannot be read: agent-bus seat list in ") || strings.Contains(got, "Nothing to do") {
 		t.Fatalf("stderr:\n%s", got)
 	}
 }
