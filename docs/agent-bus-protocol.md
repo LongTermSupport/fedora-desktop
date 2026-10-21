@@ -495,8 +495,10 @@ Plan 00211 (its SPEC.md is the design) gives each team two more rooms, created b
   `{"join_rule": "restricted", "allow": [{"type": "m.room_membership", "room_id": "<main>"}]}`
   for reports and `{"join_rule": "invite"}` for questions. A side room that fails is untrusted
   alone: `report`, `ask-human` and `thread` exit 10 naming it, and the main room stays trusted.
-  So does any homeserver failure in a side room (a refused join, a 5xx, a rate limit, no usable
+  So does a non-transient homeserver failure in a side room (a refused join, no usable
   answer): it is logged and recorded as the room's reason, and the main room's commands go on.
+  A transient one (no connection, a 5xx, a 429) fails the command or sync like a main-room
+  failure, so it is retried and nothing is marked or committed for it.
 - **Power levels.** Reports: humans 0, `users_default` and `events_default` 10, `state_default`,
   `invite`, `kick`, `ban`, `redact`, `notifications.room`, `m.reaction` and `agent_bus.status`
   100, the rest as the main room's. Questions, open (the record names a coordinator): the main

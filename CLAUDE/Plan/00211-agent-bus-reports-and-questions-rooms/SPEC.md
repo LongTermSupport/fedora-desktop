@@ -210,13 +210,16 @@ for another `admin` room on its own.
   - `report`, `ask-human` and `thread` exit 10, naming the room;
   - the coordinator stops syncing the room, and `pingbus status` shows why;
   - the main room stays trusted.
-- Any homeserver failure in a side room (a refused restricted join, which Synapse answers 400,
-  a 5xx, a rate limit past its retries, no usable answer) is that room's alone, as a failed
-  check is: it is logged in full, recorded with its status and errcode as the room's reason
-  (`refused` for a reports join, `pending` for a questions join, `untrusted` for a state read),
-  and every main-room command goes on. A questions gap fill or question read that fails is
-  logged with a pointer to `pingbus questions`, and the batch is stored without it. A
-  main-room failure still fails the command.
+- A non-transient homeserver failure in a side room (a refused restricted join, which Synapse
+  answers 400, or no usable answer) is that room's alone, as a failed check is: it is logged
+  in full, recorded with its status and errcode as the room's reason (`refused` for a reports
+  join, `pending` for a questions join, `untrusted` for a state read), and every main-room
+  command goes on. A failed question read on receive stores the items without their question.
+- A transient one (no connection, a 5xx, a 429 past its retries: what a homeserver restart
+  looks like) is raised, as a main-room failure is, so the watcher's retry and backoff handle
+  it: the room is never marked for it, and the sync token is not committed. A questions gap
+  fill is never contained, since the token covers both rooms and committing past a failed
+  fill would lose the messages.
 
 ### 4.4 Joining and leaving
 

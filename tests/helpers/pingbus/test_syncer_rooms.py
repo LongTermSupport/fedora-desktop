@@ -17,6 +17,7 @@ import pathlib
 import re
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
@@ -286,24 +287,99 @@ class SideTrustTest(SideRoomCase):
         self.assertEqual(self.filter_rooms()[-1], [self.room])
 
 
-#: Every class of homeserver failure a side room can meet, as `inject` arguments: a refused
-#: restricted join, a server error, a rate limit past its retries, and an answer that is not
-#: JSON (what a transport failure looks like to the client: `Unreachable`).
+#: The non-transient homeserver failures a side room can meet, as `inject` arguments: a refused
+#: restricted join (Synapse's 400) and an answer that is not JSON (`Unreachable`, not transient).
 SIDE_FAILURES = {
     "400 refused join": (400, {"errcode": "M_UNABLE_TO_AUTHORISE_JOIN", "error": "no"}),
+    "no usable answer": (200, []),
+}
+#: The transient ones, what a homeserver restart looks like: a server error, and a rate limit
+#: past its retries. A refused connection is `test_a_transport_failure_is_raised`.
+TRANSIENT_FAILURES = {
     "500": (500, {"errcode": "M_UNKNOWN", "error": "boom"}),
     "429": (429, {"errcode": "M_LIMIT_EXCEEDED", "error": "slow", "retry_after_ms": 1}),
-    "transport": (200, []),
 }
 
 
 class SideRoomFailureTest(SideRoomCase):
-    """A homeserver failure in a side room is that room's alone (SPEC §4.3): it is recorded
-    with a reason and logged, and every main-room step goes on."""
+    """A non-transient homeserver failure in a side room is that room's alone (SPEC §4.3): it
+    is recorded with a reason and logged, and every main-room step goes on. A transient one is
+    raised, so the watcher's retry runs, and nothing is marked or committed for it."""
 
     def fail(self, method: str, pattern: str, failure: str) -> None:
-        status, body = SIDE_FAILURES[failure]
+        status, body = {**SIDE_FAILURES, **TRANSIENT_FAILURES}[failure]
         self.fake.inject(method, pattern, status, body, times=1000)
+
+    def restart_over(self) -> None:
+        self.fake._faults.clear()
+
+    def test_a_transient_side_failure_is_raised_and_recovers(self):
+        cases = {
+            "reports join": ("POST", "reports", "/join$"),
+            "questions join": ("POST", "questions", "/join$"),
+            "questions state": ("GET", "questions", "/state/"),
+        }
+        for failure in TRANSIENT_FAILURES:
+            for name, (method, purpose, tail) in cases.items():
+                with self.subTest(failure=failure, case=name):
+                    self.state.forget_sync_token()
+                    self.restart_over()
+                    rooms = dict(zip(("reports", "questions"), self.both(), strict=True))
+                    self.fail(method, rf"/rooms/{re.escape(q(rooms[purpose]))}{tail}", failure)
+                    with self.assertRaises(matrix.MatrixError) as raised:
+                        self.ready()
+                    self.assertTrue(raised.exception.transient)
+                    self.assertIsNone(self.state.sync_token())
+                    self.restart_over()
+                    s = self.ready()
+                    self.assertEqual((s.side["reports"].state, s.side["questions"].state), ("join", "join"))
+
+    def test_a_transport_failure_is_raised(self):
+        reports, questions = self.both()
+        s = self.syncer()
+        join = s.client.join
+
+        def refuse(room_id: str) -> dict:
+            if room_id == questions:
+                raise matrix.Unreachable("POST join", detail="ConnectionRefusedError", transient=True)
+            return join(room_id)
+
+        with mock.patch.object(s.client, "join", side_effect=refuse), self.assertRaises(matrix.Unreachable):
+            s.sync_once()
+        self.assertNotEqual(self.state.side_rooms().get("questions", inbox.SideRoom(questions, "join", None)).state,
+                            "untrusted")
+        s.sync_once()
+        self.assertEqual(s.side["questions"].state, "join")
+
+    def test_after_a_restart_mid_gap_fill_the_missed_answers_are_delivered(self):
+        reports, questions = self.both()
+        s = self.ready()
+        s.sync_once()
+        token = self.state.sync_token()
+        sent = [self.answer(questions, f"answer {n}") for n in range(syncer.TIMELINE_LIMIT + 5)]
+        self.fail("GET", rf"/rooms/{re.escape(q(questions))}/messages$", "500")
+        with self.assertRaises(matrix.MatrixError):
+            s.sync_once()
+        self.assertEqual(self.state.sync_token(), token, "the token never passes a failed gap fill")
+        self.restart_over()
+        self.assertEqual(s.sync_once().accepted, tuple(sent))
+        self.assertEqual(s.side["questions"].state, "join")
+
+    def test_after_a_restart_mid_reverify_the_room_stays_trusted_and_answers_arrive(self):
+        reports, questions = self.both()
+        s = self.ready()
+        s.sync_once()
+        answer = self.answer(questions, "cap it at 10")
+        # A trust-type event makes the next sync reverify the questions room.
+        self.call(self.admin, "PUT", f"/_matrix/client/v3/rooms/{q(questions)}/state/{protocol.JOIN_RULES}/",
+                  protocol.expected_join_rules("questions", self.room))
+        self.fail("GET", rf"/rooms/{re.escape(q(questions))}/state/", "500")
+        with self.assertRaises(matrix.MatrixError):
+            s.sync_once()
+        self.assertEqual(s.side["questions"].state, "join")
+        self.restart_over()
+        self.assertIn(answer, s.sync_once().accepted)
+        self.assertEqual(s.side["questions"].state, "join")
 
     def assert_main_room_works(self, s: syncer.Syncer) -> None:
         self.assertIsNotNone(s.record)
@@ -361,18 +437,6 @@ class SideRoomFailureTest(SideRoomCase):
         with self.assertRaises(matrix.MatrixError):
             s.verify_room()
 
-    def test_a_questions_gap_fill_failure_is_logged_and_the_main_room_goes_on(self):
-        reports, questions = self.both()
-        s = self.ready()
-        s.sync_once()
-        sent = [self.answer(questions, f"answer {n}") for n in range(syncer.TIMELINE_LIMIT + 5)]
-        main = self.human("still heard")
-        self.fail("GET", rf"/rooms/{re.escape(q(questions))}/messages$", "500")
-        self.logged.clear()
-        accepted = s.sync_once().accepted
-        self.assertIn(main, accepted)
-        self.assertIn(sent[-1], accepted)
-        self.assertTrue(any("pingbus questions" in line for line in self.logged), self.logged)
 
 
 class QuestionsReceiveTest(SideRoomCase):

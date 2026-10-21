@@ -444,8 +444,12 @@ class Syncer:
         return inbox.SideRoom(room_id, "join", None)
 
     def _side_failure(self, purpose: str, room_id: str, doing: str, exc: matrix.MatrixError) -> str:
-        """A side room's homeserver failure, logged in full; the reason `status` names. It is
-        that room's alone: the main room and every command on it go on (SPEC §4.3)."""
+        """A side room's non-transient homeserver failure, logged in full; the reason `status`
+        names. It is that room's alone: the main room and every command on it go on (SPEC
+        §4.3). A transient one (no connection, a 5xx, a 429 past its retries: a restart) is
+        raised again, so the caller's retry runs and the room is never marked for it."""
+        if exc.transient:
+            raise exc
         self._say(f"the {purpose} room {room_id}: {doing} failed: {exc}")
         return f"{doing} failed: {homeserver_reason(exc)}"
 
@@ -537,13 +541,9 @@ class Syncer:
         if self._listening_room() != room_id or self.side[protocol.PURPOSE_QUESTIONS].state != "join":
             return []
         if limited:
-            try:
-                events = self._fill_gap(room_id, since, timeline.get("prev_batch")) + events
-            except matrix.MatrixError as exc:
-                # The main room's batch must not wait on this one; the room itself keeps the
-                # missed messages, and `pingbus questions` reads them from there.
-                self._side_failure(protocol.PURPOSE_QUESTIONS, room_id, "the gap fill", exc)
-                self._say(f"the questions room {room_id}: messages may be missed; run pingbus questions")
+            # Never contained: the batch's token covers both rooms, so committing it past a
+            # failed fill would lose the messages for good. The batch fails and is retried.
+            events = self._fill_gap(room_id, since, timeline.get("prev_batch")) + events
         return events
 
     def _room_messages(self, room_id: str) -> tuple[list, bool]:

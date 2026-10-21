@@ -187,3 +187,33 @@ On the fresh-join path, `_questions_events` returns the timeline after the join 
   the meta-deploy description should name it.
 - S1 checks the staged build-context pingbus, not the rebuilt image. It is labelled honestly; that
   is acceptable.
+
+## Re-review of the fixes (branch agent-a2a78001c473ba3d0-2f9ab412, a29a0ef1)
+
+Targeted tests: test_syncer_rooms, test_hooks, test_cli_rooms, test_protocol_rooms and
+test_plugin_contract, 295 OK.
+
+- **F2: resolved.** The `role_questions` and `role_reports` lines are added only when
+  `rooms.json` shows the room as `join`. SKILL.md and the exit-code table now say `no-room`
+  means "carry on in the main room as before".
+- **F4: resolved.** R5 reads back the power levels and join rules of reports, open questions
+  and closed questions, and runs the exact checks on them. The report ends with a verdict
+  line, and `spike_passed` gates `--stage 2`.
+- **F3: contained, but the fix adds a new delivery-loss path (BLOCKING).** The handlers now
+  catch every `MatrixError`, including the transient ones: `Unreachable`, `RateLimited`, and a
+  5xx (`exc.transient` is true for all three).
+  - **`verify_side` and the questions join.** A transient blip, such as a Tuwunel restart, now
+    marks questions `untrusted`. `_listening_room` excludes `untrusted`, so the room leaves the
+    `/sync` filter. It is re-verified only from `verify_room`, which a long-running watcher
+    calls only when the main room has a trust-type change or a limited timeline. Short-lived
+    commands rewrite `rooms.json`, but the watcher never re-reads it. Until that main-room
+    trigger comes, the coordinator is not woken for the owner's answers.
+  - **`_questions_events` gap fill.** When the gap fill fails it is only logged, and the batch
+    token is committed, so the missed messages never wake anyone. Before the fix, the batch
+    failed and was retried.
+  - **Fix:** contain only non-transient answers (`not exc.transient`). Re-raise transient
+    errors so the batch retries, as main-room errors do, or keep the previous state and
+    re-verify each sync. Add a test where an `Unreachable` during `verify_side` is followed by
+    recovery, and assert the questions room is still delivered.
+- **Minor, not blocking.** `_question_index_or_none` stores the items with no question on a
+  transient error. That is acceptable: the items are still delivered.

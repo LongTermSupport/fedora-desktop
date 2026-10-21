@@ -8,7 +8,7 @@
 #      its "Join the LXC members" task does. No room is created: the admin code that would
 #      create one is Phase 2 and not on F44 yet.
 #   2. play-claude-yolo.yml, the whole play: it stages the new pingbus zipapp and the pingbus
-#      skill into /opt/claude-yolo and rebuilds the ccy image (container 2.78.6).
+#      skill into /opt/claude-yolo and rebuilds the ccy image (container 2.78.7).
 #   3. acceptance.bash --stage 1 (S1, S2). Skipped under --check, which says so.
 # Then the owner restarts the teams' sessions: a running session keeps the pingbus it started
 # with until it is restarted.
@@ -42,7 +42,7 @@ PLAN_USAGE="usage: deploy.bash --stage 1 [--check] [-h|--help]
 
 Plan 00211 deploy 1, the member side, on the HOST:
   playbooks/imports/play-agent-bus.yml     (the whole play: host pingbus 0.2.0, LXC member kits)
-  playbooks/imports/play-claude-yolo.yml   (the staged pingbus and skill; ccy image 2.78.6)
+  playbooks/imports/play-claude-yolo.yml   (the staged pingbus and skill; ccy image 2.78.7)
   acceptance.bash --stage 1                (S1, S2)
 --check rehearses the plays and skips the acceptance. Then restart the teams' sessions."
 

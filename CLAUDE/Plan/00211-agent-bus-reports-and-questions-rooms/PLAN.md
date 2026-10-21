@@ -153,8 +153,9 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
 - [x] ✅ **Task 1.12a**: The Phase 1 review's fixes (subagent-reports/261021-review-00211-phase1-opus.md):
   - the session-start lines name `pingbus report` and `pingbus questions` only once the member
     has joined that room, and the skill says `no-room` means "carry on in the main room";
-  - any homeserver failure in a side room (join, state read, gap fill, question read) is that
-    room's alone, recorded and logged, and the main room goes on;
+  - a non-transient homeserver failure in a side room (join, state read, question read) is
+    that room's alone, recorded and logged, and the main room goes on; a transient one is
+    raised for the watcher's retry, and the token never passes a failed gap fill;
   - the spike's R5 read-back and deploy 2's passed-spike pre-flight;
   - `history --room questions` exits as `questions` does; another coordinator's questions-room
     post is ignored, not dropped.
