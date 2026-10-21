@@ -282,8 +282,11 @@ team, and for the questions room once the record has ever named a coordinator, i
    - it looks first at the room the index names;
    - else at the rooms `admin` has joined (`/joined_rooms`) whose admin-created back-link names
      this purpose and this main room.
-     Exactly one match is adopted, and its ID file is written. More than one is an `AdminError`
-     naming them. Only none leads to `createRoom`.
+     One match is adopted, and its ID file is written. Of more than one, none is indexed, so
+     no member can have trusted any: the first created (by the create event's
+     `origin_server_ts`, then room ID) is adopted, the same on every run, and the others are
+     named in the run's changes and left unused. No step is left to the owner by hand. Only
+     none leads to `createRoom`.
 2. Writes the index in the main room when it differs.
 3. Syncs each side room's power levels (for questions, the open or closed form), join rules and
    topic, each only when it differs.
@@ -676,7 +679,7 @@ Python tests go in `tests/helpers/pingbus/`, `tests/helpers/agent_bus/` and
 09. **`admin`:**
     - `_ensure_side_rooms` from nothing, and a re-run with no change (no `changes`);
     - adoption after a crash between `createRoom` and the ID file, both through the index and
-      through `/joined_rooms`; two candidates is an `AdminError`;
+      through `/joined_rooms`; of two candidates the first created is adopted, the other named;
     - removed humans kicked from every room before the power levels change;
     - `_sync_questions_members` for every role transition: kicks before invites, every
       coordinator, a `leave` coordinator invited again, the open and closed forms, and the

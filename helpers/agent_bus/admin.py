@@ -745,7 +745,9 @@ def _current_index(api: _Api, main: str) -> dict:
 def _find_side_room(api: _Api, main: str, purpose: str, changes: list[str]) -> str | None:
     """SPEC §5.1 step 1 short of creating: the ID file's room, re-checked; else, after a crash
     between `createRoom` and the file's write, the one room to adopt: the index's, else the
-    one among the admin's joined rooms with this purpose's back-link. Two is an error."""
+    one among the admin's joined rooms with this purpose's back-link. Of two or more, none is
+    indexed, so no member can have trusted any (SPEC §4.1): the first created is adopted, the
+    same on every run, and the rest are named and left unused."""
     team = api.team
     room = _side_room_id(team, purpose)
     if room is not None:
@@ -759,15 +761,26 @@ def _find_side_room(api: _Api, main: str, purpose: str, changes: list[str]) -> s
         found = [indexed]
     else:
         found = [r for r in joined if r != main and _is_side_room(api, r, purpose, main)]
-    if len(found) > 1:
-        raise AdminError(f"team {team.name}: {len(found)} rooms carry the {purpose} back-link and none is "
-                         f"recorded in {_side_room_path(team, purpose)}: {', '.join(found)}; write the one "
-                         "to keep there, then run bootstrap again")
     if not found:
         return None
+    found.sort(key=lambda r: (_created_at(api, r), r))
     write_private(_side_room_path(team, purpose), found[0])
-    changes.append(f"adopted the {purpose} room {found[0]}")
+    if len(found) > 1:
+        changes.append(f"adopted the {purpose} room {found[0]}, the first created of {len(found)} "
+                       f"(left unused: {', '.join(found[1:])})")
+    else:
+        changes.append(f"adopted the {purpose} room {found[0]}")
     return found[0]
+
+
+def _created_at(api: _Api, room: str) -> int:
+    """The room's create event's `origin_server_ts`; a room whose create event carries none
+    is refused rather than ordered by a guess."""
+    create = api.state(room, "m.room.create", event=True) or {}
+    stamp = create.get("origin_server_ts")
+    if not isinstance(stamp, int):
+        raise AdminError(f"team {api.team.name}: room {room}'s create event has no origin_server_ts")
+    return stamp
 
 
 def _side_topic(purpose: str, coordinators: Sequence[str]) -> str:

@@ -164,7 +164,9 @@ class AdoptionTest(SideRoomsCase):
         self.assertEqual(self.side(REPORTS), self.reports)
         self.assertEqual(self.create_calls(), creates)
 
-    def test_two_candidates_are_refused_naming_both(self) -> None:
+    def test_two_candidates_adopt_the_first_created_with_no_hand_step(self) -> None:
+        # Neither is indexed, so no member can have trusted either (SPEC §4.1): the choice is
+        # the admin's to make, the same on every run, and needs no file written by hand.
         self.assertEqual(self.as_admin("PUT", f"/_matrix/client/v3/rooms/{q(self.room())}/state/"
                                        f"{protocol.EVENT_ROOMS}/", {"v": 1})[0], 200)
         link = {"v": 1, "team": "team-a", "purpose": REPORTS, "main": self.room()}
@@ -172,11 +174,18 @@ class AdoptionTest(SideRoomsCase):
             "preset": "private_chat", "room_version": protocol.ROOM_VERSION,
             "initial_state": [{"type": protocol.EVENT_ROOM_LINK, "state_key": "", "content": link}]})
         self.assertEqual(status, 200)
-        with self.assertRaises(admin.AdminError) as caught:
-            self.bootstrap()
-        self.assertIn(self.reports, str(caught.exception))
-        self.assertIn(made["room_id"], str(caught.exception))
-        self.assertFalse(self.has_side(REPORTS))
+
+        def created(room: str) -> tuple[int, str]:
+            return self.room_state(room, "m.room.create", event=True)[1]["origin_server_ts"], room
+
+        first = min(created(self.reports), created(made["room_id"]))[1]
+        other = made["room_id"] if first == self.reports else self.reports
+        changes = self.bootstrap()
+        self.assertEqual(self.side(REPORTS), first)
+        self.assertIn(f"adopted the reports room {first}, the first created of 2 (left unused: {other})",
+                      changes)
+        self.assertEqual(self.index().get(REPORTS), first)
+        self.assertEqual(self.bootstrap(), [])
 
     def test_an_id_file_naming_a_room_without_the_back_link_is_refused(self) -> None:
         admin.write_private(self.team_dir / "room_id.reports", self.room())

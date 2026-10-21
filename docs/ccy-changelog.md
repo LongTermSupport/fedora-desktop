@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.13.9 — container 2.78.9
+## 3.99.13.10 — container 2.78.10
 
 Follows 3.99.13.8 (2.78.8). The image carries the agent-bus admin tool, which
 changed, so it is rebuilt once.
@@ -25,7 +25,7 @@ changed, so it is rebuilt once.
 - **The agent-bus admin tool creates and keeps a team's reports and questions rooms** (Plan
   00211, the admin side). `bootstrap` creates the reports room for every team and the
   questions room once the team has a coordinator, or adopts one a crashed run left
-  unrecorded; it writes the main room's index of them, keeps their power levels, join rules
+  unrecorded (the first created, when crashes left more than one); it writes the main room's index of them, keeps their power levels, join rules
   and topics, invites the humans and every coordinator, kicks a demoted coordinator before
   inviting the new one, and removes a removed account from every room. `agent-bus list`
   gains `ROOM` lines; `agent-bus check-rooms` reports drift and any coordinator not joined.

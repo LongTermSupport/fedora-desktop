@@ -34,7 +34,7 @@
 # fwupd before (the ABRT policy onward).
 playbooks/imports/play-basic-configs.yml
 # Plan 00213 Tasks 1.3 and 1.4: play-claude-yolo.yml, so the host gets CCY 3.99.13.8 (container
-# 2.78.8) or later; this checkout carries 3.99.13.9 (2.78.9, Plan 00211). Bus sessions' status line then
+# 2.78.8) or later; this checkout carries 3.99.13.10 (2.78.10, Plan 00211). Bus sessions' status line then
 # refreshes every 25 s instead of every second (the member kit settings and a seated session's
 # settings), and the image's pingbus zipapp starts /usr/bin/python3 directly instead of finding
 # python3 on PATH. The image is rebuilt once at the next ccy launch. Running sessions keep their
@@ -54,7 +54,7 @@ playbooks/imports/play-agent-bus.yml
 # member's pingbus is 0.2.0, and a declared container that is down is refused, named). Then the
 # whole play-agent-bus.yml creates each team's reports room, and its questions room when the
 # team has a coordinator, writes the index and invites you and the coordinators; the whole
-# play-claude-yolo.yml rebuilds the ccy image once (container 2.78.9). It waits up to 180 s for
+# play-claude-yolo.yml rebuilds the ccy image once (container 2.78.10). It waits up to 180 s for
 # every coordinator to join its questions room, naming any that has not, and acceptance.bash
 # --stage 2 checks the rooms, adds and removes one throwaway worker that must be refused the
 # questions room, posts two test reports (one from an LXC member) and asks a test question from
