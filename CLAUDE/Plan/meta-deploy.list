@@ -32,3 +32,9 @@
 # so the tasks after it (the ABRT policy onward) have not run. Run the whole play again; its
 # other tasks (firmware updates among them) run too, as on any run.
 playbooks/imports/play-basic-configs.yml
+# Plan 00211 Task 0.1 (reports and questions rooms): the SPIKE, a throwaway test. It starts the
+# installed Tuwunel as you, on a free loopback port, with scratch accounts and rooms under its own
+# run directory, and removes them when it ends. No unit, team, play or real homeserver is touched.
+# It records whether a restricted join, the power-level refusals and a pending invite behave as the
+# design needs; a fact that does not hold fails the run, and its report says which.
+00211-agent-bus-reports-and-questions-rooms/spike.bash

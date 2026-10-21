@@ -90,6 +90,29 @@ func TestParseRoster(t *testing.T) {
 	}
 }
 
+// Plan 00211 SPEC §5.5: `agent-bus list` gains ROOM lines (one per account per side room) in
+// deploy 2, before this parser reads them (Phase 3). A ccy-teams binary from before then must
+// skip them and read the HUMAN and MEMBER lines exactly as before.
+func TestParseRosterSkipsRoomLines(t *testing.T) {
+	plain := "HUMAN\towner\tjoin\nMEMBER\tproj.1+box.podman\tcoordinator\tjoin\tactive\n"
+	withRooms := "HUMAN\towner\tjoin\n" +
+		"ROOM\t@owner:team-a.agent-bus.internal\treports\tjoin\n" +
+		"ROOM\t@owner:team-a.agent-bus.internal\tquestions\tinvite\n" +
+		"MEMBER\tproj.1+box.podman\tcoordinator\tjoin\tactive\n" +
+		"ROOM\t@proj.1+box.podman:team-a.agent-bus.internal\tquestions\t-\n"
+	want, err := ParseRoster(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := ParseRoster(withRooms)
+	if err != nil {
+		t.Fatalf("ROOM lines must be skipped, not refused: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("with ROOM lines %+v, without %+v", got, want)
+	}
+}
+
 func TestParseRosterReadsTheOldRoleNameAsCoordinator(t *testing.T) {
 	got, err := ParseRoster("MEMBER\tproj.x+box.lxc\torchestrator\t-\tactive\nMEMBER\tproj.y+box.lxc\tcoordinator\t-\tactive\n")
 	if err != nil {
