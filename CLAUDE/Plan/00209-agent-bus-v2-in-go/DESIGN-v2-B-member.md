@@ -1624,52 +1624,52 @@ code, not kept equal by hand.
 LXC members come first in the member build (the coordinator's ordering): they are where v1 is most
 fragile, EL9 guests have Python 3.9, and a static binary removes the whole Python prerequisite.
 
-**Installing the binary.** The host streams the kit's binary into the guest with only coreutils on
-the guest side, in three steps, each its own `lxc-attach -n <container> --clear-env -- env -i PATH=/usr/bin:/bin ...`:
+**Two mechanisms, one per kind of path, and no guest program as root** (area C, C 3.9.1). The
+guest's system paths, the kit and the session unit, are written by root from the host side, through
+the container's root directory fd, with nothing run in the guest: the kit as
+`<v2-kit>/<digest>/` (`bin/teamchat`, `bin/teamchat-claude`, `plugin/`, `settings.json`, copied
+from the host's kit, whose digest the build recorded) and a `current` link swapped atomically (C
+3.9.2 step 4), and the unit `teamchat-session-<user>.service`, whose text is C's (C 3.9.4). The
+agent user's own home, its bundles and its desired membership, is written only by the operations
+below, run as that user. So there is no `install-self` and no `unit` operation, and no binary in
+the guest has to vouch for its own digest.
 
-1. `install -m 0755 -o root -g root -D /dev/stdin <v2-kit>/<digest>/bin/teamchat.new` with the binary
-   on stdin;
-2. `sha256sum <v2-kit>/<digest>/bin/teamchat.new`, whose output the host compares with the SHA-256
-   the kit build recorded for that binary; a mismatch stops the apply and the file is never run. A
-   binary checking its own digest would prove nothing, since a corrupt or substituted file would
-   vouch for itself;
-3. only then `<v2-kit>/<digest>/bin/teamchat.new guest install-self --digest <digest>`, which renames
-   itself into place, writes `<kit>/plugin/` and `<kit>/settings.json` from the copies embedded in
-   the binary at kit build (so one file carries the whole kit), and points `<v2-kit>/current` at the
-   new directory. It then removes every other `<digest>/` that no live runtime in the guest names:
-   it runs as root inside the guest, so unlike the host it can read each runtime's `session.pid`
-   under the agent users' runtime parents (`$XDG_RUNTIME_DIR/teamchat/run/`, including the directory the
-   unit's `RuntimeDirectory=` gives, 2.3.1), and it keeps any digest whose recorded process is alive
-   (same pid, same start time) and the one `current` names. The host cannot list container-private
-   or guest runtimes, so for LXC this sweep is the garbage collection of C3.
+**Collecting old kits.** A `<digest>/` other than `current` is removed by the host only when no
+live session in the guest names it: C reads each `session.pid` under the guest's runtime parents
+(`$XDG_RUNTIME_DIR/teamchat/run/`, including the directory the unit's `RuntimeDirectory=` gives,
+2.3.1) through the root fd and checks the recorded pid's start time in the guest's own `/proc` (C
+3.9.2 step 4). That is the one collection rule, for LXC as for host kits; for ccy the kit is in the
+image and is never collected.
 
 Sessions resolve `current` once, at launch, and keep the absolute paths of their own `<digest>/`
 (B38, 2.4.1), so a running session keeps its version.
 
 **Three ways of getting the kit into a guest were weighed.** A package built for each guest's
 distribution and installed by a play: the guest's package manager, its repositories and a play run
-per change, for one static file. A read-only bind mount of the host's kit: no copy, but a container
-config change and restart per mount, and LXC mounts are the fragility RL 6 records. Streaming the
-static binary over `lxc-attach` with coreutils on the far side and the hash checked by the guest's
-own `sha256sum` (chosen): no prerequisite beyond B36's, and nothing from the guest runs on the host.
+per change, for a few static files. A read-only bind mount of the host's kit: no copy, but a
+container config change and restart per mount, and LXC mounts are the fragility RL 6 records.
+Streaming the binary through `lxc-attach` as root into the guest's `install` and `sha256sum`:
+guest programs run as root, the class of escape C 3.9.1 rules out. A host-side write through the
+container's root fd (chosen): nothing runs in the guest at all, the bytes are the host's own, and
+the guest needs no prerequisite beyond B36's.
 
-**The operations.** Each is `teamchat guest <op>`, run by area C's apply through `lxc-attach` (as root,
-or as the agent user through `runuser`, as named). Each sets its own umask first (022 as root, 077 as
-the agent) and names every leaf mode (RL 6.02), opens with `O_NOFOLLOW`, places files with `O_EXCL`
-then renames, refuses a path owned by someone else, prints `CHANGED\t<what>` lines on stdout for what
-it changed and nothing otherwise, and exits 0, 64 or 78.
+**The operations.** Each is `teamchat guest <op>`, run by area C's apply as the agent user through
+`lxc-attach -u <uid> -g <gid> --clear-env` with `HOME`, `USER`, `LOGNAME` and `PATH` set (C 3.9.1),
+reading typed JSON on stdin. Each refuses to run as uid 0 or with any supplementary group but the
+agent user's own, refuses a `--user` that does not name the caller, sets umask 077 first and names
+every leaf mode (RL 6.02), opens with `O_NOFOLLOW`, places files with `O_EXCL` then renames,
+refuses a path owned by someone else, prints `CHANGED\t<what>` lines on stdout for what it changed
+and nothing otherwise, and exits 0, 64, 75 (`remove` only) or 78.
 
-| Op                           | As        | Does                                                                                                                                                                                                                                                                                                                        |
-| ---------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `install-self`               | root      | as above, after the host's `sha256sum` check, then the sweep of old `<digest>/` directories that no live runtime in the guest names                                                                                                                                                                                         |
-| `check --user U --team T`    | root      | the user exists and has a home; `gh` is installed and logged in to github.com as that user; the kernel has pidfd and inotify; tmux is installed; `reach` to the team's homeserver from inside the guest (whether the guest's source address is inside the team's `allow_from` is a host-side fact, area C's pre-check, R48) |
-| `place-bundle --user U`      | the agent | writes the bundle area C sends on stdin into `<v2-bundle>`, area C's format, 0700 and 0600                                                                                                                                                                                                                                  |
-| `membership --user U`        | root      | writes the desired membership from stdin into the guest's `<v2-desired>` (root-owned 0755, file 0644), atomically                                                                                                                                                                                                           |
-| `unit --user U --checkout P` | root      | writes `teamchat-session-<user>.service` (a tmux session running the launcher, which ends in `teamchat run`; the unit sets `RuntimeDirectory=` and points `XDG_RUNTIME_DIR` at it, 2.3.1); the unit's text is area C's, this op only places it; restarts it only when its text changed; `--remove` removes it               |
-| `remove --user U --team T`   | the agent | takes the seat lock first (75 if a session holds it), then removes the team's bundle and every seat file except `seat.lock`, which is never unlinked (2.5)                                                                                                                                                                  |
+| Op                         | Does                                                                                                                                                                                                                                                                                                             |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `check --user U --team T`  | the user has a home; `gh` is installed and logged in to github.com as that user; the kernel has pidfd and inotify; tmux is installed; `reach` to the team's homeserver from inside the guest (whether the guest's source address is inside the team's `allow_from` is a host-side fact, area C's pre-check, R48) |
+| `place-bundle --user U`    | writes the bundle area C sends on stdin into `<v2-bundle>`, area C's format, 0700 and 0600, by a new directory swapped into place (C 3.7.3)                                                                                                                                                                      |
+| `membership --user U`      | writes the desired membership area C sends on stdin (C 3.7.5's schema, decoded strictly) as `<v2-desired>/desired.json`, 0700 directory and 0600 file, atomically, replacing whatever the file held (the host's copy is the authority, C 3.9.3); the keeper reconciles it at once (2.10)                         |
+| `remove --user U --team T` | takes the seat lock first (75 if a session holds it; C's absent phase waits for the seat to be free before it runs this, C 3.9.2), then removes the team's bundle and every seat file except `seat.lock`, which is never unlinked (2.5)                                                                          |
 
 Reading the container's checkout to derive a handle stays on the host, as root, from the container's
-rootfs, never by running container code (R33); that is area C's.
+root fd, never by running container code (R33); that is area C's.
 
 **Docker and VM members** run the same binary and the same `run`; they need no guest operation
 beyond placing the binary and the bundle, which area C does by the member kind's own means. A frozen

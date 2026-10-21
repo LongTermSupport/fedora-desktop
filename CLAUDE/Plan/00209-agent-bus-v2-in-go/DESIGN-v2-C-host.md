@@ -1183,16 +1183,51 @@ everything checkable is checked for every running container before anything chan
 before promotions; a stopped container is ordinary and a missing one is an error; a running and
 correct member is left alone (no new token on every run).
 
-What changes: no container program ever runs as root, and no container needs Python.
+What changes: no container program ever runs as root, and no container needs Python. There are
+two write mechanisms, one per kind of path, and no path is written by both:
 
-| v1                                                                                            | v2                                                                                                                                                                            |
-| --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `python3 -I -c <script>` run inside the guest as root (kit sync, user lookup, env file, unit) | no guest program run as root; root writes only root-owned paths of the guest, from the host side, with `openat2(RESOLVE_IN_ROOT\|RESOLVE_NO_SYMLINKS\|RESOLVE_NO_MAGICLINKS)` |
-| `python3 -I -c` as the agent user (bundle, `pingbus config check`)                            | `teamchat guest <op>` as the agent user, through `lxc-attach -u <uid> -g <gid> --clear-env` with `HOME`, `USER`, `LOGNAME` and `PATH` set, reading typed JSON on stdin        |
-| `getent passwd` inside the guest                                                              | the guest's `/etc/passwd` read from the host side, size-capped                                                                                                                |
-| the source-address check by a UDP connect inside the guest                                    | the guest's addresses from `lxc-info -iH` and its link from the container config, checked against `allow_from` on the host                                                    |
-| a kit copied file by file into one directory, replaced in place                               | the kit written as `/usr/local/lib/teamchat/kit/<digest>/` and a `current` link swapped atomically; a digest kept while any process runs from it (C33)                        |
-| Python 3.11 or later required in every guest                                                  | one static `teamchat`; the guest needs no interpreter and no library                                                                                                          |
+- **root writes the guest's system paths** (the kit under `/usr/local/lib/teamchat/kit/`, the
+  session unit and its wants link), from the host side, through the container's root directory
+  fd. Nothing in the guest runs for it.
+- **the agent user writes its own home** (bundles, the desired membership, a team's removal) by
+  `teamchat guest <op>`, run as that user through `lxc-attach -u`. Root never writes under a
+  user's home (C24), in a guest as on the host.
+
+| v1                                                                                            | v2                                                                                                                                                                                                                         |
+| --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `python3 -I -c <script>` run inside the guest as root (kit sync, user lookup, env file, unit) | no guest program run as root; root writes only root-owned system paths of the guest, from the host side, with `openat2(RESOLVE_IN_ROOT\|RESOLVE_NO_SYMLINKS\|RESOLVE_NO_MAGICLINKS\|RESOLVE_NO_XDEV)` and the checks below |
+| `python3 -I -c` as the agent user (bundle, `pingbus config check`)                            | `teamchat guest <op>` as the agent user (B 2.13), through `lxc-attach -u <uid> -g <gid> --clear-env` with `HOME`, `USER`, `LOGNAME` and `PATH` set, reading typed JSON on stdin                                            |
+| the env file naming the user's teams, written as root                                         | the desired membership `~/.config/teamchat/membership/desired.json`, written by `guest membership` as the agent user (3.9.2 step 8)                                                                                        |
+| `getent passwd` inside the guest                                                              | the guest's `/etc/passwd` read from the host side, size-capped                                                                                                                                                             |
+| the source-address check by a UDP connect inside the guest                                    | the guest's addresses from `lxc-info -iH` and its link from the container config, checked against `allow_from` on the host                                                                                                 |
+| a kit copied file by file into one directory, replaced in place                               | the kit written as `/usr/local/lib/teamchat/kit/<digest>/` from the host side and a `current` link swapped atomically; a digest kept while any live session names it (C33, 3.9.2 step 4)                                   |
+| Python 3.11 or later required in every guest                                                  | one static `teamchat`; the guest needs no interpreter and no library                                                                                                                                                       |
+
+**Why the desired membership is the agent's own file.** In a ccy session the control directory is
+mounted read-only, so the member cannot write its own desired membership. In a guest, a root-owned
+directory inside the agent's home gives no such guarantee: the agent owns the parent and can
+rename the directory away and make its own, and root writing there would be root writing under a
+user's path. It is also not a boundary worth having. The desired file asks an obedient member which
+of its seats to use; a hostile member holds the tokens of those seats and can use them whatever the
+file says. What ends a member's access is its token (`member park` or `retire` revokes it), never
+the file. So the agent user writes its own desired file, and the host keeps the authoritative copy
+(3.9.3).
+
+**Rules for every root write into a guest** (S8 of the security review):
+
+- the path is resolved from the root fd with `RESOLVE_IN_ROOT|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS|RESOLVE_NO_XDEV`, so a link
+  is refused and the write cannot leave the guest's root filesystem: a guest whose `/usr/local`
+  is a bind mount of a host directory is refused by name, never written through;
+- every directory on the path is opened `O_DIRECTORY|O_NOFOLLOW` and `fstat`ed: it must be owned by
+  root and not writable by group or other, else the write is refused by name;
+- files are created `O_CREAT|O_EXCL|O_NOFOLLOW` under a temporary name with an explicit mode,
+  `fsync`ed, and renamed into place by `renameat2` relative to the directory fd.
+
+**The agent user** must have a uid and a gid other than 0: an entry whose user resolves to uid 0
+is refused before any container is touched, since `lxc-attach -u 0` is the exec-as-root this
+design rules out. In a privileged container the agent's uid is the same kernel uid as any host
+user with that number, so a guest agent user and a host user that share a uid can reach each
+other's files; that is risk K15, and the apply refuses an agent uid equal to the desktop user's.
 
 Why `lxc-attach -u` is safe where `lxc-attach` as root was not: an exec as uid 0 into a guest is
 how a hostile guest binary can reach the host (the class of CVE-2019-5736, where a container binary
@@ -1206,67 +1241,110 @@ the host (never `current`, so a swap mid-phase cannot change what runs). `--clea
 leave `HOME` unset, and `guest place-bundle` and `guest check` need it to find `~/.config/...` and the
 forge CLI's login. Whether `-u`/`-g` drop the attaching process's supplementary groups is checked
 by host check H-C10; `teamchat guest` also checks `getgroups()` at start and refuses to run with
-any group but the agent user's own.
+any group but the agent user's own, and refuses to run as uid 0.
 
 #### 3.9.2 Order of one present phase
 
-1. Validate every entry (types, `(team, container, user)` unique, team declared present and its
-   homeserver active) before touching any container.
-2. For each container: `lxc-info -sH`. Missing fails the apply. Not `RUNNING` is held back (3.9.3).
-3. For each running container, read from the host side and change nothing yet:
-   - the container config (a host file, root-owned): network link, `lxc.start.auto`; an
-     unprivileged (`lxc.idmap`) container is refused by name, as v1 does;
-   - for an entry with `service: true`, v1's pre-checks, all host-side: the config has
-     `lxc.start.auto = 1` (so the supervised session comes back with the host), the guest's init
-     (`/proc/<init pid>/exe` resolved in the guest) is systemd, and `tmux` is in the guest's
-     `PATH` directories. A miss fails the phase naming the setting and the play that owns the
-     container's config (section 7, D7); the apply never edits the container config;
-   - every guest file below is read through one path: `/proc/<init pid>/root` of the running
-     container, opened once as a directory fd, with `openat2(RESOLVE_IN_ROOT|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS)`
-     relative to it. That is the container's own view, its bind mounts included, whatever the
-     store type, so the design neither reads the rootfs directly nor re-implements LXC's mounts.
-     Every open adds `O_NONBLOCK` and is followed by `fstat`: anything but a regular file (a FIFO
-     would stall a blocking open) is refused by name. A stopped container is not read at all
-     (3.9.3);
-   - the agent user from `/etc/passwd` (uid, gid, home), at most 1 MiB;
-   - the checkout: `.git/config` (`origin`; `insteadOf` rewrites refused), and
-     `.claude/ccy/ccy.env.local` (owned by the agent user's uid, else refused), each at most
-     64 KiB;
-   - derive the handle (3.7.4); the seat is the entry's, else the one the LXC record holds, else the
-     lowest free;
-   - check the source address: one of the guest's addresses inside the team's `allow_from` (which
-     includes the live bridge subnet), on a link that is a host bridge.
-     Any refusal here fails the phase before any container is changed.
-4. Kit: for each running container whose `current` kit digest differs, write the new kit
-   directory from the host side (root-owned, 0755 directories, 0755 `teamchat`, 0644 files, modes
-   explicit so no inherited umask can matter, LR 6 item 2), then swap `current`. An old digest
-   is deleted only when no process of that guest runs a binary from it: the host lists the
-   processes in the container's cgroup (from the host's `/proc`, by `/proc/<pid>/cgroup`) and
-   reads each one's `/proc/<pid>/exe` link target as a path inside the guest. The same rule keeps
-   the host's own `/usr/local/lib/teamchat/kit` digests while any of the owner's processes runs from one (C33). A
-   session resolves its kit once at launch (area B), so a digest it uses outlives every swap.
-5. Guest check: `teamchat guest check --user <user> --team <team>` as the agent user in each running container (what the member
-   needs to work, for example the forge CLI signed in; area B defines the list). Any failure fails
-   the phase before any roster change.
-6. Roster changes, under each team's lock in turn: every demotion of every team first, then every
-   join (`member add`, `return` or `reissue` as the state requires), then every promotion,
-   including each team's `coordinator_wanted` that one of these joins has just created (3.6.4).
-7. Place each new bundle: `teamchat guest place-bundle --user <user>` as the agent user, bundle (with its team) on stdin;
-   it writes `~/.config/teamchat/seats/<team>.new-<claim>/` (0700) with `token` and `seat.json`
-   (0600) and swaps it in as `~/.config/teamchat/seats/<team>/`, by the same code as 3.7.3, and the member's own config (area B).
-8. Supervised session (`service: true`): see 3.9.4.
-9. Write the LXC record (3.9.3), only after the phase succeeded.
+01. Validate every entry (types, `(team, container, user)` unique, team declared present and its
+    homeserver active) before touching any container.
+02. For each container: `lxc-info -sH`. Missing fails the apply. Not `RUNNING` is held back (3.9.3).
+03. For each running container, read from the host side and change nothing yet:
+    - the container config (a host file, root-owned): network link, `lxc.start.auto`; an
+      unprivileged (`lxc.idmap`) container is refused by name, as v1 does;
+    - for an entry with `service: true`, v1's pre-checks, all host-side: the config has
+      `lxc.start.auto = 1` (so the supervised session comes back with the host), the guest's init
+      (`/proc/<init pid>/exe` resolved in the guest) is systemd, and `tmux` is in the guest's
+      `PATH` directories. A miss fails the phase naming the setting and the play that owns the
+      container's config (section 7, D7); the apply never edits the container config;
+    - every guest file below is read through one path: `/proc/<init pid>/root` of the running
+      container, opened once as a directory fd, with `openat2(RESOLVE_IN_ROOT|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS)`
+      relative to it. That is the container's own view, its bind mounts included, whatever the
+      store type, so the design neither reads the rootfs directly nor re-implements LXC's mounts.
+      Every open adds `O_NONBLOCK` and is followed by `fstat`: anything but a regular file (a FIFO
+      would stall a blocking open) is refused by name. A stopped container is not read at all
+      (3.9.3);
+    - the agent user from `/etc/passwd` (uid, gid, home), at most 1 MiB;
+    - the checkout: `.git/config` (`origin`; `insteadOf` rewrites refused), and
+      `.claude/ccy/ccy.env.local` (owned by the agent user's uid, else refused), each at most
+      64 KiB;
+    - derive the handle (3.7.4); the seat is the entry's, else the one the LXC record holds, else the
+      lowest free;
+    - check the source address: one of the guest's addresses inside the team's `allow_from` (which
+      includes the live bridge subnet), on a link that is a host bridge;
+    - for a team whose `origin` is `migration` (D §3.9), whether the guest still runs this member on
+      v1: the guest's v1 session unit enabled, or v1's env file naming the team, read through area
+      D's adapter (`migrate/v1`, D §5.5) from the same root fd. Either holds the member back as
+      `DEFERRED (v1 not yet absent)` (3.9.3), so a container that was stopped during the move and
+      started later never runs a v1 and a v2 session side by side; ccy-teams' heal for it runs v1's
+      play, then v2's.
+      Any refusal here fails the phase before any container is changed.
+04. Kit: for each running container that lacks the installed kit digest, write
+    `/usr/local/lib/teamchat/kit/<digest>/` (`bin/teamchat`, `bin/teamchat-claude`, `plugin/`,
+    `settings.json`) from the host's own kit directory, from the host side by 3.9.1's rules
+    (root-owned, 0755 directories, 0755 binaries, 0644 files, modes explicit so no inherited umask
+    can matter, LR 6 item 2), under a temporary directory name renamed into place once complete;
+    then swap `current` and the `/usr/local/bin/{teamchat,teamchat-claude}` links. The bytes
+    written are the host's, whose digest the build recorded, so there is nothing to check inside
+    the guest and no guest program runs. An old digest is deleted only when it is not `current`
+    and no live session names it: the host reads each `session.pid` (B 2.4.1) under the guest's
+    runtime parents (`/run/user/<uid>/teamchat/run/*/` and the session unit's runtime directory,
+    3.9.4) through the root fd, decoded strictly and size-capped, and checks the recorded pid's
+    start time in the guest's own `/proc`. The records are the guest's writing, which is safe in
+    this one direction: a forged or undecodable record can only make the host keep a digest
+    (costing disk), never delete one a session uses. The same rule, over the owner's runtime
+    parent, keeps the host's own `/usr/local/lib/teamchat/kit` digests (C33). A session resolves
+    its kit once at launch (area B), so a digest it uses outlives every swap.
+05. Guest check: `teamchat guest check --user <user> --team <team>` as the agent user in each
+    running container (what the member needs to work, for example the forge CLI signed in; area B
+    defines the list, B 2.13). Any failure fails the phase before any roster change.
+06. Roster changes, under each team's lock in turn: every demotion of every team first, then every
+    join (`member add`, `return` or `reissue` with `--credential token`, as the state requires,
+    3.6.3), then every promotion, including each team's `coordinator_wanted` that one of these
+    joins has just created (3.6.4).
+07. Place each new bundle: `teamchat guest place-bundle --user <user>` as the agent user, bundle
+    (with its team) on stdin; it writes `~/.config/teamchat/seats/<team>.new-<claim>/` (0700) with
+    `token` and `seat.json` (0600) and swaps it in as `~/.config/teamchat/seats/<team>/`, by the
+    same code as 3.7.3, and the member's own config (area B).
+08. Membership: for each guest user whose desired membership differs from the host's record of it
+    (3.9.3), write the record first, then run `teamchat guest membership --user <user>` as the agent
+    user with the whole `desired.json` on stdin (3.7.5's schema): `session` is `lxc-<user>`,
+    `generation` one above the record's last, `seats` every team the user is placed in, `farewell`
+    empty, `inbound` `accept`. The op writes `~/.config/teamchat/membership/desired.json` (0700
+    directory, 0600 file) atomically, and the guest's keeper reconciles it at once (B 2.10). A
+    converged apply writes nothing. A user's seats span teams, so this step runs once per user
+    after every team's placement, under the play lock that every apply runs under (3.5.1).
+09. Supervised session (`service: true`): see 3.9.4.
+10. Write the LXC record (3.9.3), only after the phase succeeded.
 
-The absent phase runs first in the play (before any team is removed): for each running container,
-`teamchat guest remove --user <user> --team <team>` as the agent user, then `member park`; for a stopped one, the
-handle the record holds is parked from the host side at once and the guest's files are left until it
-next runs.
+**The absent phase** runs first in the play, before any team is removed (3.5.1 step 10), so a
+leaving member is parked on a live server. A member leaves when its entry says `state: absent`,
+or when the LXC record names a (container, user, team) that no entry declares any more. For each
+leaving member of a running container, under its team's lock, which the health tick then cannot
+take (3.11.2):
+
+1. Rewrite the user's desired membership without the seat and with a `farewell` entry for it,
+   reason `parked` (record first, then `guest membership`, as step 8). The keeper removes the team
+   and posts nothing for it, because the admin's `parked` notice announces it (B 2.10).
+2. Wait for the seat to be free: the L3 probe below, every second, at most 60 s (B's removal bound
+   of 10 s and its leave-notice bound of 30 s, with margin). A seat still held after that fails the
+   phase, naming the container, the user and the holder's run id (read from the seat lock's
+   content, B 2.5, and printed only if it passes its grammar).
+3. `teamchat guest remove --user <user> --team <team>` as the agent user (B 2.13); it takes the
+   seat lock itself, so it cannot race a keeper that took the seat again.
+4. `member park` (3.6.3), which revokes the token and posts the admin's `parked` notice.
+5. If the user now holds no team, its supervised session unit is stopped, disabled and removed
+   (3.9.4).
+
+For a stopped container, the handle the record holds is parked from the host side at once
+(revoking its token, so a guest started later cannot use it) and the guest's files are left: the
+next phase that finds the container running runs steps 1-3 for them, with the token already dead.
 
 Whether an LXC seat is held (C27) is probed from the host through the same `/proc/<init pid>/root`
 fd: the member's seat lock under the agent user's seat directory, by the L3 probe (open
 `O_RDONLY|O_NOFOLLOW|O_NONBLOCK` with `RESOLVE_IN_ROOT`, `fstat` a regular file,
 `LOCK_SH|LOCK_NB`). The host never enters the container for it. A stopped container's seat is not
-held.
+held. Opening another process's `/proc/<pid>/root` needs ptrace read access to it, which root has
+in the play and which the health unit is given for this one purpose (3.11.1).
 
 #### 3.9.3 Stopped containers and the record
 
@@ -1294,23 +1372,64 @@ The record is the host's map from (container, user, team) to handle, so the gues
 of what the host knows, not the only place it is known (LR 7 item 4). A record ccy-teams cannot read
 fails `apply` and `lxc-add` and shows on the team row.
 
+The host's copy of each guest user's desired membership is
+`/var/lib/teamchat-admin/lxc/<container>/<user>.json` (root 0600):
+`{"v": 1, "generation": 4, "seats": [{"team": "<team>", "seat": "2"}], "farewell": []}`. It is
+written before the guest's file (3.9.2 step 8 and the absent phase), so `generation` never goes
+down, a converged apply compares against it and writes nothing, and a guest file the agent changed
+is put back at the next apply. It is the one place the generation is kept.
+
 A deferred member heals only when the play runs again. A container-start hook that applies the last
 rendered declaration would heal it on its own; it is held as decision DC10 and not built now.
 
 #### 3.9.4 The supervised session in a guest
 
-`service: true` gives the agent user a supervised session (the member program under tmux, restarted
-on exit; area B owns what runs). v1 wrote a system unit with a guest script as root and ran the
-guest's `systemctl` as root. v2 writes the unit file and its `multi-user.target.wants` link into the
-guest from the host side (root-owned paths, `RESOLVE_IN_ROOT`), and asks the guest's own systemd to
-reload and start it over the guest's private manager socket, reached as
+`service: true` gives the agent user a supervised session: B's launcher `teamchat-claude` under
+tmux, restarted on exit (area B owns what runs). v1 wrote a system unit with a guest script as root
+and ran the guest's `systemctl` as root. v2 writes the unit file and its
+`multi-user.target.wants` link into the guest from the host side (3.9.1's rules), and asks the
+guest's own systemd to reload and start it over the guest's private manager socket, reached as
 `/proc/<init pid>/root/run/systemd/private` from the host: a host process speaking peer-to-peer
-D-Bus (DC17) to a
-process that already runs as the guest's root, with no guest program run. Host check H-C9 proves
-this on a real privileged container. If it cannot be made to work, the fallback is decision DC13
-(start at the next container start only); running the guest's `systemctl` as root is not an option.
-A unit whose text is unchanged is not restarted; a user in no team has the unit stopped, disabled
-and removed.
+D-Bus (DC17) to a process that already runs as the guest's root, with no guest program run. Host
+check H-C9 proves this on a real privileged container. If it cannot be made to work, the fallback
+is decision DC13 (start at the next container start only); running the guest's `systemctl` as root
+is not an option. A unit whose text is unchanged is not restarted; a user in no team has the unit
+stopped, disabled and removed. The unit text is C's alone (area B places no unit):
+
+```ini
+[Unit]
+Description=teamchat session for <user>
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+User=<user>
+Group=<group>
+WorkingDirectory=<checkout>
+RuntimeDirectory=teamchat-session-<user>
+RuntimeDirectoryMode=0700
+Environment=XDG_RUNTIME_DIR=/run/teamchat-session-<user> HOME=<home>
+ExecStart=/usr/bin/tmux -L teamchat new-session -d -s teamchat /usr/local/bin/teamchat-claude
+KillMode=mixed
+TimeoutStopSec=30
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+- `RuntimeDirectory=` gives the session a runtime directory without a login session, and is one of
+  the runtime parents 3.9.2 step 4 reads.
+- `KillMode=mixed` sends the stop's SIGTERM to the tmux server only, so the pane's hangup ends
+  Claude Code in the ordinary way and the keeper and worker are not signalled by systemd while the
+  goodbye is posted; the SIGKILL of what remains comes only after the main process has gone.
+  This relies on area B's `run` waiting for the keeper before it exits (section 7, B item 10), so
+  the pane, and with it the tmux server, outlives the goodbye. `TimeoutStopSec=30` is above B's
+  5 s end bound with margin.
+- `<checkout>`, `<user>`, `<group>` and `<home>` are the host-side reads of 3.9.2 step 3, each
+  checked against its grammar before it is rendered into the unit.
 
 ### 3.10 Element profiles
 
@@ -1798,10 +1917,11 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
 
 **Area B (member).**
 
-1. `teamchat` has B's guest operations (B 2.13): `guest check`, `guest place-bundle`, `guest membership`,
-   `guest unit` and `guest remove`, run as the agent user (`--user` must name the caller) with typed
-   JSON on stdin, and `guest install-self` as the guest's root; the code `guest place-bundle` uses for files is the same `bus/seat`
-   code ccy-teams uses.
+1. `teamchat` has B's guest operations (B 2.13): `guest check`, `guest place-bundle`,
+   `guest membership` and `guest remove`, every one run as the agent user (`--user` must name the
+   caller) with typed JSON on stdin; none runs as root, and the kit and the session unit are C's
+   host-side writes (3.9.2, 3.9.4). The code `guest place-bundle` uses for files is the same
+   `internal/teamchat/seat` code ccy-teams uses.
 2. B reads `seat.json` and `token` and owns everything else in a session seat directory, including
    the seat lock, which is a `flock` the host can probe with a shared non-blocking lock (L3). B
    never expects the host to read back anything B wrote there.
