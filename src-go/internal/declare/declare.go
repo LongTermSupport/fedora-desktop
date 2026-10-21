@@ -5,7 +5,8 @@
 // declare.py, which owns the host_vars editing, the team-file validation, the LXC checks and
 // the applied-state digests, and the marker lines it prints on stdout are parsed here: the
 // edits, check, check-address, suggest-team, the lxc-* subcommands other than lxc-members, and
-// status. Overview is Declared in-process beside one status run.
+// status. Overview is Declared in-process beside one status run, whose answer is kept and given
+// again while every input it is computed from is unchanged (verdict.go, SPEC-view.md V40).
 //
 // Either way a refusal is an *Error with declare.py's exit code (64 usage, 78 refused, 130
 // Ctrl-C, 1 for the reader's crash class) and its "declare: <message>" line, so a caller cannot
@@ -79,6 +80,16 @@ type Client struct {
 	Root   string
 	File   string
 	Err    io.Writer
+	// Bridge is the LXC bridge's IPv4 addresses, one input of the APPLIED verdict; nil reads
+	// lxcBridge in-process. Its error is part of the verdict's key, never a refusal: the
+	// status run judges the bridge itself.
+	Bridge func() ([]string, error)
+	// Edited, when set, is told after every editing run of declare.py, whether it passed or not:
+	// what a caller kept of the declaration is read again.
+	Edited func()
+
+	// verdict is the last status answer and the key of the inputs it was computed from (V40).
+	verdict verdict
 }
 
 // NewClient is a Client whose stderr notes go to the process's stderr.
@@ -196,17 +207,6 @@ func plain(out string) string { return strings.TrimRight(out, "\r\n") }
 // Declared is the teams of the host_vars, in file order.
 func (c *Client) Declared(context.Context) ([]Team, error) {
 	return read(c, busdeclare.HostVars.Declared)
-}
-
-// Status compares each team's applied stamp in appliedDir with the declaration and the
-// software in source. installed names the teams that have a homeserver unit; the flags are
-// passed sorted so the call is the same whatever order a map gave them in.
-func (c *Client) Status(ctx context.Context, source, appliedDir string, installed []string) ([]Status, error) {
-	out, err := c.runFile(ctx, "status", statusArgs(source, appliedDir, installed)...)
-	if err != nil {
-		return nil, err
-	}
-	return parseStatuses(out)
 }
 
 // Overview is Declared, read in-process, and Status, the one run of declare.py the list
@@ -464,6 +464,9 @@ func (c *Client) runFile(ctx context.Context, sub string, args ...string) (strin
 
 func (c *Client) edit(ctx context.Context, sub string, args ...string) (Change, error) {
 	out, err := c.runFile(ctx, sub, args...)
+	if c.Edited != nil {
+		c.Edited()
+	}
 	if err != nil {
 		return Change{}, err
 	}

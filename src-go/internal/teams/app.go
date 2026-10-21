@@ -108,7 +108,10 @@ func Wire(h *host.Host) *App {
 	h.Wire()
 	kit := flow.New(h)
 	b := board.New(h)
-	o := ops.New(h, b.Statuses, func() { b.ForgetDevices("") })
+	// An edit of the host_vars or a play run may change what an open's start-up shares of the
+	// teams (SPEC-view.md V41): each makes the next pass read them again.
+	h.Declare.Edited = b.ForgetTeams
+	o := ops.New(h, b.Statuses, b.Changed)
 	l := login.New(h, kit, b, o)
 	o.SignInGap = l.SignInGap
 	s := seats.New(h, kit, o)

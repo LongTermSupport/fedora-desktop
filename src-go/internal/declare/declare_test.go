@@ -241,6 +241,56 @@ func TestDropLimitAndRemove(t *testing.T) {
 	}
 }
 
+// Every edit tells Edited once it has run, passed or failed, so what a caller kept of the
+// declaration is read again (SPEC-view.md V41); a check, a dry run or a status run does not.
+func TestEveryEditTellsEditedAndNothingElseDoes(t *testing.T) {
+	f := &execx.Fake{}
+	edited := 0
+	c := newClient(f)
+	c.Edited = func() { edited++ }
+	ctx := context.Background()
+	f.On([]string{"env"}, execx.Result{Stdout: []byte("CHANGED\tdone\n")})
+	edits := []func() error{
+		func() error { _, err := c.Create(ctx, Entry{Team: "alpha"}); return err },
+		func() error { _, err := c.Describe(ctx, "alpha", "x"); return err },
+		func() error { _, err := c.AddRepo(ctx, "alpha", "o/r"); return err },
+		func() error { _, err := c.Element(ctx, "alpha"); return err },
+		func() error { _, err := c.DropLimit(ctx, "alpha"); return err },
+		func() error { _, err := c.Set(ctx, "alpha", nil); return err },
+		func() error { _, err := c.Remove(ctx, "alpha", false); return err },
+		func() error { _, err := c.LxcAdd(ctx, LxcEntry{Team: "alpha"}); return err },
+		func() error { _, err := c.LxcSetRole(ctx, LxcMember{Team: "alpha"}, "dev"); return err },
+	}
+	for i, edit := range edits {
+		if err := edit(); err != nil {
+			t.Fatalf("edit %d: %v", i, err)
+		}
+		if edited != i+1 {
+			t.Fatalf("edit %d told Edited %d times in all", i, edited)
+		}
+	}
+	f.On([]string{"env"}, execx.Result{ExitCode: 78, Stderr: []byte("declare: no\n")})
+	if _, err := c.Describe(ctx, "alpha", "x"); err == nil || edited != len(edits)+1 {
+		t.Fatalf("a failed edit: err %v, told %d times", err, edited)
+	}
+	f.On([]string{"env"}, execx.Result{})
+	if err := c.Check(ctx, Entry{Team: "alpha"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateDryRun(ctx, Entry{Team: "alpha"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.CheckSet(ctx, "alpha", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Status(ctx, "/s", "/a", nil); err != nil {
+		t.Fatal(err)
+	}
+	if edited != len(edits)+1 {
+		t.Fatalf("a check, a dry run or a status told Edited: %d", edited)
+	}
+}
+
 func TestExitCodesBecomeTypedErrors(t *testing.T) {
 	cases := []struct {
 		code int

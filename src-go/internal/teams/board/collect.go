@@ -66,6 +66,13 @@ type Collector struct {
 		here  hostcheckout.Checkout
 		why   string
 	}
+	// startup is the read of the teams an open's start-up shares, while on (HoldTeams).
+	startup startup
+}
+
+type startup struct {
+	on   bool
+	read *teamsRead
 }
 
 // New is the Collector of a host.
@@ -113,6 +120,33 @@ func (c *Collector) ForgetDevices(team string) {
 	}
 }
 
+// teamsRead is one read of the teams: the homeserver units, the declaration and the APPLIED
+// verdict.
+type teamsRead struct {
+	units    []systemd.Unit
+	declared []declare.Team
+	states   []declare.Status
+}
+
+// HoldTeams starts an open's start-up (SPEC-view.md V41): the next read of the teams is shared
+// by every pass up to and including the first Collect, unless ForgetTeams is told in between.
+func (c *Collector) HoldTeams() {
+	c.startup = startup{on: true}
+}
+
+// ForgetTeams drops the read the start-up shares: something that changes the units, the
+// declaration or the verdict (an apply, a remove, a create, an edit) has been done.
+func (c *Collector) ForgetTeams() {
+	c.startup.read = nil
+}
+
+// Changed is told after a flow that may have changed a team (ops' Changed): what was kept of who
+// is signed in and the start-up's read of the teams are both read again.
+func (c *Collector) Changed() {
+	c.ForgetDevices("")
+	c.ForgetTeams()
+}
+
 type seatAt struct {
 	dir  string
 	seat agentbus.Seat
@@ -122,7 +156,9 @@ type seatAt struct {
 // calls run together (read), and what they found is used in the order they were always made.
 func (c *Collector) Collect(ctx context.Context) (*Snapshot, error) {
 	s := NewSnapshot()
-	if err := c.collectTeams(ctx, s); err != nil {
+	err := c.collectTeams(ctx, s)
+	c.startup = startup{}
+	if err != nil {
 		return nil, err
 	}
 	if len(s.Teams) == 0 {
@@ -152,39 +188,57 @@ func (c *Collector) reportErr(err error) {
 }
 
 // collectTeams fills Teams, Port, URL, Server, Loaded, Active and Status from the homeserver
-// units, the declaration and the applied stamps. The units come first because the status check
-// is told which teams have one; declare.py then answers the declaration and the status in one
-// run.
+// units, the declaration and the applied stamps.
 func (c *Collector) collectTeams(ctx context.Context, s *Snapshot) error {
 	if err := c.NeedCheckout(); err != nil {
 		return err
 	}
+	read, err := c.readTeams(ctx)
+	if err != nil {
+		return err
+	}
+	for _, u := range read.units {
+		s.Loaded[u.Team] = true
+		s.Active[u.Team] = u.Active
+	}
+	seen := map[string]bool{}
+	s.addDeclared(seen, read.declared)
+	for _, u := range read.units {
+		s.addTeam(seen, u.Team)
+	}
+	for _, st := range read.states {
+		s.Status[st.Team] = st
+	}
+	return c.addStamped(s, seen)
+}
+
+// readTeams is the start-up's shared read when there is one, else a new read, which the
+// start-up then shares. The units come first because the status check is told which teams
+// have one.
+func (c *Collector) readTeams(ctx context.Context) (*teamsRead, error) {
+	if c.startup.read != nil {
+		return c.startup.read, nil
+	}
 	units, err := c.Systemd.HomeserverUnits(ctx)
 	if err != nil {
 		c.Term.PrintError("systemctl could not list the agent-bus homeserver units.")
-		return errReported
+		return nil, errReported
 	}
 	installed := make([]string, 0, len(units))
 	for _, u := range units {
-		s.Loaded[u.Team] = true
-		s.Active[u.Team] = u.Active
 		installed = append(installed, u.Team)
 	}
 	declared, states, err := c.Declare.Overview(ctx, c.RootDir, c.AppliedDir, installed)
 	if err != nil {
 		c.reportErr(err)
 		c.Term.PrintError("the teams declared in " + c.HostVars + ", and whether each is applied as declared, could not be read (the reason is above).")
-		return errReported
+		return nil, errReported
 	}
-	seen := map[string]bool{}
-	s.addDeclared(seen, declared)
-	for _, u := range units {
-		s.addTeam(seen, u.Team)
+	read := &teamsRead{units: units, declared: declared, states: states}
+	if c.startup.on {
+		c.startup.read = read
 	}
-	for _, st := range states {
-		s.Status[st.Team] = st
-	}
-	return c.addStamped(s, seen)
+	return read, nil
 }
 
 // addStamped notes a team whose stamp says it is built, though not declared present: it needs

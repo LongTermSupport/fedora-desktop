@@ -65,7 +65,8 @@ func newRig(t *testing.T) rig {
 	h := w.Host
 	kit := flow.New(h)
 	b := board.New(h)
-	o := ops.New(h, b.Statuses, func() { b.ForgetDevices("") })
+	h.Declare.Edited = b.ForgetTeams
+	o := ops.New(h, b.Statuses, b.Changed)
 	l := login.New(h, kit, b, o)
 	s := seats.New(h, kit, o)
 	w.On(h.Play, "", 0)
