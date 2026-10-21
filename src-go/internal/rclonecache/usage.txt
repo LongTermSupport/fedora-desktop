@@ -1,0 +1,25 @@
+Usage: rclone-cache-status [--label TEXT] [--no-dir] [TARGET]
+
+Show the VFS cache use of the rclone mounts.
+
+  TARGET          a mount name (e.g. 'gdrive'): only that mount
+                  a directory inside a mount: also how much of THAT directory is cached
+                  (omitted): the working directory when it is inside a mount, else every mount
+  --no-dir        no directory analysis, even when the working directory is in a mount
+  -l, --label     add TEXT to the heading (e.g. 'before', 'after')
+  -h, --help      show this help
+
+Each mount's --rc endpoint is asked for vfs/stats: cache used against the configured maximum,
+cached files, max-age, and pending uploads. A mount started without --rc is listed as
+'(no --rc; cannot query)'; the directory analysis still works for it, since it walks the cache
+directory on disk.
+
+The directory analysis reports the files below the directory, how many and how many bytes are
+cached, and the five largest uncached files: candidates for rclone-cache-warm.
+
+Exit status: 0 the report was written (a mount whose RC could not be asked is a line of it);
+1 the mounts could not be listed, the directory is inside no mount or could not be read in
+full, or rclone is not installed; 64 a usage error.
+
+rclone-cache-warm and rclone-tail run it to bracket their own runs. Installed by
+play-rclone.yml.

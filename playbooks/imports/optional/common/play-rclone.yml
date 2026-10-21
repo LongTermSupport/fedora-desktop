@@ -89,6 +89,15 @@
 #   4. Replace the rclone_config value in host_vars/localhost.yml
 #   5. Re-run this playbook
 
+# rclone-cache-status is a Go binary built from this checkout (src-go/cmd/rclone-cache-status),
+# so the Go toolchain is installed first. play-golang.yml stays its one source of truth; the
+# tags make --tags rclone (the whole play) or --tags rclone-cache-status (only this command,
+# leaving the mounts up) install the toolchain too.
+- import_playbook: ../../play-golang.yml
+  tags:
+    - rclone
+    - rclone-cache-status
+
 - hosts: desktop
   name: Install and Configure rclone with Cloud Storage Mounts
   become: true
@@ -267,9 +276,10 @@
     # is false — rclone gates the whole rc surface, and an unauthenticated call
     # gets HTTP 401. Every un-migrated client (ftp-camera --copy, rclone-tail,
     # rclone-cache-status) broke silently and stayed broken for weeks, because
-    # each reported the 401 as "rc unreachable". Clients now share one credential
-    # helper, files/home/.local/bin/rclone-rc-auth.bash — if you add another RC
-    # caller, source that; do not hand-copy a credential block.
+    # each reported the 401 as "rc unreachable". Clients share one credential
+    # helper: a bash caller sources files/home/.local/bin/rclone-rc-auth.bash, a Go
+    # one (ftp-camera, rclone-cache-status) uses src-go/internal/rclonerc, which
+    # reads the same file; do not hand-copy a credential block.
     #
     # The secret is generated on the host, never committed (public repo), and is
     # passed via EnvironmentFile rather than ExecStart so it stays out of the
@@ -465,14 +475,18 @@
         mode: '0644'
       tags: rclone, rc-auth
 
-    - name: Deploy rclone-cache-status utility script
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/.local/bin/rclone-cache-status"
-        dest: "/home/{{ user_login }}/.local/bin/rclone-cache-status"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: '0755'
-      tags: rclone
+    # The command is a Go binary (src-go/cmd/rclone-cache-status, Plan 00192), built and
+    # installed at its old path by the shared build-go-command.yml. It reads the RC credential
+    # itself (src-go/internal/rclonerc), so it does not need the library above.
+    - name: Build and Install the rclone-cache-status Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: rclone-cache-status
+        go_command_dest: "/home/{{ user_login }}/.local/bin/rclone-cache-status"
+        go_command_mode: "0755"
+      tags:
+        - rclone
+        - rclone-cache-status
 
     - name: Deploy rclone-cache-warm utility script
       ansible.builtin.copy:

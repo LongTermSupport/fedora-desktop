@@ -2,7 +2,8 @@
 
 One module, `github.com/LongTermSupport/fedora-desktop/src-go`, for this repository's large
 interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfreeze`,
-`lxcfreeze`, `vmtest`, `ftp-camera`, `watermark`, `wsi` and `open` live here; their bash originals are gone.
+`lxcfreeze`, `vmtest`, `ftp-camera`, `watermark`, `wsi`, `open` and `rclone-cache-status` live here; their bash
+originals are gone.
 `convert` is new, with no bash original.
 
 ## Layout
@@ -29,6 +30,11 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
   followers and teardown; root through `sudo`, systemctl through `systemd`, and the rclone
   remote control through `rclonerc` (the Go twin of `rclone-rc-auth.bash`, for the rclone
   helpers when they are ported).
+- `internal/rclonecache/` — the `rclone-cache-status` command (spec
+  `SPEC-rclone-cache-status.md`, E1-E21): the rclone mounts from `findmnt -J`, each mount
+  process's `--rc-addr` and `--cache-dir` from `/proc` (`rclonerc.MountProcess`), `vfs/stats`
+  through `rclonerc.Client.Call`, and a directory walked against its VFS cache mirror; no
+  Python, no `numfmt`.
 - `internal/<package>/` — shared adapters, each behind an interface with a fake: `execx`
   (the command runner every external call goes through, and its recording `Fake`), `term`
   (exit codes, error printing), `ui` (gum and fzf prompts), `sudo`, `systemd`, `tmuxccy`,
@@ -176,7 +182,7 @@ and `cc-project-dir` (`ccy-teams` and `cc-project-dir` also get
 `play-lxcfreeze.yml` import (both import `play-golang.yml` first for the toolchain), and
 `play-vm-test-lab.yml` for `vmtest`, `play-ftp-camera.yml` for `ftp-camera`,
 `play-image-watermarking.yml` for `watermark`, `play-speech-to-text.yml` for `wsi` and
-`play-cli-tools.yml` for `open` and `convert`, and `play-basic-configs.yml` for `git-fetch-age`
+`play-cli-tools.yml` for `open` and `convert`, `play-rclone.yml` for `rclone-cache-status`, and `play-basic-configs.yml` for `git-fetch-age`
 (each imports `play-golang.yml` too); `watermark` and `git-fetch-age` are installed root-owned
 in `/usr/local/bin` (`go_command_owner: root`; only that copy runs as root). Each binary lands
 at its old path. A new deployed command takes a row in

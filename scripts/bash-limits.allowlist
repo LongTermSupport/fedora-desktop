@@ -29,7 +29,6 @@ files/home/.local/bin/lan-scan	190	10	214	-
 files/home/.local/bin/nord	505	18	502	-
 files/home/.local/bin/qnap-finder	135	4	178	-
 files/home/.local/bin/raw-prune	119	1	95	assoc
-files/home/.local/bin/rclone-cache-status	323	7	305	data
 files/home/.local/bin/rclone-cache-warm	101	1	110	-
 files/home/.local/bin/rclone-rc-auth.bash	96	4	111	-
 files/home/.local/bin/rclone-tail	226	7	225	assoc,data

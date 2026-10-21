@@ -192,6 +192,11 @@ linters:
       - path: internal/rclonerc/rclonerc\.go
         linters: [gosec]
         text: "G304"
+      # rclone-cache-status decodes rclone's vfs/stats answer, whose opt keys are rclone's own
+      # Go field names (CacheMaxSize, CacheMaxAge).
+      - path: internal/rclonecache/stats\.go
+        linters: [tagliatelle]
+        text: "CacheMax"
       # ftp-camera's job is files by computed path: it reads its config and the uploads under
       # the camera account's home, and copies each sorted upload into the rclone mount, creating
       # its directories with the user's umask as cp and mkdir -p did (SPEC-ftp-camera.md E63).
