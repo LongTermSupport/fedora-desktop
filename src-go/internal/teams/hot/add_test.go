@@ -363,6 +363,22 @@ func TestAddWhoseRelaunchedSessionReportCannotBeReadSaysWhy(t *testing.T) {
 	}
 }
 
+func TestAddWhoseRelaunchedSessionHasNoReportYetWaitsForIt(t *testing.T) {
+	r := newRig(t)
+	r.m.onPs = func() {
+		if _, err := os.Lstat(filepath.Join(r.dir(), membership.RelaunchFile)); err == nil {
+			r.m.report = "-"
+		}
+	}
+	if code := r.run(t, "add", session, "alpha/3", "--yes"); code != term.ExitFailure {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	got := r.ErrOut.String()
+	if !strings.Contains(got, "not relaunched within 180 s") || strings.Contains(got, "could not be read") {
+		t.Fatalf("a report not written yet is waited for:\n%s", got)
+	}
+}
+
 func TestAddWhoseRelaunchDoesNotComeSaysWhatToDo(t *testing.T) {
 	r := newRig(t)
 	r.m.relaunch = false

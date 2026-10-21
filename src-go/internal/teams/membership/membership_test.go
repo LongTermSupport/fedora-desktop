@@ -257,6 +257,51 @@ func TestOnlyACheckedMembershipCanBeWritten(t *testing.T) {
 	}
 }
 
+// checkedLiteralsOutside is where, in the Go source src, a checked value is built with content
+// anywhere but validate: the places a membership could skip the check.
+func checkedLiteralsOutside(t *testing.T, name, src string) []string {
+	t.Helper()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, name, src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found []string
+	for _, decl := range file.Decls {
+		fn, isFunc := decl.(*ast.FuncDecl)
+		if isFunc && fn.Name.Name == "validate" {
+			continue
+		}
+		ast.Inspect(decl, func(n ast.Node) bool {
+			if lit, ok := n.(*ast.CompositeLit); ok && types.ExprString(lit.Type) == "checked" && len(lit.Elts) > 0 {
+				found = append(found, fset.Position(lit.Pos()).String())
+			}
+			return true
+		})
+	}
+	return found
+}
+
+func TestNoCheckedMembershipIsBuiltOutsideValidate(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		if found := checkedLiteralsOutside(t, f, readFile(t, f)); len(found) > 0 {
+			t.Errorf("a checked value is built outside validate: %v", found)
+		}
+	}
+	forged := "package membership\nfunc skip(d Desired) checked { return checked{d} }\n" +
+		"func (d Desired) validate() (checked, error) { return checked{d}, nil }\n"
+	if got := checkedLiteralsOutside(t, "forged.go", forged); len(got) != 1 {
+		t.Fatalf("the guard finds a forged literal and spares validate: %v", got)
+	}
+}
+
 // The seat and team grammar is pingbus's (helpers/pingbus/protocol.py); this package holds a
 // copy so the launcher's list is checked before anything is written. The copy is pinned here.
 func TestTheGrammarIsPingbusOwn(t *testing.T) {

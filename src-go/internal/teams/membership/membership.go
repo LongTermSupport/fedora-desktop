@@ -146,8 +146,7 @@ func ParseSeats(list string) ([]Seat, error) {
 func (m *Init) Run(_ context.Context, args []string) term.ExitCode {
 	ready, err := m.desired(args)
 	if err != nil {
-		m.say("ccy-teams: internal " + sub + ": " + err.Error() + ". Nothing was written. Correct that and launch again; " +
-			"see ccy-teams --help for what a session, a checkout and a seat list may be.")
+		m.say("ccy-teams: internal " + sub + ": " + err.Error() + ". Nothing was written. Correct that and launch again.")
 		return term.ExitUsage
 	}
 	desired := ready.d

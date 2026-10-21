@@ -102,6 +102,19 @@ func TestRoleNotToldBecauseTheReportCannotBeReadSaysWhy(t *testing.T) {
 	}
 }
 
+func TestRoleNotToldWithNoReportYetIsTheTimeoutNotAReadError(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
+	r.m.tells = false
+	r.m.report = "-"
+	if code := r.run(t, "role", session, "alpha", coord, "--yes"); code != term.ExitFailure {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	got := r.ErrOut.String()
+	if !strings.Contains(got, "not told within 10 s") || strings.Contains(got, "could not be read") {
+		t.Fatalf("a report not written yet is waited for:\n%s", got)
+	}
+}
+
 func TestRoleOfATeamTheSessionIsNotInOrWhoseHomeserverIsDown(t *testing.T) {
 	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
 	if code := r.run(t, "role", session, "beta", coord, "--yes"); code != term.ExitFailure {
