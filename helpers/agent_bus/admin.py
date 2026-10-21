@@ -732,6 +732,9 @@ def add_member(team: Team, transport: Transport, *, repo: str, host: str, type_:
     handle that is a current, unparked member is refused before any account call."""
     if type_ not in registry.TYPES:
         raise AdminError(f"--type must be one of {', '.join(registry.TYPES)}")
+    if protocol.normalise_role(role) == protocol.ROLE_COORDINATOR and not human_text:
+        # Every message the questions room delivers is a human's (Plan 00211 SPEC 4.5).
+        raise AdminError("a coordinator must take human text: drop --no-human-text")
     _member_address(team, address)
     try:
         repo = registry.normalise_repo(repo)

@@ -1,6 +1,6 @@
 // Package rules holds this module's project rules (Defence Before Fix): go/analysis analyzers
 // for the defect classes the ccy-teams and ccy-sessions ports actually hit. Each is proven on
-// a fixture reproducing the defect (testdata) and run over src-go by scripts/qa-go.bash.
+// a fixture reproducing the defect (testdata) and run over src-go by go-qa (scripts/qa-go-qa.bash).
 // CLAUDE/GoProjectRules.md is the catalogue.
 //
 // The tables below are the rules' data: which package owns which seam, and the narrow,
@@ -53,7 +53,7 @@ var commandOwners = map[string][]string{
 	"gum":          {"internal/ui"},
 	"fzf":          {"internal/ui"},
 	"systemctl":    {"internal/systemd"},
-	"busctl":       {"internal/systemd"},
+	"busctl":       {"internal/systemd", "internal/wsimedia"},
 	"git":          {"internal/gitx"},
 	"ps":           {sessprobePkg},
 	"podman":       {sessprobePkg, podfreezePkg},
@@ -146,6 +146,11 @@ var dynamicNames = []allowance{
 		reason: "wsi-stop-grace, wsi-setting or wsi-resolve-model, run from the directory the wsi binary is in",
 	},
 	{
+		pkg:    "internal/open",
+		fn:     "run.runHandler",
+		reason: "the terminal handler the person chose for a file (a viewer, pager, editor or player from open's table, or $VISUAL/$EDITOR) and its pager; never an owned program",
+	},
+	{
 		pkg:    "internal/wsipost",
 		fn:     "App.postProcess",
 		reason: "wsi-claude-process, run from the directory the wsi-postprocess binary is in",
@@ -212,6 +217,17 @@ var dynamicNames = []allowance{
 	},
 }
 
+// shellStrings are the functions that may hand a shell a string with -c, because the program's
+// own specification is a command line a user wrote for a shell to run. Every other shell -c is
+// the route round the argv the runner shows. fn is "func" or "Type.method".
+var shellStrings = []allowance{
+	{
+		pkg:    "internal/pingbus/statusline",
+		fn:     "runInner",
+		reason: "the statusLine command of the session's settings, which Claude Code itself runs as /bin/sh -c (Plan 00213 SPEC-status-line.md S9); the status line runs it the same way",
+	},
+}
+
 // bindingSubjects are not judged by project_hidden_bindings: the rules package and the
 // shell gate of the same rule name the fzf flags as the text they look for and build no fzf
 // argv (neither starts fzf).
@@ -231,13 +247,8 @@ var expectBuilders = []allowance{
 // clockAllowance excuses one test function from the fixed-clock rule.
 type clockAllowance = allowance
 
-var clockAllowances = []clockAllowance{
-	{
-		pkg:    "internal/tmuxccy",
-		fn:     "TestTakeOverDefaultsToTheRealClockAndSleep",
-		reason: "proves the default Sleep really sleeps; only the wall clock can show that",
-	},
-}
+// No test reads the wall clock: a real sleep is shown by a timer that fires first.
+var clockAllowances = []clockAllowance{}
 
 // noResult is what every rule hands the analysis framework: the rules only report.
 type noResult struct{}
@@ -254,7 +265,7 @@ func perPass(run func(*analysis.Pass)) func(*analysis.Pass) (any, error) {
 
 // All is every rule, in the order the driver registers them.
 func All() []*analysis.Analyzer {
-	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings}
+	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay, HiddenBindings, PackageTests}
 }
 
 // ownedBy is whether the package path (the test variants of it included) is owner, matched

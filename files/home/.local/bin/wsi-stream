@@ -890,7 +890,8 @@ def run_claude_processing(text, args):
     # Log raw transcription being sent to Claude
     preview = text[:100] + "..." if len(text) > 100 else text
     log(f"Raw transcription to Claude ({len(text)} chars): {preview}")
-    cmd = ["wsi-claude-process", "--model", args.claude_model, "--style", args.claude_style]
+    emit_dbus_signal("StateChanged", "CLAUDE_PROCESSING")  # the panel shows the style's emoji
+    cmd =["wsi-claude-process", "--model", args.claude_model, "--style", args.claude_style]
     if args.debug:
         cmd.append("--debug")
     cmd.append(text)

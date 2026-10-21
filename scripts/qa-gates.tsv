@@ -24,8 +24,9 @@
 # Toolchain first: every verdict below is a property of the binary that produced it. It does
 # not abort, because a drifted toolchain makes the verdicts unreliable, not unrunnable.
 gate	toolchain	scripts/qa-toolchain.bash	QA tool versions do not match .qa-versions — verdicts below are not comparable	detail:TOOLCHAIN-OK .+
-# src-go/: format, vet, race tests, golangci-lint, project rules.
-gate	go	scripts/qa-go.bash	Go format, vet, tests or golangci-lint failed (or go/golangci-lint missing)	detail:GO-OK [0-9]+ package[(]s[)]
+# src-go/, both modules: go-qa-ci's go-qa (format, golangci-lint, vet with the bundled analyzers and
+# the project rules, dead code, govulncheck, module files, build, race tests, coverage floor).
+gate	go	scripts/qa-go-qa.bash	go-qa found a defect in src-go, or could not run (go missing, a pinned tool not installed)	detail:coverage +passed
 # src-go's dependencies (Plan 00204 D2): allowlisted, pinned and vendored in step; then no known
 # vulnerability the code reaches.
 gate	go-deps	scripts/qa-go-deps.bash	src-go's dependencies are not all allowlisted, pinned and vendored in step with go.mod	detail:GO-DEPS-OK [0-9]+ module[(]s[)] allowlisted .+
@@ -105,6 +106,7 @@ gate	run-bash-rerun	scripts/test-run-bash-rerun.bash	run.bash --rerun tests fail
 gate	run-bash-gh-scopes	scripts/test-run-bash-gh-scopes.bash	run.bash / gh-account-setup.bash single-pass scope tests failed	count
 gate	run-bash-config-repo	scripts/test-run-bash-config-repo.bash	run.bash config-repo tests failed	count
 gate	run-bash-ssh-agent-start	scripts/test-run-bash-ssh-agent-start.bash	run.bash headless SSH unlock tests failed	count
+gate	run-bash-pipx-inject	scripts/test-run-bash-pipx-inject.bash	run.bash pipx inject step tests failed	count
 gate	gh-alias-wrappers	scripts/test-gh-alias-wrappers.bash	gh-<alias> wrapper tests failed	count
 gate	self-update-cycle	scripts/test-self-update-cycle.bash	fedora-desktop-self-update end-to-end tests failed	count
 gate	agent-bus-install	scripts/test-agent-bus-install.bash	agent-bus-install tests failed	count
