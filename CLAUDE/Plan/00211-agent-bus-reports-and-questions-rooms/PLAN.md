@@ -24,8 +24,9 @@ play creates both rooms for every team, LXC teams included, and running it again
 nothing. The rollout is upgrade-first:
 
 - **Deploy 1** ships the member side to every member.
-- **Deploy 2** creates the rooms. It invites a coordinator only once that coordinator's running
-  code has proved it understands the rooms, by joining the reports room.
+- **Deploy 2** creates the rooms and invites every coordinator, then waits for each to have
+  joined the questions room. That join is the proof that the coordinator's running code
+  understands the rooms; the leg names any that has not.
 
 The design is [SPEC.md](SPEC.md). Its research is in SPEC §1.
 
@@ -42,8 +43,8 @@ The design is [SPEC.md](SPEC.md). Its research is in SPEC §1.
   the duplicate window and the outbox (SPEC §7, §8).
 - Skill and session-start text that teaches workers "questions go to the coordinator, never to
   a human", and coordinators "bubble up only what you cannot answer" (SPEC §10).
-- Fail-fast rollout. No coordinator is invited to a room that its running pingbus cannot read,
-  and deploy 2 refuses, naming the member, while one is down or out of date (SPEC §5.3).
+- Fail-fast rollout. Deploy 2 refuses, naming the member, while an LXC container is down or out
+  of date, or a coordinator has not joined the questions room (SPEC §5.3).
 
 ## Non-Goals
 
@@ -95,8 +96,7 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   - that a power-50 human is refused `m.reaction` at 100;
   - that a pending invite does no harm across syncs.
 - [ ] ⬜ **Task 0.2**: Findings journalled. If the restricted join fails, SPEC §3.1, §4.4 and
-  §5.3 are amended to an explicit capability event in place of the reports-join beacon, before
-  Phase 1 starts.
+  §5.3 are amended to another way into the reports room before Phase 1 starts.
 
 ### Phase 1: member side (deploy 1)
 
@@ -113,8 +113,10 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   - the questions-room receive path;
   - `history --room`;
   - the attachment rules.
-- [ ] ⬜ **Task 1.4**: `config`: refuse a coordinator whose bundle has `human_text: false`.
-  `members.py` refuses the same in an LXC entry (SPEC §4.5).
+- [ ] ⬜ **Task 1.4**: A coordinator with `human_text: false` is refused where the role is
+  assigned: `members.py` in an LXC entry, and `admin.add_member`. A sync never refuses it; the
+  member leaves the questions invite pending, and `status` and the hook context name the
+  reason (SPEC §4.5).
 - [ ] ⬜ **Task 1.5**: `limits`: `report_per_hour`, with its bounds (SPEC §7).
 - [ ] ⬜ **Task 1.6**: `cli`: `report`, `ask-human`, `thread` (with `--ask` and `--close`),
   `questions`, and `history --room`. The `HUMAN` line gains an appended `ROOM` field, and the
@@ -143,18 +145,17 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
 - [ ] ⬜ **Task 2.2**: `admin`: `_sync_questions_members`, called from `bootstrap`,
   `add_member`, `set_role` and `remove_member` (SPEC §5.1):
   - the questions room is created at the first coordinator;
-  - kicks come before invites, and every coordinator is invited;
-  - `held` when a coordinator has not joined reports;
+  - kicks come before invites, and every coordinator is invited (again, when `leave`);
   - the open and closed forms.
     `remove_member` also kicks from reports.
-- [ ] ⬜ **Task 2.3**: `health`: a read-only side-room drift check, which also reports held
-  coordinators (SPEC §5.4).
+- [ ] ⬜ **Task 2.3**: `health`: a read-only side-room drift check, which also reports
+  coordinators not joined to questions (SPEC §5.4).
 - [ ] ⬜ **Task 2.4**: `agent-bus list` `ROOM` lines, with the HUMAN and MEMBER lines unchanged
   (SPEC §5.5).
 - [ ] ⬜ **Task 2.5**: `acceptance.bash` gains stage 2 (A1-A4) and `--after-owner` (A5), and
   `ACCEPTANCE-owner.md` is written. Both are committed before Task 2.6 (SPEC §11.2, §11.3).
-- [ ] ⬜ **Task 2.6**: `deploy.bash --stage 2` with the legs of SPEC §5.3: pre-flight, the play,
-  beacons, the play again, then acceptance. `ansible-playbook --syntax-check` only. Merge, then
+- [ ] ⬜ **Task 2.6**: `deploy.bash --stage 2` with the legs of SPEC §5.3: pre-flight (LXC containers up
+  and new), the play, the questions-join wait, then acceptance. `ansible-playbook --syntax-check` only. Merge, then
   queue in `meta-deploy.list`.
 
 ### Phase 3: the owner's view (Go)
@@ -179,7 +180,7 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
 | --- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | D1  | A new plan, or a phase of Plan 00207?                                              | A new plan. 00207 waits on 25 decisions and ties rooms to token custody; this plan ships alone and 00207 builds on it. The dedupe scout recommended merging                                                                                                                                                                                                                          |
 | D2  | Reports room: read-only for humans by convention, or enforced?                     | Enforced by power levels (humans 0, agents 10). A human's post there would reach nobody, silently                                                                                                                                                                                                                                                                                    |
-| D3  | How agents enter the reports room                                                  | A restricted join (members of the main room may join), which also serves as the capability beacon. The spike checks it                                                                                                                                                                                                                                                               |
+| D3  | How agents enter the reports room                                                  | A restricted join (members of the main room may join), made by each member's syncer on reading the index. The spike checks it                                                                                                                                                                                                                                                        |
 | D4  | Questions room for a team with no coordinator?                                     | Created only when the team first has a coordinator. If it later has none, the room is closed (humans at power 0), so no message goes unread                                                                                                                                                                                                                                          |
 | D5  | Threads or replies for answers?                                                    | Each question is a thread root. Thread replies, replies, a `Q<n>` prefix and unattached messages are all delivered                                                                                                                                                                                                                                                                   |
 | D6  | Edits in the questions room                                                        | Delivered to the coordinator as a revision (`revises: <event>`), beside the original. Edits in the main room are dropped, as now                                                                                                                                                                                                                                                     |
@@ -188,7 +189,7 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
 | D9  | **Needs the owner's sign-off.** Extend v1 Python now, or wait for Plan 00209's Go? | Extend Python now. This departs from CLAUDE.md's rule that a standalone Python CLI is ported to Go when it is next reworked: four subcommands, multi-room sync and an inbox change are a rework of `pingbus`. The reason: Plan 00209 is porting the whole bus. The cost: a larger corpus for 00209 to carry. The alternative is to build this plan after 00209's member-client stage |
 | D10 | Caps                                                                               | A report: at most 1500 bytes, and 6 an hour per member. A question: at most 8000 bytes, with `Context:` and `Question:` required. No cap on open questions, because it would block an urgent one                                                                                                                                                                                     |
 | D11 | Room aliases?                                                                      | None. Members find the rooms through the index the admin writes                                                                                                                                                                                                                                                                                                                      |
-| D12 | Rollout                                                                            | Two deploys: the member side, then a session restart, then the admin side. Deploy 2 has a pre-flight check and beacon legs that refuse, naming the member, rather than invite a coordinator whose running code is old                                                                                                                                                                |
+| D12 | Rollout                                                                            | Two deploys: the member side, then a session restart, then the admin side. Deploy 2 has an LXC pre-flight check, and a wait for every coordinator's questions join that refuses, naming any not joined (an old one rejects; the next run invites again)                                                                                                                              |
 | D13 | History visibility                                                                 | `shared` in both rooms, so a new coordinator reads the open questions                                                                                                                                                                                                                                                                                                                |
 | D14 | Message types                                                                      | Reports are `m.notice` with no mentions, so they never notify. Questions are `m.text` mentioning the humans, so they notify                                                                                                                                                                                                                                                          |
 | D15 | May the owner start a topic in the questions room unprompted?                      | Yes. It reaches the coordinator as an unattached `HUMAN` message                                                                                                                                                                                                                                                                                                                     |
@@ -220,14 +221,14 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
 
 ## Risks & Mitigations
 
-| Risk                                                     | Impact | Probability | Mitigation                                                                                                   |
-| -------------------------------------------------------- | ------ | ----------- | ------------------------------------------------------------------------------------------------------------ |
-| Tuwunel does not support restricted joins                | M      | L           | Spike first (Task 0.1); if it fails, the beacon becomes an explicit capability event, settled before Phase 1 |
-| An old coordinator rejects its questions invite          | M      | M           | It is never invited: an invite needs the beacon. Deploy 2's legs and health name it                          |
-| A container that is down misses deploy 1                 | M      | M           | The stage-1 acceptance and the deploy-2 pre-flight both refuse, naming it                                    |
-| Admin code reaches F44 before deploy 1                   | H      | L           | The merge order is stated in Tasks. Task 1.13 merges Phase 1 alone                                           |
-| Coordinators over-ask, and the questions room gets noisy | M      | M           | Format checks, duplicate refusal, and the skill's "bubble up only what you cannot answer"                    |
-| Element's thread or edit shape differs from the spec     | L      | M           | Every form is delivered, attached or not. A5's recorded events become fixtures (Task 4.2)                    |
+| Risk                                                     | Impact | Probability | Mitigation                                                                                |
+| -------------------------------------------------------- | ------ | ----------- | ----------------------------------------------------------------------------------------- |
+| Tuwunel does not support restricted joins                | M      | L           | Spike first (Task 0.1); if it fails, another way into reports is settled before Phase 1   |
+| An old coordinator rejects its questions invite          | M      | M           | Deploy 2's questions-join wait and health name it; the next play run invites it again     |
+| A container that is down misses deploy 1                 | M      | M           | The stage-1 acceptance and the deploy-2 pre-flight both refuse, naming it                 |
+| Admin code reaches F44 before deploy 1                   | H      | L           | The merge order is stated in Tasks. Task 1.13 merges Phase 1 alone                        |
+| Coordinators over-ask, and the questions room gets noisy | M      | M           | Format checks, duplicate refusal, and the skill's "bubble up only what you cannot answer" |
+| Element's thread or edit shape differs from the spec     | L      | M           | Every form is delivered, attached or not. A5's recorded events become fixtures (Task 4.2) |
 
 ## Delivery & Milestones
 

@@ -113,9 +113,9 @@ Terms, as in the protocol: *main room* is today's team room (protocol §8, the b
 - **History visibility `shared`** for both, set explicitly: a new coordinator must read the open
   questions (D13).
 - **Encryption off, federation off**, as for the main room.
-- **Joining the reports room is also the capability beacon** (5.3). A member's syncer joins it
-  as soon as it reads the index, so the admin can tell from membership alone which members are
-  running code that understands the rooms.
+- A member's syncer joins the reports room as soon as it reads the index, so it can post
+  there. The join is not used as proof of anything: the deploy checks the questions-room join
+  itself (5.3).
 
 ### 3.2 Power levels
 
@@ -217,15 +217,19 @@ for another `admin` room on its own.
   member never syncs the room afterwards: the filter does not name it. No invite is sent to an
   agent, so an older pingbus never sees one to reject. Humans are invited by `admin`, so the
   room shows up in Element.
-- **Questions.** `admin` invites a coordinator only once it has joined the reports room (5.3).
-  The coordinator's syncer accepts an invite to a room when all of these hold:
+- **Questions.** `admin` invites every coordinator. The coordinator's syncer accepts an invite
+  to a room when all of these hold:
   - the inviter and the stripped create sender are `admin`;
   - the trusted index names the room as `questions`;
   - the record names this member `coordinator`;
   - the bundle's `human_text` is true (4.5).
 - **An admin invite the index does not (yet) name is left pending**, logged by room ID, never
-  joined and never rejected: rejecting would need a re-invite. Every other invite is still
-  rejected, as today.
+  joined and never rejected: rejecting would need a re-invite. A questions invite to a member
+  that is not a coordinator with human text is left pending the same way, and `pingbus status`
+  and the hook context name the reason (4.5). Every other invite is still rejected, as today.
+- **An older pingbus** rejects the questions invite (`POST /leave`), as it rejects every invite
+  but the main room's. That is loud, not silent: the deploy-2 wait leg names the coordinator
+  (5.3), and the next play run invites it again, because its membership is then `leave`.
 - **Demotion.** `admin` kicks an agent that is no longer a coordinator from the questions room
   (reason "no longer the coordinator") before it invites the new one, the order Plan 00196's
   LXC handover uses. A member whose record no longer names it coordinator stops syncing the
@@ -238,15 +242,20 @@ for another `admin` room on its own.
 ### 4.5 A coordinator must take human text
 
 A coordinator whose bundle has `human_text: false` would drop every message in the questions
-room as `sender`, silently. That is ruled out at each place that can see it, each with a test:
+room as `sender`, silently. That is refused **where the role is assigned**, each with a test.
+A sync never refuses it: failing every sync would take the member off the bus entirely.
 
 - `members.py` refuses an LXC entry with `role: coordinator` and `human_text: false`
-  (`MemberError`, naming the entry).
-- `pingbus config check`, and every sync, refuse a bundle with `human_text: false` while the
-  record names it coordinator. This is exit 78 ("a coordinator must take human text: re-issue
-  the bundle without `--no-human-text`"), and the hook context says so.
-- Such a member never joins the reports room, so `admin` never invites it to questions. The
-  deploy-2 legs (5.3) then refuse, naming it.
+  (`MemberError`, naming the entry). An LXC member's role comes only from its entry, so this
+  covers both its `add-member` and its `set-role`.
+- `admin.add_member` refuses `role` coordinator with `human_text` false (`AdminError`: "a
+  coordinator must take human text: drop `--no-human-text`"). ccy-teams never issues a bundle
+  with `--no-human-text`.
+- `set-role` cannot see the bundle's flag (the registry does not record it). A bundle issued by
+  hand with `--no-human-text` whose member is later made coordinator is the one case left, and
+  it is loud: the member leaves the questions invite pending (4.4), `pingbus status` shows
+  `questions: refused (human_text is false; re-issue the bundle without --no-human-text)`, the
+  hook context says the same, and the deploy-2 wait leg and health name it as not joined.
 
 ## 5. Creation and migration (IaC)
 
@@ -279,12 +288,10 @@ from `bootstrap`, `add_member`, `set_role` and `remove_member` (parking keeps th
 1. creates the questions room through step 1 above, when the record names a coordinator and the
    room does not exist yet;
 2. kicks every agent account in the room that the registry does not name coordinator;
-3. invites **every** coordinator that has joined the reports room and has neither joined nor
-   been invited to questions;
-4. records each coordinator that has not joined reports as **held**, with no invite. Each held
-   coordinator is reported in `changes` as
-   `held: <handle> has not joined reports (its running pingbus is older than the rooms change)`;
-5. switches the power levels and topic between the open and closed forms when the record's
+3. invites **every** coordinator that has neither joined nor been invited to questions (a
+   coordinator whose membership is `leave`, because an older pingbus rejected the invite, is
+   invited again);
+4. switches the power levels and topic between the open and closed forms when the record's
    coordinators change.
 
 Kicks come before invites. `remove_member` also kicks from reports. Each change is appended to
@@ -296,14 +303,16 @@ today. A re-run converges because every step compares first.
 
 There is nothing to migrate by hand. The deploy-2 play run creates the reports room for every
 team present, and the questions room for every team with a coordinator. It also writes the
-index and invites the humans and the joined coordinators. The main room keeps its ID, history
-and members.
+index and invites the humans and the coordinators. The main room keeps its ID, history and
+members.
 
 ### 5.3 Upgrade first, and the deploy-2 legs (D12)
 
 A coordinator's running watcher must understand the index before an invite reaches it. An
 older one rejects the questions invite with `POST /leave`. The file on disk proves nothing:
-the watcher is long-running and keeps the code it started with. So:
+the watcher is long-running and keeps the code it started with, and short-lived commands
+(`recv`, `wait`) sync too. The only proof that the running code is new is the event the hazard
+is about: the coordinator **joining the questions room**. So:
 
 - **Deploy 1, member side only.**
   - Phase 1 is merged to F44 **before any Phase 2 code is**, and F44 still has the old admin
@@ -318,22 +327,20 @@ the watcher is long-running and keeps the code it started with. So:
   - The closing message asks the owner to restart the teams' sessions.
 - **Deploy 2, admin side.** `deploy.bash --stage 2` runs these `plan_deploy_leg`s, failing fast:
   1. **Pre-flight.** Every declared LXC container is up and its kit's pingbus is the new one;
-     a container that is down is refused, named. Every coordinator in every team's registry is
-     a seat that is held, so a session is running. A coordinator that is not held is refused,
-     named: an unheld coordinator would be held back indefinitely.
-  2. **The play**, the whole `play-agent-bus.yml`. It creates the rooms and the index. It
-     invites humans, and invites coordinators already in reports (none yet, on the first run).
-  3. **Beacons.** Waits, up to a bound (the default is 180 s, the seat-check wait of Plan 00209
-     R14), for every coordinator's account to join the reports room. This is read through the
-     new `ROOM` lines of `agent-bus list` (5.5). It refuses naming each one still out: "its
-     running pingbus is older than deploy 1: restart that session, then run meta-deploy again".
-     The running code's own join is the proof, which no file on disk gives.
-  4. **The play again.** It now invites every coordinator, and a second run that changes nothing
-     else shows convergence.
-  5. **`acceptance.bash --stage 2`** (11.2).
+     a container that is down is refused, named. Containers can stop between deploys.
+  2. **The play**, the whole `play-agent-bus.yml`. It creates the rooms and the index, and
+     invites the humans and every coordinator.
+  3. **Questions joins.** Waits, up to 180 s, for each team's coordinator to have **joined** the
+     questions room, read through the new `ROOM` lines of `agent-bus list` (5.5). It refuses
+     naming each one that has not, with its membership: "`<handle>` has not joined questions
+     (`invite`: its session is not running; `leave`: its running pingbus is older than deploy
+     1): restart that session, then run meta-deploy again". The re-run's play invites a `leave`
+     coordinator again.
+  4. **`acceptance.bash --stage 2`** (11.2).
 
-A coordinator that becomes old later (a session relaunched from a stale image) cannot reject
-anything: it never joins reports, so it is never invited. Health names it (5.4).
+A coordinator that becomes old later (a session relaunched from a stale image) and rejects a
+new invite is `leave` in the questions room. Health names it (5.4), and the next play run
+invites it again.
 
 ### 5.4 Health
 
@@ -342,16 +349,16 @@ anything: it never joins reports, so it is never invited. Health names it (5.4).
 - the rooms exist and their state is exact;
 - every human is in each room;
 - no worker is in questions;
-- each coordinator is joined, or is held with its reason.
+- each coordinator is joined to questions.
 
-A held coordinator or any drift fails the check with the repair named (`ccy-teams apply`, or
-restart the session), as the main-room checks do.
+A coordinator not joined (`invite` or `leave`) or any drift fails the check with the repair
+named (`ccy-teams apply`, or restart the session and run the play), as the main-room checks do.
 
 ### 5.5 `agent-bus list`: a new line kind
 
 `agent-bus list` gains one line per account per side room:
-`ROOM\t<user ID>\t<purpose>\t<membership>`, where membership is `join`, `invite`, `leave`,
-`held` or `-`. **HUMAN and MEMBER lines are unchanged.** ccy-teams' parser takes an exact field
+`ROOM\t<user ID>\t<purpose>\t<membership>`, where membership is `join`, `invite`, `leave`
+or `-`. **HUMAN and MEMBER lines are unchanged.** ccy-teams' parser takes an exact field
 count per kind and skips kinds it does not know (`parse.go:167-180`, `marker.go:22`), so a
 ccy-teams binary from before Phase 3 keeps working through deploy 2.
 
@@ -363,7 +370,7 @@ ccy-teams binary from before Phase 3 keeps working through deploy 2.
 - **ccy members.** The new zipapp and plugin go into the image build context. The launcher
   rebuilds on a new base image ID, so no version bump is needed unless the launcher itself
   changes; Task 1.9 confirms that on the host. A running container keeps its old pingbus until
-  its session restarts, and the beacon (5.3) covers that.
+  its session restarts, and the deploy-2 questions-join leg (5.3) covers that.
 - **Host `cc` sessions** use the host's `/usr/local/bin/pingbus` and pick it up on relaunch.
 
 ## 6. Who is woken by what
@@ -380,13 +387,15 @@ ccy-teams binary from before Phase 3 keeps working through deploy 2.
 - A coordinator's `/sync` filter names the main room and, while it is a coordinator and the
   room is trusted, the questions room. One sync token covers both, and a limited timeline in
   either is gap-filled by the same `/messages` read (`GAP_FILTER`).
-- **Every stored inbox item records its room.** The syncer writes the purpose (`main` or
-  `questions`) into the stored item's wrapper. `inbox.pending()` passes it to
-  `validate_event(…, room=…)` when it re-validates (`inbox.py:380-421`), and `history --room`
-  does the same (`syncer.py:519-575`). Without this, re-validation would ignore every
-  unaddressed questions-room message as not addressed, and the coordinator would never see the
-  owner's answer. An item stored before this change has no key and reads as `main`, which is
-  what it was.
+- **Every stored inbox item records its room.** A questions-room item is stored with one more
+  **top-level** key, `room`, whose value is `questions`, beside the event's stored keys. A
+  main-room item gets no such key, so it stays byte-identical to what older code writes and
+  reads (an older reader runs during deploy 1's in-place upgrades, and old code never produces
+  or reads a questions-room item). `inbox.pending()` passes the room (`main` when the key is
+  absent) to `validate_event(…, room=…)` when it re-validates (`inbox.py:380-421`), and
+  `history --room` does the same (`syncer.py:519-575`). Without this, re-validation would
+  ignore every unaddressed questions-room message as not addressed, and the coordinator would
+  never see the owner's answer.
 - `validate_event` with `room="questions"` treats every human message as addressed to this
   member, and requires the receiver to be a coordinator.
 - A human's message in the questions room is a `HUMAN` item with the human's full authority,
@@ -607,7 +616,8 @@ Python tests go in `tests/helpers/pingbus/`, `tests/helpers/agent_bus/` and
     - `validate_event(room="questions")`: unaddressed human messages accepted for a coordinator,
       refused for a worker; edits delivered with `revises`; an agent sender dropped.
 02. **`inbox`:** a stored, unaddressed questions-room item survives `pending()` re-validation and
-    is delivered. An item without the room key reads as `main`.
+    is delivered. An item without the room key reads as `main`. A main-room item is written
+    byte-identical to the old format (no `room` key), so an older reader accepts it.
 03. **`syncer`:**
     - side-room trust for each failure (create, link, power levels, join rules), each leaving
       the main room trusted;
@@ -619,7 +629,8 @@ Python tests go in `tests/helpers/pingbus/`, `tests/helpers/agent_bus/` and
     - each attachment rule, and `none`;
     - a gap fill of a limited questions-room timeline;
     - `history --room questions`.
-04. **`config`:** `human_text: false` with the coordinator role is refused (exit 78).
+04. **`status` and `hooks`:** a coordinator with `human_text: false` leaves the questions invite
+    pending and both name the reason; its syncs still run.
 05. **`cli`:**
     - `report`: caps, the gate, the hourly cap, duplicates, `no-room`;
     - `ask-human`: the role, numbering from fixture history, duplicates, mentions, `asked_by`
@@ -637,11 +648,13 @@ Python tests go in `tests/helpers/pingbus/`, `tests/helpers/agent_bus/` and
       through `/joined_rooms`; two candidates is an `AdminError`;
     - removed humans kicked from every room before the power levels change;
     - `_sync_questions_members` for every role transition: kicks before invites, every
-      coordinator, `held` for a coordinator not in reports, the open and closed forms, and the
+      coordinator, a `leave` coordinator invited again, the open and closed forms, and the
       room created when the first coordinator appears;
+    - `add_member` refusing a coordinator with `human_text` false (Phase 1);
     - `remove_member` kicking from both rooms;
     - a failure naming the step, and a re-run converging.
-10. **`health`:** a read-only report of each side-room drift and of each held coordinator.
+10. **`health`:** a read-only report of each side-room drift and of each coordinator not joined
+    to questions.
 11. **`cli` of the admin tool:** `agent-bus list` `ROOM` lines, with the HUMAN and MEMBER lines
     byte-identical to before.
 12. **`members`:** an LXC coordinator entry with `human_text: false` is refused.
