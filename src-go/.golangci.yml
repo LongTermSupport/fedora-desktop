@@ -252,7 +252,25 @@ linters:
       - path: internal/fetchage/fetchage\.go
         linters: [gosec]
         text: "G304|G703"
+      # Synapse's shared-secret registration MAC is HMAC-SHA1 by protocol (the admin API's
+      # register endpoint): the admin client computes it, and the fake homeserver and its replay
+      # check it. The hash is the server's, not a choice made here.
+      - path: internal/bus/matrix/(admin|fakehs/admin|fakehs/replay_test)\.go
+        linters: [gosec]
+        text: "G401|G505"
   settings:
+    tagliatelle:
+      case:
+        overrides:
+          # The Matrix client-server API is snake_case (access_token, next_batch,
+          # lazy_load_members): the client and its fake homeserver name every key as the wire does,
+          # and are still held to one case.
+          - pkg: internal/bus/matrix
+            rules:
+              json: snake
+          - pkg: internal/bus/matrix/fakehs
+            rules:
+              json: snake
     cyclop:
       max-complexity: 15
     funlen:
