@@ -836,7 +836,7 @@ a reason from the closed set below).
 TIMEOUT and MEMBERSHIP never come from the room: TIMEOUT from the member's own ping records (8.3)
 and question reminders (10.5); MEMBERSHIP from the host's desired-membership file (B, 00203 H12).
 
-**Closed sets.** Drop reasons: `version schema size edit sender role target verb ref allowlist excluded stale rate forge-rate unresolved provenance`. Ignore reasons: `type seen self admin not-addressed empty not-coordinator coordinator-post`. Send refusals add `secret`, `body` (a report
+**Closed sets.** Drop reasons: `version schema size edit sender role target verb ref allowlist excluded stale rate forge-rate unresolved provenance`. Ignore reasons: `type seen self admin not-addressed empty not-coordinator`. Send refusals add `secret`, `body` (a report
 or question form error, 10.2) and `duplicate`. v1's `re` drop becomes `schema` (the relation is
 shape) and `agent-text` becomes `not-addressed`. A new reason is a feature.
 
@@ -914,3 +914,256 @@ noise.
 A ping older than its verb's timeout when first judged is dropped `stale` (`ack_timeout_s` for a
 verb that expects no answer); an answer that is stale still counts for 8.2 and is not delivered. A
 human message or agent text older than `human_max_age_s` is dropped `stale` (P60).
+
+---
+
+## 9. References and the forge check
+
+### 9.1 Grammar
+
+Kept from v1 (P13-P15, `protocol.py:279-284,553-594`):
+
+| Form     | Shape                      |
+| -------- | -------------------------- |
+| `path`   | `path:OWNER/REPO@SHA:PATH` |
+| `commit` | `commit:OWNER/REPO@SHA`    |
+| `pr`     | `pr:OWNER/REPO#NUM@SHA`    |
+| `issue`  | `issue:OWNER/REPO#NUM`     |
+
+`OWNER` `[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?`; `REPO` `[a-z0-9._-]{1,100}`, not `.`, `..` or ending
+`.git`; `SHA` 40 lowercase hex; `NUM` `[1-9][0-9]{0,9}`; `PATH` 1-8 segments of
+`[A-Za-z0-9._-]{1,64}`, none `.` or `..`; the whole at most 700 characters. A sender lowercases
+`OWNER/REPO` before sending (ASCII lowercase: the grammar is ASCII, so v1's Python full-lowercase
+case D6 cannot arise). A `path` reference, when the roster sets `path_prefixes`, must match one: an
+entry ending `/` is a prefix, any other is exact (P15).
+
+### 9.2 Trust class of a reference
+
+From the roster's `forge` section (P27, `protocol.py:528-544,692-722`):
+
+1. The repository is in `exclude`: drop `excluded`.
+2. It is in `repos`: **listed**. Its `branches`, when given, are the only branches that prove it.
+3. Its owner is `org`: **org**.
+4. Otherwise: **external**. A verb that takes no external reference: drop `allowlist`. Otherwise the
+   ping is accepted with trust `external`.
+
+Listed wins over org.
+
+### 9.3 The check (R16)
+
+Who checks: the sender before it sends (a failure refuses the send), and every receiver before it
+delivers (a failure drops the ping). Each uses its own forge login (`gh` for github.com), so a
+member never trusts another member's word for a forge fact. Never in a hook (v1 `forge.py:4-5`).
+The credential is re-read when a check needs it and the held copy is older than B's bound, and at
+once after a 401; it is sent only as an `Authorization` header to the roster's `forge.api` origin
+and never written or logged (R44).
+
+What proves a reference, by class (v1 `forge.py:323-405`):
+
+| Class                    | Repository facts                            | Branch                                                                                                          |
+| ------------------------ | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| listed with branches     | owner and name as listed; `fork` is `false` | the ping's `branch` must be listed; the commit is reached from it, or from any listed branch when none is given |
+| listed, no branches; org | owner login equals `org`; `fork` is `false` | the ping's `branch` (which must exist) or the default branch                                                    |
+| external                 | `private` is `false`; `fork` is `false`     | when given, it exists and reaches the commit                                                                    |
+
+| Form     | Proof                                                                                                                                                                          |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `commit` | `compare/BASE...SHA` is `identical` or `behind` for a proving branch                                                                                                           |
+| `path`   | the commit proof, and `contents/PATH?ref=SHA` is a file                                                                                                                        |
+| `pr`     | the pull request's head repository is the reference's; `author_association` is `OWNER`, `MEMBER` or `COLLABORATOR` (not judged for external); the head is at or ahead of `SHA` |
+| `issue`  | the issue exists and is not a pull request                                                                                                                                     |
+
+The rule under all of it, from v1's own comment: **a commit the API returns proves nothing**, because
+a fork's commits are served through its parent's API; only reachability from a branch of a trusted
+repository proves provenance (`forge.py:343-345`).
+
+Results: proven (deliver, with the class as `trust`); `provenance` (found but not proven); `unresolved`
+(not found, wrong kind, forge unreachable, forge refused the credential); `forge-rate` (the forge
+rate-limited the check, which says nothing about the reference, so it is not the bus's `rate`).
+
+Caching (B stores it): positive results only; repository metadata, reachability, pull requests and
+branches for 3600 s, so a repository that leaves the organisation or becomes a fork stops being
+trusted within that time however long the worker runs (R44); file and commit content at a SHA for
+30 days, since content at a SHA cannot change. HTTP: 15 s timeout, 8 MiB response cap, redirects
+only to the same origin, 429 handled as 11.3.
+
+The receiver never fetches the referenced artefact for the session; the envelope's authority line
+says it is a document to read, never a command (13.4).
+
+---
+
+## 10. Reports, questions and threads
+
+Plan 00211's behaviour, on v2's schema. Its decisions D2-D16 hold unless a line below says why not.
+
+### 10.1 Reports
+
+```json
+{
+  "msgtype": "m.notice",
+  "body": "Merged the parser fix\nPR 12 is in main; the nightly QA passed.",
+  "m.mentions": {},
+  "<ns>.report": {"v": 1}
+}
+```
+
+- Any active member; humans cannot post (power 0). The text is the `body`: the first line is the
+  headline (1-120 code points after trimming), the whole at most 1500 bytes; over the cap it is
+  refused `body`, never cut. Secret shapes and the member's own token are refused (P51).
+- No mentions and `m.notice`, so Element never notifies (00211 D14); no agent reads the room, so
+  nobody is woken.
+- Rate: the send bucket and duplicate window, and `report_per_hour` (11.1).
+- Content guidance (milestones, merges, deploys queued, decisions for the owner, risks, blocked
+  items; never a question or narrative) belongs to the skill, which B ships.
+
+Here the `body` is the content, unlike other agent events: reports are written for humans and no
+member reads them, so there is nothing to duplicate into a typed object.
+
+### 10.2 Questions
+
+The coordinator asks; workers never post in questions (they are not members) and ask the
+coordinator in main (00211 D7).
+
+```json
+{
+  "msgtype": "m.text",
+  "body": "Q3 Which licence for the new docs site?\nContext: ...\nQuestion: ...\nOptions:\n1. MIT\n2. CC-BY-4.0",
+  "m.mentions": {"user_ids": ["@alice:<server_name>"]},
+  "<ns>.question": {
+    "v": 1,
+    "n": 3,
+    "asked_by": ["@myrepo.2+desk.podman:<server_name>"],
+    "re": ["$<43 chars>"],
+    "remind_after_s": 14400
+  }
+}
+```
+
+- Form (P54): headline 1-120 code points, then `Context:` and `Question:` sections (required) and
+  `Options:` (optional, lines `1. ` to at most `9. ` in order); the whole at most 8000 bytes; `body`
+  starts `Q<n> `. A form error is refused `body`, naming the section.
+- `n` is 1 plus the highest `n` among the coordinators' questions in the room's history, so a
+  replacement coordinator numbers the same way with no session state (00211).
+- `asked_by` 0-16 user IDs of members; `re` 0-16 main-room event IDs the question came from.
+- `remind_after_s` optional, 600-604800 (10.5).
+- An open question whose `Question:` section equals the new one (whitespace collapsed) refuses the
+  new one `duplicate`, naming the open `Q<n>`.
+- `m.text` mentioning every human, so Element notifies (00211 D14). Each question is a thread root,
+  so the room's timeline shows one line per question (00211 D5).
+
+### 10.3 Thread posts
+
+The coordinator's follow-ups inside a question's thread:
+
+```json
+{
+  "msgtype": "m.notice",
+  "body": "Thanks: relayed to the worker. Closing.",
+  "m.mentions": {},
+  "m.relates_to": {
+    "rel_type": "m.thread",
+    "event_id": "$<question>",
+    "is_falling_back": true,
+    "m.in_reply_to": {"event_id": "$<question>"}
+  },
+  "<ns>.thread": {"v": 1, "n": 3, "close": true}
+}
+```
+
+- With an answer to a specific human post, `m.in_reply_to` names that post and `is_falling_back` is
+  `false` (the Matrix thread form).
+- `close: true` closes the question; text may then be empty and the body is `Q<n> closed.`.
+- A post that asks the humans something again is `m.text` and mentions them; otherwise `m.notice`
+  and no mentions (00211 `--ask`).
+- At most 4000 bytes. `<ns>.thread` replaces v1's `agent_bus.question_state`, so every coordinator
+  post in questions is typed.
+
+### 10.4 Matching a human's answer to a question
+
+Every human message in questions reaches the coordinator (7.6 rule 5). It is attached to a question
+by the first rule that holds (00211 section 8.3):
+
+1. it is in the thread of a question (`rel_type` `m.thread`, root a question);
+2. it replies to a question or to a post in a question's thread;
+3. its body starts with `Q<n>` (any case) then a space, `:` or `.`;
+4. it is an edit: the original's attachment, or its new body's `Q<n>`;
+5. otherwise unattached: delivered with `question: none`, and the coordinator decides.
+
+A question's state is `closed` once a valid closing post exists, else `answered` once any human
+post is attached, else `open`; its unanswered count is the human posts attached after the
+coordinator's last post in its thread (P58).
+
+### 10.5 Reminders
+
+A question with `remind_after_s` and no attached human post by its `origin_server_ts` plus that
+bound produces one TIMEOUT for the coordinator, keyed `<question event ID>~humans`: `verb: ask-human`, `question: Q<n>`. It is computed from the room's history (like the numbering), so a
+replacement coordinator gets the same reminder once. Why: in 00211 an unanswered question had no
+expiry or reminder, so it could wait unseen while the asking worker was blocked (00211 open
+question).
+
+### 10.6 The whole flow
+
+1. A worker needs a human decision: `say --to-coordinator` in main.
+2. The coordinator answers itself if it can; otherwise it runs `ask-human` (10.2) with
+   `--asked-by` and `--re` naming the worker and the worker's message.
+3. Humans are notified; a human answers in the thread in Element (or replies, or writes `Q3: ...`).
+4. The coordinator receives a HUMAN entry with `room: questions` and `question: Q3 "<headline>"`;
+   the reply line is the `thread` command.
+5. The coordinator passes the answer to each asker in main (`say --to <asker> --re <their event>`)
+   and closes the question (`thread Q3 --close`). A later edit arrives with `revises:`; the
+   coordinator corrects what it passed on.
+
+The asker gets the answer from the coordinator, not from the room, on purpose: the coordinator owns
+the work's direction and may combine answers, and workers stay out of the humans' notification
+stream (00211 D7).
+
+---
+
+## 11. Limits and rates
+
+### 11.1 Team limits
+
+Set in the roster's `limits`, the same for every member (AR25). Values from v1 (P59,
+`limits.py:26-47`); a value outside its bounds makes the roster invalid.
+
+| Key                      | Default | Bounds      | Enforced by             | What                                                                                                                                       |
+| ------------------------ | ------- | ----------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `send_per_minute`        | 20      | 1-60        | sender                  | token bucket refill per minute (P61)                                                                                                       |
+| `send_burst`             | 10      | 1-30        | sender                  | bucket capacity                                                                                                                            |
+| `recv_per_sender_minute` | 60      | 10-600      | receiver                | events admitted per sender per sliding minute; refusals not counted (P65)                                                                  |
+| `ack_timeout_s`          | 900     | 60-86400    | sender and receiver     | answer deadline; ping staleness                                                                                                            |
+| `halt_ack_timeout_s`     | 300     | 30-3600     | sender and receiver     | the same for `halt`                                                                                                                        |
+| `human_max_age_s`        | 86400   | 3600-604800 | receiver                | human and agent text staleness                                                                                                             |
+| `report_per_hour`        | 6       | 1-60        | sender                  | reports in any 3600 s                                                                                                                      |
+| `deliver_per_sender`     | 10      | 1-60        | receiver (B's delivery) | PEER, PING and member-sent NOTICE entries per (team, sender) per rolling 600 s (E19); HUMAN, TIMEOUT and admin notices are never held back |
+
+`wait_timeout_s` is a property of B's CLI, not of the team, and leaves this table.
+
+### 11.2 Fixed limits
+
+| What                            | Limit                                                                                                             | Source  |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------- |
+| any agent event content         | 16384 bytes                                                                                                       | new     |
+| ping object                     | 4096 bytes; `to` 1-32                                                                                             | P26     |
+| agent text                      | 1-4096 bytes; `to` 1-16                                                                                           | P32     |
+| notice `to`                     | 1-17                                                                                                              | R28     |
+| human body                      | 16384 bytes                                                                                                       | P36     |
+| report / question / thread post | 1500 / 8000 / 4000 bytes; headline 1-120 code points                                                              | P51-P54 |
+| duplicate window                | 60 s on `[verb or kind, ref, re, sorted to]`; notices exempt (v1 lesson: it can only lose a second, true goodbye) | P62     |
+| reference                       | 700 characters                                                                                                    | P13     |
+| roster lists                    | humans 1-16; members 0-64; repos 0-32; branches 1-8 per repo; exclude 1-32; path prefixes 1-32                    | P59     |
+| presence `status_msg`           | 200 bytes printable ASCII                                                                                         | new     |
+
+### 11.3 Server waits
+
+Tuwunel has no per-user send rate limit (only login tables), so all flood control is the members'
+(Matrix digest section 8). A 429 is honoured as v1 (P66): `Retry-After` in seconds, else a reset
+header, else `retry_after_ms`, else 5 s; three tries; a wait over 60 s is not slept but reported. A
+retried send reuses its transaction ID (R19).
+
+### 11.4 The worst case
+
+A compromised member holding its token can post at whatever rate the server allows. What reaches
+each session is bounded by the receive limit (60 per minute admitted), then the delivery budget (10
+entries per 600 s, the rest counted as held back), then the envelope caps (13.2): about 20 KiB of
+envelopes and a few held-back lines per 10 minutes per compromised sender, as v1 (SPEC-inject T6).
