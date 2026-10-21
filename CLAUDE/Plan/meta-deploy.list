@@ -31,47 +31,55 @@
 # it applies even while LVFS's signature file (firmware.xml.zst.jcat) is unavailable; the fwupd
 # task itself still fails (after its retries) until LVFS recovers. The run also rebuilds and
 # installs the fetch-age command with Plan 00183's fix and applies the tasks that stopped behind
-# fwupd before (the ABRT policy onward).
+# fwupd before (the ABRT policy onward). It imports play-golang.yml first, so this is also the
+# Go 1.26.10 toolchain run: golang is upgraded to Fedora's newest build (state latest) and the
+# play fails unless `go env GOVERSION` is at least 1.26.10. play-golang.yml has no entry of its
+# own: every play below imports it too.
 playbooks/imports/play-basic-configs.yml
-# Plan 00213 Task 1.4 (re-run after the LXC regression fix): play-agent-bus.yml, the normal
-# agent-bus software run (agent-bus-install software). It rebuilds the host's pingbus.pyz and the
-# member kit copy, so `pingbus` on the host starts /usr/bin/python3, not the pyenv shim, and
-# installs the new kit settings.json (25 s refresh) for agent-bus-claude. It then re-runs the
-# member kit step (README.lxc step 1) for every LXC member: each member's copy of pingbus names
-# that member's own newest Python 3.11 or later, found in it (the last run stopped there with
-# exit 78 on an EL9 member, whose /usr/bin/python3 is 3.9, before replacing anything). A member
-# with no Python 3.11 or later fails the play, naming what to install. Teams are not restarted
-# unless the Tuwunel pin or the units changed, which this change does not do. Needs sudo.
+# play-agent-bus.yml, the whole play (Plan 00213's LXC fix, the farewell-reason fix, Plan 00211
+# Phase 2's admin tool). BEFORE starting meta-deploy, restart every team's agent sessions, ccy
+# and LXC alike, so each coordinator runs pingbus 0.2.0 (deploy 1 installed it; a running
+# session keeps the pingbus it started with, and an old one rejects its questions invite): this
+# play's team step runs `agent-bus bootstrap` for every team, which now creates each team's
+# reports room, and its questions room when it has a coordinator, and invites you and the
+# coordinators. The play rebuilds the host's pingbus.pyz and the member kit, so pingbus
+# refuses a list or object farewell reason instead of crashing, and re-runs the member kit step
+# (README.lxc step 1) for every LXC member: each member's copy of pingbus names that member's
+# own newest Python 3.11 or later (the last run stopped there with exit 78 on an EL9 member,
+# whose /usr/bin/python3 is 3.9, before replacing anything). A member with no Python 3.11 or
+# later fails the play, naming what to install. It also builds the Go pingbus-status-line into
+# the kit (used by the 00213 deploy below). Teams are not restarted unless the Tuwunel pin or
+# the units changed, which this does not do. Needs sudo.
 playbooks/imports/play-agent-bus.yml
 # Plan 00213 Tasks 1.3, 1.4 and 2.3 (the bus status line in Go): deploy.bash runs the whole
-# play-agent-bus.yml, then the whole play-claude-yolo.yml, then acceptance.bash. The agent-bus
-# play builds pingbus-status-line (Go, static) from this checkout into the member kit, whose
-# settings.json now runs it, and copies the kit into every running LXC member; the host's
-# pingbus.pyz starts /usr/bin/python3, not the pyenv shim. Teams are not restarted unless the
-# Tuwunel pin or the units changed, which this does not do. The ccy play gives the host CCY
-# 3.99.13.9 and puts the binary in the image's build context (container 2.78.9, rebuilt once at
-# the next ccy launch): a seated session's status line is the Go one and refreshes every 25 s.
-# The acceptance checks the kit's, the image's and each declared LXC member's binary are this
-# checkout's build (a declared container that is down is refused, named), runs the recorded
-# Python goldens against the installed Python and Go, and measures the CPU one render costs in
-# each: Go must cost under a fifth (the report has the figures). Needs sudo once. Afterwards
-# restart the teams' agent sessions; a running one keeps its old status line.
+# play-agent-bus.yml again (no change after the entry above), then the whole
+# play-claude-yolo.yml, then acceptance.bash. The kit's settings.json runs the static Go
+# pingbus-status-line, copied into every running LXC member. The ccy play gives the host CCY
+# 3.99.13.11 and puts the binary in the image's build context (container 2.78.11, rebuilt once
+# at the next ccy launch; the image also carries the farewell-reason fix, the reports and
+# questions admin tool and Go 1.26.10 in the project image): a seated session's status line is
+# the Go one and refreshes every 25 s. The acceptance checks the kit's, the image's and each
+# declared LXC member's binary are this checkout's build (a declared container that is down is
+# refused, named), runs the recorded Python goldens against the installed Python and Go, and
+# measures the CPU one render costs in each: Go must cost under a fifth (the report has the
+# figures). Needs sudo once. Afterwards restart the teams' agent sessions; a running one keeps
+# its old status line.
 00213-agent-bus-performance-go-carve-out/deploy.bash
-# Plan 00211 deploy 2 (Task 2.6), the reports and questions rooms. FIRST restart every team's
-# agent sessions, ccy and LXC alike, so each coordinator runs pingbus 0.2.0: a running session
-# keeps the pingbus it started with, and an old one rejects its questions invite. This runs
+# Plan 00211 deploy 2 (Task 2.6), the reports and questions rooms, LAST. It needs every team's
+# agent sessions restarted first, ccy and LXC alike, so each coordinator runs pingbus 0.2.0 (see
+# the play-agent-bus.yml entry above: restart them before meta-deploy starts). This runs
 # deploy.bash --stage 2: it refuses unless the spike report says every fact holds, then runs
 # acceptance.bash --stage 1 again as the pre-flight (the host's and every declared LXC
 # member's pingbus is 0.2.0, and a declared container that is down is refused, named). Then the
-# whole play-agent-bus.yml creates each team's reports room, and its questions room when the
-# team has a coordinator, writes the index and invites you and the coordinators; the whole
-# play-claude-yolo.yml rebuilds the ccy image once (container 2.78.10). Then acceptance.bash
-# --stage 2 waits up to 180 s for every coordinator to join its questions room and every running
-# ccy seat its reports room, naming any that has not, and checks the rooms. It finds the first
-# team's coordinator in its running ccy session or LXC member; with no team coordinator, or one
-# whose session is not running, it is REJECTED, named, before it changes anything. It adds and
-# removes one throwaway worker that must be refused the questions room and whose test report
-# must reach no inbox, posts a second test report from inside an LXC member when one is
-# declared (else it says that check was not judged), and has the coordinator ask a test
-# question. Needs sudo once. Afterwards do the Element steps of the plan's ACCEPTANCE-owner.md.
+# whole play-agent-bus.yml keeps each team's reports and questions rooms (created by the entry
+# above), the index and the invites; the whole play-claude-yolo.yml finds the ccy image already
+# at container 2.78.11. Then acceptance.bash --stage 2 waits up to 180 s for every coordinator
+# to join its questions room and every running ccy seat its reports room, naming any that has
+# not, and checks the rooms. It finds the first team's coordinator in its running ccy session
+# or LXC member; with no team coordinator, or one whose session is not running, it is
+# REJECTED, named, before it changes anything. It adds and removes one throwaway worker that
+# must be refused the questions room and whose test report must reach no inbox, posts a second
+# test report from inside an LXC member when one is declared (else it says that check was not
+# judged), and has the coordinator ask a test question. Needs sudo once. Afterwards do the
+# Element steps of the plan's ACCEPTANCE-owner.md.
 00211-agent-bus-reports-and-questions-rooms/deploy-stage-2.bash

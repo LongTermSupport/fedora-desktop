@@ -685,8 +685,12 @@ class LauncherTest(unittest.TestCase):
                 path = self.kit / name
                 saved = path.read_bytes()
                 path.unlink()
-                self.assert_refused(self.run_launcher(), EX_CONFIG, name)
-                path.write_bytes(saved)
+                try:
+                    result = self.run_launcher()
+                    self.assert_refused(result, EX_CONFIG, name)
+                    self.assertIn("play-agent-bus.yml", result.stderr)
+                finally:
+                    path.write_bytes(saved)
 
 
 if __name__ == "__main__":

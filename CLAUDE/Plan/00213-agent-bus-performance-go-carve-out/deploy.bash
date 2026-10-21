@@ -7,8 +7,8 @@
 #      static from this checkout into the member kit (/usr/local/share/agent-bus/kit/), whose
 #      settings.json now runs it, and every running LXC member's kit is copied again with it.
 #      Teams are not restarted unless the Tuwunel pin or the units changed.
-#   2. playbooks/imports/play-claude-yolo.yml, the whole play: CCY 3.99.13.9, and the ccy build
-#      context gains pingbus-status-line; the image is rebuilt once (container 2.78.9) at the
+#   2. playbooks/imports/play-claude-yolo.yml, the whole play: CCY 3.99.13.11, and the ccy build
+#      context gains pingbus-status-line; the image is rebuilt once (container 2.78.11) at the
 #      next ccy launch.
 #   3. acceptance.bash (C1-C5), skipped under --check.
 #
@@ -41,7 +41,7 @@ PLAN_USAGE="usage: deploy.bash [--check] [-h|--help]
 
 Plan 00213 Task 2.3 on the HOST:
   playbooks/imports/play-agent-bus.yml     (the member kit's Go status line, LXC member kits)
-  playbooks/imports/play-claude-yolo.yml   (the ccy build context's Go status line; image 2.78.9)
+  playbooks/imports/play-claude-yolo.yml   (the ccy build context's Go status line; image 2.78.11)
   acceptance.bash                          (C1-C5)
 --check rehearses the plays and skips the acceptance. Then restart the teams' sessions."
 

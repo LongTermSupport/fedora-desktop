@@ -196,7 +196,7 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   container, the joins included.
 - [ ] 🔄 **Task 2.6**: `deploy.bash --stage 2` with the legs of SPEC §5.3: pre-flight (the
   passed-spike check; `acceptance.bash --stage 1` again, for LXC containers up and new), the
-  agent-bus play, the ccy play (the image carries the admin tool, container 2.78.10), then
+  agent-bus play, the ccy play (the image carries the admin tool, container 2.78.11 as integrated), then
   acceptance, whose first leg is the joins wait (it primes sudo again first). Written and queued as `deploy-stage-2.bash`, whose
   description asks the owner to restart every team's sessions first; the merge and the run are
   left. `acceptance-after-owner.bash` is queued only once the owner has done the Element steps.

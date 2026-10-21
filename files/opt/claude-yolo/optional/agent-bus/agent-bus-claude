@@ -43,7 +43,7 @@ readonly PLUGIN=$KIT/plugin/pingbus
 readonly SETTINGS=$KIT/settings.json
 
 for need in "$SETTINGS" "$PLUGIN/.claude-plugin/plugin.json" "$PLUGIN/hooks/hooks.json" "$KIT/pingbus-status-line"; do
-    [[ -f $need ]] || die "the kit at $KIT is incomplete: ${need#"$KIT/"} is missing"
+    [[ -f $need ]] || die "the kit at $KIT is incomplete: ${need#"$KIT/"} is missing; run playbooks/imports/play-agent-bus.yml on the host, which builds the kit into /usr/local/share/agent-bus/kit, then copy that kit here again"
 done
 
 [[ ${HOME:-} == /* ]] || die "HOME is not an absolute path"
