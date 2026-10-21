@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.99.13.17"  # Container 2.78.13: the GH_TOKEN hand-off takes only a file ccy made, taken first; --debug's log 0600 with tokens masked (Plan 00191). See docs/ccy-changelog.md.
+CCY_VERSION="3.99.13.18"  # Container 2.78.13: the GH_TOKEN hand-off takes only an absolute path under a runtime or temporary directory, and refuses an empty file (Plan 00191). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -1067,9 +1067,8 @@ if [ "$SHOW_DEBUG_CHOOSER" = true ]; then
     if [ "$DEBUG_CCY" = true ]; then
         DEBUG_MODE=true
         DEBUG_LOG="$(mktemp --suffix=.log "${TMPDIR:-/tmp}/ccy-debug-$(date +%Y%m%d-%H%M%S)-XXXXXX")" || exit 1
-        echo ""
-        echo "Debug logging to: $DEBUG_LOG"
-        echo ""
+        printf '\nDebug logging to: %s\n%s\n\n' "$DEBUG_LOG" \
+            "Tokens with a known prefix are masked in the log; this terminal shows the raw trace, tokens included."
         # All output to the terminal and to the log (mktemp: 0600, a fresh name). The trace
         # expands tokens, so the log's copy has GitHub and Claude tokens, known by their
         # prefixes, masked; lib/token-handoff.bash expands no token in a traced line.

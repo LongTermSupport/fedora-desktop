@@ -17,6 +17,25 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.13.18 — container 2.78.13
+
+Follows 3.99.13.17. The image is unchanged, so there is no rebuild.
+
+- **A relative path is no longer taken as a token hand-off** (Plan 00191 Task 4.4b, round 3
+  review). In 3.99.13.17, `CCY_GH_TOKEN_HANDOFF=abcdef/token` passed the check, and a file of
+  that shape in the launch's directory was read and deleted. Now the path must be absolute,
+  `<base>/ccy-gh-token.XXXXXX/token`, with `<base>` one of `XDG_RUNTIME_DIR`,
+  `/run/user/<uid>`, `TMPDIR` and `/tmp` as the launcher reading it sees them.
+- **A genuine hand-off is taken when the two launchers' environments differ.** The launcher
+  inside tmux gets the tmux server's environment, not the outer launcher's, so one could
+  have `XDG_RUNTIME_DIR` and the other not. 3.99.13.17 then refused the hand-off. The reader
+  now accepts any of the four bases above; a base its environment does not name at all (a
+  `TMPDIR` only the outer launcher had) is still refused, with an error naming the variable.
+- **An empty hand-off file** ends the launch with an error and is removed, where before the
+  launch ended with no message and the file stayed.
+- **The `--debug` notice** now says that tokens with a known prefix are masked in the log and
+  that the terminal shows the raw trace, tokens included.
+
 ## 3.99.13.17 — container 2.78.13
 
 Follows 3.99.13.16. The image is unchanged, so there is no rebuild.
@@ -34,7 +53,7 @@ Follows 3.99.13.16. The image is unchanged, so there is no rebuild.
   still removes it. If the re-run never starts (tmux cannot run it, or the hand-off library
   itself is missing), the file stays in your own 0700 runtime directory until you log out, or
   under `TMPDIR` when there is no runtime directory.
-- **`--debug` no longer writes tokens to its log.** The hand-off, and the launcher's tests of
+- **`--debug` masks tokens with a known prefix in its log.** The hand-off, and the launcher's tests of
   whether it has a GitHub token, no longer expand the token under `set -x`. Other traced lines
   still do (the session run, the token checks), so the log's copy of the output has GitHub
   tokens (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`) and Claude tokens

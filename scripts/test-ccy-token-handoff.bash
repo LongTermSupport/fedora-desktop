@@ -290,6 +290,55 @@ refused "a hand-off file with a second hard link" "$f" "$(take "$f")"
 f="$(handoff Dotdot 700 600)"
 refused "a path that climbs out with .." "$RUNTIME/ccy-gh-token.Dotdot/../ccy-gh-token.Dotdot/token" \
     "$(take "$RUNTIME/ccy-gh-token.Dotdot/../ccy-gh-token.Dotdot/token")"
+# A relative path is resolved from the launch's directory, never from the runtime one.
+mkdir -p "$PROJ/abcdef" "$PROJ/ccy-gh-token.Relatv"
+for d in abcdef ccy-gh-token.Relatv; do
+    printf '%s\n' "$TOKEN" >"$PROJ/$d/token"
+    chmod 600 "$PROJ/$d/token"
+    chmod 700 "$PROJ/$d"
+done
+out="$(take abcdef/token)"
+refused "a relative XXXXXX/token" abcdef/token "$out"
+check "  and the file in the launch's directory survives" "$TOKEN" "$(cat "$PROJ/abcdef/token")"
+out="$(take ccy-gh-token.Relatv/token)"
+refused "a relative ccy-gh-token.XXXXXX/token" ccy-gh-token.Relatv/token "$out"
+check "  and the file in the launch's directory survives" "$TOKEN" "$(cat "$PROJ/ccy-gh-token.Relatv/token")"
+rm -rf "$PROJ/abcdef" "$PROJ/ccy-gh-token.Relatv"
+mkdir -p "$SCRATCH/other-base/ccy-gh-token.OtherB"
+printf '%s\n' "$TOKEN" >"$SCRATCH/other-base/ccy-gh-token.OtherB/token"
+chmod 600 "$SCRATCH/other-base/ccy-gh-token.OtherB/token"
+chmod 700 "$SCRATCH/other-base/ccy-gh-token.OtherB"
+refused "a hand-off shaped file under a base that is no runtime or temporary directory" \
+    "$SCRATCH/other-base/ccy-gh-token.OtherB/token" "$(take "$SCRATCH/other-base/ccy-gh-token.OtherB/token")"
+# An empty file is ccy's in shape but holds no token: refused loudly, and removed.
+mkdir -p "$RUNTIME/ccy-gh-token.Empty1"
+: >"$RUNTIME/ccy-gh-token.Empty1/token"
+chmod 600 "$RUNTIME/ccy-gh-token.Empty1/token"
+chmod 700 "$RUNTIME/ccy-gh-token.Empty1"
+out="$(take "$RUNTIME/ccy-gh-token.Empty1/token")"
+check "an empty hand-off file ends the launch" "rc=1" "$(tail -n 1 <<<"$out")"
+check "  saying it is empty" "yes" \
+    "$(errors="$(grep -F 'ERROR' <<<"$out")"; [[ "$errors" == *"$RUNTIME/ccy-gh-token.Empty1/token"*empty* ]] && echo yes || echo no)"
+check "  and nothing ran" "0" "$(grep -c "^INNER" <<<"$out")"
+check "  and it and its directory are gone" "no" "$( [ -e "$RUNTIME/ccy-gh-token.Empty1" ] && echo yes || echo no)"
+# The pane's environment is the tmux server's, not the outer launcher's: a hand-off made
+# under TMPDIR with no runtime directory is still taken by a launcher that has one.
+ALT_TMP="$SCRATCH/alt-tmp"
+mkdir -p "$ALT_TMP"
+chmod 700 "$ALT_TMP"
+# give-only: the outer launcher's give, its EXIT trap cleared as its exec of tmux clears it.
+cat >"$SCRATCH/give-only" <<'EOF'
+#!/usr/bin/env bash
+source "$T_LIB/token-handoff.bash" && ccy_token_handoff_give && trap - EXIT && printf %s "$CCY_GH_TOKEN_HANDOFF"
+EOF
+f="$(cd "$PROJ" && env -u XDG_RUNTIME_DIR TMPDIR="$ALT_TMP" GH_TOKEN="$TOKEN" bash "$SCRATCH/give-only")"
+check "a hand-off made under TMPDIR, with no runtime directory, is in TMPDIR" "yes" \
+    "$( [[ "$f" == "$ALT_TMP/ccy-gh-token."??????/token ]] && [ -f "$f" ] && echo yes || echo no)"
+out="$(cd "$PROJ" && env -u GH_TOKEN XDG_RUNTIME_DIR="$RUNTIME" TMPDIR="$ALT_TMP" CCY_GH_TOKEN_HANDOFF="$f" \
+    bash "$T_INNER" 2>&1)"
+check "  is taken by a launcher whose environment has a runtime directory" \
+    "INNER GH_TOKEN=$TOKEN HANDOFF=unset CHILD=unset/unset" "$(grep -m1 '^INNER' <<<"$out")"
+check "  and it and its directory are gone" "0" "$(find "$ALT_TMP" -mindepth 1 | grep -c .)"
 f="$(handoff GoodOn 700 600)"
 out="$(take "$f")"
 check "a hand-off file the launcher made is taken" \

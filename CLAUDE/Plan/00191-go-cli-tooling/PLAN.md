@@ -316,7 +316,8 @@ today; rewriting them is out of scope.
   - Review (Opus, FIX-FIRST): `subagent-reports/261021-launcher-harness-review-opus.md`; every
     finding fixed as above.
 - [x] ✅ **Task 4.4b**: Launcher review follow-ups (round 1 finding 1, round 2 findings 1, 2,
-  4, 5, 7; the hand-off's round 2 findings 1, 2 and 6), CCY 3.99.13.15 to 3.99.13.17,
+  4, 5, 7; the hand-off's round 2 findings 1, 2 and 6, round 3 findings 1 to 4 and 7), CCY
+  3.99.13.15 to 3.99.13.18,
   containers 2.78.12 and 2.78.13 (the image carries the guide, corrected twice; the commit
   hook requires a bump each time).
   - Secrets: the launcher held `GH_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN` exported from
@@ -379,7 +380,8 @@ today; rewriting them is out of scope.
       (`find -perm`/`-links`, not `stat`, which the harness runs as a clock fake). Anything
       else ends the launch, naming the variable, and the file is not read or deleted.
     - Finding 2: a new session's outer launcher ends in `exec tmux attach-session`, which
-      drops its EXIT trap, so the trap covers only Esc, an attach refused and no insulation.
+      drops its EXIT trap, so the trap covers only Esc and no insulation (an attach refused
+      also ends in an `exec`, of the launcher itself, which takes the file first).
       The inner launcher now sources `lib/token-handoff.bash` first, before `common.bash`
       and the library check, so a launch that fails after that still removes the file. What
       remains: if the inner launcher never starts (tmux cannot run it, or that one library
@@ -399,6 +401,24 @@ today; rewriting them is out of scope.
       `launch-gh-token-handoff` was refused too (an 8-character suffix, a 0755 directory):
       it now has a 6-character suffix and a 0700 directory (`dirMode` in a scenario's file),
       and keeps a token file with no newline, as a 3.99.13.16 outer launcher writes it.
+  - Hand-off review round 3 (Opus, FIX-FIRST):
+    `subagent-reports/261021-launcher-token-handoff-review-3-opus.md`. CCY 3.99.13.18.
+    - Finding 1 (BLOCKING): a relative `abcdef/token` passed the check, the prefix strip
+      removing nothing, and was read and deleted from the launch's directory. Now the path
+      must be absolute and match `/…/ccy-gh-token.XXXXXX/token`, its base one of the
+      reader's resolved `XDG_RUNTIME_DIR`, `/run/user/<uid>`, `TMPDIR` and `/tmp`.
+    - Finding 3: the pane's environment is the tmux server's, so the writer's and reader's
+      bases can differ; the reader now accepts any of those four bases rather than the one
+      it would itself write to. Still refused (fail closed, naming the variable): a writer
+      base the reader's environment does not name, such as a `TMPDIR` only the outer
+      launcher had, with no runtime directory.
+    - Finding 2: an empty hand-off file is refused with an error and removed with its
+      directory. Finding 4: the "Debug logging to:" notice says the terminal shows the raw
+      trace; the changelog says only prefixed tokens are masked. Finding 7: the trap sentence
+      above is corrected.
+    - Red first: `scripts/test-ccy-token-handoff.bash` failed 8 of 91 (the relative path
+      taken, the empty file silent and kept, a TMPDIR hand-off refused by a reader with a
+      runtime directory); green 91 of 91.
 - [ ] 🔄 **Task 4.5**: Launcher phases 1 and 2: the foundation packages, then `--version`,
   `--help` and the other standalone modes, each a one-flag cut-over.
   - Phase 1 built (nothing cut over or installed, no play change, no CCY bump), each package

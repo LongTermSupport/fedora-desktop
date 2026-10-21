@@ -19,26 +19,33 @@
 
 # ccy_token_handoff_take — when CCY_GH_TOKEN_HANDOFF names a hand-off file, set GH_TOKEN
 # from it (the launcher's first line has taken the export off it) and delete the file and
-# its directory. Only <base>/ccy-gh-token.XXXXXX/token is taken, <base> resolved as
-# ccy_token_handoff_give resolves it, the directory the user's, 0700 and not a link, the
-# file the user's, 0600, one link and not a link: anything else is refused, unread and left
-# in place, and the caller ends the launch, since only a forged value can fail this.
+# its directory. Only an absolute <base>/ccy-gh-token.XXXXXX/token is taken, <base> one of
+# this launcher's XDG_RUNTIME_DIR, /run/user/<uid>, TMPDIR and /tmp, resolved as
+# ccy_token_handoff_give resolves it: the pane's environment is the tmux server's, not the
+# outer launcher's, so the two can name different bases. The directory must be the user's,
+# 0700 and not a link, the file the user's, 0600, one link and not a link: anything else is
+# refused, unread and left in place, and the caller ends the launch. An empty file is
+# refused and removed.
 ccy_token_handoff_take() {
-    local file="${CCY_GH_TOKEN_HANDOFF:-}" base suffix
+    local file="${CCY_GH_TOKEN_HANDOFF:-}" dir base candidate known=no
     unset CCY_GH_TOKEN_HANDOFF
     [ -n "$file" ] || return 0
-    base="$(cd -P -- "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}" && pwd)"
-    suffix="${file#"$base"/ccy-gh-token.}"
-    if [ -z "$base" ] || [[ ! "$suffix" =~ ^[[:alnum:]]{6}/token$ ]] \
-        || [ "$(find "${file%/token}" -maxdepth 0 -type d -user "$EUID" -perm 700 -printf ok)" != ok ] \
+    dir="${file%/token}" base="${file%/*/token}"
+    for candidate in "${XDG_RUNTIME_DIR:-}" "/run/user/$EUID" "${TMPDIR:-}" /tmp; do
+        if [ -d "$candidate" ] && [ "$(cd -P -- "$candidate" && pwd)" = "$base" ]; then known=yes; fi
+    done
+    if [ "$known" != yes ] || [[ ! "$file" =~ ^/.*/ccy-gh-token\.[[:alnum:]]{6}/token$ ]] \
+        || [ "$(find "$dir" -maxdepth 0 -type d -user "$EUID" -perm 700 -printf ok)" != ok ] \
         || [ "$(find "$file" -maxdepth 0 -type f -user "$EUID" -perm 600 -links 1 -printf ok)" != ok ]; then
-        printf 'ERROR: CCY_GH_TOKEN_HANDOFF=%s is not a GitHub token hand-off file made by ccy (%s/ccy-gh-token.XXXXXX/token, 0600 and one link, in a 0700 directory, both yours); it was not read and is left in place.\n' \
-            "$file" "${base:-the runtime directory}" >&2
+        printf 'ERROR: CCY_GH_TOKEN_HANDOFF=%s is not a GitHub token hand-off file made by ccy (<XDG_RUNTIME_DIR, /run/user/%s, TMPDIR or /tmp>/ccy-gh-token.XXXXXX/token, 0600 and one link, in a 0700 directory, both yours); it was not read and is left in place.\n' \
+            "$file" "$EUID" >&2
         return 1
     fi
     # read fails at an end of file with no newline, which a launcher before 3.99.13.17 wrote.
-    IFS= read -r GH_TOKEN <"$file" || [ -n "${GH_TOKEN:+set}" ] || return 1
-    rm -f -- "$file" && rmdir -- "${file%/token}"
+    IFS= read -r GH_TOKEN <"$file" || [ -n "${GH_TOKEN:+set}" ] \
+        || printf 'ERROR: the GitHub token hand-off file %s (CCY_GH_TOKEN_HANDOFF) is empty; it is removed.\n' "$file" >&2
+    rm -f -- "$file" && rmdir -- "$dir" || return 1
+    [ -n "${GH_TOKEN:+set}" ]
 }
 
 # ccy_token_handoff_give — write GH_TOKEN, when set, to a fresh hand-off file and set
