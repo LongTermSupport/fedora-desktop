@@ -34,7 +34,7 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00213-agent-bus-performance-go-carve-out](00213-agent-bus-performance-go-carve-out/) - Not Started. pingbus starts a Python interpreter on every status-line refresh and hook event, costing several CPU threads across a team; cut the refresh rate, skip the host pyenv shim, then port `pingbus status-line` and the per-event hooks to Go with parity tests
+- [00213-agent-bus-performance-go-carve-out](00213-agent-bus-performance-go-carve-out/) - In Progress. pingbus starts a Python interpreter on every status-line refresh and hook event, costing several CPU threads across a team; cut the refresh rate, skip the host pyenv shim, then port `pingbus status-line` to Go with a parity test (the hooks port moved to Plan 00209)
 
 - [00212-stt-pauses-media-while-recording](00212-stt-pauses-media-while-recording/) - In Progress. A speech-to-text recording lowers the playing media to a third of its own volume and restores it exactly when the microphone closes (a player whose sound is not found is paused instead); a panel menu switch, on by default
 

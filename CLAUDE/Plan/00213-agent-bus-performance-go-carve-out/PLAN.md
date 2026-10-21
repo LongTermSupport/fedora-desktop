@@ -42,13 +42,16 @@ as hooks-daemon issue #131 and is not this plan's to fix.
 - `pingbus status-line` is a Go binary that matches the Python output exactly (a parity oracle
   test), and starts in milliseconds.
 - The per-event `pingbus hook …` paths move to Go one at a time, each with a parity test, until
-  no Python interpreter starts on a tick or a hook event.
+  no Python interpreter starts on a tick or a hook event: Plan 00209 Task 3.1 does this, judged
+  by this plan's Task 1.1 measure.
 - The host stops paying a pyenv shim on every `python3` start of the kit.
 
 ## Non-Goals
 
 - Porting the whole of pingbus or agent-bus in this plan. The long-lived watcher, the Matrix
-  client and the admin CLI stay Python until a later plan decides.
+  client and the admin CLI stay Python here; [Plan 00209](../00209-agent-bus-v2-in-go/PLAN.md)
+  is the plan that ports them, and the plan of record for the whole Go rewrite. This plan's
+  status-line work (Tasks 1.1, 2.2, 2.3) is the status-line part of 00209's stage 2.
 - The hooks daemon's own status-line forwarder (hooks-daemon issue #131).
 - CPU power limits and other host tuning. That is separate desktop triage.
 
@@ -156,11 +159,12 @@ as hooks-daemon issue #131 and is not this plan's to fix.
 
 ### Phase 3: per-event hooks in Go
 
-- [ ] ⬜ **Task 3.1**: Measure each `pingbus hook …` event's rate and cost with 1.1. Port them in
-  order of total cost (PostToolUse is the likely first), each with a parity test, and leave the
-  Python in place behind them until the last one is ported.
-- [ ] ⬜ **Task 3.2**: Record what remains in Python and why, as the input to a later plan for the
-  watcher and the CLI.
+- [x] ❌ **Task 3.1**: Superseded by [Plan 00209](../00209-agent-bus-v2-in-go/PLAN.md) Task 3.1,
+  which ports the hooks in order of the cost 1.1 measures, each with a parity test. In socket
+  mode PostToolUse does not start pingbus at all (`hooks.json` runs it only in relay mode).
+- [x] ❌ **Task 3.2**: Superseded by Plan 00209, which ports the watcher and the CLI too. What is
+  Python today and which 00209 stage replaces it is in its
+  [RESEARCH-python-scope.md](../00209-agent-bus-v2-in-go/RESEARCH-python-scope.md).
 
 ## Success Criteria
 
