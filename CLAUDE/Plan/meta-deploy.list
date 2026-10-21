@@ -27,42 +27,12 @@
 # has mapped, and the terminals' font and GPU settings. Start meta-deploy from the terminal that
 # draws the wrong emoji, and leave that window open while it runs.
 00185-terminal-emoji-glyphs
-# play-basic-configs.yml (no plan owns it): the GRUB auto-hide probe fix is proven (the probe ran,
-# the unset was skipped, changed=0), but the last two runs stopped at the fwupd task on an LVFS
-# 503 (metadata refresh timed out through all retries), so the tasks after it (the ABRT policy
-# onward) have not run. Run the whole play again; its
-# other tasks (firmware updates among them) run too, as on any run. The same run rebuilds
-# and installs git-fetch-age with Plan 00183's fix (an empty FETCH_HEAD, left by a fetch that
-# failed, is marked [fetch failed or running] instead of being read as a fresh fetch).
+# play-basic-configs.yml (no plan owns it): fwupd now runs LAST in the play, so every task before
+# it applies even while LVFS's signature file (firmware.xml.zst.jcat) is unavailable; the fwupd
+# task itself still fails (after its retries) until LVFS recovers. The run also rebuilds and
+# installs the fetch-age command with Plan 00183's fix and applies the tasks that stopped behind
+# fwupd before (the ABRT policy onward).
 playbooks/imports/play-basic-configs.yml
-# Plan 00183 (#52, stale tracking ref in the prompt): triage.bash, then acceptance.bash, RE-RUN.
-# The plays are deployed and five of six acceptance legs passed; the "deployed prompt shows the
-# mark" leg failed on a checker bug (a prefix assignment to a readonly variable), now fixed.
-# Both scripts are READ-ONLY, need no sudo and never prompt. The triage records the installed
-# bash-git-prompt and its fetch settings, every FETCH_HEAD of this checkout with its size and
-# age, the SSH agent's keys, and whether the remote answers with the agent and with none (git
-# ls-remote with no terminal, so no passphrase can be asked; nothing is fetched). The
-# acceptance checks the git-fetch-age and git-prompt-fetch the plays installed, in scratch
-# repositories it makes and removes, with fetches through a failing ssh or a recording stand-in
-# that reach no remote, and the interactive shell's async_run.
-00183-prompt-shows-stale-tracking-ref
-# Plan 00212 (lower media volume while recording): the whole speech-to-text play. It builds and
-# installs the new wsi-lower-media-volume command (and removes the ~/.local/bin/wsi-pause-media
-# the earlier run installed), deploys the panel extension with its mediaHold.js and the "Lower
-# media volume while recording" menu switch (on by default; a new GSettings key, which starts off
-# at the next login if the old "Pause media" switch was turned off), and installs
-# python3-gobject, dbus-daemon, pulseaudio-utils (pactl) and pipewire-pulseaudio (normally
-# already there; systemd's busctl is too). The rest of the play runs too, as on any run. The
-# extension changes need a log out and back in. Before the 00212 acceptance.
-playbooks/imports/optional/common/play-speech-to-text.yml
-# Plan 00212 Task 4.4: acceptance.bash (no triage.bash or deploy.bash) runs the installed
-# wsi-lower-media-volume against a fake media player on a private session bus and a fake pactl
-# first on PATH, so no real player or volume is touched: a stream lowered from 70% to 23.3% and
-# restored exactly at TERM, a volume set by hand left alone, a stream that ended with nothing of
-# its app left reported (exit 1), a stream re-created at the lowered volume put back, a player
-# with no stream paused and played again (and left when stopped by hand), nothing done when
-# nothing plays, and the volume restored when its parent ends. No sudo, no prompts.
-00212-stt-pauses-media-while-recording
 # Plan 00211 Task 0.1 (reports and questions rooms): the SPIKE, a throwaway test. It starts the
 # installed Tuwunel as you, on a free loopback port, with scratch accounts and rooms under its own
 # run directory, and removes them when it ends. No unit, team, play or real homeserver is touched.
