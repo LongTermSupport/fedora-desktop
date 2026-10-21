@@ -1216,13 +1216,14 @@ never queues behind a draining keeper; the lock is taken only for steps 2 and 5.
    whatever is there, a link included, without following it. From that moment the session sees
    nothing of that seat.
 3. If the session is over rather than leaving, the disconnected notice (3.7.5), with `held/`'s
-   bundle, outside the lock; skipped when `held/notice.json` already records it for this claim.
+   bundle, outside the lock; skipped when the free seat lock file names no run id (no keeper ever
+   held it, B 2.5) or `held/notice.json` already records the run it names.
    Its outcome decides the next step:
    - posted, or a goodbye found: go on;
    - not due, or not possible for good: the handle is not `active` in the status record's roster
      (parked, retired, lost, or with `needs: reissue`), the homeserver answers `M_UNKNOWN_TOKEN`
      or `M_FORBIDDEN`, the team is declared absent, or its homeserver is not installed. The
-     reason is recorded as `held/notice.json` (`{"v": 1, "claim": "<claim id>", "posted": false, "why": "<reason>"}`), the board shows "notice not posted: <why>", and the
+     reason is recorded as `held/notice.json` (`{"v": 1, "claim": "<claim id>", "run": "<run id>", "posted": false, "why": "<reason>"}`, one record per run, so a later run's end in the same claim is still judged), the board shows "notice not posted: <why>", and the
      release goes on;
    - a transient failure (unreachable, a 5xx, a 429 after M6's retries): the release stops here,
      `held/` stays, the board shows the seat as leaving, and the next release retries from
@@ -1339,15 +1340,17 @@ the seat lock to come free, and nothing would ask the keeper to free it. (b) is 
   admin-posted farewell and no "farewell owed" record.
 - **Disconnected (R29, C43):** when the host releases a seat whose session ended (not a leave),
   it posts A's `disconnected` notice as the subject itself (A §7.4), by running area B's
-  `teamchat seat disconnected --bundle <pool seat dir>/held --since <since_ms> --seed <claim id>` as the
-  owner: `held/`'s bundle, never the session's copy, and the claim's id and `since_ms` from
-  `held/held.json`. The admin's
+  `teamchat seat disconnected --bundle <pool seat dir>/held --since <since_ms> --seed <run id>` as the
+  owner: `held/`'s bundle, never the session's copy, `since_ms` from `held/held.json`, and the
+  ended run's id from the free seat lock file (B 2.5, checked against its grammar). The admin's
   account never posts it. Whether a goodbye was already said is
-  judged from the room on the server, from the member's own events since the claim, never from a
-  file the container wrote. The notice is sent with a Matrix transaction id derived from the
-  claim id (`tc-disc-<claim id>`), so a second post for the same claim cannot land twice
-  (transaction ids are scoped to one token, which is one claim's login; across claims the room
-  check covers it). Only a transient failure
+  judged from the room on the server, from the member's own latest lifecycle event since the
+  claim, never from a file the container wrote. The notice is sent with a Matrix transaction id
+  derived from the ended run's id (`tc-disc-<run id>`), so a second post for the same run cannot
+  land twice (transaction ids are scoped to one token, which is one claim's login; across claims
+  the room check covers it). The run id is the one value taken from a container-written file (the
+  lock file, read by the L3 probe's fd and checked against its grammar); a member that forges it
+  can only cause or withhold a notice about itself, which it can post or withhold anyway. Only a transient failure
   holds the seat for a retry; a notice that is not due or can never be posted (the handle no
   longer active, the token refused, the team gone) is recorded and the release goes on, so a seat
   is never held for ever by a notice (3.7.3 release step 3).
@@ -1358,10 +1361,11 @@ the seat lock to come free, and nothing would ask the keeper to free it. (b) is 
   an OOM kill, a podman failure) is restorable and keeps its seats, but its members are announced
   at once, as v1's launcher did. When `podman` returns and the session's record remains, the
   launcher, and the seat sweep for a launcher that died too, runs the same
-  `teamchat seat disconnected --bundle <pool seat dir>/held --since <since_ms> --seed <claim id>` for each seat
-  whose seat lock is free (the L3 probe, 3.7.3 release step 1), records `held/notice.json`, and
-  keeps the seat held. The same transaction id means a later release for the same claim cannot
-  post it again, and step 3 of that release skips it. A restored session posts A's `back` notice
+  `teamchat seat disconnected --bundle <pool seat dir>/held --since <since_ms> --seed <run id>` for each seat
+  whose seat lock is free (the L3 probe, 3.7.3 release step 1) and whose lock file names a run id,
+  records `held/notice.json` for that run, and keeps the seat held. The same transaction id means
+  a later release for the same run cannot post it again, and step 3 of that release skips it; a
+  restored run that crashes in turn has its own run id, so it is announced. A restored session posts A's `back` notice
   (area B posts it once when a run starts on a seat whose latest own lifecycle notice is
   `disconnected`, B 2.11; section 7). A reboot or a power loss is the same case, with the
   launcher gone too: the seat sweep posts it.
@@ -1372,8 +1376,11 @@ the seat lock to come free, and nothing would ask the keeper to free it. (b) is 
   `teamchat-seats.service` (`Type=oneshot`, `ExecStart=` ccy-teams' `seats sweep`, as the owner,
   `TimeoutStartSec=120`) run the board's background pass headless once a minute. For every pool
   seat with a `held/`, it releases a seat whose session is over (3.7.3), re-runs a timed-out
-  leave, and, for a restorable session whose seat lock is free (L3) and whose `held/notice.json`
-  does not record this claim, runs the `seat disconnected` above and keeps the seat held. It
+  leave, and, for a restorable session whose seat lock is free (L3), whose lock file names a run
+  id and whose `held/notice.json` does not record that run, runs the `seat disconnected` above and
+  keeps the seat held. "Seen held" is that run id: the keeper writes it only once it holds the
+  lock (`run` step 6, B 2.5), so a container still starting (record written and seat taken, the
+  keeper not yet running) has a missing or empty lock file and is never announced. It
   takes the allocation lock only where the release does, needs no password and makes no root
   call. The play installs both units in the owner's systemd user directory and enables the
   timer only while a v2 team is present, as for the host timers (3.5.1 step 7). The timer runs
@@ -1747,6 +1754,8 @@ stopped, disabled and removed. The unit text is C's alone (area B places no unit
 Description=teamchat session for <user>
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=6
 
 [Service]
 Type=forking
@@ -1756,6 +1765,7 @@ WorkingDirectory=<checkout>
 RuntimeDirectory=teamchat-session-<user>
 RuntimeDirectoryMode=0700
 Environment=XDG_RUNTIME_DIR=/run/teamchat-session-<user> HOME=<home>
+Environment=PATH=<home>/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/bin/tmux -L teamchat new-session -d -s teamchat /usr/local/bin/teamchat run --claude --kind lxc --desired <home>/.config/teamchat/membership --resume-recorded -- claude
 TimeoutStopSec=30
 Restart=always
@@ -1770,17 +1780,31 @@ WantedBy=multi-user.target
   the desired directory `guest membership` writes (3.9.2 step 8), and `--resume-recorded`, so a
   restart of the unit resumes the conversation the last session recorded (B43) instead of starting
   a new one. A test renders this unit from its template and parses the `ExecStart` command line,
-  after tmux's own arguments, with `run`'s argument parser (3.14).
+  after tmux's own arguments, with `run`'s argument parser (3.14); the same test parses the ccy
+  launch line of B 6 C3.
 
 - `RuntimeDirectory=` gives the session a runtime directory without a login session, and is one of
   the runtime parents 3.9.2 step 4 reads.
+
+- **A session that cannot start.** `PATH` is set explicitly, because systemd's default has no
+  `~/.local/bin`, where Claude Code's installer puts it; `guest check` (3.9.2 step 05, B 2.13)
+  resolves `claude` on exactly that `PATH` and fails the phase otherwise. A CMD that still fails at
+  once (Claude Code refuses its configuration, or the recorded transcript makes it exit) is B's
+  launch failure (B 2.4.1 step 7): no `disconnected`, no `back`, and the seat lock file marks the
+  run so the tick never announces it (step 6 below). `StartLimitBurst=6` in
+  `StartLimitIntervalSec=600` is B48's bound (six exits with no ten-minute run between them), so
+  the sixth quick exit leaves the unit `failed` (start limit hit) instead of restarting every 10 s.
+  The team has heard at most the one true notice of the last run that reached Claude Code; the
+  tick's status entry carries `launch-failed` as a problem (3.11.3), and the board shows it with
+  `ccy-teams restart` as the recovery (`ResetFailedUnit`, then the restart, below).
 
 - The default `KillMode` signals every process of the unit at a stop. Area B's `run` handles that
   stop itself: it has the member say its goodbye and ends within its bound, the keeper last
   (section 7, B). `TimeoutStopSec=30` is above B's end bound with margin.
 
 - `ccy-teams restart` on an LXC member runs `teamchat-admin lxc restart --container C --user U`
-  (root, password sudo), which restarts this unit over the guest's private socket as above; under
+  (root, password sudo), which resets its failed state and restarts this unit over the guest's
+  private socket as above; under
   DC13 (b) it refuses, naming a container restart.
 
 - `<checkout>`, `<user>`, `<group>` and `<home>` are the host-side reads of 3.9.2 step 3, each
@@ -1879,8 +1903,10 @@ Step 3 also probes each LXC member's seat lock (3.9.2) for its `online` entry.
    held at the last tick is now free, or its container has stopped, and the handle is still
    `active` in the roster, the tick asks the child for `member.disconnected` with the handle and
    the run id this record holds from the last tick, read while that run held the lock: the ended
-   run's id, never one read from the lock file now, which a new run may already name. The child reads the main room for the member's own `left` or `disconnected` since
-   `since_ms`; finding none, it posts A's `disconnected` as the member, with the guest token copy
+   run's id, never one read from the lock file now, which a new run may already name. A run whose
+   free lock file still names it with `launch_failed_ms` (B 2.5) is not asked for: it never reached
+   Claude Code, and the record shows `launch-failed` (3.9.4). The child reads the main room for the member's latest own lifecycle notice since
+   `since_ms`; unless it is `left` or `disconnected`, it posts A's `disconnected` as the member, with the guest token copy
    `ctl/<team>/guest/<handle>.token` (3.6.3) and transaction id `tc-disc-<run id>`, and the tick
    records the notice. A transient failure leaves the entry unposted for the next tick. The LXC
    absent phase (3.9.2) holds the team lock while it parks a member, so its stop never draws a
@@ -1932,7 +1958,8 @@ restore, so the board sees a change at once:
   `/var/lib/teamchat-status/sets/<set-id>.json` does.
 - `online` is present on LXC member entries only: the tick's probe of the member's seat lock
   (3.11.2), up to about 70 s old. An entry whose disconnected notice could not be posted carries
-  it as a problem.
+  it as a problem, and one whose last run's lock file records a launch failure carries
+  `launch-failed` as a problem (3.9.4).
 - `disk` is the free space of `/var/lib`'s filesystem at the tick (3.11.2 step 4).
 - `restore` is null, or `{"step": "<step>", "backup": N, "pre": M}` copied from `restore.json`
   (3.12.2), with the problem "restore staged" (fix: `restore --resume` or `--discard`) or
@@ -2457,9 +2484,9 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
 06. B provides `teamchat seat disconnected --bundle <dir> --since <ms> --seed <id>`, run by the host as
     the owner with the pool's `held/` bundle, which judges from the room whether this member
     already said goodbye or was announced since the claim and otherwise posts the disconnected
-    notice once, with transaction id `tc-disc-<seed>` (C43); the host passes the claim id as the
-    seed and the claim's `since_ms`. A restored ccy session whose seat the host announced posts
-    A's `back`, and B's own disconnected path for the same claim uses the same transaction id, so
+    notice once, with transaction id `tc-disc-<seed>` (C43); the host passes the ended run's id from
+    the free seat lock file as the seed and the claim's `since_ms`. A restored ccy session whose seat the host announced posts
+    A's `back`, and B's own disconnected path for the same run uses the same transaction id, so
     the two never double. The health tick's child calls the same code as a package, with the
     guest token copy, the run id as the seed and the run's `since_ms` (3.11.2 step 6).
 07. For an LXC member, the next link on a seat checks the room for the member's own `left` or
@@ -2467,7 +2494,7 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
     transaction id `tc-disc-<run id>`, the id the health tick uses (3.11.2 step 6): the ended
     run's id, which the tick read from the seat lock file while that run held it, in a grammar the
     host checks, and which the next link reads from its surviving store's `run.id` (the lock file
-    by then names the new run). A ccy link uses `tc-disc-<claim>`, the seed the host passes.
+    by then names the new run). A restored ccy link does the same: the host's seed is that run id.
 08. A link that sees the roster's `restore_epoch` change drops its `next_batch` and resumes as a
     seat with no member store; on every reconnect after a homeserver outage it reads the roster by
     a direct state request, not by sync, to see the change (3.12.2), and a store found at start is

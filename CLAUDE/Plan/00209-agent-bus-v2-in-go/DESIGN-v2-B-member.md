@@ -276,7 +276,7 @@ requirement states the need and section 5 states the drop.
 
 ```text
   launcher (ccy entrypoint, cc --teams, LXC teamchat-session-<user>.service, docker/VM wrapper)
-    └─ keeper = teamchat run --claude [--desired DIR] -- claude <args>
+    └─ keeper = teamchat run --claude --kind <kind> [--desired DIR] -- claude <args>
          │      (stays the parent for the session's life; holds keeper.lock and every seat lock;
          │       reads <v2-desired>/desired.json by inotify; keeps the inbox socket token in memory;
          │       no network call)
@@ -816,9 +816,13 @@ starts it as its child and stays its parent for the session's life (2.1). `run`:
    the user's and the project's settings, so a user-level `accept` cannot open a session the launch
    refused (that precedence is a host check, 4). The kit's static settings never carry the inbound
    setting, since one immutable file cannot hold both decisions (B35, 2.10). `run` then appends
-   `--plugin-dir <kit>/plugin/teamchat --settings <v2-run>/settings.json` after CMD's last argument; a CMD
-   whose arguments already contain `--settings`, `--plugin-dir` or a bare `--` is exit 64, since the
-   appended flags would then be overridden or read as a prompt. With `--resume-recorded` (the LXC
+   `--plugin-dir <kit>/plugin/teamchat --settings <v2-run>/settings.json` after CMD's last argument.
+   CMD's Claude Code argument is its first argument whose base name is `claude`. A wrapper's own
+   separator is allowed: at most one bare `--`, and only directly before that argument (ccy's
+   `<supervisor> --arm -- claude`). A CMD with `--settings` or `--plugin-dir` anywhere, a bare `--`
+   anywhere else, or, under `--claude`, no argument named `claude` is exit 64, since the appended
+   flags would then be overridden or read as a prompt. A test runs every launch line this design
+   spells (B 6 C3, C 3.9.4, D 12) through this parser. With `--resume-recorded` (the LXC
    unit, whose restart has nobody to type a resume, C 3.9.4), `run` reads
    `<v2-state>/conversation.json` (strictly decoded, a hint only, B43) and, when it names a session
    id whose transcript exists in the session's project directory (2.4.4's derivation), appends
@@ -845,7 +849,11 @@ starts it as its child and stays its parent for the session's life (2.1). `run`:
    `session.pid` (atomic, `O_EXCL` temp then rename) with `session` set to CMD's pid and start time;
    and tells the link that pid. The link serves no hook op before it has it, and waits for it within
    the op's deadline (2.4.4), which the few microseconds between the start and the message never
-   approach;
+   approach. Under `--claude`, a CMD that cannot be started, or that ends before the link has seen
+   the session's first SessionStart, is a **launch failure**: the keeper's `end` is
+   `launch-failed`, no notice is posted (2.11's table), `keeper.log`, every `report.json` and the
+   board say `launch-failed` with CMD's status and its first stderr line, and `run` exits 78
+   (`launch`). A unit restarting such a CMD is stopped by its start limit (C 3.9.4);
 8. from then on runs the keeper's loop (2.4.2) until CMD and Claude Code have both exited (they are
    one process unless CMD is a wrapper, 2.4.2), then the end (2.4.2), and exits with CMD's status: its exit code, or 128+n when signal n ended it. From step 7 on the keeper writes
    nothing to the terminal: its diagnostics go to `<v2-run>/keeper.log` (B47).
@@ -986,8 +994,9 @@ Code, whatever sits between (chosen; it holds for a wrapper that does meet the c
   end's.
 
 **The end.** When the session has ended (above), the keeper tells the link `end` with how it ended:
-`stop` (the keeper forwarded a `SIGTERM` or `SIGHUP`), else `exit` (an exit status) or `killed` (a
-signal the keeper did not forward: `SIGKILL`, `SIGSEGV`, an OOM kill), read from Claude Code's
+`launch-failed` (2.4.1 step 7), else `stop` (the keeper forwarded a `SIGTERM` or `SIGHUP`), else
+`exit` (an exit status) or `killed` (a signal the keeper did not forward: `SIGKILL`, `SIGSEGV`, an
+OOM kill), read from Claude Code's
 status when Claude Code is CMD and from CMD's when a wrapper is between (a wrapper that ends with its
 child's status gives 128+n for a signal; `exit` with no SessionEnd reason and `killed` both post
 `disconnected`, 2.11, so the notice never depends on the wrapper reporting the status faithfully).
@@ -1228,9 +1237,13 @@ all properties of the link owning its state alone.
   non-blocking (75 if held), and deletes or renames only the other files in the seat directory;
   `seat.lock` stays, empty of meaning once free.
 - **Content.** After taking a seat lock the keeper writes `{"v":1,"run":"<id>","started_ms":N}` into
-  it, for a human diagnosing a held seat and for the host's health tick, which reads `run` as the
-  seed of an LXC seat's disconnected transaction id (2.11, C 3.11.2 step 6) after checking it
-  against the run id grammar (16 lowercase hex). The lock, not the content, is the truth of whether
+  it, for a human diagnosing a held seat and for the host (the health tick for an LXC seat, the ccy
+  launcher and the owner's seat sweep for ccy and host seats), which reads `run` as the proof that
+  a keeper held the lock and as the seed of the seat's disconnected transaction id (2.11, C 3.7.5,
+  3.11.2 step 6) after checking it against the run id grammar (16 lowercase hex). On a launch
+  failure (2.4.1 step 7) the keeper rewrites it, still holding the lock, with
+  `"launch_failed_ms":N` added, and the host never announces that run: it never reached Claude
+  Code. The lock, not the content, is the truth of whether
   the seat is held.
 - **Proof.** Each rule is a test against a second real process (the test binary re-run through
   `cmdmaintest`), including a `SIGKILL`ed holder, and three crash-point tests hold the single-writer
@@ -1794,6 +1807,7 @@ account of how Claude Code ended and the SessionEnd reason in `session.json`:
 | `stop` (the keeper forwarded a `SIGTERM` or `SIGHUP`) | none                       | `left` with reason `other`: the session was ended from outside, in order |
 | `exit` (no stop forwarded) or `killed`                | none                       | `disconnected`: Claude Code ended without saying so (a crash, a kill)    |
 | the keeper's control socket closed (the keeper died)  | any                        | `disconnected`                                                           |
+| `launch-failed` (2.4.1 step 7: no SessionStart came)  | none                       | nothing: the run never reached Claude Code, and posted no `back` either  |
 
 A seat whose roster role is `probe` (the acceptance probe, A 6.7, C 3.3) posts none of these
 notices and no `back`, and the host's `seat disconnected` rule is never run for it (its seat is
@@ -1812,16 +1826,16 @@ never the keeper's (the keeper makes no network call, B14):
 - `ended.state` `attempted`: re-sent with its recorded transaction id, which the homeserver stores
   once (M22), so a notice that did reach the room is not doubled;
 - `ended` still `null` (the session ended unseen: its container, guest or host was killed): judged
-  from the room as the host judges (below), from `run.started_ms`: if the member's own `left` or
-  `disconnected` is there, the host already said it and nothing is posted; else one `disconnected`,
-  with the transaction id the host would use for the same run, so the two never double: for a ccy
-  seat `tc-disc-<claim>`, from the bundle's `seat.json` `claim` (the seed the launcher and the
-  host pass, below; a restored ccy session keeps its claim), and for an LXC or host seat
-  `tc-disc-<run id>`, the **ended** run's id, read from the surviving store's `run.id` (the seat
-  lock file already holds the new run's id, which the keeper wrote when it took the lock, 2.5).
+  from the room as the host judges (below), from `run.started_ms`: if the member's latest own
+  lifecycle notice since then is `left` or `disconnected`, the host already said it and nothing is
+  posted; else one `disconnected`, with the transaction id the host would use for the same run, so
+  the two never double: for every kind `tc-disc-<run id>`, the **ended** run's id, read from the
+  surviving store's `run.id` (the seat lock file already holds the new run's id, which the keeper
+  wrote when it took the lock, 2.5; the host read the ended run's id from that file before).
 
-**`back`, at every start.** Whether a store survived or not (2.6 step 01 (a) and (b) alike), before
-the team goroutine's first long-poll the link reads the member's latest own lifecycle notice in
+**`back`, at every start.** Whether a store survived or not (2.6 step 01 (a) and (b) alike), once
+the session's first SessionStart has reached the link (at once for a `--plain` launch, which has
+none), the link reads the member's latest own lifecycle notice in
 main (`/messages` backwards, the same page bound) and, if it is `disconnected`, posts A's `back`
 notice once for the new run, so a coordinator told that the member had gone is told that it
 returned (A 7.4). A new ccy session, whose store is always quarantined (DC15), is the common case.
@@ -1833,15 +1847,20 @@ run on the host as the owner (area C runs it; C keeps a host-held copy of every 
 pool for ccy and a copy for LXC and host seats):
 
 - **The rule.** `since` is a time at which the host knew the seat to be held by a session: the
-  claim's start for a ccy session, and for every kind the first health tick that saw the seat lock
-  held. If the member's own `left` or `disconnected` is in the room at or after `since`, the session
-  was told and nothing is posted. If not, it posts `disconnected` once, as the subject, with
-  transaction id `tc-disc-<seed>`, so the launcher's call and the health tick, or two ticks, can
-  never post it twice (M22). The host passes the claim id as the seed for a ccy seat (the link uses
-  the same claim, above), and the run id for an LXC seat (the tick's child calls the same code as a package, with the guest token copy, C
+  claim's start for a ccy session, the first health tick that saw the seat lock held for an LXC
+  seat, and the first owner's sweep that saw it held for a host seat. If the member's latest own lifecycle notice at or after `since` is `left` or
+  `disconnected`, the session was told and nothing is posted (a `back` after it means a later run
+  that has not been announced). If not, it posts `disconnected` once, as the subject, with
+  transaction id `tc-disc-<seed>`, so the launcher's call and the minute pass, or two passes, can
+  never post it twice (M22). For every kind the seed is the ended run's id (the link uses the same
+  id, above; the tick's child calls the same code as a package, with the guest token copy, C
   3.11.2 step 6). The run id is the one the keeper writes into the seat lock file when it takes the
-  lock (2.5), in a grammar the host checks before it uses it (16 hex; anything else counts as no
-  run id).
+  lock (2.5), which the host reads from the free lock file, in a grammar it checks before it uses
+  it (16 hex). A lock file that is missing, empty or names no valid run id was never held by a
+  keeper, as in every launch window before `run` step 6, and one that records `launch_failed_ms`
+  belongs to a run that never reached Claude Code (2.5); the host posts nothing for either. A
+  restored session's runs in one claim each have their own seed, so a second crash in the same
+  claim is still announced.
 - **Why a free seat lock is enough to judge by.** The keeper holds every seat lock until the link's
   notice has been posted or its bound has passed (2.4.2), and frees the locks early only when the
   link has failed (B48). So "the lock is free, and no notice is in the room since the lock was seen
@@ -1851,7 +1870,8 @@ pool for ccy and a copy for LXC and host seats):
   and, once a minute, a host pass for every seat it saw held and now finds free, or whose
   container or guest no longer runs: the owner's seat sweep (`teamchat-seats.timer` running
   ccy-teams' `seats sweep`, C 3.7.5, DC21) for ccy and host seats, judging "seen held" by the
-  pool seat's `held/` and skipping a claim its `held/notice.json` already records, and root's
+  free seat lock file naming a run id (a keeper held it) and skipping a run its
+  `held/notice.json` already records, and root's
   health tick (C 3.11.2 step 6) for LXC seats, judging it by the run id recorded at its last tick. The launcher's call
   is the fast path; the minute pass is the guarantee, so a session that never comes back is
   announced within about a minute. The owner's sweep runs while the owner's user manager runs, so
@@ -1866,23 +1886,23 @@ pool for ccy and a copy for LXC and host seats):
 keeper, not Claude Code, is the process its container, unit or terminal waits on (B46), and that
 the link survives the signals of a stop (2.4.3).
 
-| Kind and process chain                                                                                                                                                    | How the session ends                                                                               | What reaches the keeper                                                                                                                                              | Posted, by whom                                                                                                                                           |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **ccy**: `podman run --rm` → tini (PID 1, `claude-yolo` Dockerfile `ENTRYPOINT`) → `entrypoint.sh`, which execs `teamchat run --kind ccy` → the ccy supervisor → `claude` | `/exit`, `/logout`, Ctrl-D                                                                         | SessionEnd records the reason; Claude Code exits; the supervisor follows it out (with Claude Code's status, or 75 for a relaunch request it acted on); `end exit`    | `left <reason>` by the link; then the keeper exits with CMD's status, tini exits, the container ends, and for a 75 the launcher starts the next container |
-| ccy                                                                                                                                                                       | `ccy-teams stop`, `podman stop`, or a closed terminal (the launcher's cleanup stops the container) | podman's `SIGTERM` to tini, forwarded to its one child, the keeper, which forwards it to Claude Code itself, past the supervisor (2.4.2); `end stop` (traced below)  | `left` by the link, within the container's stop timeout (at least 20 s, below)                                                                            |
-| ccy                                                                                                                                                                       | Claude Code crashes or is killed                                                                   | `end killed`, or `exit` with no reason                                                                                                                               | `disconnected` by the link                                                                                                                                |
-| ccy                                                                                                                                                                       | the container is killed (an OOM kill, `podman kill`, power loss), or the keeper crashes            | nothing: the kernel kills every process of the container's pid namespace at once                                                                                     | `disconnected` by the launcher's call when podman returns, else by the health tick                                                                        |
-| **LXC**: `teamchat-session-<user>.service` → tmux → the pane runs `teamchat run --kind lxc` → `claude`                                                                    | `/exit`, `/logout`                                                                                 | `end exit`; the pane and tmux end and the unit restarts the session                                                                                                  | `left <reason>` by the link                                                                                                                               |
-| LXC                                                                                                                                                                       | the unit is stopped (`ccy-teams stop` or restart, the guest shutting down in order)                | systemd's `SIGTERM` to every process of the unit (the default `KillMode`), tmux's hang-up of the pane: the keeper forwards a stop; the link ignores both; `end stop` | `left` by the link, within the unit's `TimeoutStopSec` (at least 30 s, below)                                                                             |
-| LXC                                                                                                                                                                       | the pane or tmux is killed                                                                         | `SIGHUP`, a stop; `end stop`                                                                                                                                         | `left` by the link                                                                                                                                        |
-| LXC                                                                                                                                                                       | Claude Code crashes or is killed                                                                   | `end killed`                                                                                                                                                         | `disconnected` by the link                                                                                                                                |
-| LXC                                                                                                                                                                       | the keeper crashes                                                                                 | the pane closes; the link's control socket closes                                                                                                                    | `disconnected` by the link (2.4.3)                                                                                                                        |
-| LXC                                                                                                                                                                       | the container is stopped hard (`lxc-stop -k`), or the host loses power                             | nothing                                                                                                                                                              | `disconnected` by the health tick, with the host-held bundle                                                                                              |
-| **host `cc`**: a terminal → `cc --teams` → `teamchat run --kind host` → `claude`                                                                                          | `/exit`, `/logout`                                                                                 | `end exit`                                                                                                                                                           | `left <reason>` by the link                                                                                                                               |
-| host `cc`                                                                                                                                                                 | the terminal is closed                                                                             | `SIGHUP` to the job; `end stop`; neither process writes to the dead terminal (B47)                                                                                   | `left` by the link                                                                                                                                        |
-| host `cc`                                                                                                                                                                 | Claude Code is killed                                                                              | `end killed`                                                                                                                                                         | `disconnected` by the link                                                                                                                                |
-| host `cc`                                                                                                                                                                 | the keeper is killed                                                                               | the link's control socket closes; Claude Code runs on with no teams, and its hooks and status line say so with the recovery (2.4.2)                                  | `disconnected` by the link                                                                                                                                |
-| host `cc`                                                                                                                                                                 | the host loses power                                                                               | nothing                                                                                                                                                              | `disconnected` by the first health tick after boot                                                                                                        |
+| Kind and process chain                                                                                                                                                             | How the session ends                                                                               | What reaches the keeper                                                                                                                                              | Posted, by whom                                                                                                                                           |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **ccy**: `podman run --rm` → tini (PID 1, `claude-yolo` Dockerfile `ENTRYPOINT`) → `entrypoint.sh`, which execs `teamchat run --claude --kind ccy` → the ccy supervisor → `claude` | `/exit`, `/logout`, Ctrl-D                                                                         | SessionEnd records the reason; Claude Code exits; the supervisor follows it out (with Claude Code's status, or 75 for a relaunch request it acted on); `end exit`    | `left <reason>` by the link; then the keeper exits with CMD's status, tini exits, the container ends, and for a 75 the launcher starts the next container |
+| ccy                                                                                                                                                                                | `ccy-teams stop`, `podman stop`, or a closed terminal (the launcher's cleanup stops the container) | podman's `SIGTERM` to tini, forwarded to its one child, the keeper, which forwards it to Claude Code itself, past the supervisor (2.4.2); `end stop` (traced below)  | `left` by the link, within the container's stop timeout (at least 20 s, below)                                                                            |
+| ccy                                                                                                                                                                                | Claude Code crashes or is killed                                                                   | `end killed`, or `exit` with no reason                                                                                                                               | `disconnected` by the link                                                                                                                                |
+| ccy                                                                                                                                                                                | the container is killed (an OOM kill, `podman kill`, power loss), or the keeper crashes            | nothing: the kernel kills every process of the container's pid namespace at once                                                                                     | `disconnected` by the launcher's call when podman returns, else by the health tick                                                                        |
+| **LXC**: `teamchat-session-<user>.service` → tmux → the pane runs `teamchat run --kind lxc` → `claude`                                                                             | `/exit`, `/logout`                                                                                 | `end exit`; the pane and tmux end and the unit restarts the session                                                                                                  | `left <reason>` by the link                                                                                                                               |
+| LXC                                                                                                                                                                                | the unit is stopped (`ccy-teams stop` or restart, the guest shutting down in order)                | systemd's `SIGTERM` to every process of the unit (the default `KillMode`), tmux's hang-up of the pane: the keeper forwards a stop; the link ignores both; `end stop` | `left` by the link, within the unit's `TimeoutStopSec` (at least 30 s, below)                                                                             |
+| LXC                                                                                                                                                                                | the pane or tmux is killed                                                                         | `SIGHUP`, a stop; `end stop`                                                                                                                                         | `left` by the link                                                                                                                                        |
+| LXC                                                                                                                                                                                | Claude Code crashes or is killed                                                                   | `end killed`                                                                                                                                                         | `disconnected` by the link                                                                                                                                |
+| LXC                                                                                                                                                                                | the keeper crashes                                                                                 | the pane closes; the link's control socket closes                                                                                                                    | `disconnected` by the link (2.4.3)                                                                                                                        |
+| LXC                                                                                                                                                                                | the container is stopped hard (`lxc-stop -k`), or the host loses power                             | nothing                                                                                                                                                              | `disconnected` by the health tick, with the host-held bundle                                                                                              |
+| **host `cc`**: a terminal → `cc --teams` → `teamchat run --kind host` → `claude`                                                                                                   | `/exit`, `/logout`                                                                                 | `end exit`                                                                                                                                                           | `left <reason>` by the link                                                                                                                               |
+| host `cc`                                                                                                                                                                          | the terminal is closed                                                                             | `SIGHUP` to the job; `end stop`; neither process writes to the dead terminal (B47)                                                                                   | `left` by the link                                                                                                                                        |
+| host `cc`                                                                                                                                                                          | Claude Code is killed                                                                              | `end killed`                                                                                                                                                         | `disconnected` by the link                                                                                                                                |
+| host `cc`                                                                                                                                                                          | the keeper is killed                                                                               | the link's control socket closes; Claude Code runs on with no teams, and its hooks and status line say so with the recovery (2.4.2)                                  | `disconnected` by the link                                                                                                                                |
+| host `cc`                                                                                                                                                                          | the host loses power                                                                               | nothing                                                                                                                                                              | `disconnected` by the first health tick after boot                                                                                                        |
 
 Docker and VM members follow the host `cc` rows when their wrapper ends the session as a terminal
 does, and the LXC rows when a unit does; their launcher keeps the same four rules:
@@ -2025,12 +2045,12 @@ every leaf mode (RL 6.02), opens with `O_NOFOLLOW`, places files with `O_EXCL` t
 refuses a path owned by someone else, prints `CHANGED\t<what>` lines on stdout for what it changed
 and nothing otherwise, and exits 0, 64, 75 (`remove` only) or 78.
 
-| Op                         | Does                                                                                                                                                                                                                                                                                                             |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `check --user U --team T`  | the user has a home; `gh` is installed and logged in to github.com as that user; the kernel has pidfd and inotify; tmux is installed; `reach` to the team's homeserver from inside the guest (whether the guest's source address is inside the team's `allow_from` is a host-side fact, area C's pre-check, R48) |
-| `place-bundle --user U`    | writes the bundle area C sends on stdin into `<v2-bundle>`, area C's format, 0700 and 0600, by a new directory swapped into place (C 3.7.3)                                                                                                                                                                      |
-| `membership --user U`      | writes the desired membership area C sends on stdin (C 3.7.5's schema, decoded strictly) as `<v2-desired>/desired.json`, 0700 directory and 0600 file, atomically, replacing whatever the file held (the host's copy is the authority, C 3.9.3); the keeper reconciles it at once (2.10)                         |
-| `remove --user U --team T` | takes the seat lock first (75 if a session holds it; C's absent phase waits for the seat to be free before it runs this, C 3.9.2), then removes the team's bundle and every seat file except `seat.lock`, which is never unlinked (2.5)                                                                          |
+| Op                         | Does                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `check --user U --team T`  | the user has a home; `gh` is installed and logged in to github.com as that user; the kernel has pidfd and inotify; tmux is installed; `claude` resolves to an executable file on exactly the supervised unit's `PATH` (`<home>/.local/bin:/usr/local/bin:/usr/bin:/bin`, C 3.9.4), as that user; `reach` to the team's homeserver from inside the guest (whether the guest's source address is inside the team's `allow_from` is a host-side fact, area C's pre-check, R48) |
+| `place-bundle --user U`    | writes the bundle area C sends on stdin into `<v2-bundle>`, area C's format, 0700 and 0600, by a new directory swapped into place (C 3.7.3)                                                                                                                                                                                                                                                                                                                                 |
+| `membership --user U`      | writes the desired membership area C sends on stdin (C 3.7.5's schema, decoded strictly) as `<v2-desired>/desired.json`, 0700 directory and 0600 file, atomically, replacing whatever the file held (the host's copy is the authority, C 3.9.3); the keeper reconciles it at once (2.10)                                                                                                                                                                                    |
+| `remove --user U --team T` | takes the seat lock first (75 if a session holds it; C's absent phase waits for the seat to be free before it runs this, C 3.9.2), then removes the team's bundle and every seat file except `seat.lock`, which is never unlinked (2.5)                                                                                                                                                                                                                                     |
 
 Reading the container's checkout to derive a handle stays on the host, as root, from the container's
 root fd, never by running container code (R33); that is area C's.
@@ -2300,7 +2320,7 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
   `--claude` (a Claude Code launch, whatever its command is called) or `--plain` and its member kind
   with `--kind`; a launch with no v2 does not wrap with `run` (2.4.1). The launcher keeps 2.11's
   four rules: `run` is the process its container, unit or job waits on (in ccy, `entrypoint.sh`
-  execs `teamchat run --claude --kind ccy --desired /run/teamchat/membership -- <supervisor> ... -- claude`
+  execs `teamchat run --claude --kind ccy --desired /run/teamchat/membership -- <supervisor> --arm -- claude`
   as tini's one child, with the ccy supervisor inside it as CMD); a stop reaches `run` as `SIGTERM`
   or `SIGHUP` and waits at least 20 s for a container (`podman run --stop-timeout 20`) and 30 s for
   a unit (`TimeoutStopSec=30`, the default `KillMode`, ordered after `network-online.target`);

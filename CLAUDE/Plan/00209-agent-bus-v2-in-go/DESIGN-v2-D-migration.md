@@ -1380,11 +1380,12 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
 - The launcher and ccy-teams refuse a new v1 seat, a hot add and a hot remove for a team whose
   set is between `preflighted` and `carried`, read from the status directory (3.9).
 - ccy-teams gains `migrate`, `archive open|close`, and holds the user play lock from M2 to M5.
-- The v2 launch (N4, with B): `entrypoint.sh` execs `teamchat run --kind ccy` as tini's one child,
+- The v2 launch (N4, with B): `entrypoint.sh` execs `teamchat run --claude --kind ccy --desired /run/teamchat/membership -- <supervisor> --arm -- claude` (B 2.4.1's grammar) as tini's one child,
   and the container runs with `podman run --stop-timeout 20` (B 2.11 rule 2, B 6 C3).
 - When `podman` returns and the session's record remains (a crash), the launcher runs
-  `teamchat seat disconnected --bundle <pool seat dir>/held --since <since_ms> --seed <claim id>`
-  for each of its seats whose seat lock is free, records `held/notice.json`, and keeps the seats
+  `teamchat seat disconnected --bundle <pool seat dir>/held --since <since_ms> --seed <run id>`
+  for each of its seats whose seat lock is free and whose lock file names a run id (B 2.5), records
+  `held/notice.json` for that run, and keeps the seats
   held for a restore (C 3.7.5).
 - The launcher refuses any mount whose real source is an ancestor of, equal to, or inside the seat
   store root, other than the session's two binds (C 3.7.1), with a VM-lab test.
