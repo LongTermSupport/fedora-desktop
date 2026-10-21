@@ -55,8 +55,11 @@ needed. The package doc of `src-go/internal/wsimedia` is the full statement.
 - **M5.** Then each remembered player is played again (`Play`) only if its unique name is still
   on the bus and its `PlaybackStatus` is `Paused`. Gone, `Stopped` or `Playing` (the owner
   changed it during the recording) is left as it is, with a line on stderr.
-- **M6.** A busctl failure on one player is reported (`wsi-pause-media: <player>: <busctl's words>`) and the others are still paused or resumed, since each is independent; the exit is
-  then 1. A failure to list the bus is exit 1 with nothing paused.
+- **M6.** A player whose owner or state cannot be read (no object, no `CanPause`, a reply that is
+  not busctl's JSON) is skipped with one stderr line (`wsi-pause-media: <player>: skipped: <words>`) and the others carry on; the exit stays 0, so a broken player does not raise an
+  error notification on every recording. A `Pause` or `Play` that fails, or a state unreadable at
+  the resume, is reported the same way without "skipped", the others still go on, and the exit
+  is 1. A failure to list the bus (busctl missing, no session bus) is exit 1 with nothing paused.
 - **M7.** Any argument but `-h`/`--help` is a usage error, exit 64, nothing run. stdout is
   never written; every message goes to stderr (the GNOME Shell journal, as the recorders').
 
@@ -83,6 +86,20 @@ needed. The package doc of `src-go/internal/wsimedia` is the full statement.
 | GNOME Shell (crash, logout)        | `wsi-pause-media` sees its parent gone within a second and resumes.                                      |
 | `wsi-pause-media` itself, SIGKILL  | Nothing can resume: the players stay paused until played by hand. The panel reports the unexpected exit. |
 
+## Known limitations (accepted, from the Opus review)
+
+- **A stale status after a very short recording.** Some players (Spotify among them) update
+  `PlaybackStatus` after `Pause` has returned. If TERM arrives within milliseconds of the pause,
+  M5 can read a stale `Playing`, leave the player alone, and the pause then takes effect: the
+  music stays paused. It needs a sub-second tap; a short re-read before "left as it is" would
+  close it.
+- **Overlapping holds on back-to-back recordings.** Hold 1 may still be resuming when hold 2
+  lists the players; hold 2 then sees `Paused`, does not remember the player, and hold 1 plays it
+  during recording 2. Unlikely, since Insert is refused until recording 1's session ends, well
+  after the TERM at TRANSCRIBING. Not tested.
+- **A screen lock resumes the music** while the recorder may still run (the panel's `destroy()`
+  releases the hold). A decision above, listed so the owner is not surprised.
+
 ## Tasks
 
 ### Phase 1: The pause command
@@ -91,9 +108,10 @@ needed. The package doc of `src-go/internal/wsimedia` is the full statement.
   signals and parent PID; then `src-go/internal/wsimedia` and `src-go/cmd/wsi-pause-media`.
   `busctl` gains `internal/wsimedia` as a second owner in the project rules' table.
 - [x] ✅ **Task 1.2**: Register it in `scripts/go-binary-suites.tsv` (qa-go) and build it in
-  `play-speech-to-text.yml` with `tasks/build-go-command.yml`; name `systemd` (busctl),
-  `python3-gobject` and `dbus-daemon` (the acceptance's fake player and private bus) in the
-  play's dependencies.
+  `play-speech-to-text.yml` with `tasks/build-go-command.yml`; name `python3-gobject` and
+  `dbus-daemon` (the acceptance's fake player and private bus; busctl is systemd's, already on
+  every host) in the play's dependencies. `dbus-daemon` is a test-only dependency of a
+  production play, kept for `dbus-run-session`.
 
 ### Phase 2: The panel
 

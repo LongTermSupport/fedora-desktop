@@ -18,9 +18,12 @@
 //   - M5. Each remembered player is played again (Play) only if its unique name is still on
 //     the bus and its PlaybackStatus is Paused. Gone, Stopped or Playing (changed by hand
 //     during the recording) is left as it is, with a line on stderr.
-//   - M6. A busctl failure on one player is reported (`wsi-pause-media: <player>: <busctl's
-//     words>`) and the others are still paused or resumed, each being independent; the exit
-//     is then 1. A bus that cannot be listed is exit 1, with nothing paused.
+//   - M6. A player whose owner or state cannot be read (no object, no CanPause, a reply that
+//     is not busctl's JSON) is skipped with one stderr line (`wsi-pause-media: <player>:
+//     skipped: <words>`) and the others carry on; the exit stays 0. A Pause or Play that
+//     fails, or a state that cannot be read at the resume, is reported the same way without
+//     "skipped", the others still go on, and the exit is 1. A bus that cannot be listed
+//     (busctl missing, no session bus) is exit 1, with nothing paused.
 //   - M7. Any argument but a lone -h/--help is a usage error, exit 64, nothing run. stdout is
 //     never written; every message goes to stderr.
 package wsimedia
@@ -144,6 +147,10 @@ func (r *run) problem(name string, err error) {
 	r.say(name + ": " + err.Error())
 }
 
+// skip is M6's other half: a player that cannot be read is no player to pause, so it is named
+// on stderr and left out; the run stays exit 0.
+func (r *run) skip(name string, err error) { r.say(name + ": skipped: " + err.Error()) }
+
 // pause is M1 and M2: the players paused, in name order.
 func (r *run) pause(ctx context.Context) ([]held, error) {
 	names, err := r.listNames(ctx)
@@ -158,7 +165,7 @@ func (r *run) pause(ctx context.Context) ([]held, error) {
 		}
 		owner, err := r.owner(ctx, name)
 		if err != nil {
-			r.problem(name, err)
+			r.skip(name, err)
 			continue
 		}
 		if seen[owner] {
@@ -167,7 +174,7 @@ func (r *run) pause(ctx context.Context) ([]held, error) {
 		seen[owner] = true
 		status, canPause, err := r.state(ctx, owner)
 		if err != nil {
-			r.problem(name, err)
+			r.skip(name, err)
 			continue
 		}
 		if status != playing || !canPause {

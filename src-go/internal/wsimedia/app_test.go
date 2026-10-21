@@ -301,13 +301,26 @@ func TestM6OneFailingPlayerIsReportedAndTheOthersStillPauseAndResume(t *testing.
 	w.bus.add("org.mpris.MediaPlayer2.b", ":1.2", "Playing", true)
 	w.bus.add("org.mpris.MediaPlayer2.c", ":1.3", "Playing", true)
 	w.bus.fail[":1.1 "+mprisPath+" "+playerIface+" Pause"] = "Call failed: Not supported"
-	w.bus.fail["GetNameOwner s org.mpris.MediaPlayer2.c"] = "Call failed: no such name"
 	if code := w.run(t); code != term.ExitFailure {
 		t.Fatalf("exit %d, want 1; stderr %q", code, w.stderr.String())
 	}
-	wantCalls(t, w.bus, ":1.2 Pause", ":1.2 Play")
+	wantCalls(t, w.bus, ":1.2 Pause", ":1.3 Pause", ":1.2 Play", ":1.3 Play")
 	wantSaid(t, w, "wsi-pause-media: org.mpris.MediaPlayer2.a: busctl exited 1: Call failed: Not supported")
-	wantSaid(t, w, "wsi-pause-media: org.mpris.MediaPlayer2.c: busctl exited 1: Call failed: no such name")
+}
+
+func TestM6APlayerThatCannotBeReadIsSkippedWithOneLineAndTheRunStaysExitZero(t *testing.T) {
+	w := newWorld().stop()
+	w.bus.add("org.mpris.MediaPlayer2.a", ":1.1", "Playing", true)
+	w.bus.add("org.mpris.MediaPlayer2.b", ":1.2", "Playing", true)
+	w.bus.add("org.mpris.MediaPlayer2.c", ":1.3", "Playing", true)
+	w.bus.fail["GetNameOwner s org.mpris.MediaPlayer2.a"] = "Call failed: no such name"
+	w.bus.fail[":1.3 "+mprisPath+" "+playerIface+" PlaybackStatus CanPause"] = "Failed to get property: no such object"
+	if code := w.run(t); code != term.ExitOK {
+		t.Fatalf("exit %d, want 0; stderr %q", code, w.stderr.String())
+	}
+	wantCalls(t, w.bus, ":1.2 Pause", ":1.2 Play")
+	wantSaid(t, w, "wsi-pause-media: org.mpris.MediaPlayer2.a: skipped: busctl exited 1: Call failed: no such name")
+	wantSaid(t, w, "wsi-pause-media: org.mpris.MediaPlayer2.c: skipped: busctl exited 1: Failed to get property: no such object")
 }
 
 func TestM6AResumeThatFailsIsExitOneAndTheOthersAreStillResumed(t *testing.T) {
@@ -369,10 +382,6 @@ func TestM6RepliesThatAreNotBusctlsJSONAreFailures(t *testing.T) {
 		{"list of the wrong type", "ListNames", `{"type":"s","data":[["a"]]}`},
 		{"list of no values", "ListNames", `{"type":"as","data":[]}`},
 		{"list data not names", "ListNames", `{"type":"as","data":"x"}`},
-		{"owner not JSON", "GetNameOwner", `nope`},
-		{"owner not unique", "GetNameOwner", `{"type":"s","data":["not-unique"]}`},
-		{"status of the wrong type", "get-property", `{"type":"b","data":true}`},
-		{"status without CanPause", "get-property", `{"type":"s","data":"Playing"}`},
 	} {
 		w := newWorld()
 		w.bus.add("org.mpris.MediaPlayer2.a", ":1.1", "Playing", true)
@@ -388,6 +397,30 @@ func TestM6RepliesThatAreNotBusctlsJSONAreFailures(t *testing.T) {
 			t.Fatalf("%s: exit %d, want 1; stderr %q", name, code, w.stderr.String())
 		}
 		wantCalls(t, w.bus)
+	}
+}
+
+func TestM6RepliesOfOnePlayerThatAreNotBusctlsJSONSkipThatPlayer(t *testing.T) {
+	for _, tc := range []struct{ name, verb, reply string }{
+		{"owner not JSON", "GetNameOwner", `nope`},
+		{"owner not unique", "GetNameOwner", `{"type":"s","data":["not-unique"]}`},
+		{"status of the wrong type", "get-property", `{"type":"b","data":true}`},
+		{"status without CanPause", "get-property", `{"type":"s","data":"Playing"}`},
+	} {
+		w := newWorld()
+		w.bus.add("org.mpris.MediaPlayer2.a", ":1.1", "Playing", true)
+		answer := w.bus.answer
+		w.runner.OnFunc([]string{"busctl"}, func(c execx.Cmd) (execx.Result, error) {
+			if slices.Contains(c.Args, tc.verb) {
+				return execx.Result{Stdout: []byte(tc.reply + "\n")}, nil
+			}
+			return answer(c)
+		})
+		if code := w.run(t); code != term.ExitOK {
+			t.Fatalf("%s: exit %d, want 0; stderr %q", tc.name, code, w.stderr.String())
+		}
+		wantCalls(t, w.bus)
+		wantSaid(t, w, "org.mpris.MediaPlayer2.a: skipped: ")
 	}
 }
 
