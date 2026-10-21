@@ -174,8 +174,14 @@ Version checking:
 Update Claude Code inside container:
   ccy --rebuild    # Rebuilds with latest @anthropic-ai/claude-code from npm
 
-If a Dockerfile build fails, ccy shows an AI-assisted fix prompt:
-  ccy --disable-custom-docker --prompt "$(cat /tmp/ccy-fix-dockerfile-*.txt)"
+If a Dockerfile build fails, ccy keeps the full build log on the host, prints
+its path (${TMPDIR:-/tmp}/ccy-dockerfile-build-failure-XXXXXX.log), and starts
+on the base image with a fix prompt already given to Claude: the last 50 lines
+of the log (a --prompt of your own is kept instead). The log itself is outside
+the container, so Claude cannot open it. When 50 lines are not enough, copy the
+log into the project on the host and ask Claude to read the copy. To come back
+to it later without a rebuild attempt:
+  ccy --disable-custom-docker
 
 
 ================================================================================

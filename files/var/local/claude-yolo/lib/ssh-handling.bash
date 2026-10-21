@@ -1651,7 +1651,7 @@ build_ssh_mounts_and_validate() {
                 token_err="$GH_TOKEN"
                 GH_TOKEN=""
             fi
-            if [ -z "$GH_TOKEN" ] || [ -n "$token_err" ]; then
+            if [ -z "${GH_TOKEN:+set}" ] || [ -n "$token_err" ]; then
                 GH_TOKEN=""
                 print_error "Failed to retrieve token for account: $GITHUB_USERNAME"
                 echo ""
@@ -1717,7 +1717,7 @@ build_ssh_mounts_and_validate() {
 
             echo "✓ SSH key → $GITHUB_USERNAME ✓ gh token → $token_user (via $token_func)"
         }
-    elif [ -n "${GH_TOKEN:-}" ]; then
+    elif [ -n "${GH_TOKEN:+set}" ]; then
         # The caller exported GH_TOKEN (a CI runner with --no-ssh and a pre-set
         # token, or a session on a box with no gh login that received the token
         # from the person's own machine). `gh help environment` documents that
@@ -1778,7 +1778,7 @@ build_ssh_mounts_and_validate() {
             GH_TOKEN=""
         fi
 
-        if [ -z "$GH_TOKEN" ] || [ -n "$auth_err" ]; then
+        if [ -z "${GH_TOKEN:+set}" ] || [ -n "$auth_err" ]; then
             GH_TOKEN=""
             print_error "No GitHub token: gh is not logged in and GH_TOKEN is not exported"
             echo ""

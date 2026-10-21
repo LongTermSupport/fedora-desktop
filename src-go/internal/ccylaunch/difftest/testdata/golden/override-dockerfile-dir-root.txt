@@ -1,6 +1,6 @@
 === exit 1
 === stdout
 === stderr
-[0;31mERROR:[0m CCY_DOCKERFILE_DIR=/ names the whole of /, which ccy will not build from or mount. Unset CCY_DOCKERFILE_DIR to use /opt/claude-yolo.
+[0;31mERROR:[0m CCY_DOCKERFILE_DIR=/ resolves to /, in a system tree (/, /proc, /sys, /dev) ccy will not build from or mount. Unset CCY_DOCKERFILE_DIR to use /opt/claude-yolo.
 === calls
 === files

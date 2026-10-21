@@ -34,6 +34,8 @@ fi
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+# Resolved, as the library stores an override: the expected paths below are then exact.
+work=$(realpath -- "$work")
 
 passed=0
 failed=0
@@ -116,6 +118,46 @@ for whole in / /dev /dev/ /dev/dri/.. //; do
     check "CCY_GPU_DEVICE_DIR=$whole (the whole tree) is refused" "rc=1" "$(host_paths CCY_GPU_DEVICE_DIR="$whole")"
 done
 check "CCY_DOCKERFILE_DIR=/ is refused" "rc=1" "$(host_paths CCY_DOCKERFILE_DIR=/)"
+
+# Only the default or a directory outside the system trees: /proc, /sys and anything under /dev
+# but /dev/dri itself would hand the container what is no GPU.
+for system in /proc /proc/self /sys /sys/class /dev/shm /dev/dri/renderD128 /dev/dri/../shm; do
+    check "CCY_GPU_DEVICE_DIR=$system (a system tree) is refused" "rc=1" "$(host_paths CCY_GPU_DEVICE_DIR="$system")"
+done
+check "CCY_DOCKERFILE_DIR=/proc is refused" "rc=1" "$(host_paths CCY_DOCKERFILE_DIR=/proc)"
+check "CCY_ZONEINFO_DIR=/sys is refused" "rc=1" "$(host_paths CCY_ZONEINFO_DIR=/sys)"
+check "CCY_GPU_DEVICE_DIR=/dev/dri, the default named, is accepted" \
+    "/opt/claude-yolo|/dev/dri|/usr/share/zoneinfo
+rc=0" "$(host_paths CCY_GPU_DEVICE_DIR=/dev/dri)"
+check "CCY_GPU_DEVICE_DIR=/dev/dri/ is the default, stored resolved" \
+    "/opt/claude-yolo|/dev/dri|/usr/share/zoneinfo
+rc=0" "$(host_paths CCY_GPU_DEVICE_DIR=/dev/dri/)"
+
+# A relative override is refused whatever the current directory holds, naming the variable: a
+# relative GPU directory was silently no GPU, or --device dri:dri, which podman rejects.
+mkdir -p "$work/cwd/dri"
+for var in CCY_DOCKERFILE_DIR CCY_GPU_DEVICE_DIR CCY_ZONEINFO_DIR; do
+    for rel in dri . ./dri ../cwd/dri; do
+        got=$(cd "$work/cwd" && env -u CCY_DOCKERFILE_DIR -u CCY_GPU_DEVICE_DIR -u CCY_ZONEINFO_DIR "$var=$rel" \
+            bash "$work/host-paths-probe.bash" "$(dirname "$PURE_LIB")" 2>&1 >/dev/null)
+        rc=$?
+        check "$var=$rel (relative) is refused" "1" "$rc"
+        check "…naming $var and asking for an absolute path" "1" \
+            "$(grep -c -F "$var=$rel is a relative path" <<<"$got")"
+    done
+done
+
+# The resolved path is what is stored: a symlink and a .. are followed, so what is checked is
+# what is used.
+ln -s "$work/cwd" "$work/link"
+check "a symlinked build context is stored resolved" \
+    "$work/cwd|/dev/dri|/usr/share/zoneinfo
+rc=0" "$(host_paths CCY_DOCKERFILE_DIR="$work/link")"
+check "a GPU directory with .. is stored resolved" \
+    "/opt/claude-yolo|$work/cwd/dri|/usr/share/zoneinfo
+rc=0" "$(host_paths CCY_GPU_DEVICE_DIR="$work/link/../cwd/dri")"
+ln -s /dev "$work/devlink"
+check "a symlink into /dev is refused" "rc=1" "$(host_paths CCY_GPU_DEVICE_DIR="$work/devlink/shm")"
 
 echo
 printf 'passed: %s  failed: %s\n' "$passed" "$failed"

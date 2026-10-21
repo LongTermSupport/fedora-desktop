@@ -270,24 +270,27 @@ today; rewriting them is out of scope.
   exit, stdout, stderr, calls, every file left with mode and content) are recorded from the
   bash launcher with `-update`, which refuses with `LAUNCHER` set; `LAUNCHER=<path>` runs the
   matrix against any program. A token never appears in a tracked file (`{token:NAME}`), and a
-  check fails any call whose argv carries one. Launcher seams made it hermetic, CCY 3.99.13.13 and 3.99.13.14 (the commit hook requires a
-  bump per launcher commit),
+  check fails any call whose argv carries one. Launcher seams made it hermetic, CCY 3.99.13.13
+  and 3.99.13.14 (the commit hook requires a bump per launcher commit),
   in `lib/host-paths.bash`: `CCY_DOCKERFILE_DIR` (default `/opt/claude-yolo`, also the startup
   text's and `--custom` templates' directory), `CCY_GPU_DEVICE_DIR` (default `/dev/dri`) and
   `CCY_ZONEINFO_DIR` (default `/usr/share/zoneinfo`; the sandbox holds only the zone its world
   names), each failing at start when set to no directory or to `/` or `/dev`
   (`scripts/test-ccy-gpu-device.bash` and four `override-*` scenarios); and every temporary
-  file follows `TMPDIR`. The machine still answers `/etc/localtime`, read only when timedatectl
-  names no zone, which no world does. The launcher's pid is marked only where the launcher
+  file follows `TMPDIR`. The machine still answers `/etc/localtime`: the launcher always reads
+  the link (`readlink`, when it is one) but uses it only when timedatectl names no zone, which
+  no world does, so the goldens do not depend on it. The launcher's pid is marked only where the launcher
   writes it. qa-changed routes the launcher, `lib/*.bash` and the Dockerfile to the Go gate.
   - Not redirected, on purpose: `CCY_LIFECYCLE_PLUGIN_PATH` (`lib/session-lifecycle.bash`)
     names the plugin's path inside the image, not on the host, and nothing reads the export.
-  - Matrix: 78 scenarios. Standalone modes 40 (`--version`/`-v`, `--help`/`-h` with and without
+  - Matrix: 82 scenarios. Standalone modes 43 (`--version`/`-v`, `--help`/`-h` with and without
     the image, `--list-tokens`, `--token-usage` table, JSON, API down and its refusals,
     `--export-token`, `--prevent`, `--top`, allowed-hostnames, outside a repository, usage
-    errors, the four refused overrides); engine selection 10; token choice 9 (refusals with no terminal); launch path 19
+    errors, the refused and accepted overrides); engine selection 10; token choice 9 (refusals
+    with no terminal); launch path 20
     (plain, prompt argument and flag, headless, `--no-ssh`, `--github-443`, `--network`,
-    `--no-network`, GPU, SELinux enforcing, gh logged out or `GH_TOKEN`, image missing or old,
+    `--no-network`, GPU, SELinux enforcing, gh logged out, `GH_TOKEN` exported or handed on to
+    the tmux re-run by file, image missing or old,
     `--rebuild=claude`, Quick Launch replay, container exit status).
   - Not covered yet: everything behind a terminal prompt beyond its refusal (token picker,
     Quick Launch Y/n, SSH key menu and passphrase, tmux insulation), `--custom`,
@@ -308,11 +311,114 @@ today; rewriting them is out of scope.
     `lib/token-management.bash`), with its `CCY_*` settings, so getenforce, curl, timedatectl
     and every other program it starts get them. The goldens record a variable only where the
     program reads it, so they do not pin the leak; the port hands each token only to the call
-    that needs it (the engine run that passes it by name, gh). Follow-up, not on this branch:
-    the bash launcher stops exporting them, passing each by name or as a prefix assignment
-    instead, and the dead `CCY_LIFECYCLE_PLUGIN_PATH` export goes.
+    that needs it (the engine run that passes it by name, gh). The bash launcher stopped
+    exporting them in Task 4.4b; the dead `CCY_LIFECYCLE_PLUGIN_PATH` export is still to go.
   - Review (Opus, FIX-FIRST): `subagent-reports/261021-launcher-harness-review-opus.md`; every
     finding fixed as above.
+- [x] ✅ **Task 4.4b**: Launcher review follow-ups (round 1 finding 1, round 2 findings 1, 2,
+  4, 5, 7; the hand-off's round 2 findings 1, 2 and 6, round 3 findings 1 to 4 and 7), CCY
+  3.99.13.15 to 3.99.13.18,
+  containers 2.78.12 and 2.78.13 (the image carries the guide, corrected twice; the commit
+  hook requires a bump each time).
+  - Secrets: the launcher held `GH_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN` exported from
+    `claude-yolo`'s pre-run `export` (every later program: uname, timedatectl, sudo, curl in
+    the restart update, compose) and `create_token`'s `export GH_TOKEN` (global from then on),
+    and a caller's exported token reached everything, tmux's server included, whose global
+    environment gave the first launch's token to every later session. Now
+    `export -n GH_TOKEN CLAUDE_CODE_OAUTH_TOKEN CLAUDE_OAUTH_TOKEN` first thing, and a prefix
+    assignment on the three engine runs that pass a token by name (the session,
+    `validate_token`, `claude setup-token`).
+  - The tmux re-run (review finding 1, BLOCKING): with the export gone, the launcher that
+    `ccy_tmux_insulate` re-runs inside tmux lost a caller's exported `GH_TOKEN`, so a box with
+    no gh login was refused. `lib/token-handoff.bash` (`ccy_token_handoff_insulate` wraps
+    the insulation): the outer launcher writes the token to a fresh 0600 file in a `mktemp -d`
+    (0700) directory under `XDG_RUNTIME_DIR`, else `TMPDIR`, failing the launch if it cannot;
+    only the path travels, as `env CCY_GH_TOKEN_HANDOFF=<path>` on the pane's command (never
+    tmux's environment) or on the `exec` of an attach refused; the library, sourced before
+    every other one, reads it and deletes it; when insulation does not apply the outer
+    launcher takes the file back itself. The custom-Dockerfile re-runs
+    (`lib/dockerfile-custom.bash`) give the token to the `exec` in its own environment.
+    Red first: `scripts/test-ccy-token-handoff.bash` (new gate, 27 checks, the launcher's
+    own entry point under `script` with a fake tmux that runs the pane) failed 10 on the
+    merged branch, the inner launcher holding no token; scenario `launch-gh-token-handoff`
+    (`TestLaunchHandsTokensOn`, gh logged out, the file named) started no session against a
+    scratch copy of that launcher. Green after; its golden is byte for byte
+    `launch-gh-token-env`'s, and the file is gone.
+  - Harness: every fake names the variables whose value holds a secret (`carriers`); a
+    recorded call given one it does not read, or tmux and systemd-run given any, fails the
+    scenario (`secretAllowed` in `checkRun`); a quiet or clock fake given one fails itself.
+    Red: the unchanged bash failed 51 checks (uname, id, date, getenforce, podman given
+    `GH_TOKEN` or both). `TestSecretCheckCanFail` removes the `export -n` line and must see
+    getenforce reported; `TestLaunchHandsTokensOn` holds that the session run of
+    launch-plain, launch-gh-token-env, launch-gh-token-handoff, launch-headless and
+    launch-quick-replay still carries both tokens by name. Re-recorded with `-update`: no
+    golden changed by the narrowing (the goldens already recorded only names a program
+    reads). Not checked: the pure tools that run for real (review finding 7, low risk: a
+    future export would still reach getenforce or podman, which are checked).
+  - `lib/host-paths.bash`: an override must be absolute (refused naming the variable), is
+    resolved, and the resolved path is stored; beyond its default, a path in `/`, `/proc`,
+    `/sys` or `/dev` is refused, for all three. `scripts/test-ccy-gpu-device.bash` 60 of 60;
+    `override-relative`, `override-gpu-dir-system-tree` (`/dev/shm`),
+    `override-gpu-dir-default`; the missing-path scenarios use absolute paths.
+  - `CCY-GUIDE.txt`: the failed-build advice names the kept build log and the prompt ccy
+    already gives Claude, not the deleted `/tmp/ccy-fix-dockerfile-*.txt`, and says the log is
+    on the host, which the container cannot read: copy it into the project for more than the
+    prompt's last 50 lines (the prompt says so too). The image carries the guide, so the
+    container version is bumped.
+  - The restart relaunch still unsets both tokens (defence; they are no longer exported), and
+    the relaunch re-derives them: the Claude token from its `--token` file, `GH_TOKEN` from
+    gh's login, so an exported one is not carried into a restart. Three suites found the run
+    line by `^container_cmd run`; they now match its prefixed form.
+  - Review (Opus, FIX-FIRST): `subagent-reports/261021-launcher-token-hardening-review-opus.md`;
+    findings 1, 2, 4, 5 and 6 fixed as above, 7 left as noted, 3 and 8 to 12 confirmations.
+  - Hand-off review round 2 (Opus, FIX-FIRST):
+    `subagent-reports/261021-launcher-token-handoff-review-2-opus.md`. CCY 3.99.13.17.
+    - Finding 1 (BLOCKING): a launcher read and deleted any file of the user's that
+      `CCY_GH_TOKEN_HANDOFF` named. Now only `<base>/ccy-gh-token.XXXXXX/token` is taken,
+      `<base>` resolved (`cd -P`) as the writer resolves it; the directory must be the
+      user's, 0700 and not a link, the file the user's, 0600, one link and not a link
+      (`find -perm`/`-links`, not `stat`, which the harness runs as a clock fake). Anything
+      else ends the launch, naming the variable, and the file is not read or deleted.
+    - Finding 2: a new session's outer launcher ends in `exec tmux attach-session`, which
+      drops its EXIT trap, so the trap covers only Esc and no insulation (an attach refused
+      also ends in an `exec`, of the launcher itself, which takes the file first).
+      The inner launcher now sources `lib/token-handoff.bash` first, before `common.bash`
+      and the library check, so a launch that fails after that still removes the file. What
+      remains: if the inner launcher never starts (tmux cannot run it, or that one library
+      is missing), the file stays in the user's 0700 `XDG_RUNTIME_DIR` until logout, or
+      under `TMPDIR` when there is no runtime directory.
+    - Finding 6: `--debug`'s `set -x` traced the token. The hand-off's lines and the three
+      GitHub token tests in `lib/ssh-handling.bash` expand no token (`${GH_TOKEN:+set}`,
+      `read` into the variable, the write in a subshell with `set +x`). Every other traced
+      token line (the session run, `create_token`, `validate_token`) still expands it, so
+      the log's copy of the output has GitHub (`gh?_`, `github_pat_`) and Claude (`sk-ant-`)
+      tokens masked by an `awk` stage; the terminal shows the raw trace. The log is now made
+      by `mktemp` (0600, a fresh name), not a plain redirect into `/tmp`. Not masked: a
+      token of no known prefix (a legacy 40-hex GitHub token) in those other lines.
+    - Red first: `scripts/test-ccy-token-handoff.bash` failed 27 of 64 on the merged branch
+      (each refusal case, the source order, the real launcher leaving the file, the debug
+      log holding all three tokens at mode 0644); green 72 of 72. The harness fixture
+      `launch-gh-token-handoff` was refused too (an 8-character suffix, a 0755 directory):
+      it now has a 6-character suffix and a 0700 directory (`dirMode` in a scenario's file),
+      and keeps a token file with no newline, as a 3.99.13.16 outer launcher writes it.
+  - Hand-off review round 3 (Opus, FIX-FIRST):
+    `subagent-reports/261021-launcher-token-handoff-review-3-opus.md`. CCY 3.99.13.18.
+    - Finding 1 (BLOCKING): a relative `abcdef/token` passed the check, the prefix strip
+      removing nothing, and was read and deleted from the launch's directory. Now the path
+      must be absolute and match `/…/ccy-gh-token.XXXXXX/token`, its base one of the
+      reader's resolved `XDG_RUNTIME_DIR`, `/run/user/<uid>`, `TMPDIR` and `/tmp`.
+    - Finding 3: the pane's environment is the tmux server's, so the writer's and reader's
+      bases can differ; the reader now accepts any of those four bases rather than the one
+      it would itself write to. Still refused (fail closed, naming the variable): a writer
+      base the reader's environment does not name, such as a `TMPDIR` only the outer
+      launcher had, with no runtime directory.
+    - Finding 2: an empty hand-off file is refused with an error and removed with its
+      directory. Finding 4: the "Debug logging to:" notice says the terminal shows the raw
+      trace; the changelog says only prefixed tokens are masked. Finding 7: the trap sentence
+      above is corrected.
+    - Red first: `scripts/test-ccy-token-handoff.bash` failed 8 of 91 (the relative path
+      taken, the empty file silent and kept, a TMPDIR hand-off refused by a reader with a
+      runtime directory); green 91 of 91.
 - [ ] 🔄 **Task 4.5**: Launcher phases 1 and 2: the foundation packages, then `--version`,
   `--help` and the other standalone modes, each a one-flag cut-over.
   - Phase 1 built (nothing cut over or installed, no play change, no CCY bump), each package

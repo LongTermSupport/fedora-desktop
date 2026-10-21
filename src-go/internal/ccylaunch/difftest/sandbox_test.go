@@ -58,11 +58,13 @@ var sandboxDirs = []string{"bin", "home", cwdProject, cwdOutside, "tmp", "run", 
 var snapshotDirs = []string{"home", cwdProject, cwdOutside, "tmp", "run"}
 
 // fileSpec is one file placed in the sandbox before the run, its path relative to the sandbox.
-// Its modification time is the matrix's clock minus AgeDays.
+// Its modification time is the matrix's clock minus AgeDays. DirMode, when set, is the mode of
+// the directory that holds it (a private directory the launcher checks).
 type fileSpec struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
 	Mode    string `json:"mode"`
+	DirMode string `json:"dirMode"`
 	AgeDays int    `json:"ageDays"`
 }
 
@@ -345,6 +347,15 @@ func (s sandbox) place(t *testing.T, f fileSpec) {
 	if err := os.Chtimes(path, stamp, stamp); err != nil {
 		t.Fatal(err)
 	}
+	if f.DirMode != "" {
+		dirPerm, err := strconv.ParseUint(f.DirMode, 8, 32)
+		if err != nil {
+			t.Fatalf("%s: dirMode %q: %v", f.Path, f.DirMode, err)
+		}
+		if err := os.Chmod(filepath.Dir(path), fs.FileMode(dirPerm)); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 // baseEnv is the environment every run starts with; these names are never recorded.
@@ -436,8 +447,8 @@ func compose(t *testing.T, m matrix, sc scenario) composed {
 }
 
 // writeFakeConfig writes what the fakes read: the rules, the real clock programs, the pinned
-// clock and the environment names the runner sets.
-func (s sandbox) writeFakeConfig(t *testing.T, rules []rule, base []string) {
+// clock, the environment names the runner sets and the secret values.
+func (s sandbox) writeFakeConfig(t *testing.T, rules []rule, base, private []string) {
 	t.Helper()
 	programs := map[string]string{}
 	for _, name := range clockTools {
@@ -449,6 +460,7 @@ func (s sandbox) writeFakeConfig(t *testing.T, rules []rule, base []string) {
 	}
 	cfg := fakeConfig{
 		Rules: rules, Real: programs, Epoch: s.epoch, Shift: s.machineNow.Unix() - s.epoch, Base: base,
+		Private: private,
 	}
 	raw, err := json.Marshal(cfg)
 	if err != nil {
@@ -475,8 +487,10 @@ func runScenario(t *testing.T, m matrix, l launcher, sc scenario) outcome {
 		world.rules[i].Stdout = expandTokens(marks.expand(world.rules[i].Stdout, s.root))
 	}
 	env := s.baseEnv()
-	s.writeFakeConfig(t, world.rules, slices.Sorted(maps.Keys(env)))
-	maps.Copy(env, world.env)
+	s.writeFakeConfig(t, world.rules, slices.Sorted(maps.Keys(env)), m.privateValues())
+	for k, v := range world.env {
+		env[k] = strings.ReplaceAll(v, sandboxMark, s.root) // an absolute path into the sandbox
+	}
 	args := make([]string, 0, 1+len(env)+2+len(sc.Args))
 	args = append(args, "-i")
 	for _, k := range slices.Sorted(maps.Keys(env)) {

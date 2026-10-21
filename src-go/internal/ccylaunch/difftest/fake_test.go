@@ -88,6 +88,9 @@ type fakeConfig struct {
 	// writes is stamped by the machine, and stat reports its time shifted back by this much.
 	Shift int64    `json:"shift"`
 	Base  []string `json:"base"` // the environment names the runner set: not recorded
+	// Private are the secret values (matrix.privateValues): a fake names each variable whose
+	// value holds one (carriers), so checkRun can hold a secret to the programs that read it.
+	Private []string `json:"private"`
 }
 
 // call is one recorded call of an observed program.
@@ -95,6 +98,9 @@ type call struct {
 	Tool string   `json:"tool"`
 	Args []string `json:"args"`
 	Env  []string `json:"env"` // names only, never values: those the program reads (readsEnv)
+	// Carries names every variable in the call's environment that holds a secret, whether or
+	// not the program reads it. It is not in the golden; checkRun judges it (secretAllowed).
+	Carries []string `json:"carries,omitempty"`
 }
 
 func fakeTool() (string, bool) {
@@ -113,6 +119,9 @@ func runFake(tool string) int {
 	sandbox := os.Getenv(sandboxEnv)
 	cfg, err := readFakeConfig(sandbox)
 	if err != nil {
+		return brokenFake(tool, err)
+	}
+	if err := refuseUnrecordedSecret(tool, cfg.Private); err != nil {
 		return brokenFake(tool, err)
 	}
 	switch tool {
@@ -261,10 +270,11 @@ func fixedDateArgs(args []string, epoch int64) []string {
 
 // Which environment names a call records. A name is recorded only where the program the call
 // starts reads it, so a golden pins what the launcher hands on and not what bash happens to
-// leave exported: bash exports GH_TOKEN, CLAUDE_CODE_OAUTH_TOKEN and its CCY_* settings to
-// every child (getenforce, curl, timedatectl, ...), which a port must not copy (Plan 00191
-// Task 4.4). Recorded names are the ones set in the call's environment, whoever set them (the
-// launcher or the scenario), less the runner's own (fakeConfig.Base) and bash's (bashNoise).
+// leave exported: bash exports its CCY_* settings to every child (getenforce, curl,
+// timedatectl, ...), which a port need not copy (Plan 00191 Task 4.4). Secrets are held
+// tighter, by checkRun: a call given one must read it by that name (secretAllowed, Task 4.4b).
+// Recorded names are the ones set in the call's environment, whoever set them (the launcher or
+// the scenario), less the runner's own (fakeConfig.Base) and bash's (bashNoise).
 //
 //   - wholeEnvTools hand their whole environment on: systemd-run --scope runs tmux as its own
 //     child, and the tmux server it starts gives that environment to every session and pane,
@@ -334,7 +344,7 @@ func recordCall(sandbox string, cfg fakeConfig, tool string, args []string) erro
 		}
 	}
 	slices.Sort(names)
-	line, err := json.Marshal(call{Tool: tool, Args: args, Env: names})
+	line, err := json.Marshal(call{Tool: tool, Args: args, Env: names, Carries: carriers(cfg.Private)})
 	if err != nil {
 		return err
 	}
@@ -348,6 +358,41 @@ func recordCall(sandbox string, cfg fakeConfig, tool string, args []string) erro
 	}
 	_, err = f.Write(append(line, '\n'))
 	return errors.Join(err, f.Close(), root.Close())
+}
+
+// carriers are the names, sorted, of this process's environment variables whose value holds
+// one of the private values.
+func carriers(private []string) []string {
+	var names []string
+	for _, kv := range os.Environ() {
+		name := envName(kv)
+		value := strings.TrimPrefix(kv, name+"=")
+		if slices.ContainsFunc(private, func(p string) bool { return p != "" && strings.Contains(value, p) }) {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	return names
+}
+
+// refuseUnrecordedSecret fails a quiet or clock fake given a secret: they are not recorded, and
+// read none, so the failure (a "difftest fake" line, which checkRun reports) is the only trace.
+// The starter is given the scenario's own environment; observed calls are judged by checkRun.
+func refuseUnrecordedSecret(tool string, private []string) error {
+	if tool == starterName || slices.Contains(observedTools, tool) {
+		return nil
+	}
+	if leaked := carriers(private); len(leaked) > 0 {
+		return fmt.Errorf("a secret reached a program that reads none, in %s", strings.Join(leaked, " "))
+	}
+	return nil
+}
+
+// secretAllowed reports whether a call may be given the secret in name: only a program that
+// reads that name itself (gh its token, an engine run passing it by name), never one that hands
+// its whole environment on (tmux, systemd-run), which would put it in every pane of the server.
+func secretAllowed(c call, name string) bool {
+	return !slices.Contains(wholeEnvTools, c.Tool) && readsEnv(c.Tool, c.Args, name)
 }
 
 // readIn reads one file of the sandbox, and writeIn writes one, through an os.Root: a fake

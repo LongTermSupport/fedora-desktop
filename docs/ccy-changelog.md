@@ -17,6 +17,88 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.13.18 — container 2.78.13
+
+Follows 3.99.13.17. The image is unchanged, so there is no rebuild.
+
+- **A relative path is no longer taken as a token hand-off** (Plan 00191 Task 4.4b, round 3
+  review). In 3.99.13.17, `CCY_GH_TOKEN_HANDOFF=abcdef/token` passed the check, and a file of
+  that shape in the launch's directory was read and deleted. Now the path must be absolute,
+  `<base>/ccy-gh-token.XXXXXX/token`, with `<base>` one of `XDG_RUNTIME_DIR`,
+  `/run/user/<uid>`, `TMPDIR` and `/tmp` as the launcher reading it sees them.
+- **A genuine hand-off is taken when the two launchers' environments differ.** The launcher
+  inside tmux gets the tmux server's environment, not the outer launcher's, so one could
+  have `XDG_RUNTIME_DIR` and the other not. 3.99.13.17 then refused the hand-off. The reader
+  now accepts any of the four bases above; a base its environment does not name at all (a
+  `TMPDIR` only the outer launcher had) is still refused, with an error naming the variable.
+- **An empty hand-off file** ends the launch with an error and is removed, where before the
+  launch ended with no message and the file stayed.
+- **The `--debug` notice** now says that tokens with a known prefix are masked in the log and
+  that the terminal shows the raw trace, tokens included.
+
+## 3.99.13.17 — container 2.78.13
+
+Follows 3.99.13.16. The image is unchanged, so there is no rebuild.
+
+- **The token hand-off takes only a file ccy made** (Plan 00191 Task 4.4b, round 2 review).
+  In 3.99.13.16, a launcher started with `CCY_GH_TOKEN_HANDOFF` set read and deleted whatever
+  file of yours the variable named. Now it takes only
+  `<XDG_RUNTIME_DIR, else TMPDIR>/ccy-gh-token.XXXXXX/token`, in a 0700 directory of yours
+  that is not a link, with the file yours, 0600, not a link and with one link. Any other path
+  ends the launch with an error that names the variable, and the file is not read or deleted.
+- **When the hand-off file can be left behind.** 3.99.13.16 said the outer launcher removes
+  the file whenever the re-run never started. That is wrong for a new session: the outer
+  launcher ends in `exec tmux attach-session`, which drops its exit trap. The re-run now takes
+  the file first, before `common.bash` and the library check, so a launch that then fails
+  still removes it. If the re-run never starts (tmux cannot run it, or the hand-off library
+  itself is missing), the file stays in your own 0700 runtime directory until you log out, or
+  under `TMPDIR` when there is no runtime directory.
+- **`--debug` masks tokens with a known prefix in its log.** The hand-off, and the launcher's tests of
+  whether it has a GitHub token, no longer expand the token under `set -x`. Other traced lines
+  still do (the session run, the token checks), so the log's copy of the output has GitHub
+  tokens (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`) and Claude tokens
+  (`sk-ant-`) masked; the terminal still shows the raw trace. The log is created by `mktemp`,
+  mode 0600 under a fresh name (`ccy-debug-<date>-XXXXXX.log`), where before it was readable
+  by anyone in `/tmp`.
+
+## 3.99.13.16 — container 2.78.13
+
+Follows 3.99.13.15. Container 2.78.13 only because the image carries `CCY-GUIDE.txt`, changed
+again here (the commit hook requires the bump); the Dockerfile is otherwise unchanged, one
+rebuild.
+
+- **A `GH_TOKEN` you export reaches the session again** (Plan 00191 Task 4.4b review). An
+  interactive launch re-runs the launcher inside tmux, and 3.99.13.15 left the re-run without
+  the token, so a box with no gh login refused to start and told you to export the token you
+  had exported. The outer launcher now writes the token to a fresh 0600 file in a 0700
+  directory under `XDG_RUNTIME_DIR` (else `TMPDIR`) and gives the re-run only the file's path,
+  on the tmux pane's command; the re-run reads it and deletes it before anything else, and the
+  outer launcher removes it on any exit where the re-run never started. A launch fails at once
+  if the file cannot be made. The custom-Dockerfile modes, which re-run the launcher with
+  `exec`, give it the token in that one command's environment.
+- The fix prompt after a failed custom Dockerfile build says the full log is on the host, and
+  the guide says to copy it into the project when its last 50 lines are not enough: the
+  container cannot read the host's temporary directory.
+
+## 3.99.13.15 — container 2.78.12
+
+Follows 3.99.13.14. Container 2.78.12 only because the image carries `CCY-GUIDE.txt` (the
+commit hook requires the bump); the Dockerfile is otherwise unchanged, one rebuild.
+
+- **Tokens reach only the programs that read them** (Plan 00191 Task 4.4b). The launcher no
+  longer exports `GH_TOKEN` or `CLAUDE_CODE_OAUTH_TOKEN` for the rest of its run, where every
+  program it started (getenforce, curl, timedatectl, ...) was given them. Each container run
+  that needs one (the session, the token check, `claude setup-token`) gets it by name, set in
+  that command's environment alone. A token the caller exported is taken out of the
+  environment at start and still used. This also closes a leak between sessions: ccy's tmux
+  server keeps the environment of the launch that started it and gives it to every session
+  started later, so the first launch's GitHub token reached the panes of every later session,
+  even one for another account.
+- **Host-path overrides must be absolute**, and the resolved path is what is used. Beyond the
+  default, a directory in `/proc`, `/sys` or `/dev` is refused (`/dev/shm` is no GPU).
+- The guide's advice for a failed custom Dockerfile build now says what ccy does: the build
+  log's path is printed and the fix prompt is given to Claude on the base image.
+
 ## 3.99.13.14 — container 2.78.11
 
 Follows 3.99.13.13. The launcher and its library only; the image is unchanged, so no rebuild.
