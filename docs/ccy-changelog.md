@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.13.12 — container 2.78.11
+
+Follows 3.99.13.11. The launcher's library only; the image is unchanged, so no rebuild.
+
+- **The bash take-over is gone from `lib/tmux-session.bash`** (Plan 00191).
+  `ccy_tmux_take_over`, `ccy_tmux_client_words`, `ccy_tmux_idle_words` and the bash default
+  for `CCY_TMUX_TAKE_OVER_WAIT_TENTHS` had no caller: taking a session over is the Go
+  `ccy-sessions` picker's Ctrl-T, which reads that variable itself. Nothing a person does
+  changes.
+
 ## 3.99.13.11 — container 2.78.11
 
 Follows 3.99.13.8 (container 2.78.8). The image gains a binary, and its build, entrypoint,

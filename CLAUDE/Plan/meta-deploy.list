@@ -92,3 +92,9 @@ playbooks/imports/play-agent-bus.yml
 # and checks their firewalld rules are gone, however the run ends. Needs sudo once, ccy
 # launched interactively in this checkout once (Quick Launch), and the hooks daemon installed.
 00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker
+# play-claude-yolo.yml, the whole play (Plan 00191 Task 4.3, the launcher's dead bash): the
+# host's ccy becomes CCY 3.99.13.12, whose lib/tmux-session.bash no longer carries the unused
+# bash take-over (ccy_tmux_take_over and its two word helpers; taking a session over stays the
+# ccy-sessions picker's Ctrl-T). The image is unchanged at container 2.78.11, so no rebuild.
+# Afterwards start a ccy session as usual: it must start and attach as before.
+playbooks/imports/play-claude-yolo.yml
