@@ -1,6 +1,6 @@
 === exit 1
 === stdout
 === stderr
-[0;31mERROR:[0m CCY_GPU_DEVICE_DIR=no-such-dev/dri: no-such-dev is not a directory. Unset CCY_GPU_DEVICE_DIR to use /dev/dri.
+[0;31mERROR:[0m CCY_GPU_DEVICE_DIR={sandbox}/no-such-dev/dri: {sandbox}/no-such-dev is not a directory. Unset CCY_GPU_DEVICE_DIR to use /dev/dri.
 === calls
 === files

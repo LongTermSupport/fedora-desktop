@@ -436,8 +436,8 @@ func compose(t *testing.T, m matrix, sc scenario) composed {
 }
 
 // writeFakeConfig writes what the fakes read: the rules, the real clock programs, the pinned
-// clock and the environment names the runner sets.
-func (s sandbox) writeFakeConfig(t *testing.T, rules []rule, base []string) {
+// clock, the environment names the runner sets and the secret values.
+func (s sandbox) writeFakeConfig(t *testing.T, rules []rule, base, private []string) {
 	t.Helper()
 	programs := map[string]string{}
 	for _, name := range clockTools {
@@ -449,6 +449,7 @@ func (s sandbox) writeFakeConfig(t *testing.T, rules []rule, base []string) {
 	}
 	cfg := fakeConfig{
 		Rules: rules, Real: programs, Epoch: s.epoch, Shift: s.machineNow.Unix() - s.epoch, Base: base,
+		Private: private,
 	}
 	raw, err := json.Marshal(cfg)
 	if err != nil {
@@ -475,8 +476,10 @@ func runScenario(t *testing.T, m matrix, l launcher, sc scenario) outcome {
 		world.rules[i].Stdout = expandTokens(marks.expand(world.rules[i].Stdout, s.root))
 	}
 	env := s.baseEnv()
-	s.writeFakeConfig(t, world.rules, slices.Sorted(maps.Keys(env)))
-	maps.Copy(env, world.env)
+	s.writeFakeConfig(t, world.rules, slices.Sorted(maps.Keys(env)), m.privateValues())
+	for k, v := range world.env {
+		env[k] = strings.ReplaceAll(v, sandboxMark, s.root) // an absolute path into the sandbox
+	}
 	args := make([]string, 0, 1+len(env)+2+len(sc.Args))
 	args = append(args, "-i")
 	for _, k := range slices.Sorted(maps.Keys(env)) {

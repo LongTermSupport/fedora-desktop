@@ -94,15 +94,20 @@ playbooks/imports/play-agent-bus.yml
 # and checks their firewalld rules are gone, however the run ends. Needs sudo once, ccy
 # launched interactively in this checkout once (Quick Launch), and the hooks daemon installed.
 00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker
-# play-claude-yolo.yml, the whole play (Plan 00191 Tasks 4.3 and 4.4): the host's ccy becomes
-# CCY 3.99.13.14. lib/tmux-session.bash no longer carries the unused bash take-over (taking a
-# session over stays the ccy-sessions picker's Ctrl-T); the new lib/host-paths.bash lets the
-# launcher's differential harness point the build context, GPU directory and zone database
-# elsewhere (unset, nothing changes) and refuses a bad override at start; the launcher's
-# temporary files follow TMPDIR when it is set. The image is unchanged at container 2.78.11,
-# so no rebuild. It also rebuilds ~/.local/bin/ccy-teams with Plan 00209 stage 1 (the team,
-# seat and declare reads in-process), which the check below judges. Afterwards start a ccy
-# session as usual: it must start and attach as before.
+# play-claude-yolo.yml, the whole play (Plan 00191 Tasks 4.3, 4.4 and 4.4b): the host's ccy
+# becomes CCY 3.99.13.16. lib/tmux-session.bash no longer carries the unused bash take-over
+# (taking a session over stays the ccy-sessions picker's Ctrl-T); the new lib/host-paths.bash
+# lets the launcher's differential harness point the build context, GPU directory and zone
+# database elsewhere (unset, nothing changes) and refuses a bad or relative override at
+# start; the launcher's temporary files follow TMPDIR when it is set; the GitHub and Claude
+# tokens are no longer exported to every program the launcher starts, only handed by name to
+# the container runs that need them; a GH_TOKEN you export reaches the session through the new
+# lib/token-handoff.bash (a private file whose path only goes to the tmux re-run, deleted at
+# once). Container 2.78.13 (the guide in the image is corrected),
+# so the next launch rebuilds the image once. It also rebuilds ~/.local/bin/ccy-teams with
+# Plan 00209 stage 1 (the team, seat and declare reads in-process), which the check below
+# judges. Afterwards start a ccy session as usual: it
+# must rebuild, start and attach as before, and gh must work inside it.
 playbooks/imports/play-claude-yolo.yml
 # Plan 00209 stage 1 host check, after the play-claude-yolo.yml entry above has installed the
 # ccy-teams that reads team, seat and declare state in-process. READ-ONLY: it changes nothing,
