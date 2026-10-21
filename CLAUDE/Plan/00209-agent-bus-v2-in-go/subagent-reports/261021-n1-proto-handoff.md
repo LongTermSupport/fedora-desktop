@@ -1,99 +1,104 @@
-# N1 Task 1.3 `teamchat/proto`: handoff 3
+# N1 Task 1.3 `teamchat/proto`: handoff 4
 
-Branch `feat/bus-v2-n1-proto`, worktree `untracked/worktrees/bus-v2-n1-proto`. The third builder
+Branch `feat/bus-v2-n1-proto`, worktree `untracked/worktrees/bus-v2-n1-proto`. The fourth builder
 stopped at the context soft budget. Read `untracked/scratch/n1-common.txt` (main checkout) first;
-its rules bind the next builder. x/text is APPROVED (lead): vendor only `unicode/norm` and what it
-pulls in, add a `src-go/go-deps.allowlist` row in its style (what it is for, who uses it), keep a
-test pinning `norm.Version == unicode.Version`, govulncheck clean for this package (it does not
-reach net/http; if GO-2026-6809 is reported, check that and say why), and commit go.mod, go.sum,
-vendor and the row together, after the escaper test imports it (or tidy drops it). x/text
-v0.31.0 is in the module cache.
+its rules bind the next builder. Handoff 3 is `git show 7d57950d:<this file>`: its tables of
+commits, test helpers, decisions 01-28 and gotchas still hold; read it too.
 
-## Done (committed, green: `go test -race`, golangci-lint, `qa-changed.bash`; 97.4% coverage)
+## Done (committed, green: `go test -race`, golangci-lint, `qa-changed.bash`; 97.9% coverage)
 
-| Commit     | Files                                                          | What                                                                                                                                                                                                                                                                                                                                                       |
-| ---------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `b97d35bc` | `doc.go`, `strictjson.go`                                      | A 2.1 strict decoder, `Value` tree, `Compact`/`Size`, builders, `FuzzParse`                                                                                                                                                                                                                                                                                |
-| `98834722` | `ids.go`                                                       | A 2.2-2.3 identifiers, handles, user-ID classes                                                                                                                                                                                                                                                                                                            |
-| `abe91660` | `roster.go`, `limits.go`, `refs.go`, `verdict.go`              | `Roster`, `NextRev`, `Forge`, `Limits`, `SendGate`, `Window`, `RetryWait`; ref grammar; the closed reason sets                                                                                                                                                                                                                                             |
-| `7a65b43b` | `verbs.go`                                                     | A 8.1 table, `AddressableFor`, deadlines, `TimeoutDue`, `TimeoutKey`, `PingStale`, `TextStale`                                                                                                                                                                                                                                                             |
-| `6dea7c32` | `rooms.go`, `verify.go`, `filter.go`, `testdata/filter-*.json` | room specs, `VerifyMain`/`VerifySide`, `CheckPowerLevels`, `Invite`, `SyncFilter`                                                                                                                                                                                                                                                                          |
-| `c895635f` | `secret.go`                                                    | `SecretShape(text, token)`                                                                                                                                                                                                                                                                                                                                 |
-| `92351aec` | `content.go`                                                   | `DecodeContent(content, keys)` (keys `MainKeys`, `AdminMainKeys`, `ReportKeys`, `QuestionKeys`): typed key, version first, sizes, edits, `format`, `body`, exact relations, each typed object; `Relation` (`ReplyTo`, `AnswerTo`, `InThread`, `IsAnswer`, `Encode`); `DecodeHuman` (reply fallback, threads, edits); `need` takes objects only             |
-| `db9874d9` | `verdict.go`                                                   | `Judge{Server, Self, RoomID, Purpose, Roster, NowMs, Lookup, Flood}.Judge(raw) Verdict`: rules 01-10; outcomes `Deliver Ignore Drop Record Index Redact Fault`; `Verdict.Forge` (the check B runs), `Verdict.Answer`; `Roster.checkAgent`/`checkPing`/`checkRef`/`checkNoticeTo`/`checkAdminNotice`, `checkCarried`, `checkTo` (shared with the send side) |
+| Commit     | Files                                               | What                                                                                                                                                                                                                                                                                                                                                                                         |
+| ---------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `5bbaf1e2` | `forms.go`, `questions.go`                          | `RefusalError{Reason, Detail}` (Detail never quotes the text); `Headline`, `ReportForm`, `QuestionForm(n, body)` (P54; the sender and the index share it), `ThreadBody`; `QuestionIndex` (`NewQuestionIndex(server, floor)`, `Feed(Index verdict)`, `Attach(HUMAN delivery)`, `Next`, `Question(n)`, `Attachment(post)`, `OpenDuplicate`, `Reminders(now)`), `ReminderKey`, states           |
+| `a55efc70` | `send.go`, `send_test.go`, `send_questions_test.go` | `Composer{Server, Self, Token, Roster, Lookup, Gate, Reports, Questions, NowMs}`: `Ping(p, answers, display)`, `Text(t, replyTo, display)`, `Notice(n, display)`, `Carried(k, display)`, `Report(text)`, `Question(QuestionPost)`, `Thread(ThreadPost)` give an `Outgoing{Purpose, Content, Forge}`; `Admit(out)` spends the flood budget separately. `probeCheckOf` shared with the verdict |
+| `c6a1ab06` | `escape.go`, x/text v0.39.0 vendored, allowlist row | `EscapeJSON`, `EscapeASCII`, `CapBody` (`Body{Rendered, Shown, Total, Cut}`), `WireBytes`, `escapedLookalikes`; tests pin `unicode.Version` and `norm.Version` to 15.0.0, and the exhaustive property over every scalar value (about 70 s under `-race`)                                                                                                                                     |
 
-Test helpers: `mustParse`, `testRoster`, `anchors`, `roomState`; in `verdict_test.go` `judge(t, self, purpose)` (probe unparked), `event(sender, ageMs, content)`, `pingContent`, `textContent`,
-`noticeContent`, `humanContent`, `carriedContent`, `fakeLookup`/`testLookup`, `testNow`;
-`content_test.go` has `mustDecode`, `mustHuman`, `pingEvent replyEvent otherEvent`.
+Test helpers added: `refusalOf(err)`, `goodQuestion`; `questions_test.go` has `qid(c)`, `jsonString`,
+`roomEvent`, `questionPost`, `threadPost`, `humanPost`, `threadRel`, `replyRel` and `questionRoom`
+(`newQuestionRoom(t, floor)`, `post(id, sender, ageMs, content) int64`, `question(n)`); `send_test.go`
+has `composer(t, self)`, `receive(t, out, sender, receiver)` (a composed event judged by the
+receiver), `mustSend(t)(c.Ping(...))`, `refusedWith`, `at(t, v, path...)`, `userIDs`; `asked(t)` in
+`send_questions_test.go`. `escape_test.go` has `ue(units...)` and `q(s)`.
 
-## Decisions taken so far (go into the final report)
+## Decisions 29-44 (go into the final report with 01-28)
 
-01-15: as handoff 2 (git show cde625c6 for its text): value tree; `conduit` and `tuwunel` reserved;
-ASCII normalisation; `-0` is 0; C owns `roster.json`; `exclude` as `OWNER/REPO`; empty lists are
-none (11.2 says 1-32); `repos` optional; the probe handle and role go together, a coordinator
-needs `human_text`; "any role" is coordinator or worker; duplicate-key empties; `Desired` gives
-`Members` and `Invite`; power-level defaults; invite rules; presence filter senders.
+29. **A question whose body fails P54's form is not counted** (as v1 `parse_question`). Fix A 6.5:
+    "An uncounted question, or one whose body fails 10.2's form, is not in the index".
+30. **A number already counted is not counted again**, the admin's included: the first in stream
+    order wins. Fix A 6.5.
+31. **"Open" in the duplicate rule means not closed** (open or answered), as v1 `open_duplicate`.
+    Fix A 10.2: "A question not yet closed whose `Question:` section equals ...".
+32. **The admin's sends are not flood-limited** (no bucket, duplicate window or report window):
+    they are C's and D's, bounded by the change, and a migration's carried items must not fail
+    `rate`. Fix A 11.1-11.2: the sender rows apply to a member.
+33. **`asked_by` names roster members** (else `target`); `re` is grammar only. Fix A 10.2.
+34. **An edit in questions is attached by rule 4 alone**: the original's attachment, else the new
+    body's `Q<n>` (rule 3 would otherwise always win on the new body). Fix A 10.4 rule 3: "a
+    message that is not an edit".
+35. **Compose, then the forge check, then Admit**: a send the forge check refuses spends no token
+    and does not enter the duplicate window. Fix A 9.3 / 11.2: name the order (rules, secret,
+    forms, forge check, flood).
+36. **The secret check runs over the `body` too** of every agent event (display text is free text
+    the member posts). Fix A 7.3.
+37. **The probe sends no text, notice or report** (`role`, as the receiver's rule 08), and **the
+    admin posts no notice about the probe** (`target`). Fix A 10.1 ("any active coordinator or
+    worker") and A 7.4.
+38. **Thread posts**: a reply without `n` must name a human post the index saw unattached; with
+    `n`, an answered post must be attached to that question; else `target`. A blank non-closing
+    post is `body`. Fix A 10.3.
+39. **The admin names a question's `n`, the coordinator never does** (`schema`), and the admin's
+    re-posted questions skip the duplicate check (v1 may hold two the same). Fix A 7.7 / 10.2.
+40. **A headline is trimmed of Unicode white space**; one starting with a section name is `body`
+    (v1). Fix A 10.1-10.2.
+41. **DEL is escaped** (v1's `json.dumps` left it raw); invalid UTF-8 is an escaped U+FFFD. No design
+    fix: 13.4 already says so; note it as a v1 defect.
+42. **ZWJ is the one format character shown**, between two emoji. Fix A 14's body-escaping row and
+    13.4's escaped list: "every format character but ZWJ between two emoji pictographs".
+43. **x/text v0.39.0**, the lowest release fixing GO-2026-5970 (reached through `norm.Form.String`);
+    v0.43.0 would also bump `golang.org/x/sync`. norm ships tables 15.0.0 (`!go1.27`) and 17.0.0
+    (`go1.27`), so a Go 1.27 bump fails the pin test until the corpus is reviewed, as 13.4 wants.
+44. **The exhaustive property runs about 70 s under `-race`** (planes in parallel; planes 0-1
+    dominate). Acceptable; say so in the report.
 
-16. **Agent relations are exact shapes** (no extra key); a human's relation and mentions are read
-    leniently, as v1's `_addressed` (a malformed part is none).
-17. **Relations per key**: text none or a reply; notice, report, question and carried none; a
-    thread post with `n` the thread form, without `n` exactly a reply and no `close`; a ping by its
-    verb, an optional relation being none or the answer form (a plain reply is `schema`).
-18. **Notice `to` on receipt**: listed humans and the non-parked coordinator, never the subject;
-    `moved` to addressable agents. An admin notice's subject is a roster member, except `removed`.
-19. **Carried**: `from` a human or agent user ID of the server (else `schema`); a carried ping's
-    unknown verb is `verb`, its reference grammar per verb `ref`; `text` optional, 0-4096 bytes.
-20. **The admin is exempt from the receive flood and staleness**, so a migration's carried items
-    are never lost to `rate`. Design fix: say so in 11.1 (`recv_per_sender_minute`) and 7.6 rule 10.
-21. **A question-room post that fails its shape** in rule 03's index path is dropped with that
-    reason, not judged further.
-22. **Rule 05's "a member that reads reports is a fault"** is the outcome `Fault`.
-23. **`human_text: false` is checked before a human message is decoded** (drop `sender` first).
-24. **P21's coordinator copy is the sender's only**; receivers do not require it.
-25. **A malformed edit** (bad original ID, no `m.new_content`, not `m.text`) is `edit`; a body that is
-    blank after trimming is ignored `empty`.
-26. **A redaction's target is `content.redacts`** (room version 12).
-27. **The forge check is `Verdict.Forge`**, run by B; `provenance`, `unresolved` and `forge-rate`
-    are B's drops after it.
-28. **`check` has exactly one addressee** (else `target`), and the probe is addressable for an
-    answer whose root is a known `check` from the probe (`Lookup.Event`).
+## Left, in order
 
-## Left, in build order (each test first, commit each green concern)
+1. **envelope.go** (A 13.1-13.5; v1 `helpers/pingbus/envelope.py:228-500` for shape only). Plan:
+   - `Entry{Kind, Team, Handle, From, Role, EventID, SentMs (-1 none), Re, Questions bool, Question *EntryQuestion{N, Headline}, Revises, Verb, Ref, Trust, Branch, Silent, Event, Subject, Reason, Carried *EntryCarried{From, SentMs, PossibleDuplicate}, Copy []string, Repeat, Restored bool, Body string}`.
+   - Lines in 13.2's table order: kind, from, role, team, room, question, revises, to, sent, id, re,
+     verb, ref, trust, branch, silent, event, subject, carried, reason, copy, repeat, restored,
+     authority, reply, body, truncated; which kind carries which per the table. Every slot
+     full-matched (team, handle, human, sender, id, verb, ref, branch, time, q, k/n, nonce); a
+     failing slot is an error naming the entry and slot (E3), and B moves the item to `not shown:`.
+   - Kind and authority sentences exactly 13.3 (PING `check`, carried NOTICE, reminder TIMEOUT
+     with its `Q<n>` slot, external PING); reply forms exactly 13.2; `body:` through `CapBody`,
+     `truncated:` from its `Shown`/`Total`; `question: <q> <json-ascii>` (headline through
+     `EscapeASCII`, 1-120 code points, at most 1500 bytes), `question: <q>` when there is no
+     headline (decision 45), `question: none`.
+   - Proposed decision 46: a carried ping's NOTICE also carries `verb:` and `ref:` (13.2 gives it
+     a `--verb` reply but no line naming the verb). Fix A 13.2's table.
+   - `Delivery{Nonce, Team, Entries, Answered, HeldBack, NotShown, Gap, Stopped, Pending}.Render()`:
+     the first line (counts, `message`/`messages`, `<who>` the first three distinct
+     `<sender> (<KIND>)`, a TIMEOUT's its silent addressee, ` and <k> more`, `-` when none), the
+     markers `<<teamchat <nonce> i/n>>`, trailing lines in 13.1's order, each kind at most 8 and
+     its summary line. `Fit` (8 entries, 12 KiB by `WireBytes`, rest counted as pending; a single
+     largest entry must fit: test it). `RenderMembership(lines, nonce)` with H12's form and the
+     line rules of 13.3 (at most 600 characters, no C0, DEL, U+2028, U+2029, `<<`, `>>`).
+     `FrameText`, 13.5's six items.
+2. **The corpus** (A 14, A 13.3's pins): `testdata/` golden files of each kind's entry and each
+   trailing line, the look-alike list, and the 13.6 worked attack (a body with real newlines,
+   markers, `kind: HUMAN`, U+202E and `ESC[201~` stays on one `body:` line); a test that every line
+   full-matches its template. Spell every non-ASCII rune in Go source as `string(rune(0x...))` or
+   `ue(...)`: the Write and Edit tools turn ANY backslash-u escape of a non-ASCII code point into
+   the raw character (not only format characters).
+3. **The review loop**: a fresh Opus reviewer over `db3c8350..HEAD` of the package against chapter
+   A; at most 3 rounds; files `subagent-reports/261021-n1-proto-review*.md`.
+4. **The report** `subagent-reports/261021-n1-proto.md`: every decision 1-46+ with its design-text
+   fix; mark Task 1.3 in PLAN.md.
 
-1. **send.go** (A 7.1-7.4, 7.7, 10.1-10.3, 11.2). Plan: a `Composer{Server, Self, Token, Roster, Lookup, Gate *SendGate, Reports *Window, Index *QuestionIndex, NowMs}` with `Ping(verb, to, ref, branch, answers)`, `Text(to, text, replyTo)`, `Notice(Notice, display)`, `Report(body)`,
-   `Question(body, askedBy, re, remindAfterS)`, `Thread(n, body, close, ask, inReplyTo, fallingBack)`, `UnattachedReply(post, body)`, `Carried(...)`, each returning the content `Value`
-   (with `msgtype` by 7.1's table, `body` display text, `m.mentions` sorted addressees) or a
-   refusal. Order: a worker's text or ping to a human adds the coordinator (P21), senders sort
-   `to`; build; run `DecodeContent` and `Roster.checkAgent` (or `checkAdminNotice`/`checkCarried`
-   for the admin) as a receiver would; `SecretShape` over free text (`secret`); the body forms
-   (`body`: report headline 1-120 code points after trim and 1500 bytes; question form of P54 as
-   v1 `protocol.py:1360-1420`: headline, `Context:` and `Question:` required, `Options:` lines
-   `1. ` to `9. ` in order, a section twice is `body`, 8000 bytes; thread 4000, empty only when
-   closing with body `Q<n> closed.`); `duplicate` for an open question with the same collapsed
-   `Question:` section; the report window (`report_per_hour`, `Count` first, record after the
-   gate); then `SendGate.Admit` with `DuplicateKey` (notices exempt). The forge check is returned
-   for B to run.
-2. **questions.go** (A 6.5 at 666-678, 10.4-10.5 at 1380-1406): the index fed from `Verdict`s of
-   outcome `Index` (counting from `question_floor`, an agent's `n` only at highest+1, an admin's
-   whatever its `n`), attachment rules 1-5, states and unanswered counts, `Next`, the duplicate
-   check, reminders keyed `<question>~humans`.
-3. **escape.go + envelope.go** (A 13 at 1589-1923; v1 `helpers/pingbus/envelope.py:95-400`, whose
-   `_PS_ALLOWED`, `_ESCAPED`, emoji and keycap rules and `cap_body` binary search carry over),
-   x/text for NFKC. The exhaustive property test over every scalar value; ASCII-only headline mode.
-4. **Corpus** (A 14 at 1924), then the review loop and `261021-n1-proto.md`, as the common rules say.
+## Gotchas (new)
 
-## Gotchas of this environment
-
-- Write and Edit turn a backslash-u escape of a format or separator character into the raw
-  character: spell such runes `string(rune(0x2028))` in Go.
-- golangci-lint runs on every Go write (cyclop 15 even in tests: split long tests; exhaustive on
-  switches over the package's int enums: use `switch {` with conditions; funcorder; prealloc;
-  wastedassign; gosec G101 and G304), and `golangci-lint fmt ./internal/teamchat/proto/` formats.
-- Hooks deny `sed`, any `, _ :=` or `, _ =` (use a helper such as `reasonOf(_ Ref, r string)`),
-  a multi-statement Bash without `&&`, and `| tail`/`| head` (pipe to
-  `/workspace/.claude/hooks-daemon/bin/echd-capture 30`); write commit messages to
-  `untracked/scratch/commit-msg.txt` in the worktree and `git commit -F` it.
-- deadcode in `qa-changed` fails an exported function no test reaches.
-- Test server `myteam.teamchat.internal` (`testServer`), team `myteam`, rooms `mainRoom`,
-  `reportsRoom`, `questionsRoom`, members `coordID workerID lxcWorkerID parkedID probeID aliceID`
-  (the probe is parked in `testRoster`).
+- The secret-path guard denies any text holding `.secret` followed by more letters (it matched a
+  method call `c.secret(...)`): name such things otherwise (`screen`).
+- `judgedEvent` is `$jjj...` and is Seen in `testLookup`; `replyEvent` is `$rrr...`, the ID `event()`
+  gives every judged event.
+- `qa-changed` widens to the whole project for a `go.mod` change (it runs the bash suites too).
