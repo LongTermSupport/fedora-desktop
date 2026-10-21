@@ -81,6 +81,12 @@ func Decode(text string, opts Options) (any, error) {
 	return decodeRunes([]rune(text), opts)
 }
 
+// DecodeCodePoints is json.loads of a str given as its code points, so a raw lone surrogate
+// (which a Python str can hold, and CodePoints reads from its three-byte form) is kept as one.
+func DecodeCodePoints(text []rune, opts Options) (any, error) {
+	return decodeRunes(text, opts)
+}
+
 // DecodeUTF8 is json.loads(raw.decode("utf-8")): strict UTF-8, which refuses an encoded surrogate.
 func DecodeUTF8(raw []byte, opts Options) (any, error) {
 	if !utf8.Valid(raw) {

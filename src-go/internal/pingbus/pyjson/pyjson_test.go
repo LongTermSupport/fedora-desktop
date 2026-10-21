@@ -10,6 +10,21 @@ import (
 // esc is a JSON \u escape of the four hex digits, spelled so no editor turns it into the character.
 func esc(hex string) string { return string([]byte{'\\', 'u'}) + hex }
 
+func TestDecodeCodePointsKeepsARawLoneSurrogate(t *testing.T) {
+	text := []rune{'"', 'a', 0xd800, '"'}
+	got, err := DecodeCodePoints(text, Options{})
+	if err != nil || got != "a\xed\xa0\x80" {
+		t.Fatalf("DecodeCodePoints = %q, %v", got, err)
+	}
+	pair := []rune{'"', 0xd83d, 0xde00, '"'}
+	if got, err := DecodeCodePoints(pair, Options{}); err != nil || got != "\xed\xa0\xbd\xed\xb8\x80" {
+		t.Fatalf("raw surrogates stay two code points, as in a Python str: %q, %v", got, err)
+	}
+	if _, err := DecodeCodePoints([]rune{0xd800}, Options{}); err == nil {
+		t.Fatal("a raw surrogate outside a string is not JSON")
+	}
+}
+
 func TestCodePointsReadsGeneralisedUTF8(t *testing.T) {
 	got, err := CodePoints("a\xed\xa0\x80\xf0\x9f\x98\x80")
 	if err != nil || len(got) != 3 || got[0] != 'a' || got[1] != 0xd800 || got[2] != 0x1f600 {
