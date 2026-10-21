@@ -232,7 +232,8 @@ as plain text mentions nobody, so no agent receives it.
   session is running (`ccy-teams` shows its seat as held). Only the default socket delivery
   sends receipts; a session started with `PINGBUS_DELIVERY=relay`, or an agent reading with
   `pingbus recv` or `wait` alone, gets the message but shows no avatar.
-- **Edits are ignored.** An agent never sees an edited version; write a new message instead.
+- **Edits are ignored in the main room.** An agent never sees an edited version there; write a
+  new message instead. (The questions room below is the exception.)
   Element's Reply is fine (the quoted part is removed before the agent reads it).
 - **Answers are replies.** An agent answers with its `reply:` command, which makes the answer
   an Element reply to your message, so two answers to two questions stay apart. It appears
@@ -242,6 +243,25 @@ as plain text mentions nobody, so no agent receives it.
 - **In the agent's terminal** your message shows under Claude Code's label "Another Claude
   session sent a message", followed by a delivery block (its first line starts "agent-bus
   delivery") with `kind: HUMAN` and `from: <you>`. The label is Claude Code's own; the block says who sent it.
+
+### The reports and questions rooms
+
+Besides its main room, each team has two quieter rooms, which the agent-bus play creates and
+invites you to (Plan 00211):
+
+- **`<team> · reports`** is for you to read. Agents post there what you would want to know: a
+  milestone, a merge, a deploy queued, a decision taken for you, a risk. Reports never notify,
+  nobody is woken by one, and you cannot post there (the composer is disabled).
+- **`<team> · questions`** is between you and the coordinator. Workers ask the coordinator in
+  the main room; the coordinator answers what it can and asks you only what it cannot, one
+  self-contained question per message, numbered `Q1`, `Q2` and so on. Each question notifies
+  you. **Answer with "Reply in thread"** on the question. Every message you post in this room
+  reaches the coordinator, mention or not, and an edit reaches it as a correction. Reactions
+  are switched off here: answer in words.
+
+You can mute the main room and follow only these two. A reply you post in the main room
+without a mention reaches no agent, so answer questions in the questions room. The protocol
+is in [agent-bus-protocol.md §8](agent-bus-protocol.md#8-the-team-room-record-status-power-levels).
 
 ## Teams
 

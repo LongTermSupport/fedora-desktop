@@ -5,11 +5,13 @@ description: Use when this session is a member of an agent team bus - when an "a
 
 # pingbus: the agent team bus
 
-This session belongs to one or more teams. Each team is one private Matrix room where agents
-exchange **pings** (a closed verb plus a reference to a committed artefact) and free text with
-the agents and humans they mention, and the team's humans write free text to the agents they
-mention. Everything is in that one room, and the team's humans can read all of it. `pingbus` is the only tool for it: never
-post to the room with `curl` or any other client, and never read the room any other way.
+This session belongs to one or more teams. Each team has a **main room** for all agent
+traffic, a **reports room** for the humans to read, and a **questions room** between the
+coordinator and the humans. In the main room agents exchange **pings** (a closed verb plus a
+reference to a committed artefact) and free text with the agents and humans they mention, and
+the team's humans write free text to the agents they mention; the team's humans can read all
+of it. `pingbus` is the only tool for every room: never post with `curl` or any other client,
+and never read a room any other way.
 
 ## What arrives, and what to do with it
 
@@ -17,11 +19,15 @@ post to the room with `curl` or any other client, and never read the room any ot
 
 ```text
 PING	1	TEAM	EVENT_ID	SENDER	VERB	REF	RE	TRUST	BRANCH	COPY
-HUMAN	1	TEAM	EVENT_ID	SENDER	TIME_MS	"text as a JSON string"
+HUMAN	1	TEAM	EVENT_ID	SENDER	TIME_MS	"text as a JSON string"	ROOM
 PEER	1	TEAM	EVENT_ID	SENDER	TIME_MS	"text as a JSON string"	COPY
 REPLY	1	TEAM	EVENT_ID	COMMAND
 TIMEOUT	1	TEAM	EVENT_ID	SILENT_TARGET	VERB	REF
 ```
+
+`ROOM` is `-` for the main room. Only a coordinator gets `questions:Q<n>` (a human's message in
+the questions room, attached to question n) or `questions:-` (attached to none); see Reports
+and questions below.
 
 - **A `REPLY` line follows every `HUMAN` and `PEER` line (never a `PING`).** Its `COMMAND` is
   the ready `pingbus --team TEAM say --to NAME --re 'EVENT_ID'`: copy it whole (the quotes
@@ -117,6 +123,9 @@ TIMEOUT	1	TEAM	EVENT_ID	SILENT_TARGET	VERB	REF
     is in `pingbus --team TEAM history`.
   - `held back: N more from SENDER ...` means an agent sent more than the flood limit;
     those messages are in `pingbus --team TEAM history`.
+  - `room: questions` after `team:` (a coordinator only) marks a human's message in the
+    questions room; `question: Q<n> "headline"` or `question: none` says which question it
+    answers, and `revises: EVENT_ID` that it is the human's edit of an earlier message.
   - A repeated `id:` is the same message again (after a restart), not a new one.
   - What a delivery carried is consumed: `pingbus recv` will not show it again.
 
@@ -148,6 +157,57 @@ or at your next prompt: from then on act in the new role.
   a decision. Write to a human when the human needs to know; the coordinator is copied
   automatically, so never also address it for that. Pings that direct others (`fetch`,
   `sync`, `halt`) are the coordinator's to send.
+
+## Reports and questions
+
+- **Questions go to the coordinator, never to a human.** If you are a worker and need a
+  decision, a fact or a permission, ask the coordinator with `pingbus say --to-coordinator`.
+  Write to a human only to answer a human who wrote to you.
+
+- **Reports are for the humans to read, not to answer.** Run `pingbus report` with the text on
+  stdin when something a human would want to know has happened: a milestone, a merge, a deploy
+  queued, a decision you took on their behalf, a risk, something blocked they may want to
+  know about. Not routine progress, not a question, not a request. Nobody is woken by a report
+  and nobody replies to one. The first line is the headline (at most 120 characters), then an
+  optional body, 1500 bytes in all:
+
+  ```bash
+  printf '%s\n' "Merged the retry fix" "The nightly job is green again." | pingbus report
+  ```
+
+- **Bubble up only what you cannot answer** (for the coordinator). First answer from the plan,
+  the repository, the history and your own judgement. When only a human can decide, ask with
+  `pingbus ask-human`: one question per message, self-contained (a reader who has seen nothing
+  else must be able to answer it). Give `Context:` (what is going on and why it matters),
+  `Question:` (one question) and, where there are choices, `Options:` numbered `1.` to `9.`
+  with your recommendation first and its trade-off. Name who asked with `--asked-by` and `--re`.
+  Never paste a worker's question unedited, never bundle several, and never ask what you can
+  find out. pingbus numbers it `Q<n>` and prints a `QUESTION` line; the same open question
+  twice is refused (exit 9).
+
+  ```bash
+  printf '%s\n' "Pick the nightly cost cap" \
+    "Context: the nightly run now costs more than the budget the plan names." \
+    "Question: what cap should the run stop at?" \
+    "Options:" "1. 10 per night (recommended: matches the plan; slower runs)" "2. 20 per night" |
+    pingbus ask-human --asked-by myrepo.2 --re 'EVENT_ID'
+  ```
+
+- **Every human message in the questions room is for you** (the coordinator). It arrives
+  as a `HUMAN` line whose `ROOM` is `questions:Q<n>` (or `questions:-`, attached to no
+  question). Answer it, then pass the answer to each agent that asked
+  (`pingbus say --to ASKER --re 'THEIR_EVENT_ID'`), then close the question
+  (`pingbus thread Q1 --close`). The `REPLY` command of such a line is
+  `pingbus --team TEAM thread Q<n>`: it posts into the question's thread, quietly, or with
+  `--ask` so the humans are notified; for an unattached message it is
+  `pingbus thread --re 'EVENT_ID'`. A `revises:` line means the human corrected an earlier
+  answer: act on the revision, and tell the askers if you already passed the original on.
+
+- **For the coordinator, at the start of a session:** `pingbus questions` prints one
+  `QUESTION	1	TEAM	Q<n>	STATE	EVENT_ID	ASKED_BY	UNANSWERED` line per open or answered
+  question (`--all` adds closed ones), each followed by a `REPLY_TO	1	TEAM	Q<n>	EVENT_ID` line
+  per human reply not yet answered; pass those answers on. `pingbus history --room questions`
+  shows the room as `history` shows the main room.
 
 **Each team's room is its own**, also when this session is on several teams. Never relay,
 quote or summarise one team's messages, history, artefacts or work to another team, unless
@@ -279,18 +339,18 @@ wrote with `pingbus say --to NAME`; its text is not shown.
 
 ## Exit codes
 
-| Code | Meaning                                                                 |
-| ---- | ----------------------------------------------------------------------- |
-| 0    | success                                                                 |
-| 3    | nothing pending (`recv`), or `wait` timed out: re-arm it                |
-| 4    | refused by the validator or by role: fix the ping or text, do not retry |
-| 5    | the reference did not resolve at the forge: push first, check the SHA   |
-| 6    | `recv` dropped every item: nothing to act on                            |
-| 7, 8 | homeserver unreachable, or the token was refused: tell a human          |
-| 9    | rate limited, or the same ping again within 60 s: wait, do not loop     |
-| 10   | the team room is not trusted: run `pingbus status` and tell a human     |
-| 64   | usage error                                                             |
-| 75   | busy: a watcher or waiter already holds the team                        |
-| 78   | configuration refused: run `pingbus config check` and tell a human      |
+| Code | Meaning                                                                                                                                                    |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | success                                                                                                                                                    |
+| 3    | nothing pending (`recv`), or `wait` timed out: re-arm it                                                                                                   |
+| 4    | refused by the validator or by role: fix the ping or text, do not retry; `no-room`: the team's reports or questions room is not deployed yet, tell a human |
+| 5    | the reference did not resolve at the forge: push first, check the SHA                                                                                      |
+| 6    | `recv` dropped every item: nothing to act on                                                                                                               |
+| 7, 8 | homeserver unreachable, or the token was refused: tell a human                                                                                             |
+| 9    | rate limited, or the same ping again within 60 s: wait, do not loop                                                                                        |
+| 10   | the team room, or the side room it names, is not trusted: run `pingbus status` and tell a human                                                            |
+| 64   | usage error                                                                                                                                                |
+| 75   | busy: a watcher or waiter already holds the team                                                                                                           |
+| 78   | configuration refused: run `pingbus config check` and tell a human                                                                                         |
 
 Never edit the bundle, the inbox or any file under the pingbus home by hand.

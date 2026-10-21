@@ -717,7 +717,7 @@ class RecvTest(BusCase):
                          [["PING", "1", TEAM_A, ping, ORCH_LP, "review", PATH_REF, "-", "trusted", "-", "-"]])
         self.assertEqual(self.lines(out, "HUMAN"),
                          [["HUMAN", "1", TEAM_A, human, "alice", str(int(T0 * 1000)),
-                           json.dumps("line one\nline two")]])
+                           json.dumps("line one\nline two"), "-"]])
         self.assertEqual(self.run_cli("recv")[0], cli.EXIT_NOTHING)
 
     def test_recv_refetches_and_prints_the_fetched_copy(self):
@@ -731,7 +731,7 @@ class RecvTest(BusCase):
         self.a.fake.http_log.clear()
         code, out, _ = self.run_cli("recv")
         self.assertEqual(code, cli.EXIT_OK)
-        self.assertEqual(self.lines(out, "HUMAN")[0][-1], json.dumps("the server's words"))
+        self.assertEqual(self.lines(out, "HUMAN")[0][6], json.dumps("the server's words"))
         fetched = [r.path for r in self.a.fake.http_log if "/event/" in r.path]
         self.assertEqual(fetched, [f"/_matrix/client/v3/rooms/{q(self.a.room)}/event/{q(event)}"])
 
@@ -900,7 +900,7 @@ class WaitTest(BusCase):
         self.later(0.8, lambda: self.a.human("after the drop"))
         code, out, err = self.run_cli("wait", "--timeout", "20")
         self.assertEqual(code, cli.EXIT_OK)
-        self.assertEqual(self.lines(out, "HUMAN")[0][-1], json.dumps("after the drop"))
+        self.assertEqual(self.lines(out, "HUMAN")[0][6], json.dumps("after the drop"))
         self.assertIn("DROPPED\t1\t1\tschema=1", err)
 
     def test_wait_with_only_drops_reaches_its_timeout_not_exit_6(self):

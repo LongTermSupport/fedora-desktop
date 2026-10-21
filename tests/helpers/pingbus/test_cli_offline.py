@@ -298,9 +298,9 @@ class TestLineFormatter(unittest.TestCase):
         msg = p.HumanMessage(EVENT, HUMAN, 1791234567890, "halt\tnow\nplease é")
         line = cli.human_line(TEAM, SN, msg)
         self.assertEqual(
-            line, f'HUMAN\t1\t{TEAM}\t{EVENT}\talice\t1791234567890\t"halt\\tnow\\nplease \\u00e9"'
+            line, f'HUMAN\t1\t{TEAM}\t{EVENT}\talice\t1791234567890\t"halt\\tnow\\nplease \\u00e9"\t-'
         )
-        self.assertEqual(line.count("\t"), 6)
+        self.assertEqual(line.count("\t"), 7)
 
     def test_timeout_and_sent_lines(self) -> None:
         self.assertEqual(

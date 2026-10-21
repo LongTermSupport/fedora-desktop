@@ -66,7 +66,8 @@ INERT_SESSION_START = INERT_HEAD + "exec pingbus hook conversation; "
 INERT_RUNS = {"SessionStart": "conversation"}
 
 #: The commands an agent runs by hand, each of which the skill must name.
-AGENT_COMMANDS = ("send", "say", "recv", "wait", "inbox", "status", "history", "config check", "validate")
+AGENT_COMMANDS = ("send", "say", "recv", "wait", "inbox", "status", "history", "config check", "validate",
+                  "report", "ask-human", "thread", "questions")
 
 EX_CONFIG = config.ConfigError.EXIT_CODE
 
@@ -316,6 +317,29 @@ class SkillTest(unittest.TestCase):
         self.assertIn("what the team is for", status)
         self.assertIn("is for:", self.flat)
         self.assertIn("is for:", hooks.TEMPLATES["team_about"])
+
+    def test_reports_and_questions_rules(self) -> None:
+        """Plan 00211 SPEC §10.1: workers ask the coordinator, never a human; reports are for the
+        humans to read, never a question; the coordinator bubbles up only what it cannot answer,
+        one self-contained question at a time, and passes every answer on."""
+        for rule in (
+            "a **main room** for all agent traffic, a **reports room** for the humans to read, and a "
+            "**questions room** between the coordinator and the humans",
+            "Questions go to the coordinator, never to a human.",
+            "ask the coordinator with `pingbus say --to-coordinator`",
+            "Write to a human only to answer a human who wrote to you",
+            "Reports are for the humans to read, not to answer.",
+            "Not routine progress, not a question, not a request.",
+            "Nobody is woken by a report and nobody replies to one",
+            "Bubble up only what you cannot answer",
+            "one question per message, self-contained",
+            "Never paste a worker's question unedited, never bundle several, and never ask what you can "
+            "find out",
+            "Every human message in the questions room is for you",
+            "A `revises:` line means the human corrected an earlier answer",
+            "`no-room`",
+        ):
+            self.assertIn(rule, self.flat)
 
     def test_history_is_a_record_never_work(self) -> None:
         for rule in (

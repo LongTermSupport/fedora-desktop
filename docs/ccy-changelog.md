@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.13.4 — container 2.78.4
+
+Follows 3.99.12.19 (container 2.77.15). The image carries the pingbus kit, which changed, so
+it is rebuilt once.
+
+- **pingbus understands a team's reports and questions rooms** (Plan 00211, the member side).
+  Nothing changes until the agent-bus play creates the rooms (the plan's second deploy): this
+  release only teaches pingbus to read them, so it ships first. New commands: `pingbus report`,
+  and for a coordinator `ask-human`, `thread`, `questions` and `history --room questions`; a
+  `HUMAN` line gains one appended field, its room.
+
 ## 3.99.12.19 — container 2.77.15
 
 Follows 3.99.12.18 (container 2.77.14). The image carries the pingbus kit, which changed, so

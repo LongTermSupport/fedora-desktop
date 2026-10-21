@@ -133,13 +133,22 @@ TEMPLATES = {
                       "the SessionStart hook's stderr."),
     "role_coordinator": ("agent-bus: in team {team} you are the coordinator. Workers report to you and copy you "
                          "on what they tell humans; when a human asks you to get something done, work out "
-                         "how and dispatch it to the workers, then track it."),
+                         "how and dispatch it to the workers, then track it. Questions only a human can "
+                         "answer go to the questions room with `pingbus ask-human`; every human message there "
+                         "is delivered to you. Run `pingbus questions` now and pass on any answer not yet "
+                         "passed on. Report what the humans should know with `pingbus report`."),
     "role_worker": ("agent-bus: in team {team} you are a worker; the coordinator is {handle}. Report to it "
-                    "(`--to-coordinator` on `pingbus send` and `say`); it is copied on what you tell humans."),
+                    "(`--to-coordinator` on `pingbus send` and `say`); it is copied on what you tell humans. "
+                    "Ask the coordinator, never a human, when you need a decision. Report what the humans "
+                    "should know with `pingbus report`."),
     "role_worker_many": ("agent-bus: in team {team} you are a worker; the coordinators are {handles}. Report to "
                          "them (`--to-coordinator` on `pingbus send` and `say` names all of them); they are "
-                         "copied on what you tell humans."),
-    "role_worker_alone": "agent-bus: in team {team} you are a worker; the team has no coordinator.",
+                         "copied on what you tell humans. Ask the coordinator, never a human, when you need a "
+                         "decision. Report what the humans should know with `pingbus report`."),
+    "role_worker_alone": ("agent-bus: in team {team} you are a worker; the team has no coordinator. "
+                          "Report what the humans should know with `pingbus report`."),
+    "questions_refused": ("agent-bus: in team {team} you cannot join the questions room: "
+                          + inbox.REASON_NO_HUMAN_TEXT + "."),
     "no_socket": ("agent-bus: this session has no inbox socket. To be woken, run `pingbus wait` "
                   "with run_in_background."),
     "joined": "agent-bus: you joined team {team} as seat {seat}, {handle}.",
@@ -290,6 +299,11 @@ def role_lines(views: tuple[TeamView, ...]) -> list[str]:
         elif view.role == protocol.ROLE_WORKER:
             lines.append(fill("role_worker_alone", team=view.team))
     return lines
+
+
+def side_room_lines(views: tuple[TeamView, ...]) -> list[str]:
+    """SessionStart's line per team whose questions invite this member must leave pending."""
+    return [fill("questions_refused", team=view.team) for view in views if view.questions_refused]
 
 
 def about_lines(views: tuple[TeamView, ...]) -> list[str]:
@@ -493,6 +507,8 @@ class TeamView:
     coordinators: tuple[str, ...] = ()
     #: What the team is for, from the cached room topic (None where it has none).
     description: str | None = None
+    #: The questions invite is left pending because this bundle refuses human text (SPEC §4.5).
+    questions_refused: bool = False
 
     @property
     def waker(self) -> bool:
@@ -569,10 +585,11 @@ def _team_view(member: config.Member) -> TeamView:
                     for user in protocol.coordinators(record.roles))
     try:
         description = state.about()
+        questions = state.side_rooms().get(protocol.PURPOSE_QUESTIONS)
     except inbox.StateError:
         return TeamView(member.team, holder, None, "state")
     return TeamView(member.team, holder, pending, None, record.roles.get(member.user_id), handles,
-                    description)
+                    description, questions is not None and questions.state == "refused")
 
 
 def survey(environ: Mapping[str, str]) -> Survey:
@@ -793,6 +810,7 @@ class _Hook:
             seat_failure = "state"
         lines += about_lines(surveyed.teams)
         lines += role_lines(surveyed.teams)
+        lines += side_room_lines(surveyed.teams)
         self._role_lines(surveyed, baseline=True)
         lines += self._pending_and_failure(surveyed, seat_failure)
         return _context(self.event, lines)
