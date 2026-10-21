@@ -23,8 +23,9 @@ Elsewhere, by hand:
 
 1. The kit inside the container. Copy this kit, /usr/local/share/agent-bus/kit/, to the
    same path inside the container and link its `pingbus` and `agent-bus-claude` into
-   /usr/local/bin. The container needs Python 3.11 or later; `pingbus` refuses an older
-   one (exit 78).
+   /usr/local/bin. The container needs Python 3.11 or later at /usr/bin/python3, the
+   interpreter `pingbus` starts (it does not look python3 up on PATH); `pingbus` refuses an
+   older one (exit 78).
 
 2. The network. The container reaches the homeserver host's bus address, `<bus_ip>`,
    routed through the LXC bridge. On a fedora-desktop host the play admits the bridge's
