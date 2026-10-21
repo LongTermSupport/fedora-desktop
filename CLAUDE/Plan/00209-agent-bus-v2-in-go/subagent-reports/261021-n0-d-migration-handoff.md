@@ -28,18 +28,18 @@ from this file.
     new password at rollback or at M8.
   - Members are parked only at M8, after commit and before the fence is lifted.
 
+- **Review round 3** (`261021-n0-d-migration-review-3.md`): FIX-FIRST, 14 findings (2 blockers).
+  All fixed in `63131e3b`. The fence is now a v2-owned nftables table plus a oneshot
+  `teamchat-fence@<team>.service`, with a v2 drop-in and restart as the fallback. No v1 verb is
+  added: the proposed `agent-bus-install fence` would change shared v1 software and grow a
+  ratchet-listed bash file. `rooms-read-only` is dropped too, because v1's play undoes it. The
+  archive is stopped at M8 (the new OD-D6 default), opened on demand, and an archive check carries
+  what humans post in it.
+- **Verification of round 3** (`261021-n0-d-migration-review-3-verify.md`): all 14 FIXED. Its
+  verdict was FIX-FIRST on 7 new findings in the fixes (1 blocker: M8 unlocked humans after
+  stopping the server). All 7 were addressed in the commit that updates this handoff. No reviewer
+  has checked those 7 fixes yet.
+
 ## Left
 
-1. **Review round 3**, the last of the 3 allowed. Spawn one opus adversarial reviewer over the file
-   and the frame. Give it round 2's report, and ask it to verify the round-2 fixes and the new v1
-   facts the design now relies on:
-
-   - the watcher's retry on a network fault;
-   - that a `_deliver` local `TIMEOUT` is the only state change possible during the fence;
-   - that systemd applies `IPAddressAllow=` to a running unit. That one is left for P1 to prove
-     and is stated as such in 5.5.
-
-   It writes `261021-n0-d-migration-review-3.md`. Fix its findings.
-
-2. **The final message to the lead**, under 1200 characters: branch, tip, file, verdict, the
-   defaulted decisions (OD-D1 to OD-D7, section 9), and the assumptions on other areas (section 12).
+1. If the lead wants it, run one more verifier over the last commit's 7 fixes only.
