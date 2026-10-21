@@ -496,17 +496,17 @@ Who runs a step:
 - Plays run through `run.bash` single-play mode, under the user play lock, as ccy-teams does for
   team changes today (TS 6).
 
-| Step         | Does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Fails fast when                                                                                                                                                                                                                                                                                                                                |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| M0 preflight | Reads only. Lists the members: ccy seats from v1's registry and seat dirs; LXC members from `agent_bus_lxc_members` and v1's LXC record, with running or stopped state; remote members, meaning registry handles that are neither of those. Lists the sessions in the team from the session registry. Computes the **linked set**: the team plus every v1 team that shares a session with it (D19, OD-D3). Checks that v2 software is installed and its version is accepted, that the port is free (3.8), that the v1 team is healthy (fresh health record), and that a v1 backup can be taken. Prints the plan of record. | v1 is unhealthy; v2 is not installed; the linked set has more than one team and the owner has not chosen to move it together (OD-D3); a remote member has not been acknowledged by the owner as "moves by its own IaC" (5.8); an LXC member's rootfs cannot be read; a v1 state file fails to parse (a v1 StateError is a stop, never a skip). |
-| M1 stage     | Writes `teamchat_teams[<team>]` with `from_v1: true` and the LXC members into `teamchat_lxc_members` with v2 state `staged`. Runs `play-teamchat.yml` for this team. That play installs the v2 server, rooms and admin, and runs `teamchat-admin migrate stage`, which creates every account, role, parked state, counter and retired handle from the M0 snapshot and the human accounts (no passwords). Runs a v2 probe: a temporary probe account sends to itself and reads it back, then is removed. v1 is untouched.                                                                                                   | Any v2 creation fails; the probe round trip fails.                                                                                                                                                                                                                                                                                             |
-| M2 fence v1  | (a) `agent-bus-install backup-now --team <team>`, recorded as the rollback point. (b) A notice to the team's ccy sessions, through the existing hot-control path, saying the team is moving and sends will fail until the restart. (c) Every human is locked on v1 (`agent-bus human lock`). (d) Every active member is parked on v1 (`agent-bus park-member`); this revokes the token on the server, so a running watcher gets 401 and stops, and any send fails loudly. (e) The fence record lists exactly what was locked and parked, for R.                                                                            | The backup fails; a park or lock fails; after the fence, a v1 member's device still syncs (checked through the admin device list).                                                                                                                                                                                                             |
-| M3 capture   | Waits until no v1 event has appeared for 60 s. Fixes `v1_last_event` per room. Exports every room's full history (5.6). Reads each member's v1 state read-only (5.2 table). Writes the carry plan and footprint-before. Prints the report and asks the owner to confirm, unless run with `--yes`.                                                                                                                                                                                                                                                                                                                          | A v1 event appears after the fence (something unfenced is still posting: stop, name the sender); a member's state cannot be read and the member is not marked `server-only`; the export's event count disagrees with a second paging pass.                                                                                                     |
-| M4 carry     | Posts every carry and settle item on v2 with derived transaction ids, and the open questions. Posts the welcome notice (5.6).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Any post fails after its retries; the count on the server differs from the plan.                                                                                                                                                                                                                                                               |
-| M5 commit    | Re-checks the four preconditions (5.3) and renames the phase to `committed`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Any precondition fails. The migration stays at `carried`, and the owner can re-run M5 or roll back.                                                                                                                                                                                                                                            |
-| M6 move      | The humans' passwords are set and shown once (ccy-teams login flow). The v2 Element profile is written (v2's Element play). Running ccy sessions restart onto the v2 kit (6.2). LXC members: their `agent_bus_lxc_members` entries are removed and the `teamchat_lxc_members` entries made `present`; then v1's play runs for this team, which removes the team from each guest's v1 env and stops the v1 service, followed by v2's play, which places the v2 kit, bundles and service. Stopped containers are deferred (6.3).                                                                                             | A ccy session fails to come up on v2 within its bound; a running LXC guest's apply fails. Deferred containers are not failures.                                                                                                                                                                                                                |
-| M7 accept    | Acceptance part 2 (6.1).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Any check fails. Fixed forward on v2, then re-run.                                                                                                                                                                                                                                                                                             |
-| M8 archive   | Makes the v1 rooms read-only (5.6), unlocks the v1 humans so that they can read the archive, and writes footprint-after. Removes the team's v1 seat bundles through v1's own `seat remove` (members stay parked on the server). ccy-teams then shows the team as `teamchat`, and the v1 team as `archive`.                                                                                                                                                                                                                                                                                                                 | A v1 verb fails.                                                                                                                                                                                                                                                                                                                               |
+| Step         | Does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Fails fast when                                                                                                                                                                                                                                                                                                                                |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M0 preflight | Reads only. Lists the members: ccy seats from v1's registry and seat dirs; LXC members from `agent_bus_lxc_members` and v1's LXC record, with running or stopped state; remote members, meaning registry handles that are neither of those. Lists the sessions in the team from the session registry. Computes the **linked set**: the team plus every v1 team that shares a session with it (D19, OD-D3). Checks that v2 software is installed and its version is accepted, that the port is free (3.8), that the v1 team is healthy (fresh health record), and that a v1 backup can be taken. Prints the plan of record.                                                                                                                                                             | v1 is unhealthy; v2 is not installed; the linked set has more than one team and the owner has not chosen to move it together (OD-D3); a remote member has not been acknowledged by the owner as "moves by its own IaC" (5.8); an LXC member's rootfs cannot be read; a v1 state file fails to parse (a v1 StateError is a stop, never a skip). |
+| M1 stage     | Writes `teamchat_teams[<team>]` with `from_v1: true` and the LXC members into `teamchat_lxc_members` with v2 state `staged`. Runs `play-teamchat.yml` for this team. That play installs the v2 server, rooms and admin, and runs `teamchat-admin migrate stage`, which creates every account, role, parked state, counter and retired handle from the M0 snapshot and the human accounts (no passwords). Runs a v2 probe: a temporary probe account sends to itself and reads it back, then is removed. v1 is untouched.                                                                                                                                                                                                                                                               | Any v2 creation fails; the probe round trip fails.                                                                                                                                                                                                                                                                                             |
+| M2 fence v1  | (a) `agent-bus-install backup-now --team <team>`, recorded as the rollback point. (b) No notice is sent through v1. A hot remove of the team would make the v1 keeper retire the seat, and seat retire deletes `sync.json` (TS 2.2), which would lose unsynced items on rollback. Agents learn of the move from the loud failure of their next v1 send and from the v2 SessionStart notice in M6. The owner is shown the list of sessions that will be bus-less until M6. (c) Every human is locked on v1 (`agent-bus human lock`). (d) Every active member is parked on v1 (`agent-bus park-member`); this revokes the token on the server, so a running watcher gets 401 and stops, and any send fails loudly. (e) The fence record lists exactly what was locked and parked, for R. | The backup fails; a park or lock fails; after the fence, a v1 member's device still syncs (checked through the admin device list).                                                                                                                                                                                                             |
+| M3 capture   | Waits until no v1 event has appeared for 60 s. Fixes `v1_last_event` per room. Exports every room's full history (5.6). Reads each member's v1 state read-only (5.2 table). Writes the carry plan and footprint-before. Prints the report and asks the owner to confirm, unless run with `--yes`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | A v1 event appears after the fence (something unfenced is still posting: stop, name the sender); a member's state cannot be read and the member is not marked `server-only`; the export's event count disagrees with a second paging pass.                                                                                                     |
+| M4 carry     | Posts every carry and settle item on v2 with derived transaction ids, and the open questions. Posts the welcome notice (5.6).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Any post fails after its retries; the count on the server differs from the plan.                                                                                                                                                                                                                                                               |
+| M5 commit    | Re-checks the four preconditions (5.3) and renames the phase to `committed`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Any precondition fails. The migration stays at `carried`, and the owner can re-run M5 or roll back.                                                                                                                                                                                                                                            |
+| M6 move      | The humans' passwords are set and shown once (ccy-teams login flow). The v2 Element profile is written (v2's Element play). Running ccy sessions restart onto the v2 kit (6.2). LXC members: their `agent_bus_lxc_members` entries are removed and the `teamchat_lxc_members` entries made `present`; then v1's play runs for this team, which removes the team from each guest's v1 env and stops the v1 service, followed by v2's play, which places the v2 kit, bundles and service. Stopped containers are deferred (6.3).                                                                                                                                                                                                                                                         | A ccy session fails to come up on v2 within its bound; a running LXC guest's apply fails. Deferred containers are not failures.                                                                                                                                                                                                                |
+| M7 accept    | Acceptance part 2 (6.1).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Any check fails. Fixed forward on v2, then re-run.                                                                                                                                                                                                                                                                                             |
+| M8 archive   | Makes the v1 rooms read-only (5.6), unlocks the v1 humans so that they can read the archive, and writes footprint-after. Removes the team's v1 seat bundles through v1's own `seat remove` (members stay parked on the server). ccy-teams then shows the team as `teamchat`, and the v1 team as `archive`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | A v1 verb fails.                                                                                                                                                                                                                                                                                                                               |
 
 **Why the fence parks members instead of stopping sessions or the v1 server.** Three fences were
 considered:
@@ -623,3 +623,241 @@ v1 world after R is the v1 world at the fence, with new tokens.
   the `teamchat_teams` entry, and ccy-teams states the v2 bundle the remote member needs. The fence
   parks the member, so its v1 sends fail loudly. Its items are carried server-side with the
   `last_seen` cut.
+
+### 5.9 Linked sets
+
+When a session is seated in more than one v1 team, those teams form a linked set (D19). M0
+computes the set, and the default (OD-D3) is to move the set together:
+
+- M0 to M4 run per team.
+- A set record `/var/lib/teamchat-admin/_sets/<set-id>.json` names the teams. A team name cannot
+  start with `_`, so the directory cannot clash with a team.
+- M5 checks every team's preconditions, then renames the set record's phase to `committed`. That
+  one rename commits the whole set. Each team's `state.json` names its set, and its live system is
+  read from the set record.
+- Rollback R applies to the whole set.
+
+The alternative is for the shared sessions to leave the other teams first, with
+`ccy-teams session remove`, so that the set shrinks to one team. ccy-teams offers this, and the
+owner chooses it in M0.
+
+### 5.10 How the owner runs it
+
+- **The one entry point** is `ccy-teams migrate <team>`, on the host, run by the owner. It shows
+  M0's report and the plan of record, and asks for confirmation once before M2. It then runs M2 to
+  M8 without stopping, unless a step fails. The window in which agents have no bus (from M2 to the
+  session restarts in M6) is therefore as short as the steps allow. `ccy-teams migrate --rollback <team>`
+  and `ccy-teams migrate --status <team>` complete the set of commands.
+- **Through meta-deploy.** A team name is install-specific, so it can never appear in the tracked
+  `meta-deploy.list`. The plan instead queues one generic plan script, `migrate-declared.bash`. It
+  runs `ccy-teams migrate --declared`, which migrates each team whose `teamchat_teams` entry carries
+  `from_v1: true` and is not yet `accepted`, one at a time, with the same confirmation. ccy-teams
+  writes that declaration when the owner picks "move to teamchat" on a team in the board. So the
+  owner either runs the move at once from the board, or declares it there and lets the queued
+  meta-deploy entry run it. Both take the same code path.
+- **v2 software** reaches the host through the plan's own `deploy.bash`, which runs
+  `play-teamchat.yml`. With no team declared, the install is inert. The pilots (7.1) are plan
+  scripts on the same queue.
+
+## 6. Moving running sessions, and acceptance
+
+### 6.1 Acceptance
+
+**Part 1 runs before commit (M5's precondition).** It reads v2 only.
+
+| Check                 | Passes when                                                                                                                                                                                                    |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A1 server healthy     | The v2 health record is fresh and the server answers on its port from the bus address.                                                                                                                         |
+| A2 membership carried | Every v1 handle in the M0 snapshot has its mapped v2 account, with the same role and parked state. Counters are at or above v1's. Every retired v1 handle is retired on v2. Every listed human has an account. |
+| A3 items carried      | The v2 rooms hold exactly the plan's carry and settle items, matched by transaction id, plus the welcome notice.                                                                                               |
+| A4 round trip         | A temporary probe account sends a ping to itself and reads it back through the v2 member binary. The account is removed afterwards.                                                                            |
+
+**Part 2 runs after the move (M7).** It proves that the moved team works.
+
+| Check                      | Passes when                                                                                                                                                                                                                                                                   |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A5 sessions on v2          | Every ccy session that was in the team before M2, and is running, has restarted on the v2 kit. Its member's presence on v2 is fresh, and the session's process tree shows no v1 kit process.                                                                                  |
+| A6 carried items delivered | Every carried item addressed to a running member is delivered by B's proof (the transcript nonce), or still pending with B's stated reason. Items for stopped or remote members are pending on the server, and the report lists them by member.                               |
+| A7 a real exchange         | ccy-teams asks the team's coordinator (the first active worker if there is none) for one acknowledged ping through B's check verb. The acknowledgement must arrive within the verb's deadline. This is the one check that disturbs a live agent, and it costs one short turn. |
+| A8 v1 fenced and unchanged | No v1 event exists after `v1_last_event`. footprint-after differs from footprint-before only by the v1 changes the fence record and M6 list: parks, locks, the removed LXC env lines and service, and the seat bundles.                                                       |
+| A9 the humans' view        | The owner opens the v2 Element window and sees the welcome notice, and opens the v1 window and sees the old history. This is a look at the screen, asked for separately.                                                                                                      |
+
+The result is written as `migration.accepted` in `/var/lib/teamchat-status/<team>.json`, with the
+report path. ccy-teams shows the team as moved only after that.
+
+### 6.2 ccy sessions
+
+M6 uses the restart path ccy-teams already has (`ccy-teams restart`, RL 3.5): a relaunch request
+that the ccy supervisor acts on at the session's next idle moment, with `--resume` of the recorded
+conversation, never `--continue`. This is not a new mechanism.
+
+What changes is what the relaunch resolves to:
+
+- The session registry still holds `--teams 3@<team>`. Because the team is now v2-live (3.9), the
+  launcher takes the v2 seat `3` (the same number, D11), mounts v2's membership directory, and
+  loads only the v2 plugin and settings.
+- The v2 SessionStart hook tells the agent that the team moved to teamchat, that its v1 sends will
+  fail, and how many carried items are waiting. B owns the wording.
+
+The bounds are ccy-teams' existing ones (300 s for the idle moment, 180 s to come up). A session
+that misses a bound is reported and is not killed. A stopped session record moves when it is next
+started, and its carried items wait on the server. Host `cc --teams` sessions are not restarted by
+ccy-teams (RL 3.5). The report lists them, and the owner relaunches each one.
+
+### 6.3 LXC members
+
+An LXC member moves by declaration, as every LXC change does (RL 1):
+
+1. M6 removes the team's `agent_bus_lxc_members` entries and makes its `teamchat_lxc_members`
+   entries `present`.
+2. v1's play then runs for this team. It removes the team from each running guest's
+   `~/.config/pingbus/env` and stops `agent-bus-claude-<user>.service` if this was its only team.
+3. v2's play runs next. It places the v2 kit, the bundle and the `teamchat-session-<user>.service`.
+
+A stopped container is deferred by both plays, as v1 already does (RL 1.5, LESSON 6). The next run
+of both plays with the container up completes the move. ccy-teams shows the member as `deferred`
+until then, and its carried items wait on the server. A guest whose session the human runs by hand
+in tmux is listed in the report with its restart command, `teamchat-claude`.
+
+The stopped-container path was not yet proven live on the host for v1 (LESSON 6). The pilot P4
+includes a stopped LXC member for that reason.
+
+## 7. Pilot, then retirement
+
+### 7.1 Pilot
+
+Each step must pass before the next is run.
+
+| Step                     | Where  | What it proves                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1 lab: coexist          | VM lab | Scenario `teamchat-coexist` (4.3).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| P1 lab: migrate          | VM lab | Scenario `teamchat-migrate`. A v1 team is seeded with one item of every kind in the 5.2 table: an unsynced ping, an inbox item, an open ping before and after its deadline, an open question, an unaddressed human message, a consumed-while-out item, a stopped LXC member and a member whose state cannot be read. It then asserts each item's fate, A1 to A8, and no duplicate on a re-run. Fault injection kills the run at every step and re-runs it: each re-run must resume and finish with the same result. |
+| P1 lab: rollback         | VM lab | Scenario `teamchat-migrate-rollback`. Rolls back from each of `staged`, `fenced`, `captured` and `carried`. Asserts that each member's v1 `state/` is byte-identical to the capture, and that after the restart every seeded item is delivered by v1 exactly once. This settles risk RK1.                                                                                                                                                                                                                           |
+| P2 host: install         | host   | v2 software through the plan's `deploy.bash` (meta-deploy). The plan's `triage.bash` runs `teamchat-admin footprint` before and after, which must show v1's footprint unchanged and v2 inert (D3).                                                                                                                                                                                                                                                                                                                  |
+| P3 host: v2-native pilot | host   | A throwaway v2 team named `teamchat-pilot` (a generic name defined by this design, not by an install), with one ccy session and one LXC member. It runs real work for at least one working session, its resident cost is measured (section 8), and then it is removed with `--purge`.                                                                                                                                                                                                                               |
+| P4 host: migration pilot | host   | A throwaway v1 team named `migration-pilot`, made with v1, with two ccy sessions, one LXC member stopped during the run, a few messages, an open ping and an open question. It is migrated, rolled back, migrated again, accepted and archived; then both its v1 and v2 sides are removed.                                                                                                                                                                                                                          |
+| P5 first real team       | host   | The owner picks the team, the smallest one by default. After that, teams move one at a time, at the owner's pace.                                                                                                                                                                                                                                                                                                                                                                                                   |
+
+### 7.2 Retiring v1
+
+When ccy-teams finds no v1-live team (every v1 team is `archived` or was never live), it shows
+"every team has moved; v1 can be retired" and the plan raises it with the owner. That is the moment
+the frame names. Nothing is retired before it.
+
+The retirement is its own plan, with these steps, in order:
+
+1. Stop and disable each archived team's v1 server and timers. The v1 data stays on disk.
+2. Run v1's play with every team `absent`, and with `purge` as the owner chooses per team. The
+   exports in `/var/lib/teamchat-admin/<team>/migration/v1-export/` are not v1's and stay.
+3. Remove v1 software and its host objects: `/usr/local/{bin,sbin,lib,share}/agent-bus*`,
+   `/etc/sudoers.d/agent-bus-read-only`, the `agentbus0` connection, the `agent-bus` user, and
+   v1's state roots (once the purges are done). This is done by a v1 `remove --software` verb, or
+   by the retirement play.
+4. Remove v1's Element profiles and launchers, if the owner chooses. They hold nothing that is not
+   in the export.
+5. Remove the v1 kit from the ccy image (a CCY version bump), and the v1 code, plays, docs and
+   tests from the repo.
+6. The v2 declaration check then refuses any `agent_bus_*` key. The static gate's v1 name list
+   stays, so the names cannot come back. The `migrate/v1` adapter is deleted with v1, and the
+   gate's exemption with it.
+
+## 8. Cost of coexistence
+
+| When                                      | Per team                                                                                                                  | Per member                                                              |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| v2 installed, no team                     | Nothing resident. On the host: one dummy interface, the binaries and one sudoers file.                                    | Nothing. The v2 kit is in the ccy image and inert without a membership. |
+| During a migration (M1 to M8)             | Two homeservers (v1 and v2), two ports, and both systems' health and backup timers.                                       | One session restart per ccy session. No session ever runs both kits.    |
+| After the move, while the v1 archive runs | One extra resident Tuwunel (the read-only v1 archive) and its two timers, until the owner stops it (OD-D6) or v1 retires. | Nothing.                                                                |
+| After v1 retires                          | v2 only.                                                                                                                  | v2 only.                                                                |
+
+v1 has no measured memory figure for an idle Tuwunel team server in the repo. P3 measures v2's,
+and the same reading on a v1 archive server gives the cost of OD-D6's default. Both are recorded in
+the plan's triage output. The ccy image carries both kits until v1 retires. The v2 kit is one
+static binary plus the plugin files.
+
+## 9. Decisions for the owner
+
+Each decision has a default, and the work proceeds on it unless the owner says otherwise.
+
+| ID    | Decision                                             | Options                                                                                                                                                                                                             | Default and why                                                                                                                                                                                                       |
+| ----- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OD-D1 | The product name                                     | `teamchat`; `agentroom`; `teampost`                                                                                                                                                                                 | `teamchat`: it says what it does for both agents and humans, and it works as a prefix for every name (2.1).                                                                                                           |
+| OD-D2 | A session asked to join teams on both systems        | (a) refuse, with the two choices; (b) allow both kits in one session                                                                                                                                                | (a): two kits would share one status line, one `crossSessionInbound` key and one inbox socket whose 2 s pacing drops the other system's messages (3.9).                                                               |
+| OD-D3 | Teams linked by a shared session                     | (a) move the linked set together under one commit; (b) refuse until the shared sessions leave the other teams                                                                                                       | (a), with (b) offered in M0: (a) keeps every session working throughout; (b) is available when the owner wants smaller steps.                                                                                         |
+| OD-D4 | Import v1 history into the v2 rooms                  | (a) no import: export plus read-only v1 archive plus link; (b) import through appservice timestamp massaging, if a probe proves Tuwunel supports it                                                                 | (a): import is unverified on Tuwunel, needs puppet accounts and an appservice registration (more privilege), and must land before members join. Revisit only if a probe proves it and the owner wants native history. |
+| OD-D5 | A reverse move after commit                          | (a) none: fix forward on v2; (b) a v2-to-v1 migration                                                                                                                                                               | (a): before commit, rollback covers every failure. After commit, v1 is a frozen prototype, and building the reverse path doubles the work for a case the pilot is there to prevent.                                   |
+| OD-D6 | How long a moved team's v1 archive server runs       | (a) running read-only until v1 retires; (b) stopped at M8, started by ccy-teams when a human wants to browse; (c) stopped at M8 for good, export only                                                               | (a): it answers "can Element users still see old history?" with yes, at the cost of one resident server per moved team (section 8). (b) is the choice if that cost matters once measured.                             |
+| OD-D7 | An open ping awaiting an acknowledgement at the move | (a) settle: a `moved` notice to the sender, the ping carried to the target, and the answer delivered to the sender as a reply; (b) carry the deadline into the sender's v2 outbox so that v2 raises `TIMEOUT` later | (a): it needs no cross-system acknowledgement plumbing in B's outbox, and the sender is told plainly. (b) would make v2's outbox know about v1 event ids.                                                             |
+
+## 10. Risks
+
+| ID  | Risk                                                                                                                                                                           | Mitigation                                                                                                                                                                          |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| RK1 | v1's `park` and `return` may change a member's `state/`, for example by deleting `sync.json`. Rollback would then lose unsynced items, because v1's first sync uses `limit 0`. | P1's rollback scenario proves it before any host run. R's step 3 compares the state byte for byte and stops with the carry plan as the list to tell members, never silently.        |
+| RK2 | The migration's port of v1's addressing rule differs from v1's own, so items are over-carried or under-carried.                                                                | The rule is ported as a decoder with a parity oracle against v1's Python, per src-go's parity convention. Over-carrying is preferred, and the item is flagged `possible_duplicate`. |
+| RK3 | A large `history.md` exceeds the v2 upload limit.                                                                                                                              | It is split into numbered parts below the limit. The export on disk is whole.                                                                                                       |
+| RK4 | Agents are bus-less from M2 until their restart in M6.                                                                                                                         | M2 to M6 run without stopping after one confirmation. Agents are told in M2, and every send fails loudly.                                                                           |
+| RK5 | Humans confuse the two Element windows.                                                                                                                                        | Distinct launcher names (`(teamchat)` and the v1 `(Element)`), the v1 rooms read-only, and the pinned welcome notice.                                                               |
+| RK6 | The adapter reads v1's admin token.                                                                                                                                            | Root only, read-only, never logged, used only for `/messages` paging, within 4.1 part 2's analyzer bounds.                                                                          |
+| RK7 | A remote member never rejoins on v2.                                                                                                                                           | Its items wait on the server, and ccy-teams lists it as pending in the board until it joins or is removed.                                                                          |
+| RK8 | The footprint diff flags v1's own changes (a backup, a health record).                                                                                                         | Paths that v1 changes on its own are recorded by path and type only (4.3). A difference there that is not type or presence is a real finding.                                       |
+
+## 11. What D drops from v1, and why
+
+- **Every v1 name.** Coexistence needs disjoint names (D2). v1's names were also not a family;
+  they mixed `agent-bus`, `pingbus` and `CCY_TEAMS_PINGBUS`. v2 uses one prefix, so the static
+  gate is one list.
+- **Replacing the kit in place under running sessions** (LESSON 10). It is replaced by versioned
+  kit directories, keeping the two newest.
+- **Binding on v1's `agentbus0` address and reusing v1's homeserver binary copy.** Each would tie
+  v2 to an object that v1's play owns and that v1's retirement removes.
+- **An Element profile named by the bare team name.** v2's profile is `teamchat-<team>`, so the
+  v1 archive profile and the v2 profile coexist for the same team.
+- **The rule "never reuse a team name"** (LESSON 14) is kept within a system and dropped across
+  systems: unit, timer and record names differ, and keeping the name keeps every `<seat>@<team>`
+  working.
+- **Not carried by the migration** (5.1): presence, the forge cache, read markers and mutes, and
+  items consumed while a member was out. That last one is v1's own rule, kept.
+
+## 12. Assumptions on other areas
+
+**A (protocol and rooms)**
+
+- Custom event types and content keys use the `teamchat.` namespace.
+- A carried-item kind `teamchat.carried` exists. Only the admin may send it, and members believe it
+  as the admin's statement of an old sender's message. It holds the fields of 5.2.1.
+- The admin can post a pinned notice in the main room.
+- The questions room's numbering can be seeded above v1's highest `Q<n>`, for example by admin
+  state or by counting carried questions.
+- The handle grammar is stated, so that the v1-to-v2 mapping is defined. The mapping is the
+  identity if v1's grammar is kept.
+- A's addressing rule (who receives which message) is stated, and the migration ports v1's for
+  the carry plan.
+
+**B (member client)**
+
+- B renders a carried item with a header saying it was carried and when the original was sent,
+  shows `possible_duplicate`, and delivers it on the member's first start like any pending item.
+- An answer to a carried ping is delivered to the original sender as a reply.
+- B uses the names and roots of 3.3, 3.4 and 3.6, the `TEAMCHAT_` prefix, and versioned kits.
+- B's SessionStart hook says when a team moved.
+- B has a check verb with an acknowledgement, for A7.
+
+**C (host side)**
+
+- `teamchat-admin` has these migration verbs: `migrate stage|carry|commit|archive`, `footprint`,
+  and `team remove --purge`.
+- C chooses per-team or shared server users. 3.5 names both; if C chooses per-team users, the team
+  name grammar shortens to 23 characters.
+- C's port validator reads `agent_bus_teams` (3.8).
+- v2 units carry the `InaccessiblePaths=` of 4.2.
+- The status record carries `migration.phase` and `migration.accepted`.
+- `teamchat_teams` entries accept `from_v1` and a per-member "moves by its own IaC" marker.
+- Element profiles and launchers are named as in 3.7.
+
+**ccy (shared)**
+
+- The ccy launcher resolves each team's live system, carries both kits in the image until v1
+  retires, refuses a session asking for both systems (OD-D2), and mounts only one system's
+  membership.
+- These are changes to ccy, not to v1, and each one is a CCY version bump.
