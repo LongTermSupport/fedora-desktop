@@ -85,6 +85,15 @@ func New(h *host.Host) *Collector {
 	}
 }
 
+// Wired is the Collector a run of ccy-teams uses, and the one wiring of it: New, told of every
+// edit of the host_vars through h's declare client, since an edit may change what an open's
+// start-up shares of the teams (SPEC-view.md V41).
+func Wired(h *host.Host) *Collector {
+	c := New(h)
+	h.Declare.Edited = c.ForgetTeams
+	return c
+}
+
 // Refresh is the teams and their applied state, read again: what apply and remove check
 // before and after running the play.
 func (c *Collector) Refresh(ctx context.Context) (*Snapshot, error) {

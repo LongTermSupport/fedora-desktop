@@ -64,8 +64,7 @@ func newRig(t *testing.T) rig {
 	c := teamtest.Interactive(t, w)
 	h := w.Host
 	kit := flow.New(h)
-	b := board.New(h)
-	h.Declare.Edited = b.ForgetTeams
+	b := board.Wired(h)
 	o := ops.New(h, b.Statuses, b.Changed)
 	l := login.New(h, kit, b, o)
 	s := seats.New(h, kit, o)
