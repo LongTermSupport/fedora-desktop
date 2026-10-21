@@ -2,6 +2,10 @@ package membership
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"go/types"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -203,6 +207,98 @@ func TestInitRefusesWhatIsNotItsThreeArguments(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(r.runtime, "ccy")); err == nil {
 			t.Fatalf("%s: wrote before refusing", name)
 		}
+	}
+}
+
+func TestInitRefusalSaysWhatIsWrongAndWhatToDo(t *testing.T) {
+	cases := map[string]struct {
+		args []string
+		why  string
+	}{
+		"a control in the checkout": {[]string{"s", "/c\tx", ""}, "the checkout"},
+		"a checkout not UTF-8":      {[]string{"s", "/c\xff", ""}, "is not UTF-8"},
+		"65 seats":                  {[]string{"s", "/c", many65()}, "more than 64 seats"},
+	}
+	for name, c := range cases {
+		r := newRig(t)
+		if code := r.init.Run(t.Context(), c.args); code != term.ExitUsage {
+			t.Fatalf("%s: exit %d", name, code)
+		}
+		got := r.ErrOut.String()
+		for _, want := range []string{c.why, "Nothing was written", "launch again"} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("%s: stderr lacks %q:\n%s", name, want, got)
+			}
+		}
+	}
+}
+
+// The launcher and Write reach the disk only through writeDesired, and it takes a membership
+// that has passed checkWrite (the type checked), so no write path can skip the check.
+func TestOnlyACheckedMembershipCanBeWritten(t *testing.T) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "membership.go", readFile(t, "membership.go"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var param string
+	ast.Inspect(file, func(n ast.Node) bool {
+		if fn, ok := n.(*ast.FuncDecl); ok && fn.Recv == nil && fn.Name.Name == "writeDesired" {
+			param = types.ExprString(fn.Type.Params.List[1].Type)
+		}
+		return true
+	})
+	if param != "checked" {
+		t.Fatalf("writeDesired takes %q, want the type checked", param)
+	}
+	r := newRig(t)
+	if code := r.init.Run(t.Context(), []string{"s", "/c", "1@a"}); code != term.ExitOK {
+		t.Fatalf("a valid launch: exit %d: %s", code, r.ErrOut.String())
+	}
+}
+
+// checkedLiteralsOutside is where, in the Go source src, a checked value is built with content
+// anywhere but validate: the places a membership could skip the check.
+func checkedLiteralsOutside(t *testing.T, name, src string) []string {
+	t.Helper()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, name, src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found []string
+	for _, decl := range file.Decls {
+		fn, isFunc := decl.(*ast.FuncDecl)
+		if isFunc && fn.Name.Name == "validate" {
+			continue
+		}
+		ast.Inspect(decl, func(n ast.Node) bool {
+			if lit, ok := n.(*ast.CompositeLit); ok && types.ExprString(lit.Type) == "checked" && len(lit.Elts) > 0 {
+				found = append(found, fset.Position(lit.Pos()).String())
+			}
+			return true
+		})
+	}
+	return found
+}
+
+func TestNoCheckedMembershipIsBuiltOutsideValidate(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		if found := checkedLiteralsOutside(t, f, readFile(t, f)); len(found) > 0 {
+			t.Errorf("a checked value is built outside validate: %v", found)
+		}
+	}
+	forged := "package membership\nfunc skip(d Desired) checked { return checked{d} }\n" +
+		"func (d Desired) validate() (checked, error) { return checked{d}, nil }\n"
+	if got := checkedLiteralsOutside(t, "forged.go", forged); len(got) != 1 {
+		t.Fatalf("the guard finds a forged literal and spares validate: %v", got)
 	}
 }
 

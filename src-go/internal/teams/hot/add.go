@@ -428,6 +428,11 @@ func (x *Hot) relaunch(ctx context.Context, t *target, team, seat string) term.E
 		id, err := x.container(ctx, t.session)
 		if err == nil && id != "" && id != t.container {
 			rep, repErr := membership.ReadReport(t.checkout(), t.session)
+			if repErr != nil && !errors.Is(repErr, os.ErrNotExist) {
+				x.mark(markFailed, "session: relaunched, but the session's report could not be read: "+repErr.Error()+
+					"; fix or remove that file, then run the same command again")
+				return term.ExitFailure
+			}
 			if repErr == nil && rep.Holds(team, seat) && rep.Inbound != nil && *rep.Inbound {
 				x.mark(markDone, fmt.Sprintf("session: relaunched once to accept team messages (it started on no team): resumed, seat %s held (%.0f s)",
 					seat, x.elapsed(start)))

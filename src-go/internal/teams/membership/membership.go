@@ -144,11 +144,12 @@ func ParseSeats(list string) ([]Seat, error) {
 
 // Run is `ccy-teams internal membership-init [--kind=cc] <session> <checkout> <seats>`.
 func (m *Init) Run(_ context.Context, args []string) term.ExitCode {
-	desired, err := m.desired(args)
+	ready, err := m.desired(args)
 	if err != nil {
-		m.say("ccy-teams: internal " + sub + ": " + err.Error() + ". See ccy-teams --help.")
+		m.say("ccy-teams: internal " + sub + ": " + err.Error() + ". Nothing was written. Correct that and launch again.")
 		return term.ExitUsage
 	}
+	desired := ready.d
 	runtimeDir := m.Host.Getenv("XDG_RUNTIME_DIR")
 	if !filepath.IsAbs(runtimeDir) {
 		m.say("ccy-teams: internal " + sub + ": XDG_RUNTIME_DIR is not an absolute path (" + fmt.Sprintf("%q", runtimeDir) +
@@ -156,7 +157,7 @@ func (m *Init) Run(_ context.Context, args []string) term.ExitCode {
 		return term.ExitFailure
 	}
 	dir := DirOf(runtimeDir, desired.Kind, desired.Session)
-	if err := writeDesired(dir, desired); err != nil {
+	if err := writeDesired(dir, ready); err != nil {
 		m.Host.ReportErr(err)
 		return term.ExitFailure
 	}
@@ -175,39 +176,40 @@ func (m *Init) Run(_ context.Context, args []string) term.ExitCode {
 	return term.ExitOK
 }
 
-func (m *Init) desired(args []string) (Desired, error) {
+func (m *Init) desired(args []string) (checked, error) {
 	kind := KindCcy
 	if len(args) > 0 && strings.HasPrefix(args[0], "--kind") {
 		given, ok := strings.CutPrefix(args[0], optKind)
 		if !ok || (given != KindCcy && given != KindCC) {
-			return Desired{}, fmt.Errorf("%q: the kind is --kind=ccy or --kind=cc", args[0])
+			return checked{}, fmt.Errorf("%q: the kind is --kind=ccy or --kind=cc", args[0])
 		}
 		kind, args = given, args[1:]
 	}
 	if len(args) != 3 {
-		return Desired{}, errors.New("takes [--kind=cc] <session> <checkout> <seats> (the seats may be empty)")
+		return checked{}, errors.New("takes [--kind=cc] <session> <checkout> <seats> (the seats may be empty)")
 	}
 	session, checkout := args[0], args[1]
 	if !sessionName.MatchString(session) {
-		return Desired{}, fmt.Errorf("%q is not a session name", session)
+		return checked{}, fmt.Errorf("%q is not a session name", session)
 	}
 	if !filepath.IsAbs(checkout) || filepath.Clean(checkout) != checkout {
-		return Desired{}, fmt.Errorf("the checkout %q is not a clean absolute path", checkout)
+		return checked{}, fmt.Errorf("the checkout %q is not a clean absolute path", checkout)
 	}
 	seats, err := ParseSeats(args[2])
 	if err != nil {
-		return Desired{}, fmt.Errorf("the seats %q: %w", args[2], err)
+		return checked{}, fmt.Errorf("the seats %q: %w", args[2], err)
 	}
 	d := Desired{
 		V: 1, Session: session, Kind: kind, Checkout: checkout, Generation: 1,
 		WrittenMS: m.Now().UnixMilli(), Seats: seats, Farewell: []Farewell{},
 	}
 	// The launch stops here, with the reason, on anything pingbus would refuse to read.
-	return d, d.checkWrite()
+	return d.validate()
 }
 
 // writeDesired makes the directory and its parents the owner's alone, then replaces the file.
-func writeDesired(dir string, desired Desired) error {
+func writeDesired(dir string, ready checked) error {
+	desired := ready.d
 	if err := os.MkdirAll(dir, dirMode); err != nil {
 		return fmt.Errorf("could not make the membership directory %s: %w", dir, err)
 	}
