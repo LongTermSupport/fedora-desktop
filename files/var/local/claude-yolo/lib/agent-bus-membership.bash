@@ -65,30 +65,51 @@ ccy_membership_args() {
         return "$rc"
     }
     CCY_SEAT_RUN_ARGS+=(-v "$dir:/run/ccy/membership:ro${CCY_MOUNT_RELABEL:+,Z}" -e PINGBUS_MEMBERSHIP=/run/ccy/membership)
-    CCY_BUS_DISCONNECT=("$PWD/.claude/ccy/pingbus/seats" "${session:-$container}" "$(date +%s%3N)")
+    CCY_BUS_DISCONNECT=("$PWD/.claude/ccy/pingbus/seats" "${session:-$container}" "$(date +%s%3N)" "$container")
 }
 
 # The most `pingbus seat disconnected` may take: its wait for each seat (15 s) and the posts.
 CCY_BUS_DISCONNECT_TIMEOUT_S="${CCY_BUS_DISCONNECT_TIMEOUT_S:-60}"
 
-# ccy_bus_disconnected — once the container has gone: `pingbus seat disconnected` tells each
-# team of a seat this launch held that ended without its goodbye. Nothing for a launch without
-# the kit or a checkout with no seats. A failure is said on stderr and is not the launcher's:
-# the session has ended, and a restart still goes ahead. Ctrl-C pressed again now reaches the
-# launcher's process group, so SIGINT is ignored meanwhile and put back after (a restart's exec
-# would inherit it); `timeout` bounds the run and gives pingbus a process group of its own.
+# _ccy_bus_log <text> [--error] — a line in the checkout's disconnect.log, which pingbus seat
+# disconnected writes too (cli.DISCONNECT_LOG), owner-only; with --error, on stderr first. A
+# closed terminal takes stderr with it (a write fails with EIO), so the log is the record then,
+# and a failed write to either never stops the cleanup: the teams are still to be told.
+_ccy_bus_log() {
+    local log="${CCY_BUS_DISCONNECT[0]%/*}/disconnect.log" gone=""
+    if [ "${2:-}" = --error ] && ! print_error "$1"; then gone=" (stderr has gone)"; fi
+    if ! (umask 077 && printf '%s launcher session=%s %s%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        "${CCY_BUS_DISCONNECT[1]}" "$1" "$gone" >>"$log"); then
+        if ! print_error "could not write $log"; then return 0; fi
+    fi
+}
+
+# ccy_bus_disconnected — at the launcher's exit: `pingbus seat disconnected` tells each team of
+# a seat this launch held that ended without its goodbye. Nothing for a launch without the kit
+# or a checkout with no seats. A launcher leaving on a signal (a closed terminal's SIGHUP, a
+# SIGTERM) gets here with its container still running and holding the seats: bash runs the
+# EXIT trap without waiting for podman, which hears of the hangup only once the launcher has
+# gone. So a container still running is stopped first, as `podman stop` would. Each outcome is
+# a line in the disconnect log. A failure is not the launcher's: the session has ended, and a
+# restart still goes ahead. The launcher's cleanup ignores SIGHUP and SIGINT meanwhile;
+# `timeout` bounds pingbus and gives it a process group of its own.
 ccy_bus_disconnected() {
     [ -n "${CCY_BUS_DISCONNECT[0]:-}" ] && [ -d "${CCY_BUS_DISCONNECT[0]}" ] || return 0
-    local rc=0
-    trap '' INT
+    local rc=0 running container="${CCY_BUS_DISCONNECT[3]}"
+    if ! running=$(container_cmd ps -q --filter "name=^$container\$"); then
+        _ccy_bus_log "could not ask whether the container $container still runs (the reason is above); telling the teams anyway" --error
+    elif [ -n "$running" ]; then
+        _ccy_bus_log "the container $container still ran at the launcher's exit (a hangup or a TERM): stopping it first"
+        container_cmd stop -t 10 "$container" >/dev/null || _ccy_bus_log "podman stop $container failed (exit $?)" --error
+    fi
     timeout "$CCY_BUS_DISCONNECT_TIMEOUT_S" "$CCY_PINGBUS_COMMAND" seat disconnected \
         --root "${CCY_BUS_DISCONNECT[0]}" --session "${CCY_BUS_DISCONNECT[1]}" \
         --since "${CCY_BUS_DISCONNECT[2]}" || rc=$?
-    trap - INT
-    [ "$rc" -eq 0 ] && return 0
-    if [ "$rc" -eq 124 ]; then
-        print_error "pingbus seat disconnected was stopped after $CCY_BUS_DISCONNECT_TIMEOUT_S s: the team may not have been told this session ended without a goodbye."
+    if [ "$rc" -eq 0 ]; then
+        _ccy_bus_log "pingbus seat disconnected exited 0"
+    elif [ "$rc" -eq 124 ]; then
+        _ccy_bus_log "pingbus seat disconnected was stopped after $CCY_BUS_DISCONNECT_TIMEOUT_S s: the team may not have been told this session ended without a goodbye." --error
     else
-        print_error "pingbus seat disconnected failed (the reason is above): the team was not told this session ended without a goodbye."
+        _ccy_bus_log "pingbus seat disconnected failed (exit $rc; the reason is above): the team was not told this session ended without a goodbye." --error
     fi
 }

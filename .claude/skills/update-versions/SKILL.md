@@ -47,8 +47,10 @@ For each pin the user agrees to update:
 2. **Update any adjacent checksum — this is the easy thing to miss.** Several of
    these playbooks pin a `sha256`/checksum next to the version and the download
    will FAIL verification if you bump the version but not the hash. Known
-   checksum-pinning plays: `play-markless.yml` and `play-photography.yml`
-   (RapidRAW, ART), and the agent team bus's
+   checksum-pinning plays: `play-markless.yml`, `play-photography.yml`
+   (RapidRAW, ART), `play-cli-tools.yml` (`ouchSha256`, the release API's
+   `digest` for the `ouchArch` asset), `play-network-tools.yml`
+   (`ooklaSpeedtestSha256`), and the agent team bus's
    `files/usr/local/share/agent-bus/tuwunel.pin` (one sha256 per architecture,
    from the release API's per-asset `digest`). Grep the same file for `sha256`/`checksum`/
    `digest` and fetch the new release's published hash (or compute it from the

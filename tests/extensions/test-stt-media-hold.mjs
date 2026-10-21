@@ -1,0 +1,130 @@
+/**
+ * The speech-to-text panel's hold on the media players while it records (Plan 00212).
+ *
+ *     node --test tests/extensions/test-stt-media-hold.mjs
+ *
+ * With "Lower media volume while recording" on, each recording starts wsi-lower-media-volume,
+ * which lowers what is playing and restores it when it is sent TERM. The release is sent once, and
+ * never to a hold that has already exited (its PID may belong to another process by then). A
+ * hold that cannot start, or ends badly, is reported, never only logged; the recording goes
+ * on, since it does not depend on the music.
+ */
+
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+const {LOWER_MEDIA_KEY, PAUSE_MEDIA_KEY, migratePauseMediaKey, startMediaHold} =
+    await import(new URL('../../extensions/speech-to-text@fedora-desktop/mediaHold.js',
+        import.meta.url).href);
+
+/** A fake Gio.Settings: `user` holds the keys the owner has set; the rest read as their
+ * schema default (true for both switches). */
+function settingsWith(user) {
+    const s = {user: {...user}, calls: []};
+    s.get_user_value = key => (key in s.user ? {value: s.user[key]} : null);
+    s.get_boolean = key => (key in s.user ? s.user[key] : true);
+    s.set_boolean = (key, value) => {
+        s.calls.push(`set ${key} ${value}`);
+        s.user[key] = value;
+    };
+    s.reset = key => {
+        s.calls.push(`reset ${key}`);
+        delete s.user[key];
+    };
+    return s;
+}
+
+const ARGV = ['/home/u/.local/bin/wsi-lower-media-volume'];
+
+function world({enabled = true, spawnError = null} = {}) {
+    const w = {spawned: [], kills: [], errors: [], logs: []};
+    w.hold = startMediaHold({
+        enabled,
+        argv: ARGV,
+        spawn(argv, onExit) {
+            if (spawnError)
+                throw new Error(spawnError);
+            w.spawned.push({argv, onExit});
+            return '4242';
+        },
+        kill: pid => w.kills.push(pid),
+        reportError: message => w.errors.push(message),
+        log: message => w.logs.push(message),
+    });
+    w.exit = (how, failed) => w.spawned[0].onExit(how, failed);
+    return w;
+}
+
+test('the setting key is the schema key the menu switch writes', () => {
+    assert.equal(LOWER_MEDIA_KEY, 'lower-media-volume-while-recording');
+});
+
+test('the replaced pause key turned off carries over: the new switch starts off', () => {
+    assert.equal(PAUSE_MEDIA_KEY, 'pause-media-while-recording');
+    const s = settingsWith({[PAUSE_MEDIA_KEY]: false});
+    assert.equal(migratePauseMediaKey(s), true);
+    assert.equal(s.get_boolean(LOWER_MEDIA_KEY), false);
+    assert.deepEqual(s.calls, [`set ${LOWER_MEDIA_KEY} false`, `reset ${PAUSE_MEDIA_KEY}`]);
+    assert.equal(migratePauseMediaKey(s), false, 'a second run changes nothing');
+    assert.equal(s.calls.length, 2);
+});
+
+test('the replaced key never set by the owner is no migration: the new switch keeps its default', () => {
+    const s = settingsWith({});
+    assert.equal(migratePauseMediaKey(s), false);
+    assert.deepEqual(s.calls, []);
+    assert.equal(s.get_boolean(LOWER_MEDIA_KEY), true);
+});
+
+test('a new switch the owner has already set wins over the replaced key', () => {
+    const s = settingsWith({[PAUSE_MEDIA_KEY]: false, [LOWER_MEDIA_KEY]: true});
+    assert.equal(migratePauseMediaKey(s), true);
+    assert.deepEqual(s.calls, [`reset ${PAUSE_MEDIA_KEY}`]);
+    assert.equal(s.get_boolean(LOWER_MEDIA_KEY), true);
+});
+
+test('the switch off is no hold and starts nothing', () => {
+    const w = world({enabled: false});
+    assert.equal(w.hold, null);
+    assert.equal(w.spawned.length, 0);
+});
+
+test('on: wsi-lower-media-volume is started, and the release sends it TERM once', () => {
+    const w = world();
+    assert.deepEqual(w.spawned.map(s => s.argv), [ARGV]);
+    w.hold.release();
+    w.hold.release();
+    assert.deepEqual(w.kills, ['4242']);
+    w.exit('exit status 0', false);
+    assert.deepEqual(w.errors, []);
+});
+
+test('a hold that has exited is never signalled: nothing was playing, or it ended itself', () => {
+    const w = world();
+    w.exit('exit status 0', false);
+    w.hold.release();
+    assert.deepEqual(w.kills, []);
+    assert.deepEqual(w.errors, []);
+});
+
+test('a hold that ends badly is reported, before or after the release', () => {
+    for (const released of [false, true]) {
+        const w = world();
+        if (released)
+            w.hold.release();
+        w.exit('exit status 1', true);
+        assert.equal(w.errors.length, 1, `released ${released}`);
+        assert.match(w.errors[0], /Lowering the media volume failed \(exit status 1\)/);
+        assert.match(w.errors[0], /journalctl/);
+    }
+    const killed = world();
+    killed.exit('signal 9', true);
+    assert.match(killed.errors[0], /signal 9/);
+});
+
+test('a hold that cannot start is reported, and is no hold', () => {
+    const w = world({spawnError: 'No such file or directory'});
+    assert.equal(w.hold, null);
+    assert.equal(w.errors.length, 1);
+    assert.match(w.errors[0], /could not be started: No such file or directory/);
+});

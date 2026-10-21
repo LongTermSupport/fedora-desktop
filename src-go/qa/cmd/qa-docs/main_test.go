@@ -11,8 +11,11 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/docs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/cmdmain"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/cmdmaintest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
+
+func TestMain(m *testing.M) { os.Exit(cmdmaintest.Main(m)) }
 
 func TestRunDispatchesThroughTheCommand(t *testing.T) {
 	if code := run([]string{"--help"}); code != int(docs.ExitOK) {
@@ -25,24 +28,8 @@ func TestRunDispatchesThroughTheCommand(t *testing.T) {
 
 // D2: a closed stdout cannot deliver the verdict, so the command refuses to run.
 func TestClosedStdoutIsExitTwo(t *testing.T) {
-	if os.Getenv(closedStdoutChild) != "" {
-		os.Exit(run([]string{"--help"}))
-	}
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	res, runErr := proc.OS{}.Run(context.Background(), proc.Cmd{
-		Argv: []string{"bash", "-c", `exec "$0" -test.run='^TestClosedStdoutIsExitTwo$' >&-`, self},
-		Env:  []string{closedStdoutChild + "=1"},
-	})
-	if runErr != nil || res.Code != int(docs.ExitCannotRun) || !strings.Contains(res.Stderr, "ERROR: stdout is closed") {
-		t.Fatalf("closed stdout: %v exit %d\nstderr:\n%s", runErr, res.Code, res.Stderr)
-	}
+	cmdmaintest.RefusesClosedStdout(t, func() int { return run([]string{"--help"}) }, int(docs.ExitCannotRun))
 }
-
-// closedStdoutChild names the environment variable that turns this test binary into the command.
-const closedStdoutChild = "QA_DOCS_CLOSED_STDOUT_CHILD"
 
 // outcome is what one run over a real work tree produced.
 type outcome struct {

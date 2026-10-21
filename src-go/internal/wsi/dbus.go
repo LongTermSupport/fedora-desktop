@@ -25,6 +25,7 @@ const (
 	stateSuccess   = "SUCCESS"
 	stateError     = "ERROR"
 	stateIdle      = "IDLE"
+	stateClaude    = "CLAUDE_PROCESSING" // the transcript is done; Claude is working on it
 	stateChanged   = "StateChanged"
 	notifyStaysMS  = 0
 	notifyAppName  = "speech-to-text"

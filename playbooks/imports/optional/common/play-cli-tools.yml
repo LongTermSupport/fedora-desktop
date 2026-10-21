@@ -9,6 +9,7 @@
 #
 # Tools (run one alone with --tags <tag>):
 #   open                 tag open-command         open anything, desktop or over SSH
+#   convert              tag convert-command      a file into other formats (md -> docx)
 #   reclaim              tag disk-reclaim         disk-usage report and guarded cleanups
 #   compress/uncompress  tag compression-helpers  archive wrappers over a pinned ouch
 #   imgpaste             tag imgpaste             image -> self-decoding block for an agent
@@ -22,6 +23,15 @@
 #
 # Standalone / opt-in play — run directly:
 #   ./playbooks/imports/optional/common/play-cli-tools.yml
+#
+# open and convert are Go binaries built from this checkout (src-go/cmd/<name>), so the Go
+# toolchain is installed first. play-golang.yml stays its one source of truth; the tags make
+# --tags open-command or --tags convert-command install the toolchain too.
+- import_playbook: ../../play-golang.yml
+  tags:
+    - open-command
+    - convert-command
+
 - hosts: desktop
   name: CLI Tools - small command-line utilities
   become: true
@@ -29,9 +39,12 @@
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     user_bin_dir: "/home/{{ user_login }}/.local/bin"
-    # Pin ouch version for reproducibility. Update deliberately; vars/version-pins.yml
-    # names this var. @see https://github.com/ouch-org/ouch/releases
+    # Pin ouch by version and checksum. Update deliberately; vars/version-pins.yml names
+    # this var. The sha256 is the release asset's published digest for ouchArch and must
+    # change with every bump, or the download fails verification.
+    # @see https://github.com/ouch-org/ouch/releases
     ouchVersion: "0.8.1"
+    ouchSha256: "866884b08ea69fbab80bd79162df408519068a8fa232c2055038a1e561ad8f4c"
     ouchArch: "x86_64-unknown-linux-musl"
     ouchDir: "/opt/ouch-{{ ouchVersion }}"
     ouchBin: "/usr/local/bin/ouch"
@@ -56,13 +69,14 @@
     # ~/.local/bin precedes /usr/bin on the user's PATH.
     #
     # Packages in two groups: how a file's type and its apps are found, and the terminal
-    # viewers offered with no display. The script probes each handler with `command -v`,
-    # so anything installed later (mpv, ranger, bat, …) is picked up automatically.
+    # viewers offered with no display. The command looks each handler up on PATH when it
+    # runs, so anything installed later (mpv, ranger, bat, …) is picked up automatically.
+    # gio (glib2, always present on Fedora) lists, registers and starts desktop apps.
     - name: Install open MIME resolution and chooser dependencies
       ansible.builtin.dnf:
         name:
-          - xdg-utils            # xdg-open, xdg-mime (default lookup + set)
-          - perl-File-MimeInfo   # mimetype (type lookup), mimeopen (set default)
+          - xdg-utils            # xdg-mime query filetype (second type detector)
+          - perl-File-MimeInfo   # mimetype (first type detector)
           - shared-mime-info     # the freedesktop MIME database itself
           - desktop-file-utils   # .desktop database the app list is read from
           - file                 # last-resort MIME fallback on a minimal box
@@ -87,14 +101,45 @@
         - packages
         - open-command
 
-    - name: Deploy the open command
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/.local/bin/open"
-        dest: "{{ user_bin_dir }}/open"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: '0755'
+    # The command is a Go binary (src-go/cmd/open, Plan 00192), built and installed at its
+    # old path by the shared build-go-command.yml.
+    - name: Build and Install the open Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: open
+        go_command_dest: "{{ user_bin_dir }}/open"
+        go_command_mode: "0755"
       tags: open-command
+
+    # ── convert ──────────────────────────────────────────────────────────────────
+    # convert (src-go/cmd/convert, Plan 00210) owns a table of conversions and calls a proven
+    # converter for each; it converts nothing itself. pandoc is its engine for document
+    # formats, so it is declared here and convert refuses to run a pair whose engine is
+    # missing, naming this play. ~/.local/bin/convert shadows ImageMagick's legacy
+    # /usr/bin/convert alias for the login user; this repository runs ImageMagick as magick.
+    - name: Install the convert engines
+      ansible.builtin.dnf:
+        name:
+          - pandoc               # Markdown -> DOCX
+        state: present
+      tags:
+        - packages
+        - convert-command
+
+    - name: Verify pandoc runs
+      ansible.builtin.command:
+        argv: [pandoc, --version]
+      changed_when: false
+      check_mode: false
+      tags: convert-command
+
+    - name: Build and Install the convert Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: convert
+        go_command_dest: "{{ user_bin_dir }}/convert"
+        go_command_mode: "0755"
+      tags: convert-command
 
     # ── reclaim ──────────────────────────────────────────────────────────────────
     # A dependency-light bash menu that reports what is using disk and runs targeted
@@ -154,9 +199,19 @@
         mode: "0755"
       tags: compression-helpers
 
-    - name: Download and extract ouch static musl binary
+    - name: Download the ouch static musl tarball (checksum-verified)
+      ansible.builtin.get_url:
+        url: "{{ ouchUrl }}"
+        dest: "{{ ouchDir }}/ouch-{{ ouchArch }}.tar.gz"
+        checksum: "sha256:{{ ouchSha256 }}"
+        owner: root
+        group: root
+        mode: "0644"
+      tags: compression-helpers
+
+    - name: Extract the ouch static musl binary
       ansible.builtin.unarchive:
-        src: "{{ ouchUrl }}"
+        src: "{{ ouchDir }}/ouch-{{ ouchArch }}.tar.gz"
         dest: "{{ ouchDir }}"
         remote_src: true
         creates: "{{ ouchDir }}/ouch-{{ ouchArch }}/ouch"
@@ -251,6 +306,7 @@
           - "CLI Tools installed"
           - "============================================"
           - "  open FILE          - default app, or a chooser (open --help for -a -d -l -t)"
+          - "  convert FILE --to docx - write FILE.docx beside a Markdown file (convert FILE lists formats)"
           - "  reclaim             - interactive disk cleanup menu (reclaim report: non-interactive)"
           - "  compress PATH       - e.g. myfolder -> myfolder.tar.xz (--zip, --7z)"
           - "  uncompress ARCHIVE  - extract anything ouch supports into ./NAME/"

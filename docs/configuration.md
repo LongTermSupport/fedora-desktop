@@ -85,6 +85,17 @@ Custom configurations in `/etc/profile.d/zz_lts-fedora-desktop.bash`:
 - Custom aliases
 - Docker helper functions
 - Error state prompt indicators
+- A stale-fetch mark beside the directory: in a checkout with a remote whose last fetch is
+  an hour old or more, the prompt shows `[fetched 14d ago]` (or `[no fetch recorded]`), so
+  the git status's up-to-date marker is not read as current. `git fetch` or `git pull`
+  clears it. `[fetch failed or running]` means the last fetch emptied `FETCH_HEAD` and has
+  not refilled it: it is running (so it shows briefly during each five-minute background
+  fetch), it failed (with the SSH key not in the agent, for one; the last background fetch's
+  error is in `~/.cache/git-prompt-fetch.log`), or the remote has no branches to fetch yet.
+  The background fetch runs `git-prompt-fetch`, which puts ssh in BatchMode, so it never asks
+  for a passphrase. `/usr/local/bin/git-fetch-age` draws the
+  mark from `FETCH_HEAD`'s age and size; it never fetches, so the prompt never waits on the
+  network or asks for a passphrase.
 
 User-specific includes in `~/.bashrc-includes/`:
 

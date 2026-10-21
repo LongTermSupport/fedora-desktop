@@ -97,7 +97,7 @@ class HistoryLineTest(unittest.TestCase):
         human = protocol.HumanMessage(self.EVENT, f"@alice:{self.SN}", 9, "two\tfields\nno")
         line = cli.history_line(self.TEAM, self.SN, syncer.HistoryItem("in", 9, human=human))
         self.assertEqual(line, f'HISTORY\t1\tin\t9\tHUMAN\t{self.TEAM}\t{self.EVENT}\talice\t9'
-                               '\t"two\\tfields\\nno"')
+                               '\t"two\\tfields\\nno"\t-')
 
     def test_a_peer_text_is_escaped_as_its_peer_line(self) -> None:
         peer = protocol.PeerText(self.EVENT, self.ORCH, 9, "two\tfields\nno")
@@ -141,7 +141,7 @@ class HistoryTest(HistoryCase):
         self.assertEqual(self.ids(rows), [ack, human, ping])
         self.assertEqual([(r[2], r[4]) for r in rows], [("out", "PING"), ("in", "HUMAN"), ("in", "PING")])
         self.assertEqual(rows[0][7:], ["myrepo.1+workstation.podman", "ack", "-", ping, "-", "-", "-"])
-        self.assertEqual(rows[1][7:], ["alice", str(int((bus.T0 + 1) * 1000)), '"please look"'])
+        self.assertEqual(rows[1][7:], ["alice", str(int((bus.T0 + 1) * 1000)), '"please look"', "-"])
         self.assertEqual(rows[2][7:], ["orch.1+workstation.podman", "review", PATH_REF, "-", "trusted", "-", "-"])
         self.assertEqual([int(r[3]) for r in rows], sorted((int(r[3]) for r in rows), reverse=True))
 

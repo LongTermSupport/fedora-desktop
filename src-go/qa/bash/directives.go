@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -377,7 +378,8 @@ func (g *gate) againstBase(ctx context.Context, list map[string]record) ([]dfind
 		return nil, fmt.Errorf("%s at the base: %w", rel, err)
 	}
 	var out []dfinding
-	for file, rec := range list {
+	for _, file := range slices.Sorted(maps.Keys(list)) {
+		rec := list[file]
 		was, had := old[file]
 		switch {
 		case !had:
