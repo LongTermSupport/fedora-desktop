@@ -3,8 +3,8 @@
  *
  *     node --test tests/extensions/test-stt-media-hold.mjs
  *
- * With "Pause media while recording" on, each recording starts wsi-pause-media, which pauses
- * what is playing and plays it again when it is sent TERM. The release is sent once, and
+ * With "Lower media volume while recording" on, each recording starts wsi-lower-media-volume,
+ * which lowers what is playing and restores it when it is sent TERM. The release is sent once, and
  * never to a hold that has already exited (its PID may belong to another process by then). A
  * hold that cannot start, or ends badly, is reported, never only logged; the recording goes
  * on, since it does not depend on the music.
@@ -13,11 +13,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-const {PAUSE_MEDIA_KEY, startMediaHold} =
+const {LOWER_MEDIA_KEY, startMediaHold} =
     await import(new URL('../../extensions/speech-to-text@fedora-desktop/mediaHold.js',
         import.meta.url).href);
 
-const ARGV = ['/home/u/.local/bin/wsi-pause-media'];
+const ARGV = ['/home/u/.local/bin/wsi-lower-media-volume'];
 
 function world({enabled = true, spawnError = null} = {}) {
     const w = {spawned: [], kills: [], errors: [], logs: []};
@@ -39,7 +39,7 @@ function world({enabled = true, spawnError = null} = {}) {
 }
 
 test('the setting key is the schema key the menu switch writes', () => {
-    assert.equal(PAUSE_MEDIA_KEY, 'pause-media-while-recording');
+    assert.equal(LOWER_MEDIA_KEY, 'lower-media-volume-while-recording');
 });
 
 test('the switch off is no hold and starts nothing', () => {
@@ -48,7 +48,7 @@ test('the switch off is no hold and starts nothing', () => {
     assert.equal(w.spawned.length, 0);
 });
 
-test('on: wsi-pause-media is started, and the release sends it TERM once', () => {
+test('on: wsi-lower-media-volume is started, and the release sends it TERM once', () => {
     const w = world();
     assert.deepEqual(w.spawned.map(s => s.argv), [ARGV]);
     w.hold.release();
@@ -73,7 +73,7 @@ test('a hold that ends badly is reported, before or after the release', () => {
             w.hold.release();
         w.exit('exit status 1', true);
         assert.equal(w.errors.length, 1, `released ${released}`);
-        assert.match(w.errors[0], /Pausing the media failed \(exit status 1\)/);
+        assert.match(w.errors[0], /Lowering the media volume failed \(exit status 1\)/);
         assert.match(w.errors[0], /journalctl/);
     }
     const killed = world();

@@ -1,10 +1,11 @@
 /**
- * The panel's hold on the media players while it records (Plan 00212).
+ * The panel's hold on the media while it records (Plan 00212).
  *
- * With the "Pause media while recording" switch on, each recording starts
- * ~/.local/bin/wsi-pause-media, which pauses the players that are playing and waits; TERM
- * tells it the microphone has closed, and it plays again those it paused that are still
- * paused. It exits at once when nothing was playing. The release is sent once, and never
+ * With the "Lower media volume while recording" switch on, each recording starts
+ * ~/.local/bin/wsi-lower-media-volume, which lowers the media that is playing to a third of
+ * its volume (or pauses a player whose sound it cannot find) and waits; TERM tells it the
+ * microphone has closed, and it restores what it changed that nobody has changed since. It
+ * exits at once when nothing was playing. The release is sent once, and never
  * after the hold has exited, since its PID may by then be another process's. A hold that
  * cannot start or ends badly is reported; the recording goes on without it.
  *
@@ -13,9 +14,9 @@
  */
 
 /** The GSettings key of the menu switch. */
-export const PAUSE_MEDIA_KEY = 'pause-media-while-recording';
+export const LOWER_MEDIA_KEY = 'lower-media-volume-while-recording';
 
-const JOURNAL_HINT = 'its reason is in the session journal (journalctl --user -b --no-pager -g wsi-pause-media)';
+const JOURNAL_HINT = 'its reason is in the session journal (journalctl --user -b --no-pager -g wsi-lower-media-volume)';
 
 /** Start the hold for one recording: null when `enabled` is false or the command could not
  * start, else `{release()}`. spawn(argv, onExit) returns the PID and calls onExit(how,
@@ -27,21 +28,21 @@ export function startMediaHold({enabled, argv, spawn, kill, reportError, log}) {
     try {
         hold.pid = spawn(argv, (how, failed) => {
             hold.exited = true;
-            log(`wsi-pause-media ${hold.pid} ended (${how})`);
+            log(`wsi-lower-media-volume ${hold.pid} ended (${how})`);
             if (failed)
-                reportError(`Pausing the media failed (${how}); ${JOURNAL_HINT}`);
+                reportError(`Lowering the media volume failed (${how}); ${JOURNAL_HINT}`);
         });
     } catch (e) {
-        reportError(`wsi-pause-media could not be started: ${e.message}`);
+        reportError(`wsi-lower-media-volume could not be started: ${e.message}`);
         return null;
     }
-    log(`wsi-pause-media ${hold.pid} holds the media for this recording`);
+    log(`wsi-lower-media-volume ${hold.pid} holds the media for this recording`);
     return {
         release() {
             if (hold.released || hold.exited)
                 return;
             hold.released = true;
-            log(`The microphone has closed: TERM to wsi-pause-media ${hold.pid}`);
+            log(`The microphone has closed: TERM to wsi-lower-media-volume ${hold.pid}`);
             kill(hold.pid);
         },
     };

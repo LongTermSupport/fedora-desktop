@@ -455,10 +455,15 @@ seconds and the menu shows why (the server's log, `server.log`, names every refu
 Click the extension icon in the top bar to access:
 
 - **Auto-paste at cursor** and **Debug Logging** — quick toggles
-- **Pause media while recording** (on by default) — music or video that is playing pauses
-  when a recording starts and plays again when the microphone closes (or on Escape, or if
-  the recorder dies). Something you pause, stop or close yourself during the recording is
-  left as it is. Done by `wsi-pause-media` over MPRIS (Plan 00212).
+- **Lower media volume while recording** (on by default) — music or video that is playing
+  drops to a third of its own volume (70% becomes 23.3%) when a recording starts, and gets
+  exactly its old volume back when the microphone closes (or on Escape, or if the recorder
+  dies). It is the playing app's own volume (its slider under Settings, Sound, Volume
+  Levels), never the system volume. A volume you change yourself during the recording is
+  left as you set it. A player whose sound cannot be found (one that is not using the
+  PipeWire pulse server under its own process or name) is paused instead and played again.
+  Done by `wsi-lower-media-volume` over MPRIS and `pactl` (Plan 00212). If that command is
+  killed outright, the volume stays low and the panel shows an error.
 - **Copy Last Transcription**, **View Debug Log...**, **Create Article...**
 - **Post-Process Last Transcription: Corporate** and **: Natural** — run the
   [Claude post-processing](#claude-code-post-processing) of Ctrl+Insert or Alt+Insert on
