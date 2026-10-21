@@ -38,6 +38,16 @@ it is rebuilt once.
   image carries it beside the pingbus zipapp, linked onto PATH, and a session launched with
   `--teams` refuses to start on an image without it. `cc --teams` and `agent-bus-claude`
   refuse a member kit without it too, naming the play that builds it.
+Follows 3.99.13.8 (2.78.8). The image carries the agent-bus admin tool, which
+changed, so it is rebuilt once.
+
+- **The agent-bus admin tool creates and keeps a team's reports and questions rooms** (Plan
+  00211, the admin side). `bootstrap` creates the reports room for every team and the
+  questions room once the team has a coordinator, or adopts one a crashed run left
+  unrecorded (the first created, when crashes left more than one); it writes the main room's index of them, keeps their power levels, join rules
+  and topics, invites the humans and every coordinator, kicks a demoted coordinator before
+  inviting the new one, and removes a removed account from every room. `agent-bus list`
+  gains `ROOM` lines; `agent-bus check-rooms` reports drift and any coordinator not joined.
 
 ## 3.99.13.8 — container 2.78.8
 
