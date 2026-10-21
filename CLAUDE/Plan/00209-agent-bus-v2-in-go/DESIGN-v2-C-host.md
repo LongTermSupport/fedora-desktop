@@ -1141,3 +1141,163 @@ backup and restore verbs, parsing the one JSON answer each prints.
 | real Tuwunel              | behind `-tags tuwunel` with `FAKEHS_TUWUNEL_BIN` (M44): bootstrap, the rooms of A's layout, the whole member lifecycle, a restricted join, a power-0 refusal, restore into a staging path                                                                                                          |
 | VM lab                    | the play on a fresh VM: no teams (nothing resident, no timer enabled); one team; two teams; an LXC member running, then stopped, then started; a restore that succeeds and one forced to fail; v1 installed beside v2 and untouched (the list of everything v2 creates, which area D's proof uses) |
 | host checks               | section 8, through meta-deploy                                                                                                                                                                                                                                                                     |
+
+### 3.15 Resident cost, honestly
+
+| Scope            | Resident                                                                                                                       | Units, ports, other                                                                                                           |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| v2 with no teams | nothing                                                                                                                        | unit files installed but nothing enabled; no timer runs; no port; no firewall rule                                            |
+| per team         | one Tuwunel, 100-135 MB RSS as measured in the 00161 spike (to be re-measured, and reduced if the cache modifier allows, H-C1) | one service and its drop-in; one TCP port on loopback and each `listen` address; one firewall rule set; no timer of its own   |
+| host, with teams | nothing                                                                                                                        | two timers: one oneshot a minute (a few tens of milliseconds of CPU and a handful of loopback HTTP calls per team), one a day |
+| per member       | nothing on the host                                                                                                            | two files in a seat directory; the member's keeper and worker are area B's cost and are measured there                        |
+| per human        | nothing                                                                                                                        | an account on the team's homeserver                                                                                           |
+| per LXC guest    | nothing beyond what area B runs                                                                                                | a kit directory per digest (two kept), the seat directories, and with `service: true` one unit in the guest                   |
+
+Against v1 per team: the same one homeserver, one service instead of a service and two timers, and
+no sudo or Python process on any read.
+
+## 4. Decisions for the owner
+
+Each has a recommended default, taken unless the owner says otherwise ("DO NOT GATE ON ME"). None
+is irreversible before v2 is built; DC1 and DC5 become expensive to change once teams run on v2.
+
+| ID   | Decision                                         | Options                                                                                                                                                                                                    | Default and why                                                                                                                                                                                                   |
+| ---- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| DC1  | Homeserver topology                              | (a) one per team; (b) one for every v2 team                                                                                                                                                                | (a): isolation, per-team restore and removal, per-team throttling, clean per-team migration and rollback; the cost is 100-135 MB per team, tunable (3.2.1)                                                        |
+| DC2  | Homeserver identity                              | (a) `DynamicUser` per team, admin credential held by `<v2-ctl>`; (b) one service user for every homeserver, kept apart by mounts as v1                                                                     | (a): separation by uid rather than by a sandbox detail; the network-facing process no longer holds the admin credential (3.2.2)                                                                                   |
+| DC3  | Host programs                                    | (a) one `<v2-host>` with caller classes; (b) one binary per privilege (installer, admin, reader)                                                                                                           | (a): one digest, one install, shared packages; the narrow-target reason for (b) went with DC4 (3.3)                                                                                                               |
+| DC4  | How the board reads members, rooms and devices   | (a) a status record root writes each minute and after each change, read with no privilege; (b) a reader run as `<v2-ctl>` through a NOPASSWD Runas sudoers line (v1 DESIGN D1); (c) a daemon with a socket | (a): no sudoers file at all, no process holding every admin token run on an agent's request, and the open needs no PAM; the cost is that a human's join or a new device shows within a minute rather than at once |
+| DC5  | Where seats live                                 | (a) a seat store outside the checkout, with one session directory mounted per ccy session; (b) in the checkout, as v1                                                                                      | (a): a coordinator's token is no longer readable by workers sharing the checkout, no inbox can be consumed by a sibling, and no token can be committed; needs the launcher to mount one directory (3.7.1)         |
+| DC6  | Where the coordinator is declared                | (a) team-level `coordinator` in host_vars, converged by apply and by `role apply`; (b) the roster as truth, set by `set-role`, and LXC entries' `role`, as v1                                              | (a): one truth that the hot path and the play converge to alike (3.6.4)                                                                                                                                           |
+| DC7  | Timers                                           | (a) one health timer and one backup timer for the host; (b) one of each per team, as v1                                                                                                                    | (a): fewer units and processes, no timer state to leak into a new team of an old name (3.11.1)                                                                                                                    |
+| DC8  | Restore                                          | (a) stage into a new database path, swap, swap back on failure; (b) v1's restore in place after the stop                                                                                                   | (a), subject to H-C5: a failed restore leaves the team as it was (3.12.2)                                                                                                                                         |
+| DC9  | Removing a human                                 | (a) kick from every room and lock the account; adding the name back unlocks it; (b) v1's `removed_humans`, the name never returns                                                                          | (a): reversible and one key fewer; v1's rule came from deactivating, which v2 does only for retired agents                                                                                                        |
+| DC10 | Healing a deferred LXC member                    | (a) only when the play next runs; (b) an LXC start hook applies the last rendered declaration for that container                                                                                           | (a) for now: the play stays the one route and the board shows the deferred member with its action; (b) is a later plan if deferred members turn out to be common                                                  |
+| DC11 | Lock model                                       | (a) one lock per team; (b) one host-wide lock                                                                                                                                                              | (a): one team's backup never blocks another team's seat take (3.4)                                                                                                                                                |
+| DC12 | Firewall calls                                   | (a) `firewall-cmd` judged only by exit status (`--query-rich-rule`); (b) firewalld's D-Bus API from Go                                                                                                     | (a): no new module dependency, and v1's two firewall bugs were both text parsing, which (a) no longer does                                                                                                        |
+| DC13 | Starting a supervised session in a running guest | (a) the guest's systemd over its private socket from the host; (b) the unit starts at the next container start only                                                                                        | (a) if H-C9 proves it; else (b). Running the guest's `systemctl` as root is ruled out                                                                                                                             |
+| DC14 | Backups off the machine                          | (a) not built; (b) a copy to a declared destination                                                                                                                                                        | (a): the owner's decision for v1 stands; a backup is the root of trust (R38) and copying it widens who holds it                                                                                                   |
+
+## 5. Risks
+
+| ID  | Risk                                                                                                                                                                                                                          | What contains it                                                                                                                                                                                                                             |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| K1  | A Tuwunel per team costs 100-135 MB each                                                                                                                                                                                      | H-C1 measures and tunes; `MemoryHigh` throttles one homeserver before it crowds the desktop; DC1 states the trade                                                                                                                            |
+| K2  | A hardening directive new in v2 stops Tuwunel starting, or a later Tuwunel needs a system call the filter denies                                                                                                              | H-C2 on every pin bump; the readiness wait fails the apply at once with the journal tail                                                                                                                                                     |
+| K3  | An owner with passwordless sudo makes every agent running as them able to change a team                                                                                                                                       | stated in the user docs, as in v1; nothing in v2 widens it, and v2 has no NOPASSWD rule of its own                                                                                                                                           |
+| K4  | The seat store is new: a seat could be stranded in a dead session's directory, or a launcher could fail to mount the session directory                                                                                        | the board lists every seat by where it is and offers release; a launcher that cannot mount refuses to start the session (fail fast)                                                                                                          |
+| K5  | The status record is up to a minute old for changes made outside admin verbs (a human accepting an invite, a new device)                                                                                                      | every admin verb and apply rewrites it at once; the record carries its write time, and the board shows its age                                                                                                                               |
+| K6  | Ansible's YAML 1.1 and Go's YAML 1.2 could read one declaration two ways                                                                                                                                                      | the schema avoids every differing scalar and the Go reader refuses them; the VM lab runs one fixture through both                                                                                                                            |
+| K7  | Reaching a guest's systemd from the host over its private socket is unproven                                                                                                                                                  | H-C9; DC13's fallback                                                                                                                                                                                                                        |
+| K8  | Restoring into a staging database path is unproven                                                                                                                                                                            | H-C5; the swap-back covers failure either way                                                                                                                                                                                                |
+| K9  | Root installs programs built from a checkout the owner can write, and every agent running as the owner (a host `cc` session, and ccy containers, whose root is the owner's uid) can change that checkout before the next play | the repository-wide boundary of every play, unchanged from v1 and stated, not solved here; the build runs as the user so no toolchain runs as root                                                                                           |
+| K10 | `openat2` through `/proc/<pid>/root` of a running guest: the root itself is a magic link                                                                                                                                      | the directory fd is opened first with a plain `open` of `/proc/<pid>/root` (pid checked against `lxc-info` before and after); every later path is resolved from it with `RESOLVE_IN_ROOT\|RESOLVE_NO_SYMLINKS\|RESOLVE_NO_MAGICLINKS`; H-C10 |
+| K11 | One host-wide health process: a crash in it leaves every team unchecked                                                                                                                                                       | the unit fails visibly, and every team's status record expires within five minutes and shows as a problem on the board                                                                                                                       |
+
+## 6. What v2 drops from v1, and what is new
+
+### 6.1 Dropped
+
+| v1                                                                                                       | Why it goes                                                                                      |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| the bash installer, the bash root wrapper, the Python zipapps, `runuser`, `setpriv`, the tar hand-over   | one Go program (C8); a typed JSON pipe between root and `<v2-ctl>` instead of a tar root unpacks |
+| the installer's `software` command, its `curl` download and self-copy                                    | plain play tasks (`get_url` with a checksum, `copy`), which Ansible does better (3.5.1)          |
+| `AGENT_BUS_INSTALL_TEST_PREFIX` and every test hook in production code                                   | fakes and build tags only                                                                        |
+| one `agent-bus` user for every homeserver, with `TemporaryFileSystem` and `BindPaths` to keep them apart | `DynamicUser` per team (DC2)                                                                     |
+| per-team backup and health timers, and the timer-state clean-up for removed teams                        | one of each for the host (DC7)                                                                   |
+| the NOPASSWD sudoers rule for `list` and `human devices`, and v1 DESIGN's planned `view` Runas reader    | the status record (DC4)                                                                          |
+| seats inside the checkout, the `git check-ignore` proof, the seat `README`                               | the seat store (DC5); `<v2-bin>` explains a seat on request                                      |
+| undo on a failed member change                                                                           | roll forward from `pending` (C20)                                                                |
+| `rotate-token`                                                                                           | `reissue`, which revokes before it mints                                                         |
+| `set-role` as a write of its own, and the LXC entry's `role`                                             | the declared `coordinator` and `role apply` (DC6)                                                |
+| `removed_humans`                                                                                         | lock and unlock (DC9)                                                                            |
+| the LXC entry's `repo`                                                                                   | the LXC record's handle map                                                                      |
+| Python run inside guests, as root and as the agent user; the Python 3.11 prerequisite                    | host-side writes and `<v2-bin> guest` as the agent user (3.9.1)                                  |
+| `bridge.py`, `config_restart.py`, `timer_state.py`, `render`, `stamp-group` as separate processes        | functions of `<v2-host>`, or gone with DC7                                                       |
+| the play's backup of every running team before a software swap                                           | `team apply` backs a team up itself right before it restarts it (3.5.2 step 6)                   |
+| the packages `python3`, `curl`, `jq`, `tcpdump`, `util-linux` for the bus                                | nothing on the v2 path calls them                                                                |
+| v1's legacy forms (`orchestrator`, registry v1, container-name LXC seats)                                | v2 never reads them; area D's migration maps what it carries over                                |
+
+### 6.2 Kept on purpose
+
+The Tuwunel config keys and their reasons, the unit's sandbox and restart policy, the firewall
+record written before any change, bootstrap's crash-safe order, shared-secret registration of the
+admin, park as revoke, the handle grammar and seat numbering, the allocation lock, the stopped
+container rules and the LXC output lines, `CHANGED` output and the stamp written last, restore
+validated before anything stops, and the Element profile's lock-down and refusal.
+
+### 6.3 New, and what each fixes
+
+| New                                              | Fixes                                                                                                                     |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| per-team uid and `LoadCredential` for the config | isolation resting on a mount detail; the homeserver holding the admin credential and able to rewrite its own config       |
+| team locks taken by every mutating verb          | v1's installer had no lock (I-B16): the play, the backup timer and ccy-teams' direct calls could interleave               |
+| `pending` and roll forward                       | half-done member changes, orphan counters, minted tokens nobody holds                                                     |
+| `reissue`                                        | a lost bundle needed a park and a return by hand                                                                          |
+| the seat store and per-session mounts            | coordinator tokens readable by workers; sibling sessions consuming each other's inbox; tokens one `git add` from a commit |
+| the status record                                | a board that needed root, sudo and a process per team and per person to draw                                              |
+| staged restore with swap-back                    | a failed restore leaving the team down (I-B8)                                                                             |
+| the declared coordinator                         | a live role change reverted by the next apply                                                                             |
+| no container code as root                        | the exec-into-guest-as-root class of escape, and the Python prerequisite in every guest                                   |
+
+## 7. Assumptions on other areas
+
+**Area A (protocol and rooms).**
+
+1. A's package provides `Desired(team, roster) []RoomSpec`, a typed value naming each room's purpose,
+   create parameters, state events (type, key, content), wanted members (join or invite), unwanted
+   members and the kick reason. C's engine (3.6.2) applies it and knows nothing of what a room is
+   for.
+2. Members find room IDs, the team record and limits in the main room, not in the bundle. If A wants
+   the main room's ID in the bundle, it is one more `seat.json` key.
+3. The team record's roles are derived from the roster and the declared coordinator; A defines the
+   record and the `trust` keys' meaning, C checks only their shape.
+4. The admin account's localpart stays `admin`, and the drift check in the status record uses A's
+   specs as its reference.
+
+**Area B (member).**
+
+1. `<v2-bin>` has `guest check`, `guest place --team T` and `guest leave --team T`, run as the agent
+   user with typed JSON on stdin, and the code `guest place` uses for files is the same `bus/seat`
+   code ccy-teams uses.
+2. B reads `seat.json` and `token` and owns everything else in a seat directory, including the seat
+   lock, which is a `flock` the host can probe with a shared non-blocking lock.
+3. The ccy launcher mounts `<v2-seats>/sessions/<session>/` at one fixed path and nothing else of the
+   seat store; B finds the session's seats there, and a seat may appear in it while the session runs
+   (hot join).
+4. B decides the member's own config in an LXC guest's home and the program a supervised session
+   runs.
+5. A member treats a refused connection to its homeserver as transient, because `team apply`,
+   health and restore restart homeservers (L 6 item 11).
+
+**Area D (coexistence and migration).**
+
+1. D names every placeholder in the table at the top: binaries, users, paths, units, the host_vars
+   key prefix, the play's file name, the session mount path, the default server name domain, the v2
+   port range and the `<v2-if>` interface and address.
+2. D's migration of a team uses C's verbs: `team apply` for the v2 team, `member add --seat <n>` to
+   keep each v1 handle's seat number, `human password` for each human's new Element sign-in, and
+   `team remove` for rollback. If D needs to carry room history or keep accounts, it needs a verb C
+   does not have yet, and says so.
+3. C supplies, for D's proof that v2 does not touch v1, the full list of what v2 creates: users,
+   paths, units, ports, firewall records and interfaces, from the play's tasks and `team apply`'s
+   writes, checked in the VM lab.
+
+## 8. Host checks
+
+Each runs on the host through meta-deploy once the code exists; each states what it proves.
+
+| ID    | Check                                                                                                                                                                          | Proves                                   |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------- |
+| H-C1  | RSS of one Tuwunel per team at the default and at a reduced `cache_capacity_modifier`, idle and under a burst of member traffic                                                | C7, the `MemoryHigh` and modifier values |
+| H-C2  | the hardened unit starts the pinned Tuwunel, with each directive new in v2 (empty capability set, system call filter, `PrivateIPC`, `ProtectProc`, `LoadCredential` with `%d`) | 3.2.3                                    |
+| H-C3  | the `DynamicUser` uid is stable across restart and reboot with no recursive chown; `systemctl clean --what=state` removes the state                                            | DC2                                      |
+| H-C4  | `SIGUSR2` through `KillUnit` to the main process yields a numbered backup within 60 s                                                                                          | 3.12.1                                   |
+| H-C5  | `--restore-backup` into a staging `database_path` on another loopback port, then the swap, and a forced failure swapped back                                                   | DC8, C37                                 |
+| H-C6  | `firewall-cmd --query-rich-rule` exit status, and the zone chosen for a CIDR whose interface has no zone                                                                       | DC12                                     |
+| H-C7  | `ccy-teams --list` and the interactive open timed with several teams, checkouts and humans; a redraw timed                                                                     | C39                                      |
+| H-C8  | a seat renamed into a running ccy container's mounted session directory is visible inside it, and the host's probe of its seat lock held inside reports held                   | DC5, C27                                 |
+| H-C9  | from the host, the guest's systemd over `/proc/<pid>/root/run/systemd/private`: reload, start, stop a unit                                                                     | DC13                                     |
+| H-C10 | `openat2` with `RESOLVE_IN_ROOT` through `/proc/<pid>/root` of a running overlay-store guest; `lxc-attach -u -g --clear-env` running the host-written `<v2-bin>`               | 3.9.1, K10                               |
+| H-C11 | the play with no v2 team: nothing resident, no timer enabled, no port bound; v1's units, users, paths and rules unchanged                                                      | C40                                      |
+| H-C12 | under the real Tuwunel: a restricted join to a room A's layout restricts, a power-0 post refused, pending invites left pending                                                 | the S11 probes, carried                  |
