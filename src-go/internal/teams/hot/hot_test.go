@@ -163,12 +163,6 @@ func (m *machine) role(team, handle string) string {
 	return worker
 }
 
-type toldRole struct {
-	Team   string `json:"team"`
-	Handle string `json:"handle"`
-	Role   string `json:"role"`
-}
-
 // writeReport is the keeper's report for what the desired file says now.
 func (r *rig) writeReport(t *testing.T) {
 	t.Helper()
@@ -179,27 +173,22 @@ func (r *rig) writeReport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	told := struct {
-		Generation int        `json:"generation"`
-		Roles      []toldRole `json:"roles"`
-	}{Generation: d.Generation, Roles: []toldRole{}}
-	rep := membership.Report{V: 1, Generation: d.Generation, Inbound: &r.m.inbound, Seats: []membership.ReportSeat{}, Refused: []membership.ReportRefused{}}
+	told := &membership.Told{Generation: d.Generation, Roles: []membership.ToldEntry{}}
+	rep := membership.Report{
+		V: 1, Generation: d.Generation, Inbound: &r.m.inbound, Seats: []membership.ReportSeat{},
+		Refused: []membership.ReportRefused{}, Told: told,
+	}
 	for _, s := range d.Seats {
 		ref := s.Seat + "@" + s.Team
 		if r.m.keeper && !r.m.heldBy[ref] {
 			rep.Seats = append(rep.Seats, membership.ReportSeat{Team: s.Team, Seat: s.Seat, Handle: r.m.exists[ref], State: "held"})
 			if r.m.tells {
-				told.Roles = append(told.Roles, toldRole{Team: s.Team, Handle: r.m.exists[ref], Role: r.m.role(s.Team, r.m.exists[ref])})
+				told.Roles = append(told.Roles, membership.ToldEntry{Team: s.Team, Handle: r.m.exists[ref], Role: r.m.role(s.Team, r.m.exists[ref])})
 			}
 		} else {
 			rep.Refused = append(rep.Refused, membership.ReportRefused{Team: s.Team, Seat: s.Seat, Why: "no-bundle", Holder: "-"})
 		}
 	}
-	raw, err := json.Marshal(told)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rep.Told = raw
 	data, err := json.Marshal(rep)
 	if err != nil {
 		t.Fatal(err)

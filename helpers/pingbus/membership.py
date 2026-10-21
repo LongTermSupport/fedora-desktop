@@ -178,6 +178,11 @@ def _is_int(value: object, low: int) -> bool:
     return type(value) is int and value >= low
 
 
+def _is_reason(value: object) -> bool:
+    """A string, checked first: a list or an object is unhashable and cannot be tested for membership."""
+    return isinstance(value, str) and value in FAREWELL_REASONS
+
+
 def _object(data: object, keys: frozenset[str], where: str,
             optional: frozenset[str] = frozenset()) -> Mapping[str, object]:
     if not isinstance(data, dict):
@@ -234,7 +239,7 @@ def parse_desired(data: object, where: str = DESIRED_FILE) -> Desired:
     for item in _list(obj, "farewell", where, MAX_FAREWELLS):
         entry = _object(item, frozenset({"team", "seat", "reason"}), f"{where}: farewell")
         team, seat = _names(entry, "farewell", where)
-        if entry["reason"] not in FAREWELL_REASONS:
+        if not _is_reason(entry["reason"]):
             raise MembershipError(f"{where}: farewell: the reason is not one of {', '.join(FAREWELL_REASONS)}")
         farewell.append(Farewell(team, seat, entry["reason"]))
     return Desired(obj["session"], obj["kind"], obj["checkout"], obj["generation"], obj["written_ms"],
@@ -328,7 +333,7 @@ def parse_told(data: object, where: str = TOLD_FILE) -> ToldRecord:
     left = []
     for item in _list(obj, "left", where, MAX_FAREWELLS):
         entry = _object(item, frozenset({"team", "reason"}), f"{where}: left")
-        if not protocol.is_team_name(entry["team"]) or entry["reason"] not in FAREWELL_REASONS:
+        if not protocol.is_team_name(entry["team"]) or not _is_reason(entry["reason"]):
             raise MembershipError(f"{where}: left: an entry's team or reason is refused")
         left.append((entry["team"], entry["reason"]))
     return ToldRecord(obj["generation"], tuple(teams), tuple(left))

@@ -208,7 +208,10 @@ and `cc-project-dir` (`ccy-teams` and `cc-project-dir` also get
 `play-image-watermarking.yml` for `watermark`, `play-speech-to-text.yml` for `wsi` and
 `play-cli-tools.yml` for `open` and `convert`, `play-rclone.yml` for `rclone-cache-status`,
 `play-basic-configs.yml` for `git-fetch-age` and `play-git-configure-and-tools.yml` for
-`git-prompt-fetch` (each imports `play-golang.yml` too); `watermark`, `git-fetch-age` and
+`git-prompt-fetch`, and `play-claude-yolo.yml` (into the ccy image's build context) and
+`play-agent-bus.yml` (into the member kit, which LXC members copy) for `pingbus-status-line`,
+built with `go_command_static: true` (`CGO_ENABLED=0`) because it runs in other distributions
+(each imports `play-golang.yml` too); `watermark`, `git-fetch-age` and
 `git-prompt-fetch` are installed root-owned
 in `/usr/local/bin` (`go_command_owner: root`; only that copy runs as root). Each binary lands
 at its old path. A new deployed command takes a row in

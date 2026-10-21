@@ -40,7 +40,9 @@ carries a Python behaviour that Go's standard library does not give by default.
      absolute (with no `CLAUDE_CONFIG_DIR` and a relative `HOME`, there is no user file)
 
   A missing file is passed over. So is a file whose top level is not an object, or whose
-  `statusLine.command` is not a string, is blank after trimming, or is exactly `pingbus status-line` after trimming. The command used is the untrimmed string.
+  `statusLine.command` is not a string, is blank after trimming, or is exactly `pingbus status-line` or `pingbus-status-line` (the Go
+  binary's name, which the kit runs from Task 2.3) after trimming. The command used is the
+  untrimmed string.
 
 - **S8** **NOT BOILERPLATE: the wording of the settings errors.** A file that exists but cannot
   be read or decoded stops the search. The inner part then becomes
@@ -157,7 +159,9 @@ in Go, and a file Python accepts must give its role.
     - `base_url` satisfies `check_base_url` (`urllib.parse.urlsplit` rules: no query,
       fragment, credentials or path; a valid port; `http` only to a listed IP).
     - `human_text`, if present, is a bool.
-    - `limits`, if present, passes `limits.parse_limits`.
+    - `limits`, if present, passes `limits.parse_limits`. Its keys and bounds are
+      `limits.BOUNDS`, which `TestLimitBoundsAreThePythonsOwn` reads from the Python on every
+      run (Plan 00211 added `report_per_hour`; the port missed it, Plan 00209 SPEC-state F1).
   - The token file is opened with O_NOFOLLOW|O_NONBLOCK. It must be a regular file owned by
     this uid, mode 0600 or stricter, at most 4096 bytes, and printable ASCII `[\x21-\x7e]+`,
     so a trailing newline is refused.
@@ -315,6 +319,16 @@ golden diff is reviewed.
 - **S38** S14's negative exit for a signal. `(status line killed by SIGTERM)` would be clearer.
   Changing it means changing the Python in the same commit, or recording a departure.
 - **S39** S11 drops any text the inner printed before it timed out.
+- **S41** An inner command killed by SIGHUP has status -1, the value the Python uses for a
+  timeout, so it is shown as "timed out after 10 s". The Go copies this only to match the bytes.
+  It should say that the command was killed.
+- **S42** Display widths, the integer-digit limit and the IP address forms copy Python 3.11
+  (Unicode 14), the oracle's interpreter, not the terminal. Only exotic role or base_url text
+  is affected. The Go should measure what Claude Code draws.
+
+The owner has ruled that the Python is a prototype and not the model. Each candidate above is
+a quirk the Go copies only to match the bytes. Plan 00209 stage 2 loosens the oracle to the
+contract (what Claude Code shows, and the files read), and these are decided there.
 
 Departures the Go port has taken (Task 2.1), each where the Python crashes or has no answer:
 
@@ -326,6 +340,11 @@ Departures the Go port has taken (Task 2.1), each where the Python crashes or ha
   render with 128 plus the signal.
 - **D4** A name repeated in the environment keeps its first value, as Python's `os.environ`
   does; the inner command's environment is passed sorted by name.
+- **D5** (Task 2.3) The installed binary is built with `CGO_ENABLED=0`, so the one binary runs on
+  the Fedora host, in the Debian ccy image and in any LXC member. Its passwd lookup (a `host`
+  member's home, S21) then reads `/etc/passwd` alone, where Python's `pwd` asks NSS. A `host`
+  member whose user only a directory service knows would be refused by the Go and not by
+  the Python. The member users the READMEs describe are local accounts.
 - **Refusals** A `base_url` whose brackets `urlsplit` raises on is refused (Python crashes); a
   host member with no passwd home is refused (Python raises `KeyError`).
 - **The racy rule (S33)** A render that read any path whose ctime is within 2 s of its clock is

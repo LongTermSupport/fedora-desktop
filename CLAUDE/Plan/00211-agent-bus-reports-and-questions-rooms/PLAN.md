@@ -1,6 +1,6 @@
 # Plan 00211: agent bus reports and questions rooms
 
-**Status**: In Progress (Phase 1, the member side, in code and not deployed, with the Phase 1 review's fixes; the Phase 0 spike has not run; D9 is accepted as the interim step, for the owner to confirm; the other defaulted decisions are open to override)
+**Status**: In Progress (Phase 1 deployed and accepted on the host, and the Phase 0 spike passed every fact; Phase 2, the admin side, in code and queued as deploy 2, not merged or run; D9 is accepted as the interim step, for the owner to confirm; the other defaulted decisions are open to override)
 **Created**: 2026-10-21
 **Owner**: joseph
 **Priority**: High
@@ -88,7 +88,7 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
 
 ### Phase 0: spike (host)
 
-- [ ] 🔄 **Task 0.1**: `spike.bash` in this folder (`plan_mode deploy`, `plan_require_host`;
+- [x] ✅ **Task 0.1**: `spike.bash` in this folder (`plan_mode deploy`, `plan_require_host`;
   SPEC §11.2). It runs a throwaway Tuwunel process as the user, under the run directory, and
   removes it on cleanup. It records:
   - whether a restricted join works (room version 12, allowed by membership of the main room);
@@ -97,11 +97,12 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   - that a pending invite does no harm across syncs;
   - R5: that the side rooms' power levels and join rules, read back from the server (closed
     questions form included), pass `verify_side`'s exact checks.
-    Written (`spike.bash`, `spike_probe.py`) and queued in `meta-deploy.list`; not run yet.
-    The report ends with a verdict line, and `deploy.bash --stage 2` refuses to run unless the
+    Ran on the host through meta-deploy: "Verdict: every fact holds" (R1-R5; JOURNAL
+    "Deploy 1 accepted; spike holds"). The report ends with a verdict line, and `deploy.bash --stage 2` refuses to run unless the
     newest spike report has the PASS line (meta-deploy runs deploy 1 whatever the spike found).
-- [ ] ⬜ **Task 0.2**: Findings journalled. If a fact fails, SPEC §3.1, §4.3, §4.4 and §5.3 are
-  amended before Phase 2.
+- [x] ✅ **Task 0.2**: Findings journalled. If a fact fails, SPEC §3.1, §4.3, §4.4 and §5.3 are
+  amended before Phase 2. Every fact held, so the restricted-join design stands and the SPEC
+  is unchanged.
 
 ### Phase 1: member side (deploy 1)
 
@@ -159,33 +160,46 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   - the spike's R5 read-back and deploy 2's passed-spike pre-flight;
   - `history --room questions` exits as `questions` does; another coordinator's questions-room
     post is ignored, not dropped.
-- [ ] 🔄 **Task 1.13**: Merge Phase 1 to F44, then queue `deploy.bash --stage 1` in
-  `meta-deploy.list`. Journal the run once the owner has run it. Queued on the Phase 1 branch
-  as `deploy-stage-1.bash`, after the spike; the merge and the run are left.
+- [x] ✅ **Task 1.13**: Merge Phase 1 to F44, then queue `deploy.bash --stage 1` in
+  `meta-deploy.list`. Journal the run once the owner has run it. Merged (01980e74), run at
+  F44 1817be27 and accepted: S1 host and ccy-staged pingbus 0.2.0, S2 all 4 declared LXC
+  members 0.2.0 (JOURNAL "Deploy 1 accepted; spike holds"). Both entries are off the queue.
 
 ### Phase 2: admin side (deploy 2), after deploy 1 is accepted
 
-- [ ] ⬜ **Task 2.1**: `admin`: `_ensure_side_rooms` (SPEC §5.1):
+- [x] ✅ **Task 2.1**: `admin`: `_ensure_side_rooms` (SPEC §5.1):
   - creating the rooms, or adopting an existing room after a crash;
   - the ID files, the index and the back-links;
   - power levels, join rules and topics;
   - human invites;
   - removed humans kicked from every room.
-- [ ] ⬜ **Task 2.2**: `admin`: `_sync_questions_members`, called from `bootstrap`,
+    Done in code, not deployed (`test_admin_side_rooms.py`; RED 1462ff04).
+- [x] ✅ **Task 2.2**: `admin`: `_sync_questions_members`, called from `bootstrap`,
   `add_member`, `set_role` and `remove_member` (SPEC §5.1):
   - the questions room is created at the first coordinator;
   - kicks come before invites, and every coordinator is invited (again, when `leave`);
   - the open and closed forms.
-    `remove_member` also kicks from reports.
-- [ ] ⬜ **Task 2.3**: `health`: a read-only side-room drift check, which also reports
-  coordinators not joined to questions (SPEC §5.4).
-- [ ] ⬜ **Task 2.4**: `agent-bus list` `ROOM` lines, with the HUMAN and MEMBER lines unchanged
-  (SPEC §5.5).
-- [ ] ⬜ **Task 2.5**: `acceptance.bash` gains stage 2 (A1-A4) and `--after-owner` (A5), and
+    `remove_member` also kicks from reports. Done in code, not deployed.
+- [x] ✅ **Task 2.3**: A read-only side-room drift check, which also reports coordinators not
+  joined to questions (SPEC §5.4). It is `agent-bus check-rooms <team>` in the admin tool, not
+  `health.py`, which holds no Matrix credential (SPEC §5.4 corrected). Done in code.
+- [x] ✅ **Task 2.4**: `agent-bus list` `ROOM` lines, with the HUMAN and MEMBER lines unchanged
+  (SPEC §5.5). Done in code; the LXC helper's and ccy-teams' parsers skip them.
+- [x] ✅ **Task 2.5**: `acceptance.bash` gains stage 2 (A1-A4) and `--after-owner` (A5), and
   `ACCEPTANCE-owner.md` is written. Both are committed before Task 2.6 (SPEC §11.2, §11.3).
-- [ ] ⬜ **Task 2.6**: `deploy.bash --stage 2` with the legs of SPEC §5.3: pre-flight (the
-  passed-spike check, already written; LXC containers up and new), the play, the questions-join wait, then acceptance. `ansible-playbook --syntax-check` only. Merge, then
-  queue in `meta-deploy.list`.
+  A1-A2 are `agent-bus check-rooms` per team. A3's worker is a throwaway host member on
+  loopback, added and removed by the run (a seat name used once). A4 runs in an LXC container
+  through the guest path, and is NOT JUDGED (never PASS) when no LXC member is declared. The
+  test question and A5 run in the registry's coordinator's own session, a ccy seat (`podman exec`) or an LXC member; no coordinator, or one in no session the host can drive, is
+  REJECTED. A2 also judges the running ccy seats' reports joins, A3 that no inbox took the
+  report, A5 that the session took the reply and edit. `--fake --stage 2` passes in the
+  container, the joins included.
+- [ ] 🔄 **Task 2.6**: `deploy.bash --stage 2` with the legs of SPEC §5.3: pre-flight (the
+  passed-spike check; `acceptance.bash --stage 1` again, for LXC containers up and new), the
+  agent-bus play, the ccy play (the image carries the admin tool, container 2.78.11 as integrated), then
+  acceptance, whose first leg is the joins wait (it primes sudo again first). Written and queued as `deploy-stage-2.bash`, whose
+  description asks the owner to restart every team's sessions first; the merge and the run are
+  left. `acceptance-after-owner.bash` is queued only once the owner has done the Element steps.
 
 ### Phase 3: the owner's view (Go)
 

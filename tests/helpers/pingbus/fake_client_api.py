@@ -2,7 +2,8 @@
 
 It models what pingbus and the admin tool use, and nothing else: password login, whoami,
 `createRoom` (room version 12, `private_chat`), invite, join, leave (unrecorded), send, state get/put with
-`format=event`, the whole room state (unrecorded: the spec's array of client events), redact, `GET /event`, `/messages`, and `/sync` with an inline filter,
+`format=event`, the whole room state (unrecorded: the spec's array of client events), `joined_rooms`
+(unrecorded: the spec's `{"joined_rooms": [...]}`), redact, `GET /event`, `/messages`, and `/sync` with an inline filter,
 `timeout` long-polling and lazy-loaded members. Its answers are checked against Tuwunel's
 recorded ones (fixtures/tuwunel/, probe H4) by test_fakes.py; where it says what Tuwunel
 says, the text is the recorded text. A request for anything outside that raises
@@ -283,6 +284,7 @@ class FakeHomeserver:
             ("GET", r"/_matrix/client/v3/account/whoami", self._whoami, "user"),
             ("POST", r"/_matrix/client/v1/login/get_token", self._get_token, "user"),
             ("POST", r"/_matrix/client/v3/createRoom", self._create_room, "user"),
+            ("GET", r"/_matrix/client/v3/joined_rooms", self._joined_rooms, "user"),
             ("POST", _ROOM + r"/invite", self._invite, "user"),
             ("POST", _ROOM + r"/join", self._join, "user"),
             ("POST", _ROOM + r"/leave", self._leave, "user"),
@@ -421,6 +423,11 @@ class FakeHomeserver:
         for target in body.get("invite", []):
             self._do_invite(room, creator, target)
         return {"room_id": room.room_id}
+
+    def _joined_rooms(self, req: Req) -> dict:
+        """The spec's `GET /joined_rooms`: every room the account has joined, in creation order."""
+        return {"joined_rooms": [room_id for room_id, room in self.rooms.items()
+                                 if room.membership(req.user_id) == "join"]}
 
     def _authorise(self, room: Room, sender: str, event_type: str, state_key: str | None) -> None:
         """The room-version-12 auth rules pingbus relies on, in the spec's order."""

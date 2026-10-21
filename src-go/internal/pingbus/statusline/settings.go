@@ -136,14 +136,18 @@ func commandOf(data any) string {
 		return ""
 	}
 	trimmed := strings.TrimSpace(command)
-	if trimmed == "" || trimmed == commandName {
+	if trimmed == "" || trimmed == commandName || trimmed == kitCommandName {
 		return ""
 	}
 	return command
 }
 
-// commandName is this command's own text, which a settings file may name without looping (S7).
-const commandName = "pingbus status-line"
+// commandName is the Python command's text and kitCommandName this binary's, the one the member
+// kit runs; a settings file may name either without the segment being drawn twice (S7).
+const (
+	commandName    = "pingbus status-line"
+	kitCommandName = "pingbus-status-line"
+)
 
 // terminalColumns is COLUMNS when it is 1 to 6 decimal digits above zero, else 0 (S28).
 func terminalColumns(env map[string]string) int {

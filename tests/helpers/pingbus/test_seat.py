@@ -1044,15 +1044,18 @@ class MembershipClaimTest(SeatCase):
 
 class StatusLineGuardTest(SeatCase):
     """The status line command is a shell guard (H34): with no `active` flag it runs the inner
-    status line and no pingbus, so a plain session starts no Python each second."""
+    status line and no pingbus, so a plain session starts no Python each second. With it, the
+    Go port of `pingbus status-line` draws it (Plan 00213 Task 2.3), so no Python starts then
+    either."""
 
     def run_guard(self, *, active: bool) -> str:
         home = self.tmp / "home"
         home.mkdir()
         bin_dir = self.tmp / "bin"
         bin_dir.mkdir()
-        (bin_dir / "pingbus").write_text("#!/bin/sh\necho pingbus \"$@\"\n", encoding="ascii")
-        (bin_dir / "pingbus").chmod(0o755)
+        for name in ("pingbus", "pingbus-status-line"):
+            (bin_dir / name).write_text(f"#!/bin/sh\necho {name} \"$@\"\n", encoding="ascii")
+            (bin_dir / name).chmod(0o755)
         (home / seat.STATUS_LINE_INNER).write_text("echo inner; cat\n", encoding="ascii")
         if active:
             (home / seat.ACTIVE_FLAG).write_text("", encoding="ascii")
@@ -1064,8 +1067,8 @@ class StatusLineGuardTest(SeatCase):
     def test_without_the_flag_the_inner_status_line_runs_and_reads_the_input(self):
         self.assertEqual(self.run_guard(active=False), "inner\n{}")
 
-    def test_with_the_flag_pingbus_draws_it(self):
-        self.assertEqual(self.run_guard(active=True), "pingbus status-line\n")
+    def test_with_the_flag_the_go_status_line_draws_it(self):
+        self.assertEqual(self.run_guard(active=True), "pingbus-status-line\n")
 
 
 class RealExecTest(SeatCase):
