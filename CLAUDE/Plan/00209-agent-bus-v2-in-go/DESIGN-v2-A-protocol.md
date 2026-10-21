@@ -133,3 +133,280 @@ Each requirement says where it comes from. "New" means v1 did not have it, with 
   as one escaped JSON string (R21, E1-E9, P73-P83).
 - **AR28.** The escaping rules are one Go implementation over one pinned Unicode version (P74, P84;
   new: v1 had to agree across Python 3.11, Python 3.12 and Go tables).
+
+---
+
+## 2. Wire conventions
+
+### 2.1 JSON
+
+All protocol logic lives in one pure Go package (`<v2>/proto`: no I/O, no clock read; `now` is an
+argument, as P1). It decodes with a strict decoder that B supplies to every path that reads the
+homeserver or a cache:
+
+| Rule                                                                                      | On failure                 |
+| ----------------------------------------------------------------------------------------- | -------------------------- |
+| Input is valid UTF-8; a `\uD800`-`\uDFFF` escape not forming a pair is an error           | drop `schema`              |
+| An object with a repeated key is an error                                                 | drop `schema`              |
+| A number is an integer in `[-(2^53-1), 2^53-1]`; a fraction or exponent is an error       | drop `schema`              |
+| `true`/`false` are booleans only, never `1`/`0`; `1.0` is not `1`                         | drop `schema`              |
+| Unknown keys inside a typed `<ns>.*` object of a known major are ignored (section 3)      | -                          |
+| Keys this design names as forbidden (for example `m.new_content` on an agent event) fail  | drop with the reason named |
+| Size of a content object = bytes of its compact UTF-8 JSON (no spaces, no ASCII escaping) | drop `size`                |
+| Length of a string = its count of Unicode scalar values                                   | as the field's rule says   |
+
+Why this and not v1's: v1's value model was Python's `json.loads` (floats and ints apart but `1.0 == 1` in one place and not another, lone surrogates accepted then crashing on encode, P2, D1). The
+Go standard decoder is not strict either: it replaces a lone surrogate with U+FFFD and keeps the
+last of two duplicate keys, silently. Matrix's canonical JSON allows only integers in the 2^53
+range, so the rule above refuses nothing a conforming server sends. Two designs were weighed: (a)
+the standard decoder plus a post-pass, (b) a small strict tokenizer in front of it that rejects the
+cases above and then lets `encoding/json` fill typed structs. (b) is chosen: the post-pass in (a)
+cannot see what the decoder already repaired.
+
+### 2.2 Identifiers
+
+| Identifier | Grammar (full match, ASCII)                                                              | Source |
+| ---------- | ---------------------------------------------------------------------------------------- | ------ |
+| team name  | `[a-z][a-z0-9-]{0,23}`                                                                   | P4     |
+| room ID    | `![A-Za-z0-9_-]{43}` (room version 12: the create event's hash)                          | P10    |
+| event ID   | `\$[A-Za-z0-9_-]{43}`                                                                    | P10    |
+| user ID    | `@<localpart>:<server_name>`, `server_name` exactly the bundle's, split at the first `:` | P9     |
+| localpart  | an agent handle (2.3), a human name (2.3), or a reserved name                            | P5-P8  |
+| branch     | `[A-Za-z0-9._/-]{1,100}`                                                                 | P11    |
+| verb       | one of the closed set in section 7                                                       | P19    |
+| reference  | section 8                                                                                | P13    |
+| feature    | `[a-z][a-z0-9-]{0,31}`                                                                   | new    |
+| question   | `Q[1-9][0-9]{0,8}`                                                                       | 00211  |
+
+A value that fails its grammar is never rendered anywhere, not in a log line either: diagnostics
+name rooms and events by ID only and carry fixed text (v1 lesson, `protocol.py:291-292`).
+
+### 2.3 Identities and handles
+
+**Agents.** The localpart is the handle `<repo>.<seat>+<site>.<type>`:
+
+| Part     | Grammar                                    | Meaning                                                          |
+| -------- | ------------------------------------------ | ---------------------------------------------------------------- |
+| `<repo>` | `[a-z0-9][a-z0-9_-]{0,47}`                 | the checkout's repository name, normalised as P17                |
+| `<seat>` | `[1-9][0-9]{0,5}` or `[a-z][a-z0-9]{0,11}` | a counter-issued number or an owner-chosen seat name             |
+| `<site>` | `[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?`     | the install's site label (v1 called it `host`), never a hostname |
+| `<type>` | `podman`, `lxc`, `docker`, `vm`, `host`    | what the member runs in                                          |
+
+The short name is `<repo>.<seat>`; it names a member in `--to` and in reply commands only when no
+other member of the team has the same short name (v1 `cli.py:891-910`).
+
+Three designs were weighed:
+
+1. **Keep v1's grammar** (chosen, with `host` renamed `site` in every text). It is derived from facts
+   the host reads, so a member cannot choose its own identity; it is stable across restarts and
+   bundle loss (a lost bundle is replaced, same handle); it reads well in Element (`myrepo.2+desk.podman`
+   says what and where); human names can never collide with it, because a handle always contains
+   `.` and `+` and a human name contains neither. `+` is legal in a Matrix localpart since Matrix
+   1.8 (MSC4009), and v1's Tuwunel probe confirmed the server accepts it.
+2. **An opaque identity** (`a7f3k2`) with the handle only as a display name. Rejected: display names
+   are not trusted (AR9) and any member can set a per-room display name, so a human reading Element
+   would have to read opaque IDs to know who spoke. The handle as the ID makes the ID itself legible.
+3. **Dots only** (`<repo>.<seat>.<site>.<type>`, parseable because no part holds a dot). Rejected:
+   it loses the visual split between "who" (`<repo>.<seat>`) and "where" (`<site>.<type>`) that the
+   short name rests on, and changes every operator habit for no defect fixed.
+
+The rename of `host` to `site` is the one change: v1's own lesson was that people read `host` as the
+machine's hostname, and a hostname must never reach forge text (`registry.py:15-16`). The site is an
+owner-chosen label from the team declaration (C owns where it comes from).
+
+**Humans.** The localpart is `[a-z][a-z0-9_-]{0,31}` (P7): no `.` and no `+`, so it can never parse
+as a handle.
+
+**Reserved.** `admin` (the team's admin account, the bundle pins `@admin:<server_name>`) and the
+homeserver's own service account localpart (v1 reserved `conduit`; C confirms Tuwunel's current
+name in host check HC-A6 and the list is fixed in `<v2>/proto`).
+
+**Display names.** Set by the admin only: an agent's is its handle, a human's is their name. Members
+cannot change their global name (server setting, v1 `enable_set_displayname = false`); a per-room
+name can still be set by any member and is never read. The Element risk this leaves is in section
+12.3.
+
+**Stability.** A handle is never reused after removal; a parked handle returns with a new token and
+its role; a seat counter never goes down (R9). Those are C's rules; A relies on them for "a user ID
+names one member for ever".
+
+---
+
+## 3. Versioning and evolution
+
+### 3.1 The design
+
+Three things carry versions, and each has one rule:
+
+| Thing                    | Carries                       | Receiver that does not know it                                  |
+| ------------------------ | ----------------------------- | --------------------------------------------------------------- |
+| a typed object `<ns>.*`  | `"v": <major>`                | drops the event `version` (counted, shown in status)            |
+| a typed object's feature | `"features": ["<name>", ...]` | drops the event `version`                                       |
+| the roster               | `"v"`, `"features"`           | treats the team as untrusted, naming the feature to upgrade for |
+
+- Within a known major, **unknown keys are ignored**. An additive key that only informs (a new
+  display hint, a diagnostic) needs nothing more.
+- A key that **narrows trust or changes what an existing key means** must be listed under a feature
+  name in the same object's `features`. A receiver that does not know the feature fails closed.
+- A change that cannot be expressed as a feature is a **new major**.
+- `features` is absent or a list of 1-16 distinct feature names. The wire major of this design is 1
+  and it defines no features; the list exists so the first one needs no flag day.
+
+Writers keep a registry in `<v2>/proto`: every key of every object, marked `informational` or with
+the feature that introduced it. A corpus test fails when a key is added without a mark.
+
+### 3.2 Raising the send level
+
+The roster holds `"proto": {"send": <major>}`. A member sends only majors at or below it, and
+accepts every major it knows. To introduce major 2:
+
+1. Ship members that accept majors 1 and 2 and still send 1.
+2. Each member reports the majors and features it accepts (section 6.6). C's raise operation reads
+   them and refuses while any non-removed member does not accept 2, naming it.
+3. The admin rewrites the roster with `"send": 2`. Members send 2 from their next verified roster.
+4. Once no member sends 1, a later release may stop accepting it.
+
+A new roster feature follows the same path: C adds a feature to the roster only when every
+non-removed member reports it.
+
+### 3.3 Why this design
+
+Two others were weighed:
+
+1. **v1's rule: exact key sets, any change is a new `v`, every member upgrades first.** It failed in
+   practice: the team description had to move to `m.room.topic` only to avoid a new record key
+   (R41), and Plan 00211 had to add a separate state event for its room index for the same reason.
+2. **Capability negotiation per message** (each sender reads each addressee's accepted majors and
+   picks one). Rejected: it puts a per-addressee lookup on every send, the answer can change between
+   lookup and receipt, and a team of a handful of members gains nothing from per-pair majors.
+
+The chosen design is the JOSE `crit` idea applied to Matrix content: ignore what you do not need to
+understand, refuse what you must understand but do not.
+
+---
+
+## 4. Rooms
+
+### 4.1 Layout
+
+Every team has three rooms, all created by the admin when the team is created. C creates and
+maintains them; this table is what C must produce.
+
+| Purpose   | `m.room.name`        | Join rule                           | Members                               | Who posts                                   | Woken                                    |
+| --------- | -------------------- | ----------------------------------- | ------------------------------------- | ------------------------------------------- | ---------------------------------------- |
+| main      | `<team>`             | `invite`                            | humans, every non-removed member      | humans, active members                      | per addressing (section 6)               |
+| reports   | `<team> · reports`   | `restricted`, allow members of main | humans (invited), every active member | active members                              | nobody                                   |
+| questions | `<team> · questions` | `invite`                            | humans, the coordinator               | humans, the coordinator; nobody when closed | the coordinator, for every human message |
+
+Common to all three: room version `12`; no `m.room.encryption`; `m.room.history_visibility`
+`shared` (00211 D13: a new coordinator can read open questions); `m.room.guest_access` `forbidden`;
+no aliases (00211 D11); `m.room.topic` per 4.4; the admin is the creator and has no entry in
+`users` (room version 12 gives creators unlimited power). Main carries `<ns>.roster` (section 5);
+each side room carries `<ns>.room` (5.3).
+
+**Why questions exists from the start, closed.** Plan 00211 created it when a coordinator first
+appeared (D4), so a member had to handle "index has no questions room" at run time, and `ask-human`
+had a `no-room` refusal meaning "not deployed". Creating all three at once makes the layout fixed:
+a missing or unverified room is a fault, reported as one, and the only questions-room state that
+varies is open or closed, which is one power-level key.
+
+**Why no further room.** Two candidates were weighed and not added:
+
+1. **A traffic room** for agent-to-agent pings, so main holds only human conversation. It would make
+   main quieter in Element but adds a room every member syncs and splits one conversation in two: a
+   human reading main would no longer see the ping that a worker's answer replies to. Kept as owner
+   decision OD-A3, default not added.
+2. **Per-member direct rooms** for a human and one agent. Element's per-room notification settings
+   already let a human silence main; private rooms per member would multiply rooms, trust checks and
+   joins for no requirement anyone has stated.
+
+### 4.2 Power levels
+
+v1 left `events_default` at 0 and closed a few types by name, so every message type nobody listed
+(polls, stickers sent through other types, calls, location shares, live beacons) was open to every
+member, and Element offered them to humans. v2 inverts it: **everything is closed at
+`events_default` 100, and each room opens `m.room.message` alone** (AR11). Redactions, reactions
+and stickers are then closed without naming them.
+
+Main room, and the questions room while open:
+
+```json
+{
+  "users": {"@<human>:<server_name>": 50},
+  "users_default": 0,
+  "events_default": 100,
+  "state_default": 100,
+  "invite": 100,
+  "kick": 100,
+  "ban": 100,
+  "redact": 100,
+  "notifications": {"room": 50},
+  "events": {"m.room.message": 0}
+}
+```
+
+Reports room:
+
+```json
+{
+  "users": {"@<human>:<server_name>": 0},
+  "users_default": 10,
+  "events_default": 100,
+  "state_default": 100,
+  "invite": 100,
+  "kick": 100,
+  "ban": 100,
+  "redact": 100,
+  "notifications": {"room": 100},
+  "events": {"m.room.message": 10}
+}
+```
+
+Questions room while closed (no coordinator in the roster): the main-room object with
+`"events": {"m.room.message": 100}`.
+
+What each level allows:
+
+| Who              | Main, questions (open)                | Reports             | Questions (closed) |
+| ---------------- | ------------------------------------- | ------------------- | ------------------ |
+| admin (creator)  | everything                            | everything          | everything         |
+| human (50, or 0) | post messages, `@room`, read receipts | read, read receipts | read               |
+| agent (0, or 10) | post messages, read receipts          | post messages       | read               |
+
+Nobody but the admin can set state, invite, kick, ban, redact (their own events included, so the
+record an agent acted on cannot be withdrawn), react, or send any type other than
+`m.room.message`. Read receipts, typing and presence are not power-gated in Matrix and stay open.
+
+Humans are listed in reports at 0 rather than agents at 10, so adding an agent changes no power
+level (00211 D2). A removed human is kicked from every room before the power levels are rewritten,
+otherwise they would fall to `users_default` (00211 section 2); C owns that order.
+
+**Reactions closed everywhere.** 00211 D16 closed them in questions so Element does not offer an
+emoji answer nobody reads. The same holds in main: a human who reacts to an agent's question with a
+thumbs-up would believe they answered. Closing `m.reaction` is a consequence of the allow-list, not
+an extra rule. Owner decision OD-A5 lets the owner open reactions to humans for display only.
+
+### 4.3 Membership rules
+
+| Room      | How a human gets in                    | How an agent gets in                                                      | How either leaves                 |
+| --------- | -------------------------------------- | ------------------------------------------------------------------------- | --------------------------------- |
+| main      | admin invite, human accepts in Element | admin invite; the member accepts it only when the invite rule (6.3) holds | admin kick on removal             |
+| reports   | admin invite                           | the member joins by the restricted rule after verifying main              | admin kick on removal             |
+| questions | admin invite                           | admin invites the coordinator; the member accepts it per 6.3              | admin kick on removal or demotion |
+
+A parked member stays joined (its token is revoked, so it can neither read nor post); a removed
+member is kicked from every room and deactivated (C). A demoted coordinator is kicked from questions
+before the new coordinator is invited (00211 section 3; R10 demote before promote).
+
+### 4.4 Topics
+
+The topic is display only and never affects trust (R41). C sets:
+
+- main: the team's description (1-120 code points, no `Cc` or `Cf`, equal to its trimmed self, P16),
+  else `Agent team: the team's agents and the humans who direct them. Mention an agent to reach it.`
+- reports: 00211's sentence: `Reports from the team's agents, for you to read. To reach an agent, write in the main room; answer questions in the questions room.`
+- questions open: `Questions the coordinator <handle> could not answer itself. Answer here; the coordinator reads every message in this room.`
+- questions closed: `This team has no coordinator now, so this room is closed.`
+
+A member reads the main topic as the team description only when the admin sent it and it passes
+P16; otherwise it has no description, which is not a trust failure (v1 `syncer.py:350-359`).
