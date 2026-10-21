@@ -56,9 +56,23 @@ func readJSON(t *testing.T, path string) *args {
 
 func loadContexts(t *testing.T) map[string]*Context {
 	t.Helper()
-	contexts := readJSON(t, filepath.Join(corpusDir, "contexts.json")).object("contexts")
+	files, err := filepath.Glob(filepath.Join(corpusDir, "contexts*.json"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("contexts files: %v %v", files, err)
+	}
 	out := map[string]*Context{}
+	for _, path := range files {
+		readContexts(t, readJSON(t, path).object("contexts"), out)
+	}
+	return out
+}
+
+func readContexts(t *testing.T, contexts *args, out map[string]*Context) {
+	t.Helper()
 	for name := range contexts.obj {
+		if _, dup := out[name]; dup {
+			t.Fatalf("context %s is defined twice", name)
+		}
 		a := contexts.object(name)
 		ctx := &Context{
 			ServerName: a.str("server_name"), Humans: a.strs("humans"), Roles: map[string]string{},
@@ -82,7 +96,6 @@ func loadContexts(t *testing.T) map[string]*Context {
 		}
 		out[name] = ctx
 	}
-	return out
 }
 
 func TestCorpus(t *testing.T) {
@@ -94,7 +107,7 @@ func TestCorpus(t *testing.T) {
 	}
 	for _, path := range files {
 		suite := strings.TrimSuffix(filepath.Base(path), ".json")
-		if suite == "contexts" {
+		if strings.HasPrefix(suite, "contexts") {
 			continue
 		}
 		data := readJSON(t, path)

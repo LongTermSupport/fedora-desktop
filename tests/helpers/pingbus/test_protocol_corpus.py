@@ -1,11 +1,12 @@
 """The shared protocol corpus, walked against the Python (Plan 00209, SPEC-proto.md).
 
-`tests/fixtures/agent-bus-protocol/` holds one file per suite and `contexts.json`. The Go
+`tests/fixtures/agent-bus-protocol/` holds one file per suite and the contexts files
+(`contexts*.json`, each `{"v": 1, "contexts": {name: context}}`, a name used once). The Go
 package `src-go/internal/bus/proto` walks the same files (`corpus_test.go`); neither side is
 the other's oracle, every case is written from the SPEC or a found bug.
 
 A suite file is `{"v": 1, "suite": <name>, "cases": [...]}`. A case is `id`, `spec` (the P
-number), `fn` (an adapter name), `args`, an optional `ctx` (a name in `contexts.json`), and
+number), `fn` (an adapter name), `args`, an optional `ctx` (a context's name), and
 `expect`, the verdict as JSON: a value, `{"refused": <reason>}` (a Refusal),
 `{"untrusted": <reason text>}` (Untrusted) or `{"error": true}` (any other ValueError, a
 caller error). Where the Python answers differently a case adds one of:
@@ -56,19 +57,21 @@ for _module in (corpus_grammar, corpus_ping, corpus_rooms, corpus_limits, corpus
 
 
 def load_contexts() -> dict[str, p.Context]:
-    data = json.loads((CORPUS / "contexts.json").read_text(encoding="utf-8"))
-    return {
-        name: p.Context(
-            c["server_name"],
-            frozenset(c["humans"]),
-            dict(c["roles"]),
-            {repo: tuple(branches) for repo, branches in c["repos"].items()},
-            tuple(c["path_prefixes"]),
-            c["org"],
-            tuple(c["exclude"]),
-        )
-        for name, c in data["contexts"].items()
-    }
+    contexts: dict[str, p.Context] = {}
+    for path in sorted(CORPUS.glob("contexts*.json")):
+        for name, c in json.loads(path.read_text(encoding="utf-8"))["contexts"].items():
+            if name in contexts:
+                raise RuntimeError(f"{path.name}: context {name!r} is defined twice")
+            contexts[name] = p.Context(
+                c["server_name"],
+                frozenset(c["humans"]),
+                dict(c["roles"]),
+                {repo: tuple(branches) for repo, branches in c["repos"].items()},
+                tuple(c["path_prefixes"]),
+                c["org"],
+                tuple(c["exclude"]),
+            )
+    return contexts
 
 
 def verdict(adapter: Adapter, args: dict, ctx: p.Context | None) -> object:
@@ -127,7 +130,7 @@ def build_suites() -> dict[str, type[unittest.TestCase]]:
     contexts = load_contexts()
     classes: dict[str, type[unittest.TestCase]] = {}
     for path in sorted(CORPUS.glob("*.json")):
-        if path.name == "contexts.json":
+        if path.name.startswith("contexts"):
             continue
         data = json.loads(path.read_text(encoding="utf-8"))
         if data.get("v") != 1 or data.get("suite") != path.stem:
@@ -155,10 +158,10 @@ class TestCorpusShape(unittest.TestCase):
 
     def test_every_case_cites_a_spec_expectation(self) -> None:
         for path in CORPUS.glob("*.json"):
-            if path.name == "contexts.json":
+            if path.name.startswith("contexts"):
                 continue
             for case in json.loads(path.read_text(encoding="utf-8"))["cases"]:
-                self.assertRegex(case["spec"], r"^(P[1-9][0-9]?|D[1-6])( (P[1-9][0-9]?|D[1-6]))*$",
+                self.assertRegex(case["spec"], r"^([PD][1-9][0-9]?)( [PD][1-9][0-9]?)*$",
                                  case["id"])
 
 

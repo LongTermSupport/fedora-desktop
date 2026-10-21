@@ -6,6 +6,8 @@ test_protocol_corpus.py for the corpus format.
 
 from __future__ import annotations
 
+import unicodedata
+
 from helpers.agent_bus import registry
 from helpers.pingbus import protocol as p
 
@@ -48,6 +50,12 @@ def _verb_rule(args: dict, _ctx: p.Context | None) -> object:
             "to_humans": args["verb"] in p.VERBS_TO_HUMANS}
 
 
+def _unicode15_table(args: dict, _ctx: p.Context | None) -> object:
+    """True when every code point of the ranges is unassigned in this Python's tables: the
+    Unicode 15.0 additions the Go escapes are exactly what Unicode 14.0 lacks (P84)."""
+    return all(unicodedata.category(chr(cp)) == "Cn" for a, b in args["ranges"] for cp in range(a, b + 1))
+
+
 def _check(fn: object) -> object:
     def adapter(args: dict, ctx: p.Context) -> object:
         fn(args["verb"], args["sender"], ctx) if "verb" in args else fn(args["sender"], ctx)
@@ -62,6 +70,7 @@ def _value(fn: object) -> object:
 ADAPTERS = {
     # values (P3)
     "content_size": _content_size,
+    "unicode15_table": _unicode15_table,
     # identifiers (P4-P16)
     "is_team_name": _value(p.is_team_name),
     "parse_handle": lambda args, _ctx: _handle(p.parse_handle(args["value"])),

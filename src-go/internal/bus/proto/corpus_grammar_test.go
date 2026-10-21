@@ -68,6 +68,14 @@ func buildHandleAdapter(a *args) (any, error) {
 	return nil, ErrSeat
 }
 
+func unicode15Ranges() []any {
+	out := make([]any, len(unicode15New))
+	for i, rg := range unicode15New {
+		out[i] = []any{int64(rg[0]), int64(rg[1])}
+	}
+	return out
+}
+
 func verbRuleAdapter(a *args) (any, error) {
 	rule, ok := Verbs[a.str("verb")]
 	if !ok {
@@ -88,6 +96,9 @@ func grammarAdapters() map[string]adapter {
 func identifierAdapters() map[string]adapter {
 	return map[string]adapter{
 		"content_size": func(a *args) (any, error) { return ContentSize(a.value("content")) },
+		"unicode15_table": func(a *args) (any, error) {
+			return pyjson.Canonical(a.value("ranges")) == pyjson.Canonical(toPy(unicode15Ranges())), nil
+		},
 		"is_team_name": onString(IsTeamName),
 		"parse_handle": func(a *args) (any, error) {
 			s, ok := a.value("value").(string)
