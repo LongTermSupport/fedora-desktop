@@ -167,15 +167,24 @@ func Canonical(seats []Seat) string {
 // Write replaces the desired membership in dir atomically, making dir and its two parents
 // private to the owner.
 func Write(dir string, d Desired) error {
-	if err := d.check(); err != nil {
+	if err := d.checkWrite(); err != nil {
 		return fmt.Errorf("refusing to write the desired membership: %w", err)
 	}
-	// encoding/json writes each byte of invalid UTF-8 as U+FFFD, so the file would name
-	// another checkout.
-	if !utf8.ValidString(d.Checkout) {
-		return fmt.Errorf("refusing to write the desired membership: the checkout %q is not UTF-8", d.Checkout)
-	}
 	return writeDesired(dir, d)
+}
+
+// checkWrite is check for a membership about to be written, by Write or the launcher.
+// encoding/json writes each byte of invalid UTF-8 as U+FFFD, so a checkout that is not UTF-8
+// would be written as another checkout. That includes the lone surrogate a read file may hold
+// (pyjson keeps it as generalised UTF-8): such a membership is read, but never rewritten.
+func (d Desired) checkWrite() error {
+	if err := d.check(); err != nil {
+		return err
+	}
+	if !utf8.ValidString(d.Checkout) {
+		return fmt.Errorf("the checkout %q is not UTF-8", d.Checkout)
+	}
+	return nil
 }
 
 type relaunch struct {

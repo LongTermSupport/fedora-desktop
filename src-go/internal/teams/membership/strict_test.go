@@ -118,6 +118,8 @@ func desiredCases(t *testing.T) []fileCase {
 		d("a session name with a leading dot", `"session":"s"`, `"session":".s"`, false),
 		d("a checkout of 4095 lone surrogates", `"checkout":"/p"`, `"checkout":"/`+strings.Repeat(`\ud800`, 4095)+`"`, true),
 		d("a checkout of 4096 lone surrogates", `"checkout":"/p"`, `"checkout":"/`+strings.Repeat(`\ud800`, 4096)+`"`, false),
+		d("a checkout of 4095 lone low surrogates", `"checkout":"/p"`, `"checkout":"/`+strings.Repeat(`\udfff`, 4095)+`"`, true),
+		d("a checkout of 4096 lone low surrogates", `"checkout":"/p"`, `"checkout":"/`+strings.Repeat(`\udfff`, 4096)+`"`, false),
 		d("a team with a comma", `"team":"alpha"`, `"team":"a,1@b"`, false),
 		d("a seat with a comma", `"team":"alpha","seat":"1"`, `"team":"b","seat":"1@a,2"`, false),
 		d("seat 0", `"seat":"1"`, `"seat":"0"`, false),
