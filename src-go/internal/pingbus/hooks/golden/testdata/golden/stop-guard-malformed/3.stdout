@@ -1,0 +1,1 @@
+{"decision": "block", "reason": "agent-bus: 1 of 1 active teams have no watcher or waiter, so nothing will wake this session. Run `pingbus wait` with run_in_background."}

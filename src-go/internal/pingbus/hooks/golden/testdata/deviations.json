@@ -1,1 +1,78 @@
-{"v": 1, "dropped_files": [], "pinned": []}
+{
+ "v": 1,
+ "dropped_files": [
+  {
+   "path": "pingbus/goodbye.json",
+   "decision": "HB1 (B7)",
+   "reason": "goodbye.json is neither written nor read by Go: once per claim rests on the seat's said-goodbye.json, in its attempt and said forms"
+  }
+ ],
+ "pinned": [
+  {
+   "scenario": "end-goodbye-new-session",
+   "step": 2,
+   "decision": "HB1 (B7)",
+   "reason": "the seat's said-goodbye.json already names its claim (said form), so Go sends nothing; v1 keys goodbye.json on the session id and posts again"
+  },
+  {
+   "scenario": "end-goodbye-no-session-id",
+   "step": 2,
+   "decision": "HB1 (B7)",
+   "reason": "the seat's said-goodbye.json already names its claim (said form), so Go sends nothing; v1 keys goodbye.json on the session id and posts again"
+  },
+  {
+   "scenario": "end-goodbye-homeserver-fails",
+   "step": 1,
+   "decision": "HB1 (B7)",
+   "reason": "a failed goodbye leaves the attempt form {\"v\":1,\"attempt_claimed_ms\":1234}, written before the first request; v1 writes goodbye.json instead"
+  },
+  {
+   "scenario": "end-goodbye-homeserver-fails",
+   "step": 2,
+   "decision": "HB1 (B7)",
+   "reason": "the attempt form names the claim, so a retry from another session id sends nothing (R28); v1 posts again"
+  },
+  {
+   "scenario": "end-goodbye-forbidden",
+   "step": 1,
+   "decision": "HB1 (B7)",
+   "reason": "the goodbye failed after its attempt form was written, so said-goodbye.json holds the attempt form; v1 writes goodbye.json instead"
+  },
+  {
+   "scenario": "end-goodbye-wrong-team",
+   "step": 1,
+   "decision": "HB1 (B7)",
+   "reason": "the goodbye failed after its attempt form was written, so said-goodbye.json holds the attempt form; v1 writes goodbye.json instead"
+  },
+  {
+   "scenario": "end-goodbye-slow",
+   "step": 1,
+   "decision": "HB1 (B7)",
+   "reason": "the goodbye failed after its attempt form was written, so said-goodbye.json holds the attempt form; v1 writes goodbye.json instead"
+  },
+  {
+   "scenario": "end-goodbye-rate-limited",
+   "step": 1,
+   "decision": "HB1 (B7)",
+   "reason": "the goodbye failed after its attempt form was written, so said-goodbye.json holds the attempt form; v1 writes goodbye.json instead"
+  },
+  {
+   "scenario": "end-goodbye-one-team-fails",
+   "step": 1,
+   "decision": "HB1 (B7)",
+   "reason": "team-a's goodbye is posted (said form, as v1); team-b's failed, so its seat holds the attempt form; v1 writes goodbye.json instead"
+  },
+  {
+   "scenario": "end-no-claim",
+   "step": 2,
+   "decision": "HB3",
+   "reason": "a seat.lock that names no claim gives one stderr line and no goodbye (nothing can be recorded before the attempt); v1 posts without recording"
+  },
+  {
+   "scenario": "end-sessions-dir-a-file",
+   "step": 1,
+   "decision": "HB4",
+   "reason": "the sessions record's removal failing is one stderr line and the goodbye goes on, as in end-goodbye-new-session step 1; v1 is internal and sends none"
+  }
+ ]
+}

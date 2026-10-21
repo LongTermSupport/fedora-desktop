@@ -1,0 +1,1 @@
+{"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "agent-bus: you left team team-b: removed by the owner. Commands for it are refused from now on.\nagent-bus: this session's teams are now: team-a."}}

@@ -1,0 +1,65 @@
+[
+ {
+  "path": "checkout",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "checkout/.claude",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "checkout/.claude/ccy",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "checkout/.claude/ccy/pingbus",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "checkout/.claude/ccy/pingbus/sessions",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "checkout/.claude/ccy/pingbus/sessions/cc-myrepo-1",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "checkout/.claude/ccy/pingbus/sessions/cc-myrepo-1/conversation.json",
+  "kind": "file",
+  "mode": "0600",
+  "content": "{\"session\": \"cc-myrepo-1\", \"session_id\": \"sess-2\", \"source\": \"compact\", \"v\": 1, \"written_ms\": 1791000005000}\n"
+ },
+ {
+  "path": "home",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "membership",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "membership/membership.json",
+  "kind": "file",
+  "mode": "0600",
+  "content": "{\"v\": 1, \"session\": \"cc-myrepo-1\", \"kind\": \"cc\", \"checkout\": \"{world}/checkout\", \"generation\": 1, \"written_ms\": 1, \"seats\": [{\"team\": \"team-a\", \"seat\": \"1\"}], \"farewell\": []}"
+ },
+ {
+  "path": "pingbus",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "pingbus/applied.json",
+  "kind": "file",
+  "mode": "0600",
+  "content": "{\"generation\": 1, \"refused\": [], \"seats\": [{\"handle\": \"myrepo.1+workstation.podman\", \"seat\": \"1\", \"state\": \"held\", \"team\": \"team-a\"}], \"v\": 1}\n"
+ }
+]

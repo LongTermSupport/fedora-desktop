@@ -48,13 +48,24 @@ type roomConf struct {
 	Team  json.RawMessage `json:"team"`
 }
 
-// request is one received request, as a step's requests.json records it.
+// request is one received request, as a step's requests.json records it. The body is the
+// bytes sent, as text: the hooks send Python's json.dumps, separators and key order included.
 type request struct {
-	Method string            `json:"method"`
-	Path   string            `json:"path"`
-	Query  map[string]string `json:"query"`
-	Auth   string            `json:"auth"`
-	Body   any               `json:"body"`
+	Method      string            `json:"method"`
+	Path        string            `json:"path"`
+	Query       map[string]string `json:"query"`
+	Auth        string            `json:"auth"`
+	ContentType string            `json:"content_type"`
+	Body        string            `json:"body"`
+}
+
+// roomOf is the room segment of a request's path ("" outside the rooms API).
+func roomOf(path string) string {
+	rest, ok := strings.CutPrefix(path, clientPrefix+"/rooms/")
+	if !ok {
+		return ""
+	}
+	return strings.SplitN(rest, "/", 2)[0]
 }
 
 type homeserver struct {
@@ -94,7 +105,9 @@ func (hs *homeserver) setFail(fail string) {
 	hs.fail = fail
 }
 
-// drain is the requests received since the last drain, normalised.
+// drain is the requests received since the last drain, normalised, grouped by room in the
+// order of each room's first request and in arrival order within a room: goodbyes to several
+// teams run in parallel, so only the order per team is the hooks' (spec H94).
 func (hs *homeserver) drain(normalise func([]byte) []byte) []request {
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
@@ -102,28 +115,32 @@ func (hs *homeserver) drain(normalise func([]byte) []byte) []request {
 	hs.received = nil
 	for i := range out {
 		out[i].Auth = string(normalise([]byte(out[i].Auth)))
-		if s, ok := out[i].Body.(string); ok {
-			out[i].Body = string(normalise([]byte(s)))
-		}
+		out[i].Body = string(normalise([]byte(out[i].Body)))
 	}
 	if out == nil {
 		return []request{}
 	}
+	rooms := []string{}
+	for _, r := range out {
+		if room := roomOf(r.Path); !slices.Contains(rooms, room) {
+			rooms = append(rooms, room)
+		}
+	}
+	slices.Sort(rooms)
+	slices.SortStableFunc(out, func(a, b request) int {
+		return slices.Index(rooms, roomOf(a.Path)) - slices.Index(rooms, roomOf(b.Path))
+	})
 	return out
 }
 
 func (hs *homeserver) record(r *http.Request) string {
 	raw, err := io.ReadAll(r.Body)
-	var body any
-	switch {
-	case err != nil:
+	body := string(raw)
+	if err != nil {
 		body = "unreadable: " + err.Error()
-	case len(raw) == 0:
-		body = nil
-	case json.Unmarshal(raw, &body) != nil:
-		body = string(raw)
 	}
-	path := r.URL.Path
+	// The path as sent, percent-encoding included: v1 quotes each segment whole (spec H84).
+	path := r.URL.EscapedPath()
 	if m := sendPathRE.FindStringSubmatch(path); m != nil {
 		path = m[1] + txnMark
 	}
@@ -135,7 +152,7 @@ func (hs *homeserver) record(r *http.Request) string {
 	defer hs.mu.Unlock()
 	hs.received = append(hs.received, request{
 		Method: r.Method, Path: path, Query: query,
-		Auth: r.Header.Get("Authorization"), Body: body,
+		Auth: r.Header.Get("Authorization"), ContentType: r.Header.Get("Content-Type"), Body: body,
 	})
 	return hs.fail
 }
@@ -337,13 +354,35 @@ func TestTheFakeHomeserverRecordsTheSend(t *testing.T) {
 		t.Fatalf("recorded %d requests, want 2: %+v", len(got), got)
 	}
 	send := got[1]
-	if send.Path != clientPrefix+"/rooms/"+testRoom+"/send/m.room.message/"+txnMark || send.Auth != "Bearer {tok}" {
+	if send.Path != testBase+"/send/m.room.message/"+txnMark || send.Auth != "Bearer {tok}" {
 		t.Errorf("send recorded as %+v", send)
 	}
-	if body, ok := send.Body.(map[string]any); !ok || body["a"] != float64(2) || got[0].Query["format"] != "event" {
+	if send.Body != `{"b": 1, "a": 2}` || got[0].Body != "" || got[0].Query["format"] != "event" {
 		t.Errorf("send recorded as %+v", send)
 	}
 	if len(hs.drain(func(b []byte) []byte { return b })) != 0 {
 		t.Error("a drain empties the record")
+	}
+}
+
+// Requests to several rooms are grouped by room, each room's own order kept.
+func TestTheFakeHomeserverGroupsByRoom(t *testing.T) {
+	hs := testHomeserver(t)
+	other := clientPrefix + "/rooms/%21" + strings.Repeat("A", 43)
+	for _, path := range []string{testBase + "/state/m.room.create/", other + "/state/m.room.create/", testBase + "/state/agent_bus.team/", other + "/state/agent_bus.team/"} {
+		callFake(t, hs, http.MethodGet, path, nil)
+	}
+	got := hs.drain(func(b []byte) []byte { return b })
+	paths := make([]string, 0, len(got))
+	for _, r := range got {
+		paths = append(paths, strings.TrimPrefix(r.Path, clientPrefix+"/rooms/"))
+	}
+	a, r := "%21"+strings.Repeat("A", 43), "%21"+strings.Repeat("R", 43)
+	want := []string{a + "/state/m.room.create/", a + "/state/agent_bus.team/", r + "/state/m.room.create/", r + "/state/agent_bus.team/"}
+	if !slices.Equal(paths, want) {
+		t.Errorf("got %v, want %v", paths, want)
+	}
+	if roomOf("/elsewhere") != "" {
+		t.Error("a path outside the rooms API has no room")
 	}
 }

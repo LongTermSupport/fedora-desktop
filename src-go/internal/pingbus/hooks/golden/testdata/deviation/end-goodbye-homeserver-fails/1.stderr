@@ -1,0 +1,1 @@
+pingbus: hook session-end: goodbye to team team-a not sent: homeserver: GET /_matrix/client/v3/rooms/%21RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR/state/m.room.create/: HTTP 500 M_UNKNOWN

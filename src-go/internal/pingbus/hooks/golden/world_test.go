@@ -125,7 +125,7 @@ func (w *world) stdinOf(h stdinHolder) ([]byte, error) {
 	case h.StdinB64 != nil:
 		return base64.StdEncoding.DecodeString(*h.StdinB64)
 	case h.StdinRepeat != nil:
-		return []byte(strings.Repeat(h.StdinRepeat.Text, h.StdinRepeat.Count)), nil
+		return []byte(h.StdinRepeat.Prefix + strings.Repeat(h.StdinRepeat.Text, h.StdinRepeat.Count)), nil
 	case h.Stdin != nil:
 		return []byte(w.expand(*h.Stdin)), nil
 	}
@@ -366,7 +366,7 @@ func runScenario(t *testing.T, render renderer, file scenarioFile, sc scenario) 
 		}
 		results = append(results, stepResult{
 			stdout: w.normalise(out), stderr: w.normalise(errOut), code: code,
-			files: files, requests: requests, problems: problems,
+			files: files, requests: requests, problems: problems, unordered: st.Event == "session-end",
 		})
 	}
 	w.waitSpawns(expected+1, settleFor)

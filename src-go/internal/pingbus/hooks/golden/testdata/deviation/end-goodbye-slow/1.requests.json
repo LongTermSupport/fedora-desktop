@@ -1,0 +1,12 @@
+[
+ {
+  "method": "GET",
+  "path": "/_matrix/client/v3/rooms/%21RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR/state/m.room.create/",
+  "query": {
+   "format": "event"
+  },
+  "auth": "Bearer syt_member_token_for_team-a",
+  "content_type": "",
+  "body": ""
+ }
+]

@@ -91,9 +91,11 @@ type fileEntry struct {
 	Target     string  `json:"target"`
 }
 
+// stdinRepeat is a stdin of Prefix then Text Count times: an oversized payload.
 type stdinRepeat struct {
-	Text  string `json:"text"`
-	Count int    `json:"count"`
+	Prefix string `json:"prefix"`
+	Text   string `json:"text"`
+	Count  int    `json:"count"`
 }
 
 // stdinHolder is a stdin given as one of three keys.
@@ -156,6 +158,9 @@ type stepResult struct {
 	files          []byte
 	requests       []byte
 	problems       []string
+	// unordered is a session-end step: its goodbyes run in parallel, so its stderr lines
+	// are compared as a multiset (spec H91).
+	unordered bool
 }
 
 func decodeStrict(raw []byte, into any, what string) error {
@@ -250,7 +255,8 @@ func checkStep(t *testing.T, name string, n int, got stepResult, devs deviations
 		dir = filepath.Join(deviationDir, name)
 	}
 	want := readRecord(t, dir, n)
-	if !isPython && !pinned {
+	// A pinned record is written by hand, so it too is decoded and encoded again here.
+	if !isPython {
 		files, err := devs.dropFiles(want.files)
 		if err != nil {
 			t.Fatalf("step %d: %v", n, err)
@@ -260,7 +266,7 @@ func checkStep(t *testing.T, name string, n int, got stepResult, devs deviations
 	if !bytes.Equal(got.stdout, want.stdout) {
 		t.Errorf("step %d: stdout %q, recorded %q", n, got.stdout, want.stdout)
 	}
-	if !stderrMatches(want.stderr, got.stderr) {
+	if !stderrMatches(want.stderr, got.stderr, got.unordered) {
 		t.Errorf("step %d: stderr %q, recorded %q", n, got.stderr, want.stderr)
 	}
 	if got.code != want.code {
@@ -374,7 +380,7 @@ func resultDiff(a, b stepResult) string {
 	switch {
 	case !bytes.Equal(a.stdout, b.stdout):
 		return "stdout"
-	case !bytes.Equal(a.stderr, b.stderr):
+	case !slices.Equal(stderrLines(a.stderr, a.unordered), stderrLines(b.stderr, b.unordered)):
 		return "stderr"
 	case a.code != b.code:
 		return "exit"
@@ -417,15 +423,30 @@ func stderrShape(b []byte) []string {
 	return shapes
 }
 
-// stderrMatches is the stderr rule of the package doc.
-func stderrMatches(want, got []byte) bool {
+// stderrLines is b's lines, sorted when their order is free.
+func stderrLines(b []byte, unordered bool) []string {
+	lines := strings.SplitAfter(string(b), "\n")
+	if unordered {
+		slices.Sort(lines)
+	}
+	return lines
+}
+
+// stderrMatches is the stderr rule of the package doc; unordered compares the shapes as a
+// multiset.
+func stderrMatches(want, got []byte, unordered bool) bool {
 	if bytes.Equal(want, got) {
 		return true
 	}
 	if len(want) == 0 || len(got) == 0 {
 		return false
 	}
-	return slices.Equal(stderrShape(want), stderrShape(got))
+	ws, gs := stderrShape(want), stderrShape(got)
+	if unordered {
+		slices.Sort(ws)
+		slices.Sort(gs)
+	}
+	return slices.Equal(ws, gs)
 }
 
 func TestStderrIsComparedByShape(t *testing.T) {
@@ -441,16 +462,24 @@ func TestStderrIsComparedByShape(t *testing.T) {
 		{"pingbus: hook stop: replacing the guard file\nsecond line\n", false},
 	}
 	for _, c := range cases {
-		if got := stderrMatches(recorded, []byte(c.got)); got != c.want {
+		if got := stderrMatches(recorded, []byte(c.got), false); got != c.want {
 			t.Errorf("%q against the record: %v, want %v", c.got, got, c.want)
 		}
 	}
-	if !stderrMatches(nil, nil) || stderrMatches(nil, []byte("x\n")) {
+	if !stderrMatches(nil, nil, false) || stderrMatches(nil, []byte("x\n"), true) {
 		t.Error("empty must stay empty")
 	}
 	usage := []byte("usage: pingbus hook [-h] EVENT\npingbus hook: error: argument EVENT: invalid choice\n")
-	if !stderrMatches(usage, []byte("usage: pingbus hook EVENT\npingbus hook: error: argument EVENT is not a hook\n")) {
+	if !stderrMatches(usage, []byte("usage: pingbus hook EVENT\npingbus hook: error: argument EVENT is not a hook\n"), false) {
 		t.Error("a line without the hook prefix is compared by its first words")
+	}
+	two := []byte("pingbus: hook session-end: goodbye to team team-a not sent: x\npingbus: team team-b: the team room is not trusted: y\n")
+	swapped := []byte("pingbus: team team-b: the team room is not trusted: y\npingbus: hook session-end: goodbye to team team-a not sent: x\n")
+	if !stderrMatches(two, swapped, true) || stderrMatches(two, swapped, false) {
+		t.Error("only a session-end's lines are compared in any order")
+	}
+	if !slices.Equal(stderrLines(swapped, true), stderrLines(two, true)) || slices.Equal(stderrLines(swapped, false), stderrLines(two, false)) {
+		t.Error("two recordings of a session-end may order their lines differently")
 	}
 }
 
@@ -533,6 +562,10 @@ func TestEveryPinnedStepHasItsRecord(t *testing.T) {
 			if _, err := fs.Stat(os.DirFS("testdata"), path); err != nil {
 				t.Errorf("%s: %v", path, err)
 			}
+		}
+		want := readRecord(t, filepath.Join(deviationDir, p.Scenario), p.Step)
+		if _, err := devs.dropFiles(want.files); err != nil {
+			t.Errorf("%s step %d: %v", p.Scenario, p.Step, err)
 		}
 	}
 }

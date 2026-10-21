@@ -1,0 +1,12 @@
+[
+ {
+  "path": "home",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "pingbus",
+  "kind": "dir",
+  "mode": "0700"
+ }
+]

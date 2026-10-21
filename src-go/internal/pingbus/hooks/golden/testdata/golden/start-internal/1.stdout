@@ -1,0 +1,1 @@
+{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "agent-bus: pingbus failed inside a hook. Run `pingbus status`."}}

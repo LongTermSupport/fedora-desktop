@@ -1,0 +1,1 @@
+{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "agent-bus: this session has no inbox socket. To be woken, run `pingbus wait` with run_in_background.\nagent-bus: in team team-a you are a worker; the team has no coordinator."}}

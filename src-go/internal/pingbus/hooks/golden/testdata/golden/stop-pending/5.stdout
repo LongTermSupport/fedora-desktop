@@ -1,0 +1,1 @@
+{"decision": "block", "reason": "agent-bus: 1 pending (1 from humans, 0 from agents, 0 pings). Run `pingbus recv` before stopping."}

@@ -1,0 +1,2 @@
+pingbus: hook stop: the guard file is unreadable: Is a directory
+pingbus: hook stop: the guard file cannot be written, so the guard does not block: Is a directory

@@ -1,0 +1,18 @@
+[
+ {
+  "path": "home",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "pingbus",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "pingbus/stop-guard.json",
+  "kind": "file",
+  "mode": "0600",
+  "content": "{\"v\":1,\"pending\":null,\"no_waker_ms\":null,\"failure_ms\":1791000000000}"
+ }
+]
