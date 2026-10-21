@@ -355,15 +355,21 @@ invites it again.
 
 ### 5.4 Health
 
-`health.py` gains a read-only side-room check:
+The admin tool gains a read-only side-room check, `agent-bus check-rooms <team>`
+(`admin.check_rooms`). It is not in `health.py`: that is root's homeserver probe behind a
+timer, holds no Matrix credential and checks no room, so the first version of this section,
+which put the check there "as the main-room checks do", named checks that do not exist. The
+check reads, as `admin`:
 
 - the rooms exist and their state is exact;
 - every human is in each room;
 - no worker is in questions;
-- each coordinator is joined to questions.
+- each coordinator is joined to questions, and to reports (a coordinator running 0.2.0
+  joins both).
 
-A coordinator not joined (`invite` or `leave`) or any drift fails the check with the repair
-named (`ccy-teams apply`, or restart the session and run the play), as the main-room checks do.
+Each fault is a `PROBLEM` line with its repair (run the agent-bus play, or restart the
+coordinator's session and run the play), and any fault exits 1. Stage 2's acceptance (A1,
+A2) runs it for every team.
 
 ### 5.5 `agent-bus list`: a new line kind
 
