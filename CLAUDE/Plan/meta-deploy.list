@@ -41,5 +41,6 @@ playbooks/imports/play-claude-yolo.yml
 # play-basic-configs.yml (no plan owns it): the "Disable GRUB Menu Auto-Hide" task now reads
 # `grub2-editenv list` first and unsets menu_auto_hide only when it is set, so it reports
 # changed only when it changes something (it used to report changed on every run). The first run
-# after this may still show one change if the variable is set; the next shows none.
+# after this may still show one change if the variable is set; the next shows none. The entry
+# runs the whole play, so its other tasks (firmware updates among them) run too, as on any run.
 playbooks/imports/play-basic-configs.yml
