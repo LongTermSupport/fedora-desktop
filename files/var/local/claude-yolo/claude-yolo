@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.99.13.11"  # Container 2.78.11: Go status line, LXC member interpreter, reports and questions rooms, farewell reason check, Go 1.26.10 (Plans 00213, 00211). See docs/ccy-changelog.md.
+CCY_VERSION="3.99.13.12"  # Container 2.78.11: the unused bash take-over removed from tmux-session.bash (Plan 00191). See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

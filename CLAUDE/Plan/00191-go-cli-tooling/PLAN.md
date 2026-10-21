@@ -247,6 +247,16 @@ today; rewriting them is out of scope.
 - [ ] 🔄 **Task 4.3**: Launcher phase 0.1: delete the dead bash of the assessment's section
   5.3, after re-proving each name dead on current F44 (the assessment predates later work;
   the goodbye acceptance now uses `ccy_known_prompts`, so that one is live). CCY bump.
+  Re-proved on the branch: only the take-over chain was dead. Deleted from
+  `lib/tmux-session.bash`: `ccy_tmux_take_over`, `ccy_tmux_client_words`,
+  `ccy_tmux_idle_words` and the bash default of `CCY_TMUX_TAKE_OVER_WAIT_TENTHS`, with
+  their cases in `test-ccy-sessions-take-over.bash` (the suite stays: it tests the Go
+  picker's Ctrl-T). CCY 3.99.13.12. Kept, each with a live caller: the whole session-registry
+  restore chain (the Go suites for `registry`, `restore` and `transcript` source the library
+  and call it as their parity oracle; `ccy_registry_restore` and `_restore_args` were already
+  gone), `ccy_known_prompts` (Plan 00194's goodbye harness, `screen_test.go`) and
+  `_ccy_tmux_clients` (`ccy_tmux_attach`, `ccy_tmux_is_detached`). The restore chain can go
+  only with the Go parity cases that call it: the owner's call.
 - [ ] ⬜ **Task 4.4**: Launcher phase 0.2: the differential harness, proven able to fail.
 - [ ] ⬜ **Task 4.5**: Launcher phases 1 and 2: the foundation packages, then `--version`,
   `--help` and the other standalone modes, each a one-flag cut-over.
