@@ -1,0 +1,185 @@
+=== exit 0
+=== stdout
+✓ Creating .claude/ccy/.gitignore for security
+
+🔒 SELinux enforcing: the workspace is mounted with a shared relabel (:z) and
+   key files are staged into a private tmpfs directory (:Z) so the container can read
+   them. Extra project mounts and display sockets are NOT relabelled: Enforcing blocks
+   them, Permissive logs every access — see docs/ccy.md.
+✓ Using token: work (expires: [32m2030-06-01[0m)
+Validating token...
+✓ Token validated successfully
+
+]0;CCY: difftest-projectChecking for Claude Code updates (daily, image: claude-yolo:latest)...
+✓ Claude Code is up to date (2.0.0)
+✓ Token: Long-lived OAuth (CLAUDE_CODE_OAUTH_TOKEN)
+✓ State: /workspace/.claude/ (project-level, persists in git repo)
+
+No network found matching project name: difftest-project
+
+Suggested network names:
+  • difftest-project-network (folder name)
+  • difftest-difftest-project-network (parent-folder-repo)
+
+To connect to a network:
+  • Create: podman network create difftest-project-network
+  • Connect: ccy --network difftest-project-network
+  • Or use: ccy --connect (interactive selection)
+
+Verifying network 'podman' has internet access...
+✓ Network 'podman' has internet access
+
+✓ Configuration saved for quick launch next time
+✓ CCY version: {ccy_version}
+
+Container name: difftest-project_yolo
+
+
+💡 TIP: This project doesn't have a custom Dockerfile yet!
+
+You can create one to add project-specific tools (Python, Go, Rust, databases, cloud CLIs, etc.):
+  • Quick setup: Exit and run 'ccy --custom' (template-based, fast)
+  • AI-guided: Exit and run 'ccy --custom-docker' (investigates project, asks questions, proposes features)
+
+Custom Dockerfiles get cached per-project and rebuild automatically when changed.
+More info: https://github.com/LongTermSupport/fedora-desktop/blob/main/docs/containerization.md#custom-dockerfiles
+
+════════════════════════════════════════════════════════════════════════════════
+Executing Claude Code with arguments:
+  claude --dangerously-skip-permissions --append-system-prompt difftest startup info: the engine is Podman.
+
+💡 TIP: This project doesn't have a custom Dockerfile yet!
+
+You can create one to add project-specific tools (Python, Go, Rust, databases, cloud CLIs, etc.):
+  • Quick setup: Exit and run 'ccy --custom' (template-based, fast)
+  • AI-guided: Exit and run 'ccy --custom-docker' (investigates project, asks questions, proposes features)
+
+Custom Dockerfiles get cached per-project and rebuild automatically when changed.
+More info: https://github.com/LongTermSupport/fedora-desktop/blob/main/docs/containerization.md#custom-dockerfiles
+════════════════════════════════════════════════════════════════════════════════
+
+=== stderr
+✓ Writing .claude/ccy/ccy.env.local.dist (version 3); commit it
+=== calls
+getenforce
+    env: CCY_LIFECYCLE_DEADLINE_EPOCH CCY_LIFECYCLE_MAX_AGE_SECONDS CCY_LIFECYCLE_PLUGIN_PATH CCY_LIFECYCLE_WARN_MINUTES CCY_RESTART_DEFAULT_MAX CCY_RESTART_DEFAULT_WINDOW_SECONDS CCY_RESTART_EXIT_STATUS CCY_RESTART_REQUEST_REL CONTAINER_ENGINE GITHUB_SSH_443
+podman info --format '{{.Host.Security.SELinuxEnabled}}'
+    env: (as above)
+gh auth token
+    env: CCY_LIFECYCLE_DEADLINE_EPOCH CCY_LIFECYCLE_MAX_AGE_SECONDS CCY_LIFECYCLE_PLUGIN_PATH CCY_LIFECYCLE_WARN_MINUTES CCY_MOUNT_RELABEL CCY_RESTART_DEFAULT_MAX CCY_RESTART_DEFAULT_WINDOW_SECONDS CCY_RESTART_EXIT_STATUS CCY_RESTART_REQUEST_REL CCY_SELINUX_MODE CONTAINER_ENGINE GITHUB_SSH_443 SSH_AGENT_FORWARDED SSH_CONFIG_EXTRA_B64 SSH_KNOWN_HOSTS_PINS
+podman run --rm -e CLAUDE_CODE_OAUTH_TOKEN --entrypoint claude claude-yolo:latest --version
+    env: CCY_LIFECYCLE_DEADLINE_EPOCH CCY_LIFECYCLE_MAX_AGE_SECONDS CCY_LIFECYCLE_PLUGIN_PATH CCY_LIFECYCLE_WARN_MINUTES CCY_MOUNT_RELABEL CCY_RESTART_DEFAULT_MAX CCY_RESTART_DEFAULT_WINDOW_SECONDS CCY_RESTART_EXIT_STATUS CCY_RESTART_REQUEST_REL CCY_SELINUX_MODE CLAUDE_CODE_OAUTH_TOKEN CONTAINER_ENGINE GITHUB_SSH_443 SSH_AGENT_FORWARDED SSH_CONFIG_EXTRA_B64 SSH_KNOWN_HOSTS_PINS
+podman info --format '{{.Host.Security.Rootless}}'
+    env: CCY_LIFECYCLE_DEADLINE_EPOCH CCY_LIFECYCLE_MAX_AGE_SECONDS CCY_LIFECYCLE_PLUGIN_PATH CCY_LIFECYCLE_WARN_MINUTES CCY_MOUNT_RELABEL CCY_RESTART_DEFAULT_MAX CCY_RESTART_DEFAULT_WINDOW_SECONDS CCY_RESTART_EXIT_STATUS CCY_RESTART_REQUEST_REL CCY_SELINUX_MODE CONTAINER_ENGINE GITHUB_SSH_443 SSH_AGENT_FORWARDED SSH_CONFIG_EXTRA_B64 SSH_KNOWN_HOSTS_PINS
+podman ps -a --filter name=_yolo --filter status=exited --format '{{.Names}}'
+    env: (as above)
+podman ps --filter name=_yolo --format '{{.Names}}'
+    env: (as above)
+podman ps --filter name=difftest-project_yolo --format '{{.Names}}'
+    env: (as above)
+podman image inspect claude-yolo:latest
+    env: (as above)
+podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-version"}}'
+    env: (as above)
+podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-dockerfile-hash"}}'
+    env: (as above)
+podman run --rm --entrypoint claude claude-yolo:latest --version
+    env: (as above)
+curl -fsSL https://registry.npmjs.org/@anthropic-ai/claude-code/latest
+    env: (as above)
+podman unshare cat /proc/self/uid_map
+    env: (as above)
+podman network ls --format '{{.Name}}'
+    env: (as above)
+docker network ls --format '{{.Name}}'
+    env: (as above)
+podman network ls --format '{{.Name}}'
+    env: (as above)
+podman run --rm --network podman alpine wget -q -O- --timeout=10 http://google.com
+    env: (as above)
+ccy-teams internal claim-container-name difftest-project yolo '{pid}'
+    env: (as above)
+podman rm -f difftest-project_yolo
+    env: (as above)
+timedatectl show -p Timezone --value
+    env: CCY_LIFECYCLE_DEADLINE_EPOCH CCY_LIFECYCLE_MAX_AGE_SECONDS CCY_LIFECYCLE_PLUGIN_PATH CCY_LIFECYCLE_WARN_MINUTES CCY_MOUNT_RELABEL CCY_RESTART_DEFAULT_MAX CCY_RESTART_DEFAULT_WINDOW_SECONDS CCY_RESTART_EXIT_STATUS CCY_RESTART_REQUEST_REL CCY_SELINUX_MODE CLAUDE_CODE_OAUTH_TOKEN CONTAINER_ENGINE GH_TOKEN GITHUB_SSH_443 SSH_AGENT_FORWARDED SSH_CONFIG_EXTRA_B64 SSH_KNOWN_HOSTS_PINS
+podman run -it --rm --name difftest-project_yolo --label ccy=true --label ccy-project=difftest-project --label ccy-github=none --label ccy-token=work --label ccy-ssh-keys=none -e PINGBUS_MEMBERSHIP=off --network podman -v '{sandbox}/project:/workspace:z' -v /tmp/claude-yolo-XXXXXX:/tmp/claude-config-import:ro,Z -e CLAUDE_CODE_OAUTH_TOKEN -e GH_TOKEN -e GITHUB_USERNAME= -e DEBUG_MODE=false -e DEBUG_ENTRYPOINT=false -e SSH_KEY_PATHS= -e SSH_AGENT_FORWARDED=0 -e SSH_CONFIG_EXTRA_B64= -e SSH_KNOWN_HOSTS_PINS= -e GITHUB_SSH_443=0 -e CCY_HOST_HOSTNAME=difftest-host -e TZ=Europe/London -e CCY_CLAUDE_WRAPPER= -e CCY_NO_SUPERVISOR= -e 'CCY_LIFECYCLE_LAUNCH_ID=launch-1894708800-{pid}-{random}' -e CCY_LIFECYCLE_MAX_AGE_SECONDS= -e CCY_LIFECYCLE_DEADLINE_EPOCH= -e CCY_LIFECYCLE_WARN_MINUTES= -e CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 -e CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000 -e MAX_THINKING_TOKENS= -e TERM=xterm-256color -e COLORTERM=truecolor -e FORCE_COLOR=1 -w /workspace claude-yolo:latest claude --dangerously-skip-permissions --append-system-prompt 'difftest startup info: the engine is Podman.
+
+💡 TIP: This project doesn'\''t have a custom Dockerfile yet!
+
+You can create one to add project-specific tools (Python, Go, Rust, databases, cloud CLIs, etc.):
+  • Quick setup: Exit and run '\''ccy --custom'\'' (template-based, fast)
+  • AI-guided: Exit and run '\''ccy --custom-docker'\'' (investigates project, asks questions, proposes features)
+
+Custom Dockerfiles get cached per-project and rebuild automatically when changed.
+More info: https://github.com/LongTermSupport/fedora-desktop/blob/main/docs/containerization.md#custom-dockerfiles'
+    env: CCY_LIFECYCLE_DEADLINE_EPOCH CCY_LIFECYCLE_LAUNCH_ID CCY_LIFECYCLE_MAX_AGE_SECONDS CCY_LIFECYCLE_PLUGIN_PATH CCY_LIFECYCLE_WARN_MINUTES CCY_MOUNT_RELABEL CCY_RESTART_DEFAULT_MAX CCY_RESTART_DEFAULT_WINDOW_SECONDS CCY_RESTART_EXIT_STATUS CCY_RESTART_REQUEST_REL CCY_SELINUX_MODE CLAUDE_CODE_OAUTH_TOKEN CONTAINER_ENGINE GH_TOKEN GITHUB_SSH_443 SSH_AGENT_FORWARDED SSH_CONFIG_EXTRA_B64 SSH_KNOWN_HOSTS_PINS
+=== files
+dir  home/.cache 0700
+dir  home/.cache/claude-yolo-update-checks 0700
+file home/.cache/claude-yolo-update-checks/claude-yolo_latest 0600
+     | 
+dir  home/.claude-tokens 0700
+dir  home/.claude-tokens/ccy 0700
+dir  home/.claude-tokens/ccy/projects 0700
+dir  home/.claude-tokens/ccy/tokens 0700
+file home/.claude-tokens/ccy/tokens/work.2030-06-01.token 0600
+     | {token:work}
+dir  project/.claude 0700
+dir  project/.claude/ccy 0700
+file project/.claude/ccy/.gitignore 0600
+     | # CCY session data - NEVER commit sensitive files
+     | # Only .gitignore, Dockerfile, allowed-hostnames, ccy.env, ccy.env.local.dist,
+     | # mounts and the claude-supervise* supervisor (any extension or none) are safe
+     | # to track. ccy.env.local is this checkout's own and is never tracked.
+     | *
+     | !.gitignore
+     | !Dockerfile
+     | !allowed-hostnames
+     | !ccy.env
+     | !ccy.env.local.dist
+     | !mounts
+     | !claude-supervise*
+file project/.claude/ccy/.last-launch.conf 0600
+     | # CCY Launch Configuration
+     | # Config Version: 2
+     | # CCY Version: {ccy_version}
+     | # CCY Hash: {ccy_hash}
+     | # Generated: 2030-01-15 12:00:00
+     | SAVED_CONFIG_VERSION=2
+     | SAVED_CCY_VERSION="{ccy_version}"
+     | SAVED_CCY_HASH="{ccy_hash}"
+     | LAST_TOKEN="work"
+     | LAST_SSH_KEYS=""
+     | LAST_NETWORK=""
+     | LAST_TEAMS=""
+     | LAST_LAUNCH_DATE="2030-01-15"
+file project/.claude/ccy/ccy.env.local.dist 0600
+     | # ccy.env.local.dist version 3
+     | #
+     | # Written by ccy on every launch: commit it, never edit it (ccy rewrites it).
+     | #
+     | # The template for ccy.env.local, this checkout's own settings: the role one install
+     | # plays, never secrets and never anything every clone should share (that goes in
+     | # ccy.env). ccy.env.local is never committed. It is placed by the install's own
+     | # infrastructure-as-code, not by hand and not by an agent working in the checkout.
+     | # ccy sources it inside the container, after ccy.env, so its values win.
+     | #
+     | # To make one: copy this file to ccy.env.local, change the line below to
+     | # "# based on ccy.env.local.dist version 3", and uncomment what this install needs.
+     | # When this dist's version moves on, ccy says so at launch: compare the two files.
+     | #
+     | # based on ccy.env.local.dist version 3
+     | 
+     | # ── Hooks daemon host role ────────────────────────────────────────────────────
+     | # The name the hooks daemon matches this session's host against: persistent_crons
+     | # "hosts:" lists and the top-level "hosts:" block in .claude/hooks-daemon.yaml.
+     | # Order: HOOKS_DAEMON_HOSTNAME, then CCY_HOST_HOSTNAME (ccy sets it to the host
+     | # machine's name), then the container's hostname. Set it to give this install a
+     | # role, e.g. the one install that runs a role-scoped cron job. Only matters in a
+     | # project that uses the hooks daemon.
+     | # It also names the host part of the handle of an agent team bus seat that
+     | # "ccy --teams <seat>@<team>" creates in this checkout; unset, that part is "local".
+     | # A team is chosen by each launch, never here: the container refuses to start when
+     | # this file sets a bus variable.
+     | #export HOOKS_DAEMON_HOSTNAME=<role-name>

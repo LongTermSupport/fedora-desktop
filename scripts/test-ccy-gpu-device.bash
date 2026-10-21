@@ -77,8 +77,9 @@ check "launcher: no unconditional --device /dev/dri line" "0" \
     "$(grep -c -E '^\s*--device /dev/dri:/dev/dri' "$LAUNCHER")"
 check "launcher: the run argv expands GPU_DEVICE_FLAGS" "1" \
     "$(grep -c -F -- "\"\${GPU_DEVICE_FLAGS[@]}\"" "$LAUNCHER")"
+# /dev/dri unless CCY_GPU_DEVICE_DIR names another directory (the differential harness's sandbox).
 check "launcher: GPU_DEVICE_FLAGS is filled from gpu_device_flags /dev/dri" "1" \
-    "$(grep -c -F 'mapfile -t GPU_DEVICE_FLAGS < <(gpu_device_flags /dev/dri)' "$LAUNCHER")"
+    "$(grep -c -F "mapfile -t GPU_DEVICE_FLAGS < <(gpu_device_flags \"\${CCY_GPU_DEVICE_DIR:-/dev/dri}\")" "$LAUNCHER")"
 
 echo
 printf 'passed: %s  failed: %s\n' "$passed" "$failed"

@@ -174,6 +174,10 @@ func (x *Hot) session(ctx context.Context, runtime, container, name string, cach
 	row.Kind, row.Checkout, row.Controllable = d.Kind, d.Checkout, d.Kind == kind
 	seats, seatsErr := x.checkoutSeats(ctx, d.Checkout, cache)
 	rep, repErr := membership.ReadReport(d.Checkout, name)
+	// No report yet is a keeper that has not written one; any other failure is said in STATE.
+	if errors.Is(repErr, os.ErrNotExist) {
+		repErr = nil
+	}
 	if repErr != nil {
 		rep = membership.Report{}
 	}
@@ -200,7 +204,7 @@ func (x *Hot) session(ctx context.Context, runtime, container, name string, cach
 	alive, aliveErr := x.sessionKeeper(ctx, container, cache.panes[name])
 	// A cc session's keeper cannot be repaired from outside (ccRepair), so it is not Unguarded.
 	row.Unguarded = aliveErr == nil && !alive && kind == kindCcy
-	row.State = rowState(name, kind, alive, aliveErr, seatsErr, down, unheld)
+	row.State = rowState(name, kind, alive, aliveErr, seatsErr, repErr, down, unheld)
 	return row
 }
 
@@ -216,7 +220,7 @@ func ownMembership(runtime, kind, name string, cache listCache) (membership.Desi
 }
 
 // stateWord is a session's STATE: what is wrong with it first, else ok.
-func stateWord(name string, alive bool, aliveErr, seatsErr error, down, unheld []string) string {
+func stateWord(name string, alive bool, aliveErr, seatsErr, reportErr error, down, unheld []string) string {
 	switch {
 	case aliveErr != nil:
 		return "its processes cannot be read: " + lastLine(aliveErr)
@@ -224,6 +228,8 @@ func stateWord(name string, alive bool, aliveErr, seatsErr error, down, unheld [
 		return "unguarded: ccy-teams session repair " + name
 	case seatsErr != nil:
 		return "its seats cannot be read: " + lastLine(seatsErr)
+	case reportErr != nil:
+		return "its seat keeper's report cannot be read: " + lastLine(reportErr)
 	case len(down) > 0:
 		return strings.Join(down, ",") + " down"
 	case len(unheld) > 0:

@@ -1,0 +1,35 @@
+=== exit 0
+=== stdout
+{
+  "schema": 1,
+  "generated_at": "2030-01-15T12:00:00Z",
+  "scale": "fraction",
+  "error": null,
+  "tokens": [
+    {"name": "play", "file": "play.2030-12-31.token", "expires": "2030-12-31", "status": "ok", "reason": null, "five_hour_pct": 25, "seven_day_pct": 60, "resets": {"five_hour": "2030-01-15T13:00:00Z", "seven_day": "2030-01-18T20:53:20Z"}, "binding_limit": "five_hour", "http_status": 200, "fetched_at": "2030-01-15T12:00:00Z", "warnings": [], "shadowed": []},
+    {"name": "work", "file": "work.2030-06-01.token", "expires": "2030-06-01", "status": "ok", "reason": null, "five_hour_pct": 25, "seven_day_pct": 60, "resets": {"five_hour": "2030-01-15T13:00:00Z", "seven_day": "2030-01-18T20:53:20Z"}, "binding_limit": "five_hour", "http_status": 200, "fetched_at": "2030-01-15T12:00:00Z", "warnings": [], "shadowed": []}
+  ]
+}
+=== stderr
+=== calls
+curl --config - --silent --request POST --header 'content-type: application/json' --header 'anthropic-version: 2023-06-01' --header 'anthropic-beta: oauth-2025-04-20' --data '{"model":"claude-haiku-4-5-20251001","max_tokens":1,"messages":[{"role":"user","content":"."}]}' --dump-header '{sandbox}/tmp/tmp.XXXXXXXXXX' --connect-timeout 5 --max-time 20 --output '{sandbox}/tmp/tmp.XXXXXXXXXX' --write-out '%{http_code}' https://api.anthropic.com/v1/messages
+    env: CCY_LIFECYCLE_PLUGIN_PATH CCY_RESTART_DEFAULT_MAX CCY_RESTART_DEFAULT_WINDOW_SECONDS CCY_RESTART_EXIT_STATUS CCY_RESTART_REQUEST_REL CONTAINER_ENGINE
+curl --config - --silent --request POST --header 'content-type: application/json' --header 'anthropic-version: 2023-06-01' --header 'anthropic-beta: oauth-2025-04-20' --data '{"model":"claude-haiku-4-5-20251001","max_tokens":1,"messages":[{"role":"user","content":"."}]}' --dump-header '{sandbox}/tmp/tmp.XXXXXXXXXX' --connect-timeout 5 --max-time 20 --output '{sandbox}/tmp/tmp.XXXXXXXXXX' --write-out '%{http_code}' https://api.anthropic.com/v1/messages
+    env: (as above)
+=== files
+dir  home/.claude-tokens 0700
+dir  home/.claude-tokens/ccy 0700
+dir  home/.claude-tokens/ccy/tokens 0700
+file home/.claude-tokens/ccy/tokens/play.2030-12-31.token 0600
+     | {token:play}
+file home/.claude-tokens/ccy/tokens/work.2030-06-01.token 0600
+     | {token:work}
+dir  home/.claude-tokens/ccy/usage-cache 0700
+file home/.claude-tokens/ccy/usage-cache/play.result 0600
+     | play.2030-12-31.token
+     | 200
+     | 0.25	1894712400	0.6	1895000000	five_hour
+file home/.claude-tokens/ccy/usage-cache/work.result 0600
+     | work.2030-06-01.token
+     | 200
+     | 0.25	1894712400	0.6	1895000000	five_hour

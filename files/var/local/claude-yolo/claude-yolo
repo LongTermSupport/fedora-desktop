@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.99.13.11"  # Container 2.78.11: Go status line, LXC member interpreter, reports and questions rooms, farewell reason check, Go 1.26.10 (Plans 00213, 00211). See docs/ccy-changelog.md.
+CCY_VERSION="3.99.13.13"  # Container 2.78.11: build context and GPU directory overridable for the differential harness (Plan 00191). See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -130,7 +130,9 @@ CONFIG_VERSION=2
 IMAGE_NAME="claude-yolo:latest"
 # Base image (no LSPs) - available for project Dockerfiles that want leaner images
 BASE_IMAGE_NAME="claude-yolo:base"
-DOCKERFILE_DIR="/opt/claude-yolo"
+# The image's build context, staged by the play. CCY_DOCKERFILE_DIR overrides it for the
+# differential harness (src-go/internal/ccylaunch/difftest), whose sandbox has its own.
+DOCKERFILE_DIR="${CCY_DOCKERFILE_DIR:-/opt/claude-yolo}"
 CCY_ROOT="$HOME/.claude-tokens/ccy"
 TOKEN_DIR="$CCY_ROOT/tokens"
 PROJECT_DIR="$CCY_ROOT/projects"
@@ -3480,7 +3482,7 @@ elif [ -n "$PROMPT_TEXT" ]; then
 elif [ ${#CLAUDE_ARGS[@]} -eq 0 ]; then
     # No user arguments - pass startup info via system prompt instead of user message
     # This prevents informational messages from triggering Claude thinking
-    STARTUP_INFO_FILE="/opt/claude-yolo/ccy-startup-info.txt"
+    STARTUP_INFO_FILE="$DOCKERFILE_DIR/ccy-startup-info.txt"
     if [ ! -f "$STARTUP_INFO_FILE" ]; then
         print_error "Startup info file not found: $STARTUP_INFO_FILE"
         exit 1
@@ -3577,8 +3579,10 @@ fi
 # GPU render nodes for hardware-accelerated browser rendering — only where the host has any.
 # A headless server has no /dev/dri, and podman aborts the run on a --device that does not
 # exist (gpu_device_flags in lib/common-pure.bash says why and is where this is tested).
+# CCY_GPU_DEVICE_DIR overrides the directory for the differential harness, so a host's own
+# /dev/dri does not decide what a scenario records.
 GPU_DEVICE_FLAGS=()
-mapfile -t GPU_DEVICE_FLAGS < <(gpu_device_flags /dev/dri)
+mapfile -t GPU_DEVICE_FLAGS < <(gpu_device_flags "${CCY_GPU_DEVICE_DIR:-/dev/dri}")
 if [ "${#GPU_DEVICE_FLAGS[@]}" -eq 0 ]; then
     debug "No /dev/dri on this host — no GPU passed to the container; browser rendering is software-only"
 fi
