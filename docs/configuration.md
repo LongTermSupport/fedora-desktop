@@ -88,8 +88,11 @@ Custom configurations in `/etc/profile.d/zz_lts-fedora-desktop.bash`:
 - A stale-fetch mark beside the directory: in a checkout with a remote whose last fetch is
   an hour old or more, the prompt shows `[fetched 14d ago]` (or `[no fetch recorded]`), so
   the git status's up-to-date marker is not read as current. `git fetch` or `git pull`
-  clears it. `/usr/local/bin/git-fetch-age` draws it by reading `FETCH_HEAD`'s age; it
-  never fetches, so the prompt never waits on the network or asks for a passphrase.
+  clears it. `[fetch failed or running]` means the last fetch emptied `FETCH_HEAD` and has
+  not refilled it: it is running, or it failed (the prompt's own background fetch fails
+  silently when the SSH key is not in the agent). `/usr/local/bin/git-fetch-age` draws the
+  mark from `FETCH_HEAD`'s age and size; it never fetches, so the prompt never waits on the
+  network or asks for a passphrase.
 
 User-specific includes in `~/.bashrc-includes/`:
 

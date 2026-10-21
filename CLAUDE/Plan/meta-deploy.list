@@ -30,5 +30,15 @@
 # play-basic-configs.yml (no plan owns it): the GRUB auto-hide probe fix is proven (the probe ran,
 # the unset was skipped, changed=0), but the last run stopped at the fwupd task on an LVFS 503,
 # so the tasks after it (the ABRT policy onward) have not run. Run the whole play again; its
-# other tasks (firmware updates among them) run too, as on any run.
+# other tasks (firmware updates among them) run too, as on any run. The same run rebuilds
+# and installs git-fetch-age with Plan 00183's fix (an empty FETCH_HEAD, left by a fetch that
+# failed, is marked [fetch failed or running] instead of being read as a fresh fetch).
 playbooks/imports/play-basic-configs.yml
+# Plan 00183 (#52, stale tracking ref in the prompt): triage.bash, then acceptance.bash. Both
+# are READ-ONLY, need no sudo and never prompt. The triage records the installed
+# bash-git-prompt and its fetch settings, every FETCH_HEAD of this checkout with its size and
+# age, the SSH agent's keys, and whether the remote answers with the agent and with none (git
+# ls-remote with no terminal, so no passphrase can be asked; nothing is fetched). The
+# acceptance checks the git-fetch-age the play above installed, in scratch repositories it
+# makes and removes, with one fetch through a failing ssh that reaches no remote.
+00183-prompt-shows-stale-tracking-ref

@@ -36,12 +36,15 @@ agent at all. The cause is unknown, so this plan triages first.
 
 ### Phase 1: Triage
 
-- [ ] ⬜ **Task 1.1**: `triage.bash`: the installed `bash-git-prompt` version and its fetch
-  settings as sourced, `.git/FETCH_HEAD` age in the checkout, and whether a fetch with the
-  agent present, and with none, succeeds, fails or prompts. No longer blocks Phase 2
-  (Decision 1): the mark is right whatever the upstream fetch does. It remains the way to
-  learn why that fetch did not run; one lead is that it looks for `<toplevel>/.git/FETCH_HEAD`,
-  which never exists in a linked worktree, where `.git` is a file.
+- [ ] 🔄 **Task 1.1**: `triage.bash` (probes in `triage-probe.bash`): the installed
+  `bash-git-prompt` commit and its fetch code, every `GIT_PROMPT_` setting the start-up files
+  give it, the fetch timer's tools, the deployed `git-fetch-age`, every `FETCH_HEAD` of each
+  checkout's repository with its size and age, the tracking refs and their reflog, the SSH
+  agent and its keys, and whether the remote answers (`git ls-remote`, no terminal, no
+  askpass) with the agent and with none. Read-only, never fetches. Written and lint-clean;
+  left: its host run (queued in `meta-deploy.list`). The linked-worktree lead is settled
+  without it (Decision 2): current upstream reads the common dir's `FETCH_HEAD`, so in a
+  linked worktree it fetches at every prompt rather than never.
 
 ### Phase 2: Decide and build
 
@@ -55,7 +58,15 @@ agent at all. The cause is unknown, so this plan triages first.
   passed; `git-fetch-age` printed nothing in the checkout, which is right for a recent
   fetch); docs (`docs/configuration.md`, `docs/playbooks.md`, `src-go/CLAUDE.md`) done.
   Left: `qa-all.bash`, the `qa-reviewer` agent, and the owner's hand check, the yellow mark in
-  a stale checkout's prompt.
+  a stale checkout's prompt. That "printed nothing" is no proof of a fresh fetch: before Task
+  2.4 a failed fetch read as fresh too.
+- [ ] 🔄 **Task 2.4**: the root fetch bug (Decision 2): a failed fetch empties `FETCH_HEAD`
+  and dates it now, so the mark read the prompt's own failing fetch as fresh. Done in code,
+  test first (A14, A15 in `internal/fetchage`): an empty `FETCH_HEAD` is
+  ` [fetch failed or running]`, and the last fetch is the newest one with a record in it.
+  `acceptance.bash` (checks in `check-fetch-age.bash`) proves the installed binary on the
+  host, with a real failing fetch and the deployed PS1. Left: the `play-basic-configs.yml`
+  run that installs it and that acceptance run, both queued in `meta-deploy.list`.
 
 ## Technical Decisions
 
@@ -86,6 +97,29 @@ a failing upstream fetch rather than hiding it. Details:
 
 **Date**: 2026-10-19
 
+### Decision 2: an empty FETCH_HEAD is a failed or running fetch, never a fetch
+
+**Context**: reproduced in the container with bash-git-prompt at upstream HEAD and at the
+commit before its April 2026 rework, a local remote, and an ssh stand-in that asks for a
+passphrase on `/dev/tty` as ssh does with no key in the agent. With a remote that needs no
+key, the prompt's fetch works (in the checkout and in a linked worktree). With the
+passphrase, the background fetch writes `Enter passphrase for key:` into the terminal, cannot
+read the answer (it is not the terminal's foreground process group), fails, and
+`&> /dev/null` hides the failure: `origin/main` stays stale and the prompt shows `✔`. And git
+empties `FETCH_HEAD` before it contacts the remote (`builtin/fetch.c` `do_fetch` truncates it
+first; seen with git 2.39 and in git master), so the failure leaves an empty, newly dated
+`FETCH_HEAD`. bash-git-prompt's five-minute timer and `git-fetch-age` both read that as a
+fresh fetch, so the mark never showed in exactly #52's case.
+
+**Decision**: `git-fetch-age` reads size as well as date. An empty `FETCH_HEAD` is shown as
+` [fetch failed or running]`, however young; the last fetch is the newest `FETCH_HEAD` with
+a record in it. A prompt drawn while a working fetch runs is marked too, which is true: its
+counts are not yet fresh. The fetch failing when the key is not in the agent is upstream
+behaviour and an environment fact, not changed here (Decision 1 rules out a fetch of our
+own); the triage records whether the host's agent holds the key.
+
+**Date**: 2026-10-21
+
 ## Success Criteria
 
 - [ ] A checkout behind its remote never shows the up-to-date marker without a fresh fetch.
@@ -98,3 +132,4 @@ a failing upstream fetch rather than hiding it. Details:
      JOURNAL/00183-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
 - Plan filed from #52.
+- Mark merged: 92ec019d; deployed at c3391ba9.

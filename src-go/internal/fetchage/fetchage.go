@@ -24,6 +24,13 @@
 //   - A11 an error is one "git-fetch-age: " line on stderr, exit 1, nothing on stdout.
 //   - A12 any argument is a usage error (exit 64).
 //   - A13 a mark that could not be written is exit 1.
+//   - A14 git empties FETCH_HEAD before it contacts the remote, so a fetch that failed (the
+//     prompt's own background fetch with no key in the agent) leaves an empty, newly dated
+//     FETCH_HEAD, as does one still running. An empty FETCH_HEAD is never a fetch: it is
+//     FailedMark, however young.
+//   - A15 across worktrees the last fetch is the newest FETCH_HEAD with a record in it; within
+//     Threshold it is no mark whatever failed since, and an empty one newer than a stale fetch
+//     is FailedMark.
 package fetchage
 
 import (
@@ -46,6 +53,10 @@ const Threshold = time.Hour
 
 const hoursUntilDays = 48
 
+// FailedMark is the mark for a FETCH_HEAD git emptied and has not filled: the newest attempt
+// to fetch failed, or is still running, so the tracking refs are as old as the fetch before it.
+const FailedMark = " [fetch failed or running]"
+
 var remoteSection = regexp.MustCompile(`(?m)^\s*\[remote\s+"`)
 
 // Mark is what the prompt shows for dir at now: "" when there is nothing to say.
@@ -61,17 +72,21 @@ func Mark(dir string, now time.Time) (string, error) {
 	if !remoteSection.Match(config) {
 		return "", nil
 	}
-	last, fetched, err := lastFetch(common)
+	heads, err := lastFetch(common)
 	if err != nil {
 		return "", err
 	}
-	if !fetched {
-		return " [no fetch recorded]", nil
-	}
-	age := now.Sub(last)
-	if age < Threshold {
+	fetched, attempted := heads.fetched, heads.attempted
+	if fetched.found && now.Sub(fetched.at) < Threshold {
 		return "", nil
 	}
+	if attempted.found && (!fetched.found || attempted.at.After(fetched.at)) {
+		return FailedMark, nil
+	}
+	if !fetched.found {
+		return " [no fetch recorded]", nil
+	}
+	age := now.Sub(fetched.at)
 	if hours := int(age / time.Hour); hours < hoursUntilDays {
 		return fmt.Sprintf(" [fetched %dh ago]", hours), nil
 	}
@@ -130,27 +145,47 @@ func fromGitFile(checkout, dotGit string) (string, error) {
 	return common, nil
 }
 
-// lastFetch is the newest FETCH_HEAD of the common dir and of every worktree under it.
-func lastFetch(common string) (time.Time, bool, error) {
+// newest is the latest of the FETCH_HEAD dates offered to it.
+type newest struct {
+	at    time.Time
+	found bool
+}
+
+func (n *newest) offer(at time.Time) {
+	if !n.found || at.After(n.at) {
+		n.at, n.found = at, true
+	}
+}
+
+// fetchHeads is what the FETCH_HEAD files of a repository say: the newest with a record in it
+// is the last fetch, the newest empty one the last fetch that failed or is running.
+type fetchHeads struct {
+	fetched   newest
+	attempted newest
+}
+
+// lastFetch reads the FETCH_HEAD of the common dir and of every worktree under it.
+func lastFetch(common string) (fetchHeads, error) {
+	var heads fetchHeads
 	worktrees, err := filepath.Glob(filepath.Join(common, "worktrees", "*", "FETCH_HEAD"))
 	if err != nil {
-		return time.Time{}, false, fmt.Errorf("list worktree fetches: %w", err)
+		return heads, fmt.Errorf("list worktree fetches: %w", err)
 	}
-	var newest time.Time
-	found := false
 	for _, path := range append([]string{filepath.Join(common, "FETCH_HEAD")}, worktrees...) {
 		info, err := os.Stat(path)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
 		if err != nil {
-			return time.Time{}, false, fmt.Errorf("stat %s: %w", path, err)
+			return heads, fmt.Errorf("stat %s: %w", path, err)
 		}
-		if !found || info.ModTime().After(newest) {
-			newest, found = info.ModTime(), true
+		if info.Size() == 0 {
+			heads.attempted.offer(info.ModTime())
+		} else {
+			heads.fetched.offer(info.ModTime())
 		}
 	}
-	return newest, found, nil
+	return heads, nil
 }
 
 // App is the command: the working directory and clock it reads, the streams it writes.

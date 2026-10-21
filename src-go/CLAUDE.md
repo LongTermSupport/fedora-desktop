@@ -63,8 +63,9 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
   (Plan 00167, P1-P7 in its package doc): the top of the git work tree, or outside one the
   fedora-desktop checkout baked in with `-X main.RootDir`, offered `[Y/n]` at a terminal.
 - `internal/fetchage/` — `git-fetch-age`, the shell prompt's stale-fetch mark (Plan 00183,
-  A1-A13 in its package doc): the age of the newest `FETCH_HEAD` of the checkout's repository,
-  read from files only; it starts no process.
+  A1-A15 in its package doc): the age of the newest `FETCH_HEAD` of the checkout's repository
+  with a record in it (an empty one is a fetch that failed or is running), read from files
+  only; it starts no process.
   Reuse these; a second way to run a command or prompt the user is a defect.
 
 ## Rules
