@@ -680,9 +680,10 @@ example) and adds the segment on rows of its own below it, so nothing you had is
 Code cuts a row wider than the terminal with an ellipsis, and the hooks daemon's status line
 already fills its rows to the width, so the teams are never appended to its last row: they
 wrap at the terminal's width (`COLUMNS`, which Claude Code sets) after a comma, under the 👥,
-and are never cut; a team and its role stay on one row. With no `COLUMNS` the segment is one unbroken row. It refreshes every second,
-as this repository's status line does (ccy `--supervise` reads what the hooks daemon's status
-line writes on each render), whatever interval the replaced status line had. A failing, hung or
+and are never cut; a team and its role stay on one row. With no `COLUMNS` the segment is one unbroken row. It refreshes every 25
+seconds as well as on Claude Code's own events, whatever interval the replaced status line had:
+often enough for ccy `--supervise`, which ignores what the hooks daemon's status line wrote on
+its last render once that is 30 seconds old. A failing, hung or
 unreadable status line underneath is shown in red rather than blanking the line. The segment comes from a record the SessionStart hook
 writes for the session. If that record could not be written, the status line shows
 `👥 no record of this session's teams (pingbus status)` in red rather than nothing, and the

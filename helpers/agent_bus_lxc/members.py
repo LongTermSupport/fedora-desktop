@@ -928,7 +928,9 @@ class Host:
 
 
 def _python(script: str, *args: str) -> list[str]:
-    return ["python3", "-I", "-c", script, *args]
+    """In the container, the interpreter the pingbus zipapp's shebang names (Plan 00213), so
+    KIT_SYNC_PY's version gate judges the Python that will run pingbus, not PATH's first."""
+    return ["/usr/bin/python3", "-I", "-c", script, *args]
 
 
 def _existing_state(host: Host, container: str) -> str:

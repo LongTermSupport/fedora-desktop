@@ -210,7 +210,8 @@ class FakeGuest:
             if not self.config_ok:
                 raise members.MemberError(f"{what}: failed (exit 78): bundle unreadable")
             return b""
-        assert list(argv[:3]) == ["python3", "-I", "-c"], argv
+        # Plan 00213: the interpreter the zipapp's shebang runs, so the 3.11 gate judges that one.
+        assert list(argv[:3]) == ["/usr/bin/python3", "-I", "-c"], argv
         if argv[3] == members.SOURCE_PY:
             return (self.source + "\n").encode()
         run = subprocess.run([sys.executable, "-I", "-c", *argv[3:]], input=stdin,
@@ -1415,7 +1416,7 @@ class MarkerLinesTest(StoppedFixture):
 
 class KitSyncTest(Fixture):
     def sync(self) -> bytes:
-        return self.guest.root(["python3", "-I", "-c", members.KIT_SYNC_PY, self.guest.kit_parent,
+        return self.guest.root(["/usr/bin/python3", "-I", "-c", members.KIT_SYNC_PY, self.guest.kit_parent,
                                 self.guest.bin_dir, str(self.guest.kit_owner)], "kit",
                                members.kit_tar(self.kit_parent))
 
@@ -1469,7 +1470,7 @@ class UmaskTest(Fixture):
         return [parent.parent, parent, parent / "kit", parent / "kit" / "plugin"]
 
     def sync(self) -> list[str]:
-        out = self.guest.root(["python3", "-I", "-c", members.KIT_SYNC_PY, self.guest.kit_parent,
+        out = self.guest.root(["/usr/bin/python3", "-I", "-c", members.KIT_SYNC_PY, self.guest.kit_parent,
                                self.guest.bin_dir, str(self.guest.kit_owner)], "kit",
                               members.kit_tar(self.kit_parent))
         return out.decode().splitlines()

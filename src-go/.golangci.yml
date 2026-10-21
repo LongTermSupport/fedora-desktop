@@ -89,6 +89,10 @@ linters:
       # SPEC-team-add-and-restart C1), snake_case like the rest of pingbus's files.
       - path: internal/conversation/conversation\.go
         linters: [tagliatelle]
+      # The status-line oracle's scenarios.json is the pingbus oracle's literal input (Plan 00213
+      # SPEC-status-line.md S40), snake_case like the rest of pingbus's files.
+      - path: internal/pingbus/statusline/golden/golden_test\.go
+        linters: [tagliatelle]
       # The play lock's tests give the runtime directory a mode others can write: the state the
       # lock must refuse to use.
       - path: internal/playlock/playlock_test\.go

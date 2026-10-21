@@ -38,6 +38,9 @@ type Cmd struct {
 	// ExtraFiles are open files the child inherits from descriptor 3 on (a held lock
 	// delegated to a child).
 	ExtraFiles []*os.File
+	// NewSession runs the child in a session of its own, for a command whose children must
+	// not outlive it (the status line's inner): see runSession. Interrupt is not used.
+	NewSession bool
 }
 
 // Line is the argv as one space-joined string, for logs and test matching.
@@ -99,6 +102,9 @@ type OS struct {
 // Grace also bounds the drain of the pipes after a normal exit, so it must exceed the time
 // the copy takes on a loaded host; a Grace of milliseconds can cut a finished command short.
 func (o OS) Run(ctx context.Context, c Cmd) (Result, error) {
+	if c.NewSession {
+		return o.runSession(ctx, c)
+	}
 	cmd := exec.CommandContext(ctx, c.Name, c.Args...)
 	interrupt := syscall.SIGTERM
 	if c.Interrupt != 0 {

@@ -17,6 +17,28 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.12.21 — container 2.77.17
+
+Follows 3.99.12.20 (container 2.77.16). The image carries the pingbus zipapp, which changed,
+so it is rebuilt once.
+
+- **pingbus starts the system Python directly** (Plan 00213). The zipapp's first line was
+  `#!/usr/bin/env python3`, so every `pingbus` start (each status-line render and each hook)
+  looked `python3` up on PATH. On the host that meant a pyenv shim, which cost about 0.16 CPU
+  seconds on every start. It now names `/usr/bin/python3`. The `agent-bus` zipapp shares
+  that first line, so it changes too.
+
+## 3.99.12.20 — container 2.77.16
+
+Follows 3.99.12.19 (container 2.77.15). The image carries the pingbus kit, which changed, so
+it is rebuilt once.
+
+- **A bus session's status line refreshes every 25 seconds, not every second** (Plan 00213).
+  Each refresh started a Python interpreter, which cost an idle bus session about half a CPU
+  thread. Claude Code still redraws it on its own events (a new message, the end of a
+  `/compact`). 25 s keeps it inside the 30 s after which `ccy --supervise` stops trusting the
+  context reading the hooks daemon's status line writes.
+
 ## 3.99.12.19 — container 2.77.15
 
 Follows 3.99.12.18 (container 2.77.14). The image carries the pingbus kit, which changed, so
