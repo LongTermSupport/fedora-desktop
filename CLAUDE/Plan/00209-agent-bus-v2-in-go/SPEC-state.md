@@ -333,6 +333,37 @@ and unheard reasons, roles. The report lists each for the integrator.
   temporaries otherwise. No reader lists those directories.
 - SB8. The mode is set exactly with `fchmod`; v1's membership writer leaves the mode to the
   umask under 0600.
+- SB9. `member.json` is read with `O_NOFOLLOW`, like every other file (S4); v1 opens it following
+  a symlink (`config.py:452`). No writer makes it a link; the bundle directory may still be one
+  (S21).
+- SB10. `team.json` is decoded as strict UTF-8 with duplicates refused; v1 decodes it with
+  `json.loads(bytes)`, which accepts UTF-16 and UTF-32 (`inbox.py:340`). v1 writes it compact ASCII.
+- SB11. An inbox item with a key outside the stored projection is refused (`unknown-key`); v1
+  drops it from a questions-room item and passes a main-room item to `validate_event`, which does
+  not check top-level keys. v1's writer projects every item (`inbox.py:264-277`).
+- SB12. An integer past int64 is refused (`grammar`); v1's ints are unbounded but no state file
+  holds one.
+- SB13. `goodbye.json` is decoded strictly, a typed error for anything but `{"v":1,"session":S}`;
+  v1's reader never refuses and reads a malformed file as "not said" (`hooks.py:1090-1109`), the
+  same leniency as F7. The caller may still treat a refusal as "not said".
+- SB14. A relative `PINGBUS_SESSIONS_DIR` is refused (`grammar`); v1 uses the value as given,
+  so a relative one resolves against whatever directory the hook runs in.
+- SB15. The outbox is saved when its bytes changed, and its writer runs the reader over what it
+  is about to write, so v2 never writes an outbox any reader refuses; v1 saves on a `changed`
+  flag that `send_gate` sets even when nothing moved, and writes what its methods built.
+
+### The owner's direction: the Python is a prototype
+
+The contract is what v1 and v2 share while both run: the on-disk formats and paths, the locks,
+wire protocol 1, and CLI output that agents and scripts parse. The Go keeps that contract byte for
+byte and lock for lock. Everything behind it is designed afresh: how decoding, writing, locking
+and errors are structured; the Python's internals, wording and process structure are not pinned.
+Where v1 is wrong, awkward or over-complicated, `bus/state` does better and records the
+improvement here as a numbered departure with its reason. No v1 bug, quirk or workaround is copied.
+For example, SB3 and SB5 already replace v1's lenient "not said"/"no record" with typed errors,
+and SB4 checks at decode what v1 checks late. Where the contract itself is bad, the departure says
+so. It can change after v1 is retired (stage 8), or sooner through a versioned format v1 tolerates.
+The corpus's `v1` field records what v1 does, so that a departure is visible and not a regression.
 
 Findings in existing code (reported, not fixed here):
 
