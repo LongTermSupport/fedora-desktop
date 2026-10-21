@@ -21,8 +21,9 @@ variables differ by member kind, so they stay as variables, with these values:
 | `<v2-run>`     | the per-session runtime directory                                                               | `/tmp/teamchat/<run id>` (container-private `/tmp`)                   | `$XDG_RUNTIME_DIR/teamchat/run/<run id>`                |
 
 In the LXC guest and host `cc` column, `~` is `$HOME` as the process received it, never the
-password database's home, so a caller can move a member's state by setting `HOME` (area C's
-acceptance probe does, C 3.3).
+password database's home. `run --state DIR` replaces `<v2-state>` (and so `<v2-bundle>`) alone;
+area C's acceptance probe uses it, with no `--desired`, so it touches none of the owner's own
+seats or membership (C 3.3).
 
 `<team>` everywhere is the **team id** (A §2.2: `^[a-z][a-z0-9-]{0,21}$`, chosen at creation and
 never changed), never the display name. `status` shows the team's display name (`name`) beside
@@ -1848,8 +1849,10 @@ pool for ccy and a copy for LXC and host seats):
 - **Who calls it** (area C): the ccy launcher, as soon as podman returns, whatever the session
   record says (a crash keeps the record and the seat for a restore, and the notice is still due);
   and, once a minute, a host pass for every seat it saw held and now finds free, or whose
-  container or guest no longer runs: the owner's seat sweep (`teamchat-seats.timer`, C 3.7.5) for
-  ccy and host seats, and root's health tick (C 3.11.2 step 6) for LXC seats. The launcher's call
+  container or guest no longer runs: the owner's seat sweep (`teamchat-seats.timer` running
+  ccy-teams' `seats sweep`, C 3.7.5, DC21) for ccy and host seats, judging "seen held" by the
+  pool seat's `held/` and skipping a claim its `held/notice.json` already records, and root's
+  health tick (C 3.11.2 step 6) for LXC seats, judging it by the run id recorded at its last tick. The launcher's call
   is the fast path; the minute pass is the guarantee, so a session that never comes back is
   announced within about a minute. The owner's sweep runs while the owner's user manager runs, so
   after a reboot it announces ccy and host seats from the owner's first login (C's DC21).
