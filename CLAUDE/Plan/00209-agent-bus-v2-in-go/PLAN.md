@@ -1,6 +1,8 @@
 # Plan 00209: agent bus v2 in go
 
-**Status**: Not Started (design revised after Fable's review; awaiting the owner's decisions D1-D20)
+**Status**: In Progress (the owner has asked for the full build; a dedicated build session does it
+to [BUILD-BRIEF.md](BUILD-BRIEF.md), taking each of D1-D20's recommended options as defaulted and
+sending only irreversible ones to the owner)
 **Created**: 2026-10-19
 **Owner**: joseph
 **Priority**: High
