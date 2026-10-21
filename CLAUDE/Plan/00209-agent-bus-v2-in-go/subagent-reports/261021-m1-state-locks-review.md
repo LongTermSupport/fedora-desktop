@@ -1,4 +1,4 @@
-Verdict: FIX-FIRST
+Verdict: MERGE
 
 # Review of e7767046: bus/state locks (L1-L12)
 
@@ -116,3 +116,53 @@ Checked and sound:
      (pid namespace?)".
 
 No blocker. Finding 1 is the only reason for FIX-FIRST. Findings 2-7 can ride along.
+
+## Round 2
+
+Round 2 reviewed 7a1c5e5b. These runs used a scratch copy under `untracked/scratch/mut2/`, and
+the worktree was not touched:
+
+- `go test -race -count=3 -shuffle=on ./internal/bus/state/`: ok (54 s).
+- `golangci-lint run ./internal/bus/state/`: 0 issues.
+- The round 1 mutant (`Release` without `LOCK_UN`) was run again under
+  `TestAReleaseFreesTheLockForEveryCopyOfItsDescriptor`. The test **kills** it in both
+  subtests: the go and v1 peers each say `busy unknown`, want `held:`. They fail fast in
+  0.26 s, because the taker is `LOCK_NB` and cannot hang.
+
+Round 1 findings:
+
+1. Resolved. See the mutant run above. The parent's `Dup` (`handed`) is kept open over the
+   take, so it alone would keep a mutant held, as the live child's copy does. Both are the same
+   open file description, so the proof is valid for L2. The dup means the runner goroutine's
+   `ExtraFiles` read and `Release`'s close never touch one fd. No race.
+2. Resolved. `holding` closes in a `defer` that joins into the named `err`, on every path,
+   including the new `ctx.Err()` return. `holdTold` defers close first and unlock second, so
+   they run LIFO: unlock, then close. A busy try returns before the unlock defer is
+   registered. There is no double close, because every `closeQuietly` in these paths is gone
+   and callers pass ownership. `TestAPanicInsideALockReleasesIt` covers outbox and told.
+3. Resolved. `holding` checks `ctx.Err()` first. `TestACancelledContextTakesNoBlockingLock`
+   covers outbox, delivery and try.
+4. Resolved. The test is renamed `TestAReleaseOnADeadDescriptorReportsAnError`.
+5. Resolved. The redundant case is gone, and `holderKind` is now a single `if` with the
+   whitelist.
+6. Resolved as a handoff. The report's open question 2 now says that L4 and L7 must not be
+   marked done until the `Team` wrappers run `EnsureDirs`. **The coordinator must carry this
+   into PLAN.md at merge.** PLAN.md does not mention it yet.
+7. Resolved. The fatal message now names the procfs pid-namespace cause.
+
+New findings (nits only, none blocking):
+
+8. **nit**, `locks_peer_test.go:500-527`.
+   - Evidence: when a `t.Fatal` fires between `Sync` and the end of the test, neither
+     `handed` nor `lock` is closed, so the test process leaks two fds for the rest of the run.
+     The mutant run showed this path. The keeper still exits, because its cleanup closes
+     stdin.
+   - Fix: register `t.Cleanup` for `handed.Close` and `lock.Release` right after they are
+     made.
+9. **nit**, `locks.go:466-476`.
+   - Evidence: `withDelivery` runs `ensureLockDir` (mkdir `relay/`) and opens the lock file
+     before `holding` refuses a cancelled context. The cancelled call has that side effect on
+     disk, and it is the same file v1 would create.
+   - Fix: none needed. Optionally, check `ctx.Err()` before `ensureLockDir`.
+
+Round 2 verdict: **MERGE**.

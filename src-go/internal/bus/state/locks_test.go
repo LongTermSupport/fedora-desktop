@@ -488,14 +488,18 @@ func TestACancelledContextTakesNoBlockingLock(t *testing.T) {
 	cancel()
 	l := (&sleeper{}).locks()
 	never := func(context.Context) error { t.Error("ran under a cancelled context"); return errors.New("ran") }
+	home := t.TempDir()
 	for name, err := range map[string]error{
 		"outbox":   l.WithOutbox(ctx, t.TempDir(), never),
-		"delivery": l.WithDelivery(ctx, t.TempDir(), never),
-		"try":      l.TryDelivery(ctx, t.TempDir(), never),
+		"delivery": l.WithDelivery(ctx, home, never),
+		"try":      l.TryDelivery(ctx, home, never),
 	} {
 		if !errors.Is(err, context.Canceled) {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+	if _, err := os.Lstat(filepath.Join(home, "relay")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a cancelled delivery made relay/: %v", err)
 	}
 }
 

@@ -469,6 +469,9 @@ func (l Locks) withDelivery(ctx context.Context, home string, wait bool, fn func
 	if heldIn(ctx)&(heldDelivery|heldOutbox) != 0 {
 		return fmt.Errorf("%w: the delivery lock is taken first and once", ErrLockOrder)
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	dir := filepath.Join(home, relayDirName)
 	if err := ensureLockDir(dir); err != nil {
 		return err

@@ -510,6 +510,12 @@ func TestAReleaseFreesTheLockForEveryCopyOfItsDescriptor(t *testing.T) {
 				t.Fatal(err)
 			}
 			handed := os.NewFile(uintptr(dupFD), "handed")
+			t.Cleanup(func() {
+				if closeErr := handed.Close(); closeErr != nil {
+					t.Error(closeErr)
+				}
+			})
+			defer release(t, lock)
 			keeper := startChild(t, "keeper", true, execx.Cmd{
 				Name: "python3", Args: []string{"-I", script, root, "keep"},
 				ExtraFiles: []*os.File{handed},
@@ -522,9 +528,6 @@ func TestAReleaseFreesTheLockForEveryCopyOfItsDescriptor(t *testing.T) {
 			taker.expect(t, "released")
 			keeper.say(t, "done")
 			keeper.wait()
-			if err = handed.Close(); err != nil {
-				t.Fatal(err)
-			}
 		})
 	}
 }
