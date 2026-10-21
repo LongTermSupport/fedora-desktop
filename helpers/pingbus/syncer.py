@@ -22,6 +22,12 @@ offline `status` can list unexpected members and stale statuses (Plan 00161 U12)
 `history` (§13, U33) reads the room backwards with `/messages` through the same checks and
 stores nothing: the room, not the local cache, is a seat's record.
 
+The side rooms (Plan 00211 SPEC §4, §6): the main room's `agent_bus.rooms` index names them.
+Each member joins the reports room on reading it, a restricted join it never syncs; a
+coordinator with human text joins the questions room it is invited to, verifies it on its own
+(a failure leaves the main room trusted), names it in its `/sync` filter, and receives every
+human message there, stored with the question it answers. Their state is `rooms.json`.
+
 Validation is `protocol`'s; storage is `inbox`'s; the forge check is `forge`'s. Diagnostics
 go to `log` (stderr by default) and name a room by its ID only, never anything an event
 carried.
@@ -44,9 +50,17 @@ POWER_LEVELS = "m.room.power_levels"
 TOPIC = "m.room.topic"
 MEMBER = "m.room.member"
 #: A change to any of these re-verifies the room (§8).
-TRUST_TYPES = (CREATE, POWER_LEVELS, protocol.EVENT_TEAM)#: The filter probe H4 recorded against Tuwunel 1.9.3 (fixtures 040, 044, 071).
-STATE_TYPES = (CREATE, POWER_LEVELS, MEMBER, protocol.EVENT_TEAM, protocol.EVENT_STATUS, TOPIC)
-TIMELINE_TYPES = (protocol.EVENT_MESSAGE, MEMBER, POWER_LEVELS, protocol.EVENT_TEAM, protocol.EVENT_STATUS, TOPIC)
+TRUST_TYPES = (CREATE, POWER_LEVELS, protocol.EVENT_TEAM, protocol.EVENT_ROOMS)
+#: A change to any of these in a side room re-verifies that room alone (Plan 00211 SPEC §4.3).
+SIDE_TRUST_TYPES = (*TRUST_TYPES, protocol.JOIN_RULES, protocol.EVENT_ROOM_LINK)
+#: The filter probe H4 recorded against Tuwunel 1.9.3 (fixtures 040, 044, 071), with the
+#: topic and the rooms index added.
+STATE_TYPES = (CREATE, POWER_LEVELS, MEMBER, protocol.EVENT_TEAM, protocol.EVENT_STATUS, TOPIC,
+               protocol.EVENT_ROOMS)
+TIMELINE_TYPES = (protocol.EVENT_MESSAGE, MEMBER, POWER_LEVELS, protocol.EVENT_TEAM, protocol.EVENT_STATUS, TOPIC,
+                  protocol.EVENT_ROOMS)
+#: Read too while the filter names a side room, so a change to its trust is seen.
+SIDE_TYPES = (protocol.JOIN_RULES, protocol.EVENT_ROOM_LINK)
 TIMELINE_LIMIT = 50
 #: A limited timeline's gap is read forward with `/messages` (fixture 072).
 GAP_FILTER = {"types": [protocol.EVENT_MESSAGE]}
@@ -61,6 +75,26 @@ HISTORY_DEFAULT_ITEMS = 50
 HISTORY_MAX_ITEMS = 500
 HISTORY_IN = "in"
 HISTORY_OUT = "out"
+
+#: What becomes of an invite (`invite_action`).
+INVITE_MAIN = "main"
+INVITE_QUESTIONS = "questions"
+INVITE_PENDING = "pending"
+INVITE_REJECT = "reject"
+
+#: Why a side room is not joined, as `status` and the hook context print it.
+REASON_NOT_INVITED = "not invited yet"
+REASON_NOT_COORDINATOR = "this member is not a coordinator"
+REASON_NO_HUMAN_TEXT = inbox.REASON_NO_HUMAN_TEXT
+REASON_JOIN_REFUSED = "the homeserver refused the join"
+
+
+def homeserver_reason(exc: matrix.MatrixError) -> str:
+    """A homeserver failure as a side room's reason: its status and checked errcode only, never
+    the server's own text, so it always passes the reason grammar."""
+    if isinstance(exc, matrix.Unreachable) or exc.status is None:
+        return "the homeserver gave no usable answer"
+    return f"the homeserver answered HTTP {exc.status}" + (f" {exc.errcode}" if exc.errcode else "")
 
 
 class RoomUntrusted(protocol.Untrusted):
@@ -93,6 +127,9 @@ class HistoryItem:
     human: protocol.HumanMessage | None = None
     peer: protocol.PeerText | None = None
     sent_event_id: str | None = None
+    #: `main` or `questions`; in the questions room, the item's question as (n, headline).
+    room: str = protocol.ROOM_MAIN
+    question: tuple[int, str] | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -116,20 +153,23 @@ def _envelope_ok(event: Mapping[str, object]) -> bool:
             and type(ts) is int and ts >= 0)
 
 
-def sync_filter(room_id: str, timeline_limit: int, *, lazy_members: bool = True) -> dict:
-    """The inline `/sync` filter: the team room only, the state and timeline types the
-    syncer reads, nothing else (no presence, account data or ephemeral events). The first
-    sync and the one after a join load every member (`lazy_members=False`), so `status`
-    knows who had joined before this member; later syncs see joins in the timeline."""
+def sync_filter(room_id: str, timeline_limit: int, *, lazy_members: bool = True,
+                also: Sequence[str] = ()) -> dict:
+    """The inline `/sync` filter: the team room, and `also` (a coordinator's questions room),
+    the state and timeline types the syncer reads, nothing else (no presence, account data or
+    ephemeral events). The first sync and the one after a join load every member
+    (`lazy_members=False`), so `status` knows who had joined before this member; later syncs
+    see joins in the timeline."""
+    extra = SIDE_TYPES if also else ()
     return {
         "presence": {"types": []},
         "account_data": {"types": []},
         "room": {
-            "rooms": [room_id],
+            "rooms": [room_id, *also],
             "ephemeral": {"types": []},
             "account_data": {"types": []},
-            "state": {"types": list(STATE_TYPES), "lazy_load_members": lazy_members},
-            "timeline": {"types": list(TIMELINE_TYPES), "limit": timeline_limit},
+            "state": {"types": [*STATE_TYPES, *extra], "lazy_load_members": lazy_members},
+            "timeline": {"types": [*TIMELINE_TYPES, *extra], "limit": timeline_limit},
         },
     }
 
@@ -137,7 +177,27 @@ def sync_filter(room_id: str, timeline_limit: int, *, lazy_members: bool = True)
 def invite_acceptable(room_id: object, invite: object, member: config.Member) -> bool:
     """§8: accept only an invite to the bundle's `room` whose inviter and stripped
     `m.room.create` sender are both the bundle's `admin`."""
-    if room_id != member.room or not isinstance(invite, dict):
+    return room_id == member.room and _from_admin(invite, member)
+
+
+def invite_action(room_id: object, invite: object, member: config.Member, questions_room: str | None,
+                  may_take_questions: bool) -> str:
+    """§8 with Plan 00211 SPEC §4.4: an admin invite to the main room is joined, and one to the
+    questions room the index names when this member may take it (a coordinator with human
+    text). Any other admin invite is left pending, never rejected, since rejecting would need a
+    re-invite. Every other invite is rejected."""
+    if not _from_admin(invite, member):
+        return INVITE_REJECT
+    if room_id == member.room:
+        return INVITE_MAIN
+    if room_id == questions_room and may_take_questions:
+        return INVITE_QUESTIONS
+    return INVITE_PENDING
+
+
+def _from_admin(invite: object, member: config.Member) -> bool:
+    """Whether the invite's inviter and its stripped `m.room.create` sender are both `admin`."""
+    if not isinstance(invite, dict):
         return False
     invite_state = invite.get("invite_state")
     events = invite_state.get("events") if isinstance(invite_state, dict) else None
@@ -244,6 +304,11 @@ class Syncer:
         #: Joined and invited members, and members' `listening` statuses (`until`, Unix
         #: ms) as §8 allows them to be read; kept in `room.json` for an offline `status`.
         self.members, self.statuses = state.room_view()
+        #: The side rooms this member has met, by purpose; kept in `rooms.json`.
+        self.side: dict[str, inbox.SideRoom] = state.side_rooms()
+        #: True from joining the questions room until the sync that holds the join: that
+        #: sync's events before the join are the room's history, never processed.
+        self._fresh_questions = False
 
     def _say(self, text: str) -> None:
         self._log(f"team {self.member.team}: {text}")
@@ -268,6 +333,7 @@ class Syncer:
         if kept != self.statuses:
             self.statuses = kept
             self._save_room_view()
+        self._sync_side_rooms(record)
         return record
 
     def _read_about(self) -> str | None:
@@ -292,19 +358,22 @@ class Syncer:
             return None
         return topic
 
-    def _read_trusted_state(self) -> tuple[protocol.TeamRecord, dict]:
-        member, room = self.member, self.member.room
+    def _check_create(self, room: str) -> None:
         create = self.client.get_state(room, CREATE, "", as_event=True)
         content = create.get("content")
         if (
             create.get("type") != CREATE
-            or create.get("sender") != member.admin
+            or create.get("sender") != self.member.admin
             or create.get("event_id") != "$" + room[1:]
             or not isinstance(content, dict)
             or content.get("room_version") != protocol.ROOM_VERSION
             or "additional_creators" in content
         ):
             raise protocol.Untrusted("the room's create event")
+
+    def _read_trusted_state(self) -> tuple[protocol.TeamRecord, dict]:
+        member, room = self.member, self.member.room
+        self._check_create(room)
         team_event = self.client.get_state(room, protocol.EVENT_TEAM, "", as_event=True)
         record = protocol.parse_team_event(team_event, member.admin, member.server_name, member.team)
         if record.roles.get(member.user_id) not in protocol.ROLES:
@@ -315,12 +384,225 @@ class Syncer:
     def _lose_trust(self, reason: str) -> RoomUntrusted:
         self.record = None
         self._forge = None
+        self.side = {}
         if self.statuses:
             self.statuses = {}
             self._save_room_view()
         self.state.mark_untrusted(reason)
         self._say(f"the team room is not trusted: {reason}")
         return RoomUntrusted(reason)
+
+    # ── the side rooms (Plan 00211) ──────────────────────────────────────────────────────
+
+    def _read_index(self) -> dict[str, str]:
+        """The trusted main room's `agent_bus.rooms` index; empty when there is none yet, and
+        when it is not `admin`'s exact form (logged: only `admin` can write it)."""
+        try:
+            event = self.client.get_state(self.member.room, protocol.EVENT_ROOMS, "", as_event=True)
+        except matrix.NotFound:
+            return {}
+        try:
+            return protocol.parse_rooms_index(event, self.member.admin, self.member.room)
+        except protocol.Untrusted as exc:
+            self._say(f"ignored the rooms index: {exc}")
+            return {}
+
+    def _sync_side_rooms(self, record: protocol.TeamRecord) -> None:
+        """Bring each side room the index names to its state, after the main room verifies."""
+        index = self._read_index()
+        side: dict[str, inbox.SideRoom] = {}
+        for purpose in protocol.PURPOSES:
+            room_id = index.get(purpose)
+            if room_id is None:
+                continue
+            prev = self.side.get(purpose)
+            if prev is not None and prev.room != room_id:
+                prev = None
+            if purpose == protocol.PURPOSE_REPORTS:
+                side[purpose] = self._reports_room(room_id, prev)
+            else:
+                side[purpose] = self._questions_room(room_id, prev, record)
+        self._set_side(side)
+
+    def _set_side(self, side: Mapping[str, inbox.SideRoom]) -> None:
+        if dict(side) != self.side:
+            self.side = dict(side)
+            self.state.save_side_rooms(self.side)
+
+    def _reports_room(self, room_id: str, prev: inbox.SideRoom | None) -> inbox.SideRoom:
+        """Joined once, by the restricted join, and never synced; `report` verifies it."""
+        if prev is not None and prev.state == "join":
+            return prev
+        try:
+            self.client.join(room_id)
+        except (matrix.Forbidden, matrix.NotFound):
+            self._say(f"could not join the reports room {room_id}")
+            return inbox.SideRoom(room_id, "refused", REASON_JOIN_REFUSED)
+        except matrix.MatrixError as exc:
+            return inbox.SideRoom(room_id, "refused", self._side_failure(protocol.PURPOSE_REPORTS, room_id,
+                                                                         "the join", exc))
+        return inbox.SideRoom(room_id, "join", None)
+
+    def _side_failure(self, purpose: str, room_id: str, doing: str, exc: matrix.MatrixError) -> str:
+        """A side room's non-transient homeserver failure, logged in full; the reason `status`
+        names. It is that room's alone: the main room and every command on it go on (SPEC
+        §4.3). A transient one (no connection, a 5xx, a 429 past its retries: a restart) is
+        raised again, so the caller's retry runs and the room is never marked for it."""
+        if exc.transient:
+            raise exc
+        self._say(f"the {purpose} room {room_id}: {doing} failed: {exc}")
+        return f"{doing} failed: {homeserver_reason(exc)}"
+
+    def _may_take_questions(self, record: protocol.TeamRecord | None) -> bool:
+        return (record is not None and record.roles.get(self.member.user_id) == protocol.ROLE_COORDINATOR
+                and self.member.human_text)
+
+    def _questions_room(self, room_id: str, prev: inbox.SideRoom | None,
+                        record: protocol.TeamRecord) -> inbox.SideRoom:
+        """Taken only by a coordinator with human text (SPEC §4.4, §4.5), then verified."""
+        if record.roles.get(self.member.user_id) != protocol.ROLE_COORDINATOR:
+            return inbox.SideRoom(room_id, "pending", REASON_NOT_COORDINATOR)
+        if not self.member.human_text:
+            return inbox.SideRoom(room_id, "refused", REASON_NO_HUMAN_TEXT)
+        if prev is None or prev.state in ("pending", "refused"):
+            return self._join_questions(room_id, record, invited=False)
+        return self.verify_side(protocol.PURPOSE_QUESTIONS, room_id, record)
+
+    def _join_questions(self, room_id: str, record: protocol.TeamRecord, *, invited: bool) -> inbox.SideRoom:
+        """Join the questions room and verify it; `pending` when the join fails, retried at the
+        next verify."""
+        try:
+            self.client.join(room_id)
+        except (matrix.Forbidden, matrix.NotFound) as exc:
+            if not invited:
+                return inbox.SideRoom(room_id, "pending", REASON_NOT_INVITED)
+            reason = self._side_failure(protocol.PURPOSE_QUESTIONS, room_id, "the join", exc)
+            return inbox.SideRoom(room_id, "pending", reason)
+        except matrix.MatrixError as exc:
+            reason = self._side_failure(protocol.PURPOSE_QUESTIONS, room_id, "the join", exc)
+            return inbox.SideRoom(room_id, "pending", reason)
+        self._fresh_questions = True
+        return self.verify_side(protocol.PURPOSE_QUESTIONS, room_id, record)
+
+    def verify_side(self, purpose: str, room_id: str, record: protocol.TeamRecord) -> inbox.SideRoom:
+        """SPEC §4.3: the create event, the back-link, the power levels the record calls for
+        and the join rules. A failure is this room's alone."""
+        member = self.member
+        try:
+            self._check_create(room_id)
+            link = self.client.get_state(room_id, protocol.EVENT_ROOM_LINK, "", as_event=True)
+            protocol.check_room_link(link, member.admin, member.team, purpose, member.room)
+            protocol.check_side_power_levels(self.client.get_state(room_id, POWER_LEVELS, ""), purpose,
+                                             record.humans, bool(protocol.coordinators(record.roles)))
+            protocol.check_join_rules(self.client.get_state(room_id, protocol.JOIN_RULES, ""), purpose,
+                                      member.room)
+        except protocol.Untrusted as exc:
+            reason = str(exc)
+        except (matrix.NotFound, matrix.Forbidden):
+            reason = "not joined, or its state is missing"
+        except matrix.MatrixError as exc:
+            return inbox.SideRoom(room_id, "untrusted", self._side_failure(purpose, room_id, "reading its state", exc))
+        else:
+            return inbox.SideRoom(room_id, "join", None)
+        self._say(f"the {purpose} room {room_id} is not trusted: {reason}")
+        return inbox.SideRoom(room_id, "untrusted", reason)
+
+    def _listening_room(self) -> str | None:
+        """The questions room while this member is its coordinator and it is not untrusted:
+        named in the filter, so its invite and its messages are seen."""
+        found = self.side.get(protocol.PURPOSE_QUESTIONS)
+        if found is None or found.state not in ("join", "pending") or not self._may_take_questions(self.record):
+            return None
+        return found.room
+
+    def _questions_events(self, rooms: dict, room_id: str | None, since: str) -> list:
+        """The questions room's new messages in this sync, oldest first: after this member's
+        join when it has just joined (the history is skipped), gap-filled when limited, none
+        while the room is untrusted or this member is not its coordinator."""
+        if room_id is None:
+            return []
+        entry = _section(_section(rooms, "join"), room_id)
+        if not entry:
+            return []
+        state_events = _events(entry, "state")
+        timeline = _section(entry, "timeline")
+        events = _events(entry, "timeline")
+        if self._fresh_questions:
+            self._fresh_questions = False
+            joins = [n for n, e in enumerate(events) if _type_of(e) == MEMBER and e.get("state_key") == self.member.user_id
+                     and isinstance(e.get("content"), dict) and e["content"].get("membership") == "join"]
+            # Without its join, the timeline is all after it: a timeline is the newest events.
+            return events[joins[-1] + 1:] if joins else events
+        limited = timeline.get("limited") is True
+        if limited or any(_type_of(e) in SIDE_TRUST_TYPES for e in state_events + events):
+            side = dict(self.side)
+            side[protocol.PURPOSE_QUESTIONS] = self.verify_side(protocol.PURPOSE_QUESTIONS, room_id, self.record)
+            self._set_side(side)
+        if self._listening_room() != room_id or self.side[protocol.PURPOSE_QUESTIONS].state != "join":
+            return []
+        if limited:
+            # Never contained: the batch's token covers both rooms, so committing it past a
+            # failed fill would lose the messages for good. The batch fails and is retried.
+            events = self._fill_gap(room_id, since, timeline.get("prev_batch")) + events
+        return events
+
+    def _room_messages(self, room_id: str) -> tuple[list, bool]:
+        """A room's messages oldest first, read backwards in pages, at most `HISTORY_MAX_PAGES`;
+        whether the scan reached the start."""
+        cursor = _next_batch(self.client.sync(filter=sync_filter(room_id, 0), timeout_ms=0))
+        found: list = []
+        for _ in range(HISTORY_MAX_PAGES):
+            page = self.client.messages(room_id, from_token=cursor, direction="b",
+                                        limit=HISTORY_PAGE_LIMIT, filter=GAP_FILTER)
+            chunk = page.get("chunk")
+            if not isinstance(chunk, list):
+                raise matrix.Unreachable("GET /messages", detail="the answer has no chunk list")
+            found.extend(chunk)
+            end = page.get("end")
+            if not chunk or not isinstance(end, str) or end == cursor:
+                return found[::-1], True
+            cursor = end
+        return found[::-1], False
+
+    def question_index(self) -> protocol.QuestionIndex:
+        """The questions room's questions and their replies, read from the room (SPEC §8.3),
+        through a verified main room and a joined questions room."""
+        room_id = self._joined_questions()
+        events, _ = self._room_messages(room_id)
+        return protocol.build_question_index(events, self.record.context(self.member.server_name))
+
+    def _question_index_or_none(self) -> protocol.QuestionIndex | None:
+        """The receive path's question index; None, logged, when the homeserver fails to give
+        it: the items are then stored with no question, and the main room's batch goes on."""
+        try:
+            return self.question_index()
+        except matrix.MatrixError as exc:
+            room_id = self.side[protocol.PURPOSE_QUESTIONS].room
+            self._side_failure(protocol.PURPOSE_QUESTIONS, room_id, "reading its questions", exc)
+            self._say(f"the questions room {room_id}: its messages are stored without their question; "
+                      "run pingbus questions")
+            return None
+
+    def _joined_questions(self) -> str:
+        found = self.side.get(protocol.PURPOSE_QUESTIONS)
+        if self.record is None:
+            self.verify_room()
+            found = self.side.get(protocol.PURPOSE_QUESTIONS)
+        if found is None:
+            raise RoomUntrusted(f"team {self.member.team} has no questions room yet")
+        if found.state != "join" or not self._may_take_questions(self.record):
+            raise RoomUntrusted(f"the questions room {found.room} is {found.state}: "
+                                f"{found.reason or REASON_NOT_COORDINATOR}")
+        return found.room
+
+    @staticmethod
+    def _question_of(index: protocol.QuestionIndex, event: Mapping[str, object]) -> tuple[int, str] | None:
+        event_id = event.get("event_id")
+        found = index.attached_to(event_id) if event_id in index.attached else protocol.attach_question(event, index)
+        if found is None:
+            own = index.by_event.get(event_id) or index.by_event.get(index.thread_of.get(event_id, ""))
+            found = own
+        return None if found is None else (found.n, found.headline)
 
     # ── syncing ──────────────────────────────────────────────────────────────────────────
 
@@ -331,8 +613,9 @@ class Syncer:
             return self._first_sync()
         if self.record is None:
             self.verify_room()
-        response = self.client.sync(since=since, filter=sync_filter(self.member.room, TIMELINE_LIMIT),
-                                    timeout_ms=timeout_ms)
+        questions = self._listening_room()
+        response = self.client.sync(since=since, filter=sync_filter(
+            self.member.room, TIMELINE_LIMIT, also=(questions,) if questions else ()), timeout_ms=timeout_ms)
         next_batch = _next_batch(response)
         rooms = _section(response, "rooms")
         if self._take_invites(rooms):
@@ -345,11 +628,11 @@ class Syncer:
         if limited or any(_type_of(e) in TRUST_TYPES for e in state_events + events):
             self.verify_room()
         if limited:
-            events = self._fill_gap(since, timeline.get("prev_batch")) + events
+            events = self._fill_gap(self.member.room, since, timeline.get("prev_batch")) + events
         elif any(_type_of(e) == TOPIC for e in state_events + events):
             self.state.save_about(self._read_about())
         self._read_room_state(state_events + events)
-        return self._receive(events, next_batch)
+        return self._receive(events, next_batch, self._questions_events(rooms, questions, since))
 
     def _first_sync(self) -> Batch:
         """§9: no stored token, so `timeline.limit: 0` and only `next_batch` is kept."""
@@ -365,17 +648,30 @@ class Syncer:
         return Batch(True, 0, (), {})
 
     def _take_invites(self, rooms: dict) -> bool:
-        """Join the one acceptable invite; reject every other (§8), logged by room ID only."""
+        """Join the main room's invite and an acceptable questions invite, leave other admin
+        invites pending, reject every other (§8, SPEC §4.4), logged by room ID only. Whether
+        the main room was joined."""
         joined = False
+        found = self.side.get(protocol.PURPOSE_QUESTIONS)
+        questions = found.room if found is not None else None
+        may = self._may_take_questions(self.record)
         for room_id, invite in _section(rooms, "invite").items():
-            if invite_acceptable(room_id, invite, self.member):
+            if not protocol.is_room_id(room_id):
+                self._say("ignored an invite with a malformed room ID")
+                continue
+            action = invite_action(room_id, invite, self.member, questions, may)
+            if action == INVITE_MAIN:
                 self.client.join(room_id)
                 joined = True
-            elif protocol.is_room_id(room_id):
+            elif action == INVITE_QUESTIONS:
+                side = dict(self.side)
+                side[protocol.PURPOSE_QUESTIONS] = self._join_questions(room_id, self.record, invited=True)
+                self._set_side(side)
+            elif action == INVITE_PENDING:
+                self._say(f"left an invite to room {room_id} pending")
+            else:
                 self.client.leave(room_id)
                 self._say(f"rejected an invite to room {room_id}")
-            else:
-                self._say("ignored an invite with a malformed room ID")
         return joined
 
     def _after_join(self, since: str, *, first: bool) -> Batch:
@@ -388,17 +684,19 @@ class Syncer:
         entry = _section(_section(_section(response, "rooms"), "join"), self.member.room)
         self._read_room_state(_events(entry, "state"))
         self.state.commit_batch([], next_batch)
+        # The token is past any questions-room join that verify made, so nothing is skipped.
+        self._fresh_questions = False
         return Batch(first, 0, (), {})
 
-    def _fill_gap(self, since: str, prev_batch: object) -> list:
-        """The messages a limited timeline left out, oldest first, read forward from the
-        previous sync's token to the timeline's `prev_batch`."""
+    def _fill_gap(self, room_id: str, since: str, prev_batch: object) -> list:
+        """The messages a limited timeline of `room_id` left out, oldest first, read forward
+        from the previous sync's token to the timeline's `prev_batch`."""
         if not config.is_printable_token(prev_batch):
             raise _malformed("a limited timeline has no prev_batch")
         found: list = []
         cursor = since
         for _ in range(GAP_MAX_PAGES):
-            page = self.client.messages(self.member.room, from_token=cursor, to_token=prev_batch,
+            page = self.client.messages(room_id, from_token=cursor, to_token=prev_batch,
                                         direction="f", limit=GAP_PAGE_LIMIT, filter=GAP_FILTER)
             chunk = page.get("chunk")
             if not isinstance(chunk, list):
@@ -445,16 +743,18 @@ class Syncer:
 
     # ── the receive pipelines ────────────────────────────────────────────────────────────
 
-    def _receive(self, events: Sequence[object], next_batch: str) -> Batch:
+    def _receive(self, events: Sequence[object], next_batch: str, questions: Sequence[object] = ()) -> Batch:
         record, member = self.record, self.member
         ctx = record.context(member.server_name)
         seen = set(self.state.known_event_ids())
         now = self._clock_ms()
         accepted: list[dict] = []
+        asked: list[dict] = []
         answers: list[protocol.Ping] = []
         drops: collections.Counter[str] = collections.Counter()
-        for event in events:
-            outcome = protocol.validate_event(event, ctx, member.user_id, seen, human_text=member.human_text)
+        for room, event in [(protocol.ROOM_MAIN, e) for e in events] + [(protocol.PURPOSE_QUESTIONS, e) for e in questions]:
+            outcome = protocol.validate_event(event, ctx, member.user_id, seen, human_text=member.human_text,
+                                              room=room)
             if outcome.kind == protocol.IGNORE and outcome.reason == "type":
                 continue
             event_id = event.get("event_id") if isinstance(event, dict) else None
@@ -471,9 +771,15 @@ class Syncer:
                 self.state.log_drop(member.team, event_id, sender, outcome.reason, now)
                 drops[outcome.reason] += 1
             elif outcome.kind == protocol.ACCEPT:
-                accepted.append(event)
-            elif protocol.reached_no_agent(event, ctx, outcome):
+                (accepted if room == protocol.ROOM_MAIN else asked).append(event)
+            elif room == protocol.ROOM_MAIN and protocol.reached_no_agent(event, ctx, outcome):
                 self.state.log_ignored(member.team, event_id, event.get("sender"), outcome.reason, now)
+        if asked:
+            index = self._question_index_or_none()
+            for event in asked:
+                question = None if index is None else self._question_of(index, event)
+                accepted.append({**event, inbox.ROOM_KEY: protocol.PURPOSE_QUESTIONS, inbox.QUESTION_KEY:
+                                 None if question is None else {"n": question[0], "headline": question[1]}})
         if answers:
             with self.state.outbox() as box:
                 for answer in answers:
@@ -516,17 +822,22 @@ class Syncer:
 
     # ── history ──────────────────────────────────────────────────────────────────────────
 
-    def history(self, limit: int) -> History:
+    def history(self, limit: int, room: str = protocol.ROOM_MAIN) -> History:
         """This member's past items, newest first, at most `limit` (§13 `history`), read
         from the room itself, so fresh local state loses nothing. Each received item goes
         through the offline receive steps and the forge check; an item this member sent
         goes through the send-side rules. The age and flood limits do not apply: history is
         old by design and nothing here is acted on. Nothing is stored, consumed or acked,
-        and the sync token is left alone."""
+        and the sync token is left alone. `room="questions"` reads the questions room, each
+        item with its question (Plan 00211 SPEC §8.4)."""
         if type(limit) is not int or not 1 <= limit <= HISTORY_MAX_ITEMS:
             raise ValueError(f"limit must be an integer from 1 to {HISTORY_MAX_ITEMS}")
+        if room not in protocol.RECEIVING_ROOMS:
+            raise ValueError(f"no history is read from room {room!r}")
         record = self.verify_room()
         ctx = record.context(self.member.server_name)
+        if room == protocol.PURPOSE_QUESTIONS:
+            return self._questions_history(limit, ctx)
         room = self.member.room
         cursor = _next_batch(self.client.sync(filter=sync_filter(room, 0), timeout_ms=0))
         items: list[HistoryItem] = []
@@ -551,6 +862,38 @@ class Syncer:
                 return History(tuple(items), dict(drops), True)
             cursor = end
         return History(tuple(items), dict(drops), False)
+
+    def _questions_history(self, limit: int, ctx: protocol.Context) -> History:
+        events, complete = self._room_messages(self._joined_questions())
+        index = protocol.build_question_index(events, ctx)
+        items: list[HistoryItem] = []
+        drops: collections.Counter[str] = collections.Counter()
+        seen: set[str] = set()
+        for event in reversed(events):
+            if not isinstance(event, dict):
+                drops["schema"] += 1
+                continue
+            question = self._question_of(index, event)
+            if event.get("sender") == self.member.user_id:
+                if not _envelope_ok(event):
+                    drops["schema"] += 1
+                    continue
+                items.append(HistoryItem(HISTORY_OUT, event["origin_server_ts"], sent_event_id=event["event_id"],
+                                         room=protocol.PURPOSE_QUESTIONS, question=question))
+            else:
+                outcome = protocol.validate_event(event, ctx, self.member.user_id, seen,
+                                                  human_text=self.member.human_text, room=protocol.PURPOSE_QUESTIONS)
+                if outcome.kind == protocol.IGNORE:
+                    continue
+                seen.add(event["event_id"])
+                if outcome.kind == protocol.DROP:
+                    drops[outcome.reason] += 1
+                    continue
+                items.append(HistoryItem(HISTORY_IN, outcome.human.origin_server_ts, human=outcome.human,
+                                         room=protocol.PURPOSE_QUESTIONS, question=question))
+            if len(items) == limit:
+                return History(tuple(items), dict(drops), True)
+        return History(tuple(items), dict(drops), complete)
 
     def _history_item(self, event: object, record: protocol.TeamRecord, ctx: protocol.Context,
                       seen: set[str]) -> tuple[HistoryItem | None, str | None]:
