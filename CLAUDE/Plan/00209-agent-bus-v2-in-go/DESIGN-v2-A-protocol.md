@@ -661,3 +661,256 @@ the test effort.
 | A homeserver restart or an outage                                           | re-verify on stream restart; transient failures retried, not trusted through                                               |
 | Root on the homeserver host or a backup holder                              | not defended in-band; it is the root of trust (R38); per-member `human_text: false` limits what a human account can direct |
 | A process holding the session's inbox socket token writes a forged envelope | not defended in-band (SPEC-inject T4); the history check in the frame text (13.6)                                          |
+
+---
+
+## 7. Message events and kinds
+
+### 7.1 Rules common to every agent event
+
+An agent event is an `m.room.message` sent by a member. Element shows `m.room.message` and hides
+other types, so every event a human should see is one; the meaning is in exactly one typed key.
+
+| Field           | Rule                                                                                                                                                                                        |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| typed key       | exactly one of `<ns>.ping`, `<ns>.text`, `<ns>.notice` (main room); `<ns>.report` (reports); `<ns>.question`, `<ns>.thread` (questions). None, two, or one of another room's: drop `schema` |
+| `v`, `features` | checked first, before size or shape (P26's version-first rule), section 3                                                                                                                   |
+| `msgtype`       | `m.text` when the event addresses a human, else `m.notice`; display policy, never read by a receiver                                                                                        |
+| `body`          | a string; display text for Element (section 12), never read by a receiver                                                                                                                   |
+| `m.mentions`    | `{"user_ids": <the addressees, sorted>}` so Element notifies the right humans; never read by a receiver (the typed `to` is the addressing)                                                  |
+| `m.relates_to`  | absent, or exactly `{"m.in_reply_to": {"event_id": <event ID>}}`, or (questions room) the thread form of 10.3                                                                               |
+| edits           | `m.new_content` anywhere, or `rel_type` `m.replace`: drop `edit`. Agents never edit                                                                                                         |
+| size            | content at most 16384 bytes; each typed object has its own cap below                                                                                                                        |
+| `format`        | absent (OD-A9 keeps `formatted_body` out for now)                                                                                                                                           |
+
+**Why `body` is not checked.** v1 dropped an event whose `body` differed from a render of its typed
+object, so the Element text could never change without a protocol version, and every field lived
+twice. The check protected nothing a member could not do anyway: any member may post free text
+saying whatever it likes. In v2 the sender's renderer is display, may improve in any release, and
+receivers read the typed object only.
+
+### 7.2 Ping
+
+```json
+{
+  "msgtype": "m.notice",
+  "body": "review pr:example-org/myrepo#12@0123456789abcdef0123456789abcdef01234567 -> myrepo.2+desk.podman",
+  "m.mentions": {"user_ids": ["@myrepo.2+desk.podman:<server_name>"]},
+  "<ns>.ping": {
+    "v": 1,
+    "verb": "review",
+    "to": ["@myrepo.2+desk.podman:<server_name>"],
+    "ref": "pr:example-org/myrepo#12@0123456789abcdef0123456789abcdef01234567"
+  }
+}
+```
+
+- `verb` from the closed table (8.1); `to` 1-32 distinct user IDs, sorted, each addressable (8.1);
+  `ref` and `branch` as 8.1 and section 9; the typed object at most 4096 bytes.
+- The answered ping, for verbs that take one, is the reply relation's `event_id`: `re` is no longer a
+  field (AR22). Element then shows an answer under the ping it answers.
+
+### 7.3 Agent text
+
+```json
+{
+  "msgtype": "m.text",
+  "body": "to alice, myrepo.1: Branch pushed; the failing test is fixed in 0123abc.",
+  "m.mentions": {"user_ids": ["@alice:<server_name>", "@myrepo.1+desk.podman:<server_name>"]},
+  "m.relates_to": {"m.in_reply_to": {"event_id": "$<43 chars>"}},
+  "<ns>.text": {
+    "v": 1,
+    "to": ["@alice:<server_name>", "@myrepo.1+desk.podman:<server_name>"],
+    "text": "Branch pushed; the failing test is fixed in 0123abc."
+  }
+}
+```
+
+- `to` 1-16 distinct, sorted: role-holding non-parked members and listed humans; `text` 1-4096
+  bytes; never `@room`.
+- A worker writing to a human adds every coordinator not already in `to` (P21); a receiving
+  coordinator that was added sees the humans as `copy:` (13.3).
+- The sender refuses text matching a secret shape (the twelve patterns of v1's protocol section 7,
+  carried unchanged, with Go's `\b` and `\s` defined on Unicode scalar values over the pinned
+  tables, P33) or holding its own token (R43). Receivers do not run the secret check.
+
+### 7.4 Notice
+
+A typed lifecycle fact. It replaces v1's fixed-text goodbye, farewell and disconnected messages,
+which were PEER texts a receiver could only take as text.
+
+```json
+{
+  "msgtype": "m.notice",
+  "body": "myrepo.2+desk.podman left the team: session ended (exit)",
+  "m.mentions": {"user_ids": ["@alice:<server_name>", "@myrepo.1+desk.podman:<server_name>"]},
+  "<ns>.notice": {
+    "v": 1,
+    "event": "left",
+    "subject": "@myrepo.2+desk.podman:<server_name>",
+    "reason": "exit",
+    "to": ["@alice:<server_name>", "@myrepo.1+desk.podman:<server_name>"]
+  }
+}
+```
+
+| `event`        | Sender             | Extra fields                        | Meaning                                               | Source           |
+| -------------- | ------------------ | ----------------------------------- | ----------------------------------------------------- | ---------------- |
+| `left`         | the subject itself | `reason`: `exit`, `logout`, `other` | the subject's session ended with a goodbye            | R28              |
+| `disconnected` | admin              | -                                   | the subject's session ended without one (posted by C) | R29              |
+| `added`        | admin              | `role`                              | the subject joined the team                           | R30              |
+| `removed`      | admin              | -                                   | the owner removed the subject                         | R30, v1 farewell |
+| `parked`       | admin              | -                                   | the owner parked the subject                          | R30              |
+| `role`         | admin              | `role`                              | the subject's role is now `role`                      | R30              |
+
+- `to` is the team's humans and coordinators, at most 17, never the subject (R28: "to humans and
+  coordinators only"; each agent addressed costs a model turn).
+- A notice whose `event` is unknown is dropped `schema`; a new event is a feature.
+- `removed`, `parked`, `role` and `added` come from the admin because the admin made the change:
+  the notice no longer depends on the subject's session being alive to post its own farewell.
+- Exactly one of `left` and `disconnected` per claim, never twice: C's and B's records (R28, R29)
+  keep that; A only fixes who may send which.
+
+### 7.5 Human messages
+
+A human writes in Element; nothing of `<ns>` is on the event. The member reads:
+
+| Field     | Rule                                                                                                                                                           |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `msgtype` | `m.text`; anything else (`m.emote`, files, images): ignored `type` and counted as unheard                                                                      |
+| `body`    | a string of at most 16384 bytes, else drop `size`; `format`/`formatted_body` ignored                                                                           |
+| reply     | `m.relates_to.m.in_reply_to.event_id`; leading `>` quote lines and one blank line after them are removed when present (P37); empty after that: ignored `empty` |
+| thread    | `rel_type` `m.thread` in main is read as a reply to the thread root                                                                                            |
+| edit      | `rel_type` `m.replace` with `m.new_content` (`msgtype` `m.text`, `body` string): delivered as a revision (below)                                               |
+
+**Addressing.** A human message in main is addressed to this member when any holds:
+
+1. `m.mentions.user_ids` contains this member;
+2. `m.mentions.room` is `true` (humans hold the `@room` power);
+3. it replies to an event this member sent (not a thread fallback reply);
+4. it is in a thread whose root this member sent.
+
+Rules 3 and 4 are new. Element adds the replied-to sender to `m.mentions` for a plain reply, but a
+"Reply in thread" is not a mention, so in v1 a human answering an agent inside a thread was unheard.
+Checking the replied-to event's sender takes one event fetch, which B caches. A human message
+addressed to no agent is counted as unheard, as v1 (P41).
+
+**Edits.** A human's edit is delivered as a new HUMAN entry with `revises: <original event ID>`, in
+main and in questions alike (00211 D6 had questions only; OD-A8). It is accepted only when the
+original exists in the same room and has the same sender (the server does not enforce that); it is
+addressed to whoever the original was addressed to, plus any member named in
+`m.new_content.m.mentions`. Its age is the edit's own `origin_server_ts`. Why: an owner correcting
+an instruction expects the correction to arrive; v1 dropped it silently in main.
+
+A human message gets no `<ns>` key and is never read for anything but the above.
+
+### 7.6 How the kind is derived
+
+The receiver judges each event once, in this order; the first rule that decides wins. The outcome is
+**deliver** with a kind, **ignore** (silent, not logged except where noted), or **drop** (logged with
+a reason from the closed set below).
+
+01. `type` is not `m.room.message`: ignore `type` (state is the trust path's).
+02. `event_id` fails its grammar, `state_key` present, `unsigned.redacted_because` present, `content`
+    not an object, or `origin_server_ts` not a non-negative integer: drop `schema`.
+03. Already judged: ignore `seen`. Sent by this member: ignore `self` (B records its own ping's
+    `origin_server_ts`, 8.2).
+04. Sender class (6.7) none: drop `sender`.
+05. Room:
+    - reports: no member reads it (00211); a member that does is a fault.
+    - questions: this member not the coordinator: ignore `not-coordinator`. A human: the human path,
+      every message addressed; kind HUMAN with the room lines (13.3). The coordinator's own posts
+      feed the question index (10.4). Any other agent: drop `sender`.
+    - main: continue.
+06. Admin: `<ns>.notice` other than `left`: the notice path, kind NOTICE. Anything else: ignore
+    `admin` (the admin's display posts, if any, are for humans).
+07. Human: the human path (7.5), kind HUMAN. A member whose roster entry says `human_text: false`
+    drops it `sender` (R21 per-member mitigation, v1 `protocol.py:823`).
+08. Agent: the typed-key rule (7.1), then by key: `<ns>.ping` the ping path (8.1), kind PING;
+    `<ns>.text` kind PEER (the same `human_text` rule applies, as v1); `<ns>.notice` only `left` with
+    `subject` equal to `sender`, kind NOTICE.
+09. Addressing: a ping, text or notice whose `to` does not hold this member: ignore `not-addressed`.
+10. Local checks, in order: age (`stale`), receive flood (`rate`), forge check for a ping with a
+    reference (section 9). Then deliver.
+
+TIMEOUT and MEMBERSHIP never come from the room: TIMEOUT from the member's own ping records (8.3)
+and question reminders (10.5); MEMBERSHIP from the host's desired-membership file (B, 00203 H12).
+
+**Closed sets.** Drop reasons: `version schema size edit sender role target verb ref allowlist excluded stale rate forge-rate unresolved provenance`. Ignore reasons: `type seen self admin not-addressed empty not-coordinator coordinator-post`. Send refusals add `secret`, `body` (a report
+or question form error, 10.2) and `duplicate`. v1's `re` drop becomes `schema` (the relation is
+shape) and `agent-text` becomes `not-addressed`. A new reason is a feature.
+
+---
+
+## 8. Pings, answers and timeouts
+
+### 8.1 The verb table
+
+Kept from v1 (P19, `protocol.py:252-262`), with one change: an answer's `re` is the reply relation.
+
+| Verb      | `ref`     | Forms            | Reply relation | Answer expected | Senders             | External ref |
+| --------- | --------- | ---------------- | -------------- | --------------- | ------------------- | ------------ |
+| `fetch`   | required  | path, commit     | forbidden      | yes             | coordinator         | yes          |
+| `sync`    | required  | path, commit     | forbidden      | yes             | coordinator         | no           |
+| `review`  | required  | path, commit, pr | forbidden      | yes             | coordinator, worker | yes          |
+| `run-qa`  | required  | commit, pr       | forbidden      | yes             | coordinator, worker | no           |
+| `halt`    | forbidden | -                | forbidden      | yes             | coordinator         | no           |
+| `ack`     | forbidden | -                | required       | no              | any role            | no           |
+| `nack`    | optional  | any              | required       | no              | any role            | yes          |
+| `done`    | required  | any              | optional       | no              | coordinator, worker | yes          |
+| `blocked` | required  | any              | optional       | no              | coordinator, worker | yes          |
+
+- Addressable: a non-parked role holder; for `ack`, `nack`, `done` and `blocked` also a listed human
+  (P20, P22). A worker's ping that names a human copies the coordinators (P21).
+- `branch` only beside a `path` or `commit` reference (P28).
+- A sender outside the verb's senders: drop `role` (P23). An unknown verb: drop `verb`.
+- The reply relation where forbidden, or missing where required: drop `schema`.
+
+Why a closed verb set stays: a ping's authority is "the verb only" (13.4). Free text from an agent is
+PEER and has no authority; the verbs are the only way one agent asks another to act, and each is
+something a receiving agent can do safely on a document it reads.
+
+### 8.2 Answers
+
+An **answer** is an `ack`, `nack`, `done` or `blocked` whose reply relation names a ping this
+member sent, from a sender that ping addressed. v1 counted only `ack` and `nack`; `done` and
+`blocked` with a reply relation now count too, because an agent that finishes at once should not
+have to send an `ack` first only to stop a TIMEOUT.
+
+The **deadline** of a ping is its own `origin_server_ts` plus its timeout: `halt_ack_timeout_s` for
+`halt`, `ack_timeout_s` for the other verbs that expect an answer. An answer counts when its
+`origin_server_ts` is at or before the deadline, however late the member reads it (R42). Both times
+are the server's: v1 took the deadline from the sender's local clock and compared it with the
+answer's server time, so a skewed member clock moved deadlines. The sender learns its ping's
+`origin_server_ts` when its own event comes back in sync (rule 3 of 7.6); until then B uses its
+local send time.
+
+An answer from someone the ping did not address counts for nothing; it is still delivered when it
+addresses this member.
+
+### 8.3 Timeouts
+
+When the member's clock passes a ping's deadline, each addressee that has not answered gets exactly
+one TIMEOUT, keyed `<ping event ID>~<addressee localpart>` and marked reported once delivered (R42;
+v1 `inbox.py:840-860`). A TIMEOUT is never retried and spends no flood budget. Its authority is "a
+fact about your own ping" (13.4).
+
+### 8.4 What is delivered
+
+| Arrives                       | Delivered as                                                                                                                                              |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| a ping that expects an answer | a PING entry                                                                                                                                              |
+| `nack`, `done`, `blocked`     | a PING entry                                                                                                                                              |
+| `ack`                         | no entry of its own: recorded, and the next delivery for another reason carries an `answered:` line for it (13.2); `history` and `status` show it (OD-A2) |
+| a late answer                 | as above, marked late in `history`                                                                                                                        |
+
+Why `ack` is not its own delivery: each entry costs the receiving session a model turn, and an
+`ack` changes nothing the session must do: it waits for `done` or `blocked`, and a missing answer
+already produces a TIMEOUT. Plan 00211 added the reports room partly to cut the same kind of
+noise.
+
+### 8.5 Staleness
+
+A ping older than its verb's timeout when first judged is dropped `stale` (`ack_timeout_s` for a
+verb that expects no answer); an answer that is stale still counts for 8.2 and is not delivered. A
+human message or agent text older than `human_max_age_s` is dropped `stale` (P60).
