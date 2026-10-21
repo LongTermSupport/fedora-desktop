@@ -17,11 +17,13 @@ import (
 // (helpers/agent_bus/bridge.py:31, BRIDGE).
 const lxcBridge = "lxcbr0"
 
-// The checkout's files the software digest is computed from (declare.py:461-470): the two package
-// trees the admin bundle is built from (helpers/pingbus/bundle.py:39), the installer and the
-// Tuwunel pin.
+// The checkout's files the verdict depends on: those the software digest is computed from
+// (declare.py:461-470), the two package trees the admin bundle is built from
+// (helpers/pingbus/bundle.py:39), the installer and the Tuwunel pin; and helpers/agent_bus_lxc,
+// which declare.py imports (declare.py:140). The python3 that runs it is not in the key: a
+// different one is an upgrade made while ccy-teams is open (B-S5).
 var (
-	verdictTrees = []string{"helpers/pingbus", "helpers/agent_bus"}
+	verdictTrees = []string{"helpers/pingbus", "helpers/agent_bus", "helpers/agent_bus_lxc"}
 	verdictFiles = []string{"files/usr/local/sbin/agent-bus-install", "files/usr/local/share/agent-bus/tuwunel.pin"}
 )
 

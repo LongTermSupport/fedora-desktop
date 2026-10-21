@@ -69,6 +69,31 @@ func TestAChangeDuringTheStartUpIsReadAgain(t *testing.T) {
 	}
 }
 
+// The Collector a run uses (Wired) is told of every edit of the host_vars through the host's
+// declare client, so an edit during the start-up makes the next pass read the teams again.
+func TestAnEditOfTheHostVarsDuringTheStartUpIsReadAgain(t *testing.T) {
+	h := populated(t)
+	h.c = Wired(h.Host)
+	h.c.HoldTeams()
+	if _, err := h.c.Refresh(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	h.OnDeclareEdit("describe", "CHANGED\tteam alpha description\n", teamtest.HostVarsAlpha+"    description: \"Builds the example site\"\n")
+	if _, err := h.Host.Declare.Describe(t.Context(), "alpha", "Builds the example site"); err != nil {
+		t.Fatal(err)
+	}
+	s, err := h.c.Refresh(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Description["alpha"]; got != "Builds the example site" {
+		t.Fatalf("the read after the edit shows alpha's description as %q", got)
+	}
+	if got := h.Spawned(); got["systemctl"] != 2 || got["declare.py status"] != 2 {
+		t.Fatalf("started %v, want two systemctl and two declare.py status: one before the edit, one after", got)
+	}
+}
+
 // Changed is what ops is told after a flow that may have changed a team: both what is kept of
 // who is signed in and the start-up's read go.
 func TestChangedForgetsTheDevicesAndTheStartUpsRead(t *testing.T) {

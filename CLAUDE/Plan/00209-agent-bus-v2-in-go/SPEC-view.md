@@ -156,14 +156,18 @@ the team file's validator (`check`, `suggest-team`, `check-address`) or derive.p
 - V40. The APPLIED verdict is `declare status` (overview's second half), one Python run. Its
   answer is reused while every input it is computed from is unchanged: the host_vars bytes, the
   installed teams, every applied stamp's name and bytes, the LXC bridge's IPv4 addresses, and the
-  path, size, mode and modification time of every file under the checkout's `helpers/pingbus`
-  and `helpers/agent_bus` and of the installer and Tuwunel pin files
+  path, size, mode and modification time of every file under the checkout's `helpers/pingbus`,
+  `helpers/agent_bus` and `helpers/agent_bus_lxc` (which declare.py imports, declare.py:140) and
+  of the installer and Tuwunel pin files
   (declare.py:461-470, 500-533, helpers/agent_bus/bridge.py:46-60). Any change runs it again.
 - V41. The homeserver units are one `systemctl list-units` per pass, as today: it answers every
   unit at once and asks no property, so H 7.24's rule (ask a unit only its own properties) has
   nothing to apply to. An open's start-up (the first Refresh, the offers' Refresh and the first
   Collect) shares one read of the units, the declaration and the verdict unless something in
   between changed them (an apply, a remove, a create, an edit), when the next pass reads again.
+  The shared start-up read is not re-judged against V40's key, so a change made outside ccy-teams
+  during the start-up prompts is seen at the first pass after the start-up (the first Collect
+  still draws the shared read).
 - V42. An open with nothing to offer starts, for team reads: one `systemctl`, one Python
   (`declare status`), no Python seat list, no Python declare read; a redraw with nothing changed
   starts one `systemctl` and no Python. Pinned by a test over the whole open.

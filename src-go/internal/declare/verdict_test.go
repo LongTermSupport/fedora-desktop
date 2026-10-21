@@ -43,6 +43,7 @@ func newVerdictWorld(t *testing.T) *verdictWorld {
 	w.write(w.c.File, "agent_bus_teams:\n  - team: alpha\n    port: 6167\n")
 	w.write(filepath.Join(w.src, "helpers/pingbus/cli.py"), "print('pingbus')\n")
 	w.write(filepath.Join(w.src, "helpers/agent_bus/declare.py"), "print('declare')\n")
+	w.write(filepath.Join(w.src, "helpers/agent_bus_lxc/derive.py"), "print('derive')\n")
 	w.write(filepath.Join(w.src, "files/usr/local/sbin/agent-bus-install"), "#!/bin/sh\n")
 	w.write(filepath.Join(w.src, "files/usr/local/share/agent-bus/tuwunel.pin"), "tuwunel_version: 1.0.0\n")
 	w.write(filepath.Join(w.applied, "alpha.json"), `{"team": "alpha"}`)
@@ -151,6 +152,9 @@ func TestEachInputOfTheVerdictChangedRunsItAgain(t *testing.T) {
 			if err := os.Remove(filepath.Join(w.src, "helpers/pingbus/cli.py")); err != nil {
 				w.t.Fatal(err)
 			}
+		}},
+		{"an agent_bus_lxc file's size", func(w *verdictWorld) {
+			w.write(filepath.Join(w.src, "helpers/agent_bus_lxc/derive.py"), "print('derive', 2)\n")
 		}},
 		{"the installer", func(w *verdictWorld) {
 			w.write(filepath.Join(w.src, "files/usr/local/sbin/agent-bus-install"), "#!/bin/bash\n")

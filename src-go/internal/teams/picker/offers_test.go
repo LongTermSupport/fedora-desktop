@@ -559,3 +559,25 @@ func TestOfferJoinHereWithNoTeamForTheRepositoryCanStartASessionThatChoosesItsTe
 		t.Fatalf("execs %+v", h.Execs)
 	}
 }
+
+// SPEC-view.md V41: a description written by the start-up's offer changes the teams, so the
+// start-up's shared read goes: the passes after it read the teams again, and the list's first
+// draw shows the new description. Two things drop the read here, the edit (board.Wired) and the
+// apply that follows it (ops' Changed); board's own test pins the first alone.
+func TestADescriptionWrittenAtTheStartUpIsReadAgain(t *testing.T) {
+	h := newRig(t)
+	h.askAboutAlphasDescription(t)
+	h.OnDeclare("check", "")
+	h.OnDeclareEdit("describe", "CHANGED\tteam alpha description\n", hostVarsUndescribed+"    description: \"Builds the example site\"\n")
+	h.Script.Gum = []string{"CHOOSE:Describe alpha now", "CHOOSE:Builds the example site"}
+	h.Script.Fzf = []string{"|ABORT"}
+	if code := h.run(); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if got := h.Spawned()["declare.py status"]; got != 2 {
+		t.Fatalf("declare.py status ran %d times, want twice: before the description and after it", got)
+	}
+	if len(h.Script.Rows) == 0 || !strings.Contains(strings.Join(h.Script.Rows[0], "\n"), "Builds the example site") {
+		t.Fatalf("the first draw does not show the new description: %q", h.Script.Rows)
+	}
+}
