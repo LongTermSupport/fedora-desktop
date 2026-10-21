@@ -1,0 +1,6 @@
+=== exit 1
+=== stdout
+=== stderr
+[0;31mERROR:[0m CCY_DOCKERFILE_DIR=no-such-build-context: no-such-build-context is not a directory. Unset CCY_DOCKERFILE_DIR to use /opt/claude-yolo.
+=== calls
+=== files

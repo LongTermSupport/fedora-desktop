@@ -46,6 +46,7 @@ type machine struct {
 	others    map[string]int    // team -> members of other checkouts, beside roles
 	onPs      func()            // run at each podman ps, when set
 	onPanes   func()            // run at each tmux list-panes, when set
+	report    string            // the keeper's report file: "" follows the desired file, "-" none, else its bytes
 }
 
 type rig struct {
@@ -166,6 +167,18 @@ func (m *machine) role(team, handle string) string {
 // writeReport is the keeper's report for what the desired file says now.
 func (r *rig) writeReport(t *testing.T) {
 	t.Helper()
+	path := membership.ReportPath(r.Checkout(), r.name)
+	switch r.m.report {
+	case "":
+	case "-":
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		return
+	default:
+		teamtest.MustWrite(t, path, r.m.report)
+		return
+	}
 	d, err := membership.Read(r.dir())
 	if os.IsNotExist(err) {
 		return
@@ -193,7 +206,7 @@ func (r *rig) writeReport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	teamtest.MustWrite(t, membership.ReportPath(r.Checkout(), r.name), string(data))
+	teamtest.MustWrite(t, path, string(data))
 }
 
 func (r *rig) podmanPs(t *testing.T) execx.Result {

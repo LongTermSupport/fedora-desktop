@@ -333,7 +333,7 @@ probe_gh_keys_for_remote() {
 
     # Per-probe logs for diagnosing a 0-match outcome.
     # BSH-10: mktemp -d (0700) rather than a predictable /tmp/ccy-gh-probe-$PID.
-    PROBE_LOG_DIR=$(mktemp -d /tmp/ccy-gh-probe-XXXXXX)
+    PROBE_LOG_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ccy-gh-probe-XXXXXX")
     export PROBE_LOG_DIR
 
     # Capture the originally-active gh account so we can restore it after

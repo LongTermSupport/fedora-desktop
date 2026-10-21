@@ -1,0 +1,17 @@
+=== exit 1
+=== stdout
+{
+  "schema": 1,
+  "generated_at": "2030-01-15T12:00:00Z",
+  "scale": "fraction",
+  "error": "usage reading is turned off (CCY_TOKEN_USAGE=0)",
+  "tokens": []
+}
+=== stderr
+=== calls
+=== files
+dir  home/.claude-tokens 0700
+dir  home/.claude-tokens/ccy 0700
+dir  home/.claude-tokens/ccy/tokens 0700
+file home/.claude-tokens/ccy/tokens/work.2030-06-01.token 0600
+     | {token:work}
