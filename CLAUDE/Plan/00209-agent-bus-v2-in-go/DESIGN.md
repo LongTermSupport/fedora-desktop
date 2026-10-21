@@ -1,5 +1,11 @@
 # Plan 00209 design: agent bus v2, rebuilt in Go
 
+> **Superseded by [DESIGN-v2.md](DESIGN-v2.md).** This file designed v2 as a staged, in-place
+> replacement of v1 that kept v1's formats where it could. The owner then directed a clean break:
+> compatibility does not matter, v2 is a separate system (`teamchat`) installed beside v1, and
+> teams move to it one at a time. DESIGN-v2.md is that design. This file stays as a record; its
+> requirement list (section 2) is traced in DESIGN-v2.md section 8, and its reasoning was an input.
+
 **Status**: proposed, revised once after Fable's review
 ([subagent-reports/261019-v2-design-review-fable.md](subagent-reports/261019-v2-design-review-fable.md),
 verdict REWORK); for the owner's decisions (section 14). Nothing here is built.
