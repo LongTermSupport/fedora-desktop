@@ -145,6 +145,18 @@ The text of every report line, the order (heading, mounts in findmnt order, the 
 its mount), the exit 0 for a report with error lines, the name-or-directory reading of TARGET,
 the default cache directory, and the 80% (yellow) and 95% (red) usage colours.
 
+## 4a. Callers
+
+Both callers run under `set -euo pipefail`, so the command's exit status reaches them.
+`rclone-tail` snapshots at its start and in its Ctrl-C handler; it passes `--no-dir` (with its
+mount filter when it has one), so the snapshot is the mount summary, and E19's exit 1 for an
+incomplete directory walk cannot end it when it is started inside a mount. `rclone-cache-warm`
+passes the mount's name, so it gets that mount's summary line. A stated limit: a directory of
+that same name in its working directory would be read as a directory target (E4), as the bash
+read it. `TestRcloneTailNeverWalksADirectory` and `TestRcloneCacheWarmNamesTheMount`
+(`internal/rclonecache/callers_test.go`) read both scripts and pin these calls; a change to
+either script runs the Go gate (`scripts/qa-routing.tsv`).
+
 ## 5. Departures from the bash
 
 - B1. Usage errors exit 64 (the bash: 2), and `--label` with no value is a usage error (the
@@ -170,6 +182,8 @@ the default cache directory, and the 80% (yellow) and 95% (red) usage colours.
 - B10. No rclone mount at all prints `  No rclone mounts found.` and exits 0. The bash could
   never print it: `findmnt` exits 1 when it finds nothing, the mount listing's pipeline failed
   under `pipefail`, and the run ended with status 1 after the heading (found side by side).
+- B11. A bare `-` is a TARGET (a mount name, or a directory called `-`), not an unknown option
+  (the bash: `ERROR: unknown option: -`, exit 2).
 
 ## 6. Proof
 

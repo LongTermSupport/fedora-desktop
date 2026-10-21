@@ -17,6 +17,7 @@ func TestParseArgs(t *testing.T) {
 		{[]string{"-l", "after", "--no-dir"}, options{label: "after", noDir: true}},
 		{[]string{"-l", "a", "-l", "b"}, options{label: "b"}},
 		{[]string{"--", "-odd"}, options{target: "-odd", hasTarget: true}},
+		{[]string{"-"}, options{target: "-", hasTarget: true}}, // B11
 		{[]string{"-h"}, options{help: true}},
 		{[]string{"--bogus", "--help"}, options{help: true}},
 		{[]string{"a", "b", "--help"}, options{help: true}},
