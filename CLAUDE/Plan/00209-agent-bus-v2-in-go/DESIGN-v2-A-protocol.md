@@ -396,7 +396,8 @@ What each level allows:
 
 Nobody but the admin can set state, invite, kick or ban, redact any event (their own included, since
 `m.room.redaction` falls to `events_default`, so the record an agent acted on cannot be withdrawn),
-react, or send any type other than `m.room.message`.
+react, or send any type other than `m.room.message`. The admin redacts in one case only: one
+event at a time, with the reason `secret`, by `teamchat-admin redact` (12.4, C DC20).
 
 What power levels cannot close, because Matrix does not gate it by power:
 
@@ -461,6 +462,7 @@ only source of who is in the team, what each may do, and the team's policy. It r
   "team": "<team>",
   "name": "My team",
   "rev": 42,
+  "restore_epoch": 0,
   "question_floor": 0,
   "humans": ["@alice:<server_name>"],
   "members": {
@@ -481,22 +483,23 @@ only source of who is in the team, what each may do, and the team's policy. It r
 }
 ```
 
-| Key                                              | Rule                                                                                                                                                                               | Source        |
-| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
-| `v`                                              | integer 1                                                                                                                                                                          | P43           |
-| `features`                                       | absent; present at all makes the team untrusted until a release defines a feature (3.1)                                                                                            | new           |
-| `team`                                           | the team id (2.2), equal to the bundle's team                                                                                                                                      | P43           |
-| `name`                                           | the team's display name (2.2); C rewrites it on a rename; display only, never compared to anything                                                                                 | new           |
-| `rev`                                            | integer at least 1, raised by one on every write; diagnostic only (6.5)                                                                                                            | new           |
-| `question_floor`                                 | integer 0-999999999, default 0; written by the admin only, by a migration (area D) to seed question numbering above v1's questions (6.5, 10.2)                                     | new           |
-| `humans`                                         | 1-16 distinct human user IDs                                                                                                                                                       | P43, P59      |
-| `members`                                        | 0-64 agent user IDs; each value has `role` (`coordinator` or `worker`), optional `human_text` (default `true`), optional `parked` (default `false`)                                | P18, P43, R10 |
-| at most one coordinator                          | a roster naming two non-parked coordinators is invalid                                                                                                                             | R10           |
-| coordinator `human_text`                         | a coordinator with `human_text: false` is invalid (it would drop every questions-room message, 00211 lesson g)                                                                     | 00211         |
-| `rooms`                                          | both `reports` and `questions`, distinct room IDs, neither the main room                                                                                                           | P47           |
-| `forge.kind`                                     | `github` (the only forge v2 checks; a second forge is a new feature); the API origin is fixed per kind in `teamchat/proto` (`https://api.github.com`), never taken from the roster | R16           |
-| `forge.org`, `repos`, `exclude`, `path_prefixes` | v1's allow-list, P15 and P27 semantics, P59 counts; at least one of `org` or a repo; an excluded repo is not also listed                                                           | P15, P27, P59 |
-| `limits`                                         | optional; keys and bounds of section 11; an absent key takes its default; a value outside its bounds makes the roster invalid (never clamped)                                      | P59           |
+| Key                                              | Rule                                                                                                                                                                                                                                                                                       | Source        |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------- |
+| `v`                                              | integer 1                                                                                                                                                                                                                                                                                  | P43           |
+| `features`                                       | absent; present at all makes the team untrusted until a release defines a feature (3.1)                                                                                                                                                                                                    | new           |
+| `team`                                           | the team id (2.2), equal to the bundle's team                                                                                                                                                                                                                                              | P43           |
+| `name`                                           | the team's display name (2.2); C rewrites it on a rename; display only, never compared to anything                                                                                                                                                                                         | new           |
+| `rev`                                            | integer at least 1, raised by one on every write; diagnostic only (6.5)                                                                                                                                                                                                                    | new           |
+| `restore_epoch`                                  | integer 0-999999999, default 0; raised by one by a restore of the team's homeserver and by nothing else (C 3.12.2); a member that sees it change drops its sync position and resumes from the server, reading it after every outage by a direct state request, not by sync (B 2.6 step 08) | new           |
+| `question_floor`                                 | integer 0-999999999, default 0; written by the admin only, by a migration (area D) to seed question numbering above v1's questions (6.5, 10.2)                                                                                                                                             | new           |
+| `humans`                                         | 1-16 distinct human user IDs                                                                                                                                                                                                                                                               | P43, P59      |
+| `members`                                        | 0-64 agent user IDs; each value has `role` (`coordinator` or `worker`), optional `human_text` (default `true`), optional `parked` (default `false`)                                                                                                                                        | P18, P43, R10 |
+| at most one coordinator                          | a roster naming two non-parked coordinators is invalid                                                                                                                                                                                                                                     | R10           |
+| coordinator `human_text`                         | a coordinator with `human_text: false` is invalid (it would drop every questions-room message, 00211 lesson g)                                                                                                                                                                             | 00211         |
+| `rooms`                                          | both `reports` and `questions`, distinct room IDs, neither the main room                                                                                                                                                                                                                   | P47           |
+| `forge.kind`                                     | `github` (the only forge v2 checks; a second forge is a new feature); the API origin is fixed per kind in `teamchat/proto` (`https://api.github.com`), never taken from the roster                                                                                                         | R16           |
+| `forge.org`, `repos`, `exclude`, `path_prefixes` | v1's allow-list, P15 and P27 semantics, P59 counts; at least one of `org` or a repo; an excluded repo is not also listed                                                                                                                                                                   | P15, P27, P59 |
+| `limits`                                         | optional; keys and bounds of section 11; an absent key takes its default; a value outside its bounds makes the roster invalid (never clamped)                                                                                                                                              | P59           |
 
 Unknown keys are ignored (section 3). `parked` makes a member's events drop `sender` and makes it
 unaddressable; its account stays in the rooms. A removed member is absent from `members` (C kicks
@@ -538,7 +541,9 @@ C owns the operations; A fixes the order the receiver rules depend on:
 - **At team creation**, in this order: main is created with no roster; the two side rooms are
   created, each with its `teamchat.room` link naming main (5.3); the roster is written naming both
   side rooms; only then are invitations sent. Until the roster exists no member can verify main
-  (6.4), so nothing is invited into a room it could not yet trust.
+  (6.4), so nothing is invited into a room it could not yet trust. C's rooms engine asks
+  `Desired(team, roster, rooms)` again after each room it creates (C 3.6.2), so each later spec
+  names the IDs of the rooms already made, and this order is the order the specs come back in.
 
 ### 5.3 The side-room link
 
@@ -735,21 +740,21 @@ the test effort.
 
 ### 6.9 Threats
 
-| Threat                                                                                              | Defence                                                                                                                                                                                                                        |
-| --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| An agent posts text shaped like a human request                                                     | kind from the roster class of `sender` (7.6); a human is never an agent's class                                                                                                                                                |
-| An agent bypasses `teamchat` and posts raw events (`curl` with its token)                           | every rule is checked by every receiver; the server enforces only power levels (v1 known gap)                                                                                                                                  |
-| An agent sets a per-room display name equal to a human's                                            | no rule reads names; envelope shows the localpart; Element shows the user ID on a name clash (12.3)                                                                                                                            |
-| A container writes a forged inbox item or seat report                                               | caches are never delivered; only a homeserver re-fetch is (AR15)                                                                                                                                                               |
-| A member is removed while its messages are queued                                                   | events judged against the current roster (6.5)                                                                                                                                                                                 |
-| A room ID from a stale or swapped roster                                                            | the side-room link (5.3)                                                                                                                                                                                                       |
-| A member lags a roster change                                                                       | re-verify on any trust-type event; `rev` shown                                                                                                                                                                                 |
-| An agent leaves main (by mistake or on purpose)                                                     | it cannot rejoin (invite-only); its own leave makes the team untrusted for it at once (6.5); C's health check reports the seat for a re-invite                                                                                 |
-| A roster writer points members at a forge origin to collect their tokens                            | the origin is fixed per forge kind in `teamchat/proto`, never read from the roster (5.1)                                                                                                                                       |
-| A homeserver restart or an outage                                                                   | re-verify on stream restart; transient failures retried, not trusted through                                                                                                                                                   |
-| Another team's member, or any process on the host or the LXC bridge, reaches this team's homeserver | the network is not a boundary between teams on one host (C 3.2.5): each member's token is valid on its own team's server only, and human passwords are guarded by the server's login rate limits; nothing else separates teams |
-| Root on the homeserver host or a backup holder                                                      | not defended in-band; it is the root of trust (R38); per-member `human_text: false` limits what a human account can direct                                                                                                     |
-| A process holding the session's inbox socket token writes a forged envelope                         | not defended in-band (SPEC-inject T4); the `verify` check in the frame text (13.5)                                                                                                                                             |
+| Threat                                                                                              | Defence                                                                                                                                                                                                                                                                                                                           |
+| --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| An agent posts text shaped like a human request                                                     | kind from the roster class of `sender` (7.6); a human is never an agent's class                                                                                                                                                                                                                                                   |
+| An agent bypasses `teamchat` and posts raw events (`curl` with its token)                           | every rule is checked by every receiver; the server enforces only power levels (v1 known gap)                                                                                                                                                                                                                                     |
+| An agent sets a per-room display name equal to a human's                                            | no rule reads names; envelope shows the localpart; Element shows the user ID on a name clash (12.3)                                                                                                                                                                                                                               |
+| A container writes a forged inbox item or seat report                                               | caches are never delivered; only a homeserver re-fetch is (AR15)                                                                                                                                                                                                                                                                  |
+| A member is removed while its messages are queued                                                   | events judged against the current roster (6.5)                                                                                                                                                                                                                                                                                    |
+| A room ID from a stale or swapped roster                                                            | the side-room link (5.3)                                                                                                                                                                                                                                                                                                          |
+| A member lags a roster change                                                                       | re-verify on any trust-type event; `rev` shown                                                                                                                                                                                                                                                                                    |
+| An agent leaves main (by mistake or on purpose)                                                     | it cannot rejoin (invite-only); its own leave makes the team untrusted for it at once (6.5); C's health check reports the seat for a re-invite                                                                                                                                                                                    |
+| A roster writer points members at a forge origin to collect their tokens                            | the origin is fixed per forge kind in `teamchat/proto`, never read from the roster (5.1)                                                                                                                                                                                                                                          |
+| A homeserver restart or an outage                                                                   | re-verify on stream restart; transient failures retried, not trusted through                                                                                                                                                                                                                                                      |
+| Another team's member, or any process on the host or the LXC bridge, reaches this team's homeserver | the network is not a boundary between teams on one host (C 3.2.5, K16), and a team's `allow_from` is not one either: it admits sources, it does not tell teams apart. Each member's token is valid on its own team's server only, and human passwords are guarded by the server's login rate limits; nothing else separates teams |
+| Root on the homeserver host or a backup holder                                                      | not defended in-band; it is the root of trust (R38); per-member `human_text: false` limits what a human account can direct                                                                                                                                                                                                        |
+| A process holding the session's inbox socket token writes a forged envelope                         | not defended in-band (SPEC-inject T4); the `verify` check in the frame text (13.5)                                                                                                                                                                                                                                                |
 
 ---
 
@@ -1491,24 +1496,6 @@ What a human cannot do, and why:
   falls to `events_default`): an agent may already have acted on it, and the record of what it was
   told must stay. To withdraw an instruction, write or edit a correction. A message that must not
   stay, a pasted password or token, is removed by the owner (12.4).
-
-### 12.4 Removing a leaked secret
-
-Members and humans cannot redact (I4), and agents run a secret check before they post (7.3); a
-human does not. So the one way to remove a message is the admin's: `teamchat-admin redact --team <team> --event <id> --reason secret`, reached through ccy-teams with the owner's password (C 3.3),
-never by a member and never automatically (OD-A10).
-
-- The admin's account already holds the power (it is the rooms' creator); no power level changes.
-- What a redaction does to members: the server strips the event's content, and every later read
-  of it carries `unsigned.redacted_because`, so 7.6 rule 02 drops it. An item still pending in a
-  member is re-fetched before it is shown only after a restart (B 2.7.3), so B drops a pending item
-  when the redaction event for it arrives in sync. A copy already delivered stays in that
-  session's conversation; the redaction cannot reach it, and the owner should treat the secret as
-  exposed and rotate it.
-- Backups taken before the redaction still hold the text until they are pruned (C 3.12), and so
-  does a migration export (D 5.6); the verb's output says so.
-- Why not open redaction to the sender: an agent or a human withdrawing their own message would
-  rewrite what another session acted on, which is the record 4.2 keeps.
 - **React, send a poll, a sticker or a call.** Closed by the allow-list (4.2): no agent reads them,
   so offering them would let a human believe they had answered.
 - **Invite, kick or change the room.** Only the admin, through ccy-teams (C).
@@ -1528,6 +1515,24 @@ member whose room display name differs from its global one, so the owner sees an
 name is member-controlled text, so the check compares and reports by user ID, and shows the display
 name itself only when it passes the human or handle grammar (R39); otherwise it says
 `display name fails the grammar`.
+
+### 12.4 Removing a leaked secret
+
+Members and humans cannot redact (I4), and agents run a secret check before they post (7.3); a
+human does not. So the one way to remove a message is the admin's: `teamchat-admin redact --team <team> --event <id> --reason secret`, reached through ccy-teams with the owner's password (C 3.3),
+never by a member and never automatically (OD-A10).
+
+- The admin's account already holds the power (it is the rooms' creator); no power level changes.
+- What a redaction does to members: the server strips the event's content, and every later read
+  of it carries `unsigned.redacted_because`, so 7.6 rule 02 drops it. An item still pending in a
+  member is re-fetched before it is shown only after a restart (B 2.7.3), so B drops a pending item
+  when the redaction event for it arrives in sync. A copy already delivered stays in that
+  session's conversation; the redaction cannot reach it, and the owner should treat the secret as
+  exposed and rotate it.
+- Backups taken before the redaction still hold the text until they are pruned (C 3.12), and so
+  does a migration export (D 5.6); the verb's output says so.
+- Why not open redaction to the sender: an agent or a human withdrawing their own message would
+  rewrite what another session acted on, which is the record 4.2 keeps.
 
 ---
 
@@ -2017,7 +2022,8 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
 - C records the `teamchat` version each seat runs (R8, R49) and keeps the table of what each
   version accepts, so a raise needs nothing from the wire (6.6).
 - C is the only roster writer, raises `rev` by one per write, writes no `features` and no `proto`
-  key (3.1, 3.2), and refuses a roster that section 5.1 calls invalid before writing it. Every
+  key (3.1, 3.2), raises `restore_epoch` at a restore and at nothing else (C 3.12.2), and refuses a
+  roster that section 5.1 calls invalid before writing it. Every
   member or role change (add, return, remove, park, demote, promote) is one roster write followed
   by the rooms step, in 5.2's order.
 - C has an admin verb `teamchat-admin redact --team <team> --event <id> --reason secret`, reached

@@ -226,7 +226,7 @@ requirement states the need and section 5 states the drop.
 - **B35.** A session launched on no team keeps inbound socket messages refused until its first
   join, which relaunches it once; the launch's own decision, never a later read of the desired
   file, decides socket delivery for the session's life [R32; HC H22, H34].
-- **B36.** Guest operations need only coreutils (with `sha256sum`), util-linux and systemd in the
+- **B36.** Guest operations need only coreutils, util-linux and systemd in the
   guest, plus tmux for a supervised session's unit (2.13), set their own
   umask and every leaf mode, open with no-follow and place with `O_EXCL`, and never run
   container-controlled code on the host [R33, R48; RL 6.02, 1.2].
@@ -586,7 +586,7 @@ at most. Its schema:
   "team": "<team>",
   "seat": "<seat>",
   "user_id": "@<repo>.2+<site>.podman:<server>",
-  "sync": {"next_batch": "<token>", "fresh": false, "floor_ms": {"main": 1759999990000, "questions": 1759999000000}},
+  "sync": {"next_batch": "<token>", "fresh": false, "restore_epoch": 0, "floor_ms": {"main": 1759999990000, "questions": 1759999000000}},
   "pending": [
     {"id": "$<43>", "room": "main", "item": "human", "sent_ms": 1760000000000, "from": "@alice:<server>", "repeat": false, "held": false, "restored": false, "handed": null}
   ],
@@ -611,6 +611,8 @@ at most. Its schema:
   position, by the resume from the server (b) or by the history-skipping sync of a re-add (c). A
   link that finds `fresh: true` runs that step again; it never syncs from a position it has not
   persisted.
+- `restore_epoch` is the roster's epoch (A 5.1) when `next_batch` was last written; a roster with a
+  different one means a restore, and the position is dropped (2.6 step 08).
 - `floor_ms` is, per room, the `origin_server_ts` just below the oldest item the store still owes in
   that room (in `pending` or `awaiting`), or the room's high-water when it owes none. It is written in
   the same store write as `next_batch`, so every owed item is newer than its floor by construction.
@@ -1147,7 +1149,10 @@ all properties of the link owning its state alone.
   non-blocking (75 if held), and deletes or renames only the other files in the seat directory;
   `seat.lock` stays, empty of meaning once free.
 - **Content.** After taking a seat lock the keeper writes `{"v":1,"run":"<id>","started_ms":N}` into
-  it, for a human diagnosing a held seat. The lock, not the content, is the truth.
+  it, for a human diagnosing a held seat and for the host's health tick, which reads `run` as the
+  seed of an LXC seat's disconnected transaction id (2.11, C 3.11.2 step 6) after checking it
+  against the run id grammar (16 lowercase hex). The lock, not the content, is the truth of whether
+  the seat is held.
 - **Proof.** Each rule is a test against a second real process (the test binary re-run through
   `cmdmaintest`), including a `SIGKILL`ed holder, and three crash-point tests hold the single-writer
   rule: the keeper killed while its link writes (a second session's keeper is refused the seat
@@ -1211,6 +1216,14 @@ how the link applies them.
     when the team's bundle changes (an inotify watch on the bundle's directory, acting only on events for `seat.json` and `token`, since the store shares the directory: a rotated token or a
     re-issued bundle from area C), or when the desired generation changes; the stopped team keeps its
     store, and with it its owed TIMEOUTs, throughout. No team's failure touches another's (B17).
+    **After every outage**, before its next long-poll, the link reads the roster by a direct state
+    request (`GET /rooms/<main>/state/<roster type>/`), not by sync, and compares its
+    `restore_epoch` (A 5.1) with the one the store last saw. A changed epoch means the homeserver
+    was restored from a backup (C 3.12.2) and the stored `next_batch` is ahead of the database: the
+    link drops it and resumes as a seat with no store (step 01 (b)), its ledger and floors removing
+    duplicates, then stores the new epoch. Sync cannot be trusted to bring that event, since its
+    `since` is the very thing that is wrong; a restore always stops the homeserver, so every link
+    sees an outage first.
 09. **Presence** (A 6.6) is Matrix presence set by syncing; there is no presence state event and no
     lease. The team goroutine's long-poll sync is the only request that marks the member online
     (the default `set_presence`); every other sync passes `set_presence=offline`. At a clean end
@@ -1645,9 +1658,13 @@ listing the active teams with their descriptions (B5). `say` and `ping` no longe
 where their `--to` names happen to resolve, as v1 did: a name that resolves in two teams is exactly
 the case a guess gets wrong.
 
-**LXC members get the same hot control** (B34): the host writes the guest's desired membership with
-`guest membership` (2.13), into a root-owned directory the agent user can read but not write, and the
-keeper in the guest reconciles it like any other.
+**LXC members get the same hot control** (B34): area C's apply runs `guest membership` (2.13) as
+the agent user, which writes `~/.config/teamchat/membership/desired.json` in the agent's own home,
+and the keeper in the guest reconciles it like any other. The file is the agent's own, not
+root-owned: the host's copy is the authority, holds `generation`, and is written again at every
+apply (C 3.9.3). An agent that rewrites its own file can only change which of the seats placed in
+its home are active; it cannot take a seat the host did not place, and the next apply restores the
+host's copy.
 
 ### 2.11 Goodbye, disconnected, leave and presence
 
@@ -1689,7 +1706,8 @@ never the keeper's (the keeper makes no network call, B14):
 - `ended` still `null` (the session ended unseen: its container, guest or host was killed): judged
   from the room as the host judges (below), from `run.started_ms`: if the member's own `left` or
   `disconnected` is there, the host already said it and nothing is posted; else one `disconnected`,
-  with a transaction id derived from the run id;
+  with transaction id `tc-disc-<run id>` (the ended run's id, read from the seat lock file, below),
+  the id the health tick uses for the same run, so the two never double;
 - then, if the member's latest own lifecycle notice in the room is `disconnected`, the link posts
   A's `back` notice once for the new run, so a coordinator told that the member had gone is told
   that it returned (A 7.4, a cross-area request).
@@ -1703,9 +1721,13 @@ pool for ccy and a copy for LXC and host seats):
 - **The rule.** `since` is a time at which the host knew the seat to be held by a session: the
   claim's start for a ccy session, and for every kind the first health tick that saw the seat lock
   held. If the member's own `left` or `disconnected` is in the room at or after `since`, the session
-  was told and nothing is posted. If not, it posts `disconnected` once, as the subject, with a
-  transaction id derived from `seed` (the claim id, or the seat and `since`), so the launcher's call
-  and the health tick, or two ticks, can never post it twice (M22).
+  was told and nothing is posted. If not, it posts `disconnected` once, as the subject, with
+  transaction id `tc-disc-<seed>`, so the launcher's call and the health tick, or two ticks, can
+  never post it twice (M22). The host passes the claim id as the seed for a ccy seat, and the run id
+  for an LXC seat (the tick's child calls the same code as a package, with the guest token copy, C
+  3.11.2 step 6). The run id is the one the keeper writes into the seat lock file when it takes the
+  lock (2.5), in a grammar the host checks before it uses it (16 hex; anything else counts as no
+  run id).
 - **Why a free seat lock is enough to judge by.** The keeper holds every seat lock until the link's
   notice has been posted or its bound has passed (2.4.2), and frees the locks early only when the
   link has failed (B48). So "the lock is free, and no notice is in the room since the lock was seen
@@ -1965,7 +1987,7 @@ Tests by piece, beyond the expectations each requirement already carries:
 | heartbeat (2.9)                               | every team stopped on a permanent failure: `status.json` still refreshed each minute, so the status line never says `not answering`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | unusable inputs (2.8, 2.7.2)                  | non-JSON hook stdin is counted in `session.json`, shown by `status` and the status line, and survives a link restart; a HUMAN item that fails rendering produces the NOTICE                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `seat disconnected` and the tick (2.11)       | the host's rule against the fake homeserver with a host-held bundle only: a seat lock seen held and now free with no own notice since: one `disconnected` as the subject; a `left` after `since`: nothing; the launcher's call and the tick for the same `since`: one post (same transaction id); a lock still held, by a session whose link restarts: nothing; no store and no container-written file opened                                                                                                                                                                                                                                                                                                                                                      |
-| guest operations (2.13)                       | each op through `execx.Fake` and then in the VM lab from nothing: a binary whose `sha256sum` does not match is never run; umask and leaf modes; `O_EXCL` placement; refusal of a path owned by someone else; `CHANGED` lines only on change; `install-self` removes an old `<digest>/` no live runtime names and keeps one a live session names                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| guest operations (2.13)                       | each op through `execx.Fake` and then in the VM lab from nothing: refusal as uid 0, with a foreign supplementary group, or with a `--user` that is not the caller; umask and leaf modes; `O_EXCL` placement; refusal of a path owned by someone else; `CHANGED` lines only on change; `remove` exits 75 while a session holds the seat lock. The kit and the unit are C's host-side writes and are tested there (C 3.14)                                                                                                                                                                                                                                                                                                                                           |
 | removal (2.10)                                | a remove with an unreachable homeserver answers within the 10 s bound, the `left` (`released`) notice follows within its own 30 s; a `farewell` entry with reason `removed` or `parked` posts nothing from the member; a link killed inside `remove`: the keeper deletes the store before freeing the seat, the restarted link posts the owed leave notice once (same transaction id), and a re-add in the session skips history and delivers nothing posted in the gap; the last held seat's removal timed out: the restarted link, holding no seat, posts the owed notice within 30 s; the seat stays locked by this session until the notice is posted or its bound passes; a `recv` acknowledgement after its team's removal is ignored and recreates no store |
 | per-launch settings (2.4.1)                   | a `--claude` launch with inbound `accept` and one with `refuse`: `<v2-run>/settings.json` carries each value explicitly (and `refuse` with no `--desired`), and Claude Code's argv ends in `--plugin-dir <kit>/plugin/teamchat --settings <v2-run>/settings.json`; a `--claude` CMD named other than `claude` gets the same; a `--plain` CMD gets nothing appended and no settings file, and with a seat held its team shows `"delivery": "none"`; neither or both of `--claude` and `--plain`, or a `--claude` CMD with its own `--settings`, `--plugin-dir` or `--`, is exit 64; a desired file rewritten to `accept` under a session launched with `refuse` still gives `wait` mode and `"needs_relaunch": true`                                                |
 | one team per delivery (2.7.3)                 | with items pending in three teams, every delivery holds one team's items only and its awaiting entry is in that team's store alone; the next delivery is for the team with the oldest pending HUMAN item, else the oldest item; a crash at each delivery failpoint touches one store                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
@@ -2007,7 +2029,7 @@ Each has a recommended default, taken unless the owner overturns it ("DO NOT GAT
 | BD10 | Inbound socket messages in a session launched on no team                            | (a) refused until the first join relaunches it, as v1; (b) always accepted when the kit is loaded                                                                                                                                                                                                                                                                                                                                                | (a): least privilege; an idle teamless session should not take cross-session messages; the cost is one relaunch on first join. The setting is written per launch by `run` from the desired file's `inbound`, always as an explicit `accept` or `refuse`, never into the kit's immutable settings, and the launch value alone decides delivery for the session (2.4.1, 2.10)                                                                     |
 | BD11 | The SessionEnd timeout lift (`CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS`)             | (a) dropped; (b) kept as a margin                                                                                                                                                                                                                                                                                                                                                                                                                | (a): the hook does one local round trip under a 300 ms deadline, inside the default 1.5 s, and nothing posted depends on it, since the notice is posted after Claude Code has exited while the keeper keeps the session alive (2.8, B46); a setting with no reason left is a moving part                                                                                                                                                        |
 | BD12 | The frame text                                                                      | (a) at every SessionStart, including after `/clear` and compaction; (b) once per session                                                                                                                                                                                                                                                                                                                                                         | (a): after a clear or compaction the earlier text may be gone from context, and its rules matter most then                                                                                                                                                                                                                                                                                                                                      |
-| BD13 | Hot control for LXC members                                                         | (a) the same desired-membership file, written into the guest by `guest membership`; (b) v1's env file and a play                                                                                                                                                                                                                                                                                                                                 | (a): one model for every member kind (B34), no play run for a membership change                                                                                                                                                                                                                                                                                                                                                                 |
+| BD13 | Hot control for LXC members                                                         | (a) the same desired-membership file, written into the agent's own home by `guest membership` as the agent user; (b) v1's env file and a play                                                                                                                                                                                                                                                                                                    | (a): one model for every member kind (B34), no play run for a membership change                                                                                                                                                                                                                                                                                                                                                                 |
 | BD14 | A session on v1 and v2 teams at once (a member of two teams of which one has moved) | (a) `run` refuses an environment carrying v1's `PINGBUS_*` variables, so a session is on one system only; (b) a session may hold v1 and v2 teams at once, each system blind to the other                                                                                                                                                                                                                                                         | settled by area D's OD-D2: a session is on one system only. The launcher refuses a launch naming teams on both systems; `run` reads no v1 variable and does not judge them (2.4.1 step 1). A member of two teams of which one has moved runs one session per system (D2)                                                                                                                                                                        |
 | BD15 | A gap larger than the fill (more than 20 pages of 100 events)                       | (a) move the position on, say it with a `gap:` line (A 13.2) naming `history`, count it in `status`; (b) stop the team until the owner acts; (c) keep paging without a bound                                                                                                                                                                                                                                                                     | (a): the loss is said, the agent can read the room, and the team keeps working; (b) turns one burst into an outage, and (c) has no bound on memory or time (2.6 step 03)                                                                                                                                                                                                                                                                        |
 | BD16 | Where the keeper lives                                                              | (a) `run` is the keeper and stays Claude Code's parent; (b) a separate keeper process, with `run` exec'ing Claude Code                                                                                                                                                                                                                                                                                                                           | (a): with (b) nothing outlives Claude Code, so in ccy (tini as PID 1) the keeper and the link are killed with it and no goodbye is ever posted (2.1, 2.11). (a) makes the session's last process the one that posts its end. Its cost: a keeper crash ends the session, announced by the host as `disconnected`                                                                                                                                 |
@@ -2118,7 +2140,8 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
 
 - C1. The bundle is C §3.7.2's: `seat.json` with exactly `v`, `team`, `server_name`, `user_id`,
   `admin_id`, `main_room` (A §6.2's anchor), `base_url`, `plain_http_hosts` (the plain-HTTP rule,
-  M14), `issued_ms`, `issuer` and `released_ms` (C10), with no `human_text`: whether a member
+  M14), `device_id` (the seat's one fixed device id), `issued_ms`, `issuer`, `claim` and
+  `released_ms` (C10), with no `human_text`: whether a member
   receives human text is its roster entry's (A 5.1), which 2.6 step 10 reads,
   plus `token`. The member's handle is the localpart of `user_id`, and its seat number is the
   handle's `<seat>`. C places it at `<v2-bundle>` = `<v2-state>/<team>/`, 0700 and 0600, owned by
@@ -2142,8 +2165,9 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
   `<v2-kit>/<digest>/`, never changed once placed, with a `current` link that `run` resolves once;
   an old `<digest>/` is removed only when no runtime's `session.pid` names it. The host cannot list
   container-private or guest runtimes, so that removal is done where the runtimes are visible: for
-  ccy the kit is in the image and is never collected; for LXC it is `guest install-self`'s sweep
-  inside the guest (2.13); for host members (`cc`) C's install scans the host's own runtimes. The
+  ccy the kit is in the image and is never collected; for LXC it is C's host-side collection,
+  which reads each `session.pid` under the guest's runtime parents through the container's root fd
+  (2.13, C 3.9.2 step 4); for host members (`cc`) C's install scans the host's own runtimes. The
   ccy image carries the binary, with the container version bump that requires. `teamchat-session-<user>.service` sets
   `RuntimeDirectory=` and points `XDG_RUNTIME_DIR` at it, since a system unit with `User=` has none
   (2.3.1), and the LXC guest has tmux (B36).
@@ -2154,9 +2178,9 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
   every seat's bundle (the pool for ccy; a copy for each LXC and host seat), owner-only and never
   mounted into a member. That process is the one host reader of a seat token (B11); it reads only
   the host-held bundle and judges from the room and the seat lock (2.11).
-- C5. C's LXC apply calls the guest operations of 2.13 and keeps handle derivation on the host,
-  compares the guest's `sha256sum` of a streamed binary with the kit's recorded hash before running
-  it, and runs the `allow_from` source-address pre-check of R48 on the host; whether an idmapped
+- C5. C's LXC apply writes the kit and the session unit host-side through the container's root fd,
+  runs nothing in the guest as root, calls the guest operations of 2.13 as the agent user, keeps
+  handle derivation on the host, and runs the `allow_from` source-address pre-check of R48 on the host; whether an idmapped
   container can be supported now that guest steps run inside the guest is C's call.
 - C6. C writes a `farewell` entry for every seat it takes out of a session: reason `released` when
   the member stays in the team (the link then posts `left` with reason `released`), `removed` or
@@ -2179,10 +2203,12 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
   as a resume hint, strictly decoded, never as authority.
 - C10. The bundle's `seat.json` carries `released_ms`, the time of the seat's last release, written
   by the host at each take (absent for a seat never released), so a seat with no store resumes from
-  the earlier of the member's read receipt and that time (2.6 step 01 (b), B49). Whether each take
-  also gets a fresh device, deleted at release so a released session's token dies with it, is C's
-  DC16; the member needs nothing different for it, since it never assumes a token lasts beyond its
-  session.
+  the earlier of the member's read receipt and that time (2.6 step 01 (b), B49). By C's DC16 (c'),
+  each take logs in with the seat's fixed `device_id`, which kills the previous holder's token, and
+  each release logs out; the member needs nothing different for it, since it never assumes a token
+  lasts beyond its session.
+- C13. A restore raises the roster's `restore_epoch` (C 3.12.2, A 5.1), and the homeserver is
+  always stopped for it, so the link's read of the roster after every outage (2.6 step 08) sees it.
 - C11. `ccy-teams restart <session>` covers an LXC member (it restarts the guest's supervised unit),
   so the recovery that `keeper.json` names for `ccy` and `lxc` is the same command (2.4.2).
 - C12. A team's homeserver units stop after the containers that hold its members at a host
