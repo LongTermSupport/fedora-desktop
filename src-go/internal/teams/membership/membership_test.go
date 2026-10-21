@@ -209,6 +209,9 @@ func TestTheGrammarIsPingbusOwn(t *testing.T) {
 			t.Fatalf("%s is %q in protocol.py, %q here", name, m[1], ours)
 		}
 	}
+	if !strings.Contains(src, `HANDLE_SEP = "+"`) || !strings.Contains(handleName.String(), `\+`) {
+		t.Fatal(`HANDLE_SEP is not "+" in protocol.py, or the handle grammar here does not use it`)
+	}
 	m := regexp.MustCompile(`HANDLE_TYPES = \(([^)]+)\)`).FindStringSubmatch(src)
 	if want := `"` + strings.ReplaceAll(handleTypes, "|", `", "`) + `"`; m == nil || m[1] != want {
 		t.Fatalf("HANDLE_TYPES in protocol.py is %v, %s here", m, want)

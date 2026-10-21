@@ -116,6 +116,10 @@ func desiredCases(t *testing.T) []fileCase {
 		d("a relative checkout", `"checkout":"/p"`, `"checkout":"p"`, false),
 		d("a control character in the checkout", `"checkout":"/p"`, `"checkout":"/p\u0001"`, false),
 		d("a session name with a leading dot", `"session":"s"`, `"session":".s"`, false),
+		d("a checkout of 4095 lone surrogates", `"checkout":"/p"`, `"checkout":"/`+strings.Repeat(`\ud800`, 4095)+`"`, true),
+		d("a checkout of 4096 lone surrogates", `"checkout":"/p"`, `"checkout":"/`+strings.Repeat(`\ud800`, 4096)+`"`, false),
+		d("a team with a comma", `"team":"alpha"`, `"team":"a,1@b"`, false),
+		d("a seat with a comma", `"team":"alpha","seat":"1"`, `"team":"b","seat":"1@a,2"`, false),
 		d("seat 0", `"seat":"1"`, `"seat":"0"`, false),
 		d("two seats in one team", seats, `"seats":[{"team":"alpha","seat":"1"},{"team":"alpha","seat":"2"}]`, false),
 		d("a seat that is not an object", seats, `"seats":[1]`, false),
@@ -305,6 +309,14 @@ func TestAMissingKeyIsNamed(t *testing.T) {
 	}
 }
 
+// As membership.py's _object: a missing key is named before an unknown one.
+func TestAMissingKeyIsNamedBeforeAnUnknownOne(t *testing.T) {
+	body := swap(t, without(t, validDesired, "kind"), `"v":1,`, `"v":1,"x":1,`)
+	if err := goReads(t, fileCase{body: body}); err == nil || !strings.Contains(err.Error(), "missing kind") {
+		t.Fatalf("got %v", err)
+	}
+}
+
 // An integer past int64 is refused, where Python's unbounded int would take it: no writer
 // writes one, and no Go field holds one.
 func TestAnIntegerPastInt64IsRefused(t *testing.T) {
@@ -362,6 +374,16 @@ func TestWriteRefusesAMembershipPingbusWouldRefuse(t *testing.T) {
 	d.Checkout = "/p\x01"
 	if err := Write(t.TempDir(), d); err == nil {
 		t.Fatal("a checkout with a control character was written")
+	}
+	d = sample()
+	d.Checkout = "/p\xff"
+	if err := Write(t.TempDir(), d); err == nil {
+		t.Fatal("a checkout that is not UTF-8, which encoding/json would write changed, was written")
+	}
+	d = sample()
+	d.Seats = []Seat{{Team: "a,1@b", Seat: "1"}}
+	if err := Write(t.TempDir(), d); err == nil {
+		t.Fatal("a team with a comma was written")
 	}
 	d = sample()
 	d.Seats = make([]Seat, maxSeats+1)

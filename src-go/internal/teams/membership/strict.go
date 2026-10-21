@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/pingbus/pyjson"
@@ -12,7 +11,7 @@ import (
 
 // A membership file is decoded as pingbus decodes it (helpers/pingbus/membership.py _read_json
 // and _object): CPython's JSON with a key given twice refused, then every object's keys checked
-// against the keys its section names, exactly, case included, every one of them present, and
+// against the keys its section names, exactly, case included, every required one present, and
 // every value of its JSON type. The value's grammar is then each file's check. The files are
 // decoded by hand from pyjson's values, not by encoding/json, which matches a key in any case,
 // keeps the last of a duplicate, takes null for any field and cannot tell a missing key from a
@@ -52,30 +51,25 @@ func (d *decoder) object(v any, where string, required []string, optional ...str
 		d.failf("%sis not an object", at(where))
 		return o
 	}
+	given := slices.Sorted(maps.Keys(m))
 	known := slices.Concat(required, optional)
-	for _, key := range slices.Sorted(maps.Keys(m)) {
-		if slices.Contains(known, key) {
-			continue
-		}
+	missing := slices.DeleteFunc(slices.Sorted(slices.Values(required)), func(k string) bool { return slices.Contains(given, k) })
+	unknown := slices.DeleteFunc(given, func(k string) bool { return slices.Contains(known, k) })
+	// A key in the wrong case is both missing and unknown; it is named as what it is.
+	for _, key := range unknown {
 		if i := slices.IndexFunc(known, func(k string) bool { return strings.EqualFold(k, key) }); i >= 0 {
 			d.failf("%sthe key %q is spelt %q here: keys are matched exactly, case included", at(where), key, known[i])
-		} else {
-			d.failf("%sunknown key %q", at(where), key)
-		}
-		return o
-	}
-	var missing []string
-	for _, key := range required {
-		if _, ok := m[key]; !ok {
-			missing = append(missing, key)
+			return o
 		}
 	}
-	if len(missing) > 0 {
-		slices.Sort(missing)
+	switch {
+	case len(missing) > 0:
 		d.failf("%smissing %s", at(where), strings.Join(missing, ", "))
-		return o
+	case len(unknown) > 0:
+		d.failf("%sunknown key %q", at(where), unknown[0])
+	default:
+		o.m = m
 	}
-	o.m = m
 	return o
 }
 
@@ -116,15 +110,7 @@ func (o object) boolean(key string) bool {
 }
 
 // integer is a key's int: a literal Python reads as an int (1, never 1.0 or true).
-func (o object) integer(key string) int {
-	n, ok := o.m[key].(pyjson.Number)
-	v, err := strconv.Atoi(n.Lit)
-	if !ok || n.Kind != pyjson.Int || err != nil {
-		o.d.failf("%s is not an integer", o.path(key))
-		return 0
-	}
-	return v
-}
+func (o object) integer(key string) int { return int(o.integer64(key)) }
 
 func (o object) integer64(key string) int64 {
 	n, ok := o.m[key].(pyjson.Number)

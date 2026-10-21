@@ -34,8 +34,24 @@ const (
 // isCheckout is pingbus's checkout grammar (membership.py _CHECKOUT_RE): a slash and at most
 // 4095 more characters, none a control character. RE2 caps a repeat at 1000, so it is code.
 func isCheckout(s string) bool {
-	return strings.HasPrefix(s, "/") && utf8.RuneCountInString(s) <= 4096 &&
+	return strings.HasPrefix(s, "/") && characters(s) <= 4096 &&
 		!strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f })
+}
+
+// characters is the length of s as Python counts the str pyjson decoded it from: a lone
+// surrogate, which pyjson keeps as its three-byte generalised UTF-8 form (0xED 0xA0-0xBF x),
+// is one character, not three invalid bytes.
+func characters(s string) int {
+	n := 0
+	for i := 0; i < len(s); n++ {
+		if i+2 < len(s) && s[i] == 0xED && s[i+1] >= 0xA0 && s[i+1] <= 0xBF {
+			i += 3
+			continue
+		}
+		_, size := utf8.DecodeRuneInString(s[i:])
+		i += size
+	}
+	return n
 }
 
 // Read is the desired membership in dir, refused unless it is exactly what this package
@@ -112,8 +128,15 @@ func (d Desired) checkEntries() error {
 	case len(d.Seats) > maxSeats || len(d.Farewell) > maxFarewells:
 		return fmt.Errorf("more than %d seats or %d farewells", maxSeats, maxFarewells)
 	}
-	if _, err := ParseSeats(Canonical(d.Seats)); err != nil {
-		return fmt.Errorf("seats: %w", err)
+	teams := map[string]bool{}
+	for _, s := range d.Seats {
+		switch {
+		case !seatName.MatchString(s.Seat) || !teamName.MatchString(s.Team):
+			return fmt.Errorf("seats: %q@%q is not a seat of a team", s.Seat, s.Team)
+		case teams[s.Team]:
+			return fmt.Errorf("seats: team %s has two seats: one seat per team", s.Team)
+		}
+		teams[s.Team] = true
 	}
 	for _, f := range d.Farewell {
 		if !seatName.MatchString(f.Seat) || !teamName.MatchString(f.Team) || f.Reason != ReasonRemoved {
@@ -146,6 +169,11 @@ func Canonical(seats []Seat) string {
 func Write(dir string, d Desired) error {
 	if err := d.check(); err != nil {
 		return fmt.Errorf("refusing to write the desired membership: %w", err)
+	}
+	// encoding/json writes each byte of invalid UTF-8 as U+FFFD, so the file would name
+	// another checkout.
+	if !utf8.ValidString(d.Checkout) {
+		return fmt.Errorf("refusing to write the desired membership: the checkout %q is not UTF-8", d.Checkout)
 	}
 	return writeDesired(dir, d)
 }
