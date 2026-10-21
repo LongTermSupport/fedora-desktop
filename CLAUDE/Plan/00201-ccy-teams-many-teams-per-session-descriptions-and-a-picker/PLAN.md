@@ -189,12 +189,15 @@ a repository is no longer offered for a checkout of it. Report:
   c3391ba9 (play-claude-yolo.yml); left: the owner's check, ACCEPTANCE-owner.md step 13.
   Report: `subagent-reports/261016-team-settings-opus.md`.
   Plan 00209 carries this as an expectation ("Requirements carried from other plans").
-- [ ] ⬜ **Task 2.16**: rename a team, end to end. Not built: the settings screen shows the name
+- [ ] ❌ **Task 2.16**: Folded into Plan 00209 (agent-bus v2), carried there as a requirement:
+  a rename touches the homeserver, accounts, rooms, tokens and every seat, which v2 rebuilds,
+  so a v1 rename would be built twice. v1 keeps the installer's refusal of a changed name.
+  (Was: rename a team, end to end. Not built: the settings screen shows the name
   as fixed, with the reason. A rename must make the new team (homeserver unit, data folder,
   server name, accounts, room), carry over or re-create its history, re-issue every member's
   token and bundle, move every seat and session record, re-point every running session, then
   take the old team down; today the installer refuses a changed name (`render.check_unchanged`).
-  Needs its own research and spec first (SPEC-many-teams.md section F, "Rename").
+  Needs its own research and spec first (SPEC-many-teams.md section F, "Rename").)
 - [x] ✅ **Task 2.17**: three picker defects the owner reported (branch `fix/teams-full-handles`,
   ccy-teams and ccy-sessions only, no CCY or container bump). (1) Every member is shown by its
   whole handle, the coordinator's with `(coordinator)` beside it, through one renderer
