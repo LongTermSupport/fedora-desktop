@@ -65,7 +65,7 @@ func TestAChangeSaysWhyTheSessionCannotBeChanged(t *testing.T) {
 			if err := os.RemoveAll(r.dir()); err != nil {
 				t.Fatal(err)
 			}
-		}, session},
+		}, "launched without the agent team bus kit"},
 		{"a membership that is another kind's", func(r *rig) {
 			d := r.desired(t)
 			d.Kind = membership.KindCC
@@ -117,7 +117,7 @@ func TestRoleSaysWhyARoleCouldNotBeChanged(t *testing.T) {
 			})
 		}, "is not a member of alpha"},
 		{"sudo is not ready", func(r *rig) { r.On("sudo -n -v", "", 1) }, "sudo is not ready"},
-		{"agent-bus refuses", func(r *rig) { r.OnErr(setRoleCmd, "refused", 1) }, "role: "},
+		{"agent-bus refuses", func(r *rig) { r.OnErr(setRoleCmd, "refused", 1) }, "role: proj.3+local.podman was not made a coordinator"},
 	}
 	for _, c := range cases {
 		r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
@@ -133,7 +133,7 @@ func TestRoleSaysWhyARoleCouldNotBeChanged(t *testing.T) {
 func TestAddSaysWhenNoSeatCanBeChosen(t *testing.T) {
 	r := newRig(t)
 	r.OnErr("agent-bus seat choose alpha", "no seats", 2)
-	if code := r.run(t, "add", session, "alpha", "--yes"); code != term.ExitFailure || !strings.Contains(r.ErrOut.String(), "seat: ") {
+	if code := r.run(t, "add", session, "alpha", "--yes"); code != term.ExitFailure || !strings.Contains(r.ErrOut.String(), "seat: agent-bus seat choose alpha: agent-bus exited 2: no seats") {
 		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
 	}
 }
@@ -143,7 +143,7 @@ func TestAChangeToACCSessionSaysWhenTmuxCannotBeAsked(t *testing.T) {
 	r.Fake.OnFunc([]string{"tmux", "-L", "ccy", "list-panes"}, func(execx.Cmd) (execx.Result, error) {
 		return execx.Result{Stderr: []byte("no server"), ExitCode: 1}, nil
 	})
-	if code := r.run(t, "remove", "cc.4242", "alpha", "--yes"); code != term.ExitFailure || !strings.Contains(r.ErrOut.String(), "session cc.4242: ") {
+	if code := r.run(t, "remove", "cc.4242", "alpha", "--yes"); code != term.ExitFailure || !strings.Contains(r.ErrOut.String(), "session cc.4242: ") || !strings.Contains(r.ErrOut.String(), "no server") {
 		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
 	}
 }

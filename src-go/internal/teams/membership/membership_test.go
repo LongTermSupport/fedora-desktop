@@ -164,41 +164,46 @@ func many65() string {
 }
 
 func TestInitRefusesWhatIsNotItsThreeArguments(t *testing.T) {
-	cases := map[string][]string{
-		"no arguments":              nil,
-		"two arguments":             {"s", "/c"},
-		"four arguments":            {"s", "/c", "", "x"},
-		"an empty session":          {"", "/c", ""},
-		"a session with a slash":    {"a/b", "/c", ""},
-		"a session from a dot":      {".s", "/c", ""},
-		"a dot-dot session":         {"..", "/c", ""},
-		"a session through dot-dot": {"../s", "/c", ""},
-		"a session with a space":    {"a b", "/c", ""},
-		"a control in the session":  {"s\x01", "/c", ""},
-		"a relative checkout":       {"s", "c", ""},
-		"an unclean checkout":       {"s", "/c/../d", ""},
-		"a team alone":              {"s", "/c", "team-a"},
-		"two @":                     {"s", "/c", "1@a@b"},
-		"an upper-case team":        {"s", "/c", "1@Team"},
-		"a seat that is not one":    {"s", "/c", "0@a"},
-		"an empty item":             {"s", "/c", "1@a,,2@b"},
-		"a team twice":              {"s", "/c", "1@a,2@a"},
-		"spaces around an item":     {"s", "/c", " 1@a"},
-		"a trailing comma":          {"s", "/c", "1@a,"},
-		"a seven-digit seat":        {"s", "/c", "1000000@a"},
-		"a 25-character team":       {"s", "/c", "1@" + strings.Repeat("a", 25)},
-		"a newline in the seat":     {"s", "/c", "1\n@a"},
-		"a control in the checkout": {"s", "/c\tx", ""},
-		"a checkout not UTF-8":      {"s", "/c\xff", ""},
-		"65 seats":                  {"s", "/c", many65()},
+	const takes, notSession, notClean = "takes [--kind=cc]", "is not a session name", "is not a clean absolute path"
+	const notItem, notSeat, notTeam = "is not <seat>@<team>", "is not a seat name", "is not a team name"
+	cases := map[string]struct {
+		args []string
+		why  string
+	}{
+		"no arguments":              {nil, takes},
+		"two arguments":             {[]string{"s", "/c"}, takes},
+		"four arguments":            {[]string{"s", "/c", "", "x"}, takes},
+		"an empty session":          {[]string{"", "/c", ""}, notSession},
+		"a session with a slash":    {[]string{"a/b", "/c", ""}, notSession},
+		"a session from a dot":      {[]string{".s", "/c", ""}, notSession},
+		"a dot-dot session":         {[]string{"..", "/c", ""}, notSession},
+		"a session through dot-dot": {[]string{"../s", "/c", ""}, notSession},
+		"a session with a space":    {[]string{"a b", "/c", ""}, notSession},
+		"a control in the session":  {[]string{"s\x01", "/c", ""}, notSession},
+		"a relative checkout":       {[]string{"s", "c", ""}, notClean},
+		"an unclean checkout":       {[]string{"s", "/c/../d", ""}, notClean},
+		"a team alone":              {[]string{"s", "/c", "team-a"}, notItem},
+		"two @":                     {[]string{"s", "/c", "1@a@b"}, notItem},
+		"an upper-case team":        {[]string{"s", "/c", "1@Team"}, notTeam},
+		"a seat that is not one":    {[]string{"s", "/c", "0@a"}, notSeat},
+		"an empty item":             {[]string{"s", "/c", "1@a,,2@b"}, notItem},
+		"a team twice":              {[]string{"s", "/c", "1@a,2@a"}, "team a is named twice"},
+		"spaces around an item":     {[]string{"s", "/c", " 1@a"}, notSeat},
+		"a trailing comma":          {[]string{"s", "/c", "1@a,"}, notItem},
+		"a seven-digit seat":        {[]string{"s", "/c", "1000000@a"}, notSeat},
+		"a 25-character team":       {[]string{"s", "/c", "1@" + strings.Repeat("a", 25)}, notTeam},
+		"a newline in the seat":     {[]string{"s", "/c", "1\n@a"}, notSeat},
+		"a control in the checkout": {[]string{"s", "/c\tx", ""}, "the checkout"},
+		"a checkout not UTF-8":      {[]string{"s", "/c\xff", ""}, "is not UTF-8"},
+		"65 seats":                  {[]string{"s", "/c", many65()}, "more than 64 seats"},
 	}
-	for name, args := range cases {
+	for name, c := range cases {
 		r := newRig(t)
-		if code := r.init.Run(t.Context(), args); code != term.ExitUsage {
+		if code := r.init.Run(t.Context(), c.args); code != term.ExitUsage {
 			t.Fatalf("%s: exit %d", name, code)
 		}
-		if r.Out.Len() != 0 || !strings.Contains(r.ErrOut.String(), "membership-init") {
-			t.Fatalf("%s: stdout %q stderr %q", name, r.Out.String(), r.ErrOut.String())
+		if got := r.ErrOut.String(); r.Out.Len() != 0 || !strings.Contains(got, "membership-init") || !strings.Contains(got, c.why) {
+			t.Fatalf("%s: stdout %q stderr lacks %q: %q", name, r.Out.String(), c.why, got)
 		}
 		if _, err := os.Stat(filepath.Join(r.runtime, "ccy")); err == nil {
 			t.Fatalf("%s: wrote before refusing", name)

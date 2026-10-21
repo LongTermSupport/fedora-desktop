@@ -20,9 +20,20 @@ func TestACheckedMembershipNeedsItsSeatsAndFarewellsAndTheirLimits(t *testing.T)
 	missing.Seats = nil
 	tooManyFarewells := plainDesired()
 	tooManyFarewells.Farewell = make([]Farewell, maxFarewells+1)
-	for name, d := range map[string]Desired{"no seats list": missing, "too many farewells": tooManyFarewells} {
-		if _, err := d.validate(); err == nil {
-			t.Errorf("%s: validated", name)
+	farewells := make([]Farewell, maxFarewells+1)
+	for i := range farewells {
+		farewells[i] = Farewell{Team: "a", Seat: "1", Reason: ReasonRemoved}
+	}
+	tooManyFarewells.Farewell = farewells
+	for name, c := range map[string]struct {
+		d   Desired
+		why string
+	}{
+		"no seats list":      {missing, "seats or farewell is missing"},
+		"too many farewells": {tooManyFarewells, "more than 256 farewells"},
+	} {
+		if _, err := c.d.validate(); err == nil || !strings.Contains(err.Error(), c.why) {
+			t.Errorf("%s: %v, want %q", name, err, c.why)
 		}
 	}
 	if _, err := plainDesired().validate(); err != nil {
