@@ -175,9 +175,9 @@ The owner asked for this to be weighed honestly. Both designs, side by side:
 | Element for a human in N teams           | N profiles, N windows                                                               | one profile, one window                                                                                                                |
 | Per-team migration from v1               | a team arrives with its own server name and leaves nothing behind on rollback       | every migrated team shares the server name; a rollback has to delete one team's rooms and accounts from a shared database              |
 
-The resident memory is the real cost of the chosen design, about 100-135 MB per team. With the
-three or so teams a host runs, that is a few hundred megabytes on a desktop with tens of gigabytes.
-Everything else in the table favours one homeserver per team. The memory is also tunable: Tuwunel
+The resident memory is the real cost of the chosen design, about 100-135 MB per team at the
+default cache size, growing linearly with the number of teams (H-C1 measures it per team and per
+member; 3.15). Everything else in the table favours one homeserver per team. The memory is also tunable: Tuwunel
 sizes its caches from `cache_capacity_modifier`, and a team with a handful of members needs far
 less than the default. The first host check (H-C1) measures RSS at the default and at a reduced
 modifier with a real team's load, and the chosen value goes into the rendered config. The unit
@@ -217,17 +217,21 @@ Files of one team (paths relative to `<v2-state>`; D names the root):
 | `root/<team>/firewall.json`           | root, 0600           | the firewall rules this team added, written before any firewall change (H 7.11)                                                    |
 | `root/<team>/units.json`              | root, 0600           | digests of the base unit, drop-in and binary last started, to decide a restart (C6)                                                |
 | `root/<team>/backups/<n>.tar`         | root, 0600, dir 0700 | the control state paired with database backup `<n>` (3.12)                                                                         |
+| `root/<team>/server-name`             | root, 0600           | the team's `server_name`, written before the homeserver's first start; C3 is checked against it (3.5.2)                            |
 | `ctl/<team>/`                         | `<v2-ctl>`, 0700     | `admin.token` 0600, `admin.password` 0600 (only during bootstrap), `roster.json` 0600, `rooms.json` 0600, `intent.json` 0600 (3.6) |
-| `ctl/<team>/registration.secret`      | `<v2-ctl>`, 0600     | the registration shared secret, for registering the admin account; root renders the same value into the config                     |
 
 `<v2-state>/root` is 0700 root and `<v2-state>/ctl` is 0700 `<v2-ctl>`. Root writes under
 `ctl/` only through the `<v2-ctl>` child, never directly, so the control user cannot steer a root
 write (the same reasoning that kept v1's root records out of the homeserver user's tree, H 5).
+That holds for a restore as well (3.12.2).
 
 The registration secret is created once by root at the first apply of a team (64 random bytes as
-128 lowercase hex, no newline), written to `root/<team>/` as part of the config and handed to the
-`<v2-ctl>` child on a pipe, which writes its own copy. Two runs cannot both create it: creation is
-link-not-replace (H 7.03), and the team lock (3.4) already excludes a second run.
+128 lowercase hex, no newline) and lives in one place only: `root/<team>/config.toml`. Creation is
+link-not-replace (H 7.03), and the team lock (3.4) already excludes a second run. The `<v2-ctl>`
+child never stores it. Root reads it from the config and passes it on the child's stdin, inside
+the one request, only for the operation that registers the admin account (bootstrap step 2,
+3.6.2); every other request carries no secret but the child's own admin token, which it reads
+itself.
 
 #### 3.2.3 The unit
 
@@ -249,11 +253,11 @@ RestartSec=5s
 RestartSteps=5
 RestartMaxDelaySec=60s
 DynamicUser=yes
+User=<v2-hs>-%i
 StateDirectory=<v2-hs-state>/%i
 StateDirectoryMode=0700
 LoadCredential=config.toml:<v2-state>/root/%i/config.toml
 Environment=TUWUNEL_CONFIG=%d/config.toml
-ExecStart=<v2-lib>/tuwunel
 UMask=0077
 NoNewPrivileges=yes
 CapabilityBoundingSet=
@@ -287,7 +291,8 @@ BindReadOnlyPaths=<v2-share>/resolv.conf:/run/systemd/resolve/resolv.conf
 InaccessiblePaths=-/run/dbus
 ```
 
-The per-team drop-in `<v2-hs@><team>.service.d/network.conf`, rendered by `team apply`:
+The base unit has no `ExecStart=`. The per-team drop-in `<v2-hs@><team>.service.d/team.conf`,
+rendered by `team apply`, names the binary by version:
 
 ```ini
 [Unit]
@@ -295,6 +300,7 @@ After=sys-subsystem-net-devices-<iface>.device
 Wants=sys-subsystem-net-devices-<iface>.device
 
 [Service]
+ExecStart=<v2-lib>/tuwunel-<version>
 MemoryHigh=<from H-C1>
 IPAddressAllow=127.0.0.1/32 ::1/128 <each listen /32 or /128> <each allow_from>
 SocketBindAllow=tcp:<port>
@@ -303,7 +309,19 @@ SocketBindAllow=tcp:<port>
 What each choice is for, beyond v1's reasons (H 5, H 7.22-7.23), which all still apply:
 
 - `DynamicUser` and `StateDirectory` replace the shared user, `TemporaryFileSystem` over the
-  state root and `BindPaths` (C4).
+  state root and `BindPaths` (C4). `User=<v2-hs>-%i` fixes the dynamic user's name. Without it
+  systemd derives the name from the unit name, which holds an `@` and so falls back to a hashed
+  name. More to the point, the restore's transient unit (3.12.2) names the same user and so gets
+  the same uid, and nothing is ever chowned. `<v2-hs>` is at most 6 characters and a team name at
+  most 24 (an assumption on area A's team-name grammar, section 7), so the name fits the 31-character limit; `declare check` refuses a
+  longer team name by name.
+- The binary is named per team, in the drop-in, by version. A team's homeserver changes binary
+  only when `team apply` rewrites that team's drop-in, and `team apply` backs the team up first
+  (3.5.2 step 6). A crash restart, a watchdog kill, the health tick's restart, an apply that
+  fails early, and every team a scoped play does not apply all restart onto the binary the
+  drop-in already names. A unit with no drop-in cannot start at all, because it has no
+  `ExecStart=`. An old `tuwunel-<version>` is deleted by `team apply` or `team remove` only when
+  no drop-in names it and it is not the pinned version.
 - `LoadCredential` puts the config, with its secret, in a directory only this unit's uid can read,
   from a root-only file. The homeserver cannot rewrite its own config, which in v1 sat beside its
   database and was readable by it.
@@ -311,8 +329,8 @@ What each choice is for, beyond v1's reasons (H 5, H 7.22-7.23), which all still
   the rest are ordinary systemd hardening v1 did not have. Each is checked by H-C2 against a real
   Tuwunel start (a Rust binary built with jemalloc can trip `MemoryDenyWriteExecute`, so that
   one is left out on purpose).
-- The base unit denies all addresses and binds, so a missing drop-in leaves a homeserver that
-  cannot be reached rather than one that can be reached from anywhere.
+- The base unit denies all addresses and binds, and has no `ExecStart=`, so a missing drop-in
+  leaves a homeserver that cannot start rather than one that can be reached from anywhere.
 
 #### 3.2.4 The config
 
@@ -339,7 +357,9 @@ one for 1.9.4); a pin bump that drops or renames a key fails the test before the
   that is stopped).
 - Listen addresses: loopback plus each declared `listen` address, each of which must be on exactly
   one interface. After start, the bound address set is asserted equal to that list before
-  bootstrap (H 7.21).
+  bootstrap (H 7.21). Both this check and the port checks above read `/proc/net/tcp` and
+  `/proc/net/tcp6` in-process (state `LISTEN`, address and port decoded from the fixed hex
+  columns); no `ss` and no text from another program is parsed.
 - v2 has its own bus address interface `<v2-if>` (a NetworkManager dummy connection with one
   address), so retiring v1's interface later cannot break a v2 team. Its address comes from the
   declaration (`<v2>_address`).
@@ -347,7 +367,9 @@ one for 1.9.4); a pin bump that drops or renames a key fails the test before the
   that routes that CIDR (the default zone if none). The rule set is recorded in
   `root/<team>/firewall.json` before any firewall change, and only recorded rules are ever removed
   (H 7.11). Rules are tested for presence with `firewall-cmd --query-rich-rule` by exit status,
-  never by reading text (I-B12). Decision DC12 holds the D-Bus alternative.
+  never by reading text (I-B12): 0 is present, 1 is absent, and any other code fails the verb
+  with the code named. The permanent configuration (`--permanent`) and the runtime are queried
+  separately, and each is converged on its own. Decision DC12 holds the D-Bus alternative.
 - The live LXC bridge subnet is added to every team's `allow_from` at render time, computed
   in-process from the bridge interface, as v1's `bridge.py` did (R3).
 
@@ -358,11 +380,11 @@ installed by root, 0755 root:root, in a root-owned directory (C8). The first thi
 decide the caller class from the real and effective uid, and each verb belongs to exactly one
 class. A verb asked of the wrong class exits 77 naming the class it needs (DESIGN 3.1).
 
-| Caller class | How it is reached                                              | Verbs                                                                                                                                                                                                                    |
-| ------------ | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| root         | the play (`become`), the two timers, the owner's password sudo | `declare check`, `team apply`, `team remove`, `member add\|return\|park\|retire\|reissue`, `role apply`, `human password\|devices\|logout\|lock\|unlock`, `backup`, `backups`, `restore`, `health`, `lxc apply`, `check` |
-| `<v2-ctl>`   | only `ctl-child`, started by root with `os/exec` `Credential`  | `ctl-child` (reads one typed request on stdin, answers one typed response on stdout)                                                                                                                                     |
-| anyone else  | the owner, the Element play                                    | `element check\|apply`, `status`, `version`                                                                                                                                                                              |
+| Caller class | How it is reached                                              | Verbs                                                                                                                                                                                                   |
+| ------------ | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| root         | the play (`become`), the two timers, the owner's password sudo | `team apply`, `team remove`, `member add\|return\|park\|retire\|reissue`, `role apply`, `human password\|devices\|logout\|lock\|unlock`, `backup`, `backups`, `restore`, `health`, `lxc apply`, `check` |
+| `<v2-ctl>`   | only `ctl-child`, started by root with `os/exec` `Credential`  | `ctl-child` (reads one typed request on stdin, answers one typed response on stdout)                                                                                                                    |
+| anyone else  | the owner, the play before any root task, the Element play     | `declare check`, `element check\|apply`, `status`, `version`                                                                                                                                            |
 
 `version` answers for every class and prints the binary's source digest (the scheme of Plan 00192:
 `go.mod` plus every non-test file of the command and the module packages it imports, baked in with
@@ -409,8 +431,10 @@ goes to stderr as `<v2-host>: <message>`.
 Rules:
 
 - There is no host-wide lock, because nothing host-wide changes outside the play's static tasks
-  (3.5.1), and those swap every file atomically: a new binary is a new versioned file and a link
-  swap, so a verb already running keeps its open file and the next one starts on the new one.
+  (3.5.1), and those swap every file atomically: a new `<v2-host>` is a new versioned file and a
+  link swap, so a verb already running keeps its open file and the next one starts on the new
+  one. A new Tuwunel is only a new versioned file; no homeserver uses it until its own team's
+  apply names it (3.2.3).
 - Order: play lock, then allocation lock, then (inside root) team locks in team name order. A
   verb that touches several teams (LXC apply, the timers) takes each team's lock in turn, never
   two at once, except where one change spans two teams, which none does today. Root never takes
@@ -421,12 +445,20 @@ Rules:
   up prints that line and exits 75.
 - Waits are bounded and depend on the caller: a seat take from a launcher waits up to 60 s; a play
   step and the backup timer wait up to 10 minutes; the health timer never waits (below).
-- The health tick takes the team lock without waiting. If another verb holds it, the tick neither
-  probes for a restart nor rewrites the status record for that team; it notes `busy: <holder>` in
-  its own journal line and exits 0. This is not a skipped failure: the holder is the one
-  restarting or changing that team and checks readiness itself, and the status record the board
-  reads carries its own expiry (3.11), so a holder that never lets go shows on the board as a
-  stale record within five minutes.
+- The health tick reads and probes without the team lock: its probes and its read-only child
+  (3.11.2) change nothing. It takes the team lock, without waiting, only to restart a homeserver
+  and to write the status record, and it writes the record only if the roster's `generation`
+  (3.6.1) is the one it read before probing; a member verb that ran in between has written a
+  fresher record, and the tick's view is dropped. If another verb holds the lock, the tick
+  neither restarts nor writes for that team; it notes `busy: <holder>` in its own journal line
+  and exits 0. This is not a skipped failure: the holder is the one restarting or changing that
+  team and checks readiness itself, and the status record the board reads carries its own expiry
+  (3.11), so a holder that never lets go shows on the board as a stale record within five
+  minutes. Because the probes run outside the lock, a launcher's seat take never waits behind a
+  tick's homeserver calls.
+- A verb that holds a team lock and needs a backup (`team apply`, 3.5.2 step 6) calls the backup
+  as an internal function that takes the held lock as an argument; it never opens and locks the
+  file a second time, which would block on its own lock.
 - The team lock is held across the admin child's homeserver calls on purpose: it is what makes a
   roster change single-writer. Each call is bounded (M6: 30 s, three tries on 429), so a hold is
   bounded too.
@@ -446,40 +478,51 @@ needs ordering against readiness, typed validation or Matrix calls is `<v2-host>
 
 #### 3.5.1 The play's static tasks
 
-The v2 play (`play-<v2>.yml`, area D names it; its own file, so v1's play is untouched) runs, as
-root, in this order:
+The v2 play (`play-<v2>.yml`, area D names it; its own file, so v1's play is untouched) runs in
+this order. Steps 1 and 2 run as the login user and change nothing outside the build cache; every
+later step is root.
 
-01. `<v2-host> declare check` with the Ansible-parsed `<v2>_teams`, `<v2>_lxc_members` and
-    `<v2>_element_teams` as JSON on stdin (3.8). Nothing else runs if it refuses.
-02. Packages: `firewalld`, `NetworkManager`, `zstd`, `lxc` only if any LXC member is declared.
+01. `<v2-host>` and `<v2-bin>`: built by `tasks/build-go-command.yml` as the login user (no
+    toolchain runs as root), into the user's build output, not yet installed.
+02. The freshly built `<v2-host> declare check`, run unprivileged (it is an "anyone" verb, 3.3),
+    with the Ansible-parsed `<v2>_teams`, `<v2>_lxc_members` and `<v2>_element_teams` as JSON on
+    stdin (3.8). So the binary that will apply the schema is the one that judges it, on a fresh
+    host as on an upgrade. Nothing after this step runs if it refuses.
+03. Install: root copies the built `<v2-host>` to `<v2-lib>/<v2-host>-<digest>` 0755 root and
+    swaps the link; `<v2-bin>` goes to `<v2-kit>/<digest>/` with a `current` link (C33). The copy
+    is checked against the digest the build printed. No root step below runs an older
+    `<v2-host>`.
+04. Packages: `firewalld`, `NetworkManager`, `zstd`, `lxc` only if any LXC member is declared.
     Nothing else: no Python, no `curl`, no `jq`, no `tcpdump` (v1 needed each for its bash or its
     acceptance).
-03. The `<v2-ctl>` system user (no home, `nologin`), the `<v2-state>` tree (`root/` 0700 root,
+05. The `<v2-ctl>` system user (no home, `nologin`), the `<v2-state>` tree (`root/` 0700 root,
     `ctl/` 0700 `<v2-ctl>`), `<v2-applied>` 0750 root:`<owner group>`, `<v2-etc>/owner-group`
     (root 0644, one group name from `getent` of the desktop user, read by every writer of an
     owner-readable record; no default, as v1's stamp-group file, H 7.18).
-04. Tuwunel: `get_url` of the pinned release asset with `checksum: sha256:<pin>` into a root-only
-    staging directory, `zstd -d` with `creates:`, install as `<v2-lib>/tuwunel-<version>` 0755, then
-    an atomic link swap of `<v2-lib>/tuwunel`. The pin lives in `vars/version-pins.yml` beside every
-    other pin, so the `update-versions` skill sees it. The release is unsigned, so the pin is the
-    supply-chain check, as in v1.
-05. `<v2-host>`: built by `tasks/build-go-command.yml` as the login user (no toolchain runs as
-    root), installed by root as `<v2-lib>/<v2-host>-<digest>` 0755 root, link swapped. The member
-    program `<v2-bin>` (area B) is built and staged the same way, under `<v2-kit>/<digest>/`
-    with a `current` link (C33).
-06. Units: `<v2-hs@>.service`, `<v2-health>.{service,timer}`, `<v2-backup>.{service,timer}`, the
+06. Tuwunel: `get_url` of the pinned release asset with `checksum: sha256:<pin>` into a root-only
+    staging directory, `zstd -d` with `creates:`, install as `<v2-lib>/tuwunel-<version>` 0755
+    (atomic rename of a complete file). There is no shared link: no homeserver runs it until its
+    own team's `team apply` names it in that team's drop-in, after that team's backup (3.2.3,
+    3.5.2). The pin lives in `vars/version-pins.yml` beside every other pin, so the
+    `update-versions` skill sees it. The release is unsigned, so the pin is the supply-chain
+    check, as in v1.
+07. Units: `<v2-hs@>.service`, `<v2-health>.{service,timer}`, `<v2-backup>.{service,timer}`, the
     resolver stub, all 0644 root; one `daemon_reload` if any changed. The two timers are enabled
     only while at least one team is present, so a v2 install with no teams starts nothing (C40).
-07. The bus address: a NetworkManager dummy connection `<v2-if>` with `<v2>_address`, if declared.
-08. `<v2-applied>/installed.json` (0640 root:`<owner group>`): the digest of the installed
+08. The bus address: a NetworkManager dummy connection `<v2-if>` with `<v2>_address`, if declared.
+09. `<v2-applied>/installed.json` (0640 root:`<owner group>`): the digest of the installed
     `<v2-host>`, the Tuwunel version and the kit digest, which the board reads (3.13).
-09. For each absent team: `<v2-host> team remove`. Then `<v2-host> lxc apply --phase absent`.
-10. For each present team: `<v2-host> team apply` with the team's rendered declaration on stdin.
-11. `<v2-host> lxc apply --phase present` with the LXC member declaration on stdin.
+10. `<v2-host> lxc apply --phase absent` with the LXC member declaration on stdin, while every
+    team's homeserver still runs, so a member that leaves is parked on a live server (3.9.2,
+    LR 1.6).
+11. For each absent team: `<v2-host> team remove`.
+12. For each present team: `<v2-host> team apply` with the team's rendered declaration on stdin.
+13. `<v2-host> lxc apply --phase present` with the LXC member declaration on stdin.
 
 Every `<v2-host>` step reports changed only on a `^CHANGED\t` line. `<v2>_only_teams`
-(D names it) scopes steps 9-11 to the teams ccy-teams is changing, as v1's `agent_bus_only_teams`
-does. No step supports `--check` except the first, which is read-only.
+(D names it) scopes steps 10-13 to the teams ccy-teams is changing, as v1's `agent_bus_only_teams`
+does. A team outside the scope keeps its drop-in, and so its Tuwunel version, until a play
+applies it. No step supports `--check` except step 2, which is read-only.
 
 There is no sudoers file in v2 (DC4), and there is no v2 change to the ccy image except what area
 B needs for the member program and the seat mount (3.7).
@@ -490,22 +533,33 @@ Input: one team's declaration as JSON on stdin, decoded strictly against the sam
 declaration check uses. Steps, each failing the verb with the step named:
 
 01. Root, Fedora, input valid, the team lock (wait up to 10 minutes).
-02. Refusals before any change: a `server_name` different from `root/<team>/team.json` (C3); a port
-    held by another v2 team, by a v1 team's record, or by any listener while this unit is inactive;
-    a `listen` address on no interface or on more than one; a wildcard `listen`.
+02. Refusals before any change: a `server_name` different from `root/<team>/server-name` (C3); a
+    port held by another v2 team, by a v1 team's record, or by any listener while this unit is
+    inactive; a `listen` address on no interface or on more than one; a wildcard `listen`.
 03. Render in memory: `config.toml`, the drop-in, the canonical `team.json`. Compare with what is
-    installed (`units.json` digests of the base unit text, the drop-in, the binary link target and
-    the config). The answer is one of: nothing to do; write without restart (`team.json` only, for
-    example a description change); write and restart; first start.
-04. First apply only: create the registration secret (3.2.2) and the `root/<team>/` and `ctl/<team>/`
-    directories.
+    installed. `units.json` keeps two digest sets. The restart set is the base unit text, the
+    drop-in's `ExecStart=` (the Tuwunel version) and the config: a change there needs a restart.
+    The reload set is the drop-in's `IPAddressAllow=`, `SocketBindAllow=`, `MemoryHigh=` and its
+    `[Unit]` ordering: cgroup properties take effect on `daemon-reload`, and ordering does not
+    touch a running unit, so a change there needs only `daemon-reload` and drops nobody's sync (C6).
+    The answer is one of: nothing to do; write without restart (`team.json` only, for example a
+    description change); write and reload; write and restart; first start.
+04. First apply only, before the homeserver ever starts: create the `root/<team>/` and
+    `ctl/<team>/` directories, the registration secret (3.2.2), and `root/<team>/server-name`
+    (link-not-replace). From this point the `server_name` is fixed, whether or not the rest of
+    the apply succeeds, so a first apply that fails after the database was created cannot be
+    followed by a run with a different name.
 05. Firewall: write the union of the old and new rule sets to `firewall.json`, then add the new
     rules (permanent and runtime, no reload), then remove the old ones no longer wanted, then write
     the new set alone (H 7.11).
-06. If the answer is "restart" and the homeserver is active: back the team up first (3.12). A failed
-    backup stops the apply before anything restarts (R6).
+06. If the answer is "restart" and the team has a database: back the team up first (3.12),
+    through the internal backup function under the lock this verb holds (3.4). A homeserver that
+    is inactive is started first on the drop-in it already has, so the backup is taken by the
+    binary that wrote the database. A failed backup stops the apply before anything is rewritten
+    or restarted (R6).
 07. Write the config and drop-in (atomic, explicit modes), `daemon-reload` if the drop-in changed,
-    start or restart the unit, enable it.
+    then start the unit (first start), restart it (restart set changed) or leave it running
+    (reload set only), and enable it.
 08. Wait ready: the unit must be `active` and `/_tuwunel/server_version` must answer, within 60 s.
     An inactive or failed unit fails at once with the journal tail printed only as explanation; the
     verdict is the unit state, never a journal scan (H 7.13).
@@ -547,21 +601,28 @@ target, `O_EXCL|O_NOFOLLOW`, `fchmod`, fsync, rename, directory fsync; S15). It 
 {
   "v": 1,
   "team": "<team>",
+  "generation": 41,
   "counters": {"<repo>+<host>.<type>": 3},
   "members": {
     "<handle>": {"state": "active", "kind": "podman", "human_text": true, "since_ms": 0, "token_ms": 0}
   },
   "humans": {"<name>": {"state": "active", "since_ms": 0}},
   "coordinator": "<handle>",
+  "coordinator_wanted": null,
   "pending": null
 }
 ```
 
+- `generation` is raised by one on every write of the roster, whatever changed. The health tick
+  writes the status record only if it is unchanged since its read (3.4), and a restore never
+  lowers it (3.12.2).
 - `state` of a member: `active`, `parked`, `retired`, or the intent states below. A `retired`
   member stays in the roster for ever, so its handle can never be issued again without asking the
   homeserver (C18).
 - `counters` never go down, even when an account creation fails (R9).
 - `coordinator` is the role last applied; the truth is the declaration (3.8, DC6).
+  `coordinator_wanted` is a declared coordinator whose handle is not yet in the roster (3.6.4):
+  a recorded pending promotion, shown on the board as a problem with its fix.
 - `pending` is the one operation in progress, if any: `{"op": "member.add", "handle": "<h>", "step": "account", "since_ms": 0}`. It is written before the first homeserver call of an
   operation and cleared after the last.
 
@@ -647,10 +708,30 @@ written host_vars under the play lock) converges the roster to it:
    say what changes, for example removal from the questions room) and apply it fully.
 2. Only then promote the new one and apply it.
 
-The demotion completes before the promotion starts, across every member kind (C17). A declared
-coordinator that is not an `active` or `parked` handle in the roster is refused before any change;
-a coordinator whose bundle says `human_text: false` is refused where A's rules say so, at the
-place the role is assigned (S11 4.5).
+The demotion completes before the promotion starts, across every member kind (C17). A coordinator
+whose bundle says `human_text: false` is refused where A's rules say so, at the place the role is
+assigned (S11 4.5).
+
+Bring-up order. A declared coordinator may not exist yet: an LXC member of a new team is created
+by `lxc apply --phase present`, after `team apply` (3.5.1), and a ccy member's handle exists only
+from its first seat take (3.7). So the declaration can name a coordinator before its member
+exists (C30), and `role apply` handles it as follows:
+
+- A demotion is never deferred. If the old coordinator is not the declared one, it is demoted
+  now, whether or not the new one exists, so C17 holds at every instant.
+- A declared coordinator that is an `active` or `parked` handle is promoted now.
+- A declared coordinator that is not in the roster is recorded as `coordinator_wanted` (3.6.1),
+  and the status record lists it as a problem with its fix ("coordinator `<handle>` declared but
+  not yet a member: start its session, or run the LXC apply"). The team runs with no coordinator
+  meanwhile. This is a recorded pending state the board shows, not a skip.
+- The promotion is done at the end of the operation that creates that handle: `member add` or
+  `member return` (3.6.3), or `lxc apply` (3.9.2 step 6), each under the team lock, demotion
+  first as above. That operation clears `coordinator_wanted`.
+- A declared coordinator whose handle is `retired` is refused before any change: it can never
+  exist (C18).
+
+Decision DC6 records this. Area D's migration declares coordinators the same way, with no
+ordering rule of its own.
 
 The hot path is therefore the same convergence as the play's, restricted to one team's roles, so it
 cannot diverge from what the next play would apply (the v1 fragility where a live role change was
