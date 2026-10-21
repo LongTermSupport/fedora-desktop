@@ -93,6 +93,14 @@ linters:
       # SPEC-status-line.md S40), snake_case like the rest of pingbus's files.
       - path: internal/pingbus/statusline/golden/golden_test\.go
         linters: [tagliatelle]
+      # The hooks oracle's scenarios.json, deviations.json and records are its literal input and
+      # output (Plan 00209 Task 3.1), snake_case like the rest of pingbus's files. It builds each
+      # world (the fake pingbus is executable) and snapshots it by walking it, by computed path.
+      - path: internal/pingbus/hooks/golden/.*_test\.go
+        linters: [tagliatelle]
+      - path: internal/pingbus/hooks/golden/.*_test\.go
+        linters: [gosec]
+        text: "G122|G304|G306"
       # The status line refuses files others can read; its tests build such files, and edit
       # the cache file of their own temporary world.
       - path: internal/pingbus/statusline/.*_test\.go

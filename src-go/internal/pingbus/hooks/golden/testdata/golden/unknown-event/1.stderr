@@ -1,0 +1,1 @@
+pingbus: pingbus hook: argument EVENT: invalid choice: 'pre-tool-use' (choose from 'session-start', 'prompt', 'stop', 'session-end', 'post-tool', 'conversation')

@@ -1,0 +1,4 @@
+{"v": 1, "rooms": {}, "fragments": {}, "scenarios": [
+ {"name": "unknown-event", "about": "cli.py build_parser: an event outside hooks.EVENTS is a usage error, exit 64 (cli.main maps argparse's refusal)", "env": {"PATH": "{world}/bin:/usr/bin:/bin", "HOME": "{world}/home", "LANG": "C.UTF-8"},
+  "steps": [{"event": "pre-tool-use", "now_ms": 1791000000000, "stdin": "{}", "exit": 64}]}
+]}

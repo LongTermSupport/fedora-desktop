@@ -1,0 +1,5 @@
+#!/bin/sh
+# The golden worlds' pingbus: records how a hook started the watcher, then exits.
+here=$(dirname "$0")
+if [ -n "${CLAUDE_CODE_MESSAGING_SOCKET:-}" ]; then socket=set; else socket=unset; fi
+printf '%s socket=%s\n' "$*" "$socket" >> "$here/../spawn.log"
