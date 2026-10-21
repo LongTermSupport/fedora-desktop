@@ -616,7 +616,8 @@ target, `O_EXCL|O_NOFOLLOW`, `fchmod`, fsync, rename, directory fsync; S15). It 
 - `generation` is raised by one on every write of the roster, whatever changed. The health tick
   writes the status record only if it is unchanged since its read (3.4), and a restore never
   lowers it (3.12.2).
-- `state` of a member: `active`, `parked`, `retired`, or the intent states below. A `retired`
+- `state` of a member: `active`, `parked`, `retired`, `lost` (its account is gone after a restore,
+  3.12.2), or the intent states below. A `retired`
   member stays in the roster for ever, so its handle can never be issued again without asking the
   homeserver (C18).
 - `counters` never go down, even when an account creation fails (R9).
@@ -671,7 +672,7 @@ their state machine:
 | Verb                                            | From state         | Steps (each recorded in `pending` before it runs)                                                       | To state  |
 | ----------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------- | --------- |
 | `member add --prefix P --seat S\|next --kind K` | (none)             | claim the handle in the roster (counter raised); create the account; mint a token; invite per A's specs | `active`  |
-| `member return --handle H`                      | `parked`           | revoke (password reset with device logout); mint; re-invite per A                                       | `active`  |
+| `member return --handle H`                      | `parked`, `lost`   | revoke (password reset with device logout), or for `lost` create the account; mint; re-invite per A     | `active`  |
 | `member reissue --handle H`                     | `active`           | revoke; mint (the lost-bundle recovery, C21)                                                            | `active`  |
 | `member park --handle H`                        | `active`           | revoke; mark                                                                                            | `parked`  |
 | `member retire --handle H`                      | `active`, `parked` | kick from every room; deactivate; mark                                                                  | `retired` |
@@ -974,7 +975,7 @@ v1 lives) never see them, and v2 never reads or writes `agent_bus_*`.
     url: http://<bus_ip>:<port>         # optional; the members' base URL; default from <v2>_address
     humans: ["<name>"]                  # 1-16
     coordinator: <handle>               # optional; at most one per team
-    trust:                              # area A owns the meaning; C checks the shape and renders it
+    trust:                              # area A owns the meaning AND the shape; this shape is an example
       org: <owner>
       exclude: ["<repo>"]
       repos:
@@ -1009,7 +1010,9 @@ What changed from v1's keys, and why:
   known without it.
 - `removed_humans` is gone: removing a name from `humans` kicks and locks that human, and adding
   it back unlocks (DC9).
-- The trust settings are grouped under `trust`, so the keys A owns are visibly A's.
+- The trust settings are grouped under `trust`, so the keys A owns are visibly A's. The keys
+  inside `trust` above are v1's, shown as an example: their shape is area A's to decide (an
+  assumption on A, section 7), and C decodes `trust` with A's Go type.
 - `url` makes the members' base URL explicit when a team is reached through something other than
   the bus address.
 
@@ -1017,12 +1020,18 @@ Reading and writing:
 
 - The play gets the values as Ansible parsed them and hands them to `<v2-host> declare check` as
   JSON on stdin (3.5.1), so what is applied is judged by the Go validator, not by Jinja.
-- ccy-teams reads the same file with a strict Go YAML decode (`go.yaml.in/yaml/v3`, on the module
-  allowlist; known fields only, duplicate keys refused). To make sure the two parsers cannot read
-  one file two ways, the schema uses only strings, integers, `true`/`false`, lists and mappings, and
-  the Go reader refuses what YAML 1.1 (Ansible's) and YAML 1.2 read differently in a typed field:
-  `yes`/`no`/`on`/`off`, leading zeros, `0x` and `0o`, sexagesimal numbers, and any tag, anchor or
-  alias. A `!vault` value is refused by name: no v2 key holds a secret, so a vaulted value is a
+- ccy-teams reads the same file with a Go YAML decode (`go.yaml.in/yaml/v3`, added to the
+  production module by decision DC17). host_vars is one file, `host_vars/<host>.yml`; a
+  `host_vars/<host>/` directory is refused by name, since ccy-teams could not then know which
+  file to edit. The file is decoded to a `yaml.Node` tree first, and the strict rules apply only
+  to the subtrees under the v2 top-level keys (`<v2>_address`, `<v2>_teams`, `<v2>_lxc_members`,
+  `<v2>_element_teams`). Every other top-level key is ignored whatever it holds: `!vault` values,
+  `yes`/`no`, anchors and v1's keys are not v2's business. Within the v2 subtrees: known fields
+  only, duplicate keys refused, and, so that the two parsers cannot read one file two ways, only
+  strings, integers, `true`/`false`, lists and mappings. The Go reader refuses there what YAML 1.1
+  (Ansible's) and YAML 1.2 read differently in a typed field: `yes`/`no`/`on`/`off`, leading
+  zeros, `0x` and `0o`, sexagesimal numbers, and any tag, anchor or alias. A `!vault` value
+  inside a v2 subtree is refused by name: no v2 key holds a secret, so a vaulted value there is a
   mistake.
 - ccy-teams writes v2 keys with a YAML node editor (DESIGN D6) that keeps comments, order and
   every key it does not own, under the play lock, after an `O_EXCL` backup copy of the file (as
@@ -1036,7 +1045,7 @@ Reading and writing:
 with the declared members as JSON on stdin. ccy-teams' `lxc-add` edits host_vars under the play
 lock and runs the play scoped to the team, as v1 does. The play stays the one route (C31).
 
-The rules the apply keeps from v1 (R33, R48, L 1, L 6): the checkout is read from the host side;
+The rules the apply keeps from v1 (R33, R48, LR 1, LR 6): the checkout is read from the host side;
 everything checkable is checked for every running container before anything changes; demotions
 before promotions; a stopped container is ordinary and a missing one is an error; a running and
 correct member is left alone (no new token on every run).
@@ -1046,10 +1055,10 @@ What changes: no container program ever runs as root, and no container needs Pyt
 | v1                                                                                            | v2                                                                                                                                                                            |
 | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `python3 -I -c <script>` run inside the guest as root (kit sync, user lookup, env file, unit) | no guest program run as root; root writes only root-owned paths of the guest, from the host side, with `openat2(RESOLVE_IN_ROOT\|RESOLVE_NO_SYMLINKS\|RESOLVE_NO_MAGICLINKS)` |
-| `python3 -I -c` as the agent user (bundle, `pingbus config check`)                            | `<v2-bin> guest <op>` as the agent user, through `lxc-attach -u <uid> -g <gid> --clear-env`, reading typed JSON on stdin                                                      |
+| `python3 -I -c` as the agent user (bundle, `pingbus config check`)                            | `<v2-bin> guest <op>` as the agent user, through `lxc-attach -u <uid> -g <gid> --clear-env` with `HOME`, `USER`, `LOGNAME` and `PATH` set, reading typed JSON on stdin        |
 | `getent passwd` inside the guest                                                              | the guest's `/etc/passwd` read from the host side, size-capped                                                                                                                |
 | the source-address check by a UDP connect inside the guest                                    | the guest's addresses from `lxc-info -iH` and its link from the container config, checked against `allow_from` on the host                                                    |
-| a kit copied file by file into one directory, replaced in place                               | the kit written as `<v2-kit>/<digest>/` and a `current` link swapped atomically; the last two digests kept (C33)                                                              |
+| a kit copied file by file into one directory, replaced in place                               | the kit written as `<v2-kit>/<digest>/` and a `current` link swapped atomically; a digest kept while any process runs from it (C33)                                           |
 | Python 3.11 or later required in every guest                                                  | one static `<v2-bin>`; the guest needs no interpreter and no library                                                                                                          |
 
 Why `lxc-attach -u` is safe where `lxc-attach` as root was not: an exec as uid 0 into a guest is
@@ -1058,22 +1067,38 @@ overwrote the host runtime through `/proc/self/exe`). As the agent uid it can do
 user can already do inside its own guest, and the program run is the one root wrote from the host
 side a moment before.
 
+How each `lxc-attach` is made: `lxc-attach -n <container> -u <uid> -g <gid> --clear-env --set-var HOME=<home> --set-var USER=<user> --set-var LOGNAME=<user> --set-var PATH=/usr/local/bin:/usr/bin:/bin -- <v2-kit>/<digest>/<v2-bin> guest <op>`, with uid, gid and
+home from the guest's `/etc/passwd` as read on the host side, and the kit path resolved once by
+the host (never `current`, so a swap mid-phase cannot change what runs). `--clear-env` alone would
+leave `HOME` unset, and `guest place` and `guest check` need it to find `~/.config/...` and the
+forge CLI's login. Whether `-u`/`-g` drop the attaching process's supplementary groups is checked
+by host check H-C10; `<v2-bin> guest` also checks `getgroups()` at start and refuses to run with
+any group but the agent user's own.
+
 #### 3.9.2 Order of one present phase
 
 1. Validate every entry (types, `(team, container, user)` unique, team declared present and its
    homeserver active) before touching any container.
 2. For each container: `lxc-info -sH`. Missing fails the apply. Not `RUNNING` is held back (3.9.3).
 3. For each running container, read from the host side and change nothing yet:
-   - the container config: rootfs path and store type, mount entries, network link; an
+   - the container config (a host file, root-owned): network link, `lxc.start.auto`; an
      unprivileged (`lxc.idmap`) container is refused by name, as v1 does;
-   - the rootfs: `dir` and `btrfs` stores directly; `overlay`, `zfs`, `lvm`, `loop`, `rbd`, `nbd`
-     through `/proc/<init pid>/root` of the running container; anything else refused by name (L 6
-     item 4);
-   - the agent user from `/etc/passwd` (uid, gid, home);
+   - for an entry with `service: true`, v1's pre-checks, all host-side: the config has
+     `lxc.start.auto = 1` (so the supervised session comes back with the host), the guest's init
+     (`/proc/<init pid>/exe` resolved in the guest) is systemd, and `tmux` is in the guest's
+     `PATH` directories. A miss fails the phase naming the fix in the container's declaration;
+     the apply does not edit the container config;
+   - every guest file below is read through one path: `/proc/<init pid>/root` of the running
+     container, opened once as a directory fd, with `openat2(RESOLVE_IN_ROOT|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS)`
+     relative to it. That is the container's own view, its bind mounts included, whatever the
+     store type, so the design neither reads the rootfs directly nor re-implements LXC's mounts.
+     Every open adds `O_NONBLOCK` and is followed by `fstat`: anything but a regular file (a FIFO
+     would stall a blocking open) is refused by name. A stopped container is not read at all
+     (3.9.3);
+   - the agent user from `/etc/passwd` (uid, gid, home), at most 1 MiB;
    - the checkout: `.git/config` (`origin`; `insteadOf` rewrites refused), and
-     `.claude/ccy/ccy.env.local` (owned by the agent user's uid, else refused), each opened
-     without following any link, at most 64 KiB, resolved through the container's bind mounts as
-     LXC would;
+     `.claude/ccy/ccy.env.local` (owned by the agent user's uid, else refused), each at most
+     64 KiB;
    - derive the handle (3.7.4); the seat is the entry's, else the one the LXC record holds, else the
      lowest free;
    - check the source address: one of the guest's addresses inside the team's `allow_from` (which
@@ -1081,12 +1106,18 @@ side a moment before.
      Any refusal here fails the phase before any container is changed.
 4. Kit: for each running container whose `current` kit digest differs, write the new kit
    directory from the host side (root-owned, 0755 directories, 0755 `<v2-bin>`, 0644 files, modes
-   explicit so no inherited umask can matter, L 6 item 2), then swap `current`.
+   explicit so no inherited umask can matter, LR 6 item 2), then swap `current`. An old digest
+   is deleted only when no process of that guest runs a binary from it: the host lists the
+   processes in the container's cgroup (from the host's `/proc`, by `/proc/<pid>/cgroup`) and
+   reads each one's `/proc/<pid>/exe` link target as a path inside the guest. The same rule keeps
+   the host's own `<v2-kit>` digests while any of the owner's processes runs from one (C33). A
+   session resolves its kit once at launch (area B), so a digest it uses outlives every swap.
 5. Guest check: `<v2-bin> guest check` as the agent user in each running container (what the member
    needs to work, for example the forge CLI signed in; area B defines the list). Any failure fails
    the phase before any roster change.
 6. Roster changes, under each team's lock in turn: every demotion of every team first, then every
-   join (`member add`, `return` or `reissue` as the state requires), then every promotion.
+   join (`member add`, `return` or `reissue` as the state requires), then every promotion,
+   including each team's `coordinator_wanted` that one of these joins has just created (3.6.4).
 7. Place each new bundle: `<v2-bin> guest place --team <team>` as the agent user, bundle on stdin;
    it writes `~/.config/<v2>/seats/<team>/` (0700) with `token` and `seat.json` (0600) by the same
    code as 3.7.3, and the member's own config (area B).
@@ -1097,6 +1128,12 @@ The absent phase runs first in the play (before any team is removed): for each r
 `<v2-bin> guest leave --team <team>` as the agent user, then `member park`; for a stopped one, the
 handle the record holds is parked from the host side at once and the guest's files are left until it
 next runs.
+
+Whether an LXC seat is held (C27) is probed from the host through the same `/proc/<init pid>/root`
+fd: the member's seat lock under the agent user's seat directory, by the L3 probe (open
+`O_RDONLY|O_NOFOLLOW|O_NONBLOCK` with `RESOLVE_IN_ROOT`, `fstat` a regular file,
+`LOCK_SH|LOCK_NB`). The host never enters the container for it. A stopped container's seat is not
+held.
 
 #### 3.9.3 Stopped containers and the record
 
@@ -1174,17 +1211,24 @@ bound, and one team's failure is that team's record and never stops another's (D
 
 #### 3.11.2 What a tick does, per team
 
-1. Unit state over D-Bus: `ActiveState`, `SubState`, `InvocationID`, `NRestarts`, asking the service
-   unit only for properties a service has (H 7.24).
-2. Probe `/_matrix/client/versions` on loopback. After a 60 s start grace, three misses 10 s apart, with
-   the same `InvocationID` still active, restart the unit (team lock taken without waiting, 3.4). A
+Steps 1-4 run without the team lock (3.4) and change nothing.
+
+1. Unit state over D-Bus (DC17): `ActiveState`, `SubState`, `InvocationID`, `NRestarts`, asking the
+   service unit only for properties a service has (H 7.24). Read the roster's `generation`.
+2. Probe `/_matrix/client/versions` on loopback. After a 60 s start grace, three misses 10 s apart,
+   with the same `InvocationID` still active, restart the unit: the team lock is taken without
+   waiting only for the restart, and a busy lock means the holder owns the team's state (3.4). A
    rise in `NRestarts` is recorded once and kept for 24 hours; a fall means a manual restart.
-3. Roster and room view, in the `<v2-ctl>` child (read-only): the roster; each member's and each
+3. Roster and room view, in the `<v2-ctl>` child, read-only: the roster; each member's and each
    human's membership of each room; each human's device count and newest sign-in; and the drift of
-   every room against A's specs (3.6.2), each drift with its repair (`ccy-teams apply <team>`).
+   every room against A's specs (3.6.2), each drift with its repair (`ccy-teams apply <team>`). The
+   read-only child never completes a `pending` operation (3.6.3): it reports it as a problem whose
+   fix is the verb that rolls it forward.
 4. Backups: the newest usable backup (both halves present) and its age; a backup older than 1.5 days,
    or a failed last run, is a problem.
-5. Write the status record.
+5. Take the team lock without waiting; if the roster's `generation` is still the one step 1 read,
+   write the status record, else drop this tick's view for the team (a change verb has written a
+   fresher one).
 
 #### 3.11.3 The status record
 
@@ -1212,25 +1256,54 @@ and again at the end of every change verb and every apply, so the board sees a c
 
 - `expires_ms` is `written_ms` plus 300 s. A record past it is itself shown as a problem ("health has
   not run since ..."), so a dead timer cannot look healthy.
-- Room purposes are A's; the record carries whatever purposes A's specs name.
+- Room purposes are A's; the record carries whatever purposes A's specs name. The names `main`,
+  `reports` and `questions` above are v1's, used as examples only.
 - No token, password or device ID is in it (device IDs stay behind `human devices`, DESIGN B2).
 - `<v2-host> status [<team>...]` prints these records for a human, and exits 1 if any has a problem.
 
-This record replaces v1's NOPASSWD reader design (DC4): what the board shows of members, rooms and
-devices is at most a minute old, or as new as the last change, and the board needs no privilege at all
-to read it.
+This record replaces v1's NOPASSWD reader design (DC4). Checked against what the owner needs:
+
+- **Opening in about 1 s.** The board reads the record as a file, with no sudo and no process
+  (3.13). A reader through NOPASSWD sudo would cost a sudo start and a child per team on every
+  open, and the homeserver calls behind it scale with members and humans; that is what made v1's
+  board slow.
+- **Freshness, and what refreshes it.** The record is rewritten (a) at the end of every change
+  verb and every apply, under the team lock, so a change the owner just made shows at once; and
+  (b) by the health tick every 60 s (timer accuracy 5 s, plus the tick's own run). Facts that
+  change with no verb, a member joining or leaving a room by itself or a human signing in from a
+  new device, are therefore at most about 70 s old. The record expires 300 s after it was written,
+  and an expired record is shown as a problem, never as current.
+- **What is never taken from the record.** Whether a member is online now is its seat lock,
+  probed live by the board (3.13); whether a homeserver is up now is the live unit state from the
+  board's one systemd query. Only membership, roles, room drift, device counts and backups come
+  from the record.
+- **The login flow re-reads.** After `human password` prints a password, ccy-teams keeps the same
+  password-sudo session (the change is not over), polls `sudo -n <v2-host> human devices --team T --name N` every 2 s until a new device appears or the owner ends the wait, and only then runs
+  `sudo -k`. `human devices` rewrites that human's entry in the status record under the team
+  lock, so the board shows the sign-in at once. The flow does not depend on the tick.
+
+What (b) of DC4 would add is device and membership facts fresher than about 70 s on every open,
+at the price of a NOPASSWD sudoers rule and a process per team per open. Nothing the owner does
+on the board needs that: the one moment that needs fresh device facts, the sign-in, re-reads
+explicitly.
 
 ### 3.12 Backups and restore
 
 #### 3.12.1 Backups
 
 `<v2-backup>.timer` (`OnCalendar=daily`, `RandomizedDelaySec=1h`, `Persistent=true`) starts
-`<v2-host> backup --all`. `backup --team T` is also run by `team apply` before a restart (3.5.2) and
-by ccy-teams. Per team, under its team lock (waiting up to 10 minutes):
+`<v2-backup>.service`: `Type=oneshot`, `ExecStart=<v2-lib>/<v2-host> backup --all`,
+`TimeoutStartSec=30min`, with the health unit's sandbox (3.11.1) except `ReadWritePaths=<v2-state>/root <v2-applied> <v2-run>`
+(the tars and the record) and the same capability set: it reads `ctl/<team>/` with no-follow
+opens of regular files only (reading is not steered by the control user the way a write would
+be), and it starts the `<v2-ctl>` child for the status refresh. `backup --team T` is also run by ccy-teams. Inside
+`team apply` (3.5.2 step 6) the backup is an internal function called under the team lock the
+apply already holds (3.4), never a second `flock`. Otherwise, per team, under its team lock
+(waiting up to 10 minutes):
 
 1. The homeserver must be active and ready (a signal sent before Tuwunel installs its handler is
    dropped, because it is PID 1 of its PID namespace; H 5).
-2. Send `SIGUSR2` to the main process over D-Bus (`KillUnit`, main only), which runs Tuwunel's
+2. Send `SIGUSR2` to the main process over D-Bus (`KillUnit`, whom `main`; DC17), which runs Tuwunel's
    database backup (`admin_signal_execute`), and wait up to 60 s for a new numbered backup.
 3. Write the control state paired with it, `root/<team>/backups/<n>.tar` (0600): from `ctl/<team>/`
    the admin token, roster and rooms record, and from `root/<team>/` the config and `team.json`.
@@ -1250,43 +1323,76 @@ stages first and swaps (C37, DC8):
 
 1. Validate the tar fully (exact member set, regular files, sizes, strict JSON for the roster and
    rooms record) and that database backup `N` exists. Nothing stops before this passes.
-2. Stage: a transient unit (`systemd-run --collect`, with the base unit's whole sandbox, the same
-   `DynamicUser` state directory, and a config whose `database_path` is `db.restore-<N>` and whose
-   port is a free loopback port) runs `tuwunel --restore-backup N`, which restores into the staging
-   path and then serves; once it answers, it is stopped. The live homeserver keeps serving
-   meanwhile.
-3. Stop the live homeserver. Rename `db` to `db.previous`, `db.restore-<N>` to `db`. Replace the
-   control and root state with the tar's, keeping the current copies beside them.
-4. Start, wait ready, assert listening, bootstrap.
-5. On any failure in 3-4: stop, swap every renamed directory and file back, start, wait ready, and
-   report that the restore failed and the team is as it was. Only a failure of this swap-back leaves
-   the team down, and it is reported as that.
-6. On success: delete the kept copies, remove the stamp (the restored `team.json` may differ from
+2. Stage: a transient unit (`systemd-run --collect`) with the base unit's whole sandbox and the
+   same identity, `DynamicUser=yes`, `User=<v2-hs>-<team>` and `StateDirectory=<v2-hs-state>/<team>`,
+   so it gets the live unit's uid and its state directory, and nothing is chowned (systemd shares a
+   dynamic uid between units that name the same user). It runs the binary the team's drop-in
+   names, with `SocketBindAllow=tcp:<staging port>` and `IPAddressAllow=127.0.0.1/32 ::1/128`
+   (the base unit denies every bind), and a config whose `database_path` is `db.restore-<N>` and
+   whose port is the free loopback staging port. It runs `tuwunel --restore-backup N`, which
+   restores into the staging path and then serves; once it answers, it is stopped. The live
+   homeserver keeps serving meanwhile.
+3. Build the merged roster in memory (below).
+4. Stop the live homeserver. Rename `db` to `db.previous`, `db.restore-<N>` to `db`. Replace the
+   root state (`config.toml`, `team.json`) with the tar's, keeping the current files beside them.
+   Replace the control state through the `<v2-ctl>` child, never by root directly (3.2.2): root
+   sends the tar's `admin.token` and `rooms.json` and the merged roster on the child's stdin in
+   one `restore.swap` request, and the child writes them with its atomic writer, keeping the
+   current files as `*.previous`.
+5. Start, wait ready, assert listening, bootstrap. Bootstrap converges the restored database to
+   the merged roster: every handle the roster holds `retired` is kicked and deactivated again,
+   every handle it holds `parked` is revoked again, and every room is converged (a room created
+   after the backup is gone from the database and is recreated or adopted, 3.6.2).
+6. On any failure in 4-5: stop, swap every renamed directory and file back (the control files by
+   a `restore.revert` request to the child), start, wait ready, and report that the restore failed
+   and the team is as it was. Only a failure of this swap-back leaves the team down, and it is
+   reported as that.
+7. On success: delete the kept copies, remove the stamp (the restored `team.json` may differ from
    the declaration, so the board shows out of date until the next apply, H 7.19), refresh the status
    record.
+
+The merged roster. A backup's roster is older than the team, and restoring it whole would break
+C18 (counters falling, a retired handle coming back) and would forget every member added since.
+So the current roster stays the truth for handles, and the database is brought to it:
+
+- `counters`: per prefix, the larger of the current and the backup's value.
+- `generation`: the current value plus one.
+- A handle `retired` in either roster is `retired`.
+- A handle in the current roster but not in the backup's has no account in the restored
+  database: it becomes `lost`, and the board names `member return` as its fix, which creates the
+  account again and issues a new bundle (`member return` accepts `parked` and `lost`).
+- A handle `active` in both, whose current `token_ms` is after the backup's time, holds a token
+  the restored database never issued: it is marked as needing `reissue`, shown on the board.
+- Every other handle keeps its current state; `coordinator` and `coordinator_wanted` are the
+  current ones, and `pending` must be empty (a restore refuses a team with a pending operation,
+  naming the verb that completes it).
+- If the current roster cannot be read, the restore refuses unless the owner passes
+  `--roster-from-backup`, which takes the backup's roster as it is and prints that every handle
+  issued after the backup is unknown to the team.
 
 Host check H-C5 proves that `--restore-backup` writes into a different `database_path` than the one
 the backup was taken from, and that the transient instance can serve on a different port; if it
 cannot, the stage step becomes "restore into the live path after the stop", with the swap-back of
-step 5 still covering failure, and the decision is raised.
+step 6 still covering failure, and the decision is raised. H-C5 also checks that the transient
+unit runs under the live unit's uid and that no file in the state directory changes owner.
 
 ### 3.13 What ccy-teams reads
 
 An open (picker or `--list`) reads, all in-process, as the owner:
 
-| Read                                                     | Cost on a desktop     | Notes                                                                             |
-| -------------------------------------------------------- | --------------------- | --------------------------------------------------------------------------------- |
-| host_vars: one strict decode of the v2 keys              | ~2 ms                 | once per open, shared by every view (fixes v1's three `declare overview` runs)    |
-| `<v2-applied>/installed.json`                            | \<1 ms                | installed `<v2-host>` digest, Tuwunel version, kit digest                         |
-| per team: `stamp.json`, `status.json`, `lxc/<team>.json` | \<1 ms each           | three small files per team, whatever the number of members or people              |
-| one `systemctl list-units --output=json '<v2-hs@>*'`     | ~20 ms                | live unit states, in case the status record is up to a minute old                 |
-| the seat store: pool and session directories             | ~1 ms per seat        | `seat.json` of each seat and a non-blocking shared `flock` probe of its seat lock |
-| the checkout's source digest                             | ~5 ms, cached by stat | for "software out of date" (below)                                                |
-| session records, tmux list, git probes for "join here"   | ~30 ms                | as the stage-1 board already does                                                 |
+| Read                                                     | Cost on a desktop     | Notes                                                                                                                                                                       |
+| -------------------------------------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| host_vars: one strict decode of the v2 keys              | ~2 ms                 | once per open, shared by every view (fixes v1's three `declare overview` runs)                                                                                              |
+| `<v2-applied>/installed.json`                            | \<1 ms                | installed `<v2-host>` digest, Tuwunel version, kit digest                                                                                                                   |
+| per team: `stamp.json`, `status.json`, `lxc/<team>.json` | \<1 ms each           | three small files per team, whatever the number of members or people                                                                                                        |
+| one D-Bus `ListUnitsByPatterns(['<v2-hs@>*'])` (DC17)    | ~5 ms                 | live unit states, in case the status record is up to a minute old                                                                                                           |
+| the seat store: pool and session directories             | ~1 ms per seat        | the pool's `seat.json` and `held.json` of each seat, and a non-blocking L3 probe of the seat lock in the holding session's directory (`O_NONBLOCK`, `fstat` a regular file) |
+| the checkout's source digest                             | ~5 ms, cached by stat | for "software out of date" (below)                                                                                                                                          |
+| session records, tmux list, git probes for "join here"   | ~30 ms                | as the stage-1 board already does                                                                                                                                           |
 
 That is roughly 0.1 s at any scale, against v1's 9-23 s (22 Python starts and T+H sudo calls), with
 no sudo, no Python, no HTTP and no process per checkout, team or person (C39). A redraw re-reads only
-files whose size or mtime changed and runs the one `systemctl` again, well under 200 ms.
+files whose size or mtime changed and asks systemd again, well under 200 ms.
 
 The APPLIED verdict per team, computed in-process with the same Go code `team apply` uses:
 
@@ -1309,33 +1415,40 @@ backup and restore verbs, parsing the one JSON answer each prints.
 
 ### 3.14 How each part is tested
 
-| Part                      | Tests                                                                                                                                                                                                                                                                                              |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| config and drop-in render | golden files; every key checked against the vendored key list of the pinned Tuwunel; a pin bump without a refreshed list fails                                                                                                                                                                     |
-| declaration               | table tests of every refusal; the YAML 1.1/1.2 ambiguity list; the same fixture through the Go reader and through Ansible's parser in the VM lab, which must agree                                                                                                                                 |
-| caller classes            | one table test over every verb and every class; exit 77 and the message                                                                                                                                                                                                                            |
-| root and child contract   | strict decode of every message type; a fuzz test of root's decoder of the child's answer                                                                                                                                                                                                           |
-| roster and member verbs   | every transition of 3.6.3 against `fakehs`; an injected failure after every step, then a rerun, must reach the same end state with no second valid token; counters never fall                                                                                                                      |
-| rooms engine              | against `fakehs` with A's specs: create, adopt after a crash between create and record, more than one candidate refused, kicks before state before invites, a removed human gone from every room before power levels change                                                                        |
-| locks                     | two real processes per lock; the holder line; bounded waits; the health tick never waiting                                                                                                                                                                                                         |
-| `team apply` and `remove` | `execx.Fake` for `systemctl`, `firewall-cmd`, `nmcli`, `ip`, `ss`; an `os.Root` tree in `t.TempDir()`; Plan 00192's sweeps (every external call failing in turn must fail the verb with a message; every working directory replaced by a file)                                                     |
-| backups and restore       | the tar parser shared by write and validate, against hostile tars (links, devices, `..`, setuid, extra members, oversize); restore's swap-back with a failure injected at each step                                                                                                                |
-| seats                     | rename into and out of a session directory with a planted symlink, a planted destination, a non-directory and a foreign owner; `RENAME_NOREPLACE` behaviour; placement with `O_EXCL`                                                                                                               |
-| LXC read side             | fixture rootfs trees: `dir`, bind mounts, a symlink at every component, an oversize file, an unprivileged config refused; `openat2` on the real kernel (Linux-only test)                                                                                                                           |
-| real Tuwunel              | behind `-tags tuwunel` with `FAKEHS_TUWUNEL_BIN` (M44): bootstrap, the rooms of A's layout, the whole member lifecycle, a restricted join, a power-0 refusal, restore into a staging path                                                                                                          |
-| VM lab                    | the play on a fresh VM: no teams (nothing resident, no timer enabled); one team; two teams; an LXC member running, then stopped, then started; a restore that succeeds and one forced to fail; v1 installed beside v2 and untouched (the list of everything v2 creates, which area D's proof uses) |
-| host checks               | section 8, through meta-deploy                                                                                                                                                                                                                                                                     |
+| Part                      | Tests                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| config and drop-in render | golden files; every key checked against the vendored key list of the pinned Tuwunel; a pin bump without a refreshed list fails                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| declaration               | table tests of every refusal; the YAML 1.1/1.2 ambiguity list; the same fixture through the Go reader and through Ansible's parser in the VM lab, which must agree                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| caller classes            | one table test over every verb and every class; exit 77 and the message                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| root and child contract   | strict decode of every message type; a fuzz test of root's decoder of the child's answer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| roster and member verbs   | every transition of 3.6.3 against `fakehs`; an injected failure after every step, then a rerun, must reach the same end state with no second valid token; counters never fall                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| rooms engine              | against `fakehs` with A's specs: create, adopt after a crash between create and record, more than one candidate refused, kicks before state before invites, a removed human gone from every room before power levels change                                                                                                                                                                                                                                                                                                                                                                            |
+| locks                     | two real processes per lock; the holder line; bounded waits; the health tick never waiting                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `team apply` and `remove` | a fake systemd D-Bus connection; `execx.Fake` for `firewall-cmd` (exit 0, 1 and any other code), `nmcli`, `ip`; `/proc/net/tcp{,6}` fixtures; the restart set and the reload set each changed alone; a first apply that fails after the first start, then a run with a different `server_name`, refused; an `os.Root` tree in `t.TempDir()`; Plan 00192's sweeps (every external call failing in turn must fail the verb with a message; every working directory replaced by a file)                                                                                                                   |
+| backups and restore       | the tar parser shared by write and validate, against hostile tars (links, devices, `..`, setuid, extra members, oversize); restore's swap-back with a failure injected at each step; the merged roster (counters never fall, a handle retired after the backup stays retired, one added after it is `lost`, one reissued after it needs `reissue`); the control swap done only by the child                                                                                                                                                                                                            |
+| seats                     | take into a session directory where a destination is already planted (a directory, a symlink, a FIFO), a planted non-empty directory, a foreign owner, and a race that swaps the new directory for a link; release moves to quarantine and never into the pool, the pool bundle byte-identical after a session rewrote its copy; `held.json` with `O_EXCL`; a release whose notice fails keeps `held.json` and the retry posts once                                                                                                                                                                    |
+| hot control               | `desired.json` order after the session record; active = seated and desired, each alone not active; leave with a farewell waits for the seat lock and exits 75 when it stays held                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| LXC read side             | fixture rootfs trees: `dir`, bind mounts, a symlink at every component, an oversize file, an unprivileged config refused; `openat2` on the real kernel (Linux-only test)                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| real Tuwunel              | behind `-tags tuwunel` with `FAKEHS_TUWUNEL_BIN` (M44): bootstrap, the rooms of A's layout, the whole member lifecycle, a restricted join, a power-0 refusal, restore into a staging path                                                                                                                                                                                                                                                                                                                                                                                                              |
+| VM lab                    | the play on a fresh VM: no teams (nothing resident, no timer enabled); one team; two teams; an LXC member running, then stopped, then started; a new team with an LXC coordinator in one play; a coordinator declared before its ccy member exists, promoted at its first seat take; a Tuwunel pin bump with a play scoped to one team, which leaves the other teams' drop-ins on the old version and backs up the scoped team before its restart; a restore that succeeds and one forced to fail; v1 installed beside v2 and untouched (the list of everything v2 creates, which area D's proof uses) |
+| host checks               | section 8, through meta-deploy                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 ### 3.15 Resident cost, honestly
 
-| Scope            | Resident                                                                                                                       | Units, ports, other                                                                                                           |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| v2 with no teams | nothing                                                                                                                        | unit files installed but nothing enabled; no timer runs; no port; no firewall rule                                            |
-| per team         | one Tuwunel, 100-135 MB RSS as measured in the 00161 spike (to be re-measured, and reduced if the cache modifier allows, H-C1) | one service and its drop-in; one TCP port on loopback and each `listen` address; one firewall rule set; no timer of its own   |
-| host, with teams | nothing                                                                                                                        | two timers: one oneshot a minute (a few tens of milliseconds of CPU and a handful of loopback HTTP calls per team), one a day |
-| per member       | nothing on the host                                                                                                            | two files in a seat directory; the member's keeper and worker are area B's cost and are measured there                        |
-| per human        | nothing                                                                                                                        | an account on the team's homeserver                                                                                           |
-| per LXC guest    | nothing beyond what area B runs                                                                                                | a kit directory per digest (two kept), the seat directories, and with `service: true` one unit in the guest                   |
+| Scope            | Resident                                                                                                                          | Units, ports, other                                                                                                                                        |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| v2 with no teams | nothing                                                                                                                           | unit files installed but nothing enabled; no timer runs; no port; no firewall rule                                                                         |
+| per team         | one Tuwunel, 100-135 MB RSS as measured in the 00161 spike (to be re-measured, and reduced if the cache modifier allows, H-C1)    | one service and its drop-in; one TCP port on loopback and each `listen` address; one firewall rule set; no timer of its own; one `<v2-ctl>` child per tick |
+| host, with teams | nothing                                                                                                                           | two timers: one oneshot a minute, one a day. Each minute: one `<v2-host>` process, plus one `<v2-ctl>` child per team                                      |
+| per member       | the homeserver's memory for the member's long-poll sync and its share of the caches (inside the team's Tuwunel, measured by H-C1) | the pool bundle and a session copy; the member's keeper and worker are area B's cost and are measured there                                                |
+| per human        | the same, while the human's Element is open                                                                                       | an account on the team's homeserver                                                                                                                        |
+| per LXC guest    | nothing beyond what area B runs                                                                                                   | each kit digest a guest process still runs, the seat directories, and with `service: true` one unit in the guest                                           |
+
+The health tick's homeserver calls grow as teams × rooms × (members + humans) per minute: one
+membership read per room and person, and one device read per human, all on loopback. With a team
+of a few members and A's few rooms that is tens of calls a minute; it grows linearly in each
+factor, and the first host check (H-C1) records the tick's run time and the homeserver's CPU per
+tick, per team, at the team sizes the owner runs, so the figure is measured rather than guessed.
 
 Against v1 per team: the same one homeserver, one service instead of a service and two timers, and
 no sudo or Python process on any read.
