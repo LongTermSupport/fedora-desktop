@@ -8,7 +8,8 @@ team's homeserver on loopback only.
 Where things live, under `/var/lib/agent-bus/<team>/` (0700, the running user's):
 `team.json` (the validated team file), `registry.json` (helpers/agent_bus/registry.py;
 every change goes through `registry.update_registry`), `room_id` (the team room, written
-when `bootstrap` creates it), and `secrets/` holding `registration_shared_secret` (created
+when `bootstrap` creates it), `room_id.reports` and `room_id.questions` (the side rooms of
+Plan 00211, written when one is created or adopted), and `secrets/` holding `registration_shared_secret` (created
 by the installer), `admin.token` (created here) and, only until that is written,
 `admin.password`. Human passwords
 and member tokens are never stored: a member's token leaves only inside its bundle, and a
@@ -48,7 +49,7 @@ import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from helpers.agent_bus import registry, teamfile
@@ -62,10 +63,18 @@ PASSWORD_LENGTH = 32
 PASSWORD_ALPHABET = string.ascii_letters + string.digits
 ROOM_TOPIC = protocol.ROOM_TOPIC
 REMOVED_REASON = "removed from the team"
+DEMOTED_REASON = "no longer the coordinator"
+
+#: The side rooms' topics (Plan 00211 SPEC §3.1): informational for the humans, never trusted.
+REPORTS_TOPIC = ("Reports from the team's agents, for you to read. To reach an agent, write in the main "
+                 "room; answer questions in the questions room.")
+QUESTIONS_CLOSED_TOPIC = "This team has no coordinator now, so this room is closed."
 
 TEAM_FILE = "team.json"
 REGISTRY_FILE = "registry.json"
 ROOM_ID_FILE = "room_id"
+#: A side room's ID file, beside ROOM_ID_FILE: `room_id.reports`, `room_id.questions`.
+SIDE_ROOM_ID_FILE = ROOM_ID_FILE + ".{purpose}"
 SECRETS_DIR = "secrets"
 SHARED_SECRET_FILE = "registration_shared_secret"
 ADMIN_TOKEN_FILE = "admin.token"
@@ -398,9 +407,22 @@ class _Api:
         self.call(f"invite {user_id}", "POST", f"{_CLIENT}/rooms/{_q(room)}/invite",
                   body={"user_id": user_id})
 
-    def kick(self, room: str, user_id: str) -> None:
-        self.call(f"remove {user_id} from the team room", "POST", f"{_CLIENT}/rooms/{_q(room)}/kick",
-                  body={"user_id": user_id, "reason": REMOVED_REASON})
+    def kick(self, room: str, user_id: str, where: str = "the team room", reason: str = REMOVED_REASON) -> None:
+        self.call(f"remove {user_id} from {where}", "POST", f"{_CLIENT}/rooms/{_q(room)}/kick",
+                  body={"user_id": user_id, "reason": reason})
+
+    def joined_rooms(self) -> list[str]:
+        _, obj = self.call("list the admin's rooms", "GET", f"{_CLIENT}/joined_rooms")
+        rooms = obj.get("joined_rooms")
+        if not isinstance(rooms, list) or not all(protocol.is_room_id(r) for r in rooms):
+            raise AdminError("list the admin's rooms: the homeserver answered with no list of room IDs")
+        return rooms
+
+    def members(self, room: str) -> dict[str, str]:
+        """Every account with a membership event in the room: user ID -> membership."""
+        return {event["state_key"]: event["content"]["membership"] for event in self.room_state(room)
+                if event.get("type") == "m.room.member" and isinstance(event.get("state_key"), str)
+                and isinstance(event.get("content"), dict) and isinstance(event["content"].get("membership"), str)}
 
     def set_user_flag(self, user_id: str, flag: str, value: bool) -> None:
         self.call(f"set {flag} on {user_id}", "PUT", _user_path(user_id), body={flag: value})
@@ -556,14 +578,19 @@ def _canonical(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
+def _created_by_admin(api: _Api, room: str) -> bool:
+    """The room's create event: sent by `admin`, version 12, no `additional_creators`."""
+    create = api.state(room, "m.room.create", event=True)
+    content = create.get("content") if create else None
+    return (isinstance(content, dict) and create.get("sender") == api.team.admin_id
+            and content.get("room_version") == protocol.ROOM_VERSION and "additional_creators" not in content)
+
+
 def _ensure_room(api: _Api, changes: list[str]) -> str:
     team = api.team
     if os.path.lexists(team.dir / ROOM_ID_FILE):
         room = _room_id(team)
-        create = api.state(room, "m.room.create", event=True)
-        content = create.get("content") if create else None
-        if (not isinstance(content, dict) or create.get("sender") != team.admin_id
-                or content.get("room_version") != protocol.ROOM_VERSION or "additional_creators" in content):
+        if not _created_by_admin(api, room):
             raise AdminError(f"team {team.name}: room {room} was not created by {team.admin_id} as version {protocol.ROOM_VERSION}")
         return room
     record = _team_record(team, registry.load_registry(team.registry_path, team.name))
@@ -616,10 +643,15 @@ def _empty_stray_status(api: _Api, room: str, changes: list[str]) -> None:
 
 
 def _remove_account(api: _Api, room: str, user_id: str, changes: list[str]) -> None:
-    """Out of the room and deactivated, each only if not already done."""
+    """Out of every room (the team room, then each side room) and deactivated, each only if
+    not already done."""
     if api.membership(room, user_id) in JOINED:
         api.kick(room, user_id)
         changes.append(f"kicked {user_id}")
+    for purpose, side in _side_rooms(api.team).items():
+        if api.membership(side, user_id) in JOINED:
+            api.kick(side, user_id, f"the {purpose} room")
+            changes.append(f"kicked {user_id} from {purpose}")
     account = api.account(user_id)
     if account is not None and account.get("deactivated") is not True:
         api.set_user_flag(user_id, "deactivated", True)
@@ -635,6 +667,10 @@ def bootstrap(team: Team, transport: Transport) -> list[str]:
     _check_single_admin(api)
     _ensure_humans(api, changes)
     room = _ensure_room(api, changes)
+    # The side rooms are found (or adopted) first, so a removed human leaves them too before
+    # any power levels are rewritten (Plan 00211 SPEC §3.2, §5.1 step 5).
+    for purpose in protocol.PURPOSES:
+        _find_side_room(api, room, purpose, changes)
     # Removals run before the record is rewritten: the old record is what names a removed
     # human, so a failed kick or deactivation leaves it in place for the next run to retry.
     previous = api.state(room, protocol.EVENT_TEAM) or {}
@@ -648,7 +684,226 @@ def bootstrap(team: Team, transport: Transport) -> list[str]:
         if api.membership(room, user_id) not in JOINED:
             api.invite(room, user_id)
             changes.append(f"invited {user_id}")
+    _ensure_side_rooms(api, room, changes)
     return changes
+
+
+# ---------------------------------------------------------------- the side rooms (Plan 00211)
+
+
+def questions_topic(coordinators: Iterable[str]) -> str:
+    return (f"Questions the coordinator {' and '.join(coordinators)} could not answer itself. Answer here; "
+            "the coordinator reads every message in this room.")
+
+
+def _side_room_path(team: Team, purpose: str) -> pathlib.Path:
+    return team.dir / SIDE_ROOM_ID_FILE.format(purpose=purpose)
+
+
+def _side_room_id(team: Team, purpose: str) -> str | None:
+    path = _side_room_path(team, purpose)
+    if not os.path.lexists(path):
+        return None
+    room = _read_private(path, f"the {purpose} room ID")
+    if not protocol.is_room_id(room):
+        raise ConfigError(f"team {team.name}: {path} does not hold a room ID")
+    return room
+
+
+def _side_rooms(team: Team) -> dict[str, str]:
+    """The side rooms this host has recorded: purpose -> room ID."""
+    return {purpose: room for purpose in protocol.PURPOSES if (room := _side_room_id(team, purpose))}
+
+
+def _coordinators(team: Team) -> list[str]:
+    reg = registry.load_registry(team.registry_path, team.name)
+    return protocol.coordinators({team.user_id(handle): protocol.normalise_role(role)
+                                  for handle, role in reg.members.items()})
+
+
+def _handle(user_id: str) -> str:
+    return user_id[1:].split(":", 1)[0]
+
+
+def _is_side_room(api: _Api, room: str, purpose: str, main: str) -> bool:
+    """Created by `admin` and carrying this team's back-link for `purpose` (SPEC §4.2)."""
+    if not _created_by_admin(api, room):
+        return False
+    try:
+        protocol.check_room_link(api.state(room, protocol.EVENT_ROOM_LINK, event=True), api.team.admin_id,
+                                 api.team.name, purpose, main)
+    except protocol.Untrusted:
+        return False
+    return True
+
+
+def _current_index(api: _Api, main: str) -> dict:
+    content = api.state(main, protocol.EVENT_ROOMS)
+    return content if isinstance(content, dict) else {}
+
+
+def _find_side_room(api: _Api, main: str, purpose: str, changes: list[str]) -> str | None:
+    """SPEC §5.1 step 1 short of creating: the ID file's room, re-checked; else, after a crash
+    between `createRoom` and the file's write, the one room to adopt: the index's, else the
+    one among the admin's joined rooms with this purpose's back-link. Two is an error."""
+    team = api.team
+    room = _side_room_id(team, purpose)
+    if room is not None:
+        if not _is_side_room(api, room, purpose, main):
+            raise AdminError(f"team {team.name}: {_side_room_path(team, purpose)} names {room}, which is not a "
+                             f"{purpose} room {team.admin_id} created for this team's room {main}")
+        return room
+    joined = api.joined_rooms()
+    indexed = _current_index(api, main).get(purpose)
+    if indexed in joined and _is_side_room(api, indexed, purpose, main):
+        found = [indexed]
+    else:
+        found = [r for r in joined if r != main and _is_side_room(api, r, purpose, main)]
+    if len(found) > 1:
+        raise AdminError(f"team {team.name}: {len(found)} rooms carry the {purpose} back-link and none is "
+                         f"recorded in {_side_room_path(team, purpose)}: {', '.join(found)}; write the one "
+                         "to keep there, then run bootstrap again")
+    if not found:
+        return None
+    write_private(_side_room_path(team, purpose), found[0])
+    changes.append(f"adopted the {purpose} room {found[0]}")
+    return found[0]
+
+
+def _side_topic(purpose: str, coordinators: Sequence[str]) -> str:
+    if purpose == protocol.PURPOSE_REPORTS:
+        return REPORTS_TOPIC
+    return questions_topic(map(_handle, coordinators)) if coordinators else QUESTIONS_CLOSED_TOPIC
+
+
+def _create_side_room(api: _Api, main: str, purpose: str, coordinators: Sequence[str], changes: list[str]) -> str:
+    team = api.team
+    link = {"v": protocol.PROTOCOL_VERSION, "team": team.name, "purpose": purpose, "main": main}
+    _, obj = api.call(f"create the {purpose} room", "POST", f"{_CLIENT}/createRoom", body={
+        "preset": "private_chat", "room_version": protocol.ROOM_VERSION, "visibility": "private",
+        "name": f"{team.name} · {purpose}", "topic": _side_topic(purpose, coordinators),
+        "power_level_content_override": protocol.side_power_levels(purpose, team.humans(),
+                                                                   open_=bool(coordinators)),
+        "initial_state": [
+            {"type": protocol.EVENT_ROOM_LINK, "state_key": "", "content": link},
+            {"type": protocol.JOIN_RULES, "state_key": "", "content": protocol.expected_join_rules(purpose, main)},
+            {"type": "m.room.history_visibility", "state_key": "", "content": {"history_visibility": "shared"}},
+        ],
+    })
+    room = obj.get("room_id")
+    if not protocol.is_room_id(room):
+        raise AdminError(f"create the {purpose} room: no room ID in the answer")
+    write_private(_side_room_path(team, purpose), room)
+    changes.append(f"{purpose} room")
+    return room
+
+
+def _write_index(api: _Api, main: str, changes: list[str]) -> None:
+    """The main room's `agent_bus.rooms` (SPEC §4.1) from the recorded side rooms."""
+    index = {"v": protocol.PROTOCOL_VERSION, **_side_rooms(api.team)}
+    if _canonical(api.state(main, protocol.EVENT_ROOMS)) != _canonical(index):
+        api.put_state(main, protocol.EVENT_ROOMS, index)
+        changes.append("rooms index")
+
+
+def _sync_side_state(api: _Api, main: str, purpose: str, room: str, coordinators: Sequence[str],
+                     changes: list[str]) -> None:
+    """Power levels (questions: open or closed), join rules and topic, each only when it differs."""
+    levels = protocol.side_power_levels(purpose, api.team.humans(), open_=bool(coordinators))
+    if _canonical(api.state(room, "m.room.power_levels")) != _canonical(levels):
+        api.put_state(room, "m.room.power_levels", levels)
+        changes.append(f"{purpose} power levels")
+    rules = protocol.expected_join_rules(purpose, main)
+    if _canonical(api.state(room, protocol.JOIN_RULES)) != _canonical(rules):
+        api.put_state(room, protocol.JOIN_RULES, rules)
+        changes.append(f"{purpose} join rules")
+    topic = _side_topic(purpose, coordinators)
+    current = api.state(room, "m.room.topic")
+    if not isinstance(current, dict) or current.get("topic") != topic:
+        api.put_state(room, "m.room.topic", {"topic": topic, "m.topic": {"m.text": [{"body": topic}]}})
+        changes.append(f"{purpose} topic")
+
+
+def _invite(api: _Api, room: str, purpose: str, users: Iterable[str], changes: list[str]) -> None:
+    for user_id in users:
+        if api.membership(room, user_id) not in JOINED:
+            api.invite(room, user_id)
+            changes.append(f"invited {user_id} to {purpose}")
+
+
+def _ensure_side_rooms(api: _Api, main: str, changes: list[str]) -> None:
+    """SPEC §5.1: the reports room of every team, and the questions room's membership."""
+    purpose = protocol.PURPOSE_REPORTS
+    room = _find_side_room(api, main, purpose, changes) or _create_side_room(api, main, purpose, [], changes)
+    _write_index(api, main, changes)
+    _sync_side_state(api, main, purpose, room, [], changes)
+    _invite(api, room, purpose, api.team.humans(), changes)
+    _sync_questions_members(api, main, changes)
+
+
+def _sync_questions_members(api: _Api, main: str, changes: list[str]) -> None:
+    """SPEC §5.1: the questions room, created at the team's first coordinator; every agent it
+    holds that is not a coordinator kicked, before any invite; the open or closed form; then
+    the humans and every coordinator invited (again, when its membership is `leave`)."""
+    team, purpose = api.team, protocol.PURPOSE_QUESTIONS
+    coordinators = _coordinators(team)
+    room = _find_side_room(api, main, purpose, changes)
+    if room is None:
+        if not coordinators:
+            return
+        room = _create_side_room(api, main, purpose, coordinators, changes)
+    _write_index(api, main, changes)
+    for user_id, membership in sorted(api.members(room).items()):
+        if (membership in JOINED and protocol.is_agent_user_id(user_id, team.server_name)
+                and user_id not in coordinators):
+            api.kick(room, user_id, "the questions room", DEMOTED_REASON)
+            changes.append(f"kicked {user_id} from {purpose}")
+    _sync_side_state(api, main, purpose, room, coordinators, changes)
+    _invite(api, room, purpose, [*team.humans(), *coordinators], changes)
+
+
+def check_rooms(team: Team, transport: Transport) -> list[str]:
+    """SPEC §5.4, read-only: each side room that is missing or has drifted, each human not in
+    one, a worker in questions, and each coordinator not joined to both. Empty when sound."""
+    api = _session(team, transport)
+    main = _room_id(team)
+    coordinators = _coordinators(team)
+    repair = f"run the agent-bus play (agent-bus bootstrap {team.name})"
+    restart = ("restart that agent's session (`invite`: it is not running; `leave`: its pingbus is older "
+               "than 0.2.0), then run the agent-bus play")
+    index = _current_index(api, main)
+    problems: list[str] = []
+    for purpose in protocol.PURPOSES:
+        room = _side_room_id(team, purpose)
+        if room is None:
+            if purpose == protocol.PURPOSE_REPORTS or coordinators:
+                problems.append(f"team {team.name}: no {purpose} room: {repair}")
+            continue
+        if not _is_side_room(api, room, purpose, main):
+            problems.append(f"team {team.name}: the {purpose} room {room} is not this team's: {repair}")
+            continue
+        if index.get(purpose) != room:
+            problems.append(f"team {team.name}: the rooms index does not name the {purpose} room {room}: {repair}")
+        for what, event_type, want in (
+                ("power levels", "m.room.power_levels",
+                 protocol.side_power_levels(purpose, team.humans(), open_=bool(coordinators))),
+                ("join rules", protocol.JOIN_RULES, protocol.expected_join_rules(purpose, main))):
+            if _canonical(api.state(room, event_type)) != _canonical(want):
+                problems.append(f"team {team.name}: the {purpose} room's {what} have drifted: {repair}")
+        members = api.members(room)
+        for user_id in team.humans():
+            if members.get(user_id) not in JOINED:
+                problems.append(f"team {team.name}: {user_id} is neither joined nor invited to {purpose}: {repair}")
+        for user_id, membership in sorted(members.items()):
+            if (purpose == protocol.PURPOSE_QUESTIONS and membership in JOINED
+                    and protocol.is_agent_user_id(user_id, team.server_name) and user_id not in coordinators):
+                problems.append(f"team {team.name}: {_handle(user_id)} is not the coordinator but is in questions "
+                                f"({membership}): {repair}")
+        for user_id in coordinators:
+            if members.get(user_id) != "join":
+                problems.append(f"team {team.name}: {_handle(user_id)} has not joined {purpose} "
+                                f"({members.get(user_id) or '-'}): {restart}")
+    return problems
 
 
 # ---------------------------------------------------------------- members
@@ -773,6 +1028,7 @@ def add_member(team: Team, transport: Transport, *, repo: str, host: str, type_:
     if api.membership(room, user_id) not in JOINED:
         api.invite(room, user_id)
     _sync_team(api, room, [])
+    _sync_questions_members(api, room, [])
     return Bundle(handle, _bundle(team, room, handle, type_, token, address, human_text), role, returned)
 
 
@@ -812,6 +1068,7 @@ def remove_member(team: Team, transport: Transport, handle: str) -> list[str]:
     changes = [f"removed {handle} from the registry"] if _registry_change(team, change) else []
     _sync_team(api, room, changes)
     _remove_account(api, room, team.user_id(handle), changes)
+    _sync_questions_members(api, room, changes)
     return changes
 
 
@@ -827,6 +1084,7 @@ def set_role(team: Team, transport: Transport, handle: str, role: str) -> list[s
 
     changes = [f"{handle} is now {protocol.normalise_role(role)}"] if _registry_change(team, change) else []
     _sync_team(api, room, changes)
+    _sync_questions_members(api, room, changes)
     return changes
 
 
@@ -854,8 +1112,9 @@ def rotate_token(team: Team, transport: Transport, handle: str) -> bytes:
 
 
 def list_members(team: Team, transport: Transport) -> list[str]:
-    """`HUMAN <name> <membership>` and `MEMBER <handle> <role> <membership> active|parked`;
-    no tokens."""
+    """`HUMAN <name> <membership>` and `MEMBER <handle> <role> <membership> active|parked`,
+    then `ROOM <user ID> <purpose> <membership>` for each account in each side room (Plan
+    00211 SPEC §5.5); no tokens."""
     api = _session(team, transport)
     room = _room_id(team)
     lines = [f"HUMAN\t{name}\t{api.membership(room, team.user_id(name)) or '-'}"
@@ -864,6 +1123,10 @@ def list_members(team: Team, transport: Transport) -> list[str]:
     lines += [f"MEMBER\t{handle}\t{role}\t{api.membership(room, team.user_id(handle)) or '-'}"
               f"\t{'parked' if reg.is_parked(handle) else 'active'}"
               for handle, role in sorted(reg.members.items())]
+    accounts = [*team.humans(), *(team.user_id(handle) for handle in sorted(reg.members))]
+    for purpose, side in _side_rooms(team).items():
+        members = api.members(side)
+        lines += [f"ROOM\t{user_id}\t{purpose}\t{members.get(user_id) or '-'}" for user_id in accounts]
     return lines
 
 

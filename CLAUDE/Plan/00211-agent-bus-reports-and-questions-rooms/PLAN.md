@@ -167,22 +167,24 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
 
 ### Phase 2: admin side (deploy 2), after deploy 1 is accepted
 
-- [ ] ⬜ **Task 2.1**: `admin`: `_ensure_side_rooms` (SPEC §5.1):
+- [x] ✅ **Task 2.1**: `admin`: `_ensure_side_rooms` (SPEC §5.1):
   - creating the rooms, or adopting an existing room after a crash;
   - the ID files, the index and the back-links;
   - power levels, join rules and topics;
   - human invites;
   - removed humans kicked from every room.
-- [ ] ⬜ **Task 2.2**: `admin`: `_sync_questions_members`, called from `bootstrap`,
+    Done in code, not deployed (`test_admin_side_rooms.py`; RED 1462ff04).
+- [x] ✅ **Task 2.2**: `admin`: `_sync_questions_members`, called from `bootstrap`,
   `add_member`, `set_role` and `remove_member` (SPEC §5.1):
   - the questions room is created at the first coordinator;
   - kicks come before invites, and every coordinator is invited (again, when `leave`);
   - the open and closed forms.
-    `remove_member` also kicks from reports.
-- [ ] ⬜ **Task 2.3**: `health`: a read-only side-room drift check, which also reports
-  coordinators not joined to questions (SPEC §5.4).
-- [ ] ⬜ **Task 2.4**: `agent-bus list` `ROOM` lines, with the HUMAN and MEMBER lines unchanged
-  (SPEC §5.5).
+    `remove_member` also kicks from reports. Done in code, not deployed.
+- [x] ✅ **Task 2.3**: A read-only side-room drift check, which also reports coordinators not
+  joined to questions (SPEC §5.4). It is `agent-bus check-rooms <team>` in the admin tool, not
+  `health.py`, which holds no Matrix credential (SPEC §5.4 corrected). Done in code.
+- [x] ✅ **Task 2.4**: `agent-bus list` `ROOM` lines, with the HUMAN and MEMBER lines unchanged
+  (SPEC §5.5). Done in code; the LXC helper's and ccy-teams' parsers skip them.
 - [ ] ⬜ **Task 2.5**: `acceptance.bash` gains stage 2 (A1-A4) and `--after-owner` (A5), and
   `ACCEPTANCE-owner.md` is written. Both are committed before Task 2.6 (SPEC §11.2, §11.3).
 - [ ] ⬜ **Task 2.6**: `deploy.bash --stage 2` with the legs of SPEC §5.3: pre-flight (the
