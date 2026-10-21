@@ -1,6 +1,6 @@
 # Plan 00211: agent bus reports and questions rooms
 
-**Status**: In Progress (Phase 1, the member side, in code and not deployed, with the Phase 1 review's fixes; the Phase 0 spike has not run; D9 is accepted as the interim step, for the owner to confirm; the other defaulted decisions are open to override)
+**Status**: In Progress (Phase 1 deployed and accepted on the host, and the Phase 0 spike passed every fact; Phase 2, the admin side, next; D9 is accepted as the interim step, for the owner to confirm; the other defaulted decisions are open to override)
 **Created**: 2026-10-21
 **Owner**: joseph
 **Priority**: High
@@ -88,7 +88,7 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
 
 ### Phase 0: spike (host)
 
-- [ ] 🔄 **Task 0.1**: `spike.bash` in this folder (`plan_mode deploy`, `plan_require_host`;
+- [x] ✅ **Task 0.1**: `spike.bash` in this folder (`plan_mode deploy`, `plan_require_host`;
   SPEC §11.2). It runs a throwaway Tuwunel process as the user, under the run directory, and
   removes it on cleanup. It records:
   - whether a restricted join works (room version 12, allowed by membership of the main room);
@@ -97,11 +97,12 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   - that a pending invite does no harm across syncs;
   - R5: that the side rooms' power levels and join rules, read back from the server (closed
     questions form included), pass `verify_side`'s exact checks.
-    Written (`spike.bash`, `spike_probe.py`) and queued in `meta-deploy.list`; not run yet.
-    The report ends with a verdict line, and `deploy.bash --stage 2` refuses to run unless the
+    Ran on the host through meta-deploy: "Verdict: every fact holds" (R1-R5; JOURNAL
+    "Deploy 1 accepted; spike holds"). The report ends with a verdict line, and `deploy.bash --stage 2` refuses to run unless the
     newest spike report has the PASS line (meta-deploy runs deploy 1 whatever the spike found).
-- [ ] ⬜ **Task 0.2**: Findings journalled. If a fact fails, SPEC §3.1, §4.3, §4.4 and §5.3 are
-  amended before Phase 2.
+- [x] ✅ **Task 0.2**: Findings journalled. If a fact fails, SPEC §3.1, §4.3, §4.4 and §5.3 are
+  amended before Phase 2. Every fact held, so the restricted-join design stands and the SPEC
+  is unchanged.
 
 ### Phase 1: member side (deploy 1)
 
@@ -159,9 +160,10 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   - the spike's R5 read-back and deploy 2's passed-spike pre-flight;
   - `history --room questions` exits as `questions` does; another coordinator's questions-room
     post is ignored, not dropped.
-- [ ] 🔄 **Task 1.13**: Merge Phase 1 to F44, then queue `deploy.bash --stage 1` in
-  `meta-deploy.list`. Journal the run once the owner has run it. Queued on the Phase 1 branch
-  as `deploy-stage-1.bash`, after the spike; the merge and the run are left.
+- [x] ✅ **Task 1.13**: Merge Phase 1 to F44, then queue `deploy.bash --stage 1` in
+  `meta-deploy.list`. Journal the run once the owner has run it. Merged (01980e74), run at
+  F44 1817be27 and accepted: S1 host and ccy-staged pingbus 0.2.0, S2 all 4 declared LXC
+  members 0.2.0 (JOURNAL "Deploy 1 accepted; spike holds"). Both entries are off the queue.
 
 ### Phase 2: admin side (deploy 2), after deploy 1 is accepted
 
