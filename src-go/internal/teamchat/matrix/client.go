@@ -1,6 +1,6 @@
 // Package matrix is the Matrix client-server client both sides of teamchat (the v2 agent bus)
 // use, and the Synapse-compatible admin endpoints the host needs (Plan 00209 SPEC-matrix.md
-// M1-M36).
+// M1-M36, M45-M47, M49, M50 and M52).
 //
 // It moves JSON and maps failures. It validates nothing an event carries: events, state content
 // and invite state are handed on as raw JSON for the caller to judge. It checks only what the
@@ -329,6 +329,15 @@ type answer struct {
 
 // do sends the call, waiting out 429s (SPEC M16), and gives the body of its 200 answer.
 func (c *Client) do(ctx context.Context, cl call) ([]byte, error) {
+	ans, err := c.answered(ctx, cl)
+	if err != nil {
+		return nil, err
+	}
+	return cl.judge(ans)
+}
+
+// answered sends the call, waiting out 429s, and gives the first answer that is not a 429.
+func (c *Client) answered(ctx context.Context, cl call) (*answer, error) {
 	if !cl.noAuth && c.authorize == nil {
 		return nil, cl.fail(ErrInvalid, 0, "", detailNoToken, false)
 	}
@@ -338,7 +347,7 @@ func (c *Client) do(ctx context.Context, cl call) ([]byte, error) {
 			return nil, err
 		}
 		if ans.status != http.StatusTooManyRequests {
-			return cl.judge(ans)
+			return ans, nil
 		}
 		wait := rateWait(ans)
 		if try == maxTries || wait > maxRateWait {
@@ -483,6 +492,11 @@ func (c *Client) object(ctx context.Context, cl call, out any) error {
 	if err != nil {
 		return err
 	}
+	return objectBody(cl, body, out)
+}
+
+// objectBody decodes an answer's body, which must be one JSON object, into out.
+func objectBody(cl call, body []byte, out any) error {
 	if first(body) != '{' {
 		return cl.fail(ErrUnreachable, http.StatusOK, "", detailNotObject, false)
 	}

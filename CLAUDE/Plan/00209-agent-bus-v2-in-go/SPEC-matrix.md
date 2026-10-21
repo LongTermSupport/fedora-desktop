@@ -182,8 +182,8 @@ is the shape the endpoint promises).
   `MaxRequestBytes` (a body over it is 413 `M_TOO_LARGE`; Tuwunel's floor is 10 000 000,
   `render.py:50-51`); `LoginFailuresAllowed` (failed password logins after that many are 429 with
   `retry_after_ms`, kept in memory and emptied by a restart, `health.py:22-25`). Password reset
-  with `logout_devices` (true unless set false) is the only revoke the server offers: no
-  `logout/all`, no device deletion. The quirks that are not HTTP (bare config keys, the PID-1
+  with `logout_devices` (true unless set false) is the only revoke of the whole account the
+  admin flow uses: no `logout/all`. A member's own device delete is M52 and M53. The quirks that are not HTTP (bare config keys, the PID-1
   signal drop, SIGUSR2 backup) belong to the installer's fakes, not this one.
 - **M41.** Fault injection: `Inject` queues a canned answer (status, body, headers such as
   `Retry-After`) for the next matching requests; a fault may instead drop the connection before
@@ -201,9 +201,13 @@ is the shape the endpoint promises).
 
 - **M44.** `go test -tags tuwunel` runs the client against a real Tuwunel binary when
   `FAKEHS_TUWUNEL_BIN` names one: registration, the admin flow, a room, a send with a reused
-  transaction ID, sync, messages and a receipt, and a pool seat's two takes and a release
-  (M45-M47: the second login as the fixed device refuses the first token, the logout refuses
-  its own, the `teamchat.floor` marker outlives both). Without the variable the test skips with its
+  transaction ID, sync, messages and a receipt, and a pool seat's takes and releases (M45-M47,
+  M52, as host check H-C13 recorded them on Tuwunel 1.9.4): a second login as the fixed device
+  leaves the first token valid, a logout ends both with `M_UNKNOWN_TOKEN` and a second logout
+  answers the same, a wrong password is `ErrForbidden` for a login and for a device delete, a
+  device delete by password from another device ends the device's token and not its own, an
+  admin password reset ends the rest, and the `teamchat.floor` marker, decoded, outlives them
+  all. Without the variable the test skips with its
   reason; without the tag it is not built.
 
 ## 7a. Seat sessions and the resume marker (Task 1.5; B 2.3.2, B 2.6 step 01 (b), C 3.7.3)
@@ -212,20 +216,23 @@ is the shape the endpoint promises).
   given `device_id`, no display name and no `refresh_token`) signs in as that device: C 3.7.3
   take step 3, with the seat's fixed device ID. A device ID that is not 1 to 255 bytes of printable
   ASCII without a space is refused before a request. The answer must name the device asked for,
-  or it is malformed. The Matrix specification has a login with an existing device ID replace
-  that device's token, so the previous holder's token dies; host check H-C13 proves it on
-  Tuwunel. A login whose answer was lost is not retried by the client.
-- **M46.** `Logout` (`POST /logout` with `{}`) ends the token and its device (C 3.7.3 release step
-  4). A token already dead is `ErrAuthRefused` with `Errcode` `M_UNKNOWN_TOKEN`, which the caller
+  or it is malformed. The device's earlier tokens stay valid: host check H-C13 found that
+  Tuwunel 1.9.4 does not end them, where the Matrix specification would, so a take ends the
+  previous holder's token by `Logout` or `DeleteDevice` (M52), not by its login. A login whose
+  answer was lost is not retried by the client.
+- **M46.** `Logout` (`POST /logout` with `{}`) ends every token of the client's device, not only
+  its own, and the device (C 3.7.3 release step 4; H-C13 recorded it). A token already dead is `ErrAuthRefused` with `Errcode` `M_UNKNOWN_TOKEN`, which the caller
   counts as done; the client does not decide that. Room account data outlives a logout.
 - **M47.** `RoomAccountData` (`GET /user/{u}/rooms/{r}/account_data/{type}`) is the content as raw
-  JSON, `found=false` for a 404; the answer must be one JSON object, and decoding it strictly is
+  JSON, `found=false` for a 404 whose errcode is `M_NOT_FOUND`; any other 404 (`M_UNRECOGNIZED`,
+  an endpoint not served) is `ErrNotFound`, so a server fault is not read as no marker. The answer must be one JSON object, and decoding it strictly is
   the caller's (B 2.6 step 01 (b)). `PutRoomAccountData` (`PUT` the same path) takes content that
   must be one JSON object, refused before a request otherwise (M26). This is the `teamchat.floor`
   resume marker of B 2.3.2.
-- **M48.** `fakehs` models them. A login with a `device_id` makes that device, or, when the account
-  has it already, ends the device's tokens and gives it a new one; a `device_id` that is not a
-  string is unmodelled. `POST /logout` ends the token and deletes its device. Room account data is
+- **M48.** `fakehs` models them as H-C13 recorded Tuwunel. A login with a `device_id` makes that
+  device, or, when the account has it already, gives it one more token and leaves the earlier
+  ones valid; a `device_id` that is not a string is unmodelled. `POST /logout` ends every token
+  of the caller's device and deletes the device. Room account data is
   kept per account, room and type: a read of none is 404 `M_NOT_FOUND`, a write by another
   account, to a room the server does not know, or of content that is not an object is
   unmodelled (H4 recorded none of these, and none of the 404 text), and the data outlives a
@@ -243,12 +250,33 @@ is the shape the endpoint promises).
   `unsigned.redacted_because` (the specification's shape, which A 7.6 rule 02 drops on; H4
   recorded no redacted event), and keeps each account's presence:
   `PUT /presence/{u}/status` by its own account sets it, `Presence(u)` reads it for a test, and a
-  sync's `set_presence` acts as the specification says (absent or `online` marks the caller
-  online, `unavailable` so, `offline` changes nothing; whether Tuwunel agrees is HC-A1's
-  question). Another account's presence, or a value beyond the three, is unmodelled. Transaction
+  sync's `set_presence` acts as host check HC-A1 recorded Tuwunel 1.9.4 (absent or `online`
+  marks the caller online, and `unavailable` and `offline` each set themselves; the
+  specification has `offline` change nothing). Another account's presence, or a value beyond the three, is unmodelled. Transaction
   IDs are kept per endpoint, and a redact under a transaction ID used before is unmodelled.
   Receiving presence (the filter's presence section, presence events in a sync, for `status`,
   A 6.6) is not built: it is owed to N3, with HC-A1.
+- **M52.** `DeleteDevice` (`DELETE /devices/{d}`) deletes one of the account's devices, which ends
+  every token of it: C 3.7.3's take, with the H-C13 fallback (a second login does not end the
+  previous holder's token). The device ID is checked as M45 checks it. The first request (body
+  `{}`) is answered with a user-interactive auth challenge: a 401 with no errcode, a `session`
+  (M4's token grammar) and a flow whose only stage is `m.login.password`, else it is malformed
+  (no session, not an object) or `ErrRefused` (no such flow). The second request answers it,
+  `{"auth": {"type": "m.login.password", "identifier": {"type": "m.id.user", "user": u},
+  "password": p, "session": s}}`, and must be answered 200 with an object. A wrong password (401
+  `M_FORBIDDEN`) is `ErrForbidden`; any other 401 is `ErrAuthRefused` (a dead token answers
+  `M_UNKNOWN_TOKEN` at the first request); a first answer that is not a 401, or a 401 with an
+  errcode, is judged as M10 says, so a server that asks no auth is done in one request. Neither
+  request is retried after a lost answer.
+- **M53.** `fakehs` models M52 as H-C13 recorded it (the statuses; the bodies are the
+  specification's shape): the first request is a 401 with a fresh session, the one-stage
+  password flow, `params` and `completed`; the answer with the caller's own password and that
+  session deletes the device and ends every token of it, the deleting token living on unless it
+  is the device's own; a wrong password is a 401 `M_FORBIDDEN` with the same session. An unknown
+  device, a session not given to the caller, another account named, or an auth type or shape
+  beyond that is unmodelled. A sync whose `since` is ahead of the server (a token from before a
+  restore) is held to its timeout and answered with the server's own lower `next_batch`, and is
+  not given what lands at or below that `since`, as host check H-C14 recorded.
 
 A dropped `/sync` may be resent by net/http (once, a GET on a reused keep-alive connection closed
 before any answer byte). That is safe, because a sync with a `since` token is idempotent: the

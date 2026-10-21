@@ -33,7 +33,9 @@ func (tm *team) devicesOf(uid string) []any {
 	return list(tm.t, tm.ok(tm.call(tm.admin, "GET", adminUsers+q(uid)+"/devices", nil, nil))["devices"])
 }
 
-func TestALoginWithAKnownDeviceIDReplacesItsToken(t *testing.T) {
+// A second login as a device leaves the device's earlier token valid, as Tuwunel 1.9.4 does
+// (host check H-C13 recorded it).
+func TestALoginWithAKnownDeviceIDKeepsItsEarlierToken(t *testing.T) {
 	tm := newTeam(t)
 	seat := tm.s.AddUser("seat", "pw", false)
 	first := tm.ok(tm.loginSeat("pw", "TCSEAT"))
@@ -49,7 +51,9 @@ func TestALoginWithAKnownDeviceIDReplacesItsToken(t *testing.T) {
 	if second["device_id"] != "TCSEAT" || second["access_token"] == held {
 		t.Fatalf("second login %v", second)
 	}
-	tm.refused(tm.whoami(seat), 401, "M_UNKNOWN_TOKEN", unknownToken)
+	if who := tm.ok(tm.whoami(seat)); who["device_id"] != "TCSEAT" {
+		t.Fatalf("the first token after a second login: whoami %v", who)
+	}
 	tm.tok[seat] = text(t, second["access_token"])
 	tm.ok(tm.whoami(seat))
 	if devices := tm.devicesOf(seat); len(devices) != 1 || field(t, devices[0], "device_id") != "TCSEAT" {
@@ -68,9 +72,11 @@ func TestALoginWithAKnownDeviceIDReplacesItsToken(t *testing.T) {
 	}
 }
 
-func TestLogoutEndsTheTokenAndItsDevice(t *testing.T) {
+// A logout ends every token of the caller's device, as H-C13 recorded, and deletes the device.
+func TestLogoutEndsEveryTokenOfTheDeviceAndTheDevice(t *testing.T) {
 	tm := newTeam(t)
 	seat := tm.s.AddUser("seat", "pw", false)
+	earlier := text(t, tm.ok(tm.loginSeat("pw", "TCSEAT"))["access_token"])
 	tm.tok[seat] = text(t, tm.ok(tm.loginSeat("pw", "TCSEAT"))["access_token"])
 	kept := text(t, tm.ok(tm.loginSeat("pw", "TCKEPT"))["access_token"])
 	if got := tm.ok(tm.call(seat, "POST", logoutPath, nil, map[string]any{})); len(got) != 0 {
@@ -78,12 +84,99 @@ func TestLogoutEndsTheTokenAndItsDevice(t *testing.T) {
 	}
 	tm.refused(tm.whoami(seat), 401, "M_UNKNOWN_TOKEN", unknownToken)
 	tm.refused(tm.call(seat, "POST", logoutPath, nil, map[string]any{}), 401, "M_UNKNOWN_TOKEN", unknownToken)
+	tm.tok[seat] = earlier
+	tm.refused(tm.whoami(seat), 401, "M_UNKNOWN_TOKEN", unknownToken)
 	devices := tm.devicesOf(seat)
 	if len(devices) != 1 || field(t, devices[0], "device_id") != "TCKEPT" {
 		t.Fatalf("devices after a logout %v", devices)
 	}
 	tm.tok[seat] = kept
 	tm.ok(tm.whoami(seat))
+}
+
+// userAuth is a device delete's body answering its challenge with userName's password.
+func userAuth(userName, password string, session any) map[string]any {
+	return map[string]any{"auth": map[string]any{
+		"type": "m.login.password", "identifier": map[string]any{"type": "m.id.user", "user": userName},
+		"password": password, "session": session,
+	}}
+}
+
+func passwordAuth(password string, session any) map[string]any {
+	return userAuth("seat", password, session)
+}
+
+// DELETE /devices/{id} asks for user-interactive auth, then takes the password and ends every
+// token of the device, as H-C13's fallback recorded; the deleting token lives on.
+func TestDeletingADeviceByPasswordEndsItsTokens(t *testing.T) {
+	tm := newTeam(t)
+	seat := tm.s.AddUser("seat", "pw", false)
+	earlier := text(t, tm.ok(tm.loginSeat("pw", "TCSEAT"))["access_token"])
+	later := text(t, tm.ok(tm.loginSeat("pw", "TCSEAT"))["access_token"])
+	tm.tok[seat] = text(t, tm.ok(tm.loginSeat("pw", "TCTAKER"))["access_token"])
+	path := "/_matrix/client/v3/devices/TCSEAT"
+	challenge := tm.call(seat, "DELETE", path, nil, map[string]any{})
+	session, isText := challenge.obj["session"].(string)
+	flows := list(t, challenge.obj["flows"])
+	if challenge.status != 401 || !isText || session == "" || len(flows) != 1 ||
+		mustJSON(t, field(t, flows[0], "stages")) != `["m.login.password"]` || challenge.obj["errcode"] != nil {
+		t.Fatalf("the first answer %d %v", challenge.status, challenge.obj)
+	}
+	wrong := tm.call(seat, "DELETE", path, nil, passwordAuth("nope", session))
+	if wrong.status != 401 || wrong.obj["errcode"] != "M_FORBIDDEN" || wrong.obj["session"] != session {
+		t.Fatalf("a wrong password answered %d %v", wrong.status, wrong.obj)
+	}
+	if got := tm.ok(tm.call(seat, "DELETE", path, nil, passwordAuth("pw", session))); len(got) != 0 {
+		t.Fatalf("the delete answered %v", got)
+	}
+	taker := tm.tok[seat]
+	for _, token := range []string{earlier, later} {
+		tm.tok[seat] = token
+		tm.refused(tm.whoami(seat), 401, "M_UNKNOWN_TOKEN", unknownToken)
+	}
+	tm.tok[seat] = taker
+	tm.ok(tm.whoami(seat))
+	if devices := tm.devicesOf(seat); len(devices) != 1 || field(t, devices[0], "device_id") != "TCTAKER" {
+		t.Fatalf("devices after the delete %v", devices)
+	}
+	if tm.s.CheckModelled() != nil {
+		t.Fatalf("a device delete was reported unmodelled: %v", tm.s.CheckModelled())
+	}
+	own := tm.call(seat, "DELETE", "/_matrix/client/v3/devices/TCTAKER", nil, map[string]any{})
+	tm.ok(tm.call(seat, "DELETE", "/_matrix/client/v3/devices/TCTAKER", nil, passwordAuth("pw", own.obj["session"])))
+	tm.refused(tm.whoami(seat), 401, "M_UNKNOWN_TOKEN", unknownToken)
+}
+
+func TestADeviceDeleteBeyondTheModelIsUnmodelled(t *testing.T) {
+	cases := map[string]func(tm *team, seat, session string) answer{
+		"an unknown device": func(tm *team, seat, _ string) answer {
+			return tm.call(seat, "DELETE", "/_matrix/client/v3/devices/NOSUCH", nil, map[string]any{})
+		},
+		"a session never given": func(tm *team, seat, _ string) answer {
+			return tm.call(seat, "DELETE", "/_matrix/client/v3/devices/TCSEAT", nil, passwordAuth("pw", "made-up"))
+		},
+		"another account named": func(tm *team, seat, session string) answer {
+			return tm.call(seat, "DELETE", "/_matrix/client/v3/devices/TCSEAT", nil, userAuth("alice", "pw", session))
+		},
+		"another auth type": func(tm *team, seat, session string) answer {
+			return tm.call(seat, "DELETE", "/_matrix/client/v3/devices/TCSEAT", nil,
+				map[string]any{"auth": map[string]any{"type": "m.login.dummy", "session": session}})
+		},
+		"auth that is not an object": func(tm *team, seat, _ string) answer {
+			return tm.call(seat, "DELETE", "/_matrix/client/v3/devices/TCSEAT", nil, map[string]any{"auth": "pw"})
+		},
+	}
+	for name, request := range cases {
+		t.Run(name, func(t *testing.T) {
+			tm := newTeam(t)
+			seat := tm.s.AddUser("seat", "pw", false)
+			tm.tok[seat] = text(t, tm.ok(tm.loginSeat("pw", "TCSEAT"))["access_token"])
+			session := text(t, tm.call(seat, "DELETE", "/_matrix/client/v3/devices/TCSEAT", nil, map[string]any{}).obj["session"])
+			if got := request(tm, seat, session); got.status != 500 || tm.s.CheckModelled() == nil {
+				t.Fatalf("answered %d %v, want 500 and unmodelled", got.status, got.obj)
+			}
+		})
+	}
 }
 
 func TestRoomAccountDataIsKeptPerAccountRoomAndType(t *testing.T) {
@@ -185,11 +278,11 @@ func TestPresenceIsKeptPerAccount(t *testing.T) {
 		query url.Values
 		want  string
 	}{
-		{url.Values{"set_presence": {"offline"}}, "offline"},
 		{url.Values{}, "online"},
+		{url.Values{"set_presence": {"offline"}}, "offline"},
 		{url.Values{"set_presence": {"unavailable"}}, "unavailable"},
-		{url.Values{"set_presence": {"offline"}}, "unavailable"},
 		{url.Values{"set_presence": {"online"}}, "online"},
+		{url.Values{"set_presence": {"offline"}}, "offline"},
 	} {
 		step.query.Set("timeout", "0")
 		tm.ok(tm.call(tm.agent, "GET", "/_matrix/client/v3/sync", step.query, nil))

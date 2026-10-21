@@ -1,14 +1,14 @@
 // Package fakehs is an in-memory homeserver that answers as Tuwunel does, for the tests of
-// both sides of teamchat, the v2 agent bus (Plan 00209 SPEC-matrix.md M37-M43).
+// both sides of teamchat, the v2 agent bus (Plan 00209 SPEC-matrix.md M37-M43, M48, M51, M53).
 //
 // It models what teamchat/matrix calls and nothing else: password login (as a new device or a
-// named one, M48), logout, room account data, presence (M51), whoami, createRoom (room
-// version 12, private_chat), invite, join (with a restricted join rule), leave, kick, send with
-// transaction IDs per device, state get and put, the whole room state, redact, GET event, read
-// receipts, /messages, /joined_rooms, /sync with an inline filter, long-polling and lazy-loaded
-// members, and the Synapse-compatible admin API. Its answers are proven against the exchanges
-// probe H4 recorded with a real Tuwunel (replay_test.go); where it says what Tuwunel says, the
-// text is the recorded text. A request beyond the model is answered 500 and recorded, and
+// named one), logout, a device delete by password, room account data, presence, whoami,
+// createRoom (room version 12, private_chat), invite, join (with a restricted join rule), leave,
+// kick, send with transaction IDs per device, state get and put, the whole room state, redact,
+// GET event, read receipts, /messages, /joined_rooms, /sync with an inline filter,
+// long-polling and lazy-loaded members, and the Synapse-compatible admin API. Its answers are
+// proven against the exchanges probe H4 recorded with a real Tuwunel (replay_test.go); where it
+// says what Tuwunel says, the text is the recorded text. A request beyond the model is answered 500 and recorded, and
 // CheckModelled reports it, rather than guessed at.
 //
 // Handle serves one request in process; Start serves the same over HTTP on 127.0.0.1.
@@ -57,6 +57,7 @@ const (
 	keyEventID     = "event_id"
 	keyDisplayName = "displayname"
 	keyEvents      = "events"
+	loginPassword  = "m.login.password"
 	errUnknown     = "M_UNKNOWN"
 
 	// tuwunelMaxRequestBytes is the max_request_size the installer renders (render.py:51).
@@ -184,6 +185,7 @@ type Server struct {
 	receipts      []Receipt
 	accountData   map[accountDataKey]json.RawMessage
 	presence      map[string]string
+	uiaSessions   map[string]string
 	unmodelled    []string
 	loginFailures map[string]int
 	pos           int
@@ -212,6 +214,7 @@ func New(opts Options) *Server {
 		nonces:        map[string]bool{},
 		accountData:   map[accountDataKey]json.RawMessage{},
 		presence:      map[string]string{},
+		uiaSessions:   map[string]string{},
 		loginFailures: map[string]int{},
 		changed:       make(chan struct{}),
 	}
@@ -383,6 +386,7 @@ func (s *Server) routeTable() []route {
 		{http.MethodGet, `/_matrix/client/v3/login`, staticAnswer("login-flows.json"), authNone},
 		{http.MethodPost, `/_matrix/client/v3/login`, s.login, authNone},
 		{http.MethodPost, `/_matrix/client/v3/logout`, s.logout, authUser},
+		{http.MethodDelete, `/_matrix/client/v3/devices/([^/]+)`, s.deleteDevice, authUser},
 		{http.MethodGet, accountDataPattern, s.getAccountData, authUser},
 		{http.MethodPut, accountDataPattern, s.putAccountData, authUser},
 		{http.MethodPut, `/_matrix/client/v3/presence/([^/]+)/status`, s.putPresence, authUser},
@@ -476,7 +480,14 @@ func (s *Server) answer(ctx context.Context, method, path string, query url.Valu
 	}
 	var api *apiError
 	var gap unmodelledError
+	var challenge *uiaError
 	switch {
+	case errors.As(err, &challenge):
+		raw, merr := json.Marshal(challenge.answer())
+		if merr != nil {
+			panic(merr) // strings, lists and maps of them always encode
+		}
+		return outcome{status: http.StatusUnauthorized, body: raw}
 	case errors.As(err, &api):
 		return errorOutcome(api)
 	case errors.As(err, &gap):
@@ -657,7 +668,7 @@ func (s *Server) login(r *request, _ []string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if body["type"] != "m.login.password" {
+	if body["type"] != loginPassword {
 		return nil, unmodelled("login type %v", body["type"])
 	}
 	name := stringAt(body, "user")

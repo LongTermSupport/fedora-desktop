@@ -83,6 +83,25 @@ func TestHeldSyncEndsEmptyAtItsTimeout(t *testing.T) {
 	}
 }
 
+// A since ahead of the server (a member's token from before a restore) is held to its timeout,
+// is answered with the server's own lower next_batch, and is not given what lands at or below
+// it, as host check H-C14 recorded.
+func TestASinceAheadOfTheServerEndsAtItsLowerPosition(t *testing.T) {
+	tm := newTeam(t)
+	filter := syncFilter(t, nil, 10, false)
+	now, err := strconv.Atoi(text(t, tm.sync(tm.agent, "", filter, 0)["next_batch"]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ahead := strconv.Itoa(now + 10)
+	tm.ok(tm.send(tm.other, "after", map[string]any{"body": "after the restore"}))
+	got := tm.sync(tm.agent, ahead, filter, 5)
+	lower, err := strconv.Atoi(text(t, got["next_batch"]))
+	if got["rooms"] != nil || err != nil || lower <= now || lower >= now+10 {
+		t.Fatalf("a since ahead of the server gave %v", got)
+	}
+}
+
 type reply struct {
 	status int
 	body   []byte
