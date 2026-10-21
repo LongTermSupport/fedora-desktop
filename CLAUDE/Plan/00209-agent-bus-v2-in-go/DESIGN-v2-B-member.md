@@ -31,7 +31,7 @@ SPEC-many-teams; `RL x.y` = RESEARCH-lxc-robustness; `RP x.y` = RESEARCH-pingbus
 
 ## 1. Requirements
 
-Numbered `B1`... Each says where it comes from. B42-B44 sit in the section they belong to, so the
+Numbered `B1`... Each says where it comes from. B42-B45 sit in the section they belong to, so the
 numbers are not in order there. Where v1 did something in a way v2 drops, the
 requirement states the need and section 5 states the drop.
 
@@ -86,9 +86,9 @@ requirement states the need and section 5 states the drop.
 ### 1.3 Processes
 
 - **B13.** At most two resident processes per session, in every member kind: the keeper, and the
-  worker once the session holds a seat. A session with no team runs the keeper alone (no worker, no
-  inotify on anything but `<v2-desired>`, no status segment), which serves the hook-only operations
-  itself (2.4.2); a launch with no bus at all is a
+  worker while the session holds a seat or owes a farewell (2.10). A session with no team runs the
+  keeper alone (no worker, no inotify on anything but `<v2-desired>`, no status segment); the keeper
+  serves `worker.sock` itself whenever no worker does (2.4.2); a launch with no bus at all is a
   launcher that does not wrap with `run`, and runs nothing of v2. The frame decides the pair and
   that an install with no teams is inert; the cost is measured and reported (B40) \[frame; D15; HC
   H11, H33\].
@@ -103,6 +103,11 @@ requirement states the need and section 5 states the drop.
   once at the start of an outage and once at its end; only a permanent failure (401, 403, lost
   trust, broken bundle) stops a team, and only that team, until its bundle or the desired
   generation changes [R24; E25; RP 5.10].
+- **B45.** No request waits on a socket that nobody serves, and none runs after its client gave
+  up: whenever no worker serves `worker.sock`, the keeper does, and answers every agent verb at once
+  with exit 69; every request carries its client's deadline, and a server never starts one whose
+  deadline has passed (2.4.2, 2.4.4). New: a listening socket with no server would queue requests
+  that a later worker acts on after the agent saw them fail.
 
 ### 1.4 Delivery into Claude Code
 
@@ -116,8 +121,9 @@ requirement states the need and section 5 states the drop.
   declared missing) or a `recv` whose acknowledgement never came, carries the same item id, and is
   marked as a repeat. `recv` and the delivery loop never show one item twice: an item handed to a
   `recv` is excluded from socket delivery and from every other `recv` until it is acknowledged or
-  returned; `recv` is capped like a delivery and marks an item delivered only once the CLI has
-  confirmed it wrote it to stdout in full [R22; E10-E12]. New: the repeat is marked, and a crash between write
+  returned, and the hand-out is persisted before the records are sent, so a crash while an item is
+  handed brings it back marked as a repeat; `recv` is capped like a delivery and marks an item
+  delivered only once the CLI has confirmed it wrote it to stdout in full [R22; E10-E12]. New: the repeat is marked, and a crash between write
   and record is resolved by the transcript instead of always repeating.
 - **B21.** Proof of delivery by the transcript; a delivery is declared missing only after the
   session has been idle since the write (idle at the write, or a Stop hook after it) and still did
@@ -139,7 +145,8 @@ requirement states the need and section 5 states the drop.
 - **B25.** Every hook answers one valid JSON line and exits 0, fast, from fixed templates filled
   only with counts and grammar-checked names; nothing from a file, an event or an error text
   reaches the model; every input a hook cannot use (stdin that is not a JSON object) is counted and
-  reported through `status`, never ignored silently [R25; H6, H7, H14].
+  reported through `status`, or, while no worker serves the socket, through `status.json` and the
+  status line, never ignored silently [R25; H6, H7, H14].
 - **B26.** The Stop hook blocks only when `stop_hook_active` is literally false, once per distinct
   pending set, never for items socket delivery will still push (while it is live, it blocks only
   for items held from the socket as missing), never when it cannot remember that it already
@@ -171,7 +178,8 @@ requirement states the need and section 5 states the drop.
 - **B34.** Hot control works the same way for LXC members as for ccy. New: v1 LXC membership was a
   container-writable env file applied by a play [RL 7.07; HC H-n].
 - **B35.** A session launched on no team keeps inbound socket messages refused until its first
-  join, which relaunches it once [R32; HC H22, H34].
+  join, which relaunches it once; the launch's own decision, never a later read of the desired
+  file, decides socket delivery for the session's life [R32; HC H22, H34].
 - **B36.** Guest operations need only coreutils (with `sha256sum`), util-linux and systemd in the
   guest, plus tmux for a supervised session's unit (2.13), set their own
   umask and every leaf mode, open with no-follow and place with `O_EXCL`, and never run
@@ -208,7 +216,7 @@ requirement states the need and section 5 states the drop.
 
 ```text
   launcher (ccy entrypoint, cc --teams, LXC <v2-unit>, docker/VM wrapper)
-    └─ <v2-bin> run [--desired DIR] -- claude <args>         (forks the keeper, then execs claude)
+    └─ <v2-bin> run --claude [--desired DIR] -- claude <args>  (forks the keeper, execs claude)
          │
          ├─ claude  (same pid as `run`; Claude Code; creates the inbox socket)
          │    ├─ hooks:        <kit>/bin/<v2-bin> hook <event>     ── RPC ──┐
@@ -219,7 +227,7 @@ requirement states the need and section 5 states the drop.
               │  holds: keeper.lock, every seat lock               ▲
               │  reads: <v2-desired>/membership.json (inotify)     │
               │  keeps in memory: the inbox socket token           │
-              └─ worker  (<v2-bin> worker; the keeper's child; only while a seat is held)
+              └─ worker  (<v2-bin> worker; the keeper's child; while a seat is held or a farewell owed)
                    holds: worker.lock, every per-seat store, the bundle tokens,
                           a copy of each seat lock's file description (passed by the keeper)
                    one goroutine per active team: /sync long-poll, sends, presence lease
@@ -230,8 +238,10 @@ requirement states the need and section 5 states the drop.
 The keeper and the worker are the only resident processes, and a session with no team has only
 the keeper (B13). Everything an agent, a hook or the status line runs is a short process that asks
 the worker over one Unix socket, or reads one file the worker writes. The keeper binds that socket
-and passes its listening descriptor to each worker; while no seat is held it serves the hook-only
-operations on it itself (2.4.2).
+and passes its listening descriptor to each worker that has reported ready; whenever no worker
+serves it (no team, a worker restarting, a worker failed) the keeper serves it itself, answering
+the hook-only operations and every agent verb at once with exit 69 (2.4.2), so the socket is never
+left listening with nobody answering.
 
 **Two designs were weighed for who owns the member state.**
 
@@ -249,7 +259,7 @@ operations on it itself (2.4.2).
    memory straight from the homeserver; hooks cost one round trip, not a survey.
 
 What (2) gives up is working with no worker. That case is a session whose worker is down, which
-the keeper restarts at once (2.4), or a human with no session, who runs `<v2-bin> run -- bash`
+the keeper restarts at once (2.4), or a human with no session, who runs `<v2-bin> run --plain -- bash`
 to get the same runtime around a shell. There is no second code path that reads the store
 directly: a verb with no worker to ask exits 69 and says why (2.2.4). That is the "no fallbacks"
 rule applied to the member.
@@ -284,18 +294,18 @@ Agent-facing (all go through the worker):
 
 Lifecycle (not for agents; the skill does not list them):
 
-| Verb                                                               | Run by                                                                  | Does                                                                                                                                                   |
-| ------------------------------------------------------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `run [--desired DIR] [--conversation FILE] [--seat T/S...] -- CMD` | the launcher                                                            | resolves the kit once, makes `<v2-run>`, writes the per-launch settings, forks the keeper, waits for its READY, sets `<V2>_RUNTIME`, execs CMD (2.4.1) |
-| `keeper`                                                           | `run`, or `repair` in adopt mode                                        | the keeper (2.4.2); refuses to start unless its parent is the `run` it was forked by, or, with `--adopt`, unless adopt's own checks pass (2.4.5)       |
-| `worker`                                                           | the keeper only                                                         | the worker (2.4.3); refuses unless fd 3 is the keeper's control socket                                                                                 |
-| `hook <event>`                                                     | Claude Code, from the plugin's `hooks.json`                             | one hook (2.8)                                                                                                                                         |
-| `status-line`                                                      | Claude Code, from the session's settings                                | the status line (2.9)                                                                                                                                  |
-| `repair --list`, `repair --runtime DIR`                            | the owner, or `ccy-teams session repair`                                | `--list` prints the runtimes whose `keeper.lock` is free; `--runtime` starts an adopting keeper for that session (2.4.5); never run automatically      |
-| `reach --team T`                                                   | ccy-teams hot add, inside the member                                    | an unauthenticated `GET /_matrix/client/versions` to the team's homeserver (3 s), so a route is proven from the member side                            |
-| `seat close-ended --seat T/S`                                      | the host launcher's cleanup (the next worker runs the same step itself) | posts "disconnected" for a run of this seat that ended without a goodbye, once (2.11)                                                                  |
-| `seat set-aside --seat T/S`                                        | the owner                                                               | takes the seat lock, renames `store.json` to `store.json.aside-<ms>`, releases; the repair for a store that does not decode (2.3.2)                    |
-| `guest <op>`                                                       | the host, through `lxc-attach`                                          | one guest operation (2.13)                                                                                                                             |
+| Verb                                                                                 | Run by                                                                  | Does                                                                                                                                                                     |
+| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `run --claude\|--plain [--desired DIR] [--conversation FILE] [--seat T/S...] -- CMD` | the launcher                                                            | resolves the kit once, makes `<v2-run>`, writes the per-launch settings (`--claude` only), forks the keeper, waits for its READY, sets `<V2>_RUNTIME`, execs CMD (2.4.1) |
+| `keeper`                                                                             | `run`, or `repair` in adopt mode                                        | the keeper (2.4.2); refuses to start unless its parent is the `run` it was forked by, or, with `--adopt`, unless adopt's own checks pass (2.4.5)                         |
+| `worker`                                                                             | the keeper only                                                         | the worker (2.4.3); refuses unless fd 3 is the keeper's control socket                                                                                                   |
+| `hook <event>`                                                                       | Claude Code, from the plugin's `hooks.json`                             | one hook (2.8)                                                                                                                                                           |
+| `status-line`                                                                        | Claude Code, from the session's settings                                | the status line (2.9)                                                                                                                                                    |
+| `repair --list`, `repair --runtime DIR`                                              | the owner, or `ccy-teams session repair`                                | `--list` prints the runtimes whose `keeper.lock` is free; `--runtime` starts an adopting keeper for that session (2.4.5); never run automatically                        |
+| `reach --team T`                                                                     | ccy-teams hot add, inside the member                                    | an unauthenticated `GET /_matrix/client/versions` to the team's homeserver (3 s), so a route is proven from the member side                                              |
+| `seat close-ended --seat T/S`                                                        | the host launcher's cleanup (the next worker runs the same step itself) | posts "disconnected" for a run of this seat that ended without a goodbye, once (2.11)                                                                                    |
+| `seat set-aside --seat T/S`                                                          | the owner                                                               | takes the seat lock, renames `store.json` to `store.json.aside-<ms>`, releases; the repair for a store that does not decode (2.3.2)                                      |
+| `guest <op>`                                                                         | the host, through `lxc-attach`                                          | one guest operation (2.13)                                                                                                                                               |
 
 `reply` is the change that matters most to agents. In v1 the agent had to copy a `REPLY` line or an
 envelope's `reply:` line exactly, with the `$` event id single-quoted so the shell did not expand it,
@@ -389,14 +399,18 @@ of limit; 10 for three kinds of trust failure) are split.
 | 22   | the room is not trusted, or the homeserver forbade the request      | `untrusted`, `forbidden`                                                   | run `status`; tell a human                                        |
 | 23   | the event or question named does not exist                          | `not-found`                                                                | check the id                                                      |
 | 64   | usage error                                                         | `usage`, `ambiguous-team`, `unknown-member`, `ambiguous-member`            | read the message, which lists the choices                         |
-| 69   | no runtime: not in a member session, or its worker is not running   | `no-session`, `no-worker`                                                  | tell a human; do not start anything yourself                      |
+| 69   | no runtime: not in a member session, or its worker is not running   | `no-session`, `no-worker`, `worker-failed`                                 | tell a human; do not start anything yourself                      |
 | 75   | busy: the seat is held by another session, or a keeper already runs | `seat-held`, `keeper-running`                                              | (lifecycle verbs only)                                            |
 | 78   | configuration refused (bundle, desired membership, store)           | `bundle`, `membership`, `store`, `forge-login`, `runtime`                  | run `status`; tell a human                                        |
 
 `hook` and `status-line` always exit 0 (2.8, 2.9), except the status line's 128+signal on cancel,
-which Claude Code expects. `wait` exits 69 only when no worker has answered for the rest of its
-timeout: a worker restart closes its connection, and it reconnects (every 1 s, doubling to 5 s)
-and waits again, so an agent's background `wait` survives the keeper's restart of the worker.
+which Claude Code expects. Exit 69 is answered at once, never after a wait: whenever no worker
+serves `worker.sock`, the keeper does, and answers every agent verb `no-worker` (no team, or a
+worker restarting) or `worker-failed` (a final 78), 2.4.2. `wait` is the one verb that retries: a
+worker restart closes its connection, or the keeper answers it `no-worker` while the worker is down,
+and it reconnects (every 1 s, doubling to 5 s) with the same deadline (2.4.4) and waits again, so
+an agent's background `wait` survives the keeper's restart of the worker. It exits 69 when its
+timeout ends while no worker serves, and at once on `worker-failed`, which is never restarted.
 Exit 78 `runtime` is `run`'s refusal of an environment with no usable runtime directory (2.4.1).
 
 ### 2.3 Member state on disk
@@ -413,7 +427,7 @@ Exit 78 `runtime` is `run`'s refusal of an environment with no usable runtime di
 | the seat lock                               | `<v2-state>/<team>/<seat>/seat.lock`                                               | -                                                                                               | keeper and worker (2.5)                                                                                                                        | never unlinked                                       |
 | the seat report                             | `<v2-state>/<team>/<seat>/report.json`                                             | a report for the host's views; never read back as authority                                     | the keeper                                                                                                                                     | rewritten on each change                             |
 | the session state                           | `<v2-run>/session.json`                                                            | truth for this session's stop guard, told generations, transcript path                          | the worker                                                                                                                                     | the session                                          |
-| the status row                              | `<v2-run>/status.json`                                                             | a cache of the worker's state for the status line                                               | the worker (the keeper while no seat is held)                                                                                                  | the session                                          |
+| the status row                              | `<v2-run>/status.json`                                                             | a cache of the worker's state for the status line                                               | the worker (the keeper while no seat is held, and `failed` after a final 78)                                                                   | the session                                          |
 | the worker socket, the locks                | `<v2-run>/worker.sock`, `keeper.lock`, `worker.lock`                               | -                                                                                               | the keeper binds the socket and passes it to each worker; keeper, worker                                                                       | the session                                          |
 | the worker's log                            | `<v2-run>/worker.log` (copied to `<v2-state>/<team>/<seat>/last.log` at clean end) | diagnostics                                                                                     | keeper (worker stderr)                                                                                                                         | the session                                          |
 | the inbox socket token                      | the keeper's memory, passed to each worker on its control socket                   | secret                                                                                          | -                                                                                                                                              | never on disk                                        |
@@ -421,7 +435,8 @@ Exit 78 `runtime` is `run`'s refusal of an environment with no usable runtime di
 `<v2-state>` must survive a container restart, so for a ccy seat it sits beside the seat's bundle
 in the checkout (area C places the bundle and proves the directory cannot be committed, R12), and
 for LXC, `cc` and other members under the user's home. `<v2-run>` must be private to the session:
-container-private `/tmp` in ccy, `$XDG_RUNTIME_DIR/<v2>/<run id>/` on a host or guest. Both are
+`/tmp/<v2>/<run id>/` in ccy's container-private `/tmp`, `$XDG_RUNTIME_DIR/<v2>/<run id>/` on a
+host or guest. Both are
 0700, files 0600, owned by the member's uid; the worker refuses to start otherwise (exit 78).
 Outside ccy, an unset `XDG_RUNTIME_DIR` is `run`'s exit 78 (`runtime`), never a fall back to
 `/tmp`; a system unit with `User=` (the LXC path) does not get one by default, so area C's
@@ -460,7 +475,8 @@ Two designs were weighed against a third:
    and the items it brought land together or not at all (B9).
 
 The document is small by construction: ids, not bodies; capped lists. Writes happen per sync batch
-that brought something, per delivery and per send: a few a minute at most. Its schema:
+that brought something, per delivery, per `recv` that takes something and per send: a few a minute
+at most. Its schema:
 
 ```json
 {
@@ -470,7 +486,7 @@ that brought something, per delivery and per send: a few a minute at most. Its s
   "user_id": "@<repo>.2+<host>.podman:<server>",
   "sync": {"next_batch": "<token>", "fresh": false, "floor_ms": {"main": 1759999990000, "questions": 1759999000000}},
   "pending": [
-    {"id": "$<43>", "room": "main", "item": "human", "sent_ms": 1760000000000, "from": "@alice:<server>", "repeat": false, "held": false, "restored": false}
+    {"id": "$<43>", "room": "main", "item": "human", "sent_ms": 1760000000000, "from": "@alice:<server>", "repeat": false, "held": false, "restored": false, "handed": null}
   ],
   "awaiting": [
     {"nonce": "3f9c2a71", "teams": ["<team>", "<team2>"], "ids": ["$<43>"], "transcript": {"path": "/<abs>/<id>.jsonl", "offset": 81920}, "at_ms": 1760000000500, "written": "yes", "stop_ms": null}
@@ -503,7 +519,10 @@ that brought something, per delivery and per send: a few a minute at most. Its s
   `proven` or `missing`.
 - In `pending`, `repeat` marks an item that may have been seen already and `held` one held from
   the socket because its delivery was declared missing (2.7.4): only `recv` and `wait` take a held
-  item. Both survive a restart.
+  item. Both survive a restart. `handed` is `null`, or the 8-hex id of the `recv` the item was
+  handed to (2.4.4), written before the records are sent; a worker that starts and finds an item
+  `handed` returns it at once, `handed: null` and `repeat: true`, since its records may already be
+  on the CLI's stdout.
 - `missed` holds the last 16 deliveries declared missing, watched for a late find for 24 h from
   the transcript offset where proof gave up (2.7.4).
 - `ledger` holds the last 1024 delivered items, oldest dropped first: only what `reply` needs (room,
@@ -538,8 +557,10 @@ that brought something, per delivery and per send: a few a minute at most. Its s
   `receipts`), loudly, never as a silent drop.
 - **Write cost.** A typical store is a few KiB; one with a full ledger and nothing pending is about
   200 KiB. A delivery costs two fsynced replaces of each involved store (the `awaiting` entry before
-  the user line, the ledger and `written: "yes"` after it), at most one delivery every 2 s; a sync
-  batch that brought something and a send cost one each. 2.14 counts them.
+  the user line, the ledger and `written: "yes"` after it), at most one delivery every 2 s; a `recv`
+  or `wait` that hands something out costs two of each involved store (the hand-out before the
+  records are sent, then the acknowledgement or the return); a sync batch that brought something
+  and a send cost one each. 2.14 counts them.
 
 The decoder is strict (B10). A store that does not decode stops that team with exit 78 and the
 message names the file in `status` and `report.json`; nothing deletes or repairs it automatically,
@@ -561,7 +582,9 @@ move a store a live worker writes; the next start is then a fresh sync (history 
 `told` is the one home of what the session has been told: the desired generation whose membership
 NOTICE reached it and each team's role last announced (2.10). The store holds none of it, because
 what was told belongs to the session, and a new session is told afresh by its SessionStart frame.
-`unusable` counts the inputs the worker could not use (2.8, 2.7.2), which `status` reports.
+`unusable` counts the inputs the worker could not use (2.8, 2.7.2), which `status` reports; it
+starts from the count the keeper handed over with the session facts, so hook stdin the keeper's
+reduced server could not use (2.4.2) is counted too.
 
 `status.json` is section 2.9's. `report.json` (keeper-written, for area C's views, never authority):
 
@@ -585,8 +608,10 @@ The conversation record (one per session, in the file the launcher names with
 ```
 
 It is written on every SessionStart, from the facts that passed 2.4.4's checks, by whichever of the
-keeper and the worker serves `worker.sock` at that moment: the keeper while no seat is held, the
-worker after (2.4.2). Only one of them serves the socket at a time, so the file has one writer. A
+keeper and the worker serves `worker.sock` at that moment: the keeper whenever no worker serves it
+(no seat held, a worker restarting or failed), the worker otherwise (2.4.2). Only one of them
+serves the socket at a time, and the hand-off waits for the connections in flight (2.4.2), so the
+file has one writer. A
 session launched with no team therefore has its record before its first join. `ccy-teams restart`
 and area C's relaunch on a first join resume the conversation by it (`claude --resume <session_id>`,
 never `--continue`; C9), and use it only when its `run` equals the run id in the seat's
@@ -598,7 +623,8 @@ resume (C9 makes it the launcher's to pass).
 
 #### 2.4.1 `run`: how a session starts
 
-The launcher of every member kind ends in `<v2-bin> run --desired <v2-desired> -- claude <args>`.
+The launcher of every member kind ends in
+`<v2-bin> run --claude --desired <v2-desired> -- claude <args>`.
 `run`:
 
 1. finds its runtime parent: container-private `/tmp` in ccy, else `$XDG_RUNTIME_DIR`, which must
@@ -621,28 +647,38 @@ The launcher of every member kind ends in `<v2-bin> run --desired <v2-desired> -
    start time that differs), it removes the directory under that lock. A runtime whose session
    still lives is left for `repair` (2.4.5);
 4. draws a run id (16 hex from `crypto/rand`), creates `<v2-run>` with `mkdir` 0700, refusing an
-   existing path, and writes `session.pid` as `{"v":1,"pid":N,"start_ticks":N,"kit":"<digest>"}`:
-   its own pid, its process start time (field 22 of `/proc/self/stat`, which `claude` keeps across
-   the `exec`), and the kit it resolved;
-5. writes the per-launch settings, `<v2-run>/settings.json` (0600, `O_EXCL`): the kit's
-   `<kit>/settings.json` (the status line of 2.9) plus `crossSessionInbound`, set to `accept` or
-   left refused from the `inbound` decision of `<v2-desired>/membership.json`, which `run` decodes
-   strictly (a file that does not decode is exit 78, `membership`). The kit's static settings never
-   carry the inbound setting, since one immutable file cannot hold both decisions (B35, 2.10). The
-   rule for passing it is exact: when the base name of CMD's first word is `claude`, `run` appends
-   `--plugin-dir <kit>/plugin --settings <v2-run>/settings.json` after CMD's last argument; such a
-   CMD whose arguments already contain `--settings`, `--plugin-dir` or a bare `--` is exit 64,
-   since the appended flags would then be overridden or read as a prompt. Any other CMD (`bash`,
-   `sleep`, a wrapper script) gets nothing appended and runs exactly as given;
-6. starts `<v2-bin> keeper --parent <own pid> --run <dir> --desired <dir> [--conversation <file>]`
+   existing path, and writes `session.pid` as
+   `{"v":1,"run":"<16 hex>","pid":N,"start_ticks":N,"kit":"<digest>","launch":"claude|plain","inbound":"accept|refuse"}`:
+   the run id, its own pid, its process start time (field 22 of `/proc/self/stat`, which `claude`
+   keeps across the `exec`), the kit it resolved, the launch kind and the inbound decision of
+   step 5, so an adopting keeper (2.4.5) learns all of them from the runtime itself;
+5. writes the per-launch settings for a Claude Code launch. The launcher states the kind, and
+   nothing is inferred from a file name: `run --claude -- CMD` launches Claude Code (CMD may be a
+   wrapper or have any name), and `run --plain -- CMD` (a shell, `sleep`, anything else) gets
+   nothing appended, no settings file and runs exactly as given; exactly one of the two is given,
+   else exit 64. With `--claude`, `run` writes `<v2-run>/settings.json` (0600, `O_EXCL`): the kit's
+   `<kit>/settings.json` (the status line of 2.9) plus `crossSessionInbound`, always written:
+   `accept` or `refuse` from the `inbound` decision of `<v2-desired>/membership.json`, which `run`
+   decodes strictly (a file that does not decode is exit 78, `membership`), and `refuse` when `run`
+   has no `--desired`. The key is never left out, because a file passed with `--settings` outranks
+   the user's and the project's settings, so a user-level `accept` cannot open a session the launch
+   refused (that precedence is a host check, 4). The kit's static settings never carry the inbound
+   setting, since one immutable file cannot hold both decisions (B35, 2.10). `run` then appends
+   `--plugin-dir <kit>/plugin --settings <v2-run>/settings.json` after CMD's last argument; a CMD
+   whose arguments already contain `--settings`, `--plugin-dir` or a bare `--` is exit 64, since the
+   appended flags would then be overridden or read as a prompt. A `--plain` launch has inbound
+   `refuse` and no plugin, so no hooks, no SessionStart frame and no socket facts: if it holds
+   seats, its teams show `"delivery": "none"` in `status` and `report.json`, items wait for `recv`,
+   and nothing pretends the session is being told;
+6. starts `<v2-bin> keeper --parent <own pid> --run <dir> --desired <dir> --launch claude|plain --inbound accept|refuse [--conversation <file>]`
    through `execx`, in a new
    process group, with one extra file: the write end of a pipe for READY. No goroutine is locked to
    an OS thread: `runtime.LockOSThread` existed only to keep `PR_SET_PDEATHSIG`'s thread alive, and
    a pidfd depends on no thread;
 7. waits up to 30 s for `READY\n` on the pipe. Before writing it, the keeper has taken its lock,
    bound `worker.sock`, read the desired membership and taken every desired seat's lock; if it holds
-   a seat, it has started a worker, passed it the seat locks (2.5) and the listening socket, and seen
-   it report ready on the control socket. With no desired seat it writes READY with no worker and
+   a seat, it has started a worker, passed it the seat locks (2.5), seen it report ready on the
+   control socket and only then handed it the listening socket (2.4.2). With no desired seat it writes READY with no worker and
    serves the socket itself (B13, 2.4.2). A desired seat held by another session fails
    the launch (exit 75, naming the seat), because launching into a held seat is the launcher's
    mistake; once the session runs, a refused seat is reported and the others carry on (2.10);
@@ -652,7 +688,7 @@ The launcher of every member kind ends in `<v2-bin> run --desired <v2-desired> -
 the session's pidfd, writes `status.json` with `"worker": "none"`, which the status line renders as
 no segment (2.9), and serves the hook-only operations on `worker.sock` itself (2.4.2), so the
 session's facts and its conversation record exist before any team does. The keeper starts the
-worker on the first seat it takes and hands it the socket. **A launch with no bus at all** (v1's `--no-bus`) is a launcher that does not
+worker on the first seat it takes and hands it the socket once it has reported ready. **A launch with no bus at all** (v1's `--no-bus`) is a launcher that does not
 wrap CMD with `run`: no v2 process runs, and the hooks, finding no `<V2>_RUNTIME`, answer `{}`.
 
 **Two ways were weighed for the kit a session runs.** Hooks and the status line calling `<v2-bin>`
@@ -678,14 +714,14 @@ compared across one.
 The keeper is a small event loop over six sources, each a goroutine blocked in the kernel, so an
 idle keeper does not wake:
 
-| Source                      | On an event                                                                                                             |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| pidfd of the session        | the session ended: tell the worker `end` (it posts the goodbyes, 2.11), wait for it, release, remove `<v2-run>`, exit 0 |
-| inotify on `<v2-desired>`   | re-read the desired membership; reconcile (2.10)                                                                        |
-| pidfd of the worker         | the worker exited: restart it, or mark it failed                                                                        |
-| the worker's control socket | the worker's state (for `report.json`), its requests for session facts, a farewell posted                               |
-| `worker.sock`, no seat held | a hook-only operation: served by the keeper's reduced server (below)                                                    |
-| signals                     | `SIGTERM`: as a session end; `SIGINT` and `SIGHUP`: ignored (a terminal's Ctrl-C belongs to Claude Code)                |
+| Source                           | On an event                                                                                                             |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| pidfd of the session             | the session ended: tell the worker `end` (it posts the goodbyes, 2.11), wait for it, release, remove `<v2-run>`, exit 0 |
+| inotify on `<v2-desired>`        | re-read the desired membership; reconcile (2.10)                                                                        |
+| pidfd of the worker              | the worker exited: restart it, or mark it failed                                                                        |
+| the worker's control socket      | the worker's state (for `report.json`), its requests for session facts, a farewell posted                               |
+| `worker.sock`, no worker serving | a request: served by the keeper's reduced server (below); an agent verb is answered 69 at once                          |
+| signals                          | `SIGTERM`: as a session end; `SIGINT` and `SIGHUP`: ignored (a terminal's Ctrl-C belongs to Claude Code)                |
 
 It holds `keeper.lock` and the seat locks, writes `report.json` for each held seat, keeps the
 inbox socket's path and token in memory (handed to it by the worker after a hook supplied them, and
@@ -695,31 +731,49 @@ one store operation is deleting the store of a seat whose removal timed out, und
 `report.json` (`desired`, 2.3.3) and through the worker's `status` while a seat is held, and with no
 seat held in `status.json` and one hook line it serves, and does not act on.
 
-**Serving `worker.sock` while no seat is held.** The keeper binds `worker.sock` before READY and keeps
-its listening descriptor for the session's life. While it holds no seat (a session launched with no
-team, or one whose last team was removed), it accepts on it and runs a reduced server with the same
-peer checks (2.4.4): it serves the four hook-only operations, records the session facts they carry
-(the session id, source, transcript path and inbox socket) in memory, writes the conversation
-record on SessionStart (2.3.3), and answers `{}` or one of its fixed lines (the runtime's own
-failure, a desired membership refused). Every other op is answered with exit 69 (`no-worker`, "this
-session holds no team"). When it starts a worker, it passes the listening descriptor
-(`SCM_RIGHTS`) and the session facts with the first `add`, and stops accepting; the worker then
-serves every op and reports each change of the session facts back on the control socket, as it does
-the inbox socket token, and when the last seat is removed and the worker has ended, the keeper
-accepts again with facts that are current. Only one of them serves the socket at any moment, so the conversation record and the
-session facts have one writer.
+**Serving `worker.sock` whenever no worker does.** The keeper binds `worker.sock` before READY and
+keeps its own listening descriptor for the session's life, so the socket is never left listening
+with nobody answering: a request that only sat in the backlog would run later, after its CLI had
+given up. Whenever no worker serves it (a session launched with no team, one whose last team was
+removed, a worker in its restart backoff, a worker failed with 78), the keeper accepts on it and runs
+a reduced server with the same peer checks and the same deadline rule (2.4.4): it serves the four
+hook-only operations, records the session facts they carry (the session id, source, transcript path
+and inbox socket) in memory, counts hook stdin it cannot use (2.8), writes the conversation record
+on SessionStart (2.3.3), and answers `{}` or one of its fixed lines (the runtime restarting or
+failed, a desired membership refused), each at most once per 10 minutes, remembered in its memory.
+Every other op is answered at once, never queued, with exit 69: `no-worker` ("this session holds no
+team", or "the bus runtime is restarting") or, after a final 78, `worker-failed`.
+
+**Handing the socket over** goes one way at a time, on the control socket, never overlapping, so
+the conversation record and the session facts have one writer (2.3.3). *To a worker:* the keeper
+waits for the new worker to report ready, stops accepting, lets the connections it has already
+accepted finish (each bounded by its deadline), snapshots the session facts and the unusable count,
+and only then passes the listening descriptor (`SCM_RIGHTS`) and the facts, with the first `add`
+or, after a restart, with the re-sent seats. The worker then serves every op and reports each
+change of the session facts back on the control socket, as it does the inbox socket token. *Back to
+the keeper:* a worker that is ending (its last seat removed) stops accepting, finishes the
+connections it accepted, sends the current facts and the descriptor back (`SCM_RIGHTS`), and only
+then exits. A worker that crashes cannot, so the keeper, which still holds its own descriptor and the
+facts last reported, resumes accepting as soon as the worker's pidfd fires, before the restart
+backoff starts. A connection the dead worker had accepted is closed, and its CLI exits 69
+(`no-worker`); one still in the listening queue is accepted by the keeper, which answers it 69 at
+once, or discards it unexecuted if its deadline has passed.
 
 **Supervising the worker.** The worker is the keeper's child, started when the keeper holds its
 first seat, with a `socketpair` as fd 3 for control, over which the keeper passes it each held
 seat lock's file description (`SCM_RIGHTS`, 2.5) with the `add` that names the seat, and the
-listening `worker.sock` once. On exit it is restarted after 1 s, doubling to 60 s, the backoff reset
-after 10 minutes of running; each new worker is passed the listening socket, every held seat and
-every farewell still owed (2.10) again. While a held seat's worker is restarting, the keeper does
-not serve the socket: a hook then times out and says the runtime is not running (2.8). An exit of 78 (the runtime's own configuration is refused:
-`<v2-run>` or `<v2-state>` has the wrong owner or mode) is final: no restart, `report.json` and
-`status.json` say `failed`, the hooks say it once. A store that does not decode is a per-team
-failure, and per-team failures never end the worker (2.3.2, 2.6). When the last seat is removed the
-worker is ended and not restarted until a seat is held again.
+listening `worker.sock` once it reports ready. On exit it is restarted after 1 s, doubling to 60 s,
+the backoff reset after 10 minutes of running; each new worker is passed every held seat and every
+farewell still owed (2.10) again, and the listening socket once ready. While a worker is
+restarting the keeper serves the socket itself (above): hooks get its fixed line, agent verbs exit
+69 `no-worker` at once. An exit of 78 (the runtime's own configuration is refused: `<v2-run>` or
+`<v2-state>` has the wrong owner or mode) is final: no restart, `report.json` and `status.json` say
+`failed`, the keeper goes on serving the socket, the hooks say it once, and agent verbs exit 69
+`worker-failed`. A store that does not decode is a per-team failure, and per-team failures never
+end the worker (2.3.2, 2.6). When the last seat is removed the worker is ended once its owed
+farewells are posted or their 30 s have passed, and is not started again until a seat is held, or
+until a removal that timed out leaves a farewell owed, for which the keeper starts a farewell-only
+worker (2.10).
 
 **When the session ends** (the pidfd fires, or `SIGTERM`): the keeper tells the worker `end` on the
 control socket and waits up to 5 s for it to exit. In those 5 s the worker finishes any goodbye
@@ -745,11 +799,11 @@ minute when nothing else is due.
 #### 2.4.4 The worker socket
 
 `<v2-run>/worker.sock`, a Unix stream socket, 0600 in the 0700 run directory, bound by the keeper
-and served by the worker (by the keeper's reduced server while no seat is held, 2.4.2); the server
-checks the peer's uid with `SO_PEERCRED` and closes any other. One request per connection:
+and served by the worker (by the keeper's reduced server whenever no worker serves it, 2.4.2); the
+server checks the peer's uid with `SO_PEERCRED` and closes any other. One request per connection:
 
 ```json
-{"v":1,"op":"reply","kit":"<source digest>","args":{"id":"$<43>","verb":null},"stdin":"Done, pushed as <sha>."}
+{"v":1,"op":"reply","kit":"<source digest>","deadline_ms":1760000030000,"args":{"id":"$<43>","verb":null},"stdin":"Done, pushed as <sha>."}
 ```
 
 The worker answers with zero or more record lines, exactly as the verb prints them, then one final
@@ -769,20 +823,23 @@ otherwise be a silent mixed-version session.
 
 **`recv` and `wait` end with an acknowledgement.** Their records are sent, then
 `{"done":{"exit":0,"ack":"<8 hex>"}}`; the CLI writes every record to stdout, flushes it, and only
-then sends `{"ack":"<8 hex>"}` back on the same connection. From the moment the worker sends them
-the items are in the in-memory state `handed{recv id, at_ms}` (2.7.3): the delivery goroutine skips
-them and no other `recv` or `wait` takes them. The worker marks them delivered, and puts them in the
-ledger, on the acknowledgement and on nothing else. A CLI killed, a stdout that fails, a closed
-connection or no acknowledgement within 10 s returns them to `pending` marked `repeat` (one store
-write), and the next `recv` or delivery shows them again with the same ids. `handed` is never
-persisted: a worker crash leaves them in the store's `pending`, and they come back `restored`. The
-cap (8 entries, 12
-KiB, then a `more` record) keeps the output inside what Claude Code shows of a Bash result without
-cutting it in the middle (B20).
+then sends `{"ack":"<8 hex>"}` back on the same connection. Before the worker sends any record, the
+items enter the state `handed{recv id, at_ms}` (2.7.3), and that state is persisted: one store
+write per involved store sets each item's `handed` to the recv id (2.3.2). From then on the delivery
+goroutine skips them and no other `recv` or `wait` takes them. The worker marks them delivered,
+removing them from `pending` and putting them in the ledger in one write, on the acknowledgement and
+on nothing else. A CLI killed, a stdout that fails, a closed connection or no acknowledgement within
+10 s returns them to `pending` marked `repeat` (one store write), and the next `recv` or delivery
+shows them again with the same ids. A worker that crashes while items are handed finds them
+`handed` in the store when it starts and returns them the same way, marked `repeat` (and, being
+re-fetched, `restored`), so records the CLI may already have printed are never followed by an
+unmarked copy. An acknowledgement for a team that is no longer held (removed meanwhile, 2.10) is
+ignored and never recreates its store. The cap (8 entries, 12 KiB, then a `more` record) keeps the
+output inside what Claude Code shows of a Bash result without cutting it in the middle (B20).
 
 **Hook-only operations and whom they believe** (B42). Four ops set session facts:
 `hook.session-start`, `hook.prompt`, `hook.stop` and `hook.session-end`. The server (the worker, or
-the keeper while no seat is held) serves them only to a peer whose pid (`SO_PEERCRED`) descends from the session: it walks the `ppid` field of
+the keeper's reduced server whenever no worker serves) serves them only to a peer whose pid (`SO_PEERCRED`) descends from the session: it walks the `ppid` field of
 `/proc/<pid>/stat` upward, at most 64 steps, and accepts only if it reaches the pid and start time in
 `session.pid`. Claude Code's hooks pass; another `cc` session of the same user, a sibling's process
 or a stray script do not. Within what passes:
@@ -820,16 +877,26 @@ the worker with a byte slice. gRPC or another RPC framework: typed stubs, but a 
 binary framing a human cannot read with `socat`, and a second schema beside the records the agent
 sees.
 
-Deadlines, set by the worker per operation: hook operations 300 ms; local reads (`recv`, `inbox`,
+**Deadlines.** Every request carries `deadline_ms`, the client's own deadline as an absolute
+`CLOCK_BOOTTIME` time in milliseconds (one clock for client and server, which share the session's
+kernel and namespaces, and immune to a wall-clock step). The CLI sets it from one table, which the
+server also applies to its own work: hook operations 300 ms; local reads (`recv`, `inbox`,
 `status`) 2 s; sends 30 s (three tries with the same transaction id, M22); `history` and `questions`
-60 s; `wait` its own timeout. A client that cannot connect exits 69 (`no-worker`), except `wait`,
-which reconnects within its timeout (2.2.4); one with no `<V2>_RUNTIME` exits 69 (`no-session`).
+60 s; `wait` its own timeout, the same `deadline_ms` on every reconnect. A server (the worker or the
+keeper's reduced server) that would start a request whose deadline has passed discards it without
+acting and closes the connection, so a request whose CLI gave up (a Bash tool timeout, a killed CLI,
+a backlog behind a restart) never runs later: a `say` the agent saw fail is never posted behind its
+back. A request already started when its CLI goes away runs to its end; a send it recorded in
+`sending` is stored once by its transaction id (M22), and an agent that retries the same text meets
+the duplicate gate (exit 15, "it was already sent"). A client that cannot connect, or whose
+connection closes before a `done` line, exits 69 (`no-worker`); one with no `<V2>_RUNTIME` exits 69
+(`no-session`); only `wait` retries (2.2.4).
 
 #### 2.4.5 Failure modes
 
 | What fails                                 | What happens                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| the worker crashes                         | the keeper restarts it with backoff; the new worker is passed the seat locks again, loads every store, resolves `awaiting` by the transcript (2.7.3), re-sends `sending` with the same transaction ids, takes the inbox socket facts from the keeper; nothing waits for a hook                                                                                                                                                                                                                                                                                                                                                   |
+| the worker crashes                         | the keeper serves `worker.sock` from the moment the worker's pidfd fires (hooks get its fixed line, agent verbs exit 69 at once, 2.4.2) and restarts it with backoff; the new worker is passed the seat locks again, loads every store, returns `handed` items as `repeat` (2.4.4), resolves `awaiting` by the transcript (2.7.3), re-sends `sending` with the same transaction ids, takes the inbox socket facts from the keeper and the socket once ready; nothing waits for a hook                                                                                                                                            |
 | the keeper crashes                         | the seats stay locked, because the worker holds the same open file description of each seat lock (2.5); the worker sees its control socket close, writes `run.ended = {"reason": "keeper-lost", "goodbye": "none"}` into each store and persists it, sets leases expired and exits, and only then are the seats free, so no other session's worker can load a store this one still writes; the session runs on without the bus; hooks say so once per window and the status line shows it; the owner runs `repair`, whose worker finds `keeper-lost` under this runtime's own run id and resumes the run, posting nothing (2.11) |
 | Claude Code is killed (`SIGKILL`)          | as a session end, without a SessionEnd hook: the session's pidfd fires with no end reason recorded, so the worker posts "disconnected" at once, inside the keeper's 5 s end, instead of a goodbye (2.11)                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | the container or guest is stopped          | everything dies at once; the next start of each seat posts "disconnected"; for ccy the host's launcher cleanup runs `seat close-ended` sooner (2.11)                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
@@ -851,7 +918,13 @@ member's namespace (by the owner, or by ccy-teams' `session repair` through `pod
 The keeper's **adopt mode** has its own refusals, since its parent is `repair`, not the session:
 it refuses (exit 78) unless `DIR` is 0700 and owned by the uid, `session.pid` decodes, a pidfd opens
 on that pid, the process's start time equals the recorded one, and the process is visible in this
-pid namespace; it then runs as any keeper. A runtime whose session has gone is not adopted: it is
+pid namespace. It takes the run id, the kit, the launch kind and the inbound decision from
+`session.pid` (2.4.1 step 4) and passes them to its worker, which resumes a `keeper-lost` run only
+when that run id is the store's own (2.11). The dead keeper and worker leave `worker.sock` bound
+with no listener, so a plain `bind` would fail with `EADDRINUSE`: holding `keeper.lock`, the
+adopting keeper unlinks the stale socket path and binds again. A socket is not a lock file, so 2.5's
+never-unlink rule does not apply, and holding `keeper.lock` makes it the only process that may do
+it. It then runs as any keeper. A runtime whose session has gone is not adopted: it is
 removed by the next `run` that finds it (2.4.1 step 3), or by `repair --runtime` itself after the
 same check fails, under the same lock.
 
@@ -897,8 +970,14 @@ all properties of the worker owning its state alone.
   and now its only holder, it deletes `store.json` itself, so a later take of the seat is a fresh
   sync and nothing posted while the team was out is delivered (B33). Deleting a store is the one
   store operation the keeper may do, and it does it only here, under the lock-first deletion rule
-  below; it never writes one. Only then does it close its descriptor of the seat, and restart the
-  worker for the other held seats. There is no moment at which two processes can write one store.
+  below; it never writes one. It then restarts the worker for the other held seats and the owed
+  farewell (a farewell-only worker when no other seat is held), and keeps its own descriptor of the
+  seat until that farewell is no longer owed (2.10). There is no moment at which two processes can
+  write one store. One window is a residual, stated rather than closed: a keeper that itself dies
+  between the worker's death and the deletion frees the seat with the store intact, and a later
+  re-add then syncs from the old position and delivers the gap, against B33. It needs a keeper
+  crash inside a removal that has already timed out, which is a keeper bug and not an expected path;
+  2.15 has the failpoint and pins that outcome (4).
 - **Lock files are never unlinked.** Unlinking a held lock file would let a second process lock a
   fresh inode at the same path, and two sessions would each hold "the" seat. So every deletion of
   seat state (the worker's removal step, the keeper's deletion after a timed-out removal,
@@ -993,9 +1072,12 @@ the session end).
 
 Claude Code holds socket messages in bypass mode unless `crossSessionInbound` is `accept` (U01), and
 reads that setting only at launch. `run` writes it into the per-launch settings file from the
-desired file's `inbound` decision (2.4.1 step 5): `accept` for a session launched with a team; a
-session launched with none keeps it refused until its first join relaunches it (B35, 2.10). The
-kit's own settings never carry it.
+desired file's `inbound` decision (2.4.1 step 5), always as an explicit value: `accept` for a
+session launched with a team; `refuse` for one launched with none, until its first join relaunches
+it (B35, 2.10). The kit's own settings never carry it. The keeper and the worker are given this
+launch-time value (`--inbound`, 2.4.1 step 6, and on to the worker with its first `add`) and never
+re-read it: a desired file that later says `accept` (area C rewrites it for the relaunch) does not
+make this session's worker push to a socket Claude Code still holds.
 
 **A session with no inbox socket** (a harness or Claude Code version without one): delivery mode is
 `wait`. SessionStart tells the agent to keep `<v2-bin> wait` running in the background, and Stop
@@ -1068,7 +1150,7 @@ kind: PEER (another agent of the team)
             sync batch (persisted with next_batch and the room floors)
                     │
                     ▼
-   ┌────────────► pending ── recv / wait sends them ──► handed{recv id, at_ms} (memory only)
+   ┌────────────► pending ── recv / wait sends them ──► handed{recv id, at_ms} (persisted first)
    │  ▲             │                                     │ CLI ack ──► delivered (via recv);
    │  │             │                                     │             the ids go to the ledger
    │  └─────────────┼──── no ack: CLI gone, or 10 s ◄─────┘ (back to pending, marked repeat)
@@ -1087,7 +1169,7 @@ kind: PEER (another agent of the team)
                              ledger in the same write; nonce kept in `missed`
                              late find: items still pending ──► proven (ledger); already shown ──► logged
    worker restart: each awaiting entry is scanned from its offset and then follows the same rules;
-                   handed items were never persisted as such, so they are still in `pending`
+                   each handed item returns to pending marked repeat, as for no ack
 ```
 
 - One goroutine owns every transition, so `recv` and the delivery loop can never both take an item:
@@ -1139,8 +1221,12 @@ kind: PEER (another agent of the team)
   `held back: <n> more from <sender> on <team> (flood limit); <v2-bin> recv shows them now`, and
   the items go out when the sender's budget refills. Humans and TIMEOUTs are never held. Nothing is
   consumed undelivered by a limit.
-- **A removed team's items** are dropped from `pending` when the team is removed (B33), with one
-  log line; they are never delivered later.
+- **A removed team's items** are dropped when the team is removed (B33), with one log line: its
+  `pending` and `handed` items and its awaiting entries go with its store, and so do its pending
+  read receipts, so Element shows those HUMAN items as unread, which is true of what the agent may
+  not have seen. They are never delivered later; a `recv` acknowledgement that arrives afterwards
+  is ignored and never recreates the store (2.4.4), and another team's awaiting entry that lists the
+  removed team skips it (above).
 
 #### 2.7.4 Transcript proof
 
@@ -1230,9 +1316,10 @@ PEER, PING, TIMEOUT and NOTICE items get no receipt.
 The plugin's `hooks.json` runs `<kit>/bin/<v2-bin> hook <event>` directly, by the absolute path
 written at kit build (2.4.1, B38), for SessionStart, UserPromptSubmit, Stop and SessionEnd. There is
 no `sh` guard: a hook with no `<V2>_RUNTIME` answers `{}` and exits 0 in a few milliseconds, which is
-what v1's guard bought by not starting Python. A hook in a session with no team is served by the
-keeper's reduced server (2.4.2): it records the session facts and the conversation record and
-answers `{}`, or a fixed line when the keeper has one to give. No PostToolUse hook (it existed for relay mode).
+what v1's guard bought by not starting Python. A hook while no worker serves the socket (no team, a
+worker restarting or failed) is served by the keeper's reduced server (2.4.2): it records the
+session facts and the conversation record and answers `{}`, or a fixed line when the keeper has one
+to give. No PostToolUse hook (it existed for relay mode).
 
 **Two ways were weighed for the hook command.** An `sh -c` guard that tests the environment before
 starting the binary, as v1: it existed because Python took a second to start, and it adds a shell, a
@@ -1248,9 +1335,13 @@ counts and grammar-checked names only (H14). Stdin that is too long, not UTF-8 o
 is sent as `"payload": "unusable"` with the reason from a closed set (`size`, `utf8`, `json`); the
 worker counts it in `session.json` (`unusable.hook_stdin`), logs one line, shows the count in
 `status`, and answers as for an event with no payload, so a change in Claude Code's hook input is
-seen, not absorbed. The hook exits 0 always; a bad event argument is 64.
+seen, not absorbed. The keeper's reduced server, which has no `status` to show it, counts it in
+memory, writes the count into `status.json` (`unusable_hook_stdin`), which the status line renders
+as it renders a refused desired membership (2.9), and hands the count to the next worker with the
+session facts (2.4.2). The hook exits 0 always; a bad event argument is 64.
 
-**When the worker cannot be reached** within 300 ms, the hook answers from its own fixed template
+**When nothing answers** within 300 ms (a hung worker or keeper; a worker that is down is answered
+for by the keeper, 2.4.2), the hook answers from its own fixed template
 ("the bus runtime is not running; this session is not receiving messages; tell a human") as
 additional context on SessionStart and UserPromptSubmit, at most once per 10 minutes, remembered in
 `<v2-run>/no-worker.json`, the one file a hook writes, and only in this case. Stop never blocks on
@@ -1258,7 +1349,7 @@ it: an agent cannot repair the runtime, and blocking would trap it.
 
 | Event            | What the worker does and answers                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| SessionStart     | records `session_id`, `source` and the transcript path, and writes the session's conversation record (B43, 2.3.3; the keeper does both while no seat is held); takes the socket (2.4.4's checks); answers the frame text (how deliveries look, the kinds and their authority, `reply`, `verify` before a consequential HUMAN request, never carry one team's messages to another), each team's seat, role and description, the delivery mode, and any pending or failure line. On every source (startup, resume, clear, compact), since after a clear or compaction the earlier frame may be gone from context                                                 |
+| SessionStart     | records `session_id`, `source` and the transcript path, and writes the session's conversation record (B43, 2.3.3; the keeper does both while no worker serves); takes the socket (2.4.4's checks); answers the frame text (how deliveries look, the kinds and their authority, `reply`, `verify` before a consequential HUMAN request, never carry one team's messages to another), each team's seat, role and description, the delivery mode, and any pending or failure line. On every source (startup, resume, clear, compact), since after a clear or compaction the earlier frame may be gone from context                                                |
 | UserPromptSubmit | marks the session busy; updates the transcript path; sets the socket facts only if none are set yet (an adopted session, 2.4.5), never changes them (2.4.4); answers membership lines only if the MEMBERSHIP notice could not be written to the socket (B30's fallback, told once by generation), pending counts only when delivery is not live or items are held as missing, and a failure line once per 10 minutes                                                                                                                                                                                                                                           |
 | Stop             | marks the session idle, which starts the quiet clock of every delivery awaiting proof (2.7.4); sets the socket facts only if none are set yet, under the same checks, so an adopted idle session is reachable again (2.4.4). B26: nothing unless `stop_hook_active` is literally `false`. Blocks once per distinct pending set when some pending items will not be pushed (delivery not live, or held as missing), with `<n> pending (...). Run <v2-bin> recv before stopping.`; once per 10 minutes for a team failure; once per 10 minutes for a socketless session with no `wait` running. If `session.json` cannot be written, it does not block (H59-H73) |
 | SessionEnd       | `reason` `clear` or `resume`: `{}`, nothing else (the session goes on). Otherwise records the reason (`exit`, `logout`, `other`) in memory and answers `{}` at once; nothing else. The goodbye is posted only when the session's pidfd fires and the keeper tells the worker `end`, inside the keeper's 5 s end (2.4.2, 2.11), so a forged SessionEnd posts nothing                                                                                                                                                                                                                                                                                            |
@@ -1284,7 +1375,8 @@ value at 25 and below 30.
    `bus runtime not running`; a held lock with a `written_ms` older than 90 s adds a red
    `bus runtime not answering` (a hung worker). No teams, or `"worker": "none"` (a session with no
    team runs no worker, 2.4.1): no segment and no lock probe (empty stays empty), except a red
-   `bus membership refused` when `"desired"` is `"refused"` (2.3.3).
+   `bus membership refused` when `"desired"` is `"refused"` (2.3.3) and a red
+   `bus hook input unusable: <n>` when `unusable_hook_stdin` is above 0 (2.8).
    Rows keep v1's rules (R26): an unknown role renders `(role?)`, and with no usable `COLUMNS` the
    rows stay on one line.
 3. **Exit 0** always, except the cancel above.
@@ -1294,10 +1386,11 @@ most once a second, and at least once a minute, from the state goroutine's own t
 heartbeat cannot ride on long-poll returns: with every team stopped on a permanent failure nothing
 would return, and the status line would falsely say `bus runtime not answering`. One wakeup a
 minute is its cost. While no seat is held the keeper writes it (`"worker": "none"`), once and again
-only when the desired membership's state changes, and the worker takes it over when it starts.
+only when the desired membership's state or its unusable count changes, and the worker takes it
+over when it starts.
 
 ```json
-{"v": 1, "run": "<16 hex>", "written_ms": 1760000000000, "worker": "running", "desired": "applied",
+{"v": 1, "run": "<16 hex>", "written_ms": 1760000000000, "worker": "running", "desired": "applied", "unusable_hook_stdin": 0,
  "teams": [{"team": "<team>", "role": "coordinator", "down": false, "failed": null, "delivery": "socket", "pending": 0, "missing": 0}]}
 ```
 
@@ -1329,26 +1422,34 @@ teams are the desired seats it holds (B31). For each difference, within the 2 s 
   (2.6), a new store starting fresh.
 - **Remove** `team/seat`: tell the worker `remove` and wait for its answer (at most 10 s). Removal
   is local and fast: the worker stops the team goroutine (cancelling its in-flight request), drops
-  the team's pending items (logged: nothing posted while the team is out is ever delivered, B33),
-  deletes the store (never `seat.lock`, 2.5), so a re-add is a fresh sync that skips history,
-  closes its descriptor of the seat lock and answers. Then the keeper closes its own, and the seat
-  is free. Only afterwards, from memory and with its own bound of 30 s (the send deadline of 2.4.4,
-  outside the 10 s removal bound), does the worker set the team's lease expired and post the
-  farewell when the desired file lists one (`<handle> left the team: removed by the owner`, to the
-  team's humans and coordinators), telling the keeper on the control socket once it is posted. A
-  farewell is owed from the `remove` until that report: the keeper writes `"farewell": "owed"` into
-  that seat's `report.json` and keeps the desired file's farewell entry in memory. If no answer
-  comes in 10 s, the keeper kills the worker, waits on its pidfd, deletes the store itself while it
-  still holds the seat lock (its one store operation, 2.5), and only then closes its descriptor;
-  the restarted worker is passed the owed farewell entry and posts it once. The keeper draws the
-  farewell's transaction id at the `remove` and keeps it with the entry, so a farewell re-posted
-  after a kill is stored once by the homeserver (M22), and the seat's bundle stays placed until the
-  farewell is no longer owed (C6). If the worker ends (the
-  last seat removed) it is ended only after its owed farewells are posted or their 30 s have
-  passed; a farewell still owed when the session ends is left in `report.json` for area C, which
-  posts it as for a session not running (C6). Order matters: no process writes the store once the
-  seat is free, and a removal with an unreachable homeserver costs only the farewell's delay, never
-  a kill of the worker that serves the other teams.
+  the team's pending and handed items and its awaiting entries (logged: nothing posted while the
+  team is out is ever delivered, B33, 2.7.3), deletes the store with its pending receipts (never
+  `seat.lock`, 2.5), so a re-add is a fresh sync that skips history, closes its descriptor of the
+  seat lock and answers. Only afterwards, from memory and with its own bound of 30 s (the send
+  deadline of 2.4.4, outside the 10 s removal bound), does the worker set the team's lease expired
+  and post the farewell when the desired file lists one (`<handle> left the team: removed by the owner`, to the team's humans and coordinators), telling the keeper on the control socket once it
+  is posted. A farewell is owed from the `remove` until that report; the keeper keeps the desired
+  file's farewell entry in memory with a transaction id it draws at the `remove`, so a farewell
+  re-posted after a kill is stored once by the homeserver (M22).
+  **The keeper keeps its descriptor of the seat lock while the farewell is owed**: the seat stays
+  held by this session until the farewell is posted, its 30 s bound has passed, or the session
+  ends, and `report.json` says `"farewell": "owed"` meanwhile. Only then does the keeper write the
+  seat's final `report.json` (`"farewell": "none"`, or `"owed"` if it was never posted) and close
+  its descriptor, so the seat is free. No other session can take the seat while this one may still
+  write its `report.json`, and the worker has already deleted the store and closed its own
+  descriptor, so B33 and the store's single writer are unaffected. A later taker's keeper writes its
+  own `report.json` from scratch and never sees an `owed` it did not write; area C posts an `owed`
+  farewell of a free seat before it gives that seat to another session (C6).
+  If no answer comes in 10 s, the keeper kills the worker, waits on its pidfd and deletes the store
+  itself while it still holds the seat lock (its one store operation, 2.5); the restarted worker is
+  passed the owed farewell entry and posts it once. When the removed seat was the last one held, the
+  keeper still starts a worker for it: a **farewell-only worker** that holds no seat, loads no store
+  and is not handed `worker.sock` (the keeper goes on serving it), is given only the owed farewells,
+  posts them within their 30 s bound and ends (B13). Likewise a worker whose last seat is removed
+  is ended only after its owed farewells are posted or their 30 s have passed. The seat's bundle
+  stays placed while the farewell is owed (C6). Order matters: no process writes the store once the
+  worker has answered or been killed, and a removal with an unreachable homeserver costs only the
+  farewell's delay, never a kill of the worker that serves the other teams.
 - **Role** is not in the desired file: it is in the team record (A), which the worker follows; a role
   change rebuilds the team's sync filter (2.6 step 10), updates the status row and sends a NOTICE.
 - **A bundle that changes** under a held seat (area C re-issues it, a token is rotated) wakes the
@@ -1368,7 +1469,11 @@ rather than trusting the event stream.
 
 **A session launched with inbound refused** (no team at launch) that is given a seat runs that team
 in `wait` mode, since socket messages would be held unseen, and its `report.json` says
-`"needs_relaunch": true`; relaunching it once is area C's flow (R32), and the relaunch resumes the
+`"needs_relaunch": true`. The launch value decides this, passed by `run` to the keeper and by the
+keeper to the worker with the first `add` (2.4.1, 2.7.1), never a later read of the desired file:
+area C rewrites `inbound` to `accept` for the relaunch while this session still refuses, and a
+worker that believed the file would push messages Claude Code holds and never ask for the
+relaunch; relaunching it once is area C's flow (R32), and the relaunch resumes the
 same conversation by the session's conversation record, which the keeper wrote at SessionStart
 before any team was held, checked against the run id in `report.json` (2.3.3, B43, C9). The worker
 never writes to a socket whose session refuses inbound.
@@ -1426,8 +1531,9 @@ told once.
   `seat disconnected` (RP 5.03) it tolerates a dead terminal: it buffers its stderr until every seat
   is told and then ignores `EIO`, `EBADF` and `EPIPE` on writing it.
 - **Farewell**: posted by the worker after the removal has freed the seat, from memory, within its
-  own 30 s bound, or by the restarted worker when the removal timed out (2.10). For a seat whose
-  session is not running when it is removed, or whose farewell is still owed when its session ends,
+  own 30 s bound, or by the restarted worker when the removal timed out (a farewell-only worker when
+  no other seat is held, 2.10). For a seat whose session is not running when it is removed, or whose
+  farewell is still owed when the keeper releases the seat (its bound passed or the session ended),
   area C posts it with the admin's account (C6).
 - **Presence**: the lease of 2.6 step 9. A member that stopped without any of the above is shown
   absent once its lease expires; that is A's rendering.
@@ -1528,18 +1634,18 @@ or suspended member resumes through 2.4.5's reconnect.
 
 ### 2.14 Resident cost, per member
 
-| Item                    | Per session                                                                                                                                                                                                            |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| resident processes      | 2 (keeper, worker) while a seat is held; 1 (the keeper) with no team; 0 for a launch with no bus (not wrapped by `run`)                                                                                                |
-| short processes         | one per hook event, one per status-line render (every 25 s and on Claude Code's triggers), one per agent verb; each a static binary of a few ms                                                                        |
-| listening TCP ports     | 0                                                                                                                                                                                                                      |
-| Unix sockets            | 1 (`worker.sock`)                                                                                                                                                                                                      |
-| homeserver connections  | 1 kept-alive per active team, plus one per send in flight                                                                                                                                                              |
-| systemd units           | 0 for ccy, `cc`, docker and VM; 1 per supervised LXC session (`<v2-unit>`), as v1 has                                                                                                                                  |
-| files written when idle | `status.json` once a minute (the heartbeat); no store write; with no team, nothing                                                                                                                                     |
-| idle wakeups            | keeper: none of its own; worker: each team's long-poll return (2 a minute), the lease (every 5 minutes), the state goroutine's heartbeat timer (once a minute), Go's runtime (its forced GC every 2 minutes, `sysmon`) |
-| store writes per event  | a delivery: two fsynced replaces of each involved store (typically a few KiB, about 200 KiB with a full ledger, 2 MiB at worst); a sync batch that brought something: one; a send: one (2.3.2)                         |
-| inotify watches         | keeper: `<v2-desired>`; worker: each held seat's bundle directory, the transcript and its directory; with no team, only `<v2-desired>`                                                                                 |
+| Item                    | Per session                                                                                                                                                                                                                                                                                                                    |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| resident processes      | 2 (keeper, worker) while a seat is held or a farewell is owed; 1 (the keeper) with no team; 0 for a launch with no bus (not wrapped by `run`)                                                                                                                                                                                  |
+| short processes         | one per hook event, one per status-line render (every 25 s and on Claude Code's triggers), one per agent verb; each a static binary of a few ms                                                                                                                                                                                |
+| listening TCP ports     | 0                                                                                                                                                                                                                                                                                                                              |
+| Unix sockets            | 1 (`worker.sock`)                                                                                                                                                                                                                                                                                                              |
+| homeserver connections  | 1 kept-alive per active team, plus one per send in flight                                                                                                                                                                                                                                                                      |
+| systemd units           | 0 for ccy, `cc`, docker and VM; 1 per supervised LXC session (`<v2-unit>`), as v1 has                                                                                                                                                                                                                                          |
+| files written when idle | `status.json` once a minute (the heartbeat); no store write; with no team, nothing                                                                                                                                                                                                                                             |
+| idle wakeups            | keeper: none of its own; worker: each team's long-poll return (2 a minute), the lease (every 5 minutes), the state goroutine's heartbeat timer (once a minute), Go's runtime (its forced GC every 2 minutes, `sysmon`)                                                                                                         |
+| store writes per event  | a delivery: two fsynced replaces of each involved store (typically a few KiB, about 200 KiB with a full ledger, 2 MiB at worst); a `recv` or `wait` that hands something out: two of each involved store (the hand-out, then the acknowledgement or the return); a sync batch that brought something: one; a send: one (2.3.2) |
+| inotify watches         | keeper: `<v2-desired>`; worker: each held seat's bundle directory, the transcript and its directory; with no team, only `<v2-desired>`                                                                                                                                                                                         |
 
 Estimates to be replaced by measurement, not promises: keeper 6-8 MiB RSS, worker 12-20 MiB, both
 together well under 1% of one thread when idle. The **acceptance bars** are: both resident processes
@@ -1549,7 +1655,7 @@ under 0.1% of one thread and 10 MiB RSS, with no wakeup of its own over the 10 m
 finding the build reports, not a bar quietly moved.
 
 **Measured** by a plan-folder acceptance (`acceptance-member-cost.bash`, built on `_planlib`): it starts
-`<v2-bin> run -- sleep` against the fake homeserver and then against a real Tuwunel, with no team,
+`<v2-bin> run --plain -- sleep` against the fake homeserver and then against a real Tuwunel, with no team,
 with one and with three teams, waits 10 idle minutes, and samples each resident process's `/proc/<pid>/stat` (user and
 system time), `status` (VmRSS, voluntary and involuntary context switches) and `fd/`; it then runs 100
 status-line renders with a no-op inner command and sums their CPU. It writes the table to the plan
@@ -1565,21 +1671,23 @@ Spec first and test first (src-go/CLAUDE.md): each requirement above becomes num
 the member's build spec, each with a failing test before its code. No parity oracle against v1: v2
 keeps no compatibility contract with it (frame).
 
-| Seam                 | Fake                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| the homeserver       | `bus/matrix/fakehs` (M37-M44): rooms, long-poll, transaction ids, Tuwunel's quirks, fault injection (drop before or after handling, restart keeping state)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| Claude Code's socket | `fakeinbox`: a Unix listener that speaks the auth and user lines, records every frame, and can hold, refuse, apply a 30 s duplicate filter and a 30-token, 0.5/s bucket, as U01 measured                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| the transcript       | `faketranscript`: appends the JSONL a real session would write for each frame (idle `user` entry or busy `queued_command`), after a delay, never, or after a rotation or `/clear`                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| time                 | an injected clock in every package; no test sleeps                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `gh`, `lxc-attach`   | `execx.Fake`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| processes and locks  | the test binary re-run through `cmdmaintest` as a real keeper or worker; `SIGKILL` at named crash points (a `busfailpoints` build tag, never in a shipped binary): after auth before the awaiting entry is persisted, after it is persisted before the user line, after the user line before `written: "yes"`, between two stores' writes of one delivery, after a send's PUT before its answer is recorded, the keeper while its worker writes, the worker inside `remove`, the worker after `remove` answered and before the farewell is posted, the worker after `missing` is persisted, the worker while items are `handed` to a `recv` |
+| Seam                 | Fake                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| the homeserver       | `bus/matrix/fakehs` (M37-M44): rooms, long-poll, transaction ids, Tuwunel's quirks, fault injection (drop before or after handling, restart keeping state)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Claude Code's socket | `fakeinbox`: a Unix listener that speaks the auth and user lines, records every frame, and can hold, refuse, apply a 30 s duplicate filter and a 30-token, 0.5/s bucket, as U01 measured                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| the transcript       | `faketranscript`: appends the JSONL a real session would write for each frame (idle `user` entry or busy `queued_command`), after a delay, never, or after a rotation or `/clear`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| time                 | an injected clock in every package; no test sleeps                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `gh`, `lxc-attach`   | `execx.Fake`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| processes and locks  | the test binary re-run through `cmdmaintest` as a real keeper or worker; `SIGKILL` at named crash points (a `busfailpoints` build tag, never in a shipped binary): after auth before the awaiting entry is persisted, after it is persisted before the user line, after the user line before `written: "yes"`, between two stores' writes of one delivery, after a send's PUT before its answer is recorded, the keeper while its worker writes, the worker inside `remove`, the worker after `remove` answered and before the farewell is posted, the worker after `missing` is persisted, the worker after the hand-out write before the records are sent, the worker while items are `handed` to a `recv`, the keeper between its worker's death and the store's deletion in a timed-out removal (the residual of 2.5) |
 
 The properties tested across random interleavings of sync batches, `recv`, deliveries, socket and
 homeserver faults and crashes at every failpoint: no accepted item is lost; no item reaches the fake
 transcript twice unless the second copy carries `repeat`; the sync position is never persisted ahead
-of the items it brought; a removed team's items never reach the transcript after the removal; every
-goodbye or disconnected notice is posted at most once per run; no two processes write one store at
-once. Two named properties pin the proof rule (2.7.4): **busy, then recorded** (the session is in
+of the items it brought; a removed team's items never reach the transcript after the removal (at
+every failpoint but the keeper's residual one of 2.5, whose outcome, the gap delivered on a re-add,
+is pinned by its own test so that a change to it is seen); every goodbye or disconnected notice is
+posted at most once per run; no two processes write one store at once; no request is acted on after
+its deadline. Two named properties pin the proof rule (2.7.4): **busy, then recorded** (the session is in
 one tool call for 10 minutes, writes nothing to its transcript, then records the queued message:
 the delivery is proven, never missing, and `recv` never shows its items) and **found after
 missing** (the needle appears after `missing` was declared: items still pending leave as proven,
@@ -1590,31 +1698,33 @@ held, none is in the ledger, and `recv` shows each once) and **handed is exclusi
 interleavings of `recv`, `wait` and the delivery goroutine, an item handed to a `recv` never
 appears in a socket delivery or another `recv` until it is returned; an acknowledged item is in the
 ledger; one never acknowledged within 10 s, or whose CLI is gone, is back in `pending` marked
-`repeat`).
+`repeat`; a worker `SIGKILL`ed while items are handed restarts with them in `pending` marked
+`repeat`, so no unmarked second copy reaches the fake transcript or a `recv`).
 
 Tests by piece, beyond the expectations each requirement already carries:
 
-| Piece                          | Test                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| single writer (2.5)            | the three crash-point tests of 2.5: keeper killed while its worker writes; a worker that never answers `remove` (its store deleted by the keeper before the seat is free); `guest remove` and `seat set-aside` against a held seat, with the inode of `seat.lock` unchanged                                                                                                                                                                                                                                                                               |
-| `recv` (2.4.4)                 | more pending than the cap: 8 entries or 12 KiB, a `more` record, the rest on the next `recv`; a CLI killed before its acknowledgement, one whose stdout is closed, and one that never acknowledges within 10 s: the items are pending again with the same ids, marked `repeat`; while handed, a socket delivery and a second `recv` do not take them; an acknowledged item is in the ledger                                                                                                                                                               |
-| `wait` (2.2.4)                 | the worker restarted under a running `wait`: it reconnects and returns the next item within its timeout; no worker for the whole timeout: exit 69                                                                                                                                                                                                                                                                                                                                                                                                         |
-| hook peers and paths (2.4.4)   | each hook-only op sent forged: from a process outside the session's tree (refused), with another pid's socket path, with a transcript path outside the session's project directory (under `CLAUDE_CONFIG_DIR` when set, `~/.claude` otherwise) or not named by `session_id`, a new `session_id` on anything but SessionStart `clear` or `resume`, a socket change from `hook.prompt` or `hook.stop`, and a SessionEnd while the session lives (no goodbye posted); an adopted session given its socket facts by `hook.stop` is woken by the next delivery |
-| no team (2.4.1)                | `run` with no desired seat: one resident process, the keeper serving `worker.sock`, the hooks answer `{}`, no status segment (a red `bus membership refused` for an undecodable desired file), the conversation record written at SessionStart; the first seat starts the worker, which takes over the socket and the session facts; launch with no team, hot add, and the first-join relaunch resumes this session's id, while a record whose `run` differs is refused                                                                                   |
-| kit upgrade (B38)              | a new kit installed and `current` repointed under a running session: its hooks, status line and verbs keep working from the old `<digest>/`, and a session launched after runs the new one; `current` repointed between `run`'s read and its re-exec: the re-exec'd `run` uses the `--kit` it was given                                                                                                                                                                                                                                                   |
-| `repair` (2.4.5)               | `--list` finds a runtime whose keeper was killed; `--runtime` adopts it and the bus resumes; refused for a pid reused by another process (start time differs), for a live keeper (75), and for a runtime of the wrong owner or mode                                                                                                                                                                                                                                                                                                                       |
-| leftover runtimes (2.4.1)      | a runtime whose session has gone is removed by the next `run`; one whose session lives is left                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| reconcile bound (B32)          | a desired-membership change applied within 2 s on the injected clock; an `IN_Q_OVERFLOW` re-read; an undecodable file named in `report.json` and `status` with the last good membership kept                                                                                                                                                                                                                                                                                                                                                              |
-| permanent failure (2.6 step 8) | a 401 stops one team; a new bundle placed in its directory resumes it with its owed TIMEOUTs intact; a new desired generation does the same                                                                                                                                                                                                                                                                                                                                                                                                               |
-| replay (B44)                   | a planted id older than its room's floor, and one already in the ledger, are dropped and logged; a restored item that passes carries `restored`; an item declared missing before the restart is not in the ledger and is delivered                                                                                                                                                                                                                                                                                                                        |
-| heartbeat (2.9)                | every team stopped on a permanent failure: `status.json` still refreshed each minute, so the status line never says `not answering`                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| unusable inputs (2.8, 2.7.2)   | non-JSON hook stdin is counted and shown by `status`; a HUMAN item that fails rendering produces the NOTICE                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `seat close-ended` (2.11)      | a symbolic link at any path component refused; a store written by a host process keeps the member's owner and mode; a closed terminal does not stop it before every seat is told                                                                                                                                                                                                                                                                                                                                                                          |
-| guest operations (2.13)        | each op through `execx.Fake` and then in the VM lab from nothing: a binary whose `sha256sum` does not match is never run; umask and leaf modes; `O_EXCL` placement; refusal of a path owned by someone else; `CHANGED` lines only on change; `install-self` removes an old `<digest>/` no live runtime names and keeps one a live session names                                                                                                                                                                                                           |
-| removal (2.10)                 | a remove with an unreachable homeserver answers within the 10 s bound, the farewell follows within its own 30 s; a worker killed inside `remove`: the keeper deletes the store before freeing the seat, the restarted worker posts the owed farewell once (same transaction id), and a re-add delivers nothing posted in the gap; a farewell still owed at session end is `"owed"` in `report.json`                                                                                                                                                       |
-| per-launch settings (2.4.1)    | a launch with inbound `accept` and one with `refuse`: `<v2-run>/settings.json` carries each, and Claude Code's argv ends in `--plugin-dir <kit>/plugin --settings <v2-run>/settings.json`; a CMD that is not `claude` gets nothing appended; a `claude` CMD with its own `--settings`, `--plugin-dir` or `--` is exit 64                                                                                                                                                                                                                                  |
-| several teams (2.7.3)          | a crash between two stores' awaiting writes: on restart the items return to `pending` at once with no `repeat`; a crash between the `yes` writes: the transcript proves the second store's entry                                                                                                                                                                                                                                                                                                                                                          |
-| keeper lost (2.4.5, 2.11)      | the keeper killed: each store's run ends `keeper-lost`; adopted by `repair`, nothing is posted; the seat taken by another session first: one `disconnected` naming the lost runtime                                                                                                                                                                                                                                                                                                                                                                       |
+| Piece                               | Test                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| single writer (2.5)                 | the three crash-point tests of 2.5: keeper killed while its worker writes; a worker that never answers `remove` (its store deleted by the keeper before the seat is free); `guest remove` and `seat set-aside` against a held seat, with the inode of `seat.lock` unchanged                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `recv` (2.4.4)                      | more pending than the cap: 8 entries or 12 KiB, a `more` record, the rest on the next `recv`; a CLI killed before its acknowledgement, one whose stdout is closed, and one that never acknowledges within 10 s: the items are pending again with the same ids, marked `repeat`; while handed, a socket delivery and a second `recv` do not take them; an acknowledged item is in the ledger                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `wait` (2.2.4)                      | the worker restarted under a running `wait`: it gets 69 `no-worker` from the keeper during the gap, retries with the same deadline, and returns the next item within its timeout; no worker for the whole timeout: `no-worker` answers until the deadline, then exit 69 (never 4, never a hang); a worker failed with 78: exit 69 `worker-failed` at once                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| socket always served (2.4.2, 2.4.4) | a worker in its restart backoff: `say` exits 69 `no-worker` in under 300 ms and a hook gets the keeper's fixed line; after a final 78, `worker-failed`; a `say` whose CLI was killed while its request sat in the backlog is never posted (its deadline passed); a `hook.session-start` in flight during each hand-off direction: the conversation record has one writer, and facts the keeper recorded during a restart reach the new worker                                                                                                                                                                                                                                                                                                                                                                   |
+| hook peers and paths (2.4.4)        | each hook-only op sent forged: from a process outside the session's tree (refused), with another pid's socket path, with a transcript path outside the session's project directory (under `CLAUDE_CONFIG_DIR` when set, `~/.claude` otherwise) or not named by `session_id`, a new `session_id` on anything but SessionStart `clear` or `resume`, a socket change from `hook.prompt` or `hook.stop`, and a SessionEnd while the session lives (no goodbye posted); an adopted session given its socket facts by `hook.stop` is woken by the next delivery                                                                                                                                                                                                                                                       |
+| no team (2.4.1)                     | `run` with no desired seat: one resident process, the keeper serving `worker.sock`, the hooks answer `{}`, no status segment (a red `bus membership refused` for an undecodable desired file), the conversation record written at SessionStart; the first seat starts the worker, which takes over the socket and the session facts; launch with no team, hot add, and the first-join relaunch resumes this session's id, while a record whose `run` differs is refused                                                                                                                                                                                                                                                                                                                                         |
+| kit upgrade (B38)                   | a new kit installed and `current` repointed under a running session: its hooks, status line and verbs keep working from the old `<digest>/`, and a session launched after runs the new one; `current` repointed between `run`'s read and its re-exec: the re-exec'd `run` uses the `--kit` it was given                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `repair` (2.4.5)                    | `--list` finds a runtime whose keeper was killed; `--runtime` adopts it and the bus resumes; refused for a pid reused by another process (start time differs), for a live keeper (75), and for a runtime of the wrong owner or mode; the adopting keeper rebinds over the stale `worker.sock`, and its worker resumes the `keeper-lost` run by the run id in `session.pid`                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| leftover runtimes (2.4.1)           | a runtime whose session has gone is removed by the next `run`; one whose session lives is left                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| reconcile bound (B32)               | a desired-membership change applied within 2 s on the injected clock; an `IN_Q_OVERFLOW` re-read; an undecodable file named in `report.json` and `status` with the last good membership kept                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| permanent failure (2.6 step 8)      | a 401 stops one team; a new bundle placed in its directory resumes it with its owed TIMEOUTs intact; a new desired generation does the same                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| replay (B44)                        | a planted id older than its room's floor, and one already in the ledger, are dropped and logged; a restored item that passes carries `restored`; an item declared missing before the restart is not in the ledger and is delivered                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| heartbeat (2.9)                     | every team stopped on a permanent failure: `status.json` still refreshed each minute, so the status line never says `not answering`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| unusable inputs (2.8, 2.7.2)        | non-JSON hook stdin is counted and shown by `status`; with no worker serving, the keeper counts it into `status.json`, the status line shows it, and the next worker's `status` includes it; a HUMAN item that fails rendering produces the NOTICE                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `seat close-ended` (2.11)           | a symbolic link at any path component refused; a store written by a host process keeps the member's owner and mode; a closed terminal does not stop it before every seat is told                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| guest operations (2.13)             | each op through `execx.Fake` and then in the VM lab from nothing: a binary whose `sha256sum` does not match is never run; umask and leaf modes; `O_EXCL` placement; refusal of a path owned by someone else; `CHANGED` lines only on change; `install-self` removes an old `<digest>/` no live runtime names and keeps one a live session names                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| removal (2.10)                      | a remove with an unreachable homeserver answers within the 10 s bound, the farewell follows within its own 30 s; a worker killed inside `remove`: the keeper deletes the store before freeing the seat, the restarted worker posts the owed farewell once (same transaction id), and a re-add delivers nothing posted in the gap; the last held seat's removal timed out: a farewell-only worker posts the owed farewell within 30 s and ends; the seat stays locked by this session until the farewell is posted or its bound passes, and the final `report.json` is written before the release, so a new taker never reads an `owed` it did not write; a farewell still owed at session end is `"owed"` in `report.json`; a `recv` acknowledgement after its team's removal is ignored and recreates no store |
+| per-launch settings (2.4.1)         | a `--claude` launch with inbound `accept` and one with `refuse`: `<v2-run>/settings.json` carries each value explicitly (and `refuse` with no `--desired`), and Claude Code's argv ends in `--plugin-dir <kit>/plugin --settings <v2-run>/settings.json`; a `--claude` CMD named other than `claude` gets the same; a `--plain` CMD gets nothing appended and no settings file, and with a seat held its team shows `"delivery": "none"`; neither or both of `--claude` and `--plain`, or a `--claude` CMD with its own `--settings`, `--plugin-dir` or `--`, is exit 64; a desired file rewritten to `accept` under a session launched with `refuse` still gives `wait` mode and `"needs_relaunch": true`                                                                                                      |
+| several teams (2.7.3)               | a crash between two stores' awaiting writes: on restart the items return to `pending` at once with no `repeat`; a crash between the `yes` writes: the transcript proves the second store's entry                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| keeper lost (2.4.5, 2.11)           | the keeper killed: each store's run ends `keeper-lost`; adopted by `repair`, nothing is posted; the seat taken by another session first: one `disconnected` naming the lost runtime                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 Beyond the fakes: an end-to-end suite behind `-tags tuwunel` (a real Tuwunel, two members and a human,
 a homeserver restart during a long-poll and during a send); the VM lab with an EL9 LXC guest (guest
@@ -1623,7 +1733,8 @@ next start's disconnected notice, inotify across a ccy container's bind mount); 
 H1-H7 re-run against v2 for each Claude Code version the kit pins (idle wake, busy queue, the
 transcript shapes, the socket's message size, the inbox socket's path form and the project
 directory derivation that 2.4.4 accepts, and that an appended `--settings` file's
-`crossSessionInbound` is honoured).
+`crossSessionInbound`, `accept` or `refuse`, is honoured over the user's and the project's
+settings).
 
 ---
 
@@ -1631,23 +1742,23 @@ directory derivation that 2.4.4 accepts, and that an appended `--settings` file'
 
 Each has a recommended default, taken unless the owner overturns it ("DO NOT GATE ON ME").
 
-| #    | Question                                                                            | Options                                                                                                                                                                                  | Default and why                                                                                                                                                                                                                                                                                                      |
-| ---- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| BD1  | Who owns member state?                                                              | (a) shared files and seven locks, as v1; (b) the worker alone, every verb an RPC                                                                                                         | (b): one writer removes six locks, the untrusted inbox, the recv/watcher race and per-hook surveys (2.1). Its cost, no direct mode, is BD2                                                                                                                                                                           |
-| BD2  | A verb when no worker runs?                                                         | (a) exit 69 and say why; (b) a degraded direct path that reads the store and the token itself                                                                                            | (a): a second path is a fallback between two implementations, which the frame forbids; a human with no session runs `<v2-bin> run -- bash`                                                                                                                                                                           |
-| BD3  | The output agents read?                                                             | (a) JSON Lines, `"v": 2`, error object on stderr; (b) v1's tab lines; (c) text with a `--json` switch                                                                                    | (a): one parser, nests, text is a JSON string by construction (2.2.2)                                                                                                                                                                                                                                                |
-| BD4  | Verb names                                                                          | (a) `ping`, `reply`, `ask`, `verify` added; (b) v1's `send`, `say --re`, `ask-human`                                                                                                     | (a): `reply` removes the addressing agents got wrong; v2 is a separate system with its own skill, so nothing aliases                                                                                                                                                                                                 |
-| BD5  | The store                                                                           | (a) one JSON snapshot per seat, atomic replace; (b) bbolt; (c) v1's file per item                                                                                                        | (a): one writer needs no database; inspectable with `jq`; no new dependency (2.3.2)                                                                                                                                                                                                                                  |
-| BD6  | Death with the session                                                              | (a) pidfd; (b) `PR_SET_PDEATHSIG`                                                                                                                                                        | (a): Go's thread hazard makes (b) fire while the parent lives (2.4.1); pidfd needs Linux 5.3, met by every member kernel                                                                                                                                                                                             |
-| BD7  | Flood-limited items                                                                 | (a) stay pending and go out when the budget refills; (b) consumed undelivered, as v1                                                                                                     | (a): a limit should slow a sender, not lose its messages                                                                                                                                                                                                                                                             |
-| BD8  | A delivery the transcript does not show                                             | (a) its items return to `recv`, held from the socket; (b) consumed, reachable only in `history`, as v1                                                                                   | (a): the agent can still get them, and the socket is not asked again to deliver into a session that holds its messages. Since (a) makes a false `missing` cost a second copy, missing is declared only once the session is idle since the write, or after 1 h, and a late find removes what is still pending (2.7.4) |
-| BD9  | A session killed before SessionEnd                                                  | (a) "disconnected" when the seat is next taken, and at once for ccy by the host's cleanup; (b) the host's cleanup only, as v1                                                            | (a): it covers LXC, docker and VM, which v1 never told; the late notice carries the time the session ended                                                                                                                                                                                                           |
-| BD10 | Inbound socket messages in a session launched on no team                            | (a) refused until the first join relaunches it, as v1; (b) always accepted when the kit is loaded                                                                                        | (a): least privilege; an idle teamless session should not take cross-session messages; the cost is one relaunch on first join. The setting is written per launch by `run` from the desired file's `inbound`, never into the kit's immutable settings (2.4.1)                                                         |
-| BD11 | The SessionEnd timeout lift (`CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS`)             | (a) dropped; (b) kept as a margin                                                                                                                                                        | (a): the hook now returns at once and the goodbye is posted outside Claude Code's bound (2.8); a setting with no reason left is a moving part                                                                                                                                                                        |
-| BD12 | The frame text                                                                      | (a) at every SessionStart, including after `/clear` and compaction; (b) once per session                                                                                                 | (a): after a clear or compaction the earlier text may be gone from context, and its rules matter most then                                                                                                                                                                                                           |
-| BD13 | Hot control for LXC members                                                         | (a) the same desired-membership file, written into the guest by `guest membership`; (b) v1's env file and a play                                                                         | (a): one model for every member kind (B34), no play run for a membership change                                                                                                                                                                                                                                      |
-| BD14 | A session on v1 and v2 teams at once (a member of two teams of which one has moved) | (a) `run` refuses an environment carrying v1's `PINGBUS_*` variables, so a session is on one system only; (b) a session may hold v1 and v2 teams at once, each system blind to the other | defer to area D, which owns how a running session moves (D2). B works either way: no v2 code reads a `PINGBUS_*` variable, and `run` does not fail merely because they exist. B's lean is (b), since (a) makes such a member leave one team to stay in the other                                                     |
-| BD15 | A gap larger than the fill (more than 20 pages of 100 events)                       | (a) move the position on, queue one `gap` NOTICE naming `history`, count it in `status`; (b) stop the team until the owner acts; (c) keep paging without a bound                         | (a): the loss is said, the agent can read the room, and the team keeps working; (b) turns one burst into an outage, and (c) has no bound on memory or time (2.6 step 03)                                                                                                                                             |
+| #    | Question                                                                            | Options                                                                                                                                                                                  | Default and why                                                                                                                                                                                                                                                                                                                                                             |
+| ---- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| BD1  | Who owns member state?                                                              | (a) shared files and seven locks, as v1; (b) the worker alone, every verb an RPC                                                                                                         | (b): one writer removes six locks, the untrusted inbox, the recv/watcher race and per-hook surveys (2.1). Its cost, no direct mode, is BD2                                                                                                                                                                                                                                  |
+| BD2  | A verb when no worker runs?                                                         | (a) exit 69 and say why; (b) a degraded direct path that reads the store and the token itself                                                                                            | (a): a second path is a fallback between two implementations, which the frame forbids; the 69 comes at once from the keeper, which serves the socket whenever no worker does, never after a queue (B45); a human with no session runs `<v2-bin> run --plain -- bash`                                                                                                        |
+| BD3  | The output agents read?                                                             | (a) JSON Lines, `"v": 2`, error object on stderr; (b) v1's tab lines; (c) text with a `--json` switch                                                                                    | (a): one parser, nests, text is a JSON string by construction (2.2.2)                                                                                                                                                                                                                                                                                                       |
+| BD4  | Verb names                                                                          | (a) `ping`, `reply`, `ask`, `verify` added; (b) v1's `send`, `say --re`, `ask-human`                                                                                                     | (a): `reply` removes the addressing agents got wrong; v2 is a separate system with its own skill, so nothing aliases                                                                                                                                                                                                                                                        |
+| BD5  | The store                                                                           | (a) one JSON snapshot per seat, atomic replace; (b) bbolt; (c) v1's file per item                                                                                                        | (a): one writer needs no database; inspectable with `jq`; no new dependency (2.3.2)                                                                                                                                                                                                                                                                                         |
+| BD6  | Death with the session                                                              | (a) pidfd; (b) `PR_SET_PDEATHSIG`                                                                                                                                                        | (a): Go's thread hazard makes (b) fire while the parent lives (2.4.1); pidfd needs Linux 5.3, met by every member kernel                                                                                                                                                                                                                                                    |
+| BD7  | Flood-limited items                                                                 | (a) stay pending and go out when the budget refills; (b) consumed undelivered, as v1                                                                                                     | (a): a limit should slow a sender, not lose its messages                                                                                                                                                                                                                                                                                                                    |
+| BD8  | A delivery the transcript does not show                                             | (a) its items return to `recv`, held from the socket; (b) consumed, reachable only in `history`, as v1                                                                                   | (a): the agent can still get them, and the socket is not asked again to deliver into a session that holds its messages. Since (a) makes a false `missing` cost a second copy, missing is declared only once the session is idle since the write, or after 1 h, and a late find removes what is still pending (2.7.4)                                                        |
+| BD9  | A session killed before SessionEnd                                                  | (a) "disconnected" when the seat is next taken, and at once for ccy by the host's cleanup; (b) the host's cleanup only, as v1                                                            | (a): it covers LXC, docker and VM, which v1 never told; the late notice carries the time the session ended                                                                                                                                                                                                                                                                  |
+| BD10 | Inbound socket messages in a session launched on no team                            | (a) refused until the first join relaunches it, as v1; (b) always accepted when the kit is loaded                                                                                        | (a): least privilege; an idle teamless session should not take cross-session messages; the cost is one relaunch on first join. The setting is written per launch by `run` from the desired file's `inbound`, always as an explicit `accept` or `refuse`, never into the kit's immutable settings, and the launch value alone decides delivery for the session (2.4.1, 2.10) |
+| BD11 | The SessionEnd timeout lift (`CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS`)             | (a) dropped; (b) kept as a margin                                                                                                                                                        | (a): the hook now returns at once and the goodbye is posted outside Claude Code's bound (2.8); a setting with no reason left is a moving part                                                                                                                                                                                                                               |
+| BD12 | The frame text                                                                      | (a) at every SessionStart, including after `/clear` and compaction; (b) once per session                                                                                                 | (a): after a clear or compaction the earlier text may be gone from context, and its rules matter most then                                                                                                                                                                                                                                                                  |
+| BD13 | Hot control for LXC members                                                         | (a) the same desired-membership file, written into the guest by `guest membership`; (b) v1's env file and a play                                                                         | (a): one model for every member kind (B34), no play run for a membership change                                                                                                                                                                                                                                                                                             |
+| BD14 | A session on v1 and v2 teams at once (a member of two teams of which one has moved) | (a) `run` refuses an environment carrying v1's `PINGBUS_*` variables, so a session is on one system only; (b) a session may hold v1 and v2 teams at once, each system blind to the other | defer to area D, which owns how a running session moves (D2). B works either way: no v2 code reads a `PINGBUS_*` variable, and `run` does not fail merely because they exist. B's lean is (b), since (a) makes such a member leave one team to stay in the other                                                                                                            |
+| BD15 | A gap larger than the fill (more than 20 pages of 100 events)                       | (a) move the position on, queue one `gap` NOTICE naming `history`, count it in `status`; (b) stop the team until the owner acts; (c) keep paging without a bound                         | (a): the loss is said, the agent can read the room, and the team keeps working; (b) turns one burst into an outage, and (c) has no bound on memory or time (2.6 step 03)                                                                                                                                                                                                    |
 
 None of these is irreversible: each lives inside the member binary and its kit, which a later kit
 version can change without touching another area's data.
@@ -1656,20 +1767,21 @@ version can change without touching another area's data.
 
 ## 4. Risks
 
-| Risk                                                                                                                                                                                                            | Mitigation                                                                                                                                                                                                                                                                                                                        |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The transcript is not a documented interface; a Claude Code release can change how socket messages are recorded                                                                                                 | the needle is format-blind ASCII; the fake transcript pins both known shapes; a host check per pinned Claude Code version; a change shows as `missing`, loudly, and the items return to `recv`                                                                                                                                    |
-| A homeserver may not keep transaction ids across its own restart, so a re-sent goodbye or send could post twice                                                                                                 | the `-tags tuwunel` suite restarts Tuwunel between a send and its re-send and records the result; if Tuwunel forgets, the re-send first searches the room's recent events for the transaction id                                                                                                                                  |
-| inotify events may not cross a ccy container's bind mount of `<v2-desired>`                                                                                                                                     | a VM-lab check before the hot-control stage; inotify is inode-based and the host replaces the file inside the mounted directory, so it is expected to hold                                                                                                                                                                        |
-| The socket's real message limit is unmeasured (H4); 12 KiB per delivery is provisional                                                                                                                          | host check H4 before the caps are frozen; the caps are one constant each                                                                                                                                                                                                                                                          |
-| The worker is a single point of failure for the session's bus                                                                                                                                                   | the keeper restarts it with backoff; everything durable is in the store; the status line and the hooks say when it is down; nothing is lost while it is                                                                                                                                                                           |
-| A hung worker (alive, holding its lock, not answering)                                                                                                                                                          | the heartbeat in `status.json` (2.9), from the state goroutine's own timer, shows it even when no team syncs; hooks time out at 300 ms and say so; the keeper does not judge liveness by RPC, by design, so a slow homeserver never gets a worker killed                                                                          |
-| Sibling ccy containers of one checkout share a uid, so one can read another seat's token and edit its store                                                                                                     | stated, not hidden (2.3.1); the store holds ids only and restored items are re-fetched; the room floors refuse a replayed old id and restored items are marked (B44), but a sibling that can write the store can rewrite the floors too, so the residual replay risk stays until area C isolates siblings (C7)                    |
-| A store that does not decode stops its team                                                                                                                                                                     | loud (exit 78, status line, `status`), never repaired silently; the owner runs `seat set-aside`, which takes the seat lock first, and the team restarts with a fresh sync                                                                                                                                                         |
-| The inbox socket's path form (`$XDG_RUNTIME_DIR/cc-socks/<pid>.sock`) that 2.4.4 accepts is read from Claude Code's behaviour, not a documented interface                                                       | a host check per pinned Claude Code version confirms it; a change makes the worker refuse the socket loudly (a hook line and `status`), so delivery falls to `wait`, never to a socket it cannot vouch for                                                                                                                        |
-| A busy session that holds a queued delivery for over 1 h is declared missing, and the agent may see its items twice                                                                                             | the quiet clock waits for the session to be idle (2.7.4); the late find removes still-pending items; what remains is counted `seen twice` in `status` with the same ids                                                                                                                                                           |
-| The project directory Claude Code derives from the working directory, its `CLAUDE_CONFIG_DIR` handling, and how it merges an appended `--settings` file are read from its behaviour, not a documented interface | a host check per pinned Claude Code version confirms each; a change in the first two makes the worker refuse the transcript loudly (deliveries then go `missing` and return to `recv`), and a change in the third shows as a launch with a team whose socket messages are held, which the same check catches before the kit ships |
-| Go's runtime wakes on its own (forced GC every 2 minutes, `sysmon`)                                                                                                                                             | measured by B40's acceptance rather than assumed away; `GOGC` and `GOMEMLIMIT` are set only if the measurement asks for it                                                                                                                                                                                                        |
+| Risk                                                                                                                                                                                                                                                                                    | Mitigation                                                                                                                                                                                                                                                                                                                        |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The transcript is not a documented interface; a Claude Code release can change how socket messages are recorded                                                                                                                                                                         | the needle is format-blind ASCII; the fake transcript pins both known shapes; a host check per pinned Claude Code version; a change shows as `missing`, loudly, and the items return to `recv`                                                                                                                                    |
+| A homeserver may not keep transaction ids across its own restart, so a re-sent goodbye or send could post twice                                                                                                                                                                         | the `-tags tuwunel` suite restarts Tuwunel between a send and its re-send and records the result; if Tuwunel forgets, the re-send first searches the room's recent events for the transaction id                                                                                                                                  |
+| inotify events may not cross a ccy container's bind mount of `<v2-desired>`                                                                                                                                                                                                             | a VM-lab check before the hot-control stage; inotify is inode-based and the host replaces the file inside the mounted directory, so it is expected to hold                                                                                                                                                                        |
+| The socket's real message limit is unmeasured (H4); 12 KiB per delivery is provisional                                                                                                                                                                                                  | host check H4 before the caps are frozen; the caps are one constant each                                                                                                                                                                                                                                                          |
+| The worker is a single point of failure for the session's bus                                                                                                                                                                                                                           | the keeper restarts it with backoff; everything durable is in the store; the status line and the hooks say when it is down; nothing is lost while it is                                                                                                                                                                           |
+| A hung worker (alive, holding its lock, not answering)                                                                                                                                                                                                                                  | the heartbeat in `status.json` (2.9), from the state goroutine's own timer, shows it even when no team syncs; hooks time out at 300 ms and say so; the keeper does not judge liveness by RPC, by design, so a slow homeserver never gets a worker killed                                                                          |
+| Sibling ccy containers of one checkout share a uid, so one can read another seat's token and edit its store                                                                                                                                                                             | stated, not hidden (2.3.1); the store holds ids only and restored items are re-fetched; the room floors refuse a replayed old id and restored items are marked (B44), but a sibling that can write the store can rewrite the floors too, so the residual replay risk stays until area C isolates siblings (C7)                    |
+| A keeper that dies inside a removal that already timed out, after killing the worker and before deleting the store, frees the seat with the store intact, so a re-add delivers the gap (against B33)                                                                                    | stated as a residual (2.5), not closed: it needs a keeper crash on a path that is already a failure; the failpoint is in 2.15 and its outcome is pinned, so a change is seen                                                                                                                                                      |
+| A store that does not decode stops its team                                                                                                                                                                                                                                             | loud (exit 78, status line, `status`), never repaired silently; the owner runs `seat set-aside`, which takes the seat lock first, and the team restarts with a fresh sync                                                                                                                                                         |
+| The inbox socket's path form (`$XDG_RUNTIME_DIR/cc-socks/<pid>.sock`) that 2.4.4 accepts is read from Claude Code's behaviour, not a documented interface                                                                                                                               | a host check per pinned Claude Code version confirms it; a change makes the worker refuse the socket loudly (a hook line and `status`), so delivery falls to `wait`, never to a socket it cannot vouch for                                                                                                                        |
+| A busy session that holds a queued delivery for over 1 h is declared missing, and the agent may see its items twice                                                                                                                                                                     | the quiet clock waits for the session to be idle (2.7.4); the late find removes still-pending items; what remains is counted `seen twice` in `status` with the same ids                                                                                                                                                           |
+| The project directory Claude Code derives from the working directory, its `CLAUDE_CONFIG_DIR` handling, and how it merges an appended `--settings` file (which must outrank the user's and the project's `crossSessionInbound`) are read from its behaviour, not a documented interface | a host check per pinned Claude Code version confirms each; a change in the first two makes the worker refuse the transcript loudly (deliveries then go `missing` and return to `recv`), and a change in the third shows as a launch with a team whose socket messages are held, which the same check catches before the kit ships |
+| Go's runtime wakes on its own (forced GC every 2 minutes, `sysmon`)                                                                                                                                                                                                                     | measured by B40's acceptance rather than assumed away; `GOGC` and `GOMEMLIMIT` are set only if the measurement asks for it                                                                                                                                                                                                        |
 
 ---
 
@@ -1752,8 +1864,9 @@ version can change without touching another area's data.
 - C2. C writes the desired membership (2.10: generation, seats, farewells, inbound) into
   `<v2-desired>`, read-only to the member, by directory mount (ccy) or `guest membership` (LXC); and
   owns the relaunch on a first join (R32).
-- C3. Every launcher of a session with a bus ends in `<v2-bin> run`; a launch with no bus does not
-  wrap with `run` (2.4.1). The kit (binary, plugin, settings) is placed per version under
+- C3. Every launcher of a session with a bus ends in `<v2-bin> run`, stating its kind with
+  `--claude` (a Claude Code launch, whatever its command is called) or `--plain`; a launch with no
+  bus does not wrap with `run` (2.4.1). The kit (binary, plugin, settings) is placed per version under
   `<v2-kit>/<digest>/`, never changed once placed, with a `current` link that `run` resolves once;
   an old `<digest>/` is removed only when no runtime's `session.pid` names it. The host cannot list
   container-private or guest runtimes, so that removal is done where the runtimes are visible: for
@@ -1769,10 +1882,12 @@ version can change without touching another area's data.
   it, and runs the `allow_from` source-address pre-check of R48 on the host; whether an idmapped
   container can be supported now that guest steps run inside the guest is C's call.
 - C6. C posts the farewell for a seat whose session is not running when it is removed, with the
-  admin's account, and for a seat whose `report.json` still says `"farewell": "owed"` after its
-  session has ended (2.10). While a session runs, an owed farewell is the session's to post, so C
-  keeps a removed seat's bundle placed until `report.json` no longer says `owed` or the session has
-  ended.
+  admin's account, and for a seat whose `report.json` still says `"farewell": "owed"` once its seat
+  lock is free (the keeper writes that final `report.json` just before it releases the seat: the
+  farewell's 30 s bound passed, or the session ended, 2.10). C posts such a farewell before it gives
+  the seat to another session, whose keeper rewrites `report.json` and would erase the marker. While
+  the seat is held, an owed farewell is the session's to post, so C keeps a removed seat's bundle
+  placed until `report.json` no longer says `owed` or the seat is free.
 - C7. C decides whether sibling ccy containers of one checkout get separate uids or per-container
   bundle mounts, which is what would stop one reading another's token and editing its store
   (2.3.1). Until then the residual risk is stated: a sibling can replay the id of an old real HUMAN
