@@ -94,12 +94,19 @@ as hooks-daemon issue #131 and is not this plan's to fix.
   set, or one derived from `refreshInterval`. The inner line's own cost on each tick is
   upstream too (hooks-daemon issue #131). ccy version bump made. Measure again with 1.1.
 
-- [ ] ⬜ **Task 1.4**: The pingbus zipapp's shebang (`helpers/pingbus/bundle.py`) is
+- [x] ✅ **Task 1.4**: The pingbus zipapp's shebang (`helpers/pingbus/bundle.py`) is
   `#!/usr/bin/env python3`, so every start resolves `python3` through PATH: on the host that
   means the pyenv shim, `pyenv-exec` and friends, at about 0.16 CPU-s per start. Make the
   shebang and every kit entry point (the `pingbus` wrapper and the hook commands) name the
   system interpreter directly, never through PATH. Plan 00203 already does this for the declare helper
-  (pinned to `/usr/bin/python3`), which is the precedent.
+  (pinned to `/usr/bin/python3`), which is the precedent. Done: `bundle.SHEBANG` is
+  `#!/usr/bin/python3`. It is tested by its value and by running the archive through its own
+  shebang with a PATH whose only `python3` fails. Every kit entry point is that archive:
+  `pingbus` on the host is a symlink to `pingbus.pyz`, the kit and image carry a copy, and the
+  hook commands and the seat guard `exec pingbus` through PATH. So they look up `pingbus`, never
+  `python3`, and need no change of their own. Fedora and the image (Debian `python3`) both
+  have `/usr/bin/python3`. The host's copy is built by `play-agent-bus.yml` and the image's by
+  `play-claude-yolo.yml`, both queued. ccy version bump made.
 
 ### Phase 2: `pingbus status-line` in Go
 

@@ -132,6 +132,28 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(info.external_attr, bundle.ENTRY_MODE << 16)
             self.assertEqual(info.compress_type, zipfile.ZIP_STORED)
 
+    def test_the_shebang_names_the_system_interpreter(self) -> None:
+        """Plan 00213 Task 1.4: never `env python3`, which resolves through PATH (on the host a
+        pyenv shim, about 0.16 CPU-s on every start)."""
+        self.assertEqual(bundle.SHEBANG, b"#!/usr/bin/python3\n")
+
+    def test_the_archive_runs_with_no_python3_on_path(self) -> None:
+        """Executed by its own shebang with a PATH whose only python3 fails: it still runs, so
+        PATH played no part in finding the interpreter."""
+        archive = self.tmp / "pingbus.pyz"
+        archive.write_bytes(bundle.build("pingbus", REPO_ROOT))
+        archive.chmod(0o755)
+        shim = self.tmp / "shim"
+        shim.mkdir()
+        (shim / "python3").write_text("#!/bin/sh\necho shim >&2\nexit 97\n")
+        (shim / "python3").chmod(0o755)
+        env = {key: value for key, value in os.environ.items() if not key.startswith(("PYTHON", "PINGBUS"))}
+        env["PATH"] = str(shim)
+        with tempfile.TemporaryDirectory() as cwd:
+            done = subprocess.run([str(archive), "status-line"], cwd=cwd, env=env, input="{}",
+                                  capture_output=True, text=True, check=False, timeout=60)
+        self.assertEqual((done.returncode, done.stdout), (0, "\n"), done.stderr)
+
     def test_main_module_calls_the_entry_point(self) -> None:
         archive = zipfile.ZipFile(io.BytesIO(bundle.build("pingbus", REPO_ROOT)))
         main = archive.read("__main__.py").decode()
