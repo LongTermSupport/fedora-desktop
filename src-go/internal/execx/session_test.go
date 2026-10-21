@@ -48,11 +48,12 @@ func pidFrom(t *testing.T, path string) int {
 	return 0
 }
 
-// living is whether pid is a process that has not ended (a zombie has ended).
+// living is whether pid is a process that has not ended (a zombie has ended). A process reaped
+// between the open of its stat file and the read is ESRCH, not ErrNotExist: ended too.
 func living(t *testing.T, pid int) bool {
 	t.Helper()
 	raw, err := fs.ReadFile(os.DirFS("/proc"), strconv.Itoa(pid)+"/stat")
-	if errors.Is(err, fs.ErrNotExist) {
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ESRCH) {
 		return false
 	}
 	if err != nil {
