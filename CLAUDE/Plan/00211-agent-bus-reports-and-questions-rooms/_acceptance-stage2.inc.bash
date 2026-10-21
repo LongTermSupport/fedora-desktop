@@ -285,6 +285,44 @@ a5_check() {
     replies_ok "${q}" "${out}"
 }
 
+# not_joined — one `<team> <handle> <membership>` line per coordinator that has not joined its
+# team's questions room, from `agent-bus list` (membership `-` when there is no ROOM line).
+not_joined() {
+    local team roster
+    while IFS= read -r team; do
+        roster="$("${AGENT_BUS[@]}" list "${team}")" || return 1
+        awk -F'\t' -v team="${team}" '
+            $1 == "MEMBER" && $3 == "coordinator" { coordinator[$2] = 1 }
+            $1 == "ROOM" && $3 == "questions" { seen[substr($2, 2, index($2, ":") - 2)] = $4 }
+            END { for (h in coordinator) if (seen[h] != "join") printf "%s %s %s\n", team, h, (h in seen ? seen[h] : "-") }
+        ' <<<"${roster}" || return 1
+    done <<<"${TEAMS}"
+}
+
+# questions_joined — deploy 2's wait (SPEC §5.3 leg 3): every coordinator has joined its
+# team's questions room within JOIN_WAIT_S, or each that has not is named.
+JOIN_WAIT_S=180
+JOIN_POLL_S=10
+questions_joined() {
+    local pending deadline=$((SECONDS + JOIN_WAIT_S)) team handle membership
+    while true; do
+        pending="$(not_joined)" || return 1
+        if [[ -z "${pending}" ]]; then
+            printf 'every coordinator has joined its team'\''s questions room\n'
+            return 0
+        fi
+        if [[ "${SECONDS}" -ge "${deadline}" ]]; then
+            while read -r team handle membership; do
+                printf 'team %s: %s has not joined questions (%s; invite: its session is not running; leave: its running pingbus is older than deploy 1): restart that session, then run meta-deploy again\n' \
+                    "${team}" "${handle}" "${membership}" >&2
+            done <<<"${pending}"
+            return 1
+        fi
+        printf 'waiting for %s coordinator(s) to join questions...\n' "$(wc -l <<<"${pending}")"
+        sleep "${JOIN_POLL_S}"
+    done
+}
+
 # ── --fake ───────────────────────────────────────────────────────────────────────────────
 # A fake agent-bus prints <team>.out and exits with <team>.rc from its own directory.
 
@@ -317,6 +355,26 @@ fake_a12() {
         fi
     done
     pick_teams && a12_check
+}
+
+# fake_join <membership of t1's coordinator: join|invite|leave|none|absent> — deploy 2's wait over
+# fixture rosters, with no waiting: t2 has no coordinator; `none` gives t1's coordinator no ROOM
+# line, and `absent` gives t1 no coordinator.
+fake_join() {
+    local role=coordinator room=""
+    printf '%s\n' '[{"team":"t1"},{"team":"t2"}]' >"${TEAMS_JSON}" || return 1
+    case "$1" in
+        none) ;;
+        absent) role=worker room=$'\nROOM\t@alpha:t1.internal\tquestions\t-' ;;
+        *) room=$'\nROOM\t@alpha:t1.internal\tquestions\t'"$1" ;;
+    esac
+    printf 'HUMAN\talice\tjoin\nMEMBER\talpha\t%s\tjoin\tactive\nROOM\t@alice:t1.internal\tquestions\tjoin%s\n' \
+        "${role}" "${room}" >"${FIX}/t1.out"
+    printf 'HUMAN\talice\tjoin\nMEMBER\tbeta\tworker\tjoin\tactive\nROOM\t@beta:t2.internal\treports\tjoin\n' >"${FIX}/t2.out"
+    printf '0\n' >"${FIX}/t1.rc"
+    printf '0\n' >"${FIX}/t2.rc"
+    JOIN_WAIT_S=0
+    pick_teams && questions_joined
 }
 
 # fake_refused <status> <answer JSON>

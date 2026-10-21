@@ -1,6 +1,6 @@
 # Plan 00211: agent bus reports and questions rooms
 
-**Status**: In Progress (Phase 1 deployed and accepted on the host, and the Phase 0 spike passed every fact; Phase 2, the admin side, next; D9 is accepted as the interim step, for the owner to confirm; the other defaulted decisions are open to override)
+**Status**: In Progress (Phase 1 deployed and accepted on the host, and the Phase 0 spike passed every fact; Phase 2, the admin side, in code and queued as deploy 2, not merged or run; D9 is accepted as the interim step, for the owner to confirm; the other defaulted decisions are open to override)
 **Created**: 2026-10-21
 **Owner**: joseph
 **Priority**: High
@@ -185,11 +185,19 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   `health.py`, which holds no Matrix credential (SPEC §5.4 corrected). Done in code.
 - [x] ✅ **Task 2.4**: `agent-bus list` `ROOM` lines, with the HUMAN and MEMBER lines unchanged
   (SPEC §5.5). Done in code; the LXC helper's and ccy-teams' parsers skip them.
-- [ ] ⬜ **Task 2.5**: `acceptance.bash` gains stage 2 (A1-A4) and `--after-owner` (A5), and
+- [x] ✅ **Task 2.5**: `acceptance.bash` gains stage 2 (A1-A4) and `--after-owner` (A5), and
   `ACCEPTANCE-owner.md` is written. Both are committed before Task 2.6 (SPEC §11.2, §11.3).
-- [ ] ⬜ **Task 2.6**: `deploy.bash --stage 2` with the legs of SPEC §5.3: pre-flight (the
-  passed-spike check, already written; LXC containers up and new), the play, the questions-join wait, then acceptance. `ansible-playbook --syntax-check` only. Merge, then
-  queue in `meta-deploy.list`.
+  A1-A2 are `agent-bus check-rooms` per team. A3's worker is a throwaway host member on
+  loopback, added and removed by the run (a seat name used once). A4 and the test question run
+  in an LXC container through the guest path; the question comes from the first LXC member
+  declared `role: coordinator`, and with none A5 cannot run and says so. `--fake --stage 2`
+  passes in the container, deploy 2's wait included.
+- [ ] 🔄 **Task 2.6**: `deploy.bash --stage 2` with the legs of SPEC §5.3: pre-flight (the
+  passed-spike check; `acceptance.bash --stage 1` again, for LXC containers up and new), the
+  agent-bus play, the ccy play (the image carries the admin tool, container 2.78.9), the
+  questions-join wait, then acceptance. Written and queued as `deploy-stage-2.bash`, whose
+  description asks the owner to restart every team's sessions first; the merge and the run are
+  left. `acceptance-after-owner.bash` is queued only once the owner has done the Element steps.
 
 ### Phase 3: the owner's view (Go)
 

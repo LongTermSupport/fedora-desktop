@@ -189,6 +189,11 @@ if [[ "${FAKE}" -eq 1 ]]; then
     reject_leg "A1/A2 (fake) a team with a problem" fake_a12 "${TEAMS2}" t1=0 t2=1
     reject_leg "A1/A2 (fake) check-rooms cannot run" fake_a12 "${TEAMS2}" t1=70 t2=0
     reject_leg "A1/A2 (fake) no present team" fake_a12 '[{"team":"t3","state":"absent"}]'
+    check_leg "deploy 2's wait (fake) the coordinator joined" fake_join join
+    check_leg "deploy 2's wait (fake) a team with no coordinator" fake_join absent
+    reject_leg "deploy 2's wait (fake) the coordinator is only invited" fake_join invite
+    reject_leg "deploy 2's wait (fake) the coordinator rejected the invite" fake_join leave
+    reject_leg "deploy 2's wait (fake) the coordinator has no ROOM line" fake_join none
     check_leg "A3 (fake) 403 M_FORBIDDEN is a refusal" fake_refused 403 '{"errcode":"M_FORBIDDEN","error":"no"}'
     reject_leg "A3 (fake) 200 is no refusal" fake_refused 200 '{"event_id":"x"}'
     reject_leg "A3 (fake) another 403 is no refusal" fake_refused 403 '{"errcode":"M_UNKNOWN_TOKEN"}'

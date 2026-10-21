@@ -33,3 +33,18 @@
 # installs the fetch-age command with Plan 00183's fix and applies the tasks that stopped behind
 # fwupd before (the ABRT policy onward).
 playbooks/imports/play-basic-configs.yml
+# Plan 00211 deploy 2 (Task 2.6), the reports and questions rooms. FIRST restart every team's
+# agent sessions, ccy and LXC alike, so each coordinator runs pingbus 0.2.0: a running session
+# keeps the pingbus it started with, and an old one rejects its questions invite. This runs
+# deploy.bash --stage 2: it refuses unless the spike report says every fact holds, then runs
+# acceptance.bash --stage 1 again as the pre-flight (the host's and every declared LXC
+# member's pingbus is 0.2.0, and a declared container that is down is refused, named). Then the
+# whole play-agent-bus.yml creates each team's reports room, and its questions room when the
+# team has a coordinator, writes the index and invites you and the coordinators; the whole
+# play-claude-yolo.yml rebuilds the ccy image once (container 2.78.9). It waits up to 180 s for
+# every coordinator to join its questions room, naming any that has not, and acceptance.bash
+# --stage 2 checks the rooms, adds and removes one throwaway worker that must be refused the
+# questions room, posts two test reports (one from an LXC member) and asks a test question from
+# an LXC coordinator. Needs sudo once. Afterwards do the Element steps of the plan's
+# ACCEPTANCE-owner.md.
+00211-agent-bus-reports-and-questions-rooms/deploy-stage-2.bash
