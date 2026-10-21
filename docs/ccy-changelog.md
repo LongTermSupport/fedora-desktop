@@ -17,6 +17,41 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.13.14 — container 2.78.11
+
+Follows 3.99.13.13. The launcher and its library only; the image is unchanged, so no rebuild.
+
+- **The host paths are resolved and checked in the new `lib/host-paths.bash`** (Plan 00191):
+  `CCY_DOCKERFILE_DIR` and `CCY_GPU_DEVICE_DIR` as before, and `CCY_ZONEINFO_DIR` (the zone
+  database, default `/usr/share/zoneinfo`). `--custom`'s templates are read from the build
+  context too, where the play already puts them. Unset, nothing changes. A set override
+  fails at start when it names no directory (for the GPU, when its parent is none: an absent
+  GPU directory still means no GPU), and one that resolves to `/` or `/dev` is refused, since
+  it would hand a build or a device mount the whole tree.
+- **The launcher's temporary files follow `TMPDIR`** when it is set (the git configuration
+  handed to the container, build logs, the GitHub probe, the debug log, the token setup
+  output); unset, they stay in `/tmp`.
+
+## 3.99.13.13 — container 2.78.11
+
+Follows 3.99.13.12. The launcher only; the image is unchanged, so no rebuild.
+
+- **Two paths the launcher read from the host can be pointed elsewhere, for the launcher's
+  differential harness** (Plan 00191, `src-go/internal/ccylaunch/difftest`):
+  `CCY_DOCKERFILE_DIR` (the build context, default `/opt/claude-yolo`; the startup text
+  handed to Claude is now read from it too, where the play already puts it) and
+  `CCY_GPU_DEVICE_DIR` (default `/dev/dri`). Unset, nothing changes.
+
+## 3.99.13.12 — container 2.78.11
+
+Follows 3.99.13.11. The launcher's library only; the image is unchanged, so no rebuild.
+
+- **The bash take-over is gone from `lib/tmux-session.bash`** (Plan 00191).
+  `ccy_tmux_take_over`, `ccy_tmux_client_words`, `ccy_tmux_idle_words` and the bash default
+  for `CCY_TMUX_TAKE_OVER_WAIT_TENTHS` had no caller: taking a session over is the Go
+  `ccy-sessions` picker's Ctrl-T, which reads that variable itself. Nothing a person does
+  changes.
+
 ## 3.99.13.11 — container 2.78.11
 
 Follows 3.99.13.8 (container 2.78.8). The image gains a binary, and its build, entrypoint,

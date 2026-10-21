@@ -83,3 +83,23 @@ playbooks/imports/play-agent-bus.yml
 # judged), and has the coordinator ask a test question. Needs sudo once. Afterwards do the
 # Element steps of the plan's ACCEPTANCE-owner.md.
 00211-agent-bus-reports-and-questions-rooms/deploy-stage-2.bash
+# Plan 00201 Task 2.7 (M7): the automated two-team acceptance again, because its M3 check
+# (the session's status line) changed since it last passed, and Plan 00213's cut-over made
+# that status line the Go one. acceptance.bash only: it makes two throwaway teams declared
+# in a run-directory host_vars (your host_vars and teams are never touched), runs one headless
+# ccy session on both and a plain one (each one short turn on haiku), checks descriptions,
+# launch block, per-session record, status line, `say` and SessionEnd, then purges both teams
+# and checks their firewalld rules are gone, however the run ends. Needs sudo once, ccy
+# launched interactively in this checkout once (Quick Launch), and the hooks daemon installed.
+00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker
+# play-claude-yolo.yml, the whole play (Plan 00191 Tasks 4.3, 4.4 and 4.4b): the host's ccy
+# becomes CCY 3.99.13.15. lib/tmux-session.bash no longer carries the unused bash take-over
+# (taking a session over stays the ccy-sessions picker's Ctrl-T); the new lib/host-paths.bash
+# lets the launcher's differential harness point the build context, GPU directory and zone
+# database elsewhere (unset, nothing changes) and refuses a bad or relative override at
+# start; the launcher's temporary files follow TMPDIR when it is set; the GitHub and Claude
+# tokens are no longer exported to every program the launcher starts, only handed by name to
+# the container runs that need them. Container 2.78.12 (the guide in the image is corrected),
+# so the next launch rebuilds the image once. Afterwards start a ccy session as usual: it
+# must rebuild, start and attach as before, and gh must work inside it.
+playbooks/imports/play-claude-yolo.yml
