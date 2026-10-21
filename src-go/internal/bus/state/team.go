@@ -26,13 +26,18 @@ const (
 	questionKey        = "question"
 	questionsRoom      = "questions"
 	reasonKey          = "reason"
+	keyEventID         = "event_id"
+	keyRef             = "ref"
+	keyAnswered        = "answered"
+	keyReported        = "reported"
+	keyVerb            = "verb"
 	droppedLog         = "dropped.log"
 	ignoredLog         = "ignored.log"
 )
 
 var (
 	// storedKeys are the event keys an inbox item keeps, in the order v1 writes them.
-	storedKeys      = []string{"type", "event_id", "sender", "origin_server_ts", "content"}
+	storedKeys      = []string{"type", keyEventID, "sender", "origin_server_ts", "content"}
 	inboxNamePat    = regexp.MustCompile(`^(\$[A-Za-z0-9_-]{43})\.json$`)
 	v1TmpNamePat    = regexp.MustCompile(`^\..+\.[0-9a-f]{16}\.tmp$`)
 	roomMemberships = []string{"join", "invite"}
@@ -190,7 +195,7 @@ func (item InboxItem) stored(path string) ([]byte, error) {
 	if !isEventID(item.EventID) {
 		return nil, refuse(path, ClassGrammar, "not an event ID")
 	}
-	if field(item.Event, "event_id") != any(item.EventID) {
+	if field(item.Event, keyEventID) != any(item.EventID) {
 		return nil, refuse(path, ClassGrammar, "the event's event_id is not the item's")
 	}
 	out := pyjson.Ordered{}
@@ -326,10 +331,10 @@ func decodeItem(path, eventID string) (InboxItem, bool, error) {
 		return InboxItem{}, found, err
 	}
 	allowed := append(slices.Clone(storedKeys), roomKey, questionKey)
-	if err := checkKeys(path, o, []string{"event_id"}, allowed, unknownFirst); err != nil {
+	if err := checkKeys(path, o, []string{keyEventID}, allowed, unknownFirst); err != nil {
 		return InboxItem{}, true, err
 	}
-	if field(o, "event_id") != any(eventID) {
+	if field(o, keyEventID) != any(eventID) {
 		return InboxItem{}, true, refuse(path, ClassGrammar, "event_id is not the file's")
 	}
 	item := InboxItem{EventID: eventID}

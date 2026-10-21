@@ -32,7 +32,7 @@ var (
 	// ackVerbs are the verbs whose rule expects an ack (protocol.VERBS, ack_expected).
 	ackVerbs    = []string{"fetch", "sync", "review", "run-qa", "halt"}
 	dropReasons = []string{
-		"version", "schema", "size", "edit", "sender", "role", "target", "verb", "ref",
+		"version", "schema", "size", "edit", "sender", "role", "target", keyVerb, keyRef,
 		"allowlist", "excluded", "re", "body", "stale", "rate", "forge-rate", "unresolved", "provenance",
 	}
 	unheardReasons = []string{"not-addressed"}
