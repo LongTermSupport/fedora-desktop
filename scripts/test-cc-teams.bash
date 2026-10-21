@@ -305,6 +305,14 @@ cp -r "$KIT_SRC/plugin/pingbus" "$prep_kit/plugin/pingbus"
 cp "$KIT_SRC/settings.json" "$prep_kit/settings.json"
 : >"$prep_kit/pingbus"
 CC_TEAMS_KIT="$prep_kit"
+# Plan 00213: the kit's settings run the Go status line by name from the kit on PATH, so a kit
+# without it is refused before anything is asked or taken.
+: >"$work/ccy-teams.calls"
+rc=0
+(cd "$work" && cc_teams_prepare "$work/prep-tmp") >"$work/out" 2>"$work/err" || rc=$?
+check "a kit without pingbus-status-line is refused (78) before the chooser" "78|0|yes" \
+    "$rc|$(grep -c . "$work/ccy-teams.calls")|$(yes_no grep -qF "$prep_kit/pingbus-status-line, and it is missing" "$work/err")"
+: >"$prep_kit/pingbus-status-line"
 prep_repo="$work/prep-repo"
 mkdir -p "$prep_repo" "$work/prep-tmp"
 git -C "$prep_repo" init -q

@@ -26,6 +26,18 @@ Follows 3.99.13.8 (container 2.78.8). The image build changed, so it is rebuilt 
   Python 3.11 or later; the Debian base gives 3.11 today, and a base that gave less would now
   stop the build instead of shipping a pingbus that refuses to start. An LXC member's copy of
   the kit names the member's own newest Python instead (`helpers/agent_bus_lxc/members.py`).
+## 3.99.13.9 — container 2.78.9
+
+Follows 3.99.13.8 (container 2.78.8). The image gains a binary and its entrypoint changed, so
+it is rebuilt once.
+
+- **A bus session's status line starts no Python** (Plan 00213). It is now
+  `pingbus-status-line`, a Go binary that prints what `pingbus status-line` prints (a parity
+  test over recorded Python output holds them equal) and
+  keeps the team segment for up to 60 seconds unless a file it was read from changes. The
+  image carries it beside the pingbus zipapp, linked onto PATH, and a session launched with
+  `--teams` refuses to start on an image without it. `cc --teams` and `agent-bus-claude`
+  refuse a member kit without it too, naming the play that builds it.
 
 ## 3.99.13.8 — container 2.78.8
 

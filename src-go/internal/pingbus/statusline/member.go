@@ -32,6 +32,7 @@ var (
 		"halt_ack_timeout_s":     {30, 3600},
 		"human_max_age_s":        {3600, 604800},
 		"wait_timeout_s":         {1, 1790},
+		"report_per_hour":        {1, 60},
 	}
 	reservedLocalparts = []string{"admin", "conduit"}
 

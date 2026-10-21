@@ -693,7 +693,9 @@ every refresh from the same team record the live role notice reads, so a role ch
 `(role?)`, never a guess, and says why in one line on the status line command's stderr. A team
 whose homeserver does not answer is marked `(down)` after its role: each team is shown as its
 name, its role, then its marks. The member kit's `settings.json`
-makes `pingbus status-line` the status line command, and settings given on the command line
+makes `pingbus-status-line` the status line command (a Go binary that starts in milliseconds,
+built into the kit and the ccy image by the plays; `pingbus status-line` is the same command in
+Python, kept as its reference), and settings given on the command line
 outrank the project's, so it applies in a checkout that has never heard of the bus. It runs
 the status line the checkout or your user settings already set (a hooks daemon's, for
 example) and adds the segment on rows of its own below it, so nothing you had is lost. Claude

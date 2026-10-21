@@ -6,9 +6,10 @@ or a guest: a bare desktop, or an always-on agent on a server. This file is the 
 version; the full guide, including what joining a team grants and its limits, is
 docs/agent-bus.md in the fedora-desktop repository.
 
-This kit, /usr/local/share/agent-bus/kit/, holds what the member needs: `pingbus`, the
-Claude Code plugin (plugin/pingbus/), settings.json, and the `agent-bus-claude` launcher,
-linked as /usr/local/bin/agent-bus-claude.
+This kit, /usr/local/share/agent-bus/kit/, holds what the member needs: `pingbus`,
+`pingbus-status-line` (the status line settings.json runs, a static binary built for this
+host's architecture), the Claude Code plugin (plugin/pingbus/), settings.json, and the
+`agent-bus-claude` launcher, linked as /usr/local/bin/agent-bus-claude.
 
 REQUIRED: gh, logged in to github.com as the agent user. pingbus checks every reference at
 GitHub with gh's login and nothing else; without it `pingbus config check` and

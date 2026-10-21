@@ -33,14 +33,6 @@
 # installs the fetch-age command with Plan 00183's fix and applies the tasks that stopped behind
 # fwupd before (the ABRT policy onward).
 playbooks/imports/play-basic-configs.yml
-# Plan 00213 Tasks 1.3 and 1.4: play-claude-yolo.yml, so the host gets CCY 3.99.13.10 (container
-# 2.78.10). Bus sessions' status line then
-# refreshes every 25 s instead of every second (the member kit settings and a seated session's
-# settings), and the image's pingbus zipapp starts /usr/bin/python3 directly instead of finding
-# python3 on PATH; the image build fails if that interpreter is older than 3.11. The image is
-# rebuilt once at the next ccy launch. Running sessions keep their
-# old settings until they are relaunched.
-playbooks/imports/play-claude-yolo.yml
 # Plan 00213 Task 1.4 (re-run after the LXC regression fix): play-agent-bus.yml, the normal
 # agent-bus software run (agent-bus-install software). It rebuilds the host's pingbus.pyz and the
 # member kit copy, so `pingbus` on the host starts /usr/bin/python3, not the pyenv shim, and
@@ -51,3 +43,17 @@ playbooks/imports/play-claude-yolo.yml
 # with no Python 3.11 or later fails the play, naming what to install. Teams are not restarted
 # unless the Tuwunel pin or the units changed, which this change does not do. Needs sudo.
 playbooks/imports/play-agent-bus.yml
+# Plan 00213 Tasks 1.3, 1.4 and 2.3 (the bus status line in Go): deploy.bash runs the whole
+# play-agent-bus.yml, then the whole play-claude-yolo.yml, then acceptance.bash. The agent-bus
+# play builds pingbus-status-line (Go, static) from this checkout into the member kit, whose
+# settings.json now runs it, and copies the kit into every running LXC member; the host's
+# pingbus.pyz starts /usr/bin/python3, not the pyenv shim. Teams are not restarted unless the
+# Tuwunel pin or the units changed, which this does not do. The ccy play gives the host CCY
+# 3.99.13.9 and puts the binary in the image's build context (container 2.78.9, rebuilt once at
+# the next ccy launch): a seated session's status line is the Go one and refreshes every 25 s.
+# The acceptance checks the kit's, the image's and each declared LXC member's binary are this
+# checkout's build (a declared container that is down is refused, named), runs the recorded
+# Python goldens against the installed Python and Go, and measures the CPU one render costs in
+# each: Go must cost under a fifth (the report has the figures). Needs sudo once. Afterwards
+# restart the teams' agent sessions; a running one keeps its old status line.
+00213-agent-bus-performance-go-carve-out/deploy.bash

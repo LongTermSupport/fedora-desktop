@@ -2,7 +2,7 @@
   "crossSessionInbound": "accept",
   "statusLine": {
     "type": "command",
-    "command": "pingbus status-line",
+    "command": "pingbus-status-line",
     "refreshInterval": 25
   },
   "env": {

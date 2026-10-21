@@ -345,6 +345,14 @@ class StatusLineTest(unittest.TestCase):
         self.settings(self.home / ".claude/settings.json", "echo user")
         self.assertEqual(self.render()[0], f"user\n{CYAN}👥 alpha (worker){RESET}")
 
+    def test_it_never_runs_the_kits_go_command_either(self) -> None:
+        """Plan 00213 Task 2.3: the kit runs the Go port by its own name, so a settings file
+        that names it would loop just as one naming `pingbus status-line` would."""
+        self.record("sess-1", "alpha")
+        self.settings(self.project / ".claude/settings.json", " pingbus-status-line ")
+        self.settings(self.home / ".claude/settings.json", "echo user")
+        self.assertEqual(self.render()[0], f"user\n{CYAN}👥 alpha (worker){RESET}")
+
     def test_the_project_dir_falls_back_to_the_variable(self) -> None:
         self.record("sess-1", "alpha")
         self.settings(self.project / ".claude/settings.json", "echo project")
@@ -376,9 +384,13 @@ class StatusLineTest(unittest.TestCase):
         kit = repo / "files/opt/claude-yolo/optional/agent-bus"
         settings = json.loads((kit / "settings.json").read_text(encoding="utf-8"))
         self.assertEqual(settings["statusLine"],
-                         {"type": "command", "command": statusline.COMMAND,
+                         {"type": "command", "command": statusline.KIT_COMMAND,
                           "refreshInterval": seat.STATUS_LINE_REFRESH_S})
         self.assertLess(seat.STATUS_LINE_REFRESH_S, 30)
+
+    def test_the_kit_and_a_seated_session_run_the_go_port(self) -> None:
+        """Plan 00213 Task 2.3: both run the Go binary by the name this module passes over."""
+        self.assertTrue(seat.STATUS_LINE_GUARD.endswith(f"; exec {statusline.KIT_COMMAND}"))
 
     # ── cheap to run: only a segment with teams imports the role reader's modules ──────
 
