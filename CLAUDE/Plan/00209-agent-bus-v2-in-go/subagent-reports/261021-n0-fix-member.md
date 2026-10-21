@@ -85,3 +85,29 @@ edits), security 6 (launcher mount rule, C).
    say the link, not the keeper, posts the goodbye (coherence 16).
 7. **A (protocol):** a subject-posted `back` notice (A 7.4), posted once when a run starts on a
    seat whose latest own lifecycle notice is `disconnected` (B 2.11).
+
+## The delivery fixer's requests to B, taken (from its 261021-n0-fix-delivery.md)
+
+| Request                                                                      | Disposition                                                                                                      |
+| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 1. drop the awaiting `teams` field; keep HUMAN and TIMEOUT room in `pending` | fixed, B 2.3.2: the example, the sentence and the cap; 256 `pending` entries kept for HUMAN and TIMEOUT (A 11.4) |
+| 2. the 2.15 rows                                                             | fixed: the "several teams" row is replaced by "one team per delivery"; a flood-budget-at-admission row added     |
+| 3. the 2.4.4 error example                                                   | fixed: `"v":1`, exit 23 `not-found`                                                                              |
+| 4. B 5's `"v": 2`                                                            | fixed: `"v": 1`                                                                                                  |
+| 5. the gap line                                                              | fixed, 2.6 step 03 and BD15: A 13.2's `gap:` trailing line                                                       |
+| 6. `human_text` from the roster                                              | fixed, 2.6 step 10 and B 6 C1 (`human_text` is out of `seat.json`)                                               |
+| 7. the 2.2.4 exit-69 paragraph and row                                       | fixed with the link names: `no-session`, `no-link`, `link-failed`; the CLI reads `keeper.json`                   |
+| 8. the hook texts in B's form                                                | fixed, 2.8: `teamchat <verb>` in backticks; the recovery commands named as the owner's                           |
+| 9. E26's never-restarted codes                                               | fixed, 2.4.2 (Bounded): 78 is `failed (config)`; 10 and 64 never end the link; 8 has no v2 exit of that meaning  |
+
+Not done, since both are in 2.7 (the delivery fixer's): 2.7.6's E26 row still says "worker", and
+2.7.3 still has the "list of every team in the delivery" sentence. Both fall to the merge rename.
+
+## For the migration fixer (D 3.2, 3.3), applied by the build session at merge
+
+The member process is the **link**: `teamchat link` (internal, started only by the keeper), with
+`<v2-run>/link.sock`, `link.lock` and `link.log`. The keeper is `teamchat run` itself, with
+`keeper.lock`, `keeper.json` and `keeper.log`. D 3.2's `teamchat` binary row reads "Static Go member
+binary: CLI, keeper (`run`), link, hooks, status line (B)". D 3.3's `teamchat-claude` row goes: every
+launcher ends in `teamchat run --kind <kind>`, and the LXC unit runs it in its tmux pane. No
+user-facing text says "bus".

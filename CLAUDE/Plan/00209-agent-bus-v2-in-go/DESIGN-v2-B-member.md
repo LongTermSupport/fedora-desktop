@@ -459,18 +459,20 @@ of limit; 10 for three kinds of trust failure) are split.
 | 22   | the room is not trusted, or the homeserver forbade the request      | `untrusted`, `forbidden`                                                   | run `status`; tell a human                                        |
 | 23   | the event or question named does not exist                          | `not-found`                                                                | check the id                                                      |
 | 64   | usage error                                                         | `usage`, `ambiguous-team`, `unknown-member`, `ambiguous-member`            | read the message, which lists the choices                         |
-| 69   | no runtime: not in a member session, or its worker is not running   | `no-session`, `no-worker`, `worker-failed`                                 | tell a human; do not start anything yourself                      |
+| 69   | no runtime: not in a member session, or its link is not answering   | `no-session`, `no-link`, `link-failed`                                     | pass the message, which names the recovery, to a human; do not start anything yourself |
 | 75   | busy: the seat is held by another session, or a keeper already runs | `seat-held`, `keeper-running`                                              | (lifecycle verbs only)                                            |
 | 78   | configuration refused (bundle, desired membership, store)           | `bundle`, `membership`, `store`, `forge-login`, `runtime`                  | run `status`; tell a human                                        |
 
 `hook` and `status-line` always exit 0 (2.8, 2.9), except the status line's 128+signal on cancel,
-which Claude Code expects. Exit 69 is answered at once, never after a wait: whenever no worker
-serves `worker.sock`, the keeper does, and answers every agent verb `no-worker` (no team, or a
-worker restarting) or `worker-failed` (a final 78), 2.4.2. `wait` is the one verb that retries: a
-worker restart closes its connection, or the keeper answers it `no-worker` while the worker is down,
-and it reconnects (every 1 s, doubling to 5 s) with the same deadline (2.4.4) and waits again, so
-an agent's background `wait` survives the keeper's restart of the worker. It exits 69 when its
-timeout ends while no worker serves, and at once on `worker-failed`, which is never restarted.
+which Claude Code expects. Exit 69 is answered at once, never after a wait: the link alone serves
+`link.sock`, so with no link running a connect is refused at once, and the CLI reads `keeper.json`
+and probes `keeper.lock` to answer `no-link` (restarting or not yet ready, with the restart time)
+or `link-failed` (failed for the session's life, or the keeper has gone, with the recovery for the
+member kind), 2.4.2 and 2.4.4. `wait` is the one verb that retries: a link restart closes its
+connection or refuses its connect, and it reconnects (every 1 s, doubling to 5 s) with the same
+deadline (2.4.4) and waits again, so an agent's background `wait` survives the keeper's restart of
+the link. It exits 69 `no-link` when its timeout ends while no link answers, and at once on
+`link-failed`, which is never restarted.
 Exit 78 `runtime` is `run`'s refusal of an environment with no usable runtime directory (2.4.1).
 
 ### 2.3 Member state on disk
@@ -551,7 +553,7 @@ at most. Its schema:
     {"id": "$<43>", "room": "main", "item": "human", "sent_ms": 1760000000000, "from": "@alice:<server>", "repeat": false, "held": false, "restored": false, "handed": null}
   ],
   "awaiting": [
-    {"nonce": "3f9c2a71", "teams": ["<team>", "<team2>"], "ids": ["$<43>"], "transcript": {"path": "/<abs>/<id>.jsonl", "offset": 81920}, "at_ms": 1760000000500, "written": "yes", "stop_ms": null}
+    {"nonce": "3f9c2a71", "ids": ["$<43>"], "transcript": {"path": "/<abs>/<id>.jsonl", "offset": 81920}, "at_ms": 1760000000500, "written": "yes", "stop_ms": null}
   ],
   "missed": [{"nonce": "<8 hex>", "ids": ["$<43>"], "offset": 90112, "at_ms": 1760000000000}],
   "ledger": [
@@ -577,9 +579,8 @@ at most. Its schema:
   A restored id that is not newer than its room's floor, or that the ledger already holds, is dropped
   and logged (B44, 2.7.3).
 - `awaiting` lists every delivery written, or being written, to the inbox socket whose proof is not
-  settled (2.7.3, 2.7.4). Each entry is self-contained for its store: the delivery's nonce, every
-  team in the delivery (`teams`, sorted, so a restart can tell whether every store's entry was
-  written before the user line), the ids of this store's items in it, the transcript path and its size before the write, the time, `written`
+  settled (2.7.3, 2.7.4). A delivery holds one team's items only (A 13.1), so each entry is in that
+  team's store alone: the delivery's nonce, the ids of its items, the transcript path and its size before the write, the time, `written`
   (`unknown` from the moment the user line starts, `yes` once it is written in full) and `stop_ms`
   (the first Stop hook after the write, which starts the quiet clock). An entry leaves only as
   `proven` or `missing`.
@@ -614,13 +615,15 @@ at most. Its schema:
   out, under the seat lock (2.5).
 - **Caps**, each a bound the strict decoder enforces: 2048 pending entries (each at most 320 bytes),
   1024 ledger entries (320 bytes), 256 outbox pings (3 KiB, at most 16 targets), 1024 receipts (80
-  bytes), 32 awaiting deliveries (2.2 KiB, `teams` included), 16 missed (640 bytes), 64 sends in flight (128 bytes), 64
+  bytes), 32 awaiting deliveries (2.2 KiB), 16 missed (640 bytes), 64 sends in flight (128 bytes), 64
   gate keys (96 bytes). The sizes assume A's event ids (`$` and 43 characters) and user ids of at
   most 128 bytes (A4). The file cap is their sum, about 1.9 MiB, rounded up to **2 MiB**, so a list
   cap is always the one that fires. `ledger` and `missed` are rolling (oldest dropped, by design).
-  A full `pending` stops only that team's sync: its position is held, so nothing is lost, the
-  status line, `status` and one hook line say so, `recv` still drains it, and the sync resumes once
-  there is room. Every other full list refuses the operation that would grow it (a send past the
+  `pending` keeps room for HUMAN and TIMEOUT items however many agent items it holds (A 11.4):
+  agent items may fill it only up to the cap less 256 entries, which only HUMAN and TIMEOUT items
+  may use, so a burst of agent traffic never stops human delivery. A full `pending` stops only that
+  team's sync: its position is held, so nothing is lost, the status line, `status` and one hook
+  line say so, `recv` still drains it, and the sync resumes once there is room. Every other full list refuses the operation that would grow it (a send past the
   outbox or `sending` cap exits 78 `store`; the next delivery waits for room in `awaiting` or
   `receipts`), loudly, never as a silent drop.
 - **Write cost.** A typical store is a few KiB; one with a full ledger and nothing pending is about
@@ -850,7 +853,7 @@ answers its own fixed line (2.8), an agent verb exits 69 `no-link` at once and `
 panics on the same input at every start), or one exit 78 (the runtime's own configuration is
 refused: `<v2-run>` or `<v2-state>` has the wrong owner or mode), makes the link **failed** for the
 session's life: it is not started again. A store that does not decode is a per-team failure, and
-per-team failures never end the link (2.3.2, 2.6). On `failed` the keeper writes `keeper.json` and
+per-team failures never end the link (2.3.2, 2.6). This is E26's rule carried: of the codes E26 never restarts, 78 is the link's own `failed (config)`; 8 is a v1 code with no v2 exit of the same meaning; 10 and 64 are a request's input or usage refused, answered to that verb's client, and never end the link, so they need no restart rule; every other exit is a crash, restarted under the bound above. On `failed` the keeper writes `keeper.json` and
 every `report.json` with `failed` and its `why`, and **closes its descriptors of every seat lock**:
 no link writes a store any more, and a free seat lock with no notice in the room is what the host's
 health tick announces as `disconnected` (2.11), so the team's humans and its coordinator learn of a
@@ -932,7 +935,7 @@ line:
 
 ```json
 {"done":{"exit":0}}
-{"done":{"exit":12,"error":{"v":2,"kind":"error","exit":12,"code":"no-room","team":"<team>","message":"..."}}}
+{"done":{"exit":23,"error":{"v":1,"kind":"error","exit":23,"code":"not-found","team":"<team>","message":"..."}}}
 ```
 
 The CLI is a pass-through: it copies records to stdout, the error to stderr, and exits with `exit`.
@@ -1146,9 +1149,9 @@ how the link applies them.
     45 s (M6). One kept-alive connection per team.
 03. **A limited timeline** is filled forward from `prev_batch` with `/messages` (100 per page, at most
     20 pages); events already in the ledger are skipped. A gap larger than that is not an error that
-    stops the team: the position moves on, and one `gap` item is queued for the agent ("N messages on
-    `<team>` could not be fetched; read them with `teamchat history --team <team>`"), so the loss is
-    said, not hidden; `status` counts the gaps per team. This moves past events undelivered, which
+    stops the team: the position moves on, and the next delivery carries A 13.2's `gap:` trailing
+    line for the team (how many events could not be fetched, and `teamchat history --team <team>` to
+    read them), so the loss is said, not hidden; `status` counts the gaps per team. This moves past events undelivered, which
     is a skip by design, so it is an owner decision (BD15).
 04. **Trust** is re-verified at start, after a join, on a limited timeline and on any event of a type A
     marks as trust-bearing. A failed verification stops the team with exit 22 for its verbs and one
@@ -1182,7 +1185,8 @@ how the link applies them.
     - **Invites.** An invite is accepted only to a room the verified team record names for this
       member's role, from the admin account; an admin invite the record does not name yet is left
       pending, logged by room id, never joined and never rejected; every other invite is rejected.
-      A coordinator whose bundle has `human_text` false leaves the questions invite pending, and
+      A coordinator whose roster entry has `human_text` false (A 5.1, read from the verified roster,
+      never from the bundle) leaves the questions invite pending, and
       `status` and the SessionStart frame say why (C1).
     - **A role change rebuilds the filter.** The team goroutine ends its long-poll and starts the
       next with the filter for the new role. On a demotion it stops syncing the questions room at
@@ -1479,6 +1483,8 @@ link counts it in `session.json` (`unusable.hook_stdin`), logs one line, shows t
 `status` and `status.json`, and answers as for an event with no payload, so a change in Claude
 Code's hook input is seen, not absorbed. The hook exits 0 always; a bad event argument is 64.
 
+**Hook texts name commands in B's form**: a member verb as `teamchat <verb>` with its flags as 2.2.1 spells them, and the recovery commands of 2.4.2 (`ccy-teams restart <session>`) as the owner's commands they are, so the 2.12 test that parses the texts checks every `teamchat` command against the binary.
+
 **When the link does not answer** (a refused connect, which is a link restarting or failed or a
 keeper gone, or no answer within 300 ms, which is a hung link), the hook answers from its own
 fixed template, chosen by `keeper.json` and the `keeper.lock` probe exactly as a verb's exit 69 is
@@ -1493,7 +1499,7 @@ costs nothing lasting: the facts it carried are learned from the next one (2.4.4
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | SessionStart     | records `session_id`, `source` and the transcript path in `session.json`, and writes the conversation record when the session id changed (B43, 2.3.3); takes the socket (2.4.4's checks); answers the frame text (how deliveries look, the kinds and their authority, `reply`, `verify` before a consequential HUMAN request, never carry one team's messages to another), each team's seat, role and description, the delivery mode, and any pending or failure line. On every source (startup, resume, clear, compact), since after a clear or compaction the earlier frame may be gone from context  |
 | UserPromptSubmit | marks the session busy; updates the transcript path; sets the socket facts only if none are set yet, never changes them (2.4.4); answers membership lines only if the MEMBERSHIP notice could not be written to the socket (B30's fallback, told once by generation), pending counts only when delivery is not live or items are held as missing, and a failure line once per 10 minutes                                                                                                                                                                                                                |
-| Stop             | marks the session idle, which starts the quiet clock of every delivery awaiting proof (2.7.4); sets the socket facts only if none are set yet, under the same checks. B26: nothing unless `stop_hook_active` is literally `false`. Blocks once per distinct pending set when some pending items will not be pushed (delivery not live, or held as missing), with `<n> pending (...). Run teamchat recv before stopping.`; once per 10 minutes for a team failure; once per 10 minutes for a socketless session with no `wait` running. If `session.json` cannot be written, it does not block (H59-H73) |
+| Stop             | marks the session idle, which starts the quiet clock of every delivery awaiting proof (2.7.4); sets the socket facts only if none are set yet, under the same checks. B26: nothing unless `stop_hook_active` is literally `false`. Blocks once per distinct pending set when some pending items will not be pushed (delivery not live, or held as missing), with `<n> pending (...). Run `teamchat recv` before stopping.`; once per 10 minutes for a team failure; once per 10 minutes for a socketless session with no `wait` running. If `session.json` cannot be written, it does not block (H59-H73) |
 | SessionEnd       | `reason` `clear` or `resume`: `{}`, nothing else (the session goes on). Otherwise records the reason (`exit`, `logout`, `other`) in `session.json` and answers `{}` at once; nothing else. Whether a `left` or a `disconnected` is posted is decided only at the keeper's `end`, after Claude Code has exited (2.4.2, 2.11), so a forged SessionEnd posts nothing                                                                                                                                                                                                                                       |
 
 **The SessionEnd budget.** Claude Code gives SessionEnd hooks 1.5 s by default. v2's SessionEnd hook
@@ -1952,7 +1958,8 @@ Tests by piece, beyond the expectations each requirement already carries:
 | guest operations (2.13)             | each op through `execx.Fake` and then in the VM lab from nothing: a binary whose `sha256sum` does not match is never run; umask and leaf modes; `O_EXCL` placement; refusal of a path owned by someone else; `CHANGED` lines only on change; `install-self` removes an old `<digest>/` no live runtime names and keeps one a live session names                                                                                                                                                                                                                                                                                                                                                                                                            |
 | removal (2.10)                      | a remove with an unreachable homeserver answers within the 10 s bound, the `left` (`released`) notice follows within its own 30 s; a `farewell` entry with reason `removed` or `parked` posts nothing from the member; a link killed inside `remove`: the keeper deletes the store before freeing the seat, the restarted link posts the owed leave notice once (same transaction id), and a re-add in the session skips history and delivers nothing posted in the gap; the last held seat's removal timed out: the restarted link, holding no seat, posts the owed notice within 30 s; the seat stays locked by this session until the notice is posted or its bound passes; a `recv` acknowledgement after its team's removal is ignored and recreates no store |
 | per-launch settings (2.4.1)         | a `--claude` launch with inbound `accept` and one with `refuse`: `<v2-run>/settings.json` carries each value explicitly (and `refuse` with no `--desired`), and Claude Code's argv ends in `--plugin-dir <kit>/plugin/teamchat --settings <v2-run>/settings.json`; a `--claude` CMD named other than `claude` gets the same; a `--plain` CMD gets nothing appended and no settings file, and with a seat held its team shows `"delivery": "none"`; neither or both of `--claude` and `--plain`, or a `--claude` CMD with its own `--settings`, `--plugin-dir` or `--`, is exit 64; a desired file rewritten to `accept` under a session launched with `refuse` still gives `wait` mode and `"needs_relaunch": true`                                        |
-| several teams (2.7.3)               | a crash between two stores' awaiting writes: on restart the items return to `pending` at once with no `repeat`; a crash between the `yes` writes: the transcript proves the second store's entry                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| one team per delivery (2.7.3) | with items pending in three teams, every delivery holds one team's items only and its awaiting entry is in that team's store alone; the next delivery is for the team with the oldest pending HUMAN item, else the oldest item; a crash at each delivery failpoint touches one store |
+| the flood budget at admission (2.7.3, A 11.4) | a flooding peer: items over its budget are not admitted (counted, with the `history` pointer), the rest are; HUMAN and TIMEOUT items still find room in `pending` when agent items have filled their share |
 | keeper lost (2.4.3, 2.4.5) | the keeper `SIGKILL`ed under a live Claude Code: the link posts `disconnected` for each held seat within 5 s and exits, and only then are the seats free; Claude Code's hooks and status line name the recovery; under tini (a ccy container) the whole session ends and the host posts `disconnected` instead |
 | the end (2.4.2, 2.11) | the decision table of 2.11 for every `end` (`exit`, `stop`, `killed`, the keeper's death) against each SessionEnd reason, with the fake homeserver: the notice posted, once, and `ended` recorded before the send; the keeper alive until the link exits or 5 s pass, then exiting with CMD's status (an exit code, or 128+n); `SIGTERM` and `SIGHUP` forwarded to CMD once; `SIGINT` ignored; the link unmoved by `SIGTERM`, `SIGINT` and `SIGHUP`; neither process holding the terminal (stdin `/dev/null`, output to its log, the link in its own session) |
 | every member kind's ends (2.11) | in the VM lab, for each row of 2.11's table: a ccy container (tini as PID 1, the real entrypoint) ended by `/exit`, by `podman stop` with the launcher's stop timeout, by a closed terminal, by a killed Claude Code and by `podman kill`; an LXC guest's unit ended by `/exit`, by `systemctl stop` with the unit's `TimeoutStopSec`, by `tmux kill-server`, by a killed keeper and by `lxc-stop -k`; a host `cc` ended by `/exit`, a closed terminal and a killed Claude Code. Each asserts which of `left` and `disconnected` the team's humans see, that exactly one is posted, and that it is posted by the process 2.11 names |
@@ -1992,7 +1999,7 @@ Each has a recommended default, taken unless the owner overturns it ("DO NOT GAT
 | BD12 | The frame text                                                                      | (a) at every SessionStart, including after `/clear` and compaction; (b) once per session                                                                                                                  | (a): after a clear or compaction the earlier text may be gone from context, and its rules matter most then                                                                                                                                                                                                                                                                  |
 | BD13 | Hot control for LXC members                                                         | (a) the same desired-membership file, written into the guest by `guest membership`; (b) v1's env file and a play                                                                                          | (a): one model for every member kind (B34), no play run for a membership change                                                                                                                                                                                                                                                                                             |
 | BD14 | A session on v1 and v2 teams at once (a member of two teams of which one has moved) | (a) `run` refuses an environment carrying v1's `PINGBUS_*` variables, so a session is on one system only; (b) a session may hold v1 and v2 teams at once, each system blind to the other                  | settled by area D's OD-D2: a session is on one system only. The launcher refuses a launch naming teams on both systems; `run` reads no v1 variable and does not judge them (2.4.1 step 1). A member of two teams of which one has moved runs one session per system (D2)                                                                                                    |
-| BD15 | A gap larger than the fill (more than 20 pages of 100 events)                       | (a) move the position on, queue one `gap` NOTICE naming `history`, count it in `status`; (b) stop the team until the owner acts; (c) keep paging without a bound                                          | (a): the loss is said, the agent can read the room, and the team keeps working; (b) turns one burst into an outage, and (c) has no bound on memory or time (2.6 step 03)                                                                                                                                                                                                    |
+| BD15 | A gap larger than the fill (more than 20 pages of 100 events)                       | (a) move the position on, say it with a `gap:` line (A 13.2) naming `history`, count it in `status`; (b) stop the team until the owner acts; (c) keep paging without a bound                                          | (a): the loss is said, the agent can read the room, and the team keeps working; (b) turns one burst into an outage, and (c) has no bound on memory or time (2.6 step 03)                                                                                                                                                                                                    |
 | BD16 | Where the keeper lives | (a) `run` is the keeper and stays Claude Code's parent; (b) a separate keeper process, with `run` exec'ing Claude Code | (a): with (b) nothing outlives Claude Code, so in ccy (tini as PID 1) the keeper and the link are killed with it and no goodbye is ever posted (2.1, 2.11). (a) makes the session's last process the one that posts its end. Its cost: a keeper crash ends the session, announced by the host as `disconnected` |
 | BD17 | The link with no team, and recovery from a keeper death | (a) the link always runs; no `repair`, no adopt mode; a keeper death is recovered by the member kind's restart; (b) the keeper alone while no team is held, serving the hooks itself and handing the socket over, plus `repair` and an adopting keeper | (a): one process shape, one writer per file, no socket hand-over, and no second start path into the most delicate state; its cost is an idle link in a teamless session (measured, B40) |
 | BD18 | A link that cannot stay up | (a) `failed` after the 6th exit with no 10-minute run, or at once on exit 78, with the seat locks freed so the host announces it; (b) restart for ever with a capped backoff | (a): a link that panics on the same input at every start never recovers by itself, and (b) would tell the agent "restarting" for the session's life while the team is never told; the recovery is named per member kind (2.4.2) |
@@ -2036,7 +2043,7 @@ version can change without touching another area's data.
 | `socket.json` holding the inbox socket token at rest                                               | the token stays in the keeper's memory (B11)                                                                                                                                                                                                |
 | `PR_SET_PDEATHSIG` as the death signal | the keeper is the parent and waits on its children; the link watches the keeper by its control socket and a pidfd (BD6, B15) |
 | the 0.5 s keeper tick, the 1 s watcher tick, the transcript polled up to 16 MiB per pass           | inotify, pidfds and timers (B39)                                                                                                                                                                                                            |
-| two output-line families, a frozen `TOOL_VERSION`, exit codes with several meanings                | JSON Lines with `"v": 2`, the source digest, one meaning per code (2.2)                                                                                                                                                                     |
+| two output-line families, a frozen `TOOL_VERSION`, exit codes with several meanings                | JSON Lines with `"v": 1`, the source digest, one meaning per code (2.2)                                                                                                                                                                     |
 | team inference from where `--to` names resolve                                                     | a guess that is wrong exactly when names resolve in two teams (2.10)                                                                                                                                                                        |
 | the `REPLY` line and hand-built `--re` replies                                                     | `reply '<id>'` (B4)                                                                                                                                                                                                                         |
 | `validate` and `validate --event`                                                                  | `ping` and `say` refuse with the validator's code; testing the validator is the test suite's job                                                                                                                                            |
@@ -2101,8 +2108,8 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
 
 - C1. The bundle is C §3.7.2's: `seat.json` with exactly `v`, `team`, `server_name`, `user_id`,
   `admin_id`, `main_room` (A §6.2's anchor), `base_url`, `plain_http_hosts` (the plain-HTTP rule,
-  M14), `human_text` (whether this member receives human text; a coordinator with it false is
-  refused by C and, if met, leaves the questions invite pending, Q 4.5), `issued_ms` and `issuer`,
+  M14), `issued_ms`, `issuer` and `released_ms` (C10), with no `human_text`: whether a member
+  receives human text is its roster entry's (A 5.1), which 2.6 step 10 reads,
   plus `token`. The member's handle is the localpart of `user_id`, and its seat number is the
   handle's `<seat>`. C places it at `<v2-bundle>` = `<v2-state>/<team>/`, 0700 and 0600, owned by
   the member's uid, outside every checkout. B reads it and checks the token's owner and mode on
