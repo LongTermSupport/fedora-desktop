@@ -5,6 +5,13 @@ import (
 	"fmt"
 )
 
+// The presences the specification names.
+const (
+	presenceOnline      = "online"
+	presenceOffline     = "offline"
+	presenceUnavailable = "unavailable"
+)
+
 // accountDataKey names one room account data entry: an account's, in a room, of a type.
 type accountDataKey struct {
 	userID, roomID, eventType string
@@ -87,12 +94,29 @@ func (s *Server) getAccountData(r *request, args []string) (any, error) {
 	return content, nil
 }
 
-// Presence is the presence the account last set with PUT /presence, empty when it set none. A
-// sync's set_presence does not change it: what Tuwunel does with that is host check HC-A1's.
+// Presence is the account's presence, empty while neither a sync nor PUT /presence has set it.
 func (s *Server) Presence(userID string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.presence[userID]
+}
+
+// syncPresence applies a sync's set_presence as the specification says: absent or online marks
+// the caller online, unavailable marks it so, offline leaves it as it was. Whether Tuwunel does
+// the same is host check HC-A1's question; a value the specification does not name is not guessed.
+func (s *Server) syncPresence(r *request) error {
+	value, given := queryValue(r, "set_presence")
+	if !given {
+		value = presenceOnline
+	}
+	switch value {
+	case presenceOnline, presenceUnavailable:
+		s.presence[r.userID] = value
+	case presenceOffline:
+	default:
+		return unmodelled("a sync's set_presence of %q", value)
+	}
+	return nil
 }
 
 // putPresence sets the caller's own presence. H4 recorded no presence request, so another
@@ -107,7 +131,7 @@ func (s *Server) putPresence(r *request, args []string) (any, error) {
 		value = stringAt(body, "presence")
 	}
 	switch value {
-	case "online", "offline", "unavailable":
+	case presenceOnline, presenceOffline, presenceUnavailable:
 		s.presence[r.userID] = value
 		return map[string]any{}, nil
 	}

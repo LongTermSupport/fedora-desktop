@@ -125,8 +125,9 @@ func (c *Client) Send(ctx context.Context, roomID, eventType, txnID string, cont
 	return c.putOnce(ctx, call{method: http.MethodPut, path: path, body: content})
 }
 
-// Redact redacts one event, with the reason when one is given (SPEC M49); the transaction ID is
-// made and retried as Send's is.
+// Redact redacts one event, with the reason when one is given (SPEC M49). The transaction ID is
+// made and checked as Send's is, but a lost answer is not retried: whether Tuwunel stores a
+// replayed redact once is not known, so the caller reads whether the event is redacted instead.
 func (c *Client) Redact(ctx context.Context, roomID, eventID, txnID, reason string) (string, error) {
 	txnID, err := transactionID(txnID)
 	if err != nil {
@@ -140,7 +141,7 @@ func (c *Client) Redact(ctx context.Context, roomID, eventID, txnID, reason stri
 	if reason != "" {
 		body["reason"] = reason
 	}
-	return c.putOnce(ctx, call{method: http.MethodPut, path: path, body: jsonBody(body)})
+	return c.eventID(ctx, call{method: http.MethodPut, path: path, body: jsonBody(body)})
 }
 
 // transactionID is txnID checked, or a fresh one when it is empty.

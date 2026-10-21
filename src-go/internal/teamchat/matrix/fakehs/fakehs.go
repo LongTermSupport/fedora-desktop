@@ -153,8 +153,10 @@ type session struct {
 	token    string
 }
 
+// txnKey scopes a transaction ID to the device, the room and the endpoint, as the specification
+// scopes it.
 type txnKey struct {
-	userID, deviceID, roomID, txn string
+	userID, deviceID, roomID, endpoint, txn string
 }
 
 type pendingFault struct {

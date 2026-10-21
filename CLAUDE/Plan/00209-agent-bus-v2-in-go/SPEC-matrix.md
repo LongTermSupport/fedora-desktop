@@ -34,8 +34,9 @@ is the shape the endpoint promises).
   `%#v` of the client (protocol §12).
 - **M4.** A token is one line of printable ASCII (`[\x21-\x7e]+`), at most 4096 bytes; anything
   else is refused when the client is built (`matrix.py:165-166`, `config.py:39,378-380`).
-- **M5.** Every request carries `Accept: application/json` and a `User-Agent` (`pingbus` on the
-  member side, `agent-bus` on the admin side), and `Content-Type: application/json` when it has
+- **M5.** Every request carries `Accept: application/json` and a `User-Agent` (`teamchat` on the
+  member side, `teamchat-admin` on the admin side, v2's names, where v1 sent `pingbus` and
+  `agent-bus`), and `Content-Type: application/json` when it has
   a body (`matrix.py:189-192`). Compression is not requested (`DisableCompression`), so the body
   cap counts the bytes the server sent.
 - **M6.** Each request has a time limit: 15 s on the member side (`matrix.py:32`), 30 s on the
@@ -170,7 +171,9 @@ is the shape the endpoint promises).
   fresh server gives the same status, the same `error` text and the same answer once the values
   a server makes up (tokens, IDs, timestamps, batch tokens) are set aside, with v1's one documented
   divergence (058) (`test_fakes.py:42-192`). The replay reads the fixtures where v1 keeps them,
-  so the two fakes are proven against one corpus.
+  so the two fakes are proven against one corpus. The replay's three v1 names (the corpus path,
+  the probe's server name, v1's status type) are deliberate references, each owed a line in D
+  4.1's `allowed.tsv` when that gate lands (Task 1.2); nothing else under `teamchat/` names v1.
 - **M39.** A request beyond the model is answered 500 `M_UNKNOWN` `fake: unmodelled: ...` and
   recorded; `CheckModelled()` reports the first, so a test that strays fails
   (`fake_client_api.py:55-56,690-692`). An unknown route is 404 `M_UNRECOGNIZED`.
@@ -228,9 +231,10 @@ is the shape the endpoint promises).
   unmodelled (H4 recorded none of these, and none of the 404 text), and the data outlives a
   logout, a password reset with device logout and `Restart` (B 6 C13).
 - **M49.** `Redact` (`PUT /rooms/{r}/redact/{event}/{txn}` with the reason when one is given)
-  gives the redaction's event ID; the transaction ID is made and checked, and a lost answer
-  retried, as `Send` does (M22). It is the admin's one-event redact of C DC20; which reason is
-  allowed is the caller's.
+  gives the redaction's event ID; the transaction ID is made and checked as `Send` does (M22),
+  but a lost answer is not retried: whether Tuwunel stores a replayed redact once is not recorded,
+  so a lost answer is a transient `ErrUnreachable` and the caller reads whether the event is
+  redacted. It is the admin's one-event redact of C DC20; which reason is allowed is the caller's.
 - **M50.** Presence (A 6.6, B 2.6 step 09): `SyncRequest.SetPresence` is sent as `set_presence`
   when it is not empty, and must be `online`, `offline` or `unavailable`; `SetPresence`
   (`PUT /presence/{u}/status` with `{"presence": p}`) takes the same three. Anything else is
@@ -239,8 +243,12 @@ is the shape the endpoint promises).
   `unsigned.redacted_because` (the specification's shape, which A 7.6 rule 02 drops on; H4
   recorded no redacted event), and keeps each account's presence:
   `PUT /presence/{u}/status` by its own account sets it, `Presence(u)` reads it for a test, and a
-  sync's `set_presence` is recorded with the request but changes nothing (what Tuwunel does with
-  it is HC-A1's question). Another account's presence, or a value beyond the three, is unmodelled.
+  sync's `set_presence` acts as the specification says (absent or `online` marks the caller
+  online, `unavailable` so, `offline` changes nothing; whether Tuwunel agrees is HC-A1's
+  question). Another account's presence, or a value beyond the three, is unmodelled. Transaction
+  IDs are kept per endpoint, and a redact under a transaction ID used before is unmodelled.
+  Receiving presence (the filter's presence section, presence events in a sync, for `status`,
+  A 6.6) is not built: it is owed to N3, with HC-A1.
 
 A dropped `/sync` may be resent by net/http (once, a GET on a reused keep-alive connection closed
 before any answer byte). That is safe, because a sync with a `since` token is idempotent: the

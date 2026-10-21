@@ -21,6 +21,8 @@ import (
 
 // The corpus probe H4 recorded against a running Tuwunel (Plan 00161), kept where the v1 fake's
 // own replay reads it, so both fakes are proven against one set of answers (SPEC-matrix M38).
+// This file's three v1 names (the corpus path, the probe's server name and v1's status type, all
+// as recorded) are deliberate v1 references: each is owed a line in D 4.1's allowed.tsv.
 const fixtureDir = "../../../../../tests/helpers/pingbus/fixtures/tuwunel"
 
 const probeServerName = "probe.agent-bus.internal"
@@ -42,7 +44,7 @@ var (
 	placeholderRE = regexp.MustCompile(`^<(token|password|mac):[a-z0-9-]+>$`)
 )
 
-// Tuwunel repeats an unchanged agent_bus.status (key "probe") in an incremental sync's state;
+// Tuwunel repeats an unchanged v1 status event (key "probe") in an incremental sync's state;
 // the fake sends state only when it changed, as the spec says (test_fakes.py:57-64).
 const divergenceFixture = "058-sync-held.json"
 

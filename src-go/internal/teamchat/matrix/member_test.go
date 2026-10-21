@@ -199,7 +199,7 @@ func TestSendCancelledBetweenTries(t *testing.T) {
 	wantErr(t, err, ErrUnreachable, detailCancelled)
 }
 
-func TestRedact(t *testing.T) {
+func TestRedactLostAnswerIsNotRetried(t *testing.T) {
 	srv := newServer(t)
 	f := room(t, srv)
 	leaked, err := f.bob.Send(t.Context(), f.id, msgType, "", hello)
@@ -207,15 +207,28 @@ func TestRedact(t *testing.T) {
 		t.Fatal(err)
 	}
 	srv.Inject(fakehs.Fault{Method: http.MethodPut, Path: "/redact/", DropAfter: true})
-	redaction, err := f.alice.Redact(t.Context(), f.id, leaked, "", "secret")
-	if err != nil || !strings.HasPrefix(redaction, "$") {
-		t.Fatalf("redact = %q, %v", redaction, err)
+	_, err = f.alice.Redact(t.Context(), f.id, leaked, "", "secret")
+	if e := wantErr(t, err, ErrUnreachable, ""); !e.Transient() {
+		t.Errorf("a lost redact answer is not transient: %v", err)
 	}
-	if got := f.alice.clk.waits(); !slices.Equal(got, []time.Duration{time.Second}) {
-		t.Errorf("waits %v, want [1s]", got)
+	if got := f.alice.clk.waits(); len(got) != 0 {
+		t.Errorf("a lost redact answer was retried after %v", got)
 	}
 	if n := count(t, f.alice, f.id, "m.room.redaction"); n != 1 {
 		t.Errorf("%d redactions stored, want 1", n)
+	}
+}
+
+func TestRedact(t *testing.T) {
+	srv := newServer(t)
+	f := room(t, srv)
+	leaked, err := f.bob.Send(t.Context(), f.id, msgType, "", hello)
+	if err != nil {
+		t.Fatal(err)
+	}
+	redaction, err := f.alice.Redact(t.Context(), f.id, leaked, "", "secret")
+	if err != nil || !strings.HasPrefix(redaction, "$") {
+		t.Fatalf("redact = %q, %v", redaction, err)
 	}
 	raw, err := f.alice.GetEvent(t.Context(), f.id, redaction)
 	if err != nil {

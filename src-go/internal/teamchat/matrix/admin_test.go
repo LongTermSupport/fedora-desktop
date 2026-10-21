@@ -59,7 +59,7 @@ func TestRegister(t *testing.T) {
 	if a.uid != "@host:example.org" {
 		t.Errorf("registered %q", a.uid)
 	}
-	if got := lastRequest(t, srv).Header.Get("User-Agent"); got != "agent-bus" {
+	if got := lastRequest(t, srv).Header.Get("User-Agent"); got != "teamchat-admin" {
 		t.Errorf("User-Agent = %q", got)
 	}
 	_, err := a.Register(t.Context(), "wrong-secret", Registration{Username: "eve", Password: "pw"})

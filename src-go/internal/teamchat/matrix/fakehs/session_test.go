@@ -156,6 +156,19 @@ func TestARedactionKeepsItsReason(t *testing.T) {
 	}
 }
 
+func TestSendAndRedactTransactionIDsAreApart(t *testing.T) {
+	tm := newTeam(t)
+	sent := text(t, tm.ok(tm.send(tm.admin, "same", map[string]any{"msgtype": "m.text", "body": "x"}))["event_id"])
+	redaction := text(t, tm.ok(tm.call(tm.admin, "PUT", tm.roomPath("redact/"+q(sent)+"/same"), nil, map[string]any{}))["event_id"])
+	if redaction == sent {
+		t.Fatal("a redact reusing a send's transaction ID was given the send's event")
+	}
+	replay := tm.call(tm.admin, "PUT", tm.roomPath("redact/"+q(sent)+"/same"), nil, map[string]any{})
+	if replay.status != 500 || tm.s.CheckModelled() == nil {
+		t.Fatalf("a replayed redact transaction ID answered %d, want 500 and unmodelled", replay.status)
+	}
+}
+
 func TestPresenceIsKeptPerAccount(t *testing.T) {
 	tm := newTeam(t)
 	if got := tm.s.Presence(tm.agent); got != "" {
@@ -168,10 +181,26 @@ func TestPresenceIsKeptPerAccount(t *testing.T) {
 	if got := tm.s.Presence(tm.agent); got != "offline" {
 		t.Fatalf("presence = %q, want offline", got)
 	}
-	tm.ok(tm.call(tm.agent, "GET", "/_matrix/client/v3/sync", url.Values{"set_presence": {"online"}, "timeout": {"0"}}, nil))
-	if got := tm.s.Presence(tm.agent); got != "offline" || tm.s.CheckModelled() != nil {
-		t.Fatalf("a sync's set_presence changed presence to %q, or was unmodelled", got)
+	for _, step := range []struct {
+		query url.Values
+		want  string
+	}{
+		{url.Values{"set_presence": {"offline"}}, "offline"},
+		{url.Values{}, "online"},
+		{url.Values{"set_presence": {"unavailable"}}, "unavailable"},
+		{url.Values{"set_presence": {"offline"}}, "unavailable"},
+		{url.Values{"set_presence": {"online"}}, "online"},
+	} {
+		step.query.Set("timeout", "0")
+		tm.ok(tm.call(tm.agent, "GET", "/_matrix/client/v3/sync", step.query, nil))
+		if got := tm.s.Presence(tm.agent); got != step.want {
+			t.Fatalf("after a sync with %v presence is %q, want %q", step.query, got, step.want)
+		}
 	}
+	if bad := tm.call(tm.agent, "GET", "/_matrix/client/v3/sync", url.Values{"set_presence": {"away"}}, nil); bad.status != 500 || tm.s.CheckModelled() == nil {
+		t.Fatalf("a sync's set_presence of away answered %d, want 500 and unmodelled", bad.status)
+	}
+	tm = newTeam(t)
 	for name, body := range map[string]any{
 		"a value beyond the three": map[string]any{"presence": "away"},
 		"no presence":              map[string]any{},

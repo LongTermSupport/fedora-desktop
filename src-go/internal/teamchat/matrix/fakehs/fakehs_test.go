@@ -8,9 +8,9 @@ import (
 	"testing"
 )
 
-const teamServerName = "team-a.agent-bus.internal"
+const teamServerName = "team-a.teamchat.internal"
 
-// team is a fresh server with the team room of agent-bus-protocol.md section 8: admin, one human
+// team is a fresh server with the team room of v1's protocol document, section 8: admin, one human
 // (power 50), two agents (power 0), all joined, and an outsider (test_fakes.py:218-245).
 type team struct {
 	t        *testing.T
@@ -39,7 +39,7 @@ func teamLevels(human string) map[string]any {
 		"users_default": 0, "notifications": map[string]any{"room": 50},
 		"users": map[string]any{human: 50},
 		"events": map[string]any{
-			"agent_bus.status": 0, "m.reaction": 50, "m.room.power_levels": 100,
+			"teamchat.status": 0, "m.reaction": 50, "m.room.power_levels": 100,
 			"m.room.redaction": 100, "m.room.tombstone": 150, "m.sticker": 100,
 		},
 	}
@@ -64,7 +64,7 @@ func newTeam(t *testing.T) *team {
 	created := tm.ok(tm.call(tm.admin, "POST", "/_matrix/client/v3/createRoom", nil, map[string]any{
 		"preset": "private_chat", "room_version": "12", "name": "team-a", "topic": "t",
 		"visibility": "private", "power_level_content_override": teamLevels(tm.human),
-		"initial_state": []any{map[string]any{"type": "agent_bus.team", "state_key": "", "content": map[string]any{"v": 1}}},
+		"initial_state": []any{map[string]any{"type": "teamchat.team", "state_key": "", "content": map[string]any{"v": 1}}},
 	}))
 	tm.room = text(t, created["room_id"])
 	for _, uid := range []string{tm.human, tm.agent, tm.other} {
@@ -147,12 +147,12 @@ func TestPowerLevelsPerEventType(t *testing.T) {
 
 func TestStatusStateKeys(t *testing.T) {
 	tm := newTeam(t)
-	tm.ok(tm.putState(tm.agent, "agent_bus.status", tm.agent, listening))
-	tm.refused(tm.putState(tm.agent, "agent_bus.status", tm.other, listening), 403, "M_FORBIDDEN",
+	tm.ok(tm.putState(tm.agent, "teamchat.status", tm.agent, listening))
+	tm.refused(tm.putState(tm.agent, "teamchat.status", tm.other, listening), 403, "M_FORBIDDEN",
 		"matching another user's ID")
-	tm.refused(tm.putState(tm.admin, "agent_bus.status", tm.other, listening), 403, "M_FORBIDDEN",
+	tm.refused(tm.putState(tm.admin, "teamchat.status", tm.other, listening), 403, "M_FORBIDDEN",
 		"matching another user's ID")
-	tm.ok(tm.putState(tm.agent, "agent_bus.status", "stray", listening))
+	tm.ok(tm.putState(tm.agent, "teamchat.status", "stray", listening))
 }
 
 func TestANonMemberCanNeitherSendNorRead(t *testing.T) {
@@ -240,7 +240,7 @@ func TestWholeRoomStateAndJoinedRooms(t *testing.T) {
 	for _, e := range state.list {
 		types[text(t, field(t, e, "type"))] = true
 	}
-	for _, want := range []string{"m.room.create", "m.room.power_levels", "m.room.join_rules", "agent_bus.team", "m.room.member", "m.room.topic", "m.room.name"} {
+	for _, want := range []string{"m.room.create", "m.room.power_levels", "m.room.join_rules", "teamchat.team", "m.room.member", "m.room.topic", "m.room.name"} {
 		if !types[want] {
 			t.Errorf("the room state lacks %s", want)
 		}

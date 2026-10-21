@@ -328,7 +328,7 @@ func (s *Server) createRoom(r *request, _ []string) (any, error) {
 	return map[string]any{"room_id": rm.id}, nil
 }
 
-// authorise applies the room-version-12 auth rules pingbus relies on, in the spec's order.
+// authorise applies the room-version-12 auth rules teamchat relies on, in the spec's order.
 func (s *Server) authorise(r *room, sender, eventType string, key *string) error {
 	if r.membership(sender) != membershipJoin {
 		return forbidden("Auth check failed: sender is not joined to the room")
@@ -501,9 +501,9 @@ func (s *Server) kick(r *request, args []string) (any, error) {
 }
 
 // txnEvent gives the event a transaction ID made: a transaction ID the same device used before
-// in the room gives the first event's ID and sends nothing.
-func (s *Server) txnEvent(r *request, rm *room, txn string, send func(*txnRef) (*event, error)) (any, error) {
-	key := txnKey{r.userID, r.deviceID, rm.id, txn}
+// at the endpoint in the room gives the first event's ID and sends nothing.
+func (s *Server) txnEvent(r *request, rm *room, endpoint, txn string, send func(*txnRef) (*event, error)) (any, error) {
+	key := txnKey{r.userID, r.deviceID, rm.id, endpoint, txn}
 	if _, done := s.txns[key]; !done {
 		e, err := send(&txnRef{r.userID, r.deviceID, txn})
 		if err != nil {
@@ -524,7 +524,7 @@ func (s *Server) send(r *request, args []string) (any, error) {
 		return nil, err
 	}
 	eventType := args[1]
-	return s.txnEvent(r, rm, args[2], func(ref *txnRef) (*event, error) {
+	return s.txnEvent(r, rm, "send", args[2], func(ref *txnRef) (*event, error) {
 		if err := s.authorise(rm, r.userID, eventType, nil); err != nil {
 			return nil, err
 		}
@@ -592,7 +592,12 @@ func (s *Server) redact(r *request, args []string) (any, error) {
 		return nil, err
 	}
 	eventID := args[1]
-	return s.txnEvent(r, rm, args[2], func(ref *txnRef) (*event, error) {
+	// H4 recorded no redact under a transaction ID used before, and whether Tuwunel stores it
+	// once is not known, so a replay is not guessed at.
+	if _, replayed := s.txns[txnKey{r.userID, r.deviceID, rm.id, "redact", args[2]}]; replayed {
+		return nil, unmodelled("a redact with a transaction ID used before")
+	}
+	return s.txnEvent(r, rm, "redact", args[2], func(ref *txnRef) (*event, error) {
 		if err := s.authorise(rm, r.userID, redactionType, nil); err != nil {
 			return nil, err
 		}

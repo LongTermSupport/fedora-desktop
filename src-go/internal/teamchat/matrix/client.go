@@ -46,8 +46,8 @@ const (
 	maxTries         = 3
 	maxRateWait      = 60 * time.Second
 	defaultRateWait  = 5 * time.Second
-	memberAgent      = "pingbus"
-	adminAgent       = "agent-bus"
+	memberAgent      = "teamchat"
+	adminAgent       = "teamchat-admin"
 	contentTypeJSON  = "application/json"
 	clientPrefix     = "/_matrix/client/v3"
 	detailCancelled  = "cancelled"

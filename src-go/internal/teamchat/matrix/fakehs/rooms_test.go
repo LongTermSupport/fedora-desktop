@@ -60,7 +60,7 @@ func TestEventsCarryTheirOwnTransactionIDOnly(t *testing.T) {
 	}
 	tm.refused(tm.call(tm.agent, "GET", tm.roomPath("event/%24nope"), nil, nil), 404, "M_NOT_FOUND", "Event not found.")
 	tm.refused(tm.call(tm.outsider, "GET", tm.roomPath("state"), nil, nil), 403, "M_FORBIDDEN", "permission to view")
-	tm.refused(tm.call(tm.agent, "GET", tm.roomPath("state/agent_bus.nothing/"), nil, nil), 404, "M_NOT_FOUND", "Event not found.")
+	tm.refused(tm.call(tm.agent, "GET", tm.roomPath("state/teamchat.nothing/"), nil, nil), 404, "M_NOT_FOUND", "Event not found.")
 }
 
 func TestRedactingAStateEventIsUnmodelled(t *testing.T) {

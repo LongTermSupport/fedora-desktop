@@ -94,6 +94,9 @@ func (s *Server) sync(r *request, _ []string) (any, error) {
 			return nil, invalidParam("timeout must be a non-negative integer")
 		}
 	}
+	if err := s.syncPresence(r); err != nil {
+		return nil, err
+	}
 	timer := time.NewTimer(time.Duration(timeoutMS) * time.Millisecond)
 	defer timer.Stop()
 	for {

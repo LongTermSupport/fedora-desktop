@@ -233,7 +233,7 @@ func TestRequestHeaders(t *testing.T) {
 	if !strings.HasPrefix(req.Header.Get("Authorization"), "Bearer ") || len(req.Query) != 0 {
 		t.Errorf("whoami header %q query %v", req.Header.Get("Authorization"), req.Query)
 	}
-	for key, want := range map[string]string{"Accept": "application/json", "User-Agent": "pingbus", "Accept-Encoding": "", "Content-Type": ""} {
+	for key, want := range map[string]string{"Accept": "application/json", "User-Agent": "teamchat", "Accept-Encoding": "", "Content-Type": ""} {
 		if got := req.Header.Get(key); got != want {
 			t.Errorf("%s = %q, want %q", key, got, want)
 		}

@@ -12,7 +12,7 @@ import (
 func syncFilter(t *testing.T, rooms []string, limit int, lazy bool) string {
 	t.Helper()
 	room := map[string]any{
-		"state":    map[string]any{"types": []string{"m.room.create", "m.room.member", "agent_bus.team"}, "lazy_load_members": lazy},
+		"state":    map[string]any{"types": []string{"m.room.create", "m.room.member", "teamchat.team"}, "lazy_load_members": lazy},
 		"timeline": map[string]any{"types": []string{"m.room.message", "m.room.member"}, "limit": limit},
 	}
 	if rooms != nil {
