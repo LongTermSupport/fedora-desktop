@@ -104,6 +104,10 @@ func TestParseMemberAcceptsAGoodMember(t *testing.T) {
 		got.room != m["room"] || got.humanText || got.limits.sendBurst != 30 || got.limits.sendPerMinute != 20 {
 		t.Errorf("member: %+v", got)
 	}
+}
+
+// The limits default, and limits.BOUNDS has report_per_hour, which the status line's copy lacks.
+func TestParseMemberDefaultsAndReportLimit(t *testing.T) {
 	if got, err := parseMember(goodMember(), "alpha"); err != nil || !got.humanText || got.limits.sendBurst != 10 {
 		t.Errorf("defaults: %+v %v", got, err)
 	}

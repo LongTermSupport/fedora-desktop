@@ -151,7 +151,7 @@ func TestWriterRemovesItsTemporaryFileOnFailure(t *testing.T) {
 
 func assertFile(t *testing.T, path, content string, mode os.FileMode) {
 	t.Helper()
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		t.Fatal(err)
 	}

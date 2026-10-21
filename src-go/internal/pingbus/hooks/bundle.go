@@ -314,7 +314,7 @@ func refuseBesideElement(team, home string) error {
 		return refusal
 	}
 	parent := pyJoin(home, elementNativeParent)
-	if syscall.Stat(parent, &info) != nil || info.Mode&syscall.S_IFMT != syscall.S_IFDIR {
+	if !isDirectory(parent) {
 		return nil
 	}
 	entries, err := os.ReadDir(parent)
@@ -327,4 +327,11 @@ func refuseBesideElement(team, home string) error {
 		}
 	}
 	return nil
+}
+
+// isDirectory is pathlib's is_dir: true only when the path, followed, is a directory; any
+// failure to stat it is false.
+func isDirectory(path string) bool {
+	var info syscall.Stat_t
+	return syscall.Stat(path, &info) == nil && info.Mode&syscall.S_IFMT == syscall.S_IFDIR
 }

@@ -32,29 +32,34 @@ func TestReadDesiredAndApplied(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, desiredFile), desiredJSON(`{"team": "alpha", "seat": "1"}, {"team": "beta", "seat": "2"}`,
 		`{"team": "gamma", "seat": "1", "reason": "removed"}`), 0o600)
-	desired, err := readDesired(dir)
+	want, err := readDesired(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if desired.session != "s1" || desired.kind != "cc" || desired.checkout != "/src/proj" || numberRepr(desired.generation) != "3" ||
-		len(desired.seats) != 2 || desired.seats[1] != (seatEntry{"beta", "2"}) || desired.farewell[0] != (farewell{"gamma", "1", "removed"}) {
-		t.Errorf("desired: %+v", desired)
+	if !isTheDesiredFixture(want) {
+		t.Errorf("desired: %+v", want)
 	}
 	home := t.TempDir()
-	if applied, err := readApplied(home); err != nil || applied != nil {
+	applied, err := readApplied(home)
+	if err != nil || applied != nil {
 		t.Errorf("no applied file: %+v %v", applied, err)
 	}
 	writeFile(t, filepath.Join(home, appliedFile), appliedJSON(heldSeat("beta", "2", handleB)+", "+heldSeat("alpha", "9", handleA)), 0o600)
-	applied, err := readApplied(home)
+	applied, err = readApplied(home)
 	if err != nil || len(applied.seats) != 2 || applied.seats[0].handle != handleB {
 		t.Fatalf("applied: %+v %v", applied, err)
 	}
-	if got := activeOf(desired, applied); strings.Join(got, ",") != "beta" {
+	if got := activeOf(want, applied); strings.Join(got, ",") != "beta" {
 		t.Errorf("active: %v (alpha's seat differs)", got)
 	}
-	if got := activeOf(desired, nil); len(got) != 0 {
+	if got := activeOf(want, nil); len(got) != 0 {
 		t.Errorf("active without applied: %v", got)
 	}
+}
+
+func isTheDesiredFixture(d desired) bool {
+	return d.session == "s1" && d.kind == "cc" && d.checkout == "/src/proj" && numberRepr(d.generation) == "3" &&
+		len(d.seats) == 2 && d.seats[1] == (seatEntry{"beta", "2"}) && d.farewell[0] == (farewell{"gamma", "1", "removed"})
 }
 
 func TestMembershipRefusals(t *testing.T) {
@@ -83,7 +88,7 @@ func TestMembershipRefusals(t *testing.T) {
 		dir := t.TempDir()
 		writeFile(t, filepath.Join(dir, desiredFile), text, 0o600)
 		_, err := readDesired(dir)
-		if _, ok := errors.AsType[*membershipError](err); !ok {
+		if !errors.As(err, new(*membershipError)) {
 			t.Errorf("%s: %v, want a membership error", name, err)
 		}
 	}
@@ -152,6 +157,10 @@ func TestToldRecords(t *testing.T) {
 	if roles, err := readToldRoles(home); err != nil || roles["alpha"] != "coordinator" || len(roles) != 2 {
 		t.Errorf("roles: %v %v", roles, err)
 	}
+}
+
+func TestToldRefusals(t *testing.T) {
+	home := t.TempDir()
 	for name, text := range map[string]string{
 		"role":   `{"v": 1, "generation": 1, "teams": [{"team": "a", "seat": "1", "handle": "` + handleA + `", "role": "boss"}], "left": []}`,
 		"reason": `{"v": 1, "generation": 1, "teams": [], "left": [{"team": "a", "reason": "x"}]}`,

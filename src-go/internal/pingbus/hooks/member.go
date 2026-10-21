@@ -24,7 +24,7 @@ const (
 )
 
 var (
-	memberRequired = []string{"protocol", "team", "user_id", "server_name", "base_url", "plain_http_hosts", "token_file", "admin", "room"}
+	memberRequired = []string{"protocol", keyTeam, "user_id", "server_name", "base_url", "plain_http_hosts", "token_file", "admin", "room"}
 	memberOptional = []string{"human_text", "limits"}
 	// limitBounds are limits.BOUNDS: the keys a member's limits may set, inclusive bounds.
 	limitBounds = map[string][2]int64{
@@ -62,8 +62,8 @@ type memberLimits struct {
 	sendPerMinute, sendBurst int64
 }
 
-func (m member) stateDir() string  { return pyJoin(m.bundleDir, stateDir) }
-func (m member) tokenPath() string { return pyJoin(m.bundleDir, tokenFile) }
+func (m *member) stateDir() string  { return pyJoin(m.bundleDir, stateDir) }
+func (m *member) tokenPath() string { return pyJoin(m.bundleDir, tokenFile) }
 
 // refused words a refusal of one member.json key; the value is never quoted (it may be a
 // pasted token).
@@ -121,8 +121,8 @@ func parseMember(data pyjson.Object, team string) (member, error) {
 	if n, ok := data["protocol"].(pyjson.Number); !ok || !n.IsInt(1) {
 		return member{}, refused("protocol", "must be the integer 1")
 	}
-	if name, ok := data["team"].(string); !ok || name != team {
-		return member{}, refused("team", "does not equal the bundle directory's name")
+	if name, ok := data[keyTeam].(string); !ok || name != team {
+		return member{}, refused(keyTeam, "does not equal the bundle directory's name")
 	}
 	server, ok := data["server_name"].(string)
 	if !ok || !isDNSName(server) {

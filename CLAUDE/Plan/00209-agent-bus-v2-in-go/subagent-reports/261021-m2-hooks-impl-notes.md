@@ -72,3 +72,50 @@ string into the character, so edit those lines with a script, not the Write tool
 - The status line's `limitBounds` lacks `report_per_hour` (limits.BOUNDS has it, 1 to 60): a
   bundle setting it is refused by the Go status line and accepted by v1. Not fixed here (00213's
   package must not be edited); the hooks copy has it, pinned by `TestParseMemberAcceptsAGoodMember`.
+
+## Agent 2
+
+### State at hand-over
+
+Branch feat/bus-v2-m2-hooks. `go test -race ./internal/pingbus/hooks/` is green; still no
+`Run` (hooks.go is the golden's placeholder; the `Placeholder` const and golden/pending_test.go
+are still in place). `./scripts/qa-changed.bash` reports only findings about code the events
+will use: `member.stateDir` unused/deadcode (the survey's state dir), `assertFile`'s mode
+always 0600 and `parseTeamRecord`'s server/team always the test's (unparam: they go once the
+cached-record reader calls it and a 0644 file is asserted). The commit is a WIP made at the
+context budget for that reason.
+
+### Built
+
+- Agent 1's whole lint list fixed (errcheck, cyclop splits, goconst `key*` constants, shadow,
+  nilerr via `isDirectory`, nilnil via `readMembershipJSON` returning `found`, perfsprint,
+  recvcheck, thelper, gosec G304).
+- `teamrecord.go`: `parseTeamRecord` returns the full `teamRecord` (humans set, roles, repos
+  with branches (`[]string{}` is any branch), path_prefixes, org/hasOrg, exclude, forge_api)
+  with v1's reason words in v1's check order (`TestParseTeamRecordReasonsAreThePythonWords`):
+  the goodbye's loss of trust writes them into untrusted.json. Errors are `*untrustedError`.
+- `validate.go`: `validateEvent(event, record, server, self, humanText, room) (outcome, error)`,
+  all of validate_event: the ping path (content_size via `pyDump(styleUnicode)`: a lone
+  surrogate there is `schema`), check_role, refs, branches, re and trust, the agent text, the
+  human path, the questions room (edits, coordinator-post, an unhashable sender raises).
+  `outcome{kind, reason, class (human|peer|ping), ts *big.Int}`; an `*internalError` where v1
+  raises (UnicodeEncodeError on a lone-surrogate body or text, TypeError on a list or object
+  sender in the questions room).
+- Red/green: validate_test.go was written first and failed to compile (undefined
+  validateEvent, roomMain); green after validate.go. `TestValidateEventAgreesWithThePython`
+  runs v1's validate_event (testdata/validate_events.py, through execx) over a 120-case corpus
+  and compares kind, reason, class and raising: all agree.
+
+### Next, in the task's order
+
+1. Readers left: the lock probe and `read_claim_at` (inbox.py:932-1039), the cached-record
+   reader (inbox.py:326-349, `pyjson.DecodeBytes`, then this member's role), the inbox walk
+   (inbox.py:450-504; sorted by (ts as big.Int, event id)), about and rooms (inbox.py:543-611;
+   read_json_file 311-323 lets other OS errors through: internal), the seat views
+   (seat.py:245-281,784-813), the inject marks and key (H21: env bytes that are not UTF-8 become
+   U+DC80+b in WTF-8 before the SHA-256), the socket (H20, H44).
+2. The events: hooks.py was read whole by agent 2 and the spec's H41-H79 match it.
+   `writeToldRoles` ranges over a map, which is right only because writePrivateJSON sorts keys.
+3. The goodbye: v1 writes `team.json` in the homeserver's key order, and `pyjson.Object` loses
+   order, so `pyjson` needs an order-keeping decode (extend it, test first) for that write.
+4. The main, the golden, the CPU table.

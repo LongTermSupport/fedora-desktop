@@ -109,29 +109,31 @@ func TestLoadActive(t *testing.T) {
 
 func TestLoadBundleRefusals(t *testing.T) {
 	w := testWorld()
-	cases := map[string]func(t *testing.T, dir string){
-		"loose token": func(t *testing.T, dir string) { mustChmod(t, filepath.Join(dir, tokenFile), 0o640) },
-		"token newline": func(t *testing.T, dir string) {
+	cases := map[string]func(dir string){
+		"loose token": func(dir string) { mustChmod(t, filepath.Join(dir, tokenFile), 0o640) },
+		"token newline": func(dir string) {
 			writeFile(t, filepath.Join(dir, tokenFile), "tok\n", 0o600)
 		},
-		"token long": func(t *testing.T, dir string) {
+		"token long": func(dir string) {
 			writeFile(t, filepath.Join(dir, tokenFile), strings.Repeat("t", tokenMaxBytes+1), 0o600)
 		},
-		"token link": func(t *testing.T, dir string) {
+		"token link": func(dir string) {
 			mustRemove(t, filepath.Join(dir, tokenFile))
 			mustSymlink(t, filepath.Join(dir, memberFile), filepath.Join(dir, tokenFile))
 		},
-		"no token":         func(t *testing.T, dir string) { mustRemove(t, filepath.Join(dir, tokenFile)) },
-		"member not JSON":  func(t *testing.T, dir string) { writeFile(t, filepath.Join(dir, memberFile), "{", 0o600) },
-		"member duplicate": func(t *testing.T, dir string) { writeFile(t, filepath.Join(dir, memberFile), `{"a": 1, "a": 2}`, 0o600) },
-		"member array":     func(t *testing.T, dir string) { writeFile(t, filepath.Join(dir, memberFile), `[]`, 0o600) },
-		"member fields": func(t *testing.T, dir string) {
+		"no token":        func(dir string) { mustRemove(t, filepath.Join(dir, tokenFile)) },
+		"member not JSON": func(dir string) { writeFile(t, filepath.Join(dir, memberFile), "{", 0o600) },
+		"member duplicate": func(dir string) {
+			writeFile(t, filepath.Join(dir, memberFile), `{"a": 1, "a": 2}`, 0o600)
+		},
+		"member array": func(dir string) { writeFile(t, filepath.Join(dir, memberFile), `[]`, 0o600) },
+		"member fields": func(dir string) {
 			writeFile(t, filepath.Join(dir, memberFile), strings.Replace(memberJSON("alpha", handleA), `"protocol": 1`, `"protocol": 2`, 1), 0o600)
 		},
-		"member large": func(t *testing.T, dir string) {
+		"member large": func(dir string) {
 			writeFile(t, filepath.Join(dir, memberFile), memberJSON("alpha", handleA)+strings.Repeat(" ", memberMaxBytes), 0o600)
 		},
-		"member dir": func(t *testing.T, dir string) {
+		"member dir": func(dir string) {
 			mustRemove(t, filepath.Join(dir, memberFile))
 			if err := os.Mkdir(filepath.Join(dir, memberFile), 0o700); err != nil {
 				t.Fatal(err)
@@ -141,7 +143,7 @@ func TestLoadBundleRefusals(t *testing.T) {
 	for name, spoil := range cases {
 		home := t.TempDir()
 		dir := makeBundle(t, home, "alpha", handleA, "tok")
-		spoil(t, dir)
+		spoil(dir)
 		_, err := w.loadBundle(home, "alpha")
 		if err == nil {
 			_, err = w.readToken(member{team: "alpha", bundleDir: dir})

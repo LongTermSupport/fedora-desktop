@@ -1,7 +1,6 @@
 package hooks
 
 import (
-	"errors"
 	"regexp"
 	"slices"
 	"strings"
@@ -23,7 +22,7 @@ const (
 )
 
 var (
-	teamKeys         = []string{"v", "team", "humans", "roles", "org", "exclude", "repos", "path_prefixes", "forge_api"}
+	teamKeys         = []string{"v", keyTeam, "humans", keyRoles, "org", "exclude", "repos", "path_prefixes", "forge_api"}
 	teamOptionalKeys = []string{"org", "exclude", "path_prefixes"}
 	ownerPattern     = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$`)
 	ownerRepoPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?/([a-z0-9._-]{1,100})$`)
@@ -33,46 +32,101 @@ var (
 )
 
 // untrusted is protocol.Untrusted: a team record that is not exactly what spec section 8 allows.
-func untrusted(why string) error { return errors.New("team record: " + why) }
+func untrusted(why string) error { return untrustedErr("%s", why) }
 
-// parseTeamRecord is protocol.parse_team_record: the record's roles, user ID to role, with the
-// legacy orchestrator read as coordinator (S22).
-func parseTeamRecord(content any, server, team string) (map[string]string, error) {
-	record, ok := content.(pyjson.Object)
-	if !ok || !hasTeamKeys(record) {
-		return nil, untrusted("keys")
-	}
-	if v, isNumber := record["v"].(pyjson.Number); !isNumber || !v.IsInt(1) {
-		return nil, untrusted("version")
-	}
-	if name, isText := record["team"].(string); !isText || !teamNamePattern.MatchString(name) || name != team {
-		return nil, untrusted("team name")
-	}
-	humans, ok := listOf(record["humans"], 1, humansMax)
-	if !ok || !all(humans, func(h any) bool { return isHumanUser(h, server) }) {
-		return nil, untrusted("humans")
-	}
-	roles, err := parseRoles(record["roles"], server)
-	if err != nil {
-		return nil, err
-	}
-	if !pathPrefixesOK(record) {
-		return nil, untrusted("path_prefixes")
-	}
-	if forge, isText := record["forge_api"].(string); !isText || !isForgeAPI(forge) {
-		return nil, untrusted("forge_api")
-	}
-	return roles, checkTrust(record)
+// teamRecord is protocol.TeamRecord, and its Context for the validator.
+type teamRecord struct {
+	team         string
+	humans       map[string]bool
+	roles        map[string]string
+	repos        map[string][]string
+	pathPrefixes []string
+	forgeAPI     string
+	org          string
+	hasOrg       bool
+	exclude      []string
 }
 
-// pathPrefixesOK is whether the optional path_prefixes, when present, is a list of path prefixes.
-func pathPrefixesOK(record pyjson.Object) bool {
+// parseTeamRecord is protocol.parse_team_record (S22), in v1's order of checks and with its
+// reasons, the legacy orchestrator read as coordinator.
+func parseTeamRecord(content any, server, team string) (teamRecord, error) {
+	record, ok := content.(pyjson.Object)
+	if !ok || !hasTeamKeys(record) {
+		return teamRecord{}, untrusted("team record keys")
+	}
+	if v, isNumber := record["v"].(pyjson.Number); !isNumber || !v.IsInt(1) {
+		return teamRecord{}, untrusted("team record version")
+	}
+	if name, isText := record[keyTeam].(string); !isText || !teamNamePattern.MatchString(name) || name != team {
+		return teamRecord{}, untrusted("team name")
+	}
+	got := teamRecord{team: team}
+	humans, err := parseHumans(record["humans"], server)
+	if err != nil {
+		return teamRecord{}, err
+	}
+	got.humans = humans
+	roles, err := parseRoles(record[keyRoles], server)
+	if err != nil {
+		return teamRecord{}, err
+	}
+	got.roles = roles
+	if got.pathPrefixes, err = parsePathPrefixes(record); err != nil {
+		return teamRecord{}, err
+	}
+	forge, isText := record["forge_api"].(string)
+	if !isText || !isForgeAPI(forge) {
+		return teamRecord{}, untrusted("forge_api")
+	}
+	got.forgeAPI = forge
+	if err := got.readTrust(record); err != nil {
+		return teamRecord{}, err
+	}
+	return got, nil
+}
+
+// parseHumans is the record's humans: 1 to humansMax distinct human user IDs of this server.
+func parseHumans(value any, server string) (map[string]bool, error) {
+	humans, ok := listOf(value, 1, humansMax)
+	if !ok {
+		return nil, untrusted(listRefusal)
+	}
+	if !all(humans, func(h any) bool { return isHumanUser(h, server) }) {
+		return nil, untrusted("humans")
+	}
+	set := make(map[string]bool, len(humans))
+	for _, h := range texts(humans) {
+		set[h] = true
+	}
+	return set, nil
+}
+
+// listRefusal is protocol._list_of's reason.
+const listRefusal = "list size or duplicates"
+
+// parsePathPrefixes is the optional path_prefixes: a list of path prefixes, none when absent.
+func parsePathPrefixes(record pyjson.Object) ([]string, error) {
 	value, present := record["path_prefixes"]
 	if !present {
-		return true
+		return nil, nil
 	}
 	prefixes, isList := listOf(value, 1, pathPrefixesMax)
-	return isList && all(prefixes, isPathPrefix)
+	if !isList {
+		return nil, untrusted(listRefusal)
+	}
+	if !all(prefixes, isPathPrefix) {
+		return nil, untrusted("path_prefixes")
+	}
+	return texts(prefixes), nil
+}
+
+// texts is a list already checked to hold only strings.
+func texts(items []any) []string {
+	names := make([]string, len(items))
+	for i, item := range items {
+		names[i] = text(item)
+	}
+	return names
 }
 
 func hasTeamKeys(record pyjson.Object) bool {
@@ -94,7 +148,7 @@ func hasTeamKeys(record pyjson.Object) bool {
 func parseRoles(value any, server string) (map[string]string, error) {
 	object, ok := value.(pyjson.Object)
 	if !ok || len(object) > rolesMax {
-		return nil, untrusted("roles")
+		return nil, untrusted(keyRoles)
 	}
 	roles := make(map[string]string, len(object))
 	for user, role := range object {
@@ -103,29 +157,29 @@ func parseRoles(value any, server string) (map[string]string, error) {
 			name = roleCoordinator
 		}
 		if _, _, agent := agentUser(user, server); !isText || (name != roleCoordinator && name != roleWorker) || !agent {
-			return nil, untrusted("roles")
+			return nil, untrusted(keyRoles)
 		}
 		roles[user] = name
 	}
 	return roles, nil
 }
 
-// checkTrust is the record's org, repos and exclude: an org or at least one repository, and
+// readTrust is the record's org, repos and exclude: an org or at least one repository, and
 // an exclude only of the org's repositories that repos does not list.
-func checkTrust(record pyjson.Object) error {
-	org, hasOrg := "", false
+func (r *teamRecord) readTrust(record pyjson.Object) error {
 	if value, present := record["org"]; present {
-		text, isText := value.(string)
-		if !isText || !ownerPattern.MatchString(text) {
+		name, isText := value.(string)
+		if !isText || !ownerPattern.MatchString(name) {
 			return untrusted("org")
 		}
-		org, hasOrg = text, true
+		r.org, r.hasOrg = name, true
 	}
 	repos, err := parseRepos(record["repos"])
 	if err != nil {
 		return err
 	}
-	if !hasOrg && len(repos) == 0 {
+	r.repos = repos
+	if !r.hasOrg && len(repos) == 0 {
 		return untrusted("neither an org nor a repository is trusted")
 	}
 	value, present := record["exclude"]
@@ -133,25 +187,29 @@ func checkTrust(record pyjson.Object) error {
 		return nil
 	}
 	names, ok := listOf(value, 1, reposMax)
-	if !ok || !hasOrg || !all(names, isRepoName) {
+	if !ok {
+		return untrusted(listRefusal)
+	}
+	if !r.hasOrg || !all(names, isRepoName) {
 		return untrusted("exclude")
 	}
-	for _, name := range names {
-		if text, isText := name.(string); isText && slices.Contains(repos, org+"/"+text) {
+	for _, name := range texts(names) {
+		if _, listed := repos[r.org+"/"+name]; listed {
 			return untrusted("exclude repository is also listed")
 		}
 	}
+	r.exclude = texts(names)
 	return nil
 }
 
-// parseRepos is protocol._parse_repos: the listed OWNER/REPO names, each once, with optional
-// branches.
-func parseRepos(value any) ([]string, error) {
+// parseRepos is protocol._parse_repos: each OWNER/REPO once, with its branches, an empty
+// list (not nil) for any branch.
+func parseRepos(value any) (map[string][]string, error) {
 	items, ok := listOf(value, 0, reposMax)
 	if !ok {
-		return nil, untrusted("list size or duplicates")
+		return nil, untrusted(listRefusal)
 	}
-	var names []string
+	repos := make(map[string][]string, len(items))
 	for _, item := range items {
 		entry, isObject := item.(pyjson.Object)
 		_, hasRepo := entry["repo"]
@@ -160,19 +218,23 @@ func parseRepos(value any) ([]string, error) {
 			return nil, untrusted("repos entry")
 		}
 		name, isText := entry["repo"].(string)
-		if !isText || !isOwnerRepo(name) || slices.Contains(names, name) {
+		if _, twice := repos[name]; !isText || !isOwnerRepo(name) || twice {
 			return nil, untrusted("repos entry")
 		}
-		names = append(names, name)
 		if !hasBranches {
+			repos[name] = []string{}
 			continue
 		}
 		branches, isList := listOf(entry["branches"], 1, branchesMax)
-		if !isList || !all(branches, func(b any) bool { return matches(branchPattern, b) }) {
+		if !isList {
+			return nil, untrusted(listRefusal)
+		}
+		if !all(branches, func(b any) bool { return matches(branchPattern, b) }) {
 			return nil, untrusted("branch name")
 		}
+		repos[name] = texts(branches)
 	}
-	return names, nil
+	return repos, nil
 }
 
 func boolInt(b bool) int {

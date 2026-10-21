@@ -5,9 +5,9 @@ package hooks
 
 import (
 	"errors"
-	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -28,6 +28,14 @@ const (
 	unknownRole        = "-"
 	defaultFarewell    = "removed"
 	noHolder           = "-"
+
+	keyTeam       = "team"
+	keyGeneration = "generation"
+	keyRoles      = "roles"
+	keyHandle     = "handle"
+	keyReason     = "reason"
+	keyRole       = "role"
+	keySeat       = "seat"
 )
 
 var (
@@ -40,11 +48,11 @@ var (
 	farewellReasons  = map[string]string{defaultFarewell: "removed by the owner"}
 	membershipRoles  = []string{roleWorker, roleCoordinator}
 	refusedWhy       = []string{"held-elsewhere", "no-bundle", "bundle-invalid", "not-desired"}
-	desiredKeys      = []string{"v", "session", "kind", "checkout", "generation", "written_ms", "seats", "farewell"}
-	appliedKeys      = []string{"v", "generation", "seats", "refused"}
+	desiredKeys      = []string{"v", "session", "kind", "checkout", keyGeneration, "written_ms", "seats", "farewell"}
+	appliedKeys      = []string{"v", keyGeneration, "seats", "refused"}
 	appliedOptional  = []string{"told", "inbound"}
-	toldKeys         = []string{"v", "generation", "teams", "left"}
-	toldRolesKeys    = []string{"v", "roles"}
+	toldKeys         = []string{"v", keyGeneration, "teams", "left"}
+	toldRolesKeys    = []string{"v", keyRoles}
 	membershipStates = []string{"held"}
 )
 
@@ -86,13 +94,13 @@ func (r toldRecord) equal(other toldRecord) bool {
 func (r toldRecord) json() pyobj {
 	teams := make([]any, len(r.teams))
 	for i, team := range r.teams {
-		teams[i] = pyobj{{"team", team.team}, {"seat", team.seat}, {"handle", team.handle}, {"role", team.role}}
+		teams[i] = pyobj{{keyTeam, team.team}, {keySeat, team.seat}, {keyHandle, team.handle}, {keyRole, team.role}}
 	}
 	left := make([]any, len(r.left))
 	for i, entry := range r.left {
-		left[i] = pyobj{{"team", entry.team}, {"reason", entry.reason}}
+		left[i] = pyobj{{keyTeam, entry.team}, {keyReason, entry.reason}}
 	}
-	return pyobj{{"v", 1}, {"generation", r.generation}, {"teams", teams}, {"left", left}}
+	return pyobj{{"v", 1}, {keyGeneration, r.generation}, {"teams", teams}, {"left", left}}
 }
 
 // text is a value already checked to be a string.
@@ -112,7 +120,7 @@ func number(value any) pyjson.Number {
 }
 
 func intNumber(n int64) pyjson.Number {
-	return pyjson.Number{Lit: fmt.Sprint(n), Kind: pyjson.Int}
+	return pyjson.Number{Lit: strconv.FormatInt(n, 10), Kind: pyjson.Int}
 }
 
 // isIntAtLeast is membership._is_int: `type(v) is int and v >= low`.
@@ -147,24 +155,24 @@ func farewellReason(value any) (bool, error) {
 }
 
 // readMembershipJSON is membership._read_json: no symlink, regular, at most 65536 bytes, strict
-// UTF-8 JSON with no key twice; nil when absent.
-func readMembershipJSON(path string) (any, error) {
+// UTF-8 JSON with no key twice; found is false when the file is absent.
+func readMembershipJSON(path string) (any, bool, error) {
 	got, err := readRegular(path, maxMembershipBytes)
 	switch {
 	case isErrno(err, syscall.ENOENT):
-		return nil, nil
+		return nil, false, nil
 	case errors.Is(err, errNotRegular):
-		return nil, membershipErr("%s: not a regular file", path)
+		return nil, false, membershipErr("%s: not a regular file", path)
 	case errors.Is(err, errTooLarge):
-		return nil, membershipErr("%s: larger than %d bytes", path, maxMembershipBytes)
+		return nil, false, membershipErr("%s: larger than %d bytes", path, maxMembershipBytes)
 	case err != nil:
-		return nil, membershipErr("%s: cannot be read (%s)", path, strerror(err))
+		return nil, false, membershipErr("%s: cannot be read (%s)", path, strerror(err))
 	}
 	data, err := pyjson.DecodeUTF8(got.raw, pyjson.Options{NoDuplicateKeys: true})
 	if err != nil {
-		return nil, membershipErr("%s: not one JSON object", path)
+		return nil, false, membershipErr("%s: not one JSON object", path)
 	}
-	return data, nil
+	return data, true, nil
 }
 
 // membershipObject is membership._object.
@@ -205,10 +213,10 @@ func isTeamName(value any) bool { return matches(teamNamePattern, value) }
 func isSeatName(value any) bool { return matches(seatPattern, value) }
 
 func seatNames(item pyjson.Object, key, where string) (string, string, error) {
-	if !isTeamName(item["team"]) || !isSeatName(item["seat"]) {
+	if !isTeamName(item[keyTeam]) || !isSeatName(item[keySeat]) {
 		return "", "", membershipErr("%s: %s: an entry's team or seat is not a name", where, key)
 	}
-	return text(item["team"]), item["seat"].(string), nil
+	return text(item[keyTeam]), text(item[keySeat]), nil
 }
 
 // isCheckout is membership's `/[^\x00-\x1f\x7f]{0,4095}`, counted in code points.
@@ -226,7 +234,7 @@ func parseDesired(data any, where string) (desired, error) {
 	if err != nil {
 		return desired{}, err
 	}
-	if err := membershipVersion(object, where); err != nil {
+	if err = membershipVersion(object, where); err != nil {
 		return desired{}, err
 	}
 	switch {
@@ -236,13 +244,15 @@ func parseDesired(data any, where string) (desired, error) {
 		return desired{}, membershipErr("%s: kind is not one of ccy, cc", where)
 	case !isCheckout(object["checkout"]):
 		return desired{}, membershipErr("%s: checkout is not an absolute path", where)
-	case !isIntAtLeast(object["generation"], 1):
+	case !isIntAtLeast(object[keyGeneration], 1):
 		return desired{}, membershipErr("%s: generation is not a positive integer", where)
 	case !isIntAtLeast(object["written_ms"], 0):
 		return desired{}, membershipErr("%s: written_ms is not a non-negative integer", where)
 	}
-	d := desired{session: text(object["session"]), kind: text(object["kind"]), checkout: text(object["checkout"]),
-		generation: number(object["generation"])}
+	d := desired{
+		session: text(object["session"]), kind: text(object["kind"]), checkout: text(object["checkout"]),
+		generation: number(object[keyGeneration]),
+	}
 	if d.seats, err = desiredSeats(object, where); err != nil {
 		return desired{}, err
 	}
@@ -257,7 +267,7 @@ func desiredSeats(object pyjson.Object, where string) ([]seatEntry, error) {
 	}
 	var seats []seatEntry
 	for _, item := range items {
-		entry, err := membershipObject(item, []string{"team", "seat"}, where+": seats")
+		entry, err := membershipObject(item, []string{keyTeam, keySeat}, where+": seats")
 		if err != nil {
 			return nil, err
 		}
@@ -280,7 +290,7 @@ func desiredFarewells(object pyjson.Object, where string) ([]farewell, error) {
 	}
 	var found []farewell
 	for _, item := range items {
-		entry, err := membershipObject(item, []string{"team", "seat", "reason"}, where+": farewell")
+		entry, err := membershipObject(item, []string{keyTeam, keySeat, keyReason}, where+": farewell")
 		if err != nil {
 			return nil, err
 		}
@@ -288,14 +298,14 @@ func desiredFarewells(object pyjson.Object, where string) ([]farewell, error) {
 		if err != nil {
 			return nil, err
 		}
-		known, err := farewellReason(entry["reason"])
+		known, err := farewellReason(entry[keyReason])
 		if err != nil {
 			return nil, err
 		}
 		if !known {
 			return nil, membershipErr("%s: farewell: the reason is not one of removed", where)
 		}
-		found = append(found, farewell{team, seat, entry["reason"].(string)})
+		found = append(found, farewell{team, seat, text(entry[keyReason])})
 	}
 	return found, nil
 }
@@ -306,10 +316,10 @@ func parseApplied(data any, where string) (applied, error) {
 	if err != nil {
 		return applied{}, err
 	}
-	if err := membershipVersion(object, where); err != nil {
+	if err = membershipVersion(object, where); err != nil {
 		return applied{}, err
 	}
-	if !isIntAtLeast(object["generation"], 0) {
+	if !isIntAtLeast(object[keyGeneration], 0) {
 		return applied{}, membershipErr("%s: generation is not a non-negative integer", where)
 	}
 	var result applied
@@ -339,7 +349,7 @@ func appliedSeats(object pyjson.Object, where string) ([]appliedSeat, error) {
 	}
 	var seats []appliedSeat
 	for _, item := range items {
-		entry, err := membershipObject(item, []string{"team", "seat", "handle", "state"}, where+": seats")
+		entry, err := membershipObject(item, []string{keyTeam, keySeat, keyHandle, "state"}, where+": seats")
 		if err != nil {
 			return nil, err
 		}
@@ -347,11 +357,11 @@ func appliedSeats(object pyjson.Object, where string) ([]appliedSeat, error) {
 		if err != nil {
 			return nil, err
 		}
-		handle, isText := entry["handle"].(string)
+		handle, isText := entry[keyHandle].(string)
 		if _, isHandle := parseHandle(handle); !isText || !isHandle || !pyIn(entry["state"], membershipStates) {
 			return nil, membershipErr("%s: seats: an entry's handle or state is refused", where)
 		}
-		seats = append(seats, appliedSeat{team, seat, handle, entry["state"].(string)})
+		seats = append(seats, appliedSeat{team, seat, handle, text(entry["state"])})
 	}
 	return seats, nil
 }
@@ -362,7 +372,7 @@ func appliedRefused(object pyjson.Object, where string) error {
 		return err
 	}
 	for _, item := range items {
-		entry, err := membershipObject(item, []string{"team", "seat", "why", "holder"}, where+": refused")
+		entry, err := membershipObject(item, []string{keyTeam, keySeat, "why", "holder"}, where+": refused")
 		if err != nil {
 			return err
 		}
@@ -379,24 +389,24 @@ func appliedRefused(object pyjson.Object, where string) error {
 
 func appliedTold(data any, where string) error {
 	where += ": told"
-	object, err := membershipObject(data, []string{"generation", "roles"}, where)
+	object, err := membershipObject(data, []string{keyGeneration, keyRoles}, where)
 	if err != nil {
 		return err
 	}
-	if !isIntAtLeast(object["generation"], 0) {
+	if !isIntAtLeast(object[keyGeneration], 0) {
 		return membershipErr("%s: generation is not a non-negative integer", where)
 	}
-	items, err := membershipList(object, "roles", where, maxSeats)
+	items, err := membershipList(object, keyRoles, where, maxSeats)
 	if err != nil {
 		return err
 	}
 	for _, item := range items {
-		entry, err := membershipObject(item, []string{"team", "handle", "role"}, where+": roles")
+		entry, err := membershipObject(item, []string{keyTeam, keyHandle, keyRole}, where+": roles")
 		if err != nil {
 			return err
 		}
-		handle, isText := entry["handle"].(string)
-		if _, isHandle := parseHandle(handle); !isTeamName(entry["team"]) || !isText || !isHandle || !pyIn(entry["role"], membershipRoles) {
+		handle, isText := entry[keyHandle].(string)
+		if _, isHandle := parseHandle(handle); !isTeamName(entry[keyTeam]) || !isText || !isHandle || !pyIn(entry[keyRole], membershipRoles) {
 			return membershipErr("%s: a role entry is not a team, a handle and a role", where)
 		}
 	}
@@ -409,13 +419,13 @@ func parseTold(data any, where string) (toldRecord, error) {
 	if err != nil {
 		return toldRecord{}, err
 	}
-	if err := membershipVersion(object, where); err != nil {
+	if err = membershipVersion(object, where); err != nil {
 		return toldRecord{}, err
 	}
-	if !isIntAtLeast(object["generation"], 0) {
+	if !isIntAtLeast(object[keyGeneration], 0) {
 		return toldRecord{}, membershipErr("%s: generation is not a non-negative integer", where)
 	}
-	record := toldRecord{generation: number(object["generation"])}
+	record := toldRecord{generation: number(object[keyGeneration])}
 	if record.teams, err = toldTeams(object, where); err != nil {
 		return toldRecord{}, err
 	}
@@ -430,7 +440,7 @@ func toldTeams(object pyjson.Object, where string) ([]toldTeam, error) {
 	}
 	var teams []toldTeam
 	for _, item := range items {
-		entry, err := membershipObject(item, []string{"team", "seat", "handle", "role"}, where+": teams")
+		entry, err := membershipObject(item, []string{keyTeam, keySeat, keyHandle, keyRole}, where+": teams")
 		if err != nil {
 			return nil, err
 		}
@@ -438,11 +448,11 @@ func toldTeams(object pyjson.Object, where string) ([]toldTeam, error) {
 		if err != nil {
 			return nil, err
 		}
-		handle, isText := entry["handle"].(string)
-		if _, isHandle := parseHandle(handle); !isText || !isHandle || !pyIn(entry["role"], append(slices.Clone(membershipRoles), unknownRole)) {
+		handle, isText := entry[keyHandle].(string)
+		if _, isHandle := parseHandle(handle); !isText || !isHandle || !pyIn(entry[keyRole], append(slices.Clone(membershipRoles), unknownRole)) {
 			return nil, membershipErr("%s: teams: an entry's handle or role is refused", where)
 		}
-		teams = append(teams, toldTeam{team, seat, handle, entry["role"].(string)})
+		teams = append(teams, toldTeam{team, seat, handle, text(entry[keyRole])})
 	}
 	return teams, nil
 }
@@ -454,21 +464,21 @@ func toldLefts(object pyjson.Object, where string) ([]toldLeft, error) {
 	}
 	var left []toldLeft
 	for _, item := range items {
-		entry, err := membershipObject(item, []string{"team", "reason"}, where+": left")
+		entry, err := membershipObject(item, []string{keyTeam, keyReason}, where+": left")
 		if err != nil {
 			return nil, err
 		}
-		if !isTeamName(entry["team"]) {
+		if !isTeamName(entry[keyTeam]) {
 			return nil, membershipErr("%s: left: an entry's team or reason is refused", where)
 		}
-		known, err := farewellReason(entry["reason"])
+		known, err := farewellReason(entry[keyReason])
 		if err != nil {
 			return nil, err
 		}
 		if !known {
 			return nil, membershipErr("%s: left: an entry's team or reason is refused", where)
 		}
-		left = append(left, toldLeft{text(entry["team"]), entry["reason"].(string)})
+		left = append(left, toldLeft{text(entry[keyTeam]), text(entry[keyReason])})
 	}
 	return left, nil
 }
@@ -482,7 +492,7 @@ func parseToldRoles(data any, where string) (map[string]string, error) {
 	if err := membershipVersion(object, where); err != nil {
 		return nil, err
 	}
-	roles, ok := object["roles"].(pyjson.Object)
+	roles, ok := object[keyRoles].(pyjson.Object)
 	if !ok || len(roles) > maxSeats {
 		return nil, membershipErr("%s: roles is not an object of at most %d", where, maxSeats)
 	}
@@ -499,11 +509,11 @@ func parseToldRoles(data any, where string) (map[string]string, error) {
 // readDesired is membership.read_desired: its absence is refused.
 func readDesired(dir string) (desired, error) {
 	path := pyJoin(dir, desiredFile)
-	data, err := readMembershipJSON(path)
+	data, found, err := readMembershipJSON(path)
 	if err != nil {
 		return desired{}, err
 	}
-	if data == nil {
+	if !found {
 		return desired{}, membershipErr("%s: %s: no such file: the host writes it at launch", membershipVar, path)
 	}
 	return parseDesired(data, path)
@@ -512,8 +522,8 @@ func readDesired(dir string) (desired, error) {
 // readApplied is membership.read_applied: nil before the keeper writes it.
 func readApplied(home string) (*applied, error) {
 	path := pyJoin(home, appliedFile)
-	data, err := readMembershipJSON(path)
-	if err != nil || data == nil {
+	data, found, err := readMembershipJSON(path)
+	if err != nil || !found {
 		return nil, err
 	}
 	result, err := parseApplied(data, path)
@@ -526,8 +536,8 @@ func readApplied(home string) (*applied, error) {
 // readTold is membership.read_told: nil before anything was told.
 func readTold(home string) (*toldRecord, error) {
 	path := pyJoin(home, toldFile)
-	data, err := readMembershipJSON(path)
-	if err != nil || data == nil {
+	data, found, err := readMembershipJSON(path)
+	if err != nil || !found {
 		return nil, err
 	}
 	record, err := parseTold(data, path)
@@ -540,8 +550,8 @@ func readTold(home string) (*toldRecord, error) {
 // readToldRoles is membership.read_told_roles: nil before any role was told.
 func readToldRoles(home string) (map[string]string, error) {
 	path := pyJoin(home, toldRolesFile)
-	data, err := readMembershipJSON(path)
-	if err != nil || data == nil {
+	data, found, err := readMembershipJSON(path)
+	if err != nil || !found {
 		return nil, err
 	}
 	return parseToldRoles(data, path)
@@ -556,7 +566,7 @@ func writeToldRoles(home string, roles map[string]string) error {
 	for team, role := range roles {
 		object = append(object, pykv{team, role})
 	}
-	return writePrivateJSON(pyJoin(home, toldRolesFile), pyobj{{"v", 1}, {"roles", object}})
+	return writePrivateJSON(pyJoin(home, toldRolesFile), pyobj{{"v", 1}, {keyRoles, object}})
 }
 
 // activeOf is membership.active: the desired teams whose seat is held in applied, in desired

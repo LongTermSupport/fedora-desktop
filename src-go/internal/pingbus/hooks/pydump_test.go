@@ -73,21 +73,21 @@ func TestDumpStyles(t *testing.T) {
 // to 15, else d.ddde+XX; NaN and the infinities as json.dumps writes them.
 func TestPyFloatRepr(t *testing.T) {
 	cases := map[float64]string{
-		1:          "1.0",
-		-2.5:       "-2.5",
-		0:          "0.0",
-		1e15:       "1000000000000000.0",
-		1e16:       "1e+16",
-		1.5e16:     "1.5e+16",
-		0.0001:     "0.0001",
-		0.00001:    "1e-05",
-		1.25e-7:    "1.25e-07",
-		1e100:      "1e+100",
-		0.1:        "0.1",
-		123456.789: "123456.789",
-		math.Inf(1): "Infinity",
+		1:            "1.0",
+		-2.5:         "-2.5",
+		0:            "0.0",
+		1e15:         "1000000000000000.0",
+		1e16:         "1e+16",
+		1.5e16:       "1.5e+16",
+		0.0001:       "0.0001",
+		0.00001:      "1e-05",
+		1.25e-7:      "1.25e-07",
+		1e100:        "1e+100",
+		0.1:          "0.1",
+		123456.789:   "123456.789",
+		math.Inf(1):  "Infinity",
 		math.Inf(-1): "-Infinity",
-		math.NaN():  "NaN",
+		math.NaN():   "NaN",
 	}
 	for f, want := range cases {
 		if got := pyFloatRepr(f); got != want {

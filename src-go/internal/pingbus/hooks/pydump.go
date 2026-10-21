@@ -142,34 +142,23 @@ func (s dumpStyle) writeString(b *strings.Builder, text string) error {
 	return nil
 }
 
+var shortEscapes = map[rune]string{'"': `\"`, '\\': `\\`, '\n': `\n`, '\r': `\r`, '\t': `\t`, '\b': `\b`, '\f': `\f`}
+
 func writeEscaped(b *strings.Builder, r rune, ascii bool) {
-	switch r {
-	case '"':
-		b.WriteString(`\"`)
-	case '\\':
-		b.WriteString(`\\`)
-	case '\n':
-		b.WriteString(`\n`)
-	case '\r':
-		b.WriteString(`\r`)
-	case '\t':
-		b.WriteString(`\t`)
-	case '\b':
-		b.WriteString(`\b`)
-	case '\f':
-		b.WriteString(`\f`)
+	if short, found := shortEscapes[r]; found {
+		b.WriteString(short)
+		return
+	}
+	switch {
+	case r < 0x20 || (ascii && r == 0x7f):
+		fmt.Fprintf(b, `\u%04x`, r)
+	case !ascii || r < 0x80:
+		b.WriteRune(r)
+	case r > 0xffff:
+		hi, lo := utf16Pair(r)
+		fmt.Fprintf(b, `\u%04x\u%04x`, hi, lo)
 	default:
-		switch {
-		case r < 0x20 || (ascii && r == 0x7f):
-			fmt.Fprintf(b, `\u%04x`, r)
-		case !ascii || r < 0x80:
-			b.WriteRune(r)
-		case r > 0xffff:
-			hi, lo := utf16Pair(r)
-			fmt.Fprintf(b, `\u%04x\u%04x`, hi, lo)
-		default:
-			fmt.Fprintf(b, `\u%04x`, r)
-		}
+		fmt.Fprintf(b, `\u%04x`, r)
 	}
 }
 
@@ -220,7 +209,7 @@ func numberRepr(n pyjson.Number) string {
 	}
 	f, err := strconv.ParseFloat(n.Lit, 64)
 	if err != nil && !errors.Is(err, strconv.ErrRange) {
-		return "NaN"
+		return notANumber
 	}
 	return pyFloatRepr(f)
 }
@@ -228,10 +217,12 @@ func numberRepr(n pyjson.Number) string {
 // pyFloatRepr is float.__repr__ as json.dumps writes it: the shortest round-tripping digits,
 // fixed notation when the decimal point falls from -3 to 16 places, else an exponent of at
 // least two digits.
+const notANumber = "NaN"
+
 func pyFloatRepr(f float64) string {
 	switch {
 	case math.IsNaN(f):
-		return "NaN"
+		return notANumber
 	case math.IsInf(f, 1):
 		return "Infinity"
 	case math.IsInf(f, -1):
@@ -245,7 +236,7 @@ func pyFloatRepr(f float64) string {
 	mantissa, expText, found := strings.Cut(text, "e")
 	exp, err := strconv.Atoi(expText)
 	if !found || err != nil {
-		return "NaN"
+		return notANumber
 	}
 	digits := strings.Replace(mantissa, ".", "", 1)
 	point := exp + 1
@@ -257,7 +248,12 @@ func pyFloatRepr(f float64) string {
 	case point > 0 && point <= 16:
 		return sign + digits[:point] + "." + digits[point:]
 	}
-	out := sign + digits[:1]
+	return sign + exponentForm(digits, exp)
+}
+
+// exponentForm is digits with one before the point and the exponent of at least two digits.
+func exponentForm(digits string, exp int) string {
+	out := digits[:1]
 	if len(digits) > 1 {
 		out += "." + digits[1:]
 	}
