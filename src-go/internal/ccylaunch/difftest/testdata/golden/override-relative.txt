@@ -1,0 +1,6 @@
+=== exit 1
+=== stdout
+=== stderr
+[0;31mERROR:[0m CCY_GPU_DEVICE_DIR=dri is a relative path; give an absolute one, or unset CCY_GPU_DEVICE_DIR to use /dev/dri.
+=== calls
+=== files

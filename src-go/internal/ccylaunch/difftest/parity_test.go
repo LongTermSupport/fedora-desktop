@@ -18,10 +18,13 @@
 // names an engine call passes by name, the whole environment for tmux, a token for gh and
 // claude; never bash's leftovers), and answer from the scenario's rules; the quiet fakes
 // (hostname, id) answer without being recorded; date is the real date with "now" pinned to the
-// matrix's clock; a short list of pure tools runs for real. Nothing reaches a real engine, the
-// network or a real token. The machine still answers two things: /etc/localtime, which the
-// launcher reads only when timedatectl names no zone (every world's timedatectl names one), and
-// the real tools' own installation.
+// matrix's clock; a short list of pure tools runs for real. Every fake also names the variables
+// whose value holds a secret, and a run fails when a program that does not read that name (or
+// tmux and systemd-run, which hand it to a whole server) was given one; TestSecretCheckCanFail
+// proves the check sees a leak. Nothing reaches a real engine, the network or a real token. The
+// machine still answers two things: /etc/localtime, which the launcher always reads (readlink,
+// when it is a link) but uses only when timedatectl names no zone (every world's timedatectl names one), and the
+// real tools' own installation.
 //
 // testdata/golden/<scenario>.txt is the exit status, stdout, stderr, the calls in order, and
 // every file the run left in the sandbox with its mode and content, with the sandbox's path, the
@@ -91,7 +94,8 @@ func TestLauncherParity(t *testing.T) {
 }
 
 // checkRun holds what the golden alone would not say loudly: the sandbox had every program the
-// launcher ran, and no secret reached an argv.
+// launcher ran, no secret reached an argv, and a secret reached the environment only of a
+// program that reads it by that name (secretAllowed).
 func checkRun(t *testing.T, m matrix, sc scenario, got outcome) {
 	t.Helper()
 	for line := range strings.SplitSeq(got.stderr, "\n") {
@@ -109,6 +113,86 @@ func checkRun(t *testing.T, m matrix, sc scenario, got outcome) {
 				t.Errorf("scenario %s: a secret reached the argv of %s", sc.Name, c.Tool)
 			}
 		}
+	}
+	for _, leak := range secretLeaks(got) {
+		t.Errorf("scenario %s: %s", sc.Name, leak)
+	}
+}
+
+// secretLeaks are the calls that were given a secret in a variable they do not read.
+func secretLeaks(got outcome) []string {
+	var leaks []string
+	for _, c := range got.calls {
+		for _, name := range c.Carries {
+			if !secretAllowed(c, name) {
+				leaks = append(leaks, c.Tool+" was given the secret in "+name+", which it does not read: "+strings.Join(c.Args, " "))
+			}
+		}
+	}
+	return leaks
+}
+
+// scenarioNamed is the matrix's scenario of that name.
+func scenarioNamed(t *testing.T, m matrix, name string) scenario {
+	t.Helper()
+	idx := slices.IndexFunc(m.Scenarios, func(sc scenario) bool { return sc.Name == name })
+	if idx < 0 {
+		t.Fatalf("the matrix has no scenario %s", name)
+	}
+	return m.Scenarios[idx]
+}
+
+// unexportLine is the launcher's line that keeps a caller's exported token out of every program
+// it starts; TestSecretCheckCanFail takes it away.
+const unexportLine = "export -n GH_TOKEN CLAUDE_CODE_OAUTH_TOKEN CLAUDE_OAUTH_TOKEN\n"
+
+// TestLaunchHandsTokensOn holds the other side of the narrowing: the session's container run is
+// still given both tokens' values, by name, whether gh's login or the caller's GH_TOKEN supplied
+// the GitHub one. A golden names the variables only, so it would pass an empty one.
+func TestLaunchHandsTokensOn(t *testing.T) {
+	m := loadMatrix(t)
+	l := probe(t, m, launcherUnderTest(t))
+	for _, name := range []string{"launch-plain", "launch-gh-token-env", "launch-headless", "launch-quick-replay"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			got := runScenario(t, m, l, scenarioNamed(t, m, name))
+			idx := slices.IndexFunc(got.calls, func(c call) bool {
+				return c.Tool == "podman" && len(c.Args) > 0 && c.Args[0] == "run" && slices.Contains(c.Args, "--dangerously-skip-permissions")
+			})
+			if idx < 0 {
+				t.Fatalf("scenario %s started no session container", name)
+			}
+			run := got.calls[idx]
+			for _, secret := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "GH_TOKEN"} {
+				if !slices.Contains(run.Carries, secret) || !slices.Contains(passedByName(run.Args), secret) {
+					t.Errorf("scenario %s: the session container was not given %s by name (carries %q)", name, secret, run.Carries)
+				}
+			}
+		})
+	}
+}
+
+// TestSecretCheckCanFail proves checkRun's secret check sees a token handed to every child: with
+// the caller's GH_TOKEN left exported, getenforce (the first program the launch starts) has it.
+func TestSecretCheckCanFail(t *testing.T) {
+	if os.Getenv("LAUNCHER") != "" {
+		t.Skip("the mutation edits the bash launcher; LAUNCHER names another program")
+	}
+	if *update {
+		t.Skip("-update is rewriting the goldens")
+	}
+	t.Parallel()
+	m := loadMatrix(t)
+	path := installBash(t, func(text string) string {
+		if strings.Count(text, unexportLine) != 1 {
+			t.Fatalf("%q is not in the launcher exactly once", unexportLine)
+		}
+		return strings.Replace(text, unexportLine, "", 1)
+	})
+	got := runScenario(t, m, probe(t, m, path), scenarioNamed(t, m, "launch-gh-token-env"))
+	leaks := secretLeaks(got)
+	if !slices.ContainsFunc(leaks, func(l string) bool { return strings.HasPrefix(l, "getenforce was given the secret in GH_TOKEN") }) {
+		t.Errorf("with the caller's GH_TOKEN left exported, getenforce was not reported; leaks: %q", leaks)
 	}
 }
 
@@ -188,11 +272,7 @@ func TestOracleCanFail(t *testing.T) {
 				return strings.Replace(text, mu.from, mu.to, 1)
 			})
 			l := probe(t, m, path)
-			idx := slices.IndexFunc(m.Scenarios, func(sc scenario) bool { return sc.Name == mu.scenario })
-			if idx < 0 {
-				t.Fatalf("mutation %q names no scenario %s", mu.about, mu.scenario)
-			}
-			got := runScenario(t, m, l, m.Scenarios[idx]).render()
+			got := runScenario(t, m, l, scenarioNamed(t, m, mu.scenario)).render()
 			want := readFile(t, goldenPath(mu.scenario))
 			if got == want {
 				t.Fatalf("mutation %q: scenario %s still matches its golden; the oracle cannot see it", mu.about, mu.scenario)

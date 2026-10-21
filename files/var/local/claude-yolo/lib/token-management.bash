@@ -1112,11 +1112,9 @@ validate_token() {
     #
     # BSH-09: pass the token by NAME (-e CLAUDE_CODE_OAUTH_TOKEN, no '=value') so
     # the secret is taken from this process's environment and never appears in the
-    # container run's argv, which is world-readable via /proc/<pid>/cmdline. The
-    # variable is declared 'local' so the export is scoped to this function.
-    local CLAUDE_CODE_OAUTH_TOKEN="$token"
-    export CLAUDE_CODE_OAUTH_TOKEN
-    if container_cmd run --rm \
+    # container run's argv, which is world-readable via /proc/<pid>/cmdline. It is set
+    # in that one command's environment, so no other program is given it.
+    if CLAUDE_CODE_OAUTH_TOKEN="$token" container_cmd run --rm \
         -e CLAUDE_CODE_OAUTH_TOKEN \
         --entrypoint claude \
         "$image_name" \
@@ -1250,13 +1248,13 @@ create_token() {
     echo "Running: $CONTAINER_ENGINE run --rm --entrypoint claude \"$image_name\" setup-token"
     echo ""
 
-    # BSH-09: GH_TOKEN by name (not -e VAR=value) keeps it out of the run argv.
+    # BSH-09: GH_TOKEN by name (not -e VAR=value) keeps it out of the run argv, and
+    # set in this one command's environment it is exported to nothing else.
     # BSH-04: without pipefail the 'if ... | tee' would test tee's status (always
     # 0), so the failure diagnostics below were unreachable and a failed
     # setup-token fell through to the success branch. Capture the container's own
     # status via PIPESTATUS[0] and branch on that instead.
-    export GH_TOKEN="$gh_token"
-    container_cmd run -it --rm \
+    GH_TOKEN="$gh_token" container_cmd run -it --rm \
         --entrypoint claude \
         -e GH_TOKEN \
         "$image_name" \

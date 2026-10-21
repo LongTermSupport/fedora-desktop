@@ -8,9 +8,12 @@
 # ccy_host_dir <variable> <override-variable> <default> [absent-ok] — set <variable> to the
 # directory to use.
 #   The override unset or empty: the default, unchecked (a host may have no /dev/dri).
-#   Set: it must not resolve to / or /dev, which would hand a build or a device mount the
-#   whole tree, and it must be a directory. With absent-ok its parent must be one instead:
-#   the GPU directory's absence is an answer (no GPU), a missing parent is a wrong path.
+#   Set: it must be an absolute path (a relative one depends on where ccy was started), and
+#   is resolved (symlinks and ..), and the resolved path is what is checked and stored. It
+#   must be the default, or a directory outside the system trees: /, /proc, /sys and /dev
+#   would hand a build or a device mount the whole tree or what is not a GPU. It must be a
+#   directory; with absent-ok its parent must be one instead: the GPU directory's absence is
+#   an answer (no GPU), a missing parent is a wrong path.
 ccy_host_dir() {
     local target="${1:?ccy_host_dir requires the variable to set}"
     local name="${2:?ccy_host_dir requires the override variable}"
@@ -20,20 +23,27 @@ ccy_host_dir() {
         printf -v "$target" '%s' "$default"
         return 0
     fi
-    resolved="$(realpath -m -- "$dir")"
-    if [ "$resolved" = / ] || [ "$resolved" = /dev ]; then
-        print_error "$name=$dir names the whole of $resolved, which ccy will not build from or mount. Unset $name to use $default."
+    if [[ "$dir" != /* ]]; then
+        print_error "$name=$dir is a relative path; give an absolute one, or unset $name to use $default."
         return 1
     fi
-    checked="$dir"
+    resolved="$(realpath -m -- "$dir")" || return 1
+    case "$resolved" in
+    "$default") ;;
+    / | /proc | /proc/* | /sys | /sys/* | /dev | /dev/*)
+        print_error "$name=$dir resolves to $resolved, in a system tree (/, /proc, /sys, /dev) ccy will not build from or mount. Unset $name to use $default."
+        return 1
+        ;;
+    esac
+    checked="$resolved"
     if [ -n "$absent_ok" ]; then
-        checked="$(dirname -- "$dir")"
+        checked="$(dirname -- "$resolved")"
     fi
     if [ ! -d "$checked" ]; then
         print_error "$name=$dir: $checked is not a directory. Unset $name to use $default."
         return 1
     fi
-    printf -v "$target" '%s' "$dir"
+    printf -v "$target" '%s' "$resolved"
 }
 
 ccy_host_dir DOCKERFILE_DIR CCY_DOCKERFILE_DIR /opt/claude-yolo || exit 1
