@@ -119,5 +119,6 @@ module, or the part of it named. A module used by several stages is gone only at
 - **The image's `pingbus` carries `helpers/agent_bus`** (`bundle.py:39`, both packages in both
   archives). That is why `helpers/agent_bus` changes need a container version bump
   (`scripts/git-hooks/pre-commit:236`). The stage-2 kit still executes `pingbus.pyz` for most
-  verbs (B10), so the zipapp stays in the image until stage 6. Until then the gate keeps both
+  verbs (B10), so the zipapp stays in the image until stage 8 deletes it (from 6a it serves only
+  `watch`, `seat exec` and `seat keep`, and no verb from 6b). Until then the gate keeps both
   Python packages in its set, and stage 2 adds the Go sources to it (DESIGN.md 8.4).
