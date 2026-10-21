@@ -1,202 +1,160 @@
-Verdict: FIX-FIRST
+Verdict: MERGE
 
-# Plan 00209 M1, bus/matrix: adversarial review, round 1
+# Plan 00209 M1, bus/matrix: adversarial review, round 2
 
 Scope: `git diff f460abb7...HEAD -- src-go .golangci.yml` on `feat/bus-v2-m1-matrix` (head
-30f5ecae). What was run, from `src-go/`:
+71457ebf). Round 1 (head 30f5ecae) was FIX-FIRST with should-fix 1 and 2. 71457ebf answers
+both, and notes 4, 7 and 8. What was run, from `src-go/`:
 
-- `go test -race -count=1 ./internal/bus/matrix/...`: pass.
-- `go test -race -count=5 -shuffle=on` (TestAnswerCap and TestCloseLeavesNoGoroutine skipped
-  because they are slow): pass, no flakes.
-- `go vet -tags tuwunel`: clean.
-- the project-rules vet driver (`qa/driver`) with `-tags tuwunel`: clean.
+- `go test -race -count=1 -shuffle=on ./internal/bus/matrix/...`: pass (matrix 8.2 s,
+  fakehs 1.5 s).
+- `go test -race -tags tuwunel -run TestTuwunel -v`: compiles, skips (no binary named).
+- `go vet -tags tuwunel ./internal/bus/matrix/...`: clean.
 - `golangci-lint run --build-tags tuwunel ./internal/bus/matrix/...`: 0 issues.
+- `untracked/scratch/m1review/execprobe2/main.go`: a probe of what `exec.Cmd.Run` returns
+  after a cancel, set up the way `execx.OS.Run` sets it up (`Cancel` sends SIGTERM,
+  `WaitDelay` is set).
 
-## What holds (no finding)
+## Round 1 should-fix 1 (clean SIGTERM shutdown counted as a failure): fixed, correct
 
-- **Token leaks (hunt 1).** The token travels only in `Authorization`, set by a closure
-  (client.go:159-161). `isToken` refuses anything outside 0x21-0x7e, so the header cannot be
-  split. `Error` keeps no query, no server `error` text and no lower-level error; the `http.Do`
-  error, which is a `*url.Error` holding the URL and query, is dropped (client.go:378-381).
-  `Client.Format` and `Token.Format` cover every verb, and `Admin` picks up `Format` through
-  the embedded `*Client`. `Token.MarshalText` refuses. `Register` sends only the MAC, never the
-  shared secret. TestTokenNeverPrinted covers `*c`, `c`, the error, the session and the token
-  under six verbs.
-- **Redirects (hunt 2).** `CheckRedirect` returns `ErrUseLastResponse` and `judge` refuses
-  every 3xx. `Proxy: nil` is set. TestRedirectRefused shows the target receives nothing for
-  307, 302 and 308.
-- **Bounded reads (hunt 3).** Every answer is capped at 32 MiB + 1, error bodies included, and
-  the headers at 64 KiB. Compression is off. fakehs reads at most 16 MiB of a request body,
-  and `http.Server`'s default 1 MiB header limit and a 10 s `ReadHeaderTimeout` apply.
-- **Retries (hunt 4).** A 429 gets at most 3 tries. A wait over 60 s, or one too large to
-  parse, gives up at once. `Send` retries only a transient `Unreachable` (MB10). A
-  cancellation is never transient and the `Clock` wait checks the context, so nothing retries
-  after a cancel. The transaction ID stays the same on every retry. A 429 inside a send is not
-  also retried by `Send`.
-- **net/http's own replay (hunt 4).** The client needs no change here; see note 8.
-- **Goroutines and contexts (hunt 5).** Every try has a `WithTimeout` with a deferred cancel,
-  and the body is read under it. fakehs `Stop` sets `closing` under its lock before
-  `active.Wait`, so every `Add` happens before the `Wait`. A held sync gives up the server lock
-  while it waits and wakes on `r.done` when the connection closes. `blockingServer` releases
-  its handlers before `httptest.Server.Close`. Every channel wait in a test is bounded by a
-  client time limit.
-- **.golangci.yml (hunt 7).** The gosec entry is limited to three files, one linter and
-  `G401|G505`. The reason is true: the protocol fixes HMAC-SHA1. fakehs cannot import
-  `matrix.RegistrationMAC`, because the `matrix` tests import fakehs and that would be an
-  import cycle, and the replay keeps its own copy on purpose so that it checks the fake
-  independently. The tagliatelle change is a per-package `overrides` to `snake`, not an
-  exclusion, so a case is still enforced; the wire really is snake_case, and lint passing over
-  `next_batch` and the other tags shows the override takes effect.
+`tuwunel_test.go:97-107`: `stoppedCleanly` now accepts `errors.Is(err, context.Canceled)`.
 
-## Findings
+I checked that this does not swallow a bad shutdown. The probe ran four children and
+cancelled each:
 
-### 1. should-fix: tuwunel_test.go reports a clean SIGTERM shutdown as a failure
+| child after SIGTERM               | `Run` error          | `context.Canceled`? | `*exec.ExitError`? |
+| --------------------------------- | -------------------- | ------------------- | ------------------ |
+| traps TERM, exits 0               | `context canceled`   | yes                 | no                 |
+| traps TERM, exits 3               | `exit status 3`      | no                  | yes                |
+| ignores TERM, killed at WaitDelay | `signal: killed`     | no                  | yes                |
+| dies of the TERM                  | `signal: terminated` | no                  | yes                |
 
-`src-go/internal/bus/matrix/tuwunel_test.go:97-104` (with :70-73 and :76-85).
+So `exec` reports `context.Canceled` only when the exit was 0. Each of the other three is an
+`*execx.ExitError`, and of those only the SIGTERM one is still accepted. An exit 3 or a
+SIGKILL at the grace limit still fails the cleanup.
 
-Evidence. On cleanup, `stop()` cancels `runCtx`, and `execx.OS.Run` sends SIGTERM through
-`cmd.Cancel`. When a child exits with status 0 after the context was cancelled, `exec.Cmd.Run`
-returns `ctx.Err()`. I ran `untracked/scratch/m1review/execprobe/main.go`: a `sh` child that
-traps TERM and exits 0, run through `exec.CommandContext` with the same `Cancel` and
-`WaitDelay`. It printed `err=context canceled exit=0`. `execx` hands that back as
-`fmt.Errorf("run %s: %w", ...)` (execx.go:146-147). That is not an `*execx.ExitError`, so
-`stoppedCleanly` returns false and the cleanup calls `t.Errorf`.
+`TestTuwunel`'s context is `WithTimeout(t.Context(), …)` (tuwunel_test.go:305), with `runCtx`
+derived from it. If the deadline passes first, the error is `DeadlineExceeded`, which is not
+accepted, as the new comment says. The fix is right and complete.
 
-`helpers/agent_bus/render.py:29` records that "Tuwunel exits 0 on SIGTERM". So every
-successful run against a real Tuwunel 1.9.x would fail at cleanup. The commit message says the
-test has only ever been seen to skip, so this has never run.
+The commit also adds `retire` (tuwunel_test.go:336-361). It locks, unlocks and deactivates
+bob on the real server, reads each state back, and expects bob's token to be refused after
+the deactivation. That is the real-server proof round 1 asked for. It is still unconfirmed,
+because M44 has never run against a binary.
 
-Fix: in `stoppedCleanly`, also accept `errors.Is(err, context.Canceled)`, which is the exit-0
-case, alongside the SIGTERM signal case. A cleaner alternative is to keep the cleanup's own
-`stop()` separate from the test's 2-minute deadline, so that a timeout still fails the test.
+## Round 1 should-fix 2 (fakehs guessing lock and deactivation answers): fixed for every path round 1 named
 
-The rest of the M44 harness matches the repository. `TUWUNEL_CONFIG`, the bare top-level keys
-and the key names are the ones `render.py` renders and H4 started Tuwunel with.
-`max_request_size` is at Tuwunel's floor. `allow_room_creation = true` is a deliberate
-departure, and the comment says so. These parts could not be confirmed without a real binary:
+- `fakehs.go:561-564`: a request with a locked account's token is now `unmodelled`, where it
+  used to answer 401 `M_USER_LOCKED`.
+- `fakehs.go:666-669`: signing in to a deactivated account is now `unmodelled`, where it
+  used to answer 403 `M_USER_DEACTIVATED`.
+- `admin.go:265-267`: a token minted for a deactivated account is now `unmodelled`, where it
+  used to be a working token.
+- Setting the flags, and the sign-out on deactivation, stay modelled. M44's `retire` now
+  checks the sign-out against the real server.
+- `fakehs/admin_test.go:41-87` covers each change, including a check that locking and
+  unlocking alone is not reported as unmodelled.
 
-- that `database_path` is created when missing
-- that `GET /_synapse/admin/v2/users/{id}/devices` exists and lists a device for an
-  admin-minted token (H4 recorded neither; see note 11)
+One gap is left in the same class (finding 1 below). It is a note and not a should-fix: any
+use of the token it hands out goes straight to `unmodelled`.
 
-### 2. should-fix: fakehs models lock and deactivation that no recording supports, and v1 refused them
+## Notes 4, 7 and 8, taken: checked
 
-Evidence:
+- **Note 4.** `admin.go:146-151` leaves the `displayname` key out when the display name is
+  empty. This is correct. No fake-backed test sends an empty display name, though; see
+  finding 3.
+- **Note 7.** `sync_test.go:210-221`: `waitHeld` now calls `t.Fatal` after 2000 × 1 ms, and
+  it is called only from the test goroutine (lines 81 and 201), so `Fatal` is legal there.
+  The second half of note 7 is not addressed: "held" still means "received", not "waiting".
+  It is carried below.
+- **Note 8.** The package doc line (`client.go:12-13`) is right in substance but too narrow;
+  see finding 2.
 
-- `fakehs/fakehs.go:560-563`: a locked account's token gets 401 `M_USER_LOCKED` "This account
-  has been locked.".
-- `fakehs/fakehs.go:665-667`: logging in to a deactivated account gets 403
-  `M_USER_DEACTIVATED`.
-- `fakehs/admin.go:197-229`: `deactivated` and `locked` are accepted on PUT v2/users, and
-  deactivation logs out every device.
-- `fakehs/admin.go:253-266`: `mint` gives a working token for a deactivated account, so that
-  account can act again. Real servers refuse this; it is not modelled either way, and nothing
-  says so.
+## Full hunt, re-run
 
-None of this is in the 73 fixtures; grep finds no `USER_LOCKED`, `DEACTIVATED` or `locked`
-outside the user objects. The v1 fake deliberately refused it
-(`tests/helpers/pingbus/fake_admin_api.py:9`: "Fields H4 did not exercise (`deactivated`,
-`locked`, ...) raise"). The package doc (fakehs.go:9-11) says a request beyond the model "is
-answered 500 and recorded ... rather than guessed at". These answers are guesses.
+Since round 1, only 71457ebf has changed `src-go`; `.golangci.yml` is unchanged. I re-read
+the transport (client.go:140-160, 325-440) and `Send` (member.go:102-150). Every round 1
+"holds" still holds:
 
-This matters because `bus/admin` will be built and tested against the fake. Synapse answers a
-locked account with 401 plus `soft_logout`, and whether Tuwunel 1.9 enforces `locked` at all
-is not shown anywhere in the repository. A host flow that trusts "locked means 401" would pass
-against the fake and could fail on the real server.
+- **Token leaks.** The token goes only in the `Authorization` header, set by a closure. The
+  `*url.Error` that `Do` returns is dropped (`lost`). Errors carry no server text.
+- **Redirects.** `CheckRedirect` returns `ErrUseLastResponse`, and `judge` refuses every
+  3xx. `Proxy` is nil.
+- **Bounded reads.** Answers are read through `LimitReader(maxAnswerBytes+1)`. Response
+  headers are capped by `MaxResponseHeaderBytes`. Compression is off.
+- **429s and retries.** A 429 gets at most `maxTries`, and a wait over `maxRateWait` gives up
+  at once. `Send` retries only `answerLost` (a transient `ErrUnreachable`), keeps the same
+  transaction ID, and never retries after a cancel.
+- **Contexts and goroutines.** Each try has a `WithTimeout` with a deferred `cancel`, and the
+  body is read under it.
+- **fakehs drift.** The replay test (`replay_test.go`) passes over the 74 fixture files. The
+  fix commit adds no answer text that the fixtures lack: its new answers are all
+  `unmodelled` 500s.
+- **.golangci.yml scope.** Unchanged from round 1, and still correct.
 
-Fix: either make these paths `unmodelled(...)` as v1 did, or keep them, label each one in the
-code as an unrecorded assumption, and add `SetLocked`, `SetDeactivated`, and a mint after
-deactivation to the M44 real-server test so Tuwunel proves the model. Also make `mint` refuse
-a deactivated account, or call it unmodelled.
+## New findings
 
-### 3. note: other answers are invented, and the code does not say so
+### 1. note: a locked account can still sign in, and be minted a token, in fakehs
 
-Each of these follows a spec item but uses text no fixture holds:
+`fakehs/fakehs.go:640-671` (`login`) never reads `u.locked`, and neither does
+`fakehs/admin.go:253-268` (`mint`). So after `locked: true`, a password sign-in answers 200
+with a fresh token, and so does a mint. Neither of these is in any H4 recording. Synapse
+refuses a locked account's sign-in with 401 `M_USER_LOCKED`, and nothing here shows what
+Tuwunel 1.9 does. This is the same class as round 1 should-fix 2.
 
-- the 413 body "Request body too large." (`fakehs/http.go:178`, `fakehs/fakehs.go:506`; M40
-  sets the size, not the text)
-- `M_BAD_JSON` "username and password must be strings" (`fakehs/admin.go:94`)
-- an empty display name becoming the localpart (`fakehs/fakehs.go:588-590`)
-- the kick and receipt texts (`fakehs/rooms.go:460,475,649`)
-- a known path with the wrong method answering 404 rather than 405 (`fakehs/fakehs.go:532`)
+The damage is limited. The first request made with that token is `unmodelled` (fakehs.go:562),
+so a test that uses it fails `CheckModelled`. But a host flow that only asks "is the sign-in
+refused after a lock?" would pass against the fake.
 
-`leave` and `receipt` are labelled correctly as unrecorded (rooms.go:439-440, 638-639). The
-others should be labelled the same way, so that a later caller does not take them for recorded
-Tuwunel text.
+Fix: in `login` and `mint`, return `unmodelled(...)` when `u.locked`, next to the
+deactivated checks, and add both cases to `TestALockedAccountsRequestIsUnmodelled`.
 
-### 4. note: CreateAccount always sends `"displayname"`, even when it is empty
+### 2. note: the new package-doc sentence on net/http resends is narrower than net/http
 
-`src-go/internal/bus/matrix/admin.go:147`. H4 always sent a non-empty display name (fixtures
-011, 015, 017, 019). tuwunel_test.go:221 passes `""`, so the first real exercise of an empty
-display name is an untested request. fakehs quietly turns it into the localpart (see note 3).
+`client.go:12-13` says net/http "resends a GET, once, when a reused keep-alive connection
+closes before any answer byte".
 
-Fix: leave the key out when `displayName == ""`.
+Two parts of that are too narrow. The transport retries for as long as it keeps picking
+reused connections that turn out dead, so with more than one stale idle connection in the
+pool it resends more than once. And the resend is not limited to GET: a PUT or POST is also
+resent when none of it was written, since `bytes.Reader` bodies get a `GetBody`.
 
-### 5. note: TestCloseLeavesNoGoroutine always spends 2 s doing nothing
+The behaviour is safe either way. Round 1 note 8 explains why, and
+TestSendRetriesALostAnswer shows that a written PUT is not replayed. This is a doc accuracy
+point only.
 
-`src-go/internal/bus/matrix/client_test.go:655`. `settle(0)` loops until the goroutine count is
-at most 0, which never happens, so it always runs all 400 × 5 ms. The test took 2.36 s.
+Fix: change "a GET, once" to "an idempotent request (or one none of which was written)".
 
-Fix: measure `before` with a single `runtime.NumGoroutine()`, or settle against a plateau.
+### 3. note: the fix commit's tests have small gaps
 
-### 6. note: TestAnswerCap takes about 14 s under -race
+- No fake-backed test calls `CreateAccount` with an empty display name (only
+  `tuwunel_test.go:223` does, and it skips), so the branch that leaves the key out is never
+  run.
+- In `fakehs/admin_test.go`, the mint and reactivation checks after the sign-in check rely
+  on status 500 alone. `CheckModelled` keeps the first entry (fakehs.go:266-273), so the
+  `CheckModelled() == nil` half of the reactivation check is already settled by the sign-in
+  before it.
+- The test name `TestDeactivationRevokesAndRefusesLogin` still says "refuses login", but the
+  sign-in is now unmodelled.
 
-`client_test.go:416-430`. It builds two answers of about 32 MiB, and decodes the first into
-`map[string]any`. That is 60% of the package's test time.
+Fix: add an `admin_test.go` case that checks the PUT body has no `displayname` key for `""`.
+Rename the test, for example `TestDeactivationRevokesAndLeavesSignInUnmodelled`.
 
-Fix: decode into `json.RawMessage`, or check the cap at the `once` level without decoding.
+## Open notes from round 1
 
-### 7. note: waitHeld gives up silently
-
-`src-go/internal/bus/matrix/sync_test.go:211-215`. After 2 s it returns without failing. Also,
-a request is recorded (`enter`) before its sync waits. So "held" really means "received", and
-the event, or the restart, can land before the wait begins. Both tests still pass in that
-order, but they then do not test what their names say.
-
-Fix: `t.Fatal` when the request never arrives. If the hold matters, also wait for the fake to
-report that it is waiting, for example a test hook or a `Requests()` entry recorded at the
-wait.
-
-### 8. note: net/http replays idempotent GETs on a reused connection; the client needs no change
-
-The transport replays a request on a reused connection only when nothing was written, or when
-the request is replayable: GET, HEAD, OPTIONS or TRACE, or one with an Idempotency-Key header.
-PUT and POST are therefore replayed only when no byte of them was written, which is safe.
-TestSendRetriesALostAnswer, which expects exactly one 1 s wait and two identical PUTs after a
-DropAfter, confirms that PUT is not replayed.
-
-A replayed GET (`/sync` with the same `since`, whoami, state reads) is idempotent on the
-server. It stays inside the same per-try time limit, because the try's context covers the
-whole `Do`, and it goes only to the same origin. So the only effect is that a held sync
-dropped by a restart is silently re-held on the restarted server instead of failing. For a
-bus, that is the desired behaviour.
-
-The fix in TestSyncDroppedByARestart (`m.Close()` first, so the held sync is on a new
-connection) is correct. Suggest one sentence in the package doc (client.go:9-11) so that a
-later test author does not rediscover it.
-
-### 9. note: secrets supplied as input print in clear
-
-`Config.Token` (client.go:91) and `Registration.Password` (admin.go:65) are plain strings.
-`%v` of a `Config` or a `Registration` shows them. MB12 covers only tokens the server hands
-out.
-
-Fix (optional): add a `Format` method on `Registration`, and a doc line on `Config` saying it
-must not be printed.
-
-### 10. note: fakehs keeps every request, Authorization header included
-
-`fakehs/http.go:130`. Nothing ever trims the slice. That is acceptable for tests and needed by
-M42. It is recorded here only so that nobody reuses fakehs in a long-running harness.
-
-### 11. note: some endpoints are proven only by v1 code, not by any recording
-
-H4 never recorded `v2/users/{id}/devices`, `joined_rooms`, kick, leave, or receipt. Their
-shapes come from the v1 fakes and `admin.py`. The only real-server check, M44, has never run
-(finding 1).
+- 3: other unrecorded answer texts (413 text, `M_BAD_JSON` text, empty-display-name default,
+  kick and receipt texts, 404 for a wrong method) are still not labelled as unrecorded.
+- 5: TestCloseLeavesNoGoroutine still spends a fixed 2 s on `settle(0)`.
+- 6: TestAnswerCap is still the slowest test, because it decodes a 32 MiB answer.
+- 7 (second half): `waitHeld` still treats "received" as "held"; the hold itself is not
+  observed.
+- 9: `Config.Token` and `Registration.Password` still print in clear under `%v`.
+- 10: fakehs keeps every request, the Authorization header included, with no trim.
+- 11: devices, joined_rooms, kick, leave and receipt are still proven only by v1 code; M44
+  (now including lock and deactivation) has never run against a real Tuwunel.
 
 ## Findings by severity
 
 - blocker: 0
-- should-fix: 2 (findings 1 and 2)
-- note: 9 (findings 3-11)
+- should-fix: 0
+- note: 3 new (findings 1-3), plus 7 open notes carried from round 1
