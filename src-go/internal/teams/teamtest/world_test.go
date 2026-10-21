@@ -75,6 +75,37 @@ func TestABrokenSeatIsLeftOutAndNamed(t *testing.T) {
 	}
 }
 
+// A seat the reader cannot survive fails the whole list, as v1's seat list crashed on it.
+func TestACrashedSeatFailsTheWholeList(t *testing.T) {
+	w := Populated(t)
+	w.CrashSeat(t, w.Checkout(), "alpha", "dev")
+	seats, unreadable, err := w.Host.Bus.SeatList(t.Context(), w.Checkout())
+	if err == nil || unreadable || seats != nil {
+		t.Fatalf("seats %+v unreadable %v err %v", seats, unreadable, err)
+	}
+	if !strings.Contains(err.Error(), "agent-bus seat list: ") || !strings.Contains(err.Error(), "urlsplit") {
+		t.Fatalf("err %v", err)
+	}
+}
+
+// The seat list is read in-process, so no process answers it: scripting one would prove nothing.
+func TestOnRefusesTheSeatList(t *testing.T) {
+	for name, script := range map[string]func(*World){
+		"On":    func(w *World) { w.On("agent-bus seat list", "", 0) },
+		"OnErr": func(w *World) { w.OnErr("agent-bus  seat list --json", "no checkout", 2) },
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("%s: the seat list was scripted", name)
+				}
+			}()
+			script(New(t))
+		}()
+	}
+	New(t).On("agent-bus seat choose alpha", "", 0)
+}
+
 func TestSpawnedCountsWhatRanSinceTheLastCall(t *testing.T) {
 	w := Populated(t)
 	if _, err := w.Host.Systemd.HomeserverUnits(t.Context()); err != nil {

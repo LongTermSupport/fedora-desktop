@@ -136,12 +136,22 @@ func (w *World) Checkout() string { return filepath.Join(w.Root, "proj") }
 
 // On scripts every command whose argv starts with prefix (space-separated).
 func (w *World) On(prefix, stdout string, code int) {
-	w.Fake.On(strings.Fields(prefix), execx.Result{Stdout: []byte(stdout), ExitCode: code})
+	w.Fake.On(scriptable(prefix), execx.Result{Stdout: []byte(stdout), ExitCode: code})
 }
 
 // OnErr is On with a stderr text, for commands that fail with a reason.
 func (w *World) OnErr(prefix, stderr string, code int) {
-	w.Fake.On(strings.Fields(prefix), execx.Result{Stderr: []byte(stderr), ExitCode: code})
+	w.Fake.On(scriptable(prefix), execx.Result{Stderr: []byte(stderr), ExitCode: code})
+}
+
+// scriptable is prefix's argv; the seat list panics: it is read in-process, so no process
+// answers it. A failing read is a seat on disk (BreakSeat, CrashSeat).
+func scriptable(prefix string) []string {
+	argv := strings.Fields(prefix)
+	if len(argv) >= 3 && argv[0] == "agent-bus" && argv[1] == "seat" && argv[2] == "list" {
+		panic("teamtest: agent-bus seat list is read in-process; make the seat on disk (AddSeat, BreakSeat, CrashSeat)")
+	}
+	return argv
 }
 
 // NotARepository is git's own refusal for a folder in no repository, the one refusal
@@ -282,11 +292,15 @@ func SeatDir(checkout, team, seat string) string {
 // reader: a member.json naming handle on the team's server. It is free until HoldSeat holds it.
 func (w *World) AddSeat(t *testing.T, checkout, team, seat, handle string) {
 	t.Helper()
+	MustWrite(t, filepath.Join(SeatDir(checkout, team, seat), "member.json"), memberJSON(team, handle, "http://192.0.2.10:6167"))
+}
+
+// memberJSON is the member.json a seat take writes for handle on team's server at baseURL.
+func memberJSON(team, handle, baseURL string) string {
 	server := team + ".agent-bus.internal"
-	MustWrite(t, filepath.Join(SeatDir(checkout, team, seat), "member.json"), `{"protocol": 1, "team": "`+team+
-		`", "user_id": "@`+handle+`:`+server+`", "server_name": "`+server+
-		`", "base_url": "http://192.0.2.10:6167", "plain_http_hosts": ["192.0.2.10"], "token_file": "token", "admin": "@admin:`+server+
-		`", "room": "!`+strings.Repeat("A", 43)+`"}`)
+	return `{"protocol": 1, "team": "` + team + `", "user_id": "@` + handle + `:` + server + `", "server_name": "` + server +
+		`", "base_url": "` + baseURL + `", "plain_http_hosts": ["192.0.2.10"], "token_file": "token", "admin": "@admin:` + server +
+		`", "room": "!` + strings.Repeat("A", 43) + `"}`
 }
 
 // RemoveSeat lets go of seat's lock and removes its folder, as a seat retire does.
@@ -302,6 +316,14 @@ func (w *World) RemoveSeat(t *testing.T, checkout, team, seat string) {
 func (w *World) BreakSeat(t *testing.T, checkout, team, seat string) {
 	t.Helper()
 	MustWrite(t, filepath.Join(SeatDir(checkout, team, seat), "member.json"), "{}")
+}
+
+// CrashSeat makes seat's member.json one v1's seat list crashed on (a base_url python's urlsplit
+// raises on), so the whole list cannot be read: the in-process reader's failure.
+func (w *World) CrashSeat(t *testing.T, checkout, team, seat string) {
+	t.Helper()
+	MustWrite(t, filepath.Join(SeatDir(checkout, team, seat), "member.json"),
+		memberJSON(team, "proj."+seat+"+local.podman", "http://[2001:db8::1"))
 }
 
 // HoldSeat takes seat's seat.lock on a descriptor of its own, as the session sitting in it
