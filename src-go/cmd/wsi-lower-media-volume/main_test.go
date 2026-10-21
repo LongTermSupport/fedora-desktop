@@ -10,7 +10,7 @@ func TestRunDispatchesThroughTheApp(t *testing.T) {
 	if code := run([]string{"--help"}, signals); code != 0 {
 		t.Fatalf("--help: exit %d", code)
 	}
-	// Any other argument is a usage error before anything runs (M7).
+	// Any other argument is a usage error before anything runs (V10).
 	if code := run([]string{"--pause"}, signals); code != 64 {
 		t.Fatalf("--pause: exit %d", code)
 	}

@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 # Plan 00212 — acceptance.bash
 #
-# PURPOSE: render the VERDICT on the installed wsi-pause-media (CLAUDE/PlanScriptStandards.md
-# R9), the command the speech-to-text panel starts beside each recorder to pause the media
-# players that are playing and play them again when the microphone closes. The unit tests fake
-# busctl's replies; this runs the real binary and the real busctl against a real bus. HOST ONLY.
+# PURPOSE: render the VERDICT on the installed wsi-lower-media-volume
+# (CLAUDE/PlanScriptStandards.md R9), the command the speech-to-text panel starts beside each
+# recorder to lower the media that is playing to a third of its volume and restore it when the
+# microphone closes (or pause a player whose sound it cannot find). The unit tests fake busctl's
+# and pactl's replies; this runs the real binary and the real busctl against a real bus. HOST
+# ONLY.
 #
 # Each check runs on a private session bus (dbus-run-session) with a fake MPRIS player
-# (fake-mpris-player.py), so no real player is paused or played. It changes nothing on the host
-# but the scratch directories it makes and removes. No sudo, no prompts. The panel's side (the
-# menu switch, the release when the microphone closes) needs GNOME Shell and a person: that is
-# the owner's manual check in PLAN.md.
+# (fake-mpris-player.py) and a fake pactl (fake-pactl.py, first on PATH) holding its one
+# stream, so no real player is paused and no real volume is changed. It changes nothing on the
+# host but the scratch directories it makes and removes. No sudo, no prompts. The panel's side
+# (the menu switch, the release when the microphone closes) and the real pactl against the real
+# sound server need GNOME Shell and a person: that is the owner's manual check in PLAN.md.
 #
 # Usage: ./acceptance.bash [-h|--help]
 set -euo pipefail
@@ -37,8 +40,8 @@ plan_init "${BASH_SOURCE[0]}"
 PLAN_USAGE="usage: acceptance.bash [-h|--help]
 
 The Plan 00212 acceptance gate. Run play-speech-to-text.yml first (meta-deploy.bash does).
-It runs the installed wsi-pause-media against a fake media player on a private session bus;
-no real player is touched.
+It runs the installed wsi-lower-media-volume against a fake media player on a private
+session bus and a fake pactl; no real player or volume is touched.
 
 EXIT STATUS
   0  ACCEPTED — every check ran and passed
@@ -54,12 +57,15 @@ if [[ "${#PLAN_REMAINING_ARGS[@]}" -gt 0 ]]; then
     exit 64
 fi
 
-plan_require_host "it checks the wsi-pause-media binary the host's play installed"
+plan_require_host "it checks the wsi-lower-media-volume binary the host's play installed"
 plan_start_log auto
 
-checker="${PLAN_SCRIPT_DIR}/check-media-pause.bash"
-plan_gather_leg "a Playing player is paused while held and played again at TERM" bash "${checker}" resumes
-plan_gather_leg "a player stopped by hand during the hold is not played again" bash "${checker}" left-stopped
-plan_gather_leg "nothing playing: exit 0 at once, no player touched" bash "${checker}" not-playing
-plan_gather_leg "the parent ending (GNOME Shell gone) plays the player again" bash "${checker}" parent-gone
+checker="${PLAN_SCRIPT_DIR}/check-media-volume.bash"
+plan_gather_leg "a playing stream is lowered to a third while held and restored exactly at TERM" bash "${checker}" lowers
+plan_gather_leg "a volume changed by hand during the hold is left as set" bash "${checker}" changed-by-hand
+plan_gather_leg "a stream that ends during the hold is skipped, exit 0" bash "${checker}" stream-ended
+plan_gather_leg "a player with no stream found is paused while held and played again at TERM" bash "${checker}" no-stream
+plan_gather_leg "a paused player stopped by hand during the hold is not played again" bash "${checker}" left-stopped
+plan_gather_leg "nothing playing: exit 0 at once, nothing touched" bash "${checker}" not-playing
+plan_gather_leg "the parent ending (GNOME Shell gone) restores the volume" bash "${checker}" parent-gone
 plan_finish

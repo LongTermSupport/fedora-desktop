@@ -221,7 +221,7 @@ export class PanelSession {
     /** The extension is being disabled: remove every timer, and take nothing more (a
      * recorder's exit can still be delivered). The recorder runs on. */
     destroy() {
-        // Nothing would release the media later, so it plays again even if the recorder runs on
+        // Nothing would release the media later, so its volume comes back even if the recorder runs on
         this._releaseMedia(this._session);
         this._settleLaunch(this._session);
         this._clearExitSettle(this._session);
@@ -343,7 +343,7 @@ export class PanelSession {
         });
     }
 
-    /** The media the recording paused plays again (mediaHold.js); once per session. */
+    /** The media the recording lowered gets its volume back (mediaHold.js); once per session. */
     _releaseMedia(session) {
         if (session?.media) {
             session.media.release();

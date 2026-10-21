@@ -27,7 +27,7 @@ import { spawnWatched, killArgv, discardSignal } from './recorderLaunch.js';
 import { lookFor, isKnownState, recordingBadgeColor, articleBadgeColor, shownState, claudeEmoji, COLOURS } from './panelLook.js';
 import { POST_PROCESS_STYLES, LastTranscriptPostProcessor, unusableKeybindings } from './postProcess.js';
 import { TOKEN_WARNING_FILE, tokenWarning } from './tokenWarning.js';
-import { PAUSE_MEDIA_KEY, startMediaHold } from './mediaHold.js';
+import { LOWER_MEDIA_KEY, startMediaHold } from './mediaHold.js';
 
 // DBus interface for wsi communication
 const DBUS_PATH = '/org/fedoradesktop/SpeechToText';
@@ -453,15 +453,15 @@ export default class SpeechToTextExtension extends Extension {
 
         // Read at each recording's start, so a change applies from the next one. Without the
         // schema nothing records (the keys are not bound), so the switch shows the default.
-        this._pauseMediaSwitch = new PopupMenu.PopupSwitchMenuItem('Pause media while recording',
-            this._settings?.get_boolean(PAUSE_MEDIA_KEY) ?? true);
-        this._preventMenuClose(this._pauseMediaSwitch);
-        this._pauseMediaSwitch.connect('toggled', (item, state) => {
+        this._lowerMediaSwitch = new PopupMenu.PopupSwitchMenuItem('Lower media volume while recording',
+            this._settings?.get_boolean(LOWER_MEDIA_KEY) ?? true);
+        this._preventMenuClose(this._lowerMediaSwitch);
+        this._lowerMediaSwitch.connect('toggled', (item, state) => {
             if (this._updatingToggles || !this._settings) return;
-            this._settings.set_boolean(PAUSE_MEDIA_KEY, state);
-            this._log(`Pause media while recording ${state ? 'enabled' : 'disabled'}`);
+            this._settings.set_boolean(LOWER_MEDIA_KEY, state);
+            this._log(`Lower media volume while recording ${state ? 'enabled' : 'disabled'}`);
         });
-        menu.addMenuItem(this._pauseMediaSwitch);
+        menu.addMenuItem(this._lowerMediaSwitch);
 
         // Debug toggle — kept in popup so it's reachable when diagnosing issues
         this._debugSwitch = new PopupMenu.PopupSwitchMenuItem('Debug Logging', this._debugEnabled);
@@ -533,9 +533,9 @@ export default class SpeechToTextExtension extends Extension {
                 case 'auto-enter':
                     this._autoEnter = this._settings.get_boolean(key);
                     break;
-                case PAUSE_MEDIA_KEY:
-                    if (this._pauseMediaSwitch)
-                        this._pauseMediaSwitch.setToggleState(this._settings.get_boolean(key));
+                case LOWER_MEDIA_KEY:
+                    if (this._lowerMediaSwitch)
+                        this._lowerMediaSwitch.setToggleState(this._settings.get_boolean(key));
                     break;
                 case 'wrap-marker':
                     this._wrapWithMarker = this._settings.get_boolean(key);
@@ -1077,8 +1077,8 @@ export default class SpeechToTextExtension extends Extension {
     /** The media held for one recording while the switch is on (mediaHold.js), or null. */
     _holdMedia() {
         return startMediaHold({
-            enabled: this._settings.get_boolean(PAUSE_MEDIA_KEY),
-            argv: [GLib.get_home_dir() + '/.local/bin/wsi-pause-media'],
+            enabled: this._settings.get_boolean(LOWER_MEDIA_KEY),
+            argv: [GLib.get_home_dir() + '/.local/bin/wsi-lower-media-volume'],
             spawn: (argv, onExit) => spawnWatched(argv, {}, onExit),
             kill: pid => this._signalProcess(pid, 'TERM'),
             reportError: message => {

@@ -1,5 +1,5 @@
-// Command wsi-pause-media pauses the media players that are playing while a speech-to-text
-// recording runs, and plays them again when the panel says it is over.
+// Command wsi-lower-media-volume lowers the media that is playing to a third of its volume
+// while a speech-to-text recording runs, and restores it when the panel says it is over.
 package main
 
 import (
@@ -13,8 +13,8 @@ import (
 )
 
 func main() {
-	// Subscribed first, so a release that arrives while the players are being paused is held,
-	// not fatal (M4).
+	// Subscribed first, so a release that arrives while the volume is being lowered is held,
+	// not fatal (V6).
 	signals := make(chan os.Signal, 4)
 	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 	os.Exit(int(run(os.Args[1:], signals)))

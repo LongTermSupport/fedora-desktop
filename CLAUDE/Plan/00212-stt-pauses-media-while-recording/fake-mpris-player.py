@@ -8,7 +8,7 @@ PlaybackStatus and CanPause (true) properties, starting at STATUS. A second inte
 org.fedoradesktop.Test.Player, has SetStatus(s), which stands for the owner changing the
 player by hand. Each method call appends "<method> <status after it>" to LOG. Runs until
 killed; exit 1 if the name cannot be owned. Only ever run on the private bus
-check-media-pause.bash starts, so no real player is touched.
+check-media-volume.bash starts, so no real player is touched.
 """
 
 import sys
