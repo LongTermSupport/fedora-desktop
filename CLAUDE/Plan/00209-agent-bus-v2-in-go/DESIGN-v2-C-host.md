@@ -1587,8 +1587,21 @@ ccy sessions do not count: a container sees only what is mounted into it, and no
 `teamchat-health.timer` (`OnActiveSec=30s`, `OnUnitActiveSec=60s`, `AccuracySec=5s`) starts
 `teamchat-health.service`: `Type=oneshot`, `ExecStart=/usr/local/sbin/teamchat-admin health --all`,
 `TimeoutStartSec=120`, `NoNewPrivileges`, `ProtectSystem=strict`, `ReadWritePaths=/var/lib/teamchat-status /run/teamchat-admin`, `ProtectHome`, `PrivateTmp`, `PrivateDevices`, `ProtectKernel*`, `ProtectControlGroups`,
-`CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_CHOWN CAP_SETUID CAP_SETGID` (to read the root-only
-records, to set the record's group, and to start the `teamchat-ctl` child), `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`, `IPAddressDeny=any`, `IPAddressAllow=localhost`.
+`CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_CHOWN CAP_SETUID CAP_SETGID CAP_SYS_PTRACE` (to
+read the root-only records, to set the record's group, to start the `teamchat-ctl` child, and to
+open an LXC guest's `/proc/<init pid>/root`), `SystemCallFilter=~ptrace process_vm_readv process_vm_writev`, `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`, `IPAddressDeny=any`, `IPAddressAllow=localhost`.
+
+`CAP_SYS_PTRACE` is there for one reason (security 4): opening `/proc/<pid>/root` needs ptrace
+read access, and for a privileged guest's init, whose permitted set is nearly full, the kernel
+grants it to a caller with a smaller set only through `CAP_SYS_PTRACE`. The other route, dropping
+LXC `online` from the tick and probing it only on the owner's request through a password-sudo
+verb, was weighed and rejected: it loses the LXC disconnected notice (3.11.2), which is what the
+tick's probe is for. The capability is held by this unit only, never by the backup unit or the
+child; the system call filter takes away ptrace itself and cross-process memory access, so what
+remains is the path access to `/proc/<pid>/root` and `/proc/<pid>/mem` of other processes. The
+tick opens only the fixed paths the probe names, by `openat2` with `RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS` below the guest root fd (3.9.2), and nothing
+reads `/proc/<pid>/mem`; the remaining reach is risk K14. Host check H-C10 runs the probe inside
+this unit's sandbox, not as plain root.
 
 v1 had one health timer and one backup timer per team. One of each for the host is fewer units, one
 process a minute instead of one per team, and no per-team timer state for a removed team to leak into
@@ -1612,14 +1625,33 @@ Step 3 also probes each LXC member's seat lock (3.9.2) for its `online` entry.
    rise in `NRestarts` is recorded once and kept for 24 hours; a fall means a manual restart.
 3. Roster and room view, in the `teamchat-ctl` child, read-only: the roster; each member's and each
    human's membership of each room; each human's device count and newest sign-in; and the drift of
-   every room against A's specs (3.6.2), each drift with its repair (`ccy-teams apply <team>`). The
-   read-only child never completes a `pending` operation (3.6.3): it reports it as a problem whose
-   fix is the verb that rolls it forward.
+   every room against A's specs (3.6.2), each drift with its repair (`ccy-teams apply <team>`).
+   The questions room is checked item by item, as Plan 00211 5.4 did: no worker is joined or
+   invited to it, the coordinator (when the roster has one that is not parked) is joined, and the
+   room has the form, open or closed, that A's specs give for the roster (A §4.3); each is its own
+   problem. The read-only child never completes a `pending` operation (3.6.3): it reports it as a
+   problem whose fix is the verb that rolls it forward.
 4. Backups: the newest usable backup (both halves present) and its age; a backup older than 1.5 days,
-   or a failed last run, is a problem.
+   or a failed last run, is a problem. Free space on the filesystem of `/var/lib` (every team's
+   database, backups and area D's migration files share it): below 10% or 2 GiB, whichever is
+   larger, is a problem on every team's record (operations 19).
 5. Take the team lock without waiting; if the record's `seq` is still the one step 1 read, write
    the status record with `seq` raised, else drop this tick's view for the team (another writer
-   has written a fresher one).
+   has written a fresher one). A busy lock drops the view the same way, step 6 included.
+6. **LXC disconnected (ops 2, R29),** under the lock step 5 took. The tick keeps
+   `root/<team>/lxc-online.json` (0600): per LXC handle, whether its seat lock was held, the run
+   id read from the lock file's content (B's seat lock grammar, checked; anything else counts as
+   no run id), `since_ms`, and whether a notice was posted for that run. When a handle that was
+   held at the last tick is now free, or its container has stopped, and the handle is still
+   `active` in the roster, the tick asks the child for `member.disconnected` with the handle and
+   the run id. The child reads the main room for the member's own `left` or `disconnected` since
+   `since_ms`; finding none, it posts A's `disconnected` as the member, with the guest token copy
+   `ctl/<team>/guest/<handle>.token` (3.6.3) and transaction id `tc-disc-<run id>`, and the tick
+   records the notice. A transient failure leaves the entry unposted for the next tick. The LXC
+   absent phase (3.9.2) holds the team lock while it parks a member, so its stop never draws a
+   false notice: this step does not wait for a busy lock. The next worker on that seat checks the
+   room the same way and uses the same transaction id (section 7, B), so the notice is posted
+   once.
 
 #### 3.11.3 The status record
 
@@ -1647,6 +1679,8 @@ restore, so the board sees a change at once:
     {"name": "<name>", "state": "active", "rooms": {"main": "join", "reports": "invite"}, "devices": 2, "last_seen_ms": 0}
   ],
   "backup": {"newest": {"id": 7, "time_ms": 0}, "last_run": "ok"},
+  "disk": {"free_bytes": 0, "free_pct": 0},
+  "restore": null,
   "problems": [{"what": "<what is wrong>", "fix": "<what to run>"}],
   "events": [{"at_ms": 0, "what": "restarted after three missed probes"}]
 }
@@ -1660,7 +1694,13 @@ restore, so the board sees a change at once:
   written by D's `migrate` verbs. They are copies and never decide: the set record
   `/var/lib/teamchat-status/sets/<set-id>.json` does.
 - `online` is present on LXC member entries only: the tick's probe of the member's seat lock
-  (3.11.2), up to about 70 s old.
+  (3.11.2), up to about 70 s old. An entry whose disconnected notice could not be posted carries
+  it as a problem.
+- `disk` is the free space of `/var/lib`'s filesystem at the tick (3.11.2 step 4).
+- `restore` is null, or `{"step": "<step>", "backup": N, "pre": M}` copied from `restore.json`
+  (3.12.2), with the problem "restore staged" (fix: `restore --resume` or `--discard`) or
+  "restore interrupted" (fix: `restore --resume`). After a restore it is null and `events` holds
+  "restored backup N, <count> events lost, export at <path>".
 - `seq` is raised by one on every write, by every writer, always under the team lock. A writer
   that computed its view before taking the lock (only the tick does) writes only if `seq` is
   still the one it read, so the record never goes backwards (3.4). A record that is missing or
@@ -1713,7 +1753,7 @@ explicitly.
 `teamchat-backup.timer` (`OnCalendar=daily`, `RandomizedDelaySec=1h`, `Persistent=true`) starts
 `teamchat-backup.service`: `Type=oneshot`, `ExecStart=/usr/local/sbin/teamchat-admin backup --all`,
 `TimeoutStartSec=30min`, with the health unit's sandbox (3.11.1) except `ReadWritePaths=/var/lib/teamchat-admin /var/lib/teamchat-status /run/teamchat-admin`
-(the tars and the record) and the same capability set: it reads `ctl/<team>/` with no-follow
+(the tars and the record) and the same capability set without `CAP_SYS_PTRACE`: it reads `ctl/<team>/` with no-follow
 opens of regular files only (reading is not steered by the control user the way a write would
 be), and it starts the `teamchat-ctl` child for the status refresh. `backup --team T` is also run by ccy-teams. Inside
 `team apply` (3.5.2 step 6) the backup is an internal function called under the team lock the
