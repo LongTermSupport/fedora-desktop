@@ -150,7 +150,7 @@ func SessionUnit(u GuestUser) string { return Product + "-session-" + string(u) 
 func ServerBinary(v ServerVersion) string { return ServerDir + "/tuwunel-" + string(v) }
 
 // HostKitDir is one kit digest's directory on a host or LXC guest.
-func HostKitDir(d KitDigest) string { return HostKitRoot + "/" + string(d) }
+func HostKitDir(d Digest) string { return HostKitRoot + "/" + string(d) }
 
 // KitBinary is the member binary inside a kit directory.
 func KitBinary(kit string) string { return kit + "/bin/" + MemberBinary }

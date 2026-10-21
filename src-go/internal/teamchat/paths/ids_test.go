@@ -31,6 +31,34 @@ func TestParseTeamIDRefusesOutsideTheGrammar(t *testing.T) {
 	}
 }
 
+// A team id that would make a team-derived name equal a fixed one is reserved: team "ctl"'s
+// homeserver user would be teamchat-ctl, the user holding every team's admin token.
+func TestReservedTeamIDsAreRefused(t *testing.T) {
+	for _, s := range reservedTeamIDs {
+		if _, err := ParseTeamID(s); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "reserved") {
+			t.Errorf("ParseTeamID(%q) = %v, want a reserved refusal", s, err)
+		}
+	}
+	if _, err := ParseTeamID("ctl-1"); err != nil {
+		t.Errorf("an id that only begins with a reserved one is refused: %v", err)
+	}
+}
+
+// The display name is A 2.2's: 1-64 Unicode scalar values, no control, format or newline
+// characters.
+func TestParseDisplayName(t *testing.T) {
+	for _, s := range []string{"Ops", "Équipe 2", strings.Repeat("é", 64)} {
+		if _, err := ParseDisplayName(s); err != nil {
+			t.Errorf("ParseDisplayName(%q): %v", s, err)
+		}
+	}
+	for _, s := range []string{"", "a\nb", "a\tb", "a\u200bb", "a\x7fb", strings.Repeat("a", 65), "\xff"} {
+		if _, err := ParseDisplayName(s); !errors.Is(err, ErrInvalid) {
+			t.Errorf("ParseDisplayName(%q) = %v, want ErrInvalid", s, err)
+		}
+	}
+}
+
 // The homeserver's dynamic user is teamchat-<team>, which must fit systemd's 31-character user
 // name for the longest id the grammar allows (A 2.2, C 3.2.3).
 func TestLongestTeamIDFitsTheSystemdUserLimit(t *testing.T) {
@@ -80,7 +108,7 @@ func TestSegmentIdentifiersRefuseWhatCouldLeaveTheirDirectory(t *testing.T) {
 	parsers := map[string]func(string) error{
 		"SetID":         func(s string) error { _, err := ParseSetID(s); return err },
 		"SessionName":   func(s string) error { _, err := ParseSessionName(s); return err },
-		"KitDigest":     func(s string) error { _, err := ParseKitDigest(s); return err },
+		"Digest":        func(s string) error { _, err := ParseDigest(s); return err },
 		"ServerVersion": func(s string) error { _, err := ParseServerVersion(s); return err },
 	}
 	for name, parse := range parsers {

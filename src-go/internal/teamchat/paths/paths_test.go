@@ -51,7 +51,7 @@ func TestOtherIDDerivedNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest, err := ParseKitDigest("abc123")
+	digest, err := ParseDigest("abc123")
 	if err != nil {
 		t.Fatal(err)
 	}

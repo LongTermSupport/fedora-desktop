@@ -459,9 +459,9 @@ func sampleServerVersion(t *testing.T) ServerVersion {
 	return v
 }
 
-func sampleKitDigest(t *testing.T) KitDigest {
+func sampleKitDigest(t *testing.T) Digest {
 	t.Helper()
-	v, err := ParseKitDigest("abc123")
+	v, err := ParseDigest("abc123")
 	if err != nil {
 		t.Fatal(err)
 	}

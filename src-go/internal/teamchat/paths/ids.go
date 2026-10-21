@@ -4,6 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // ErrInvalid is the error every Parse function wraps when a value fails its grammar. The error
@@ -31,8 +35,12 @@ type SetID string
 // SessionName names a ccy session in the owner's seat store (C 3.7).
 type SessionName string
 
-// KitDigest names one immutable kit directory (C33).
-type KitDigest string
+// Digest names one immutable install by its content: a kit directory (C33) or a copy of
+// teamchat-admin (C 3.5).
+type Digest string
+
+// DisplayName is a team's display name (A 2.2): shown, never an identifier.
+type DisplayName string
 
 // ServerVersion is the pinned homeserver's version, part of its binary's name.
 type ServerVersion string
@@ -57,8 +65,31 @@ func parse[T ~string](kind string, grammar *regexp.Regexp, s string) (T, error) 
 	return T(s), nil
 }
 
-// ParseTeamID checks a team id against A 2.2's grammar.
-func ParseTeamID(s string) (TeamID, error) { return parse[TeamID]("team id", teamIDGrammar, s) }
+// reservedTeamIDs are the ids that would make a team-derived name equal a fixed v2 name: team
+// ctl's homeserver user would be teamchat-ctl, the user holding every team's admin token. The
+// package's test derives the list from the fixed names and holds it complete.
+var reservedTeamIDs = []string{"admin", "backup", "ctl", "fence", "health", "install", "seats", "server", "status"}
+
+// ParseTeamID checks a team id against A 2.2's grammar and refuses a reserved one.
+func ParseTeamID(s string) (TeamID, error) {
+	id, err := parse[TeamID]("team id", teamIDGrammar, s)
+	if err == nil && slices.Contains(reservedTeamIDs, s) {
+		return "", fmt.Errorf("%w team id: reserved, it would make a derived name equal a fixed v2 name", ErrInvalid)
+	}
+	return id, err
+}
+
+// ParseDisplayName checks a display name: 1-64 Unicode scalar values, no control, format or
+// newline characters.
+func ParseDisplayName(s string) (DisplayName, error) {
+	n := utf8.RuneCountInString(s)
+	bad := !utf8.ValidString(s) || n < 1 || n > 64 ||
+		strings.ContainsFunc(s, func(r rune) bool { return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) })
+	if bad {
+		return "", fmt.Errorf("%w display name: not 1-64 characters free of control and format characters", ErrInvalid)
+	}
+	return DisplayName(s), nil
+}
 
 // ParseRunID checks a run id.
 func ParseRunID(s string) (RunID, error) { return parse[RunID]("run id", runIDGrammar, s) }
@@ -81,10 +112,8 @@ func ParseSessionName(s string) (SessionName, error) {
 	return parse[SessionName]("session name", segmentGrammar, s)
 }
 
-// ParseKitDigest checks a kit digest.
-func ParseKitDigest(s string) (KitDigest, error) {
-	return parse[KitDigest]("kit digest", segmentGrammar, s)
-}
+// ParseDigest checks a digest.
+func ParseDigest(s string) (Digest, error) { return parse[Digest]("digest", segmentGrammar, s) }
 
 // ParseServerVersion checks a homeserver version.
 func ParseServerVersion(s string) (ServerVersion, error) {
