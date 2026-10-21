@@ -1,0 +1,675 @@
+{
+ "v": 1,
+ "suite": "roles",
+ "cases": [
+  {
+   "id": "role-coordinator",
+   "spec": "P18",
+   "fn": "normalise_role",
+   "args": {
+    "value": "coordinator"
+   },
+   "expect": "coordinator"
+  },
+  {
+   "id": "role-orchestrator",
+   "spec": "P18",
+   "fn": "normalise_role",
+   "args": {
+    "value": "orchestrator"
+   },
+   "expect": "coordinator"
+  },
+  {
+   "id": "role-other-kept",
+   "spec": "P18",
+   "fn": "normalise_role",
+   "args": {
+    "value": "boss"
+   },
+   "expect": "boss"
+  },
+  {
+   "id": "role-non-string-kept",
+   "spec": "P18",
+   "fn": "normalise_role",
+   "args": {
+    "value": 3
+   },
+   "expect": 3
+  },
+  {
+   "id": "verb-fetch",
+   "spec": "P19",
+   "fn": "verb_rule",
+   "args": {
+    "verb": "fetch"
+   },
+   "expect": {
+    "ref": "required",
+    "forms": [
+     "commit",
+     "path"
+    ],
+    "re": "forbidden",
+    "ack": true,
+    "senders": [
+     "coordinator"
+    ],
+    "external": true,
+    "to_humans": false
+   }
+  },
+  {
+   "id": "verb-sync",
+   "spec": "P19",
+   "fn": "verb_rule",
+   "args": {
+    "verb": "sync"
+   },
+   "expect": {
+    "ref": "required",
+    "forms": [
+     "commit",
+     "path"
+    ],
+    "re": "forbidden",
+    "ack": true,
+    "senders": [
+     "coordinator"
+    ],
+    "external": false,
+    "to_humans": false
+   }
+  },
+  {
+   "id": "verb-review",
+   "spec": "P19",
+   "fn": "verb_rule",
+   "args": {
+    "verb": "review"
+   },
+   "expect": {
+    "ref": "required",
+    "forms": [
+     "commit",
+     "path",
+     "pr"
+    ],
+    "re": "forbidden",
+    "ack": true,
+    "senders": [
+     "coordinator",
+     "worker"
+    ],
+    "external": true,
+    "to_humans": false
+   }
+  },
+  {
+   "id": "verb-run-qa",
+   "spec": "P19",
+   "fn": "verb_rule",
+   "args": {
+    "verb": "run-qa"
+   },
+   "expect": {
+    "ref": "required",
+    "forms": [
+     "commit",
+     "pr"
+    ],
+    "re": "forbidden",
+    "ack": true,
+    "senders": [
+     "coordinator",
+     "worker"
+    ],
+    "external": false,
+    "to_humans": false
+   }
+  },
+  {
+   "id": "verb-halt",
+   "spec": "P19",
+   "fn": "verb_rule",
+   "args": {
+    "verb": "halt"
+   },
+   "expect": {
+    "ref": "forbidden",
+    "forms": [],
+    "re": "forbidden",
+    "ack": true,
+    "senders": [
+     "coordinator"
+    ],
+    "external": false,
+    "to_humans": false
+   }
+  },
+  {
+   "id": "verb-ack",
+   "spec": "P19 P20",
+   "fn": "verb_rule",
+   "args": {
+    "verb": "ack"
+   },
+   "expect": {
+    "ref": "forbidden",
+    "forms": [],
+    "re": "required",
+    "ack": false,
+    "senders": [
+     "addressed"
+    ],
+    "external": false,
+    "to_humans": true
+   }
+  },
+  {
+   "id": "verb-nack",
+   "spec": "P19 P20",
+   "fn": "verb_rule",
+   "args": {
+    "verb": "nack"
+   },
+   "expect": {
+    "ref": "optional",
+    "forms": [
+     "commit",
+     "issue",
+     "path",
+     "pr"
+    ],
+    "re": "required",
+    "ack": false,
+    "senders": [
+     "addressed"
+    ],
+    "external": true,
+    "to_humans": true
+   }
+  },
+  {
+   "id": "verb-done",
+   "spec": "P19 P20",
+   "fn": "verb_rule",
+   "args": {
+    "verb": "done"
+   },
+   "expect": {
+    "ref": "required",
+    "forms": [
+     "commit",
+     "issue",
+     "path",
+     "pr"
+    ],
+    "re": "optional",
+    "ack": false,
+    "senders": [
+     "coordinator",
+     "worker"
+    ],
+    "external": true,
+    "to_humans": true
+   }
+  },
+  {
+   "id": "verb-blocked",
+   "spec": "P19 P20",
+   "fn": "verb_rule",
+   "args": {
+    "verb": "blocked"
+   },
+   "expect": {
+    "ref": "required",
+    "forms": [
+     "commit",
+     "issue",
+     "path",
+     "pr"
+    ],
+    "re": "optional",
+    "ack": false,
+    "senders": [
+     "coordinator",
+     "worker"
+    ],
+    "external": true,
+    "to_humans": true
+   }
+  },
+  {
+   "id": "verb-unknown",
+   "spec": "P19",
+   "fn": "verb_rule",
+   "args": {
+    "verb": "merge"
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "verb-case",
+   "spec": "P19",
+   "fn": "verb_rule",
+   "args": {
+    "verb": "Fetch"
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "coordinators-one",
+   "spec": "P21",
+   "fn": "coordinators",
+   "args": {},
+   "expect": [
+    "@app.1+desk.podman:server.test"
+   ],
+   "ctx": "team"
+  },
+  {
+   "id": "coordinators-sorted",
+   "spec": "P21",
+   "fn": "coordinators",
+   "args": {},
+   "expect": [
+    "@app.1+desk.podman:server.test",
+    "@app.9+desk.podman:server.test"
+   ],
+   "ctx": "two-coordinators"
+  },
+  {
+   "id": "copy-worker-to-human",
+   "spec": "P21",
+   "fn": "with_coordinator_copy",
+   "args": {
+    "to": [
+     "@alice:server.test"
+    ],
+    "sender": "@app.2+desk.podman:server.test"
+   },
+   "expect": [
+    "@alice:server.test",
+    "@app.1+desk.podman:server.test"
+   ],
+   "ctx": "team"
+  },
+  {
+   "id": "copy-worker-to-agent",
+   "spec": "P21",
+   "fn": "with_coordinator_copy",
+   "args": {
+    "to": [
+     "@lib.reviewer+box.lxc:server.test"
+    ],
+    "sender": "@app.2+desk.podman:server.test"
+   },
+   "expect": [
+    "@lib.reviewer+box.lxc:server.test"
+   ],
+   "ctx": "team"
+  },
+  {
+   "id": "copy-coordinator-to-human",
+   "spec": "P21",
+   "fn": "with_coordinator_copy",
+   "args": {
+    "to": [
+     "@alice:server.test"
+    ],
+    "sender": "@app.1+desk.podman:server.test"
+   },
+   "expect": [
+    "@alice:server.test"
+   ],
+   "ctx": "team"
+  },
+  {
+   "id": "copy-already-there",
+   "spec": "P21",
+   "fn": "with_coordinator_copy",
+   "args": {
+    "to": [
+     "@app.1+desk.podman:server.test",
+     "@alice:server.test"
+    ],
+    "sender": "@app.2+desk.podman:server.test"
+   },
+   "expect": [
+    "@app.1+desk.podman:server.test",
+    "@alice:server.test"
+   ],
+   "ctx": "team"
+  },
+  {
+   "id": "copy-two-coordinators-in-order",
+   "spec": "P21",
+   "fn": "with_coordinator_copy",
+   "args": {
+    "to": [
+     "@alice:server.test",
+     "@app.9+desk.podman:server.test"
+    ],
+    "sender": "@app.2+desk.podman:server.test"
+   },
+   "expect": [
+    "@alice:server.test",
+    "@app.9+desk.podman:server.test",
+    "@app.1+desk.podman:server.test"
+   ],
+   "ctx": "two-coordinators"
+  },
+  {
+   "id": "copy-unlisted-human-not-human",
+   "spec": "P21",
+   "fn": "with_coordinator_copy",
+   "args": {
+    "to": [
+     "@carol:server.test"
+    ],
+    "sender": "@app.2+desk.podman:server.test"
+   },
+   "expect": [
+    "@carol:server.test"
+   ],
+   "ctx": "team"
+  },
+  {
+   "id": "on-copy-coordinator",
+   "spec": "P21",
+   "fn": "copy_of",
+   "args": {
+    "to": [
+     "@bob:server.test",
+     "@app.1+desk.podman:server.test",
+     "@alice:server.test"
+    ],
+    "self": "@app.1+desk.podman:server.test"
+   },
+   "expect": [
+    "@alice:server.test",
+    "@bob:server.test"
+   ],
+   "ctx": "team"
+  },
+  {
+   "id": "on-copy-worker",
+   "spec": "P21",
+   "fn": "copy_of",
+   "args": {
+    "to": [
+     "@alice:server.test",
+     "@app.2+desk.podman:server.test"
+    ],
+    "self": "@app.2+desk.podman:server.test"
+   },
+   "expect": [],
+   "ctx": "team"
+  },
+  {
+   "id": "on-copy-unlisted",
+   "spec": "P21",
+   "fn": "copy_of",
+   "args": {
+    "to": [
+     "@carol:server.test"
+    ],
+    "self": "@app.1+desk.podman:server.test"
+   },
+   "expect": [],
+   "ctx": "team"
+  },
+  {
+   "id": "class-human",
+   "spec": "P22",
+   "fn": "sender_class",
+   "args": {
+    "user": "@alice:server.test"
+   },
+   "expect": "human",
+   "ctx": "team"
+  },
+  {
+   "id": "class-coordinator",
+   "spec": "P22",
+   "fn": "sender_class",
+   "args": {
+    "user": "@app.1+desk.podman:server.test"
+   },
+   "expect": "coordinator",
+   "ctx": "team"
+  },
+  {
+   "id": "class-worker",
+   "spec": "P22",
+   "fn": "sender_class",
+   "args": {
+    "user": "@lib.reviewer+box.lxc:server.test"
+   },
+   "expect": "worker",
+   "ctx": "team"
+  },
+  {
+   "id": "class-stranger",
+   "spec": "P22",
+   "fn": "sender_class",
+   "args": {
+    "user": "@carol:server.test"
+   },
+   "expect": null,
+   "ctx": "team"
+  },
+  {
+   "id": "class-non-string",
+   "spec": "P22",
+   "fn": "sender_class",
+   "args": {
+    "user": [
+     "@alice:server.test"
+    ]
+   },
+   "expect": null,
+   "ctx": "team"
+  },
+  {
+   "id": "class-null",
+   "spec": "P22",
+   "fn": "sender_class",
+   "args": {
+    "user": null
+   },
+   "expect": null,
+   "ctx": "team"
+  },
+  {
+   "id": "addr-agent-ping",
+   "spec": "P22",
+   "fn": "addressable",
+   "args": {
+    "user": "@app.2+desk.podman:server.test",
+    "verb": "fetch"
+   },
+   "expect": true,
+   "ctx": "team"
+  },
+  {
+   "id": "addr-human-fetch",
+   "spec": "P22 P20",
+   "fn": "addressable",
+   "args": {
+    "user": "@alice:server.test",
+    "verb": "fetch"
+   },
+   "expect": false,
+   "ctx": "team"
+  },
+  {
+   "id": "addr-human-ack",
+   "spec": "P22 P20",
+   "fn": "addressable",
+   "args": {
+    "user": "@alice:server.test",
+    "verb": "ack"
+   },
+   "expect": true,
+   "ctx": "team"
+  },
+  {
+   "id": "addr-human-done",
+   "spec": "P22 P20",
+   "fn": "addressable",
+   "args": {
+    "user": "@alice:server.test",
+    "verb": "done"
+   },
+   "expect": true,
+   "ctx": "team"
+  },
+  {
+   "id": "addr-human-text",
+   "spec": "P22",
+   "fn": "addressable",
+   "args": {
+    "user": "@alice:server.test",
+    "verb": null
+   },
+   "expect": true,
+   "ctx": "team"
+  },
+  {
+   "id": "addr-stranger-text",
+   "spec": "P22",
+   "fn": "addressable",
+   "args": {
+    "user": "@carol:server.test",
+    "verb": null
+   },
+   "expect": false,
+   "ctx": "team"
+  },
+  {
+   "id": "addr-agent-text",
+   "spec": "P22",
+   "fn": "addressable",
+   "args": {
+    "user": "@app.1+desk.podman:server.test",
+    "verb": null
+   },
+   "expect": true,
+   "ctx": "team"
+  },
+  {
+   "id": "role-ok-coordinator-fetch",
+   "spec": "P23",
+   "fn": "check_role",
+   "args": {
+    "verb": "fetch",
+    "sender": "@app.1+desk.podman:server.test"
+   },
+   "expect": null,
+   "ctx": "team"
+  },
+  {
+   "id": "role-worker-fetch",
+   "spec": "P23",
+   "fn": "check_role",
+   "args": {
+    "verb": "fetch",
+    "sender": "@app.2+desk.podman:server.test"
+   },
+   "expect": {
+    "refused": "role"
+   },
+   "ctx": "team"
+  },
+  {
+   "id": "role-worker-review",
+   "spec": "P23",
+   "fn": "check_role",
+   "args": {
+    "verb": "review",
+    "sender": "@app.2+desk.podman:server.test"
+   },
+   "expect": null,
+   "ctx": "team"
+  },
+  {
+   "id": "role-worker-ack",
+   "spec": "P23",
+   "fn": "check_role",
+   "args": {
+    "verb": "ack",
+    "sender": "@app.2+desk.podman:server.test"
+   },
+   "expect": null,
+   "ctx": "team"
+  },
+  {
+   "id": "role-human-ack",
+   "spec": "P23",
+   "fn": "check_role",
+   "args": {
+    "verb": "ack",
+    "sender": "@alice:server.test"
+   },
+   "expect": {
+    "refused": "role"
+   },
+   "ctx": "team"
+  },
+  {
+   "id": "role-unknown-verb-first",
+   "spec": "P23",
+   "fn": "check_role",
+   "args": {
+    "verb": "merge",
+    "sender": "@alice:server.test"
+   },
+   "expect": {
+    "refused": "verb"
+   },
+   "ctx": "team"
+  },
+  {
+   "id": "role-stranger",
+   "spec": "P23",
+   "fn": "check_role",
+   "args": {
+    "verb": "done",
+    "sender": "@x.1+y.vm:server.test"
+   },
+   "expect": {
+    "refused": "role"
+   },
+   "ctx": "team"
+  },
+  {
+   "id": "text-sender-worker",
+   "spec": "P23",
+   "fn": "check_text_sender",
+   "args": {
+    "sender": "@app.2+desk.podman:server.test"
+   },
+   "expect": null,
+   "ctx": "team"
+  },
+  {
+   "id": "text-sender-human",
+   "spec": "P23",
+   "fn": "check_text_sender",
+   "args": {
+    "sender": "@alice:server.test"
+   },
+   "expect": {
+    "refused": "role"
+   },
+   "ctx": "team"
+  }
+ ]
+}

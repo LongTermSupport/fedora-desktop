@@ -1,0 +1,1709 @@
+{
+ "v": 1,
+ "suite": "grammar",
+ "cases": [
+  {
+   "id": "team-one-letter",
+   "spec": "P4",
+   "fn": "is_team_name",
+   "args": {
+    "value": "a"
+   },
+   "expect": true
+  },
+  {
+   "id": "team-24",
+   "spec": "P4",
+   "fn": "is_team_name",
+   "args": {
+    "value": "a-----------------------"
+   },
+   "expect": true
+  },
+  {
+   "id": "team-25",
+   "spec": "P4",
+   "fn": "is_team_name",
+   "args": {
+    "value": "aaaaaaaaaaaaaaaaaaaaaaaaa"
+   },
+   "expect": false
+  },
+  {
+   "id": "team-digit-first",
+   "spec": "P4",
+   "fn": "is_team_name",
+   "args": {
+    "value": "1a"
+   },
+   "expect": false
+  },
+  {
+   "id": "team-upper",
+   "spec": "P4",
+   "fn": "is_team_name",
+   "args": {
+    "value": "Ab"
+   },
+   "expect": false
+  },
+  {
+   "id": "team-trailing-newline",
+   "spec": "P4",
+   "fn": "is_team_name",
+   "args": {
+    "value": "ab\n"
+   },
+   "expect": false
+  },
+  {
+   "id": "team-not-string",
+   "spec": "P4",
+   "fn": "is_team_name",
+   "args": {
+    "value": 5
+   },
+   "expect": false
+  },
+  {
+   "id": "team-null",
+   "spec": "P4",
+   "fn": "is_team_name",
+   "args": {
+    "value": null
+   },
+   "expect": false
+  },
+  {
+   "id": "handle-numbered",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": "app.12+desk.podman"
+   },
+   "expect": {
+    "repo": "app",
+    "seat": "12",
+    "host": "desk",
+    "type": "podman",
+    "n": 12
+   }
+  },
+  {
+   "id": "handle-named",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": "my_repo-2.reviewer+host-1.lxc"
+   },
+   "expect": {
+    "repo": "my_repo-2",
+    "seat": "reviewer",
+    "host": "host-1",
+    "type": "lxc",
+    "n": null
+   }
+  },
+  {
+   "id": "handle-every-type",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": "a.1+b.vm"
+   },
+   "expect": {
+    "repo": "a",
+    "seat": "1",
+    "host": "b",
+    "type": "vm",
+    "n": 1
+   }
+  },
+  {
+   "id": "handle-host-type",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": "a.1+b.host"
+   },
+   "expect": {
+    "repo": "a",
+    "seat": "1",
+    "host": "b",
+    "type": "host",
+    "n": 1
+   }
+  },
+  {
+   "id": "handle-docker",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": "a.1+b.docker"
+   },
+   "expect": {
+    "repo": "a",
+    "seat": "1",
+    "host": "b",
+    "type": "docker",
+    "n": 1
+   }
+  },
+  {
+   "id": "handle-seat-max-number",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": "a.999999+b.vm"
+   },
+   "expect": {
+    "repo": "a",
+    "seat": "999999",
+    "host": "b",
+    "type": "vm",
+    "n": 999999
+   }
+  },
+  {
+   "id": "handle-seat-seven-digits",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": "a.1000000+b.vm"
+   },
+   "expect": null
+  },
+  {
+   "id": "handle-seat-leading-zero",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": "a.01+b.vm"
+   },
+   "expect": null
+  },
+  {
+   "id": "handle-seat-zero",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": "a.0+b.vm"
+   },
+   "expect": null
+  },
+  {
+   "id": "handle-seat-name-12",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": "a.abcdefghijkl+b.vm"
+   },
+   "expect": {
+    "repo": "a",
+    "seat": "abcdefghijkl",
+    "host": "b",
+    "type": "vm",
+    "n": null
+   }
+  },
+  {
+   "id": "handle-seat-name-13",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": "a.abcdefghijklm+b.vm"
+   },
+   "expect": null
+  },
+  {
+   "id": "handle-seat-mixed",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": "a.1a+b.vm"
+   },
+   "expect": null
+  },
+  {
+   "id": "handle-unknown-type",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": "a.1+b.kvm"
+   },
+   "expect": null
+  },
+  {
+   "id": "handle-repo-48",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr.1+b.vm"
+   },
+   "expect": {
+    "repo": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+    "seat": "1",
+    "host": "b",
+    "type": "vm",
+    "n": 1
+   }
+  },
+  {
+   "id": "handle-repo-49",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr.1+b.vm"
+   },
+   "expect": null
+  },
+  {
+   "id": "handle-repo-dash-first",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": "-a.1+b.vm"
+   },
+   "expect": null
+  },
+  {
+   "id": "handle-repo-underscore-first",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": "_a.1+b.vm"
+   },
+   "expect": null
+  },
+  {
+   "id": "handle-repo-digit-first",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": "1a.1+b.vm"
+   },
+   "expect": {
+    "repo": "1a",
+    "seat": "1",
+    "host": "b",
+    "type": "vm",
+    "n": 1
+   }
+  },
+  {
+   "id": "handle-host-63",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": "a.1+hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh.vm"
+   },
+   "expect": {
+    "repo": "a",
+    "seat": "1",
+    "host": "hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh",
+    "type": "vm",
+    "n": 1
+   }
+  },
+  {
+   "id": "handle-host-64",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": "a.1+hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh.vm"
+   },
+   "expect": null
+  },
+  {
+   "id": "handle-host-dash-last",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": "a.1+h-.vm"
+   },
+   "expect": null
+  },
+  {
+   "id": "handle-host-underscore",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": "a.1+h_h.vm"
+   },
+   "expect": null
+  },
+  {
+   "id": "handle-upper",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": "A.1+b.vm"
+   },
+   "expect": null
+  },
+  {
+   "id": "handle-trailing-newline",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": "a.1+b.vm\n"
+   },
+   "expect": null
+  },
+  {
+   "id": "handle-not-string",
+   "spec": "P5",
+   "fn": "parse_handle",
+   "args": {
+    "value": [
+     "a.1+b.vm"
+    ]
+   },
+   "expect": null
+  },
+  {
+   "id": "seat-number",
+   "spec": "P6",
+   "fn": "is_seat_name",
+   "args": {
+    "value": "7"
+   },
+   "expect": true
+  },
+  {
+   "id": "seat-name",
+   "spec": "P6",
+   "fn": "is_seat_name",
+   "args": {
+    "value": "qa2"
+   },
+   "expect": true
+  },
+  {
+   "id": "seat-dash",
+   "spec": "P6",
+   "fn": "is_seat_name",
+   "args": {
+    "value": "q-a"
+   },
+   "expect": false
+  },
+  {
+   "id": "seat-int",
+   "spec": "P6",
+   "fn": "is_seat_name",
+   "args": {
+    "value": 7
+   },
+   "expect": false
+  },
+  {
+   "id": "human-simple",
+   "spec": "P7",
+   "fn": "is_human_localpart",
+   "args": {
+    "value": "alice"
+   },
+   "expect": true
+  },
+  {
+   "id": "human-32",
+   "spec": "P7",
+   "fn": "is_human_localpart",
+   "args": {
+    "value": "a_______________________________"
+   },
+   "expect": true
+  },
+  {
+   "id": "human-33",
+   "spec": "P7",
+   "fn": "is_human_localpart",
+   "args": {
+    "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   },
+   "expect": false
+  },
+  {
+   "id": "human-dot",
+   "spec": "P7",
+   "fn": "is_human_localpart",
+   "args": {
+    "value": "al.ice"
+   },
+   "expect": false
+  },
+  {
+   "id": "human-admin-reserved",
+   "spec": "P7 P8",
+   "fn": "is_human_localpart",
+   "args": {
+    "value": "admin"
+   },
+   "expect": false
+  },
+  {
+   "id": "human-conduit-reserved",
+   "spec": "P7 P8",
+   "fn": "is_human_localpart",
+   "args": {
+    "value": "conduit"
+   },
+   "expect": false
+  },
+  {
+   "id": "human-admin-prefix-ok",
+   "spec": "P7 P8",
+   "fn": "is_human_localpart",
+   "args": {
+    "value": "admins"
+   },
+   "expect": true
+  },
+  {
+   "id": "uid-human",
+   "spec": "P9",
+   "fn": "parse_user_id",
+   "args": {
+    "value": "@alice:server.test",
+    "server_name": "server.test"
+   },
+   "expect": "alice"
+  },
+  {
+   "id": "uid-handle",
+   "spec": "P9",
+   "fn": "parse_user_id",
+   "args": {
+    "value": "@app.1+desk.podman:server.test",
+    "server_name": "server.test"
+   },
+   "expect": "app.1+desk.podman"
+  },
+  {
+   "id": "uid-admin",
+   "spec": "P9 P8",
+   "fn": "parse_user_id",
+   "args": {
+    "value": "@admin:server.test",
+    "server_name": "server.test"
+   },
+   "expect": "admin"
+  },
+  {
+   "id": "uid-other-server",
+   "spec": "P9",
+   "fn": "parse_user_id",
+   "args": {
+    "value": "@alice:other.test",
+    "server_name": "server.test"
+   },
+   "expect": null
+  },
+  {
+   "id": "uid-server-with-port",
+   "spec": "P9",
+   "fn": "parse_user_id",
+   "args": {
+    "value": "@alice:server.test:8448",
+    "server_name": "server.test"
+   },
+   "expect": null
+  },
+  {
+   "id": "uid-port-in-server-name",
+   "spec": "P9",
+   "fn": "parse_user_id",
+   "args": {
+    "value": "@alice:server.test:8448",
+    "server_name": "server.test:8448"
+   },
+   "expect": "alice"
+  },
+  {
+   "id": "uid-no-at",
+   "spec": "P9",
+   "fn": "parse_user_id",
+   "args": {
+    "value": "alice:server.test",
+    "server_name": "server.test"
+   },
+   "expect": null
+  },
+  {
+   "id": "uid-no-colon",
+   "spec": "P9",
+   "fn": "parse_user_id",
+   "args": {
+    "value": "@alice",
+    "server_name": "server.test"
+   },
+   "expect": null
+  },
+  {
+   "id": "uid-bad-localpart",
+   "spec": "P9",
+   "fn": "parse_user_id",
+   "args": {
+    "value": "@Alice:server.test",
+    "server_name": "server.test"
+   },
+   "expect": null
+  },
+  {
+   "id": "uid-not-string",
+   "spec": "P9",
+   "fn": "parse_user_id",
+   "args": {
+    "value": 1,
+    "server_name": "server.test"
+   },
+   "expect": null
+  },
+  {
+   "id": "agent-uid-yes",
+   "spec": "P9",
+   "fn": "is_agent_user_id",
+   "args": {
+    "value": "@app.1+desk.podman:server.test",
+    "server_name": "server.test"
+   },
+   "expect": true
+  },
+  {
+   "id": "agent-uid-human",
+   "spec": "P9",
+   "fn": "is_agent_user_id",
+   "args": {
+    "value": "@alice:server.test",
+    "server_name": "server.test"
+   },
+   "expect": false
+  },
+  {
+   "id": "human-uid-yes",
+   "spec": "P9",
+   "fn": "is_human_user_id",
+   "args": {
+    "value": "@alice:server.test",
+    "server_name": "server.test"
+   },
+   "expect": true
+  },
+  {
+   "id": "human-uid-agent",
+   "spec": "P9",
+   "fn": "is_human_user_id",
+   "args": {
+    "value": "@app.1+desk.podman:server.test",
+    "server_name": "server.test"
+   },
+   "expect": false
+  },
+  {
+   "id": "human-uid-admin",
+   "spec": "P9 P8",
+   "fn": "is_human_user_id",
+   "args": {
+    "value": "@admin:server.test",
+    "server_name": "server.test"
+   },
+   "expect": false
+  },
+  {
+   "id": "room-id",
+   "spec": "P10",
+   "fn": "is_room_id",
+   "args": {
+    "value": "!bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-"
+   },
+   "expect": true
+  },
+  {
+   "id": "room-id-42",
+   "spec": "P10",
+   "fn": "is_room_id",
+   "args": {
+    "value": "!bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+   },
+   "expect": false
+  },
+  {
+   "id": "room-id-44",
+   "spec": "P10",
+   "fn": "is_room_id",
+   "args": {
+    "value": "!bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-a"
+   },
+   "expect": false
+  },
+  {
+   "id": "room-id-dot",
+   "spec": "P10",
+   "fn": "is_room_id",
+   "args": {
+    "value": "!aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."
+   },
+   "expect": false
+  },
+  {
+   "id": "room-id-with-server",
+   "spec": "P10",
+   "fn": "is_room_id",
+   "args": {
+    "value": "!bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-:server.test"
+   },
+   "expect": false
+  },
+  {
+   "id": "event-id",
+   "spec": "P10",
+   "fn": "is_event_id",
+   "args": {
+    "value": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_"
+   },
+   "expect": true
+  },
+  {
+   "id": "event-id-room-sigil",
+   "spec": "P10",
+   "fn": "is_event_id",
+   "args": {
+    "value": "!AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_"
+   },
+   "expect": false
+  },
+  {
+   "id": "event-id-plus",
+   "spec": "P10",
+   "fn": "is_event_id",
+   "args": {
+    "value": "$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+"
+   },
+   "expect": false
+  },
+  {
+   "id": "event-id-newline",
+   "spec": "P10",
+   "fn": "is_event_id",
+   "args": {
+    "value": "$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_\n"
+   },
+   "expect": false
+  },
+  {
+   "id": "branch-simple",
+   "spec": "P11",
+   "fn": "is_branch_name",
+   "args": {
+    "value": "feat/x-1.2_y"
+   },
+   "expect": true
+  },
+  {
+   "id": "branch-100",
+   "spec": "P11",
+   "fn": "is_branch_name",
+   "args": {
+    "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+   },
+   "expect": true
+  },
+  {
+   "id": "branch-101",
+   "spec": "P11",
+   "fn": "is_branch_name",
+   "args": {
+    "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+   },
+   "expect": false
+  },
+  {
+   "id": "branch-empty",
+   "spec": "P11",
+   "fn": "is_branch_name",
+   "args": {
+    "value": ""
+   },
+   "expect": false
+  },
+  {
+   "id": "branch-space",
+   "spec": "P11",
+   "fn": "is_branch_name",
+   "args": {
+    "value": "a b"
+   },
+   "expect": false
+  },
+  {
+   "id": "branch-tilde",
+   "spec": "P11",
+   "fn": "is_branch_name",
+   "args": {
+    "value": "a~1"
+   },
+   "expect": false
+  },
+  {
+   "id": "owner-simple",
+   "spec": "P12",
+   "fn": "is_owner",
+   "args": {
+    "value": "example-org"
+   },
+   "expect": true
+  },
+  {
+   "id": "owner-39",
+   "spec": "P12",
+   "fn": "is_owner",
+   "args": {
+    "value": "ooooooooooooooooooooooooooooooooooooooo"
+   },
+   "expect": true
+  },
+  {
+   "id": "owner-40",
+   "spec": "P12",
+   "fn": "is_owner",
+   "args": {
+    "value": "oooooooooooooooooooooooooooooooooooooooo"
+   },
+   "expect": false
+  },
+  {
+   "id": "owner-dash-first",
+   "spec": "P12",
+   "fn": "is_owner",
+   "args": {
+    "value": "-o"
+   },
+   "expect": false
+  },
+  {
+   "id": "owner-upper",
+   "spec": "P12",
+   "fn": "is_owner",
+   "args": {
+    "value": "Org"
+   },
+   "expect": false
+  },
+  {
+   "id": "repo-name-dots",
+   "spec": "P12",
+   "fn": "is_repo_name",
+   "args": {
+    "value": "my.repo_x-1"
+   },
+   "expect": true
+  },
+  {
+   "id": "repo-name-dot",
+   "spec": "P12",
+   "fn": "is_repo_name",
+   "args": {
+    "value": "."
+   },
+   "expect": false
+  },
+  {
+   "id": "repo-name-dotdot",
+   "spec": "P12",
+   "fn": "is_repo_name",
+   "args": {
+    "value": ".."
+   },
+   "expect": false
+  },
+  {
+   "id": "repo-name-dotgit",
+   "spec": "P12",
+   "fn": "is_repo_name",
+   "args": {
+    "value": "x.git"
+   },
+   "expect": false
+  },
+  {
+   "id": "repo-name-dotgit-alone",
+   "spec": "P12",
+   "fn": "is_repo_name",
+   "args": {
+    "value": ".git"
+   },
+   "expect": false
+  },
+  {
+   "id": "repo-name-git-suffix-no-dot",
+   "spec": "P12",
+   "fn": "is_repo_name",
+   "args": {
+    "value": "xgit"
+   },
+   "expect": true
+  },
+  {
+   "id": "repo-name-101",
+   "spec": "P12",
+   "fn": "is_repo_name",
+   "args": {
+    "value": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+   },
+   "expect": false
+  },
+  {
+   "id": "repo-name-triple-dot",
+   "spec": "P12",
+   "fn": "is_repo_name",
+   "args": {
+    "value": "..."
+   },
+   "expect": true
+  },
+  {
+   "id": "owner-repo",
+   "spec": "P12",
+   "fn": "is_owner_repo",
+   "args": {
+    "value": "example-org/myrepo"
+   },
+   "expect": true
+  },
+  {
+   "id": "owner-repo-dotgit",
+   "spec": "P12",
+   "fn": "is_owner_repo",
+   "args": {
+    "value": "example-org/myrepo.git"
+   },
+   "expect": false
+  },
+  {
+   "id": "owner-repo-no-slash",
+   "spec": "P12",
+   "fn": "is_owner_repo",
+   "args": {
+    "value": "example-org"
+   },
+   "expect": false
+  },
+  {
+   "id": "owner-repo-two-slashes",
+   "spec": "P12",
+   "fn": "is_owner_repo",
+   "args": {
+    "value": "a/b/c"
+   },
+   "expect": false
+  },
+  {
+   "id": "owner-repo-upper",
+   "spec": "P12",
+   "fn": "is_owner_repo",
+   "args": {
+    "value": "Example-org/myrepo"
+   },
+   "expect": false
+  },
+  {
+   "id": "ref-path",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "path:example-org/myrepo@0123456789abcdef0123456789abcdef01234567:docs/a.md"
+   },
+   "expect": {
+    "text": "path:example-org/myrepo@0123456789abcdef0123456789abcdef01234567:docs/a.md",
+    "form": "path",
+    "owner": "example-org",
+    "repo": "myrepo",
+    "sha": "0123456789abcdef0123456789abcdef01234567",
+    "num": null,
+    "path": "docs/a.md"
+   }
+  },
+  {
+   "id": "ref-commit",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "commit:o/r@0123456789abcdef0123456789abcdef01234567"
+   },
+   "expect": {
+    "text": "commit:o/r@0123456789abcdef0123456789abcdef01234567",
+    "form": "commit",
+    "owner": "o",
+    "repo": "r",
+    "sha": "0123456789abcdef0123456789abcdef01234567",
+    "num": null,
+    "path": null
+   }
+  },
+  {
+   "id": "ref-pr",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "pr:o/r#42@0123456789abcdef0123456789abcdef01234567"
+   },
+   "expect": {
+    "text": "pr:o/r#42@0123456789abcdef0123456789abcdef01234567",
+    "form": "pr",
+    "owner": "o",
+    "repo": "r",
+    "sha": "0123456789abcdef0123456789abcdef01234567",
+    "num": 42,
+    "path": null
+   }
+  },
+  {
+   "id": "ref-issue",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "issue:o/r#9999999999"
+   },
+   "expect": {
+    "text": "issue:o/r#9999999999",
+    "form": "issue",
+    "owner": "o",
+    "repo": "r",
+    "sha": null,
+    "num": 9999999999,
+    "path": null
+   }
+  },
+  {
+   "id": "ref-issue-num-11-digits",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "issue:o/r#10000000000"
+   },
+   "expect": null
+  },
+  {
+   "id": "ref-issue-num-zero",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "issue:o/r#0"
+   },
+   "expect": null
+  },
+  {
+   "id": "ref-issue-num-leading-zero",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "issue:o/r#01"
+   },
+   "expect": null
+  },
+  {
+   "id": "ref-sha-upper",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "commit:o/r@0123456789ABCDEF0123456789ABCDEF01234567"
+   },
+   "expect": null
+  },
+  {
+   "id": "ref-sha-39",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "commit:o/r@0123456789abcdef0123456789abcdef0123456"
+   },
+   "expect": null
+  },
+  {
+   "id": "ref-sha-41",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "commit:o/r@0123456789abcdef0123456789abcdef012345670"
+   },
+   "expect": null
+  },
+  {
+   "id": "ref-repo-dotgit",
+   "spec": "P13 P12",
+   "fn": "parse_ref",
+   "args": {
+    "value": "commit:o/r.git@0123456789abcdef0123456789abcdef01234567"
+   },
+   "expect": null
+  },
+  {
+   "id": "ref-repo-dotdot",
+   "spec": "P13 P12",
+   "fn": "parse_ref",
+   "args": {
+    "value": "commit:o/..@0123456789abcdef0123456789abcdef01234567"
+   },
+   "expect": null
+  },
+  {
+   "id": "ref-path-dot-segment",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "path:o/r@0123456789abcdef0123456789abcdef01234567:a/./b"
+   },
+   "expect": null
+  },
+  {
+   "id": "ref-path-dotdot-segment",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "path:o/r@0123456789abcdef0123456789abcdef01234567:../b"
+   },
+   "expect": null
+  },
+  {
+   "id": "ref-path-dotdot-in-name-ok",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "path:o/r@0123456789abcdef0123456789abcdef01234567:a..b"
+   },
+   "expect": {
+    "text": "path:o/r@0123456789abcdef0123456789abcdef01234567:a..b",
+    "form": "path",
+    "owner": "o",
+    "repo": "r",
+    "sha": "0123456789abcdef0123456789abcdef01234567",
+    "num": null,
+    "path": "a..b"
+   }
+  },
+  {
+   "id": "ref-path-8-segments",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "path:o/r@0123456789abcdef0123456789abcdef01234567:s/s/s/s/s/s/s/s"
+   },
+   "expect": {
+    "text": "path:o/r@0123456789abcdef0123456789abcdef01234567:s/s/s/s/s/s/s/s",
+    "form": "path",
+    "owner": "o",
+    "repo": "r",
+    "sha": "0123456789abcdef0123456789abcdef01234567",
+    "num": null,
+    "path": "s/s/s/s/s/s/s/s"
+   }
+  },
+  {
+   "id": "ref-path-9-segments",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "path:o/r@0123456789abcdef0123456789abcdef01234567:s/s/s/s/s/s/s/s/s"
+   },
+   "expect": null
+  },
+  {
+   "id": "ref-path-segment-65",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "path:o/r@0123456789abcdef0123456789abcdef01234567:sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+   },
+   "expect": null
+  },
+  {
+   "id": "ref-path-trailing-slash",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "path:o/r@0123456789abcdef0123456789abcdef01234567:a/"
+   },
+   "expect": null
+  },
+  {
+   "id": "ref-path-leading-slash",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "path:o/r@0123456789abcdef0123456789abcdef01234567:/a"
+   },
+   "expect": null
+  },
+  {
+   "id": "ref-path-empty",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "path:o/r@0123456789abcdef0123456789abcdef01234567:"
+   },
+   "expect": null
+  },
+  {
+   "id": "ref-path-upper-ok",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "path:o/r@0123456789abcdef0123456789abcdef01234567:A.MD"
+   },
+   "expect": {
+    "text": "path:o/r@0123456789abcdef0123456789abcdef01234567:A.MD",
+    "form": "path",
+    "owner": "o",
+    "repo": "r",
+    "sha": "0123456789abcdef0123456789abcdef01234567",
+    "num": null,
+    "path": "A.MD"
+   }
+  },
+  {
+   "id": "ref-700",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "path:ooooooooooooooooooooooooooooooooooooooo/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr@0123456789abcdef0123456789abcdef01234567:ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+   },
+   "expect": {
+    "text": "path:ooooooooooooooooooooooooooooooooooooooo/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr@0123456789abcdef0123456789abcdef01234567:ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+    "form": "path",
+    "owner": "ooooooooooooooooooooooooooooooooooooooo",
+    "repo": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+    "sha": "0123456789abcdef0123456789abcdef01234567",
+    "num": null,
+    "path": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+   }
+  },
+  {
+   "id": "ref-701",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "path:ooooooooooooooooooooooooooooooooooooooo/rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr@0123456789abcdef0123456789abcdef01234567:ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/sssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+   },
+   "expect": null
+  },
+  {
+   "id": "ref-unknown-form",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "tree:o/r@0123456789abcdef0123456789abcdef01234567"
+   },
+   "expect": null
+  },
+  {
+   "id": "ref-trailing-newline",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "commit:o/r@0123456789abcdef0123456789abcdef01234567\n"
+   },
+   "expect": null
+  },
+  {
+   "id": "ref-upper-owner",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": "commit:O/r@0123456789abcdef0123456789abcdef01234567"
+   },
+   "expect": null
+  },
+  {
+   "id": "ref-not-string",
+   "spec": "P13",
+   "fn": "parse_ref",
+   "args": {
+    "value": 3
+   },
+   "expect": null
+  },
+  {
+   "id": "lower-owner-repo",
+   "spec": "P14",
+   "fn": "lowercase_ref_repo",
+   "args": {
+    "value": "commit:Example-Org/MyRepo@0123456789abcdef0123456789abcdef01234567"
+   },
+   "expect": "commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567"
+  },
+  {
+   "id": "lower-keeps-path",
+   "spec": "P14",
+   "fn": "lowercase_ref_repo",
+   "args": {
+    "value": "path:O/R@0123456789abcdef0123456789abcdef01234567:Docs/A.md"
+   },
+   "expect": "path:o/r@0123456789abcdef0123456789abcdef01234567:Docs/A.md"
+  },
+  {
+   "id": "lower-issue",
+   "spec": "P14",
+   "fn": "lowercase_ref_repo",
+   "args": {
+    "value": "issue:O/R#1"
+   },
+   "expect": "issue:o/r#1"
+  },
+  {
+   "id": "lower-not-a-ref",
+   "spec": "P14",
+   "fn": "lowercase_ref_repo",
+   "args": {
+    "value": "Commit:O/R@x"
+   },
+   "expect": "Commit:O/R@x"
+  },
+  {
+   "id": "lower-no-separator",
+   "spec": "P14",
+   "fn": "lowercase_ref_repo",
+   "args": {
+    "value": "pr:ABC"
+   },
+   "expect": "pr:abc"
+  },
+  {
+   "id": "lower-newline-kept",
+   "spec": "P14",
+   "fn": "lowercase_ref_repo",
+   "args": {
+    "value": "pr:A\nB#1"
+   },
+   "expect": "pr:a\nb#1"
+  },
+  {
+   "id": "lower-dotted-capital-i",
+   "spec": "P14 D6",
+   "fn": "lowercase_ref_repo",
+   "args": {
+    "value": "pr:\u0130#1"
+   },
+   "expect": "pr:i\u0307#1"
+  },
+  {
+   "id": "lower-final-sigma",
+   "spec": "P14",
+   "fn": "lowercase_ref_repo",
+   "args": {
+    "value": "pr:A\u03a3#1"
+   },
+   "expect": "pr:a\u03c2#1"
+  },
+  {
+   "id": "lower-sigma-alone",
+   "spec": "P14",
+   "fn": "lowercase_ref_repo",
+   "args": {
+    "value": "pr:\u03a3#1"
+   },
+   "expect": "pr:\u03c3#1"
+  },
+  {
+   "id": "lower-sigma-mid-word",
+   "spec": "P14",
+   "fn": "lowercase_ref_repo",
+   "args": {
+    "value": "pr:A\u03a3B#1"
+   },
+   "expect": "pr:a\u03c3b#1"
+  },
+  {
+   "id": "lower-kelvin",
+   "spec": "P14",
+   "fn": "lowercase_ref_repo",
+   "args": {
+    "value": "pr:\u212a#1"
+   },
+   "expect": "pr:k#1"
+  },
+  {
+   "id": "prefix-dir",
+   "spec": "P15",
+   "fn": "is_path_prefix",
+   "args": {
+    "value": "docs/"
+   },
+   "expect": true
+  },
+  {
+   "id": "prefix-file",
+   "spec": "P15",
+   "fn": "is_path_prefix",
+   "args": {
+    "value": "README.md"
+   },
+   "expect": true
+  },
+  {
+   "id": "prefix-root-slash",
+   "spec": "P15",
+   "fn": "is_path_prefix",
+   "args": {
+    "value": "/"
+   },
+   "expect": false
+  },
+  {
+   "id": "prefix-double-slash",
+   "spec": "P15",
+   "fn": "is_path_prefix",
+   "args": {
+    "value": "docs//"
+   },
+   "expect": false
+  },
+  {
+   "id": "prefix-dotdot",
+   "spec": "P15",
+   "fn": "is_path_prefix",
+   "args": {
+    "value": "../"
+   },
+   "expect": false
+  },
+  {
+   "id": "prefix-not-string",
+   "spec": "P15",
+   "fn": "is_path_prefix",
+   "args": {
+    "value": [
+     "docs/"
+    ]
+   },
+   "expect": false
+  },
+  {
+   "id": "allowed-dir-prefix",
+   "spec": "P15",
+   "fn": "path_allowed",
+   "args": {
+    "path": "docs/a/b.md",
+    "prefixes": [
+     "docs/"
+    ]
+   },
+   "expect": true
+  },
+  {
+   "id": "allowed-dir-not-sibling",
+   "spec": "P15",
+   "fn": "path_allowed",
+   "args": {
+    "path": "docsx/a",
+    "prefixes": [
+     "docs/"
+    ]
+   },
+   "expect": false
+  },
+  {
+   "id": "allowed-file-exact",
+   "spec": "P15",
+   "fn": "path_allowed",
+   "args": {
+    "path": "README.md",
+    "prefixes": [
+     "README.md"
+    ]
+   },
+   "expect": true
+  },
+  {
+   "id": "allowed-file-not-prefix",
+   "spec": "P15",
+   "fn": "path_allowed",
+   "args": {
+    "path": "README.md.bak",
+    "prefixes": [
+     "README.md"
+    ]
+   },
+   "expect": false
+  },
+  {
+   "id": "allowed-none",
+   "spec": "P15",
+   "fn": "path_allowed",
+   "args": {
+    "path": "a",
+    "prefixes": []
+   },
+   "expect": false
+  },
+  {
+   "id": "desc-simple",
+   "spec": "P16",
+   "fn": "is_description",
+   "args": {
+    "value": "The build team"
+   },
+   "expect": true
+  },
+  {
+   "id": "desc-120",
+   "spec": "P16",
+   "fn": "is_description",
+   "args": {
+    "value": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+   },
+   "expect": true
+  },
+  {
+   "id": "desc-121",
+   "spec": "P16",
+   "fn": "is_description",
+   "args": {
+    "value": "ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+   },
+   "expect": false
+  },
+  {
+   "id": "desc-astral-counts-one",
+   "spec": "P16",
+   "fn": "is_description",
+   "args": {
+    "value": "\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00"
+   },
+   "expect": true
+  },
+  {
+   "id": "desc-empty",
+   "spec": "P16",
+   "fn": "is_description",
+   "args": {
+    "value": ""
+   },
+   "expect": false
+  },
+  {
+   "id": "desc-leading-space",
+   "spec": "P16",
+   "fn": "is_description",
+   "args": {
+    "value": " a"
+   },
+   "expect": false
+  },
+  {
+   "id": "desc-trailing-nbsp",
+   "spec": "P16",
+   "fn": "is_description",
+   "args": {
+    "value": "a\u00a0"
+   },
+   "expect": false
+  },
+  {
+   "id": "desc-trailing-ideographic-space",
+   "spec": "P16",
+   "fn": "is_description",
+   "args": {
+    "value": "a\u3000"
+   },
+   "expect": false
+  },
+  {
+   "id": "desc-trailing-unit-separator",
+   "spec": "P16",
+   "fn": "is_description",
+   "args": {
+    "value": "a\u001f"
+   },
+   "expect": false
+  },
+  {
+   "id": "desc-inner-tab",
+   "spec": "P16",
+   "fn": "is_description",
+   "args": {
+    "value": "a\tb"
+   },
+   "expect": false
+  },
+  {
+   "id": "desc-bidi-override",
+   "spec": "P16",
+   "fn": "is_description",
+   "args": {
+    "value": "a\u202eb"
+   },
+   "expect": false
+  },
+  {
+   "id": "desc-zwj",
+   "spec": "P16",
+   "fn": "is_description",
+   "args": {
+    "value": "a\u200db"
+   },
+   "expect": false
+  },
+  {
+   "id": "desc-inner-nbsp-ok",
+   "spec": "P16",
+   "fn": "is_description",
+   "args": {
+    "value": "a\u00a0b"
+   },
+   "expect": true
+  },
+  {
+   "id": "desc-trailing-zwsp-not-space",
+   "spec": "P16",
+   "fn": "is_description",
+   "args": {
+    "value": "a\u200b"
+   },
+   "expect": false
+  },
+  {
+   "id": "desc-not-string",
+   "spec": "P16",
+   "fn": "is_description",
+   "args": {
+    "value": 1
+   },
+   "expect": false
+  },
+  {
+   "id": "desc-unicode15-cf",
+   "spec": "P16 D4",
+   "fn": "is_description",
+   "args": {
+    "value": "a\ud80d\udc39b"
+   },
+   "expect": false,
+   "expect_python_by_unicode": {
+    "14": true,
+    "15": false
+   }
+  },
+  {
+   "id": "desc-unicode15-letter",
+   "spec": "P16 D4",
+   "fn": "is_description",
+   "args": {
+    "value": "a\ud807\udf04b"
+   },
+   "expect": true
+  },
+  {
+   "id": "trust-listed",
+   "spec": "P27",
+   "fn": "ref_trust",
+   "args": {
+    "ref": "commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567"
+   },
+   "expect": {
+    "source": "listed",
+    "any_branch": false,
+    "excluded": false
+   },
+   "ctx": "team"
+  },
+  {
+   "id": "trust-listed-any-branch",
+   "spec": "P27",
+   "fn": "ref_trust",
+   "args": {
+    "ref": "commit:example-org/anybranch@0123456789abcdef0123456789abcdef01234567"
+   },
+   "expect": {
+    "source": "listed",
+    "any_branch": true,
+    "excluded": false
+   },
+   "ctx": "team"
+  },
+  {
+   "id": "trust-org",
+   "spec": "P27",
+   "fn": "ref_trust",
+   "args": {
+    "ref": "commit:example-org/other@0123456789abcdef0123456789abcdef01234567"
+   },
+   "expect": {
+    "source": "org",
+    "any_branch": true,
+    "excluded": false
+   },
+   "ctx": "team"
+  },
+  {
+   "id": "trust-org-excluded",
+   "spec": "P27",
+   "fn": "ref_trust",
+   "args": {
+    "ref": "commit:example-org/private@0123456789abcdef0123456789abcdef01234567"
+   },
+   "expect": {
+    "source": "org",
+    "any_branch": true,
+    "excluded": true
+   },
+   "ctx": "team"
+  },
+  {
+   "id": "trust-listed-other-owner",
+   "spec": "P27",
+   "fn": "ref_trust",
+   "args": {
+    "ref": "commit:other-owner/tool@0123456789abcdef0123456789abcdef01234567"
+   },
+   "expect": {
+    "source": "listed",
+    "any_branch": false,
+    "excluded": false
+   },
+   "ctx": "team"
+  },
+  {
+   "id": "trust-external",
+   "spec": "P27",
+   "fn": "ref_trust",
+   "args": {
+    "ref": "commit:stranger/tool@0123456789abcdef0123456789abcdef01234567"
+   },
+   "expect": {
+    "source": "external",
+    "any_branch": false,
+    "excluded": false
+   },
+   "ctx": "team"
+  },
+  {
+   "id": "trust-exclude-needs-org-owner",
+   "spec": "P27",
+   "fn": "ref_trust",
+   "args": {
+    "ref": "commit:stranger/private@0123456789abcdef0123456789abcdef01234567"
+   },
+   "expect": {
+    "source": "external",
+    "any_branch": false,
+    "excluded": false
+   },
+   "ctx": "team"
+  },
+  {
+   "id": "trust-no-org",
+   "spec": "P27",
+   "fn": "ref_trust",
+   "args": {
+    "ref": "commit:example-org/other@0123456789abcdef0123456789abcdef01234567"
+   },
+   "expect": {
+    "source": "external",
+    "any_branch": false,
+    "excluded": false
+   },
+   "ctx": "prefixed"
+  }
+ ]
+}

@@ -1,0 +1,251 @@
+{
+ "v": 1,
+ "suite": "values",
+ "cases": [
+  {
+   "id": "size-empty-object",
+   "spec": "P3",
+   "fn": "content_size",
+   "args": {
+    "content": {}
+   },
+   "expect": 2
+  },
+  {
+   "id": "size-compact-separators",
+   "spec": "P3",
+   "fn": "content_size",
+   "args": {
+    "content": {
+     "a": [
+      1,
+      2
+     ]
+    }
+   },
+   "expect": 11
+  },
+  {
+   "id": "size-key-order-irrelevant",
+   "spec": "P3",
+   "fn": "content_size",
+   "args": {
+    "content": {
+     "b": 1,
+     "a": 2
+    }
+   },
+   "expect": 13
+  },
+  {
+   "id": "size-non-ascii-raw",
+   "spec": "P3",
+   "fn": "content_size",
+   "args": {
+    "content": "\u00e9"
+   },
+   "expect": 4
+  },
+  {
+   "id": "size-astral-raw",
+   "spec": "P3",
+   "fn": "content_size",
+   "args": {
+    "content": "\ud83d\ude00"
+   },
+   "expect": 6
+  },
+  {
+   "id": "size-escapes",
+   "spec": "P3",
+   "fn": "content_size",
+   "args": {
+    "content": "\"\\\b\f\n\r\t"
+   },
+   "expect": 16
+  },
+  {
+   "id": "size-c0-u-escape",
+   "spec": "P3",
+   "fn": "content_size",
+   "args": {
+    "content": "\u0001"
+   },
+   "expect": 8
+  },
+  {
+   "id": "size-del-raw",
+   "spec": "P3",
+   "fn": "content_size",
+   "args": {
+    "content": "\u007f"
+   },
+   "expect": 3
+  },
+  {
+   "id": "size-u2028-raw",
+   "spec": "P3",
+   "fn": "content_size",
+   "args": {
+    "content": "\u2028"
+   },
+   "expect": 5
+  },
+  {
+   "id": "size-int",
+   "spec": "P3",
+   "fn": "content_size",
+   "args": {
+    "content": 12345
+   },
+   "expect": 5
+  },
+  {
+   "id": "size-negative-zero-int",
+   "spec": "P3",
+   "fn": "content_size",
+   "args": {
+    "content": -0
+   },
+   "expect": 1
+  },
+  {
+   "id": "size-big-int",
+   "spec": "P3",
+   "fn": "content_size",
+   "args": {
+    "content": 1000000000000000000000000000000
+   },
+   "expect": 31
+  },
+  {
+   "id": "size-float-one",
+   "spec": "P3",
+   "fn": "content_size",
+   "args": {
+    "content": 1.0
+   },
+   "expect": 3
+  },
+  {
+   "id": "size-float-exp-literal",
+   "spec": "P3",
+   "fn": "content_size",
+   "args": {
+    "content": 1E2
+   },
+   "expect": 5
+  },
+  {
+   "id": "size-float-1e16",
+   "spec": "P3",
+   "fn": "content_size",
+   "args": {
+    "content": 1e+16
+   },
+   "expect": 5
+  },
+  {
+   "id": "size-float-1e15",
+   "spec": "P3",
+   "fn": "content_size",
+   "args": {
+    "content": 1000000000000000.0
+   },
+   "expect": 18
+  },
+  {
+   "id": "size-float-small",
+   "spec": "P3",
+   "fn": "content_size",
+   "args": {
+    "content": 1.5e-05
+   },
+   "expect": 7
+  },
+  {
+   "id": "size-float-0001",
+   "spec": "P3",
+   "fn": "content_size",
+   "args": {
+    "content": 0.0001
+   },
+   "expect": 6
+  },
+  {
+   "id": "size-float-negative-zero",
+   "spec": "P3",
+   "fn": "content_size",
+   "args": {
+    "content": -0.0
+   },
+   "expect": 4
+  },
+  {
+   "id": "size-float-tenth",
+   "spec": "P3",
+   "fn": "content_size",
+   "args": {
+    "content": 0.1
+   },
+   "expect": 3
+  },
+  {
+   "id": "size-nan",
+   "spec": "P3",
+   "fn": "content_size",
+   "args": {
+    "content": NaN
+   },
+   "expect": 3
+  },
+  {
+   "id": "size-infinity",
+   "spec": "P3",
+   "fn": "content_size",
+   "args": {
+    "content": -Infinity
+   },
+   "expect": 9
+  },
+  {
+   "id": "size-null-bool",
+   "spec": "P3",
+   "fn": "content_size",
+   "args": {
+    "content": [
+     null,
+     true,
+     false
+    ]
+   },
+   "expect": 17
+  },
+  {
+   "id": "size-lone-surrogate",
+   "spec": "P3 D1",
+   "fn": "content_size",
+   "args": {
+    "content": {
+     "a": "x\ud800"
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "size-lone-surrogate-key",
+   "spec": "P3 D1",
+   "fn": "content_size",
+   "args": {
+    "content": {
+     "\udc00": 1
+    }
+   },
+   "expect": {
+    "error": true
+   }
+  }
+ ]
+}

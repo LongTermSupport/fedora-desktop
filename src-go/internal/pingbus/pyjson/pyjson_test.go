@@ -10,6 +10,19 @@ import (
 // esc is a JSON \u escape of the four hex digits, spelled so no editor turns it into the character.
 func esc(hex string) string { return string([]byte{'\\', 'u'}) + hex }
 
+func TestCodePointsReadsGeneralisedUTF8(t *testing.T) {
+	got, err := CodePoints("a\xed\xa0\x80\xf0\x9f\x98\x80")
+	if err != nil || len(got) != 3 || got[0] != 'a' || got[1] != 0xd800 || got[2] != 0x1f600 {
+		t.Fatalf("CodePoints = %U, %v", got, err)
+	}
+	if _, err := CodePoints("\xff"); !errors.Is(err, ErrNotUnicode) {
+		t.Fatalf("CodePoints of a stray byte: %v", err)
+	}
+	if s := FromCodePoints(got); s != "a\xed\xa0\x80\xf0\x9f\x98\x80" {
+		t.Fatalf("FromCodePoints = %q", s)
+	}
+}
+
 // The cases below were checked against CPython 3.11's json.loads (SPEC-status-line.md S23).
 func TestDecodeAcceptsWhatPythonAccepts(t *testing.T) {
 	cases := map[string]any{

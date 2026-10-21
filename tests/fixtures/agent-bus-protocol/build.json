@@ -1,0 +1,462 @@
+{
+ "v": 1,
+ "suite": "build",
+ "cases": [
+  {
+   "id": "norm-lower",
+   "spec": "P17",
+   "fn": "normalise_repo",
+   "args": {
+    "raw": "MyRepo"
+   },
+   "expect": "myrepo"
+  },
+  {
+   "id": "norm-unsafe",
+   "spec": "P17",
+   "fn": "normalise_repo",
+   "args": {
+    "raw": "my.repo name"
+   },
+   "expect": "my-repo-name"
+  },
+  {
+   "id": "norm-strip-leading",
+   "spec": "P17",
+   "fn": "normalise_repo",
+   "args": {
+    "raw": "-_.x"
+   },
+   "expect": "x"
+  },
+  {
+   "id": "norm-keep-trailing",
+   "spec": "P17",
+   "fn": "normalise_repo",
+   "args": {
+    "raw": "x-_"
+   },
+   "expect": "x-_"
+  },
+  {
+   "id": "norm-48",
+   "spec": "P17",
+   "fn": "normalise_repo",
+   "args": {
+    "raw": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   },
+   "expect": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "id": "norm-cut-after-strip",
+   "spec": "P17",
+   "fn": "normalise_repo",
+   "args": {
+    "raw": "--aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab"
+   },
+   "expect": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "id": "norm-empty",
+   "spec": "P17",
+   "fn": "normalise_repo",
+   "args": {
+    "raw": ""
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "norm-only-unsafe",
+   "spec": "P17",
+   "fn": "normalise_repo",
+   "args": {
+    "raw": "..."
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "norm-non-ascii",
+   "spec": "P17",
+   "fn": "normalise_repo",
+   "args": {
+    "raw": "caf\u00e9"
+   },
+   "expect": "caf-"
+  },
+  {
+   "id": "norm-astral-one-dash",
+   "spec": "P17",
+   "fn": "normalise_repo",
+   "args": {
+    "raw": "a\ud83d\ude00"
+   },
+   "expect": "a-"
+  },
+  {
+   "id": "norm-dotted-capital-i",
+   "spec": "P17 D6",
+   "fn": "normalise_repo",
+   "args": {
+    "raw": "\u0130x"
+   },
+   "expect": "i-x"
+  },
+  {
+   "id": "norm-kelvin-folds",
+   "spec": "P17",
+   "fn": "normalise_repo",
+   "args": {
+    "raw": "\u212ax"
+   },
+   "expect": "kx"
+  },
+  {
+   "id": "remote-https",
+   "spec": "P17",
+   "fn": "repo_from_remote",
+   "args": {
+    "remote": "https://github.com/example-org/My.Repo.git",
+    "dir": "/w/x"
+   },
+   "expect": "my-repo"
+  },
+  {
+   "id": "remote-scp",
+   "spec": "P17",
+   "fn": "repo_from_remote",
+   "args": {
+    "remote": "git@github.com:example-org/tool.git",
+    "dir": "/w"
+   },
+   "expect": "tool"
+  },
+  {
+   "id": "remote-scp-no-slash",
+   "spec": "P17",
+   "fn": "repo_from_remote",
+   "args": {
+    "remote": "host:tool",
+    "dir": "/w"
+   },
+   "expect": "tool"
+  },
+  {
+   "id": "remote-trailing-slash",
+   "spec": "P17",
+   "fn": "repo_from_remote",
+   "args": {
+    "remote": "https://github.com/o/tool.git/",
+    "dir": "/w"
+   },
+   "expect": "tool"
+  },
+  {
+   "id": "remote-no-dotgit",
+   "spec": "P17",
+   "fn": "repo_from_remote",
+   "args": {
+    "remote": "https://h/o/tool",
+    "dir": "/w"
+   },
+   "expect": "tool"
+  },
+  {
+   "id": "remote-none-uses-dir",
+   "spec": "P17",
+   "fn": "repo_from_remote",
+   "args": {
+    "remote": null,
+    "dir": "/w/Some.Dir/"
+   },
+   "expect": "some-dir"
+  },
+  {
+   "id": "remote-empty-uses-dir",
+   "spec": "P17",
+   "fn": "repo_from_remote",
+   "args": {
+    "remote": "",
+    "dir": "/w/proj"
+   },
+   "expect": "proj"
+  },
+  {
+   "id": "remote-dir-keeps-dotgit",
+   "spec": "P17",
+   "fn": "repo_from_remote",
+   "args": {
+    "remote": null,
+    "dir": "/w/x.git"
+   },
+   "expect": "x-git"
+  },
+  {
+   "id": "remote-only-dotgit",
+   "spec": "P17",
+   "fn": "repo_from_remote",
+   "args": {
+    "remote": "https://h/o/.git",
+    "dir": "/w"
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "host-explicit",
+   "spec": "P17",
+   "fn": "resolve_host",
+   "args": {
+    "explicit": "Desk_1",
+    "role": "laptop"
+   },
+   "expect": "desk-1"
+  },
+  {
+   "id": "host-role",
+   "spec": "P17",
+   "fn": "resolve_host",
+   "args": {
+    "explicit": null,
+    "role": "laptop"
+   },
+   "expect": "laptop"
+  },
+  {
+   "id": "host-empty-explicit-uses-role",
+   "spec": "P17",
+   "fn": "resolve_host",
+   "args": {
+    "explicit": "",
+    "role": "laptop"
+   },
+   "expect": "laptop"
+  },
+  {
+   "id": "host-neither",
+   "spec": "P17",
+   "fn": "resolve_host",
+   "args": {
+    "explicit": null,
+    "role": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "host-both-empty",
+   "spec": "P17",
+   "fn": "resolve_host",
+   "args": {
+    "explicit": "",
+    "role": ""
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "host-trailing-dash",
+   "spec": "P17",
+   "fn": "resolve_host",
+   "args": {
+    "explicit": "desk.",
+    "role": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "host-64",
+   "spec": "P17",
+   "fn": "resolve_host",
+   "args": {
+    "explicit": "hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh",
+    "role": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "host-dotted-capital-i",
+   "spec": "P17 D6",
+   "fn": "resolve_host",
+   "args": {
+    "explicit": "\u0130x",
+    "role": null
+   },
+   "expect": "i-x"
+  },
+  {
+   "id": "host-dotted-capital-i-last",
+   "spec": "P17 D6",
+   "fn": "resolve_host",
+   "args": {
+    "explicit": "x\u0130",
+    "role": null
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "build-numbered",
+   "spec": "P17",
+   "fn": "build_handle",
+   "args": {
+    "repo": "app",
+    "seat": 3,
+    "host": "desk",
+    "type": "podman"
+   },
+   "expect": "app.3+desk.podman"
+  },
+  {
+   "id": "build-named",
+   "spec": "P17",
+   "fn": "build_handle",
+   "args": {
+    "repo": "app",
+    "seat": "qa",
+    "host": "desk",
+    "type": "lxc"
+   },
+   "expect": "app.qa+desk.lxc"
+  },
+  {
+   "id": "build-number-max",
+   "spec": "P17",
+   "fn": "build_handle",
+   "args": {
+    "repo": "a",
+    "seat": 999999,
+    "host": "h",
+    "type": "vm"
+   },
+   "expect": "a.999999+h.vm"
+  },
+  {
+   "id": "build-number-zero",
+   "spec": "P17",
+   "fn": "build_handle",
+   "args": {
+    "repo": "a",
+    "seat": 0,
+    "host": "h",
+    "type": "vm"
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "build-number-too-big",
+   "spec": "P17",
+   "fn": "build_handle",
+   "args": {
+    "repo": "a",
+    "seat": 1000000,
+    "host": "h",
+    "type": "vm"
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "build-seat-digits-string",
+   "spec": "P17",
+   "fn": "build_handle",
+   "args": {
+    "repo": "a",
+    "seat": "12",
+    "host": "h",
+    "type": "vm"
+   },
+   "expect": "a.12+h.vm"
+  },
+  {
+   "id": "build-seat-bad",
+   "spec": "P17",
+   "fn": "build_handle",
+   "args": {
+    "repo": "a",
+    "seat": "Q",
+    "host": "h",
+    "type": "vm"
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "build-bool-seat",
+   "spec": "P17",
+   "fn": "build_handle",
+   "args": {
+    "repo": "a",
+    "seat": true,
+    "host": "h",
+    "type": "vm"
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "build-bad-type",
+   "spec": "P17",
+   "fn": "build_handle",
+   "args": {
+    "repo": "a",
+    "seat": 1,
+    "host": "h",
+    "type": "kvm"
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "build-bad-repo",
+   "spec": "P17",
+   "fn": "build_handle",
+   "args": {
+    "repo": "-a",
+    "seat": 1,
+    "host": "h",
+    "type": "vm"
+   },
+   "expect": {
+    "error": true
+   }
+  },
+  {
+   "id": "prefix-of",
+   "spec": "P17",
+   "fn": "prefix_of",
+   "args": {
+    "handle": "app.qa+desk.lxc"
+   },
+   "expect": "app+desk.lxc"
+  },
+  {
+   "id": "prefix-of-bad",
+   "spec": "P17",
+   "fn": "prefix_of",
+   "args": {
+    "handle": "app+desk.lxc"
+   },
+   "expect": {
+    "error": true
+   }
+  }
+ ]
+}

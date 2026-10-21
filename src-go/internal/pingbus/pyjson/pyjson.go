@@ -582,6 +582,19 @@ func patternOfFour(raw []byte) encoding {
 	return utf8Encoding
 }
 
+// CodePoints is a decoded string's code points as Python's str holds them: a lone surrogate
+// (kept in its three-byte form) is one code point.
+func CodePoints(s string) ([]rune, error) { return decodeWTF8([]byte(s)) }
+
+// FromCodePoints is the string CodePoints reads back as points, a surrogate in its three-byte form.
+func FromCodePoints(points []rune) string {
+	b := make([]byte, 0, len(points))
+	for _, r := range points {
+		b = appendWTF8(b, r)
+	}
+	return string(b)
+}
+
 // decodeWTF8 is UTF-8 with surrogatepass: an encoded surrogate is its code point.
 func decodeWTF8(raw []byte) ([]rune, error) {
 	out := make([]rune, 0, len(raw))

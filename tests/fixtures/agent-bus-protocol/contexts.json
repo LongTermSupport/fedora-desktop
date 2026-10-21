@@ -1,0 +1,47 @@
+{
+  "v": 1,
+  "contexts": {
+    "team": {
+      "server_name": "server.test",
+      "humans": ["@alice:server.test", "@bob:server.test"],
+      "roles": {
+        "@app.1+desk.podman:server.test": "coordinator",
+        "@app.2+desk.podman:server.test": "worker",
+        "@lib.reviewer+box.lxc:server.test": "worker"
+      },
+      "repos": {
+        "example-org/myrepo": ["main", "release/1"],
+        "example-org/anybranch": [],
+        "other-owner/tool": ["main"]
+      },
+      "path_prefixes": [],
+      "org": "example-org",
+      "exclude": ["private"]
+    },
+    "prefixed": {
+      "server_name": "server.test",
+      "humans": ["@alice:server.test"],
+      "roles": {
+        "@app.1+desk.podman:server.test": "coordinator",
+        "@app.2+desk.podman:server.test": "worker"
+      },
+      "repos": {"example-org/myrepo": []},
+      "path_prefixes": ["docs/", "README.md"],
+      "org": null,
+      "exclude": []
+    },
+    "two-coordinators": {
+      "server_name": "server.test",
+      "humans": ["@alice:server.test"],
+      "roles": {
+        "@app.9+desk.podman:server.test": "coordinator",
+        "@app.1+desk.podman:server.test": "coordinator",
+        "@app.2+desk.podman:server.test": "worker"
+      },
+      "repos": {"example-org/myrepo": []},
+      "path_prefixes": [],
+      "org": null,
+      "exclude": []
+    }
+  }
+}
