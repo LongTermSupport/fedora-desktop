@@ -561,8 +561,9 @@ batch: one `DROPPED` line per team per pass (§15).
 `target`, `verb`, `ref`, `allowlist`, `excluded`, `re`, `body`, `stale`, `rate`, `forge-rate`, `unresolved`,
 `provenance`.
 
-**Send-only refusals**: `secret` (§7). It refuses a send and never names a receive drop: text
-already in the room is in every member account's view, so a receiver delivers it as it is.
+**Send-only refusals**: `secret` (§7), `no-room` (§8.1: the team has no reports or questions
+room yet). Each refuses a send and never names a receive drop: text already in the room is in
+every member account's view, so a receiver delivers it as it is.
 
 ## 10. Limits
 
@@ -579,8 +580,12 @@ silently clamped.
 | `halt_ack_timeout_s`     | 300                                          | 30 - 3600     |
 | `human_max_age_s`        | 86400                                        | 3600 - 604800 |
 | `wait_timeout_s`         | 1500 (`wait --timeout` default)              | 1 - 1790      |
+| `report_per_hour`        | 6 (`report`, any sliding hour)               | 1 - 60        |
 
-`send` and `say` draw on the same `send_per_minute` / `send_burst` bucket. For `say` the
+`send`, `say`, `report`, `ask-human` and `thread` draw on the same `send_per_minute` /
+`send_burst` bucket. A `report` is also held to `report_per_hour`, whose send times are kept
+in `state/reports.json`, apart from the outbox's gate; a report equal to the member's previous
+one within the duplicate window is refused (exit 9). For `say` the
 duplicate window compares the text and the set of humans and agents it is addressed to;
 only a digest of the text is kept in the member's state. pingbus's own fixed-text notices
 (the goodbye, `seat farewell`, `seat disconnected`) are not held to the duplicate window,

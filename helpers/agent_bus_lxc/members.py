@@ -456,6 +456,9 @@ def _parse_entry(position: int, entry: object) -> Member:
     human_text = entry.get("human_text", True)
     if not isinstance(human_text, bool):
         raise MemberError(f"{where}: human_text must be true or false")
+    if state == "present" and role == protocol.ROLE_COORDINATOR and not human_text:
+        # Every message the questions room delivers is a human's (Plan 00211 SPEC 4.5).
+        raise MemberError(f"{where}: a coordinator must take human text: drop human_text: false")
     service = entry.get("service", False)
     if not isinstance(service, bool):
         raise MemberError(f"{where}: service must be true or false")

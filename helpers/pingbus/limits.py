@@ -31,6 +31,7 @@ DEFAULTS = {
     "halt_ack_timeout_s": 300,
     "human_max_age_s": 86400,
     "wait_timeout_s": 1500,
+    "report_per_hour": 6,
 }
 
 #: Inclusive. A member config value outside these is refused, never clamped.
@@ -42,9 +43,12 @@ BOUNDS = {
     "halt_ack_timeout_s": (30, 3600),
     "human_max_age_s": (3600, 604800),
     "wait_timeout_s": (1, 1790),
+    "report_per_hour": (1, 60),
 }
 
 DUPLICATE_WINDOW_S = 60
+#: `report_per_hour` counts the reports of any sliding window this long (Plan 00211 SPEC §7).
+REPORT_WINDOW_S = 3600
 SYNC_LONG_POLL_S = 30
 SERVER_429_MAX_TRIES = 3
 SERVER_429_DEFAULT_WAIT_S = 5
@@ -90,6 +94,7 @@ class Limits:
     halt_ack_timeout_s: int = DEFAULTS["halt_ack_timeout_s"]
     human_max_age_s: int = DEFAULTS["human_max_age_s"]
     wait_timeout_s: int = DEFAULTS["wait_timeout_s"]
+    report_per_hour: int = DEFAULTS["report_per_hour"]
 
     def as_dict(self) -> dict[str, int]:
         return dataclasses.asdict(self)
@@ -276,6 +281,36 @@ class SendGate:
         if not isinstance(state, Mapping) or set(state) != {"bucket", "recent"}:
             raise ValueError("send gate state must be {bucket, recent}")
         return cls(TokenBucket.from_dict(state["bucket"], limits), DuplicateWindow.from_dict(state["recent"]))
+
+
+@dataclasses.dataclass
+class ReportWindow:
+    """The send times of this member's reports in the last `REPORT_WINDOW_S`, oldest first:
+    at most `report_per_hour` of them (Plan 00211 SPEC §7)."""
+
+    sent: list[int] = dataclasses.field(default_factory=list)
+
+    def _recent(self, now_ms: int) -> list[int]:
+        return [at for at in self.sent if now_ms - at < REPORT_WINDOW_S * 1000]
+
+    def check(self, per_hour: int, now_ms: int) -> None:
+        """Raise `RateLimited("rate")` when another report now would pass the cap."""
+        if len(self._recent(now_ms)) >= per_hour:
+            raise RateLimited("rate")
+
+    def admit(self, per_hour: int, now_ms: int) -> None:
+        """Record a report sent now, or raise `RateLimited` having recorded nothing."""
+        self.check(per_hour, now_ms)
+        self.sent = [*self._recent(now_ms), now_ms]
+
+    def to_dict(self) -> list[int]:
+        return list(self.sent)
+
+    @classmethod
+    def from_dict(cls, state: object) -> ReportWindow:
+        if not isinstance(state, list) or not all(_is_int(at) for at in state):
+            raise ValueError("report window state must be a list of millisecond times")
+        return cls(list(state))
 
 
 class ReceiveFlood:
