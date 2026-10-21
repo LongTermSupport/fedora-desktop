@@ -56,7 +56,7 @@ func TestOtherIDDerivedNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest, err := ParseDigest("abc123")
+	digest, err := ParseDigest("0123456789abcdef")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,12 +66,12 @@ func TestOtherIDDerivedNames(t *testing.T) {
 		{SessionUnit(user), "teamchat-session-dev.service"},
 		{GuestRuntimeDir(user), "/run/teamchat-session-dev"},
 		{ServerBinary(version), "/usr/local/lib/teamchat/server/tuwunel-1.2.3"},
-		{AdminBinaryCopy(digest), "/usr/local/lib/teamchat/teamchat-admin-abc123"},
-		{string(HostKitDir(digest)), "/usr/local/lib/teamchat/kit/abc123"},
-		{HostKitCurrent.Binary(), "/usr/local/lib/teamchat/kit/current/bin/teamchat"},
-		{CCYKitDir.PluginDir(), "/opt/claude-yolo/optional/teamchat/plugin/teamchat"},
-		{CCYKitDir.PluginHooks(), "/opt/claude-yolo/optional/teamchat/plugin/teamchat/hooks/hooks.json"},
-		{CCYKitDir.Settings(), "/opt/claude-yolo/optional/teamchat/settings.json"},
+		{AdminBinaryCopy(digest), "/usr/local/lib/teamchat/teamchat-admin-0123456789abcdef"},
+		{HostKitDir(digest).String(), "/usr/local/lib/teamchat/kit/0123456789abcdef"},
+		{HostKitCurrent().Binary(), "/usr/local/lib/teamchat/kit/current/bin/teamchat"},
+		{CCYKitDir().PluginDir(), "/opt/claude-yolo/optional/teamchat/plugin/teamchat"},
+		{CCYKitDir().PluginHooks(), "/opt/claude-yolo/optional/teamchat/plugin/teamchat/hooks/hooks.json"},
+		{CCYKitDir().Settings(), "/opt/claude-yolo/optional/teamchat/settings.json"},
 		{ElementLauncherName(mustDisplay(t, "Ops")), "Ops team (teamchat)"},
 	} {
 		if c.got != c.want {
@@ -107,7 +107,7 @@ func TestFixedNames(t *testing.T) {
 		{OwnerGroupFile, "/etc/teamchat/owner-group"},
 		{StatusInstalledFile, "/var/lib/teamchat-status/installed.json"},
 		{AdminRunDir, "/run/teamchat-admin"},
-		{string(HostKitCurrent), "/usr/local/lib/teamchat/kit/current"},
+		{HostKitCurrent().String(), "/usr/local/lib/teamchat/kit/current"},
 		{SessionSeatMount, "/run/teamchat/seats"},
 		{SessionMembershipMount, "/run/teamchat/membership"},
 		{MatrixPrefix, "teamchat."},
@@ -141,7 +141,7 @@ func TestCCYLayout(t *testing.T) {
 	run := mustRun(t)
 	for _, c := range []struct{ got, want string }{
 		{l.KitRoot, "/opt/claude-yolo/optional/teamchat"},
-		{string(l.CurrentKit), "/opt/claude-yolo/optional/teamchat"},
+		{l.CurrentKit.String(), "/opt/claude-yolo/optional/teamchat"},
 		{l.State, "/run/teamchat/seats"},
 		{l.Desired, "/run/teamchat/membership"},
 		{l.RunRoot, "/tmp/teamchat"},
@@ -163,7 +163,7 @@ func TestHomeLayout(t *testing.T) {
 	}
 	for _, c := range []struct{ got, want string }{
 		{l.KitRoot, "/usr/local/lib/teamchat/kit"},
-		{string(l.CurrentKit), "/usr/local/lib/teamchat/kit/current"},
+		{l.CurrentKit.String(), "/usr/local/lib/teamchat/kit/current"},
 		{l.State, "/home/u/.config/teamchat/seats"},
 		{l.Desired, "/home/u/.config/teamchat/membership"},
 		{l.RunRoot, "/run/user/1000/teamchat/run"},

@@ -143,7 +143,7 @@ func constNames() map[string][]string {
 		"TmuxSession": TmuxSession, "CtlUser": CtlUser, "Interface": Interface,
 		"LibDir": LibDir, "ShareDir": ShareDir, "ResolverStub": ResolverStub, "EtcDir": EtcDir,
 		"OwnerGroupFile": OwnerGroupFile, "ServerDir": ServerDir, "ServerPinFile": ServerPinFile,
-		"HostKitRoot": HostKitRoot, "HostKitCurrent": string(HostKitCurrent),
+		"HostKitRoot": HostKitRoot, "HostKitCurrent": HostKitCurrent().String(),
 		"HomeserverStateRoot": HomeserverStateRoot, "HomeserverPrivateStateRoot": HomeserverPrivateStateRoot,
 		"AdminStateRoot": AdminStateRoot, "AdminLXCDir": AdminLXCDir, "CtlStateRoot": CtlStateRoot,
 		"StatusRoot": StatusRoot, "StatusInstalledFile": StatusInstalledFile,
@@ -156,7 +156,7 @@ func constNames() map[string][]string {
 		"HostVarLXCMembers": HostVarLXCMembers, "HostVarElementTeams": HostVarElementTeams,
 		"HostVarMigrations": HostVarMigrations, "OnlyTeamsVar": OnlyTeamsVar, "PlayFile": PlayFile,
 		"ElementPlayFile": ElementPlayFile, "AnsibleTag": AnsibleTag, "TeamPortField": TeamPortField,
-		"CCYKitDir": string(CCYKitDir), "SessionSeatMount": SessionSeatMount,
+		"CCYKitDir": CCYKitDir().String(), "SessionSeatMount": SessionSeatMount,
 		"SessionMembershipMount": SessionMembershipMount, "CCYRunRoot": CCYRunRoot,
 	}
 	names := map[string][]string{}
@@ -176,12 +176,12 @@ func idNames(t *testing.T) map[string][]string {
 		"GuestRuntimeDir":     {GuestRuntimeDir(user)},
 		"ServerBinary":        {ServerBinary(version)},
 		"AdminBinaryCopy":     {AdminBinaryCopy(digest)},
-		"HostKitDir":          {string(HostKitDir(digest))},
+		"HostKitDir":          {HostKitDir(digest).String()},
 		"SetLock":             {SetLock(set)},
 		"SetRecord":           {SetRecord(set)},
 		"ElementLauncherName": {ElementLauncherName(mustDisplay(t, "Ops"))},
 	}
-	for _, kit := range []Kit{HostKitCurrent, HostKitDir(digest), CCYKitDir} {
+	for _, kit := range []Kit{HostKitCurrent(), HostKitDir(digest), CCYKitDir()} {
 		for ident, value := range map[string]string{
 			"Kit.Binary": kit.Binary(), "Kit.PluginDir": kit.PluginDir(),
 			"Kit.PluginHooks": kit.PluginHooks(), "Kit.Settings": kit.Settings(),
@@ -238,7 +238,7 @@ func layoutNames(t *testing.T) map[string][]string {
 	for ident, l := range map[string]Layout{"CCYLayout": CCYLayout(), "HomeLayout": home} {
 		r := l.Run(sampleRunID(t))
 		for name, value := range map[string][]string{
-			ident:                     {l.KitRoot, string(l.CurrentKit), l.State, l.Desired, l.RunRoot},
+			ident:                     {l.KitRoot, l.CurrentKit.String(), l.State, l.Desired, l.RunRoot},
 			"Layout.DesiredFile":      {l.DesiredFile()},
 			"Layout.ConversationFile": {l.ConversationFile()},
 			"Layout.Run":              {r.Dir},

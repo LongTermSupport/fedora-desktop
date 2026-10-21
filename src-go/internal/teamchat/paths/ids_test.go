@@ -1,7 +1,9 @@
 package paths
 
 import (
+	"encoding/json"
 	"errors"
+	"maps"
 	"strings"
 	"testing"
 )
@@ -143,6 +145,91 @@ func TestParsePortIsOneTo65535(t *testing.T) {
 	for _, n := range []int{0, -1, 65536} {
 		if _, err := ParsePort(n); !errors.Is(err, ErrInvalid) {
 			t.Errorf("ParsePort(%d) = %v, want ErrInvalid", n, err)
+		}
+	}
+}
+
+// An id that arrives decoded (desired.json, team.json, a bundle) is checked as its Parse checks
+// it: a reserved, malformed or empty one fails the decode, and a valid one round-trips.
+func TestIDsDecodeOnlyThroughTheirParse(t *testing.T) {
+	type ids struct {
+		Team    TeamID      `json:"team"`
+		Run     RunID       `json:"run"`
+		Key     CheckoutKey `json:"key"`
+		User    GuestUser   `json:"user"`
+		Set     SetID       `json:"set"`
+		Session SessionName `json:"session"`
+		Digest  Digest      `json:"digest"`
+		Display DisplayName `json:"display"`
+		Version ServerVersion `json:"version"`
+	}
+	valid := map[string]string{
+		"team": "ops", "run": "0123456789abcdef", "key": strings.Repeat("ab", 16), "user": "dev",
+		"set": "s1", "session": "sess-1", "digest": strings.Repeat("0a", 8), "display": "Ops",
+		"version": "1.2.3",
+	}
+	data, err := json.Marshal(valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got ids
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("decode of valid ids: %v", err)
+	}
+	again, err := json.Marshal(got)
+	if err != nil || string(again) != `{"team":"ops","run":"0123456789abcdef","key":"`+strings.Repeat("ab", 16)+
+		`","user":"dev","set":"s1","session":"sess-1","digest":"`+strings.Repeat("0a", 8)+`","display":"Ops","version":"1.2.3"}` {
+		t.Fatalf("round trip: %s, %v", again, err)
+	}
+	invalid := map[string][]string{
+		"team": {"", "ctl", "../x", "Ops"}, "run": {"", "../x", "0123"}, "key": {"", "../x"},
+		"user": {"", "../x"}, "set": {"", ".."}, "session": {"", "a/b"}, "digest": {"", "current", "../x"},
+		"display": {"", "a\nb"}, "version": {"", "../x"},
+	}
+	for field, bads := range invalid {
+		for _, bad := range bads {
+			doc := maps.Clone(valid)
+			doc[field] = bad
+			data, err := json.Marshal(doc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var into ids
+			if err := json.Unmarshal(data, &into); !errors.Is(err, ErrInvalid) {
+				t.Errorf("%s %q decoded: %v", field, bad, err)
+			}
+		}
+	}
+}
+
+// The zero value of an id was never parsed: encoding one is refused, not written as "".
+func TestAZeroIDIsNotEncoded(t *testing.T) {
+	for name, v := range map[string]any{
+		"TeamID": TeamID{}, "RunID": RunID{}, "CheckoutKey": CheckoutKey{}, "GuestUser": GuestUser{},
+		"SetID": SetID{}, "SessionName": SessionName{}, "Digest": Digest{}, "DisplayName": DisplayName{},
+		"ServerVersion": ServerVersion{},
+	} {
+		if _, err := json.Marshal(v); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s{} encoded: %v", name, err)
+		}
+	}
+}
+
+// A kit digest is lowercase hex, so no digest can be the current link or leave the kit root.
+func TestParseDigestIsLowercaseHex(t *testing.T) {
+	for _, s := range []string{strings.Repeat("a", 16), strings.Repeat("0f", 32)} {
+		d, err := ParseDigest(s)
+		if err != nil {
+			t.Errorf("ParseDigest(%q): %v", s, err)
+			continue
+		}
+		if HostKitDir(d) == HostKitCurrent() {
+			t.Errorf("HostKitDir(%q) is the current link", s)
+		}
+	}
+	for _, s := range []string{"current", "", strings.Repeat("a", 15), strings.Repeat("a", 65), strings.Repeat("A", 16), ".."} {
+		if _, err := ParseDigest(s); !errors.Is(err, ErrInvalid) {
+			t.Errorf("ParseDigest(%q) = %v, want ErrInvalid", s, err)
 		}
 	}
 }

@@ -6,4 +6,5 @@
 #   literal   text on a line of that file which covers the v1 name found there
 #   reason    why the reference cannot live in a named home
 #
-# A row that covers no finding fails the gate teamchat-keeps-off-v1, so this list cannot go stale.
+# A row that covers no finding, or covers findings on more than one line, fails the gate
+# teamchat-keeps-off-v1, so this list can neither go stale nor grow unseen.
