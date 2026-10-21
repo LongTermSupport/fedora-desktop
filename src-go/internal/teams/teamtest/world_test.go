@@ -2,6 +2,7 @@ package teamtest
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"reflect"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
 func TestPopulatedWorldIsAHostWithTeamAlphaUp(t *testing.T) {
@@ -73,6 +75,37 @@ func TestABrokenSeatIsLeftOutAndNamed(t *testing.T) {
 	if !strings.Contains(w.ErrOut.String(), "agent-bus: seat dev@alpha: ") {
 		t.Fatalf("stderr %q", w.ErrOut.String())
 	}
+}
+
+// A seat the reader cannot survive fails the whole list, as v1's seat list crashed on it.
+func TestACrashedSeatFailsTheWholeList(t *testing.T) {
+	w := Populated(t)
+	w.CrashSeat(t, w.Checkout(), "alpha", "dev")
+	seats, unreadable, err := w.Host.Bus.SeatList(t.Context(), w.Checkout())
+	if err == nil || unreadable || seats != nil {
+		t.Fatalf("seats %+v unreadable %v err %v", seats, unreadable, err)
+	}
+	if !strings.Contains(err.Error(), "agent-bus seat list: ") || !strings.Contains(err.Error(), "urlsplit") {
+		t.Fatalf("err %v", err)
+	}
+}
+
+// The seat list is read in-process, so no process answers it: scripting one would prove nothing.
+func TestOnRefusesTheSeatList(t *testing.T) {
+	for name, script := range map[string]func(*World){
+		"On":    func(w *World) { w.On("agent-bus seat list", "", 0) },
+		"OnErr": func(w *World) { w.OnErr("agent-bus  seat list --json", "no checkout", 2) },
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("%s: the seat list was scripted", name)
+				}
+			}()
+			script(New(t))
+		}()
+	}
+	New(t).On("agent-bus seat choose alpha", "", 0)
 }
 
 func TestSpawnedCountsWhatRanSinceTheLastCall(t *testing.T) {
@@ -152,6 +185,90 @@ func TestOnDeclareRefusesARead(t *testing.T) {
 		}
 	}()
 	New(t).OnDeclare("limited", "")
+}
+
+func TestOnRefusesADeclareRead(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("a read was scripted through On")
+		}
+	}()
+	w := New(t)
+	w.On(w.DeclarePrefix("limited"), "", 0)
+}
+
+// reported records what refuseOnCleanup registers and refuseInProcessReads reports.
+type reported struct {
+	got      []string
+	cleanups []func()
+}
+
+func (r *reported) Helper() {}
+
+func (r *reported) Errorf(format string, args ...any) {
+	r.got = append(r.got, fmt.Sprintf(format, args...))
+}
+
+func (r *reported) Cleanup(fn func()) { r.cleanups = append(r.cleanups, fn) }
+
+// runReads sets fake directly (past scriptable) to answer the seat list, a declare read and
+// declare status, which still runs Python, and runs all three.
+func runReads(t *testing.T, fake *execx.Fake) {
+	t.Helper()
+	declare := New(t).DeclarePrefix
+	fake.On([]string{"agent-bus", "seat", "list"}, execx.Result{})
+	fake.On(strings.Fields(declare("limited")), execx.Result{})
+	fake.On(strings.Fields(declare("status")), execx.Result{})
+	for _, argv := range [][]string{
+		{"agent-bus", "seat", "list", "--json"},
+		strings.Fields(declare("limited")),
+		strings.Fields(declare("status")),
+	} {
+		if _, err := fake.Run(t.Context(), execx.Cmd{Name: argv[0], Args: argv[1:]}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func wantTheTwoReads(t *testing.T, got []string) {
+	t.Helper()
+	if len(got) != 2 || !strings.Contains(got[0], "agent-bus seat list --json ran as a process") ||
+		!strings.Contains(got[1], "declare limited is read in-process") {
+		t.Fatalf("reported %q", got)
+	}
+}
+
+// A read run as a process is caught, however the Fake was told to answer it.
+func TestAnInProcessReadRunAsAProcessIsReported(t *testing.T) {
+	var e reported
+	fake := &execx.Fake{}
+	runReads(t, fake)
+	refuseInProcessReads(&e, fake)
+	wantTheTwoReads(t, e.got)
+}
+
+// The check runs when the test ends, over what ran by then.
+func TestTheInProcessReadCheckRunsWhenTheTestEnds(t *testing.T) {
+	var e reported
+	fake := &execx.Fake{}
+	refuseOnCleanup(&e, fake)
+	if len(e.cleanups) != 1 || len(e.got) != 0 {
+		t.Fatalf("cleanups %d, reported %q", len(e.cleanups), e.got)
+	}
+	runReads(t, fake)
+	e.cleanups[0]()
+	wantTheTwoReads(t, e.got)
+}
+
+// Every World's Fake is checked when its test ends.
+func TestNewChecksItsFakeForInProcessReads(t *testing.T) {
+	var registered *execx.Fake
+	registerReadCheck = func(_ cleanuper, fake *execx.Fake) { registered = fake }
+	t.Cleanup(func() { registerReadCheck = refuseOnCleanup })
+	w := New(t)
+	if registered == nil || registered != w.Fake {
+		t.Fatalf("New registered %p, its Fake is %p", registered, w.Fake)
+	}
 }
 
 func TestInteractiveKeepsAHostVarsAlreadyWritten(t *testing.T) {

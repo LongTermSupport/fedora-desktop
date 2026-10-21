@@ -93,6 +93,7 @@ func New(t *testing.T) *World {
 	// Root's LXC configuration, read before a checkout is offered for a session: absent, so
 	// LXC keeps its containers in the default LxcPath.
 	w.Host.Checkouts.ReadFile = func(string) ([]byte, error) { return nil, fs.ErrNotExist }
+	registerReadCheck(t, w.Fake)
 	return w
 }
 
@@ -136,12 +137,68 @@ func (w *World) Checkout() string { return filepath.Join(w.Root, "proj") }
 
 // On scripts every command whose argv starts with prefix (space-separated).
 func (w *World) On(prefix, stdout string, code int) {
-	w.Fake.On(strings.Fields(prefix), execx.Result{Stdout: []byte(stdout), ExitCode: code})
+	w.Fake.On(scriptable(prefix), execx.Result{Stdout: []byte(stdout), ExitCode: code})
 }
 
 // OnErr is On with a stderr text, for commands that fail with a reason.
 func (w *World) OnErr(prefix, stderr string, code int) {
-	w.Fake.On(strings.Fields(prefix), execx.Result{Stderr: []byte(stderr), ExitCode: code})
+	w.Fake.On(scriptable(prefix), execx.Result{Stderr: []byte(stderr), ExitCode: code})
+}
+
+// scriptable is prefix's argv; a read ccy-teams answers in-process panics, since no process
+// answers it and scripting one would prove nothing.
+func scriptable(prefix string) []string {
+	argv := strings.Fields(prefix)
+	if why := inProcessRead(argv); why != "" {
+		panic("teamtest: " + why)
+	}
+	return argv
+}
+
+// inProcessRead says why argv is a read ccy-teams answers in-process, or is "" for any other
+// command: the seat list (a failing read is a seat on disk: BreakSeat, CrashSeat) and the
+// declare.py reads (a host_vars file: WriteHostVars).
+func inProcessRead(argv []string) string {
+	if len(argv) >= 3 && argv[0] == "agent-bus" && argv[1] == "seat" && argv[2] == "list" {
+		return "agent-bus seat list is read in-process; make the seat on disk (AddSeat, BreakSeat, CrashSeat)"
+	}
+	i := slices.Index(argv, "helpers.agent_bus.declare")
+	if len(argv) > 0 && argv[0] == "env" && i > 0 && i+1 < len(argv) && slices.Contains(declareReads, argv[i+1]) {
+		return "declare " + argv[i+1] + " is read in-process; write the host_vars with WriteHostVars"
+	}
+	return ""
+}
+
+// errorer is the part of testing.T refuseInProcessReads reports through.
+type errorer interface {
+	Helper()
+	Errorf(format string, args ...any)
+}
+
+// cleanuper is the part of testing.T refuseOnCleanup registers with.
+type cleanuper interface {
+	errorer
+	Cleanup(fn func())
+}
+
+// refuseOnCleanup makes t, when it ends, fail if fake ran a read ccy-teams answers in-process.
+func refuseOnCleanup(t cleanuper, fake *execx.Fake) {
+	t.Cleanup(func() { refuseInProcessReads(t, fake) })
+}
+
+// registerReadCheck is what New registers its Fake with: refuseOnCleanup, a variable so a test
+// can see New register it.
+var registerReadCheck = refuseOnCleanup
+
+// refuseInProcessReads fails t if any command fake ran is a read ccy-teams answers in-process.
+// It catches a rule set on the Fake directly, past scriptable.
+func refuseInProcessReads(t errorer, fake *execx.Fake) {
+	t.Helper()
+	for _, c := range fake.Calls() {
+		if why := inProcessRead(append([]string{c.Name}, c.Args...)); why != "" {
+			t.Errorf("teamtest: %s ran as a process: %s", c.Line(), why)
+		}
+	}
 }
 
 // NotARepository is git's own refusal for a folder in no repository, the one refusal
@@ -166,11 +223,8 @@ var declareReads = []string{
 }
 
 // OnDeclare scripts one declare.py subcommand that still runs Python: status, an edit or a
-// check. A read panics: no process answers it, so scripting one would prove nothing.
+// check. A read panics (scriptable).
 func (w *World) OnDeclare(sub, stdout string) {
-	if slices.Contains(declareReads, sub) {
-		panic("teamtest: declare " + sub + " is read in-process; write the host_vars with WriteHostVars")
-	}
 	w.On(w.DeclarePrefix(sub), stdout, 0)
 }
 
@@ -184,7 +238,7 @@ func (w *World) WriteHostVars(t *testing.T, text string) {
 // prints stdout and leaves the host_vars as after, as the real edit writes it, so the reads
 // that follow it answer from the edited file.
 func (w *World) OnDeclareEdit(sub, stdout, after string) {
-	w.Fake.OnFunc(strings.Fields(w.DeclarePrefix(sub)), func(execx.Cmd) (execx.Result, error) {
+	w.Fake.OnFunc(scriptable(w.DeclarePrefix(sub)), func(execx.Cmd) (execx.Result, error) {
 		if err := os.WriteFile(w.Host.HostVars, []byte(after), 0o600); err != nil {
 			return execx.Result{}, err
 		}
@@ -282,11 +336,15 @@ func SeatDir(checkout, team, seat string) string {
 // reader: a member.json naming handle on the team's server. It is free until HoldSeat holds it.
 func (w *World) AddSeat(t *testing.T, checkout, team, seat, handle string) {
 	t.Helper()
+	MustWrite(t, filepath.Join(SeatDir(checkout, team, seat), "member.json"), memberJSON(team, handle, "http://192.0.2.10:6167"))
+}
+
+// memberJSON is the member.json a seat take writes for handle on team's server at baseURL.
+func memberJSON(team, handle, baseURL string) string {
 	server := team + ".agent-bus.internal"
-	MustWrite(t, filepath.Join(SeatDir(checkout, team, seat), "member.json"), `{"protocol": 1, "team": "`+team+
-		`", "user_id": "@`+handle+`:`+server+`", "server_name": "`+server+
-		`", "base_url": "http://192.0.2.10:6167", "plain_http_hosts": ["192.0.2.10"], "token_file": "token", "admin": "@admin:`+server+
-		`", "room": "!`+strings.Repeat("A", 43)+`"}`)
+	return `{"protocol": 1, "team": "` + team + `", "user_id": "@` + handle + `:` + server + `", "server_name": "` + server +
+		`", "base_url": "` + baseURL + `", "plain_http_hosts": ["192.0.2.10"], "token_file": "token", "admin": "@admin:` + server +
+		`", "room": "!` + strings.Repeat("A", 43) + `"}`
 }
 
 // RemoveSeat lets go of seat's lock and removes its folder, as a seat retire does.
@@ -302,6 +360,14 @@ func (w *World) RemoveSeat(t *testing.T, checkout, team, seat string) {
 func (w *World) BreakSeat(t *testing.T, checkout, team, seat string) {
 	t.Helper()
 	MustWrite(t, filepath.Join(SeatDir(checkout, team, seat), "member.json"), "{}")
+}
+
+// CrashSeat makes seat's member.json one v1's seat list crashed on (a base_url python's urlsplit
+// raises on), so the whole list cannot be read: the in-process reader's failure.
+func (w *World) CrashSeat(t *testing.T, checkout, team, seat string) {
+	t.Helper()
+	MustWrite(t, filepath.Join(SeatDir(checkout, team, seat), "member.json"),
+		memberJSON(team, "proj."+seat+"+local.podman", "http://[2001:db8::1"))
 }
 
 // HoldSeat takes seat's seat.lock on a descriptor of its own, as the session sitting in it

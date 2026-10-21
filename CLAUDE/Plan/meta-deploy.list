@@ -14,7 +14,9 @@
 #                                  shebang, which goes through run.bash, exactly as
 #                                  ./playbooks/imports/<play>.yml does by hand
 #   <plan folder>/<script>.bash    one plan script, for a step none of the three fixed names
-#                                  fits; run as one unit, like a playbook entry
+#                                  fits; run as one unit, like a playbook entry, except
+#                                  that a script named *acceptance*.bash may exit 2 for
+#                                  COULD NOT ESTABLISH, as an acceptance.bash may
 #
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
@@ -98,5 +100,22 @@ playbooks/imports/play-agent-bus.yml
 # launcher's differential harness point the build context, GPU directory and zone database
 # elsewhere (unset, nothing changes) and refuses a bad override at start; the launcher's
 # temporary files follow TMPDIR when it is set. The image is unchanged at container 2.78.11,
-# so no rebuild. Afterwards start a ccy session as usual: it must start and attach as before.
+# so no rebuild. It also rebuilds ~/.local/bin/ccy-teams with Plan 00209 stage 1 (the team,
+# seat and declare reads in-process), which the check below judges. Afterwards start a ccy
+# session as usual: it must start and attach as before.
 playbooks/imports/play-claude-yolo.yml
+# Plan 00209 stage 1 host check, after the play-claude-yolo.yml entry above has installed the
+# ccy-teams that reads team, seat and declare state in-process. READ-ONLY: it changes nothing,
+# and keeps two builds and every output in its run directory. It checks the installed ccy-teams
+# is this checkout's build, builds the ccy-teams from before stage 1 from git, and runs each three
+# times in turn: `--list` must print the same bytes (a difference in every round rejects, one in
+# some rounds only is a live change and a note) and run faster (it took 9-23 s before), and an
+# open, drawn on this terminal and answered with Esc at its first screen, must be faster and
+# start exactly one declare status and no agent-bus seat list. A live member.json that sets
+# report_per_hour must be listed, not refused. Needs sudo once (so both read the member rosters)
+# and a terminal. A failure names the check, and a --list diff is in the report. An open that
+# asks a question first (a team to describe, an update) leaves S3 NOT JUDGED (exit 2, COULD NOT
+# ESTABLISH in the summary): answer it in ccy-teams and run again. An out-of-date team is offered
+# its update on every open, so it blocks S3 until play-agent-bus.yml has applied it; its entry
+# above normally has.
+00209-agent-bus-v2-in-go/acceptance-s1.bash
