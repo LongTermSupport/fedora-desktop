@@ -1,6 +1,6 @@
 # Plan 00194: Agent bus messages delivered live into a ccy session
 
-**Status**: In Progress
+**Status**: In Progress (waiting on the owner's tick of Task 1.2 and on Plan 00209, which defers relay mode to v2 until hooks-daemon #119 ships)
 **Created**: 2026-10-14
 **Owner**: joseph
 **Priority**: High
@@ -33,6 +33,8 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   supervisor refuses to start. The supervisor plugin owns `pingbus watch`.
 - Harness-agnostic team: the bus (room, `pingbus` CLI, kinds, envelope) is defined by
   pingbus; delivery into a session is a thin per-harness adapter.
+- Note: Plan 00209 D4 defers relay mode; when hooks-daemon #119 ships, Tasks 2.1, 2.1b and
+  2.2 are specified against v2, not on the Python relay.
 
 ## Non-Goals
 
@@ -56,7 +58,8 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
 - [ ] ⬜ **Task 1.2**: The owner agrees the design.
   The owner gave decisions A-G; the formal tick awaits the owner. The relay code (`relay.py`,
   `sentlog.py`, the relay `PostToolUse` hook) already ships in image 2.56 and is inert until a
-  launch sets `PINGBUS_DELIVERY=relay`.
+  launch sets `PINGBUS_DELIVERY=relay`. Its relay part is overtaken by Plan 00209 D4
+  (relay mode deferred to v2).
 
 ### Phase 2: Build
 
@@ -100,7 +103,8 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   `fix/watcher-survives-homeserver-restart` (container 2.67, CCY 3.98.12); waits on review,
   then `play-claude-yolo.yml` and `play-agent-bus.yml` (queued in meta-deploy) and the
   owner's check: restart a team's homeserver under an idle session, then post from Element.
-- [ ] ⬜ **Task 2.0e**: A scheduled restart posts nothing (Fable's review of
+- [ ] ❌ **Task 2.0e**: Folded into Plan 00209 Task 3.1 (the Go SessionEnd hook), built there
+  once hooks-daemon #127 ships. (Was: A scheduled restart posts nothing (Fable's review of
   `fix/goodbye-ctrl-c`, 3b). Today a lifecycle restart (maximum age, or the relaunch after a
   first join) posts `left the team: session ended (exit)` and the session re-joins seconds
   later, which a coordinator may act on. The gap: at SessionEnd nothing says "restart". The
@@ -112,7 +116,7 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   (or exports a marker path) before it types `/exit` and clears it when it abandons one, an
   upstream hooks-daemon change, filed as #127 (waits on its release); then the hook skips the goodbye for that session and records
   it as said (`seat.record_goodbye`), so the launcher's `seat disconnected` stays quiet
-  too, test first. `docs/agent-bus.md` states today's behaviour until then.
+  too, test first. `docs/agent-bus.md` states today's behaviour until then.)
 - [ ] 🔄 **Task 2.0f**: A human message that reaches no agent is visible. The owner posted
   `@room ...` in Element as plain text (no pill), so it had no `m.mentions.room`; every
   member's watcher ignored it as not addressed, which writes nothing, and the owner could not
@@ -125,11 +129,12 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   check: post a plain-text `@room` from Element, then `pingbus status` in a member shows
   `ignored=1`. Report:
   [261019-ignored-human-visible-opus.md](subagent-reports/261019-ignored-human-visible-opus.md).
-- [ ] ⬜ **Task 2.0g**: Follow-up to 2.0f (Fable review finding 3): an addressed reply whose
+- [ ] ❌ **Task 2.0g**: Folded into Plan 00209 Task 7.2 (6b); decided in its receive spec.
+  (Was: Follow-up to 2.0f (Fable review finding 3): an addressed reply whose
   body is only the quote fallback is ignored as `empty` at the addressee, and every other
   member sees a mention naming an agent, so no one logs it although it reached no agent.
   Decide whether `empty` joins the logged reasons (the human did pick a pill, so the failure
-  differs from the incident's), test first.
+  differs from the incident's), test first.)
 - [x] ✅ **Task 2.0h**: The host acceptance's G3 (tmux window closed) told the teams nothing,
   no goodbye and no disconnected notice. Cause, reproduced in the container: the launcher is
   the pane's session leader, so the hangup's SIGHUP reaches it alone; bash runs the EXIT trap
@@ -165,10 +170,13 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   enabled for a session launched with `--teams` (CCY version bump). Waits on the
   hooks-daemon release that carries plugin API 1.1 (#119); it also drops
   `crossSessionInbound`, wires the entrypoint (`PINGBUS_DELIVERY=relay`, the refusal without
-  a relay-capable supervisor) and updates the skill.
+  a relay-capable supervisor) and updates the skill. Plan 00209 D4 defers relay mode: when
+  #119 ships this is specified against v2, not on the Python relay.
 - [ ] ⬜ **Task 2.1b**: Ship the ccy-agent-bus supervisor plugin in the member kit too, so
-  LXC and other supervised members get the same delivery.
+  LXC and other supervised members get the same delivery. Plan 00209 D4 defers relay mode:
+  specified against v2 when #119 ships.
 - [ ] ⬜ **Task 2.2**: Fable review; qa-reviewer; meta-deploy; the owner's test from Element.
+  Plan 00209 D4 defers relay mode: reviewed against v2 when #119 ships.
 
 ## Success Criteria
 

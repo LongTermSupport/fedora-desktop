@@ -42,6 +42,11 @@
 # is the team file of DESIGN.md section 3.4, validated by the installer, and an absent
 # entry needs only `team`, `state: absent` and optionally `purge: true`. The LXC members
 # are declared there too.
+#
+# The member kit's pingbus-status-line is a Go binary built here, so the Go toolchain is
+# installed first; play-golang.yml stays its one source of truth.
+- import_playbook: play-golang.yml
+
 - hosts: desktop
   name: Agent team bus homeserver (agent-bus-install)
   become: true
@@ -186,6 +191,21 @@
              + (['--bus-address', agent_bus_address] if (agent_bus_address | default('') | length > 0) else []) }}
       register: agent_bus_software
       changed_when: agent_bus_software.stdout_lines | select('match', agent_bus_changed_re) | list | length > 0
+      tags: [agent-bus]
+
+    # The kit's status line (Plan 00213): the Go port of `pingbus status-line`, which starts no
+    # Python on a refresh. A Go build is not the installer's (it has no toolchain to call), so
+    # this play puts it in the kit `software` just made, before any LXC member's kit is copied
+    # from it. Static, so the same binary runs in any LXC member. agent-bus-claude and cc
+    # --teams refuse a kit without it, naming this play.
+    - name: Build and install the pingbus-status-line command into the member kit
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: pingbus-status-line
+        go_command_dest: /usr/local/share/agent-bus/kit/pingbus-status-line
+        go_command_mode: "0755"
+        go_command_owner: root
+        go_command_static: true
       tags: [agent-bus]
 
     # The applied stamps are root:<the desktop user's primary group> 0640 in a 0750

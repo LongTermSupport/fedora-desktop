@@ -1128,7 +1128,7 @@ first, and a row to create a team; Tab marks several, and each marked team gets 
 question, so one session can be on several teams. Choosing a team that does not cover this
 checkout widens its scope to the repository only when you answer yes. The launch ends with a
 block naming each team with its seat, role and description, and the status line shows
-`👥 A,B` in any checkout: the member kit makes `pingbus status-line` the session's status
+`👥 A,B` in any checkout: the member kit makes `pingbus-status-line` (Go, no Python per refresh) the session's status
 line, which prints the checkout's own status line first (see
 [A session's status line](agent-bus.md#a-sessions-status-line)). The chooser's rules are step 3 of
 [Getting started in agent-bus.md](agent-bus.md#getting-started).

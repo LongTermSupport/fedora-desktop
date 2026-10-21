@@ -96,9 +96,10 @@ class PluginLayoutTest(unittest.TestCase):
         # U01: in bypass mode without this setting a notice is held and no turn starts.
         # Plan 00201 S-C6: the status line is pingbus's, which runs the session's own first.
         # Plan 00194 Task 2.0b: the SessionEnd bound a ccy session's settings raise (seat.py).
+        # Plan 00213 Task 2.3: the status line is the Go port, which starts no Python.
         self.assertEqual(load_json(SETTINGS), {
             "crossSessionInbound": "accept",
-            "statusLine": {"type": "command", "command": "pingbus status-line",
+            "statusLine": {"type": "command", "command": "pingbus-status-line",
                            "refreshInterval": seat.STATUS_LINE_REFRESH_S},
             "env": {"CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS": str(seat.SESSION_END_BUDGET_MS)},
         })
@@ -470,6 +471,8 @@ class LauncherTest(unittest.TestCase):
         self.kit = self.root / "kit"
         shutil.copytree(KIT, self.kit)
         write_exe(self.kit / "pingbus", FAKE_PINGBUS)
+        # The play builds it into the kit (Plan 00213); the launcher only requires it there.
+        write_exe(self.kit / "pingbus-status-line", "#!/bin/sh\nexit 0\n")
         self.bin = self.root / "bin"
         self.bin.mkdir()
         write_exe(self.bin / "claude", FAKE_CLAUDE)
@@ -569,12 +572,13 @@ class LauncherTest(unittest.TestCase):
         self.assertEqual(self.claude_call()["env"]["PATH"].split(":")[0], str(self.kit))
 
     def test_without_a_kit_pingbus_the_one_on_path_is_used(self) -> None:
+        """The kit still goes first: its settings run pingbus-status-line by name (Plan 00213)."""
         (self.kit / "pingbus").unlink()
         write_exe(self.bin / "pingbus", FAKE_PINGBUS)
         result = self.run_launcher()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.pingbus_calls(), ["config check"])
-        self.assertEqual(self.claude_call()["env"]["PATH"], self.environ["PATH"])
+        self.assertEqual(self.claude_call()["env"]["PATH"], f"{self.kit}:{self.environ['PATH']}")
 
     def test_found_through_a_symlink(self) -> None:
         link = self.bin / "agent-bus-claude"
@@ -676,13 +680,17 @@ class LauncherTest(unittest.TestCase):
         self.assert_refused(self.run_launcher(), EX_CONFIG, "claude")
 
     def test_refuses_an_incomplete_kit(self) -> None:
-        for name in ("settings.json", "plugin/pingbus/hooks/hooks.json"):
+        for name in ("settings.json", "plugin/pingbus/hooks/hooks.json", "pingbus-status-line"):
             with self.subTest(name=name):
                 path = self.kit / name
                 saved = path.read_bytes()
                 path.unlink()
-                self.assert_refused(self.run_launcher(), EX_CONFIG, name)
-                path.write_bytes(saved)
+                try:
+                    result = self.run_launcher()
+                    self.assert_refused(result, EX_CONFIG, name)
+                    self.assertIn("play-agent-bus.yml", result.stderr)
+                finally:
+                    path.write_bytes(saved)
 
 
 if __name__ == "__main__":

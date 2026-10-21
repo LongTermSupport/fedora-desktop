@@ -869,10 +869,12 @@ teammates then see only that the seat is no longer held.
   (comma separated, mode 0600, atomically) to `<dir>/<session_id>` for the status line, where `dir`
   is `$PINGBUS_SESSIONS_DIR` or `/tmp/pingbus-sessions-<uid>` (mode 0700), and SessionEnd removes
   it. A record that cannot be written adds the fixed line `agent-bus: this session's teams could not be recorded for the status line, ...` to SessionStart's context, besides its stderr line.
-  `pingbus status-line` is the status line command the member kit's `settings.json` sets: it runs
+  `pingbus-status-line`, the Go port of `pingbus status-line` (Plan 00213; the Python command
+  is its parity oracle and behaves the same), is the status line command the member kit's
+  `settings.json` and a seated session's settings set: it runs
   the `statusLine` command the session would otherwise have had (the first of the project's
   `.claude/settings.local.json`, `.claude/settings.json`, then `$CLAUDE_CONFIG_DIR` or
-  `~/.claude` `settings.json`; never itself) with the same stdin, prints its output and adds
+  `~/.claude` `settings.json`; never either form of itself) with the same stdin, prints its output and adds
   `👥 A (role), B (role)` on rows of its own below it, from the record for the payload's
   `session_id` (wrapped after a comma at `COLUMNS`, one unbroken row when `COLUMNS` is not a
   positive number; never cut). Each role is read on every render from the bundle's cached team
@@ -880,7 +882,10 @@ teammates then see only that the seat is no longer held.
   `(role?)`, with one line on stderr. A team's marks (`(down)`) follow its role. It always exits 0
   (a non-zero exit blanks Claude Code's status line): that command's non-zero exit, a 10 s
   timeout (its process group is then killed, as it is when `status-line` itself gets SIGTERM,
-  SIGINT or SIGHUP) or an unreadable settings file is shown as red text. With `PINGBUS_TEAMS` set and no usable record it shows `👥 no record of this session's teams (pingbus status)` in red instead; with neither, nothing is added. `recv`, `wait`, `watch`, `inbox` and `status` cover every active
+  SIGINT or SIGHUP) or an unreadable settings file is shown as red text. With `PINGBUS_TEAMS` set and no usable record it shows `👥 no record of this session's teams (pingbus status)` in red instead; with neither, nothing is added.
+  The Go command caches the segment (never the inner line) in `$PINGBUS_HOME/statusline-cache.json`
+  (mode 0600) for up to 60 s, and renders afresh as soon as any file the segment was read from
+  changes; a cache that cannot be used changes nothing but the cost. `recv`, `wait`, `watch`, `inbox` and `status` cover every active
   team unless `--team` is given; `wait` and `watch` long-poll every team at once, one
   thread per team, and a team whose lock another process holds is reported busy on its own
   (exit 75 only when every team is busy). `wait` gives a `recv` holder up to 5 s to finish

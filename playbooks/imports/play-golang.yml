@@ -5,12 +5,44 @@
 # on the unattended self-update path, so no developer QA tooling may live here. The Go QA
 # tools (golangci-lint, and the gcc that `go test -race` links against) are installed with
 # the rest of the QA toolchain by play-python.yml.
+#
+# golang is kept at Fedora's newest build and the play fails below golang_min_version: Go
+# builds here run with GOTOOLCHAIN=local (tasks/build-go-command.yml), so they never download
+# a newer toolchain, and src-go/go.mod's toolchain line is the version they need. Move
+# golang_min_version with that line once Fedora ships the release; the ccy image pins the same
+# version as GO_VERSION in .claude/ccy/Dockerfile.
 - hosts: desktop
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    golang_min_version: "1.26.10"
   tasks:
-    - name: Install Golang
+    - name: Install Golang at the Newest Fedora Build
       become: true
       ansible.builtin.dnf:
         name: golang
+        state: latest
+
+    # The go on the login user's PATH, which is the one tasks/build-go-command.yml runs.
+    - name: Read the Installed Go Version
+      become: false
+      ansible.builtin.command:
+        argv:
+          - go
+          - env
+          - GOVERSION
+      environment:
+        GOTOOLCHAIN: local
+      register: golang_installed_version
+      changed_when: false
+      check_mode: false
+
+    - name: Assert golang Meets the Minimum Go Version
+      ansible.builtin.assert:
+        that:
+          - (golang_installed_version.stdout | regex_replace('^go', '')) is version(golang_min_version, '>=')
+        fail_msg: >-
+          The Go builds here need Go {{ golang_min_version }} or newer, and the newest golang
+          Fedora offers this host is {{ golang_installed_version.stdout }}. Wait for the Fedora
+          update to reach stable, or lower golang_min_version together with the toolchain line
+          of src-go/go.mod.

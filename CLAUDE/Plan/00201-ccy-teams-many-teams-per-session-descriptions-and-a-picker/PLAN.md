@@ -1,6 +1,6 @@
 # Plan 00201: ccy --teams — many teams per session, team descriptions, and a picker
 
-**Status**: In Progress (M1-M7 built and deployed; the automated two-team acceptance passed on the host; waiting on the owner's steps in ACCEPTANCE-owner.md and the final qa-reviewer)
+**Status**: In Progress (M1-M7 built and deployed; the automated two-team acceptance passed on the host; waiting on the owner's steps in ACCEPTANCE-owner.md and the final qa-reviewer; the relay task 2.8 is superseded and tasks 2.11, 2.12, 2.15, 2.17, 2.18 are carried by Plan 00209)
 **Created**: 2026-10-15
 **Owner**: joseph
 **Priority**: High
@@ -117,12 +117,12 @@ a repository is no longer offered for a checkout of it. Report:
   [ACCEPTANCE-owner.md](ACCEPTANCE-owner.md). Report:
   `subagent-reports/261015-m7-acceptance-opus.md`. M3 changed with Task 2.9, so the automated
   part must pass again after the host run.
-- [ ] ⬜ **Task 2.8**: S-D1 in relay mode: `_deliver` (`helpers/pingbus/cli.py`) writes a
+- [ ] ❌ **Task 2.8**: Superseded by Plan 00209 D4: relay mode is deferred to v2. (Was: S-D1 in relay mode: `_deliver` (`helpers/pingbus/cli.py`) writes a
   relay-delivered `HUMAN` or `PEER` to the spool with no `REPLY` line, so the session never
   gets the ready reply command. Expected to be carried by the structured-injection work of
   [Plan 00194](../00194-agent-bus-live-delivery-supervisor-plugin/PLAN.md) on branch
   `feat/bus-inject-message`; check the reply line is there when it merges, else add it here
-  (tests first). Found in `subagent-reports/261015-bus-bugs-opus.md`.
+  (tests first). Found in `subagent-reports/261015-bus-bugs-opus.md`.)
 - [x] ✅ **Task 2.9**: the final qa-reviewer's findings
   (`subagent-reports/261015-final-qa-reviewer.md`), CCY 3.98.7 / container 2.62. The `👥 A,B`
   status line works in any checkout: the member kit's `settings.json` makes `pingbus status-line`
@@ -149,6 +149,7 @@ a repository is no longer offered for a checkout of it. Report:
   the consent and the launch block; L4: a copied password serves one paste (`wl-copy --paste-once`); M1, H2,
   L1 in the docs' Limits. Host run pending (meta-deploy). Report:
   `subagent-reports/261015-security-client-opus.md`.
+  Plan 00209 carries this as an expectation ("Requirements carried from other plans").
 - [ ] 🔄 **Task 2.12**: the final release security review's findings
   (`subagent-reports/261015-final-release-security-fable.md`), branch `fix/teams-final-review`,
   CCY 3.98.11 / container 2.66 / plugin 1.2.3. S1: no clipboard offer while Clipboard Indicator
@@ -158,6 +159,7 @@ a repository is no longer offered for a checkout of it. Report:
   the nonce. N5: the pre-swap backup also runs on a rendered config change
   (`helpers/agent_bus/config_restart.py`). Host run pending (meta-deploy). Report:
   `subagent-reports/261015-final-review-fixes.md`.
+  Plan 00209 carries this as an expectation ("Requirements carried from other plans").
 - [ ] 🔄 **Task 2.13**: the Morning start dry run's ccy-teams defects (branch
   `fix/teams-signin-first-run`; ccy-teams only, no CCY or container bump). After a first
   password, Open in Element no longer says "Copy it now" (it said so with Clipboard Indicator
@@ -186,6 +188,7 @@ a repository is no longer offered for a checkout of it. Report:
   each saying why. `describe` and `drop-limit` are now `set` with one key. Host run pending
   (meta-deploy: play-claude-yolo.yml); the owner's check is in ACCEPTANCE-owner.md step 13.
   Report: `subagent-reports/261016-team-settings-opus.md`.
+  Plan 00209 carries this as an expectation ("Requirements carried from other plans").
 - [ ] ⬜ **Task 2.16**: rename a team, end to end. Not built: the settings screen shows the name
   as fixed, with the reason. A rename must make the new team (homeserver unit, data folder,
   server name, accounts, room), carry over or re-create its history, re-issue every member's
@@ -214,6 +217,7 @@ a repository is no longer offered for a checkout of it. Report:
   bare seats labelled; `fix/context-headings` merged in, its headings' crumbs and context lines
   naming seats by handle and its truncation dropped. Host run pending (meta-deploy:
   play-claude-yolo.yml, one block for both branches). Report: `subagent-reports/261016-teams-full-handles-opus.md`.
+  Plan 00209 carries this as an expectation ("Requirements carried from other plans").
 - [ ] 🔄 **Task 2.18**: ccy-teams waits for the play lock instead of dying on it (the owner:
   "hits the lock then just chokes and dies"; a description applied while a meta-deploy unit
   held the lock, exit 75). Branch `fix/teams-wait-play-lock`, ccy-teams only, no CCY or
@@ -230,6 +234,7 @@ a repository is no longer offered for a checkout of it. Report:
   block with F44's). Report:
   `subagent-reports/261016-teams-wait-play-lock-opus.md`. Spec section G was written after the
   code (journal correction); Fable's review: `subagent-reports/` on `review/teams-wait-play-lock`.
+  Plan 00209 carries this as an expectation ("Requirements carried from other plans").
 - [ ] ⬜ **Task 2.19**: run.bash waits on the play lock (`lock.py acquire --wait`, bounded,
   naming the holder) instead of exiting 75, so meta-deploy, the panel's run-play and a play run
   by hand wait for a ccy-teams hold as ccy-teams now waits for theirs. Pending the owner's

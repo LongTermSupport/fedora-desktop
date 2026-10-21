@@ -612,7 +612,12 @@ stopped or failed.
 **Running the team.** On the homeserver host:
 
 - `sudo agent-bus list <team>` shows the members, their roles, room membership and whether
-  each is active or parked (no tokens).
+  each is active or parked (no tokens), then a `ROOM` line per account for each of the
+  reports and questions rooms.
+- `sudo agent-bus check-rooms <team>` reads the reports and questions rooms and prints a
+  `PROBLEM` line for each fault, with its repair: a room missing or changed, a human not in
+  one, a worker in questions, a coordinator that has not joined (restart its session). It
+  changes nothing and exits 1 on any problem.
 - `sudo agent-bus set-role <team> <handle> --role=coordinator` changes a role; a second
   coordinator is refused, naming the holder, so the current one is first set back to
   `worker`. `ccy-teams` does the same from a seat's menu, and bare `ccy --teams` offers it
@@ -693,7 +698,9 @@ every refresh from the same team record the live role notice reads, so a role ch
 `(role?)`, never a guess, and says why in one line on the status line command's stderr. A team
 whose homeserver does not answer is marked `(down)` after its role: each team is shown as its
 name, its role, then its marks. The member kit's `settings.json`
-makes `pingbus status-line` the status line command, and settings given on the command line
+makes `pingbus-status-line` the status line command (a Go binary that starts in milliseconds,
+built into the kit and the ccy image by the plays; `pingbus status-line` is the same command in
+Python, kept as its reference), and settings given on the command line
 outrank the project's, so it applies in a checkout that has never heard of the bus. It runs
 the status line the checkout or your user settings already set (a hooks daemon's, for
 example) and adds the segment on rows of its own below it, so nothing you had is lost. Claude
