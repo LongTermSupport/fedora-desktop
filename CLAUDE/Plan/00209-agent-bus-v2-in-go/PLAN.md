@@ -155,10 +155,22 @@ its first caller.
 - [ ] ⬜ **Task 1.3**: `teamchat/proto`, test first: the wire, the roster type, the verdict and
   room-trust check, kinds, references, limits, the envelope, the shared corpus (A 2-13), and the
   room specs exported as data (seam 13).
-- [ ] ⬜ **Task 1.4**: A's host checks HC-A1 to HC-A7 (host or VM lab), before `proto` fixes the
-  rules they decide. **Gate A** (Task 0.5): a check that would leave the `teamchat` name in a
-  unit or path on the host runs in the VM lab until the owner has confirmed the irreversible
-  decisions.
+- [x] ✅ **Task 1.4**: A's host checks HC-A1 to HC-A7 (host or VM lab), before `proto` fixes the
+  rules they decide. The server checks (HC-A1, HC-A2's server half, HC-A4, HC-A6, HC-A7, H-C12
+  to H-C14) are judged in the container against the pinned Tuwunel 1.9.4 binary (the asset's
+  sha256 is the pin's) by the plan-folder probe `hca_probe.py`: HC-A1 and H-C13 fail on one fact
+  each, with design-text fixes proposed (`261021-n1-hostchecks.md`, the run in
+  `261021-n1-hostchecks-run.md`). The Element checks (HC-A2's display, HC-A3, HC-A5) are owner
+  steps in A 14's Element row, after gate A. The regression form is the `tuwunel`-tagged Go
+  test once the matrix client merges. **Gate A** (Task 0.5): a check that would leave the
+  `teamchat` name in a unit or path on the host runs in the VM lab until the owner has confirmed
+  the irreversible decisions.
+- [ ] ⬜ **Task 1.4a**: The design-text fixes Task 1.4's checks call for, for the design pass
+  (`261021-n1-hostchecks.md` findings 1, 2 and 4): presence never uses `set_presence=offline`
+  (A 6.6, A 14, A 15, A 16, B 2.6 step 09) and C 3.2.4 sets both presence timers and
+  `server_user_localpart`; DC16's take chosen from the options given, with C 3.7.3 step 3 and C
+  15's seats row changed to match; A 16 notes that HC-A2's display, HC-A3 and HC-A5 are owner
+  steps after gate A, and that 7.5 and 10.4 in `proto` stay provisional until HC-A3 is run.
 - [ ] ⬜ **Task 1.5**: The matrix client and `fakehs`, built and reviewed on
   `feat/bus-v2-m1-matrix` (58c7b6e1): rebuilt off 35acceab (Phase 7), placed under
   `internal/teamchat/` (D 3.3), merged with its first caller (N2 or N3), not alone.
