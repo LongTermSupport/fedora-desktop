@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.13.10 — container 2.78.10
+
+Follows 3.99.13.8 (container 2.78.8). The image build changed, so it is rebuilt once.
+
+- **The image build fails when its `/usr/bin/python3` is older than pingbus needs** (Plan
+  00213). The image's pingbus starts `/usr/bin/python3` directly, so that interpreter must be
+  Python 3.11 or later; the Debian base gives 3.11 today, and a base that gave less would now
+  stop the build instead of shipping a pingbus that refuses to start. An LXC member's copy of
+  the kit names the member's own newest Python instead (`helpers/agent_bus_lxc/members.py`).
+
 ## 3.99.13.8 — container 2.78.8
 
 Follows 3.99.13.7 (container 2.78.7). The image carries the pingbus zipapp and the agent-bus

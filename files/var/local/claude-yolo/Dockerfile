@@ -33,7 +33,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.78.8"
+LABEL claude-yolo-version="2.78.10"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -402,9 +402,12 @@ COPY skills/browsing/ /opt/claude-yolo/skills/browsing/
 # launch passed PINGBUS_MEMBERSHIP=/run/ccy/membership, and does nothing with off (Plan 00203).
 # ccy passes claude the session's own settings, written by the claim into its session home;
 # the kit's settings.json here is agent-bus-claude's (LXC, VM and other members), not ccy's.
+# The image's pingbus starts /usr/bin/python3 (its first line), so the build fails when that is
+# older than pingbus's minimum (helpers/pingbus/config.py MIN_PYTHON).
 COPY optional/ /opt/claude-yolo/optional/
 RUN chmod 755 /opt/claude-yolo/optional/child-claude/bin/ccy-claude \
-    && chmod 755 /opt/claude-yolo/optional/agent-bus/pingbus
+    && chmod 755 /opt/claude-yolo/optional/agent-bus/pingbus \
+    && /usr/bin/python3 -I -c 'import sys; sys.exit(None if sys.version_info >= (3, 11) else "pingbus needs Python 3.11 or later at /usr/bin/python3; this image has " + sys.version.split()[0])'
 
 # Supervisor plugins (hooks-daemon plugin API). Staged here, outside the project bind mount, as
 # root-owned files: the supervisor refuses a plugin file that is group- or world-writable or
