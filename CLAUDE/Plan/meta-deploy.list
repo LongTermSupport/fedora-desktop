@@ -38,3 +38,8 @@ playbooks/imports/play-claude-yolo.yml
 # it must refuse with exit 1 and offer nothing; in a subfolder of a scratch git repository it
 # must print the repository's top. Scratch directories only, removed afterwards; no prompts.
 00167-cc-refuses-to-start-outside-a-repo
+# play-basic-configs.yml (no plan owns it): the "Disable GRUB Menu Auto-Hide" task now reads
+# `grub2-editenv list` first and unsets menu_auto_hide only when it is set, so it reports
+# changed only when it changes something (it used to report changed on every run). The first run
+# after this may still show one change if the variable is set; the next shows none.
+playbooks/imports/play-basic-configs.yml

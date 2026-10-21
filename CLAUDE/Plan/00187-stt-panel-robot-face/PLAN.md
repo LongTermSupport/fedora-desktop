@@ -1,6 +1,6 @@
 # Plan 00187: speech-to-text panel shows a robot face while Claude post-processes
 
-**Status**: In Progress (built and QA'd with qa-changed; deploy queued in meta-deploy; remaining: qa-all, the qa-reviewer agent, and the owner's look after a logout)
+**Status**: In Progress (deployed on the host at F44 c3391ba9; remaining: qa-all, the qa-reviewer agent, and the owner's look after a logout)
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: Low
@@ -49,17 +49,19 @@ same tables in the same deploy.
 - [x] ✅ **Task 1.2**: `wsi` and `wsi-stream` emit the state before the Claude step; Python
   and Go tests (`wsi` is Go now: `src-go/internal/wsi`, spec W23) show it is sent and
   token-tagged.
-- [x] ✅ **Task 1.3**: `panelLook.js` (`CLAUDE_PROCESSING`, `claudeEmoji`, `lookFor(state,
-  style)`), `extension.js` (a label in the icon box shows a look's text in place of the
+- [x] ✅ **Task 1.3**: `panelLook.js` (`CLAUDE_PROCESSING`, `claudeEmoji`, `lookFor(state, style)`), `extension.js` (a label in the icon box shows a look's text in place of the
   icon); `panelSession.js` needed no change; ESLint clean. `metadata.json`'s version was not
   bumped: no earlier panel change bumped it, and the play deploys by content.
 
 ### Phase 2: Ship
 
-- [ ] 🔄 **Task 2.1**: `play-speech-to-text.yml` is queued in `meta-deploy.list`, its
+- [x] ✅ **Task 2.1**: `play-speech-to-text.yml` was queued in `meta-deploy.list`, its
   description telling the owner to log out and what to look for (`Display: CLAUDE_PROCESSING`
   in the debug log, the emoji on the icon). No `deploy.bash` or `acceptance.bash`: the
-  emoji's look is NOT ESTABLISHABLE by script, so the owner's look is the acceptance.
+  emoji's look is NOT ESTABLISHABLE by script, so the owner's look is the acceptance. The
+  host run passed at F44 c3391ba9 (all 8 units). Owner's hand check, still open: log out,
+  then dictate with Ctrl+Insert and Alt+Insert and look for the robot and the speech bubble
+  (the Success Criteria below).
 - [ ] 🔄 **Task 2.2**: Docs in `docs/features/speech-to-text.md` (done); `qa-all.bash`; the
   `qa-reviewer` agent.
 

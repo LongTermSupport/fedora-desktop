@@ -68,7 +68,7 @@ Use these Unicode icons in plan documents:
 
 - [00188-run-bash-rerun-noise](00188-run-bash-rerun-noise/) - Not Started. A `run.bash` re-run injects only missing pipx packages, with no warnings (#54)
 
-- [00187-stt-panel-robot-face](00187-stt-panel-robot-face/) - Not Started. The speech-to-text panel shows 🤖 or 💬 while Claude post-processes (#100)
+- [00187-stt-panel-robot-face](00187-stt-panel-robot-face/) - In Progress. The speech-to-text panel shows 🤖 or 💬 while Claude post-processes (#100); deployed, the owner's look after a logout is left
 
 - [00186-lxc-claude-session-reboot-warning](00186-lxc-claude-session-reboot-warning/) - Not Started (low priority). Claude sessions inside LXC containers get the reboot warning and restore (#55)
 
@@ -76,7 +76,7 @@ Use these Unicode icons in plan documents:
 
 - [00184-deployed-tools-menu](00184-deployed-tools-menu/) - Not Started (low priority). One launcher and panel item for the deployed user tools (#81)
 
-- [00183-prompt-shows-stale-tracking-ref](00183-prompt-shows-stale-tracking-ref/) - In Progress. The git prompt never shows up-to-date against a stale tracking ref (#52): a stale-fetch mark (`git-fetch-age`), awaiting deploy
+- [00183-prompt-shows-stale-tracking-ref](00183-prompt-shows-stale-tracking-ref/) - In Progress. The git prompt never shows up-to-date against a stale tracking ref (#52): a stale-fetch mark (`git-fetch-age`), deployed; the owner's look at a stale checkout is left
 
 - [00182-run-bash-private-plays-and-config-clone](00182-run-bash-private-plays-and-config-clone/) - Not Started. `run.bash` runs private plays from a local clone of the config repo (#49, #97)
 
@@ -114,7 +114,7 @@ Use these Unicode icons in plan documents:
 
 - [00168-managed-config-files-changed-out-of-band](00168-managed-config-files-changed-out-of-band/) - Not Started. Report play-managed files changed since their play ran. Issue #91.
 
-- [00167-cc-refuses-to-start-outside-a-repo](00167-cc-refuses-to-start-outside-a-repo/) - In Progress. `cc` outside a git working tree offers the checkout or refuses. Issue #90.
+- [00167-cc-refuses-to-start-outside-a-repo](00167-cc-refuses-to-start-outside-a-repo/) - In Progress. `cc` outside a git working tree offers the checkout or refuses. Issue #90. Deployed; the owner's `cc` checks are left.
 
 - [00165-ccy-container-uses-host-time-zone](00165-ccy-container-uses-host-time-zone/) - In Progress (owner's clock check left). ccy containers run in the host's time zone through `TZ`.
 
@@ -154,7 +154,7 @@ Use these Unicode icons in plan documents:
 
 - [00137-unattended-server-self-update](00137-unattended-server-self-update/) - In Progress (server proof left). A headless server updates itself, runs the affected plays and reboots with sessions restored.
 
-- [00135-ccy-sessions-survive-a-reboot](00135-ccy-sessions-survive-a-reboot/) - In Progress (reboot test left). ccy sessions are recorded and restored after a reboot. Issue #44.
+- [00135-ccy-sessions-survive-a-reboot](00135-ccy-sessions-survive-a-reboot/) - In Progress (reboot test and Phase 10 host check left). ccy sessions are recorded and restored after a reboot. Issue #44.
 
 - [00134-startup-log-triage-and-status-panel-unavailable](00134-startup-log-triage-and-status-panel-unavailable/) - In Progress (host checks left). False "crash" notices and the status panel's question mark after a reboot.
 

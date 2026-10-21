@@ -85,9 +85,10 @@ the tasks.
 
 ### Phase 2: Deploy and accept
 
-- [ ] ⬜ **Task 2.1**: Owner runs `./CLAUDE/Plan/meta-deploy.bash` (the CLI tools play, then
-  this plan's acceptance).
-- [ ] ⬜ **Task 2.2**: `acceptance.bash` passes on the host (Task 1.5's checks).
+- [x] ✅ **Task 2.1**: Owner runs `./CLAUDE/Plan/meta-deploy.bash` (the CLI tools play, then
+  this plan's acceptance). Ran at F44 c3391ba9; all 8 units passed.
+- [x] ✅ **Task 2.2**: `acceptance.bash` passes on the host (Task 1.5's checks): docx is
+  listed, `--to pdf` exits 64, and every fixture element survives.
 - [ ] ⬜ **Task 2.3**: `qa-all.bash` and the `qa-reviewer` agent.
 
 ## Success Criteria

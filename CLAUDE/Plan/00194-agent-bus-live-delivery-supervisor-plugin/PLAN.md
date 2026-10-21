@@ -130,7 +130,7 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   member sees a mention naming an agent, so no one logs it although it reached no agent.
   Decide whether `empty` joins the logged reasons (the human did pick a pill, so the failure
   differs from the incident's), test first.
-- [ ] 🔄 **Task 2.0h**: The host acceptance's G3 (tmux window closed) told the teams nothing,
+- [x] ✅ **Task 2.0h**: The host acceptance's G3 (tmux window closed) told the teams nothing,
   no goodbye and no disconnected notice. Cause, reproduced in the container: the launcher is
   the pane's session leader, so the hangup's SIGHUP reaches it alone; bash runs the EXIT trap
   at once without waiting for podman, which is told only once the launcher has gone. So the
@@ -138,11 +138,12 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   the dead terminal. Fixed test first (CCY 3.99.12.18, container 2.77.14): the clean-up stops
   a container still running before the notice and ignores SIGHUP and SIGINT until done; both
   the launcher and `pingbus seat disconnected` write each outcome to the owner-only
-  `.claude/ccy/pingbus/disconnect.log`; G3 keeps the launcher's stderr and that log. Waits on
-  review, then `play-agent-bus.yml`, `play-claude-yolo.yml` and the acceptance (queued in
-  meta-deploy). Report:
+  `.claude/ccy/pingbus/disconnect.log`; G3 keeps the launcher's stderr and that log.
+  Reviewed (Fable: MERGE); deployed through meta-deploy and proven on the host at F44
+  96454752 (the launcher survived the hangup and told the teams), and again at c3391ba9.
+  Report:
   [261019-g3-window-closed-opus.md](subagent-reports/261019-g3-window-closed-opus.md).
-- [ ] 🔄 **Task 2.0i**: The host acceptance at F44 96454752 proved 2.0h (the launcher survived
+- [x] ✅ **Task 2.0i**: The host acceptance at F44 96454752 proved 2.0h (the launcher survived
   the hangup, stopped the container, ran `seat disconnected`), but pingbus refused G3's notice
   as `rate limited: duplicate`: G2 had posted the same fixed text from the same seat to the
   same addressees 19 s earlier, inside the send gate's 60 s duplicate window. A product bug: a
@@ -156,8 +157,9 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   the session-end goodbye and the removal goodbye (`seat farewell`) all had the defect and are
   fixed; `joined`, `left` and the MEMBERSHIP envelope are written into the session, never
   posted, so the send gate never sees them. Fixed test first (CCY 3.99.12.19, container
-  2.77.15). Waits on review, then `play-agent-bus.yml`, `play-claude-yolo.yml` and the
-  acceptance (queued in meta-deploy). Report:
+  2.77.15). Reviewed (Fable: MERGE); `play-agent-bus.yml` and `play-claude-yolo.yml` passed
+  on the host at F44 c3391ba9 (ccy 3.99.12.19) and the goodbye acceptance passed G1-G4 and
+  C1. Report:
   [261019-notice-duplicate-window-opus.md](subagent-reports/261019-notice-duplicate-window-opus.md).
 - [ ] ⬜ **Task 2.1**: The plugin, test first, shipped in the image beside `ccy_lifecycle.py`,
   enabled for a session launched with `--teams` (CCY version bump). Waits on the
@@ -202,7 +204,8 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   run stopped in setup at ccy's commit-signing check; the scratch checkout now turns signing
   off in its own config (launched `--no-ssh`, no key goes in), a launcher that ends early is
   reported by its ERROR lines, and one waiting at a question no flag answers fails at once by
-  name. Queued again in meta-deploy.
+  name. Steps 1-4 passed on the host at F44 c3391ba9 (G1-G4 and C1); step 5 is still by
+  hand, so this criterion stays open.
 
 - [ ] A message sent to a busy session is typed mid-turn and run when the turn ends.
 
