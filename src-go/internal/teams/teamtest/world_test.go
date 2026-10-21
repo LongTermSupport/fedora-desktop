@@ -2,6 +2,7 @@ package teamtest
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"reflect"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
 func TestPopulatedWorldIsAHostWithTeamAlphaUp(t *testing.T) {
@@ -183,6 +185,50 @@ func TestOnDeclareRefusesARead(t *testing.T) {
 		}
 	}()
 	New(t).OnDeclare("limited", "")
+}
+
+func TestOnRefusesADeclareRead(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("a read was scripted through On")
+		}
+	}()
+	w := New(t)
+	w.On(w.DeclarePrefix("limited"), "", 0)
+}
+
+// reported records what refuseInProcessReads reports.
+type reported struct{ got []string }
+
+func (r *reported) Helper() {}
+
+func (r *reported) Errorf(format string, args ...any) {
+	r.got = append(r.got, fmt.Sprintf(format, args...))
+}
+
+// A rule set on the Fake directly is past scriptable; the read running as a process is caught.
+func TestAnInProcessReadRunAsAProcessFailsTheTest(t *testing.T) {
+	w := New(t)
+	w.Fake.On([]string{"agent-bus", "seat", "list"}, execx.Result{})
+	w.Fake.On(strings.Fields(w.DeclarePrefix("limited")), execx.Result{})
+	w.Fake.On(strings.Fields(w.DeclarePrefix("status")), execx.Result{})
+	for _, argv := range [][]string{
+		{"agent-bus", "seat", "list", "--json"},
+		strings.Fields(w.DeclarePrefix("limited")),
+		strings.Fields(w.DeclarePrefix("status")),
+	} {
+		if _, err := w.Fake.Run(t.Context(), execx.Cmd{Name: argv[0], Args: argv[1:]}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var e reported
+	refuseInProcessReads(&e, w.Fake)
+	if len(e.got) != 2 || !strings.Contains(e.got[0], "agent-bus seat list --json ran as a process") ||
+		!strings.Contains(e.got[1], "declare limited is read in-process") {
+		t.Fatalf("reported %q", e.got)
+	}
+	// The cleanup New registered must not fail this test for the reads it ran on purpose.
+	w.Fake = &execx.Fake{}
 }
 
 func TestInteractiveKeepsAHostVarsAlreadyWritten(t *testing.T) {

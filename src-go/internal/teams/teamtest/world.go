@@ -93,6 +93,7 @@ func New(t *testing.T) *World {
 	// Root's LXC configuration, read before a checkout is offered for a session: absent, so
 	// LXC keeps its containers in the default LxcPath.
 	w.Host.Checkouts.ReadFile = func(string) ([]byte, error) { return nil, fs.ErrNotExist }
+	t.Cleanup(func() { refuseInProcessReads(t, w.Fake) })
 	return w
 }
 
@@ -144,14 +145,45 @@ func (w *World) OnErr(prefix, stderr string, code int) {
 	w.Fake.On(scriptable(prefix), execx.Result{Stderr: []byte(stderr), ExitCode: code})
 }
 
-// scriptable is prefix's argv; the seat list panics: it is read in-process, so no process
-// answers it. A failing read is a seat on disk (BreakSeat, CrashSeat).
+// scriptable is prefix's argv; a read ccy-teams answers in-process panics, since no process
+// answers it and scripting one would prove nothing.
 func scriptable(prefix string) []string {
 	argv := strings.Fields(prefix)
-	if len(argv) >= 3 && argv[0] == "agent-bus" && argv[1] == "seat" && argv[2] == "list" {
-		panic("teamtest: agent-bus seat list is read in-process; make the seat on disk (AddSeat, BreakSeat, CrashSeat)")
+	if why := inProcessRead(argv); why != "" {
+		panic("teamtest: " + why)
 	}
 	return argv
+}
+
+// inProcessRead says why argv is a read ccy-teams answers in-process, or is "" for any other
+// command: the seat list (a failing read is a seat on disk: BreakSeat, CrashSeat) and the
+// declare.py reads (a host_vars file: WriteHostVars).
+func inProcessRead(argv []string) string {
+	if len(argv) >= 3 && argv[0] == "agent-bus" && argv[1] == "seat" && argv[2] == "list" {
+		return "agent-bus seat list is read in-process; make the seat on disk (AddSeat, BreakSeat, CrashSeat)"
+	}
+	i := slices.Index(argv, "helpers.agent_bus.declare")
+	if len(argv) > 0 && argv[0] == "env" && i > 0 && i+1 < len(argv) && slices.Contains(declareReads, argv[i+1]) {
+		return "declare " + argv[i+1] + " is read in-process; write the host_vars with WriteHostVars"
+	}
+	return ""
+}
+
+// errorer is the part of testing.T refuseInProcessReads reports through.
+type errorer interface {
+	Helper()
+	Errorf(format string, args ...any)
+}
+
+// refuseInProcessReads fails t if any command fake ran is a read ccy-teams answers in-process.
+// It catches a rule set on the Fake directly, past scriptable.
+func refuseInProcessReads(t errorer, fake *execx.Fake) {
+	t.Helper()
+	for _, c := range fake.Calls() {
+		if why := inProcessRead(append([]string{c.Name}, c.Args...)); why != "" {
+			t.Errorf("teamtest: %s ran as a process: %s", c.Line(), why)
+		}
+	}
 }
 
 // NotARepository is git's own refusal for a folder in no repository, the one refusal
@@ -176,11 +208,8 @@ var declareReads = []string{
 }
 
 // OnDeclare scripts one declare.py subcommand that still runs Python: status, an edit or a
-// check. A read panics: no process answers it, so scripting one would prove nothing.
+// check. A read panics (scriptable).
 func (w *World) OnDeclare(sub, stdout string) {
-	if slices.Contains(declareReads, sub) {
-		panic("teamtest: declare " + sub + " is read in-process; write the host_vars with WriteHostVars")
-	}
 	w.On(w.DeclarePrefix(sub), stdout, 0)
 }
 
@@ -194,7 +223,7 @@ func (w *World) WriteHostVars(t *testing.T, text string) {
 // prints stdout and leaves the host_vars as after, as the real edit writes it, so the reads
 // that follow it answer from the edited file.
 func (w *World) OnDeclareEdit(sub, stdout, after string) {
-	w.Fake.OnFunc(strings.Fields(w.DeclarePrefix(sub)), func(execx.Cmd) (execx.Result, error) {
+	w.Fake.OnFunc(scriptable(w.DeclarePrefix(sub)), func(execx.Cmd) (execx.Result, error) {
 		if err := os.WriteFile(w.Host.HostVars, []byte(after), 0o600); err != nil {
 			return execx.Result{}, err
 		}
