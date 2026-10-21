@@ -16,7 +16,9 @@ give false failures.
 
 ## Scope
 
-Rewrite the agent-team bus in Go, the parts that run in agent sessions, with no loss of behaviour:
+Rewrite the agent-team bus in Go, every stage of 00209's design: the host side too (in-process
+`ccy-teams` reads, the installer, the reader, the admin CLI and element). Stage 1 (`ccy-teams`
+open time) is an early owner-visible win. No behaviour may be lost. On the session side that means:
 
 - `helpers/pingbus/` (about 13k lines of Python, shipped as a zipapp): every CLI verb, the hooks,
   the watcher and waiter, inbox, outbox, envelope, protocol, seat, the status line, limits,
