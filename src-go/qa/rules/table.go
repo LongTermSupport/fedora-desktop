@@ -53,7 +53,7 @@ var commandOwners = map[string][]string{
 	"gum":          {"internal/ui"},
 	"fzf":          {"internal/ui"},
 	"systemctl":    {"internal/systemd"},
-	"busctl":       {"internal/systemd"},
+	"busctl":       {"internal/systemd", "internal/wsimedia"},
 	"git":          {"internal/gitx"},
 	"ps":           {sessprobePkg},
 	"podman":       {sessprobePkg, podfreezePkg},

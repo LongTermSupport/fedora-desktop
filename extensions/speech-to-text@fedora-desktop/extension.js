@@ -27,6 +27,7 @@ import { spawnWatched, killArgv, discardSignal } from './recorderLaunch.js';
 import { lookFor, isKnownState, recordingBadgeColor, articleBadgeColor, shownState, claudeEmoji, COLOURS } from './panelLook.js';
 import { POST_PROCESS_STYLES, LastTranscriptPostProcessor, unusableKeybindings } from './postProcess.js';
 import { TOKEN_WARNING_FILE, tokenWarning } from './tokenWarning.js';
+import { PAUSE_MEDIA_KEY, startMediaHold } from './mediaHold.js';
 
 // DBus interface for wsi communication
 const DBUS_PATH = '/org/fedoradesktop/SpeechToText';
@@ -450,6 +451,18 @@ export default class SpeechToTextExtension extends Extension {
         });
         menu.addMenuItem(this._autoPasteSwitch);
 
+        // Read at each recording's start, so a change applies from the next one. Without the
+        // schema nothing records (the keys are not bound), so the switch shows the default.
+        this._pauseMediaSwitch = new PopupMenu.PopupSwitchMenuItem('Pause media while recording',
+            this._settings?.get_boolean(PAUSE_MEDIA_KEY) ?? true);
+        this._preventMenuClose(this._pauseMediaSwitch);
+        this._pauseMediaSwitch.connect('toggled', (item, state) => {
+            if (this._updatingToggles || !this._settings) return;
+            this._settings.set_boolean(PAUSE_MEDIA_KEY, state);
+            this._log(`Pause media while recording ${state ? 'enabled' : 'disabled'}`);
+        });
+        menu.addMenuItem(this._pauseMediaSwitch);
+
         // Debug toggle — kept in popup so it's reachable when diagnosing issues
         this._debugSwitch = new PopupMenu.PopupSwitchMenuItem('Debug Logging', this._debugEnabled);
         this._preventMenuClose(this._debugSwitch);
@@ -519,6 +532,10 @@ export default class SpeechToTextExtension extends Extension {
                     break;
                 case 'auto-enter':
                     this._autoEnter = this._settings.get_boolean(key);
+                    break;
+                case PAUSE_MEDIA_KEY:
+                    if (this._pauseMediaSwitch)
+                        this._pauseMediaSwitch.setToggleState(this._settings.get_boolean(key));
                     break;
                 case 'wrap-marker':
                     this._wrapWithMarker = this._settings.get_boolean(key);
@@ -1036,6 +1053,7 @@ export default class SpeechToTextExtension extends Extension {
 
     _createPanelSession() {
         return new PanelSession({
+            holdMedia: () => this._holdMedia(),
             spawn: (launch, token, onExit) => this._spawnRecorder(launch, token, onExit),
             kill: (pid, signalName) => this._signalProcess(pid, signalName),
             abort: (pid, launch) => this._discardRecording(pid, launch),
@@ -1053,6 +1071,22 @@ export default class SpeechToTextExtension extends Extension {
             notify: message => Main.notify('Speech to Text', message),
             addTimeout: (ms, handler) => GLib.timeout_add(GLib.PRIORITY_DEFAULT, ms, handler),
             removeTimeout: id => GLib.Source.remove(id),
+        });
+    }
+
+    /** The media held for one recording while the switch is on (mediaHold.js), or null. */
+    _holdMedia() {
+        return startMediaHold({
+            enabled: this._settings.get_boolean(PAUSE_MEDIA_KEY),
+            argv: [GLib.get_home_dir() + '/.local/bin/wsi-pause-media'],
+            spawn: (argv, onExit) => spawnWatched(argv, {}, onExit),
+            kill: pid => this._signalProcess(pid, 'TERM'),
+            reportError: message => {
+                this._lastError = message;
+                this._log(message);
+                Main.notify('STT Error', message);
+            },
+            log: message => this._log(message),
         });
     }
 
