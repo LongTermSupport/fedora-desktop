@@ -65,7 +65,7 @@ func TestAChangeSaysWhyTheSessionCannotBeChanged(t *testing.T) {
 			if err := os.RemoveAll(r.dir()); err != nil {
 				t.Fatal(err)
 			}
-		}, session},
+		}, "launched without the agent team bus kit"},
 		{"a membership that is another kind's", func(r *rig) {
 			d := r.desired(t)
 			d.Kind = membership.KindCC
@@ -93,8 +93,9 @@ func TestAChangeSaysWhenTheRecordsOrPodmanCannotBeRead(t *testing.T) {
 	if code := r.run(t, "remove", session, "alpha", "--yes"); code == term.ExitOK || !strings.Contains(r.ErrOut.String(), "podman could not list its container") {
 		t.Fatalf("podman: exit %d:\n%s", code, r.ErrOut.String())
 	}
+	r = newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
 	r.x.Host.Registry = func() (*registry.Store, error) { return nil, errors.New("records unreadable") }
-	if code := r.run(t, "remove", session, "alpha", "--yes"); code == term.ExitOK {
+	if code := r.run(t, "remove", session, "alpha", "--yes"); code == term.ExitOK || !strings.Contains(r.ErrOut.String(), "session "+session+": records unreadable") {
 		t.Fatalf("records: exit %d:\n%s", code, r.ErrOut.String())
 	}
 }
@@ -116,7 +117,7 @@ func TestRoleSaysWhyARoleCouldNotBeChanged(t *testing.T) {
 			})
 		}, "is not a member of alpha"},
 		{"sudo is not ready", func(r *rig) { r.On("sudo -n -v", "", 1) }, "sudo is not ready"},
-		{"agent-bus refuses", func(r *rig) { r.OnErr(setRoleCmd, "refused", 1) }, "role: "},
+		{"agent-bus refuses", func(r *rig) { r.OnErr(setRoleCmd, "refused", 1) }, "role: proj.3+local.podman was not made a coordinator"},
 	}
 	for _, c := range cases {
 		r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
@@ -132,7 +133,7 @@ func TestRoleSaysWhyARoleCouldNotBeChanged(t *testing.T) {
 func TestAddSaysWhenNoSeatCanBeChosen(t *testing.T) {
 	r := newRig(t)
 	r.OnErr("agent-bus seat choose alpha", "no seats", 2)
-	if code := r.run(t, "add", session, "alpha", "--yes"); code != term.ExitFailure || !strings.Contains(r.ErrOut.String(), "seat: ") {
+	if code := r.run(t, "add", session, "alpha", "--yes"); code != term.ExitFailure || !strings.Contains(r.ErrOut.String(), "seat: agent-bus seat choose alpha: agent-bus exited 2: no seats") {
 		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
 	}
 }
@@ -142,7 +143,7 @@ func TestAChangeToACCSessionSaysWhenTmuxCannotBeAsked(t *testing.T) {
 	r.Fake.OnFunc([]string{"tmux", "-L", "ccy", "list-panes"}, func(execx.Cmd) (execx.Result, error) {
 		return execx.Result{Stderr: []byte("no server"), ExitCode: 1}, nil
 	})
-	if code := r.run(t, "remove", "cc.4242", "alpha", "--yes"); code != term.ExitFailure || !strings.Contains(r.ErrOut.String(), "session cc.4242: ") {
+	if code := r.run(t, "remove", "cc.4242", "alpha", "--yes"); code != term.ExitFailure || !strings.Contains(r.ErrOut.String(), "session cc.4242: ") || !strings.Contains(r.ErrOut.String(), "no server") {
 		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
 	}
 }
@@ -179,9 +180,20 @@ func TestRoleSaysWhenTheRosterFailsOnItsSecondRead(t *testing.T) {
 func TestRemoveAndRoleSayWhenTheTeamCannotBeRead(t *testing.T) {
 	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
 	r.OnErr(teamtest.SudoBus+"list alpha", "no route", 2)
-	for _, args := range [][]string{{"remove", session, "alpha", "--yes"}, {"role", session, "alpha", worker, "--yes"}} {
-		if code := r.run(t, args...); code == term.ExitOK {
-			t.Errorf("%v: exit %d:\n%s", args, code, r.ErrOut.String())
+	cases := []struct {
+		args []string
+		say  string
+	}{
+		{[]string{"remove", session, "alpha", "--yes"}, "the members of alpha could not be read: no route"},
+		{[]string{"role", session, "alpha", worker, "--yes"}, "team alpha: its members could not be read: no route"},
+	}
+	for _, c := range cases {
+		r.ErrOut.Reset()
+		if code := r.run(t, c.args...); code == term.ExitOK {
+			t.Errorf("%v: exit %d:\n%s", c.args, code, r.ErrOut.String())
+		}
+		if got := r.ErrOut.String(); !strings.Contains(got, c.say) {
+			t.Errorf("%v: stderr lacks %q:\n%s", c.args, c.say, got)
 		}
 	}
 }
