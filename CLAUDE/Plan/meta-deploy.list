@@ -15,8 +15,8 @@
 #                                  ./playbooks/imports/<play>.yml does by hand
 #   <plan folder>/<script>.bash    one plan script, for a step none of the three fixed names
 #                                  fits; run as one unit, like a playbook entry, except
-#                                  that its exit 2 is COULD NOT ESTABLISH, as an
-#                                  acceptance.bash's is
+#                                  that a script named *acceptance*.bash may exit 2 for
+#                                  COULD NOT ESTABLISH, as an acceptance.bash may
 #
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line

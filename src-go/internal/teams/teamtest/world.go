@@ -93,7 +93,7 @@ func New(t *testing.T) *World {
 	// Root's LXC configuration, read before a checkout is offered for a session: absent, so
 	// LXC keeps its containers in the default LxcPath.
 	w.Host.Checkouts.ReadFile = func(string) ([]byte, error) { return nil, fs.ErrNotExist }
-	t.Cleanup(func() { refuseInProcessReads(t, w.Fake) })
+	registerReadCheck(t, w.Fake)
 	return w
 }
 
@@ -174,6 +174,21 @@ type errorer interface {
 	Helper()
 	Errorf(format string, args ...any)
 }
+
+// cleanuper is the part of testing.T refuseOnCleanup registers with.
+type cleanuper interface {
+	errorer
+	Cleanup(fn func())
+}
+
+// refuseOnCleanup makes t, when it ends, fail if fake ran a read ccy-teams answers in-process.
+func refuseOnCleanup(t cleanuper, fake *execx.Fake) {
+	t.Cleanup(func() { refuseInProcessReads(t, fake) })
+}
+
+// registerReadCheck is what New registers its Fake with: refuseOnCleanup, a variable so a test
+// can see New register it.
+var registerReadCheck = refuseOnCleanup
 
 // refuseInProcessReads fails t if any command fake ran is a read ccy-teams answers in-process.
 // It catches a rule set on the Fake directly, past scriptable.

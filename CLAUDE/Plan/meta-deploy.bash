@@ -226,19 +226,20 @@ for planDir in "${PLAN_DIRS[@]}"; do
         fi
     fi
 
-    # EXIT 2 IS A THIRD VERDICT, NOT A FAILURE, for a plan script. An acceptance gate may
-    # answer ACCEPTED (0), REJECTED (1) or COULD NOT ESTABLISH (2) — the last meaning nothing
-    # failed but some check had no evidence to judge on. Collapsing it into FAIL reports a
-    # broken machine where the truth is an unanswered question, and that is precisely the
-    # distinction those gates were written to preserve. It still counts as bad, because an
-    # unanswered question is not a pass. A playbook's 2 is a failure: ansible-playbook exits 2
-    # when a host failed.
+    # EXIT 2 IS A THIRD VERDICT, NOT A FAILURE, for an acceptance script (acceptance.bash, or
+    # an entry named *acceptance*.bash). An acceptance gate may answer ACCEPTED (0), REJECTED
+    # (1) or COULD NOT ESTABLISH (2) — the last meaning nothing failed but some check had no
+    # evidence to judge on. Collapsing it into FAIL reports a broken machine where the truth is
+    # an unanswered question, and that is precisely the distinction those gates were written to
+    # preserve. It still counts as bad, because an unanswered question is not a pass. Any other
+    # unit's 2 is a failure: ansible-playbook exits 2 when a host failed, and a deploy script
+    # may pass that on.
     case "${status}:${unit}" in
         *:) ;;
         0:*)
             RESULTS+=("PASS  ${unit}")
             ;;
-        2:*.bash)
+        2:*acceptance*.bash)
             RESULTS+=("UNSET ${unit} (exit 2 — COULD NOT ESTABLISH: nothing failed, but some check had no evidence)")
             BAD=$((BAD + 1))
             ;;
@@ -253,7 +254,7 @@ done
 # that asked for the run reads the verdict itself instead of the owner pasting it back.
 # summary.txt appearing is also the marker that the whole batch has finished.
 if [[ "${BAD}" -gt 0 ]]; then
-    closing="$(printf '%d of %d unit(s) failed or were skipped.' "${BAD}" "${#RESULTS[@]}")"
+    closing="$(printf '%d of %d unit(s) failed, were skipped or could not establish.' "${BAD}" "${#RESULTS[@]}")"
 else
     closing="$(printf 'all %d unit(s) passed.' "${#RESULTS[@]}")"
 fi

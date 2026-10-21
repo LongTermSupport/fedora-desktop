@@ -62,12 +62,19 @@ printf '00001-demo\n' >"${SCRATCH}/CLAUDE/Plan/meta-deploy.list"
 out="$("${SCRATCH}/CLAUDE/Plan/meta-deploy.bash" 2>&1)"
 check "a passing deploy then a failing acceptance is named" 1 "FAIL  00001-demo/acceptance.bash (exit 3)" "$?" "${out}"
 
-# Exit 2 from a plan script is COULD NOT ESTABLISH, as an entry or as a plan's acceptance; from a
-# playbook it is a failure (ansible-playbook exits 2 when a host failed). Each still fails the batch.
+# Exit 2 from an acceptance script is COULD NOT ESTABLISH, as an entry or as a plan's acceptance;
+# from a playbook or any other script it is a failure (ansible-playbook exits 2 when a host
+# failed). Each still fails the batch.
 printf '#!/usr/bin/env bash\nexit 2\n' >"${SCRATCH}/CLAUDE/Plan/00001-demo/acceptance.bash"
 printf '00001-demo/acceptance.bash\n' >"${SCRATCH}/CLAUDE/Plan/meta-deploy.list"
 out="$("${SCRATCH}/CLAUDE/Plan/meta-deploy.bash" 2>&1)"
-check "a plan script's exit 2 is COULD NOT ESTABLISH" 1 "UNSET 00001-demo-acceptance.bash (exit 2 — COULD NOT ESTABLISH" "$?" "${out}"
+check "an acceptance script's exit 2 is COULD NOT ESTABLISH" 1 "UNSET 00001-demo-acceptance.bash (exit 2 — COULD NOT ESTABLISH" "$?" "${out}"
+check "the closing line counts it" 1 "1 of 1 unit(s) failed, were skipped or could not establish." 1 "${out}"
+printf '#!/usr/bin/env bash\nexit 2\n' >"${SCRATCH}/CLAUDE/Plan/00001-demo/deploy-stage-2.bash"
+chmod +x "${SCRATCH}/CLAUDE/Plan/00001-demo/deploy-stage-2.bash"
+printf '00001-demo/deploy-stage-2.bash\n' >"${SCRATCH}/CLAUDE/Plan/meta-deploy.list"
+out="$("${SCRATCH}/CLAUDE/Plan/meta-deploy.bash" 2>&1)"
+check "a deploy script's exit 2 is a failure" 1 "FAIL  00001-demo-deploy-stage-2.bash (exit 2)" "$?" "${out}"
 printf '00001-demo\n' >"${SCRATCH}/CLAUDE/Plan/meta-deploy.list"
 out="$("${SCRATCH}/CLAUDE/Plan/meta-deploy.bash" 2>&1)"
 check "a plan's acceptance exit 2 is COULD NOT ESTABLISH" 1 "UNSET 00001-demo/acceptance.bash (exit 2 — COULD NOT ESTABLISH" "$?" "${out}"

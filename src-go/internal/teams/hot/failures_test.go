@@ -138,7 +138,7 @@ func TestAddOfATeamAlreadyInSaysWhenItsSeatCannotBeShownHeld(t *testing.T) {
 		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
 	}
 	if got := r.ErrOut.String(); !strings.Contains(got, "✗ session: seat 3 not held after ") ||
-		!strings.Contains(got, ": the seat list cannot be read: agent-bus seat list in ") || strings.Contains(got, "Nothing to do") {
+		!strings.Contains(got, "; the seat list cannot be read: agent-bus seat list in ") || strings.Contains(got, "Nothing to do") {
 		t.Fatalf("stderr:\n%s", got)
 	}
 }

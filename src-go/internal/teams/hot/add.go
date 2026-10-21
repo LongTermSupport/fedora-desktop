@@ -396,7 +396,7 @@ func (x *Hot) waitHeld(ctx context.Context, t *target, team, seat string) waited
 		if x.Now().Sub(start) >= x.Waits.Apply {
 			why := whyNot(rep, repErr, team, seat, t.desired.Generation)
 			if heldErr != nil {
-				why = "the seat list cannot be read: " + heldErr.Error()
+				why += "; the seat list cannot be read: " + heldErr.Error()
 			}
 			return waited{rep: rep, why: fmt.Sprintf("seat %s not held after %s: %s", seat, seconds(x.Waits.Apply), why)}
 		}

@@ -15,9 +15,9 @@ set -euo pipefail
 name="${0##*/}"
 
 stamp_screen() {
-    printf 'ui %s %s\n' "${name}" "${1:-}" >>"${S1_SHIM_LOG}"
+    printf 'ui %s%s\n' "${name}" "${1:+ $1}" >>"${S1_SHIM_LOG}"
     if [[ ! -e "${S1_UI_MARK}" ]]; then
-        printf '%s %s %s\n' "${EPOCHREALTIME}" "${name}" "${1:-}" >"${S1_UI_MARK}"
+        printf '%s %s%s\n' "${EPOCHREALTIME}" "${name}" "${1:+ $1}" >"${S1_UI_MARK}"
     fi
 }
 

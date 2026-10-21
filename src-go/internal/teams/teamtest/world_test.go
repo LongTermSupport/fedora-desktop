@@ -197,8 +197,11 @@ func TestOnRefusesADeclareRead(t *testing.T) {
 	w.On(w.DeclarePrefix("limited"), "", 0)
 }
 
-// reported records what refuseInProcessReads reports.
-type reported struct{ got []string }
+// reported records what refuseOnCleanup registers and refuseInProcessReads reports.
+type reported struct {
+	got      []string
+	cleanups []func()
+}
 
 func (r *reported) Helper() {}
 
@@ -206,29 +209,66 @@ func (r *reported) Errorf(format string, args ...any) {
 	r.got = append(r.got, fmt.Sprintf(format, args...))
 }
 
-// A rule set on the Fake directly is past scriptable; the read running as a process is caught.
-func TestAnInProcessReadRunAsAProcessFailsTheTest(t *testing.T) {
-	w := New(t)
-	w.Fake.On([]string{"agent-bus", "seat", "list"}, execx.Result{})
-	w.Fake.On(strings.Fields(w.DeclarePrefix("limited")), execx.Result{})
-	w.Fake.On(strings.Fields(w.DeclarePrefix("status")), execx.Result{})
+func (r *reported) Cleanup(fn func()) { r.cleanups = append(r.cleanups, fn) }
+
+// runReads sets fake directly (past scriptable) to answer the seat list, a declare read and
+// declare status, which still runs Python, and runs all three.
+func runReads(t *testing.T, fake *execx.Fake) {
+	t.Helper()
+	declare := New(t).DeclarePrefix
+	fake.On([]string{"agent-bus", "seat", "list"}, execx.Result{})
+	fake.On(strings.Fields(declare("limited")), execx.Result{})
+	fake.On(strings.Fields(declare("status")), execx.Result{})
 	for _, argv := range [][]string{
 		{"agent-bus", "seat", "list", "--json"},
-		strings.Fields(w.DeclarePrefix("limited")),
-		strings.Fields(w.DeclarePrefix("status")),
+		strings.Fields(declare("limited")),
+		strings.Fields(declare("status")),
 	} {
-		if _, err := w.Fake.Run(t.Context(), execx.Cmd{Name: argv[0], Args: argv[1:]}); err != nil {
+		if _, err := fake.Run(t.Context(), execx.Cmd{Name: argv[0], Args: argv[1:]}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	var e reported
-	refuseInProcessReads(&e, w.Fake)
-	if len(e.got) != 2 || !strings.Contains(e.got[0], "agent-bus seat list --json ran as a process") ||
-		!strings.Contains(e.got[1], "declare limited is read in-process") {
-		t.Fatalf("reported %q", e.got)
+}
+
+func wantTheTwoReads(t *testing.T, got []string) {
+	t.Helper()
+	if len(got) != 2 || !strings.Contains(got[0], "agent-bus seat list --json ran as a process") ||
+		!strings.Contains(got[1], "declare limited is read in-process") {
+		t.Fatalf("reported %q", got)
 	}
-	// The cleanup New registered must not fail this test for the reads it ran on purpose.
-	w.Fake = &execx.Fake{}
+}
+
+// A read run as a process is caught, however the Fake was told to answer it.
+func TestAnInProcessReadRunAsAProcessIsReported(t *testing.T) {
+	var e reported
+	fake := &execx.Fake{}
+	runReads(t, fake)
+	refuseInProcessReads(&e, fake)
+	wantTheTwoReads(t, e.got)
+}
+
+// The check runs when the test ends, over what ran by then.
+func TestTheInProcessReadCheckRunsWhenTheTestEnds(t *testing.T) {
+	var e reported
+	fake := &execx.Fake{}
+	refuseOnCleanup(&e, fake)
+	if len(e.cleanups) != 1 || len(e.got) != 0 {
+		t.Fatalf("cleanups %d, reported %q", len(e.cleanups), e.got)
+	}
+	runReads(t, fake)
+	e.cleanups[0]()
+	wantTheTwoReads(t, e.got)
+}
+
+// Every World's Fake is checked when its test ends.
+func TestNewChecksItsFakeForInProcessReads(t *testing.T) {
+	var registered *execx.Fake
+	registerReadCheck = func(_ cleanuper, fake *execx.Fake) { registered = fake }
+	t.Cleanup(func() { registerReadCheck = refuseOnCleanup })
+	w := New(t)
+	if registered == nil || registered != w.Fake {
+		t.Fatalf("New registered %p, its Fake is %p", registered, w.Fake)
+	}
 }
 
 func TestInteractiveKeepsAHostVarsAlreadyWritten(t *testing.T) {
