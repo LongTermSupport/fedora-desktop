@@ -1,0 +1,28 @@
+Usage: open [options] TARGET...
+
+  Open files, directories, or URLs with the right application.
+  Uses the registered default when there is one; asks with a chooser
+  (fzf, or a numbered menu) when there is not. Never offers a GUI app
+  when there is no graphical session — over SSH you get terminal
+  viewers that are actually installed.
+
+  TARGET ...         Files, directories, or URLs.
+
+  -a, --ask          Always show the chooser.
+  -t, --terminal     Only consider terminal handlers.
+  -d, --set-default  Remember the chosen GUI app as the default, through
+                     gio (implies --ask).
+  -l, --list         List candidate handlers on stdout and exit.
+  -n, --dry-run      Print the command on stdout instead of running it.
+  -h, --help         Show this help and exit.
+  --                 End of options: every later argument is a target.
+
+Exit status: 0 opened, 1 failed, 64 a usage error, 130 cancelled.
+
+Examples:
+  open report.pdf
+  open .
+  open -a photo.jpg
+  open -d photo.jpg
+  open -l video.mkv
+  open https://example.com

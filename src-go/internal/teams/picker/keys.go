@@ -59,6 +59,8 @@ func (r *run) doTeam(ctx context.Context, id string, row board.Row) (flow.Result
 		return r.p.Shutdown.Offer(ctx, row.Team)
 	case actRestart:
 		return r.p.Restart.Offer(ctx, row.Team)
+	case actWindDown:
+		return r.p.WindDown.Offer(ctx, row.Team)
 	case actSettings:
 		return r.p.Settings.Edit(ctx, row.Team, seats.SnapshotRunning(r.snap))
 	case actAskDescription, actAskLimit:

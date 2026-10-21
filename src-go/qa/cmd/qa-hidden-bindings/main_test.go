@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,6 +11,8 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/cmdmaintest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
+
+func TestMain(m *testing.M) { os.Exit(cmdmaintest.Main(m)) }
 
 // A closed stdout cannot carry the verdict, so the command refuses to run.
 func TestClosedStdoutIsRefused(t *testing.T) {
@@ -34,7 +37,7 @@ func TestTheRealFixturesProveBothHalves(t *testing.T) {
 	}
 	var stdout, stderr bytes.Buffer
 	env := hiddenbindings.Env{Stdout: &stdout, Stderr: &stderr, Cwd: root, Runner: proc.OS{}}
-	code := hiddenbindings.Main([]string{"--root", root, "scripts/qa-go.bash", "helpers/qa_environment/textual_bindings.py"}, env)
+	code := hiddenbindings.Main([]string{"--root", root, "scripts/qa-go-qa.bash", "helpers/qa_environment/textual_bindings.py"}, env)
 	if code != hiddenbindings.ExitOK {
 		t.Fatalf("exit %d\nstdout %s\nstderr %s", code, stdout.String(), stderr.String())
 	}

@@ -38,7 +38,7 @@ LINE_RES = {
     "TEAM": re.compile(
         rf"TEAM\t{TEAM_RE}\t{protocol.HANDLE_PATTERN}\ttrust=(?:trusted|untrusted)"
         rf"\twake=(?:watcher|waiter|none)\tpending={COUNT_RE}\thumans={COUNT_RE}\tpeers={COUNT_RE}\tpings={COUNT_RE}"
-        rf"\toverdue=\d+\tdropped=\d+\tunexpected={COUNT_RE}\trelay=(?:on|stalled|off)"),
+        rf"\toverdue=\d+\tdropped=\d+\tignored=\d+\tunexpected={COUNT_RE}\trelay=(?:on|stalled|off)"),
     "ABOUT": re.compile(rf"ABOUT\t1\t{TEAM_RE}\t\"[\x20-\x7e]{{0,300}}\""),
     "UNTRUSTED": re.compile(rf"UNTRUSTED\t{TEAM_RE}\t[\x20-\x7e]{{1,200}}"),
     "MEMBER": re.compile(
@@ -47,6 +47,8 @@ LINE_RES = {
     "PENDING": re.compile(
         rf"PENDING\t{TEAM_RE}\t{protocol.EVENT_ID_PATTERN}\t{LOCALPART_RE}\t\d+"
         rf"\t(?:human|peer|{'|'.join(protocol.VERBS)})"),
+    "ROOM": re.compile(rf"ROOM\t{TEAM_RE}\t(?:reports|questions)\t(?:join|pending|untrusted|refused)"
+                       r"\t(?:-|[\x20-\x7e]{1,200})"),
     "SEAT": re.compile(
         rf"SEAT\t{TEAM_RE}\t(?:{protocol.HANDLE_SEAT_PATTERN})\t(?:held|free)\t(?:self|-)"
         rf"\t{protocol.HANDLE_PATTERN}"),
@@ -237,6 +239,17 @@ class StatusTest(StatusCase):
         team = self.team_line(self.report()[1])
         self.assertEqual((team["overdue"], team["dropped"]), ("1", "1"))
 
+    def test_a_human_message_that_reached_no_agent_is_counted(self):
+        """The owner's `@room` typed as plain text names no one: `ignored` counts it, so
+        `status` shows that a message reached no agent; it is not a drop."""
+        self.joined()
+        self.a.send(self.a.alice, {"msgtype": "m.text", "body": "@room anyone?", "m.mentions": {}})
+        self.a.send(self.a.alice, {"msgtype": "m.text", "body": "for the coordinator",
+                                   "m.mentions": {"user_ids": [self.a.orch]}})
+        self.run_cli("recv")
+        team = self.team_line(self.report()[1])
+        self.assertEqual((team["ignored"], team["dropped"], team["pending"]), ("1", "0", "0"))
+
     def test_every_active_team_is_reported(self):
         self.add_team()
         self.joined()
@@ -272,6 +285,44 @@ class StatusTest(StatusCase):
         path.write_text(json.dumps(view), encoding="ascii")
         _, rows, _ = self.report()
         self.assertNotIn("mallory", self.members(rows))
+
+
+class SideRoomStatusTest(StatusCase):
+    """Plan 00211 SPEC §4.5: a coordinator whose bundle has human_text false leaves the
+    questions invite pending, and `status` names the reason; every side room's state is shown."""
+
+    QUESTIONS = "!" + "Q" * 43
+    REPORTS = "!" + "P" * 43
+
+    def side_rows(self, rows: list[list[str]]) -> list[list[str]]:
+        return [r for r in rows if r[0] == "ROOM"]
+
+    def test_a_refused_questions_room_is_named_with_its_reason(self):
+        self.joined()
+        self.a.state.save_side_rooms({
+            "questions": inbox.SideRoom(self.QUESTIONS, "refused", inbox.REASON_NO_HUMAN_TEXT)})
+        code, rows, _ = self.report()
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(self.side_rows(rows),
+                         [["ROOM", bus.TEAM_A, "questions", "refused", inbox.REASON_NO_HUMAN_TEXT]])
+        self.assertIn("--no-human-text", inbox.REASON_NO_HUMAN_TEXT)
+
+    def test_each_side_room_in_purpose_order_and_none_before_the_index(self):
+        self.joined()
+        self.assertEqual(self.side_rows(self.report()[1]), [])
+        self.a.state.save_side_rooms({
+            "questions": inbox.SideRoom(self.QUESTIONS, "pending", "not invited yet"),
+            "reports": inbox.SideRoom(self.REPORTS, "join", None)})
+        self.assertEqual(self.side_rows(self.report()[1]), [
+            ["ROOM", bus.TEAM_A, "reports", "join", "-"],
+            ["ROOM", bus.TEAM_A, "questions", "pending", "not invited yet"]])
+
+    def test_an_untrusted_main_room_prints_no_side_room(self):
+        self.joined()
+        self.a.state.save_side_rooms({"reports": inbox.SideRoom(self.REPORTS, "join", None)})
+        self.a.set_record(dict(self.a.record, roles={self.a.orch: "coordinator"}))
+        self.assertEqual(self.run_cli("recv")[0], cli.EXIT_UNTRUSTED)
+        self.assertEqual(self.side_rows(self.report()[1]), [])
 
 
 class RoomViewTest(StatusCase):

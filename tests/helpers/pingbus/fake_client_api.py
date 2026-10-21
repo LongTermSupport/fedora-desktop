@@ -455,11 +455,23 @@ class FakeHomeserver:
     def _join(self, req: Req, room_id: str) -> dict:
         room = self._room(room_id)
         membership = room.membership(req.user_id)
-        if membership not in ("invite", "join"):
+        if membership not in ("invite", "join") and not self._restricted_allows(room, req.user_id):
             raise forbidden("You are not invited to this room.")
-        if membership == "invite":
+        if membership != "join":
             self._append(room, MEMBER, req.user_id, self._member_content(req.user_id, "join"), req.user_id)
         return {"room_id": room.room_id}
+
+    def _restricted_allows(self, room: Room, user_id: str) -> bool:
+        """A v12 `restricted` join rule: a member of a room the rule's `allow` names may join
+        unless banned. Plan 00211's spike checks Tuwunel does the same."""
+        rules = room.state.get(("m.room.join_rules", ""))
+        content = rules.content if rules else {}
+        if content.get("join_rule") != "restricted" or room.membership(user_id) == "ban":
+            return False
+        return any(isinstance(allow, dict) and allow.get("type") == "m.room_membership"
+                   and allow.get("room_id") in self.rooms
+                   and self.rooms[allow["room_id"]].membership(user_id) == "join"
+                   for allow in content.get("allow", []))
 
     def _leave(self, req: Req, room_id: str) -> dict:
         """The spec's `POST /leave` (`{}`), modelled for rejecting an invite. H4 recorded no

@@ -1,6 +1,6 @@
 # Plan 00188: run.bash re-run prints no spurious pipx warnings
 
-**Status**: Not Started
+**Status**: In Progress
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: Low
@@ -35,16 +35,20 @@ or `--quiet`.
 
 ### Phase 1: Build (tests first)
 
-- [ ] ⬜ **Task 1.1**: A test drives the inject step with a stub `pipx`: all present (no
+- [x] ✅ **Task 1.1**: A test drives the inject step with a stub `pipx`: all present (no
   inject, one line), one missing (only it injected), an inject failure (run stops), and
   unreadable `pipx list --json` output (run stops, never assumes present).
-- [ ] ⬜ **Task 1.2**: `run.bash` reads the injected set and injects only the missing ones.
-  `RUN_BASH_VERSION` patch bump and `docs/run-bash-changelog.md` entry.
+  `scripts/test-run-bash-pipx-inject.bash`, gate `run-bash-pipx-inject`.
+- [x] ✅ **Task 1.2**: `run.bash` reads the injected set and injects only the missing ones.
+  `RUN_BASH_VERSION` patch bump and `docs/run-bash-changelog.md` entry. Shipped as 1.32.1,
+  within the bash-limits ratchet: "is Ansible installed" is now the venv directory, not a
+  `pipx list --short` match, which pays for the new statements.
 - [ ] ⬜ **Task 1.3**: `qa-all.bash`; the `qa-reviewer` agent.
 
 ## Success Criteria
 
-- [ ] A re-run on a complete install shows no ⚠️ line from pipx.
+- [ ] A re-run on a complete install shows no ⚠️ line from pipx. Confirmed by the owner's
+  next `./run.bash` re-run; no meta-deploy entry, as that queue does not run the install step.
 - [ ] Deleting one injected package and re-running injects exactly that one.
 
 ## Delivery & Milestones

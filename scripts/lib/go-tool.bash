@@ -23,7 +23,7 @@ run_go_tool() {
     GO_TOOL_BIN_DIR="$(mktemp -d -p "$cache")"
     trap 'rm -rf "$GO_TOOL_BIN_DIR"' EXIT
     if ! go build -C "$qa_dir" -o "$GO_TOOL_BIN_DIR/$tool" "./cmd/$tool"; then
-        echo "✗ $tool: the tool did not build (src-go/qa/cmd/$tool); qa-go.bash checks it" >&2
+        echo "✗ $tool: the tool did not build (src-go/qa/cmd/$tool); the Go gate (qa-go-qa.bash) checks it" >&2
         return 2
     fi
     "$GO_TOOL_BIN_DIR/$tool" "$@" || status=$?

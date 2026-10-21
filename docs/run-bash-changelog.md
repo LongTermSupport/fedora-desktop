@@ -15,6 +15,13 @@ the index, not the record.
 
 ---
 
+## 1.32.1 — a re-run injects only the missing Ansible dependencies (Plan 00188)
+
+The Ansible step reads the venv's injected packages from `pipx list --json` and injects only
+the ones it lacks, so a re-run on a complete install prints one `✓` line and no pipx
+warnings. A missing dependency is still injected, and a failed inject or an unreadable
+listing stops the run. Whether Ansible is installed is now judged by its venv directory.
+
 ## 1.32.0 — a play run by meta-deploy does not offer to file an issue
 
 A failed attended play offers to file a GitHub issue. With `RUN_BASH_OFFER_ISSUE=0` it does

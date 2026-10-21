@@ -1,6 +1,6 @@
 # Plan 00189: play-cli-tools verifies the ouch tarball against a pinned sha256
 
-**Status**: Not Started
+**Status**: In Progress
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: Low
@@ -39,12 +39,20 @@ digest.
 
 ### Phase 1: Build
 
-- [ ] ⬜ **Task 1.1**: Re-derive the sha256 of `ouch-x86_64-unknown-linux-musl.tar.gz` at the
-  pinned version from the release; list which architectures the play supports.
-- [ ] ⬜ **Task 1.2**: Add `checksum:` to the download task, the digest beside `ouchVersion`
+- [x] ✅ **Task 1.1**: Re-derive the sha256 of `ouch-x86_64-unknown-linux-musl.tar.gz` at the
+  pinned version from the release; list which architectures the play supports. Taken from
+  the release API's published asset `digest` and confirmed by a fresh download; the play
+  supports `x86_64` musl only (`ouchArch` is fixed), so one digest.
+- [x] ✅ **Task 1.2**: Add `checksum:` to the download task, the digest beside `ouchVersion`
   (and in `vars/version-pins.yml` if that is where the checker reads it); `--syntax-check`.
-- [ ] ⬜ **Task 1.3**: `deploy.bash` (`play-cli-tools.yml`), an entry in `meta-deploy.bash`;
-  `qa-all.bash`; the `qa-reviewer` agent.
+  `ouchSha256` sits beside `ouchVersion`; a `get_url` with `checksum:` replaces the
+  unchecksummed `unarchive` of the URL. `vars/version-pins.yml` holds no pin values, so the
+  `update-versions` skill names the digest instead.
+- [ ] 🔄 **Task 1.3**: `deploy.bash` (`play-cli-tools.yml`), an entry in `meta-deploy.bash`;
+  `qa-all.bash`; the `qa-reviewer` agent. The play is queued directly in `meta-deploy.list`
+  (no `deploy.bash` needed for one play). `qa-all.bash` passed and the host run passed at F44
+  96454752 (ok=23 changed=1, the one change the checksum-verified download); the `qa-reviewer`
+  pass remains (the only open part of this task).
 
 ## Success Criteria
 

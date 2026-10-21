@@ -194,7 +194,7 @@ func (g *gate) proveRules(ctx context.Context, set ruleSet) error {
 	}
 	for _, lang := range languages {
 		fixture := fixtureOf[lang]
-		res, err := g.runTool(ctx, semgrepTimeout, "semgrep", "--test", "--metrics=off", "--disable-version-check",
+		res, err := g.runTool(ctx, semgrepTimeout, "semgrep", "--test", "--metrics=off", semgrepreport.TimeoutFlag, "--disable-version-check",
 			"--config", g.path(ruleFile), g.path(fixture))
 		if err != nil {
 			return err
