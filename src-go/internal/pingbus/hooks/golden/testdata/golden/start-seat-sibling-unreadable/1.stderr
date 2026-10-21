@@ -1,0 +1,1 @@
+pingbus: hook session-start: the seats cannot be read: team team-a: {world}/checkout/.claude/ccy/pingbus/seats/team-a/qa2/member.json: member.json is not valid JSON (JSONDecodeError)

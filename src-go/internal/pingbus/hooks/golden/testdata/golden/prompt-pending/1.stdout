@@ -1,0 +1,1 @@
+{"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "agent-bus: 3 pending (1 from humans, 1 from agents, 1 pings). Run `pingbus recv`."}}

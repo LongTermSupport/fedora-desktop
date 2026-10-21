@@ -1,0 +1,58 @@
+[
+ {
+  "method": "GET",
+  "path": "/_matrix/client/v3/rooms/%21RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR/state/m.room.create/",
+  "query": {
+   "format": "event"
+  },
+  "auth": "Bearer syt_member_token_for_team-a",
+  "content_type": "",
+  "body": ""
+ },
+ {
+  "method": "GET",
+  "path": "/_matrix/client/v3/rooms/%21RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR/state/agent_bus.team/",
+  "query": {
+   "format": "event"
+  },
+  "auth": "Bearer syt_member_token_for_team-a",
+  "content_type": "",
+  "body": ""
+ },
+ {
+  "method": "GET",
+  "path": "/_matrix/client/v3/rooms/%21RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR/state/m.room.power_levels/",
+  "query": {},
+  "auth": "Bearer syt_member_token_for_team-a",
+  "content_type": "",
+  "body": ""
+ },
+ {
+  "method": "GET",
+  "path": "/_matrix/client/v3/rooms/%21RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR/state/m.room.topic/",
+  "query": {
+   "format": "event"
+  },
+  "auth": "Bearer syt_member_token_for_team-a",
+  "content_type": "",
+  "body": ""
+ },
+ {
+  "method": "GET",
+  "path": "/_matrix/client/v3/rooms/%21RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR/state/agent_bus.rooms/",
+  "query": {
+   "format": "event"
+  },
+  "auth": "Bearer syt_member_token_for_team-a",
+  "content_type": "",
+  "body": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/_matrix/client/v3/rooms/%21RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR/send/m.room.message/{txn}",
+  "query": {},
+  "auth": "Bearer syt_member_token_for_team-a",
+  "content_type": "application/json",
+  "body": "{\"msgtype\": \"m.notice\", \"body\": \"[agent-bus] text -> @alice:team-a.agent-bus.internal @orch.1+workstation.podman:team-a.agent-bus.internal\\nmyrepo.1+workstation.podman left the team: session ended (exit)\", \"m.mentions\": {\"user_ids\": [\"@alice:team-a.agent-bus.internal\", \"@orch.1+workstation.podman:team-a.agent-bus.internal\"]}, \"agent_bus.text\": {\"v\": 1, \"to\": [\"@alice:team-a.agent-bus.internal\", \"@orch.1+workstation.podman:team-a.agent-bus.internal\"], \"text\": \"myrepo.1+workstation.podman left the team: session ended (exit)\"}}"
+ }
+]

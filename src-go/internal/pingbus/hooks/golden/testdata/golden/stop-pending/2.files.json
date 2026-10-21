@@ -1,0 +1,73 @@
+[
+ {
+  "path": "home",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "pingbus",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "pingbus/inject",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "pingbus/inject/d9741aef23cdc050.watch",
+  "kind": "file",
+  "mode": "0600",
+  "content": "watch 4242"
+ },
+ {
+  "path": "pingbus/stop-guard.json",
+  "kind": "file",
+  "mode": "0600",
+  "content": "{\"v\":1,\"pending\":\"9f3b8a50d81ef16c7d837faa2b9177a954d10bde8ecf8220dd1a720615e3d60e\",\"no_waker_ms\":null,\"failure_ms\":null}"
+ },
+ {
+  "path": "pingbus/team-a",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "pingbus/team-a/member.json",
+  "kind": "file",
+  "mode": "0600",
+  "content": "{\"protocol\": 1, \"team\": \"team-a\", \"user_id\": \"@myrepo.1+workstation.podman:team-a.agent-bus.internal\", \"server_name\": \"team-a.agent-bus.internal\", \"base_url\": \"{hs}\", \"plain_http_hosts\": [\"127.0.0.1\"], \"token_file\": \"token\", \"admin\": \"@admin:team-a.agent-bus.internal\", \"room\": \"!RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR\"}"
+ },
+ {
+  "path": "pingbus/team-a/state",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "pingbus/team-a/state/consumed",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "pingbus/team-a/state/inbox",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "pingbus/team-a/state/inbox/$0000000000000000000000000000000000000000001.json",
+  "kind": "file",
+  "mode": "0600",
+  "content": "{\"type\":\"m.room.message\",\"event_id\":\"$0000000000000000000000000000000000000000001\",\"sender\":\"@alice:team-a.agent-bus.internal\",\"origin_server_ts\":1790999940001,\"content\":{\"msgtype\":\"m.text\",\"body\":\"please look at the build\",\"m.mentions\":{\"user_ids\":[\"@myrepo.1+workstation.podman:team-a.agent-bus.internal\"]}}}"
+ },
+ {
+  "path": "pingbus/team-a/state/team.json",
+  "kind": "file",
+  "mode": "0600",
+  "content": "{\"v\":1,\"team\":\"team-a\",\"humans\":[\"@alice:team-a.agent-bus.internal\"],\"roles\":{\"@myrepo.1+workstation.podman:team-a.agent-bus.internal\":\"worker\",\"@orch.1+workstation.podman:team-a.agent-bus.internal\":\"coordinator\"},\"repos\":[{\"repo\":\"example-org/myrepo\",\"branches\":[\"main\"]}],\"path_prefixes\":[\"docs/\"],\"forge_api\":\"https://api.github.com\"}"
+ },
+ {
+  "path": "pingbus/team-a/token",
+  "kind": "file",
+  "mode": "0600",
+  "content": "syt_member_token_for_team-a"
+ }
+]

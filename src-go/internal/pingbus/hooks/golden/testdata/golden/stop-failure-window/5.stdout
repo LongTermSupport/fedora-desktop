@@ -1,0 +1,1 @@
+{"decision": "block", "reason": "agent-bus: a team room is not trusted, or not verified yet. Run `pingbus status`."}

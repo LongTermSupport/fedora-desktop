@@ -1,0 +1,115 @@
+[
+ {
+  "path": "home",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "pingbus",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "pingbus/inject",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "pingbus/inject/d9741aef23cdc050.transcript",
+  "kind": "file",
+  "mode": "0600",
+  "content": "/run/pingbus-golden/transcript.jsonl"
+ },
+ {
+  "path": "pingbus/inject/d9741aef23cdc050.watch",
+  "kind": "file",
+  "mode": "0600",
+  "content": "watch 4242"
+ },
+ {
+  "path": "pingbus/team-a",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "pingbus/team-a/member.json",
+  "kind": "file",
+  "mode": "0600",
+  "content": "{\"protocol\": 1, \"team\": \"team-a\", \"user_id\": \"@myrepo.1+workstation.podman:team-a.agent-bus.internal\", \"server_name\": \"team-a.agent-bus.internal\", \"base_url\": \"{hs}\", \"plain_http_hosts\": [\"127.0.0.1\"], \"token_file\": \"token\", \"admin\": \"@admin:team-a.agent-bus.internal\", \"room\": \"!RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR\"}"
+ },
+ {
+  "path": "pingbus/team-a/state",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "pingbus/team-a/state/consumed",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "pingbus/team-a/state/inbox",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "pingbus/team-a/state/inbox/$0000000000000000000000000000000000000000001.json",
+  "kind": "file",
+  "mode": "0600",
+  "content": "{\"type\":\"m.room.message\",\"event_id\":\"$0000000000000000000000000000000000000000001\",\"sender\":\"@alice:team-a.agent-bus.internal\",\"origin_server_ts\":1790999940001,\"content\":{\"msgtype\":\"m.text\",\"body\":\"please look at the build\",\"m.mentions\":{\"user_ids\":[\"@myrepo.1+workstation.podman:team-a.agent-bus.internal\"]}}}"
+ },
+ {
+  "path": "pingbus/team-a/state/inbox/$0000000000000000000000000000000000000000002.json",
+  "kind": "file",
+  "mode": "0600",
+  "content": "{\"type\":\"m.room.message\",\"event_id\":\"$0000000000000000000000000000000000000000002\",\"sender\":\"@orch.1+workstation.podman:team-a.agent-bus.internal\",\"origin_server_ts\":1790999940002,\"content\":{\"msgtype\":\"m.notice\",\"body\":\"[agent-bus] text -> @myrepo.1+workstation.podman:team-a.agent-bus.internal\\nthe build is green\",\"m.mentions\":{\"user_ids\":[\"@myrepo.1+workstation.podman:team-a.agent-bus.internal\"]},\"agent_bus.text\":{\"v\":1,\"to\":[\"@myrepo.1+workstation.podman:team-a.agent-bus.internal\"],\"text\":\"the build is green\"}}}"
+ },
+ {
+  "path": "pingbus/team-a/state/inbox/$0000000000000000000000000000000000000000003.json",
+  "kind": "file",
+  "mode": "0600",
+  "content": "{\"type\":\"m.room.message\",\"event_id\":\"$0000000000000000000000000000000000000000003\",\"sender\":\"@orch.1+workstation.podman:team-a.agent-bus.internal\",\"origin_server_ts\":1790999940003,\"content\":{\"msgtype\":\"m.notice\",\"body\":\"[agent-bus] review path:example-org/myrepo@0123456789abcdef0123456789abcdef01234567:docs/x.md -> @myrepo.1+workstation.podman:team-a.agent-bus.internal\",\"m.mentions\":{\"user_ids\":[\"@myrepo.1+workstation.podman:team-a.agent-bus.internal\"]},\"agent_bus.ping\":{\"v\":1,\"verb\":\"review\",\"to\":[\"@myrepo.1+workstation.podman:team-a.agent-bus.internal\"],\"ref\":\"path:example-org/myrepo@0123456789abcdef0123456789abcdef01234567:docs/x.md\"}}}"
+ },
+ {
+  "path": "pingbus/team-a/state/inbox/$0000000000000000000000000000000000000000004.json",
+  "kind": "file",
+  "mode": "0600",
+  "content": "{garbled"
+ },
+ {
+  "path": "pingbus/team-a/state/inbox/.$0000000000000000000000000000000000000000005.json.0123456789abcdef.tmp",
+  "kind": "file",
+  "mode": "0600",
+  "content": "{"
+ },
+ {
+  "path": "pingbus/team-a/state/inbox/not-an-event.json",
+  "kind": "file",
+  "mode": "0600",
+  "content": "{\"type\":\"m.room.message\",\"event_id\":\"$0000000000000000000000000000000000000000006\",\"sender\":\"@alice:team-a.agent-bus.internal\",\"origin_server_ts\":1790999940006,\"content\":{\"msgtype\":\"m.text\",\"body\":\"please look at the build\",\"m.mentions\":{\"user_ids\":[\"@myrepo.1+workstation.podman:team-a.agent-bus.internal\"]}}}"
+ },
+ {
+  "path": "pingbus/team-a/state/team.json",
+  "kind": "file",
+  "mode": "0600",
+  "content": "{\"v\":1,\"team\":\"team-a\",\"humans\":[\"@alice:team-a.agent-bus.internal\"],\"roles\":{\"@myrepo.1+workstation.podman:team-a.agent-bus.internal\":\"worker\",\"@orch.1+workstation.podman:team-a.agent-bus.internal\":\"coordinator\"},\"repos\":[{\"repo\":\"example-org/myrepo\",\"branches\":[\"main\"]}],\"path_prefixes\":[\"docs/\"],\"forge_api\":\"https://api.github.com\"}"
+ },
+ {
+  "path": "pingbus/team-a/token",
+  "kind": "file",
+  "mode": "0600",
+  "content": "syt_member_token_for_team-a"
+ },
+ {
+  "path": "pingbus/told-roles.json",
+  "kind": "file",
+  "mode": "0600",
+  "content": "{\"roles\": {\"team-a\": \"worker\"}, \"v\": 1}\n"
+ },
+ {
+  "path": "pingbus/told.lock",
+  "kind": "file",
+  "mode": "0600",
+  "content": ""
+ }
+]

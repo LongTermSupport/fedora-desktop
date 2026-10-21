@@ -1,0 +1,50 @@
+[
+ {
+  "method": "GET",
+  "path": "/_matrix/client/v3/rooms/%21RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR/state/m.room.create/",
+  "query": {
+   "format": "event"
+  },
+  "auth": "Bearer syt_member_token_for_team-a",
+  "content_type": "",
+  "body": ""
+ },
+ {
+  "method": "GET",
+  "path": "/_matrix/client/v3/rooms/%21RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR/state/agent_bus.team/",
+  "query": {
+   "format": "event"
+  },
+  "auth": "Bearer syt_member_token_for_team-a",
+  "content_type": "",
+  "body": ""
+ },
+ {
+  "method": "GET",
+  "path": "/_matrix/client/v3/rooms/%21RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR/state/m.room.power_levels/",
+  "query": {},
+  "auth": "Bearer syt_member_token_for_team-a",
+  "content_type": "",
+  "body": ""
+ },
+ {
+  "method": "GET",
+  "path": "/_matrix/client/v3/rooms/%21RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR/state/m.room.topic/",
+  "query": {
+   "format": "event"
+  },
+  "auth": "Bearer syt_member_token_for_team-a",
+  "content_type": "",
+  "body": ""
+ },
+ {
+  "method": "GET",
+  "path": "/_matrix/client/v3/rooms/%21RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR/state/agent_bus.rooms/",
+  "query": {
+   "format": "event"
+  },
+  "auth": "Bearer syt_member_token_for_team-a",
+  "content_type": "",
+  "body": ""
+ }
+]

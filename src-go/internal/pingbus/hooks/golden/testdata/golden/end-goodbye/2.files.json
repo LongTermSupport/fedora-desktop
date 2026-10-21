@@ -1,0 +1,149 @@
+[
+ {
+  "path": "checkout",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "checkout/.claude",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "checkout/.claude/ccy",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "checkout/.claude/ccy/pingbus",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "checkout/.claude/ccy/pingbus/seats",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "checkout/.claude/ccy/pingbus/seats/team-a",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "checkout/.claude/ccy/pingbus/seats/team-a/dev1",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "checkout/.claude/ccy/pingbus/seats/team-a/dev1/member.json",
+  "kind": "file",
+  "mode": "0600",
+  "content": "{\"protocol\": 1, \"team\": \"team-a\", \"user_id\": \"@myrepo.1+workstation.podman:team-a.agent-bus.internal\", \"server_name\": \"team-a.agent-bus.internal\", \"base_url\": \"{hs}\", \"plain_http_hosts\": [\"127.0.0.1\"], \"token_file\": \"token\", \"admin\": \"@admin:team-a.agent-bus.internal\", \"room\": \"!RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR\"}"
+ },
+ {
+  "path": "checkout/.claude/ccy/pingbus/seats/team-a/dev1/said-goodbye.json",
+  "kind": "file",
+  "mode": "0600",
+  "content": "{\"v\":1,\"claimed_ms\":1234}"
+ },
+ {
+  "path": "checkout/.claude/ccy/pingbus/seats/team-a/dev1/seat.lock",
+  "kind": "file",
+  "mode": "0600",
+  "content": "seat 1234"
+ },
+ {
+  "path": "checkout/.claude/ccy/pingbus/seats/team-a/dev1/state",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "checkout/.claude/ccy/pingbus/seats/team-a/dev1/state/consumed",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "checkout/.claude/ccy/pingbus/seats/team-a/dev1/state/inbox",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "checkout/.claude/ccy/pingbus/seats/team-a/dev1/state/lock",
+  "kind": "file",
+  "mode": "0600",
+  "content": "watch 4242"
+ },
+ {
+  "path": "checkout/.claude/ccy/pingbus/seats/team-a/dev1/state/outbox.json",
+  "kind": "file",
+  "mode": "0600",
+  "content": "{\"v\":1,\"pings\":[],\"gate\":{\"bucket\":{\"credit\":540000,\"at_ms\":1791000060000},\"recent\":{}}}"
+ },
+ {
+  "path": "checkout/.claude/ccy/pingbus/seats/team-a/dev1/state/team.json",
+  "kind": "file",
+  "mode": "0600",
+  "content": "{\"forge_api\":\"https://api.github.com\",\"humans\":[\"@alice:team-a.agent-bus.internal\"],\"path_prefixes\":[\"docs/\"],\"repos\":[{\"branches\":[\"main\"],\"repo\":\"example-org/myrepo\"}],\"roles\":{\"@myrepo.1+workstation.podman:team-a.agent-bus.internal\":\"worker\",\"@orch.1+workstation.podman:team-a.agent-bus.internal\":\"coordinator\"},\"team\":\"team-a\",\"v\":1}"
+ },
+ {
+  "path": "checkout/.claude/ccy/pingbus/seats/team-a/dev1/token",
+  "kind": "file",
+  "mode": "0600",
+  "content": "syt_member_token_for_team-a"
+ },
+ {
+  "path": "checkout/.claude/ccy/pingbus/seats/team-a/qa2",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "checkout/.claude/ccy/pingbus/seats/team-a/qa2/member.json",
+  "kind": "file",
+  "mode": "0600",
+  "content": "{\"protocol\": 1, \"team\": \"team-a\", \"user_id\": \"@myrepo.qa2+local.podman:team-a.agent-bus.internal\", \"server_name\": \"team-a.agent-bus.internal\", \"base_url\": \"{hs}\", \"plain_http_hosts\": [\"127.0.0.1\"], \"token_file\": \"token\", \"admin\": \"@admin:team-a.agent-bus.internal\", \"room\": \"!RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR\"}"
+ },
+ {
+  "path": "home",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "pingbus",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "pingbus/goodbye.json",
+  "kind": "file",
+  "mode": "0600",
+  "content": "{\"v\":1,\"session\":\"sess-1\"}"
+ },
+ {
+  "path": "pingbus/inject",
+  "kind": "dir",
+  "mode": "0700"
+ },
+ {
+  "path": "pingbus/team-a",
+  "kind": "symlink",
+  "mode": "",
+  "target": "{world}/checkout/.claude/ccy/pingbus/seats/team-a/dev1"
+ },
+ {
+  "path": "pingbus/told-roles.json",
+  "kind": "file",
+  "mode": "0600",
+  "content": "{\"roles\": {\"team-a\": \"worker\"}, \"v\": 1}\n"
+ },
+ {
+  "path": "pingbus/told.lock",
+  "kind": "file",
+  "mode": "0600",
+  "content": ""
+ },
+ {
+  "path": "sessions",
+  "kind": "dir",
+  "mode": "0700"
+ }
+]

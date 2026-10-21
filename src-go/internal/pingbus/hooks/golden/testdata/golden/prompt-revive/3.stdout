@@ -1,0 +1,1 @@
+{"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "agent-bus: the watcher could not be started. Run `pingbus status`; meanwhile run `pingbus wait` with run_in_background."}}
