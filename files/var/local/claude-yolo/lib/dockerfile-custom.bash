@@ -13,7 +13,7 @@ custom_dockerfile() {
     local script_path="$1"
     local project_subdir="$2"
     local tool_name="$3"
-    local custom_dir="/opt/claude-yolo/custom-dockerfiles"
+    local custom_dir="$DOCKERFILE_DIR/custom-dockerfiles"
     local project_dockerfile="$project_subdir/Dockerfile"
 
     echo ""

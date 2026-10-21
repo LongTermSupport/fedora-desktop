@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.99.13.12"  # Container 2.78.11: the unused bash take-over removed from tmux-session.bash (Plan 00191). See docs/ccy-changelog.md.
+CCY_VERSION="3.99.13.14"  # Container 2.78.11: host paths overridable and checked for the differential harness, temp files follow TMPDIR (Plan 00191). See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,7 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # from lib/ (see CCY_HASH), because a hand-written list of what the program
 # consists of is a list that goes stale — this one omitted common-pure.bash,
 # which common.bash sources, for two months.
-CCY_LIBS=(common token-management ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session agent-bus-membership agent-bus-seats)
+CCY_LIBS=(common host-paths token-management ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session agent-bus-membership agent-bus-seats)
 
 if [ -f "$SCRIPT_DIR/lib/common.bash" ]; then
     source "$SCRIPT_DIR/lib/common.bash"
@@ -50,6 +50,8 @@ for lib in "${CCY_LIBS[@]}"; do
     fi
 done
 
+# shellcheck source=lib/host-paths.bash
+source "$SCRIPT_DIR/lib/host-paths.bash"
 # shellcheck source=lib/token-management.bash
 source "$SCRIPT_DIR/lib/token-management.bash"
 # shellcheck source=lib/ssh-handling.bash
@@ -130,7 +132,6 @@ CONFIG_VERSION=2
 IMAGE_NAME="claude-yolo:latest"
 # Base image (no LSPs) - available for project Dockerfiles that want leaner images
 BASE_IMAGE_NAME="claude-yolo:base"
-DOCKERFILE_DIR="/opt/claude-yolo"
 CCY_ROOT="$HOME/.claude-tokens/ccy"
 TOKEN_DIR="$CCY_ROOT/tokens"
 PROJECT_DIR="$CCY_ROOT/projects"
@@ -1060,7 +1061,7 @@ if [ "$SHOW_DEBUG_CHOOSER" = true ]; then
     # Other layers (entrypoint, Claude) don't need log files
     if [ "$DEBUG_CCY" = true ]; then
         DEBUG_MODE=true
-        DEBUG_LOG="/tmp/ccy-debug-$(date +%Y%m%d-%H%M%S).log"
+        DEBUG_LOG="${TMPDIR:-/tmp}/ccy-debug-$(date +%Y%m%d-%H%M%S).log"
         echo ""
         echo "Debug logging to: $DEBUG_LOG"
         echo ""
@@ -2166,7 +2167,7 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
 
         # Use buildkit for cache mounts and pass Dockerfile hash
         # Capture output to temp file for error reporting while still displaying live
-        build_log=$(mktemp /tmp/ccy-build-XXXXXX.log)
+        build_log=$(mktemp "${TMPDIR:-/tmp}/ccy-build-XXXXXX.log")
 
         # Defined inline so $project_dockerfile_hash, $PROJECT_IMAGE_NAME, etc. stay in scope.
         # Re-invoked once after a rootless-buildah-cache recovery; see below.
@@ -2216,12 +2217,12 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
             # and inject a diagnostic prompt so Claude can fix the Dockerfile interactively.
             # BSH-10: mktemp so the diagnostic log can't collide across runs or
             # be redirected through a pre-planted symlink at a fixed path.
-            build_failure_log=$(mktemp /tmp/ccy-dockerfile-build-failure-XXXXXX.log)
+            build_failure_log=$(mktemp "${TMPDIR:-/tmp}/ccy-dockerfile-build-failure-XXXXXX.log")
             cp "$build_log" "$build_failure_log"
             rm -f "$build_log"
 
             # Build diagnostic prompt (full log path + last 50 lines inline for context)
-            fix_prompt_file=$(mktemp /tmp/ccy-fix-dockerfile-XXXXXX.txt)
+            fix_prompt_file=$(mktemp "${TMPDIR:-/tmp}/ccy-fix-dockerfile-XXXXXX.txt")
             {
                 echo "The custom Dockerfile at .claude/ccy/Dockerfile failed to build."
                 echo ""
@@ -2361,7 +2362,7 @@ debug "Config .claude.json will be created inside container by entrypoint"
 # BSH-10: mktemp -d (not a predictable /tmp/claude-yolo-$PID) so a hostile or
 # leftover directory cannot pre-seed the destination, and 0700/0600 modes keep
 # the gitconfig (which may carry credential-helper / signing config) private.
-CONFIG_TEMP=$(mktemp -d /tmp/claude-yolo-XXXXXX)
+CONFIG_TEMP=$(mktemp -d "${TMPDIR:-/tmp}/claude-yolo-XXXXXX")
 chmod 700 "$CONFIG_TEMP"
 
 # Copy git config to temp location for entrypoint
@@ -3480,7 +3481,7 @@ elif [ -n "$PROMPT_TEXT" ]; then
 elif [ ${#CLAUDE_ARGS[@]} -eq 0 ]; then
     # No user arguments - pass startup info via system prompt instead of user message
     # This prevents informational messages from triggering Claude thinking
-    STARTUP_INFO_FILE="/opt/claude-yolo/ccy-startup-info.txt"
+    STARTUP_INFO_FILE="$DOCKERFILE_DIR/ccy-startup-info.txt"
     if [ ! -f "$STARTUP_INFO_FILE" ]; then
         print_error "Startup info file not found: $STARTUP_INFO_FILE"
         exit 1
@@ -3577,8 +3578,8 @@ fi
 # GPU render nodes for hardware-accelerated browser rendering — only where the host has any.
 # A headless server has no /dev/dri, and podman aborts the run on a --device that does not
 # exist (gpu_device_flags in lib/common-pure.bash says why and is where this is tested).
-GPU_DEVICE_FLAGS=()
-mapfile -t GPU_DEVICE_FLAGS < <(gpu_device_flags /dev/dri)
+# GPU_DEVICE_DIR is /dev/dri unless CCY_GPU_DEVICE_DIR overrides it (lib/host-paths.bash).
+mapfile -t GPU_DEVICE_FLAGS < <(gpu_device_flags "$GPU_DEVICE_DIR")
 if [ "${#GPU_DEVICE_FLAGS[@]}" -eq 0 ]; then
     debug "No /dev/dri on this host — no GPU passed to the container; browser rendering is software-only"
 fi
@@ -3721,7 +3722,7 @@ ccy_tz_link=""
 if [ -L /etc/localtime ]; then
     ccy_tz_link="$(readlink /etc/localtime)"
 fi
-if ! CCY_HOST_TZ="$(ccy_host_time_zone "$ccy_tz_timedatectl" "$ccy_tz_link" /usr/share/zoneinfo)"; then
+if ! CCY_HOST_TZ="$(ccy_host_time_zone "$ccy_tz_timedatectl" "$ccy_tz_link" "$ZONEINFO_DIR")"; then
     print_error "Could not determine the host time zone — see the reason above."
     exit 1
 fi
