@@ -56,16 +56,23 @@ func parseTeamRecord(content any, server, team string) (map[string]string, error
 	if err != nil {
 		return nil, err
 	}
-	if value, present := record["path_prefixes"]; present {
-		prefixes, isList := listOf(value, 1, pathPrefixesMax)
-		if !isList || !all(prefixes, isPathPrefix) {
-			return nil, untrusted("path_prefixes")
-		}
+	if !pathPrefixesOK(record) {
+		return nil, untrusted("path_prefixes")
 	}
 	if forge, isText := record["forge_api"].(string); !isText || !isForgeAPI(forge) {
 		return nil, untrusted("forge_api")
 	}
 	return roles, checkTrust(record)
+}
+
+// pathPrefixesOK is whether the optional path_prefixes, when present, is a list of path prefixes.
+func pathPrefixesOK(record pyjson.Object) bool {
+	value, present := record["path_prefixes"]
+	if !present {
+		return true
+	}
+	prefixes, isList := listOf(value, 1, pathPrefixesMax)
+	return isList && all(prefixes, isPathPrefix)
 }
 
 func hasTeamKeys(record pyjson.Object) bool {
@@ -225,10 +232,7 @@ func isPathPrefix(value any) bool {
 	if !ok {
 		return false
 	}
-	if strings.HasSuffix(text, "/") {
-		text = text[:len(text)-1]
-	}
-	segments := strings.Split(text, "/")
+	segments := strings.Split(strings.TrimSuffix(text, "/"), "/")
 	if len(segments) > pathMaxSegments {
 		return false
 	}

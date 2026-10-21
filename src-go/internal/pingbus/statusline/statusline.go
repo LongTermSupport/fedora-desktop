@@ -12,8 +12,11 @@ import (
 	"context"
 	"errors"
 	"io"
+	"maps"
 	"os"
+	"os/user"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -21,6 +24,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/pingbus/pyjson"
 )
 
 const (
@@ -34,6 +38,7 @@ const (
 	label       = "👥"
 	roleUnknown = "role?"
 	noRecord    = "no record of this session's teams (pingbus status)"
+	notRun      = "(status line could not be run)"
 	cyan        = "\x1b[36m"
 	red         = "\x1b[31m"
 	reset       = "\x1b[0m"
@@ -42,12 +47,24 @@ const (
 // sessionIDPattern is what a session id must match to name a record (S18).
 var sessionIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
-// Input is one render: the environment the status line sees, its working directory, and the
-// session JSON Claude Code wrote on stdin.
+// Input is one render: the environment the status line sees, its working directory, the
+// session JSON Claude Code wrote on stdin, the clock, and the passwd home of a uid. A nil Now
+// is time.Now and a nil UserHome is the passwd database.
 type Input struct {
-	Env   map[string]string
-	Cwd   string
-	Stdin []byte
+	Env      map[string]string
+	Cwd      string
+	Stdin    []byte
+	Now      func() time.Time
+	UserHome func(uid int) (string, error)
+}
+
+// passwdHome is the passwd database's home of uid.
+func passwdHome(uid int) (string, error) {
+	u, err := user.LookupId(strconv.Itoa(uid))
+	if err != nil {
+		return "", err
+	}
+	return u.HomeDir, nil
 }
 
 // cancelled is the error a render ends with when a signal cancelled it.
@@ -64,9 +81,14 @@ var errInnerTimeout = errors.New("the inner status line timed out")
 // and the caller prints nothing. Diagnostics go to stderr; the inner command's own stderr is
 // written there too.
 func Run(ctx context.Context, in Input, stderr io.Writer) ([]byte, int) {
+	if in.Now == nil {
+		in.Now = time.Now
+	}
+	if in.UserHome == nil {
+		in.UserHome = passwdHome
+	}
 	text, err := render(ctx, in, stderr)
-	var c cancelled
-	if errors.As(err, &c) {
+	if c, ok := errors.AsType[cancelled](err); ok {
 		return nil, 128 + int(c)
 	}
 	return []byte(text + "\n"), 0
@@ -83,57 +105,69 @@ func render(ctx context.Context, in Input, stderr io.Writer) (string, error) {
 			return "", err
 		}
 	}
-	segment, err := segmentText(ctx, in, payload, stderr)
+	seg, err := segmentText(ctx, in, payload, stderr)
 	if err != nil {
 		return "", err
 	}
 	switch {
-	case segment == "":
+	case seg == "":
 		return inner, nil
 	case inner == "":
-		return segment, nil
+		return seg, nil
 	}
-	return inner + "\n" + segment, nil
+	return inner + "\n" + seg, nil
 }
 
 // Cancel is the cause a caller cancels the render's context with when a signal arrives, so
 // that Run ends with 128 plus that signal.
 func Cancel(sig syscall.Signal) error { return cancelled(sig) }
 
+// CancelStatus is the exit status of a render whose context was cancelled with Cancel: 128 plus
+// the signal. It is 0 when the context carries no such cancel.
+func CancelStatus(ctx context.Context) int {
+	if c, ok := errors.AsType[cancelled](cancelOf(ctx)); ok {
+		return 128 + int(c)
+	}
+	return 0
+}
+
 // cancelOf reports the cancel a context carries, if any.
 func cancelOf(ctx context.Context) error {
 	if ctx.Err() == nil {
 		return nil
 	}
-	if c, ok := context.Cause(ctx).(cancelled); ok {
+	if c, ok := errors.AsType[cancelled](context.Cause(ctx)); ok {
 		return c
 	}
 	return ctx.Err()
 }
 
 // parsePayload is the session JSON as an object. Anything else reads as an empty object (S18).
-func parsePayload(raw []byte) map[string]any {
-	if len(raw) > inputMaxBytes || !utf8.Valid(raw) {
-		return map[string]any{}
+func parsePayload(raw []byte) pyjson.Object {
+	if len(raw) > inputMaxBytes {
+		return pyjson.Object{}
 	}
-	data, err := decodeJSON(raw)
+	data, err := pyjson.DecodeUTF8(raw, pyjson.Options{})
 	if err != nil {
-		return map[string]any{}
+		return pyjson.Object{}
 	}
-	if object, ok := data.(map[string]any); ok {
+	if object, ok := data.(pyjson.Object); ok {
 		return object
 	}
-	return map[string]any{}
+	return pyjson.Object{}
 }
 
 // projectDir is the first absolute path among the payload's workspace.project_dir, the
 // CLAUDE_PROJECT_DIR variable and the payload's cwd (S6).
-func projectDir(payload map[string]any, env map[string]string) (string, bool) {
+func projectDir(payload pyjson.Object, env map[string]string) (string, bool) {
 	var candidates []any
-	if workspace, ok := payload["workspace"].(map[string]any); ok {
+	if workspace, ok := payload["workspace"].(pyjson.Object); ok {
 		candidates = append(candidates, workspace["project_dir"])
 	}
-	candidates = append(candidates, env["CLAUDE_PROJECT_DIR"], payload["cwd"])
+	if value, ok := env["CLAUDE_PROJECT_DIR"]; ok {
+		candidates = append(candidates, value)
+	}
+	candidates = append(candidates, payload["cwd"])
 	for _, value := range candidates {
 		if s, ok := value.(string); ok && strings.HasPrefix(s, "/") {
 			return s, true
@@ -143,12 +177,11 @@ func projectDir(payload map[string]any, env map[string]string) (string, bool) {
 }
 
 // innerText is the inner status line's text, with a red note when it could not be had cleanly.
-func innerText(ctx context.Context, in Input, payload map[string]any, stderr io.Writer) (string, error) {
+func innerText(ctx context.Context, in Input, payload pyjson.Object, stderr io.Writer) (string, error) {
 	project, hasProject := projectDir(payload, in.Env)
-	line, err := innerCommand(project, hasProject, in.Env)
+	line, err := innerCommand(project, hasProject, in.Env, in.Cwd)
 	if err != nil {
-		var se *settingsError
-		if errors.As(err, &se) {
+		if se, ok := errors.AsType[*settingsError](err); ok {
 			return red + "status line: " + se.Error() + reset, nil
 		}
 		return "", err
@@ -169,8 +202,11 @@ func innerText(ctx context.Context, in Input, payload map[string]any, stderr io.
 		return text, nil
 	}
 	note := "(status line exit " + strconv.Itoa(status) + ")"
-	if status == timedOut {
+	switch status {
+	case timedOut:
 		note = "(status line timed out after 10 s)"
+	case notStarted:
+		note = notRun
 	}
 	if text == "" {
 		return red + note + reset, nil
@@ -178,17 +214,19 @@ func innerText(ctx context.Context, in Input, payload map[string]any, stderr io.
 	return text + " " + red + note + reset, nil
 }
 
+// notStarted is the status of an inner command that could not be started at all.
+const notStarted = -1 << 16
+
 // runInner runs the inner command as `/bin/sh -c`, in its own session, with the payload on
 // stdin and this process's environment plus the loop guard (S9 to S14). Its stdout is decoded
-// as UTF-8 with replacement; its stderr goes to stderr as it is written.
+// as UTF-8 with replacement; its stderr goes to stderr as it is written. A command that could
+// not be started has the status notStarted; only a cancel is an error.
 func runInner(ctx context.Context, line string, in Input, dir string, stderr io.Writer) (string, int, error) {
 	if err := cancelOf(ctx); err != nil {
 		return "", 0, err
 	}
 	env := make(map[string]string, len(in.Env)+1)
-	for k, v := range in.Env {
-		env[k] = v
-	}
+	maps.Copy(env, in.Env)
 	env[innerVar] = "1"
 	inner, stop := context.WithTimeoutCause(ctx, innerTimeout, errInnerTimeout)
 	defer stop()
@@ -209,36 +247,23 @@ func runInner(ctx context.Context, line string, in Input, dir string, stderr io.
 	if errors.Is(context.Cause(inner), errInnerTimeout) {
 		return "", timedOut, nil
 	}
-	if err != nil && !isExit(err) {
-		return "", 0, err
-	}
-	return decodeLossy(res.Stdout), statusOf(res, err), nil
-}
-
-func isExit(err error) bool {
-	var exitErr *execx.ExitError
-	return errors.As(err, &exitErr)
-}
-
-// statusOf is the process's status as Python's returncode: its exit code, or the negative
-// number of the signal that ended it.
-func statusOf(res execx.Result, err error) int {
-	var exitErr *execx.ExitError
+	exitErr, isExit := errors.AsType[*execx.ExitError](err)
 	switch {
 	case err == nil:
-		return 0
-	case errors.As(err, &exitErr) && exitErr.Signal != 0:
-		return -int(exitErr.Signal)
-	case errors.As(err, &exitErr):
-		return exitErr.Code
+		return decodeLossy(res.Stdout), 0, nil
+	case !isExit:
+		return "", notStarted, nil
+	case exitErr.Signal != 0:
+		return decodeLossy(res.Stdout), -int(exitErr.Signal), nil
 	}
-	return res.ExitCode
+	return decodeLossy(res.Stdout), exitErr.Code, nil
 }
 
+// envPairs is env as NAME=value pairs, sorted by name so a run is the same every time.
 func envPairs(env map[string]string) []string {
 	pairs := make([]string, 0, len(env))
-	for k, v := range env {
-		pairs = append(pairs, k+"="+v)
+	for _, k := range slices.Sorted(maps.Keys(env)) {
+		pairs = append(pairs, k+"="+env[k])
 	}
 	return pairs
 }
@@ -248,8 +273,8 @@ func envPairs(env map[string]string) []string {
 func unsetFor(env map[string]string) []string {
 	var names []string
 	for _, kv := range os.Environ() {
-		name := strings.SplitN(kv, "=", 2)[0]
-		if _, ok := env[name]; !ok {
+		name, _, found := strings.Cut(kv, "=")
+		if _, ok := env[name]; found && !ok {
 			names = append(names, name)
 		}
 	}
@@ -273,33 +298,52 @@ func isDir(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// segmentText is the bus segment: the teams the session is on, with the roles, or a red note.
-func segmentText(ctx context.Context, in Input, payload map[string]any, stderr io.Writer) (string, error) {
+// segmentText is the bus segment, from the cache when it holds a good entry (S32 to S36). Its
+// role diagnostic goes to stderr on both paths, before the segment (S24, S35).
+func segmentText(ctx context.Context, in Input, payload pyjson.Object, stderr io.Writer) (string, error) {
 	if err := cancelOf(ctx); err != nil {
 		return "", err
 	}
-	marker, has := in.Env[membershipVar]
+	w := newWorld(in.Cwd, in.Now(), in.UserHome)
+	id := sessionID(payload)
+	seg, err := cachedSegment(ctx, w, in.Env, id, in.Cwd, func(w *world) (segment, error) {
+		return w.segment(ctx, in.Env, id)
+	})
+	if err != nil {
+		return "", err
+	}
+	if seg.problem != "" {
+		if _, err := io.WriteString(stderr, seg.problem+"\n"); err != nil {
+			return "", err
+		}
+	}
+	return seg.text, nil
+}
+
+// segment is the teams the session is on, with the roles, or a red note.
+func (w *world) segment(ctx context.Context, env map[string]string, id string) (segment, error) {
+	marker, has := env[membershipVar]
 	if has && marker != membershipOff && strings.HasPrefix(marker, "/") {
-		found, ok := membershipTeams(in.Env)
+		found, ok := w.membershipTeams(env)
 		if !ok {
-			return note(in.Env, noMembership), nil
+			return segment{text: note(env, noMembership)}, nil
 		}
 		if len(found) == 0 {
-			return "", nil
+			return segment{}, nil
 		}
-		return teamsText(ctx, in, found, stderr)
+		return w.teamsText(ctx, env, found)
 	}
-	if teams, ok := sessionTeams(in.Env, sessionID(payload)); ok {
-		return teamsText(ctx, in, teams, stderr)
+	if teams, ok := w.sessionTeams(env, id); ok {
+		return w.teamsText(ctx, env, teams)
 	}
-	if in.Env["PINGBUS_TEAMS"] != "" {
-		return note(in.Env, noRecord), nil
+	if env["PINGBUS_TEAMS"] != "" {
+		return segment{text: note(env, noRecord)}, nil
 	}
-	return "", nil
+	return segment{}, nil
 }
 
 // sessionID is the payload's session_id when it is a name a record can be filed under.
-func sessionID(payload map[string]any) string {
+func sessionID(payload pyjson.Object) string {
 	id, ok := payload["session_id"].(string)
 	if !ok || !sessionIDPattern.MatchString(id) {
 		return ""
@@ -307,53 +351,48 @@ func sessionID(payload map[string]any) string {
 	return id
 }
 
-// teamsText is the teams, each with its role and marks, wrapped to COLUMNS (S26 to S29). A
-// role diagnostic goes to stderr once, before the segment (S24).
-func teamsText(ctx context.Context, in Input, teams []string, stderr io.Writer) (string, error) {
-	roles, problem := readRoles(in.Env, teams)
-	if problem != "" {
-		if _, err := io.WriteString(stderr, problem+"\n"); err != nil {
-			return "", err
-		}
-	}
+// teamsText is the teams, each with its role and marks, wrapped to COLUMNS (S26 to S29), and
+// the role diagnostic (S24).
+func (w *world) teamsText(ctx context.Context, env map[string]string, teams []string) (segment, error) {
+	roles, problem := w.readRoles(env, teams)
+	seg := segment{problem: problem, teamsRead: true}
 	pieces := make([]string, 0, len(teams))
 	for i, team := range teams {
-		piece := teamPiece(in.Env, team, roles[team])
+		role := roles[team]
+		if role == "" {
+			role = roleUnknown
+		}
+		piece := team + " (" + role + ")"
+		if until := w.downUntil(env, team); !until.IsZero() {
+			piece += " (down)"
+			if seg.expires.IsZero() || until.Before(seg.expires) {
+				seg.expires = until
+			}
+		}
 		if i < len(teams)-1 {
 			piece += ","
 		}
 		pieces = append(pieces, piece)
 	}
 	if err := cancelOf(ctx); err != nil {
-		return "", err
+		return segment{}, err
 	}
-	return wrapped(cyan, pieces, " ", terminalColumns(in.Env)), nil
-}
-
-// teamPiece is `team (role)`, then its marks: the one order every team is shown in.
-func teamPiece(env map[string]string, team, role string) string {
-	if role == "" {
-		role = roleUnknown
-	}
-	marks := ""
-	if isDown(env, team) {
-		marks = " (down)"
-	}
-	return team + " (" + role + ")" + marks
+	seg.text = wrapped(cyan, pieces, terminalColumns(env))
+	return seg, nil
 }
 
 func note(env map[string]string, text string) string {
-	return wrapped(red, strings.Split(text, " "), " ", terminalColumns(env))
+	return wrapped(red, strings.Split(text, " "), terminalColumns(env))
 }
 
 // wrapped is `label pieces` in rows no wider than columns (unbroken when columns is 0). A row
-// breaks only between pieces, and a later row is indented under the first.
-func wrapped(colour string, pieces []string, joiner string, columns int) string {
+// breaks only between pieces, joined by one space, and a later row is indented under the first.
+func wrapped(colour string, pieces []string, columns int) string {
 	indent := strings.Repeat(" ", displayWidth(label+" "))
 	var rows []string
 	current := label + " " + pieces[0]
 	for _, piece := range pieces[1:] {
-		candidate := current + joiner + piece
+		candidate := current + " " + piece
 		if columns == 0 || displayWidth(candidate) <= columns {
 			current = candidate
 			continue

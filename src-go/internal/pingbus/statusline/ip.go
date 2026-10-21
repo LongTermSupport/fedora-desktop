@@ -38,8 +38,8 @@ func parseIPv4(value string) ([ipv4Octets]byte, bool) {
 		if octet == "" || len(octet) > 3 || !allDigits(octet) || (octet != "0" && octet[0] == '0') {
 			return out, false
 		}
-		n, err := strconv.Atoi(octet)
-		if err != nil || n > 255 {
+		n, err := strconv.ParseUint(octet, 10, 8)
+		if err != nil {
 			return out, false
 		}
 		out[i] = byte(n)

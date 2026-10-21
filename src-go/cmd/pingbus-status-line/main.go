@@ -22,24 +22,27 @@ func main() {
 	// Subscribed before stdin is read, so a cancel that arrives early is not lost (S12).
 	signals := make(chan os.Signal, 4)
 	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
-	os.Exit(int(run(os.Stdin, os.Stdout, os.Stderr, os.Environ(), signals)))
+	os.Exit(int(run(os.Stdin, os.Stdout, os.Stderr, os.Environ(), os.Getwd, signals)))
 }
 
 // run renders the status line. A cancel by signal exits 128 plus the signal with nothing on
-// stdout (S12); every other render exits 0 (S3).
-func run(stdin io.Reader, stdout, stderr io.Writer, environ []string, signals <-chan os.Signal) term.ExitCode {
+// stdout (S12); every other render exits 0 (S3): a stdin that cannot be read is no payload and
+// a working directory that cannot be had is an empty one.
+func run(stdin io.Reader, stdout, stderr io.Writer, environ []string, getwd func() (string, error),
+	signals <-chan os.Signal,
+) term.ExitCode {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
 	done := make(chan struct{})
 	defer close(done)
 	go relaySignals(signals, done, cancel)
-	raw, err := io.ReadAll(io.LimitReader(stdin, inputLimit))
-	if err != nil {
-		return fail(stderr, "cannot read the session JSON", err)
+	raw, ok := readInput(ctx, stdin)
+	if !ok {
+		return term.ExitCode(statusline.CancelStatus(ctx))
 	}
-	cwd, err := os.Getwd()
+	cwd, err := getwd()
 	if err != nil {
-		return fail(stderr, "no working directory", err)
+		cwd = ""
 	}
 	out, code := statusline.Run(ctx, statusline.Input{Env: envMap(environ), Cwd: cwd, Stdin: raw}, stderr)
 	if code != 0 {
@@ -49,6 +52,25 @@ func run(stdin io.Reader, stdout, stderr io.Writer, environ []string, signals <-
 		return fail(stderr, "cannot write the line", err)
 	}
 	return term.ExitOK
+}
+
+// readInput is stdin, read beside the cancel so a signal during the read still ends the render
+// (S12). A read that fails is no payload. False means the render was cancelled first.
+func readInput(ctx context.Context, stdin io.Reader) ([]byte, bool) {
+	got := make(chan []byte, 1)
+	go func() {
+		raw, err := io.ReadAll(io.LimitReader(stdin, inputLimit))
+		if err != nil {
+			raw = nil
+		}
+		got <- raw
+	}()
+	select {
+	case raw := <-got:
+		return raw, true
+	case <-ctx.Done():
+		return nil, false
+	}
 }
 
 // fail says what went wrong on stderr and returns the failure status. A stderr that cannot be
@@ -75,13 +97,14 @@ func relaySignals(signals <-chan os.Signal, done <-chan struct{}, cancel context
 	}
 }
 
-// envMap is the environment as the status line reads it: KEY=VALUE pairs, the last one winning.
+// envMap is the environment as the status line reads it: KEY=VALUE pairs, the first one of a
+// name winning, as Python's os.environ keeps it.
 func envMap(environ []string) map[string]string {
 	env := make(map[string]string, len(environ))
 	for _, kv := range environ {
-		parts := strings.SplitN(kv, "=", 2)
-		if len(parts) == 2 {
-			env[parts[0]] = parts[1]
+		name, value, found := strings.Cut(kv, "=")
+		if _, seen := env[name]; found && !seen {
+			env[name] = value
 		}
 	}
 	return env

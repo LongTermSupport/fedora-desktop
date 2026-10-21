@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -43,20 +44,20 @@ func newCacheWorld(t *testing.T) *cacheWorld {
 		"PINGBUS_TEAMS": "alpha",
 		"COLUMNS":       "80",
 	}
-	cw.dir("sessions", 0o700)
+	cw.dir("sessions")
 	cw.file("sessions/sess-1", "alpha", 0o600)
-	cw.dir("pingbus", 0o700)
-	cw.dir("pingbus/alpha", 0o700)
+	cw.dir("pingbus")
+	cw.dir("pingbus/alpha")
 	cw.file("pingbus/alpha/member.json", alphaMember, 0o644)
 	cw.file("pingbus/alpha/token", "syt_token", 0o600)
-	cw.dir("pingbus/alpha/state", 0o700)
+	cw.dir("pingbus/alpha/state")
 	cw.file("pingbus/alpha/state/team.json", alphaRecord("coordinator"), 0o600)
 	return cw
 }
 
-func (cw *cacheWorld) dir(rel string, mode os.FileMode) {
+func (cw *cacheWorld) dir(rel string) {
 	cw.t.Helper()
-	if err := os.Mkdir(filepath.Join(cw.root, rel), mode); err != nil {
+	if err := os.Mkdir(filepath.Join(cw.root, rel), 0o700); err != nil {
 		cw.t.Fatal(err)
 	}
 }
@@ -68,9 +69,33 @@ func (cw *cacheWorld) file(rel, content string, mode os.FileMode) {
 	}
 }
 
-// settled is a clock well past every change to the world, so nothing in it is racy.
-func settled(after time.Duration) func() time.Time {
-	return func() time.Time { return time.Now().Add(racyWindow + after) }
+// newestChange is the latest ctime of anything in the world: the clock the tests start from, so
+// no test reads the wall clock and every one is placed against the file system's own changes.
+func (cw *cacheWorld) newestChange() time.Time {
+	cw.t.Helper()
+	var newest int64
+	err := filepath.WalkDir(cw.root, func(path string, _ fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		var st syscall.Stat_t
+		if err := syscall.Lstat(path, &st); err != nil {
+			return err
+		}
+		newest = max(newest, st.Ctim.Nano())
+		return nil
+	})
+	if err != nil {
+		cw.t.Fatal(err)
+	}
+	return time.Unix(0, newest)
+}
+
+// settled is a clock past every change to the world so far by more than racyWindow, so nothing
+// in it is racy.
+func (cw *cacheWorld) settled(after time.Duration) func() time.Time {
+	at := cw.newestChange().Add(racyWindow + time.Second + after)
+	return func() time.Time { return at }
 }
 
 // rendered is one render's stdout and stderr.
@@ -93,7 +118,7 @@ func (cw *cacheWorld) cacheFile() string { return filepath.Join(cw.root, "pingbu
 func TestCacheStoresASettledRenderAndServesItAgain(t *testing.T) {
 	cw := newCacheWorld(t)
 	cw.file("pingbus/alpha/state/team.json", "{", 0o600)
-	now := settled(0)
+	now := cw.settled(0)
 	first := cw.render(now)
 	if !strings.Contains(first.out, "alpha (role?)") || !strings.HasPrefix(first.err, "pingbus status-line: the role cannot be read (alpha: ") {
 		t.Fatalf("first render: %+v", first)
@@ -116,38 +141,47 @@ func TestCacheStoresASettledRenderAndServesItAgain(t *testing.T) {
 // S33: a change to any file the render read misses the cache.
 func TestCacheMissesWhenAnInputChanges(t *testing.T) {
 	cw := newCacheWorld(t)
-	if first := cw.render(settled(0)); !strings.Contains(first.out, "alpha (coordinator)") {
+	if first := cw.render(cw.settled(0)); !strings.Contains(first.out, "alpha (coordinator)") {
 		t.Fatalf("first: %+v", first)
 	}
 	cw.file("pingbus/alpha/state/team.json", alphaRecord("worker"), 0o600)
-	if second := cw.render(settled(time.Second)); !strings.Contains(second.out, "alpha (worker)") || second.err != "" {
+	if second := cw.render(cw.settled(time.Second)); !strings.Contains(second.out, "alpha (worker)") || second.err != "" {
 		t.Errorf("after the role changed: %+v", second)
 	}
 	if err := os.Chmod(filepath.Join(cw.root, "pingbus/alpha/token"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	if third := cw.render(settled(2 * time.Second)); !strings.Contains(third.out, "alpha (role?)") {
+	if third := cw.render(cw.settled(2 * time.Second)); !strings.Contains(third.out, "alpha (role?)") {
 		t.Errorf("after the token's chmod: %+v", third)
 	}
 }
 
-// S32: the cache is keyed by what is not on disk: another COLUMNS misses.
+// S32: the cache is keyed by what is not on disk: another COLUMNS, session or working
+// directory misses.
 func TestCacheIsKeyedByTheEnvironment(t *testing.T) {
 	cw := newCacheWorld(t)
-	cw.env["PINGBUS_TEAMS"] = "alpha"
-	now := settled(0)
-	wide := cw.render(now)
+	now := cw.settled(0)
+	cw.render(now)
+	poison(t, cw.cacheFile())
+	if got := cw.render(now); !strings.Contains(got.out, "POISON") {
+		t.Fatalf("the same key missed: %q", got.out)
+	}
 	cw.env["COLUMNS"] = "12"
-	narrow := cw.render(now)
-	if wide.out == narrow.out || strings.Count(narrow.out, "\n") < 2 {
-		t.Errorf("COLUMNS change served from the cache: %q then %q", wide.out, narrow.out)
+	if got := cw.render(now); strings.Contains(got.out, "POISON") {
+		t.Errorf("COLUMNS change served from the cache: %q", got.out)
+	}
+	cw.file("sessions/sess-2", "alpha", 0o600)
+	poison(t, cw.cacheFile())
+	cw.stdin = []byte(`{"session_id":"sess-2"}`)
+	if got := cw.render(cw.settled(time.Second)); strings.Contains(got.out, "POISON") {
+		t.Errorf("another session served from the cache: %q", got.out)
 	}
 }
 
 // S34: an entry lasts 60 s, and no longer than a fresh down mark it shows lasts.
 func TestCacheEntryExpiresAtTheTTLOrTheMarksAgeOut(t *testing.T) {
 	cw := newCacheWorld(t)
-	base := time.Now().Add(racyWindow)
+	base := cw.settled(0)()
 	at := func(d time.Duration) func() time.Time { return func() time.Time { return base.Add(d) } }
 	cw.render(at(0))
 	poison(t, cw.cacheFile())
@@ -161,20 +195,24 @@ func TestCacheEntryExpiresAtTheTTLOrTheMarksAgeOut(t *testing.T) {
 		t.Errorf("a clock before the entry was written: %q", got.out)
 	}
 
-	cw.dir("pingbus/down", 0o700)
+	cw.dir("pingbus/down")
 	cw.file("pingbus/down/alpha", "", 0o600)
-	markAt := base.Add(-downFreshFor + 20*time.Second)
+	// The mark is re-dated against a clock placed after it was made; the re-dating changes its
+	// ctime again, a moment later, which settled's margin covers.
+	markBase := cw.settled(0)()
+	markAt := markBase.Add(-downFreshFor + 20*time.Second)
 	if err := os.Chtimes(filepath.Join(cw.root, "pingbus/down/alpha"), markAt, markAt); err != nil {
 		t.Fatal(err)
 	}
-	if got := cw.render(at(0)); !strings.Contains(got.out, "(down)") {
+	atMark := func(d time.Duration) func() time.Time { return func() time.Time { return markBase.Add(d) } }
+	if got := cw.render(atMark(0)); !strings.Contains(got.out, "(down)") {
 		t.Fatalf("fresh mark not shown: %q", got.out)
 	}
 	poison(t, cw.cacheFile())
-	if got := cw.render(at(10 * time.Second)); !strings.Contains(got.out, "POISON") {
+	if got := cw.render(atMark(10 * time.Second)); !strings.Contains(got.out, "POISON") {
 		t.Errorf("before the mark ages out: %q", got.out)
 	}
-	if got := cw.render(at(20 * time.Second)); strings.Contains(got.out, "POISON") || strings.Contains(got.out, "(down)") {
+	if got := cw.render(atMark(20 * time.Second)); strings.Contains(got.out, "POISON") || strings.Contains(got.out, "(down)") {
 		t.Errorf("after the mark aged out: %q", got.out)
 	}
 }
@@ -193,7 +231,7 @@ func poison(t *testing.T, path string) {
 // The racy rule: a render that read a file changed a moment ago is not cached.
 func TestCacheSkipsARacyRender(t *testing.T) {
 	cw := newCacheWorld(t)
-	cw.render(time.Now)
+	cw.render(cw.newestChange)
 	if _, err := os.Stat(cw.cacheFile()); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("a racy render was cached: %v", err)
 	}
@@ -203,7 +241,7 @@ func TestCacheSkipsARacyRender(t *testing.T) {
 // changes the output; nor does a home the cache cannot be written in.
 func TestCacheFailuresNeverChangeTheOutput(t *testing.T) {
 	cw := newCacheWorld(t)
-	now := settled(0)
+	now := cw.settled(0)
 	want := cw.render(now)
 	for name, content := range map[string]string{
 		"not json":     "{",
@@ -241,7 +279,7 @@ func TestCacheFailuresNeverChangeTheOutput(t *testing.T) {
 // S32: the cache keeps an entry per key, at most cacheEntries, newest first.
 func TestCacheKeepsSeveralSessions(t *testing.T) {
 	cw := newCacheWorld(t)
-	now := settled(0)
+	now := cw.settled(0)
 	for i := range cacheEntries + 2 {
 		cw.env["COLUMNS"] = "1" + strings.Repeat("0", i%3) + string(rune('0'+i%10)) + string(rune('0'+i/10))
 		cw.render(now)

@@ -93,6 +93,11 @@ linters:
       # SPEC-status-line.md S40), snake_case like the rest of pingbus's files.
       - path: internal/pingbus/statusline/golden/golden_test\.go
         linters: [tagliatelle]
+      # The status line refuses files others can read; its tests build such files, and edit
+      # the cache file of their own temporary world.
+      - path: internal/pingbus/statusline/.*_test\.go
+        linters: [gosec]
+        text: "G302|G304|G306|G703"
       # The play lock's tests give the runtime directory a mode others can write: the state the
       # lock must refuse to use.
       - path: internal/playlock/playlock_test\.go

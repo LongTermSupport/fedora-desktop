@@ -65,23 +65,42 @@ func partition(s, sep string) (string, string) {
 
 // head is the text before the first sep, or all of s.
 func head(s, sep string) string {
-	if i := strings.Index(s, sep); i >= 0 {
-		return s[:i]
-	}
-	return s
+	return strings.SplitN(s, sep, 2)[0]
 }
 
-// parseMember is config._parse_member over a decoded member.json (S21).
-func parseMember(data pyjson.Object, team string) (member, error) {
+// checkMemberKeys is _parse_member's key check: no unknown key, every required one present.
+func checkMemberKeys(data pyjson.Object) error {
 	for key := range data {
 		if !slices.Contains(memberRequired, key) && !slices.Contains(memberOptional, key) {
-			return member{}, errors.New("member.json has an unknown key")
+			return errors.New("member.json has an unknown key")
 		}
 	}
 	for _, key := range memberRequired {
 		if _, ok := data[key]; !ok {
-			return member{}, refused(key, "is missing")
+			return refused(key, "is missing")
 		}
+	}
+	return nil
+}
+
+// checkMemberTail is _parse_member's admin, room and token_file checks.
+func checkMemberTail(data pyjson.Object, server string) error {
+	if admin, isText := data["admin"].(string); !isText || admin != "@"+adminLocalpart+":"+server {
+		return refused("admin", "is not @admin:<server_name>")
+	}
+	if room, isText := data["room"].(string); !isText || !roomIDPattern.MatchString(room) {
+		return refused("room", "is not a room ID")
+	}
+	if file, isText := data["token_file"].(string); !isText || file != tokenFile {
+		return refused("token_file", `must be "token", the file inside the bundle`)
+	}
+	return nil
+}
+
+// parseMember is config._parse_member over a decoded member.json (S21).
+func parseMember(data pyjson.Object, team string) (member, error) {
+	if err := checkMemberKeys(data); err != nil {
+		return member{}, err
 	}
 	if n, ok := data["protocol"].(pyjson.Number); !ok || !n.IsInt(1) {
 		return member{}, refused("protocol", "must be the integer 1")
@@ -98,14 +117,8 @@ func parseMember(data pyjson.Object, team string) (member, error) {
 	if !ok {
 		return member{}, refused("user_id", "is not @<handle>:<server_name> for this server_name")
 	}
-	if admin, isText := data["admin"].(string); !isText || admin != "@"+adminLocalpart+":"+server {
-		return member{}, refused("admin", "is not @admin:<server_name>")
-	}
-	if room, isText := data["room"].(string); !isText || !roomIDPattern.MatchString(room) {
-		return member{}, refused("room", "is not a room ID")
-	}
-	if file, isText := data["token_file"].(string); !isText || file != tokenFile {
-		return member{}, refused("token_file", `must be "token", the file inside the bundle`)
+	if err := checkMemberTail(data, server); err != nil {
+		return member{}, err
 	}
 	return m, checkMemberRest(data)
 }

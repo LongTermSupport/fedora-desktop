@@ -1,17 +1,15 @@
 package statusline
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
+	"io"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
-	"unicode/utf8"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/pingbus/pyjson"
 )
 
 // settingsError is a settings file that exists but cannot be read or decoded (S8). Its text is
@@ -20,100 +18,119 @@ type settingsError struct{ msg string }
 
 func (e *settingsError) Error() string { return e.msg }
 
-// decodeJSON is the JSON reader the status line uses for the payload, the settings and the
-// membership: a duplicate key takes its last value, as Python's json does.
-func decodeJSON(raw []byte) (any, error) {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber()
-	var data any
-	if err := dec.Decode(&data); err != nil {
-		return nil, err
-	}
-	if dec.More() {
-		return nil, errors.New("trailing data after the JSON value")
-	}
-	return data, nil
+const (
+	blockingIOError = "BlockingIOError"
+	brokenPipeError = "BrokenPipeError"
+)
+
+// osErrorNames are the OSError subclasses Python raises for an errno; any other is OSError (S8).
+var osErrorNames = map[syscall.Errno]string{
+	syscall.EAGAIN:       blockingIOError,
+	syscall.EALREADY:     blockingIOError,
+	syscall.EINPROGRESS:  blockingIOError,
+	syscall.ECHILD:       "ChildProcessError",
+	syscall.EPIPE:        brokenPipeError,
+	syscall.ESHUTDOWN:    brokenPipeError,
+	syscall.ECONNABORTED: "ConnectionAbortedError",
+	syscall.ECONNREFUSED: "ConnectionRefusedError",
+	syscall.ECONNRESET:   "ConnectionResetError",
+	syscall.EEXIST:       "FileExistsError",
+	syscall.ENOENT:       "FileNotFoundError",
+	syscall.EINTR:        "InterruptedError",
+	syscall.EISDIR:       "IsADirectoryError",
+	syscall.ENOTDIR:      "NotADirectoryError",
+	syscall.EACCES:       "PermissionError",
+	syscall.EPERM:        "PermissionError",
+	syscall.ESRCH:        "ProcessLookupError",
+	syscall.ETIMEDOUT:    "TimeoutError",
 }
 
 // pythonExceptionName is the name of the Python exception the same failure raises, as the
 // settings error prints it (S8).
 func pythonExceptionName(err error) string {
-	var errno syscall.Errno
-	if !errors.As(err, &errno) {
-		return "OSError"
-	}
-	switch errno {
-	case syscall.ENOENT:
-		return "FileNotFoundError"
-	case syscall.EISDIR:
-		return "IsADirectoryError"
-	case syscall.EACCES, syscall.EPERM:
-		return "PermissionError"
-	case syscall.ENOTDIR:
-		return "NotADirectoryError"
+	if errno, ok := errors.AsType[syscall.Errno](err); ok {
+		if name, known := osErrorNames[errno]; known {
+			return name
+		}
 	}
 	return "OSError"
 }
 
-// settingsFiles are the files the inner command is looked for in, in precedence order (S7).
+// settingsFiles are the files the inner command is looked for in, in precedence order (S7),
+// spelt as pathlib prints them.
 func settingsFiles(project string, hasProject bool, env map[string]string) []string {
 	var files []string
 	if hasProject {
 		files = append(files,
-			filepath.Join(project, ".claude", "settings.local.json"),
-			filepath.Join(project, ".claude", "settings.json"))
+			pyJoin(project, ".claude/settings.local.json"),
+			pyJoin(project, ".claude/settings.json"))
 	}
 	user := env["CLAUDE_CONFIG_DIR"]
 	if user == "" && strings.HasPrefix(env["HOME"], "/") {
 		user = env["HOME"] + "/.claude"
 	}
 	if user != "" {
-		files = append(files, filepath.Join(user, "settings.json"))
+		files = append(files, pyJoin(user, "settings.json"))
 	}
 	return files
+}
+
+// readSettings is a settings file's bytes, read as Python's open does (following a link); a
+// relative path is read from cwd.
+func readSettings(path, cwd string) ([]byte, error) {
+	if !strings.HasPrefix(path, "/") {
+		path = pyJoin(cwd, path)
+	}
+	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	file := os.NewFile(uintptr(fd), path)
+	raw, readErr := io.ReadAll(file)
+	closeErr := file.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	return raw, closeErr
 }
 
 // innerCommand is the status line command the session would run without the kit, or "" when
 // there is none. This command itself is passed over (S7). A settings file that exists but
 // cannot be read or decoded stops the search with a settingsError (S8).
-func innerCommand(project string, hasProject bool, env map[string]string) (string, error) {
+func innerCommand(project string, hasProject bool, env map[string]string, cwd string) (string, error) {
 	for _, path := range settingsFiles(project, hasProject, env) {
-		raw, err := os.ReadFile(path)
-		if errors.Is(err, fs.ErrNotExist) {
+		raw, err := readSettings(path, cwd)
+		if isErrno(err, syscall.ENOENT) {
 			continue
 		}
 		if err != nil {
 			return "", &settingsError{fmt.Sprintf("%s cannot be read (%s)", path, pythonExceptionName(err))}
 		}
-		if !utf8.Valid(raw) {
-			return "", &settingsError{fmt.Sprintf("%s cannot be read (UnicodeDecodeError)", path)}
+		data, err := pyjson.DecodeUTF8(raw, pyjson.Options{})
+		if errors.Is(err, pyjson.ErrNotUTF8) {
+			return "", &settingsError{path + " cannot be read (UnicodeDecodeError)"}
 		}
-		data, err := decodeJSON(raw)
 		if err != nil {
-			return "", &settingsError{fmt.Sprintf("%s is not valid JSON", path)}
+			return "", &settingsError{path + " is not valid JSON"}
 		}
-		if line, ok := statusLineOf(data); ok {
-			if command := commandOf(line); command != "" {
-				return command, nil
-			}
+		if command := commandOf(data); command != "" {
+			return command, nil
 		}
 	}
 	return "", nil
 }
 
-// statusLineOf is the statusLine object of a settings document, if it has one.
-func statusLineOf(data any) (map[string]any, bool) {
-	object, ok := data.(map[string]any)
+// commandOf is the usable command of a settings document's statusLine object: a string that is
+// not blank and not this command itself. It is returned untrimmed.
+func commandOf(data any) string {
+	object, ok := data.(pyjson.Object)
 	if !ok {
-		return nil, false
+		return ""
 	}
-	line, ok := object["statusLine"].(map[string]any)
-	return line, ok
-}
-
-// commandOf is the usable command of a statusLine object: a string that is not blank and not
-// this command itself. It is returned untrimmed.
-func commandOf(line map[string]any) string {
+	line, ok := object["statusLine"].(pyjson.Object)
+	if !ok {
+		return ""
+	}
 	command, ok := line["command"].(string)
 	if !ok {
 		return ""

@@ -110,7 +110,7 @@ as hooks-daemon issue #131 and is not this plan's to fix.
 
 ### Phase 2: `pingbus status-line` in Go
 
-- [ ] ⬜ **Task 2.1**: Port `helpers/pingbus/statusline.py` to a Go command under `src-go/cmd/`.
+- [x] ✅ **Task 2.1**: Port `helpers/pingbus/statusline.py` to a Go command under `src-go/cmd/`.
   With no teams it imports no other pingbus module, but whenever teams are shown (every bus
   session) `read_roles` imports `config`, `inbox` and `protocol` to read each team's cached role.
   So the port covers that role read too, as well as: the inner
@@ -125,6 +125,10 @@ as hooks-daemon issue #131 and is not this plan's to fix.
   marks; ctime is what catches a `chmod` of the token. It also has an expiry at a down mark's
   age-out. The inner line is never cached. The Python stays uncached, because there the interpreter start
   costs more than the cache would save. Behaviour: `SPEC-status-line.md`.
+
+  Done: `cmd/pingbus-status-line` over `internal/pingbus/statusline` (cache in `cache.go`). The
+  golden passes 104/104 in-process and against the built binary; departures D2 to D4, the
+  refusals and the racy rule are in SPEC section 9 and the journal.
 
 - [ ] 🔄 **Task 2.2**: A parity test that runs the Python and Go versions on the same fixtures
   (team records, roles, widths, a hung or failing inner command) and requires identical stdout.

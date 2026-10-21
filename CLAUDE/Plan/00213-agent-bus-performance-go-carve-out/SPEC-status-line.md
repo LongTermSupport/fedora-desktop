@@ -312,6 +312,23 @@ draft is judged.
   Changing it means changing the Python in the same commit, or recording a departure.
 - **S39** S11 drops any text the inner printed before it timed out.
 
+Departures the Go port has taken (Task 2.1), each where the Python crashes or has no answer:
+
+- **D2** An inner command that cannot be started (its working directory gone, `/bin/sh`
+  missing) shows the red note `(status line could not be run)`. Python's `Popen` raises
+  there. Only a cancel ends the render.
+- **D3** A stdin that cannot be read is no payload, and a working directory that cannot be had
+  is an empty one; neither exits non-zero. A signal during the stdin read still ends the
+  render with 128 plus the signal.
+- **D4** A name repeated in the environment keeps its first value, as Python's `os.environ`
+  does; the inner command's environment is passed sorted by name.
+- **Refusals** A `base_url` whose brackets `urlsplit` raises on is refused (Python crashes); a
+  host member with no passwd home is refused (Python raises `KeyError`).
+- **The racy rule (S33)** A render that read any path whose ctime is within 2 s of its clock is
+  not cached: a same-size rewrite inside one file-system tick keeps every other mark of the
+  fingerprint. The oracle's worlds are built moments before each step, so it mostly exercises
+  the uncached path; the cache is proved by the unit tests with an injected clock.
+
 ## 10. The parity oracle
 
 - **S40** The oracle lives where `src-go/CLAUDE.md` puts golden replays:

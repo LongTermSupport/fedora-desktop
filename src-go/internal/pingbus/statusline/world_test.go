@@ -1,6 +1,7 @@
 package statusline
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -166,10 +167,10 @@ func TestWorldReadRefusesWhatThePythonRefuses(t *testing.T) {
 	if _, err := w.read(link, true, 5); !isErrno(err, syscall.ELOOP) {
 		t.Errorf("nofollow link: %v", err)
 	}
-	if _, err := w.read(fifo, true, 5); err != errNotRegular {
+	if _, err := w.read(fifo, true, 5); !errors.Is(err, errNotRegular) {
 		t.Errorf("fifo: %v", err)
 	}
-	if _, err := w.read(file, true, 4); err != errTooLarge {
+	if _, err := w.read(file, true, 4); !errors.Is(err, errTooLarge) {
 		t.Errorf("over the limit: %v", err)
 	}
 	if _, err := w.read(filepath.Join(dir, "none"), true, 4); !isErrno(err, syscall.ENOENT) {
