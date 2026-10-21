@@ -33,15 +33,16 @@ func bigWorld(t *testing.T) rig {
 // the redraw was cut: 21 on every draw (declare.py declared and status, git, systemctl list-units
 // and one is-active per team, tmux, the user's agent-bus seat list, one sudo agent-bus list per
 // team and one sudo agent-bus human devices per person). A redraw happens after every key.
+// The seats are read in-process, so no seat list process starts.
 func TestARedrawStartsFewProcessesAndTheFirstDrawReadsEachPersonOnce(t *testing.T) {
 	h := bigWorld(t)
 	first := map[string]int{
 		"declare.py overview": 1, "systemctl": 1, "tmux": 1, "git": 1,
-		"agent-bus (user) seat list": 1, "agent-bus list": 3, "agent-bus human devices": 9,
+		"agent-bus list": 3, "agent-bus human devices": 9,
 	}
 	redraw := map[string]int{
 		"declare.py overview": 1, "systemctl": 1, "tmux": 1,
-		"agent-bus (user) seat list": 1, "agent-bus list": 3,
+		"agent-bus list": 3,
 	}
 	if _, err := h.c.Collect(t.Context()); err != nil {
 		t.Fatal(err)

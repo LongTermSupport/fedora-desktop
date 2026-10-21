@@ -224,9 +224,7 @@ func TestNewSessionRefusals(t *testing.T) {
 
 	h = newSessionHarness(t)
 	snap = h.pass(t)
-	h.Fake.On([]string{"agent-bus", "seat", "list"}, execx.Result{
-		Stdout: []byte("SEAT\talpha\t1\theld\tself\tproj.1+local.podman\n"), ExitCode: 78,
-	})
+	h.BreakSeat(t, h.Checkout(), "alpha", "dev")
 	res, err = h.s.NewSession(context.Background(), snap, "alpha")
 	if err != nil || res != flow.Refused || !strings.Contains(h.ErrOut.String(),
 		"Not every seat of this checkout could be read (above), so no seat is offered: one of them may be the seat a new session would take.\n") {

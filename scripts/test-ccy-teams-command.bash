@@ -59,7 +59,12 @@ check_lacks() {
 
 mkdir -p "$REPO_ROOT/untracked/scratch"
 SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/ccy-teams-command-test.XXXXXX")"
-cleanup() { rm -rf "$SCRATCH"; }
+# Every seat lock holder (seat_hold) is ended before the scratch directory goes.
+cleanup() {
+    local pid
+    for pid in "$SCRATCH/state/holders/"*; do [ -f "$pid" ] && kill "$(cat "$pid")" 2>/dev/null; done
+    rm -rf "$SCRATCH"
+}
 trap cleanup EXIT
 
 TOOL="$SCRATCH/ccy-teams"
@@ -79,12 +84,35 @@ fi
 BIN="$SCRATCH/bin"
 STATE="$SCRATCH/state"
 LOG="$SCRATCH/calls.log"
-mkdir -p "$BIN" "$STATE/active" "$STATE/members" "$STATE/devices" "$STATE/seats"
+mkdir -p "$BIN" "$STATE/active" "$STATE/members" "$STATE/devices" "$STATE/holders"
+
+# The checkout's seats are real seat folders ccy-teams reads in-process (Plan 00209 stage 1):
+# a held seat's seat.lock is held by a process seat_hold starts, its pid in $STATE/holders.
+# free-seats ends every holder and waits until each lock is free, as a session's process
+# ending frees its seat lock.
+cat >"$SCRATCH/free-seats" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+for file in "$TEST_STATE/holders/"*; do
+    [ -f "$file" ] || continue
+    kill "$(cat "$file")"
+    rm -f "$file"
+done
+for lock in "$TEST_SEATS/"*/seat.lock; do
+    [ -e "$lock" ] || continue
+    tries=0
+    until flock -n -s "$lock" true; do
+        tries=$((tries + 1))
+        [ "$tries" -lt 500 ] || { echo "free-seats: $lock is still held" >&2; exit 1; }
+        sleep 0.01
+    done
+done
+EOF
+chmod +x "$SCRATCH/free-seats"
 
 # tmux: sessions are "<name> <attached> <dir>" lines in $STATE/sessions. A pane shows claude's
 # empty prompt unless $STATE/panes/<name> says otherwise. /exit typed then Enter ends the
-# session, as does kill-session; either way every held seat goes free, as the session's
-# process ending frees its seat lock.
+# session, as does kill-session; either way every held seat goes free (free-seats).
 cat >"$BIN/tmux" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -96,15 +124,12 @@ for arg in "$@"; do
     prev="$arg"
 done
 end_session() {
-    local kept="" line seats file
+    local kept="" line
     while IFS= read -r line; do
         [[ "$line" == "$name "* ]] || kept+="$line"$'\n'
     done <"$TEST_STATE/sessions"
     printf '%s' "$kept" >"$TEST_STATE/sessions"
-    for file in "$TEST_STATE/seats/"*; do
-        seats="$(cat "$file")"
-        printf '%s\n' "${seats//$'\theld\t'/$'\tfree\t'}" >"$file"
-    done
+    "$TEST_SCRATCH/free-seats"
 }
 case "$1" in
 list-sessions) cat "$TEST_STATE/sessions" ;;
@@ -218,17 +243,13 @@ shift
 exec "$cmd" "$@"
 EOF
 
-# agent-bus: list and human devices from files; seat list from $STATE/seats/<checkout name>;
-# the rest logged.
+# agent-bus: list and human devices from files; the rest logged. ccy-teams reads a seat list
+# in-process, so this fake refuses one as an unexpected call.
 cat >"$BIN/agent-bus" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'agent-bus %s (in %s)\n' "$*" "$(basename "$PWD")" >>"$TEST_LOG"
 case "$1 ${2:-}" in
-"seat list")
-    # A seat whose bundle cannot be read: the others print, and the command exits 78.
-    cat "$TEST_STATE/seats/$(basename "$PWD")"
-    if [ -e "$TEST_STATE/seats/$(basename "$PWD").unreadable" ]; then exit 78; fi ;;
 "seat remove") ;;
 "list "*) cat "$TEST_STATE/members/$2" ;;
 "park-member "*) ;;
@@ -499,6 +520,8 @@ mkdir -p "$IN_CONTAINER/.claude/ccy/pingbus/seats"
 git -C "$IN_CONTAINER" init -q
 git -C "$IN_CONTAINER" remote add origin git@github.com:Example-Org/proj.git
 
+SEATS="$CHECKOUT/.claude/ccy/pingbus/seats/alpha"
+export TEST_SCRATCH="$SCRATCH" TEST_SEATS="$SEATS"
 export TEST_LOG="$LOG" TEST_STATE="$STATE" TEST_ANSWERS="$SCRATCH/answers" TEST_FZF_ROWS="$SCRATCH/fzf-rows"
 export TEST_FZF_RAW="$SCRATCH/fzf-raw"
 unset NO_COLOR WAYLAND_DISPLAY XDG_STATE_HOME
@@ -540,6 +563,31 @@ source "$LIB_DIR/common-pure.bash"
 # shellcheck source=/dev/null
 source "$LIB_DIR/session-registry.bash"
 
+# seat_add <seat> <handle> — seat <seat> of alpha in the checkout as a seat take leaves it.
+seat_add() {
+    mkdir -p "$SEATS/$1"
+    printf '{"protocol": 1, "team": "alpha", "user_id": "@%s:alpha.agent-bus.internal", "server_name": "alpha.agent-bus.internal", "base_url": "http://192.0.2.10:6167", "plain_http_hosts": ["192.0.2.10"], "token_file": "token", "admin": "@admin:alpha.agent-bus.internal", "room": "!%s"}\n' \
+        "$2" "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" >"$SEATS/$1/member.json"
+}
+# seat_hold <seat> — a process holds the seat's lock, as the session in it does, until
+# free-seats; it returns once the lock is taken.
+seat_hold() {
+    local lock="$SEATS/$1/seat.lock" tries=0 holder
+    (
+        exec 9>"$lock"
+        flock -x 9
+        exec sleep 3600
+    ) &
+    holder=$!
+    printf '%s\n' "$holder" >"$STATE/holders/$1"
+    while flock -n -s "$lock" true; do
+        kill -0 "$holder" || { echo "seat_hold: the holder of $lock exited" >&2; exit 1; }
+        tries=$((tries + 1))
+        [ "$tries" -lt 500 ] || { echo "seat_hold: $lock was not taken" >&2; exit 1; }
+        sleep 0.01
+    done
+}
+
 # reset — the machine as each case starts: alpha up, with seat 1 held by ccy-proj and seat
 # dev free in the checkout, a parked ccy member whose checkout is not known here, an LXC
 # member and a human; "extra", a homeserver loaded but not declared, down.
@@ -552,14 +600,17 @@ reset() {
     rm -f "$STATE/clipboard"
     printf 'agent-bus-hs@alpha.service loaded active running x\nagent-bus-hs@extra.service loaded inactive dead x\n' \
         >"$STATE/units"
-    rm -f "$STATE/active/"* "$STATE/devices/"* "$STATE/seats/"*.unreadable "$STATE/typed-"*
+    rm -f "$STATE/active/"* "$STATE/devices/"* "$STATE/typed-"*
     rm -rf "$STATE/panes"
     mkdir -p "$STATE/panes"
     touch "$STATE/active/agent-bus-hs@alpha.service"
     printf 'HUMAN\towner\tjoin\nMEMBER\tproj.1+local.podman\tworker\tjoin\tactive\nMEMBER\tproj.2+local.podman\tworker\tjoin\tparked\nMEMBER\tproj.box+role.lxc\tworker\tjoin\tactive\n' \
         >"$STATE/members/alpha"
-    printf 'SEAT\talpha\t1\theld\t-\tproj.1+local.podman\nSEAT\talpha\tdev\tfree\t-\tproj.dev+local.podman\n' \
-        >"$STATE/seats/proj"
+    "$SCRATCH/free-seats"
+    rm -rf "$SEATS"
+    seat_add 1 proj.1+local.podman
+    seat_add dev proj.dev+local.podman
+    seat_hold 1
     printf 'ccy-proj 0 %s\n' "$CHECKOUT" >"$STATE/sessions"
     printf 'BACKUP\t1\t2026-10-10 03:00 UTC\nBACKUP\t2\t2026-10-11 03:00 UTC\n' >"$STATE/backups"
     rm -rf "$CCY_STATE_DIR" "$HOME_DIR/.local"
@@ -679,7 +730,9 @@ check_has "with the sudoers rule and no credential, the members are read" "activ
 check_lacks "  with nothing said about sudo" "sudo" "$(cat "$SCRATCH/err")"
 
 reset
-printf 'SEAT\talpha\t3\tfree\t-\tproj.3+local.podman\n' >"$STATE/seats/proj"
+"$SCRATCH/free-seats"
+rm -rf "$SEATS"
+seat_add 3 proj.3+local.podman
 : >"$STATE/sessions"
 rm -rf "$CCY_STATE_DIR"
 out="$(cd "$CHECKOUT" && "$TOOL" --list 2>"$SCRATCH/err")"
@@ -699,7 +752,7 @@ printf 'agent_bus_teams: []\n' >"$SCRATCH/bad.yml"
 check "a host_vars shape the helper refuses is a failure" "1" "$?"
 
 reset
-touch "$STATE/seats/proj.unreadable"
+printf '{}\n' >"$SEATS/dev/member.json" # a seat whose bundle cannot be read
 out="$(cd "$OUTSIDE" && "$TOOL" --list 2>"$SCRATCH/err")"
 check "a seat that cannot be read: the checkout's other seats are still listed" "1" \
     "$(grep -cE '^alpha +proj\.1\+local\.podman +ccy' <<<"$out")"

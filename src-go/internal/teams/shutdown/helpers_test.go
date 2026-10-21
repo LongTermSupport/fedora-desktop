@@ -57,16 +57,13 @@ type machine struct {
 	now      time.Time
 	sleeps   []time.Duration
 	sessions []*session
-	// held is the seats of alpha in the checkout that a live process holds.
-	held map[string]bool
 }
 
 func newMachine(t *testing.T) *machine {
 	t.Helper()
-	m := &machine{World: teamtest.Populated(t), t: t, now: time.Unix(1_800_000_000, 0), held: map[string]bool{"1": true}}
+	m := &machine{World: teamtest.Populated(t), t: t, now: time.Unix(1_800_000_000, 0)}
 	m.sessions = []*session{{name: "ccy-proj", dir: m.Checkout(), pane: paneReady, seats: []string{"1"}}}
 	m.fakeTmux()
-	m.fakeSeatList()
 	m.build()
 	return m
 }
@@ -110,7 +107,7 @@ func (m *machine) end(s *session) {
 	m.sessions = slices.DeleteFunc(m.sessions, func(x *session) bool { return x == s })
 	if !s.keepSeat {
 		for _, seat := range s.seats {
-			m.held[seat] = false
+			m.HoldSeat(m.t, m.Checkout(), "alpha", seat, false)
 		}
 	}
 }
@@ -188,24 +185,10 @@ func (m *machine) press(s *session, last []string) {
 		s.pane = s.afterExit
 		if !s.keepSeat {
 			for _, seat := range s.seats {
-				m.held[seat] = false
+				m.HoldSeat(m.t, m.Checkout(), "alpha", seat, false)
 			}
 		}
 	}
-}
-
-func (m *machine) fakeSeatList() {
-	m.Fake.OnFunc([]string{"agent-bus", "seat", "list"}, func(execx.Cmd) (execx.Result, error) {
-		var b strings.Builder
-		for _, seat := range []string{"1", "dev"} {
-			state, self := "free", "-"
-			if m.held[seat] {
-				state, self = "held", "self"
-			}
-			b.WriteString("SEAT\talpha\t" + seat + "\t" + state + "\t" + self + "\tproj." + seat + "+local.podman\n")
-		}
-		return execx.Result{Stdout: []byte(b.String())}, nil
-	})
 }
 
 // record writes a session record of prefix for dir with the --teams list.

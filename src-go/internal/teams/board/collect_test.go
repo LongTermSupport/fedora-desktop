@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -468,11 +467,7 @@ func TestCollectWithNoTeamsHasNoRows(t *testing.T) {
 
 func TestCollectMarksUnreadableSeats(t *testing.T) {
 	h := populated(t)
-	h.Fake.On([]string{"agent-bus", "seat", "list"}, execx.Result{
-		Stdout:   []byte("SEAT\talpha\t1\theld\tself\tproj.1+local.podman\n"),
-		Stderr:   []byte("agent-bus: seat 7 unreadable"),
-		ExitCode: 78,
-	})
+	h.BreakSeat(t, h.Checkout(), "alpha", "dev")
 	s, err := h.c.Collect(t.Context())
 	if err != nil {
 		t.Fatal(err)
