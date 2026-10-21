@@ -38,9 +38,8 @@ type Cmd struct {
 	// ExtraFiles are open files the child inherits from descriptor 3 on (a held lock
 	// delegated to a child).
 	ExtraFiles []*os.File
-	// NewSession starts the child in a new session, so its pid is its process group id, and a
-	// cancel kills that whole group with SIGKILL (not Interrupt): nothing it started outlives
-	// the run. For a command whose children must not outlive it (the status line's inner).
+	// NewSession runs the child in a session of its own, for a command whose children must
+	// not outlive it (the status line's inner): see runSession. Interrupt is not used.
 	NewSession bool
 }
 
@@ -103,16 +102,15 @@ type OS struct {
 // Grace also bounds the drain of the pipes after a normal exit, so it must exceed the time
 // the copy takes on a loaded host; a Grace of milliseconds can cut a finished command short.
 func (o OS) Run(ctx context.Context, c Cmd) (Result, error) {
+	if c.NewSession {
+		return o.runSession(ctx, c)
+	}
 	cmd := exec.CommandContext(ctx, c.Name, c.Args...)
 	interrupt := syscall.SIGTERM
 	if c.Interrupt != 0 {
 		interrupt = c.Interrupt
 	}
 	cmd.Cancel = func() error { return cmd.Process.Signal(interrupt) }
-	if c.NewSession {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-		cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
-	}
 	cmd.WaitDelay = DefaultGrace
 	if o.Grace > 0 {
 		cmd.WaitDelay = o.Grace
