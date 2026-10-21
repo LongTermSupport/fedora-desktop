@@ -133,11 +133,16 @@ its first caller.
     installed. **Gate A:** none of them goes past the point of no return without the owner's own
     word: no host install that writes a name or path an owner would see (the `teamchat` name in
     units or paths; Tasks 1.4, 2.5, 4.1) and no migration of any team (Task 6.2; the coordinator's
-    "N5 migration" is this plan's Phase 6, N6) until the owner has confirmed them. The coordinator
-    puts them to the owner as one digest.
+    "N5 migration" is this plan's Phase 6, N6) until the owner has confirmed them. A merge to
+    F44 reaches the host at the next play run or ccy rebuild, so the gate binds at the merge: Go
+    packages and binaries may merge, but the play tasks, units and ccy image change that would
+    install a `teamchat` name merge only after the owner confirms. The coordinator puts them to
+    the owner as one digest.
   - **Owner only:** INT6 (owner-uid processes holding a pool seat's password have power over that
     account), built as defaulted. **Gate B:** the first deploy that gives any process a pool
-    seat's password (Task 2.5) waits for the owner's confirmation. The narrower alternative the
+    seat's password waits for the owner's confirmation. That is the first pool seat added on the
+    host: H-C13 to H-C15 in Task 2.5 if they run on the host, otherwise Task 4.4 (H-C8 and the
+    pilot's ccy seat); Task 5.1's host `cc` members carry the gate too. The narrower alternative the
     owner may choose instead, a pool that keeps no password, is
     [DESIGN-v2.md section 7.1](DESIGN-v2.md#71-int6s-narrower-alternative-a-pool-seat-with-no-password).
 
@@ -176,11 +181,13 @@ its first caller.
 - [ ] ⬜ **Task 2.5**: Acceptance: C 3.14's tests; the M44 real-Tuwunel test, and Tuwunel's answers
   for a locked and a deactivated account recorded into `fakehs` (host or VM lab); VM-lab scenario
   `teamchat-coexist` (P1) to its N2 stage, a host-only team cycle (D 4.3); the install on the host with the footprint before and after (P2); host
-  checks H-C1 to H-C12.
-  - **Gate A** (Task 0.5): the install on the host waits until the owner has confirmed OD-A7,
-    DC1, DC5, DC15, OD-D1, OD-D5 and TID. The VM-lab parts of this task do not wait.
-  - **Gate B** (Task 0.5): no pool seat is added on the host (H-C8's seat, and H-C13 to H-C15
-    where they run on the host) until the owner has confirmed INT6 or chosen
+  checks H-C1 to H-C6 and H-C9 to H-C12 (H-C7 and H-C8 are Task 4.4's); H-C13 to H-C15 (DC16,
+  DC8) in the VM lab, or on the host once gate B is cleared.
+  - **Gate A** (Task 0.5): the play tasks and units of Tasks 2.2 and 2.3 merge to F44, and the
+    install on the host runs, only after the owner has confirmed OD-A7, DC1, DC5, DC15, OD-D1,
+    OD-D5 and TID. The VM-lab parts of this task do not wait.
+  - **Gate B** (Task 0.5): no pool seat is added on the host (H-C13 to H-C15 where they run on
+    the host) until the owner has confirmed INT6 or chosen
     [DESIGN-v2.md section 7.1](DESIGN-v2.md#71-int6s-narrower-alternative-a-pool-seat-with-no-password)
     in its place. The VM lab is not a deploy and does not wait.
 
@@ -200,19 +207,23 @@ its first caller.
 ### Phase 4: N4, ccy members and the board
 
 - [ ] ⬜ **Task 4.1**: The v2 kit in the ccy image (D 3.5), with the CCY version bump. **Gate A**
-  (Task 0.5): the image carrying the kit is not deployed until the owner has confirmed the
-  irreversible decisions.
+  (Task 0.5): the image change carrying the kit merges to F44 only after the owner has confirmed
+  the irreversible decisions, since any later CCY bump would deploy it.
 - [ ] ⬜ **Task 4.2**: The launcher: the session directory mounts, refusing a checkout that contains
   the seat store (seam 53); removing the session record before the release, which runs `teamchat seat disconnected` (seam 54, 27); resolving each team's system, OD-D2's refusal (seam 55).
 - [ ] ⬜ **Task 4.3**: ccy-teams on both systems: the board from the status records (C 3.13, D 3.9),
   the flows (C45), creating a team and renaming it (00201 Task 2.16).
 - [ ] ⬜ **Task 4.4**: Acceptance: H-C7 and H-C8; the v2-native pilot `teamchat-pilot` with one ccy
   session and one LXC member, its cost measured (P3); `teamchat-coexist` run whole, with the ccy
-  seat (D 4.3).
+  seat (D 4.3). **Gate B** (Task 0.5): the pilot's ccy seat and H-C8's are pool seats, so
+  neither is added on the host until the owner has confirmed INT6 or chosen
+  [DESIGN-v2.md section 7.1](DESIGN-v2.md#71-int6s-narrower-alternative-a-pool-seat-with-no-password).
 
 ### Phase 5: N5, other member kinds
 
-- [ ] ⬜ **Task 5.1**: Host `cc` members on v2 (seam 56), refused until then (D 3.9).
+- [ ] ⬜ **Task 5.1**: Host `cc` members on v2 (seam 56), refused until then (D 3.9). **Gate B**
+  (Task 0.5): a host `cc` member's seat is a pool seat; none is added before the owner's
+  confirmation.
 - [ ] ⬜ **Task 5.2**: Docker and VM guests, after LXC (B 2.13), when a team needs one.
 
 ### Phase 6: N6, migration

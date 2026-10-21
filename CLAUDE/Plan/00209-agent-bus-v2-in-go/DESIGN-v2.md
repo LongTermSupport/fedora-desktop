@@ -288,7 +288,8 @@ holds each answer as its state. A row with no flag stays defaulted.
   beside v1 and cheap to change until something is installed. **Gate A:** none of them goes past
   the point of no return without the owner's own word. No team is migrated, and no host install
   writes a name or path an owner would see (the `teamchat` name in units or paths), until the
-  owner has confirmed them; the coordinator puts them to the owner as one digest.
+  owner has confirmed them; the coordinator puts them to the owner as one digest. The gate binds
+  at the merge to F44 of the plays, units and ccy image change that would install such a name.
 - **owner only, with gate B** (INT6): built as defaulted. **Gate B:** the first deploy that gives
   any process a pool seat's password waits for the owner's confirmation. The owner may choose the
   narrower alternative in 7.1 instead, which changes DC16 and DC19 with it.
@@ -379,8 +380,11 @@ default until the owner chooses.
 - ccy-teams asks `member add|return|reissue` for `--credential token` for a pool seat too, the
   path a guest seat already takes (C 3.6.3): inside the password-sudo call, the `teamchat-ctl`
   child sets a fresh random password that is not kept, logs in once as the seat's one device
-  (`TCSEAT`), and answers the token. The roster's `cred` for the seat is `token`. The password
-  exists only in that call's memory, so only `teamchat-admin` ever uses it.
+  (`TCSEAT`), and answers the token. The password exists only in that call's memory, so only
+  `teamchat-admin` ever uses it. The roster's `cred` for the seat is a third value,
+  `pool_token`, so that a restore still tells a pool seat from a guest seat (below). The child
+  writes the `ctl/<team>/guest/<handle>.token` copy for guest seats only: the health tick has no
+  use for a pool seat's token (it cannot announce owner seats, C24).
 - The owner's keyring would not be narrower. The owner's Secret Service collection, while it is
   unlocked, answers any process that runs as the owner, so a password kept there is as readable
   as one in the pool. Not keeping the password at all is what "used only by `teamchat-admin`"
@@ -405,39 +409,51 @@ picks one of two shapes:
   the pool) stops the take, naming `member reissue`, and takes the place of the `M_FORBIDDEN`
   case. Release step 4 is dropped. No owner password at any take. A released session keeps a
   live token until the seat's next reissue. K13 is open: it can go on reading the seat's traffic
-  and posting as the member. `released_ms` still bounds a store-less start (B 2.6 step 01), so a
-  marker it moves forward cannot hide an item. The `tc-disc-<run id>` transaction ids now share
-  one token across claims; they stay unique per run.
+  and posting as the member. Any released holder can also `POST /logout` the shared token, which
+  kills the next holder's too and sends the seat's next take to `member reissue` (a denial of
+  service on that seat, repaired with the owner's password). `released_ms` still bounds a
+  store-less start (B 2.6 step 01), so a marker it moves forward cannot hide an item. The
+  `tc-disc-<run id>` transaction ids now share one token across claims; they stay unique per run.
 - **(d2) one reissue per take after a release** (DC16 (b)). Release step 4 logs out the pool's
   token, which is the same token the session held, and release step 5 removes the pool's
   `token`. Take step 1 reads a pool record with `seat.json` and no `token` as a released seat
-  and runs `member reissue`, which asks the owner's password. K13 is closed. That is a password
+  and runs `member reissue`, which asks the owner's password; the reissue places a fresh `token`,
+  and take step 3 then copies it into `held/` with no login and no `whoami` (it was minted inside
+  this take). K13 is closed. That is a password
   at almost every session start; only a session restarted from its record (a crash or a reboot,
   00203 H5) keeps its seat, and its token, without asking.
 
 Under either shape, the rest of C 3.7 changes as follows:
 
+- **The pool record (3.7.1, 3.7.2):** `token` in place of `password` in the table and the file
+  list. Take step 1's complete record is `token` and `seat.json` (d1), or `seat.json` alone for
+  a released seat (d2).
 - **Placement (3.7.3):** the answer's credential for a pool seat is the token. The `.new-`
-  directory receives `token`, then `seat.json`.
-- **The hot reissue:** step 1 writes the answer's token over the pool's `token`. Step 2's second
-  login is dropped, because the answer's token is the holder's. Steps 3 and 4 copy it into
-  `held/` and the session as now. The reissue's login uses the fixed device id, so it ends the
-  token the holder had (H-C13).
-- **After a restore (C 3.12.2):** the recovery runs `member reissue --credential token` for each
-  pool seat, as it does for an LXC guest seat. It still asks the password once, in the restore's
-  own password-sudo session. DC8 is otherwise unchanged.
-- **DC16's fallbacks are gone.** A device per claim deleted by UIA needs the password. So does
-  the Tuwunel config that refuses a password change or a self-deactivation; it is not needed,
-  since no token holder can do either.
+  directory receives `token`, then `seat.json`. The old bundle moved to quarantine has its
+  `token` unlinked, in place of its `password`.
+- **The hot reissue:** step 1 writes the answer's token over the pool's `token`. Step 2 makes no
+  login: it writes the answer's token as `held/token.new` and renames it over `held/token`.
+  Steps 3 and 4 as now. The holder's old token died inside the call, at the password reset with
+  device logout (C 3.6.3).
+- **After a restore (C 3.12.2):** the merge rule that gives every `active` handle with `cred`
+  `password` a `needs: reissue` applies to `cred` `pool_token` too: the restored database holds
+  the token live at the backup, and under (d2) a logout since then would be undone. The recovery
+  runs `member reissue --credential token` for each such handle with a pool record on this host,
+  in place of `--credential password`, still in the restore's own password-sudo session. LXC
+  guest seats keep their own path (`lxc apply`).
+- **DC16's fallbacks are gone.** A device per claim deleted by UIA needs the password. The
+  Tuwunel config that refuses a non-admin password change or self-deactivation is no longer
+  needed, since no token holder can do either.
 - **H-C13 shrinks** to what (d) rests on: the token cannot change the password, add a device or
-  mint a login token; a login with the same device id replaces the token; and, for (d2), `POST /logout` kills it.
+  mint a login token; and, for (d2), `POST /logout` kills it.
 - **Unchanged:** the health tick's device and deactivation watch (3.11.2), the seat sweep and the
   `disconnected` notice from `held/` (3.7.5), LXC seats (they already hold only a token), and
   DC19's placement by the owner's uid.
 
 For the build, N2's spec keeps a pool seat's credential behind one type in
-`internal/teamchat/seat`, so that choosing (d) changes the pool's credential file, take step 3,
-release step 4 and the hot reissue's step 2, and nothing else.
+`internal/teamchat/seat`, so that choosing (d) is confined to the changes listed here: the pool
+record and take step 1, take step 3, release steps 4 and 5, placement and its quarantine, the
+hot reissue's step 2, the roster's `cred` value, and the restore's merge rule and recovery.
 
 ## 8. v1's requirements, traced
 
