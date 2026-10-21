@@ -95,14 +95,14 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   delivery detected from the transcript. Spec: [SPEC-inject.md](SPEC-inject.md), amended
   after Fable's review. Branch `feat/bus-inject-message`. Built test first (modules
   `envelope.py` and `inject.py`, the watcher, the hooks, the skill, plugin 1.2.0, container
-  2.63, CCY 3.98.8; Plan 00161's M2 checks read deliveries). Waiting on Fable's review of
-  spec and code, then the host checks H1-H7 after `play-claude-yolo.yml` and
-  `play-agent-bus.yml` (queued in meta-deploy).
+  2.63, CCY 3.98.8; Plan 00161's M2 checks read deliveries). Reviewed, merged into F44 and
+  deployed: every ccy session now receives `agent-bus delivery` envelopes. Left: the owner's
+  host checks H1-H7 from Element (SPEC-inject.md).
 - [ ] 🔄 **Task 2.0d**: The watcher survives a homeserver restart and is supervised
   (SPEC-inject E25, E26; Plan 00203's audit F1 and F2). Built test first on branch
-  `fix/watcher-survives-homeserver-restart` (container 2.67, CCY 3.98.12); waits on review,
-  then `play-claude-yolo.yml` and `play-agent-bus.yml` (queued in meta-deploy) and the
-  owner's check: restart a team's homeserver under an idle session, then post from Element.
+  `fix/watcher-survives-homeserver-restart` (container 2.67, CCY 3.98.12); reviewed, merged
+  into F44 (4cdd2d3b) and deployed by later `play-claude-yolo.yml` and `play-agent-bus.yml`
+  runs. Left: the owner's check: restart a team's homeserver under an idle session, then post from Element.
 - [ ] ❌ **Task 2.0e**: Folded into Plan 00209 Task 3.1 (the Go SessionEnd hook), built there
   once hooks-daemon #127 ships. (Was: A scheduled restart posts nothing (Fable's review of
   `fix/goodbye-ctrl-c`, 3b). Today a lifecycle restart (maximum age, or the relaunch after a
@@ -124,8 +124,8 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   `ignored.log` line per member (`dropped.log`'s format; never the body; no turn, not a drop)
   and `pingbus status` counts them (`ignored=`); who receives what is unchanged (a typed
   `@room` stays unaddressed: the owner's decision). Built test first on branch
-  `feat/ignored-human-visible` (CCY 3.99.12.17, container 2.77.13); waits on review, then
-  `play-agent-bus.yml` and `play-claude-yolo.yml` (queued in meta-deploy) and the owner's
+  `feat/ignored-human-visible` (CCY 3.99.12.17, container 2.77.13); reviewed, merged and
+  deployed (play-agent-bus.yml at F44 2efd4442, journal 2026-10-19 17:54). Left: the owner's
   check: post a plain-text `@room` from Element, then `pingbus status` in a member shows
   `ignored=1`. Report:
   [261019-ignored-human-visible-opus.md](subagent-reports/261019-ignored-human-visible-opus.md).

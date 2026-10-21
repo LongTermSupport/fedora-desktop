@@ -1,0 +1,14 @@
+=== exit 1
+=== stdout
+
+════════════════════════════════════════════════════════════════════════════════
+Available Claude Code Tokens for ccy
+════════════════════════════════════════════════════════════════════════════════
+
+No tokens found in: {sandbox}/home/.claude-tokens/ccy/tokens
+
+Create a token with: ccy --create-token
+
+=== stderr
+=== calls
+=== files

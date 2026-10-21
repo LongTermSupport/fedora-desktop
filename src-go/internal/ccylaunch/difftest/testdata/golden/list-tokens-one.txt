@@ -1,0 +1,23 @@
+=== exit 0
+=== stdout
+
+════════════════════════════════════════════════════════════════════════════════
+Available Claude Code Tokens for ccy
+════════════════════════════════════════════════════════════════════════════════
+
+Token storage: {sandbox}/home/.claude-tokens/ccy/tokens
+
+  • work
+    File: {sandbox}/home/.claude-tokens/ccy/tokens/work.2030-06-01.token
+    Expires: [32m2030-06-01[0m (✓ Valid)
+
+════════════════════════════════════════════════════════════════════════════════
+
+=== stderr
+=== calls
+=== files
+dir  home/.claude-tokens 0700
+dir  home/.claude-tokens/ccy 0700
+dir  home/.claude-tokens/ccy/tokens 0700
+file home/.claude-tokens/ccy/tokens/work.2030-06-01.token 0600
+     | {token:work}

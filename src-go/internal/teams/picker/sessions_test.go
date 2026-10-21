@@ -52,8 +52,9 @@ func (h rig) seatsOfAlpha() {
 }
 
 // withBeta adds a second team, beta, up and with one member.
-func (h rig) withBeta() {
-	h.OnDeclare("declared", teamtest.DeclaredAlpha+"TEAM\tbeta\t6168\tpresent\tbeta.agent-bus.internal\thttp://192.0.2.10:6168\t-\n")
+func (h rig) withBeta(t *testing.T) {
+	t.Helper()
+	h.WriteHostVars(t, teamtest.HostVarsAlpha+"  - team: beta\n    port: 6168\n")
 	h.OnDeclare("status", "STATUS\talpha\tcurrent\t-\nSTATUS\tbeta\tcurrent\t-\n")
 	h.On("systemctl list-units", teamtest.UnitAlpha+"agent-bus-hs@beta.service loaded active running Homeserver beta\n", 0)
 	h.On(teamtest.SudoBus+"list beta", "MEMBER\tother.1+local.podman\tworker\tjoin\tactive\n", 0)
@@ -441,7 +442,7 @@ func TestASessionThatCannotBeChangedIsOnlyAttachedAndTheMenuSaysWhy(t *testing.T
 
 func TestMoveFromTheMenuRunsSessionMove(t *testing.T) {
 	h := newRig(t)
-	h.withBeta()
+	h.withBeta(t)
 	h.ses.list = []hot.Session{h.seated()}
 	h.Script.Fzf = []string{toSessions, "|ccy-proj", "|Move to another team", "|beta", "|ABORT", "|ABORT"}
 	if code := h.run(); code != term.ExitOK {
@@ -456,7 +457,7 @@ func TestMoveFromTheMenuRunsSessionMove(t *testing.T) {
 // Moving the team's coordinator asks what becomes of its role, as removing it does.
 func TestMoveOfTheCoordinatorAsksWhereTheRoleGoes(t *testing.T) {
 	h := newRig(t)
-	h.withBeta()
+	h.withBeta(t)
 	h.coordinatorOfAlpha("proj.1+local.podman")
 	h.ses.list = []hot.Session{h.seated()}
 	h.Script.Fzf = []string{toSessions, "|ccy-proj", "|Move to another team", "|beta", "|goes to no one", "|ABORT", "|ABORT"}
@@ -473,7 +474,7 @@ func TestMoveOfTheCoordinatorAsksWhereTheRoleGoes(t *testing.T) {
 func TestTheMoveCoordinatorHeadingWrapsOnANarrowTerminalAndKeepsTheAnswer(t *testing.T) {
 	h := newRig(t)
 	h.Script.Columns = 40
-	h.withBeta()
+	h.withBeta(t)
 	h.coordinatorOfAlpha("proj.1+local.podman")
 	h.ses.list = []hot.Session{h.seated()}
 	h.Script.Fzf = []string{toSessions, "|ccy-proj", "|Move to another team", "|beta", "|goes to no one", "|ABORT", "|ABORT"}
