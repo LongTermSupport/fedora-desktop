@@ -49,8 +49,9 @@ the cost is the imports, not the interpreter (bare `python3` 33 ms, `import help
 checkouts, three teams and six people that is 22 starts, about 10 s, before sudo, PAM and HTTP.
 Every redraw pays about 10 more [G 1d].
 
-**Every running session pays it too.** The status line runs `pingbus status-line` every second
-(`refreshInterval: 1`), and every prompt, every turn end and every SessionEnd starts a Python
+**Every running session pays it too.** When this design was written the status line ran
+`pingbus status-line` every second (`refreshInterval: 1`; 25 s since Plan 00213 Task 1.3, D16),
+and every prompt, every turn end and every SessionEnd starts a Python
 `pingbus hook` [P 7]. Claude Code gives all SessionEnd hooks 1.5 s together; Python's start-up
 alone was about 1 s in a container, which is why no goodbye was ever sent until the session's
 settings raised the limit to 8 s [P 5.01].
@@ -712,7 +713,7 @@ with room to spare (the 8 s setting stays, as a margin), with every rule of R25,
 while the receiver is still v1's Python watcher. In that kit the Go `pingbus` implements `hook` and
 `status-line` and executes the kit's `pingbus.pyz` for every other command (B10): each command has
 one implementation per kit version, so it is a dispatch, not a fallback. With no worker yet, that
-status line derives its rows from v1's files exactly as v1's status line does. Stage 6 brings the
+status line derives its rows from v1's files exactly as v1's status line does. Stage 6b brings the
 keeper and the worker, switches the status line to `status-row.json` and deletes the derivation in
 the same commit. R49 keeps a running session on the kit it started with, so no session sees one
 kit's hooks against another kit's receiver.
@@ -823,6 +824,12 @@ directory per source digest with a `current` link (B9); `agent-bus-claude` and `
 | 7     | LXC member apply in Go, guest ops through `pingbus guest`; the LXC kit sync sends the static binary, not Python                                                                                                                                                                        | v1 pingbus inside containers until the kit sync replaces it                                         | containers need no Python for the bus                                                                                     |
 | 8     | retire v1: first the legacy-form migration (D9) runs and reports clean, then the Go decoders drop the legacy forms; then delete `helpers/agent_bus`, `helpers/pingbus`, `helpers/agent_bus_lxc`, the zipapps and their build; a ccy image bump; version bumps and lock renames allowed | v1 pingbus in remote members (protocol 1 still served)                                              | one language                                                                                                              |
 
+Stage 6 is delivered as two stages (PLAN.md, D20): 6a moves every remaining short verb to Go,
+`seat disconnected` included, with the Python watcher still the receiver and `watch`, `seat exec`
+and `seat keep` still dispatched to `pingbus.pyz`; 6b brings the keeper, the worker, delivery and
+the status row. Each has its own ccy image bump (D17). B10 holds until 6b, and H9 passes before 6b
+is accepted.
+
 Stage 1 depends on nothing host-side and stage 2 on nothing but the kit, which is why they come
 first. Stage 1 keeps exactly one `declare overview` because the APPLIED verdict compares the stamp's
 software digest with v1's definition (a hash of the `agent-bus.pyz` it rebuilds and of the
@@ -835,9 +842,9 @@ first stage-3 apply, said in the stage-3 spec.
 ### 10.3 Rollback
 
 - Stages 1, 3 and 7 change no state format: rolling back is redeploying the previous commit.
-- Stages 2 and 6: no state format changes either; a session started on the new kit or image keeps
+- Stages 2, 6a and 6b: no state format changes either; a session started on the new kit or image keeps
   it until it restarts, and the previous commit's kit or image serves sessions started after the
-  rollback. A drill (H9) proves a seat moves between a v1 and a v2 session and back before stage 6
+  rollback. A drill (H9) proves a seat moves between a v1 and a v2 session and back before stage 6b
   is accepted.
 - Stage 4: the old sudoers lines stay until the owner accepts the stage; rolling back redeploys the
   previous `ccy-teams`.
@@ -865,8 +872,11 @@ first stage-3 apply, said in the stage-3 spec.
 - **Coexistence tests**, each with a second real process, the other side being the v1 Python
   until stage 8:
   - stage 5: the Python admin tool and the Go admin CLI on one registry under one `flock`;
-  - stages 2 and 6: the host's v2 `pingbus seat disconnected` reading a v1 session's `seat.lock`
-    claim and `said-goodbye.json`, and v1's reading v2's (H11 on the host);
+  - stage 2: the host's v1 `pingbus seat disconnected` reading the `said-goodbye.json` a v2
+    session's Go SessionEnd hook writes, and the Go hook charging the send gate in `outbox.json`
+    under the outbox lock against a v1 `send`; from 6a, when `seat disconnected` is Go: the host's
+    v2 `pingbus seat disconnected` reading a v1 session's `seat.lock` claim and
+    `said-goodbye.json` (H11 on the host);
   - R47: every member lock of section 7 between a v2 process and a v1 process on one
     `PINGBUS_HOME`, including a v1 `recv` against the v2 worker's delivery (RecvRelayRaceTest's
     case) and a v1 `send` against the v2 worker's outbox writes;
@@ -900,7 +910,7 @@ first stage-3 apply, said in the stage-3 spec.
 | Relay mode: the spool, `relayed/`, `sent.jsonl`, `sent-offset`, the `relay=` field [P 6]                            | built for a plugin API that has not shipped (D4); `relay/lock` itself stays as the delivery lock until stage 8                        |
 | Two body caps, duplicated constants and regexes [P 6]                                                               | one of each, in `bus/proto` and `bus/state`                                                                                           |
 | Two goodbye records                                                                                                 | `said-goodbye.json` (per claim, read by the host's `seat disconnected`) stays; `goodbye.json` (per session home) goes at stage 2 (B7) |
-| The status line re-implementing membership logic to save import time [P 6]                                          | the worker writes the row (stage 6)                                                                                                   |
+| The status line re-implementing membership logic to save import time [P 6]                                          | the worker writes the row (stage 6b)                                                                                                  |
 | `verify_room` (three GETs) on every send [P 6]                                                                      | the worker's verified state                                                                                                           |
 | An installer with no lock [H 8.08]                                                                                  | the install lock (7)                                                                                                                  |
 | The test-prefix hook in the production installer [H 8.05]                                                           | fakes and build tags                                                                                                                  |
@@ -929,8 +939,10 @@ untrusted cache, and the SessionEnd timeout setting [L 7.10].
 
 ## 14. Owner decisions
 
-Each is defaulted to its recommendation (PLAN.md, "Owner decisions"), except D16, which Plan
-00213 Task 1.3 set to 25 s; the owner may overturn any.
+Each is defaulted to its recommendation (PLAN.md, "Owner decisions"); the owner may overturn any.
+Three are amended there: D16, which Plan 00213 Task 1.3 set to 25 s; D17, whose bumps are at 2,
+6a, 6b and 8 since stage 6 is split; and D20, which takes 10.2's order with that split. PLAN.md
+also raises D4 (it overrides Plan 00194's owner design) and D15 with the coordinator.
 
 | #   | Question                                                                                                                | Options                                                                                                                                                                                                                                                                                                                      | Recommendation and why                                                                                                                                                                                                                                                                                                                             |
 | --- | ----------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -949,11 +961,11 @@ Each is defaulted to its recommendation (PLAN.md, "Owner decisions"), except D16
 | D13 | Is the 1 s open the acceptance bar, at what scale?                                                                      | 1 s at six checkouts, three teams, six people, and a redraw that reuses the reader's answer under 200 ms / another bar                                                                                                                                                                                                       | that bar, measured with `--list` and the interactive open at an ordinary load                                                                                                                                                                                                                                                                      |
 | D14 | What does the board show when the reader fails?                                                                         | what v1 shows when `sudo -n agent-bus list` is refused / a new error row and a non-zero `--list`                                                                                                                                                                                                                             | v1's behaviour, carried by the stage-4 spec: the owner knows it, and a failure stays one team's                                                                                                                                                                                                                                                    |
 | D15 | A keeper and a worker in every member (LXC, host, docker, VM through `agent-bus-claude`), not only seated ccy sessions? | every member / ccy only                                                                                                                                                                                                                                                                                                      | every member: one model, and the keeper makes no network calls; it is a new resident process on those machines, which is why it is asked                                                                                                                                                                                                           |
-| D16 | The status line's `refreshInterval`?                                                                                    | keep 1 s / 2-5 s                                                                                                                                                                                                                                                                                                             | keep 1 s: the bus's part becomes about 5 ms; the inner command is the session's own and the owner can lengthen it                                                                                                                                                                                                                                  |
-| D17 | ccy image bumps?                                                                                                        | one bump per stage that changes the image (2, 6, 8) / batch them                                                                                                                                                                                                                                                             | one per stage: each is a separate acceptance, and a running container keeps its version safely because v1 and v2 share every file and lock                                                                                                                                                                                                         |
+| D16 | The status line's `refreshInterval`?                                                                                    | keep 1 s / 2-5 s                                                                                                                                                                                                                                                                                                             | recommended keeping 1 s (the bus's part becomes about 5 ms); amended: 25 s, set by Plan 00213 Task 1.3 (PLAN.md)                                                                                                                                                                                                                                   |
+| D17 | ccy image bumps?                                                                                                        | one bump per stage that changes the image (2, 6a, 6b, 8) / batch them                                                                                                                                                                                                                                                        | one per stage: each is a separate acceptance, and a running container keeps its version safely because v1 and v2 share every file and lock                                                                                                                                                                                                         |
 | D18 | Versioned kits (B9)?                                                                                                    | one directory per kit version, resolved at launch / replace in place as v1 does                                                                                                                                                                                                                                              | versioned: otherwise a running LXC or host session runs a newer kit's hooks against an older receiver                                                                                                                                                                                                                                              |
 | D19 | Element profiles (R50)?                                                                                                 | port `element.py` into `agent-bus element` at stage 5 / keep it as the one Python helper                                                                                                                                                                                                                                     | port: it is part of `helpers/agent_bus`, which stage 8 deletes, and the play runs it from the checkout (Plan 00206)                                                                                                                                                                                                                                |
-| D20 | Stage order?                                                                                                            | the order of 10.2 (the owner's two pains first) / the first draft's (foundations, installer, reads, daemon, admin, pingbus, LXC)                                                                                                                                                                                             | 10.2's: stage 1 saves about 6 s per open with no dependency on the installer merge, and stage 2 stops a Python start per second in every new session                                                                                                                                                                                               |
+| D20 | Stage order?                                                                                                            | the order of 10.2 (the owner's two pains first) / the first draft's (foundations, installer, reads, daemon, admin, pingbus, LXC)                                                                                                                                                                                             | 10.2's: stage 1 saves about 6 s per open with no dependency on the installer merge, and stage 2 stops the Python start of every status-line refresh and hook in every new session (a start per second when this was written); stage 6 is split into 6a and 6b (10.2)                                                                               |
 
 ---
 
@@ -1022,4 +1034,5 @@ Numbered for the stage specs to carry; each needs no owner decision beyond secti
 - B8. A seat row whose handle the team's roster does not hold is shown as unknown.
 - B9. The host and LXC kits are installed one directory per version and resolved once at launch.
 - B10. The stage-2 kit's Go `pingbus` implements `hook` and `status-line` and executes
-  `pingbus.pyz` for every other command, until stage 6.
+  `pingbus.pyz` for every other command, until stage 6a; from 6a only `watch`, `seat exec` and
+  `seat keep` are executed in `pingbus.pyz`, until 6b.

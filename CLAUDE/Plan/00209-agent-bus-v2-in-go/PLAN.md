@@ -26,7 +26,7 @@ and a staged cut-over with rollback that ships the owner-visible wins first. Its
 
 **Plan of record.** This plan owns the whole rewrite, stages 1-8, host side included. Plan 00213
 keeps the work it has in flight, which is stage 2's status-line part: its Task 1.1 (the measure
-script), Task 2.2 (the status line's parity oracle) and Task 2.3 (the cut-over). Its Tasks 3.1
+script), Task 1.2 (why a session renders about twice a second), Task 2.2 (the status line's parity oracle) and Task 2.3 (the cut-over). Its Tasks 3.1
 (the hooks port) and 3.2 (what stays in Python) are this plan's Task 3.1 and
 [RESEARCH-python-scope.md](RESEARCH-python-scope.md). No bus module is Ansible-loaded, so all of
 it is in scope (that file has the evidence per module).
@@ -57,28 +57,28 @@ takes the design's recommended option, **defaulted 2026-10-21, and the owner may
 The coordinator hears of any decision that turns out to be irreversible, or that contradicts the
 owner's words, before the stage that acts on it.
 
-| #   | Option taken                                                                                                                                                                                       |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D1  | (c'): one Go reader as `agent-bus` by a NOPASSWD Runas rule, no root, no daemon (stage 4)                                                                                                          |
-| D2  | moot under D1 (c')                                                                                                                                                                                 |
-| D3  | `sudo agent-bus` as root with the password, the change done by a child as `agent-bus`                                                                                                              |
-| D4  | relay mode dropped from v2; specified against v2 when the upstream plugin API ships; `relay/lock` stays the delivery lock                                                                          |
-| D5  | wire protocol 1 kept through and after the migration                                                                                                                                               |
-| D6  | host_vars, edited by a Go YAML node editor (`go.yaml.in/yaml/v3`, an allowlist row)                                                                                                                |
-| D7  | LXC apply ported to Go at stage 7, play-driven as today                                                                                                                                            |
-| D8  | static amd64 only                                                                                                                                                                                  |
-| D9  | legacy forms dropped at stage 8 after a migration that reports clean. **One-way**: raised with the coordinator before stage 8 starts                                                               |
-| D10 | Plan 00192 Task 3.2's Go installer adopted, merged after the owner's root test                                                                                                                     |
-| D11 | the seat broker in its own plan                                                                                                                                                                    |
-| D12 | the admin commands no program calls are kept                                                                                                                                                       |
-| D13 | 1 s open at six checkouts, three teams, six people; redraw under 200 ms; `--list` and the interactive open                                                                                         |
-| D14 | a reader failure is shown as v1 shows a refused `sudo -n agent-bus list`                                                                                                                           |
-| D15 | a keeper and a worker in every member                                                                                                                                                              |
-| D16 | **not the design's 1 s**: `refreshInterval` is 25 s, set by Plan 00213 Task 1.3 (the coordinator's option A, the owner may change it), because the supervisor's context sidecar goes stale at 30 s |
-| D17 | one ccy image bump per stage that changes the image (2, 6a, 6b, 8)                                                                                                                                 |
-| D18 | versioned kits, resolved at launch                                                                                                                                                                 |
-| D19 | `element.py` ported to `agent-bus element` at stage 5                                                                                                                                              |
-| D20 | DESIGN.md 10.2's stage order, with the milestones below                                                                                                                                            |
+| #   | Option taken                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | (c'): one Go reader as `agent-bus` by a NOPASSWD Runas rule, no root, no daemon (stage 4)                                                                                                                                                                                                                                                                                                                                                                        |
+| D2  | moot under D1 (c')                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| D3  | `sudo agent-bus` as root with the password, the change done by a child as `agent-bus`                                                                                                                                                                                                                                                                                                                                                                            |
+| D4  | relay mode dropped from v2; specified against v2 when the upstream plugin API ships; `relay/lock` stays the delivery lock. **Overrides the owner's own design** (Plan 00194, decisions A-G: relay as the one delivery path, the supervisor plugin owning `pingbus watch`), and with it parks 00194's delivery goal (Tasks 2.1, 2.1b, 2.2) behind stage 6b: raised with the coordinator before 6b starts, or before 00194 Task 2.1 resumes, whichever comes first |
+| D5  | wire protocol 1 kept through and after the migration                                                                                                                                                                                                                                                                                                                                                                                                             |
+| D6  | host_vars, edited by a Go YAML node editor (`go.yaml.in/yaml/v3`, an allowlist row)                                                                                                                                                                                                                                                                                                                                                                              |
+| D7  | LXC apply ported to Go at stage 7, play-driven as today                                                                                                                                                                                                                                                                                                                                                                                                          |
+| D8  | static amd64 only                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| D9  | legacy forms dropped at stage 8 after a migration that reports clean. **One-way**: raised with the coordinator before stage 8 starts                                                                                                                                                                                                                                                                                                                             |
+| D10 | Plan 00192 Task 3.2's Go installer adopted, merged after the owner's root test                                                                                                                                                                                                                                                                                                                                                                                   |
+| D11 | the seat broker in its own plan                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| D12 | the admin commands no program calls are kept                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| D13 | 1 s open at six checkouts, three teams, six people; redraw under 200 ms; `--list` and the interactive open                                                                                                                                                                                                                                                                                                                                                       |
+| D14 | a reader failure is shown as v1 shows a refused `sudo -n agent-bus list`                                                                                                                                                                                                                                                                                                                                                                                         |
+| D15 | a keeper and a worker in every member. **A new resident process on every member machine**, which DESIGN.md asks the owner about: raised with the coordinator before 6b starts                                                                                                                                                                                                                                                                                    |
+| D16 | **not the design's 1 s**: `refreshInterval` is 25 s, set by Plan 00213 Task 1.3 (the coordinator's option A, the owner may change it), because the supervisor's context sidecar goes stale at 30 s                                                                                                                                                                                                                                                               |
+| D17 | one ccy image bump per stage that changes the image (2, 6a, 6b, 8)                                                                                                                                                                                                                                                                                                                                                                                               |
+| D18 | versioned kits, resolved at launch                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| D19 | `element.py` ported to `agent-bus element` at stage 5                                                                                                                                                                                                                                                                                                                                                                                                            |
+| D20 | DESIGN.md 10.2's stage order, with the milestones below                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 ## Milestones
 
@@ -129,30 +129,39 @@ Each is an expectation of the stage named, as well as DESIGN.md section 2.
   goodbye at stage 2, the seat commands at 6a). `seat disconnected` and the launcher write each outcome to the owner-only
   `.claude/ccy/pingbus/disconnect.log` (2.0h, stage 6a). An unaddressed human message gets one
   `ignored.log` line per member and `pingbus status` counts `ignored=` (2.0f, stage 6b).
-- **Plan 00201**: the client-side security findings (2.11, 2.12) and the team-settings rules
-  S-F1 to S-F14 (2.15) are expectations of stages 5 and 6b when they reach F44.
+- **Plan 00201**, when each reaches F44: the client-side security findings (2.11, 2.12) and the
+  team-settings rules S-F1 to S-F14 (2.15) are expectations of stages 5 and 6b, and also: 2.12's
+  N5 (the pre-swap backup on a rendered config change, in `config_restart.py`) of stage 3, where
+  Task 4.2 makes it an installer function; 2.15's S-F14 (`removed_humans`, the name refused for
+  good, in `teamfile.py` and `declare.py`) of stage 1, whose decoders accept it, and stage 3,
+  whose installer validation keeps the refusal; 2.17's `internal/hostcheckout` refusal and single
+  handle renderer of stage 1, whose in-process seats rewire `teams/board/collect.go` and the
+  picker; 2.18's play-lock hold across the host_vars write and the apply (S-G1 to S-G11) of
+  stage 5's `bus/declare` write side.
 - **The plan acceptance suites** of Plans 00161, 00201, 00203 and 00211 run v1's Python and
   zipapps. Stage 8 re-points or retires each before it deletes the Python.
 
 ## Folded in from other plans
 
-Recommended to the coordinator, who decides; those plans' files are not edited from here.
+Recommended to the coordinator, who decides; those plans' files are not edited from here. On
+accepting a fold, the coordinator marks the folded task ❌ in its own plan, pointing to the 00209
+task that now owns it, so that no task has an owner in two plans.
 
-| Plan task                               | State there                               | Recommendation                                                                                    |
-| --------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| 00213 3.1                               | the hooks port                            | **moved here**: Task 3.1                                                                          |
-| 00213 3.2                               | what stays in Python                      | **moved here**: answered by [RESEARCH-python-scope.md](RESEARCH-python-scope.md)                  |
-| 00194 1.2                               | the owner's tick on the design            | stays in 00194; its relay part is overtaken by D4                                                 |
-| 00194 2.0c                              | merged; host checks H1-H7 pending         | stays in 00194 (v1's acceptance); SPEC-inject E1-E26 are 6b expectations                          |
-| 00194 2.0d                              | merged; the owner's restart check pending | stays in 00194; E25 and E26 (R24) are 6b expectations                                             |
-| 00194 2.0e                              | waits on hooks-daemon #127                | **fold into Task 3.1**: the SessionEnd hook is Go from stage 2, so build it there once #127 ships |
-| 00194 2.0f                              | merged; the owner's check pending         | stays in 00194; `ignored.log` is a 6b expectation                                                 |
-| 00194 2.0g                              | not started: should `empty` be logged     | **fold into Task 7.2**: a receive rule, decided in its spec                                       |
-| 00194 2.1, 2.1b, 2.2                    | wait on hooks-daemon #119                 | stay in 00194; when #119 ships they are specified against v2 (D4), not on the Python relay        |
-| 00201 2.8                               | relay-mode spool lacks a `REPLY` line     | **superseded** by D4: relay mode is not carried; cancel in 00201                                  |
-| 00201 2.11, 2.12, 2.15                  | in-flight Python and Go fixes             | stay in 00201; carried as expectations (above)                                                    |
-| 00201 2.16                              | team rename, not designed                 | stays its own work; build it on v2 after stage 5 (Go installer and admin), not in Python          |
-| 00201 2.7, 2.13, 2.14, 2.17, 2.18, 2.19 | acceptance, ccy-teams Go, run.bash        | unaffected                                                                                        |
+| Plan task                          | State there                               | Recommendation                                                                                                                                                              |
+| ---------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 00213 3.1                          | the hooks port                            | **moved here**: Task 3.1                                                                                                                                                    |
+| 00213 3.2                          | what stays in Python                      | **moved here**: answered by [RESEARCH-python-scope.md](RESEARCH-python-scope.md)                                                                                            |
+| 00194 1.2                          | the owner's tick on the design            | stays in 00194; its relay part is overtaken by D4                                                                                                                           |
+| 00194 2.0c                         | merged; host checks H1-H7 pending         | stays in 00194 (v1's acceptance); SPEC-inject E1-E26 are 6b expectations                                                                                                    |
+| 00194 2.0d                         | merged; the owner's restart check pending | stays in 00194; E25 and E26 (R24) are 6b expectations                                                                                                                       |
+| 00194 2.0e                         | waits on hooks-daemon #127                | **fold into Task 3.1**: the SessionEnd hook is Go from stage 2, so build it there once #127 ships                                                                           |
+| 00194 2.0f                         | merged; the owner's check pending         | stays in 00194; `ignored.log` is a 6b expectation                                                                                                                           |
+| 00194 2.0g                         | not started: should `empty` be logged     | **fold into Task 7.2**: a receive rule, decided in its spec                                                                                                                 |
+| 00194 2.1, 2.1b, 2.2               | wait on hooks-daemon #119                 | stay in 00194; when #119 ships they are specified against v2 (D4), not on the Python relay. This parks 00194's delivery goal behind 6b, so D4 goes to the coordinator first |
+| 00201 2.8                          | relay-mode spool lacks a `REPLY` line     | **superseded** by D4: relay mode is not carried; cancel in 00201                                                                                                            |
+| 00201 2.11, 2.12, 2.15, 2.17, 2.18 | in-flight Python and Go fixes             | stay in 00201; carried as expectations (above)                                                                                                                              |
+| 00201 2.16                         | team rename, not designed                 | stays its own work; build it on v2 after stage 5 (Go installer and admin), not in Python                                                                                    |
+| 00201 2.7, 2.13, 2.14, 2.19        | acceptance, ccy-teams Go, run.bash        | unaffected                                                                                                                                                                  |
 
 ## Tasks
 
@@ -168,8 +177,9 @@ checks it names (DESIGN.md section 16), and H10.
 - [x] ✅ **Task 1.3**: Fable reviewed DESIGN.md (REWORK); the one rework round addressed findings
   1-12 (`subagent-reports/261019-v2-design-review-fable.md`, dispositions in
   `subagent-reports/261019-v2-design-opus.md`).
-- [x] ✅ **Task 1.4**: D1-D20 decided by default (Owner decisions above), D16 by Plan 00213; the
-  owner may overturn any. DESIGN.md section 14 points here.
+- [x] ✅ **Task 1.4**: D1-D20 decided by default (Owner decisions above), D16 by Plan 00213, D17 and
+  D20 amended for the stage 6 split; D4, D9 and D15 are to be raised with the coordinator at the
+  points their rows give. The owner may overturn any. DESIGN.md section 14 points here.
 - [x] ✅ **Task 1.5**: M0: this plan made the plan of record and 00213 split to match; the
   milestones; the Python scope per module
   ([RESEARCH-python-scope.md](RESEARCH-python-scope.md)); the other plans' open tasks and
@@ -193,14 +203,20 @@ checks it names (DESIGN.md section 16), and H10.
 ### Phase 3: Hooks and status line in Go (stage 2, M2)
 
 The status line is Plan 00213's: its Task 2.1 is done (`src-go/internal/pingbus/statusline`),
-Task 2.2 is the parity oracle and Task 2.3 the cut-over; its Task 1.1 measures before and after.
+Task 2.2 is the parity oracle and Task 2.3 the cut-over; its Task 1.1 measures before and after,
+and its Task 1.2 (in progress) finds why a session renders about twice a second.
 
 - [ ] ⬜ **Task 3.1**: `SPEC-pingbus-hooks.md`; Go `hook` reading v1 files, the dispatch to
   `pingbus.pyz` for the rest (B10), `goodbye.json` dropped (B7), a parity oracle per hook on
   00213's golden pattern. Port order by measured cost (00213 Task 1.1): in socket mode the hooks
   that start pingbus are SessionStart, UserPromptSubmit, Stop and SessionEnd, since PostToolUse
   runs it only in relay mode. Plan 00211's role lines; Plan 00194 Task 2.0e (a scheduled restart
-  posts no goodbye) once hooks-daemon #127 ships. Formerly 00213 Task 3.1.
+  posts no goodbye) once hooks-daemon #127 ships. Two coexistence tests from the start, because
+  stage 2 shares `state/` with v1 (R47): the Go goodbye charging the send gate in `outbox.json`
+  under the outbox lock (R42) against a v1 `send` in a second real process, and the
+  `said-goodbye.json` it writes read by v1's `seat disconnected` (H11). The goodbye finishes
+  inside the plugin hook's 6 s timeout, under the session's 8 s SessionEnd budget; the spec states
+  and keeps both. Formerly 00213 Task 3.1.
 - [ ] ⬜ **Task 3.2**: Versioned host and LXC kits resolved at launch (R49, B9); H13.
 - [ ] ⬜ **Task 3.3**: The ccy image: the container-version gate covers pingbus's Go sources, the
   container version bump, and the host's `pingbus` added to the deployed tools (Plan 00206).
@@ -233,7 +249,7 @@ Task 2.2 is the parity oracle and Task 2.3 the cut-over; its Task 1.1 measures b
   `history`, `send`, `say`, `status`, `seat disconnected`, `seat farewell`, `seat retire`, `reach`, Plan
   00211's verbs), with `seat exec` and `seat keep` left for 6b, the Python watcher
   still the receiver; the lock coexistence tests against it (R47); a ccy image bump.
-- [ ] ⬜ **Task 7.2**: 6b: keeper and worker with every member lock kept (R47), delivery
+- [ ] ⬜ **Task 7.2**: 6b, once D4 and D15 have been raised with the coordinator: keeper and worker with every member lock kept (R47), delivery
   (SPEC-inject E1-E26), the status row and the status line switched to it, Plan 00194 Task 2.0g's
   rule; the coexistence tests; H7-H9, H11; a ccy image bump.
 
