@@ -89,9 +89,11 @@ clear message.
   the repository's top on stdout. The offer itself needs a person at a terminal and is the
   owner's check (Task 3.3).
 - [ ] 🔄 **Task 3.3**: Add the plan to `meta-deploy.bash`. The owner runs it, then types `cc`
-  in `~` (accepts the offer once and declines it once) and once in a project subfolder.
-  Queued: the plan entry runs `acceptance.bash` right after the `play-claude-yolo.yml` entry
-  that deploys it.
+  in `~` (accepts the offer once and declines it once) and once in a project. Queued as the
+  `play-claude-yolo.yml` entry in `meta-deploy.list` (one run deploys both); that run passed
+  at F44 c3391ba9 (ccy 3.99.12.19) and deployed `cc-project-dir` and `cc`. Owner's hand
+  checks, still open: `cc` in `~` (accepted, then declined) and from a subfolder of a
+  repository. The plan entry (`acceptance.bash`) is queued right after that play entry.
 
 ### Phase 4: Review and close
 
@@ -166,4 +168,6 @@ elsewhere to stay within its record. No install-specific path is in the reposito
      JOURNAL/00167-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
 - Plan written from the handover
-- Phases 1 and 2 implemented: `cc-project-dir` and its call in `cc`; deploy pending
+- Phases 1 and 2 implemented: `cc-project-dir` and its call in `cc`
+- Deployed on the host by `play-claude-yolo.yml` at F44 c3391ba9; the owner's `cc` checks are
+  open

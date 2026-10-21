@@ -620,8 +620,19 @@
         - { key: timeout, value: "15" }
 
     # Always show GRUB menu — useful for kernel selection and recovery
+    # `check_mode: false` because this reads and changes nothing. Without it the
+    # command module is skipped under `--check`, `stdout_lines` is undefined, and the
+    # `when:` of the task below errors instead of reporting.
+    - name: Read GRUB Environment Block
+      ansible.builtin.command: grub2-editenv list
+      register: grub_env_block
+      changed_when: false
+      check_mode: false
+      tags: grub
+
     - name: Disable GRUB Menu Auto-Hide
       ansible.builtin.command: grub2-editenv - unset menu_auto_hide
+      when: grub_env_block.stdout_lines | select('match', '^menu_auto_hide=') | list | length > 0
       changed_when: true
       tags: grub
 

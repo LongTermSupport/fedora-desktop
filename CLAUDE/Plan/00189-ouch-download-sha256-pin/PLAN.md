@@ -52,7 +52,7 @@ digest.
   `qa-all.bash`; the `qa-reviewer` agent. The play is queued directly in `meta-deploy.list`
   (no `deploy.bash` needed for one play). `qa-all.bash` passed and the host run passed at F44
   96454752 (ok=23 changed=1, the one change the checksum-verified download); the `qa-reviewer`
-  pass remains.
+  pass remains (the only open part of this task).
 
 ## Success Criteria
 
