@@ -176,16 +176,28 @@ func Write(dir string, d Desired) error {
 	return writeDesired(dir, ok)
 }
 
-// checked is a Desired that passed checkWrite. Only validate makes one, and writeDesired takes
-// nothing else, so no path to the disk skips the check.
-type checked struct{ d Desired }
+// checked is a Desired that passed checkWrite. Only validate sets d, and writeDesired refuses a
+// checked whose d is nil or fails the check again, so a zero or hand-filled value never
+// reaches the disk.
+type checked struct{ d *Desired }
 
 // validate is the one way to a checked membership.
 func (d Desired) validate() (checked, error) {
 	if err := d.checkWrite(); err != nil {
 		return checked{}, err
 	}
-	return checked{d}, nil
+	return checked{d: &d}, nil
+}
+
+// desired is the membership checked holds, judged again; a zero checked is refused.
+func (c checked) desired() (Desired, error) {
+	if c.d == nil {
+		return Desired{}, errors.New("refusing to write a membership that was not checked")
+	}
+	if err := c.d.checkWrite(); err != nil {
+		return Desired{}, fmt.Errorf("refusing to write the desired membership: %w", err)
+	}
+	return *c.d, nil
 }
 
 // checkWrite is check for a membership about to be written.

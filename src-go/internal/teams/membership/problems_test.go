@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 func plainDesired() Desired {
@@ -57,13 +58,13 @@ func TestInitFailsWhenItCannotAnswerTheRelaunchOrRecordTheSeats(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(stuck, "inner"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if code := r.init.Run(t.Context(), []string{"s", "/c", "1@a"}); code == 0 {
-		t.Fatalf("a relaunch request that cannot be removed: exit %d", code)
+	if code := r.init.Run(t.Context(), []string{"s", "/c", "1@a"}); code != term.ExitFailure || !strings.Contains(r.ErrOut.String(), RelaunchFile) {
+		t.Fatalf("a relaunch request that cannot be removed: exit %d: %s", code, r.ErrOut.String())
 	}
 	r = newRig(t)
 	r.init.Host.Registry = func() (*registry.Store, error) { return nil, errors.New("records unreadable") }
-	if code := r.init.Run(t.Context(), []string{"--kind=cc", "s", "/c", "1@a"}); code == 0 {
-		t.Fatalf("a cc session whose record cannot be reached: exit %d", code)
+	if code := r.init.Run(t.Context(), []string{"--kind=cc", "s", "/c", "1@a"}); code != term.ExitFailure || !strings.Contains(r.ErrOut.String(), "records unreadable") {
+		t.Fatalf("a cc session whose record cannot be reached: exit %d: %s", code, r.ErrOut.String())
 	}
 }
 

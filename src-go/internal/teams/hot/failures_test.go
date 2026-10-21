@@ -93,8 +93,9 @@ func TestAChangeSaysWhenTheRecordsOrPodmanCannotBeRead(t *testing.T) {
 	if code := r.run(t, "remove", session, "alpha", "--yes"); code == term.ExitOK || !strings.Contains(r.ErrOut.String(), "podman could not list its container") {
 		t.Fatalf("podman: exit %d:\n%s", code, r.ErrOut.String())
 	}
+	r = newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
 	r.x.Host.Registry = func() (*registry.Store, error) { return nil, errors.New("records unreadable") }
-	if code := r.run(t, "remove", session, "alpha", "--yes"); code == term.ExitOK {
+	if code := r.run(t, "remove", session, "alpha", "--yes"); code == term.ExitOK || !strings.Contains(r.ErrOut.String(), "session "+session+": records unreadable") {
 		t.Fatalf("records: exit %d:\n%s", code, r.ErrOut.String())
 	}
 }
@@ -179,9 +180,20 @@ func TestRoleSaysWhenTheRosterFailsOnItsSecondRead(t *testing.T) {
 func TestRemoveAndRoleSayWhenTheTeamCannotBeRead(t *testing.T) {
 	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
 	r.OnErr(teamtest.SudoBus+"list alpha", "no route", 2)
-	for _, args := range [][]string{{"remove", session, "alpha", "--yes"}, {"role", session, "alpha", worker, "--yes"}} {
-		if code := r.run(t, args...); code == term.ExitOK {
-			t.Errorf("%v: exit %d:\n%s", args, code, r.ErrOut.String())
+	cases := []struct {
+		args []string
+		say  string
+	}{
+		{[]string{"remove", session, "alpha", "--yes"}, "the members of alpha could not be read: no route"},
+		{[]string{"role", session, "alpha", worker, "--yes"}, "team alpha: its members could not be read: no route"},
+	}
+	for _, c := range cases {
+		r.ErrOut.Reset()
+		if code := r.run(t, c.args...); code == term.ExitOK {
+			t.Errorf("%v: exit %d:\n%s", c.args, code, r.ErrOut.String())
+		}
+		if got := r.ErrOut.String(); !strings.Contains(got, c.say) {
+			t.Errorf("%v: stderr lacks %q:\n%s", c.args, c.say, got)
 		}
 	}
 }

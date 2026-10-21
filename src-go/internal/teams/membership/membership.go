@@ -149,7 +149,7 @@ func (m *Init) Run(_ context.Context, args []string) term.ExitCode {
 		m.say("ccy-teams: internal " + sub + ": " + err.Error() + ". Nothing was written. Correct that and launch again.")
 		return term.ExitUsage
 	}
-	desired := ready.d
+	desired := *ready.d
 	runtimeDir := m.Host.Getenv("XDG_RUNTIME_DIR")
 	if !filepath.IsAbs(runtimeDir) {
 		m.say("ccy-teams: internal " + sub + ": XDG_RUNTIME_DIR is not an absolute path (" + fmt.Sprintf("%q", runtimeDir) +
@@ -209,19 +209,22 @@ func (m *Init) desired(args []string) (checked, error) {
 
 // writeDesired makes the directory and its parents the owner's alone, then replaces the file.
 func writeDesired(dir string, ready checked) error {
-	desired := ready.d
-	if err := os.MkdirAll(dir, dirMode); err != nil {
+	desired, err := ready.desired()
+	if err != nil {
+		return err
+	}
+	if err = os.MkdirAll(dir, dirMode); err != nil {
 		return fmt.Errorf("could not make the membership directory %s: %w", dir, err)
 	}
 	for _, d := range []string{filepath.Dir(filepath.Dir(dir)), filepath.Dir(dir), dir} {
-		info, err := os.Lstat(d)
-		if err != nil {
-			return fmt.Errorf("could not read the membership directory %s: %w", d, err)
+		info, statErr := os.Lstat(d)
+		if statErr != nil {
+			return fmt.Errorf("could not read the membership directory %s: %w", d, statErr)
 		}
 		if !info.IsDir() {
 			return fmt.Errorf("%s is not a directory (a symlink or a file is in the way); remove it and launch again", d)
 		}
-		if err := os.Chmod(d, dirMode); err != nil {
+		if err = os.Chmod(d, dirMode); err != nil {
 			return fmt.Errorf("could not make %s private: %w", d, err)
 		}
 	}
