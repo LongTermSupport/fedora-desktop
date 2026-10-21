@@ -241,6 +241,8 @@ The template `teamchat-server@` (installed by `software`, 0644 root):
 Description=v2 team homeserver %i
 StartLimitIntervalSec=0
 AssertPathExists=!/var/lib/teamchat-admin/%i/restore.block
+# stop after the LXC members at shutdown, so their goodbyes reach a live server
+Before=lxc.service
 
 [Service]
 Type=notify
@@ -290,6 +292,13 @@ BindReadOnlyPaths=/usr/local/share/teamchat/resolv.conf:/run/systemd/resolve/stu
 BindReadOnlyPaths=/usr/local/share/teamchat/resolv.conf:/run/systemd/resolve/resolv.conf
 InaccessiblePaths=-/run/dbus
 ```
+
+`Before=lxc.service` orders the homeservers before the LXC containers that autostart, so at
+shutdown the guests, and the members' goodbyes in them, stop first while the homeserver still
+serves (the member fixer's B 6 C12); at boot an autostarting guest waits for the homeservers to be
+ready, which is when its members can connect anyway. No ordering against the owner's user manager
+is set, since that would hold the desktop login behind a homeserver's start: a ccy member that
+loses the race at shutdown is announced as a crashed session (3.7.5), not lost.
 
 The base unit has no `ExecStart=`. The per-team drop-in `teamchat-server@<team>.service.d/team.conf`,
 rendered by `team apply`, names the binary by version:
@@ -404,14 +413,14 @@ class. A verb asked of the wrong class exits 77 naming the class it needs (DESIG
 
 | Caller class   | How it is reached                                              | Verbs                                                                                                                                                                                                                                                                                                                                                                                                          |
 | -------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| root           | the play (`become`), the two timers, the owner's password sudo | `team apply`, `team approve`, `team remove`, `member add\|return\|park\|retire\|reissue\|set`, `role apply`, `human password\|devices\|logout\|lock\|unlock`, `redact`, `backup`, `backups`, `restore [--resume\|--discard\|--lost]`, `health`, `lxc apply`, `check`, `migrate preflight\|stage\|fence\|fence-status\|capture\|carry\|commit\|archive\|archive-check\|unfence\|rollback --team T`, `footprint` |
+| root           | the play (`become`), the two timers, the owner's password sudo | `team apply`, `team approve`, `team remove`, `member add\|return\|park\|retire\|reissue\|set`, `role apply`, `human password\|devices\|logout\|lock\|unlock`, `redact`, `backup`, `backups`, `restore [--resume\|--discard\|--lost]`, `health`, `lxc apply\|restart`, `check`, `migrate preflight\|stage\|fence\|fence-status\|capture\|carry\|commit\|accept\|archive\|archive-check\|unfence\|rollback --team T`, `footprint` |
 | `teamchat-ctl` | only `ctl-child`, started by root with `os/exec` `Credential`  | `ctl-child` (reads one typed request on stdin, answers one typed response on stdout)                                                                                                                                                                                                                                                                                                                           |
 | anyone else    | the owner, the play before any root task, the Element play     | `declare check`, `element check\|apply`, `status`, `version`                                                                                                                                                                                                                                                                                                                                                   |
 
 The `migrate` verbs and `footprint` behave as area D says (D §5.4, §5.5); C provides them in the
 same binary, and each `migrate` verb takes the team lock like every root verb. The list is one
 root verb per root act of D's steps (M0 `preflight`, M2 `fence`, M3 `capture`, M4 `carry`, the
-commit, the archive acts, and the rollback's `unfence` and `rollback`); D 5.4 names which of its
+commit, M7 `accept`, the archive acts, and the rollback's `unfence` and `rollback`); D 5.4 names which of its
 acts run as the owner instead (coherence 17), and no step reaches root by any other verb.
 
 `version` answers for every class and prints the binary's source digest (the scheme of Plan 00192:
@@ -680,6 +689,7 @@ decoded strictly (unknown or duplicate keys refused, sizes capped, exit 78 namin
   "team": "<team>",
   "seq": 41,
   "rev": 12,
+  "restore_epoch": 0,
   "counters": {"<repo>+<site>.<type>": 3},
   "members": {
     "<handle>": {"state": "active", "kind": "podman", "human_text": true, "since_ms": 0, "cred_seq": 39, "cred_ms": 0, "needs": null}
@@ -691,6 +701,9 @@ decoded strictly (unknown or duplicate keys refused, sizes capped, exit 78 namin
 }
 ```
 
+- `restore_epoch` is raised by one by a restore and by nothing else (3.12.2), and carried into the
+  roster event, where area B's worker reads it. The roster carries no `proto` and no `features`
+  key: those are A's (A 3.1-3.2), not the host's.
 - `seq` is raised by one on every write of the file and never goes down, a restore included
   (3.12.2). It is the clock the host compares by: a wall-clock time can step backwards (an NTP
   correction after a suspend), a counter cannot.
@@ -912,7 +925,8 @@ password sudo from ccy-teams, under the team lock) has the child redact that one
 admin, the only account A lets redact; the reason is the fixed word `secret`, so the verb is not a
 general moderation tool. Members already drop an event that carries `redacted_because` (A 7.6
 rule 2), so nothing on the member side changes. The answer says that backups taken before the
-redaction still hold the text until Tuwunel prunes them (seven, 3.12.1), and names them. Area A's
+redaction still hold the text until Tuwunel prunes them (seven, 3.12.1), and so does any
+migration export already taken (D 5.6), and names them. Area A's
 "Delete a message" (A 12.2) gains this one admin path.
 
 #### 3.6.6 The presence check
@@ -1224,8 +1238,9 @@ the seat lock to come free, and nothing would ask the keeper to free it. (b) is 
   admin-posted farewell and no "farewell owed" record.
 - **Disconnected (R29, C43):** when the host releases a seat whose session ended (not a leave),
   it posts A's `disconnected` notice as the subject itself (A §7.4), by running area B's
-  `teamchat seat disconnected --bundle <pool seat dir>/held --claim <claim id>` as the owner:
-  `held/`'s bundle, never the session's copy, and the claim id from `held/held.json`. The admin's
+  `teamchat seat disconnected --bundle <pool seat dir>/held --since <since_ms> --seed <claim id>` as the
+  owner: `held/`'s bundle, never the session's copy, and the claim's id and `since_ms` from
+  `held/held.json`. The admin's
   account never posts it. Whether a goodbye was already said is
   judged from the room on the server, from the member's own events since the claim, never from a
   file the container wrote. The notice is sent with a Matrix transaction id derived from the
@@ -1242,11 +1257,12 @@ the seat lock to come free, and nothing would ask the keeper to free it. (b) is 
   an OOM kill, a podman failure) is restorable and keeps its seats, but its members are announced
   at once, as v1's launcher did. When `podman` returns and the session's record remains, the
   launcher, and the board in the background for a launcher that died too, runs the same
-  `teamchat seat disconnected --bundle <pool seat dir>/held --claim <claim id>` for each seat
+  `teamchat seat disconnected --bundle <pool seat dir>/held --since <since_ms> --seed <claim id>` for each seat
   whose seat lock is free (the L3 probe, 3.7.3 release step 1), records `held/notice.json`, and
   keeps the seat held. The same transaction id means a later release for the same claim cannot
-  post it again, and step 3 of that release skips it. A restored session posts A's `joined` back
-  (area B, with A's content; section 7). A reboot is the same case: the board posts on its first
+  post it again, and step 3 of that release skips it. A restored session posts A's `back` notice
+  (area B posts it once when a run starts on a seat whose latest own lifecycle notice is
+  `disconnected`, B 2.11; section 7). A reboot is the same case: the board posts on its first
   open after it.
 - **An LXC member** is announced by the health tick, which holds a copy of the guest's token
   (3.6.3, 3.11.2).
@@ -1471,17 +1487,17 @@ any group but the agent user's own, and refuses to run as uid 0.
       includes the live bridge subnet), on a link that is a host bridge;
     - for a team whose `origin` is `migration` (D §3.9), whether the guest still runs this member on
       v1: the guest's v1 session unit enabled, or v1's env file naming the team, read through area
-      D's adapter (`migrate/v1`, D §5.5) from the same root fd. Either holds the member back as
+      D's adapter (`migrate/v1`'s `ReadGuestV1Session`, D §5.5, D 6.3) from the same root fd. Either holds the member back as
       `DEFERRED (v1 not yet absent)` (3.9.3), so a container that was stopped during the move and
       started later never runs a v1 and a v2 session side by side; ccy-teams' heal for it runs v1's
       play, then v2's.
       Any refusal here fails the phase before any container is changed.
 04. Kit: for each running container that lacks the installed kit digest, write
-    `/usr/local/lib/teamchat/kit/<digest>/` (`bin/teamchat`, `bin/teamchat-claude`, `plugin/`,
+    `/usr/local/lib/teamchat/kit/<digest>/` (`bin/teamchat`, `plugin/`,
     `settings.json`) from the host's own kit directory, from the host side by 3.9.1's rules
     (root-owned, 0755 directories, 0755 binaries, 0644 files, modes explicit so no inherited umask
     can matter, LR 6 item 2), under a temporary directory name renamed into place once complete;
-    then swap `current` and the `/usr/local/bin/{teamchat,teamchat-claude}` links. The bytes
+    then swap `current` and the `/usr/local/bin/teamchat` link. The bytes
     written are the host's, whose digest the build recorded, so there is nothing to check inside
     the guest and no guest program runs. An old digest is deleted only when it is not `current`
     and no live session names it: the host reads each `session.pid` (B 2.4.1) under the guest's
@@ -1582,9 +1598,9 @@ rendered declaration would heal it on its own; it is held as decision DC10 and n
 
 #### 3.9.4 The supervised session in a guest
 
-`service: true` gives the agent user a supervised session: B's launcher `teamchat-claude` under
-tmux, restarted on exit (area B owns what runs). v1 wrote a system unit with a guest script as root
-and ran the guest's `systemctl` as root. v2 writes the unit file and its
+`service: true` gives the agent user a supervised session: B's `teamchat run --kind lxc` in a tmux
+pane, restarted on exit (area B owns what runs and its arguments, B 2.2). v1 wrote a system unit
+with a guest script as root and ran the guest's `systemctl` as root. v2 writes the unit file and its
 `multi-user.target.wants` link into the guest from the host side (3.9.1's rules), and asks the
 guest's own systemd to reload and start it over the guest's private manager socket, reached as
 `/proc/<init pid>/root/run/systemd/private` from the host: a host process speaking peer-to-peer
@@ -1608,8 +1624,7 @@ WorkingDirectory=<checkout>
 RuntimeDirectory=teamchat-session-<user>
 RuntimeDirectoryMode=0700
 Environment=XDG_RUNTIME_DIR=/run/teamchat-session-<user> HOME=<home>
-ExecStart=/usr/bin/tmux -L teamchat new-session -d -s teamchat /usr/local/bin/teamchat-claude
-KillMode=mixed
+ExecStart=/usr/bin/tmux -L teamchat new-session -d -s teamchat /usr/local/bin/teamchat run --kind lxc
 TimeoutStopSec=30
 Restart=always
 RestartSec=10
@@ -1618,14 +1633,20 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
+- The pane runs `teamchat run` directly, with no launcher script or environment file between them
+  (the member fixer's B 6 C3).
+
 - `RuntimeDirectory=` gives the session a runtime directory without a login session, and is one of
   the runtime parents 3.9.2 step 4 reads.
-- `KillMode=mixed` sends the stop's SIGTERM to the tmux server only, so the pane's hangup ends
-  Claude Code in the ordinary way and the keeper and worker are not signalled by systemd while the
-  goodbye is posted; the SIGKILL of what remains comes only after the main process has gone.
-  This relies on area B's `run` waiting for the keeper before it exits (section 7, B item 10), so
-  the pane, and with it the tmux server, outlives the goodbye. `TimeoutStopSec=30` is above B's
-  5 s end bound with margin.
+
+- The default `KillMode` signals every process of the unit at a stop. Area B's `run` handles that
+  stop itself: it has the member say its goodbye and ends within its bound, the keeper last
+  (section 7, B). `TimeoutStopSec=30` is above B's end bound with margin.
+
+- `ccy-teams restart` on an LXC member runs `teamchat-admin lxc restart --container C --user U`
+  (root, password sudo), which restarts this unit over the guest's private socket as above; under
+  DC13 (b) it refuses, naming a container restart.
+
 - `<checkout>`, `<user>`, `<group>` and `<home>` are the host-side reads of 3.9.2 step 3, each
   checked against its grammar before it is rendered into the unit.
 
@@ -1870,7 +1891,7 @@ no revoked credential is ever served.
     roster and rooms record), that database backup `N` exists, and that the tar's `server_name`
     equals `root/<team>/server-name`. Refuse a backup roster with a `pending` operation, and refuse
     a current roster with one, naming the verb that completes it. Refuse a backup taken before
-    the team's v1 carry (area D's set record for the team names the carry time, D 5.4 M4) unless
+    the team's v1 carry (the `carried_at` of area D's set record for the team, D 5.4 M4) unless
     the owner passes `--accept-carry-loss`: such a restore would drop the carried items and the
     welcome notice. Refuse, naming them, any leftover `db.restore-*` or `config.restore.toml` or
     control `*.previous` file when no `restore.json` exists. Nothing stops before this passes; the
@@ -2169,7 +2190,7 @@ on v2.
 | `rotate-token`                                                                                                               | `reissue`, which revokes before it mints                                                                                                                                                                                                                                                  |
 | `set-role` as a write of its own, and the LXC entry's `role`                                                                 | the declared `coordinator` and `role apply` (DC6)                                                                                                                                                                                                                                         |
 | `removed_humans`                                                                                                             | lock and unlock (DC9)                                                                                                                                                                                                                                                                     |
-| a seat's member state kept for the next session in the checkout, and the container-written `said-goodbye.json` the host read | only the pool's record travels (DC15); a goodbye is judged from the room on the server (3.7.5)                                                                                                                                                                                              |
+| a seat's member state kept for the next session in the checkout, and the container-written `said-goodbye.json` the host read | only the pool's record travels (DC15); a goodbye is judged from the room on the server (3.7.5)                                                                                                                                                                                            |
 | the LXC entry's `repo`                                                                                                       | the LXC record's handle map                                                                                                                                                                                                                                                               |
 | Python run inside guests, as root and as the agent user; the Python 3.11 prerequisite                                        | host-side writes and `teamchat guest` as the agent user (3.9.1)                                                                                                                                                                                                                           |
 | `bridge.py`, `config_restart.py`, `timer_state.py`, `render`, `stamp-group` as separate processes                            | functions of `teamchat-admin`, or gone with DC7                                                                                                                                                                                                                                           |
@@ -2194,7 +2215,7 @@ validated before anything stops, and the Element profile's lock-down and refusal
 | `pending` and roll forward                       | half-done member changes, orphan counters, minted tokens nobody holds                                                     |
 | `reissue`                                        | a lost bundle needed a park and a return by hand                                                                          |
 | the seat store and per-session mounts            | coordinator tokens readable by workers; sibling sessions consuming each other's inbox; tokens one `git add` from a commit |
-| the pool record, `held/` and the quarantine  | a container-written bundle or member state reaching the next session in the same checkout                                 |
+| the pool record, `held/` and the quarantine      | a container-written bundle or member state reaching the next session in the same checkout                                 |
 | the Tuwunel version in each team's drop-in       | a homeserver restarted onto a new binary (and a one-way migration) without its team's backup                              |
 | the status record                                | a board that needed root, sudo and a process per team and per person to draw                                              |
 | staged restore with swap-back                    | a failed restore leaving the team down (I-B8)                                                                             |
@@ -2222,8 +2243,9 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
     A's team id grammar (A §2.2) allows at most 22 characters, so `teamchat-<team>` fits systemd's
     31-character user-name limit (3.2.3). A team's display name (`name`) is display only and never
     part of a user, unit or path name.
-06. A defines the goodbye and disconnected message types that B posts (3.7.5), and a `joined`
-    notice a restored ccy session posts after a host-posted disconnected for the same claim.
+06. A defines the goodbye and disconnected message types that B posts (3.7.5), and the `back`
+    notice B posts when a run starts on a seat whose latest own lifecycle notice is
+    `disconnected` (B 2.11).
 07. A defines the content of the admin's `added` and `role` notices (3.6.3, 3.6.4).
 08. A's roster carries `restore_epoch`, an integer only a restore raises (3.12.2), with `seq` and
     `rev` (3.6.1).
@@ -2252,12 +2274,14 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
     never from state another session left (DC15): a seat with no member store starts from the
     earlier of the member's own read receipt and `seat.json`'s `released_ms` (3.7.2), and B reads
     `claim` from `seat.json`.
-06. B provides `teamchat seat disconnected --bundle <dir> --claim <claim id>`, run by the host as
+06. B provides `teamchat seat disconnected --bundle <dir> --since <ms> --seed <id>`, run by the host as
     the owner with the pool's `held/` bundle, which judges from the room whether this member
     already said goodbye or was announced since the claim and otherwise posts the disconnected
-    notice once, with transaction id `tc-disc-<claim id>` (C43). A restored ccy session whose
-    seat the host announced posts A's `joined` back, and B's own disconnected path for the same
-    claim uses the same transaction id, so the two never double.
+    notice once, with transaction id `tc-disc-<seed>` (C43); the host passes the claim id as the
+    seed and the claim's `since_ms`. A restored ccy session whose seat the host announced posts
+    A's `back`, and B's own disconnected path for the same claim uses the same transaction id, so
+    the two never double. The health tick's child calls the same code as a package, with the
+    guest token copy, the run id as the seed and the run's `since_ms` (3.11.2 step 6).
 07. For an LXC member, the next worker on a seat checks the room for the member's own `left` or
     `disconnected` since the last run before it posts a disconnected of its own, and uses
     transaction id `tc-disc-<run id>`, the id the health tick uses (3.11.2 step 6); the run id is
