@@ -127,7 +127,9 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   `REPLY` command changes for questions-room items (SPEC §7, §8). Done in code, not deployed.
 - [x] ✅ **Task 1.7**: `envelope`: the `room:`, `question:` and `revises:` lines (SPEC §8.3).
   Done in code, not deployed.
-- [ ] 🔄 **Task 1.8**: `hooks`: the role lines (done in code). The pingbus skill text (SPEC §10.1, §10.2).
+- [x] ✅ **Task 1.8**: `hooks`: the role lines. The pingbus skill text (SPEC §10.1, §10.2):
+  workers ask the coordinator, reports are never questions, the coordinator bubbles up only
+  what it cannot answer and passes every answer on. Done in code, not deployed.
 - [x] ✅ **Task 1.9**: A change to `helpers/pingbus/` needs the container version bump: the
   pre-commit gate requires it (CLAUDE/ContainerRules.md, "every other file the image bakes
   in"), so SPEC §1 and §5.6's "no bump" was wrong. Each Phase 1 commit that touches the image

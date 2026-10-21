@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.13.3 — container 2.78.3
+## 3.99.13.4 — container 2.78.4
 
 Follows 3.99.12.19 (container 2.77.15). The image carries the pingbus kit, which changed, so
 it is rebuilt once.
