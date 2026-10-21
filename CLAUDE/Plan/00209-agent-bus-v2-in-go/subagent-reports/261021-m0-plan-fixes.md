@@ -10,9 +10,10 @@ recommended there are listed at the end.
    The review itself quoted the same two values in its finding 1; they are redacted there too,
    before the review was first committed. The bookkeeping report's finding 11 now says so. Git
    history is not rewritten: commit `35acceab` still carries the names in every local branch that
-   holds it, `feat/bus-v2-m0-plan` itself included, and none of those branches is on the remote.
-   **For the coordinator:** get the owner's decision on rewriting those unpushed branches before
-   any of them, this one included, is pushed or merged.
+   holds it, and none of those branches is on the remote. `feat/bus-v2-m0-plan` has since been
+   rebuilt onto `e918261b` and no longer holds it (journal correction). **For the coordinator:**
+   the M1, M2 and S1 work branches (and `feat/agent-bus-v2-design-2`) still do; rebase them onto
+   `e918261b` or rewrite them before any is pushed or merged.
 2. **SessionEnd 6 s / 8 s.** Not a mismatch: `hooks.json:50`'s `"timeout": 6` is the plugin
    hook's own limit, and DESIGN 8.2's 8 s is `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS`
    (`settings.json:9`, `seat.py:83`). Rewritten in `RESEARCH-python-scope.md` and in the

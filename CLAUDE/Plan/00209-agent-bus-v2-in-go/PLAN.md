@@ -56,7 +56,9 @@ fixes things, improves things, and is made excellent.
 - No Python and no bash on any bus path: one Go codebase in `src-go`, deployed by the plays.
 - No root on any read; every change still needs the owner's password.
 - Every v1 requirement and hard-won behaviour kept (DESIGN.md section 2, and the requirements
-  carried from other plans below), each as a numbered expectation in its stage's spec.
+  carried from other plans below), each as a numbered expectation in its stage's spec. A v1
+  quirk or workaround is not a requirement: outside the compatibility contract, behaviour may
+  change by a numbered departure (Owner direction).
 - v1 and v2 coexist on the same state and locks until v1 is retired; each stage can be rolled
   back by a redeploy.
 
