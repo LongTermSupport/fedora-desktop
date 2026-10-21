@@ -107,7 +107,12 @@ assignment to `.Name`; test files are exempt, a test spells out the argv it expe
   flagged where it is taken, because the later `f(ctx, "lxc-ls")` names its program where no
   rule can see it.
 - A shell with `-c` (`sh`, `bash`, `dash`, `zsh`), directly or behind a wrapper, is flagged: it is
-  the `sh -c` route round the argv the runner shows.
+  the `sh -c` route round the argv the runner shows. The one excuse is a row in `shellStrings`
+  (package, function or `Type.method`, reason), for a program whose own specification is a
+  command line a user wrote for a shell: `pingbus status-line`'s `runInner`, which runs the
+  settings' `statusLine` command as `/bin/sh -c` because Claude Code does (Plan 00213
+  SPEC-status-line.md S9). A row excuses only the shell string; an owned program in the same
+  function is still judged.
 
 `LookPath("gum")` and text containing a program's name are not commands and are not flagged.
 
@@ -115,7 +120,9 @@ assignment to `.Name`; test files are exempt, a test spells out the argv it expe
   neighbours: `wl-copy`, `systemd-escape`, `env PYTHONPATH=... python3`,
   `systemd-run -- setsid gio`, `bash script.bash`; the `_test.go` file clean), the owner
   `sudo`, `other/internal/tmuxccy` (the owner running tmux, directly and under `systemd-run`,
-  clean; running `git` flagged), `dynamic` (a `dynamicNames` row clean, its neighbour flagged),
+  clean; running `git` flagged), `dynamic` (a `dynamicNames` row clean, its neighbour flagged), `shellstring` (a `shellStrings`
+  row's `sh -c` and `env ... bash -c` clean, its neighbour flagged, `git` in an excused function
+  flagged),
   `badrun` (a package that is not lxcfreeze running `lxc-ls`, `lxc-freeze`, `nmcli`,
   `lxc-attach`, `git` behind `env`, `sh -c`, a run-time program, a spread parameter, no program,
   and the method value and method expression forms, all flagged; unowned programs and the

@@ -32,6 +32,8 @@
 also	files/var/local/claude-yolo/lib/common-pure.bash	go	-
 also	files/var/local/claude-yolo/lib/session-registry.bash	go	-
 also	helpers/agent_bus/declare.py	go	-
+# The status line's writer test runs these writers of the files it reads (SPEC-status-line.md 8).
+also	helpers/pingbus/*.py,helpers/agent_bus/admin.py,helpers/agent_bus/checkout.py	go	-
 # rclonecache's caller test reads how these scripts call rclone-cache-status.
 also	files/home/.local/bin/rclone-tail,files/home/.local/bin/rclone-cache-warm	go	-
 # The bash-limits gate reads every bash file, template and the allowlist (whole: it is fast).
