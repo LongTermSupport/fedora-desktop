@@ -278,6 +278,14 @@ script only builds and runs the command. Its spec is `SPEC-qa-nokill-containerwa
 (expectations E1-E15), proven by unit tests over a fake tree and a real work tree; the one
 `git ls-files` it needs is run by the command through the seam.
 
+`qa/teamchatseparate` + `qa/cmd/qa-teamchat-separate` (same nested module) are
+`scripts/qa-teamchat-separate.bash`, the gate `teamchat-keeps-off-v1` (Plan 00209 D 4.1): no
+file v2 of the agent-team bus owns holds a v1 name. The script only builds and runs the command.
+The name list `v1-names.txt` and the allowlist `allowed.tsv` are its data; the expectations
+(K1-K7) are its package doc, proven by unit tests over a fake tree and a real work tree in the
+command package. `internal/teamchat/paths`, the one source of every v2 name, reads the same list
+in its own test.
+
 `qa/ansiblepause` + `qa/cmd/qa-ansible-pause` (same nested module) are
 `scripts/qa-ansible-pause.bash`, the rule pause-without-register: the script only builds and runs
 the command. A line scan (the annotation is a comment, which a YAML load drops) over the `yaml`

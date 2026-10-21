@@ -985,6 +985,47 @@ func TestAContainerWatchEditRunsTheNoKillGate(t *testing.T) {
 	}
 }
 
+// Plan 00209 D 4.1: a change to a file v2 owns, or to the gate's own files, runs
+// teamchat-keeps-off-v1 before the commit; a deletion does too; a v1 or shared file does not.
+func TestAV2EditRunsTheKeepsOffV1Gate(t *testing.T) {
+	for _, f := range []string{
+		"src-go/internal/teamchat/paths/paths.go",
+		"src-go/cmd/teamchat/main.go",
+		"files/opt/claude-yolo/optional/teamchat/settings.json",
+		"tasks/teamchat-units.yml",
+		"vars/teamchat.yml",
+		"playbooks/imports/play-teamchat.yml",
+		"playbooks/imports/play-teamchat.yaml",
+		"playbooks/imports/optional/common/play-teamchat-element.yml",
+		"scripts/qa-teamchat-separate.bash",
+		"src-go/qa/teamchatseparate/run.go",
+		"src-go/qa/teamchatseparate/v1-names.txt",
+		"src-go/qa/teamchatseparate/v1-names-corpus.tsv",
+		"src-go/qa/teamchatseparate/allowed.tsv",
+		"src-go/qa/cmd/qa-teamchat-separate/main.go",
+	} {
+		w := newWorld(t)
+		w.touch(f, "# x")
+		if p := w.classify([]string{f}); !p.has("teamchat-keeps-off-v1") {
+			t.Errorf("%s: %v", f, keys(p))
+		}
+	}
+	w := newWorld(t)
+	if p := w.classify(nil, "src-go/internal/teamchat/paths/gone.go"); !p.has("teamchat-keeps-off-v1") {
+		t.Errorf("a deleted v2 file: %v", keys(p))
+	}
+	for _, f := range []string{
+		"src-go/internal/teams/board/board.go", "playbooks/imports/play-agent-bus.yml",
+		"playbooks/imports/optional/common/play-agent-bus-element.yml",
+	} {
+		w := newWorld(t)
+		w.touch(f, "# x")
+		if p := w.classify([]string{f}); p.has("teamchat-keeps-off-v1") {
+			t.Errorf("%s must not run the gate: %v", f, keys(p))
+		}
+	}
+}
+
 // The shared command helpers of src-go/qa/internal rerun the gates whose commands are built on
 // them, and a gate that does not use one does not rerun for it.
 func TestAChangeToASharedCommandHelperRunsTheGatesBuiltOnIt(t *testing.T) {
@@ -993,15 +1034,15 @@ func TestAChangeToASharedCommandHelperRunsTheGatesBuiltOnIt(t *testing.T) {
 		"src-go/qa/internal/cmdmain/cmdmain.go": {
 			"bash", "python", "js", "ansible-syntax-gate", "patterns", "docs", "ansible-patterns", "nokill-containerwatch",
 			"ansible-pause", "toolchain", "plan-script-logging", "version-pins", "vmtest-manifest", "gh-scopes",
-			"deployed-drift", "ready-wait", "stt-rules", "bash-limits", "go-deps", "go-vuln",
+			"deployed-drift", "ready-wait", "stt-rules", "bash-limits", "go-deps", "go-vuln", "teamchat-keeps-off-v1",
 		},
 		"src-go/qa/internal/emit/emit.go": {
 			"nokill-containerwatch", "ansible-pause", "toolchain", "plan-script-logging", "version-pins", "vmtest-manifest",
-			"ansible-patterns", "go-deps", "go-vuln",
+			"ansible-patterns", "go-deps", "go-vuln", "teamchat-keeps-off-v1",
 		},
 		"src-go/qa/internal/rootargs/rootargs.go": {
 			"nokill-containerwatch", "toolchain", "plan-script-logging", "version-pins", "vmtest-manifest",
-			"python", "js", "ansible-syntax-gate", "patterns", "gh-scopes", "docs", "ansible-patterns", "go-deps", "go-vuln",
+			"python", "js", "ansible-syntax-gate", "patterns", "gh-scopes", "docs", "ansible-patterns", "go-deps", "go-vuln", "teamchat-keeps-off-v1",
 		},
 	}
 	for file, checks := range uses {

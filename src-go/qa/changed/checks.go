@@ -79,6 +79,7 @@ var checkDefs = []checkDef{
 	{id: "go", fixed: "go-qa, both modules (diff mode on a git change)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runGoGate},
 	{id: "bash-limits", fixed: "whole gate (tooling is Go; allowlist ratchet)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runBashLimits},
 	{id: "nokill-containerwatch", fixed: "whole gate (the container-watch watchdog never signals a process)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runNoKillContainerWatch},
+	{id: "teamchat-keeps-off-v1", fixed: "whole gate (no file v2 of the agent-team bus owns holds a v1 name)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runTeamchatKeepsOffV1},
 	{id: "ansible-pause", fixed: "whole gate (every pause registers its answer or says why it waits)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runAnsiblePause},
 	{id: "gh-scopes", fixed: "gh-scope-outside-ssot rule, whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runGhScopes},
 	{id: "ready-wait", fixed: "whole gate (no wait ignores the exit of the process it waits for)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runReadyWait},
@@ -155,6 +156,10 @@ func runBashLimits(ctx context.Context, s *session, _ *checkPlan) (checkResult, 
 
 func runNoKillContainerWatch(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.script(ctx, nil, "qa-nokill-containerwatch.bash")
+}
+
+func runTeamchatKeepsOffV1(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.script(ctx, nil, "qa-teamchat-separate.bash")
 }
 
 func runAnsiblePause(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {

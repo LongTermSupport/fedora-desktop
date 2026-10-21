@@ -1,0 +1,32 @@
+# Lines judged against v1-names.txt by two matchers that must agree: the gate's (names_test.go)
+# and the one in the unit test of src-go/internal/teamchat/paths (separation_test.go), which
+# cannot import the gate's nested module. One row per line, tab separated; # starts a comment.
+#
+#   expect   hit (the line holds a listed v1 name) or clean (it holds none)
+#   line     the text judged, to the end of the row
+hit	state: /var/lib/agent-bus/ops
+hit	AGENT-BUS
+hit	agent_bus.status
+hit	AgentBus
+hit	pingbus-status-line
+hit	PINGBUS_ROOT=x
+hit	AGENT_BUS_HOME=x
+hit	CCY_TEAMS_PINGBUS=1
+hit	CC_TEAMS_X=1
+hit	/run/ccy/membership/desired.json
+hit	$XDG_RUNTIME_DIR/ccy/membership
+hit	${XDG_RUNTIME_DIR}/ccy/membership
+hit	{{ xdg }}/ccy/membership
+hit	~/.claude/ccy/pingbus
+hit	/opt/claude-yolo/optional/agent-bus/settings.json
+hit	config/Element-ops
+hit	Element-teamchat-a and Element-b
+clean	config/Element-teamchat-ops
+clean	config/element-ops
+clean	teamchat-ops-element.desktop
+clean	/var/lib/teamchat/ops
+clean	agent bus, ping bus
+clean	/run/teamchat/membership
+clean	TEAMCHAT_RUNTIME
+clean	teamchat.status
+clean	/ccy/members

@@ -149,9 +149,13 @@ its first caller.
 
 ### Phase 1: N1, foundations
 
-- [ ] ⬜ **Task 1.1**: `internal/teamchat/paths`, the one source of every name and path (D 3.3).
-- [ ] ⬜ **Task 1.2**: The static gate `teamchat-keeps-off-v1` with its v1 name list (D 4.1), in
-  `qa-changed.bash` and `qa-all.bash` before the first v2 package merges.
+- [x] ✅ **Task 1.1**: `internal/teamchat/paths`, the one source of every name and path (D 3.3).
+  Built on `feat/bus-v2-n1-paths`, 100% coverage. Review round 3 was FIX-FIRST; its five findings
+  are fixed in cb3736fa and were not reviewed again (`261021-n1-paths.md`).
+- [x] ✅ **Task 1.2**: The static gate `teamchat-keeps-off-v1` with its v1 name list (D 4.1), in
+  `qa-changed.bash` and `qa-all.bash` before the first v2 package merges. The merge into
+  `feat/bus-v2-n1` adds to `allowed.tsv` the three rows for the matrix replay test
+  (`261021-n1-paths.md`), and that merge is gated on `qa-teamchat-separate` exit 0.
 - [ ] ⬜ **Task 1.3**: `teamchat/proto`, test first: the wire, the roster type, the verdict and
   room-trust check, kinds, references, limits, the envelope, the shared corpus (A 2-13), and the
   room specs exported as data (seam 13).
