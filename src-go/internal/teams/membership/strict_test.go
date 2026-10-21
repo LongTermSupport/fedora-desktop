@@ -27,6 +27,47 @@ const (
 	minimalReport = `{"v":1,"generation":0,"seats":[],"refused":[]}`
 )
 
+// The reports a deployed keeper writes, byte for byte: each was written by membership.write_applied
+// of the revision named, run from `git archive <rev> helpers/pingbus`. A running container keeps the
+// pingbus its image was built with, so every keeper since the file began can still be writing one.
+// The keeper of Plan 00203 M1 (1f681d41d, container 2.68 to 2.71) writes no inbound; from M3
+// (c60b7ff03, container 2.72) inbound is written when known. The shapes the two share are the same
+// bytes at every revision since.
+const (
+	keeperSeats   = `"seats": [{"handle": "proj.1+local.podman", "seat": "1", "state": "held", "team": "alpha"}, {"handle": "proj.2+host-a.lxc", "seat": "worker1", "state": "held", "team": "gamma"}]`
+	keeperRefused = `"refused": [{"holder": "seat", "seat": "2", "team": "beta", "why": "held-elsewhere"}, {"holder": "keeper", "seat": "3", "team": "delta", "why": "held-elsewhere"}, {"holder": "unknown", "seat": "4", "team": "eps", "why": "held-elsewhere"}, {"holder": "-", "seat": "5", "team": "zeta", "why": "no-bundle"}, {"holder": "-", "seat": "6", "team": "eta", "why": "bundle-invalid"}, {"holder": "-", "seat": "7", "team": "theta", "why": "not-desired"}]`
+	keeperTold    = `"told": {"generation": 3, "roles": [{"handle": "proj.1+local.podman", "role": "coordinator", "team": "alpha"}, {"handle": "proj.2+host-a.lxc", "role": "worker", "team": "gamma"}]}`
+)
+
+func keeperCases() []fileCase {
+	k := func(name, body string) fileCase {
+		return fileCase{name: "report: the keeper's " + name, report: true, body: body + "\n", ok: true}
+	}
+	return []fileCase{
+		k("empty report (M1 on)", `{"generation": 0, "refused": [], "seats": [], "v": 1}`),
+		k("seats and refusals (M1 on)", `{"generation": 3, `+keeperRefused+`, `+keeperSeats+`, "v": 1}`),
+		k("told roles (M1 on)", `{"generation": 3, `+keeperRefused+`, `+keeperSeats+`, `+keeperTold+`, "v": 1}`),
+		k("told no roles (M1 on)", `{"generation": 3, "refused": [], `+keeperSeats+`, "told": {"generation": 3, "roles": []}, "v": 1}`),
+		k("inbound false (M3 on)", `{"generation": 1, "inbound": false, "refused": [], "seats": [], "v": 1}`),
+		k("inbound and told (M3 on)", `{"generation": 3, "inbound": true, `+keeperRefused+`, `+keeperSeats+`, `+keeperTold+`, "v": 1}`),
+	}
+}
+
+// launcherCase is the desired membership as writeDesired encodes it: every ccy-teams and
+// launcher since the file began (235c8cc2) has encoded this same struct, so a file an older
+// one left is these bytes too, escapes and newline included.
+func launcherCase(t *testing.T) fileCase {
+	t.Helper()
+	data, err := json.Marshal(Desired{
+		V: 1, Session: "ccy-a@b+c.1", Kind: KindCcy, Checkout: "/srv/a&b<c>", Generation: 7, WrittenMS: 1700000000000,
+		Seats: []Seat{{Team: "alpha", Seat: "1"}}, Farewell: []Farewell{{Team: "beta", Seat: "w2", Reason: ReasonRemoved}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fileCase{name: "desired: as writeDesired encodes it", body: string(data) + "\n", ok: true}
+}
+
 // fileCase is one file and whether a reader takes it. Every case is judged by the Go reader and
 // by pingbus's Python reader, which must agree with it.
 type fileCase struct {
@@ -91,6 +132,7 @@ func desiredCases(t *testing.T) []fileCase {
 		"v", "session", "kind", "checkout", "generation", "written_ms", "seats", "farewell")
 	return append(cases, []fileCase{
 		{name: "desired: as written", body: validDesired, ok: true},
+		launcherCase(t),
 		d("no seats and no farewell", seats+","+farewell, `"seats":[],"farewell":[]`, true),
 		d("64 seats", seats, `"seats":`+many(64, desiredSeats), true),
 		d("65 seats", seats, `"seats":`+many(65, desiredSeats), false),
@@ -141,6 +183,7 @@ func reportCases(t *testing.T) []fileCase {
 	refused := `"refused":[{"team":"beta","seat":"2","why":"held-elsewhere","holder":"seat"}]`
 	roles := `"roles":[{"team":"alpha","handle":"proj.1+local.podman","role":"coordinator"}]`
 	cases := missing(t, "report: ", true, minimalReport, "v", "generation", "seats", "refused")
+	cases = append(cases, keeperCases()...)
 	return append(cases, []fileCase{
 		{name: "report: as written", report: true, body: validReport, ok: true},
 		{name: "report: with no told and no inbound", report: true, body: minimalReport, ok: true},
