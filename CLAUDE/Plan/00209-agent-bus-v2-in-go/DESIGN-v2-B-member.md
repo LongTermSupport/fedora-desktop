@@ -220,22 +220,22 @@ is checkable from the binary itself.
 
 Agent-facing (all go through the worker):
 
-| Verb                                                                          | Does                                                                                                                                                                                   | Replaces in v1                         |
-| ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| `recv`                                                                        | prints every pending item and marks it delivered                                                                                                                                       | `recv`                                 |
-| `wait [--timeout S]`                                                          | blocks until something is pending, then acts as `recv`; for sessions with no inbox socket                                                                                              | `wait`                                 |
-| `inbox`                                                                       | lists what is pending without delivering it (no bodies)                                                                                                                                | `inbox`                                |
-| `reply <event-id> [--verb V] [--ref R] [--to-coordinator]`                    | answers one item; text on stdin. The worker decides team, room, thread and addressee from the item. `--verb` answers a ping with a closed verb (with `--ref` where the verb takes one) | `say --re`, `send ack --re`, `thread`  |
-| `say --to N[,N...]\|--to-coordinator [--team T]`                              | starts a conversation with named members; text on stdin                                                                                                                                | `say`                                  |
-| `ping <verb> [<ref>] --to N[,N...]\|--to-coordinator [--team T] [--branch B]` | sends a closed-verb ping                                                                                                                                                               | `send`                                 |
-| `report [--team T]`                                                           | a quiet report to the reports room; headline then body on stdin                                                                                                                        | `report` [Q 6]                         |
-| `ask [--team T] [--asked-by N,...] [--re ID,...]`                             | the coordinator asks the team's humans a numbered question in the questions room; text on stdin                                                                                        | `ask-human` [Q 7]                      |
-| `thread Q<n> [--ask] [--close] [--team T]`                                    | the coordinator posts in question `n`'s thread (quiet, or `--ask` to notify the humans, `--close` to close it)                                                                         | `thread` [Q 8]                         |
-| `questions [--all] [--team T]`                                                | the coordinator's open questions and the human replies not yet answered                                                                                                                | `questions` [Q 8]                      |
-| `history [--team T] [--room main\|questions] [--limit N]`                     | what this member received and sent, read from the room, newest first; consumes nothing                                                                                                 | `history`                              |
-| `verify <event-id>`                                                           | re-fetches one event from the homeserver and prints its verified kind, sender, team, room and a SHA-256 of its body, so a consequential HUMAN request can be confirmed (B7)            | the skill's "check it in history" rule |
-| `status [--team T]`                                                           | this session's teams, roles, members, side rooms, delivery state, the runtime's health and its own resident cost (B40)                                                                 | `status`, `config check`               |
-| `version`                                                                     | the binary's source digest and the record version it prints                                                                                                                            | `version`                              |
+| Verb                                                                          | Does                                                                                                                                                                                                             | Replaces in v1                         |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| `recv`                                                                        | prints every pending item and marks it delivered                                                                                                                                                                 | `recv`                                 |
+| `wait [--timeout S]`                                                          | blocks until something is pending, then acts as `recv`; for sessions with no inbox socket                                                                                                                        | `wait`                                 |
+| `inbox`                                                                       | lists what is pending without delivering it (no bodies)                                                                                                                                                          | `inbox`                                |
+| `reply <event-id> [--verb V] [--ref R] [--to-coordinator]`                    | answers one item; text on stdin. The worker decides team, room, thread and addressee from the item. `--verb` answers a ping with a closed verb (with `--ref` where the verb takes one)                           | `say --re`, `send ack --re`, `thread`  |
+| `say --to N[,N...]\|--to-coordinator [--team T]`                              | starts a conversation with named members; text on stdin                                                                                                                                                          | `say`                                  |
+| `ping <verb> [<ref>] --to N[,N...]\|--to-coordinator [--team T] [--branch B]` | sends a closed-verb ping                                                                                                                                                                                         | `send`                                 |
+| `report [--team T]`                                                           | a quiet report to the reports room; headline then body on stdin                                                                                                                                                  | `report` [Q 6]                         |
+| `ask [--team T] [--asked-by N,...] [--re ID,...]`                             | the coordinator asks the team's humans a numbered question in the questions room; text on stdin                                                                                                                  | `ask-human` [Q 7]                      |
+| `thread Q<n> [--ask] [--close] [--team T]`                                    | the coordinator posts in question `n`'s thread (quiet, or `--ask` to notify the humans, `--close` to close it)                                                                                                   | `thread` [Q 8]                         |
+| `questions [--all] [--team T]`                                                | the coordinator's open questions and the human replies not yet answered                                                                                                                                          | `questions` [Q 8]                      |
+| `history [--team T] [--room main\|questions] [--limit N]`                     | what this member received and sent, read from the room, newest first; consumes nothing                                                                                                                           | `history`                              |
+| `verify <event-id>`                                                           | re-fetches one event from the homeserver and prints its verified kind, sender, team, room, full text and a SHA-256 of it, so a consequential HUMAN request can be confirmed (B7) and a truncated body read whole | the skill's "check it in history" rule |
+| `status [--team T]`                                                           | this session's teams, roles, members, side rooms, delivery state, the runtime's health and its own resident cost (B40)                                                                                           | `status`, `config check`               |
+| `version`                                                                     | the binary's source digest and the record version it prints                                                                                                                                                      | `version`                              |
 
 Lifecycle (not for agents; the skill does not list them):
 
@@ -653,3 +653,244 @@ how the worker applies them.
     credential in memory for at most 10 minutes and drops it at once after a 401 (R44), and keeps
     positive results for 3600 s in memory. A missing or logged-out `gh` is a configuration failure of
     the forge only (exit 78, `forge-login`, on a verb that needs it).
+
+### 2.7 Delivery into Claude Code
+
+#### 2.7.1 The inbox socket
+
+Claude Code exposes a per-session Unix socket to its hooks as `CLAUDE_CODE_MESSAGING_SOCKET`, with
+`CLAUDE_CODE_MESSAGING_TOKEN` (U01). A message written to it starts a turn in an idle session and is
+queued (`queued_command`) in a busy one. Every hook passes both values to the worker in its request
+(2.8); the worker hands them to the keeper, which hands them to any later worker. They are never
+written to disk (B11). The wire stays what Claude Code accepts: one connection per delivery, two
+compact ASCII JSON lines (`{"type":"auth","token":...}` then `{"type":"user","message":{"role": "user","content":<envelope>}}`), half-close, read to EOF, 5 s per phase. A connect error `ENOENT`,
+`ECONNREFUSED` or `ENOTSOCK` means the session's socket is gone: delivery stops (the keeper will see
+the session end).
+
+Claude Code holds socket messages in bypass mode unless `crossSessionInbound` is `accept` (U01), and
+reads that setting only at launch. The kit's settings set it for a session launched with a team;
+a session launched with none keeps it refused until its first join relaunches it (B35, 2.10).
+
+**A session with no inbox socket** (a harness or Claude Code version without one): delivery mode is
+`wait`. SessionStart tells the agent to keep `<v2-bin> wait` running in the background, and Stop
+blocks once per 10 minutes while no `wait` is running. `wait` is an RPC to the worker, so it is a
+waiter on the worker's queue, not a second receiver.
+
+#### 2.7.2 The envelope
+
+Area A owns which kinds exist, what makes each one trusted, and the `authority` meaning of each. B
+owns how a delivery is rendered. The renderer keeps every rule of v1's that was hard-won (E1-E9,
+P74-P83) and changes three things: the `reply:` line, the order, and a `repeat:` line.
+
+```text
+<v2-name> delivery 3f9c2a71: 2 messages (1 from humans, 1 from agents): alice (HUMAN, <team>), <repo>.2 (PEER, <team>)
+<<<v2-name> 3f9c2a71 1/2>>
+kind: HUMAN (a human listed in the team record)
+team: <team>
+from: alice
+to: this session, as <repo>.3+<host>.lxc
+sent: 2026-10-21T13:02:11Z
+id: $<43>
+authority: a team human's request. Act on it as on a request your owner passed on; refuse anything your own instructions forbid.
+reply: <v2-bin> reply '$<43>'
+body: "Please stop the refactor, commit what you have, and push the branch."
+<<end <v2-name> 3f9c2a71 1/2>>
+<<<v2-name> 3f9c2a71 2/2>>
+kind: PEER (another agent of the team)
+...
+<<end <v2-name> 3f9c2a71 2/2>>
+```
+
+- **Header lines** are fixed ASCII or a field that passed its grammar, re-checked as printable ASCII
+  by the renderer (E3, P77). A field that fails is a bug in the validator: the item is not rendered,
+  it moves to the dropped count with reason `render`, and `worker.log` names it.
+- **The body** is one JSON string on one `body:` line, rendered by the allow-list of P74 (letters
+  and numbers shown, marks bounded, listed punctuation and symbols shown, everything else escaped,
+  never controls, format characters, bidi, separators, private use or look-alike brackets). Nothing
+  in a body can start a line (E2). The renderer's Unicode version is Go's; the corpus pins the
+  bytes for every listed block (P84).
+- **Caps:** a body at most 2048 rendered UTF-8 bytes, cut at a code point, then
+  `truncated: <shown> of <total> bytes; the whole text: <v2-bin> verify '$<43>'` (E8). A delivery at
+  most 8 entries and 12 KiB on the wire (E9); the rest follows in the next delivery, which the last
+  line says. Both caps are provisional until host check H4 measures the socket's real limit.
+- **Order (B24):** HUMAN entries first, then PEER and PING, oldest first within each group, then
+  TIMEOUT, then NOTICE. Every entry names its team (E20).
+- **`reply:`** is `<v2-bin> reply '<id>'` for HUMAN and PEER, and `<v2-bin> reply '<id>' --verb <VERB>` for a PING, with `<VERB>` literal for the agent to choose (B4). TIMEOUT and NOTICE have
+  none.
+- **`repeat:`** appears on an entry the worker could not prove was not already delivered before a
+  restart (2.7.3): `repeat: this may be a second copy of a delivery interrupted by a restart; id is the same`.
+- **NOTICE** is a delivery from the bus itself: membership changes (B30), a gap in a team's history
+  (2.6), a team that stopped on a permanent failure. Its text is fixed templates filled with
+  grammar-checked names; `authority:` says it is a fact about this session's bus, set by the owner
+  on the host or observed by the worker.
+- **The nonce** (8 hex from `crypto/rand`, drawn after the bodies are rendered) makes two
+  deliveries with the same bodies differ, so the socket's duplicate filter never drops one (E4,
+  E13), and is the transcript needle (2.7.4). It is not a secret.
+
+#### 2.7.3 Delivered once: the item's states
+
+```text
+            sync batch (persisted with next_batch)
+                    │
+                    ▼
+   ┌────────────► pending ──────────────── recv / wait ──────────► delivered(via recv)
+   │                │ chosen for a delivery (persist inflight{nonce, ids, transcript offset})
+   │                ▼
+   │            inflight ── socket write fails (nothing written) ──► pending (retry in 10 s)
+   │                │ full write (persist: ids to ledger, inflight cleared)
+   │                ▼
+   │            delivered(via socket, proof: waiting)
+   │                │ needle found in the transcript          │ not found (180 s quiet, or 1 h)
+   │                ▼                                          ▼
+   │            proven ──► receipts (HUMAN)              missing ──► pending, held from the socket
+   └──────────── worker restart with inflight set:                    (only recv / wait take it)
+                 needle found → proven; not found → pending with repeat
+```
+
+- One goroutine owns every transition, so `recv` and the delivery loop can never both take an item:
+  `recv` takes `pending` only; an item in flight is not pending.
+- **Sent** means the payload was written in full; a slow or failed close after that still counts
+  (E11), so a lost answer never causes a second copy with a new nonce.
+- **The crash window** v1 could not close (written but not recorded, R3) is closed by the
+  transcript: `inflight` records the transcript's size before the write, and a restarted worker
+  scans from there for the nonce. Found: the delivery happened. Not found within the missing rule:
+  the items go back to `pending` marked `repeat`, and the agent is told so in the entry.
+- **Content.** An item that arrived over `/sync` in this worker's life is rendered from memory, as
+  the homeserver served it. An item restored from the store after a restart has only its id there,
+  so it is re-fetched (`GET /rooms/{room}/event/{id}`) and judged by A's rules again before it is
+  rendered; one that no longer passes is dropped with its reason. That is the only re-fetch.
+- **Pacing:** at most one delivery every 2 s; items that arrive meanwhile join the next (E13).
+- **Stall:** if every write has failed for 120 s, the team rows show `(stalled)`, the hooks bring
+  back pending counts and Stop blocks once per pending set (E15).
+- **Flood budget:** an agent sender (PEER, PING) gets at most 10 entries per team per rolling 10
+  minutes (E19). v2 does not consume the surplus: it stays `pending`, the delivery says
+  `held back: <n> more from <sender> on <team> (flood limit); <v2-bin> recv shows them now`, and
+  the items go out when the sender's budget refills. Humans and TIMEOUTs are never held. Nothing is
+  consumed undelivered by a limit.
+- **A removed team's items** are dropped from `pending` when the team is removed (B33), with one
+  log line; they are never delivered later.
+
+#### 2.7.4 Transcript proof
+
+The SessionStart and UserPromptSubmit hooks pass `transcript_path`; it changes on `/clear`, and the
+worker follows it. The transcript watcher holds an inotify watch on the transcript file and its
+directory (for a new path or a rotation) and, on growth, scans only the new bytes, plus the needle's
+length less one of overlap, for the needle `<v2-name> delivery <nonce>:` of every delivery waiting
+for proof. The needle is ASCII with no character JSON escapes, so a byte search of the JSONL is
+exact whichever way Claude Code records the message (a `user` entry with `origin.kind` `peer` when
+idle; a `queued_command` attachment when busy; U01).
+
+- Found: the delivery is `proven`; its HUMAN items get their read receipts.
+- Not found when the transcript has been quiet for 180 s since the write, or 1 h has passed while
+  it kept growing: `missing`. The items return to `pending`, held from the socket (pushing them again
+  into a session that holds socket messages would only be held again), and the hooks say `a delivery did not reach the conversation; <n> items are pending again: run <v2-bin> recv` even while socket
+  delivery otherwise works. `status` and the status line show `(missing)` until a later delivery is
+  proven.
+- A transcript that shrinks or moves restarts the scan at 0 of the new file.
+- No socket delivery is made before a hook has supplied both the socket and a transcript path, so
+  "no transcript" is not a case the rule has to guess at.
+
+The scan depends on how Claude Code records socket messages, which is not a documented interface.
+That is the price of the only proof there is (Claude Code acknowledges nothing on the socket). It is
+pinned by a host check per Claude Code version (4, risks) and by the fake transcript's fixtures.
+
+#### 2.7.5 Read receipts
+
+When a delivery is proven, the state goroutine adds each HUMAN item's `{id, room}` to the store's
+`receipts`, and the team goroutine sends `m.read` receipts for them, removing each once the
+homeserver answers; transient failures retry with the team's backoff (E16, B22). Element then shows
+the agent's avatar under a message that reached the model, and none under one that did not.
+PEER, PING, TIMEOUT and NOTICE items get no receipt.
+
+#### 2.7.6 The 00194 expectations, carried
+
+| E   | v2                                                                                                |
+| --- | ------------------------------------------------------------------------------------------------- |
+| E1  | kept: kind and sender from A's verdict on the event as served (2.7.2, 2.7.3)                      |
+| E2  | kept: one escaped body line, the P74 allow-list                                                   |
+| E3  | kept: header grammar re-checked by the renderer                                                   |
+| E4  | kept: nonce markers, drawn after the bodies; renamed to `<v2-name>`                               |
+| E5  | kept: one fixed authority sentence per kind (A owns the meaning)                                  |
+| E6  | changed: `reply:` is `<v2-bin> reply '<id>'` (B4)                                                 |
+| E7  | kept: a short first line with counts and up to three senders                                      |
+| E8  | kept: 2048-byte body cap; the pointer is `verify` instead of `history`                            |
+| E9  | kept: 8 entries and 12 KiB, provisional until H4                                                  |
+| E10 | replaced: one owner of the queue; re-fetch only for items restored after a restart                |
+| E11 | kept: a full write is sent                                                                        |
+| E12 | replaced: `recv` and delivery are transitions of one goroutine; no lock                           |
+| E13 | kept: 2 s pacing, the nonce against the duplicate filter                                          |
+| E14 | kept: the frame text at every SessionStart (2.8)                                                  |
+| E15 | kept: 120 s stall, loud                                                                           |
+| E16 | kept and improved: inotify instead of polling; missing items return to `recv`; receipts persisted |
+| E17 | kept: hooks quiet while socket delivery works                                                     |
+| E18 | replaced: per-session files live in `<v2-run>`, not a shared directory keyed by a hash            |
+| E19 | changed: held-back items stay pending and go out later; nothing consumed by the limit             |
+| E20 | kept, with B24: humans first, then by time; every entry names its team                            |
+| E21 | kept: a `sent:` time out of range renders `-`                                                     |
+| E22 | dropped: no relay mode (frame decision)                                                           |
+| E23 | kept: one socket text per delivery, no count notice                                               |
+| E24 | kept: the full set of verbs remains, as v2 verbs (2.2.1)                                          |
+| E25 | kept: a homeserver restart drops nothing (2.6)                                                    |
+| E26 | replaced: the keeper supervises the worker; no hook revives anything (B16)                        |
+
+### 2.8 Hooks
+
+The plugin's `hooks.json` runs `<v2-bin> hook <event>` directly for SessionStart, UserPromptSubmit,
+Stop and SessionEnd. There is no `sh` guard: a hook with no `<V2>_RUNTIME` answers `{}` and exits 0
+in a few milliseconds, which is what v1's guard bought by not starting Python. No PostToolUse hook
+(it existed for relay mode).
+
+**Every hook** reads stdin (at most 1 MiB; strict UTF-8; a JSON object, else treated as no payload),
+sends one `hook` request to the worker with the event, the payload fields it uses (`session_id`,
+`transcript_path`, `source`, `stop_hook_active`, `reason`) and the inbox socket variables, and prints
+the worker's answer: one JSON line, `{}` or Claude Code's `hookSpecificOutput`, `decision`/`reason` or
+`systemMessage` shapes (H6). The answer is built by the worker from fixed templates filled with
+counts and grammar-checked names only (H14). The hook exits 0 always; a bad event argument is 64.
+
+**When the worker cannot be reached** within 300 ms, the hook answers from its own fixed template
+("the bus runtime is not running; this session is not receiving messages; tell a human") as
+additional context on SessionStart and UserPromptSubmit, at most once per 10 minutes, remembered in
+`<v2-run>/no-worker.json`, the one file a hook writes, and only in this case. Stop never blocks on
+it: an agent cannot repair the runtime, and blocking would trap it.
+
+| Event            | What the worker does and answers                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SessionStart     | records `session_id`, `source` and the transcript path; takes the socket; answers the frame text (how deliveries look, the kinds and their authority, `reply`, `verify` before a consequential HUMAN request, never carry one team's messages to another), each team's seat, role and description, the delivery mode, and any pending or failure line. On every source (startup, resume, clear, compact), since after a clear or compaction the earlier frame may be gone from context |
+| UserPromptSubmit | updates the socket and transcript path; answers membership lines only if the MEMBERSHIP notice could not be written to the socket (B30's fallback, told once by generation), pending counts only when delivery is not live or items are held as missing, and a failure line once per 10 minutes                                                                                                                                                                                        |
+| Stop             | B26: nothing unless `stop_hook_active` is literally `false`. Blocks once per distinct pending set when some pending items will not be pushed (delivery not live, or held as missing), with `<n> pending (...). Run <v2-bin> recv before stopping.`; once per 10 minutes for a team failure; once per 10 minutes for a socketless session with no `wait` running. If `session.json` cannot be written, it does not block (H59-H73)                                                      |
+| SessionEnd       | `reason` `clear` or `resume`: `{}`, nothing else (the session goes on). Otherwise records the reason (`exit`, `logout`, `other`) as the run's end and answers `{}` at once. The goodbye is posted by the worker after the hook has returned, inside the keeper's 5 s end (2.4.2, 2.11)                                                                                                                                                                                                 |
+
+The SessionEnd hook therefore does almost nothing within Claude Code's 1.5 s SessionEnd bound, and
+the `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS=8000` lift v1 needed (P5.01) is not set by v2's kit.
+
+### 2.9 The status line
+
+The kit's settings give `{"statusLine": {"type": "command", "command": "<v2-bin> status-line", "refreshInterval": 25}}`. 25 s keeps the session's own status line, which `<v2-bin>` wraps, inside
+the hooks-daemon supervisor's 30 s sidecar freshness (Plan 00213 Task 1.3); a test pins the kit's
+value at 25 and below 30.
+
+1. **The inner line.** As v1 (R26, ST): the session's own status-line command (looked up in the
+   project's `settings.local.json`, then `settings.json`, then the user's, skipping `<v2-bin> status-line` itself) runs through `/bin/sh -c` with the payload on stdin, in its own process
+   group, `<V2>_STATUS_LINE_INNER=1` set so it can never run `<v2-bin>` again, killed whole after
+   10 s or when the status line is cancelled (`SIGTERM`, `SIGINT`, `SIGHUP`: exit 128+signal, nothing
+   on stdout, even if the signal lands before the child's pid is known). It is never cached: it
+   writes the supervisor's context sidecar.
+2. **The bus segment.** One read of `<v2-run>/status.json` (at most 64 KiB, strict) and one probe of
+   `worker.lock`. Rows `👥 <team> (<role>)` with `(down)`, `(stalled)`, `(missing)` or `(failed)`
+   marks, wrapped at `COLUMNS` after a comma, as v1. A free `worker.lock` replaces the rows with a red
+   `bus runtime not running`. No teams: no segment (empty stays empty).
+3. **Exit 0** always, except the cancel above.
+
+`status.json` is written by the worker's state goroutine whenever anything it shows changes, at
+most once a second:
+
+```json
+{"v": 1, "run": "<16 hex>", "written_ms": 1760000000000, "worker": "running",
+ "teams": [{"team": "<team>", "role": "coordinator", "down": false, "failed": null, "delivery": "socket", "pending": 0, "missing": 0}]}
+```
+
+This file is the bus segment's cache, separate from the hooks-daemon line, as Plan 00213 requires;
+it needs no TTL and no fingerprints because it is pushed on change instead of recomputed on render.
+The bus part of a render is one exec of a static binary, one 1-2 KiB read and one `flock` probe. Its
+CPU per render is measured by the acceptance of B40 and reported beside the v1 figure (0.32 CPU-s
+per render).
