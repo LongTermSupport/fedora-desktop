@@ -38,7 +38,7 @@ Use these Unicode icons in plan documents:
 
 - [00212-stt-pauses-media-while-recording](00212-stt-pauses-media-while-recording/) - In Progress. A speech-to-text recording lowers the playing media to a third of its own volume and restores it exactly when the microphone closes (a player whose sound is not found is paused instead); a panel menu switch, on by default
 
-- [00211-agent-bus-reports-and-questions-rooms](00211-agent-bus-reports-and-questions-rooms/) - In Progress (Phase 1, the member side, in code and not deployed; D9 accepted as the interim step for the owner to confirm, D1-D16 defaulted). Two more rooms per team: a reports room the owner only reads, where any agent posts what the human should know, and a questions room where the coordinator asks only what it cannot answer, long-form, and is woken by every human reply; created and migrated by the agent-bus play, LXC teams included
+- [00211-agent-bus-reports-and-questions-rooms](00211-agent-bus-reports-and-questions-rooms/) - In Progress (Phase 1, the member side, in code and not deployed). A reports room and a questions room per team, kept by the agent-bus play.
 
 - [00210-convert-cli-markdown-to-docx](00210-convert-cli-markdown-to-docx/) - In Progress. A Go `convert` command that turns a file into the formats its type supports, through proven engines; Markdown to DOCX through pandoc first (#102)
 

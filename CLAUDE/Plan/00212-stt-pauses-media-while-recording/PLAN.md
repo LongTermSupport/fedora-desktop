@@ -225,14 +225,13 @@ D-Bus is reached through `busctl --user --json=short --timeout=5`, the streams t
   (`state: absent`) and names `pulseaudio-utils` and `pipewire-pulseaudio`; the GSettings key
   renamed; `mediaHold.js`, its Node test and the menu label "Lower media volume while
   recording"; the docs.
-- [ ] 🔄 **Task 4.4**: `acceptance.bash`: the installed command against the fake MPRIS player
+- [x] ✅ **Task 4.4**: `acceptance.bash`: the installed command against the fake MPRIS player
   on a private bus and a fake `pactl` (`fake-pactl.py`, first on `PATH`), so no real volume or
   player is touched: lowered to a third and restored at TERM; a volume changed by hand during
   the hold is left; a stream that ended with nothing of its app left is reported (exit 1); a
   stream re-created at the lowered volume is put back; no stream found is paused and played again;
   stopped by hand during the hold is not played again; nothing playing exits at once; the
-  parent ending restores. Written; it runs on the host (the container has no python3-gobject
-  for the fake player; `fake-pactl.py` was exercised on its own).
+  parent ending restores. Written; it passed on the host after the Phase 4 deploy.
 - [x] ✅ **Task 4.5**: The two `meta-deploy.list` entries (the play, then this plan) describe
   Phase 4.
 - [ ] 🔄 **Task 4.6**: qa-reviewer pass. The Opus stand-in's review
@@ -271,7 +270,9 @@ D-Bus is reached through `busctl --user --json=short --timeout=5`, the streams t
 - [x] M1-M7 each have a Go test seen red then green.
 - [x] The panel's hold and release have Node tests for each ending.
 - [x] V1-V10 each have a Go test seen red then green.
-- [ ] `acceptance.bash` passes on the host, and the owner's manual check passes.
+- [x] `acceptance.bash` passes on the host.
+- [ ] The owner's manual check passes (log out and in first; check 5 records whether
+  WirePlumber keeps the lowered volume).
 
 ## Delivery & Milestones
 

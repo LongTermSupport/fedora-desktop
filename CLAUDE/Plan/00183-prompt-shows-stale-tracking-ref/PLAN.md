@@ -36,13 +36,13 @@ agent at all. The cause is unknown, so this plan triages first.
 
 ### Phase 1: Triage
 
-- [ ] 🔄 **Task 1.1**: `triage.bash` (probes in `triage-probe.bash`): the installed
+- [x] ✅ **Task 1.1**: `triage.bash` (probes in `triage-probe.bash`): the installed
   `bash-git-prompt` commit and its fetch code, every `GIT_PROMPT_` setting the start-up files
   give it, the fetch timer's tools, the deployed `git-fetch-age`, every `FETCH_HEAD` of each
   checkout's repository with its size and age, the tracking refs and their reflog, the SSH
   agent and its keys, and whether the remote answers (`git ls-remote`, no terminal, no
   askpass) with the agent and with none. Read-only, never fetches. Written and lint-clean;
-  left: its host run (queued in `meta-deploy.list`). The linked-worktree lead is settled
+  host run passed. The linked-worktree lead is settled
   without it (Decision 2): current upstream reads the common dir's `FETCH_HEAD`, so in a
   linked worktree it fetches at every prompt rather than never.
 
@@ -57,22 +57,22 @@ agent at all. The cause is unknown, so this plan triages first.
 - [ ] 🔄 **Task 2.3**: `play-basic-configs.yml` ran on the host at F44 c3391ba9 (all 8 units
   passed; `git-fetch-age` printed nothing in the checkout, which is right for a recent
   fetch); docs (`docs/configuration.md`, `docs/playbooks.md`, `src-go/CLAUDE.md`) done.
-  Left: `qa-all.bash`, the `qa-reviewer` agent, and the owner's hand check, the yellow mark in
-  a stale checkout's prompt. That "printed nothing" is no proof of a fresh fetch: before Task
+  Acceptance passed on the host. Left: `qa-all.bash`, the `qa-reviewer` agent, and the owner's
+  hand check, the yellow mark in a stale checkout's prompt. That "printed nothing" is no proof of a fresh fetch: before Task
   2.4 a failed fetch read as fresh too. The hand check should expect
   `[fetch failed or running]` to show briefly on a prompt drawn during each five-minute
   background fetch; it lasting past the next prompt means the fetch failed
   (`~/.cache/git-prompt-fetch.log` has why).
-- [ ] 🔄 **Task 2.4**: the root fetch bug (Decision 2): a failed fetch empties `FETCH_HEAD`
+- [x] ✅ **Task 2.4**: the root fetch bug (Decision 2): a failed fetch empties `FETCH_HEAD`
   and dates it now, so the mark read the prompt's own failing fetch as fresh. Done in code,
   test first (A14, A15 in `internal/fetchage`): an empty `FETCH_HEAD` is
   ` [fetch failed or running]`, and the last fetch is the newest one with a record in it.
   `acceptance.bash` (checks in `check-fetch-age.bash`) proves the installed binary on the
   host, with a real failing fetch and the deployed PS1. Deployed on the host; its acceptance
-  legs install, marks (incl. empty FETCH_HEAD), failed (a real failed fetch) passed. Left: the
-  acceptance re-run, since the `prompt` leg failed on a checker bug (a prefix assignment to
-  the readonly `PROMPT_FILE`), now fixed by passing the path as an argument.
-- [ ] 🔄 **Task 2.5**: the prompt's background fetch can ask for nothing (Goal 2, Decision 2).
+  legs install, marks (incl. empty FETCH_HEAD), failed (a real failed fetch) passed. The
+  acceptance re-run passed on the host, all six legs (the `prompt` leg's checker bug, a
+  prefix assignment to the readonly `PROMPT_FILE`, was fixed).
+- [x] ✅ **Task 2.5**: the prompt's background fetch can ask for nothing (Goal 2, Decision 2).
   Done in code, test first: `git-prompt-fetch` (`src-go/internal/promptfetch`, F1-F6) runs
   `git fetch` with ssh in BatchMode, added to the ssh command git would use
   (`GIT_SSH_COMMAND`, else `core.sshCommand`, else `GIT_SSH`, else `ssh`), with
@@ -83,7 +83,7 @@ agent at all. The cause is unknown, so this plan triages first.
   ssh stand-in was handed `-o BatchMode=yes`. The acceptance's `fetcher` and `override` checks
   prove it on the host. Deployed on the host (`play-git-configure-and-tools.yml` passed); the
   `fetcher` (BatchMode, no terminal) and `override` (async_run through git-prompt-fetch)
-  legs passed. Left: the acceptance re-run for the `prompt` leg (see Task 2.4).
+  legs passed. The acceptance re-run passed, all six legs.
 
 ## Technical Decisions
 
