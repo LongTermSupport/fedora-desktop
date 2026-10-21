@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
@@ -201,7 +203,8 @@ func (c *child) awaitBlocked(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond)
 	}
-	t.Fatalf("%s peer %s never blocked in flock", c.name, c.pid)
+	t.Fatalf("%s peer %s never showed as a flock waiter in /proc/locks (a procfs of another pid namespace?)",
+		c.name, c.pid)
 }
 
 // pathRole is one path lock: how a peer names it and how this process takes and probes it.
@@ -485,6 +488,44 @@ func TestALockReachesAChildOnlyWhenHandedOver(t *testing.T) {
 		if got := lines[len(lines)-1]; got != want {
 			t.Errorf("with %d files handed over the child says %q, want %q", files, got, want)
 		}
+	}
+}
+
+// L2: the explicit unlock in Release frees the lock for every copy of the descriptor, so a lock
+// handed to a child that is still alive is free to v1 and Go takers once this process releases.
+func TestAReleaseFreesTheLockForEveryCopyOfItsDescriptor(t *testing.T) {
+	root := checkoutRoot(t)
+	script := filepath.Join(root, "src-go", "internal", "bus", "state", "testdata", "v1locks.py")
+	for _, p := range peers(t) {
+		t.Run(p.name, func(t *testing.T) {
+			dir := t.TempDir()
+			lock, err := (&sleeper{}).locks().Sync(t.Context(), dir, KindWatch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The child gets a copy of the lock's description through a duplicate this test closes
+			// once the child is gone, so the runner's read of it and Release's close never meet.
+			dupFD, err := unix.Dup(int(lock.File().Fd()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			handed := os.NewFile(uintptr(dupFD), "handed")
+			keeper := startChild(t, "keeper", true, execx.Cmd{
+				Name: "python3", Args: []string{"-I", script, root, "keep"},
+				ExtraFiles: []*os.File{handed},
+			})
+			keeper.expect(t, "kept")
+			release(t, lock)
+			taker := p.start(t, "path", "sync-recv", dir)
+			taker.expect(t, "held:")
+			taker.say(t, "release")
+			taker.expect(t, "released")
+			keeper.say(t, "done")
+			keeper.wait()
+			if err = handed.Close(); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 

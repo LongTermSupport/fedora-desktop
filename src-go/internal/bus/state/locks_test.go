@@ -482,6 +482,43 @@ func TestTheDeliveryLockIsRelayLockAndTryIsRefusedWhenHeld(t *testing.T) {
 	}
 }
 
+// A cancelled context runs nothing, even when the lock is free.
+func TestACancelledContextTakesNoBlockingLock(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	l := (&sleeper{}).locks()
+	never := func(context.Context) error { t.Error("ran under a cancelled context"); return errors.New("ran") }
+	for name, err := range map[string]error{
+		"outbox":   l.WithOutbox(ctx, t.TempDir(), never),
+		"delivery": l.WithDelivery(ctx, t.TempDir(), never),
+		"try":      l.TryDelivery(ctx, t.TempDir(), never),
+	} {
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+// A panic in fn still lets the lock go, as v1's finally does.
+func TestAPanicInsideALockReleasesIt(t *testing.T) {
+	stateDir, home := t.TempDir(), t.TempDir()
+	mustPanic := func(name string, run func()) {
+		t.Helper()
+		defer func() {
+			if recover() == nil {
+				t.Errorf("%s: no panic", name)
+			}
+		}()
+		run()
+	}
+	boom := func(context.Context) error { panic("boom") }
+	mustPanic("outbox", func() { t.Error((&sleeper{}).locks().WithOutbox(t.Context(), stateDir, boom)) })
+	mustPanic("told", func() { t.Error(WithTold(home, func() error { panic("boom") })) })
+	if heldElsewhere(t, stateDir) || heldElsewhere(t, filepath.Join(home, "told.lock")) {
+		t.Error("a panic left a lock held")
+	}
+}
+
 func TestADeliveryWaitEndsWithItsContext(t *testing.T) {
 	home := t.TempDir()
 	if err := os.Mkdir(filepath.Join(home, "relay"), 0o700); err != nil {
@@ -621,7 +658,8 @@ func TestTheDefaultWaitIsATimerTheContextEnds(t *testing.T) {
 	}
 }
 
-func TestReleaseReportsAFailureToUnlock(t *testing.T) {
+// A release whose descriptor is gone reports it rather than claiming the lock was let go.
+func TestAReleaseOnADeadDescriptorReportsAnError(t *testing.T) {
 	lock, err := (&sleeper{}).locks().Keeper(t.Context(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)

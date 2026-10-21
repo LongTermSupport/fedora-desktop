@@ -64,14 +64,10 @@ func holderKind(text string) Kind {
 	if i := strings.IndexByte(text, ' '); i >= 0 {
 		text = text[:i]
 	}
-	switch k := Kind(text); k {
-	case KindWatch, KindWait, KindRecv, KindSeat, KindKeeper:
+	if k := Kind(text); k == KindWatch || k == KindWait || k == KindRecv || k == KindSeat || k == KindKeeper {
 		return k
-	case KindUnknown:
-		return KindUnknown
-	default:
-		return KindUnknown
 	}
+	return KindUnknown
 }
 
 var (
@@ -360,29 +356,29 @@ func (l Locks) WithOutbox(ctx context.Context, stateDir string, fn func(context.
 }
 
 // holding takes LOCK_EX on file (polled when wait, so ctx ends the wait), runs fn with the
-// hold recorded in its context, and closes the file, which releases the lock.
-func (l Locks) holding(ctx context.Context, file *os.File, wait bool, mark held, fn func(context.Context) error) error {
+// hold recorded in its context, and closes the file, which releases the lock, however fn ends.
+func (l Locks) holding(ctx context.Context, file *os.File, wait bool, mark held, fn func(context.Context) error) (err error) {
+	defer func() { err = errors.Join(err, wrapPath(file.Name(), "close", file.Close())) }()
+	if err = ctx.Err(); err != nil {
+		return err
+	}
 	fd := int(file.Fd())
 	for {
-		err := unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB)
+		err = unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB)
 		if err == nil {
 			break
 		}
 		if !errors.Is(err, unix.EWOULDBLOCK) {
-			closeQuietly(file)
 			return fmt.Errorf("lock %s: %w", file.Name(), err)
 		}
 		if !wait {
-			closeQuietly(file)
 			return &BusyError{Path: file.Name()}
 		}
 		if err = l.sleep(ctx, waitPoll); err != nil {
-			closeQuietly(file)
 			return err
 		}
 	}
-	fnErr := fn(context.WithValue(ctx, heldKey{}, heldIn(ctx)|mark))
-	return errors.Join(fnErr, wrapPath(file.Name(), "close", file.Close()))
+	return fn(context.WithValue(ctx, heldKey{}, heldIn(ctx)|mark))
 }
 
 // WithTold runs fn holding the session's told lock, after one try (L9). false, with fn not
@@ -392,19 +388,28 @@ func WithTold(home string, fn func() error) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	ran := false
+	err = holdTold(file, func() error {
+		ran = true
+		return fn()
+	})
+	return ran, err
+}
+
+// holdTold runs fn after one LOCK_EX|LOCK_NB try on file, then unlocks and closes it however fn
+// ends; another holder means fn does not run.
+func holdTold(file *os.File, fn func() error) (err error) {
+	defer func() { err = errors.Join(err, wrapPath(file.Name(), "close", file.Close())) }()
 	fd := int(file.Fd())
 	err = unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB)
 	if errors.Is(err, unix.EWOULDBLOCK) {
-		closeQuietly(file)
-		return false, nil
+		return nil
 	}
 	if err != nil {
-		closeQuietly(file)
-		return false, fmt.Errorf("lock %s: %w", file.Name(), err)
+		return fmt.Errorf("lock %s: %w", file.Name(), err)
 	}
-	fnErr := fn()
-	return true, errors.Join(fnErr, wrapPath(file.Name(), "unlock", unix.Flock(fd, unix.LOCK_UN)),
-		wrapPath(file.Name(), "close", file.Close()))
+	defer func() { err = errors.Join(err, wrapPath(file.Name(), "unlock", unix.Flock(fd, unix.LOCK_UN))) }()
+	return fn()
 }
 
 func (l Locks) sleep(ctx context.Context, d time.Duration) error {

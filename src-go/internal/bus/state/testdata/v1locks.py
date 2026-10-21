@@ -137,6 +137,10 @@ def main() -> None:
         told(args[0])
     elif command == "fds":
         fds(args[0])
+    elif command == "keep":
+        # Keep the descriptors the Go side handed down open, touching none, until told.
+        say("kept")
+        sys.stdin.readline()
     else:
         raise SystemExit(f"v1locks: no command {command}")
 

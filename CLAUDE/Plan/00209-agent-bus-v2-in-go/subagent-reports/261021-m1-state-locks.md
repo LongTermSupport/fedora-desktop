@@ -83,10 +83,14 @@ checked too: v1 is given the socket and Go the key the test derives).
   peer.
 - L5 (`TestALockReachesAChildOnlyWhenHandedOver`): a v1-started child has no descriptor on the
   held lock, unless it was handed over through `ExtraFiles`. Also `FD_CLOEXEC` in-process.
+- L2's explicit unlock (`TestAReleaseFreesTheLockForEveryCopyOfItsDescriptor`, x 2 peers):
+  a duplicate of the lock's description is held by a live v1 child (handed in `ExtraFiles`)
+  and by this process. After `Release`, a v1 taker and a Go taker each get the lock.
 - In-process: three tries 50 ms apart; a holder freed between tries; `unknown` holders;
-  symlink and FIFO refusals; a missing directory; cancellation mid-retry and mid-wait; the order
-  errors; the pair holding both; the told lock's one try; Previous with non-ASCII bytes as
-  U+FFFD, as v1 decodes them.
+  symlink and FIFO refusals; a missing directory; cancellation before the first try,
+  mid-retry and mid-wait; a panic inside fn still releases the outbox and told locks; the
+  order errors; the pair holding both; the told lock's one try; Previous with non-ASCII bytes
+  as U+FFFD, as v1 decodes them.
 
 Red: the tests were written first. The first build failed `undefined: Locks` / `undefined: Kind`
 (vet, through the lint hook). The first run after `locks.go` had two failures, both in the
@@ -98,19 +102,33 @@ run hung: the Go child was given `-args` (a `go test` flag, not a test-binary fl
 Mutation checks (made, then reverted): `syncLockName = "lock.mutant"` fails the v1 sync proofs
 (`want busy by watch`, all three kinds). LOCK_SH in place of LOCK_EX in `holding` fails 5
 proofs: the Go peer's outbox, delivery and both pair halves, plus try-delivery (`never waited`, `ran while the peer holds`). That second mutant first hung the suite, which led to a
-`t.Fatal` so that a lock which never waits fails fast.
+`t.Fatal` so that a lock which never waits fails fast. The review (round 1, FIX-FIRST) found
+that a third mutant survived: `Release` without `LOCK_UN`. The duplicate-holder proof above now
+kills it (`go peer said "busy unknown"`, the same from the v1 peer). Its first version raced
+under `-race`: the runner's read of an `ExtraFiles` descriptor against `Release`'s close, which
+no Go sync edge orders. It now hands down a `dup` that is closed only after the child is gone.
 
-Green: `go test -race -count=3 -shuffle=on` passes; package coverage 93.7% (every `locks.go`
-function at 83% or more; what is left is I/O failures such as pread or ftruncate errors);
-`golangci-lint` 0 issues; `ruff check`/`format` clean on the fixture; `qa-changed` passed.
+Round 1's minor findings were fixed in the same commit:
+
+- `holding` and the told lock close (and unlock) in a `defer`, so a panic in fn releases.
+- The blocking locks refuse a context that is already cancelled.
+- The redundant `KindUnknown` case is gone.
+- The dead-descriptor test is renamed for what it shows.
+- `awaitBlocked` names the pid-namespace cause.
+
+Green: `go test -race -count=3 -shuffle=on` passes; package coverage 94.6% (what is left in
+`locks.go` is I/O failures such as pread or ftruncate errors); `golangci-lint` 0 issues;
+`ruff check`/`format` clean on the fixture; `qa-changed` passed.
 
 ## Open questions
 
 1. `seat exec` replaces the process (L5's `set_inheritable`). `File()` covers a child started
    with `ExtraFiles`. A handover through `syscall.Exec` needs `FD_CLOEXEC` cleared and execx to
    carry the descriptor. Left out until `seat exec` is built (YAGNI).
-2. For the sibling: `Team.WithOutbox` and a `Team` sync-lock wrapper should run `EnsureDirs`
-   and then call `Locks.WithOutbox` / `Locks.Sync`. These lock functions do not create the
-   state directory, and refuse a missing one.
+2. For the sibling, and for the merge: L4 and L7 say "after ensure_dirs", and this slice does
+   not finish that half. `Team.WithOutbox` and a `Team` sync-lock wrapper must run `EnsureDirs`
+   and then call `Locks.WithOutbox` / `Locks.Sync`, because these lock functions do not create
+   the state directory and refuse a missing one. Do not mark L4 or L7 done until those
+   wrappers land.
 3. The L7/L8 proofs need `/proc/locks` to see the v1 waiter, and every peer proof needs
    `python3` (as `playlock`'s parity test already does).
