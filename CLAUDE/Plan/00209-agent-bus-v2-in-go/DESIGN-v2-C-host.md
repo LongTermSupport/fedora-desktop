@@ -423,15 +423,27 @@ root verb per root act of D's steps (M0 `preflight`, M2 `fence`, M3 `capture`, M
 commit, M7 `accept`, the archive acts, and the rollback's `unfence` and `rollback`); D 5.4 names which of its
 acts run as the owner instead (coherence 17), and no step reaches root by any other verb.
 
-**The acceptance probe** (D 6.1, A4 and A7) is the one host-kind runtime v2 starts. The `migrate`
-verb that runs the check (`accept` for A7) makes a temporary probe account and a probe seat outside
-the pool, then runs `teamchat run --plain --kind host` holding that seat, as the owner (`os/exec`
-`Credential`, never as root), in a fresh 0700 directory that is under no ccy mount and is not the
-seat store. The probe's paths are B's host-kind paths moved into it: `teamchat run` is started
-with `HOME` and `XDG_RUNTIME_DIR` set to subdirectories of it and with `--desired` naming a third,
-so `<v2-state>`, `<v2-run>` and `<v2-desired>` (B's header, where `~` is `$HOME`) all lie inside
-that directory and never in the owner's own home. No `cc` session runs in it, so seam row 56's refusal of host `cc` members is
-untouched; the account, the seat and the directory are removed when the check ends, pass or fail.
+**The acceptance probe** (D 6.1, A4 and A7) is the one host-kind runtime v2 starts. Its account is
+the team's reserved probe handle `teamchat.probe+<site>.host` with roster role `probe` (A 2.3,
+5.1, 6.7): a role that may send only the `check` verb, which asks its addressee for an `ack` and
+nothing else (A 8.1), so the probe can never ask the live coordinator for real work. The `migrate`
+verb that runs the check (`preflight`'s round trip for A4, `accept` for A7) creates the handle on
+the team's first check and returns it (3.6.3 `return`, a new token) on every later one, under the
+team lock, then parks it again when the check ends, pass or fail: no handle or seat number is ever
+spent on a probe, and the roster is written twice per check, as for any park and return. C posts
+no `added`, `removed`, `parked` or `role` notice for the probe handle (A 7.4). The verb places the
+probe's bundle in a fresh 0700 state directory, `~/.local/state/teamchat/probe/<team>/` (the
+owner's, beside the seat store and not in it, under no ccy mount, 3.7.1) and runs
+`teamchat run --plain --kind host --state <that directory> --seat <team>/probe -- sleep infinity`
+as the owner (`os/exec` `Credential`, never as root), with its runtime under the owner's
+`$XDG_RUNTIME_DIR` (B 2.4.1). Every path the probe touches is its own: `--state` moves
+`<v2-state>` and so `<v2-bundle>` into that directory, `<v2-run>` is the run's own
+`$XDG_RUNTIME_DIR/teamchat/run/<run id>`, and with no `--desired` it reads no desired file (B
+2.4.1), so the owner's host-kind seats and membership (B's header) are never read or written. The
+probe then runs `teamchat ping check --to <target> --team <team>` and reads its own
+`teamchat status --team <team>` `outbox` record (B 2.2.2). No `cc` session runs in it, so seam row
+56's refusal of host `cc` members is untouched; the state directory is removed when the check ends,
+pass or fail.
 
 `version` answers for every class and prints the binary's source digest (the scheme of Plan 00192:
 `go.mod` plus every non-test file of the command and the module packages it imports, baked in with
@@ -1066,9 +1078,9 @@ bytes, mode 0600 (S19). Its one other copy is in the pool's `held/`, for the rel
   `held/seat.json`); the pool's own `seat.json` has neither. `claim` is the take's claim id.
   `released_ms` is the time of this seat's last release, from the pool's `released.json`, or
   `null` for a seat never released. Area B starts a seat that has no member store from the earlier
-  of the member's own read receipt and `released_ms` (B 2.6 step 01): a receipt is set with a
-  token, so a receipt alone is not a fact the host wrote, and an item after the last release is new
-  by construction (security 1).
+  of the seat's own resume marker (its `teamchat.floor` room account data, B 2.3.2) and
+  `released_ms` (B 2.6 step 01): a marker is set with a token, so a marker alone is not a fact the
+  host wrote, and an item after the last release is new by construction (security 1).
 - `human_text` is not in the bundle: it is read from the roster in the main room, where the admin
   keeps it current, like every other roster fact (coherence 15).
 - `device_id` is the seat's one fixed device id. Every take logs in with it (3.7.3).
@@ -1643,22 +1655,33 @@ or when the LXC record names a (container, user, team) that no entry declares an
 leaving member of a running container, under its team's lock, which the health tick then cannot
 take (3.11.2):
 
-1. Rewrite the user's desired membership without the seat and with a `farewell` entry for it,
+1. `member park` (3.6.3) first, which revokes the token and posts the admin's `parked` notice. The
+   desired file is the agent's own (B 2.10), so nothing the guest does may stand between the
+   owner's removal and the revocation: once the token is dead the member can no longer read or
+   post in the team, whatever its keeper still holds. Its link meets 401 and stops the team (B 2.6
+   step 08).
+2. Rewrite the user's desired membership without the seat and with a `farewell` entry for it,
    reason `parked` (record first, then `guest membership`, as step 8). The keeper removes the team
    and posts nothing for it, because the admin's `parked` notice announces it (B 2.10).
-2. Wait for the seat to be free: the L3 probe below, every second, at most 60 s (B's removal bound
-   of 10 s and its leave-notice bound of 30 s, with margin). A seat still held after that fails the
-   phase, naming the container, the user and the holder's run id (read from the seat lock's
-   content, B 2.5, and printed only if it passes its grammar).
-3. `teamchat guest remove --user <user> --team <team>` as the agent user (B 2.13); it takes the
+3. If the user now holds no team, its supervised session unit is stopped, disabled and removed
+   (3.9.4), which ends the keeper and frees every seat lock it held.
+4. Wait for the seat to be free: the L3 probe below, every second, at most 60 s (B's removal bound
+   of 10 s and its leave-notice bound of 30 s, with margin).
+5. `teamchat guest remove --user <user> --team <team>` as the agent user (B 2.13); it takes the
    seat lock itself, so it cannot race a keeper that took the seat again.
-4. `member park` (3.6.3), which revokes the token and posts the admin's `parked` notice.
-5. If the user now holds no team, its supervised session unit is stopped, disabled and removed
-   (3.9.4).
+
+A seat still held after step 4 (an agent that rewrote its own desired file to keep the seat, or a
+keeper that does not answer) leaves only a seat whose token is dead: the phase reports it as
+`DEFERRED<TAB><team><TAB><user>@<container><TAB>seat still held by run <id>; token revoked` (the
+run id read from the seat lock's content, B 2.5, and printed only if it passes its grammar), keeps
+the record entry as `left` with that `why`, and runs steps 2-5 again at the next apply. It never
+fails the phase for it, since the removal itself has already taken effect, and nothing the agent
+does can delay step 1.
 
 For a stopped container, the handle the record holds is parked from the host side at once
 (revoking its token, so a guest started later cannot use it) and the guest's files are left: the
-next phase that finds the container running runs steps 1-3 for them, with the token already dead.
+next phase that finds the container running runs steps 2-5 for them, with the token already dead.
+A running container and a stopped one now follow the same order: the park comes first in both.
 
 Whether an LXC seat is held (C27) is probed from the host through the same `/proc/<init pid>/root`
 fd: the member's seat lock under the agent user's seat directory, by the L3 probe (open
@@ -1731,7 +1754,7 @@ WorkingDirectory=<checkout>
 RuntimeDirectory=teamchat-session-<user>
 RuntimeDirectoryMode=0700
 Environment=XDG_RUNTIME_DIR=/run/teamchat-session-<user> HOME=<home>
-ExecStart=/usr/bin/tmux -L teamchat new-session -d -s teamchat /usr/local/bin/teamchat run --kind lxc
+ExecStart=/usr/bin/tmux -L teamchat new-session -d -s teamchat /usr/local/bin/teamchat run --claude --kind lxc --desired <home>/.config/teamchat/membership --resume-recorded -- claude
 TimeoutStopSec=30
 Restart=always
 RestartSec=10
@@ -1741,7 +1764,11 @@ WantedBy=multi-user.target
 ```
 
 - The pane runs `teamchat run` directly, with no launcher script or environment file between them
-  (the member fixer's B 6 C3).
+  (the member fixer's B 6 C3), in B's grammar (B 2.2.1, 2.4.1): a Claude Code launch, kind `lxc`,
+  the desired directory `guest membership` writes (3.9.2 step 8), and `--resume-recorded`, so a
+  restart of the unit resumes the conversation the last session recorded (B43) instead of starting
+  a new one. A test renders this unit from its template and parses the `ExecStart` command line,
+  after tmux's own arguments, with `run`'s argument parser (3.14).
 
 - `RuntimeDirectory=` gives the session a runtime directory without a login session, and is one of
   the runtime parents 3.9.2 step 4 reads.
@@ -2230,7 +2257,7 @@ backup and restore verbs, parsing the one JSON answer each prints.
 | backups and restore             | the tar parser shared by write and validate, against hostile tars (links, devices, `..`, setuid, extra members, oversize); the merged roster compared by `seq` (counters never fall, a handle retired after the backup stays retired, one added after it is `lost`, one reissued after it needs `reissue` and its older credential is refused after the restore, a human whose password was reset after it has the old password refused, a clock stepped backwards between the backup and a reissue changing nothing); a pending roster and a backup older than the carry refused, the latter accepted with `--accept-carry-loss`; the control swap done only by the child; a restore after a port change and after a pin bump that dropped a config key, both succeeding with the current config; the pre-restore backup `M` named in the answer and restorable; a restore of the oldest backup with the keep count full, failed after `M`, leaving `staged` with `N` still restorable by `--resume`; a fault injected at each of steps 3-10 and a kill after each, then `--resume` or `--discard`, ending with the team serving its old database or the secured restored one, never an empty or unsecured one, with no leftover the next restore refuses, and every other verb refused meanwhile; a start attempted while the block exists failing its assertion; the lost-event export counted; the roster event's `restore_epoch` raised; every `active` pool seat given `needs: reissue` and its token from `N` refused on the restored database (a session released after `N` included), and ccy-teams' follow-up hot reissue leaving each held session with a working `token` while a failed one stays `needs: reissue`; the staging config bound to loopback only, and the staging and secure units' rendered properties carrying `SocketBindAllow=tcp:<port>` and the loopback `IPAddressAllow=` |
 | seats                           | take into a session directory where a destination is already planted (a directory, a symlink, a FIFO), a planted non-empty directory, a foreign owner, and a race that swaps the new directory for a link; each take logs in with the seat's device id and the previous holder's token is refused afterwards (against `fakehs`, and on Tuwunel by H-C13); a login refused for a reset password stops the take naming `reissue`; `held/` with `O_EXCL`, and an incomplete `held/` quarantined by the next take; `claim` and `released_ms` in the session copy and never in the pool's `seat.json`; release moves to quarantine and never into the pool, the pool record byte-identical after a session rewrote its copy; the release's logout, its token refused afterwards, and a transient logout failure keeping `held/`; a release whose notice fails transiently keeps `held/` and the retry posts once; a notice refused for good (handle parked, retired or lost, `M_UNKNOWN_TOKEN`, team absent) is recorded and the release completes; a crashed container's seats announced at once and kept held, and the later release not posting again; a seat lock path made a symlink to an owner file, a FIFO or a device, refused by the probe; a placement into an existing seat by `RENAME_EXCHANGE`, the old record quarantined; a hot reissue of a held seat (new `password`, new `held/token`, the session's `token` replaced by rename over a planted link without following it, the old token refused) and its fallback to a release when the session directory fails its check; the owner's seat sweep announcing a restorable session's seat once with its lock free, keeping it held, and releasing a session that is over; a leave that times out re-run by the board; the launcher's mount refusal for `~/.local`, `~/.local/state` and a `$XDG_STATE_HOME` path                             |
 | approval gate                   | `declare check` with each security field changed alone, and a new team, printing its `SECURITY` line and failing; `team apply` refusing the same with 70 when step 2 is skipped; `team approve` writing `approved.json`, after which both pass; a non-security field changed passing without approval; an LXC member entry added or changed, refused by `declare check` and `lxc apply` until approved; `team approve --only <field>` refusing with 70 when another gated field also differs; the roster event rendered from `team.json` while a different `trust` sits in host_vars, and no member, role or human verb accepting a declaration                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| LXC membership and absent phase | `guest membership` writing the agent's own desired file, the host copy's `generation` raised; the absent phase waiting for the seat to come free (60 s, the L3 probe) before `guest remove` and `member park`, and exiting 75 when it does not; the health tick's LXC disconnected posting once per run, not posting for a member parked under the team lock or one whose `left` is in the room, and retrying after a transient failure; `lxc-online.json` written inside the health unit's `ReadWritePaths`; a member account with an extra device, and one deactivated, each reported as a problem with its fix                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| LXC membership and absent phase | `guest membership` writing the agent's own desired file, the host copy's `generation` raised; the absent phase parking the member first (its token refused before the desired file is rewritten), then waiting for the seat to come free (60 s, the L3 probe) before `guest remove`; an agent that rewrites its own desired file to keep the seat: the token is already dead, the member reads and posts nothing more, the phase reports `DEFERRED` with the holder's run id and retries steps 2-5 at the next apply; the rendered LXC unit's `ExecStart` parsed by `run`'s own argument parser; the health tick's LXC disconnected posting once per run, not posting for a member parked under the team lock or one whose `left` is in the room, and retrying after a transient failure; `lxc-online.json` written inside the health unit's `ReadWritePaths`; a member account with an extra device, and one deactivated, each reported as a problem with its fix                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | redact                          | `redact` of one event as the admin with the reason `secret`; any other reason refused; the answer naming the backups that still hold the event                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | hot control                     | `desired.json` order after the session record; active = seated and desired, each alone not active; leave with a farewell waits for the seat lock and exits 75 when it stays held                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | LXC read side                   | fixture rootfs trees: `dir`, bind mounts, a symlink at every component, an oversize file, an unprivileged config refused; `openat2` on the real kernel (Linux-only test)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
@@ -2416,7 +2443,8 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
     (B 2.10); the keeper makes no network call.
 05. A session that takes a seat starts with no member state. B resumes from the server's state,
     never from state another session left (DC15): a seat with no member store starts from the
-    earlier of the member's own read receipt and `seat.json`'s `released_ms` (3.7.2), and B reads
+    earlier of the seat's `teamchat.floor` resume marker and `seat.json`'s `released_ms` (3.7.2),
+    a restore leaves every account's room account data as the backup holds it (B 6 C13), and B reads
     `claim` from `seat.json`.
 06. B provides `teamchat seat disconnected --bundle <dir> --since <ms> --seed <id>`, run by the host as
     the owner with the pool's `held/` bundle, which judges from the room whether this member
@@ -2428,11 +2456,14 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
     guest token copy, the run id as the seed and the run's `since_ms` (3.11.2 step 6).
 07. For an LXC member, the next link on a seat checks the room for the member's own `left` or
     `disconnected` since the last run before it posts a disconnected of its own, and uses
-    transaction id `tc-disc-<run id>`, the id the health tick uses (3.11.2 step 6); the run id is
-    the one B writes into the seat lock file, in a grammar the host checks.
+    transaction id `tc-disc-<run id>`, the id the health tick uses (3.11.2 step 6): the ended
+    run's id, which the tick read from the seat lock file while that run held it, in a grammar the
+    host checks, and which the next link reads from its surviving store's `run.id` (the lock file
+    by then names the new run). A ccy link uses `tc-disc-<claim>`, the seed the host passes.
 08. A link that sees the roster's `restore_epoch` change drops its `next_batch` and resumes as a
     seat with no member store; on every reconnect after a homeserver outage it reads the roster by
-    a direct state request, not by sync, to see the change (3.12.2).
+    a direct state request, not by sync, to see the change (3.12.2), and a store found at start is
+    compared with the verified roster before its first sync.
 09. `teamchat run` (the LXC supervised session, 3.9.4) waits, bounded, for the keeper to end
     before it exits, and handles the stop the unit's default `KillMode` sends to every process
     (each of its processes, the link included, gets `SIGTERM`), so that the link still posts its
