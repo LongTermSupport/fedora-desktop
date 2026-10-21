@@ -221,7 +221,8 @@ owner-chosen label from the team declaration (C owns where it comes from).
 **Humans.** The localpart is `[a-z][a-z0-9_-]{0,31}` (P7): no `.` and no `+`, so it can never parse
 as a handle.
 
-**Reserved.** `admin` (the team's admin account, the bundle pins `@admin:<server_name>`) and the
+**Reserved.** `humans` (a fixed word in the envelope, 13.2, so no human may be named it), `admin`
+(the team's admin account, the bundle pins `@admin:<server_name>`) and the
 homeserver's own service account localpart (v1 reserved `conduit`; C confirms Tuwunel's current
 name in host check HC-A6 and the list is fixed in `<v2>/proto`).
 
@@ -637,7 +638,8 @@ authorisation for those posts. The index is never delivered: it numbers question
 state, so a new coordinator continues the numbering and sees which questions are closed. For
 numbering, a question counts only when its `n` is exactly 1 plus the highest counted so far, in
 stream order; any other `n` is ignored for numbering, so one bad post (a client bypassed, 6.9) cannot
-push the numbering past the `Q` grammar for ever.
+push the numbering past the `Q` grammar for ever. An uncounted question is not in the index:
+nothing attaches to it (10.4), it has no reminder (10.5) and no headline (13.2).
 
 `rev` is shown in `status` and on the board beside the host's expected value, so a member that lags
 a roster write is visible. It does not block anything: a restored backup lowers it legitimately.
@@ -910,9 +912,11 @@ a reason from the closed set below).
     `<ns>.text` kind PEER (the same `human_text` rule applies, as v1); `<ns>.notice` only `left` with
     `subject` equal to `sender`, kind NOTICE; any other agent notice: drop `target`.
 09. Addressing: a ping, text or notice whose `to` does not hold this member: ignore `not-addressed`.
-    Then answers: a ping that answers one of this member's own pings (8.2) is recorded against it
-    here, whatever its age. An `ack` then ends: it is shown as an `answered:` line (8.4), never as an
-    entry. A stale `nack`, `done` or `blocked` ends here too, recorded and not delivered (8.5).
+    Then answers: an `ack`, or a stale `nack`, `done` or `blocked`, that answers one of this
+    member's own pings (8.2) is recorded against it here, whatever its age, and ends: an `ack` is
+    shown as an `answered:` line (8.4), never as an entry; a stale answer is not delivered (8.5). A
+    non-stale `nack`, `done` or `blocked` is recorded only when rule 10 delivers it; if rule 10
+    drops it, it is not recorded and its TIMEOUT still falls due, so a ping never waits unseen.
 10. Local checks, in order: age (`stale`), receive flood (`rate`), forge check for a ping with a
     reference (section 9). Then deliver.
 
@@ -1134,8 +1138,7 @@ coordinator in main (00211 D7).
 - The secret check of 7.3 runs over the whole text: secret shapes and the sender's own token are
   refused `secret` (R43, P51). The room's history is `shared` and redaction is closed (4.2), so a
   pasted token could never be withdrawn.
-- `n` is 1 plus the highest `n` among the `<ns>.question` events in the room's history, from any
-  agent account (the question index rule of 7.6), so a replacement coordinator numbers the same way
+- `n` is 1 plus the highest counted `n` of the question index (6.5), so a replacement coordinator numbers the same way
   with no session state (00211).
 - `asked_by` 0-16 user IDs of members; `re` 0-16 main-room event IDs the question came from.
 - `remind_after_s` optional, 600-604800 (10.5).
@@ -1193,7 +1196,8 @@ coordinator's last post in its thread (P58).
 
 ### 10.5 Reminders
 
-A question with `remind_after_s` and no attached human post by its `origin_server_ts` plus that
+A question with `remind_after_s` that is still `open` (10.4: not closed, no attached human post) at
+its `origin_server_ts` plus that
 bound plus 8.3's 30 s grace produces one TIMEOUT for the coordinator, keyed
 `<question event ID>~humans`, with `room: questions`, `question: Q<n>` and `silent: humans` and no
 `verb:` or `ref:` line (13.2). It is computed from the room's history (like the numbering), so a
@@ -1353,7 +1357,7 @@ one-JSON-object form is weighed); the changes are listed in 13.8.
 ### 13.1 Shape
 
 ```text
-<v2-bin> delivery <nonce>: <N> message(s) (<H> from humans, <A> from agents, <P> pings, <S> notices, <T> timeouts, <M> membership): <who>
+<v2-bin> delivery <nonce>: <N> message(s) (<H> from humans, <A> from agents, <P> pings, <S> notices, <T> timeouts): <who>
 <<<v2-bin> <nonce> 1/n>>
 <entry lines>
 <<end <v2-bin> <nonce> 1/n>>
@@ -1366,8 +1370,9 @@ held back: <k> more from <sender> on <team> (flood limit); read them with <v2-bi
 - `<nonce>`: 8 lowercase hex from a cryptographic source, fresh per delivery. It is shown in the
   thread and is not a secret; containment never depends on it (13.6).
 - `<who>`: the first three distinct `<sender> (<KIND>, <team>)`, then ` and <k> more`. For a TIMEOUT
-  the sender slot holds the silent addressee (or `humans` for a reminder); for MEMBERSHIP,
-  `<v2-bin>`.
+  the sender slot holds the silent addressee (or `humans` for a reminder).
+- A MEMBERSHIP notice is never in this shape: it is always its own delivery, with 00203 H12's first
+  line and form (13.3).
 - `answered:` lines (8.4): at most 8, then `answered: <k> more; see <v2-bin> --team <team> status`.
 - `held back:` lines (E19): at most 8, then `held back: <k> more from other senders`.
 - At most 8 entries and 12 KiB per delivery, measured over the ASCII-escaped JSON form (E9); the
@@ -1432,38 +1437,38 @@ token on its line:
 
 **Line grammars.** `|` separates alternatives; `[...]` is optional; everything else is literal:
 
-| Line         | Template                                                                                                                                                         |
-| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `kind:`      | `kind: ` one `kind:` sentence of 13.3                                                                                                                            |
-| `from:`      | `from: <sender>`                                                                                                                                                 |
-| `role:`      | `role: coordinator` \| `role: worker` \| `role: admin`                                                                                                           |
-| `team:`      | `team: <team>`                                                                                                                                                   |
-| `room:`      | `room: questions`                                                                                                                                                |
-| `question:`  | `question: <q> <json-ascii>` \| `question: <q>` \| `question: none`                                                                                              |
-| `revises:`   | `revises: <id>`                                                                                                                                                  |
-| `to:`        | `to: this session, as <handle>`                                                                                                                                  |
-| `sent:`      | `sent: <time>` \| `sent: -`                                                                                                                                      |
-| `id:`        | `id: <id>`                                                                                                                                                       |
-| `re:`        | `re: <id>` \| `re: -`                                                                                                                                            |
-| `verb:`      | `verb: <verb>`                                                                                                                                                   |
-| `ref:`       | `ref: <ref>` \| `ref: -`                                                                                                                                         |
-| `trust:`     | `trust: trusted` \| `trust: external` \| `trust: -`                                                                                                              |
-| `branch:`    | `branch: <branch>` \| `branch: -`                                                                                                                                |
-| `silent:`    | `silent: <handle>` \| `silent: <human>` \| `silent: humans`                                                                                                      |
-| `event:`     | `event: ` one `event` value of 7.4                                                                                                                               |
-| `subject:`   | `subject: <handle>`                                                                                                                                              |
-| `reason:`    | `reason: exit` \| `reason: logout` \| `reason: other` \| `reason: coordinator` \| `reason: worker`                                                               |
-| `copy:`      | `copy: <human>[, <human>]... (addressed to them; sent to you for information)`                                                                                   |
-| `authority:` | `authority: ` one `authority:` sentence of 13.3                                                                                                                  |
-| `reply:`     | `reply: ` one reply command below                                                                                                                                |
-| `body:`      | `body: <json>`                                                                                                                                                   |
-| `truncated:` | `truncated: <n> of <n> bytes shown; the whole text is in <v2-bin> --team <team> history (id '<id>')`                                                             |
-| first line   | `<v2-bin> delivery <nonce>: <n> message(s) (<n> from humans, <n> from agents, <n> pings, <n> notices, <n> timeouts, <n> membership): <who>`                      |
-| `<who>`      | `<who-name> (<KIND>, <team>)` repeated with `, ` at most three times, then optionally ` and <k> more`; `<who-name>` is `<sender>`, `humans` or `<v2-bin>` (13.1) |
-| markers      | `<<<v2-bin> <nonce> <n>/<n>>>` \| `<<end <v2-bin> <nonce> <n>/<n>>>`                                                                                             |
-| `answered:`  | `answered: <sender> sent <answer verb> to your <verb> '<id>'[ (after its TIMEOUT)]` \| `answered: <k> more; see <v2-bin> --team <team> status`                   |
-| `held back:` | `held back: <k> more from <sender> on <team> (flood limit); read them with <v2-bin> --team <team> history` \| `held back: <k> more from other senders`           |
-| pending      | `<k> more pending: they follow in the next delivery`                                                                                                             |
+| Line         | Template                                                                                                                                               |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `kind:`      | `kind: ` one `kind:` sentence of 13.3                                                                                                                  |
+| `from:`      | `from: <sender>`                                                                                                                                       |
+| `role:`      | `role: coordinator` \| `role: worker` \| `role: admin`                                                                                                 |
+| `team:`      | `team: <team>`                                                                                                                                         |
+| `room:`      | `room: questions`                                                                                                                                      |
+| `question:`  | `question: <q> <json-ascii>` \| `question: <q>` \| `question: none`                                                                                    |
+| `revises:`   | `revises: <id>`                                                                                                                                        |
+| `to:`        | `to: this session, as <handle>`                                                                                                                        |
+| `sent:`      | `sent: <time>` \| `sent: -`                                                                                                                            |
+| `id:`        | `id: <id>`                                                                                                                                             |
+| `re:`        | `re: <id>` \| `re: -`                                                                                                                                  |
+| `verb:`      | `verb: <verb>`                                                                                                                                         |
+| `ref:`       | `ref: <ref>` \| `ref: -`                                                                                                                               |
+| `trust:`     | `trust: trusted` \| `trust: external` \| `trust: -`                                                                                                    |
+| `branch:`    | `branch: <branch>` \| `branch: -`                                                                                                                      |
+| `silent:`    | `silent: <handle>` \| `silent: <human>` \| `silent: humans`                                                                                            |
+| `event:`     | `event: ` one `event` value of 7.4                                                                                                                     |
+| `subject:`   | `subject: <handle>`                                                                                                                                    |
+| `reason:`    | `reason: exit` \| `reason: logout` \| `reason: other` \| `reason: coordinator` \| `reason: worker`                                                     |
+| `copy:`      | `copy: <human>[, <human>]... (addressed to them; sent to you for information)`                                                                         |
+| `authority:` | `authority: ` one `authority:` sentence of 13.3                                                                                                        |
+| `reply:`     | `reply: ` one reply command below                                                                                                                      |
+| `body:`      | `body: <json>`                                                                                                                                         |
+| `truncated:` | `truncated: <n> of <n> bytes shown; the whole text is in <v2-bin> --team <team> history (id '<id>')`                                                   |
+| first line   | `<v2-bin> delivery <nonce>: <n> message(s) (<n> from humans, <n> from agents, <n> pings, <n> notices, <n> timeouts): <who>`                            |
+| `<who>`      | `<who-name> (<KIND>, <team>)` repeated with `, ` at most three times, then optionally ` and <k> more`; `<who-name>` is `<sender>` or `humans` (13.1)   |
+| markers      | `<<<v2-bin> <nonce> <n>/<n>>>` \| `<<end <v2-bin> <nonce> <n>/<n>>>`                                                                                   |
+| `answered:`  | `answered: <sender> sent <answer verb> to your <verb> '<id>'[ (after its TIMEOUT)]` \| `answered: <k> more; see <v2-bin> --team <team> status`         |
+| `held back:` | `held back: <k> more from <sender> on <team> (flood limit); read them with <v2-bin> --team <team> history` \| `held back: <k> more from other senders` |
+| pending      | `<k> more pending: they follow in the next delivery`                                                                                                   |
 
 Reply commands: HUMAN and PEER `<v2-bin> --team <team> say --to <name> --re '<id>'`; in questions
 `<v2-bin> --team <team> thread <q>` or `<v2-bin> --team <team> thread --re '<id>'`; PING
@@ -1501,11 +1506,13 @@ testable grammar, so the JSON form would remove no defect, only readability.
 The sentences are v1's (`envelope.py:68-78`) except NOTICE and the reminder, which are new. Changing
 a sentence changes how a model treats a message, so the corpus pins each one exactly.
 
-MEMBERSHIP entries keep v1's form, and 00203 H12's line templates are binding for them: one entry,
-`kind:` the MEMBERSHIP sentence, `from: <v2-bin>`, `to: this session`, then H12's fixed template
-lines whose only slots are team names and handles (2.2, 2.3), each line at most 600 characters and
-none holding C0, DEL, U+2028, U+2029, `<<` or `>>`. They are counted as `<M> membership` in the
-first line. B writes them; A fixes that form, and the corpus pins it with the 13.2 lines.
+MEMBERSHIP keeps v1's form, and 00203 H12 is binding for it: always its own delivery, with H12's
+first line (a membership notice from `<v2-bin>`: this session's teams changed), one entry with
+`kind:` the MEMBERSHIP sentence, `from: <v2-bin>` and `to: this session`, then H12's fixed template
+lines. Their slots are team names and handles (2.2, 2.3), and the team description, which is
+admin-written text (R38) that may hold spaces and non-ASCII: it passes P16's grammar and H76's
+exclusion of `<<` and `>>`. Every line is at most 600 characters and none holds C0, DEL, U+2028 or
+U+2029. B writes these deliveries; A fixes the form, and the corpus pins it beside the 13.2 lines.
 
 ### 13.4 The body
 
@@ -1557,9 +1564,11 @@ places the text; A fixes what it says, in this order:
 
 What a sender controls is its text (and a human their message). The argument:
 
-1. Every line is one of 13.2's fixed templates (or, for MEMBERSHIP, 00203 H12's), and every slot
-   in it except the two JSON-string slots passed a full-match ASCII grammar with no space, so no
-   such slot can carry a newline, a space, or a marker. The JSON-string slots are point 3.
+1. Every line is one of 13.2's fixed templates, and every slot in it except the two JSON-string
+   slots passed a full-match ASCII grammar with no space, so no such slot can carry a newline, a
+   space, or a marker. The JSON-string slots are point 3. A MEMBERSHIP delivery is H12's templates
+   instead (13.3): its only free-text slot, the team description, is written by the admin (R38),
+   and its grammar excludes line breaks, controls, `<<` and `>>`.
 2. `kind`, `from`, `role` and `team` come from the sender's roster class and the room the event came
    from (7.6), never from content.
 3. Sender text appears only in JSON strings rendered by the one escaper (13.4): the `body:` string,

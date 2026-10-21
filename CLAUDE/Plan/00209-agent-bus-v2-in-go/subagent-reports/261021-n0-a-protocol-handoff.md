@@ -1,5 +1,10 @@
 # Plan 00209 N0 area A (protocol and rooms): handoff
 
+Superseded: the continuation designer fixed every round-1 finding, and review rounds 2
+(`261021-n0-a-protocol-review-2.md`, FIX-FIRST, fixed) and 3 (`261021-n0-a-protocol-review-3.md`,
+MERGE, its five minors C1-C5 fixed) closed the review. The text below records the state at the
+first designer's stop.
+
 The designer stopped at its context budget, in the middle of fixing review round 1.
 
 ## State
