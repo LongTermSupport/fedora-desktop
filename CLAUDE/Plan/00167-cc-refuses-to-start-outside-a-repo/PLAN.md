@@ -74,7 +74,7 @@ clear message.
 - [x] ✅ **Task 2.3**: Document the behaviour in `docs/ccy.md` (the `cc` paragraph near line
   198\) and add a `cc` entry to `docs/ccy-changelog.md`. No `CCY_VERSION` bump: `cc` is not
   under `files/var/local/claude-yolo/`.
-- [ ] ⬜ **Task 2.4**: Run QA: `./scripts/qa-all.bash`; fix any findings.
+- [x] ✅ **Task 2.4**: Run QA: `./scripts/qa-all.bash`; fix any findings. Passed at dddf4063.
 
 ### Phase 3: Deploy and accept
 
@@ -87,18 +87,17 @@ clear message.
   `CCY_SESSION_RESTORE=1` and stdin the terminal, it must exit 1 with the refusal, an empty
   stdout and no `[Y/n]` offer; in a subfolder of a scratch git repository it must exit 0 with
   the repository's top on stdout. The offer itself needs a person at a terminal and is the
-  owner's check (Task 3.3).
+  owner's check (Task 3.3). Passed on the host at dddf4063 (run under a terminal; see the
+  26-10-21 journal).
 - [ ] 🔄 **Task 3.3**: Add the plan to `meta-deploy.bash`. The owner runs it, then types `cc`
-  in `~` (accepts the offer once and declines it once) and once in a project. Queued as the
-  `play-claude-yolo.yml` entry in `meta-deploy.list` (one run deploys both); that run passed
-  at F44 c3391ba9 (ccy 3.99.12.19) and deployed `cc-project-dir` and `cc`. Owner's hand
-  checks, still open: `cc` in `~` (accepted, then declined) and from a subfolder of a
-  repository. The plan entry (`acceptance.bash`) is queued right after that play entry.
+  in `~` (accepts the offer once and declines it once) and once in a project. Deployed at
+  dddf4063 with the review fix. Owner's hand checks, still open: `cc` in `~` (accepted, then
+  declined) and from a subfolder of a repository.
 
 ### Phase 4: Review and close
 
-- [ ] ⬜ **Task 4.1**: Run the `qa-reviewer` agent over the plan's diff; resolve every BLOCK
-  and FIX-BEFORE-MERGE finding.
+- [x] ✅ **Task 4.1**: Run the `qa-reviewer` agent over the plan's diff; resolve every BLOCK
+  and FIX-BEFORE-MERGE finding. Resolved in the fix merged at dead9482.
 - [ ] ⬜ **Task 4.2**: Remove the plan from `meta-deploy.bash`, mark it Complete, and move it
   to `Completed/`.
 
