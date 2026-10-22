@@ -85,7 +85,7 @@ func runLifecycleTurn(pass *analysis.Pass) {
 		}
 		for _, r := range f.refs {
 			if !r.guarded && (isLifecyclePrimitive(r.target) || hazardous[r.target]) {
-				pass.Reportf(r.pos, "lifecycle notice read or posted outside the team's turn: %s", lifecycleName(pass, r.target))
+				pass.Reportf(r.pos, "%s: lifecycle notice read or posted outside the team's turn: %s", pass.Analyzer.Name, lifecycleName(pass, r.target))
 			}
 		}
 	}

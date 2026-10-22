@@ -133,6 +133,41 @@ func midRead(t *testing.T, event string, end ender) {
 	}
 }
 
+// An end that gives up waiting for the turn (its bound ended) has still begun: a back after it
+// posts nothing.
+func TestAnEndThatCouldNotWaitStillStopsBack(t *testing.T) {
+	w := newWorld(t)
+	f := newEnds(t, nil)
+	alpha := teamOf(t, teamID)
+	priorDisconnected(t, w)
+	run := state.StoreRun{ID: runID(t, thisRun)}
+	inside, leave := make(chan struct{}), make(chan struct{})
+	held := make(chan error, 1)
+	go func() {
+		held <- f.e.turn(t.Context(), alpha, func() error {
+			close(inside)
+			<-leave
+			return nil
+		})
+	}()
+	<-inside
+	ctx, cancel := context.WithCancel(t.Context())
+	f.e.turnWait = cancel
+	errs := f.e.End(ctx, team.End{How: wire.EndKilled}, []team.EndTeam{{Team: alpha, Notices: w.notices(t, worker, true), Run: run}})
+	close(leave)
+	if err := errors.Join(errs...); !errors.Is(err, context.Canceled) {
+		t.Fatalf("End: %v", err)
+	}
+	if err := <-held; err != nil {
+		t.Fatalf("the held turn: %v", err)
+	}
+	f.e.turnWait = nil
+	n := w.notices(t, worker, true)
+	if err := f.e.Back(t.Context(), alpha, n, run); err != nil || n.sent != 0 {
+		t.Fatalf("Back: %v, sent %d; main %v", err, n.sent, events(w.lifecycles(t)))
+	}
+}
+
 // A turn given up by its context is the context's error, and the turn is not taken.
 func TestATurnWaitEndsWithItsContext(t *testing.T) {
 	f := newEnds(t, nil)
@@ -140,7 +175,7 @@ func TestATurnWaitEndsWithItsContext(t *testing.T) {
 	inside, leave := make(chan struct{}), make(chan struct{})
 	held := make(chan error, 1)
 	go func() {
-		held <- f.e.turn(t.Context(), alpha, func(*teamTurn) error {
+		held <- f.e.turn(t.Context(), alpha, func() error {
 			close(inside)
 			<-leave
 			return nil
@@ -150,7 +185,7 @@ func TestATurnWaitEndsWithItsContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	f.e.turnWait = cancel
 	ran := false
-	err := f.e.turn(ctx, alpha, func(*teamTurn) error {
+	err := f.e.turn(ctx, alpha, func() error {
 		ran = true
 		return nil
 	})
