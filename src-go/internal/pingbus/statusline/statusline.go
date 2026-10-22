@@ -1,6 +1,6 @@
 // Package statusline is `pingbus status-line` (Plan 00213, SPEC-status-line.md): the session's
-// Claude Code status line, with the agent-bus teams the session is on and this member's role
-// in each. It is the Go port of helpers/pingbus/statusline.py, which stays the reference for
+// Claude Code status line, with the agent-bus teams the session is on, this member's short name
+// and role in each, each team in its own colour (Plan 00217, SPEC-team-colours.md). It is the Go port of helpers/pingbus/statusline.py, which stays the reference for
 // every behaviour the spec states.
 //
 // Run never turns a failure into an exit status (S3). Its only non-zero status is a cancel
@@ -34,15 +34,18 @@ const (
 	maxRecord      = 4096
 	innerTimeout   = 10 * time.Second
 	// timedOut is the status of an inner command killed at its timeout (Python's TIMED_OUT).
-	timedOut    = -1
-	label       = "👥"
-	roleUnknown = "role?"
-	noRecord    = "no record of this session's teams (pingbus status)"
-	notRun      = "(status line could not be run)"
-	cyan        = "\x1b[36m"
-	red         = "\x1b[31m"
-	reset       = "\x1b[0m"
+	timedOut      = -1
+	label         = "👥"
+	roleUnknown   = "role?"
+	memberUnknown = "member?"
+	noRecord      = "no record of this session's teams (pingbus status)"
+	notRun        = "(status line could not be run)"
+	red           = "\x1b[31m"
+	reset         = "\x1b[0m"
 )
+
+// roleLetters is the role's letter on the status line (C15).
+var roleLetters = map[string]string{roleCoordinator: "c", roleWorker: "w"}
 
 // sessionIDPattern is what a session id must match to name a record (S18).
 var sessionIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
@@ -351,33 +354,46 @@ func sessionID(payload pyjson.Object) string {
 	return id
 }
 
-// teamsText is the teams, each with its role and marks, wrapped to COLUMNS (S26 to S29), and
-// the role diagnostic (S24).
+// teamsText is the teams, each with this member, its role and marks, in its colour, wrapped to
+// COLUMNS (S26 to S29, C10, C15 to C17), and the role and colour diagnostics (S24, C12).
 func (w *world) teamsText(ctx context.Context, env map[string]string, teams []string) (segment, error) {
 	roles, problem := w.readRoles(env, teams)
+	shown, colourUnread, colourProblem := w.readColours(env, teams)
+	if colourProblem != "" {
+		problem = strings.TrimPrefix(problem+"\n"+colourProblem, "\n")
+	}
 	seg := segment{problem: problem, teamsRead: true}
 	pieces := make([]string, 0, len(teams))
+	colours := make([]string, 0, len(teams))
 	for i, team := range teams {
-		role := roles[team]
-		if role == "" {
-			role = roleUnknown
+		found := roles[team]
+		member, letter := found.short, roleLetters[found.role]
+		if member == "" {
+			member = memberUnknown
 		}
-		piece := team + " (" + role + ")"
+		if letter == "" {
+			letter = roleUnknown
+		}
+		piece := team + ": " + member + " (" + letter + ")"
 		if until := w.downUntil(env, team); !until.IsZero() {
 			piece += " (down)"
 			if seg.expires.IsZero() || until.Before(seg.expires) {
 				seg.expires = until
 			}
 		}
+		if colourUnread[team] {
+			piece += " (" + colourUnknown + ")"
+		}
 		if i < len(teams)-1 {
 			piece += ","
 		}
 		pieces = append(pieces, piece)
+		colours = append(colours, shown[team])
 	}
 	if err := cancelOf(ctx); err != nil {
 		return segment{}, err
 	}
-	seg.text = wrapped(cyan, pieces, terminalColumns(env))
+	seg.text = teamRows(pieces, colours, terminalColumns(env))
 	return seg, nil
 }
 
@@ -385,24 +401,58 @@ func note(env map[string]string, text string) string {
 	return wrapped(red, strings.Split(text, " "), terminalColumns(env))
 }
 
-// wrapped is `label pieces` in rows no wider than columns (unbroken when columns is 0). A row
-// breaks only between pieces, joined by one space, and a later row is indented under the first.
-func wrapped(colour string, pieces []string, columns int) string {
-	indent := strings.Repeat(" ", displayWidth(label+" "))
-	var rows []string
-	current := label + " " + pieces[0]
-	for _, piece := range pieces[1:] {
-		candidate := current + " " + piece
-		if columns == 0 || displayWidth(candidate) <= columns {
-			current = candidate
+// rowsOf is the pieces' indices on each row of `label pieces`, no row wider than columns
+// (unbroken when columns is 0), measured on the plain pieces. A row breaks only between pieces,
+// joined by one space, and a later row is indented under the first, as wide as `label `.
+func rowsOf(pieces []string, columns int) [][]int {
+	rows := [][]int{{0}}
+	width := displayWidth(label + " " + pieces[0])
+	for i, piece := range pieces[1:] {
+		candidate := width + 1 + displayWidth(piece)
+		if columns == 0 || candidate <= columns {
+			rows[len(rows)-1] = append(rows[len(rows)-1], i+1)
+			width = candidate
 			continue
 		}
-		rows = append(rows, current)
-		current = indent + piece
+		rows = append(rows, []int{i + 1})
+		width = displayWidth(label + " " + piece)
 	}
-	rows = append(rows, current)
-	for i, row := range rows {
-		rows[i] = colour + row + reset
+	return rows
+}
+
+// lead is the label before the first row and an indent as wide before each later one.
+func lead(row int) string {
+	if row == 0 {
+		return label + " "
 	}
-	return strings.Join(rows, "\n")
+	return strings.Repeat(" ", displayWidth(label+" "))
+}
+
+// wrapped is the pieces in rows (rowsOf), each row one colour span, its lead included.
+func wrapped(colour string, pieces []string, columns int) string {
+	rows := rowsOf(pieces, columns)
+	out := make([]string, len(rows))
+	for n, row := range rows {
+		texts := make([]string, len(row))
+		for j, i := range row {
+			texts[j] = pieces[i]
+		}
+		out[n] = colour + lead(n) + strings.Join(texts, " ") + reset
+	}
+	return strings.Join(out, "\n")
+}
+
+// teamRows is the team pieces in rows (rowsOf), the lead and the joining spaces plain and each
+// piece its own span of its colour (C10).
+func teamRows(pieces, colours []string, columns int) string {
+	rows := rowsOf(pieces, columns)
+	out := make([]string, len(rows))
+	for n, row := range rows {
+		spans := make([]string, len(row))
+		for j, i := range row {
+			spans[j] = sgr(colours[i]) + pieces[i] + reset
+		}
+		out[n] = lead(n) + strings.Join(spans, " ")
+	}
+	return strings.Join(out, "\n")
 }

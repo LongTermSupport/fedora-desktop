@@ -56,22 +56,24 @@ func resolveHome(env map[string]string) (string, error) {
 	return pyJoin(home, ".config/pingbus"), nil
 }
 
-// readRoles is each team's role and the one diagnostic line naming every team that failed
-// (S24), or "" when all were read. A failed home is named once with its reason (S20).
-func (w *world) readRoles(env map[string]string, teams []string) (map[string]string, string) {
-	roles := make(map[string]string, len(teams))
+// memberRole is this member's short name in a team and its role, each "" when unread (C16).
+type memberRole struct{ short, role string }
+
+// readRoles is each team's member and role, and the one diagnostic line naming every team whose
+// role failed (S24), or "" when all were read. A failed home is named once with its reason (S20).
+func (w *world) readRoles(env map[string]string, teams []string) (map[string]memberRole, string) {
+	roles := make(map[string]memberRole, len(teams))
 	home, err := resolveHome(env)
 	if err != nil {
 		return roles, "pingbus status-line: no team's role can be read: " + err.Error()
 	}
 	var failed []string
 	for _, team := range teams {
-		role, err := w.roleOf(home, team)
+		found, err := w.roleOf(home, team)
+		roles[team] = found
 		if err != nil {
 			failed = append(failed, team+": "+err.Error())
-			continue
 		}
-		roles[team] = role
 	}
 	if len(failed) == 0 {
 		return roles, ""
@@ -79,17 +81,28 @@ func (w *world) readRoles(env map[string]string, teams []string) (map[string]str
 	return roles, "pingbus status-line: the role cannot be read (" + strings.Join(failed, "; ") + ")"
 }
 
-// roleOf is one team's role for this member: its bundle loaded, then its cached record read.
-func (w *world) roleOf(home, team string) (string, error) {
+// roleOf is this member in one team: its bundle loaded for its short name (C15), then its
+// cached record read for the role. The short name is kept when only the role fails.
+func (w *world) roleOf(home, team string) (memberRole, error) {
 	if !teamNamePattern.MatchString(team) {
-		return "", errors.New("not a team name")
+		return memberRole{}, errors.New("not a team name")
 	}
 	dir := pyJoin(home, team)
 	m, err := w.loadBundle(dir, team)
 	if err != nil {
-		return "", err
+		return memberRole{}, err
 	}
-	return w.cachedRole(dir, m)
+	found := memberRole{short: shortName(m.userID)}
+	found.role, err = w.cachedRole(dir, m)
+	return found, err
+}
+
+// shortName is an agent user ID's handle up to its `+`: `@myrepo.1+box.podman:server` is
+// `myrepo.1` (C15). The bundle's parse has already held the ID to the handle pattern.
+func shortName(userID string) string {
+	handle, _, _ := strings.Cut(strings.TrimPrefix(userID, "@"), ":")
+	short, _, _ := strings.Cut(handle, "+")
+	return short
 }
 
 // loadBundle is config.load_bundle for the bundle directory of team (S21).

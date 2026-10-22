@@ -296,6 +296,34 @@ class DescriptionTest(unittest.TestCase):
             self.assertIn("description", str(caught.exception))
 
 
+class ColourTest(unittest.TestCase):
+    """Plan 00217 SPEC-team-colours C7: an optional `colour`, a palette name or a legible
+    #rrggbb, kept as lower-case hex."""
+
+    def test_a_name_or_a_hex_is_kept_as_lower_case_hex_and_moves_the_config_digest(self) -> None:
+        plain = teamfile.parse_team_file(VALID)
+        self.assertIsNone(plain.colour)
+        self.assertNotIn("colour", plain.as_dict())
+        for value, stored in (("blue", "#60a5fa"), ("#60A5FA", "#60a5fa"), ("#ffffff", "#ffffff")):
+            with self.subTest(value=value):
+                tf = teamfile.parse_team_file(_with(colour=value))
+                self.assertEqual(tf.colour, stored)
+                self.assertEqual(tf.as_dict()["colour"], stored)
+                self.assertEqual(teamfile.parse_team_file(json.loads(teamfile.dump_team_file(tf))), tf)
+                self.assertNotEqual(teamfile.config_digest(tf), teamfile.config_digest(plain))
+
+    def test_refusals_say_the_rule_under_the_key(self) -> None:
+        for bad in ("Blue", "navy", "#60a5f", "60a5fa", 7, None, ["blue"]):
+            with self.subTest(bad=bad), self.assertRaises(teamfile.TeamFileError) as caught:
+                teamfile.parse_team_file(_with(colour=bad))
+            self.assertTrue(str(caught.exception).startswith("team file: colour: must be one of teal, "),
+                            str(caught.exception))
+        with self.assertRaises(teamfile.TeamFileError) as caught:
+            teamfile.parse_team_file(_with(colour="#202020"))
+        self.assertTrue(str(caught.exception).startswith("team file: colour: #202020 is too dark to read on a "
+                                                         "dark terminal (contrast "), str(caught.exception))
+
+
 class RemovedHumansTest(unittest.TestCase):
     """Plan 00201 S-F14: `removed_humans` names the people taken off the team, whose accounts
     bootstrap deactivated for good; the team file refuses any of them in `humans` again."""

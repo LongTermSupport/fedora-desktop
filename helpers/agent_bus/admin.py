@@ -633,6 +633,18 @@ def _sync_team(api: _Api, room: str, changes: list[str]) -> None:
     if not isinstance(current, dict) or current.get("topic") != topic:
         api.put_state(room, "m.room.topic", {"topic": topic, "m.topic": {"m.text": [{"body": topic}]}})
         changes.append("topic")
+    _sync_colour(api, room, changes)
+
+
+def _sync_colour(api: _Api, room: str, changes: list[str]) -> None:
+    """Plan 00217 C8: the colour state at the team file's colour, or emptied once the file
+    sets none; a team that never set one never gets the event."""
+    colour = api.team.file.colour
+    wanted = {} if colour is None else {"colour": colour}
+    current = api.state(room, protocol.EVENT_COLOUR)
+    if current != wanted and not (current is None and colour is None):
+        api.put_state(room, protocol.EVENT_COLOUR, wanted)
+        changes.append("colour")
 
 
 def _empty_stray_status(api: _Api, room: str, changes: list[str]) -> None:

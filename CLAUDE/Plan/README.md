@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00217-team-colours-in-the-status-line](00217-team-colours-in-the-status-line/) - In Progress. Each agent team on the status line in its own colour: an automatic one from the team's name, in a palette legible on dark terminals (WCAG AA, tested), and a `colour:` override per team carried to every member as admin room state; Go and Python status lines changed together, parity oracle re-recorded
+
 - [00215-opencode-install-and-agent-bus-member](00215-opencode-install-and-agent-bus-member/) - In Progress. opencode (the open-source terminal coding agent) in the ccy image, pinned, and `ccy --opencode` (`-oc`) to run it instead of Claude Code; opencode sessions designed as agent-bus v2 members through a member-adapter seam, the build waiting on Plan 00209
 
 - [00214-update-all-changed-plays](00214-update-all-changed-plays/) - In Progress. One command clears every stale play (#110): the health report and `run.bash --changed` share one judgement of which plays have to run again, the report and startup notice print this checkout's `run.bash --changed`, and meta-deploy gains a `changed-plays` entry

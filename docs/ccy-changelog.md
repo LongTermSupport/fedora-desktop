@@ -17,10 +17,11 @@ Two version numbers move independently — see
 
 ---
 
-## 3.100.9 — container 2.79.4
+## 3.100.12 — container 2.79.7
 
-Follows 3.100.8 (container 2.79.3). The image changes: the play builds it, and a host that has
-not run the play rebuilds it once at its next launch.
+Follows 3.100.11 (container 2.79.6). 3.100.9 and container 2.79.4 were this change's earlier
+cut on its own branch and were never released. The image changes, so the next launch rebuilds
+it once.
 
 - **pingbus `wait` and `watch` hand their helpers a real text stream** (Plan 00214): the
   stderr wrapper that keeps their threads' lines whole was a stand-in with only `write()`, so
@@ -29,6 +30,16 @@ not run the play rebuilds it once at its next launch.
   changes; no helper they reach calls those methods today (CLAUDE/QA.md
   "stream-stand-in-not-a-text-stream"). The same pingbus reaches the host, the kit and the
   LXC members through `play-agent-bus.yml`.
+
+## 3.100.11 — container 2.79.6
+
+Follows 3.100.8 (3.100.9, 3.100.10 and containers 2.79.4 and 2.79.5 were never released: this
+branch's earlier cuts). The image changes, so the next launch rebuilds it once.
+
+- **Each agent team in its own colour on the status line, with this member's name** (Plan
+  00217). A team piece reads `alpha: fedora-desktop.2 (c)`: the team, this session's member in
+  it and its role, in the team's colour. The colour comes from the team's name, in a palette
+  legible on dark terminals, unless the team's `colour:` overrides it.
 
 ## 3.100.8 — container 2.79.3
 
