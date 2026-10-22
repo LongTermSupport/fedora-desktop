@@ -58,7 +58,7 @@ with sources) and [research/agent-bus-member-facts.md](research/agent-bus-member
   `/etc/opencode/opencode.json` (`share` disabled), `OPENCODE_DISABLE_AUTOUPDATE=1`, and
   `/etc/opencode/tui.json` unbinding opencode's ctrl+z suspend. The desktop play
   `play-opencode.yml`, its pin row and its docs are removed (O7).
-- [x] ✅ **Task 1.3**: `ccy --opencode` / `-oc` (CCY 3.100.2), in `lib/agent-choice.bash`:
+- [x] ✅ **Task 1.3**: `ccy --opencode` / `-oc` (CCY 3.100.3), in `lib/agent-choice.bash`:
   the parse's last branch takes the flag; `--teams`, `--supervise`, `--headless` and the
   session limits are refused with it (64), and so is a bare first message (opencode's project
   argument: use `--prompt`); the session runs with no bus kit and no supervisor, a Quick Launch's
@@ -97,7 +97,8 @@ Each task names the Plan 00209 work it waits for.
   tests and host checks H-OC1 to H-OC5 (design section 7). **Depends on** Plan 00209 N3
   (Task 3.2) merged.
 - [ ] ⬜ **Task 3.3**: The opencode member kind in ccy (O2): v2's kit in the ccy image with the
-  opencode adapter, chosen by `--opencode`, which then stops refusing `--teams`. **Depends on**
+  opencode adapter, chosen by `--opencode`, which then stops refusing `--teams`; ccy-teams'
+  messages that tell an opencode session it was "launched with --no-bus" name `--opencode` too. **Depends on**
   Plan 00209 N4 (Task 4.1, v2's kit in the image) and a CCY version bump.
 - [ ] ⬜ **Task 3.4**: Acceptance: one opencode member on a throwaway v2 team answers a HUMAN
   message, a PEER message and a closed-verb ping, and its HUMAN items get read receipts only
@@ -155,7 +156,8 @@ defaults the owner accepted.
 
 - [ ] The image has rebuilt on the host with opencode 1.19.3, and `ccy --opencode` starts it
   with a provider key (Task 1.4).
-- [x] A launch without `--opencode` is byte for byte what it was (the differential harness).
+- [x] A launch without `--opencode` is byte for byte what it was (the differential harness),
+  except a `--no-bus` Quick Launch with a saved team, which no longer fails late at the seats.
 - [x] The design covers join, wake, delivery, reply, authority, the differences, the seam and
   where opencode runs, and leaves Gate A untouched.
 - [x] The owner has answered O1-O7.

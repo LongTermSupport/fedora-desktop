@@ -885,12 +885,14 @@ credentials or state.
 open-source terminal coding agent, in the container instead of Claude Code. Everything else is
 an ordinary ccy session: tmux, mounts, tokens, the firewall and the session record. It is not
 brought back after a reboot (`ccy-sessions restore` skips it): it has no Claude conversation to
-resume, and opencode keeps its history inside the container. The image pins opencode (its Dockerfile's
+resume, and opencode keeps its history inside the container, so it is gone when the session
+ends. The image pins opencode (its Dockerfile's
 `OPENCODE_VERSION`, checked by sha256 at build) and starts it as `opencode --auto`: as with
 Claude Code's `--dangerously-skip-permissions`, the container is the isolation. ccy's other
 arguments go to opencode unchecked (`--model provider/model`), and `--prompt` becomes
-opencode's `--prompt`. A bare first message (`ccy -oc "fix it"`) is refused: opencode would read
-it as a project directory, so give it with `--prompt`. A Quick Launch's saved team is not taken.
+opencode's `--prompt`. Give a message only with `--prompt`: opencode reads a bare word as its
+project directory, so a bare first word (`ccy -oc "fix it"`) is refused, and a later one is
+opencode's to read. A Quick Launch's saved team is not taken, and is kept for the next launch.
 
 opencode cannot use the Claude login. It needs a model provider key, which you add once as a file
 in `~/.claude-tokens/ccy/provider-keys/`, named for the variable opencode reads it from

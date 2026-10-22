@@ -788,8 +788,9 @@ save personal /keys/id_a proj_net dev1@team-a
 check "only --teams given: the Quick Launch offer still runs (token, keys and network from the file)" \
     "token=personal keys=/keys/id_a no_ssh=false net=proj_net no_net=false rc=0 prompt=no" \
     "$(QUICK_TEAMS_GIVEN=true QUICK_TEAMS_LIST=other-team quick true)"
+# Or, for a launch on no team (--no-bus, --opencode) that left a saved one alone, that one.
 check "the launcher saves the team it launched into" "1" \
-    "$(grep -c -F "LAST_TEAMS=\"\${CCY_SEATS}\"" "$LAUNCHER")"
+    "$(grep -c -F "LAST_TEAMS=\"\${CCY_SEATS:-\${quick_kept_team:-}}\"" "$LAUNCHER")"
 
 echo "=== Quick Launch across ccy versions: kept while the file's format is unchanged ==="
 

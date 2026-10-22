@@ -202,7 +202,8 @@ check "the container runs the chosen agent" "1" "$(grep -c -x -F "    \"\${CCY_A
 check "the run goes through the key hand-over" "1" "$(grep -c -F "GH_TOKEN=\"\$GH_TOKEN\" ccy_agent_container run " "$LAUNCHER")"
 check "the keys' -e arguments are in the run" "1" "$(grep -c -F "\"\${CCY_AGENT_RUN_ARGS[@]}\"" "$LAUNCHER")"
 check "--opencode is offered as a ccy flag in the did-you-mean list" "1" "$(grep -c -- '--prevent --opencode --help' "$LAUNCHER")"
-check "a Quick Launch's saved team is dropped for a launch with no bus kit" "1" "$(grep -c -x -F "        elif [ \"\$NO_BUS_MODE\" = true ]; then quick_team=\"\" # --no-bus or --opencode: on no team" "$LAUNCHER")"
+check "a Quick Launch's saved team is dropped for a launch with no bus kit" "1" "$(grep -c -x -F "        elif [ \"\$NO_BUS_MODE\" = true ]; then quick_team=\"\" quick_kept_team=\"\$LAST_TEAMS\" # --no-bus/--opencode: on no team, the saved one kept" "$LAUNCHER")"
+check "and the saved team is written back for the next launch to offer" "1" "$(grep -c -x -F "LAST_TEAMS=\"\${CCY_SEATS:-\${quick_kept_team:-}}\"" "$LAUNCHER")"
 check "and the saved team is joined only through quick_team" "1 0" "$(grep -c -F "if [[ -n \"\$quick_team\" && \"\$TEAMS_GIVEN\" = false" "$LAUNCHER") $(grep -c -F "TEAMS_LIST=\"\$LAST_TEAMS\"" "$LAUNCHER")"
 check "--help names both spellings" "1" "$(grep -c -- '^  --opencode, -oc ' "$LAUNCHER")"
 
