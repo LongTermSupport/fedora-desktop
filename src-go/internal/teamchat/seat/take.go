@@ -71,6 +71,10 @@ func (s *Store) Take(ctx context.Context, a *Alloc, t Take) (Taken, error) {
 	if err = s.clearHeld(ctx, t.Seat, pool); err != nil {
 		return Taken{}, err
 	}
+	seat := s.store.SessionSeat(t.Session, t.Seat.Team)
+	if err = s.refuseSessionSeat(seat); err != nil {
+		return Taken{}, err
+	}
 	claim, err := newClaim()
 	if err != nil {
 		return Taken{}, err
@@ -82,7 +86,6 @@ func (s *Store) Take(ctx context.Context, a *Alloc, t Take) (Taken, error) {
 	if err != nil {
 		return Taken{}, err
 	}
-	seat := s.store.SessionSeat(t.Session, t.Seat.Team)
 	if err := s.copyToSession(s.store.Session(t.Session), seat, token, heldBundle); err != nil {
 		return Taken{}, err
 	}
@@ -213,6 +216,24 @@ func (s *Store) sessionHolds(session paths.SessionName, team paths.TeamID) (bool
 		return false, fmt.Errorf("seat: the record of session %s: %w", session, err)
 	}
 	return restorable, nil
+}
+
+// refuseSessionSeat is step 1's session seat directory: anything there already, or a session
+// directory the owner cannot look into, is ErrHeld naming it, before held/ is made, so at most
+// one holding of a session and team has a copy (n2c-D12). It is looked at, never opened or
+// followed; a member that plants one stops only its own session's take, and no token is minted.
+func (s *Store) refuseSessionSeat(seat paths.Seat) error {
+	found, err := s.root.exists(seat.Dir())
+	if memberRefused(err) {
+		return fmt.Errorf("%w: %s cannot be looked into: %w", ErrHeld, seat.Dir(), err)
+	}
+	if err != nil {
+		return err
+	}
+	if found {
+		return fmt.Errorf("%w: %s is there already", ErrHeld, seat.Dir())
+	}
+	return nil
 }
 
 // hold is step 2: held/ made, and held.json with the claim and now.

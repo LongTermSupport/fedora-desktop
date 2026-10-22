@@ -90,36 +90,19 @@ func (s *Store) releaseHeld(ctx context.Context, r Release, locked locker, pool 
 	}
 	seat := s.store.SessionSeat(r.Session, r.Seat.Team)
 	moved := s.store.ReleasedSession(r.Session, r.Seat.Team, rec.Claim)
-	moveDone, err := s.root.exists(moved.Dir())
+	copied, err := s.copyStep(ctx, r, locked, rec, seat, moved)
 	if err != nil {
 		return err
 	}
-	var lock lockProbe
-	present, kept := false, false
-	if !moveDone {
-		if lock, present, err = s.awaitFree(ctx, r, seat); err != nil {
-			return err
-		}
-	}
-	if present {
-		err = locked(ctx, func() error {
-			var moveErr error
-			kept, moveErr = s.moveSessionSeat(seat, moved)
-			return moveErr
-		})
-		if err != nil {
-			return err
-		}
-	}
 	if !r.Leaving {
-		if err = s.noticeStep(ctx, h, pool, rec, lock, present, moved); err != nil {
+		if err = s.noticeStep(ctx, h, pool, rec, copied.lock, copied.present, moved); err != nil {
 			return err
 		}
 	}
 	if err = s.retire(ctx, h, pool); err != nil {
 		return err
 	}
-	if err = locked(ctx, func() error { return s.finish(r.Seat, pool, rec.Claim) }); err != nil || !kept {
+	if err = locked(ctx, func() error { return s.finish(r.Seat, pool, rec.Claim) }); err != nil || !copied.kept {
 		return err
 	}
 	return fmt.Errorf("%w: %s", ErrCopyKept, seat.Dir())
@@ -141,6 +124,59 @@ func (s *Store) moveSessionSeat(seat, moved paths.Seat) (bool, error) {
 		return true, nil
 	}
 	return false, err
+}
+
+// copyStep is steps 1 and 2: unless this holding's quarantine name is taken already (the move
+// is done) or the directory is another holding's, wait for its seat lock, then move it under
+// the lock.
+func (s *Store) copyStep(ctx context.Context, r Release, locked locker, rec HeldRecord, seat, moved paths.Seat) (copyOutcome, error) {
+	var out copyOutcome
+	moveDone, err := s.root.exists(moved.Dir())
+	if err != nil || moveDone {
+		return out, err
+	}
+	if out.present, err = s.mayOwnCopy(r, rec); err != nil || !out.present {
+		return out, err
+	}
+	if out.lock, out.present, err = s.awaitFree(ctx, r, seat); err != nil || !out.present {
+		return out, err
+	}
+	err = locked(ctx, func() error {
+		var moveErr error
+		if out.present, moveErr = s.mayOwnCopy(r, rec); moveErr != nil || !out.present {
+			return moveErr
+		}
+		out.kept, moveErr = s.moveSessionSeat(seat, moved)
+		return moveErr
+	})
+	return out, err
+}
+
+// copyOutcome is steps 1 and 2 done: present is whether the directory was there for this
+// holding, kept whether the owner could not move it, and lock step 1's probe.
+type copyOutcome struct {
+	lock    lockProbe
+	present bool
+	kept    bool
+}
+
+// mayOwnCopy is whether the session's seat directory can be this holding's: false when another
+// pool seat of the team has a complete held.json naming the session and a since_ms no older
+// than this holding's. A take refuses a session that has the directory (n2c-D12), so such a
+// holding's take found it absent, and whatever is there now is that holding's to release. Only
+// host-owned state is read: the pool's held/ files, never the session's copy. Outside the lock it
+// only spares a wait on another holding's keeper; step 2 asks again under the lock.
+func (s *Store) mayOwnCopy(r Release, rec HeldRecord) (bool, error) {
+	holdings, err := s.teamHoldings(r.Seat.Team)
+	if err != nil {
+		return false, err
+	}
+	for _, h := range holdings {
+		if h.Seat != r.Seat && h.Complete && h.Record.Session == r.Session && h.Record.SinceMS >= rec.SinceMS {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // noticeStep is step 3 for a session that is over. A release resumed after step 2 reads the

@@ -287,7 +287,8 @@ func TestTakeMintFailures(t *testing.T) {
 	}
 }
 
-// ST5: anything already at the session's seat directory is refused, naming the path.
+// ST1, ST5, n2c-D12: anything already at the session's seat directory is ErrHeld, naming the
+// path, before held/ is made; it is looked at, never opened, so a FIFO cannot hold the take.
 func TestTakeRefusesAPlantedSessionSeat(t *testing.T) {
 	for name, plant := range map[string]func(path string) error{
 		"directory": func(p string) error { return os.Mkdir(p, 0o700) },
@@ -302,11 +303,11 @@ func TestTakeRefusesAPlantedSessionSeat(t *testing.T) {
 			t.Fatal(err)
 		}
 		_, err := w.tryTake("s1", StateActive)
-		if !errors.Is(err, os.ErrExist) || !strings.Contains(err.Error(), path) {
+		if !errors.Is(err, ErrHeld) || !strings.Contains(err.Error(), path) {
 			t.Errorf("%s: %v", name, err)
 		}
-		if !exists(t, w.pool().HeldToken()) {
-			t.Errorf("%s: held/ is not complete after a failure at step 6", name)
+		if exists(t, w.pool().Held()) {
+			t.Errorf("%s: held/ was made for a take refused at step 1", name)
 		}
 	}
 }
