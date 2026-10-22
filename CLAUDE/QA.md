@@ -915,7 +915,9 @@ instructions hung such a batch on a question nobody knew was owed.
 `regex_replace` or `regex_findall` that reaches the filter with the wrong number of
 backslashes. This covers the filter form and the by-name form (`map('regex_replace', ...)`).
 Run by `qa-ansible.bash` over the YAML under `playbooks/ tasks/ vars/ environment/ roles/`. A
-YAML file it cannot parse is reported too, because Ansible cannot load it either.
+file the YAML library cannot parse is reported too, so its backreferences are never skipped
+silently. Not read: the free-form `debug: var=...` and `args:` forms, the tests `match`,
+`search` and `regex`, YAML aliases and templated mapping keys.
 
 **Why it exists.** A group argument of `regex_search` must arrive as exactly one backslash
 and the digit. Two backslashes fail the task with `'NoneType' object has no attribute 'group'`.
@@ -928,7 +930,9 @@ fails. Two layers may strip backslashes before the filter sees them:
   lexer cancels it. A bare expression has no `{{ }}`, so it is unescaped. That covers the
   conditionals (`when`, `changed_when`, `failed_when`, `until`, `loop_control.break_when`,
   assert `that`) and the debug action's `var`. `{% %}` statements are unescaped too. In all
-  of these, `'\1'` becomes the character 0x01.
+  of these, `'\1'` (any of `\0` to `\7`) becomes an octal control character. An unknown
+  escape keeps its backslash, so `'\g<name>'`, `'\8'` and `'\9'` arrive intact with either one
+  or two backslashes.
 
 So the same text is right in one place and wrong in another. `'\\1'` is correct in a
 `>-` `changed_when:` and fails in a `>-` `set_fact:` value.

@@ -27,7 +27,8 @@ in the register, and neither declares a spec version.
 
 ## Defect and class
 
-- **Originating instance.** `playbooks/imports/play-claude-yolo.yml:585`, in the task
+- **Originating instance.** `playbooks/imports/play-claude-yolo.yml:585` (line 586 after the
+  fix's added comment line), in the task
   "Read CCY_VERSION for the Go Front's Build". It had `regex_search(..., '\\1', multiline=True)`
   inside a `>-` scalar's `{{ }}`. On ansible-core 2.21.5 it failed with
   `'NoneType' object has no attribute 'group'`.
@@ -95,7 +96,9 @@ correct spellings. The expectation is E16a in
 - non-regex filters;
 - a replacement with an odd count, which is an escaped backslash followed by the group.
 
-A YAML file the parser rejects is itself a finding, since Ansible cannot load it either.
+A YAML file the parser rejects is itself a finding, so its backreferences are never skipped
+silently. go-yaml and Ansible's loader are different parsers, so this does not show that Ansible
+would reject the file too.
 
 **Next wider rule considered, not built.** The same judgement over `.j2` templates under
 `files/` and `templates/`, where Jinja unescapes. It is not built because no `.j2` uses a
@@ -202,6 +205,27 @@ and found the work conformant. It raised three findings:
 The reviewer had to run as a general-purpose agent, read-only in this checkout. The plugin
 agent's own worktree could not be created: the hooks daemon refused to seed a worktree nested
 in this one.
+
+## Adversarial review
+
+Round 1 (`subagent-reports/261022-regex-group-review-round1.md`) returned FIX-FIRST.
+
+- **F1, fixed.** The rule treated an odd run before `g<`, `8` or `9` in an unescaping context
+  as a control character. Python's `unicode-escape` keeps unknown escapes, so `'\g<v>'` in a
+  `when:` is correct, and `'\\\g<v>'` arrives as 2 backslashes. Fixture cases and message tests
+  now cover both, real Ansible confirms both labels, and E16a and QA.md are corrected.
+- **F6 and F7, fixed.** These were wording: the claim that Ansible cannot load the file, the
+  `{% %}` mechanism in the journal (a correction entry was added), and the line number.
+- **F2 to F5, recorded as known limits.** These are left unfixed by the coordinator's decision,
+  and are recorded in PLAN.md Task 4.5, E16a and QA.md:
+  - F2: the free-form and `args:` forms of debug `var`;
+  - F3: the tests `match`, `search` and `regex`;
+  - F4: YAML aliases and templated keys;
+  - F5: an even count before a digit in a pattern is always flagged, and QA.md gives the
+    workaround.
+- **F8, not this branch's.** `scripts/test-wsi-stop-grace.bash` failed intermittently under
+  qa-changed: speech-to-text unit tests, with a different set failing on each run. Nothing in
+  this diff reaches them. The coordinator is handling that flaky test separately.
 
 ## Decisions referred to the owner
 

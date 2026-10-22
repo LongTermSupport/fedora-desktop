@@ -69,6 +69,16 @@
     that:
       - (s | regex_replace('a(b)', '\\1')) == 'b'
 
+- name: Bare conditional, named group, one backslash (Jinja keeps an unknown escape)
+  ansible.builtin.debug:
+    msg: reached
+  when: (s | regex_search('a(?P<v>b)', '\g<v>') | first) == 'b'
+
+- name: Bare conditional, named group, two backslashes
+  ansible.builtin.debug:
+    msg: reached
+  when: (s | regex_search('a(?P<v>b)', '\\g<v>') | first) == 'b'
+
 - name: Loop break_when, two backslashes
   ansible.builtin.debug:
     msg: reached

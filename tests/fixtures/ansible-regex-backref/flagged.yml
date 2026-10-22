@@ -79,6 +79,11 @@
     msg: unreachable
   until: (s | regex_search('a(b)', '\1') | first) == 'b'  # EXPECT-FINDING
 
+- name: Bare conditional, named group, three backslashes (Jinja keeps the last, so two arrive)
+  ansible.builtin.debug:
+    msg: unreachable
+  when: (s | regex_search('a(?P<v>b)', '\\\g<v>') | first) == 'b'  # EXPECT-FINDING
+
 - name: Loop break_when, one backslash
   ansible.builtin.debug:
     msg: unreachable

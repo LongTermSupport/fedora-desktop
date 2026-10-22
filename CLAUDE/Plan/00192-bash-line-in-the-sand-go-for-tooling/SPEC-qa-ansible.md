@@ -109,9 +109,12 @@ Numbers are cited by the tests.
   `{# #}`, raw blocks and `!unsafe` scalars are not read. Every string constant passed to
   `regex_search`, `regex_replace` or `regex_findall` (as a filter, any namespace, or by name to
   `map`/`select`) is judged at each run of `k` backslashes before a digit or `g<`: it reaches the
-  filter as `k`, or in an unescaping context as `k/2` (`k` even) or a control character (`k`
-  odd). A `regex_search` group argument must receive exactly 1; any other argument an odd
-  number. Output `  ERROR (regex-backref-escape): <path>:<n>: <filter> [group ]argument <literal> reaches the filter as <what>; in a <style> scalar's <context> write <fix>` (`<context>` one of `{{ }}`, `{% %}`, `conditional`, `bare expression`; `<n>` the scalar's
+  filter as `k`, or in an unescaping context as `k/2` (`k` even) and, for `k` odd, as a control
+  character before `0`-`7` (an octal escape) or as `(k+1)/2` before `8`, `9` or `g<` (Python's
+  `unicode-escape`, which Jinja uses, keeps an unknown escape). A `regex_search` group argument
+  must receive exactly 1; any other argument an odd number. Not read (known limits, Plan
+  00191): the free-form and `args:` forms of debug's `var`, the tests `match`/`search`/`regex`,
+  YAML aliases (judged only where the anchor is defined) and mapping keys. Output `  ERROR (regex-backref-escape): <path>:<n>: <filter> [group ]argument <literal> reaches the filter as <what>; in a <style> scalar's <context> write <fix>` (`<context>` one of `{{ }}`, `{% %}`, `conditional`, `bare expression`; `<n>` the scalar's
   first line, the literal and the fix as written in the file) and `    Why and how to fix: CLAUDE/QA.md#regex-backref-escape`. A file the YAML library cannot parse is one finding at the
   line its error names (else 1), `<path>:<n>: cannot be parsed as YAML, so its backreferences cannot be judged: <error>`; the other checks still read it as text (E9).
 

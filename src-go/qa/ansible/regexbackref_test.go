@@ -110,6 +110,18 @@ func TestRegexBackrefNamesTheReceivedCountAndTheFix(t *testing.T) {
 				`in a plain scalar's {{ }} write '\1'`,
 		},
 		{
+			"a named group in a conditional keeps an odd last backslash (Jinja keeps unknown escapes)",
+			`when: (s | regex_search('a(?P<v>b)', '\\\g<v>'))` + "\n",
+			`t.yml:1: regex_search group argument '\\\g<v>' reaches the filter as 2 backslashes, not 1; ` +
+				`in a plain scalar's conditional write '\\g<v>'`,
+		},
+		{
+			"group 8 in a statement keeps an odd last backslash",
+			`v: x{% set r = s | regex_search('(a)(b)(c)(d)(e)(f)(g)(h)', '\\\8') %}` + "\n",
+			`t.yml:1: regex_search group argument '\\\8' reaches the filter as 2 backslashes, not 1; ` +
+				`in a plain scalar's {% %} write '\\8'`,
+		},
+		{
 			"a double-quoted template with four backslashes",
 			`v: "{{ s | regex_search('a(b)', '\\\\1') }}"` + "\n",
 			`t.yml:1: regex_search group argument '\\\\1' reaches the filter as 2 backslashes, not 1; ` +
@@ -144,6 +156,8 @@ func TestRegexBackrefIgnoresWhatIsNotARegexFilterArgument(t *testing.T) {
 		"v: >-\n" + `  {{ s | map('upper', '\\1') }}`,                              // map of another filter
 		`v: !unsafe "{{ s | regex_search('a(b)', '\\\\1') }}"`,                     // never templated
 		"v: >-\n" + `  {% raw %}{{ s | regex_search('a(b)', '\\1') }}{% endraw %}`, // a raw block
+		`when: s | regex_search('a(?P<v>b)', '\g<v>')`,                             // \g is kept by Jinja
+		`when: s | regex_search('(a)(b)(c)(d)(e)(f)(g)(h)', '\9')`,                 // so is \9
 		"- 1\n- [2, 3]\n",
 		"",
 	} {

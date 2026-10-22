@@ -23,10 +23,12 @@ import (
 //     between {{ and }} in task data, which cancels Jinja's own escape processing there. A bare
 //     expression has no {{ }} (a conditional: when, changed_when, failed_when, until, that,
 //     break_when; the debug action's var), and neither has a {% %} statement, so Jinja unescapes
-//     those, as it does all of a .j2 template: \\ becomes \, and \1 becomes the character 0x01.
+//     those, as it does all of a .j2 template: \\ becomes \, \1 becomes the character 0x01, and
+//     an unknown escape (\8, \9, \g) keeps its backslash.
 //
-// A run of k backslashes before a digit or g< therefore reaches the filter as k in {{ }}, and as
-// k/2 (k even) or as a control character (k odd) in an unescaping context. A group argument of
+// A run of k backslashes before a digit or g< therefore reaches the filter as k in {{ }}. In an
+// unescaping context it reaches it as k/2 (k even), and for k odd as a control character before
+// 0 to 7 or as (k+1)/2 backslashes before 8, 9 or g<. A group argument of
 // regex_search must receive exactly one (the filter reads it with \\(\d+) or \\g<...>, and two
 // make it fail with "'NoneType' object has no attribute 'group'"); a pattern or a replacement may
 // receive any odd number (escaped backslashes, then the backreference), and an even number is a
@@ -92,8 +94,8 @@ func scalarStyle(n *yaml.Node) string {
 var yamlErrorLine = regexp.MustCompile(`line ([0-9]+)`)
 
 // regexBackrefs returns the regex-backref-escape findings of one YAML file, "<rel>:<line>: <why>",
-// in document order. A file the YAML library cannot parse is a finding (Ansible cannot load it
-// either), so the other checks still run over it.
+// in document order. A file the YAML library cannot parse is a finding, so its backreferences
+// are never skipped silently, and the other checks still run over it.
 func regexBackrefs(rel string, data []byte) []string {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	var findings []string
@@ -325,7 +327,14 @@ func judge(arg regexArg, ctx evalContext, style string) string {
 		run := strings.Count(arg.body[loc[0]:loc[1]], `\`)
 		received, control := run, false
 		if ctx != ctxTemplate {
-			received, control = run/2, run%2 == 1
+			// Jinja decodes with Python's unicode-escape: \\ is one backslash and \0 to \7 open an
+			// octal escape, but an unknown escape (\8, \9, \g) keeps its backslash.
+			next := arg.body[loc[0]+run]
+			if octal := next >= '0' && next <= '7'; octal {
+				received, control = run/2, run%2 == 1
+			} else {
+				received = run/2 + run%2
+			}
 		}
 		ok := !control && (received == 1 || (!arg.group && received%2 == 1))
 		if ok {

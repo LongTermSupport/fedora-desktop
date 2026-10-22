@@ -627,7 +627,14 @@ today; rewriting them is out of scope.
       `regex-backref-proof/fixture_labels.py` and `regex-backref-proof/play_task.py`; the report
       is `subagent-reports/261022-regex-group-dbf-report.md`. Open for the owner: the
       rule reads YAML only, so `.j2` templates (which unescape) are undefended. None uses a
-      regex filter today.
+      regex filter today. Known limits, left by the coordinator's decision after review round 1
+      (`subagent-reports/261022-regex-group-review-round1.md`, F2 to F5), none of which occurs
+      in the tree today:
+      - the free-form and `args:` forms of debug `var` are not read;
+      - the tests `match`, `search` and `regex` are not read;
+      - YAML aliases are judged only where the anchor is defined, and mapping keys are not read;
+      - an even backslash count before a digit in a pattern is always flagged (QA.md gives the
+        workaround).
     - The failing project handler test is Task 4.6.
 
 - [ ] 🔄 **Task 4.6**: The project hook handler tests were run by no gate. Now
