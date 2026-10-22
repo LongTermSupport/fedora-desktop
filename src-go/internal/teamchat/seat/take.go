@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"golang.org/x/sys/unix"
@@ -60,7 +61,7 @@ func (s *Store) Take(ctx context.Context, a *Alloc, t Take) (Taken, error) {
 		return Taken{}, ErrNotLocked
 	}
 	pool := s.store.PoolSeat(s.checkout, t.Seat.Team, t.Seat.Name)
-	if err := s.checkState(t, pool); err != nil {
+	if err := s.checkState(ctx, t, pool); err != nil {
 		return Taken{}, err
 	}
 	bundle, err := s.poolRecord(t.Seat, pool)
@@ -89,8 +90,10 @@ func (s *Store) Take(ctx context.Context, a *Alloc, t Take) (Taken, error) {
 }
 
 // checkState is step 1's handle state; a retired seat's pool directory goes to quarantine
-// under a fresh claim id, its credential unlinked (n2c-D2).
-func (s *Store) checkState(t Take, pool paths.PoolSeat) error {
+// under a fresh claim id, its credential unlinked (n2c-D2), once its held/ is cleared as a take
+// clears it: a live holding is ErrHeld, an ended one is released first, so no live token goes
+// to quarantine.
+func (s *Store) checkState(ctx context.Context, t Take, pool paths.PoolSeat) error {
 	switch t.State {
 	case StateActive:
 		return nil
@@ -99,7 +102,10 @@ func (s *Store) checkState(t Take, pool paths.PoolSeat) error {
 	case StateNeedsReissue:
 		return fmt.Errorf("%w: %s is marked needs: reissue", ErrReissue, t.Seat.Name)
 	case StateRetired:
-		if err := s.quarantine(t.Seat, pool.Dir(), s.credentialName()); err != nil {
+		if err := s.clearHeld(ctx, t.Seat, pool); err != nil {
+			return err
+		}
+		if err := s.quarantine(t.Seat, pool.Dir(), s.credentialName(t.Seat)); err != nil {
 			return err
 		}
 		return fmt.Errorf("%w: %s, its pool record moved to quarantine", ErrRetired, t.Seat.Name)
@@ -113,7 +119,7 @@ func (s *Store) poolRecord(seat Seat, pool paths.PoolSeat) (Bundle, error) {
 	if err := s.refuseLeftovers(seat); err != nil {
 		return Bundle{}, err
 	}
-	for _, path := range []string{pool.Dir() + "/" + s.credentialName(), pool.Bundle()} {
+	for _, path := range []string{s.credentialPath(pool), pool.Bundle()} {
 		found, err := s.root.exists(path)
 		if err != nil {
 			return Bundle{}, err
@@ -168,8 +174,11 @@ func (s *Store) leftovers(seat Seat) ([]string, error) {
 // quarantine; one naming a live or restorable session is ErrHeld; one naming a session that
 // is over is released first, under the lock this take holds (n2c-D4).
 func (s *Store) clearHeld(ctx context.Context, seat Seat, pool paths.PoolSeat) error {
-	rec, found, err := s.heldRecord(ctx, seat, pool, alreadyLocked)
-	if err != nil || !found {
+	h, rec, err := s.heldRecord(ctx, seat, pool, alreadyLocked)
+	if err != nil || h == nil {
+		return err
+	}
+	if err = h.close(); err != nil {
 		return err
 	}
 	held, err := s.sessionHolds(rec.Session, seat.Team)
@@ -260,7 +269,7 @@ func (s *Store) releasedMS(pool paths.PoolSeat) (int64, bool, error) {
 
 // poolSecret is the pool's credential file, read as SW3 reads a record.
 func (s *Store) poolSecret(pool paths.PoolSeat) (Secret, error) {
-	path := pool.Dir() + "/" + s.credentialName()
+	path := s.credentialPath(pool)
 	data, err := s.root.read(path, maxSecret)
 	if err != nil {
 		return Secret{}, err
@@ -273,7 +282,8 @@ func (s *Store) poolSecret(pool paths.PoolSeat) (Secret, error) {
 }
 
 // copyToSession is steps 5 to 7: sessions/<session>/ made 0700 when missing, the seat's
-// directory made fresh and checked, then token and seat.json written into it.
+// directory made fresh, opened and checked, then token and seat.json written through the fd
+// that was checked.
 func (s *Store) copyToSession(session string, seat paths.Seat, token Secret, heldBundle []byte) error {
 	if err := s.root.mkdirAll(session); err != nil {
 		return err
@@ -281,17 +291,33 @@ func (s *Store) copyToSession(session string, seat paths.Seat, token Secret, hel
 	if err := s.root.mkdirFresh(seat.Dir()); err != nil {
 		return err
 	}
-	if err := s.root.checkEmptyOwned(seat.Dir()); err != nil {
+	d, err := s.root.sub(seat.Dir())
+	if err != nil {
 		return err
 	}
-	if err := s.root.create(seat.Token(), []byte(token.Reveal())); err != nil {
-		return err
+	err = d.emptyOwned()
+	if err == nil {
+		err = d.create(seat.Token(), []byte(token.Reveal()))
 	}
-	return s.root.create(seat.Bundle(), heldBundle)
+	if err == nil {
+		err = d.create(seat.Bundle(), heldBundle)
+	}
+	return errors.Join(err, d.close())
 }
 
-// credentialName is the pool file the credential keeps its secret in.
-func (s *Store) credentialName() string { return string(s.credential.Kind()) }
+// credentialPath is the pool file in p the credential keeps its secret in.
+func (s *Store) credentialPath(p paths.PoolSeat) string {
+	if s.credential.Kind() == KindToken {
+		return p.Token()
+	}
+	return p.Password()
+}
+
+// credentialName is the name of the credential's pool file, unlinked when a record goes to
+// quarantine.
+func (s *Store) credentialName(seat Seat) string {
+	return filepath.Base(s.credentialPath(s.store.PoolSeat(s.checkout, seat.Team, seat.Name)))
+}
 
 // quarantine moves a pool seat's directory to released/pool/ under a fresh claim id, then
 // unlinks the named file in it, when one is named and there.

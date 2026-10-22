@@ -6,6 +6,8 @@ import (
 	"sync"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
 // Claim is a claimed `<seat>.new-<claim>` directory a placement fills (C 3.7.3 "How it is
@@ -14,7 +16,7 @@ type Claim struct {
 	store *Store
 	alloc *Alloc
 	seat  Seat
-	dir   string
+	claim paths.PoolSeat
 
 	mu    sync.Mutex
 	ended bool
@@ -45,11 +47,11 @@ func (s *Store) Claim(a *Alloc, seat Seat) (*Claim, error) {
 	if err := s.root.mkdirAll(s.store.PoolTeam(s.checkout, seat.Team)); err != nil {
 		return nil, err
 	}
-	dir := s.store.PoolClaim(s.checkout, seat.Team, seat.Name, id).Dir()
-	if err := s.root.mkdirFresh(dir); err != nil {
+	claim := s.store.PoolClaim(s.checkout, seat.Team, seat.Name, id)
+	if err := s.root.mkdirFresh(claim.Dir()); err != nil {
 		return nil, err
 	}
-	return &Claim{store: s, alloc: a, seat: seat, dir: dir}, nil
+	return &Claim{store: s, alloc: a, seat: seat, claim: claim}, nil
 }
 
 // Abandon removes the empty claimed directory, after a refusal from root.
@@ -57,7 +59,7 @@ func (c *Claim) Abandon() error {
 	if err := c.end(); err != nil {
 		return err
 	}
-	return c.store.root.rmdir(c.dir)
+	return c.store.root.rmdir(c.claim.Dir())
 }
 
 // Fill writes the issued credential, then seat.json, into the claim, and swaps it in: by
@@ -82,16 +84,43 @@ func (c *Claim) Fill(is Issued) error {
 	if is.Seat.Handle().String() != c.seat.Name.String() {
 		return invalid("issued bundle: another handle's seat")
 	}
+	pool := s.store.PoolSeat(s.checkout, c.seat.Team, c.seat.Name)
+	released, err := s.lastRelease(pool)
+	if err != nil {
+		return err
+	}
 	if err := c.end(); err != nil {
 		return err
 	}
-	if err := s.root.create(c.dir+"/"+string(is.Kind), []byte(is.Secret.Reveal())); err != nil {
+	if err := s.root.create(s.credentialPath(c.claim), []byte(is.Secret.Reveal())); err != nil {
 		return err
 	}
-	if err := s.root.create(c.dir+"/seat.json", data); err != nil {
+	if err := s.root.create(c.claim.Bundle(), data); err != nil {
 		return err
 	}
-	return s.swapIn(c.seat, c.dir)
+	if released != nil {
+		if err := s.root.create(c.claim.ReleasedRecord(), released); err != nil {
+			return err
+		}
+	}
+	return s.swapIn(c.seat, c.claim.Dir())
+}
+
+// lastRelease is the seat's released.json, checked, for a placement to carry over the record
+// it replaces (n2c-D8): released_ms bounds area B's store-less start, which a reissue must not
+// reset. Nil when the seat has none.
+func (s *Store) lastRelease(pool paths.PoolSeat) ([]byte, error) {
+	data, err := s.root.read(pool.ReleasedRecord(), maxRecord)
+	if errors.Is(err, unix.ENOENT) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if _, err := decodeReleasedRecord(data); err != nil {
+		return nil, fmt.Errorf("%s: %w", pool.ReleasedRecord(), err)
+	}
+	return data, nil
 }
 
 func (c *Claim) end() error {
@@ -115,7 +144,7 @@ func (s *Store) swapIn(seat Seat, claimDir string) error {
 	if err := s.root.rename(claimDir, pool.Dir(), unix.RENAME_EXCHANGE); err != nil {
 		return err
 	}
-	return s.quarantine(seat, claimDir, s.credentialName())
+	return s.quarantine(seat, claimDir, s.credentialName(seat))
 }
 
 // QuarantineLeftovers moves every `<seat>.new-*` of the seat to quarantine, its credential
@@ -130,7 +159,7 @@ func (s *Store) QuarantineLeftovers(a *Alloc, seat Seat) error {
 	}
 	team := s.store.PoolTeam(s.checkout, seat.Team)
 	for _, name := range names {
-		if err := s.quarantine(seat, team+"/"+name, s.credentialName()); err != nil {
+		if err := s.quarantine(seat, team+"/"+name, s.credentialName(seat)); err != nil {
 			return err
 		}
 	}

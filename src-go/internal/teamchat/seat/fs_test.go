@@ -243,11 +243,11 @@ func TestMakeFreshDirectory(t *testing.T) {
 	if err := d.mkdirFresh(root + "/s/link"); !errors.Is(err, os.ErrExist) {
 		t.Errorf("a link in place of the directory: %v", err)
 	}
-	if err := d.checkEmptyOwned(root + "/s/team"); err != nil {
+	if err := emptyOwned(t, d, root+"/s/team"); err != nil {
 		t.Errorf("a fresh directory: %v", err)
 	}
 	writeFile(t, root+"/s/team/x", "")
-	if err := d.checkEmptyOwned(root + "/s/team"); err == nil {
+	if err := emptyOwned(t, d, root+"/s/team"); err == nil {
 		t.Errorf("a directory with a file in it was taken as empty")
 	}
 	if err := os.Mkdir(root+"/s/open", 0o755); err != nil {
@@ -256,7 +256,45 @@ func TestMakeFreshDirectory(t *testing.T) {
 	if err := os.Chmod(root+"/s/open", 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.checkEmptyOwned(root + "/s/open"); err == nil {
+	if err := emptyOwned(t, d, root+"/s/open"); err == nil {
 		t.Errorf("a 0755 directory was taken")
+	}
+	if err := d.mkdirAll(root + "/s/open/deeper"); !errors.Is(err, ErrConfig) {
+		t.Errorf("a directory made below a 0755 one: %v", err)
+	}
+}
+
+// emptyOwned opens full below d and checks it is an empty 0700 directory of the caller's.
+func emptyOwned(t *testing.T, d *dir, full string) error {
+	t.Helper()
+	sub, err := d.sub(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return errors.Join(sub.emptyOwned(), sub.close())
+}
+
+// A directory held open by sub keeps its reads and writes after it is renamed.
+func TestSubFollowsItsDirectory(t *testing.T) {
+	d, root := newDir(t)
+	writeFile(t, root+"/a/f", "one")
+	sub, err := d.sub(root + "/a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := sub.close(); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := os.Rename(root+"/a", root+"/moved"); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, root+"/a/f", "another")
+	if got, err := sub.read(root+"/a/f", 10); err != nil || string(got) != "one" {
+		t.Errorf("read %q, %v", got, err)
+	}
+	if err := sub.create(root+"/a/g", []byte("two")); err != nil || readFile(t, root+"/moved/g") != "two" {
+		t.Errorf("create: %v", err)
 	}
 }

@@ -1,10 +1,12 @@
 package seat
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix/fakehs"
 )
@@ -112,6 +114,7 @@ func TestReleaseSkipsANoticeWithNoRun(t *testing.T) {
 		"empty":         new(""),
 		"undecodable":   new(`{"v":1}`),
 		"bad run":       new(`{"v":1,"run":"X","started_ms":1}`),
+		"case-folded":   new(`{"v":2,"run":"` + testRun + `","started_ms":1,"V":1}`),
 		"launch failed": new(`{"v":1,"run":"` + testRun + `","started_ms":1,"launch_failed_ms":2}`),
 	} {
 		w := newWorld(t)
@@ -255,6 +258,116 @@ func TestAnnounceRefusals(t *testing.T) {
 	}
 	if len(w.notices.calls()) != 0 {
 		t.Errorf("the announcer was asked: %v", w.notices.calls())
+	}
+}
+
+// hookAnnouncer runs hook on its first notice, then answers posted.
+type hookAnnouncer struct {
+	fired bool
+	hook  func()
+}
+
+func (h *hookAnnouncer) Disconnected(context.Context, Notice) (Outcome, error) {
+	if !h.fired {
+		h.fired = true
+		h.hook()
+	}
+	return Outcome{Posted: true}, nil
+}
+
+// SX3-SX5: a release outside the lock at step 3, while a take for another session releases the
+// same ended holding itself and takes the seat, touches nothing of the new holding: its token
+// stays live, no notice is written into its held/, and the first release is done.
+func TestReleaseMeetsATakeThatReleasedItFirst(t *testing.T) {
+	w := newWorld(t)
+	w.seed()
+	w.take("s1")
+	w.keep("s1", lockRecord)()
+	var next Taken
+	w.store.announcer = &hookAnnouncer{hook: func() { next = w.take("s2") }}
+	if err := w.release("s1", false); err != nil {
+		t.Fatalf("the first release: %v", err)
+	}
+	token := readFile(t, w.pool().HeldToken())
+	rec, err := decodeHeldRecord([]byte(readFile(t, w.pool().HeldRecord())))
+	if err != nil || rec.Claim != next.Claim || !w.alive(token) || !exists(t, next.Dir) {
+		t.Errorf("the next holding was touched: %+v, %v, token alive %v", rec, err, w.alive(token))
+	}
+	if exists(t, w.pool().HeldNotice()) {
+		t.Errorf("a notice was written into the next holder's held/")
+	}
+}
+
+// SX5, SX6: two releases of one holding at once (the launcher's and the seat sweep's) both
+// succeed; the one that finds held/ gone at step 5 is done, and the holding is released once.
+func TestTwoReleasesOfOneHolding(t *testing.T) {
+	w := newWorld(t)
+	w.seed()
+	taken := w.take("s1")
+	w.keep("s1", lockRecord)()
+	w.store.announcer = &hookAnnouncer{hook: func() {
+		if err := w.release("s1", false); err != nil {
+			t.Errorf("the second release: %v", err)
+		}
+	}}
+	if err := w.release("s1", false); err != nil {
+		t.Fatalf("the first release: %v", err)
+	}
+	rec, err := decodeReleasedRecord([]byte(readFile(t, w.pool().ReleasedRecord())))
+	if err != nil || rec.Claim != taken.Claim || exists(t, w.pool().Held()) || len(quarantined(t, w)) != 1 {
+		t.Errorf("released %+v, %v; quarantine %v", rec, err, quarantined(t, w))
+	}
+}
+
+// gateClock signals its first sleep on waiting and holds it until goOn is closed.
+type gateClock struct {
+	*fakeClock
+
+	waiting chan struct{}
+	goOn    chan struct{}
+	first   bool
+}
+
+func (g *gateClock) Sleep(ctx context.Context, d time.Duration) error {
+	if !g.first {
+		g.first = true
+		g.waiting <- struct{}{}
+		<-g.goOn
+	}
+	return g.fakeClock.Sleep(ctx, d)
+}
+
+// SX6, ST1: a held/ that looked incomplete outside the lock (a take between mkdirat and
+// held.json) is judged again under it; complete by then, it is a holding like any other, here
+// another session's, so the release is ErrHeld and the take's holding is untouched.
+func TestReleaseJudgesAnIncompleteHeldUnderTheLock(t *testing.T) {
+	w := newWorld(t)
+	w.seed()
+	taken := w.take("s1")
+	token := readFile(t, w.pool().HeldToken())
+	a := w.lock()
+	aside := w.home + "/held.json.aside"
+	if err := os.Rename(w.pool().HeldRecord(), aside); err != nil {
+		t.Fatal(err)
+	}
+	g := &gateClock{fakeClock: w.clock, waiting: make(chan struct{}), goOn: make(chan struct{})}
+	w.store.clock = g
+	session := mustSession(t, "s9")
+	done := make(chan error)
+	go func() {
+		done <- w.store.Release(context.Background(), Release{Seat: w.seat, Session: session, Leaving: true})
+	}()
+	<-g.waiting
+	if err := os.Rename(aside, w.pool().HeldRecord()); err != nil {
+		t.Fatal(err)
+	}
+	w.unlock(a)
+	close(g.goOn)
+	if err := <-done; !errors.Is(err, ErrHeld) {
+		t.Errorf("a release by another session: %v", err)
+	}
+	if !exists(t, w.pool().HeldRecord()) || !exists(t, taken.Dir) || !w.alive(token) {
+		t.Errorf("the take's holding was moved or its token ended")
 	}
 }
 

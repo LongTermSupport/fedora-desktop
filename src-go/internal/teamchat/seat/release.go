@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -66,10 +67,17 @@ func alreadyLocked(_ context.Context, f func() error) error { return f() }
 
 func (s *Store) release(ctx context.Context, r Release, locked locker) error {
 	pool := s.store.PoolSeat(s.checkout, r.Seat.Team, r.Seat.Name)
-	rec, found, err := s.heldRecord(ctx, r.Seat, pool, locked)
-	if err != nil || !found {
+	h, rec, err := s.heldRecord(ctx, r.Seat, pool, locked)
+	if err != nil || h == nil {
 		return err
 	}
+	return errors.Join(s.releaseHeld(ctx, r, locked, pool, h, rec), h.close())
+}
+
+// releaseHeld is steps 1 to 5 for the holding h, held/ opened by fd: steps 3 and 4 read and
+// write through h, so a take that releases this holding itself and makes a new held/ meanwhile
+// is never touched, and step 5 is done by whoever finds the claim still in place.
+func (s *Store) releaseHeld(ctx context.Context, r Release, locked locker, pool paths.PoolSeat, h *dir, rec HeldRecord) error {
 	if rec.Session != r.Session {
 		return fmt.Errorf("%w: %s by session %s, not %s", ErrHeld, r.Seat.Name, rec.Session, r.Session)
 	}
@@ -83,11 +91,11 @@ func (s *Store) release(ctx context.Context, r Release, locked locker) error {
 		return err
 	}
 	if !r.Leaving {
-		if err = s.noticeStep(ctx, pool, rec, lock, present, moved); err != nil {
+		if err = s.noticeStep(ctx, h, pool, rec, lock, present, moved); err != nil {
 			return err
 		}
 	}
-	if err = s.retire(ctx, pool); err != nil {
+	if err = s.retire(ctx, h, pool); err != nil {
 		return err
 	}
 	return locked(ctx, func() error { return s.finish(r.Seat, pool, rec.Claim) })
@@ -105,32 +113,61 @@ func (s *Store) moveSessionSeat(seat, moved paths.Seat) error {
 
 // noticeStep is step 3 for a session that is over. A release resumed after step 2 reads the
 // ended run from the quarantined seat lock, by the same probe (SD4, n2c-D5).
-func (s *Store) noticeStep(ctx context.Context, pool paths.PoolSeat, rec HeldRecord, lock lockProbe, present bool, moved paths.Seat) error {
+func (s *Store) noticeStep(ctx context.Context, h *dir, pool paths.PoolSeat, rec HeldRecord, lock lockProbe, present bool, moved paths.Seat) error {
 	if !present {
 		var err error
 		if lock, err = s.probe(moved); err != nil {
 			return err
 		}
 	}
-	return s.announce(ctx, pool, rec, lock)
+	return s.announce(ctx, h, pool, rec, lock)
 }
 
-// heldRecord is held/held.json; found is false when there is no held/, and a held/ with no
-// complete held.json is moved to quarantine under the lock (a take that died at step 2).
-func (s *Store) heldRecord(ctx context.Context, seat Seat, pool paths.PoolSeat, locked locker) (HeldRecord, bool, error) {
-	found, err := s.root.exists(pool.Held())
-	if err != nil || !found {
-		return HeldRecord{}, false, err
+// heldRecord is held/, opened by fd (the caller closes it), and its held.json; h is nil when
+// there is no held/. A held/ with no complete held.json is judged again under the lock, since a
+// take holds the lock from making held/ to writing held.json: still incomplete, it is a take
+// that died at step 2 and goes to quarantine, any token in it unlinked.
+func (s *Store) heldRecord(ctx context.Context, seat Seat, pool paths.PoolSeat, locked locker) (*dir, HeldRecord, error) {
+	h, rec, complete, err := s.openHeld(pool)
+	if err != nil || h == nil || complete {
+		return h, rec, err
 	}
-	data, err := s.root.read(pool.HeldRecord(), maxRecord)
+	if err = h.close(); err != nil {
+		return nil, HeldRecord{}, err
+	}
+	err = locked(ctx, func() error {
+		h, rec, complete, err = s.openHeld(pool)
+		if err != nil || h == nil || complete {
+			return err
+		}
+		err, h = h.close(), nil
+		if err != nil {
+			return err
+		}
+		return s.quarantine(seat, pool.Held(), filepath.Base(pool.HeldToken()))
+	})
+	if err != nil && h != nil {
+		return nil, HeldRecord{}, errors.Join(err, h.close())
+	}
+	return h, rec, err
+}
+
+// openHeld opens held/ and reads its held.json through that fd; h is nil when there is no
+// held/, and complete is false when held.json is missing or does not decode.
+func (s *Store) openHeld(pool paths.PoolSeat) (*dir, HeldRecord, bool, error) {
+	h, err := s.root.sub(pool.Held())
+	if errors.Is(err, unix.ENOENT) {
+		return nil, HeldRecord{}, false, nil
+	}
+	if err != nil {
+		return nil, HeldRecord{}, false, err
+	}
+	data, err := h.read(pool.HeldRecord(), maxRecord)
 	if err != nil && !errors.Is(err, unix.ENOENT) {
-		return HeldRecord{}, false, err
+		return nil, HeldRecord{}, false, errors.Join(err, h.close())
 	}
 	rec, decErr := decodeHeldRecord(data)
-	if err != nil || decErr != nil {
-		return HeldRecord{}, false, locked(ctx, func() error { return s.quarantine(seat, pool.Held(), "") })
-	}
-	return rec, true, nil
+	return h, rec, err == nil && decErr == nil, nil
 }
 
 // awaitFree is step 1: unless the session's seat directory is gone (present false), wait at
@@ -166,10 +203,14 @@ func (s *Store) awaitFree(ctx context.Context, r Release, seat paths.Seat) (lock
 // recorded in held/notice.json, and the seat stays held. A held lock is "not yet", not an error.
 func (s *Store) Announce(ctx context.Context, seat Seat, session paths.SessionName) error {
 	pool := s.store.PoolSeat(s.checkout, seat.Team, seat.Name)
-	rec, found, err := s.heldRecord(ctx, seat, pool, s.underLock)
-	if err != nil || !found {
+	h, rec, err := s.heldRecord(ctx, seat, pool, s.underLock)
+	if err != nil || h == nil {
 		return err
 	}
+	return errors.Join(s.announceHeld(ctx, seat, session, pool, h, rec), h.close())
+}
+
+func (s *Store) announceHeld(ctx context.Context, seat Seat, session paths.SessionName, pool paths.PoolSeat, h *dir, rec HeldRecord) error {
 	if rec.Session != session {
 		return fmt.Errorf("%w: %s by session %s, not %s", ErrHeld, seat.Name, rec.Session, session)
 	}
@@ -177,17 +218,18 @@ func (s *Store) Announce(ctx context.Context, seat Seat, session paths.SessionNa
 	if err != nil || lock.state != lockFree {
 		return err
 	}
-	return s.announce(ctx, pool, rec, lock)
+	return s.announce(ctx, h, pool, rec, lock)
 }
 
 // announce is step 3 (SD1, SD2): a free lock that names a run with no launch failure, not
-// already recorded for this claim, is asked of the announcer and its outcome recorded.
-func (s *Store) announce(ctx context.Context, pool paths.PoolSeat, rec HeldRecord, lock lockProbe) error {
+// already recorded for this claim, is asked of the announcer and its outcome recorded in the
+// holding h, which is this claim's whatever has happened to held/ since.
+func (s *Store) announce(ctx context.Context, h *dir, pool paths.PoolSeat, rec HeldRecord, lock lockProbe) error {
 	run, ok := runOf(lock)
 	if !ok {
 		return nil
 	}
-	data, err := s.root.read(pool.HeldNotice(), maxRecord)
+	data, err := h.read(pool.HeldNotice(), maxRecord)
 	if err == nil {
 		if prev, decErr := decodeNoticeRecord(data); decErr == nil && prev.Claim == rec.Claim && prev.Run == run {
 			return nil
@@ -206,7 +248,7 @@ func (s *Store) announce(ctx context.Context, pool paths.PoolSeat, rec HeldRecor
 	if _, err := decodeNoticeRecord(data); err != nil {
 		return fmt.Errorf("seat: the announcer's outcome: %w", err)
 	}
-	return s.root.replace(pool.HeldNotice(), data)
+	return h.replace(pool.HeldNotice(), data)
 }
 
 // seatLockRecord is B 2.5's seat lock record.
@@ -233,10 +275,10 @@ func runOf(lock lockProbe) (paths.RunID, bool) {
 	return rec.Run, true
 }
 
-// retire is step 4: the credential's Retire with held/token; a held/ with no token has nothing
-// to retire.
-func (s *Store) retire(ctx context.Context, pool paths.PoolSeat) error {
-	data, err := s.root.read(pool.HeldToken(), maxSecret)
+// retire is step 4: the credential's Retire with the holding h's token; one with no token has
+// nothing to retire.
+func (s *Store) retire(ctx context.Context, h *dir, pool paths.PoolSeat) error {
+	data, err := h.read(pool.HeldToken(), maxSecret)
 	if errors.Is(err, unix.ENOENT) {
 		return nil
 	}
@@ -259,8 +301,20 @@ func (s *Store) retire(ctx context.Context, pool paths.PoolSeat) error {
 }
 
 // finish is step 5: released.json for this claim and now, then held/ moved to quarantine and
-// its token unlinked. The pool's credential and seat.json are untouched.
+// its token unlinked. The pool's credential and seat.json are untouched. A held/ that is gone or
+// carries another claim was released by another (a take, n2c-D4): this release is done.
 func (s *Store) finish(seat Seat, pool paths.PoolSeat, claim paths.ClaimID) error {
+	current, err := s.root.read(pool.HeldRecord(), maxRecord)
+	if errors.Is(err, unix.ENOENT) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	rec, decErr := decodeHeldRecord(current)
+	if stillThisClaim := decErr == nil && rec.Claim == claim; !stillThisClaim {
+		return nil
+	}
 	data, err := encodeRecord(ReleasedRecord{V: recordVersion, Claim: claim, ReleasedMS: s.clock.Now().UnixMilli()})
 	if err != nil {
 		return err
@@ -269,5 +323,5 @@ func (s *Store) finish(seat Seat, pool paths.PoolSeat, claim paths.ClaimID) erro
 		return err
 	}
 	to := s.store.ReleasedPool(s.checkout, seat.Team, seat.Name, claim)
-	return s.moveToQuarantine(pool.Held(), to, "token")
+	return s.moveToQuarantine(pool.Held(), to, filepath.Base(pool.HeldToken()))
 }

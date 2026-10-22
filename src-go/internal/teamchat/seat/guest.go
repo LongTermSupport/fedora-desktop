@@ -15,7 +15,8 @@ import (
 // fresh `<team>.new-<claim>/` (0700) under the layout's state root with `token`, then
 // `seat.json` (0600), swapped in as `<team>/`, the old directory removed whole without
 // following a link. Any `<team>.new-*` an earlier placement left is removed first, since a
-// guest has no quarantine and it may hold a token. Only a token bundle is placed.
+// guest has no quarantine and it may hold a token. Only a token bundle is placed. It takes no
+// lock: its caller (`lxc apply`) runs one placement per guest at a time.
 func PlaceGuest(layout paths.Layout, is Issued) error {
 	if is.Kind != KindToken {
 		return invalid("issued bundle: a guest seat takes a token, not a " + string(is.Kind))
@@ -39,14 +40,15 @@ func placeGuest(root *dir, layout paths.Layout, is Issued, data []byte) error {
 	if err != nil {
 		return err
 	}
-	fresh := layout.SeatClaim(is.Seat.Team, claim).Dir()
+	placed := layout.SeatClaim(is.Seat.Team, claim)
+	fresh := placed.Dir()
 	if err = root.mkdirFresh(fresh); err != nil {
 		return err
 	}
-	if err = root.create(fresh+"/token", []byte(is.Secret.Reveal())); err != nil {
+	if err = root.create(placed.Token(), []byte(is.Secret.Reveal())); err != nil {
 		return err
 	}
-	if err = root.create(fresh+"/seat.json", data); err != nil {
+	if err = root.create(placed.Bundle(), data); err != nil {
 		return err
 	}
 	seat := layout.Seat(is.Seat.Team).Dir()

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -150,7 +151,9 @@ func invalid(detail string) error { return fmt.Errorf("%w %s", ErrInvalid, detai
 
 // decodeStrict decodes one record: at most maxRecord bytes, proto's strict JSON (no repeated
 // key, nothing after the value, integers only), an object holding every key of want and no
-// other, then into out, where each typed field's own decoder checks it.
+// other, then into out, where each typed field's own decoder checks it. Every key must be
+// lowercase ASCII, as every record's keys are, since encoding/json matches a field name
+// case-insensitively and would take `ISSUED_MS` as a second `issued_ms`.
 func decodeStrict(data []byte, want []string, out any) error {
 	if len(data) > maxRecord {
 		return invalid("record: larger than its cap")
@@ -161,6 +164,11 @@ func decodeStrict(data []byte, want []string, out any) error {
 	}
 	if v.Kind() != proto.KindObject {
 		return invalid("record: not an object")
+	}
+	for _, m := range v.Members() {
+		if strings.IndexFunc(m.Key, func(r rune) bool { return (r < 'a' || r > 'z') && r != '_' }) >= 0 {
+			return invalid("record: a key that is not lowercase ASCII")
+		}
 	}
 	for _, key := range want {
 		if _, ok := v.Get(key); !ok {

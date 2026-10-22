@@ -137,6 +137,34 @@ func TestTakeByHandleState(t *testing.T) {
 	}
 }
 
+// ST1: a retired seat that a live session still holds is ErrHeld and stays in the pool; once
+// that session is over, its holding is released (its token ended) before the pool record goes.
+func TestTakeOfARetiredSeatThatIsHeld(t *testing.T) {
+	w := newWorld(t)
+	w.seed()
+	w.take("s1")
+	token := readFile(t, w.pool().HeldToken())
+	end := w.keep("s1", lockRecord)
+	if _, err := w.tryTake("s2", StateRetired); !errors.Is(err, ErrHeld) {
+		t.Errorf("a retired seat a live session holds: %v", err)
+	}
+	if !exists(t, w.pool().HeldToken()) || !w.alive(token) {
+		t.Errorf("the live holding was moved or ended")
+	}
+	end()
+	if _, err := w.tryTake("s2", StateRetired); !errors.Is(err, ErrRetired) {
+		t.Fatalf("retired: %v", err)
+	}
+	if w.alive(token) || exists(t, w.pool().Dir()) {
+		t.Errorf("the ended holding's token survived, or the pool record stayed")
+	}
+	for _, dir := range quarantined(t, w) {
+		if exists(t, dir+"/token") || exists(t, dir+"/held/token") {
+			t.Errorf("a token left in quarantine at %s", dir)
+		}
+	}
+}
+
 // quarantined are the directories in the world's pool quarantine for its seat's team.
 func quarantined(t *testing.T, w *world) []string {
 	t.Helper()
@@ -191,14 +219,16 @@ func TestTakeRefusesAnIncompleteRecordOrALeftover(t *testing.T) {
 	}
 }
 
-// ST1: a held/ whose held.json is missing or broken is a take that died; it goes to quarantine.
+// ST1: a held/ whose held.json is missing or broken is a take that died; it goes to quarantine,
+// any token in it unlinked.
 func TestTakeQuarantinesABrokenHeld(t *testing.T) {
 	w := newWorld(t)
 	w.seed()
 	writeFile(t, w.pool().HeldToken(), "dead")
+	writeFile(t, w.pool().HeldRecord(), "{")
 	w.take("s1")
 	moved := quarantined(t, w)
-	if len(moved) != 1 || readFile(t, moved[0]+"/token") != "dead" {
+	if len(moved) != 1 || readFile(t, moved[0]+"/held.json") != "{" || exists(t, moved[0]+"/token") {
 		t.Errorf("quarantine %v", moved)
 	}
 }
@@ -227,7 +257,7 @@ func TestTakeRefusesAHeldSeat(t *testing.T) {
 func TestTakeMintFailures(t *testing.T) {
 	w := newWorld(t)
 	w.seed()
-	if err := os.WriteFile(w.pool().Password(), []byte("reset-elsewhere"), 0o600); err != nil {
+	if err := os.WriteFile(w.pool().Password(), []byte(otherPassword), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := w.tryTake("s1", StateActive); !errors.Is(err, ErrReissue) {

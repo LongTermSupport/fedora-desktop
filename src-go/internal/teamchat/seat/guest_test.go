@@ -149,7 +149,14 @@ func TestKeepGuestToken(t *testing.T) {
 	if mode(t, guest).Perm() != 0o700 || exists(t, copyPath+".new") {
 		t.Errorf("guest/ %v", mode(t, guest))
 	}
-	if err := os.RemoveAll(guest); err != nil {
+}
+
+// SP4: a guest/ that is a link, or not 0700, is refused and nothing is written through it.
+func TestKeepGuestTokenRefusals(t *testing.T) {
+	base := t.TempDir()
+	team, seat := mustTeam(t), mustSeatName(t, testHandle)
+	guest := base + paths.CtlState(team) + "/guest"
+	if err := os.MkdirAll(base+paths.CtlState(team), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	outside := t.TempDir()
@@ -161,5 +168,17 @@ func TestKeepGuestToken(t *testing.T) {
 	}
 	if entries, err := os.ReadDir(outside); err != nil || len(entries) != 0 {
 		t.Errorf("written through the link: %v, %v", entries, err)
+	}
+	if err := os.Remove(guest); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(guest, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(guest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := KeepGuestToken(base, team, seat, mustSecret(t, guestToken)); !errors.Is(err, ErrConfig) {
+		t.Errorf("a 0755 guest/: %v", err)
 	}
 }

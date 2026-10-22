@@ -56,15 +56,53 @@ func TestPlaceOverAnExistingSeat(t *testing.T) {
 	if err := w.place(testPassword); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.place("second-password"); err != nil {
+	if err := w.place(otherPassword); err != nil {
 		t.Fatal(err)
 	}
-	if readFile(t, w.pool().Password()) != "second-password" {
+	if readFile(t, w.pool().Password()) != otherPassword {
 		t.Errorf("the new password is not in place")
 	}
 	moved := quarantined(t, w)
 	if len(moved) != 1 || exists(t, moved[0]+"/password") || !exists(t, moved[0]+"/seat.json") {
 		t.Errorf("quarantine %v", moved)
+	}
+}
+
+// SP2, n2c-D8: a placement over a record that was released carries its released.json, so the
+// next take's seat.json keeps the earlier released_ms; a broken one refuses the placement.
+func TestPlaceCarriesTheLastRelease(t *testing.T) {
+	w := newWorld(t)
+	if err := w.place(testPassword); err != nil {
+		t.Fatal(err)
+	}
+	released := `{"v":1,"claim":"00112233aabbccdd","released_ms":77}`
+	writeFile(t, w.pool().ReleasedRecord(), released)
+	if err := w.place(testPassword); err != nil {
+		t.Fatal(err)
+	}
+	got := w.take("s1")
+	held, err := DecodeHeldBundle([]byte(readFile(t, got.Dir+"/seat.json")))
+	if err != nil || held.ReleasedMS == nil || *held.ReleasedMS != 77 {
+		t.Errorf("released_ms after a placement: %+v, %v", held, err)
+	}
+	if err := w.release("s1", true); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, w.pool().ReleasedRecord(), "{")
+	if err := w.place(testPassword); !errors.Is(err, ErrInvalid) {
+		t.Errorf("a broken released.json: %v", err)
+	}
+	if readFile(t, w.pool().ReleasedRecord()) != "{" {
+		t.Errorf("the refused placement changed the record")
+	}
+	if err := os.Remove(w.pool().ReleasedRecord()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(w.pool().ReleasedRecord(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.place(testPassword); err == nil {
+		t.Errorf("a released.json that is a directory was carried as none")
 	}
 }
 
@@ -80,10 +118,10 @@ func TestClaimRefusals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := w.store.Claim(a, w.seat); !errors.Is(err, ErrLeftover) || !strings.Contains(err.Error(), c.dir) {
+	if _, err := w.store.Claim(a, w.seat); !errors.Is(err, ErrLeftover) || !strings.Contains(err.Error(), c.claim.Dir()) {
 		t.Errorf("a second claim: %v", err)
 	}
-	if err := c.Abandon(); err != nil || exists(t, c.dir) {
+	if err := c.Abandon(); err != nil || exists(t, c.claim.Dir()) {
 		t.Errorf("abandon: %v", err)
 	}
 	if err := c.Abandon(); err == nil {
@@ -119,7 +157,7 @@ func TestFillRefusesAnotherSeat(t *testing.T) {
 		if err := c.Fill(is); err == nil {
 			t.Errorf("%s: filled", name)
 		}
-		if names, err := w.store.root.entries(c.dir); err != nil || len(names) != 0 {
+		if names, err := w.store.root.entries(c.claim.Dir()); err != nil || len(names) != 0 {
 			t.Errorf("%s: written before the refusal: %v, %v", name, names, err)
 		}
 		if err := c.Abandon(); err != nil {

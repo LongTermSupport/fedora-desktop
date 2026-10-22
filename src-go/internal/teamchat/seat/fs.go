@@ -94,28 +94,30 @@ func (d *dir) open(full string, flags uint64) (int, error) {
 	return fd, nil
 }
 
+// sub opens the directory full below the root, through no link, as a root of its own: what is
+// read or written through it stays in that directory even if it is renamed meanwhile.
+func (d *dir) sub(full string) (*dir, error) {
+	fd, err := d.open(full, unix.O_DIRECTORY|unix.O_RDONLY)
+	if err != nil {
+		return nil, err
+	}
+	return &dir{fd: fd, path: full}, nil
+}
+
 // inParent runs f with the fd of full's directory and full's name in it.
-func (d *dir) inParent(full string, f func(parent int, name string) error) error {
+func (d *dir) inParent(full string, f func(parent int, name string) error) (err error) {
 	parent := filepath.Dir(full)
 	fd := d.fd
 	if parent != d.path {
-		var err error
 		if fd, err = d.open(parent, unix.O_DIRECTORY|unix.O_RDONLY); err != nil {
 			return err
 		}
-		defer closeQuietly(fd)
+		defer func() { err = errors.Join(err, unix.Close(fd)) }()
 	}
 	if err := f(fd, filepath.Base(full)); err != nil {
 		return fmt.Errorf("%s: %w", full, err)
 	}
 	return nil
-}
-
-// closeQuietly closes a read-only directory fd, whose close reports nothing a caller can act on.
-func closeQuietly(fd int) {
-	if err := unix.Close(fd); err != nil {
-		return
-	}
 }
 
 // create writes a new file, 0600, never over an existing one, and syncs it and its directory.
@@ -211,7 +213,8 @@ func (d *dir) exists(full string) (bool, error) {
 	return found, err
 }
 
-// mkdirAll makes each missing directory from the root down to full, 0700, through no link.
+// mkdirAll makes each missing directory from the root down to full, 0700, through no link,
+// syncing its parent; each one already there must be the caller's, mode 0700.
 func (d *dir) mkdirAll(full string) error {
 	rel, err := d.rel(full)
 	if err != nil {
@@ -221,7 +224,13 @@ func (d *dir) mkdirAll(full string) error {
 	for part := range strings.SplitSeq(rel, "/") {
 		next := cur + "/" + part
 		err := d.inParent(next, func(parent int, name string) error {
-			if err := unix.Mkdirat(parent, name, dirMode); err != nil && !errors.Is(err, unix.EEXIST) {
+			err := unix.Mkdirat(parent, name, dirMode)
+			if err == nil {
+				err = unix.Fsync(parent)
+			} else if errors.Is(err, unix.EEXIST) {
+				err = nil
+			}
+			if err != nil {
 				return err
 			}
 			fd, err := unix.Openat2(parent, name, &unix.OpenHow{
@@ -230,8 +239,7 @@ func (d *dir) mkdirAll(full string) error {
 			if err != nil {
 				return err
 			}
-			closeQuietly(fd)
-			return nil
+			return errors.Join(ownedDir(fd, next), unix.Close(fd))
 		})
 		if err != nil {
 			return err
@@ -251,28 +259,32 @@ func (d *dir) mkdirFresh(full string) error {
 	})
 }
 
-// checkEmptyOwned is nil when full is an empty directory the caller owns, mode 0700.
-func (d *dir) checkEmptyOwned(full string) error {
-	fd, err := d.open(full, unix.O_DIRECTORY|unix.O_RDONLY)
+// emptyOwned is nil when the directory d holds open is empty and the caller's, mode 0700.
+func (d *dir) emptyOwned() error {
+	if err := ownedDir(d.fd, d.path); err != nil {
+		return err
+	}
+	fd, err := unix.Openat(d.fd, ".", unix.O_DIRECTORY|unix.O_RDONLY|unix.O_CLOEXEC, 0)
 	if err != nil {
-		return err
+		return fmt.Errorf("%s: %w", d.path, err)
 	}
-	f := os.NewFile(uintptr(fd), full)
-	return errors.Join(emptyOwned(f, fd, full), f.Close())
-}
-
-func emptyOwned(f *os.File, fd int, full string) error {
-	if err := ownedDir(fd, full); err != nil {
-		return err
-	}
+	f := os.NewFile(uintptr(fd), d.path)
 	names, err := f.Readdirnames(1)
-	if len(names) > 0 {
-		return fmt.Errorf("%w: %s is not empty", ErrConfig, full)
+	if err = errors.Join(ignoreEOF(err), f.Close()); err != nil {
+		return fmt.Errorf("%s: %w", d.path, err)
 	}
-	if !errors.Is(err, io.EOF) {
-		return fmt.Errorf("%s: %w", full, err)
+	if len(names) > 0 {
+		return fmt.Errorf("%w: %s is not empty", ErrConfig, d.path)
 	}
 	return nil
+}
+
+// ignoreEOF is err, except the io.EOF that ends a directory listing.
+func ignoreEOF(err error) error {
+	if errors.Is(err, io.EOF) {
+		return nil
+	}
+	return err
 }
 
 // entries are the names in full, sorted.

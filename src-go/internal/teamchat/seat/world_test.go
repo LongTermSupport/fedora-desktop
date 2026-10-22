@@ -2,6 +2,7 @@ package seat
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"os"
 	"path/filepath"
@@ -17,7 +18,8 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
-const testPassword = "pool-password-1"
+// testPassword and otherPassword are random for each run (gate B: only random test keys).
+var testPassword, otherPassword = rand.Text(), rand.Text()
 
 var testStart = time.UnixMilli(1_800_000_000_000)
 
