@@ -60,12 +60,28 @@ func New(cfg Config) team.Ends { return &ends{cfg: cfg} }
 type ends struct {
 	cfg   Config
 	logMu sync.Mutex
+
+	turnsMu sync.Mutex
+	turns   map[paths.TeamID]*teamTurn
+
+	// turnWait, when set, is called when a turn must wait for another (tests).
+	turnWait func()
+}
+
+// teamTurn is one team's lifecycle notices posted one step at a time: a step decides from main
+// and posts within its turn, so no other post of the run comes between. ended is set once the
+// run's end or a leave has begun for the team, and a back then posts nothing; it is read and
+// written only within the turn.
+type teamTurn struct {
+	held  chan struct{}
+	ended bool
 }
 
 var errUnknownEnd = errors.New("ends: an end of no known kind")
 
-// End is EN1 for every team of this run, in parallel; a team whose store's run is another's
-// has its previous run still to close, so this run posts and records nothing for it.
+// End is EN1 for every team of this run, in parallel, each in its team's turn, after which the
+// team posts no back; a team whose store's run is another's has its previous run still to
+// close, so this run posts and records nothing for it.
 func (e *ends) End(ctx context.Context, how team.End, teams []team.EndTeam) []error {
 	errs := make([]error, len(teams))
 	d, err := e.decide(how)
@@ -77,10 +93,15 @@ func (e *ends) End(ctx context.Context, how team.End, teams []team.EndTeam) []er
 	}
 	var wg sync.WaitGroup
 	for i, et := range teams {
-		if et.Run.ID != e.cfg.Run {
-			continue
-		}
-		wg.Go(func() { errs[i] = e.end(ctx, et, d) })
+		wg.Go(func() {
+			errs[i] = e.turn(ctx, et.Team, func(tt *teamTurn) error {
+				tt.ended = true
+				if et.Run.ID != e.cfg.Run {
+					return nil
+				}
+				return e.end(ctx, et, d)
+			})
+		})
 	}
 	wg.Wait()
 	return errs
@@ -88,45 +109,86 @@ func (e *ends) End(ctx context.Context, how team.End, teams []team.EndTeam) []er
 
 // Close is EN3: the store's previous run closed at a take, judged from the room.
 func (e *ends) Close(ctx context.Context, t paths.TeamID, n team.Notices, prev state.StoreRun) error {
-	ended := prev.Ended
-	switch {
-	case ended == nil:
-		return e.disconnected(ctx, t, n, prev)
-	case ended.Notice == state.NoticeNone || ended.State == state.StateSent:
-		return nil
-	}
-	nt, err := noticeOf(n, prev)
-	if err != nil {
-		return err
-	}
-	event, found, err := notice.LatestOwn(ctx, n, nt)
-	if err != nil {
-		return err
-	}
-	if found && (event == proto.EventLeft || event == proto.EventDisconnected) {
-		return nil
-	}
-	return e.send(ctx, t, n, *ended, true)
+	return e.turn(ctx, t, func(*teamTurn) error {
+		ended := prev.Ended
+		switch {
+		case ended == nil:
+			return e.disconnected(ctx, t, n, prev)
+		case ended.Notice == state.NoticeNone || ended.State == state.StateSent:
+			return nil
+		}
+		nt, err := noticeOf(n, prev)
+		if err != nil {
+			return err
+		}
+		event, found, err := notice.LatestOwn(ctx, n, nt)
+		if err != nil {
+			return err
+		}
+		if found && (event == proto.EventLeft || event == proto.EventDisconnected) {
+			return nil
+		}
+		return e.send(ctx, t, n, *ended, true)
+	})
 }
 
-// Back is EN4: `back` when the member's latest own lifecycle notice is `disconnected`.
-func (e *ends) Back(ctx context.Context, _ paths.TeamID, n team.Notices, run state.StoreRun) error {
-	nt, err := noticeOf(n, state.StoreRun{ID: run.ID})
-	if err != nil {
+// Back is EN4: `back` when the member's latest own lifecycle notice is `disconnected`, read and
+// posted in the team's turn, and nothing once the run's end or a leave has begun for the team.
+func (e *ends) Back(ctx context.Context, t paths.TeamID, n team.Notices, run state.StoreRun) error {
+	return e.turn(ctx, t, func(tt *teamTurn) error {
+		if tt.ended {
+			return nil
+		}
+		nt, err := noticeOf(n, state.StoreRun{ID: run.ID})
+		if err != nil {
+			return err
+		}
+		event, found, err := notice.LatestOwn(ctx, n, nt)
+		if err != nil || !found || event != proto.EventDisconnected {
+			return err
+		}
+		_, err = post(ctx, n, proto.EventBack, "", backTxn(run.ID))
 		return err
-	}
-	event, found, err := notice.LatestOwn(ctx, n, nt)
-	if err != nil || !found || event != proto.EventDisconnected {
-		return err
-	}
-	_, err = post(ctx, n, proto.EventBack, "", backTxn(run.ID))
-	return err
+	})
 }
 
-// Leave is LN8's `left` with reason released, by the keeper's txn.
-func (e *ends) Leave(ctx context.Context, _ paths.TeamID, n team.Notices, txn string) error {
-	_, err := post(ctx, n, proto.EventLeft, reasonReleased, txn)
-	return err
+// Leave is LN8's `left` with reason released, by the keeper's txn, in the team's turn, after
+// which the team posts no back.
+func (e *ends) Leave(ctx context.Context, t paths.TeamID, n team.Notices, txn string) error {
+	return e.turn(ctx, t, func(tt *teamTurn) error {
+		tt.ended = true
+		_, err := post(ctx, n, proto.EventLeft, reasonReleased, txn)
+		return err
+	})
+}
+
+// turn runs fn as team t's one lifecycle step, once any step it holds has finished, or is ctx's
+// error when ctx ends first.
+func (e *ends) turn(ctx context.Context, t paths.TeamID, fn func(*teamTurn) error) error {
+	e.turnsMu.Lock()
+	if e.turns == nil {
+		e.turns = map[paths.TeamID]*teamTurn{}
+	}
+	tt, ok := e.turns[t]
+	if !ok {
+		tt = &teamTurn{held: make(chan struct{}, 1)}
+		e.turns[t] = tt
+	}
+	e.turnsMu.Unlock()
+	select {
+	case tt.held <- struct{}{}:
+	default:
+		if e.turnWait != nil {
+			e.turnWait()
+		}
+		select {
+		case tt.held <- struct{}{}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	defer func() { <-tt.held }()
+	return fn(tt)
 }
 
 func (e *ends) switchOn() bool {
