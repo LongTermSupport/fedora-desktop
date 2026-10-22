@@ -333,6 +333,7 @@ func teamDerived(t *testing.T, team TeamID) map[string][]string {
 		"CtlState":               CtlState(team),
 		"RosterFile":             RosterFile(team),
 		"RoomsFile":              RoomsFile(team),
+		"GuestTokenDir":          GuestTokenDir(team),
 		"TeamLock":               TeamLock(team),
 		"StatusTeamDir":          StatusTeamDir(team),
 		"StampFile":              StampFile(team),

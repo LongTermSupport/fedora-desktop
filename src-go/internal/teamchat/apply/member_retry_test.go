@@ -2,7 +2,11 @@ package apply
 
 import (
 	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -84,8 +88,93 @@ func TestADeactivatedAccountIsRefusedBeforeAnyChange(t *testing.T) {
 	}
 }
 
-// MO5: an account deactivated after an add claimed its handle drops the claim, so the pending
-// add blocks no later verb.
+// C 3.6.3: a guest seat's token is copied for the health tick, and the copy goes with the
+// credential (a park, a password issue, a retire).
+func TestATokenIsCopiedForTheHealthTick(t *testing.T) {
+	w := newWorld(t)
+	team := w.team(t)
+	copyOf := func() (string, bool) {
+		t.Helper()
+		file := filepath.Join(w.dir, "guest", third+".token")
+		raw, err := os.ReadFile(filepath.Clean(file))
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", false
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info, err := os.Stat(file); err != nil || info.Mode().Perm() != 0o600 {
+			t.Fatalf("the copy's mode %v %v", info.Mode(), err)
+		}
+		return string(raw), true
+	}
+	res := w.member(t, team, add(3, credToken))
+	if got, ok := copyOf(); !ok || got != res.Credential.Secret {
+		t.Fatalf("the copy after add: %t", ok)
+	}
+	w.member(t, team, on(OpMemberPark, third))
+	if _, ok := copyOf(); ok {
+		t.Fatal("a copy after park")
+	}
+	req := on(OpMemberReturn, third)
+	req.Credential = credToken
+	res = w.member(t, team, req)
+	if got, ok := copyOf(); !ok || got != res.Credential.Secret {
+		t.Fatal("no copy after return")
+	}
+	w.member(t, team, on(OpMemberReissue, third))
+	if _, ok := copyOf(); ok {
+		t.Fatal("a copy after a password reissue")
+	}
+	req = on(OpMemberReissue, third)
+	req.Credential = credToken
+	w.member(t, team, req)
+	w.member(t, team, on(OpMemberRetire, third))
+	if _, ok := copyOf(); ok {
+		t.Fatal("a copy after retire")
+	}
+}
+
+// The token copy's failures are the step's: no directory configured, or one that cannot be made.
+func TestATokenCopyThatCannotBeKeptFailsTheStep(t *testing.T) {
+	w := newWorld(t)
+	team := w.team(t)
+	d := w.memberDeps(nil)
+	d.GuestDir = ""
+	if _, err := RunMember(t.Context(), d, team, add(3, credToken)); err == nil || !strings.Contains(err.Error(), "step credential") {
+		t.Fatalf("no directory: %v", err)
+	}
+	file := filepath.Join(w.dir, "a-file")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d.GuestDir = filepath.Join(file, "guest")
+	for _, req := range []MemberRequest{add(3, credToken), on(OpMemberPark, third)} {
+		if _, err := RunMember(t.Context(), d, team, req); err == nil || !strings.Contains(err.Error(), "not a directory") {
+			t.Fatalf("%s under a file: %v", req.Op, err)
+		}
+	}
+}
+
+// MO4: `--seat next` passes a free number whose account is deactivated, recording it retired.
+func TestSeatNextPassesADeactivatedAccount(t *testing.T) {
+	w := newWorld(t)
+	team := w.team(t)
+	if _, err := w.admin.CreateAccount(t.Context(), user(coord), "x-pass-1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.admin.SetDeactivated(t.Context(), user(coord), true); err != nil {
+		t.Fatal(err)
+	}
+	res := w.member(t, team, add(0, credPassword))
+	f := w.file(t).roster
+	if res.Handle != other || f.Members[coord].State != MemberRetired || !slices.Contains(res.Changed, "member "+coord+" retired") {
+		t.Fatalf("answered %s, changed %v, members %v", res.Handle, res.Changed, f.Members)
+	}
+}
+
+// MO5: an account deactivated after an add claimed its handle ends the add with the handle
+// retired, and a roll-forward that ends it this way lets the caller's verb run, with a note.
 func TestAClaimWhoseAccountIsDeactivatedIsDropped(t *testing.T) {
 	w := newWorld(t)
 	team := w.team(t)
@@ -100,18 +189,31 @@ func TestAClaimWhoseAccountIsDeactivatedIsDropped(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.addMember(t, other, active())
-	_, err := RunMember(t.Context(), w.memberDeps(nil), team, MemberRequest{Op: OpMemberSet, Handle: other, HumanText: false})
-	refusedAt(t, "the roll-forward", err, StepAccount, "deactivated")
-	if e, ok := errors.AsType[*Error](err); !ok || e.Op != OpMemberAdd {
-		t.Fatalf("the failure names %v, want the pending op", err)
-	}
-	f := w.file(t).roster
-	if _, held := f.Members[third]; held || f.Pending != nil {
-		t.Fatalf("roster %+v", f)
-	}
 	res := w.member(t, team, MemberRequest{Op: OpMemberSet, Handle: other, HumanText: false})
-	if !slices.Contains(res.Changed, "member "+other+" human_text false") {
-		t.Fatalf("changed %v", res.Changed)
+	f := w.file(t).roster
+	if f.Members[third].State != MemberRetired || f.Pending != nil || !slices.Contains(res.Changed, "member "+third+" retired") {
+		t.Fatalf("roster %+v, changed %v", f, res.Changed)
+	}
+	if !slices.Contains(res.Changed, "member "+other+" human_text false") || len(res.Notes) != 1 || !strings.Contains(res.Notes[0], third) {
+		t.Fatalf("changed %v, notes %v", res.Changed, res.Notes)
+	}
+
+	// The same verb asked again is the one refused.
+	w = newWorld(t)
+	team = w.team(t)
+	if _, err := RunMember(t.Context(), w.memberDeps(&crashing{Admin: w.admin, method: "Account", n: 2}), team, add(3, credPassword)); !errors.Is(err, errCrash) {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := w.admin.CreateAccount(t.Context(), user(third), "x-pass-1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.admin.SetDeactivated(t.Context(), user(third), true); err != nil {
+		t.Fatal(err)
+	}
+	_, err := RunMember(t.Context(), w.memberDeps(nil), team, add(3, credPassword))
+	refusedAt(t, "the retry", err, StepAccount, "deactivated")
+	if f := w.file(t).roster; f.Pending != nil || f.Members[third].State != MemberRetired {
+		t.Fatalf("roster %+v", f)
 	}
 }
 

@@ -22,16 +22,11 @@ const (
 )
 
 // mkdirOwned makes or converges a 0700 directory owned by uid and gid (-1 keeps the owner).
-func mkdirOwned(dir string, uid, gid int) error {
-	if err := mkdirMode(dir, ownedDirMode); err != nil {
-		return err
-	}
-	return os.Lchown(dir, uid, gid)
-}
+func mkdirOwned(dir string, uid, gid int) error { return mkdirMode(dir, ownedDirMode, uid, gid) }
 
 // MkdirShared makes or converges a 0755 directory, whatever the umask; `team approve` makes the
 // status directories with it.
-func MkdirShared(dir string) error { return mkdirMode(dir, sharedDirMode) }
+func MkdirShared(dir string) error { return mkdirMode(dir, sharedDirMode, -1, -1) }
 
 // MkdirStatus makes or converges the team's status directory and the `teams` one above it,
 // under root: `team approve` makes them on a host no apply has run on yet.
@@ -44,21 +39,24 @@ func MkdirStatus(root string, team paths.TeamID) error {
 	return nil
 }
 
-// mkdirMode makes dir, or takes the directory that is there, and sets its mode exactly, so one a
-// crash left before its chmod is converged; anything there that is not a directory (a link
-// included) is an error.
-func mkdirMode(dir string, mode fs.FileMode) error {
+// mkdirMode makes dir, or takes the directory that is there, and sets its mode and owner
+// exactly, so one a crash left before its chmod or chown is converged. Both are set through a
+// descriptor opened without following a link: `ctl/<team>/`'s parent is the control user's, so
+// a name checked first could be swapped for a link before a chmod by name (C 3.2.2). Anything
+// there that is not a directory, a link included, is an error.
+func mkdirMode(dir string, mode fs.FileMode, uid, gid int) error {
 	if err := os.Mkdir(dir, ownedDirMode); err != nil && !errors.Is(err, fs.ErrExist) {
 		return err
 	}
-	ok, err := isDir(dir)
+	d, err := os.OpenFile(filepath.Clean(dir), os.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
 	if err != nil {
-		return err
+		return fmt.Errorf("%s is not a directory: %w", dir, err)
 	}
-	if !ok {
-		return fmt.Errorf("%s is not a directory", dir)
+	err = d.Chmod(mode)
+	if err == nil {
+		err = d.Chown(uid, gid)
 	}
-	return os.Chmod(dir, mode)
+	return errors.Join(err, d.Close())
 }
 
 // isDir is whether path is a directory, not following a link; a missing path is not one.

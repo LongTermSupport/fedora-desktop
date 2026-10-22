@@ -42,6 +42,7 @@ type Deps struct {
 	Admin                 Admin
 	Approvals             declare.Approvals
 	RosterPath, RoomsPath string
+	GuestDir              string // the guest seats' token copies (C 3.6.3), the child's own
 	Now                   func() time.Time
 }
 

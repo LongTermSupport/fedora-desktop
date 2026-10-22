@@ -65,6 +65,7 @@ func zeroDerivations() map[string]func() string {
 		"CtlState":               func() string { return CtlState(team) },
 		"RosterFile":             func() string { return RosterFile(team) },
 		"RoomsFile":              func() string { return RoomsFile(team) },
+		"GuestTokenDir":          func() string { return GuestTokenDir(team) },
 		"TeamLock":               func() string { return TeamLock(team) },
 		"SetLock":                func() string { return SetLock(set) },
 		"StatusTeamDir":          func() string { return StatusTeamDir(team) },

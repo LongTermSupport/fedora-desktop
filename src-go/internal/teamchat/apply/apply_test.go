@@ -118,6 +118,7 @@ func (w *world) deps() Deps {
 	return Deps{
 		Admin: w.admin, Approvals: w.approved, Now: fixedNow,
 		RosterPath: filepath.Join(w.dir, "roster.json"), RoomsPath: filepath.Join(w.dir, "rooms.json"),
+		GuestDir: filepath.Join(w.dir, "guest"),
 	}
 }
 

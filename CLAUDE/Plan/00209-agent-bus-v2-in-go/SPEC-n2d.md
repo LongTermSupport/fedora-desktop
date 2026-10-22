@@ -43,11 +43,15 @@ in-process over the real codecs; `member` verbs for the probe handle (D's `migra
   `account` creates the account with a random password that is not kept when there is none; one
   that exists deactivated is refused (70). `credential` is C 3.6.3's issue: `password` resets
   the password to a fresh random one with device logout and answers it; `token` resets it to one
-  not kept and logs in once as the seat device `TCSEAT`, answering the token. `revoke` is a reset
-  to a password not kept. Each sets `cred_seq` (the write's `seq`) and `cred_ms`; an issue sets
-  `cred` to its kind and clears `needs`, a revoke sets `cred` to null (n2d-D19). An account found
-  deactivated at the `account` step ends the operation: its `pending` is cleared and an add's
-  claim dropped, so no later verb is blocked (n2d-D17). `role` promotes the member when it is `coordinator_wanted` (MO6).
+  not kept and logs in once as the seat device `TCSEAT`, answering the token, and keeps a copy of
+  it as `ctl/<team>/guest/<handle>.token` (0600); a password issue, a revoke, `park` and
+  `deactivate` remove the copy (n2d-D18). `revoke` is a reset to a password not kept. Each sets
+  `cred_seq` (the write's `seq`) and `cred_ms`; an issue sets `cred` to its kind and clears
+  `needs`, a revoke sets `cred` to null (n2d-D19). An account found deactivated at the `account`
+  step ends the operation: the handle is recorded `retired` and `pending` cleared in one write,
+  so no later verb is blocked; the same verb asked again is refused (70), and another verb that
+  ends it this way in its roll-forward says so in `notes` and runs as asked (n2d-D17). `role`
+  promotes the member when it is `coordinator_wanted` (MO6).
 
 - **MO3. Refusals before any change** (70): `add` of a handle that is `active` (the seat is
   taken, perhaps just now by another checkout; choose again; `reissue` only for a bundle this
@@ -59,8 +63,9 @@ in-process over the real codecs; `member` verbs for the probe handle (D's `migra
   another `human_text`.
 
 - **MO4. `--seat next`** is the lowest number from 1 no member of that prefix in the roster holds,
-  whatever its state, so a retired handle is never chosen (n2d-D3). The counter is raised to the
-  seat's number when that is higher, and never lowered.
+  whatever its state, so a retired handle is never chosen (n2d-D3). A number whose account is
+  there deactivated is recorded `retired` (`member <h> retired`) and passed (n2d-D21). The
+  counter is raised to the seat's number when that is higher, and never lowered.
 
 - **MO5. Roll forward, never undo (C20).** Any operation first completes the `pending` record it
   finds, from its step:
@@ -133,21 +138,22 @@ in-process over the real codecs; `member` verbs for the probe handle (D's `migra
 
 ## 3. Decisions where the design is silent
 
-| ID      | Decision                                                                                                                                                                                                                                                        |
-| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| n2d-D1  | The member operations live in `apply` beside bootstrap: they share the roster file, its writer, the derived roster, the rooms step and the roll-forward, which must see every op's steps.                                                                       |
-| n2d-D2  | A role change is a step of its own (`role demoted <h>`), written with the `coordinator` change, so a crash between the rooms step and the notice still posts the notice once.                                                                                   |
-| n2d-D3  | `--seat next` skips every number the prefix holds in any state: C 3.6.3's "no active, parked or lost member" would offer a retired number, which `add` must refuse.                                                                                             |
-| n2d-D4  | `retire` refuses the recorded coordinator as well as the declared one, so no retire makes a rooms step demote without a `role` notice.                                                                                                                          |
-| n2d-D5  | The notices' bodies: `<handle> was added to the team as <role>`, `<handle> was parked by the owner`, `<handle> was removed from the team by the owner`, `<handle> is now the <role>`. A gives the typed object and no body text.                                |
-| n2d-D6  | `--kind` must be the prefix's type: the handle carries the kind, and two values for one fact could disagree.                                                                                                                                                    |
-| n2d-D7  | The child receives `team.json` and the approval in its request: both are root's files, which the child cannot read (C 3.2.2's modes).                                                                                                                           |
-| n2d-D15 | A pending add is retried by `add` of its handle, or by `add --seat next` on its prefix: `lxc apply`'s retry asks for next again, and treating it as another verb leaked a seat (review 1, finding 1).                                                           |
-| n2d-D16 | Root checks the child's handle and credential against the request before the bundle: the answer is the one thing root parses that a less-privileged process wrote (review 1, finding 4).                                                                        |
-| n2d-D17 | An account found deactivated at the `account` step (after the refusals' look) clears `pending` and drops an add's claim: there is nothing to roll forward, and a refused step that stays pending would block every verb (review 1, finding 3).                  |
-| n2d-D18 | The guest token copy `ctl/<team>/guest/<handle>.token` (C 3.6.3) is not written by `credential`: `apply.Deps` has no file seam into `ctl/<team>/`, and the copy is the seat side's or `lxc apply`'s concern, for the slice that builds the production `Opener`. |
-| n2d-D19 | A revoke sets `cred` to null and `cred_seq` to the write's `seq`, so a restore that decides by `cred` and `cred_seq` (C 3.6.1, 3.12.2) never takes a revoked credential as live.                                                                                |
-| n2d-D20 | A member verb whose child answered prints its document whatever the exit code, and its bundle is valid: a failed status refresh after an issue exits 1 and must not lose the credential (n2d-D11). Stdout is empty when no answer came.                         |
+| ID      | Decision                                                                                                                                                                                                                                                                                                                                                                                |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| n2d-D1  | The member operations live in `apply` beside bootstrap: they share the roster file, its writer, the derived roster, the rooms step and the roll-forward, which must see every op's steps.                                                                                                                                                                                               |
+| n2d-D2  | A role change is a step of its own (`role demoted <h>`), written with the `coordinator` change, so a crash between the rooms step and the notice still posts the notice once.                                                                                                                                                                                                           |
+| n2d-D3  | `--seat next` skips every number the prefix holds in any state: C 3.6.3's "no active, parked or lost member" would offer a retired number, which `add` must refuse.                                                                                                                                                                                                                     |
+| n2d-D4  | `retire` refuses the recorded coordinator as well as the declared one, so no retire makes a rooms step demote without a `role` notice.                                                                                                                                                                                                                                                  |
+| n2d-D5  | The notices' bodies: `<handle> was added to the team as <role>`, `<handle> was parked by the owner`, `<handle> was removed from the team by the owner`, `<handle> is now the <role>`. A gives the typed object and no body text.                                                                                                                                                        |
+| n2d-D6  | `--kind` must be the prefix's type: the handle carries the kind, and two values for one fact could disagree.                                                                                                                                                                                                                                                                            |
+| n2d-D7  | The child receives `team.json` and the approval in its request: both are root's files, which the child cannot read (C 3.2.2's modes).                                                                                                                                                                                                                                                   |
+| n2d-D15 | A pending add is retried by `add` of its handle, or by `add --seat next` on its prefix: `lxc apply`'s retry asks for next again, and treating it as another verb leaked a seat (review 1, finding 1).                                                                                                                                                                                   |
+| n2d-D16 | Root checks the child's handle and credential against the request before the bundle: the answer is the one thing root parses that a less-privileged process wrote (review 1, finding 4).                                                                                                                                                                                                |
+| n2d-D17 | An account found deactivated at the `account` step (after the refusals' look) records the handle `retired` and clears `pending`: only `retire` deactivates, so the handle can never come back, there is nothing to roll forward, and a refused step that stays pending would block every verb. A roll-forward that ends this way is a note, not the caller's failure (reviews 1 and 2). |
+| n2d-D18 | The child keeps the guest token copy (C 3.6.3) through `apply.Deps.GuestDir` (`paths.GuestTokenDir`, its own tree), and removes it with the credential, so the health tick never holds a dead token. The production `Opener` sets it.                                                                                                                                                   |
+| n2d-D21 | `--seat next` records a free number whose account is deactivated as `retired` and passes it: `lxc apply` cannot choose another number, and refusing would repeat on every try (review 2, finding 2). An explicit seat is refused with no write.                                                                                                                                         |
+| n2d-D19 | A revoke sets `cred` to null and `cred_seq` to the write's `seq`, so a restore that decides by `cred` and `cred_seq` (C 3.6.1, 3.12.2) never takes a revoked credential as live.                                                                                                                                                                                                        |
+| n2d-D20 | A member verb whose child answered prints its document whatever the exit code, and its bundle is valid: a failed status refresh after an issue exits 1 and must not lose the credential (n2d-D11). Stdout is empty when no answer came.                                                                                                                                                 |
 
 ## 4. `team apply`'s host steps, `team remove` and the team lock (C 3.4, 3.5.2, 3.5.3)
 
@@ -190,7 +196,10 @@ and written under `Deps.Root`.
   link, never replacing a file. Step 7 writes a config or drop-in (0644, its directory 0755)
   that differs from the rendered one, then restarts a running unit on a first start or a
   restart, starts a stopped one (even when nothing changed), and enables it. Every directory's
-  mode is set after the mkdir, whatever the umask.
+  mode and owner are set after the mkdir, whatever the umask, also on one that is already there
+  (a crash between the mkdir and the chmod), through a descriptor opened without following a
+  link, so the control user cannot steer root's chmod through `ctl/` (C 3.2.2). A created
+  file's directory is synced after the link.
 - **HS7. The firewall (step 5).** One rule per allow_from source in the zone that routes it;
   `firewall.json` holds the union while rules are added and removed, adds come before removes,
   each converged on its own in the permanent and the runtime configuration (a rule lost from

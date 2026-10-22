@@ -229,6 +229,9 @@ func RosterFile(t TeamID) string { return CtlState(t) + "/roster.json" }
 // RoomsFile is the team's room IDs (C 3.6.1).
 func RoomsFile(t TeamID) string { return CtlState(t) + "/rooms.json" }
 
+// GuestTokenDir holds the child's copy of each guest seat's token, `<handle>.token` (C 3.6.3).
+func GuestTokenDir(t TeamID) string { return CtlState(t) + "/guest" }
+
 // TeamLock is root's lock for the team.
 func TeamLock(t TeamID) string { return AdminRunDir + "/team-" + t.text() + ".lock" }
 

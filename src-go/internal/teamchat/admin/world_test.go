@@ -248,6 +248,7 @@ func (w *world) open(_ context.Context, team paths.TeamID, regKey string) (apply
 	}
 	return apply.Deps{
 		Admin: a, Now: w.now, RosterPath: w.root + paths.RosterFile(team), RoomsPath: w.root + paths.RoomsFile(team),
+		GuestDir: w.root + paths.GuestTokenDir(team),
 	}, nil
 }
 

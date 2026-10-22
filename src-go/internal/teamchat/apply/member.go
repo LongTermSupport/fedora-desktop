@@ -9,12 +9,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
 )
 
 // The operations a `pending` record names (SPEC-n2d MO1).
@@ -138,36 +142,70 @@ func (r *run) member(ctx context.Context, req MemberRequest) error {
 	if err := r.loadApplied(); err != nil {
 		return err
 	}
-	handle, err := r.target(req)
+	if _, err := r.target(req); err != nil {
+		return err
+	}
+	done, err := r.settle(ctx, req)
+	if err != nil || done {
+		return err
+	}
+	handle, err := r.admit(ctx, req)
 	if err != nil {
 		return err
 	}
-	if p := r.files.roster.Pending; p != nil {
-		var retry bool
-		retry, err = r.retryOf(req, handle, p)
-		switch {
-		case err != nil:
-			return err
-		case retry:
-			r.res.Handle = p.Handle
-			// A set asked again with the other value runs again once its first is finished.
-			if err = r.resume(ctx, p, req.Credential); err != nil || req.Op != OpMemberSet {
-				return err
-			}
-		default:
-			if err = r.rollForward(ctx); err != nil {
-				return err
-			}
-		}
-		if handle, err = r.target(req); err != nil {
-			return err
-		}
-	}
-	r.res.Handle = handle
-	if err = r.refuse(ctx, req, handle); err != nil {
-		return err
-	}
 	return r.start(ctx, req, handle)
+}
+
+// settle completes the pending operation first (MO5): as the caller's own when req asks for it
+// again, which is then done unless a set asks for the other value; else as another verb's.
+func (r *run) settle(ctx context.Context, req MemberRequest) (bool, error) {
+	p := r.files.roster.Pending
+	if p == nil {
+		return false, nil
+	}
+	handle, err := r.target(req)
+	if err != nil {
+		return false, err
+	}
+	retry, err := r.retryOf(req, handle, p)
+	switch {
+	case err != nil:
+		return false, err
+	case !retry:
+		return false, r.rollForward(ctx)
+	}
+	r.res.Handle = p.Handle
+	err = r.resume(ctx, p, req.Credential)
+	return err != nil || req.Op != OpMemberSet, err
+}
+
+// admit is the handle req takes once MO3's refusals pass. `--seat next` passes a number whose
+// account is deactivated, recording it retired, so it is never offered again (n2d-D21).
+func (r *run) admit(ctx context.Context, req MemberRequest) (string, error) {
+	for {
+		handle, err := r.target(req)
+		if err != nil {
+			return "", err
+		}
+		r.res.Handle = handle
+		err = r.refuse(ctx, req, handle)
+		if req.Op != OpMemberAdd || req.Seat != 0 || !errors.Is(err, errDeactivated) {
+			return handle, err
+		}
+		r.files.roster.Members[handle] = Member{State: MemberRetired, Kind: req.Kind, SinceMS: r.now()}
+		r.note("member " + handle + " retired")
+		if err = r.save(StepAccount); err != nil {
+			return "", err
+		}
+	}
+}
+
+// errDeactivated is a member's account found deactivated: only `retire` does that, so the
+// handle can never come back.
+var errDeactivated = errors.New("is deactivated")
+
+func deactivated(h string) error {
+	return refused(StepAccount, fmt.Errorf("member %s's account %w", h, errDeactivated))
 }
 
 // retryOf is whether req asks again for the pending operation p (MO5): the same verb on its
@@ -263,7 +301,7 @@ func (r *run) refuse(ctx context.Context, req MemberRequest, h string) error {
 	case err != nil:
 		return failed(StepAccount, err)
 	case found && acct.Deactivated:
-		return refused(StepAccount, fmt.Errorf("member %s's account is deactivated", h))
+		return deactivated(h)
 	}
 	return nil
 }
@@ -345,7 +383,12 @@ func (r *run) rollForward(ctx context.Context) error {
 	if p == nil {
 		return nil
 	}
-	return withOp(r.finishPending(ctx, p), p.Op)
+	err := r.finishPending(ctx, p)
+	if errors.Is(err, errDeactivated) && r.files.roster.Pending == nil {
+		r.res.Notes = append(r.res.Notes, "the pending "+p.Op+" of "+p.Handle+" ended: its account is deactivated, so the handle is retired")
+		return nil
+	}
+	return withOp(err, p.Op)
 }
 
 func (r *run) finishPending(ctx context.Context, p *Pending) error {
@@ -443,7 +486,7 @@ func (r *run) step(ctx context.Context, p *Pending, cred string) error {
 func (r *run) userID(h string) string { return proto.UserID(h, r.team.ServerName) }
 
 // account makes the member's account when there is none. One deactivated since the verb's
-// refusals ends the operation, and an add's claim is dropped, so no later verb is blocked.
+// refusals ends the operation with the handle retired, so no later verb is blocked (n2d-D17).
 func (r *run) account(ctx context.Context, p *Pending) error {
 	id := r.userID(p.Handle)
 	acct, found, err := r.d.Admin.Account(ctx, id)
@@ -451,11 +494,11 @@ func (r *run) account(ctx context.Context, p *Pending) error {
 	case err != nil:
 		return failed(StepAccount, err)
 	case found && acct.Deactivated:
-		if r.files.roster.Members[p.Handle].State == MemberClaimed {
-			delete(r.files.roster.Members, p.Handle)
-			r.note("member " + p.Handle + " claim dropped")
-		}
-		return errors.Join(refused(StepAccount, fmt.Errorf("member %s's account is deactivated", p.Handle)), r.clear(StepAccount))
+		m := r.files.roster.Members[p.Handle]
+		m.State, m.SinceMS = MemberRetired, r.now()
+		r.files.roster.Members[p.Handle] = m
+		r.note("member " + p.Handle + " retired")
+		return errors.Join(deactivated(p.Handle), r.clear(StepAccount))
 	case found && r.files.roster.Members[p.Handle].State == MemberClaimed:
 		r.note("member " + p.Handle + " account adopted")
 	case !found:
@@ -482,15 +525,20 @@ func (r *run) credential(ctx context.Context, p *Pending, kind string) error {
 		f.Members[p.Handle] = r.revoked(m)
 		r.res.Credential = nil
 		r.note("member " + p.Handle + " revoked")
-		return nil
+		return r.guestCopy(StepCredential, p.Handle, "")
 	}
 	c := &Credential{Kind: kind, Secret: password}
+	token := ""
 	if kind == CredToken {
 		s, err := r.d.Admin.LoginDevice(ctx, p.Handle, password, seatDevice)
 		if err != nil {
 			return failed(StepCredential, err)
 		}
 		c.Secret = s.AccessToken.Reveal()
+		token = c.Secret
+	}
+	if err := r.guestCopy(StepCredential, p.Handle, token); err != nil {
+		return err
 	}
 	m.Cred, m.CredSeq, m.CredMS, m.Needs = kind, f.Seq+1, r.now(), ""
 	f.Members[p.Handle] = m
@@ -508,6 +556,28 @@ func (r *run) park(ctx context.Context, p *Pending) error {
 	m.State, m.SinceMS = MemberParked, r.now()
 	r.files.roster.Members[p.Handle] = r.revoked(m)
 	r.note("member " + p.Handle + " parked")
+	return r.guestCopy(StepRevoke, p.Handle, "")
+}
+
+// guestCopy keeps the child's copy of a guest seat's token, which the health tick posts the
+// member's `disconnected` notice with (C 3.6.3), or removes it ("" token) with the credential.
+func (r *run) guestCopy(step, handle, token string) error {
+	if r.d.GuestDir == "" {
+		return failed(step, errors.New("no directory for the guest seats' token copies"))
+	}
+	file := filepath.Join(r.d.GuestDir, handle+".token")
+	if token == "" {
+		if err := os.Remove(file); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return failed(step, err)
+		}
+		return nil
+	}
+	if err := os.Mkdir(r.d.GuestDir, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
+		return failed(step, err)
+	}
+	if err := state.WriteFile(file, []byte(token), 0o600, -1); err != nil {
+		return failed(step, err)
+	}
 	return nil
 }
 
@@ -524,13 +594,13 @@ func (r *run) deactivate(ctx context.Context, p *Pending) error {
 		return failed(StepDeactivate, err)
 	}
 	if !found || acct.Deactivated {
-		return nil
+		return r.guestCopy(StepDeactivate, p.Handle, "")
 	}
 	if err := r.d.Admin.SetDeactivated(ctx, id, true); err != nil {
 		return failed(StepDeactivate, err)
 	}
 	r.note("member " + p.Handle + " deactivated")
-	return nil
+	return r.guestCopy(StepDeactivate, p.Handle, "")
 }
 
 // memberNotice posts the notice of the change p made (MO7).
