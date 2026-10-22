@@ -57,6 +57,7 @@ func TestSmallGrammars(t *testing.T) {
 		{"branch", ValidBranch, []string{"main", "feat/x-1.2_y", strings.Repeat("b", 100)}, []string{"", strings.Repeat("b", 101), "a b", "a:b", "é"}},
 		{"feature", ValidFeature, []string{"a", "x-1", "a" + strings.Repeat("b", 31)}, []string{"", "1a", "A", "a_b", "a" + strings.Repeat("b", 32)}},
 		{"question", ValidQuestion, []string{"Q1", "Q999999999", "Q10"}, []string{"Q0", "Q01", "q1", "Q", "Q1000000000", "Q1 "}},
+		{"seat", ValidSeat, []string{"1", "999999", "probe", "a" + strings.Repeat("b", 11)}, []string{"", "0", "01", "1000000", "A", "1a", "a" + strings.Repeat("b", 12), "a-b"}},
 		{"human", ValidHumanName, []string{"alice", "a", "bob_2-x", "a" + strings.Repeat("b", 31)}, []string{"", "Alice", "1a", "a.b", "a+b", "admin", "humans", "teamchat", "conduit", "tuwunel", "a" + strings.Repeat("b", 32)}},
 	}
 	for _, c := range cases {

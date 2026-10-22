@@ -181,6 +181,12 @@ func AdoptSeat(f *os.File, seat paths.Seat) (*SeatLock, error) {
 // Seat is the seat this lock holds.
 func (s *SeatLock) Seat() paths.Seat { return s.seat }
 
+// Held is nil while this descriptor is open, ErrReleased once it is closed.
+func (s *SeatLock) Held() error {
+	_, err := s.take()
+	return err
+}
+
 // Dup is a second descriptor of the same held description, for the link (B 2.5): the seat
 // stays held until it and this lock are both closed.
 func (s *SeatLock) Dup() (*os.File, error) {

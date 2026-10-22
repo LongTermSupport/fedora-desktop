@@ -326,6 +326,11 @@ linters:
           - pkg: internal/teamchat/member/records
             rules:
               json: snake
+          # B 2.3's member files (the store, the session files, the seat lock record, the
+          # desired membership) are snake_case, as every teamchat record is.
+          - pkg: internal/teamchat/member/state
+            rules:
+              json: snake
     cyclop:
       max-complexity: 15
     funlen:

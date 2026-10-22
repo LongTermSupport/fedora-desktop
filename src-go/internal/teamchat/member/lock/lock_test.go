@@ -281,7 +281,11 @@ func TestTheSeatStaysHeldUntilEveryCopyIsClosed(t *testing.T) {
 	check(t, err)
 	dup, err := s.Dup()
 	check(t, err)
+	check(t, s.Held())
 	check(t, s.Close())
+	if err = s.Held(); !errors.Is(err, ErrReleased) {
+		t.Errorf("held after close: %v", err)
+	}
 	if err = s.Close(); !errors.Is(err, ErrReleased) {
 		t.Errorf("closed twice: %v", err)
 	}
