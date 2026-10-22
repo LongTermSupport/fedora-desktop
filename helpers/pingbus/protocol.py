@@ -83,6 +83,14 @@ HANDLE_PATTERN = handle_pattern(HANDLE_SEP)
 TEAM_NAME_PATTERN = r"[a-z][a-z0-9-]{0,23}"
 HUMAN_LOCALPART_PATTERN = r"[a-z][a-z0-9_-]{0,31}"
 ROOM_ID_PATTERN = r"![A-Za-z0-9_-]{43}"
+#: The Matrix spec's server name (appendices, "Server Name"): hostname [":" port].
+SERVER_NAME_PATTERN = (r"(?:[0-9]{1,3}(?:\.[0-9]{1,3}){3}|\[[0-9A-Fa-f:.]{2,45}\]|[A-Za-z0-9.-]{1,255})"
+                       r"(?::[0-9]{1,5})?")
+#: A room ID of room versions 1-11 (spec appendices, "Room IDs"): `!opaque_id:domain`, the
+#: localpart any code points but `:` and NUL. Never a bus room; see is_any_room_id.
+DOMAIN_ROOM_ID_PATTERN = rf"![^:\x00]+:{SERVER_NAME_PATTERN}"
+#: The spec's limit on a whole identifier, in UTF-8 bytes.
+MAX_IDENTIFIER_BYTES = 255
 EVENT_ID_PATTERN = r"\$[A-Za-z0-9_-]{43}"
 
 OWNER_PATTERN = r"[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?"
@@ -268,6 +276,7 @@ _SEAT_RE = re.compile(HANDLE_SEAT_PATTERN)
 _TEAM_RE = re.compile(TEAM_NAME_PATTERN)
 _HUMAN_RE = re.compile(HUMAN_LOCALPART_PATTERN)
 _ROOM_ID_RE = re.compile(ROOM_ID_PATTERN)
+_DOMAIN_ROOM_ID_RE = re.compile(DOMAIN_ROOM_ID_PATTERN)
 _EVENT_ID_RE = re.compile(EVENT_ID_PATTERN)
 _BRANCH_RE = re.compile(BRANCH_PATTERN)
 _PATH = rf"{SEG_PATTERN}(?:/{SEG_PATTERN}){{0,{PATH_MAX_SEGMENTS - 1}}}"
@@ -473,7 +482,22 @@ def is_human_localpart(value: object) -> bool:
 
 
 def is_room_id(value: object) -> bool:
+    """A bus room's ID: the room-version-12 shape, the only version the bus creates or adopts."""
     return _full(_ROOM_ID_RE, value) is not None
+
+
+def is_any_room_id(value: object) -> bool:
+    """A room ID of any room version by the Matrix spec: the version-12 shape, or the
+    `!opaque_id:domain` of versions 1-11, at most 255 UTF-8 bytes. For a homeserver's list,
+    which can hold rooms that are not the bus's (Tuwunel's version-11 server admin room)."""
+    if is_room_id(value):
+        return True
+    if _full(_DOMAIN_ROOM_ID_RE, value) is None:
+        return False
+    try:
+        return len(value.encode("utf-8")) <= MAX_IDENTIFIER_BYTES
+    except UnicodeEncodeError:  # a lone surrogate, which the spec excludes
+        return False
 
 
 def is_event_id(value: object) -> bool:

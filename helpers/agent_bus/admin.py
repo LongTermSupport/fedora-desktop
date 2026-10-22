@@ -44,6 +44,7 @@ import re
 import secrets
 import stat
 import string
+import sys
 import tarfile
 import tempfile
 import urllib.error
@@ -411,12 +412,15 @@ class _Api:
         self.call(f"remove {user_id} from {where}", "POST", f"{_CLIENT}/rooms/{_q(room)}/kick",
                   body={"user_id": user_id, "reason": reason})
 
-    def joined_rooms(self) -> list[str]:
+    def joined_rooms(self) -> tuple[list[str], list[str]]:
+        """The admin's joined rooms by the spec's grammar for any room version, split into
+        those that can be bus rooms (version 12) and the rest, such as Tuwunel's own server
+        admin room (version 11), which the caller names. Anything else refuses the answer."""
         _, obj = self.call("list the admin's rooms", "GET", f"{_CLIENT}/joined_rooms")
         rooms = obj.get("joined_rooms")
-        if not isinstance(rooms, list) or not all(protocol.is_room_id(r) for r in rooms):
+        if not isinstance(rooms, list) or not all(protocol.is_any_room_id(r) for r in rooms):
             raise AdminError("list the admin's rooms: the homeserver answered with no list of room IDs")
-        return rooms
+        return [r for r in rooms if protocol.is_room_id(r)], [r for r in rooms if not protocol.is_room_id(r)]
 
     def members(self, room: str) -> dict[str, str]:
         """Every account with a membership event in the room: user ID -> membership."""
@@ -580,7 +584,10 @@ def _canonical(value: object) -> str:
 
 def _created_by_admin(api: _Api, room: str) -> bool:
     """The room's create event: sent by `admin`, version 12, no `additional_creators`."""
-    create = api.state(room, "m.room.create", event=True)
+    return _is_admin_create(api, api.state(room, "m.room.create", event=True))
+
+
+def _is_admin_create(api: _Api, create: dict | None) -> bool:
     content = create.get("content") if create else None
     return (isinstance(content, dict) and create.get("sender") == api.team.admin_id
             and content.get("room_version") == protocol.ROOM_VERSION and "additional_creators" not in content)
@@ -726,8 +733,11 @@ def _handle(user_id: str) -> str:
 
 
 def _is_side_room(api: _Api, room: str, purpose: str, main: str) -> bool:
-    """Created by `admin` and carrying this team's back-link for `purpose` (SPEC §4.2)."""
-    if not _created_by_admin(api, room):
+    """Created by `admin` and carrying this team's back-link for `purpose` (SPEC §4.2). A room
+    whose state the admin may not read (403) is not one it created and is still in."""
+    status, create = api.call("read m.room.create", "GET", _state_path(room, "m.room.create"),
+                              query={"format": "event"}, allow=(403, 404))
+    if status != 200 or not _is_admin_create(api, create):
         return False
     try:
         protocol.check_room_link(api.state(room, protocol.EVENT_ROOM_LINK, event=True), api.team.admin_id,
@@ -755,7 +765,10 @@ def _find_side_room(api: _Api, main: str, purpose: str, changes: list[str]) -> s
             raise AdminError(f"team {team.name}: {_side_room_path(team, purpose)} names {room}, which is not a "
                              f"{purpose} room {team.admin_id} created for this team's room {main}")
         return room
-    joined = api.joined_rooms()
+    joined, earlier = api.joined_rooms()
+    if earlier:
+        print(f"agent-bus: team {team.name}: left aside {len(earlier)} joined room of an earlier room version: "
+              f"{', '.join(earlier)}", file=sys.stderr, flush=True)
     indexed = _current_index(api, main).get(purpose)
     if indexed in joined and _is_side_room(api, indexed, purpose, main):
         found = [indexed]

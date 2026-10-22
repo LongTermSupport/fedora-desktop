@@ -884,6 +884,43 @@ class TestIdentifiers(unittest.TestCase):
                 with self.subTest(kind=prefix, value=value):
                     self.assertEqual(check(value), valid)
 
+    def test_any_room_id_is_the_spec_grammar_for_every_room_version(self) -> None:
+        """Matrix spec appendices, "Room IDs" and "Server Name": a version 1-11 room ID is
+        `!opaque_id:domain` (localpart: any code points but `:` and NUL), the version-12 one
+        has no domain, and the whole is at most 255 bytes. Narrower than this refuses a room
+        a homeserver legitimately holds; wider accepts garbage."""
+        v12 = "!" + "a" * 43
+        cases = [
+            (v12, True),
+            ("!AbCdEfGhIjKlMnOpQr:team-a.agent-bus.internal", True),  # Tuwunel's RoomId::new_v1
+            ("!abc:example.org:8448", True),
+            ("!abc:192.0.2.1", True),
+            ("!abc:[2001:db8::1]:8448", True),
+            ("!x:a", True),
+            ("!ünï\tcode:example.org", True),  # the spec allows any code point but `:` and NUL
+            ("!" + "a" * (255 - 1 - 1 - 11) + ":example.org", True),  # exactly 255 bytes
+            ("!" + "a" * (255 - 11) + ":example.org", False),  # 256 bytes
+            ("!abc", False),
+            ("!:example.org", False),
+            ("!abc:", False),
+            ("!abc:exa mple.org", False),
+            ("!abc:example.org:port", False),
+            ("!abc:example.org:123456", False),
+            ("!a\x00b:example.org", False),
+            ("!a\ud800:example.org", False),
+            ("$abc:example.org", False),
+            ("#abc:example.org", False),
+            ("abc:example.org", False),
+            ("!abc:example.org\n", False),
+            ("", False),
+            (None, False),
+            (["!abc:example.org"], False),
+        ]
+        for value, valid in cases:
+            with self.subTest(value=value):
+                self.assertEqual(p.is_any_room_id(value), valid)
+        self.assertFalse(p.is_room_id("!AbCdEfGhIjKlMnOpQr:team-a.agent-bus.internal"))
+
     def test_owner_repo(self) -> None:
         for value, valid in (("owner/repo", True), ("o-1/r.e_p-o", True), ("owner/.", False),
                              ("owner/..", False), ("owner/repo.git", False), ("Owner/repo", False),

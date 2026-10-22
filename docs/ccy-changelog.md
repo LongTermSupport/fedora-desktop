@@ -17,9 +17,10 @@ Two version numbers move independently — see
 
 ---
 
-## 3.100.0 — container 2.79.0
+## 3.100.1 — container 2.79.1
 
-Follows 3.99.14.12. The image changes, so the next launch rebuilds it once.
+Follows 3.99.14.12 (3.100.0 and container 2.79.0 were never released: the branch took the room-ID
+fix and Go 1.26.10 after them). The image changes, so the next launch rebuilds it once.
 
 - **`ccy --opencode` (or `-oc`) runs opencode instead of Claude Code** (Plan 00215): the image
   carries opencode 1.19.3, pinned by sha256, with sharing and the updater off and its ctrl+z
@@ -28,6 +29,17 @@ Follows 3.99.14.12. The image changes, so the next launch rebuilds it once.
   refused with it. It needs a model provider key file in `~/.claude-tokens/ccy/provider-keys/`,
   handed by name to that container only, and stops before anything starts without one. A launch
   without the flag is byte for byte what it was (the launcher's differential harness).
+
+## 3.99.14.12 — container 2.78.15
+
+Follows 3.99.14.11. The image changes, so the next launch rebuilds it once.
+
+- **The image's pingbus and agent-bus take a homeserver's room IDs of every room version**
+  (Plan 00211). Tuwunel joins each team admin to its own server admin room, which it makes as
+  room version 11 (`!opaque:server`), and the admin's list of joined rooms was refused whole
+  because of it. That list is now checked with the Matrix spec's room-ID grammar, so garbage
+  is still refused, and the rooms that cannot be the bus's are set aside by name. The bus's
+  own rooms stay version 12 only.
 
 ## 3.99.14.11 — container 2.78.14
 
