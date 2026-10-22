@@ -94,6 +94,18 @@ func TestTakeCarriesReleasedMS(t *testing.T) {
 	if _, err := w.tryTake("s2", StateActive); !errors.Is(err, ErrInvalid) {
 		t.Errorf("an undecodable released.json: %v", err)
 	}
+	if err := os.Remove(w.pool().ReleasedRecord()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(w.pool().ReleasedRecord(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(w.pool().Held()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.tryTake("s2", StateActive); err == nil {
+		t.Errorf("a released.json that is a directory was taken as none")
+	}
 }
 
 // ST1: the handle's state decides; a retired seat's pool directory goes to quarantine.

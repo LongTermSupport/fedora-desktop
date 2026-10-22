@@ -66,6 +66,21 @@ func TestCreateAndReplace(t *testing.T) {
 	}
 }
 
+// SW1: a replace never lands over a directory, and no directory is made below a file.
+func TestWritesThatCannotLand(t *testing.T) {
+	d, root := newDir(t)
+	writeFile(t, root+"/f", "one")
+	if err := d.mkdirAll(root + "/dir"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.replace(root+"/dir", []byte("two")); err == nil || mode(t, root+"/dir")&os.ModeDir == 0 {
+		t.Errorf("a replace over a directory: %v", err)
+	}
+	if err := d.mkdirAll(root + "/f/sub"); err == nil {
+		t.Errorf("a directory made below a file")
+	}
+}
+
 // SW2: a link anywhere on a path is refused, never followed, for every operation.
 func TestLinksAreNeverFollowed(t *testing.T) {
 	d, root := newDir(t)

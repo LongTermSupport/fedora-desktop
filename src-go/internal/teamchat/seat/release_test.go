@@ -3,6 +3,7 @@ package seat
 import (
 	"errors"
 	"net/http"
+	"os"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix/fakehs"
@@ -194,6 +195,66 @@ func TestReleaseOfNothingAndOfAnother(t *testing.T) {
 	}
 	if exists(t, w.pool().Held()) {
 		t.Errorf("a broken held/ was kept")
+	}
+}
+
+// SX1, SX4, SL1: a release stops, held/ kept, on a session record it cannot read, a held token
+// that is not a credential, or an allocation lock another holds; the retry completes.
+func TestReleaseStopsOnWhatItCannotRead(t *testing.T) {
+	w := newWorld(t)
+	w.seed()
+	taken := w.take("s1")
+	end := w.keep("s1", lockRecord)
+	w.sessions.fail(errors.New("unreadable record"))
+	if err := w.release("s1", true); err == nil || errors.Is(err, ErrBusy) {
+		t.Errorf("an unreadable session record: %v", err)
+	}
+	w.sessions.fail(nil)
+	end()
+	token := readFile(t, w.pool().HeldToken())
+	if err := os.WriteFile(w.pool().HeldToken(), []byte("two words"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.release("s1", true); !errors.Is(err, ErrInvalid) {
+		t.Errorf("a held token that is not a credential: %v", err)
+	}
+	if !exists(t, w.pool().Held()) || !w.alive(token) {
+		t.Errorf("held/ lost, or the token ended, after a refused retire")
+	}
+	if err := os.WriteFile(w.pool().HeldToken(), []byte(token), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := w.lock()
+	if err := w.release("s1", true); !errors.Is(err, ErrBusy) {
+		t.Errorf("an allocation lock another holds: %v", err)
+	}
+	w.unlock(a)
+	if err := w.release("s1", true); err != nil {
+		t.Fatal(err)
+	}
+	if exists(t, w.pool().Held()) || w.alive(token) || !exists(t, w.releasedPool(taken)+"/held.json") {
+		t.Errorf("the retried release did not complete")
+	}
+}
+
+// SD2, SD3: Announce for a seat another session holds is ErrHeld, and a notice.json that is
+// not a regular file stops it before the announcer is asked.
+func TestAnnounceRefusals(t *testing.T) {
+	w := newWorld(t)
+	w.seed()
+	w.take("s1")
+	w.keep("s1", lockRecord)()
+	if err := w.store.Announce(t.Context(), w.seat, mustSession(t, "s2")); !errors.Is(err, ErrHeld) {
+		t.Errorf("another session's seat: %v", err)
+	}
+	if err := os.Mkdir(w.pool().HeldNotice(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.store.Announce(t.Context(), w.seat, mustSession(t, "s1")); err == nil {
+		t.Errorf("a notice.json that is a directory was taken")
+	}
+	if len(w.notices.calls()) != 0 {
+		t.Errorf("the announcer was asked: %v", w.notices.calls())
 	}
 }
 
