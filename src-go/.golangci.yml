@@ -279,6 +279,12 @@ linters:
       - path: internal/teamchat/seat/.*_test\.go
         linters: [gosec]
         text: "G301|G302|G304|G306"
+      # The Element profiles refuse a consent others can read and put back a profile directory
+      # others can enter (SPEC-n2e.md EL3, EL4); their tests build those states, and read back
+      # what was written under a temporary home.
+      - path: internal/teamchat/element/.*_test\.go
+        linters: [gosec]
+        text: "G302|G304"
   settings:
     tagliatelle:
       case:
