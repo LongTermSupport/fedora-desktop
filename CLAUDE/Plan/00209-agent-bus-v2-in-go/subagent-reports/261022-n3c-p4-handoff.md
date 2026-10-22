@@ -1,31 +1,61 @@
 # n3c P4 handoff: the link and the engine (Plan 00209 N3, slice n3c)
 
-The first P4 builder stopped at its context budget. This file is the state of the work and
+Two P4 builders have stopped at their context budget. This file is the state of the work and
 everything the next builder needs. Read the common rules (`untracked/scratch/n3c-part-common.txt`),
-section 5 of `261022-n3c-handoff.md` with 8a and section 9, and `261022-n3c-p2.md`, as the first
-builder did. Do not re-read the design chapters. This file holds what they gave.
+section 5 of `261022-n3c-handoff.md` with 8a and section 9, and `261022-n3c-p2.md`. Do not
+re-read the design chapters, and do not re-read the engine's source: its API is below.
 
 ## State
 
-Branch `feat/bus-v2-n3c-p4`, worktree `/workspace/untracked/worktrees/bus-v2-n3c-p4`. One WIP
-commit after 1964da450:
+Branch `feat/bus-v2-n3c-p4`, worktree `/workspace/untracked/worktrees/bus-v2-n3c-p4`.
 
-- `src-go/internal/teamchat/member/engine/`: `engine.go`, `teams.go`, `seam.go`, `recv.go`,
-  `render.go`, `status.go`, `serve.go`. It **compiles** (`go vet` is clean).
-  - It is **not lint-clean**. The open findings:
-    - gocognit: `handOut`, `settle`, `Persist` and `status`. Split them into helpers.
-    - contextcheck: `teams.go` Add's `e.start` inside `do`. Pass ctx through, or restructure.
-    - govet shadow: `teams.go` `load`, `if b, err := e.readBundle`.
-    - ineffassign: `serve.go` `internal()`. Drop the dead nil branch and simply ignore err:
-      the message is a fixed template.
-    - modernize: two `maps.Copy` in `seam.go`.
-    - gofumpt: `status.go`.
-  - It has **no tests** yet. `engine_test.go` holds one placeholder. Coverage of 90% is still
-    owed.
-- `records.Team` gains `Counts records.TeamCounts` (`json:"counts"`, the fields ignored, dropped,
-  unheard, gaps, redacted and seen_twice), for LN5's per-team counts. Its records test line is
-  updated, and `go test ./internal/teamchat/member/records` passes.
-- `link` is **not started**.
+- **The engine is done** (commit 3baeb2a1c). Its tests give 94.2% coverage with `-race` and
+  `-shuffle=on`. golangci is clean with and without `--build-tags tuwunel`, and qa-changed is
+  green. The test world is `engine/engine_test.go` (`newWorld`, the fake team, notices and ends,
+  the `recorder`), and the link's tests can copy it. The tests found two defects, now fixed and
+  covered:
+
+  - `Persist` woke the waits off the state goroutine (a data race on the waiter list).
+  - `Persist` kept a batch's content and counts before its write, so a refused batch was
+    counted twice on its retry.
+
+  The other changes:
+
+  - `do` refuses a context that has already ended. Before, `select` chose at random between
+    the two ready cases, and an expired request could still act.
+  - The team goroutine's context is `context.WithoutCancel` of the add's ctx.
+  - `status` now flushes its records.
+  - The hand-out writes its stores in team order (go-qa's map-range-order analyzer).
+
+- **n3c-D24 is done** (8373cf4e7, 383ba4694): `wire.Launch.Seats` (`json:"seats"`, a negative
+  count is a schema error). `control.go` is byte for byte P3's acbbacaa0 hunk, so the two
+  branches merge cleanly. `control_test.go` also has `Seats: 2` in one good launch, a separate
+  hunk.
+
+- `records.Team.Counts` is as before (seen_twice 0 until n3e).
+
+- **The link is not started.** It is all that is left. See "Left to do" item 2 below; item 1
+  is done.
+
+- P3's keeper is on `feat/bus-v2-n3c-p3`. Its link contract is in its handoff
+  (`git show feat/bus-v2-n3c-p3:CLAUDE/Plan/00209-agent-bus-v2-in-go/subagent-reports/261022-n3c-p3-handoff.md`,
+  lines 155-222). It starts the link:
+
+  - as `<kit>/bin/teamchat link --run <dir>`, in its own session;
+  - with stdout and stderr on `link.log`;
+  - with fd 3 the link's end of `wire.Pair`;
+  - with env `PATH=<kit>/bin:$PATH` and `TEAMCHAT_KIT=<kit>`.
+
+  It sends, in order:
+
+  - `launch` (with seats);
+  - each `owed`;
+  - each held seat's `add`, with the descriptor;
+  - `pid`, `claude`, and `token` when known.
+
+  An end-only start sends `launch`, the adds and `end`. It waits 30 s for `ready`. At a stop
+  it sends `end` and kills the link 5 s later. If `removed` has not come 10 s after `remove`,
+  it kills the link.
 
 ## The engine as written (exported API; change it only by recording why)
 
@@ -191,20 +221,9 @@ Record n3c-D24 in the part report.
 
 ## Left to do
 
-1. Clear the engine's lint findings (above). Write its tests to 90%+ with `-race`. Use a fake
-   team, fake notices and `clock.Fake`. The worlds to copy are `bundle_test.go` `newWorld` and
-   `state/writer_test.go` `heldSeat` (`lock.TakeKeeper` on the run root, then `TakeSeat` on the
-   state root).
-   - Cover: the restore of handed items at Add, and a refused store; the caps at 8 and 9 items,
-     and at 12 KiB exactly and one byte over; an ack lost, late, on a closed connection, and
-     for a removed team.
-   - Cover the re-fetch: it passes; it is dropped by its verdict; it is dropped by the floor; an
-     offline team holds no other team's items (the fake blocks in Refetch until ctx ends;
-     advance the fake clock 2 s).
-   - Cover wait blocking until Persist, and wait's timeout; inbox; status and status.json;
-     Remove (the flush, the store deleted, the lock closed, ErrRemoved afterwards, a team that
-     ignores its cancel bounded at 2 s); View's Related and OwnPings; Load creating the store;
-     BeginRun, SetEnded, ResetPosition; verify, history and the unbuilt ops.
+1. The engine's lint and tests are done (see State). Every case this item listed is covered.
+   An ack that comes late is the link's 10 s timer, so its test belongs with the link: the
+   engine's side, a Return and then the late Ack delivering nothing, is covered.
 2. Build `internal/teamchat/member/link` (brief section 5 and 8a). Its parts:
    - `Main(cli.Env, cli.Invocation)`: fd 3 is SOCK_SEQPACKET and its peer pid is `getppid()`.
    - `Run(ctx, Config)`: `lock.TakeLink`, 78 if held; pidfd on the parent, then re-check
