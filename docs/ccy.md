@@ -1677,9 +1677,10 @@ banner prints it verbatim, so it must stay short.
 ### The Go front and `CCY_LEGACY`
 
 The launcher is being ported to Go one flag at a time (Plan 00191). `/var/local/claude-yolo/claude-yolo`
-is a Go program that answers `--version`, `--help`, `--list-tokens` (on its own) and
-`--token-usage [--json]` itself, with the bash launcher's output (and the same JSON document,
-usage cache and API call, the token fed to curl on its stdin), and runs the bash launcher,
+is a Go program that answers `--version`, `--help`, `--list-tokens` (on its own),
+`--token-usage [--json]`, `--prevent` and `--export-token NAME` itself, with the bash launcher's
+output (and the same JSON document, usage cache and API call, the token fed to curl on its
+stdin; for the last two, the same `.claude/ccy/` set-up first), and runs the bash launcher,
 installed beside it as `claude-yolo.bash`, for everything else, with the same arguments and
 environment plus `CCY_LAUNCHER_FRONT`, its own path. The bash launcher reads that once, takes
 it only if it is the `claude-yolo` beside it, and unsets it before it starts tmux, the engine
@@ -1689,10 +1690,12 @@ again. Both carry the same `CCY_VERSION`; the Go program refuses `--version` and
 `--help` if they differ (re-run `play-claude-yolo.yml`), and hands its other flags to the bash;
 `Hash:` is the bash launcher's own hash, the one Quick Launch files keep. Wherever the bash
 could read a token file, setting or cache entry with another meaning (an undated or unusual
-token file name, a setting outside plain ASCII), the Go program hands that run to the bash as
-well. In display it is its own: the token list is in plain byte order and coloured only on a
-terminal (`NO_COLOR` turns colour off), whatever the locale; the package doc of
-`src-go/internal/ccylaunch` lists each such difference (D1 to D9).
+token file name, a setting outside plain ASCII) or could ask, refuse or warn in the checkout
+(old session directories, an `allowed-hostnames` file, a custom Dockerfile, a tracked file that
+must not be), the Go program hands that run to the bash as well. `ccy --top` and `ccy --export-token` with no name are always the bash's. In display it is its own: the token list is
+in plain byte order, and it and the warnings are coloured only on a terminal (`NO_COLOR` turns
+colour off), whatever the locale; the package doc of `src-go/internal/ccylaunch` lists each such
+difference (D1 to D11).
 
 If the Go program misbehaves, run any `ccy` command with **`CCY_LEGACY=1`** (for example
 `CCY_LEGACY=1 ccy --version`, or `export CCY_LEGACY=1` in your shell) and every run goes

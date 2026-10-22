@@ -61,6 +61,26 @@
 //     `on` that a fixed argument or the start of a temporary name holds: the bash sends it,
 //     execx refuses to), a cache that is not a directory or an entry that is not a regular file
 //     or not printable ASCII. Every hand-over is decided before anything is printed or written.
+//   - F12. `--prevent` alone, and `--export-token NAME`, run first what the bash runs in the
+//     checkout before them (inrepo.go): the .gitignore of .claude/ccy written when it lacks its
+//     ignore-everything line, its two exceptions appended, the tracked ccy.env.local.dist
+//     template kept at this version's text (a newer ccy's left as it is), a ccy.env.local whose
+//     based-on line is missing or older warned of, and the token directories made 0700, with the
+//     bash's words, files and texts (the texts held to the library by a test). It hands over
+//     wherever the bash's prelude would ask, refuse or read otherwise: not at a repository's
+//     root, a restart's mark, CCY_MAX_AGE or a carried deadline set, HOME not a clean absolute
+//     path, an entry of .claude/ccy, the checkout or the token store that is not the kind of file
+//     the bash expects, holds a NUL or a version number too long for its arithmetic, old session
+//     directories, an allowed-hostnames file (a hostname check, or --prevent's "already
+//     disabled"), a custom Dockerfile, or git unable to list, or listing a tracked file under
+//     .claude/ccy that the bash refuses. --prevent then appends never to allowed-hostnames.
+//   - F13. `--export-token NAME` (the interactive export, with no name, stays the bash's: it is a
+//     read loop) prints the import script of the name's latest file, the token in it because
+//     printing it is the flag's purpose (exportBody, held to the library by a test); the token
+//     reaches no argv, environment or log. Not found, expired, empty or holding a quote is the
+//     bash's error and exit 1, the pool listed after "not found". It hands over for a name outside
+//     the token grammar, a file the bash's glob of the name matches that is not one of the name's
+//     dated files, or a chosen token unreadable or holding a NUL.
 //
 // Intended divergences from the bash, where it only replicated incidental behaviour that the
 // goldens (C locale, UTC, a pinned clock) do not exercise; each goes when the bash retires:
@@ -76,7 +96,8 @@
 //     between two local midnights and truncates, so on a day the clocks change a date on a
 //     colour boundary (15 days, 1 day) can be coloured one band otherwise.
 //   - D4. The local zone is Go's reading of TZ (an unknown zone is UTC; ZONEINFO, not TZDIR);
-//     the bash's date is glibc's. It changes only the printed zone of a reset and D3's count.
+//     the bash's date is glibc's. It changes only the printed zone of a reset, an export's
+//     `Generated:` time and D3's count.
 //   - D5. The listing's `File:` lines are printed as filepath.Join makes them (a doubled or
 //     trailing slash in HOME cleaned), where the bash prints them as built; its `Token
 //     storage:` line, and every other path, is printed as built, as the bash prints it.
@@ -91,6 +112,12 @@
 //     9999 otherwise or not at all.
 //   - D9. A rate-limit header holding a byte outside printable ASCII is not read (no figure);
 //     the bash lower-cases and prints it by the locale.
+//   - D10. The prelude's yellow warnings and an error's red `ERROR:` are coloured only when
+//     their stream is a terminal and NO_COLOR is unset, as D2 colours the listing; the bash
+//     colours whatever the stream. The harness allows exactly this in export-token-missing.
+//   - D11. A write the prelude or a flag cannot make (a read-only checkout, a full disk) ends the
+//     run with exit 1, naming it; the bash prints its own error, and whether it goes on depends
+//     on the step.
 //
 // The front tells the time by its Clock: the machine's (SystemClock) in the installed program;
 // the differential harness's pinned clock only in a build with the difftest tag.
@@ -162,7 +189,8 @@ type Front struct {
 	Execer   execx.Execer
 	Stdout   io.Writer
 	Stderr   io.Writer
-	Clock    Clock // the time it answers by; the system's when nil
+	Clock    Clock  // the time it answers by; the system's when nil
+	Dir      string // the directory the run starts in, the checkout's root; the process's own when ""
 	// IsTerminal reports whether a stream is a terminal (the listing's colour, T3);
 	// term.FileIsTerminal when nil.
 	IsTerminal func(any) bool
@@ -224,6 +252,8 @@ const (
 	flagHelp
 	flagListTokens
 	flagTokenUsage
+	flagPrevent
+	flagExportToken
 )
 
 // flagOf is the run the arguments ask for, among those the front answers.
@@ -242,14 +272,30 @@ func flagOf(args []string) flagKind {
 		}
 	case "--token-usage":
 		return flagTokenUsage
+	case "--prevent":
+		if len(args) == 1 {
+			return flagPrevent
+		}
+	case "--export-token":
+		if len(args) == 2 && args[1] != "--" {
+			return flagExportToken
+		}
 	}
 	return flagNone
 }
 
+// listTools are the programs the bash's list_tokens runs.
+var listTools = []string{"date", "ls", "basename"}
+
+// inRepoTools are the programs the bash's in-repo prelude runs (F12), beyond bashTools.
+var inRepoTools = []string{"git", "mkdir", "chmod", "tr", "sed", "awk", "basename"}
+
 // flagTools are the programs the bash launcher runs to answer the flag, beyond bashTools.
 var flagTools = map[flagKind][]string{
-	flagListTokens: {"date", "ls", "basename"},
-	flagTokenUsage: {"date", "stat", "mktemp", "cat", "mv", "rm", "chmod", "mkdir", "dirname", "awk", "basename"},
+	flagListTokens:  listTools,
+	flagTokenUsage:  slices.Concat(listTools, []string{"stat", "mktemp", "mv", "rm", "chmod", "mkdir", "awk"}),
+	flagPrevent:     inRepoTools,
+	flagExportToken: slices.Concat(inRepoTools, listTools),
 }
 
 // answer runs a flag the front answers past --version and --help: its exit code, or why the
@@ -261,6 +307,10 @@ func (f Front) answer(ctx context.Context, flag flagKind) (term.ExitCode, string
 		return f.listTokens()
 	case flagTokenUsage:
 		return f.tokenUsage(ctx)
+	case flagPrevent:
+		return f.prevent(ctx)
+	case flagExportToken:
+		return f.exportToken(ctx)
 	case flagNone, flagVersion, flagHelp:
 	}
 	return term.ExitFailure, "not a flag the front answers"

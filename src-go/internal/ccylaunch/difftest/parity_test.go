@@ -121,6 +121,7 @@ func matchGoldens(t *testing.T, m matrix, l launcher, scenarios []scenario) {
 var colourAllowance = []struct{ scenario, reason string }{
 	{"list-tokens-one", "the Go front colours the expiry only on a terminal (ccylaunch D2)"},
 	{"list-tokens-states", "the Go front colours the expiry only on a terminal (ccylaunch D2)"},
+	{"export-token-missing", "the Go front colours the listing and the error's ERROR: only on a terminal (ccylaunch D2, D10)"},
 }
 
 // sgr is a colour escape sequence.
@@ -214,6 +215,7 @@ var frontAnswers = []string{
 	"list-tokens-bare", "list-tokens-one", "list-tokens-states",
 	"token-usage-no-tokens", "token-usage-expired-only", "token-usage-disabled", "token-usage-bad-option",
 	"token-usage-table", "token-usage-json", "token-usage-api-down",
+	"prevent", "export-token-named", "export-token-missing",
 }
 
 // frontAnswerLines are the bash launcher's lines that answer frontAnswers, each in its text once:
@@ -223,6 +225,8 @@ var frontAnswerLines = []string{
 	"Claude Code YOLO Mode (ccy) - Container-based execution with --dangerously-skip-permissions",
 	"if [ \"$#\" -eq 1 ] && [ \"$1\" = \"--list-tokens\" ]; then\n    list_tokens \"$TOKEN_DIR\" \"ccy\"",
 	`usage_report "$TOKEN_DIR" "$@" || ccy_token_usage_rc=$?`,
+	`echo "never" >> "$allowed_file"`,
+	`export_token "$TOKEN_DIR" "$EXPORT_TOKEN_NAME"`,
 }
 
 // TestFrontAnswersItself proves the front's answers are its own: with the bash launcher's

@@ -434,7 +434,7 @@ today; rewriting them is out of scope.
     exported environment variable (same-user threat model only); a hand-off file holding
     only a newline is removed with no message (test the value read, not `read`'s status);
     the changelog line on a refused base should say the error lists the four bases.
-- [ ] 🔄 **Task 4.5**: Launcher phases 1 and 2: the foundation packages, then `--version`,
+- [x] ✅ **Task 4.5**: Launcher phases 1 and 2: the foundation packages, then `--version`,
   `--help` and the other standalone modes, each a one-flag cut-over.
   - Phase 1 built (nothing cut over or installed, no play change, no CCY bump), each package
     to the intended behaviour its package doc numbers, test first, bash suites' cases ported
@@ -581,9 +581,28 @@ today; rewriting them is out of scope.
       hand-over remains after the fetch, so the comment is true; 5, `Front.Dir` removed; 7,
       `GLOBSORT` added to `shellEnv` (the host's bash is 5.3, per Plan 00138's research). The
       harness names its one allowance, colour, for `list-tokens-one` and `list-tokens-states`
-      (`colourAllowance`), and its temp-name mark takes Go's digits. Left, in the same style:
-      `--prevent` and the named `--export-token NAME` (they need the in-repo prelude). Stay in
-      bash: `--top` and the interactive `--export-token` (read loops that need a terminal).
+      (`colourAllowance`), and its temp-name mark takes Go's digits.
+      CCY 3.99.14.8, review 2 (`subagent-reports/261022-launcher-token-flags-review-2-opus.md`,
+      MERGE) findings 2 to 5: the temporary-name source is injected (`Front.CreateTemp`), so the
+      retry and the 64-try failure are pinned deterministically under `t.TempDir()`; the names'
+      prefix is built as `os.CreateTemp` builds it (an unclean `TMPDIR` with a junk token hands
+      over instead of exit 1); `colourAllowance` requires Go output with no colour at all and is
+      never given to a bash launcher, however `LAUNCHER` names it (`isBash` reads the shebang);
+      D5 corrected.
+      CCY 3.99.14.9, `--prevent` alone (F12) and `--export-token NAME` (F13) in the same style:
+      the in-repo prelude (`inrepo.go`: `.gitignore`, dist and `ccy.env.local` checks, token
+      directories; its texts and the export body held to the libraries by a test), new
+      `gitx.TrackedUnder`; hand-over wherever the bash's prelude asks, refuses or reads otherwise
+      (F12 lists them), decided before anything is written; declared D10 (warning and error
+      colour only on a terminal; `export-token-missing` joins the allowance) and D11 (a failed
+      write is exit 1). Difftest: `TestLauncherParity` green against bash and `LAUNCHER=` a
+      `-tags difftest` build, `TestFrontParity` green, `TestFrontAnswersItself` now covers
+      `prevent`, `export-token-named` and `export-token-missing`; `ccylaunch` coverage 94.6%.
+      Stay in bash: `--top` and the interactive `--export-token` (read loops that need a
+      terminal).
+    - Phase 2 done: every standalone flag that needs no terminal is the front's. Phases 3 to 5
+      (the launch path itself: argument parsing, the prelude for a real launch, then the rest)
+      wait for the owner, per the D4/D10 default.
     - Follow-up, not fixed: the project handler test
       `test_matches_write_to_root_claude_projects_returns_false` in
       `.claude/hooks/handlers/pre_tool_use/tests/test_system_paths.py` already fails on F44
