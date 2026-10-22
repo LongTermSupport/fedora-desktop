@@ -28,6 +28,13 @@ const (
 	keyClaim   = "claim"
 )
 
+const (
+	// MaxBundle is the cap on a seat.json a reader takes, every record's.
+	MaxBundle = maxRecord
+	// MaxSecret is the cap on a credential ParseSecret takes.
+	MaxSecret = maxSecret
+)
+
 // Bundle is a seat's seat.json in the pool's form (C 3.7.2): no claim and no release time.
 type Bundle struct {
 	V              int          `json:"v"`
@@ -99,6 +106,36 @@ func DecodeHeldBundle(data []byte) (HeldBundle, error) {
 		return HeldBundle{}, err
 	}
 	return h, h.check()
+}
+
+// MemberBundle is seat.json as a member's seat directory holds it: a guest's pool form, or a
+// session's held form, which Held is then (nil for a guest's). Bundle is the pool fields of
+// either.
+type MemberBundle struct {
+	Bundle Bundle
+	Held   *HeldBundle
+}
+
+// DecodeMemberBundle reads a member's seat.json in exactly one of the two shapes seat writes
+// (SPEC-n3 MS3), chosen by the claim key: with one it is a held seat.json, without one a pool
+// seat.json, each decoded strictly.
+func DecodeMemberBundle(data []byte) (MemberBundle, error) {
+	v, err := proto.Parse(data)
+	if err != nil || v.Kind() != proto.KindObject {
+		return MemberBundle{}, invalid("seat.json: not a JSON object")
+	}
+	if _, held := v.Get(keyClaim); !held {
+		b, poolErr := DecodeBundle(data)
+		if poolErr != nil {
+			return MemberBundle{}, poolErr
+		}
+		return MemberBundle{Bundle: b}, nil
+	}
+	h, heldErr := DecodeHeldBundle(data)
+	if heldErr != nil {
+		return MemberBundle{}, heldErr
+	}
+	return MemberBundle{Bundle: h.Bundle, Held: &h}, nil
 }
 
 func (h HeldBundle) check() error {

@@ -328,3 +328,37 @@ func TestHandleOfUndecodedBundlePanics(t *testing.T) {
 	}()
 	t.Errorf("Handle answered %v", Bundle{}.Handle())
 }
+
+// SPEC-n3 gap 3: a member reads exactly the two seat.json shapes seat writes, a guest's pool
+// form and a session's held form, chosen by the claim key; nothing in between decodes.
+func TestDecodeMemberBundle(t *testing.T) {
+	pool, err := testBundle(t).Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	guest, err := DecodeMemberBundle(pool)
+	if err != nil || guest.Held != nil || encode(t, guest.Bundle) != encode(t, testBundle(t)) {
+		t.Errorf("a guest's seat.json: %+v, %v", guest, err)
+	}
+	h := HeldBundle{Bundle: testBundle(t), Claim: mustClaim(t, "ffeeddccbbaa9988"), ReleasedMS: new(int64(7))}
+	heldData, err := h.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, err := DecodeMemberBundle(heldData)
+	if err != nil || held.Held == nil || encode(t, *held.Held) != encode(t, h) || encode(t, held.Bundle) != encode(t, h.Bundle) {
+		t.Errorf("a session's seat.json: %+v, %v", held, err)
+	}
+	for name, data := range map[string][]byte{
+		"released_ms without a claim":  reshape(t, string(pool), "released_ms", "1"),
+		"a claim without released_ms":  reshape(t, string(pool), "claim", `"00112233aabbccdd"`),
+		"a held form with another key": reshape(t, string(heldData), "extra", "1"),
+		"a held form failing a check":  reshape(t, string(heldData), "device_id", `"OTHER"`),
+		"not an object":                []byte(`[]`),
+		"not JSON":                     []byte(`{`),
+	} {
+		if _, err := DecodeMemberBundle(data); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
