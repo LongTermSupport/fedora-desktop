@@ -114,7 +114,8 @@ Numbers are cited by the tests.
   `unicode-escape`, which Jinja uses, keeps an unknown escape). A `regex_search` group argument
   must receive exactly 1; any other argument an odd number. Not read (known limits, Plan
   00191): the free-form and `args:` forms of debug's `var`, the tests `match`/`search`/`regex`,
-  YAML aliases (judged only where the anchor is defined) and mapping keys. Output `  ERROR (regex-backref-escape): <path>:<n>: <filter> [group ]argument <literal> reaches the filter as <what>; in a <style> scalar's <context> write <fix>` (`<context>` one of `{{ }}`, `{% %}`, `conditional`, `bare expression`; `<n>` the scalar's
+  YAML aliases (judged only where the anchor is defined) and mapping keys; and an even count
+  before a digit in a pattern is always flagged, even where a literal backslash was meant. Output `  ERROR (regex-backref-escape): <path>:<n>: <filter> [group ]argument <literal> reaches the filter as <what>; in a <style> scalar's <context> write <fix>` (`<context>` one of `{{ }}`, `{% %}`, `conditional`, `bare expression`; `<n>` the scalar's
   first line, the literal and the fix as written in the file) and `    Why and how to fix: CLAUDE/QA.md#regex-backref-escape`. A file the YAML library cannot parse is one finding at the
   line its error names (else 1), `<path>:<n>: cannot be parsed as YAML, so its backreferences cannot be judged: <error>`; the other checks still read it as text (E9).
 

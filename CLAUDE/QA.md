@@ -917,7 +917,7 @@ backslashes. This covers the filter form and the by-name form (`map('regex_repla
 Run by `qa-ansible.bash` over the YAML under `playbooks/ tasks/ vars/ environment/ roles/`. A
 file the YAML library cannot parse is reported too, so its backreferences are never skipped
 silently. Not read: the free-form `debug: var=...` and `args:` forms, the tests `match`,
-`search` and `regex`, YAML aliases and templated mapping keys.
+`search` and `regex`, YAML aliases and mapping keys.
 
 **Why it exists.** A group argument of `regex_search` must arrive as exactly one backslash
 and the digit. Two backslashes fail the task with `'NoneType' object has no attribute 'group'`.
