@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00217-team-colours-in-the-status-line](00217-team-colours-in-the-status-line/) - In Progress. Each agent team on the status line in its own colour: an automatic one from the team's name, in a palette legible on dark terminals (WCAG AA, tested), and a `colour:` override per team carried to every member as admin room state; Go and Python status lines changed together, parity oracle re-recorded
+
 - [00214-update-all-changed-plays](00214-update-all-changed-plays/) - In Progress. One command clears every stale play (#110): the health report and `run.bash --changed` share one judgement of which plays have to run again, the report and startup notice print this checkout's `run.bash --changed`, and meta-deploy gains a `changed-plays` entry
 
 - [00216-ccy-image-build-lock](00216-ccy-image-build-lock/) - In Progress. Only one ccy image build at a time: a launch waits for another's build of the same image and uses it (a kernel flock per image, no timeout, progress on stderr), and `ccy --build-lock` shows and stops a hung build
