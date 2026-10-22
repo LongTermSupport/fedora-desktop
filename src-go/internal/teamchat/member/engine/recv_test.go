@@ -3,10 +3,13 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
@@ -206,6 +209,64 @@ func TestARefetchThatFailsKeepsTheItemPending(t *testing.T) {
 	}
 }
 
+// A1: a restored item the server will never serve again (404, 403) is dropped with its reason,
+// and the team's later restored items are still re-fetched and delivered.
+func TestARestoredItemThatIsGoneIsDroppedAndHoldsNothing(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	s := w.newStore(ops)
+	s.Pending = []state.Pending{humanItem(ops, 1, 100, "").Pending, humanItem(ops, 2, 200, "").Pending}
+	f := w.add(ops, encodeStore(t, s))
+	f.mu.Lock()
+	f.refetchErrs = map[string]error{evID(1): fmt.Errorf("%w: not found", team.ErrItemGone)}
+	f.mu.Unlock()
+	f.setVerdict(evID(2), humanItem(ops, 2, 200, "kept").Verdict)
+	d, out := w.serve(t.Context(), wire.OpRecv, wire.TeamsArgs{})
+	if d.Ack == "" || out.kinds() != "human" {
+		t.Fatalf("recv = %+v %s", d, out.kinds())
+	}
+	if p := w.store(ops).Pending; len(p) != 1 || p[0].ID != evID(2) {
+		t.Fatalf("pending = %+v", p)
+	}
+	if got := w.store(ops).Sync.FloorMS[proto.PurposeMain]; got != 199 {
+		t.Fatalf("floor %d after the drop", got)
+	}
+	if !strings.Contains(w.log.String(), "restored item "+evID(1)+" dropped: it can no longer be fetched") {
+		t.Fatalf("link.log = %q", w.log.String())
+	}
+}
+
+// A4 (B 2.3.2): an ack that leaves the store owing less raises the floor, to just below the
+// oldest item still owed, or to the newest settled item when it owes none, and tells the team
+// goroutine, so a quiet room's marker follows.
+func TestAnAckRaisesTheFloor(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	f := w.held(ops)
+	first := team.Batch{Team: ops, NextBatch: "s1", Floors: map[string]int64{proto.PurposeMain: 500}, Items: []team.Item{humanItem(ops, 1, 100, "a")}}
+	if got := w.persistBatch(first); got != 99 {
+		t.Fatalf("floor %d", got)
+	}
+	ack1 := w.done(wire.OpRecv, wire.TeamsArgs{}).Ack
+	w.persist(ops, humanItem(ops, 2, 200, "b"))
+	check(t, w.e.Ack(t.Context(), ack1))
+	if got := w.store(ops).Sync.FloorMS[proto.PurposeMain]; got != 199 {
+		t.Fatalf("floor after the first ack %d", got)
+	}
+	ack2 := w.done(wire.OpRecv, wire.TeamsArgs{}).Ack
+	check(t, w.e.Ack(t.Context(), ack2))
+	if got := w.store(ops).Sync.FloorMS[proto.PurposeMain]; got != 200 {
+		t.Fatalf("floor after the last ack %d", got)
+	}
+	check(t, w.e.Return(t.Context(), "ffffffff"))
+	f.mu.Lock()
+	raised := slices.Clone(f.raised)
+	f.mu.Unlock()
+	if !slices.Equal(raised, []int64{199, 200}) {
+		t.Fatalf("FloorRaised %v", raised)
+	}
+}
+
 func TestAnOfflineTeamHoldsNoOtherTeamsItems(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
 	ops, dev := tid(t, "ops"), tid(t, "dev")
@@ -254,7 +315,34 @@ func TestWaitSleepsUntilAnItemIsPersisted(t *testing.T) {
 	}
 }
 
-func TestWaitAtItsDeadlineAnswersWithNothing(t *testing.T) {
+// N1: items returned to pending wake a wait that found everything handed, so an abandoned
+// waiter that took them cannot leave a live one asleep past them.
+func TestAReturnWakesAWait(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	w.held(ops)
+	w.persist(ops, items(ops, 1)...)
+	abandoned := w.done(wire.OpRecv, wire.TeamsArgs{})
+	got := make(chan wire.Done, 1)
+	out := &recorder{}
+	go func() {
+		got <- w.e.Serve(t.Context(), wire.Request{Op: wire.OpWait, Args: []byte(`{"team":null,"timeout_s":10}`)}, out)
+	}()
+	w.until(func() bool { return len(w.e.waiters) == 1 })
+	var asleep chan struct{}
+	w.local(func() { asleep = w.e.waiters[0] })
+	check(t, w.e.Return(t.Context(), abandoned.Ack))
+	select {
+	case <-asleep:
+	default:
+		t.Fatal("the wait still sleeps after the return")
+	}
+	if d := <-got; d.Ack == "" || out.kinds() != "human" {
+		t.Fatalf("wait = %+v %s", d, out.kinds())
+	}
+}
+
+func TestWaitAtItsDeadlineTimesOut(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
 	ops := tid(t, "ops")
 	w.held(ops)
@@ -266,10 +354,10 @@ func TestWaitAtItsDeadlineAnswersWithNothing(t *testing.T) {
 	}()
 	w.until(func() bool { return len(w.e.waiters) == 1 })
 	cancel()
-	if d := <-got; d != (wire.Done{}) || len(out.recs) != 0 {
+	if d := <-got; d.Exit != int(exits.ExitTimedOut) || d.Error == nil || d.Error.Code != exits.CodeTimedOut || d.Error.Team != nil || len(out.recs) != 0 {
 		t.Fatalf("wait at its deadline = %+v %s", d, out.kinds())
 	}
-	if d := done(ctx, errors.New("x")); d != (wire.Done{}) {
+	if d := done(ctx, errors.New("x")); d.Exit != int(exits.ExitTimedOut) {
 		t.Fatalf("done at the deadline = %+v", d)
 	}
 	if d := done(t.Context(), errors.New("x")); d.Exit != 1 {

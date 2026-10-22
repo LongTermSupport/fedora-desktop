@@ -267,6 +267,7 @@ func layoutNames(t *testing.T) map[string][]string {
 			"Layout.DesiredFile":      {l.DesiredFile()},
 			"Layout.ConversationFile": {l.ConversationFile()},
 			"Layout.Run":              {r.Dir()},
+			"Layout.Staging":          {l.Staging(4242, 9876).Dir()},
 			"Run.Dir":                 {r.Dir()},
 			"Layout.KitRoot":          {l.KitRoot()},
 			"Layout.CurrentKit":       {l.CurrentKit().String()},

@@ -10,6 +10,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix/fakehs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
 // markerPuts counts the PUTs of the floor marker fakehs received.
@@ -44,24 +45,94 @@ func TestTheFloorMarkerIsCoalesced(t *testing.T) {
 	r := w.start()
 	w.batch()
 	r.poll(t)
-	first := w.later("one")
+	first := w.quiet("one")
 	w.batch()
 	r.poll(t)
 	if f := w.marker(); f != w.ts(first) || w.markerPuts() != 1 {
 		t.Fatalf("marker %d, %d puts", f, w.markerPuts())
 	}
-	w.later("two")
+	w.quiet("two")
 	w.batch()
 	r.poll(t)
 	if n := w.markerPuts(); n != 1 {
 		t.Errorf("%d puts within 10 s", n)
 	}
 	w.clk.Advance(floorPutGap)
-	third := w.later("three")
+	third := w.quiet("three")
 	w.batch()
 	r.poll(t)
 	if f := w.marker(); f != w.ts(third) || w.markerPuts() != 2 {
 		t.Errorf("marker %d, %d puts", f, w.markerPuts())
+	}
+}
+
+// SY10, A2: a session that starts from a store floor the marker may not hold puts it after its
+// first answer, though the floor did not move in this session (the last link may have ended,
+// or been killed, before its coalesced put).
+func TestASessionPutsTheFloorItStartsFrom(t *testing.T) {
+	w := newWorld(t)
+	q := w.quiet("before the restart")
+	w.eng.preload(user(me), runID(t, linkRun), "", w.roster.RestoreEpoch)
+	w.eng.mu.Lock()
+	w.eng.store.Sync.FloorMS = map[string]int64{proto.PurposeMain: w.ts(q)}
+	w.eng.mu.Unlock()
+	r := w.start()
+	w.batch()
+	r.poll(t)
+	if f := w.marker(); f != w.ts(q) || w.markerPuts() != 1 {
+		t.Fatalf("marker %d, %d puts", f, w.markerPuts())
+	}
+}
+
+// SY10, A2: a floor moved down (an owed item at or below the last high-water, after a clock
+// step) is put at once, never coalesced, so a seat taken with no store cannot cut that item.
+func TestAFloorMovedDownIsPutAtOnce(t *testing.T) {
+	w := newWorld(t)
+	r := w.start()
+	w.batch()
+	r.poll(t)
+	first := w.quiet("one")
+	w.batch()
+	r.poll(t)
+	if w.markerPuts() != 1 {
+		t.Fatalf("%d puts", w.markerPuts())
+	}
+	w.clk.StepWall(-500)
+	owed := w.say(alice, human("for me", user(me)))
+	if w.ts(owed) > w.ts(first) {
+		t.Fatalf("the step did not move the clock back: %d after %d", w.ts(owed), w.ts(first))
+	}
+	w.batch()
+	r.poll(t)
+	if f := w.marker(); f != w.ts(owed)-1 || w.markerPuts() != 2 {
+		t.Fatalf("marker %d (want %d), %d puts", f, w.ts(owed)-1, w.markerPuts())
+	}
+}
+
+// SY10, A4: a floor the engine raised outside a sync answer is the marker's next put; one that
+// is not above the floor known, or with no floor known, changes nothing.
+func TestAFloorRaisedIsTheMarkersNext(t *testing.T) {
+	w := newWorld(t)
+	tm := w.newTeam()
+	tm.FloorRaised(5)
+	check(t, tm.FlushFloor(t.Context()))
+	if n := w.markerPuts(); n != 0 {
+		t.Fatalf("%d puts with no floor known", n)
+	}
+	r := w.startTeam(tm)
+	w.batch()
+	r.poll(t)
+	owed := w.say(alice, human("for me", user(me)))
+	w.batch()
+	r.poll(t)
+	if f := w.marker(); f != w.ts(owed)-1 {
+		t.Fatalf("marker %d", f)
+	}
+	tm.FloorRaised(w.ts(owed) - 5)
+	tm.FloorRaised(w.ts(owed))
+	check(t, tm.FlushFloor(t.Context()))
+	if f := w.marker(); f != w.ts(owed) {
+		t.Fatalf("marker %d, want %d", f, w.ts(owed))
 	}
 }
 
@@ -77,10 +148,10 @@ func TestFlushFloor(t *testing.T) {
 	r := w.startTeam(tm)
 	w.batch()
 	r.poll(t)
-	w.later("one")
+	w.quiet("one")
 	w.batch()
 	r.poll(t)
-	second := w.later("two")
+	second := w.quiet("two")
 	w.batch()
 	r.poll(t)
 	check(t, tm.FlushFloor(t.Context()))
@@ -92,7 +163,7 @@ func TestFlushFloor(t *testing.T) {
 		t.Error("a refused put was taken")
 	}
 	w.clk.Advance(floorPutGap)
-	w.later("three")
+	w.quiet("three")
 	w.batch()
 	r.poll(t)
 	if n := w.log.count("was not put"); n != 1 {
@@ -171,5 +242,28 @@ func TestASuspendBetweenPolls(t *testing.T) {
 	}
 	if n := w.log.count("a freeze or suspend"); n != 1 {
 		t.Errorf("log %q", w.log.String())
+	}
+}
+
+// B 2.3.2: the marker carries the store's room floor, just below the oldest item still owed, not
+// the batch's high-water; a later batch with nothing owed older leaves it where the store has it.
+func TestTheMarkerStaysBelowAnOwedItem(t *testing.T) {
+	w := newWorld(t)
+	r := w.start()
+	w.batch()
+	r.poll(t)
+	id := w.say(alice, human("hello", user(me)))
+	b := w.batch()
+	r.poll(t)
+	owed := b.Items[0].Pending.SentMS
+	if f := w.marker(); f != owed-1 || w.ts(id) != owed {
+		t.Fatalf("marker %d with an item owed at %d", f, owed)
+	}
+	w.clk.Advance(floorPutGap)
+	w.quiet("after")
+	w.batch()
+	r.poll(t)
+	if f := w.marker(); f != owed-1 {
+		t.Errorf("marker %d moved past the owed item at %d", f, owed)
 	}
 }

@@ -49,7 +49,8 @@ func TestHumanReaderIsAnAgentThatHearsHumans(t *testing.T) {
 }
 
 // TestReachedNoAgent is gap 11's predicate, a row per clause, each with the related event known
-// to the lookup and unknown to it (n3-D20: a miss reaches no agent).
+// to the lookup and unknown to it (n3-D20: a miss may have reached an agent, so it is never
+// counted unheard; the count undercounts and never miscounts).
 func TestReachedNoAgent(t *testing.T) {
 	cases := map[string]struct {
 		content string
@@ -65,13 +66,13 @@ func TestReachedNoAgent(t *testing.T) {
 		"@room":                             {humanContent(`,"m.mentions":{"room":true}`), false},
 		"reply to an agent's event":         {humanContent(replyTo(workerEvent)), false},
 		"reply to a human's event":          {humanContent(replyTo(aliceEvent)), true},
-		"reply to an unknown event":         {humanContent(replyTo(lostEvent)), true},
+		"reply to an unknown event":         {humanContent(replyTo(lostEvent)), false},
 		"in an agent's thread":              {humanContent(inThread(workerEvent)), false},
 		"in a human's thread":               {humanContent(inThread(aliceEvent)), true},
-		"in an unknown thread":              {humanContent(inThread(lostEvent)), true},
+		"in an unknown thread":              {humanContent(inThread(lostEvent)), false},
 		"edit of an addressed message":      {editOf(editedEvent, ""), false},
 		"edit of an unaddressed message":    {editOf(quietEvent, ""), true},
-		"edit of an unknown message":        {editOf(lostEvent, ""), true},
+		"edit of an unknown message":        {editOf(lostEvent, ""), false},
 		"edit that now mentions the worker": {editOf(quietEvent, mention(workerID)), false},
 	}
 	r := testRoster(t)

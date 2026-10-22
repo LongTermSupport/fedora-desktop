@@ -53,7 +53,7 @@ func TestAStoreThatDoesNotDecodeIsTheTeamsFailureOnly(t *testing.T) {
 	if _, err := w.e.Load(ops, agent(ops, 1)); err == nil || !strings.Contains(err.Error(), "does not decode") {
 		t.Fatalf("Load of a refused store = %v", err)
 	}
-	if err := w.e.Persist(t.Context(), team.Batch{Team: ops}); err == nil {
+	if _, err := w.e.Persist(t.Context(), team.Batch{Team: ops}); err == nil {
 		t.Fatal("Persist into a refused store succeeded")
 	}
 	f.mu.Lock()
@@ -173,7 +173,7 @@ func TestRemoveFlushesDeletesTheStoreAndClosesTheSeat(t *testing.T) {
 	if !strings.Contains(logged, "dropped 0 pending (2 handed), 0 awaiting items, 0 outbox pings and 0 queued sends") || !strings.Contains(logged, "floor marker") {
 		t.Fatalf("link.log = %q", logged)
 	}
-	if err := w.e.Persist(t.Context(), team.Batch{Team: ops}); !errors.Is(err, team.ErrRemoved) {
+	if _, err := w.e.Persist(t.Context(), team.Batch{Team: ops}); !errors.Is(err, team.ErrRemoved) {
 		t.Fatalf("Persist after the removal = %v", err)
 	}
 	check(t, w.e.Ack(t.Context(), d.Ack))
@@ -222,6 +222,29 @@ func TestEndTeamsAndShutdown(t *testing.T) {
 	check(t, w.e.Shutdown(t.Context()))
 	if d := w.done(wire.OpStatus, wire.TeamsArgs{Team: &ops}); d.Exit != 64 {
 		t.Fatalf("status after the shutdown = %+v", d)
+	}
+}
+
+// SY10, A2: a shutdown puts each running team's floor marker at its clean end, after its team
+// goroutine stopped, so no later move is left unput; a failed put is logged and blocks nothing.
+func TestShutdownPutsTheFloorMarkers(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops, dev := tid(t, "ops"), tid(t, "dev")
+	fo, fd := w.held(ops), w.held(dev)
+	fd.mu.Lock()
+	fd.flushErr = errors.New("homeserver down")
+	fd.mu.Unlock()
+	check(t, w.e.Shutdown(t.Context()))
+	for _, f := range []*fakeTeam{fo, fd} {
+		f.mu.Lock()
+		flushes, live := f.flushes, f.flushedLive
+		f.mu.Unlock()
+		if flushes != 1 || live != 0 {
+			t.Fatalf("%s: %d flushes, %d while its goroutine ran", f.cfg.Team, flushes, live)
+		}
+	}
+	if !strings.Contains(w.log.String(), "team "+dev.String()+": the floor marker was not put at the shutdown") {
+		t.Fatalf("link.log = %q", w.log.String())
 	}
 }
 

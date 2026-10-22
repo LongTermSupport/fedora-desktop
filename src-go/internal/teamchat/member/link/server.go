@@ -84,10 +84,16 @@ type server struct {
 	logMu   sync.Mutex
 	closeMu sync.Once
 	closeEr error
+	// stopping is closed by close once the connections are, and ends every request being
+	// served, so none outlives it (a wait would otherwise hold the link to its deadline).
+	stopping chan struct{}
 }
 
 func newServer(ln *net.UnixListener, eng served, clk clock.Clock, uid int, kit paths.Digest, log io.Writer) *server {
-	return &server{ln: ln, eng: eng, clock: clk, uid: uid, kit: kit, log: log, conns: map[*net.UnixConn]bool{}}
+	return &server{
+		ln: ln, eng: eng, clock: clk, uid: uid, kit: kit, log: log, conns: map[*net.UnixConn]bool{},
+		stopping: make(chan struct{}),
+	}
 }
 
 // run accepts until the listener closes; ctx is the engine's, which outlives the server.
@@ -111,8 +117,9 @@ func (s *server) run(ctx context.Context) {
 	}
 }
 
-// close stops accepting, closes every connection (a hand-out waiting for its ack is returned)
-// and waits for each to end. It is safe to call twice.
+// close stops accepting, closes every connection (a hand-out waiting for its ack is returned),
+// then ends every request being served and waits for each to end. The connections close first
+// so a client sees the link gone, never a cancelled request's answer. It is safe to call twice.
 func (s *server) close() error {
 	s.closeMu.Do(func() {
 		s.mu.Lock()
@@ -121,6 +128,7 @@ func (s *server) close() error {
 			s.closeConn(c)
 		}
 		s.mu.Unlock()
+		close(s.stopping)
 		s.closeEr = s.ln.Close()
 		s.wg.Wait()
 	})
@@ -198,6 +206,13 @@ func (s *server) handle(base context.Context, c *net.UnixConn) {
 	}
 	ctx, cancel := context.WithCancel(base)
 	stopDeadline := s.clock.AfterFunc(left, cancel)
+	go func() {
+		select {
+		case <-s.stopping:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 	done := s.eng.Serve(ctx, req, recordWriter{w})
 	stopDeadline()
 	cancel()

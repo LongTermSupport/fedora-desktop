@@ -157,16 +157,30 @@ func (r *resolver) recordOwnSend(id string, rel proto.Related) {
 // resolve answers each relation the view does not hold, in SY4a's order: the own sends, the
 // cache, the unknown set, then one fetch. A 404 or 403 is unknown for the link's life; a
 // transient failure is the error, so the answer is held, until poisonTries in a row make the
-// id unknown.
+// id unknown. No lock is held across a fetch, so an own send recorded meanwhile never waits on
+// the homeserver.
 func (r *resolver) resolve(ctx context.Context, in resolveInput, rels []relation) (map[string]proto.Related, error) {
+	got, misses := r.known(in, rels)
+	for _, rel := range misses {
+		raw, fetchErr := in.get(ctx, rel.id)
+		if err := r.record(in, rel, raw, fetchErr, got); err != nil {
+			return nil, err
+		}
+	}
+	return got, nil
+}
+
+// known is what memory answers of rels, and the relations left to fetch, each once.
+func (r *resolver) known(in resolveInput, rels []relation) (map[string]proto.Related, []relation) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	got := map[string]proto.Related{}
+	var misses []relation
 	for _, rel := range rels {
 		if _, ok := in.view.Event(rel.id); ok {
 			continue
 		}
-		if _, done := got[rel.id]; done {
+		if _, done := got[rel.id]; done || slices.ContainsFunc(misses, func(m relation) bool { return m.id == rel.id }) {
 			continue
 		}
 		if v, ok := r.own.get(rel.id); ok {
@@ -177,18 +191,17 @@ func (r *resolver) resolve(ctx context.Context, in resolveInput, rels []relation
 			got[rel.id] = v
 			continue
 		}
-		if r.unknown.has(rel.id) {
-			continue
-		}
-		if err := r.fetch(ctx, in, rel, got); err != nil {
-			return nil, err
+		if !r.unknown.has(rel.id) {
+			misses = append(misses, rel)
 		}
 	}
-	return got, nil
+	return got, misses
 }
 
-func (r *resolver) fetch(ctx context.Context, in resolveInput, rel relation, got map[string]proto.Related) error {
-	raw, err := in.get(ctx, rel.id)
+// record is one fetch's answer, raw or err, kept in memory and in got.
+func (r *resolver) record(in resolveInput, rel relation, raw json.RawMessage, err error, got map[string]proto.Related) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if err != nil {
 		e, isMatrix := errors.AsType[*matrix.Error](err)
 		switch {

@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
@@ -39,9 +40,14 @@ var runs = map[string]RunFunc{
 	verbSetAside:    runSetAside,
 }
 
+// outside are the verbs built outside this package, which cmd/teamchat passes in Env.Verbs.
+var outside = []string{verbRun, "link", "recv", "wait", "inbox", "status", "verify", "history", "seat disconnected", "reach"}
+
+// Outside is the verbs a binary must pass in Env.Verbs; a copy the caller may change.
+func Outside() []string { return slices.Clone(outside) }
+
 // unbuilt are the verbs a later slice builds, each with its slice (CL2).
 var unbuilt = bySlice(map[string][]string{
-	"n3c": {verbRun, "link", "recv", "wait", "inbox", "status", "verify", "history", "seat disconnected", "reach"},
 	"n3d": {"reply", "say", "ping"},
 	"n3e": {"hook", "status-line"},
 	"n3f": {"report", verbAsk, "thread", verbQuestions},
@@ -59,6 +65,7 @@ func bySlice(verbs map[string][]string) map[string]string {
 
 const (
 	msgUnbuilt  exits.Template = "teamchat {} is not built in this binary; it lands with slice {}"
+	msgUnwired  exits.Template = "teamchat {} is not wired into this binary; tell a human"
 	msgNoDigest exits.Template = "this teamchat was built without its source digest; tell a human"
 	msgHelpWhat exits.Template = "teamchat help takes a verb or exit-codes; teamchat help lists the verbs"
 )
@@ -81,6 +88,9 @@ func Run(e Env) term.ExitCode {
 	}
 	if run, ok := e.Verbs[inv.Verb.Name]; ok {
 		return run(e, inv)
+	}
+	if slices.Contains(outside, inv.Verb.Name) {
+		return exits.Write(e.Stderr, exits.New(exits.CodeInternal, inv.Team, msgUnwired, exits.Words(inv.Verb.Name)))
 	}
 	return exits.Write(e.Stderr, exits.New(exits.CodeInternal, inv.Team, msgUnbuilt,
 		exits.Words(inv.Verb.Name), exits.Words(unbuilt[inv.Verb.Name])))

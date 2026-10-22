@@ -42,14 +42,6 @@ func (w *world) heldWith(id paths.TeamID, s state.Store) {
 	<-w.add(id, encodeStore(w.t, s)).running
 }
 
-func (w *world) persistBatch(b team.Batch) {
-	w.t.Helper()
-	if b.NextBatch == "" {
-		b.NextBatch = "s1"
-	}
-	check(w.t, w.e.Persist(w.t.Context(), b))
-}
-
 // advanceTo moves the fake clock until its wall clock reads ms.
 func (w *world) advanceTo(ms int64) {
 	w.t.Helper()
@@ -151,6 +143,31 @@ func TestSD4_1OneTimeoutPerSilentAddresseePastTheGrace(t *testing.T) {
 	}
 	if w.clk.Waiters() != 0 {
 		t.Fatalf("waiters = %d with nothing owed", w.clk.Waiters())
+	}
+}
+
+// A TIMEOUT is made by this member's clock, not fetched from the server, so B 2.3.2's floor rule
+// does not count it: owed, it does not pull main's floor down to itself on the next batch, and
+// acked, it does not raise the floor past what the server has handed (an outage's events, sent
+// before the TIMEOUT was made, would then fail the floor when the server returns).
+func TestATimeoutNeitherLowersNorRaisesTheFloor(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	p := outPing(1, startWall, agent(ops, 2))
+	w.heldWith(ops, w.pingStore(ops, p))
+	w.persistBatch(team.Batch{Team: ops, Floors: map[string]int64{proto.PurposeMain: startWall}})
+	w.advanceTo(p.DueMS + timeoutGraceMS + 1)
+	if n := len(timeouts(w.store(ops))); n != 1 {
+		t.Fatalf("%d TIMEOUTs", n)
+	}
+	high := p.DueMS + timeoutGraceMS + 5000
+	if got := w.persistBatch(team.Batch{Team: ops, NextBatch: "s2", Floors: map[string]int64{proto.PurposeMain: high}}); got != high {
+		t.Fatalf("floor %d after a batch at %d with only a TIMEOUT owed", got, high)
+	}
+	w.persistBatch(team.Batch{Team: ops, NextBatch: "s3", Floors: map[string]int64{proto.PurposeMain: startWall}})
+	check(t, w.e.Ack(t.Context(), w.done(wire.OpRecv, wire.TeamsArgs{}).Ack))
+	if got := w.store(ops).Sync.FloorMS[proto.PurposeMain]; got != startWall {
+		t.Fatalf("floor %d after the TIMEOUT's ack, want the server's %d", got, startWall)
 	}
 }
 
@@ -404,9 +421,9 @@ func TestSY7_4AnAnswerInARefusedBatchLeavesThePingUnanswered(t *testing.T) {
 		Pending: state.Pending{ID: evID(9), Room: proto.PurposeMain, Item: records.KindPeer, SentMS: startWall, From: agent(ops, 3)},
 		Verdict: proto.Verdict{Outcome: proto.Deliver, Event: proto.Event{ID: evID(9), OriginTs: startWall}},
 	}
-	err := w.e.Persist(t.Context(), team.Batch{Team: ops, NextBatch: "s1", Items: []team.Item{peer}, Answered: []team.Answer{ans(p, agent(ops, 2), 50, startWall+1)}})
-	if err == nil {
-		t.Fatal("a batch into a full pending was persisted")
+	floor, err := w.e.Persist(t.Context(), team.Batch{Team: ops, NextBatch: "s1", Items: []team.Item{peer}, Answered: []team.Answer{ans(p, agent(ops, 2), 50, startWall+1)}})
+	if err == nil || floor != 0 {
+		t.Fatalf("a batch into a full pending was persisted (floor %d)", floor)
 	}
 	w.advanceTo(p.DueMS + timeoutGraceMS + 1)
 	got := w.store(ops)

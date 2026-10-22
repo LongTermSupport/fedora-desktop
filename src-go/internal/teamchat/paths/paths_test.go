@@ -159,6 +159,28 @@ func TestCCYLayout(t *testing.T) {
 	}
 }
 
+// T8: a run is built under a staging name no run id parses, which names the building keeper.
+func TestStaging(t *testing.T) {
+	s := CCYLayout().Staging(4242, 9876)
+	if s.Dir() != "/tmp/teamchat/.building-4242-9876" || s.PID() != s.Dir()+"/session.pid" {
+		t.Fatalf("staging %q", s.Dir())
+	}
+	if _, err := ParseRunID(".building-4242-9876"); err == nil {
+		t.Fatal("a staging name parses as a run id")
+	}
+	if pid, ticks, ok := ParseStaging(".building-4242-9876"); !ok || pid != 4242 || ticks != 9876 {
+		t.Fatalf("parse %d %d %v", pid, ticks, ok)
+	}
+	for _, name := range []string{
+		".building-4242", ".building-0-1", ".building-1-0", ".building--1-2", ".building-1-+2", ".building-01-2",
+		"building-1-2", ".building-1-2-3", ".building-x-2", "0123456789abcdef", ".building-99999999999999999999-1",
+	} {
+		if _, _, ok := ParseStaging(name); ok {
+			t.Errorf("%q parsed as a staging name", name)
+		}
+	}
+}
+
 func TestHomeLayout(t *testing.T) {
 	l, err := HomeLayout("/home/u", "/run/user/1000")
 	if err != nil {

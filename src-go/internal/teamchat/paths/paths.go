@@ -22,6 +22,8 @@ package paths
 import (
 	"fmt"
 	"path/filepath"
+	"strconv"
+	"strings"
 )
 
 // Product is the product name every v2 name is formed from.
@@ -431,6 +433,47 @@ func (l Layout) Seat(t TeamID) Seat { return Seat{dir: l.State() + "/" + t.text(
 
 // Run is one session's runtime directory.
 func (l Layout) Run(r RunID) Run { return Run{dir: l.RunRoot() + "/" + r.text()} }
+
+// stagingPrefix starts the name a run is built under, which no run id parses as (T8).
+const stagingPrefix = ".building-"
+
+// Staging is where the keeper of pid, started at ticks, builds its run before renaming it to
+// its run id: a sweep sees no run without its keeper.lock held and its session.pid written,
+// and can tell from the name whether the keeper building it still lives. A pid or start time
+// that is not positive panics, as a zero id does.
+func (l Layout) Staging(pid int, ticks int64) Run {
+	if pid <= 0 || ticks <= 0 {
+		panic("paths: a staging name for no process")
+	}
+	return Run{dir: l.RunRoot() + "/" + stagingPrefix + strconv.Itoa(pid) + "-" + strconv.FormatInt(ticks, 10)}
+}
+
+// ParseStaging is the building keeper's pid and start ticks in a staging name, ok when name is
+// one: both positive decimals with no sign or leading zero.
+func ParseStaging(name string) (int, int64, bool) {
+	rest, found := strings.CutPrefix(name, stagingPrefix)
+	if !found {
+		return 0, 0, false
+	}
+	p, t, found := strings.Cut(rest, "-")
+	if !found || !positive(p) || !positive(t) {
+		return 0, 0, false
+	}
+	pid, perr := strconv.Atoi(p)
+	ticks, terr := strconv.ParseInt(t, 10, 64)
+	if perr != nil || terr != nil {
+		return 0, 0, false
+	}
+	return pid, ticks, true
+}
+
+// positive is whether s is a decimal above zero with no sign or leading zero.
+func positive(s string) bool {
+	if s == "" || s[0] == '0' {
+		return false
+	}
+	return strings.IndexFunc(s, func(r rune) bool { return r < '0' || r > '9' }) < 0
+}
 
 // Seat is a member's directory for one team.
 type Seat struct{ dir string }

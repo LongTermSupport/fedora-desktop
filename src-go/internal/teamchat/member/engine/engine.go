@@ -42,8 +42,8 @@ type Config struct {
 	Log   io.Writer
 	// NewTeam makes a held team's goroutine; it starts nothing until Run.
 	NewTeam func(TeamConfig) (team.Team, error)
-	// NewEnds makes the ends over the engine, which they record into (EN1).
-	NewEnds func(team.Engine) team.Ends
+	// NewEnds makes the session's ends.
+	NewEnds func(EndsConfig) team.Ends
 	// Delivery is every team's delivery: socket, wait (a refuse launch) or none (plain).
 	Delivery string
 	Plain    bool
@@ -60,10 +60,21 @@ type Config struct {
 	Forge team.Forge
 }
 
+// EndsConfig is what the session's ends are made from: the engine they record into (EN1), and
+// this link's run, whose end is the only one they post.
+type EndsConfig struct {
+	Engine team.Engine
+	Run    paths.RunID
+	Clock  clock.Clock
+	Log    io.Writer
+}
+
 // TeamConfig is what one team goroutine is made from.
 type TeamConfig struct {
 	Team paths.TeamID
 	Seat paths.Seat
+	// Run is this link's run: a store of this run is a link restart's, not closed again.
+	Run paths.RunID
 	// Lock is the held seat; nil for a team made only for its notices (an owed leave).
 	Lock *lock.SeatLock
 	// RemovedUserIDs are the user ids this team was removed under in this session: SY1 (c)
@@ -130,7 +141,7 @@ func New(cfg Config) (*Engine, error) {
 		teams: map[paths.TeamID]*held{}, refused: map[paths.TeamID]paths.RunID{},
 		desired: state.DesiredApplied, acks: map[string]bool{}, sent: map[paths.TeamID]wire.State{},
 	}
-	e.ends = cfg.NewEnds(e)
+	e.ends = cfg.NewEnds(EndsConfig{Engine: e, Run: cfg.Run, Clock: cfg.Clock, Log: cfg.Log})
 	return e, nil
 }
 

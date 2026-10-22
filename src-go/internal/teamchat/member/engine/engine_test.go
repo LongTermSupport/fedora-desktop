@@ -173,14 +173,21 @@ type fakeTeam struct {
 
 	verdicts   map[string]proto.Verdict
 	refetchErr error
-	block      bool
-	refetched  []string
-	verified   records.Verified
-	verifyErr  error
-	history    []records.History
-	historyErr error
-	flushes    int
-	flushErr   error
+	// refetchErrs answers one id's re-fetch with its error, over refetchErr.
+	refetchErrs map[string]error
+	block       bool
+	refetched   []string
+	verified    records.Verified
+	verifyErr   error
+	history     []records.History
+	historyErr  error
+	flushes     int
+	flushErr    error
+	// raised are the floors FloorRaised was told, in order.
+	raised []int64
+	// ended is set once Run returns; flushedLive counts the flushes made while it ran.
+	ended       bool
+	flushedLive int
 }
 
 func (f *fakeTeam) Run(ctx context.Context) error {
@@ -194,6 +201,9 @@ func (f *fakeTeam) Run(ctx context.Context) error {
 		return errors.New("the team ended on its own")
 	}
 	<-ctx.Done()
+	f.mu.Lock()
+	f.ended = true
+	f.mu.Unlock()
 	return ctx.Err()
 }
 
@@ -201,6 +211,9 @@ func (f *fakeTeam) Refetch(ctx context.Context, _, id string) (proto.Verdict, er
 	f.mu.Lock()
 	f.refetched = append(f.refetched, id)
 	block, v, err := f.block, f.verdicts[id], f.refetchErr
+	if e, ok := f.refetchErrs[id]; ok {
+		err = e
+	}
 	f.mu.Unlock()
 	if block {
 		<-ctx.Done()
@@ -228,7 +241,16 @@ func (f *fakeTeam) FlushFloor(context.Context) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.flushes++
+	if !f.ended {
+		f.flushedLive++
+	}
 	return f.flushErr
+}
+
+func (f *fakeTeam) FloorRaised(floor int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.raised = append(f.raised, floor)
 }
 
 func (f *fakeTeam) setVerdict(id string, v proto.Verdict) {
@@ -334,7 +356,7 @@ func newWorld(t *testing.T, delivery string) *world {
 func (w *world) config(delivery string) Config {
 	return Config{
 		Root: w.root, RunRoot: w.root, Layout: w.layout, Run: w.run, Clock: w.clk, Log: w.log,
-		NewTeam: w.newTeam, NewEnds: func(team.Engine) team.Ends { return fakeEnds{} },
+		NewTeam: w.newTeam, NewEnds: func(EndsConfig) team.Ends { return fakeEnds{} },
 		Delivery: delivery, OnState: w.onState, Runtime: w.readRuntime, Forge: w.forge,
 	}
 }
@@ -480,7 +502,19 @@ func (w *world) status() state.Status {
 
 func (w *world) persist(id paths.TeamID, items ...team.Item) {
 	w.t.Helper()
-	check(w.t, w.e.Persist(w.t.Context(), team.Batch{Team: id, NextBatch: "s1", Items: items}))
+	w.persistBatch(team.Batch{Team: id, NextBatch: "s1", Items: items})
+}
+
+// persistBatch is b persisted (at s1 when it names no position), and the main floor the store
+// then keeps.
+func (w *world) persistBatch(b team.Batch) int64 {
+	w.t.Helper()
+	if b.NextBatch == "" {
+		b.NextBatch = "s1"
+	}
+	floor, err := w.e.Persist(w.t.Context(), b)
+	check(w.t, err)
+	return floor
 }
 
 func (w *world) serve(ctx context.Context, op string, args any) (wire.Done, *recorder) {
@@ -550,6 +584,28 @@ func TestNewRefusesAnIncompleteConfig(t *testing.T) {
 	}
 	if w.e.Ends() == nil {
 		t.Fatal("the engine has no ends")
+	}
+}
+
+// The ends record into the engine for this link's run (EN1, 8a P6), and a team is told the run
+// so a store of this run is not closed again (8a P5).
+func TestTheEndsAndEachTeamAreMadeForThisRun(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	cfg := w.config(state.DeliverySocket)
+	var got EndsConfig
+	cfg.NewEnds = func(c EndsConfig) team.Ends {
+		got = c
+		return fakeEnds{}
+	}
+	e, err := New(cfg)
+	check(t, err)
+	if got.Engine != e || got.Run != w.run || got.Clock != w.clk || got.Log != w.log {
+		t.Fatalf("the ends were made with %+v", got)
+	}
+	ops := tid(t, "ops")
+	w.add(ops, encodeStore(t, w.newStore(ops)))
+	if r := w.fake(ops).cfg.Run; r != w.run {
+		t.Fatalf("the team was made for run %v, not %v", r, w.run)
 	}
 }
 

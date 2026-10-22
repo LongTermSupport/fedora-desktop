@@ -46,27 +46,45 @@ func TestTheTableIsBsVerbs(t *testing.T) {
 }
 
 func TestEveryVerbIsBuiltOrNamesItsSlice(t *testing.T) {
-	slices := map[string]bool{"n3c": true, "n3d": true, "n3e": true, "n3f": true}
+	known := map[string]bool{"n3d": true, "n3e": true, "n3f": true}
 	for _, v := range Verbs() {
-		_, built := runs[v.Name]
+		_, own := runs[v.Name]
+		passed := slices.Contains(Outside(), v.Name)
 		slice, later := unbuilt[v.Name]
-		if built == later {
-			t.Errorf("%s: built %v, unbuilt %v", v.Name, built, later)
+		if n := btoi(own) + btoi(passed) + btoi(later); n != 1 {
+			t.Errorf("%s: built here %v, passed in %v, unbuilt %v", v.Name, own, passed, later)
 		}
-		if later && !slices[slice] {
+		if later && !known[slice] {
 			t.Errorf("%s lands in unknown slice %q", v.Name, slice)
 		}
 	}
-	if len(runs)+len(unbuilt) != len(Verbs()) {
-		t.Errorf("%d built and %d unbuilt for %d verbs", len(runs), len(unbuilt), len(Verbs()))
+	if len(runs)+len(Outside())+len(unbuilt) != len(Verbs()) {
+		t.Errorf("%d built, %d passed in and %d unbuilt for %d verbs", len(runs), len(Outside()), len(unbuilt), len(Verbs()))
 	}
 }
 
-// The unbuilt list as n3a leaves it; each later slice removes its own.
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// The verbs cmd/teamchat passes in Env.Verbs (n3c-D5): n3c's.
+func TestOutsideAreN3csVerbs(t *testing.T) {
+	want := []string{"run", "link", "recv", "wait", "inbox", "status", "verify", "history", "seat disconnected", "reach"}
+	if got := Outside(); !slices.Equal(got, want) {
+		t.Fatalf("Outside() = %q", got)
+	}
+	Outside()[0] = "changed"
+	if Outside()[0] != "run" {
+		t.Fatal("Outside is not a copy")
+	}
+}
+
+// The unbuilt list as n3c leaves it; each later slice removes its own.
 func TestUnbuiltAreTheLaterSlices(t *testing.T) {
 	want := map[string]string{
-		"run": "n3c", "link": "n3c", "recv": "n3c", "wait": "n3c", "inbox": "n3c", "status": "n3c",
-		"verify": "n3c", "history": "n3c", "seat disconnected": "n3c", "reach": "n3c",
 		"reply": "n3d", "say": "n3d", "ping": "n3d",
 		"hook": "n3e", "status-line": "n3e",
 		"report": "n3f", "ask": "n3f", "thread": "n3f", "questions": "n3f",

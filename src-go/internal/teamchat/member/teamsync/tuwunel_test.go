@@ -80,15 +80,15 @@ func TestTuwunelSync(t *testing.T) {
 		t.Fatalf("items %v", got)
 	}
 	check(t, tm.FlushFloor(ctx))
-	if f := w.marker(); f != b.Items[0].Pending.SentMS {
-		t.Fatalf("marker %d, want %d", f, b.Items[0].Pending.SentMS)
+	if f := w.marker(); f != b.Items[0].Pending.SentMS-1 {
+		t.Fatalf("marker %d, want %d: just below the item still owed", f, b.Items[0].Pending.SentMS-1)
 	}
 
-	// A second link with no store resumes after the marker: the mention is not judged again.
+	// A second link with no store resumes after the marker, which keeps the owed mention in reach.
 	w.eng = newFakeEngine(t, w.team, runID(t, linkRun))
 	w.runReal(ctx)
-	if b := w.batch(); len(b.Items) != 0 {
-		t.Errorf("resumed batch %+v", b)
+	if got := itemIDs(w.batch()); len(got) != 1 || got[0] != id {
+		t.Errorf("resumed items %v, want the owed %s", got, id)
 	}
 	next := w.say(alice, human("again", user(me)))
 	if got := itemIDs(w.batch()); len(got) != 1 || got[0] != next {

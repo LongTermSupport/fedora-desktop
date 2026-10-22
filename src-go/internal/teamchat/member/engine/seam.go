@@ -204,12 +204,15 @@ func roomID(main string, r proto.Roster, purpose string) string {
 
 // Persist is one store write of b (SY5): its position, floors and new items, its redactions
 // removing items still pending or handed, and the outbox updates its echoes and answers made,
-// expired pings pruned; then a wake of every wait and the TIMEOUT timer re-armed. An item
-// already pending or delivered is not added twice. A full pending list refuses the whole
-// batch, loudly (B 2.3.2), so nothing is dropped and the batch is fetched again; an answer in
-// a refused batch is not counted until it is (SY7 case 4).
-func (e *Engine) Persist(ctx context.Context, b team.Batch) error {
-	var out error
+// expired pings pruned; then a wake of every wait and the TIMEOUT timer re-armed. It returns the
+// store's main floor after the write. An item already pending or delivered is not added twice.
+// A full pending list refuses the whole batch, loudly (B 2.3.2), so nothing is dropped and the
+// batch is fetched again; an answer in a refused batch is not counted until it is (SY7 case 4).
+func (e *Engine) Persist(ctx context.Context, b team.Batch) (int64, error) {
+	var (
+		out   error
+		floor int64
+	)
 	if err := e.do(ctx, func() {
 		defer e.arm()
 		var (
@@ -224,6 +227,7 @@ func (e *Engine) Persist(ctx context.Context, b team.Batch) error {
 			if added, err = apply(s, b); err != nil {
 				return false, err
 			}
+			floor = s.Sync.FloorMS[proto.PurposeMain]
 			notes, unknown = applyOutbox(s, b)
 			pruned = pruneOutbox(s, now)
 			return true, nil
@@ -244,9 +248,9 @@ func (e *Engine) Persist(ctx context.Context, b team.Batch) error {
 		}
 		e.wake()
 	}); err != nil {
-		return err
+		return 0, err
 	}
-	return out
+	return floor, out
 }
 
 // apply is b in a copy of its store; it is the items added, with their verdicts.
@@ -279,7 +283,67 @@ func apply(s *state.Store, b team.Batch) (map[string]proto.Verdict, error) {
 		added[it.Pending.ID] = it.Verdict
 	}
 	s.Pending = slices.DeleteFunc(s.Pending, func(p state.Pending) bool { return slices.Contains(b.Redacts, p.ID) })
+	ownedFloors(s)
 	return added, nil
+}
+
+// ownedFloors is B 2.3.2's floor rule: a room the store owes items in has its floor just below
+// the oldest of them, so each is newer than its floor and survives a restart (B44); a room it
+// owes none in keeps the batch's high-water. B 2.3.2 counts `awaiting` too, whose entries carry
+// ids only: whatever writes them must give them a sent time, or set the floor before moving
+// items there. A TIMEOUT is not counted (fromServer).
+func ownedFloors(s *state.Store) {
+	for _, p := range s.Pending {
+		if !fromServer(p) {
+			continue
+		}
+		if s.Sync.FloorMS == nil {
+			s.Sync.FloorMS = map[string]int64{}
+		}
+		if floor, ok := s.Sync.FloorMS[p.Room]; !ok || p.SentMS <= floor {
+			s.Sync.FloorMS[p.Room] = max(p.SentMS-1, 0)
+		}
+	}
+}
+
+// raiseFloors is B 2.3.2's floor rule after items left pending outside a sync answer (an ack,
+// a drop): each room they were in is raised to just below the oldest item it still owes, or,
+// owing none, to the newest that left; a floor is never lowered here. It is main's floor, and
+// whether that moved. A TIMEOUT is not counted (fromServer).
+func raiseFloors(s *state.Store, left []state.Pending) (int64, bool) {
+	newest := map[string]int64{}
+	for _, p := range left {
+		if fromServer(p) {
+			newest[p.Room] = max(newest[p.Room], p.SentMS)
+		}
+	}
+	before := s.Sync.FloorMS[proto.PurposeMain]
+	for room, to := range newest {
+		owes, oldest := false, int64(0)
+		for _, p := range s.Pending {
+			if p.Room == room && fromServer(p) && (!owes || p.SentMS < oldest) {
+				owes, oldest = true, p.SentMS
+			}
+		}
+		if owes {
+			to = oldest - 1
+		}
+		if s.Sync.FloorMS == nil {
+			s.Sync.FloorMS = map[string]int64{}
+		}
+		if floor, ok := s.Sync.FloorMS[room]; !ok || to > floor {
+			s.Sync.FloorMS[room] = max(to, 0)
+		}
+	}
+	after := s.Sync.FloorMS[proto.PurposeMain]
+	return after, after != before
+}
+
+// fromServer is whether p is an event the server handed, which a floor must keep fetchable; a
+// TIMEOUT is made by this member's clock and kept by the store alone, so a floor set by its time
+// would refuse an outage's events, sent before it was made, when the server returns.
+func fromServer(p state.Pending) bool {
+	return p.Item != records.KindTimeout
 }
 
 func addCounts(a, b team.Counts) team.Counts {

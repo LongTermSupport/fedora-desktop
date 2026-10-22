@@ -127,6 +127,11 @@ type Health struct {
 // ErrRemoved is a write for a team the engine has removed.
 var ErrRemoved = errors.New("team: the team was removed")
 
+// ErrItemGone is a Refetch whose event the server will never serve again (404, 403, a room the
+// member does not read): the engine drops the restored item with its reason (B 2.7.3), where a
+// transient failure keeps it pending.
+var ErrItemGone = errors.New("team: the item can no longer be fetched")
+
 // Engine is the link's state goroutine as a team goroutine and the ends see it.
 type Engine interface {
 	// Load is the team's store as loaded, or created for userID (the pair's user id); a copy.
@@ -134,8 +139,9 @@ type Engine interface {
 	// View is what Judge needs of ids and relations; r is the roster an outbox entry's
 	// AddressedToRosterAgent reads.
 	View(t paths.TeamID, ids, relations []string, r proto.Roster) (View, error)
-	// Persist is one store write of b, then a wake of delivery; ErrRemoved after a remove.
-	Persist(ctx context.Context, b Batch) error
+	// Persist is one store write of b, then a wake of delivery; ErrRemoved after a remove. It
+	// answers the main room's floor the store then keeps (B 2.3.2), which the marker carries.
+	Persist(ctx context.Context, b Batch) (mainFloor int64, err error)
 	// ResetPosition is SY6: drop next_batch and store the new epoch; fresh stays as it is.
 	ResetPosition(ctx context.Context, t paths.TeamID, epoch int64) error
 	// SetEnded records the store's run's end (EN1, EN3).
@@ -156,7 +162,7 @@ type Engine interface {
 type Team interface {
 	// Run runs until ctx ends or a permanent stop.
 	Run(ctx context.Context) error
-	// Refetch judges a restored item again (B 2.7.3).
+	// Refetch judges a restored item again (B 2.7.3); ErrItemGone when it never can be.
 	Refetch(ctx context.Context, room, id string) (proto.Verdict, error)
 	// Verify is LN6.
 	Verify(ctx context.Context, id string) (records.Verified, error)
@@ -167,6 +173,10 @@ type Team interface {
 	Wake()
 	// FlushFloor puts the teamchat.floor marker, at a removal before the store goes (SY10).
 	FlushFloor(ctx context.Context) error
+	// FloorRaised is the store's main floor raised outside a sync answer (an ack or a drop
+	// settled what it owed, B 2.3.2), once written; the marker follows. It must not block: the
+	// engine's state goroutine calls it.
+	FloorRaised(floor int64)
 }
 
 // Notices is the matrix calls the ends make, on the team's client.
