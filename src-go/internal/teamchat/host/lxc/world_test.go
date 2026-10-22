@@ -418,13 +418,18 @@ type fakeApprovals map[paths.TeamID]*declare.Gated
 
 func (a fakeApprovals) Load(team paths.TeamID) (*declare.Gated, error) { return a[team], nil }
 
+// fakeV1 is the v1 holdback: held for every member, or failing for one team's.
 type fakeV1 struct {
-	held  bool
-	calls int
+	held    bool
+	calls   int
+	errTeam string
 }
 
-func (v *fakeV1) Holds(context.Context, Root, paths.GuestUser, paths.TeamID) (bool, error) {
+func (v *fakeV1) Holds(_ context.Context, _ Root, _ paths.GuestUser, team paths.TeamID) (bool, error) {
 	v.calls++
+	if team.String() == v.errTeam {
+		return false, errFault
+	}
 	return v.held, nil
 }
 

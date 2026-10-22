@@ -326,6 +326,24 @@ func TestChangedOriginRefused(t *testing.T) {
 	}
 }
 
+// The holdback failing for one seat (until N6, every migration seat) fails that seat alone: the
+// container's other seats still apply.
+func TestMigrationHoldbackFailingFailsThatSeatAlone(t *testing.T) {
+	w := newWorld(t)
+	w.addBox("c1")
+	w.declare([]string{"t1", "t2"}, w.member("t1", "c1"), w.memberAt("t2", "c1", 2))
+	w.origin = "migration"
+	w.v1.errTeam = "t1"
+	r, err := w.apply(PhasePresent)
+	if !errors.Is(err, errFault) {
+		t.Fatalf("err %v", err)
+	}
+	hasLine(t, r, lineAt(t, "CHANGED", "t2", "agent1", "c1", 2, "joined as repo.2+local.lxc"))
+	if !slices.Equal(w.roster.joins, []string{"member.add repo.2+local.lxc"}) {
+		t.Fatalf("joins %v", w.roster.joins)
+	}
+}
+
 func TestMigrationHoldback(t *testing.T) {
 	w := newWorld(t)
 	w.addBox("c1")

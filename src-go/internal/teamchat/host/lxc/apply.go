@@ -689,7 +689,9 @@ func (r *run) member(ctx context.Context, g *guestBox, m *member, passwd []byte,
 	}
 	held, err := r.d.V1.Holds(ctx, g.root, m.decl.User, m.team.ID)
 	if err != nil {
-		return err
+		// The holdback answers for this seat alone: the container's other seats read on.
+		r.fail(m, &host.Error{Verb: verb, Step: stepReads, Err: fmt.Errorf("%s: v1 holdback: %w", m.name(), err)})
+		return nil
 	}
 	if held {
 		m.done, m.status, m.why = true, lxcstate.StatusDeferred, whyV1
