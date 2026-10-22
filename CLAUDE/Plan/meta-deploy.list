@@ -186,7 +186,8 @@ playbooks/imports/play-claude-yolo.yml
 # microseconds, so a run that crossed a whole second of the clock no longer counts as 1 s
 # and a short limit is not used up at random; wsi-stream-server removes the file-job marker
 # before it reports the job ended), and play-displaylink.yml (its last run stopped at the
-# version gate; the pin is now DisplayLink v6.4.0, evdi 1.15.1-2), plus every other play the acceptance listed as changed
+# version gate; the pin is now DisplayLink v6.4.0, evdi 1.15.1-2), plus every other play
+# the acceptance listed as changed
 # or failed. Needs sudo. Afterwards log out and back in so the panel loads its new code
 # (Wayland), and fedora-desktop-health should list no play.
 changed-plays
