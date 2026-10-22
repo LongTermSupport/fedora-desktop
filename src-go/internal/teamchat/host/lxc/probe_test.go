@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/health"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
@@ -343,8 +344,35 @@ func TestProbeIsBounded(t *testing.T) {
 	if _, err := g.Probe(context.Background(), mustTeam(t, "t1"), firstHandle); err != nil || !bounded {
 		t.Fatalf("bounded %v, err %v", bounded, err)
 	}
-	if ProbeBound.Seconds() != 5 {
-		t.Fatalf("bound %v", ProbeBound)
+	if ProbeBound.Seconds() != 5 || g.bound() != ProbeBound {
+		t.Fatalf("bound %v, the default %v", ProbeBound, g.bound())
+	}
+}
+
+// LP1 with one and with many hanging fakes and no cancellation: each probe ends at its own
+// bound with the deadline's error, all of them hanging at once.
+func TestProbesThatHangEndAtTheirOwnBound(t *testing.T) {
+	for _, n := range []int{1, 4} {
+		w := placed(t)
+		entered, release := make(chan struct{}, n), make(chan struct{})
+		t.Cleanup(func() { close(release) })
+		g := w.faulty(func(r Root) Root { return faultyRoot{Root: r, entered: entered, release: release} })
+		g.Bound = 20 * time.Millisecond
+		errs := make(chan error, n)
+		for range n {
+			go func() {
+				_, err := g.Probe(context.Background(), mustTeam(t, "t1"), firstHandle)
+				errs <- err
+			}()
+		}
+		for range n {
+			if err := <-errs; !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("%d hanging: err %v", n, err)
+			}
+		}
+		if len(entered) != n {
+			t.Fatalf("%d of %d probes hung at once", len(entered), n)
+		}
 	}
 }
 
