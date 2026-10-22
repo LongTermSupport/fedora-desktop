@@ -257,7 +257,7 @@ func DecodeStore(data []byte) (Store, error) {
 	c := &rules{}
 	for _, l := range listCaps {
 		for _, item := range at(parsed, l.path).Items() {
-			c.need(item.Size() <= l.size, fmt.Sprintf("a %s entry is over %d bytes", l.name, l.size))
+			c.need(item.Size() <= l.size, fmt.Sprintf("an entry of %s is over %d bytes", l.name, l.size))
 		}
 	}
 	if c.rule != "" {

@@ -46,7 +46,7 @@ func TestTheTableIsBsVerbs(t *testing.T) {
 }
 
 func TestEveryVerbIsBuiltOrNamesItsSlice(t *testing.T) {
-	slices := map[string]bool{"n3a guest": true, "n3c": true, "n3d": true, "n3e": true, "n3f": true}
+	slices := map[string]bool{"n3c": true, "n3d": true, "n3e": true, "n3f": true}
 	for _, v := range Verbs() {
 		_, built := runs[v.Name]
 		slice, later := unbuilt[v.Name]
@@ -70,8 +70,6 @@ func TestUnbuiltAreTheLaterSlices(t *testing.T) {
 		"reply": "n3d", "say": "n3d", "ping": "n3d",
 		"hook": "n3e", "status-line": "n3e",
 		"report": "n3f", "ask": "n3f", "thread": "n3f", "questions": "n3f",
-		"guest check": "n3a guest", "guest place-bundle": "n3a guest", "guest membership": "n3a guest",
-		"guest remove": "n3a guest", "seat set-aside": "n3a guest",
 	}
 	for name, slice := range want {
 		if unbuilt[name] != slice {

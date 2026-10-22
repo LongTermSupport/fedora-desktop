@@ -165,9 +165,13 @@ type SeatLock struct {
 	seat paths.Seat
 }
 
-// AdoptSeat is the link's SeatLock from the description its keeper passed it: f must already
-// hold the seat's lock, so a description another holds is refused (ErrBusy) and closed.
-func AdoptSeat(f *os.File, seat paths.Seat) (*SeatLock, error) {
+// AdoptSeat is the link's SeatLock from the description its keeper passed it: f must be the
+// seat's own seat.lock below root (homefs.ErrConfig otherwise) and already hold it, so a
+// description another holds is refused (ErrBusy); a refused f is closed.
+func AdoptSeat(root *homefs.Root, f *os.File, seat paths.Seat) (*SeatLock, error) {
+	if err := root.SameFile(seat.Lock(), f); err != nil {
+		return nil, errors.Join(err, f.Close())
+	}
 	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		err = fmt.Errorf("lock: adopt %s: %w", seat.Lock(), err)
 		if errors.Is(err, unix.EWOULDBLOCK) {
@@ -185,6 +189,16 @@ func (s *SeatLock) Seat() paths.Seat { return s.seat }
 func (s *SeatLock) Held() error {
 	_, err := s.take()
 	return err
+}
+
+// LocksIn is nil while this lock is held and is the seat.lock in dir, the seat's directory held
+// open, so what is written through dir is written beside the held lock (MS2).
+func (s *SeatLock) LocksIn(dir *homefs.Root) error {
+	f, err := s.take()
+	if err != nil {
+		return err
+	}
+	return dir.SameFile(s.seat.Lock(), f)
 }
 
 // Dup is a second descriptor of the same held description, for the link (B 2.5): the seat

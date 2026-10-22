@@ -42,7 +42,7 @@ func TestTableIsBsTable(t *testing.T) {
 		64: {[]string{"usage", "ambiguous-team", "unknown-member", "ambiguous-member"}, ClassFix},
 		69: {[]string{"no-session", "no-link", "link-failed"}, ClassTell},
 		75: {[]string{"seat-held", "keeper-running"}, ClassLifecycle},
-		78: {[]string{"bundle", "membership", "store", "forge-login", "runtime", "launch"}, ClassTell},
+		78: {[]string{"bundle", "membership", "store", "forge-login", "runtime", "launch", "identity", "home", "gh", "tmux", "claude", "kernel", "reach"}, ClassTell},
 	}
 	rows := Table()
 	if len(rows) != len(want)+1 {

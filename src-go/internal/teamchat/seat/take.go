@@ -77,7 +77,7 @@ func (s *Store) Take(ctx context.Context, a *Alloc, t Take) (Taken, error) {
 	if err = s.refuseSessionSeat(seat); err != nil {
 		return Taken{}, err
 	}
-	claim, err := newClaim()
+	claim, err := NewClaim()
 	if err != nil {
 		return Taken{}, err
 	}
@@ -375,7 +375,7 @@ func (s *Store) credentialName(seat Seat) string {
 // quarantine moves a pool seat's directory to released/pool/ under a fresh claim id, then
 // unlinks the named file in it, when one is named and there.
 func (s *Store) quarantine(seat Seat, from, unlinkName string) error {
-	claim, err := newClaim()
+	claim, err := NewClaim()
 	if err != nil {
 		return err
 	}
@@ -397,8 +397,8 @@ func (s *Store) moveToQuarantine(from, to, unlinkName string) error {
 	return nil
 }
 
-// newClaim is a fresh claim id.
-func newClaim() (paths.ClaimID, error) {
+// NewClaim is a fresh claim id: 16 lowercase hex from crypto/rand.
+func NewClaim() (paths.ClaimID, error) {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		return paths.ClaimID{}, err

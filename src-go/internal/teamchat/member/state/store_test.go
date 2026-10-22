@@ -250,36 +250,42 @@ func TestStoreFullFitsTheFileCap(t *testing.T) {
 }
 
 // TestStoreListCapsFireFirst holds each list's cap, entry count and entry size, firing before
-// the file cap.
+// the file cap: each grown store is refused by its own rule.
 func TestStoreListCapsFireFirst(t *testing.T) {
-	for name, grow := range map[string]func(*Store){
-		"pending": func(s *Store) {
+	count := func(list string, limit int) string { return fmt.Sprintf("%s holds more than %d entries", list, limit) }
+	for name, c := range map[string]struct {
+		grow func(*Store)
+		rule string
+	}{
+		"pending": {func(s *Store) {
 			p := s.Pending[len(s.Pending)-1]
 			p.ID = eventID(capPending)
 			s.Pending = append(s.Pending, p)
-		},
-		"pending agent": func(s *Store) { s.Pending[len(s.Pending)-1].Item = records.KindPing },
-		"ledger":        func(s *Store) { s.Ledger = append(s.Ledger, s.Ledger[0]) },
-		"receipts":      func(s *Store) { s.Receipts = append(s.Receipts, s.Receipts[0]) },
-		"pings":         func(s *Store) { s.Outbox.Pings = append(s.Outbox.Pings, s.Outbox.Pings[0]) },
-		"ping targets":  func(s *Store) { s.Outbox.Pings[0].To = append(s.Outbox.Pings[0].To, otherID) },
-		"awaiting":      func(s *Store) { s.Awaiting = append(s.Awaiting, s.Awaiting[0]) },
-		"awaiting size": func(s *Store) { s.Awaiting[0].IDs = append(s.Awaiting[0].IDs, manyIDs(40)...) },
-		"missed":        func(s *Store) { s.Missed = append(s.Missed, s.Missed[0]) },
-		"missed size":   func(s *Store) { s.Missed[0].IDs = manyIDs(14) },
-		"sending":       func(s *Store) { s.Outbox.Sending = append(s.Outbox.Sending, s.Outbox.Sending[0]) },
-		"gate keys":     func(s *Store) { s.Outbox.Gate.Recent = append(s.Outbox.Gate.Recent, s.Outbox.Gate.Recent[0]) },
-		"transcript path": func(s *Store) {
+		}, count("pending", capPending)},
+		"pending agent": {func(s *Store) { s.Pending[len(s.Pending)-1].Item = records.KindPing }, "agent items"},
+		"ledger":        {func(s *Store) { s.Ledger = append(s.Ledger, s.Ledger[0]) }, count("ledger", capLedger)},
+		"receipts":      {func(s *Store) { s.Receipts = append(s.Receipts, s.Receipts[0]) }, count("receipts", capReceipts)},
+		"pings":         {func(s *Store) { s.Outbox.Pings = append(s.Outbox.Pings, s.Outbox.Pings[0]) }, count("pings", capPings)},
+		"ping targets":  {func(s *Store) { s.Outbox.Pings[0].To = append(s.Outbox.Pings[0].To, otherID) }, "a ping is not to 1 to 16"},
+		"awaiting":      {func(s *Store) { s.Awaiting = append(s.Awaiting, s.Awaiting[0]) }, count("awaiting", capAwaiting)},
+		"awaiting size": {func(s *Store) { s.Awaiting[0].IDs = append(s.Awaiting[0].IDs, manyIDs(40)...) }, "an entry of awaiting is over"},
+		"missed":        {func(s *Store) { s.Missed = append(s.Missed, s.Missed[0]) }, count("missed", capMissed)},
+		"missed size":   {func(s *Store) { s.Missed[0].IDs = manyIDs(14) }, "an entry of missed is over"},
+		"sending":       {func(s *Store) { s.Outbox.Sending = append(s.Outbox.Sending, s.Outbox.Sending[0]) }, count("sending", capSending)},
+		"gate keys": {func(s *Store) {
+			s.Outbox.Gate.Recent = append(s.Outbox.Gate.Recent, s.Outbox.Gate.Recent[0])
+		}, count("gate keys", capGateKeys)},
+		"transcript path": {func(s *Store) {
 			s.Awaiting[0].Transcript.Path = "/" + strings.Repeat("p", maxTranscriptPath) + ".jsonl"
-		},
-		"pending repeated": func(s *Store) { s.Pending[1].ID = s.Pending[0].ID },
+		}, "transcript is not"},
+		"pending repeated": {func(s *Store) { s.Pending[1].ID = s.Pending[0].ID }, "holds an id twice"},
 	} {
 		s := fullStore(t)
-		grow(&s)
+		c.grow(&s)
 		_, err := s.encode()
 		var inv *InvalidError
-		if !errors.As(err, &inv) || strings.Contains(inv.Rule, "larger than its cap") {
-			t.Errorf("%s: encode = %v, want its list's own refusal", name, err)
+		if !errors.As(err, &inv) || !strings.Contains(inv.Rule, c.rule) {
+			t.Errorf("%s: encode = %v, want the rule %q", name, err, c.rule)
 		}
 	}
 }

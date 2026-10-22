@@ -186,6 +186,23 @@ func TestWriteReplacesAMemberFile(t *testing.T) {
 	}
 }
 
+// MS2, LK3: a seat directory replaced after the seat was taken holds a seat.lock nobody holds,
+// so no writer is made over it and no store is written there.
+func TestStoreWriterRefusesASeatDirectoryNotItsLocks(t *testing.T) {
+	w := newWorld(t)
+	l := heldSeat(t, w)
+	t.Cleanup(func() { check(t, l.Close()) })
+	check(t, os.Rename(w.seat.Dir(), w.seat.Dir()+".old"))
+	check(t, w.root.MkdirAll(w.seat.Dir()))
+	check(t, os.WriteFile(w.seat.Lock(), nil, 0o600))
+	if _, err := NewStoreWriter(w.root, l); !errors.Is(err, homefs.ErrConfig) {
+		t.Fatalf("NewStoreWriter over a replaced seat directory = %v, want ErrConfig", err)
+	}
+	if _, err := os.Stat(w.seat.Store()); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a refused writer left a store: %v", err)
+	}
+}
+
 func TestStoreWriterNeedsAPrivateSeatDirectory(t *testing.T) {
 	w := newWorld(t)
 	l := heldSeat(t, w)

@@ -10,10 +10,38 @@ import (
 	"testing"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/reexec"
 )
 
 // otherUID owns the files planted as another user's.
 const otherUID = 4242
+
+var helpers = reexec.Helpers{
+	// create-over-limit creates Args[0]/f past a file-size limit of 4 bytes, in a process of
+	// its own so the limit binds no test; it is ready only if the create failed and left no f.
+	"create-over-limit": func(h *reexec.Helper) int {
+		if err := unix.Setrlimit(unix.RLIMIT_FSIZE, &unix.Rlimit{Cur: 4, Max: unix.RLIM_INFINITY}); err != nil {
+			return 2
+		}
+		r, err := Open(h.Args[0], Private)
+		if err != nil {
+			return 3
+		}
+		if err := r.Create(h.Args[0]+"/f", []byte("over four bytes"), 0o600); !errors.Is(err, unix.EFBIG) {
+			return 4
+		}
+		if _, err := os.Lstat(h.Args[0] + "/f"); !errors.Is(err, fs.ErrNotExist) {
+			return 5
+		}
+		if err := errors.Join(r.Close(), h.Ready()); err != nil {
+			return 6
+		}
+		return 0
+	},
+}
+
+func TestMain(m *testing.M) { os.Exit(reexec.Main(m, helpers)) }
 
 func check(t *testing.T, err error) {
 	t.Helper()
@@ -200,6 +228,15 @@ func TestCreateNamesTheModeAndNeverOverwrites(t *testing.T) {
 	}
 	if err := r.Create(root+"/missing/x", nil, 0o600); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("in a missing directory: %v", err)
+	}
+}
+
+// A create whose write fails after the exclusive create leaves nothing at the name.
+func TestCreateThatFailsLeavesNoFile(t *testing.T) {
+	_, root := newRoot(t)
+	reexec.Start(t, "create-over-limit", root).Release()
+	if _, err := os.Lstat(root + "/f"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a failed create left f: %v", err)
 	}
 }
 
@@ -418,6 +455,34 @@ func TestEntriesUnlinkRenameAndRemoveTree(t *testing.T) {
 	}
 	if err = r.RemoveTree(root); !errors.Is(err, ErrConfig) {
 		t.Errorf("the root itself: %v", err)
+	}
+}
+
+// SameFile is nil only for the regular file at the path that the open file is, by device and
+// inode; another file, a link to it, a directory or nothing is refused.
+func TestSameFile(t *testing.T) {
+	r, root := newRoot(t)
+	writeFile(t, root+"/a", "x")
+	writeFile(t, root+"/b", "x")
+	check(t, os.Symlink("a", root+"/link"))
+	mkdir(t, root+"/dir", 0o700)
+	a, err := os.Open(root + "/a")
+	check(t, err)
+	t.Cleanup(func() { check(t, a.Close()) })
+	check(t, r.SameFile(root+"/a", a))
+	for _, path := range []string{root + "/b", root + "/link", root + "/dir"} {
+		if err = r.SameFile(path, a); !errors.Is(err, ErrConfig) {
+			t.Errorf("%s: %v", path, err)
+		}
+	}
+	if err = r.SameFile(root+"/none", a); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("nothing there: %v", err)
+	}
+	dir, err := os.Open(root + "/dir")
+	check(t, err)
+	check(t, dir.Close())
+	if err = r.SameFile(root+"/a", dir); err == nil {
+		t.Error("a closed file was the same")
 	}
 }
 

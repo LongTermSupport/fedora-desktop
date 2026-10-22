@@ -242,6 +242,11 @@ var dynamicNames = []allowance{
 		fn:     "runSelf",
 		reason: "the busfailpoints test binary itself, re-run so an armed point can SIGKILL it (SPEC-n3 gap 9)",
 	},
+	{
+		pkg:    "internal/teamchat/member/guest",
+		fn:     "Checker.ghLoggedIn",
+		reason: "gh (unowned) at the path guest check found on the session unit's PATH, never the attach's own (SPEC-n3 GU2)",
+	},
 }
 
 // shellStrings are the functions that may hand a shell a string with -c, because the program's

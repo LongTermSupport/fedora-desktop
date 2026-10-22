@@ -119,6 +119,18 @@ const (
 	CodeLaunch          = "launch"
 )
 
+// The guest operations' configuration codes (SPEC-n3 GU1, GU2): the caller is not the user
+// named, or one of guest check's checks failed.
+const (
+	CodeIdentity = "identity"
+	CodeHome     = "home"
+	CodeGh       = "gh"
+	CodeTmux     = "tmux"
+	CodeClaude   = "claude"
+	CodeKernel   = "kernel"
+	CodeReach    = "reach"
+)
+
 // Row is one exit of the table.
 type Row struct {
 	Exit    term.ExitCode
@@ -145,7 +157,7 @@ var table = []Row{
 	{ExitUsage, "usage error", []string{CodeUsage, CodeAmbiguousTeam, CodeUnknownMember, CodeAmbiguousMember}, ClassFix, "read the message, which lists the choices"},
 	{ExitNoRuntime, "no runtime: not in a member session, or its link is not answering", []string{CodeNoSession, CodeNoLink, CodeLinkFailed}, ClassTell, "pass the message, which names the recovery, to a human; do not start anything yourself"},
 	{ExitBusy, "busy: the seat is held by another session, or a keeper already runs", []string{CodeSeatHeld, CodeKeeperRunning}, ClassLifecycle, "(lifecycle verbs only)"},
-	{ExitConfig, "configuration refused (bundle, desired membership, store, launch)", []string{CodeBundle, CodeMembership, CodeStore, CodeForgeLogin, CodeRuntime, CodeLaunch}, ClassTell, "run status; tell a human"},
+	{ExitConfig, "configuration refused (bundle, desired membership, store, launch, a guest's identity or check)", []string{CodeBundle, CodeMembership, CodeStore, CodeForgeLogin, CodeRuntime, CodeLaunch, CodeIdentity, CodeHome, CodeGh, CodeTmux, CodeClaude, CodeKernel, CodeReach}, ClassTell, "run status; tell a human"},
 }
 
 // Table is B 2.2.4's table, a copy the caller may change.

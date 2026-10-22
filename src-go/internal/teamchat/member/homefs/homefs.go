@@ -182,7 +182,7 @@ func createAt(parent int, name string, data []byte, perm fs.FileMode) error {
 		werr = f.Sync()
 	}
 	if err := errors.Join(werr, f.Close()); err != nil {
-		return err
+		return errors.Join(err, unix.Unlinkat(parent, name, 0))
 	}
 	return unix.Fsync(parent)
 }
@@ -300,6 +300,25 @@ func (r *Root) Exists(full string) (bool, error) {
 		return false, nil
 	}
 	return found, err
+}
+
+// SameFile is nil when f is the regular file at full, by device and inode, the name reached
+// through no link; anything else at full is ErrConfig, and nothing there fs.ErrNotExist.
+func (r *Root) SameFile(full string, f *os.File) error {
+	var at, open unix.Stat_t
+	err := r.inParent(full, func(parent int, name string) error {
+		return unix.Fstatat(parent, name, &at, unix.AT_SYMLINK_NOFOLLOW)
+	})
+	if err != nil {
+		return err
+	}
+	if err := unix.Fstat(int(f.Fd()), &open); err != nil {
+		return fmt.Errorf("homefs: %s: %w", full, err)
+	}
+	if at.Mode&unix.S_IFMT != unix.S_IFREG || at.Dev != open.Dev || at.Ino != open.Ino {
+		return fmt.Errorf("%w: %s is not the file held open", ErrConfig, full)
+	}
+	return nil
 }
 
 // Unlink removes the file or link at full, never following it, and syncs its directory.

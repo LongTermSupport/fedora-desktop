@@ -116,6 +116,15 @@ const (
 	verbQuestions = "questions"
 )
 
+// The guest operations' verbs and seat set-aside, which runs names too.
+const (
+	verbGuestCheck  = "guest check"
+	verbPlaceBundle = "guest place-bundle"
+	verbMembership  = "guest membership"
+	verbGuestRemove = "guest remove"
+	verbSetAside    = "seat set-aside"
+)
+
 // The flags the code names.
 const (
 	flagTeam = "team"
@@ -203,11 +212,11 @@ var table = []Verb{
 		Flags: []Flag{{Name: "bundle", Value: valueDir, Required: true, check: checkDir}, {Name: "since", Value: "MS", Required: true, check: checkCount}, {Name: "seed", Value: "ID", Required: true}},
 		Does:  "posts a seat's disconnected notice once, from a host-held bundle",
 	},
-	{Name: "seat set-aside", Flags: []Flag{required(teamFlag), {Name: "state", Value: valueDir, check: checkDir}}, Does: "renames a seat's store.json aside under the seat lock"},
-	{Name: "guest check", Flags: []Flag{userFlag, required(teamFlag)}, Does: "checks an LXC guest's user can run a member session; stdin the team's reach facts"},
-	{Name: "guest place-bundle", Flags: []Flag{userFlag}, Does: "places the seat bundle on stdin in the user's home"},
-	{Name: "guest membership", Flags: []Flag{userFlag}, Does: "writes the desired membership on stdin as the user's desired.json"},
-	{Name: "guest remove", Flags: []Flag{userFlag, required(teamFlag)}, Does: "removes a team's seat files but seat.lock, under the seat lock"},
+	{Name: verbSetAside, Flags: []Flag{required(teamFlag), {Name: "state", Value: valueDir, check: checkDir}}, Does: "renames a seat's store.json aside under the seat lock"},
+	{Name: verbGuestCheck, Flags: []Flag{userFlag, required(teamFlag)}, Does: "checks an LXC guest's user can run a member session; stdin the team's reach facts"},
+	{Name: verbPlaceBundle, Flags: []Flag{userFlag}, Does: "places the seat bundle on stdin in the user's home"},
+	{Name: verbMembership, Flags: []Flag{userFlag}, Does: "writes the desired membership on stdin as the user's desired.json"},
+	{Name: verbGuestRemove, Flags: []Flag{userFlag, required(teamFlag)}, Does: "removes a team's seat files but seat.lock, under the seat lock"},
 }
 
 // Verbs is the table, each agent verb with its --team; a copy the caller may change.
