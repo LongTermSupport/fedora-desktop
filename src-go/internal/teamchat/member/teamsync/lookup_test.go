@@ -85,7 +85,7 @@ func rawEvent(t *testing.T, sender string, content map[string]any) string {
 }
 
 func newTestResolver(log *syncBuffer) *resolver {
-	return newResolver(newLogger(log, mustTeam(teamName)))
+	return newResolver(newLogger(log, alphaID))
 }
 
 func containsAll(s string, parts ...string) bool {
@@ -278,7 +278,7 @@ func TestMemLookup(t *testing.T) {
 // A refusal that is neither transient nor a 404 or 403 (a 401) is the error at once, and counts
 // toward no poison bound; nothing is logged without a log.
 func TestResolveRefusalIsTheError(t *testing.T) {
-	r := newResolver(newLogger(nil, mustTeam(teamName)))
+	r := newResolver(newLogger(nil, alphaID))
 	f := newFetcher()
 	refused := matrix.StatusError(http.MethodGet, "/event", http.StatusUnauthorized, "M_UNKNOWN_TOKEN")
 	f.answers[evRel1] = []fetched{{err: refused}}

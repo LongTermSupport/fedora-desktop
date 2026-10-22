@@ -51,6 +51,7 @@ type world struct {
 	clk    *clock.Fake
 	srv    *fakehs.Server
 	team   paths.TeamID
+	self   string
 	main   string
 	ids    proto.RoomIDs
 	roster proto.Roster
@@ -80,7 +81,7 @@ func newWorld(t *testing.T) *world {
 			t.Errorf("close: %v", err)
 		}
 	})
-	w := &world{t: t, clk: clk, srv: srv, team: mustTeam(teamName), tokens: map[string]string{}, log: &syncBuffer{}, watch: newFakeWatcher()}
+	w := &world{t: t, clk: clk, srv: srv, team: alphaID, self: me, tokens: map[string]string{}, log: &syncBuffer{}, watch: newFakeWatcher()}
 	srv.AddUser(proto.AdminLocalpart, "pw", true)
 	for _, local := range []string{alice, coord, me, peer, deaf} {
 		srv.AddUser(local, "pw", false)
@@ -137,14 +138,21 @@ func (w *world) seatDir() {
 	check(w.t, err)
 	w.t.Cleanup(func() { check(w.t, root.Close()) })
 	w.root = root
-	w.place(w.tokens[me], nil)
+	w.place(w.tokens[w.self], nil)
+}
+
+// as makes local the member under test: its pair placed in the seat directory.
+func (w *world) as(local string) {
+	w.t.Helper()
+	w.self = local
+	w.place(w.tokens[local], nil)
 }
 
 func (w *world) bundle() seat.Bundle {
 	issuer, err := paths.ParseDigest("0123456789abcdef")
 	check(w.t, err)
 	return seat.Bundle{
-		V: 1, Team: w.team, ServerName: server, UserID: user(me), AdminID: proto.AdminID(server),
+		V: 1, Team: w.team, ServerName: server, UserID: user(w.self), AdminID: proto.AdminID(server),
 		MainRoom: w.main, BaseURL: w.srv.URL(), PlainHTTPHosts: []string{"127.0.0.1"},
 		DeviceID: paths.SeatDevice, IssuedMS: startMS - 1000, Issuer: issuer,
 	}
@@ -239,8 +247,9 @@ func (w *world) start(opts ...option) *running {
 func (w *world) startTeam(tm *Team) *running {
 	w.t.Helper()
 	r := &running{tm: tm, polls: make(chan string, 64), waits: make(chan time.Duration, 64), done: make(chan error, 1)}
-	tm.onPoll = func(since string) { r.polls <- since }
-	tm.onWait = func(d time.Duration) { r.waits <- d }
+	onPoll, onWait := tm.onPoll, tm.onWait
+	tm.onPoll = func(since string) { onPoll(since); r.polls <- since }
+	tm.onWait = func(d time.Duration) { onWait(d); r.waits <- d }
 	ctx, cancel := context.WithCancel(w.t.Context())
 	r.stop = cancel
 	go func() { r.done <- tm.Run(ctx) }()
@@ -475,16 +484,29 @@ func (e *fakeEngine) lastHealth() team.Health {
 	return e.health[len(e.health)-1]
 }
 
+// position is the stored next_batch.
+func (e *fakeEngine) position() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.store.Sync.NextBatch
+}
+
 func (e *fakeEngine) healths() []team.Health {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return slices.Clone(e.health)
 }
 
-func (e *fakeEngine) counts() (begun int, resets []int64) {
+func (e *fakeEngine) begunRuns() int {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.begun, slices.Clone(e.resets)
+	return e.begun
+}
+
+func (e *fakeEngine) resetEpochs() []int64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return slices.Clone(e.resets)
 }
 
 func (e *fakeEngine) pending() []state.Pending {

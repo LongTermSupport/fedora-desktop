@@ -15,7 +15,7 @@ func testSeat(t *testing.T) paths.Seat {
 	t.Helper()
 	l, err := paths.HomeLayout(t.TempDir(), t.TempDir())
 	check(t, err)
-	s := l.Seat(mustTeam(teamName))
+	s := l.Seat(alphaID)
 	check(t, os.MkdirAll(s.Dir(), 0o700))
 	return s
 }

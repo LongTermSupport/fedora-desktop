@@ -24,15 +24,16 @@ const (
 	oldRun   = "00000000000000bb"
 )
 
-var server = paths.ServerName(mustTeam(teamName))
-
-func mustTeam(s string) paths.TeamID {
-	t, err := paths.ParseTeamID(s)
-	if err != nil {
-		panic(err)
-	}
-	return t
-}
+var (
+	alphaID = func() paths.TeamID {
+		t, err := paths.ParseTeamID(teamName)
+		if err != nil {
+			panic(err)
+		}
+		return t
+	}()
+	server = paths.ServerName(alphaID)
+)
 
 func check(t *testing.T, err error) {
 	t.Helper()

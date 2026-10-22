@@ -37,7 +37,7 @@ func TestAnotherEpochDropsThePosition(t *testing.T) {
 	if b.NextBatch == "s_stale" || b.Fresh || b.RestoreEpoch != w.roster.RestoreEpoch {
 		t.Errorf("batch = %+v", b)
 	}
-	if _, resets := w.eng.counts(); len(resets) != 1 || resets[0] != w.roster.RestoreEpoch {
+	if resets := w.eng.resetEpochs(); len(resets) != 1 || resets[0] != w.roster.RestoreEpoch {
 		t.Errorf("resets = %v", resets)
 	}
 	for _, s := range w.syncs() {

@@ -18,14 +18,12 @@ import (
 )
 
 // waitHealth waits for the engine to be told a health that ok accepts.
-func (w *world) waitHealth(ok func(team.Health) bool) team.Health {
+func (w *world) waitHealth(ok func(team.Health) bool) {
 	w.t.Helper()
 	for {
 		hs := w.eng.healths()
-		for _, h := range hs {
-			if ok(h) {
-				return h
-			}
+		if slices.ContainsFunc(hs, ok) {
+			return
 		}
 		select {
 		case <-w.t.Context().Done():
@@ -158,7 +156,7 @@ func TestTransientFailuresBackOff(t *testing.T) {
 	w := newWorld(t)
 	w.srv.Inject(fakehs.Fault{Method: http.MethodGet, Path: "/sync", Status: http.StatusBadGateway, Body: []byte(`{}`), Times: 6})
 	r := w.start()
-	var got []time.Duration
+	got := make([]time.Duration, 0, 6)
 	for range 6 {
 		d := r.wait(t)
 		got = append(got, d)
@@ -241,7 +239,7 @@ func TestClosesThePreviousRunAndPostsBack(t *testing.T) {
 	w.clk.Advance(r.wait(t))
 	r.poll(t)
 	closes, backs := w.ends.runs()
-	begun, _ := w.eng.counts()
+	begun := w.eng.begunRuns()
 	if len(closes) != 1 || begun != 1 || len(backs) != 0 || closes[0].ID != runID(t, oldRun) {
 		t.Fatalf("closes %+v, begun %d, backs %+v", closes, begun, backs)
 	}

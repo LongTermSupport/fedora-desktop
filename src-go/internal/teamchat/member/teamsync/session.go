@@ -197,7 +197,7 @@ func (s *sess) marker(ctx context.Context) (int64, bool, error) {
 
 func decodeMarker(raw json.RawMessage) (int64, bool) {
 	v, err := proto.Parse(raw)
-	if err != nil || v.Kind() != proto.KindObject || v.Size() != 3 {
+	if err != nil || v.Kind() != proto.KindObject || len(v.Members()) != 3 {
 		return 0, false
 	}
 	ver, floor, epoch := member(v, "v"), member(v, "floor_ms"), member(v, "restore_epoch")

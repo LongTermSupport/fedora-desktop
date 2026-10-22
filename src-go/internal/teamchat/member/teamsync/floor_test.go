@@ -1,0 +1,175 @@
+package teamsync
+
+import (
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix/fakehs"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+)
+
+// markerPuts counts the PUTs of the floor marker fakehs received.
+func (w *world) markerPuts() int {
+	n := 0
+	for _, r := range w.srv.Requests() {
+		if r.Method == http.MethodPut && strings.Contains(r.Path, paths.FloorAccountData) {
+			n++
+		}
+	}
+	return n
+}
+
+// marker is the floor the member's marker holds now; -1 for none.
+func (w *world) marker() int64 {
+	w.t.Helper()
+	raw, found, err := w.client(me).RoomAccountData(w.t.Context(), user(me), w.main, paths.FloorAccountData)
+	check(w.t, err)
+	if !found {
+		return -1
+	}
+	floor, ok := decodeMarker(raw)
+	if !ok {
+		w.t.Fatalf("marker %s", raw)
+	}
+	return floor
+}
+
+// SY10: a moved floor is put at once the first time, then at most once per 10 s of boot time.
+func TestTheFloorMarkerIsCoalesced(t *testing.T) {
+	w := newWorld(t)
+	r := w.start()
+	w.batch()
+	r.poll(t)
+	first := w.later("one")
+	w.batch()
+	r.poll(t)
+	if f := w.marker(); f != w.ts(first) || w.markerPuts() != 1 {
+		t.Fatalf("marker %d, %d puts", f, w.markerPuts())
+	}
+	w.later("two")
+	w.batch()
+	r.poll(t)
+	if n := w.markerPuts(); n != 1 {
+		t.Errorf("%d puts within 10 s", n)
+	}
+	w.clk.Advance(floorPutGap)
+	third := w.later("three")
+	w.batch()
+	r.poll(t)
+	if f := w.marker(); f != w.ts(third) || w.markerPuts() != 2 {
+		t.Errorf("marker %d, %d puts", f, w.markerPuts())
+	}
+}
+
+// SY10: FlushFloor puts the floor at once; with none known it puts nothing; a failed put is one
+// line.
+func TestFlushFloor(t *testing.T) {
+	w := newWorld(t)
+	tm := w.newTeam()
+	check(t, tm.FlushFloor(t.Context()))
+	if n := w.markerPuts(); n != 0 {
+		t.Errorf("%d puts with no floor", n)
+	}
+	r := w.startTeam(tm)
+	w.batch()
+	r.poll(t)
+	w.later("one")
+	w.batch()
+	r.poll(t)
+	second := w.later("two")
+	w.batch()
+	r.poll(t)
+	check(t, tm.FlushFloor(t.Context()))
+	if f := w.marker(); f != w.ts(second) {
+		t.Errorf("marker %d", f)
+	}
+	w.srv.Inject(fakehs.Fault{Method: http.MethodPut, Path: paths.FloorAccountData, Status: http.StatusBadGateway, Body: []byte(`{}`), Times: 3})
+	if err := tm.FlushFloor(t.Context()); err == nil {
+		t.Error("a refused put was taken")
+	}
+	w.clk.Advance(floorPutGap)
+	w.later("three")
+	w.batch()
+	r.poll(t)
+	if n := w.log.count("was not put"); n != 1 {
+		t.Errorf("log %q", w.log.String())
+	}
+}
+
+// SY12: the detector's two thresholds, each just below and just past.
+func TestTheFreezeDetector(t *testing.T) {
+	clk := clock.NewFake(time.Hour, startMS)
+	f := freezeDetector{clk: clk}
+	if _, frozen := f.atStart(); frozen {
+		t.Error("the first reading is a freeze")
+	}
+	clk.Suspend(maxSkewGrowth)
+	if _, frozen := f.atStart(); frozen {
+		t.Error("2 s is a freeze")
+	}
+	clk.Suspend(maxSkewGrowth + time.Millisecond)
+	if g, frozen := f.atStart(); !frozen || g != maxSkewGrowth+time.Millisecond {
+		t.Errorf("growth %v, frozen %v", g, frozen)
+	}
+	started := clk.Boot()
+	clk.Advance(requestDeadline + maxOverdue)
+	if _, frozen := f.atAnswer(started); frozen {
+		t.Error("10 s past the deadline is a freeze")
+	}
+	clk.Advance(time.Millisecond)
+	if over, frozen := f.atAnswer(started); !frozen || over != maxOverdue+time.Millisecond {
+		t.Errorf("over %v, frozen %v", over, frozen)
+	}
+	clk.Suspend(3 * time.Second)
+	if g, frozen := f.atAnswer(clk.Boot()); !frozen || g != 3*time.Second {
+		t.Errorf("growth %v, frozen %v", g, frozen)
+	}
+}
+
+// SY12: a suspend during a long-poll drops the connection, says so once and starts the session
+// again; the answer is discarded and judged again from the same position.
+func TestASuspendRestartsTheSession(t *testing.T) {
+	w := newWorld(t)
+	r := w.start()
+	since := w.batch().NextBatch
+	r.poll(t)
+	w.clk.Suspend(5 * time.Second)
+	id := w.say(alice, human("after the suspend", user(me)))
+	if got := r.poll(t); got != since {
+		t.Errorf("after the freeze the team polls from %q, want %q", got, since)
+	}
+	if got := itemIDs(w.batch()); len(got) != 1 || got[0] != id {
+		t.Errorf("items %v", got)
+	}
+	if n := w.log.count("a freeze or suspend of 5s"); n != 1 {
+		t.Errorf("log %q", w.log.String())
+	}
+}
+
+// SY12: a suspend between two long-polls (here, during the store write) is caught at the next
+// one's start.
+func TestASuspendBetweenPolls(t *testing.T) {
+	w := newWorld(t)
+	writes := 0
+	w.eng.setPersistErr(func(team.Batch) error {
+		if writes++; writes == 2 {
+			w.clk.Suspend(5 * time.Second)
+		}
+		return nil
+	})
+	r := w.start()
+	w.batch()
+	r.poll(t)
+	w.say(alice, human("one", user(me)))
+	since := w.batch().NextBatch
+	if got := r.poll(t); got != since {
+		t.Errorf("polls from %q, want %q", got, since)
+	}
+	if n := w.log.count("a freeze or suspend"); n != 1 {
+		t.Errorf("log %q", w.log.String())
+	}
+}

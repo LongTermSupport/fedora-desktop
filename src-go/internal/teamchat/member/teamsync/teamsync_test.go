@@ -19,8 +19,8 @@ var (
 )
 
 // SY1 (b) with no store and no marker: the first answer is persisted fresh: false from the
-// member's own join, then the long-poll from its next_batch delivers a human's mention.
-func TestDeliversAHumanMention(t *testing.T) {
+// member's own join, and the long-poll goes from its next_batch.
+func TestTheFirstAnswerIsPersisted(t *testing.T) {
 	w := newWorld(t)
 	r := w.start()
 	first := w.batch()
@@ -30,6 +30,20 @@ func TestDeliversAHumanMention(t *testing.T) {
 	if since := r.poll(t); since != first.NextBatch {
 		t.Fatalf("long-poll since %q, want %q", since, first.NextBatch)
 	}
+	if h := w.eng.lastHealth(); h.Role != proto.RoleWorker || h.Down || h.Stopped != "" || h.LastSyncOKMS == 0 {
+		t.Errorf("health = %+v", h)
+	}
+	if got := r.tm.Notices().Anchors(); got.MainRoom != w.main || got.Self != user(me) || got.Team != teamName {
+		t.Errorf("anchors = %+v", got)
+	}
+}
+
+// SY4: the long-poll delivers a human's mention as a pending human item, and the floor moves.
+func TestDeliversAHumanMention(t *testing.T) {
+	w := newWorld(t)
+	r := w.start()
+	w.batch()
+	r.poll(t)
 	id := w.say(alice, human("hello", user(me)))
 	b := w.batch()
 	if len(b.Items) != 1 {
@@ -41,11 +55,5 @@ func TestDeliversAHumanMention(t *testing.T) {
 	}
 	if b.Floors[proto.PurposeMain] != p.SentMS || b.Fresh {
 		t.Errorf("floors = %v, fresh %v", b.Floors, b.Fresh)
-	}
-	if h := w.eng.lastHealth(); h.Role != proto.RoleWorker || h.Down || h.Stopped != "" || h.LastSyncOKMS == 0 {
-		t.Errorf("health = %+v", h)
-	}
-	if got := r.tm.Notices().Anchors(); got.MainRoom != w.main || got.Self != user(me) || got.Team != teamName {
-		t.Errorf("anchors = %+v", got)
 	}
 }
