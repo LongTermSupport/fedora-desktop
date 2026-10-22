@@ -44,9 +44,9 @@
 # play-agent-bus.yml again (it passed on its own at 67033c224, so no change), then the whole
 # play-claude-yolo.yml, then acceptance.bash. The kit's settings.json runs the static Go
 # pingbus-status-line, copied into every running LXC member. The ccy play gives the host CCY
-# 3.100.6 (the Go front, the image build lock and --opencode: see the play-claude-yolo.yml entry
+# 3.100.7 (the Go front, the image build lock and --opencode: see the play-claude-yolo.yml entry
 # below) and puts the binary in the image's build context. That play run builds the image,
-# container 2.79.1: it downloads opencode 1.19.3 from github.com and stops this entry if its
+# container 2.79.2: it downloads opencode 1.19.3 from github.com and stops this entry if its
 # sha256 is not the pinned one, so an opencode download failure shows here (the image
 # also carries the farewell-reason fix, the reports and questions admin tool and Go 1.26.10 in the project image): a seated session's status line is
 # the Go one and refreshes every 25 s. The acceptance checks the kit's, the image's and each
@@ -65,7 +65,7 @@
 # member's pingbus is 0.2.0, and a declared container that is down is refused, named). Then the
 # whole play-agent-bus.yml keeps each team's reports and questions rooms (created when
 # play-agent-bus.yml passed at 67033c224), the index and the invites; the whole play-claude-yolo.yml finds the ccy image already
-# at container 2.79.1. Then acceptance.bash --stage 2 waits up to 180 s for every coordinator
+# at container 2.79.2. Then acceptance.bash --stage 2 waits up to 180 s for every coordinator
 # to join its questions room and every running ccy seat its reports room, naming any that has
 # not, and checks the rooms. It finds the first team's coordinator in its running ccy session
 # or LXC member; with no team coordinator, or one whose session is not running, it is
@@ -84,8 +84,8 @@
 # and checks their firewalld rules are gone, however the run ends. Needs sudo once, ccy
 # launched interactively in this checkout once (Quick Launch), and the hooks daemon installed.
 00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker
-# play-claude-yolo.yml, the whole play (Plan 00191 Tasks 4.3, 4.4, 4.4b and 4.5, Plans 00216 and
-# 00215): the host's ccy becomes CCY 3.100.6. Plan 00216: only one image build runs at a time; two
+# play-claude-yolo.yml, the whole play (Plan 00191 Tasks 4.3, 4.4, 4.4b and 4.5, Plans 00216,
+# 00201 and 00215): the host's ccy becomes CCY 3.100.7. Plan 00216: only one image build runs at a time; two
 # ccy launches started together build the image once, the second waiting (it says on stderr every
 # 30 s whose build it waits for) and then using that build. The play's own image build takes the
 # same lock (lib/image-build-lock.bash, newly installed with lib/image-build.bash), so it waits
@@ -94,8 +94,8 @@
 # `ccy --rebuild=full` in two terminals at the same moment: the second prints the waiting line
 # and starts its own build only when the first has finished (an explicit rebuild always builds);
 # while one builds, `ccy --build-lock` in a third terminal names it, and `n` leaves it running.
-# The play builds the image every run, so it is already container 2.79.1 here (its guide, the
-# room-ID fix in its pingbus, Plan 00211, and opencode 1.19.3, the open-source coding agent,
+# The play builds the image every run, so it is already container 2.79.2 here (its guide, the
+# room-ID fix in its pingbus, Plan 00211, Plan 00201's declare.py, and opencode 1.19.3, the open-source coding agent,
 # checked against its pinned sha256 at build), built by the 00213 entry above; the next launch
 # rebuilds only a project's own image. Plan 00215: new flag `ccy --opencode` (or -oc) runs
 # opencode in the container instead of Claude Code, with no bus kit and no supervisor; it needs a
@@ -103,7 +103,17 @@
 # empty (docs/ccy.md, "opencode"; Plan 00215 Task 1.4), and without one it
 # stops before anything starts; an opencode session is not restored after a reboot, and a Quick
 # Launch's saved team is not taken by it (or by --no-bus), and is kept for the next launch. A
-# launch without the flag is unchanged. /var/local/claude-yolo/claude-yolo becomes a Go program (built here from
+# launch without the flag is unchanged.
+# Plan 00201: the play rebuilds ~/.local/bin/ccy-teams with the lxc-add fix: `ccy-teams lxc-add
+# <team>` for a member the host_vars already declare says "<user>@<container> is already declared in team <team>"
+# and, after one yes, applies the team (play-agent-bus.yml) without writing; declared otherwise,
+# it names each differing key and offers to update the entry or stop. A refusal of the
+# host_vars file stops at once, naming the file, instead of asking the same question three
+# times; `ccy-teams create` stops the same way, and a gh lookup that fails for any reason but
+# GitHub's 404 (no network, a login gone stale) ends it with gh's words instead of asking for
+# another name; the settings screen stops, instead of asking again, on a team the host_vars no
+# longer declare. Check: run `ccy-teams lxc-add <team>` for the member that was refused before.
+# /var/local/claude-yolo/claude-yolo becomes a Go program (built here from
 # src-go/cmd/claude-yolo, installed only when its checksum changes) that answers --version,
 # --help, --list-tokens, --token-usage [--json], --prevent and --export-token NAME itself
 # (everything else, --top and the interactive export included, stays in the bash) and execs
@@ -132,8 +142,8 @@
 # the container runs that need them; a GH_TOKEN you export reaches the session through the new
 # lib/token-handoff.bash (a private file whose path only goes to the tmux re-run, deleted at
 # once; any other path in CCY_GH_TOKEN_HANDOFF is refused); --debug's log is 0600 with tokens
-# of a known prefix masked (the terminal still shows the raw trace). Container 2.79.1 (the guide in the image is corrected,
-# its pingbus has the room-ID fix, and opencode is added), built by the play itself. It also rebuilds ~/.local/bin/ccy-teams with
+# of a known prefix masked (the terminal still shows the raw trace). Container 2.79.2 (the guide in the image is corrected,
+# its pingbus has the room-ID fix, Plan 00201's declare.py is in it, and opencode is added), built by the play itself. It also rebuilds ~/.local/bin/ccy-teams with
 # Plan 00209 stage 1 (the team, seat and declare reads in-process), which the check below
 # judges. Afterwards start a ccy session as usual: it
 # must rebuild, start and attach as before, and gh must work inside it.

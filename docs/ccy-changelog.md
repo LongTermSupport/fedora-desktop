@@ -17,10 +17,10 @@ Two version numbers move independently — see
 
 ---
 
-## 3.100.6 — container 2.79.1
+## 3.100.7 — container 2.79.2
 
-Follows 3.99.15.4 (3.100.0 to 3.100.5 and container 2.79.0 were never released: review rounds on
-one branch). The image changes: the play builds it, and a host that has not run the play
+Follows 3.99.15.5 (3.100.0 to 3.100.6 and containers 2.79.0 and 2.79.1 were never released: review rounds on
+one branch; container 2.79.2 also carries 2.78.18's declare.py). The image changes: the play builds it, and a host that has not run the play
 rebuilds it once at its next launch.
 
 - **`ccy --opencode` (or `-oc`) runs opencode instead of Claude Code** (Plan 00215): the image
@@ -35,6 +35,26 @@ rebuilds it once at its next launch.
 - **A Quick Launch with no bus kit (`--opencode`, and `--no-bus`) leaves the saved team alone**:
   not taken, and kept for the next launch to offer. `--no-bus` used to fail late at the seats.
 - Any other launch is byte for byte what it was (the launcher's differential harness).
+
+## 3.99.15.5 — container 2.78.18
+
+Follows 3.99.15.4 (3.99.14.13 to 3.99.14.15 were this branch's earlier cuts, never released;
+containers 2.78.16 and 2.78.17 with them, and 2.78.18 first released here). The image changes, so the next launch rebuilds it once.
+
+- **The image's declare.py recognises an LXC member declared already** (Plan 00201). `lxc-add`
+  of a member the host_vars declare as given answers UNCHANGED instead of refusing it as a
+  duplicate of itself; declared otherwise it names each key that differs, and `--update`
+  replaces the entry; one that would lose a comment on a line it rewrites is left to a hand. A
+  refusal of the file's own entries, or of an answer against them, is exit 78, not 64, so no
+  question asks it again.
+- **Refusal kinds in the rest of declare.py.** A team the file does not declare present is 78,
+  not 64 (`set`, `describe`, `element`, `settings`, `add-repo`, `lxc-check`), so the settings
+  screen stops instead of asking for a value no answer can pass. `set` gives 78 for an entry
+  refused as it stands only when the rule at fault reads no key the change sets (`exclude`
+  reads `org` and `repos`, a removed name in `humans` reads `removed_humans`, a missing `org`
+  reads `repos`); a value another answer could pass is 64 and asked again. `add-repo` of a repository the team already trusts is
+  UNCHANGED (exit 0), not 64. `create`'s "team X is already declared" names
+  `ccy-teams apply X` as the way on.
 
 ## 3.99.15.4 — container 2.78.15
 

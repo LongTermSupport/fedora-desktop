@@ -347,7 +347,7 @@ func (h HostVars) Address() (string, error) {
 }
 
 // present is declare.py's _present: the first team of that name declared present, which must
-// have a port.
+// have a port. A team the file does not declare so is the file's state (ErrRefused, 78).
 func present(hv hostVars, name string) (entry, error) {
 	for _, e := range hv.teams {
 		if e.team == name && e.state == statePresent && e.hasPort {
@@ -357,7 +357,7 @@ func present(hv hostVars, name string) (entry, error) {
 			break
 		}
 	}
-	return entry{}, usagef("--team: team %s is not declared present, with a port, in %s", name, teamsKey)
+	return entry{}, refusedf("--team: team %s is not declared present, with a port, in %s", name, teamsKey)
 }
 
 // Settings is declare.py settings (V20): each key of SETTINGS_KEYS of a present team, its

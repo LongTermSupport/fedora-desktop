@@ -3,6 +3,7 @@ package declare
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	busdeclare "github.com/LongTermSupport/fedora-desktop/src-go/internal/bus/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/marker"
@@ -64,16 +65,68 @@ func (c *Client) LxcIdentity(ctx context.Context, probe string) (Identity, error
 	return Identity{Repo: rows[0][1], Host: rows[0][2]}, nil
 }
 
-// LxcCheck refuses (ErrUsage) the first value of e that the play would not accept; with team,
-// container and user all given, e is also judged among the entries already declared.
+// LxcCheck refuses the first value of e that the play would not accept (ErrUsage: the value is
+// wrong, so asking again can help); with team, container and user all given, e is also judged
+// among the entries already declared, in place of the member's own entry when it has one
+// (ErrRefused: the file's entries refuse it, so the same answer never passes).
 func (c *Client) LxcCheck(ctx context.Context, e LxcEntry) error {
 	_, err := c.runFile(ctx, "lxc-check", e.args()...)
 	return err
 }
 
-// LxcAdd adds the entry to the host_vars (a backup of the file is kept beside it).
+// LxcAdd adds the entry to the host_vars (a backup of the file is kept beside it). A member the
+// file declares already as e is not Changed; declared otherwise, it is refused (ErrRefused)
+// naming the keys that differ (LxcCompare reads them, LxcUpdate replaces the entry).
 func (c *Client) LxcAdd(ctx context.Context, e LxcEntry) (Change, error) {
 	return c.edit(ctx, "lxc-add", e.args()...)
+}
+
+// LxcUpdate makes the entry already declaring e's member e, in place (a backup is kept); not
+// Changed when it is e already.
+func (c *Client) LxcUpdate(ctx context.Context, e LxcEntry) (Change, error) {
+	return c.edit(ctx, "lxc-add", append(e.args(), "--update")...)
+}
+
+// Difference is a key on which a declared entry and a given one differ, each value as JSON, "-"
+// for a key not set.
+type Difference struct {
+	Key, File, Given string
+}
+
+// Declared is the entry already declaring a member: its number in agent_bus_lxc_members (0: the
+// file declares no such member) and how it differs from the entry given.
+type Declared struct {
+	Entry   int
+	Differs []Difference
+}
+
+// LxcCompare is the entry already declaring e's member (team, container, user) and the keys
+// on which it differs from e, as the play reads them: declare.py's one rule.
+func (c *Client) LxcCompare(ctx context.Context, e LxcEntry) (Declared, error) {
+	out, err := c.runFile(ctx, "lxc-compare", e.args()...)
+	if err != nil {
+		return Declared{}, err
+	}
+	entry, err := marker.Fields(out, "DECLARED", 2)
+	if err != nil || len(entry) > 1 {
+		return Declared{}, fmt.Errorf("declare lxc-compare: unreadable answer %q", out)
+	}
+	differs, err := marker.Fields(out, "DIFFERS", 4)
+	if err != nil || (len(entry) == 0 && len(differs) > 0) {
+		return Declared{}, fmt.Errorf("declare lxc-compare: unreadable answer %q", out)
+	}
+	if len(entry) == 0 {
+		return Declared{}, nil
+	}
+	n, err := strconv.Atoi(entry[0][1])
+	if err != nil || n < 1 {
+		return Declared{}, fmt.Errorf("declare lxc-compare: unreadable answer %q", out)
+	}
+	found := Declared{Entry: n}
+	for _, f := range differs {
+		found.Differs = append(found.Differs, Difference{Key: f[1], File: f[2], Given: f[3]})
+	}
+	return found, nil
 }
 
 // LxcSetRole sets a declared member's role in its entry (a backup of the file is kept beside
@@ -82,9 +135,14 @@ func (c *Client) LxcSetRole(ctx context.Context, m LxcMember, role string) (Chan
 	return c.edit(ctx, "lxc-role", "--team", m.Team, "--container", m.Container, "--user", m.User, "--role", role)
 }
 
-// LxcAddDryRun is the entry LxcAdd would add, as the lines it would write; nothing is written.
-func (c *Client) LxcAddDryRun(ctx context.Context, e LxcEntry) (string, error) {
-	return c.runFile(ctx, "lxc-add", append(e.args(), "--dry-run")...)
+// LxcAddDryRun is the entry LxcAdd (LxcUpdate, when update) would write, as its lines; nothing
+// is written.
+func (c *Client) LxcAddDryRun(ctx context.Context, e LxcEntry, update bool) (string, error) {
+	args := e.args()
+	if update {
+		args = append(args, "--update")
+	}
+	return c.runFile(ctx, "lxc-add", append(args, "--dry-run")...)
 }
 
 // LxcScript is the script the play runs on the host, as root, to read a container's checkout
