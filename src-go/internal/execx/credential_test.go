@@ -54,12 +54,20 @@ func TestCleanEnvBesideUnsetIsRefused(t *testing.T) {
 		"session": func() error { s := c; s.NewSession = true; _, err := OS{}.Run(context.Background(), s); return err },
 		"fake":    func() error { _, err := f.Run(context.Background(), c); return err },
 		"exec":    func() error { return OS{}.Exec(c) },
+		"foreground": func() error {
+			_, err := OS{}.Foreground(c)
+			return err
+		},
+		"fake foreground": func() error {
+			_, err := f.Foreground(c)
+			return err
+		},
 	} {
 		if err := run(); !errors.Is(err, ErrBadCmd) {
 			t.Errorf("%s: got %v", name, err)
 		}
 	}
-	if len(f.Calls()) != 0 {
+	if len(f.Calls()) != 0 || len(f.Foregrounds()) != 0 {
 		t.Fatal("the fake recorded a refused command")
 	}
 }
@@ -93,6 +101,25 @@ func TestExecWithCleanEnvPassesOnlyEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !slices.Equal(got, []string{"A=1"}) {
+		t.Fatalf("env %q", got)
+	}
+}
+
+// TestCleanEnvKeepsSecrets: a clean environment is Env and the command's Secrets, nothing else.
+func TestCleanEnvKeepsSecrets(t *testing.T) {
+	t.Setenv("EXECX_PARENT_ONLY", "leaks")
+	s, err := NewSecret("TOKEN", "s3cret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	old := syscallExec
+	syscallExec = func(_ string, _, env []string) error { got = env; return nil }
+	t.Cleanup(func() { syscallExec = old })
+	if err := (OS{}).Exec(Cmd{Name: "/usr/bin/true", Env: []string{"A=1"}, Secrets: []Secret{s}, CleanEnv: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got, []string{"A=1", "TOKEN=s3cret"}) {
 		t.Fatalf("env %q", got)
 	}
 }

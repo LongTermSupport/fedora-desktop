@@ -1,0 +1,18 @@
+agent_bus_teams:
+  - team: alpha
+    port: 6167
+    org: example-org
+    exclude: [legacy]
+    allow_from: ["a", ]
+    humans: {"a": 1}x
+    path_prefixes: ["docs #x"]
+    description: ["not", "text"]
+    removed_humans: ["\ud800"]
+  - team: beta
+    port: 6168
+    org: example-org
+    exclude: "legacy-and-proj"
+  - team: gamma
+    port: 6169
+    org: example-org
+    exclude: {"proj": 1}

@@ -264,7 +264,8 @@ skips the read-back.
 - Configures git user name and email
 - Installs bash-git-prompt with Solarized theme; its background fetch runs `git-prompt-fetch`
   (a Go binary from `src-go/`, so this play imports `play-golang.yml`), which can never ask
-  for a passphrase
+  for a passphrase. It is checked out at the commit in `bash_git_prompt_version`, fetched on
+  every run; an edit to a tracked file in `~/.bash-git-prompt` stops the play
 - Installs GitHub CLI (gh)
 - Adds a bashrc prompt offering to start `ssh-agent` on SSH sessions without one
 - Signs every commit and tag with this machine's login key, `~/.ssh/id`, through the

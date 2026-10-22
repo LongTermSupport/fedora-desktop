@@ -44,9 +44,10 @@ func newRig(t *testing.T) rig {
 		"CHOICE\t3\tnew\t"+handleNew+"\ta ccy seat\n"+
 		"DEFAULT\t1\n", 0)
 	w.On(teamtest.SudoBus+"list alpha", roster("worker", "worker"), 0)
-	w.On(w.DeclarePrefix("declared"), teamtest.DeclaredAlpha, 0)
 	w.On("sudo -n -v", "", 0)
 	w.On(setRole, "", 0)
+	// The working directory is the populated checkout, whose seats are 1 (held) and dev.
+	w.On("git rev-parse --show-toplevel", w.Checkout()+"\n", 0)
 	return rig{World: w, Console: console, c: New(w.Host, kit, seats.New(w.Host, kit, o))}
 }
 
@@ -317,7 +318,6 @@ func TestSeatTakesExactlyOneTeam(t *testing.T) {
 
 func TestDescribeNamesTheSeatAndItsRole(t *testing.T) {
 	h := newRig(t)
-	h.On("agent-bus seat list", "SEAT\talpha\t1\theld\tself\t"+handleOne+"\nSEAT\talpha\tdev\tfree\t-\t"+handleDev+"\n", 0)
 	h.On(teamtest.SudoBus+"list alpha", roster("coordinator", "worker"), 0)
 	if code := h.c.Describe(t.Context(), []string{"1@alpha,dev@alpha"}); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
@@ -332,9 +332,10 @@ func TestDescribeNamesTheSeatAndItsRole(t *testing.T) {
 
 func TestDescribeFollowsEachSeatWithItsTeamsDescription(t *testing.T) {
 	h := newRig(t)
-	h.On(h.DeclarePrefix("declared"), "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\t\"Builds the example site\"\n"+
-		"TEAM\tbeta\t6168\tpresent\tbeta.agent-bus.internal\t-\t-\n", 0)
-	h.On("agent-bus seat list", "SEAT\talpha\t1\theld\tself\t"+handleOne+"\n", 0)
+	h.WriteHostVars(t, "agent_bus_address: 192.0.2.10\nagent_bus_teams:\n"+
+		"  - team: alpha\n    port: 6167\n    description: \"Builds the example site\"\n"+
+		"  - team: beta\n    port: 6168\n")
+	h.RemoveSeat(t, h.Checkout(), "alpha", "dev")
 	h.On(teamtest.SudoBus+"list alpha", roster("worker", "worker"), 0)
 	if code := h.c.Describe(t.Context(), []string{"1@alpha,3@beta"}); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
@@ -347,19 +348,19 @@ func TestDescribeFollowsEachSeatWithItsTeamsDescription(t *testing.T) {
 
 func TestDescribeStillNamesTheSeatsWhenTheDescriptionsCannotBeRead(t *testing.T) {
 	h := newRig(t)
-	h.OnErr(h.DeclarePrefix("declared"), "declare: cannot read", 78)
-	h.On("agent-bus seat list", "SEAT\talpha\t1\theld\tself\t"+handleOne+"\n", 0)
+	// A host_vars the reader refuses: the descriptions cannot be read.
+	h.WriteHostVars(t, "agent_bus_teams:\n  - team: alpha\n    port: port\n")
+	h.RemoveSeat(t, h.Checkout(), "alpha", "dev")
 	if code := h.c.Describe(t.Context(), []string{"1@alpha"}); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
-	if !strings.HasPrefix(h.stdout(), "1@alpha (") || strings.Contains(h.stdout(), ": ") || !strings.Contains(h.ErrOut.String(), "declare: cannot read") {
+	if !strings.HasPrefix(h.stdout(), "1@alpha (") || strings.Contains(h.stdout(), ": ") || !strings.Contains(h.ErrOut.String(), "declare: line 3: the port is not a number") {
 		t.Fatalf("stdout %q stderr %q", h.stdout(), h.ErrOut.String())
 	}
 }
 
 func TestDescribeReadsEachTeamOnce(t *testing.T) {
 	h := newRig(t)
-	h.On("agent-bus seat list", "SEAT\talpha\t1\theld\tself\t"+handleOne+"\nSEAT\talpha\tdev\tfree\t-\t"+handleDev+"\n", 0)
 	h.Spawned()
 	h.c.Describe(t.Context(), []string{"1@alpha,dev@alpha"})
 	if n := h.Spawned()["agent-bus list"]; n != 1 {
@@ -369,7 +370,7 @@ func TestDescribeReadsEachTeamOnce(t *testing.T) {
 
 func TestDescribeSaysWhyARoleIsUnknown(t *testing.T) {
 	h := newRig(t)
-	h.On("agent-bus seat list", "SEAT\talpha\t1\theld\tself\t"+handleOne+"\n", 0)
+	h.RemoveSeat(t, h.Checkout(), "alpha", "dev")
 	h.OnErr(teamtest.SudoBus+"list alpha", "sudo: a password is required", 1)
 	if code := h.c.Describe(t.Context(), []string{"1@alpha"}); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
@@ -381,7 +382,8 @@ func TestDescribeSaysWhyARoleIsUnknown(t *testing.T) {
 
 func TestDescribeAnUnusedSeatIsNew(t *testing.T) {
 	h := newRig(t)
-	h.On("agent-bus seat list", "", 0)
+	h.RemoveSeat(t, h.Checkout(), "alpha", "1")
+	h.RemoveSeat(t, h.Checkout(), "alpha", "dev")
 	h.c.Describe(t.Context(), []string{"3@alpha"})
 	if want := "3@alpha (new seat: it joins as a worker)\n"; h.stdout() != want {
 		t.Fatalf("stdout %q, want %q", h.stdout(), want)
@@ -390,7 +392,7 @@ func TestDescribeAnUnusedSeatIsNew(t *testing.T) {
 
 func TestDescribeWritesThePrefixFirstSoTheLauncherNeedsNoEcho(t *testing.T) {
 	h := newRig(t)
-	h.On("agent-bus seat list", "SEAT\talpha\t1\theld\tself\t"+handleOne+"\n", 0)
+	h.RemoveSeat(t, h.Checkout(), "alpha", "dev")
 	h.On(teamtest.SudoBus+"list alpha", roster("coordinator", "worker"), 0)
 	if code := h.c.Describe(t.Context(), []string{"--prefix", "  Team:    ", "1@alpha"}); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
@@ -412,9 +414,9 @@ func TestDescribeWritesThePrefixFirstSoTheLauncherNeedsNoEcho(t *testing.T) {
 // S-C4: the launch block names every team of the session with its seat, role and description.
 func TestDescribeBlockNamesEveryTeamWithSeatRoleAndDescription(t *testing.T) {
 	h := newRig(t)
-	h.On(h.DeclarePrefix("declared"), "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\t\"Builds the example site\"\n"+
-		"TEAM\tbeta\t6168\tpresent\tbeta.agent-bus.internal\thttp://192.0.2.10:6168\t-\n", 0)
-	h.On("agent-bus seat list", "SEAT\talpha\t1\theld\tself\t"+handleOne+"\nSEAT\talpha\tdev\tfree\t-\t"+handleDev+"\n", 0)
+	h.WriteHostVars(t, "agent_bus_address: 192.0.2.10\nagent_bus_teams:\n"+
+		"  - team: alpha\n    port: 6167\n    description: \"Builds the example site\"\n"+
+		"  - team: beta\n    port: 6168\n")
 	h.On(teamtest.SudoBus+"list alpha", roster("coordinator", "worker"), 0)
 	if code := h.c.Describe(t.Context(), []string{"--block", "1@alpha,3@beta"}); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
@@ -430,7 +432,8 @@ func TestDescribeBlockNamesEveryTeamWithSeatRoleAndDescription(t *testing.T) {
 
 func TestDescribeBlockOfOneTeamSaysSo(t *testing.T) {
 	h := newRig(t)
-	h.On("agent-bus seat list", "", 0)
+	h.RemoveSeat(t, h.Checkout(), "alpha", "1")
+	h.RemoveSeat(t, h.Checkout(), "alpha", "dev")
 	if code := h.c.Describe(t.Context(), []string{"--block", "1@alpha"}); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}

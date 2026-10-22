@@ -5,10 +5,13 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/bus/seat"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -43,47 +46,185 @@ func (r *rig) last(t *testing.T) execx.Cmd {
 	return calls[len(calls)-1]
 }
 
-func TestSeatListRunsAsTheUserInTheCheckout(t *testing.T) {
+// seatMember is a valid member.json for team alpha (placeholder values only).
+const seatMember = `{"protocol": 1, "team": "alpha", "user_id": "@demo.1+box.podman:bus.example.com", ` +
+	`"server_name": "bus.example.com", "base_url": "https://bus.example.com", "plain_http_hosts": [], ` +
+	`"token_file": "token", "admin": "@admin:bus.example.com", "room": "!AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}`
+
+// seatCheckout is a checkout top (its symlinks resolved) with ccy's directory, and a seat
+// of alpha for each name, with seatMember unless the name is in bare.
+func seatCheckout(t *testing.T, seats []string, bare ...string) string {
+	t.Helper()
+	top, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(top, ".claude", "ccy"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, seat := range seats {
+		dir := filepath.Join(top, ".claude", "ccy", "pingbus", "seats", "alpha", seat)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Contains(bare, seat) {
+			if err := os.WriteFile(filepath.Join(dir, "member.json"), []byte(seatMember), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	return top
+}
+
+// A named checkout is read in-process: no command runs (V30, B-S2).
+func TestSeatListReadsANamedCheckoutWithoutAProcess(t *testing.T) {
 	r := newRig()
-	r.fake.On([]string{"agent-bus", "seat", "list"},
-		execx.Result{Stdout: []byte("SEAT\talpha\t1\tfree\t-\th\n")})
-	seats, unreadable, err := r.c.SeatList(context.Background(), "/co")
+	top := seatCheckout(t, []string{"2", "1"})
+	seats, unreadable, err := r.c.SeatList(context.Background(), top)
+	want := []Seat{{Team: "alpha", Seat: "1", Handle: "demo.1+box.podman"}, {Team: "alpha", Seat: "2", Handle: "demo.1+box.podman"}}
+	if err != nil || unreadable || !slices.Equal(seats, want) {
+		t.Fatalf("%+v %v %v", seats, unreadable, err)
+	}
+	if calls := r.fake.Calls(); len(calls) != 0 || r.errw.Len() != 0 {
+		t.Fatalf("ran %v, said %q", calls, r.errw.String())
+	}
+}
+
+func TestSeatListResolvesANamedCheckoutsSymlinks(t *testing.T) {
+	r := newRig()
+	top := seatCheckout(t, []string{"1"})
+	link := filepath.Join(t.TempDir(), "co")
+	if err := os.Symlink(top, link); err != nil {
+		t.Fatal(err)
+	}
+	seats, unreadable, err := r.c.SeatList(context.Background(), link)
 	if err != nil || unreadable || len(seats) != 1 {
 		t.Fatalf("%+v %v %v", seats, unreadable, err)
 	}
-	if c := r.last(t); c.Line() != "agent-bus seat list" || c.Dir != "/co" {
-		t.Fatalf("ran %q in %q", c.Line(), c.Dir)
+}
+
+// V34: an unreadable seat is named on Err as the wrapper's stderr carried it; the others stay.
+func TestSeatListNamesEachUnreadableSeat(t *testing.T) {
+	r := newRig()
+	top := seatCheckout(t, []string{"1", "2"}, "2")
+	seats, unreadable, err := r.c.SeatList(context.Background(), top)
+	if err != nil || !unreadable || len(seats) != 1 || seats[0].Seat != "1" {
+		t.Fatalf("%+v %v %v", seats, unreadable, err)
+	}
+	want := "agent-bus: seat 2@alpha: team alpha: " + filepath.Join(top, ".claude", "ccy", "pingbus", "seats", "alpha", "2", "member.json") +
+		": no bundle (member.json is missing)\n"
+	if r.errw.String() != want {
+		t.Fatalf("said %q\nwant %q", r.errw.String(), want)
 	}
 }
 
-func TestSeatListExit78KeepsTheSeatsItPrinted(t *testing.T) {
+func TestSeatListWholeListRefused(t *testing.T) {
 	r := newRig()
-	r.fake.On([]string{"agent-bus", "seat", "list"},
-		execx.Result{Stdout: []byte("SEAT\talpha\t2\theld\tself\th2\n"), ExitCode: 78})
-	seats, unreadable, err := r.c.SeatList(context.Background(), "/co")
-	if err != nil || !unreadable || len(seats) != 1 || seats[0].Seat != "2" {
+	top, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats, unreadable, err := r.c.SeatList(context.Background(), top)
+	if err != nil || !unreadable || len(seats) != 0 {
+		t.Fatalf("%+v %v %v", seats, unreadable, err)
+	}
+	if want := "agent-bus: " + top + " has no .claude/ccy/: launch ccy in it once, then again with --teams\n"; r.errw.String() != want {
+		t.Fatalf("said %q", r.errw.String())
+	}
+}
+
+// The uid the checkout must belong to is the user's; a test gives another.
+func TestSeatListChecksTheOwner(t *testing.T) {
+	r := newRig()
+	r.c.uid = func() int { return os.Getuid() + 4242 }
+	top := seatCheckout(t, []string{"1"})
+	if _, unreadable, err := r.c.SeatList(context.Background(), top); err != nil || !unreadable ||
+		!strings.Contains(r.errw.String(), "the checkout must be yours") {
+		t.Fatalf("%v %v %q", unreadable, err, r.errw.String())
+	}
+}
+
+// ListSeats replaces the reader of a resolved top (a test's world syncs its disk there first).
+func TestSeatListReadsThroughListSeatsWhenSet(t *testing.T) {
+	r := newRig()
+	top := seatCheckout(t, []string{"1"})
+	var asked []string
+	r.c.ListSeats = func(dir string, uid int) (seat.Listing, error) {
+		asked = append(asked, dir)
+		if uid != os.Getuid() {
+			t.Errorf("uid %d", uid)
+		}
+		return seat.Listing{Seats: []seat.Seat{{Team: "beta", Seat: "9", Held: true, Handle: "h"}}}, nil
+	}
+	seats, unreadable, err := r.c.SeatList(context.Background(), top)
+	if err != nil || unreadable || !slices.Equal(seats, []Seat{{Team: "beta", Seat: "9", Held: true, Handle: "h"}}) ||
+		!slices.Equal(asked, []string{top}) {
+		t.Fatalf("%+v %v %v asked %v", seats, unreadable, err, asked)
+	}
+}
+
+// What v1 crashed on (SPEC-view B-S3) is an error, not an unreadable list.
+func TestSeatListCrashIsAnError(t *testing.T) {
+	r := newRig()
+	top := seatCheckout(t, nil)
+	if err := os.WriteFile(filepath.Join(top, ".claude", "ccy", "pingbus"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if seats, unreadable, err := r.c.SeatList(context.Background(), top); err == nil || unreadable || seats != nil {
 		t.Fatalf("%+v %v %v", seats, unreadable, err)
 	}
 }
 
-func TestSeatListOtherFailuresAreErrors(t *testing.T) {
+func TestSeatListWorkingDirectoryAsksGitOnce(t *testing.T) {
 	r := newRig()
-	r.fake.On([]string{"agent-bus", "seat", "list"}, execx.Result{ExitCode: 69, Stderr: []byte("down\n")})
-	_, _, err := r.c.SeatList(context.Background(), "/co")
-	if !errors.Is(err, ErrUnreachable) {
-		t.Fatalf("got %v", err)
+	top := seatCheckout(t, []string{"1"})
+	r.fake.On([]string{"git", "rev-parse", "--show-toplevel"}, execx.Result{Stdout: []byte(top + "\n")})
+	seats, unreadable, err := r.c.SeatList(context.Background(), "")
+	if err != nil || unreadable || len(seats) != 1 {
+		t.Fatalf("%+v %v %v", seats, unreadable, err)
 	}
-	failure, ok := errors.AsType[*CommandError](err)
-	if !ok || failure.Code != 69 || failure.Stderr != "down\n" {
-		t.Fatalf("failure %+v", failure)
+	if calls := r.fake.Calls(); len(calls) != 1 || calls[0].Dir != "" {
+		t.Fatalf("ran %+v", calls)
 	}
 }
 
-func TestSeatListWithMalformedOutputFails(t *testing.T) {
+func TestSeatListOutsideAGitCheckout(t *testing.T) {
 	r := newRig()
-	r.fake.On([]string{"agent-bus", "seat", "list"}, execx.Result{Stdout: []byte("SEAT\tx\n")})
-	if _, _, err := r.c.SeatList(context.Background(), "/co"); err == nil {
-		t.Fatal("accepted a short SEAT line")
+	cwd, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(cwd)
+	r.fake.On([]string{"git", "rev-parse", "--show-toplevel"}, execx.Result{ExitCode: 128, Stderr: []byte("fatal: not a git repository\n")})
+	seats, unreadable, err := r.c.SeatList(context.Background(), "")
+	if err != nil || !unreadable || len(seats) != 0 {
+		t.Fatalf("%+v %v %v", seats, unreadable, err)
+	}
+	want := "agent-bus: " + cwd + " is not in a git checkout: run agent-bus seat in the ccy checkout (fatal: not a git repository)\n"
+	if r.errw.String() != want {
+		t.Fatalf("said %q", r.errw.String())
+	}
+}
+
+func TestSeatListWithNoErrWriter(t *testing.T) {
+	r := newRig()
+	r.c.Err = nil
+	top := seatCheckout(t, []string{"1", "2"}, "2")
+	if seats, unreadable, err := r.c.SeatList(context.Background(), top); err != nil || !unreadable || len(seats) != 1 {
+		t.Fatalf("%+v %v %v", seats, unreadable, err)
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("stderr closed") }
+
+func TestSeatListUnwritableErrIsAnError(t *testing.T) {
+	r := newRig()
+	r.c.Err = failingWriter{}
+	top := seatCheckout(t, []string{"1", "2"}, "2")
+	if _, _, err := r.c.SeatList(context.Background(), top); err == nil {
+		t.Fatal("no error")
 	}
 }
 
@@ -289,7 +430,7 @@ func TestEveryWrapperExitCodeHasAKind(t *testing.T) {
 
 func TestStartFailureIsNotACommandError(t *testing.T) {
 	r := newRig()
-	_, _, err := r.c.SeatList(context.Background(), "/co")
+	err := r.c.SeatRemove(context.Background(), "/co", "1@alpha")
 	if !errors.Is(err, execx.ErrUnexpected) {
 		t.Fatalf("got %v", err)
 	}
@@ -381,9 +522,36 @@ func TestSeatTakeAllocatedSaysTheCallerHoldsTheAllocationLock(t *testing.T) {
 	}
 }
 
+// A root read that fails is that failure, and one whose lines are malformed names the command.
+func TestRootReadsFailOnAFailedRunAndOnMalformedLines(t *testing.T) {
+	reads := []struct {
+		name, line string
+		read       func(*Client) error
+	}{
+		{"list", "MEMBER\tx\n", func(c *Client) error { _, err := c.List(context.Background(), "alpha"); return err }},
+		{"human devices", "DEVICE\tx\n", func(c *Client) error {
+			_, err := c.HumanDevices(context.Background(), "alpha", "owner")
+			return err
+		}},
+		{"backups", "BACKUP\tx\n", func(c *Client) error { _, err := c.Backups(context.Background(), "alpha"); return err }},
+	}
+	for _, read := range reads {
+		r := newRig()
+		r.fake.On([]string{"sudo"}, execx.Result{ExitCode: 70, Stderr: []byte("refused\n")})
+		if err := read.read(r.c); !errors.Is(err, ErrRefused) {
+			t.Fatalf("%s refused: %v", read.name, err)
+		}
+		r = newRig()
+		r.fake.On([]string{"sudo"}, execx.Result{Stdout: []byte(read.line)})
+		if err := read.read(r.c); err == nil || !strings.Contains(err.Error(), read.name) {
+			t.Fatalf("%s malformed: %v", read.name, err)
+		}
+	}
+}
+
 func TestWithStderrSendsEachStderrThroughWrapAndLeavesTheClientAlone(t *testing.T) {
 	r := newRig()
-	r.fake.On([]string{"agent-bus", "seat", "list"}, execx.Result{ExitCode: 69, Stderr: []byte("down\n")})
+	r.fake.On([]string{"agent-bus", "seat", "choose"}, execx.Result{ExitCode: 69, Stderr: []byte("down\n")})
 	r.fake.On([]string{"sudo", "-n", "/usr/local/bin/agent-bus", "list", "alpha"}, execx.Result{ExitCode: 70, Stderr: []byte("refused\n")})
 	rootErr, ok := r.c.Root.Term.Err.(*bytes.Buffer)
 	if !ok {
@@ -392,13 +560,21 @@ func TestWithStderrSendsEachStderrThroughWrapAndLeavesTheClientAlone(t *testing.
 	var user, root bytes.Buffer
 	instead := map[io.Writer]io.Writer{r.errw: &user, rootErr: &root}
 	c := r.c.WithStderr(func(w io.Writer) io.Writer { return instead[w] })
-	if _, _, err := c.SeatList(context.Background(), "/co"); !errors.Is(err, ErrUnreachable) {
-		t.Fatalf("seat list: %v", err)
+	if _, err := c.SeatChooseIn(context.Background(), "/co", "alpha", ""); !errors.Is(err, ErrUnreachable) {
+		t.Fatalf("seat choose: %v", err)
+	}
+	// The seats are read in-process, and what the reader says of an unreadable seat is the
+	// user's stderr too.
+	top := seatCheckout(t, []string{"1"}, "1")
+	if _, unreadable, err := c.SeatList(context.Background(), top); err != nil || !unreadable {
+		t.Fatalf("seat list: %v %v", unreadable, err)
 	}
 	if _, err := c.List(context.Background(), "alpha"); !errors.Is(err, ErrRefused) {
 		t.Fatalf("list: %v", err)
 	}
-	if user.String() != "down\n" || root.String() != "refused\n" {
+	if want := "down\nagent-bus: seat 1@alpha: team alpha: " +
+		filepath.Join(top, ".claude", "ccy", "pingbus", "seats", "alpha", "1", "member.json") +
+		": no bundle (member.json is missing)\n"; user.String() != want || root.String() != "refused\n" {
 		t.Fatalf("user stderr %q, root stderr %q", user.String(), root.String())
 	}
 	if r.errw.Len() != 0 || rootErr.Len() != 0 {
@@ -412,14 +588,14 @@ func TestWithStderrSendsEachStderrThroughWrapAndLeavesTheClientAlone(t *testing.
 func TestWithStderrKeepsACapturedStderrCaptured(t *testing.T) {
 	r := newRig()
 	r.c.Err = nil
-	r.fake.On([]string{"agent-bus", "seat", "list"}, execx.Result{ExitCode: 69, Stderr: []byte("down\n")})
+	r.fake.On([]string{"agent-bus", "seat", "choose"}, execx.Result{ExitCode: 69, Stderr: []byte("down\n")})
 	c := r.c.WithStderr(func(w io.Writer) io.Writer {
 		if w == nil {
 			t.Error("wrap was given the nil stream")
 		}
 		return w
 	})
-	_, _, err := c.SeatList(context.Background(), "/co")
+	_, err := c.SeatChooseIn(context.Background(), "/co", "alpha", "")
 	if cmdErr, ok := errors.AsType[*CommandError](err); !ok || cmdErr.Stderr != "down\n" {
 		t.Fatalf("a nil Err still captures the stderr into the error: %v", err)
 	}

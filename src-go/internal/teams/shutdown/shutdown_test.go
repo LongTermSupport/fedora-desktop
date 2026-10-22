@@ -101,7 +101,6 @@ func TestNothingGoesOnTheBus(t *testing.T) {
 		line := c.Line()
 		switch {
 		case c.Name == "tmux", c.Name == "systemctl", c.Name == "git", c.Name == "env",
-			strings.HasPrefix(line, "agent-bus seat list"),
 			strings.HasPrefix(line, teamtest.SudoBus+"list "),
 			strings.HasPrefix(line, teamtest.SudoBus+"human devices "),
 			line == "sudo -k":
@@ -151,7 +150,7 @@ func TestAnAttachedSessionIsShownAsOpen(t *testing.T) {
 func TestAHeldSeatWithNoNamedSessionIsNotShutDown(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
-	m.held["dev"] = true
+	m.HoldSeat(m.t, m.Checkout(), "alpha", "dev", true)
 	got := m.run("alpha", "--yes")
 	m.errHas(t, "dev@alpha (proj.dev+local.podman): not shut down: held by a session ccy-teams cannot name "+
 		"(a cc session started with --teams <team> alone, or one outside ccy's tmux); attach it (ccy-sessions) and type /exit")
@@ -177,7 +176,7 @@ func TestNoRunningSessionAsksNothing(t *testing.T) {
 	m := newMachine(t)
 	m.noLxc()
 	m.sessions = nil
-	m.held["1"] = false
+	m.HoldSeat(m.t, m.Checkout(), "alpha", "1", false)
 	if got := m.run("alpha"); got != term.ExitOK {
 		t.Fatalf("exit %d", got)
 	}
@@ -187,7 +186,7 @@ func TestNoRunningSessionAsksNothing(t *testing.T) {
 func TestOnlyUnreachableMembersAreListedAndFail(t *testing.T) {
 	m := newMachine(t)
 	m.sessions = nil
-	m.held["1"] = false
+	m.HoldSeat(m.t, m.Checkout(), "alpha", "1", false)
 	if got := m.run("alpha"); got != term.ExitFailure {
 		t.Fatalf("exit %d", got)
 	}

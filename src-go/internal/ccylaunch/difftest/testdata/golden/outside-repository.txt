@@ -1,0 +1,21 @@
+=== exit 1
+=== stdout
+=== stderr
+[0;31mERROR:[0m Not in a git repository root directory
+
+Claude YOLO must be run from the root of a git repository.
+This ensures Claude Code operates on the correct codebase.
+
+Current directory: {sandbox}/outside
+
+To fix:
+  1. Navigate to your git repository root: cd /path/to/your/repo
+  2. Verify .git exists: ls -la .git
+  3. Run command from there
+=== calls
+=== files
+dir  home/.claude-tokens 0700
+dir  home/.claude-tokens/ccy 0700
+dir  home/.claude-tokens/ccy/tokens 0700
+file home/.claude-tokens/ccy/tokens/work.2030-06-01.token 0600
+     | {token:work}
