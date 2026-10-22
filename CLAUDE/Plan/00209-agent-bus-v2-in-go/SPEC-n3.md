@@ -432,7 +432,12 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
   connection; its answer is cached, and its own addressing is judged from its mentions, `@room`
   and relations answered without a second fetch. `Judge` then runs over a `Lookup` that answers
   from memory only, so `proto` stays network-free and its interface keeps no error; the sender
-  side's `Lookup` stays memory-only too. One such request per uncached related event is added to
+  side's `Lookup` stays memory-only too. `Related` gains `AddressedToRosterAgent` (gap 14),
+  filled thus: a ledger entry is an item delivered to this member, so both flags are true and
+  `Sender` is its `from`; an outbox entry or own send has this member as `Sender`, its verb,
+  `AddressedToSelf` false and `AddressedToRosterAgent` true when its `to` or mentions name a
+  roster agent; a fetched event fills both from its own mentions, `@room` and relations; `Verb`
+  is empty where the record holds none. One such request per uncached related event is added to
   2.14's homeserver connections line (Task 3.4's cost acceptance counts it). A transient failure
   of any fetch is SY8's transient path: the whole answer is held before `Judge`, SY6 and SY5 run,
   and re-fetched, never guessed as `not-addressed`. A 404 or 403 is cached as an unknown sender
@@ -698,7 +703,7 @@ supervisor), so the switch needs hooks-daemon #127's record too.
 ## 9. Gaps in the built APIs, and how each is closed
 
 Each is closed in the slice that first needs it: n3a gaps 1-4 and 8 (MS3, LK3, LK4 and LK3's
-second-process tests); n3b gaps 10 and 13; n3c gaps 5-7, 11 and 12; gap 9 from n3c on, each
+second-process tests); n3b gaps 10 and 13; n3c gaps 5-7, 11, 12 and 14; gap 9 from n3c on, each
 later slice adding its own failpoints.
 
 01. `paths` has `GuestRuntimeDir` and `SessionUnit`, but no inbox socket form, aside name, floor
@@ -738,7 +743,8 @@ later slice adding its own failpoints.
     mentioned, no `@room`, no reply or thread root sent by a roster agent, no edit of a message
     addressed to one), which the link calls on the `not-addressed` ignore path; the count itself
     is the member's (UH1). The predicate and rules 3 and 4 read the related event through
-    `proto.Lookup`, whose production form, ledger, own sends, cache and fetch, is SY4a's.
+    `proto.Lookup`, whose production form is SY4a's: memory only (ledger, outbox, own sends,
+    cache), the fetch done before `Judge` runs (gap 14).
 12. fakehs's long-poll holds on a real `time.NewTimer(timeoutMS)` (`sync.go`), so a hold to the
     link's 30 s timeout (H-C14) costs real seconds per case: fakehs takes an injected timer for
     the long-poll hold, driven by the test's fake clock, so SY7's restore cases and every other
@@ -753,9 +759,11 @@ later slice adding its own failpoints.
     message.
 14. `proto.Lookup` has no context and no error, and `Related` no field for "addressed to a roster
     agent", so a fetch inside `Event(id)` could only report a miss as an ignore or a drop: SY4a
-    resolves the related events before `Judge` runs (n3c), `Related` gains the addressees the
-    predicate of gap 11 reads, filled by the ledger, outbox and own-send records by the rule SY4a
-    states, and `Lookup` keeps its signature. Test: a fetch error injected for one relation id
+    resolves the related events before `Judge` runs (n3c), `Related` gains the
+    `AddressedToRosterAgent` flag the predicate of gap 11 reads, filled by the rule SY4a states,
+    and `Lookup` keeps its signature. Round 3's six build-time minors (deadline seam, LX7's
+    deferred seat, n3-D20's second fetch, a poison relation, UH1's dedupe, own sends' lifetime)
+    are in `subagent-reports/261022-n3-spec-review-3.md` and are fixed while building. Test: a fetch error injected for one relation id
     leaves the answer unpersisted, and `Judge` is never called for that batch.
 
 ## 10. Decisions where the design is silent or wrong
