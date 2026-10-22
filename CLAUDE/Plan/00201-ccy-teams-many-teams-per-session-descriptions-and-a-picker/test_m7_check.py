@@ -301,6 +301,26 @@ class ListRowTest(TempDir):
         path = self.write("list", "\n".join(self.MEASURED[2:]) + "\n")
         self.assertEqual(run("expect-list-row", path, TEAM_A, DESC_A)[0], 1)
 
+    def test_the_headings_and_team_kind_are_read_from_the_go_table(self) -> None:
+        self.assertEqual(mc.board_table(), (("TEAM", "MEMBER", "KIND", "STATE"), "team"))
+        moved = 'var headings = [columns]string{"T", "WHO", "K", "S", "A"}\n\tKindTeam  Kind = "group"\n'
+        self.assertEqual(mc.board_table(moved), (("T", "WHO", "K", "S"), "group"))
+        width = len(DESC_A)
+        heading = f"{'T':<10}  {'WHO':<{width}}  {'K':<5}  {'S':<4}  A"
+        row = f"{TEAM_A:<10}  {DESC_A:<{width}}  {'group':<5}  {'up':<4}  -"
+        mc.expect_list_row(f"{heading}\n\n{row}\n", TEAM_A, DESC_A, mc.board_table(moved))
+        with self.assertRaises(mc.Failed):
+            mc.expect_list_row(f"{heading}\n\n{row}\n", TEAM_A, DESC_A)
+        for broken in (
+            'KindTeam Kind = "team"\n',
+            'var headings = [columns]string{"A", "B", "C"}\nKindTeam Kind = "team"\n',
+            'var headings = [columns]string{"A", "B", "C", "D"}\n'
+            'var headings = [columns]string{"A", "B", "C", "D"}\nKindTeam Kind = "team"\n',
+            'var headings = [columns]string{"A", "B", "C", "D"}\n',
+        ):
+            with self.subTest(broken=broken), self.assertRaises(mc.Failed):
+                mc.board_table(broken)
+
 
 class BlockTest(TempDir):
     def stderr(self) -> str:
@@ -420,6 +440,17 @@ class SegmentTest(TempDir):
         self.assertEqual(run("expect-segment", appended, "a,b")[0], 1, "the teams must start a row")
         self.assertEqual(run("expect-segment", unindented, "a,b")[0], 1)
         self.assertEqual(run("expect-segment", broken, "a,b")[0], 1)
+
+    def test_the_session_paths_are_seat_and_membership_s(self) -> None:
+        seat = mc._checkout_module("helpers.pingbus.seat")
+        membership = mc._checkout_module("helpers.pingbus.membership")
+        home = str(seat.SESSION_HOME)
+        self.assertEqual(
+            mc.session_paths(),
+            [home, f"{home}/{seat.SESSION_SETTINGS}", membership.CCY_MOUNT, membership.DESIRED_FILE],
+        )
+        status, out, _ = run("session-paths")
+        self.assertEqual((status, out.splitlines()), (0, mc.session_paths()))
 
     def test_the_label_is_read_from_the_go_drawer(self) -> None:
         """The label is the Go statusline's `label` constant and the indent its display width:

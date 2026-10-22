@@ -35,10 +35,14 @@ readonly M7_APPLIED="/var/lib/agent-bus-applied"
 #: The checkout as a ccy container sees it (claude-yolo mounts $PWD there).
 readonly M7_CTR_ROOT="/workspace"
 readonly M7_CTR_RUN_DIR="${M7_CTR_ROOT}/${PLAN_RUN_DIR#"${PLAN_REPO_ROOT}"/}"
-#: The session home `pingbus seat exec` builds in a container (helpers/pingbus/seat.py).
-readonly M7_CTR_PINGBUS_HOME="/tmp/pingbus-home"
-#: The settings `pingbus seat exec` writes there, which the entrypoint passes to claude (H34).
-readonly M7_CTR_SESSION_SETTINGS="${M7_CTR_PINGBUS_HOME}/settings.json"
+#: The session home `pingbus seat exec` builds in a container, the settings it writes there,
+#: which the entrypoint passes to claude (H34), the membership mount's destination and the
+#: desired membership's file: set by m7_prerequisites from this checkout's seat.py and
+#: membership.py (m7_check session-paths), never copied.
+M7_CTR_PINGBUS_HOME=""
+M7_CTR_SESSION_SETTINGS=""
+M7_CTR_MEMBERSHIP_MOUNT=""
+M7_MEMBERSHIP_FILE=""
 #: This checker as the container sees it, for the one command that runs in there.
 readonly M7_CTR_CHECK="${M7_CTR_ROOT}/${PLAN_SCRIPT_DIR#"${PLAN_REPO_ROOT}"/}/m7_check.py"
 #: Members added by hand, to address: a short name in both teams, and one in team A only.
@@ -141,7 +145,16 @@ m7_poll() {
 # ── before anything: what the run needs, and that the names are free ──────────────────────
 
 m7_prerequisites() {
-    local tool declared team
+    local tool declared team text
+    local -a paths
+    text="$("${CHECK[@]}" session-paths)" || { printf '[FAIL] m7_check session-paths could not read seat.py and membership.py (above)\n' >&2; return 1; }
+    mapfile -t paths <<<"${text}"
+    if [[ "${#paths[@]}" -ne 4 ]]; then
+        printf '[FAIL] m7_check session-paths printed %d lines, want 4: %s\n' "${#paths[@]}" "${text}" >&2
+        return 1
+    fi
+    M7_CTR_PINGBUS_HOME="${paths[0]}" M7_CTR_SESSION_SETTINGS="${paths[1]}"
+    M7_CTR_MEMBERSHIP_MOUNT="${paths[2]}" M7_MEMBERSHIP_FILE="${paths[3]}"
     for tool in "${CCY_LAUNCHER}" "${AGENT_BUS}" "${INSTALLER}"; do
         if [[ ! -x "${tool}" ]]; then
             printf '[FAIL] %s is not installed: run play-claude-yolo.yml and play-agent-bus.yml\n' "${tool}" >&2
@@ -182,12 +195,16 @@ m7_prerequisites() {
 m7_seat_listing() {
     local id src seats
     local filter=()
+    if [[ -z "${M7_CTR_MEMBERSHIP_MOUNT}" || -z "${M7_MEMBERSHIP_FILE}" ]]; then
+        printf '[FAIL] the membership mount and file are not read yet (m7_prerequisites reads them)\n' >&2
+        return 1
+    fi
     [[ "${1:-}" != running ]] || filter=(--filter status=running)
     while read -r id; do
         [[ -n "${id}" ]] || continue
-        src="$(podman inspect --format '{{range .Mounts}}{{if eq .Destination "/run/ccy/membership"}}{{.Source}}{{end}}{{end}}' "${id}")" || return 1
+        src="$(podman inspect --format "{{range .Mounts}}{{if eq .Destination \"${M7_CTR_MEMBERSHIP_MOUNT}\"}}{{.Source}}{{end}}{{end}}" "${id}")" || return 1
         [[ -n "${src}" ]] || continue
-        seats="$(jq -r '[.seats[] | "\(.seat)@\(.team)"] | join(",")' "${src}/membership.json")" || return 1
+        seats="$(jq -r '[.seats[] | "\(.seat)@\(.team)"] | join(",")' "${src}/${M7_MEMBERSHIP_FILE}")" || return 1
         [[ -z "${seats}" ]] || printf '%s\t%s\n' "${id}" "${seats}"
     done < <(podman ps -a --filter label=ccy=true "${filter[@]}" --format '{{.ID}}')
 }

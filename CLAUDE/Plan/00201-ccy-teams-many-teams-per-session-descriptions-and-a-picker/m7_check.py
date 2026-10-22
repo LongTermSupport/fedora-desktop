@@ -4,8 +4,12 @@
 _acceptance-m7.inc.bash drives the host (agent-bus-install, agent-bus, ccy-teams, two headless
 ccy sessions, podman exec into them, the human's curl); this module writes what it hands them
 and judges what comes back. Every judgement rests on what a tool printed or recorded, never on
-the model's prose. Standard library only; two commands import from this checkout, lazily:
-`bus-ports` (declare.py) and `expect-session-settings` (seat.py, and the kit's settings.json). Commands (stdout is the payload, reasons on stderr):
+the model's prose. Standard library only; the host-side commands read the values the product owns
+from this checkout, lazily, never a copy: `bus-ports` (declare.py), `team-file` (protocol.py),
+`session-paths` and `expect-session-settings` (seat.py, membership.py, and the kit's settings.json), `expect-list-row` (the board's
+table.go), `hot-marks` (hot.go), and `status-line-names` and `expect-segment` (statusline.go and
+statusline.py). Commands
+(stdout is the payload, reasons on stderr):
 
   team-file TEAM PORT ADDRESS HUMAN ORG DESCRIPTION   a throwaway team file (JSON)
   host-vars TEAMFILE...              a host_vars file declaring those teams (agent_bus_teams)
@@ -31,6 +35,9 @@ the model's prose. Standard library only; two commands import from this checkout
   expect-about STATUS TEAM DESCRIPTION   that team's ABOUT line carries DESCRIPTION
   expect-sent OUT TEAM               one SENT line, for TEAM; prints its event ID
   expect-choices STDERR (TEAM DESCRIPTION)...   the "several teams are active" refusal, listing each
+  session-paths                      seat.py's session home and its settings file, membership.py's mount and desired file, one per line
+  hot-marks                          the done and failed step marks of ccy-teams session add/remove (hot.go), one per line
+  status-line-names                  the Go status line's teams row head, then its inner-only variable (statusline.go)
   expect-session-settings SETTINGS   a seated ccy session's own settings.json: inbound accepted, the seated status line this checkout's seat.py writes
   session-status-line PROC           IN THE SESSION'S CONTAINER: the status line its claude draws, the payload on stdin
   expect-segment OUT TEAMS           the status line printed the session's own line, then 👥 TEAMS on rows of its own
@@ -75,6 +82,11 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 #: is read from the source, not copied (expect-segment runs on the host).
 STATUS_LINE_GO = pathlib.PurePosixPath("src-go/internal/pingbus/statusline/statusline.go")
 _GO_LABEL_RE = re.compile(r'^\s*label\s*=\s*"([^"\\]+)"\s*$', re.MULTILINE)
+#: The Go table `ccy-teams --list` prints; its `headings` and the team row's `KindTeam` are read
+#: from the source, not copied (expect-list-row runs on the host).
+BOARD_TABLE_GO = pathlib.PurePosixPath("src-go/internal/teams/board/table.go")
+_GO_HEADINGS_RE = re.compile(r"^var headings = \[columns\]string\{([^}]*)\}\s*$", re.MULTILINE)
+_GO_KIND_TEAM_RE = re.compile(r'^\s*KindTeam\s+Kind\s*=\s*"([^"\\]+)"\s*$', re.MULTILINE)
 #: One team of the segment: its name, the role it was read to have, then its marks.
 _SEGMENT_TEAM_RE = re.compile(r"(?P<team>[a-z][a-z0-9-]*) \((?:worker|coordinator)\)(?: \([a-z]+\))*")
 #: pingbus cli.py, word for word: the refusal when several teams are active and none is inferred.
@@ -356,19 +368,41 @@ def seat_containers(listing: str, teams: Sequence[str]) -> list[str]:
     return found
 
 
-def expect_list_row(listing: str, team: str, description: str) -> None:
+def board_table(source: str | None = None) -> tuple[tuple[str, str, str, str], str]:
+    """The board's first four column headings (TEAM, MEMBER, KIND, STATE: colTeam to colState)
+    and the KIND a team row shows, read from `source`, default this checkout's table.go. Each
+    must be declared exactly once, or this fails rather than guess."""
+    if source is None:
+        source = (_checkout_root() / BOARD_TABLE_GO).read_text(encoding="utf-8")
+    found = _GO_HEADINGS_RE.findall(source)
+    if len(found) != 1:
+        raise Failed(f"want exactly one `var headings = [columns]string{{...}}` in {BOARD_TABLE_GO}, found {found!r}")
+    names = re.findall(r'"([^"\\]+)"', found[0])
+    kinds = _GO_KIND_TEAM_RE.findall(source)
+    if len(names) < 4 or len(kinds) != 1:
+        raise Failed(f"want four or more headings and one `KindTeam Kind = \"...\"` in {BOARD_TABLE_GO}, "
+                     f"found {names!r} and {kinds!r}")
+    return (names[0], names[1], names[2], names[3]), kinds[0]
+
+
+def expect_list_row(
+    listing: str, team: str, description: str,
+    table: tuple[tuple[str, str, str, str], str] | None = None,
+) -> None:
     """The team row of `ccy-teams --list`, piped: the TEAM cell, the MEMBER cell, which is the
-    description printed whole, then the KIND `team`, each cell starting exactly where its
+    description printed whole, then the KIND of a team row, each cell starting exactly where its
     heading does. The board sizes each column to its longest value (board.measure), so the
-    widths are read from the heading line, never assumed."""
+    widths are read from the heading line, never assumed. `table` is (headings, team kind),
+    default board_table()."""
+    (first, *rest), team_kind = board_table() if table is None else table
     lines = listing.splitlines()
     heading = lines[0] if lines else ""
-    starts = [heading.find(f"  {name}  ") + 2 for name in ("MEMBER", "KIND", "STATE")]
-    if not heading.startswith("TEAM ") or min(starts) < 2 or starts != sorted(starts):
-        raise Failed(f"ccy-teams --list did not start with its TEAM MEMBER KIND STATE heading: {heading!r}")
+    starts = [heading.find(f"  {name}  ") + 2 for name in rest]
+    if not heading.startswith(f"{first} ") or min(starts) < 2 or starts != sorted(starts):
+        raise Failed(f"ccy-teams --list did not start with its {first} {' '.join(rest)} heading: {heading!r}")
     member, kind, state = starts
     row = (team.ljust(member - 2) + "  " + description.ljust(kind - member - 2) + "  "
-           + "team".ljust(state - kind - 2) + "  ")
+           + team_kind.ljust(state - kind - 2) + "  ")
     rows = [line for line in lines[1:] if line.startswith(f"{team} ") or line == team]
     if not any(line[:state] == row for line in rows):
         raise Failed(
@@ -462,6 +496,19 @@ def seated_status_line() -> dict:
     return seat.session_settings(None, seated=True)["statusLine"]
 
 
+def session_paths() -> list[str]:
+    """Where a ccy session keeps what the legs read, from this checkout's seat.py and
+    membership.py, never a copy: the session home `pingbus seat exec` builds, the settings it
+    writes there, the membership mount's destination, and the desired membership's file name."""
+    seat = _checkout_module("helpers.pingbus.seat")
+    membership = _checkout_module("helpers.pingbus.membership")
+    home = pathlib.PurePosixPath(seat.SESSION_HOME)
+    paths = [str(home), str(home / seat.SESSION_SETTINGS), membership.CCY_MOUNT, membership.DESIRED_FILE]
+    if not all(isinstance(path, str) and path and "\n" not in path for path in paths):
+        raise Failed(f"seat.py and membership.py name no usable session paths: {paths!r}")
+    return paths
+
+
 def kit_command() -> str:
     """The status line command of this checkout's member kit settings."""
     path = _checkout_root() / KIT_SETTINGS
@@ -533,6 +580,35 @@ def session_status_line(proc: pathlib.Path, payload: bytes) -> str:
                      f"{result.stderr.decode('utf-8', 'replace')!r}")
     print(f"m7_check session-status-line: {settings_path}: {command}", file=sys.stderr)
     return text.rstrip("\n")
+
+
+#: ccy-teams' hot add/remove, whose step marks are read from its const block.
+HOT_GO = pathlib.PurePosixPath("src-go/internal/teams/hot/hot.go")
+
+
+def go_string_const(source: str, name: str, where: object) -> str:
+    """The value of the one plain `name = "..."` line (a Go const block's string entry) in
+    `source`; zero or several such lines fail rather than guess."""
+    found = re.findall(rf'^\s*{re.escape(name)}\s*=\s*"([^"\\]+)"\s*$', source, re.MULTILINE)
+    if len(found) != 1:
+        raise Failed(f"want exactly one `{name} = \"...\"` constant in {where}, found {found!r}")
+    return found[0]
+
+
+def hot_marks(source: str | None = None) -> list[str]:
+    """The marks `ccy-teams session add/remove` starts a done and a failed step with (hot.go's
+    markDone and markFailed)."""
+    if source is None:
+        source = (_checkout_root() / HOT_GO).read_text(encoding="utf-8")
+    return [go_string_const(source, "markDone", HOT_GO), go_string_const(source, "markFailed", HOT_GO)]
+
+
+def status_line_names(source: str | None = None) -> list[str]:
+    """The Go status line's teams row head (segment_label) and the variable that has it draw
+    only the bus segment (statusline.go's innerVar)."""
+    if source is None:
+        source = (_checkout_root() / STATUS_LINE_GO).read_text(encoding="utf-8")
+    return [segment_label(source)[0], go_string_const(source, "innerVar", STATUS_LINE_GO)]
 
 
 def segment_label(source: str | None = None) -> tuple[str, str]:
@@ -670,6 +746,9 @@ COMMANDS: dict[str, tuple[int, Callable[[Sequence[str]], int | None]]] = {
     "expect-about": (3, lambda a: expect_about(_read(a[0]), a[1], a[2])),
     "expect-sent": (2, lambda a: _print(expect_sent(_read(a[0]), a[1]))),
     "expect-choices": (-1, lambda a: expect_choices(_read(a[0]), _groups(a[1:], 2))),
+    "session-paths": (0, lambda a: _lines(session_paths())),
+    "hot-marks": (0, lambda a: _lines(hot_marks())),
+    "status-line-names": (0, lambda a: _lines(status_line_names())),
     "expect-session-settings": (1, lambda a: expect_session_settings(_json_file(a[0]))),
     "session-status-line": (
         1,

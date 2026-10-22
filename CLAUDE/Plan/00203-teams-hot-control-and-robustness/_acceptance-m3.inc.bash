@@ -57,7 +57,40 @@ M3_SID=""
 M3_SEAT=""
 M3_TOKEN=""
 
+#: Names the product owns, read from this checkout by m3_read_names (m7_check), never copied:
+#: the session home in a ccy container (seat.py), the done and failed step marks of
+#: `ccy-teams session add/remove` (hot.go), and the status line's teams row head and the
+#: variable that has it draw only the bus segment (statusline.go).
+M3_PB_HOME=""
+M3_MARK_DONE=""
+M3_MARK_FAILED=""
+M3_SEG_HEAD=""
+M3_INNER_VAR=""
+
 m3_ev() { printf '%s/%s' "${M3_EV}" "$1"; }
+
+# m3_lines <want> <command> — m7_check <command>'s stdout into the array M3_LINES, which must
+# be exactly <want> non-empty lines.
+m3_lines() {
+    local text
+    text="$("${M3_CHECK[@]}" "$2")" || { printf '[FAIL] m7_check %s could not read the product (above)\n' "$2" >&2; return 1; }
+    mapfile -t M3_LINES <<<"${text}"
+    if [[ "${#M3_LINES[@]}" -ne "$1" ]] || printf '%s\n' "${M3_LINES[@]}" | grep -qx ''; then
+        printf '[FAIL] m7_check %s printed %s, want %d non-empty lines\n' "$2" "${text}" "$1" >&2
+        return 1
+    fi
+}
+
+m3_read_names() {
+    m3_lines 4 session-paths || return 1
+    M3_PB_HOME="${M3_LINES[0]}"
+    m3_lines 2 hot-marks || return 1
+    M3_MARK_DONE="${M3_LINES[0]}" M3_MARK_FAILED="${M3_LINES[1]}"
+    m3_lines 2 status-line-names || return 1
+    M3_SEG_HEAD="${M3_LINES[0]}" M3_INNER_VAR="${M3_LINES[1]}"
+    printf '==> session home %s, step marks %s %s, teams row head %q, %s\n' \
+        "${M3_PB_HOME}" "${M3_MARK_DONE}" "${M3_MARK_FAILED}" "${M3_SEG_HEAD}" "${M3_INNER_VAR}"
+}
 
 # m3_poll <seconds> <what> <command...> — until the command succeeds; it returns 3 for "not yet".
 m3_poll() {
@@ -208,7 +241,7 @@ m3_add() {
     m3_teams session add "${M3_NAME}" "${M3_TEAM_B}${M3_SEAT:+/${M3_SEAT}}" --yes </dev/null 2>"${err}" || status=$?
     cat -- "${err}"
     [[ "${status}" -eq 0 ]] || { printf '[FAIL] session add exited %d\n' "${status}" >&2; return 1; }
-    if grep -q '^✗' "${err}"; then
+    if grep -qP "^\\Q${M3_MARK_FAILED}\\E" "${err}"; then
         printf '[FAIL] a step failed in an add that exited 0\n' >&2
         return 1
     fi
@@ -217,7 +250,7 @@ m3_add() {
         return 1
     fi
     if [[ -z "${M3_SEAT}" ]]; then
-        M3_SEAT="$(grep -oP '^✓ seat \K[a-z0-9]+(?=: free)' "${err}")" \
+        M3_SEAT="$(grep -oP "^\\Q${M3_MARK_DONE}\\E seat \\K[a-z0-9]+(?=: free)" "${err}")" \
             || { printf '[FAIL] the add named no seat\n' >&2; return 1; }
     fi
 }
@@ -229,10 +262,10 @@ m3_check_add() {
 
 m3_status_line() {
     local line
-    line="$(podman exec -i -e PINGBUS_HOME=/tmp/pingbus-home -e PINGBUS_STATUS_LINE_INNER=1 "${M2_CTR[${M3_NAME}]}" \
+    line="$(podman exec -i -e "PINGBUS_HOME=${M3_PB_HOME}" -e "${M3_INNER_VAR}=1" "${M2_CTR[${M3_NAME}]}" \
         pingbus status-line <<<'{}')" || return 1
     printf '%s\n' "${line}" >"$(m3_ev status-line)"
-    [[ "${line}" =~ "👥 ${M3_TEAM_A} ("(worker|coordinator)"), ${M3_TEAM_B} ("(worker|coordinator)")" ]] || return 3
+    [[ "${line}" =~ "${M3_SEG_HEAD}${M3_TEAM_A} ("(worker|coordinator)"), ${M3_TEAM_B} ("(worker|coordinator)")" ]] || return 3
 }
 
 m3_check_notice_and_status() {
@@ -252,21 +285,37 @@ m3_seat_free() {
     grep -qP "^SEAT\t${M3_TEAM_B}\t${M3_SEAT}\tfree\t" "$(m3_ev seat-list)" || return 3
 }
 
+#: What a removal is told with, read from this checkout's pingbus, never a copy: the room's
+#: goodbye after the handle (cli.FAREWELL_TEXT), then the reason a removed team's say is refused
+#: with (membership.FAREWELL_REASONS). Two lines on stdout.
+m3_removal_words() {
+    python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); from helpers.pingbus import cli, membership
+head, sep, tail = cli.FAREWELL_TEXT.partition("{handle}")
+if head or not sep or "{" in tail or "\n" in tail: sys.exit(f"cli.FAREWELL_TEXT is not {{handle}} then fixed text: {cli.FAREWELL_TEXT!r}")
+print(tail.strip()); print(membership.FAREWELL_REASONS["removed"])' "${PLAN_REPO_ROOT}"
+}
+
 m3_check_remove() {
-    local status=0 err out
+    local status=0 err out text goodbye reason
+    local -a words
+    text="$(m3_removal_words)" || { printf '[FAIL] cannot read the removal words from helpers/pingbus (above)\n' >&2; return 1; }
+    mapfile -t words <<<"${text}"
+    [[ "${#words[@]}" -eq 2 && -n "${words[0]}" && -n "${words[1]}" ]] \
+        || { printf '[FAIL] want two removal words lines from helpers/pingbus, got %q\n' "${text}" >&2; return 1; }
+    goodbye="${words[0]}" reason="${words[1]}"
     err="$(m3_ev remove.err)"
     m3_teams session remove "${M3_NAME}" "${M3_TEAM_B}" --yes </dev/null 2>"${err}" || status=$?
     cat -- "${err}"
     [[ "${status}" -eq 0 ]] || { printf '[FAIL] session remove exited %d\n' "${status}" >&2; return 1; }
-    grep -q '^✓ re-baseline' "${err}" || { printf '[FAIL] no re-baseline step\n' >&2; return 1; }
+    grep -qP "^\\Q${M3_MARK_DONE}\\E re-baseline" "${err}" || { printf '[FAIL] no re-baseline step\n' >&2; return 1; }
     m3_poll "${M3_SEEN_S}" "the left notice in the transcript" m3_seen "you left team ${M3_TEAM_B}" || return 1
-    m3_poll 30 "the goodbye in the room" m3_room_has "left the team: removed by the owner" || return 1
+    m3_poll 30 "the goodbye in the room" m3_room_has "${goodbye}" || return 1
     m3_poll 10 "the seat free" m3_seat_free || return 1
     status=0
-    out="$(podman exec "${M2_CTR[${M3_NAME}]}" sh -c 'echo hi | PINGBUS_HOME=/tmp/pingbus-home pingbus --team "$1" say' \
-        sh "${M3_TEAM_B}" 2>&1)" || status=$?
+    out="$(podman exec "${M2_CTR[${M3_NAME}]}" sh -c 'echo hi | PINGBUS_HOME="$2" pingbus --team "$1" say' \
+        sh "${M3_TEAM_B}" "${M3_PB_HOME}" 2>&1)" || status=$?
     printf '%s\n' "${out}" >"$(m3_ev say-removed.out)"
-    if [[ "${status}" -ne 64 || "${out}" != *"removed by the owner"* ]]; then
+    if [[ "${status}" -ne 64 || "${out}" != *"${reason}"* ]]; then
         printf '[FAIL] pingbus say to the removed team: exit %d, %s\n' "${status}" "${out}" >&2
         return 1
     fi
@@ -290,7 +339,7 @@ m3_check_noop() {
     m3_teams session add "${M3_NAME}" "${M3_TEAM_B}/${M3_SEAT}" --yes </dev/null 2>"${err}" || status=$?
     cat -- "${err}"
     [[ "${status}" -eq 0 ]] || { printf '[FAIL] the re-run exited %d\n' "${status}" >&2; return 1; }
-    if grep -q '^✓ \(record\|membership\)' "${err}"; then
+    if grep -qP "^\\Q${M3_MARK_DONE}\\E (record|membership)" "${err}"; then
         printf '[FAIL] the re-run changed the record or the membership\n' >&2
         return 1
     fi
@@ -318,6 +367,7 @@ m3_cleanup() {
 acceptance_m3() {
     plan_on_cleanup m3_cleanup
     printf '## M3: hot add and remove\n\n' >>"${REPORT}"
+    plan_deploy_leg "the names M3 judges by, from this checkout's seat.py, hot.go and statusline.go" m3_read_names
     plan_deploy_leg "two throwaway teams, ${M3_TEAM_A} and ${M3_TEAM_B}" m3_prepare
     plan_deploy_leg "a throwaway headless session on ${M3_TEAM_A} in ccy's tmux, and its first turn" m3_start
     check_leg "(a) session add ${M3_TEAM_B}: every step done, no relaunch" m3_check_add

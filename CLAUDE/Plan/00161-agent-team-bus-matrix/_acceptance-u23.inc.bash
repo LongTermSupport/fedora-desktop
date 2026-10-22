@@ -56,7 +56,6 @@ readonly U23_HOME="/home/${U23_AGENT}"
 readonly U23_CHECKOUT="${U23_HOME}/acceptance"
 #: HOOKS_DAEMON_HOSTNAME, the handle's <host>, as M1's members.
 readonly U23_ROLE="acceptance"
-readonly U23_KIT_PARENT="/usr/local/share/agent-bus"
 #: python 3.13 on Debian bookworm (it has git and useradd), its multi-arch index digest.
 readonly U23_DOCKER_IMAGE="docker.io/library/python@sha256:073ffebb96ae4d0ed73ccad59f08c47bd84af8a79f5258130f8458ac50ad9ff4"
 readonly U23_DOCKER_PINGBUS_HOME="${U23_HOME}/pingbus"
@@ -280,16 +279,34 @@ u23_teardown_after_stop() {
 # u23_kit_tar — the host's member kit as one tar (kit/...), what README step 1 copies in. The
 # installer leaves the kit world-readable, so no root is needed to read it.
 u23_kit_tar() {
+    local parent
+    parent="$(u23_kit_parent)" || return 1
     if [[ ! -s "${PLAN_RUN_DIR}/u23-kit.tar" ]]; then
-        tar -C "${U23_KIT_PARENT}" -c -f "${PLAN_RUN_DIR}/u23-kit.tar" kit || return 1
+        tar -C "${parent}" -c -f "${PLAN_RUN_DIR}/u23-kit.tar" kit || return 1
     fi
+}
+
+# u23_kit_parent — the directory holding the member kit, on the host and (README step 1) in
+# each member: the parent of helpers/agent_bus/admin.py's KIT_DIR, read, never a copy. The
+# guest steps spell the kit's own directory `kit`, so a KIT_DIR named otherwise fails here.
+u23_kit_parent() {
+    local kit
+    kit="$(python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); from helpers.agent_bus import admin; print(admin.KIT_DIR)' \
+        "${PLAN_REPO_ROOT}")" || { printf '[FAIL] cannot read KIT_DIR from helpers/agent_bus/admin.py (above)\n' >&2; return 1; }
+    if [[ "${kit}" != /?*/kit ]]; then
+        printf '[FAIL] admin.KIT_DIR is %s, not an absolute <parent>/kit the README steps here follow\n' "${kit}" >&2
+        return 1
+    fi
+    printf '%s\n' "${kit%/kit}"
 }
 
 # u23_guest_prepare <kind> — the agent user, its checkout and the kit, inside the member.
 u23_guest_prepare() {
+    local parent
     u23_kit_tar || return 1
+    parent="$(u23_kit_parent)" || return 1
     u23_step "$1" root prepare "${PLAN_RUN_DIR}/u23-kit.tar" 0 sh -c "${U23_GUEST_PREPARE}" sh \
-        "${U23_AGENT}" "${U23_HOME}" "${U23_CHECKOUT}" "${U23_KIT_PARENT}" "${U23_KIT_UNPACK_PY}"
+        "${U23_AGENT}" "${U23_HOME}" "${U23_CHECKOUT}" "${parent}" "${U23_KIT_UNPACK_PY}"
 }
 
 # u23_bridge <kind> — the network the member reaches <bus_ip> through: its source address,

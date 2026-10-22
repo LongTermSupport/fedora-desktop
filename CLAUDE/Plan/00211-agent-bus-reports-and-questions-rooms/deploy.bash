@@ -90,7 +90,13 @@ fi
 # Deploy 2's first pre-flight: the Phase 0 spike passed (spike.bash's newest report ends with
 # the PASS verdict). meta-deploy ran deploy 1 whatever the spike found, so this is the gate.
 spike_passed() {
-    local runs dirs report
+    local runs dirs report verdict
+    # The PASS verdict is spike_probe.py's VERDICT_PASS, the line it writes, never a copy.
+    if ! verdict="$(env PYTHONPATH="${PLAN_REPO_ROOT}" python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import spike_probe; print(spike_probe.VERDICT_PASS)' \
+        "${PLAN_SCRIPT_DIR}")" || [[ -z "${verdict}" ]]; then
+        printf '[FATAL] cannot read VERDICT_PASS from %s/spike_probe.py (above)\n' "${PLAN_SCRIPT_DIR}" >&2
+        exit 1
+    fi
     runs="${PLAN_REPO_ROOT}/untracked/plan-runs/$(basename "${PLAN_SCRIPT_DIR}")/spike"
     dirs=()
     if [[ -d "${runs}" ]]; then
@@ -101,7 +107,7 @@ spike_passed() {
         exit 1
     fi
     report="${dirs[${#dirs[@]} - 1]}spike-report.md"
-    if [[ ! -f "${report}" ]] || ! grep -qxF 'Verdict: every fact holds' "${report}"; then
+    if [[ ! -f "${report}" ]] || ! grep -qxF -- "${verdict}" "${report}"; then
         printf '[FATAL] deploy 2 needs a passed spike: %s has no PASS verdict; amend the SPEC and re-run spike.bash\n' \
             "${report}" >&2
         exit 1

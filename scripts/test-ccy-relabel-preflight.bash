@@ -103,7 +103,6 @@ OTHER=$((ME + 7))
 MAP_MINE="$(printf '0 %s 1\n1 200000 100' "$ME")"
 MAP_FOREIGN="$(printf '0 %s 1\n1 200000 100' "$OTHER")"
 FOREIGN_ARGS="\\! \\( -uid $OTHER -o \\( -uid +199999 -uid -200100 \\) \\)"
-LABEL="system_u:object_r:container_file_t:s0"
 
 STUB_BIN="$WORK/bin"
 mkdir -p "$STUB_BIN"
@@ -171,7 +170,7 @@ reset_logs() {
 
 # Runs workspace_relabel_preflight in a fresh shell with the libraries sourced from this
 # repo, on a pseudo-terminal fed <answer>. LABELLED lists paths whose label already is the
-# shared one; everything else reads as user_home_t, as a desktop project does before its
+# shared one (common.bash's CCY_SHARED_FILE_LABEL, read in the driver, never a copy); everything else reads as user_home_t, as a desktop project does before its
 # first relabelled launch. EXTRA_PATH, when set, goes in front of the stubs; ENGINE picks
 # the engine. Prints the combined output, then "rc=<n>" on the last line.
 run_preflight() {
@@ -183,7 +182,7 @@ export PATH="${EXTRA_PATH:+$EXTRA_PATH:}$STUB_BIN:\$PATH" CCY_CONTAINER_ENGINE="
 source "$LIB_DIR/common.bash"
 file_selinux_label() {
     case " $labelled " in
-        *" \$1 "*) printf '%s\n' "$LABEL" ;;
+        *" \$1 "*) printf '%s\n' "\$CCY_SHARED_FILE_LABEL" ;;
         *) printf '%s\n' "unconfined_u:object_r:user_home_t:s0" ;;
     esac
 }
