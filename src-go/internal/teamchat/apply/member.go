@@ -71,8 +71,8 @@ var fromStates = map[string][]string{
 	OpMemberSet:     {MemberActive, MemberParked},
 }
 
-// MemberRequest is one member verb: the handle, or for `add` the prefix, the seat (0 for the
-// lowest free one, MO4) and the kind; human_text for `add` and `set`; the credential kind for
+// MemberRequest is one member verb: the handle, or for `add` the prefix, the seat (a number
+// from 1, MO4) and the kind; human_text for `add` and `set`; the credential kind for
 // `add`, `return` and `reissue`.
 type MemberRequest struct {
 	Op, Handle, Prefix string
@@ -177,47 +177,52 @@ func (r *run) settle(ctx context.Context, req MemberRequest) (bool, error) {
 	return err != nil || req.Op != OpMemberSet, err
 }
 
-// admit is the handle req takes once MO3's refusals pass. `--seat next` passes a number whose
-// account is deactivated, recording it retired, so it is never offered again (n2d-D21).
+// admit is the handle req takes once MO3's refusals pass. An add or a return whose account is
+// there deactivated records the handle retired, one write, and answers ErrRetired (MO4,
+// n2d-D21), so lxc apply can tell it from every other refusal.
 func (r *run) admit(ctx context.Context, req MemberRequest) (string, error) {
-	for {
-		handle, err := r.target(req)
-		if err != nil {
-			return "", err
-		}
-		r.res.Handle = handle
-		err = r.refuse(ctx, req, handle)
-		if req.Op != OpMemberAdd || req.Seat != 0 || !errors.Is(err, errDeactivated) {
-			return handle, err
-		}
-		r.files.roster.Members[handle] = Member{State: MemberRetired, Kind: req.Kind, SinceMS: r.now()}
-		r.note("member " + handle + " retired")
-		if err = r.save(StepAccount); err != nil {
-			return "", err
-		}
+	handle, err := r.target(req)
+	if err != nil {
+		return "", err
 	}
+	r.res.Handle = handle
+	err = r.refuse(ctx, req, handle)
+	if !errors.Is(err, ErrRetired) {
+		return handle, err
+	}
+	m := r.files.roster.Members[handle]
+	if req.Op == OpMemberAdd {
+		m = Member{Kind: req.Kind}
+	}
+	m.State, m.SinceMS = MemberRetired, r.now()
+	r.files.roster.Members[handle] = m
+	r.note("member " + handle + " retired")
+	if serr := r.save(StepAccount); serr != nil {
+		return "", serr
+	}
+	return "", err
 }
 
-// errDeactivated is a member's account found deactivated: only `retire` does that, so the
-// handle can never come back.
-var errDeactivated = errors.New("is deactivated")
+// ErrRetired is a member's account found deactivated, so its handle is recorded retired: only
+// `retire` deactivates, so the handle can never come back. The child answers it as the class
+// `retired` (SPEC-n2a CC5), which no other refusal answers.
+var ErrRetired = errors.New("is deactivated, so the handle is retired")
 
 func deactivated(h string) error {
-	return refused(StepAccount, fmt.Errorf("member %s's account %w", h, errDeactivated))
+	return refused(StepAccount, fmt.Errorf("member %s's account %w", h, ErrRetired))
 }
 
 // retryOf is whether req asks again for the pending operation p (MO5): the same verb on its
-// handle, or for `add --seat next` on its prefix. An add asked again with another human_text
-// is refused, before any change.
+// handle. An add asked again with another human_text is refused, before any change.
 func (r *run) retryOf(req MemberRequest, handle string, p *Pending) (bool, error) {
 	if p.Op != req.Op {
 		return false, nil
 	}
-	if req.Op != OpMemberAdd {
-		return p.Handle == handle, nil
-	}
-	if p.Handle != handle && (req.Seat != 0 || mustHandle(p.Handle).Prefix().String() != req.Prefix) {
+	if p.Handle != handle {
 		return false, nil
+	}
+	if req.Op != OpMemberAdd {
+		return true, nil
 	}
 	if m := r.files.roster.Members[p.Handle]; m.HumanText != req.HumanText {
 		return false, refusedf("member.add of %s is pending with human_text %t: ask again with the same arguments, or any other verb finishes it", p.Handle, m.HumanText)
@@ -246,7 +251,7 @@ func (r *run) target(req MemberRequest) (string, error) {
 	return req.Handle, nil
 }
 
-// addTarget is the handle an `add` claims: the prefix numbered by the seat, or the next (MO4).
+// addTarget is the handle an `add` claims: the prefix numbered by the seat (MO4).
 func (r *run) addTarget(req MemberRequest) (string, error) {
 	p, ok := proto.ParsePrefix(req.Prefix)
 	switch {
@@ -254,31 +259,14 @@ func (r *run) addTarget(req MemberRequest) (string, error) {
 		return "", refusedf("%q is not a handle prefix", req.Prefix)
 	case req.Kind != p.Type:
 		return "", refusedf("the kind %q is not the prefix's type %q", req.Kind, p.Type)
-	case req.Seat < 0:
-		return "", refusedf("the seat is a number from 1, or next")
+	case req.Seat < 1:
+		return "", refusedf("the seat is a number from 1")
 	}
-	seat := req.Seat
-	if seat == 0 {
-		seat = r.nextSeat(p)
-	}
-	h, ok := p.Numbered(seat)
+	h, ok := p.Numbered(req.Seat)
 	if !ok || h.IsProbe() {
-		return "", refusedf("seat %d of %s is not a member handle", seat, p)
+		return "", refusedf("seat %d of %s is not a member handle", req.Seat, p)
 	}
 	return h.String(), nil
-}
-
-// nextSeat is the lowest number from 1 no member of the prefix holds, in any state (n2d-D3).
-func (r *run) nextSeat(p proto.Prefix) int {
-	for n := 1; ; n++ {
-		h, ok := p.Numbered(n)
-		if !ok {
-			return n
-		}
-		if _, held := r.files.roster.Members[h.String()]; !held {
-			return n
-		}
-	}
 }
 
 func issues(op string) bool {
@@ -382,7 +370,7 @@ func (r *run) rollForward(ctx context.Context) error {
 		return nil
 	}
 	err := r.finishPending(ctx, p)
-	if errors.Is(err, errDeactivated) && r.files.roster.Pending == nil {
+	if errors.Is(err, ErrRetired) && r.files.roster.Pending == nil {
 		r.res.Notes = append(r.res.Notes, "the pending "+p.Op+" of "+p.Handle+" ended: its account is deactivated, so the handle is retired")
 		return nil
 	}
