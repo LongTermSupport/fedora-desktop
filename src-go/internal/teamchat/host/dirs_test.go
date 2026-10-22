@@ -41,6 +41,59 @@ func TestDirectoryModesIgnoreTheUmask(t *testing.T) {
 	}
 }
 
+// HS6: a directory a crash left between its mkdir and its chmod or chown is converged by the
+// next run, not accepted as it is.
+func TestAHalfMadeDirectoryIsConverged(t *testing.T) {
+	strictUmask(t)
+	root := t.TempDir()
+	shared, owned := filepath.Join(root, "shared"), filepath.Join(root, "owned")
+	for _, dir := range []string{shared, owned} {
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := unix.Chmod(owned, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	uid, gid := os.Getuid(), os.Getgid()
+	if uid == 0 {
+		uid, gid = 4242, 4243
+	}
+	if err := MkdirShared(shared); err != nil {
+		t.Fatal(err)
+	}
+	if err := mkdirOwned(owned, uid, gid); err != nil {
+		t.Fatal(err)
+	}
+	if got := mode(t, shared); got != 0o755 {
+		t.Errorf("shared mode %v", got)
+	}
+	if got := mode(t, owned); got != 0o700 {
+		t.Errorf("owned mode %v", got)
+	}
+	var st unix.Stat_t
+	if err := unix.Lstat(owned, &st); err != nil {
+		t.Fatal(err)
+	}
+	if int(st.Uid) != uid || int(st.Gid) != gid {
+		t.Errorf("owned by %d:%d, want %d:%d", st.Uid, st.Gid, uid, gid)
+	}
+}
+
+func TestADirectoryThatIsALinkIsRefused(t *testing.T) {
+	root := t.TempDir()
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(t.TempDir(), link); err != nil {
+		t.Fatal(err)
+	}
+	if err := MkdirShared(link); err == nil {
+		t.Error("MkdirShared accepted a link")
+	}
+	if err := mkdirOwned(link, -1, -1); err == nil {
+		t.Error("mkdirOwned accepted a link")
+	}
+}
+
 func TestDirectoryThatIsAFileIsRefused(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(file, nil, 0o600); err != nil {

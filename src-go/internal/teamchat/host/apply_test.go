@@ -634,6 +634,36 @@ func TestBroughtBackStartsTheOldVersionForTheBackup(t *testing.T) {
 	}
 }
 
+// HS8: an upgrade whose restart failed leaves the new drop-in and the old units.json; the next
+// apply backs the database up on the old version, not the new one.
+func TestAFailedUpgradeIsBackedUpOnTheOldVersion(t *testing.T) {
+	w := applied(t)
+	team := ops(t)
+	makeDatabase(t, w)
+	w.version = "1.9.5"
+	w.faults["restart"] = errFault
+	if _, err := w.apply(w.cur); stepOf(t, err).Step != StepUnit {
+		t.Fatalf("got %v", err)
+	}
+	delete(w.faults, "restart")
+	*w.sd.unit(paths.ServerUnit(team)) = UnitState{Active: "inactive"}
+	w.onBackup = func() {
+		if got := w.read(paths.ServerDropInFile(team)); !strings.Contains(got, "tuwunel-1.9.4") {
+			t.Errorf("the drop-in at the backup:\n%s", got)
+		}
+	}
+	lines, err := w.apply(w.cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(lines, "drop-in written for the backup, tuwunel 1.9.4") || w.backups != 2 {
+		t.Errorf("lines %q, backups %d", lines, w.backups)
+	}
+	if !strings.Contains(w.read(paths.ServerDropInFile(team)), "tuwunel-1.9.5") {
+		t.Error("the drop-in does not name the new version")
+	}
+}
+
 // HS8: a database with no record of the version that wrote it is not started blind.
 func TestDatabaseWithNoVersionRecordIsRefused(t *testing.T) {
 	w := applied(t)

@@ -612,7 +612,7 @@ func (a *applying) backup(ctx context.Context) error {
 }
 
 // startForBackup starts an inactive homeserver on the version units.json records, writing that
-// drop-in when `team remove` deleted it, and waits for it.
+// drop-in when `team remove` deleted it or a failed upgrade left a newer one, and waits for it.
 func (a *applying) startForBackup(ctx context.Context) error {
 	st, err := a.d.Systemd.State(ctx, a.unit)
 	if err != nil || st.Active == active {
@@ -624,15 +624,15 @@ func (a *applying) startForBackup(ctx context.Context) error {
 	port := a.in.Team.Port
 	if a.units != nil {
 		port = a.units.port
-	}
-	if !a.haveDropIn {
 		old := dropInSpec{
 			team: a.team, version: a.units.version, memoryHigh: a.d.Pin.MemoryHigh, port: a.units.port, listen: a.units.listen,
 		}
-		if err := a.writeDropIn(ctx, old.text()); err != nil {
-			return err
+		if !a.haveDropIn || !strings.Contains(string(a.dropIn), old.execStart()) {
+			if err := a.writeDropIn(ctx, old.text()); err != nil {
+				return err
+			}
+			a.note("drop-in written for the backup, tuwunel " + a.units.version.String())
 		}
-		a.note("drop-in written for the backup, tuwunel " + a.units.version.String())
 	}
 	if err := a.d.Systemd.Start(ctx, a.unit); err != nil {
 		return err
@@ -837,10 +837,8 @@ func (a *applying) writeStamp() error {
 			return nil
 		}
 	}
-	for _, dir := range []string{filepath.Dir(paths.StatusTeamDir(a.team)), paths.StatusTeamDir(a.team)} {
-		if err := MkdirShared(a.path(dir)); err != nil {
-			return err
-		}
+	if err := MkdirStatus(a.d.Root, a.team); err != nil {
+		return err
 	}
 	if err := state.WriteFile(file, s.encode(a.team), 0o644, -1); err != nil {
 		return err

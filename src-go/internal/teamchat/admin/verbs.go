@@ -455,7 +455,7 @@ func approve(root string, fa declare.FileApprovals, in declare.Input, ch *declar
 	if len(diffs) == 0 {
 		return nil, nil
 	}
-	if err = host.MkdirShared(root + paths.StatusTeamDir(in.ID())); err != nil {
+	if err = host.MkdirStatus(root, in.ID()); err != nil {
 		return nil, err
 	}
 	if err = fa.Save(in.ID(), g); err != nil {
