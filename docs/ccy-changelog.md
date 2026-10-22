@@ -17,6 +17,233 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.14.7 — container 2.78.14
+
+Follows 3.99.14.6. The image is unchanged, so there is no rebuild.
+
+- **The Go front answers `--list-tokens` and `--token-usage` for a typical desktop.** It no
+  longer hands these to the bash under a non-C locale, a time zone, a day the clocks change or
+  an unusual TTL or reset time: it lists the pool in byte order, colours the expiry only on a
+  terminal (and never with `NO_COLOR`), and reads numbers as decimal. The JSON document
+  (`wsi-claude-token` reads it), the usage cache and the API call are unchanged. It still hands
+  over where a file or setting could mean something else to the bash, and now also for a junk
+  token file a curl argument would hold (it used to exit 1), and when `GLOBSORT` is set.
+
+## 3.99.14.6 — container 2.78.14
+
+Follows 3.99.14.5. The image is unchanged, so there is no rebuild.
+
+- **`ccy --token-usage [--json]` is answered by the Go front.** The table, the JSON document,
+  the exit codes, the usage cache it reads and writes and the one API call per account are the
+  bash launcher's; the token reaches curl on its stdin, never in its arguments or environment.
+  The front hands the run to the bash wherever the two could differ: a token file name with no
+  date or outside printable ASCII, a `CCY_USAGE_*` setting, `HOME` or `TMPDIR` outside it, a
+  `CCY_USAGE_TTL` that is not a plain number above nought, a token it cannot read, a cache
+  entry that is not a plain file, or an API answer it does not read as the bash does.
+
+## 3.99.14.5 — container 2.78.14
+
+Follows 3.99.14.4. The image is unchanged, so there is no rebuild.
+
+- **`ccy --list-tokens` is answered by the Go front.** The output is the bash launcher's, byte
+  for byte, expiry colours included (they are printed whatever the output is, as the bash
+  prints them). The front hands the run to the bash wherever the two could differ: a token file
+  name the bash reads another way, an entry that is not a regular file, a collation other than
+  C that could sort the pool otherwise, a zone setting Go reads otherwise, the day the clocks
+  change, or a bash of another version beside it. `--list-tokens` with other options is the
+  bash's, as before.
+
+## 3.99.14.4 — container 2.78.14
+
+Follows 3.99.14.3. The image is unchanged, so there is no rebuild.
+
+- **`CCY_LAUNCHER_FRONT` is accepted only when it is the front beside the launcher.** Any
+  executable file was taken before, so a stray value would have run that program in the tmux
+  pane and in every later restore. The value must now resolve to the same file as
+  `claude-yolo` in the launcher's own directory; anything else is warned of on stderr, naming
+  the variable, and the launch records `claude-yolo.bash` instead. The variable is unset before
+  the launcher starts tmux, the engine or claude; a few system tools (`dirname`, `id`, `find`,
+  `rm`) run earlier and do not read it.
+
+## 3.99.14.3 — container 2.78.14
+
+Follows 3.99.14.2. The image is unchanged, so there is no rebuild.
+
+- **Running `claude-yolo.bash` directly now stays clear of the Go front.** Under 3.99.14.1 and
+  3.99.14.2 the bash launcher always named the front beside it as the program a session runs,
+  so a direct run of `/var/local/claude-yolo/claude-yolo.bash`, the way round a front that will
+  not start, opened a tmux session whose pane ran that front. The front now hands its own path
+  to the bash in `CCY_LAUNCHER_FRONT`, which the bash reads once and unsets, so no program it
+  starts inherits it. The tmux pane, the session record, the restart relaunch and the
+  custom-Dockerfile modes name the front when the front started the launch, and
+  `claude-yolo.bash` itself when it was run directly. A value that is not an absolute path to
+  an executable file is warned of on stderr and not used.
+
+## 3.99.14.2 — container 2.78.14
+
+Follows 3.99.14.1. The image changes only in its guide, which now lists `claude-yolo` (the Go
+front) and `claude-yolo.bash`; the next launch rebuilds it once.
+
+## 3.99.14.1 — container 2.78.13
+
+Follows 3.99.14.0. The image is unchanged, so there is no rebuild.
+
+- **Session records name the Go front again.** Under 3.99.14.0 the bash launcher recorded its
+  own path, `claude-yolo.bash`, as the session's launcher, so restores and team restarts ran
+  the bash directly and skipped the front. It now records `/var/local/claude-yolo/claude-yolo`,
+  as the restart relaunch already did, and the custom-Dockerfile modes re-run the front too. A
+  record written by 3.99.14.0 still names `claude-yolo.bash`, which runs the same launcher
+  without the front; a session started afresh from a terminal records the front.
+
+## 3.99.14.0 — container 2.78.13
+
+Follows 3.99.13.19. The image is unchanged, so there is no rebuild.
+
+- **`ccy` is now a Go program in front of the bash launcher** (Plan 00191 Task 4.5, phase 2).
+  `play-claude-yolo.yml` builds `src-go/cmd/claude-yolo` and installs it as
+  `/var/local/claude-yolo/claude-yolo`, and installs the bash launcher beside it as
+  `claude-yolo.bash`. The Go program answers `--version`/`-v` and `--help`/`-h` with the same
+  output as before, and execs the bash launcher, unchanged arguments and environment, for every
+  other run, and for these two too wherever the bash might answer differently (a token hand-off
+  to take, a refused path override, an engine not found, and the like).
+- **`CCY_LEGACY=1`** sends every run to the bash launcher: the way back if the Go program
+  misbehaves ([docs](ccy.md#the-go-front-and-ccy_legacy)).
+- `--version`'s `Hash:` is still the bash launcher's own hash, so Quick Launch files compare as
+  before; the Go program refuses both flags if its version is not the bash launcher's.
+- The pre-commit version gate covers the Go program's sources (`src-go/cmd/claude-yolo`,
+  `src-go/internal/ccylaunch`, tests aside).
+
+## 3.99.13.19 — container 2.78.13
+
+Follows 3.99.13.18. The image is unchanged, so there is no rebuild.
+
+- **The token hand-off reader asks `id -u` who the user is.** It used `$EUID`, which bash
+  takes from an exported variable of that name, so an environment that set `EUID` could make
+  the reader accept another user's hand-off directory. `/run/user/<uid>` and every ownership
+  check now use one `id -u`, and the launch ends with an error if that fails.
+- **A hand-off file holding only a newline** gets the same "is empty" error, and the same
+  removal, as an empty file; before, it ended the launch with no message.
+- **Correction to 3.99.13.18:** a base the reader's environment does not name is still
+  refused, but the error lists the four accepted bases; it does not name which one was
+  missing.
+
+## 3.99.13.18 — container 2.78.13
+
+Follows 3.99.13.17. The image is unchanged, so there is no rebuild.
+
+- **A relative path is no longer taken as a token hand-off** (Plan 00191 Task 4.4b, round 3
+  review). In 3.99.13.17, `CCY_GH_TOKEN_HANDOFF=abcdef/token` passed the check, and a file of
+  that shape in the launch's directory was read and deleted. Now the path must be absolute,
+  `<base>/ccy-gh-token.XXXXXX/token`, with `<base>` one of `XDG_RUNTIME_DIR`,
+  `/run/user/<uid>`, `TMPDIR` and `/tmp` as the launcher reading it sees them.
+- **A genuine hand-off is taken when the two launchers' environments differ.** The launcher
+  inside tmux gets the tmux server's environment, not the outer launcher's, so one could
+  have `XDG_RUNTIME_DIR` and the other not. 3.99.13.17 then refused the hand-off. The reader
+  now accepts any of the four bases above; a base its environment does not name at all (a
+  `TMPDIR` only the outer launcher had) is still refused, with an error naming the variable.
+- **An empty hand-off file** ends the launch with an error and is removed, where before the
+  launch ended with no message and the file stayed.
+- **The `--debug` notice** now says that tokens with a known prefix are masked in the log and
+  that the terminal shows the raw trace, tokens included.
+
+## 3.99.13.17 — container 2.78.13
+
+Follows 3.99.13.16. The image is unchanged, so there is no rebuild.
+
+- **The token hand-off takes only a file ccy made** (Plan 00191 Task 4.4b, round 2 review).
+  In 3.99.13.16, a launcher started with `CCY_GH_TOKEN_HANDOFF` set read and deleted whatever
+  file of yours the variable named. Now it takes only
+  `<XDG_RUNTIME_DIR, else TMPDIR>/ccy-gh-token.XXXXXX/token`, in a 0700 directory of yours
+  that is not a link, with the file yours, 0600, not a link and with one link. Any other path
+  ends the launch with an error that names the variable, and the file is not read or deleted.
+- **When the hand-off file can be left behind.** 3.99.13.16 said the outer launcher removes
+  the file whenever the re-run never started. That is wrong for a new session: the outer
+  launcher ends in `exec tmux attach-session`, which drops its exit trap. The re-run now takes
+  the file first, before `common.bash` and the library check, so a launch that then fails
+  still removes it. If the re-run never starts (tmux cannot run it, or the hand-off library
+  itself is missing), the file stays in your own 0700 runtime directory until you log out, or
+  under `TMPDIR` when there is no runtime directory.
+- **`--debug` masks tokens with a known prefix in its log.** The hand-off, and the launcher's tests of
+  whether it has a GitHub token, no longer expand the token under `set -x`. Other traced lines
+  still do (the session run, the token checks), so the log's copy of the output has GitHub
+  tokens (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`) and Claude tokens
+  (`sk-ant-`) masked; the terminal still shows the raw trace. The log is created by `mktemp`,
+  mode 0600 under a fresh name (`ccy-debug-<date>-XXXXXX.log`), where before it was readable
+  by anyone in `/tmp`.
+
+## 3.99.13.16 — container 2.78.13
+
+Follows 3.99.13.15. Container 2.78.13 only because the image carries `CCY-GUIDE.txt`, changed
+again here (the commit hook requires the bump); the Dockerfile is otherwise unchanged, one
+rebuild.
+
+- **A `GH_TOKEN` you export reaches the session again** (Plan 00191 Task 4.4b review). An
+  interactive launch re-runs the launcher inside tmux, and 3.99.13.15 left the re-run without
+  the token, so a box with no gh login refused to start and told you to export the token you
+  had exported. The outer launcher now writes the token to a fresh 0600 file in a 0700
+  directory under `XDG_RUNTIME_DIR` (else `TMPDIR`) and gives the re-run only the file's path,
+  on the tmux pane's command; the re-run reads it and deletes it before anything else, and the
+  outer launcher removes it on any exit where the re-run never started. A launch fails at once
+  if the file cannot be made. The custom-Dockerfile modes, which re-run the launcher with
+  `exec`, give it the token in that one command's environment.
+- The fix prompt after a failed custom Dockerfile build says the full log is on the host, and
+  the guide says to copy it into the project when its last 50 lines are not enough: the
+  container cannot read the host's temporary directory.
+
+## 3.99.13.15 — container 2.78.12
+
+Follows 3.99.13.14. Container 2.78.12 only because the image carries `CCY-GUIDE.txt` (the
+commit hook requires the bump); the Dockerfile is otherwise unchanged, one rebuild.
+
+- **Tokens reach only the programs that read them** (Plan 00191 Task 4.4b). The launcher no
+  longer exports `GH_TOKEN` or `CLAUDE_CODE_OAUTH_TOKEN` for the rest of its run, where every
+  program it started (getenforce, curl, timedatectl, ...) was given them. Each container run
+  that needs one (the session, the token check, `claude setup-token`) gets it by name, set in
+  that command's environment alone. A token the caller exported is taken out of the
+  environment at start and still used. This also closes a leak between sessions: ccy's tmux
+  server keeps the environment of the launch that started it and gives it to every session
+  started later, so the first launch's GitHub token reached the panes of every later session,
+  even one for another account.
+- **Host-path overrides must be absolute**, and the resolved path is what is used. Beyond the
+  default, a directory in `/proc`, `/sys` or `/dev` is refused (`/dev/shm` is no GPU).
+- The guide's advice for a failed custom Dockerfile build now says what ccy does: the build
+  log's path is printed and the fix prompt is given to Claude on the base image.
+
+## 3.99.13.14 — container 2.78.11
+
+Follows 3.99.13.13. The launcher and its library only; the image is unchanged, so no rebuild.
+
+- **The host paths are resolved and checked in the new `lib/host-paths.bash`** (Plan 00191):
+  `CCY_DOCKERFILE_DIR` and `CCY_GPU_DEVICE_DIR` as before, and `CCY_ZONEINFO_DIR` (the zone
+  database, default `/usr/share/zoneinfo`). `--custom`'s templates are read from the build
+  context too, where the play already puts them. Unset, nothing changes. A set override
+  fails at start when it names no directory (for the GPU, when its parent is none: an absent
+  GPU directory still means no GPU), and one that resolves to `/` or `/dev` is refused, since
+  it would hand a build or a device mount the whole tree.
+- **The launcher's temporary files follow `TMPDIR`** when it is set (the git configuration
+  handed to the container, build logs, the GitHub probe, the debug log, the token setup
+  output); unset, they stay in `/tmp`.
+
+## 3.99.13.13 — container 2.78.11
+
+Follows 3.99.13.12. The launcher only; the image is unchanged, so no rebuild.
+
+- **Two paths the launcher read from the host can be pointed elsewhere, for the launcher's
+  differential harness** (Plan 00191, `src-go/internal/ccylaunch/difftest`):
+  `CCY_DOCKERFILE_DIR` (the build context, default `/opt/claude-yolo`; the startup text
+  handed to Claude is now read from it too, where the play already puts it) and
+  `CCY_GPU_DEVICE_DIR` (default `/dev/dri`). Unset, nothing changes.
+
+## 3.99.13.12 — container 2.78.11
+
+Follows 3.99.13.11. The launcher's library only; the image is unchanged, so no rebuild.
+
+- **The bash take-over is gone from `lib/tmux-session.bash`** (Plan 00191).
+  `ccy_tmux_take_over`, `ccy_tmux_client_words`, `ccy_tmux_idle_words` and the bash default
+  for `CCY_TMUX_TAKE_OVER_WAIT_TENTHS` had no caller: taking a session over is the Go
+  `ccy-sessions` picker's Ctrl-T, which reads that variable itself. Nothing a person does
+  changes.
+
 ## 3.99.13.11 — container 2.78.11
 
 Follows 3.99.13.8 (container 2.78.8). The image gains a binary, and its build, entrypoint,

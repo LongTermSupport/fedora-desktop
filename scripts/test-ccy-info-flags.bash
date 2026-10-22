@@ -7,6 +7,11 @@
 # engine replaced by a stub on PATH that refuses every call, so no real engine, image or
 # token store is touched.
 #
+# Every case runs against two launchers: the bash launcher as the checkout has it, and the Go
+# front (src-go/cmd/claude-yolo, Plan 00191 Task 4.5) built and laid out as play-claude-yolo.yml
+# installs it, with a copy of the bash launcher beside it as claude-yolo.bash and lib/. The front
+# answers --version and --help itself and hands the rest to that copy, so both must pass alike.
+#
 # WHY THIS EXISTS. The repository-root check ran before any option was read, so asking
 # `ccy --version` from a home directory failed with "Not in a git repository root
 # directory". An option that only prints and exits operates on no project, so it must not
@@ -32,14 +37,30 @@ if [ -z "$WANT_VERSION" ]; then
     exit 1
 fi
 
+if ! command -v go >/dev/null; then
+    echo "FAIL: go is not installed (playbooks/imports/play-golang.yml installs it)" >&2
+    exit 1
+fi
+
 SCRATCH="$(mktemp -d)"
 trap 'rm -rf "$SCRATCH"' EXIT
 NOT_A_REPO="$SCRATCH/not-a-repo"
 FAKE_HOME="$SCRATCH/home"
 STUB_BIN="$SCRATCH/bin"
 ENGINE_CALLS="$SCRATCH/engine-calls"
-mkdir -p "$NOT_A_REPO" "$FAKE_HOME" "$STUB_BIN"
-: >"$ENGINE_CALLS"
+FRONT_DIR="$SCRATCH/front"
+mkdir -p "$NOT_A_REPO" "$FAKE_HOME" "$STUB_BIN" "$FRONT_DIR"
+
+# The front's install: the binary as the play builds it, the bash launcher and lib/ beside it.
+cp -r "$REPO_ROOT/files/var/local/claude-yolo/lib" "$FRONT_DIR/lib"
+cp "$LAUNCHER" "$FRONT_DIR/claude-yolo.bash"
+chmod 755 "$FRONT_DIR/claude-yolo.bash"
+if ! build_out="$(cd "$REPO_ROOT/src-go" && go build -trimpath -buildvcs=false \
+    -ldflags "-X main.Version=$WANT_VERSION" -o "$FRONT_DIR/claude-yolo" ./cmd/claude-yolo 2>&1)"; then
+    echo "FAIL: the Go front did not build:" >&2
+    echo "$build_out" >&2
+    exit 1
+fi
 
 # The engine stub: records each call and refuses it, so --help takes its "image not built"
 # branch and nothing ever reaches a real engine.
@@ -72,69 +93,97 @@ says() { if grep -qF -- "$1" <<<"$2"; then echo yes; else echo no; fi; }
 OUT=""
 ERR=""
 RC=0
-# run_ccy <args...> — runs the launcher from the non-repo directory under the scratch home.
+RUN=()
+# run_ccy <args...> — runs the launcher under test (RUN) from the non-repo directory under the
+# scratch home.
 run_ccy() {
     RC=0
     OUT=$(cd "$NOT_A_REPO" && env HOME="$FAKE_HOME" PATH="$STUB_BIN:$PATH" \
-        CCY_CONTAINER_ENGINE=podman bash "$LAUNCHER" "$@" 2>"$SCRATCH/stderr") || RC=$?
+        CCY_CONTAINER_ENGINE=podman "${RUN[@]}" "$@" 2>"$SCRATCH/stderr") || RC=$?
     ERR=$(cat "$SCRATCH/stderr")
 }
 dir_untouched() {
     if [ -z "$(find "$NOT_A_REPO" -mindepth 1 -print -quit)" ]; then echo yes; else echo no; fi
 }
 
+# cases <name> — every case, against the launcher RUN names.
+cases() {
+    local name="$1" flag args label argv
+    : >"$ENGINE_CALLS"
+    echo ""
+    echo "=== [$name] informational options work outside a repository ==="
+
+    for flag in --version -v; do
+        run_ccy "$flag"
+        check "[$name] ccy $flag exits 0 outside a repository" "0" "$RC"
+        check "[$name] ccy $flag prints the launcher's own version" "yes" "$(says "ccy version $WANT_VERSION" "$OUT")"
+        check "[$name] ccy $flag prints the integrity hash" "yes" "$(says "Hash: " "$OUT")"
+        check "[$name] ccy $flag says nothing about a repository" "no" "$(says "Not in a git repository" "$ERR")"
+        check "[$name] ccy $flag writes nothing into the directory" "yes" "$(dir_untouched)"
+    done
+
+    for flag in --help -h; do
+        run_ccy "$flag"
+        check "[$name] ccy $flag exits 0 outside a repository" "0" "$RC"
+        check "[$name] ccy $flag prints the usage" "yes" "$(says "Usage: ccy [OPTIONS] [CLAUDE_ARGS...]" "$OUT")"
+        check "[$name] ccy $flag reports the image is not built (stub engine)" "yes" "$(says "Container image not built yet" "$OUT")"
+        check "[$name] ccy $flag says nothing about a repository" "no" "$(says "Not in a git repository" "$ERR")"
+        check "[$name] ccy $flag writes nothing into the directory" "yes" "$(dir_untouched)"
+    done
+
+    run_ccy --list-tokens
+    check "[$name] ccy --list-tokens exits 0 outside a repository" "0" "$RC"
+    check "[$name] ccy --list-tokens lists the fixture token" "yes" "$(says "fixture" "$OUT")"
+    check "[$name] ccy --list-tokens says nothing about a repository" "no" "$(says "Not in a git repository" "$ERR")"
+    check "[$name] ccy --list-tokens writes nothing into the directory" "yes" "$(dir_untouched)"
+
+    echo ""
+    echo "=== [$name] anything that operates on a project still needs a repository root ==="
+
+    # A bare launch, a launch with a claude argument, an option that changes a project, and
+    # --list-tokens alongside a launch option: the informational exemption is for the option
+    # on its own, so a combined command line goes through the full check as before.
+    for args in "" "--rebuild" "--prevent" "--custom" "--list-tokens --engine podman" "fix the bug"; do
+        if [ -z "$args" ]; then
+            run_ccy
+            label="ccy (no arguments)"
+        elif [ "$args" = "fix the bug" ]; then
+            run_ccy "fix the bug"
+            label="ccy \"fix the bug\""
+        else
+            read -r -a argv <<<"$args"
+            run_ccy "${argv[@]}"
+            label="ccy $args"
+        fi
+        check "[$name] $label exits 1 outside a repository" "1" "$RC"
+        check "[$name] $label names the repository-root error" "yes" "$(says "Not in a git repository root directory" "$ERR")"
+        check "[$name] $label writes nothing into the directory" "yes" "$(dir_untouched)"
+    done
+
+    check "[$name] no case reached a container engine beyond --help's image probe" \
+        "" "$(grep -v '^image inspect claude-yolo:latest$' "$ENGINE_CALLS")"
+}
+
+RUN=(bash "$LAUNCHER")
+cases bash
+RUN=("$FRONT_DIR/claude-yolo")
+cases front
+
 echo ""
-echo "=== informational options work outside a repository ==="
+echo "=== [front] the way back and the failure that is never silent ==="
 
-for flag in --version -v; do
-    run_ccy "$flag"
-    check "ccy $flag exits 0 outside a repository" "0" "$RC"
-    check "ccy $flag prints the launcher's own version" "yes" "$(says "ccy version $WANT_VERSION" "$OUT")"
-    check "ccy $flag prints the integrity hash" "yes" "$(says "Hash: " "$OUT")"
-    check "ccy $flag says nothing about a repository" "no" "$(says "Not in a git repository" "$ERR")"
-    check "ccy $flag writes nothing into the directory" "yes" "$(dir_untouched)"
-done
+# CCY_LEGACY sends even --version to the bash launcher beside the front: same answer.
+RUN=(env CCY_LEGACY=1 "$FRONT_DIR/claude-yolo")
+run_ccy --version
+check "[front] CCY_LEGACY=1 ccy --version exits 0 (the bash answers)" "0" "$RC"
+check "[front] CCY_LEGACY=1 ccy --version prints the version" "yes" "$(says "ccy version $WANT_VERSION" "$OUT")"
 
-for flag in --help -h; do
-    run_ccy "$flag"
-    check "ccy $flag exits 0 outside a repository" "0" "$RC"
-    check "ccy $flag prints the usage" "yes" "$(says "Usage: ccy [OPTIONS] [CLAUDE_ARGS...]" "$OUT")"
-    check "ccy $flag reports the image is not built (stub engine)" "yes" "$(says "Container image not built yet" "$OUT")"
-    check "ccy $flag says nothing about a repository" "no" "$(says "Not in a git repository" "$ERR")"
-    check "ccy $flag writes nothing into the directory" "yes" "$(dir_untouched)"
-done
-
-run_ccy --list-tokens
-check "ccy --list-tokens exits 0 outside a repository" "0" "$RC"
-check "ccy --list-tokens lists the fixture token" "yes" "$(says "fixture" "$OUT")"
-check "ccy --list-tokens says nothing about a repository" "no" "$(says "Not in a git repository" "$ERR")"
-check "ccy --list-tokens writes nothing into the directory" "yes" "$(dir_untouched)"
-
-echo ""
-echo "=== anything that operates on a project still needs a repository root ==="
-
-# A bare launch, a launch with a claude argument, an option that changes a project, and
-# --list-tokens alongside a launch option: the informational exemption is for the option
-# on its own, so a combined command line goes through the full check as before.
-for args in "" "--rebuild" "--prevent" "--custom" "--list-tokens --engine podman" "fix the bug"; do
-    if [ -z "$args" ]; then
-        run_ccy
-        label="ccy (no arguments)"
-    elif [ "$args" = "fix the bug" ]; then
-        run_ccy "fix the bug"
-        label="ccy \"fix the bug\""
-    else
-        read -r -a argv <<<"$args"
-        run_ccy "${argv[@]}"
-        label="ccy $args"
-    fi
-    check "$label exits 1 outside a repository" "1" "$RC"
-    check "$label names the repository-root error" "yes" "$(says "Not in a git repository root directory" "$ERR")"
-    check "$label writes nothing into the directory" "yes" "$(dir_untouched)"
-done
-
-check "no case reached a container engine beyond --help's image probe" \
-    "" "$(grep -v '^image inspect claude-yolo:latest$' "$ENGINE_CALLS")"
+# With the bash launcher gone, a hand-over fails and names the path.
+rm "$FRONT_DIR/claude-yolo.bash"
+RUN=("$FRONT_DIR/claude-yolo")
+run_ccy --token work
+check "[front] with no bash launcher beside it a launch exits 1" "1" "$RC"
+check "[front] the error names the missing bash launcher" "yes" "$(says "$FRONT_DIR/claude-yolo.bash" "$ERR")"
 
 echo ""
 echo "Summary: $passed passed, $failed failed"

@@ -40,14 +40,13 @@ type machine struct {
 	r        *Restart
 	now      time.Time
 	sessions []*session
-	held     map[string]bool
 	runtime  string
 	started  []string
 }
 
 func newMachine(t *testing.T) *machine {
 	t.Helper()
-	m := &machine{World: teamtest.Populated(t), t: t, now: time.Unix(1_800_000_000, 0), held: map[string]bool{"1": true}}
+	m := &machine{World: teamtest.Populated(t), t: t, now: time.Unix(1_800_000_000, 0)}
 	m.runtime = filepath.Join(m.Root, "run")
 	m.Env["XDG_RUNTIME_DIR"] = m.runtime
 	m.sessions = []*session{{name: "ccy-proj", prefix: "ccy", seat: "1", live: true, container: "c1", supervised: true, holdsOnStart: true}}
@@ -55,7 +54,6 @@ func newMachine(t *testing.T) *machine {
 	m.converse("ccy-proj", "ccy")
 	m.fakeTmux()
 	m.fakePodman()
-	m.fakeSeatList()
 	m.Host.Tmux.LookPath = func(name string) (string, error) { return "/usr/bin/" + name, nil }
 	m.build()
 	return m
@@ -92,7 +90,7 @@ func (m *machine) withDev(s *session) {
 	if s.live && s.prefix == "ccy" {
 		m.desire(s)
 	}
-	m.held[s.seat] = s.live
+	m.HoldSeat(m.t, m.Checkout(), "alpha", s.seat, s.live)
 }
 
 // record writes a session record of prefix in the checkout with the --teams list.
@@ -167,7 +165,7 @@ func (m *machine) fakeTmux() {
 		s.live = true
 		m.started = append(m.started, strings.Join(c.Args[slices.Index(c.Args, "ccy-tmux")+1:slices.Index(c.Args, ";")], " "))
 		if s.holdsOnStart {
-			m.held[s.seat] = true
+			m.HoldSeat(m.t, m.Checkout(), "alpha", s.seat, true)
 		}
 		return execx.Result{}, nil
 	})
@@ -191,24 +189,10 @@ func (m *machine) fakePodman() {
 	})
 }
 
-func (m *machine) fakeSeatList() {
-	m.Fake.OnFunc([]string{"agent-bus", "seat", "list"}, func(execx.Cmd) (execx.Result, error) {
-		var b strings.Builder
-		for _, seat := range []string{"1", "dev"} {
-			state, self := "free", "-"
-			if m.held[seat] {
-				state, self = "held", "self"
-			}
-			b.WriteString("SEAT\talpha\t" + seat + "\t" + state + "\t" + self + "\tproj." + seat + "+local.podman\n")
-		}
-		return execx.Result{Stdout: []byte(b.String())}, nil
-	})
-}
-
 // stop makes s a stopped session: its record kept, no tmux session, its seat free.
 func (m *machine) stop(s *session) {
 	s.live = false
-	m.held[s.seat] = false
+	m.HoldSeat(m.t, m.Checkout(), "alpha", s.seat, false)
 }
 
 func (m *machine) run(args ...string) term.ExitCode {

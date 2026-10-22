@@ -336,6 +336,21 @@ class TestSystemPathsHandler:
         result = handler.handle(hook_input)
         assert "files/var/local/" in result.reason
 
+    def test_handle_maps_deployed_bash_launcher_to_its_source(self, handler):
+        """The play installs files/var/local/claude-yolo/claude-yolo as claude-yolo.bash."""
+        result = handler.handle(
+            {"tool_name": "Edit", "tool_input": {"file_path": "/var/local/claude-yolo/claude-yolo.bash"}}
+        )
+        assert "Edit the project file in: files/var/local/claude-yolo/claude-yolo\n" in result.reason
+
+    def test_handle_maps_deployed_go_front_to_its_source(self, handler):
+        """/var/local/claude-yolo/claude-yolo is the Go front, built from src-go."""
+        result = handler.handle(
+            {"tool_name": "Write", "tool_input": {"file_path": "/var/local/claude-yolo/claude-yolo"}}
+        )
+        assert "Edit the project file in: src-go/cmd/claude-yolo" in result.reason
+        assert "Edit the project file in: files/var/local/claude-yolo/claude-yolo\n" not in result.reason
+
     def test_handle_maps_usr_local_to_files_usr_local(self, handler):
         """handle() should suggest files/usr/local/ for /usr/local/ paths."""
         hook_input = {

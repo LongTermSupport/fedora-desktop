@@ -42,23 +42,32 @@ type rig struct {
 	locks   []string
 	inLock  bool
 	lockErr error
+	// createWrites is the host_vars entry the wizard adds when it creates a team, so the reads
+	// after it see the new team.
+	createWrites string
 }
 
+// The teams are host_vars entries whose standing to example-org/proj is the one each is named for.
 const (
-	alphaCovers  = "CHOICE\talpha\tcovers\t\"Builds the site\"\n"
-	betaWiden    = "CHOICE\tbeta\twiden\t\"Reviews the docs\"\n"
-	gammaExclude = "CHOICE\tgamma\texcluded\t-\n"
+	alphaCovers  = "  - team: alpha\n    description: Builds the site\n    repos:\n      - repo: example-org/proj\n"
+	betaWiden    = "  - team: beta\n    org: other-org\n    description: Reviews the docs\n"
+	gammaExclude = "  - team: gamma\n    org: example-org\n    exclude: [\"proj\"]\n"
 )
 
-func newRig(t *testing.T, choices string) *rig {
+// teamsVars is a host_vars declaring the entries.
+func teamsVars(entries string) string {
+	return "agent_bus_address: 192.0.2.10\nagent_bus_teams:\n" + entries
+}
+
+// newRig is the rig with the entries (alphaCovers, betaWiden...) declared in the host_vars.
+func newRig(t *testing.T, entries string) *rig {
 	t.Helper()
 	w := teamtest.New(t)
 	console := teamtest.Interactive(t, w)
 	w.On("git rev-parse --is-inside-work-tree", "true\n", 0)
 	w.On("git rev-parse --show-toplevel", w.Checkout()+"\n", 0)
-	w.On("git remote get-url origin", "git@example.com:example-org/proj.git\n", 0)
-	w.OnDeclare("github-remote", repo+"\n")
-	w.OnDeclare("choices", choices)
+	w.On("git remote get-url origin", "git@github.com:Example-Org/proj.git\n", 0)
+	w.WriteHostVars(t, teamsVars(entries))
 	for _, team := range []string{"alpha", "beta", "gamma", "delta", "fresh"} {
 		w.On("systemctl is-active agent-bus-hs@"+team+".service", "active\n", 0)
 	}
@@ -77,6 +86,9 @@ func newRig(t *testing.T, choices string) *rig {
 		},
 		func(context.Context) (string, term.ExitCode) {
 			r.creates++
+			if r.createWrites != "" && r.createCode == term.ExitOK {
+				w.WriteHostVars(t, teamsVars(entries+r.createWrites))
+			}
 			return r.created, r.createCode
 		},
 		func(_ context.Context, teams []string) error {
@@ -186,8 +198,9 @@ func TestTheListShowsEveryTeamCoveringFirstAndCreating(t *testing.T) {
 	if r.payload.String() != "1@alpha\n" {
 		t.Fatalf("payload %q", r.payload.String())
 	}
-	if !r.Fake.Called("env PYTHONPATH=" + r.Host.RootDir + " /usr/bin/python3 -P -m helpers.agent_bus.declare choices") {
-		t.Fatal("coverage did not come from declare.py choices")
+	// The standings are the host_vars' own: read in-process, so no process ran for them.
+	if calls := r.Spawned(); calls["declare.py choices"] != 0 {
+		t.Fatalf("coverage came from a process: %v", calls)
 	}
 }
 
@@ -227,7 +240,7 @@ func TestAnExcludedTeamIsExplainedAndTheListComesBackThreeTimesThenFails(t *test
 }
 
 func TestATeamWhoseScopeCannotBeReadIsExplained(t *testing.T) {
-	r := newRig(t, alphaCovers+"CHOICE\tdelta\tunreadable\t!vaulted\n")
+	r := newRig(t, alphaCovers+"  - team: delta\n    repos: !vault x\n    description: !vault x\n")
 	r.Script.Fzf = []string{"|delta", "|alpha"}
 	exit(t, r.run("--type=podman"), term.ExitOK, r)
 	contains(t, "stderr", r.stderr(), "delta's scope cannot be read")
@@ -369,11 +382,9 @@ func TestEscOnTheScopeQuestionLeavesWithNothingChosen(t *testing.T) {
 
 // S-B5: not a GitHub checkout: the whole list, joining without widening.
 func TestOutsideAGitHubCheckoutEveryTeamIsListedAndJoinedWithoutWidening(t *testing.T) {
-	r := newRig(t, "")
+	r := newRig(t, "  - team: alpha\n    port: 6167\n    description: Builds the site\n"+
+		"  - team: beta\n    port: 6168\n  - team: gone\n    port: 6169\n    state: absent\n")
 	r.OnNotARepository()
-	r.On(r.DeclarePrefix("declared"), "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\t\"Builds the site\"\n"+
-		"TEAM\tbeta\t6168\tpresent\tbeta.agent-bus.internal\thttp://192.0.2.10:6168\t-\n"+
-		"TEAM\tgone\t6169\tabsent\tgone.agent-bus.internal\t-\t-\n", 0)
 	r.Script.Fzf = []string{"|beta"}
 	exit(t, r.run("--type=podman"), term.ExitOK, r)
 	rows := strings.Join(r.Script.Rows[0], "\n")
@@ -381,7 +392,8 @@ func TestOutsideAGitHubCheckoutEveryTeamIsListedAndJoinedWithoutWidening(t *test
 	if strings.Contains(rows, "gone") || strings.Contains(rows, "would add") {
 		t.Fatalf("rows %s", rows)
 	}
-	if r.payload.String() != "1@beta\n" || len(r.Script.GumLog) != 0 || r.Fake.Called("env PYTHONPATH="+r.Host.RootDir+" /usr/bin/python3 -P -m helpers.agent_bus.declare choices") {
+	// No repository, so no standing is asked: no row says what a team would add.
+	if r.payload.String() != "1@beta\n" || len(r.Script.GumLog) != 0 {
 		t.Fatalf("payload %q gum %v", r.payload.String(), r.Script.GumLog)
 	}
 }
@@ -401,22 +413,20 @@ func TestNoSessionIsChosenForInAContainersCheckout(t *testing.T) {
 	}
 }
 
-// S-B11: creating a team from the list. The checkout's standing is read again afterwards.
+// S-B11: creating a team from the list. The checkout's standing is read again afterwards, from
+// the host_vars the wizard wrote fresh's entry into.
 func (r *rig) choicesAfterCreate(fresh string) {
-	calls := 0
-	r.Fake.OnFunc(strings.Fields(r.DeclarePrefix("choices")), func(execx.Cmd) (execx.Result, error) {
-		calls++
-		out := alphaCovers + betaWiden
-		if calls > 1 {
-			out += fresh
-		}
-		return execx.Result{Stdout: []byte(out)}, nil
-	})
+	r.createWrites = fresh
 }
+
+const (
+	freshCovers = "  - team: fresh\n    description: New\n    repos:\n      - repo: example-org/proj\n"
+	freshWidens = "  - team: fresh\n    org: other-org\n"
+)
 
 func TestCreatingATeamFromTheListTakesIt(t *testing.T) {
 	r := newRig(t, alphaCovers+betaWiden)
-	r.choicesAfterCreate("CHOICE\tfresh\tcovers\t\"New\"\n")
+	r.choicesAfterCreate(freshCovers)
 	r.created = "fresh"
 	r.Script.Fzf = []string{"|+ Create a team"}
 	exit(t, r.run("--type=podman"), term.ExitOK, r)
@@ -430,7 +440,7 @@ func TestCreatingATeamFromTheListTakesIt(t *testing.T) {
 
 func TestACreatedTeamThatDoesNotCoverTheCheckoutFailsFast(t *testing.T) {
 	r := newRig(t, alphaCovers+betaWiden)
-	r.choicesAfterCreate("CHOICE\tfresh\twiden\t-\n")
+	r.choicesAfterCreate(freshWidens)
 	r.created = "fresh"
 	r.Script.Fzf = []string{"|+ Create a team"}
 	exit(t, r.run("--type=podman"), term.ExitFailure, r)
@@ -497,8 +507,12 @@ func TestATeamAloneInTheListSkipsTheListAndAsksOnlyForItsSeat(t *testing.T) {
 	if r.payload.String() != "1@beta\n" || len(r.Script.Rows) != 0 {
 		t.Fatalf("payload %q rows %v", r.payload.String(), r.Script.Rows)
 	}
-	if r.Fake.Called("env PYTHONPATH=" + r.Host.RootDir + " /usr/bin/python3 -P -m helpers.agent_bus.declare choices") {
-		t.Fatal("a named team needs no coverage check")
+	// A host_vars the reader refuses: a coverage check would have failed the run.
+	r.WriteHostVars(t, "agent_bus_teams:\n  - team: beta\n    port: port\n")
+	r.payload.Reset()
+	exit(t, r.run("--type=podman", "beta"), term.ExitOK, r)
+	if r.payload.String() != "1@beta\n" {
+		t.Fatalf("a named team needs no coverage check: payload %q", r.payload.String())
 	}
 }
 
@@ -554,22 +568,15 @@ func TestWithoutFzfTheListCannotBeShown(t *testing.T) {
 
 func TestAFailureToReadTheCheckoutIsReportedNotHidden(t *testing.T) {
 	r := newRig(t, alphaCovers)
-	r.OnErr(r.DeclarePrefix("choices"), "declare: boom\n", 78)
+	r.WriteHostVars(t, teamsVars(alphaCovers+"    port: port\n"))
 	exit(t, r.run("--type=podman"), 78, r)
-	contains(t, "stderr", r.stderr(), "declare: boom")
+	contains(t, "stderr", r.stderr(), "declare: line 7: the port is not a number")
 	r.lacksOutput(t)
 }
 
 func TestNoTeamAtAllStillOffersToCreateOne(t *testing.T) {
 	r := newRig(t, "")
-	calls := 0
-	r.Fake.OnFunc(strings.Fields(r.DeclarePrefix("choices")), func(execx.Cmd) (execx.Result, error) {
-		calls++
-		if calls == 1 {
-			return execx.Result{}, nil
-		}
-		return execx.Result{Stdout: []byte("CHOICE\tfresh\tcovers\t-\n")}, nil
-	})
+	r.choicesAfterCreate("  - team: fresh\n    repos:\n      - repo: example-org/proj\n")
 	r.created = "fresh"
 	r.Script.Fzf = []string{"|+ Create a team"}
 	exit(t, r.run("--type=podman"), term.ExitOK, r)

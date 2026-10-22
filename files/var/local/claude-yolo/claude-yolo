@@ -14,7 +14,13 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.99.13.11"  # Container 2.78.11: Go status line, LXC member interpreter, reports and questions rooms, farewell reason check, Go 1.26.10 (Plans 00213, 00211). See docs/ccy-changelog.md.
+CCY_VERSION="3.99.14.7"  # The Go front's token flags, simplified (Plan 00191). See docs/ccy-changelog.md.
+
+# Secrets are never exported for the whole script: every program it starts (getenforce, curl,
+# timedatectl, tmux, whose server would give them to every pane) would get them. A token the
+# caller exported stays readable here as a plain variable, and is handed by name only to the
+# command that needs it, in that command's own environment (VAR="$VAR" cmd ... -e VAR).
+export -n GH_TOKEN CLAUDE_CODE_OAUTH_TOKEN CLAUDE_OAUTH_TOKEN
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,15 +30,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # from lib/ (see CCY_HASH), because a hand-written list of what the program
 # consists of is a list that goes stale — this one omitted common-pure.bash,
 # which common.bash sources, for two months.
-CCY_LIBS=(common token-management ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session agent-bus-membership agent-bus-seats)
+CCY_LIBS=(token-handoff common host-paths token-management ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session agent-bus-membership agent-bus-seats)
 
-if [ -f "$SCRIPT_DIR/lib/common.bash" ]; then
-    source "$SCRIPT_DIR/lib/common.bash"
-else
-    # Fallback if library not found
-    echo "ERROR: Shared library not found at $SCRIPT_DIR/lib/common.bash" >&2
-    exit 1
-fi
+# First, before anything that can end this launch: a GitHub token handed on by the launch
+# that started this one is taken, and its file deleted, at once; and the Go front's path, when
+# the front started it, is taken as CCY_LAUNCHER_PATH (lib/launcher-path.bash, which it sources).
+# shellcheck source=lib/token-handoff.bash
+source "$SCRIPT_DIR/lib/token-handoff.bash" || exit 1
+# print_error is not loaded yet: a missing common.bash is reported by bash, naming the path.
+source "$SCRIPT_DIR/lib/common.bash" || exit 1
 
 # Load specialized libraries.
 #
@@ -50,6 +56,8 @@ for lib in "${CCY_LIBS[@]}"; do
     fi
 done
 
+# shellcheck source=lib/host-paths.bash
+source "$SCRIPT_DIR/lib/host-paths.bash"
 # shellcheck source=lib/token-management.bash
 source "$SCRIPT_DIR/lib/token-management.bash"
 # shellcheck source=lib/ssh-handling.bash
@@ -78,7 +86,7 @@ source "$SCRIPT_DIR/lib/agent-bus-seats.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.78.11"
+REQUIRED_CONTAINER_VERSION="2.78.14"
 
 set -e
 
@@ -130,7 +138,6 @@ CONFIG_VERSION=2
 IMAGE_NAME="claude-yolo:latest"
 # Base image (no LSPs) - available for project Dockerfiles that want leaner images
 BASE_IMAGE_NAME="claude-yolo:base"
-DOCKERFILE_DIR="/opt/claude-yolo"
 CCY_ROOT="$HOME/.claude-tokens/ccy"
 TOKEN_DIR="$CCY_ROOT/tokens"
 PROJECT_DIR="$CCY_ROOT/projects"
@@ -1060,12 +1067,13 @@ if [ "$SHOW_DEBUG_CHOOSER" = true ]; then
     # Other layers (entrypoint, Claude) don't need log files
     if [ "$DEBUG_CCY" = true ]; then
         DEBUG_MODE=true
-        DEBUG_LOG="/tmp/ccy-debug-$(date +%Y%m%d-%H%M%S).log"
-        echo ""
-        echo "Debug logging to: $DEBUG_LOG"
-        echo ""
-        # Redirect all output to both terminal and log file
-        exec > >(tee -a "$DEBUG_LOG") 2>&1
+        DEBUG_LOG="$(mktemp --suffix=.log "${TMPDIR:-/tmp}/ccy-debug-$(date +%Y%m%d-%H%M%S)-XXXXXX")" || exit 1
+        printf '\nDebug logging to: %s\n%s\n\n' "$DEBUG_LOG" \
+            "Tokens with a known prefix are masked in the log; this terminal shows the raw trace, tokens included."
+        # All output to the terminal and to the log (mktemp: 0600, a fresh name). The trace
+        # expands tokens, so the log's copy has GitHub and Claude tokens, known by their
+        # prefixes, masked; lib/token-handoff.bash expands no token in a traced line.
+        exec > >(tee >(awk '{ gsub(/(gh[opsur]_|github_pat_|sk-ant-)[A-Za-z0-9_-]+/, "<token hidden>"); print; fflush() }' >>"$DEBUG_LOG")) 2>&1
         set -x
     fi
 fi
@@ -1149,13 +1157,13 @@ fi
 
 # Handle custom mode (doesn't need SSH/GH setup)
 if [ "$CUSTOM_MODE" = true ]; then
-    custom_dockerfile "$0" ".claude/ccy" "ccy"
+    custom_dockerfile "$CCY_LAUNCHER_PATH" ".claude/ccy" "ccy"
     exit 0
 fi
 
 # Handle custom-docker mode (AI-guided Dockerfile creation)
 if [ "$CUSTOM_DOCKER_MODE" = true ]; then
-    create_dockerfile_guided "$0" ".claude/ccy" "ccy"
+    create_dockerfile_guided "$CCY_LAUNCHER_PATH" ".claude/ccy" "ccy"
     exit 0
 fi
 
@@ -1166,9 +1174,12 @@ fi
 # nothing is asked twice. Excluded: headless (no terminal to lose) and the token
 # create/renew modes, which prompt but exit without a session. On the way back in (TMUX
 # set to the ccy server) ccy_tmux_insulate is a no-op and the banner says how to detach
-# and return.
+# and return. A GitHub token the caller exported is handed to the re-run launcher through a
+# private file, never tmux's environment (lib/token-handoff.bash). The session runs, and its
+# record names, CCY_LAUNCHER_PATH (lib/launcher-path.bash): the Go front when it started this
+# launch, so every restore and team restart runs the front; this file when it was run directly.
 if [ "$HEADLESS_MODE" != true ] && [ "$CREATE_TOKEN_MODE" != true ] && [ "$UPDATE_TOKEN_MODE" != true ]; then
-    ccy_tmux_insulate "$PROJECT_NAME" "$SCRIPT_DIR/$(basename "$0")" "$@" || exit 1
+    ccy_token_handoff_insulate "$PROJECT_NAME" "$CCY_LAUNCHER_PATH" "$@" || exit 1
     ccy_tmux_banner || exit 1
 fi
 # The session this launch IS, or none (lib/tmux-session.bash): the one answer every record
@@ -2166,7 +2177,7 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
 
         # Use buildkit for cache mounts and pass Dockerfile hash
         # Capture output to temp file for error reporting while still displaying live
-        build_log=$(mktemp /tmp/ccy-build-XXXXXX.log)
+        build_log=$(mktemp "${TMPDIR:-/tmp}/ccy-build-XXXXXX.log")
 
         # Defined inline so $project_dockerfile_hash, $PROJECT_IMAGE_NAME, etc. stay in scope.
         # Re-invoked once after a rootless-buildah-cache recovery; see below.
@@ -2216,16 +2227,16 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
             # and inject a diagnostic prompt so Claude can fix the Dockerfile interactively.
             # BSH-10: mktemp so the diagnostic log can't collide across runs or
             # be redirected through a pre-planted symlink at a fixed path.
-            build_failure_log=$(mktemp /tmp/ccy-dockerfile-build-failure-XXXXXX.log)
+            build_failure_log=$(mktemp "${TMPDIR:-/tmp}/ccy-dockerfile-build-failure-XXXXXX.log")
             cp "$build_log" "$build_failure_log"
             rm -f "$build_log"
 
             # Build diagnostic prompt (full log path + last 50 lines inline for context)
-            fix_prompt_file=$(mktemp /tmp/ccy-fix-dockerfile-XXXXXX.txt)
+            fix_prompt_file=$(mktemp "${TMPDIR:-/tmp}/ccy-fix-dockerfile-XXXXXX.txt")
             {
                 echo "The custom Dockerfile at .claude/ccy/Dockerfile failed to build."
                 echo ""
-                echo "Full build log: $build_failure_log"
+                echo "Full build log, on the host (this container cannot read it): $build_failure_log"
                 echo ""
                 echo "Build error (last 50 lines):"
                 echo ""
@@ -2361,7 +2372,7 @@ debug "Config .claude.json will be created inside container by entrypoint"
 # BSH-10: mktemp -d (not a predictable /tmp/claude-yolo-$PID) so a hostile or
 # leftover directory cannot pre-seed the destination, and 0700/0600 modes keep
 # the gitconfig (which may carry credential-helper / signing config) private.
-CONFIG_TEMP=$(mktemp -d /tmp/claude-yolo-XXXXXX)
+CONFIG_TEMP=$(mktemp -d "${TMPDIR:-/tmp}/claude-yolo-XXXXXX")
 chmod 700 "$CONFIG_TEMP"
 
 # Copy git config to temp location for entrypoint
@@ -2474,16 +2485,18 @@ if [ "$DEBUG_CCY" = true ]; then
     echo "    $IMAGE_NAME \\"
     echo "    claude --dangerously-skip-permissions ${CLAUDE_ARGS[*]}"
     echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-    echo "Debug log saved to: $DEBUG_LOG"
-    echo ""
-    echo "Container will start now. Once inside, you can check:"
-    echo "  ls -la /workspace/.claude/"
-    echo "  echo \$CLAUDE_CODE_OAUTH_TOKEN"
-    echo ""
-    echo "After exiting, review the debug log with:"
-    echo "  cat $DEBUG_LOG"
-    echo ""
+    cat <<EOF
+
+Debug log saved to: $DEBUG_LOG
+
+Container will start now. Once inside, you can check:
+  ls -la /workspace/.claude/
+  echo \$CLAUDE_CODE_OAUTH_TOKEN
+
+After exiting, review the debug log with:
+  cat $DEBUG_LOG
+
+EOF
     read -rp "Press Enter to continue..."
 fi
 
@@ -3480,7 +3493,7 @@ elif [ -n "$PROMPT_TEXT" ]; then
 elif [ ${#CLAUDE_ARGS[@]} -eq 0 ]; then
     # No user arguments - pass startup info via system prompt instead of user message
     # This prevents informational messages from triggering Claude thinking
-    STARTUP_INFO_FILE="/opt/claude-yolo/ccy-startup-info.txt"
+    STARTUP_INFO_FILE="$DOCKERFILE_DIR/ccy-startup-info.txt"
     if [ ! -f "$STARTUP_INFO_FILE" ]; then
         print_error "Startup info file not found: $STARTUP_INFO_FILE"
         exit 1
@@ -3577,8 +3590,8 @@ fi
 # GPU render nodes for hardware-accelerated browser rendering — only where the host has any.
 # A headless server has no /dev/dri, and podman aborts the run on a --device that does not
 # exist (gpu_device_flags in lib/common-pure.bash says why and is where this is tested).
-GPU_DEVICE_FLAGS=()
-mapfile -t GPU_DEVICE_FLAGS < <(gpu_device_flags /dev/dri)
+# GPU_DEVICE_DIR is /dev/dri unless CCY_GPU_DEVICE_DIR overrides it (lib/host-paths.bash).
+mapfile -t GPU_DEVICE_FLAGS < <(gpu_device_flags "$GPU_DEVICE_DIR")
 if [ "${#GPU_DEVICE_FLAGS[@]}" -eq 0 ]; then
     debug "No /dev/dri on this host — no GPU passed to the container; browser rendering is software-only"
 fi
@@ -3610,14 +3623,6 @@ echo ""
 if container_cmd rm -f "$CONTAINER_NAME" 2>&1 | grep -q "$CONTAINER_NAME"; then
     echo "Removed leftover container: $CONTAINER_NAME"
 fi
-
-# BSH-09: pass the two secrets by env NAME (-e VAR, no '=value') so the token
-# values are taken from this process's environment and never appear in the
-# `podman run` argv (world-readable via /proc/<pid>/cmdline for the lifetime of
-# this long-lived interactive process). GITHUB_USERNAME is not a secret and stays
-# inline for clarity.
-export CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH_TOKEN"
-export GH_TOKEN
 
 # Supervisor wrap. The BASELINE is now decided in-container by entrypoint.sh,
 # which turns the project supervisor on by default whenever one is present (CCY
@@ -3721,7 +3726,7 @@ ccy_tz_link=""
 if [ -L /etc/localtime ]; then
     ccy_tz_link="$(readlink /etc/localtime)"
 fi
-if ! CCY_HOST_TZ="$(ccy_host_time_zone "$ccy_tz_timedatectl" "$ccy_tz_link" /usr/share/zoneinfo)"; then
+if ! CCY_HOST_TZ="$(ccy_host_time_zone "$ccy_tz_timedatectl" "$ccy_tz_link" "$ZONEINFO_DIR")"; then
     print_error "Could not determine the host time zone — see the reason above."
     exit 1
 fi
@@ -3832,12 +3837,15 @@ ccy_handle_restart_exit() {
     cleanup
     # exec also hands over this launch's exported state. A staging directory the cleanup just
     # removed would stop the relaunch making its own (and its mount), so a key file could not
-    # be staged on an SELinux-enforcing host; the token values are re-derived from the --token
-    # file the relaunch is given. The compose pair stays: this session's stack was started by
-    # the first launch, so the resumed session is the one to offer to stop it.
+    # be staged on an SELinux-enforcing host. The tokens are not exported (the top of this
+    # script), and are unset here too so nothing can carry them across: the relaunch
+    # re-derives them, the Claude token from the --token file it is given and GH_TOKEN from
+    # gh's login, as any launch does (one the caller exported is not carried into it). The compose pair stays: this
+    # session's stack was started by the first launch, so the resumed session is the one to
+    # offer to stop it.
     unset CCY_KEY_STAGE_DIR CLAUDE_CODE_OAUTH_TOKEN GH_TOKEN
     echo "Relaunching session $session_id..." >&2
-    exec "$SCRIPT_DIR/claude-yolo" "${choice_args[@]}" "${relaunch_args[@]}"
+    exec "$CCY_LAUNCHER_PATH" "${choice_args[@]}" "${relaunch_args[@]}"
 }
 
 # A request file left by an earlier run must never be mistaken for this run's.
@@ -3881,7 +3889,10 @@ ccy_lifecycle_finalize || exit 1
 # Unattended: a headless launch (HEADLESS_MODE true), else whatever CCY_UNATTENDED_LAUNCH says.
 ccy_seats_take "$CCY_SEATS" "${HEADLESS_MODE/false/$CCY_UNATTENDED_LAUNCH}" "$NO_BUS_MODE" "$CONTAINER_NAME" || exit $?
 container_rc=0
-container_cmd run $DOCKER_FLAGS --rm \
+# BSH-09: the two secrets go by env NAME (-e VAR, no '=value'), so their values never appear in
+# the `podman run` argv (world-readable via /proc/<pid>/cmdline for the lifetime of this
+# long-lived process); they are set in this one command's environment, never exported.
+CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH_TOKEN" GH_TOKEN="$GH_TOKEN" container_cmd run $DOCKER_FLAGS --rm \
     --name "$CONTAINER_NAME" \
     --label ccy=true \
     --label "ccy-project=$PROJECT_NAME" \
