@@ -176,6 +176,23 @@ how, so builders can be briefed. Paths are under `src-go/internal/teamchat/`.
   `active`: `reissue`, with or without a record entry); a present entry held back while its
   key's record entry is `left` under another user leaves that entry as it is (no `offline`
   over it).
+- `apply.go` record timing (C 3.9.2 step 10, n3-D12 as n3b-D2 amends it): `finish`
+  (apply.go:141, 969-988) already writes the record after every phase, failed or not, which
+  the text now says; add a write under each team's lock right after its step 06 joins return,
+  before step 07, holding each joined entry's handle as `deferred`. Test: a phase failing in
+  another container after a join, then the entry removed: the absent phase parks the handle.
+- `apply.go`'s `validate` (163-176) reads only the acted teams' records; step 01's key-collision
+  check reads every team's record, whatever `--only-teams` says.
+- `ccy.env.local`'s owner check (step 03, LX4) accepts the uid of any agent user whose entries
+  in the container name that checkout. Test: two users' seats on one checkout.
+- `absent.go`: a leaver whose record `user` is not in the guest's `/etc/passwd` skips steps 2,
+  4 and 5 (unit removed, host copy deleted, entry dropped or, for a user move, rewritten); a
+  missing container's user move is rewritten, not dropped. Tests: a user move whose old user
+  was deleted; a missing container during a user move.
+- Exit mapping (n3b-D3), in the admin wiring of `lxc apply` and `lxc restart` (not built yet;
+  `Apply` returns `errors.Join`, apply.go:142): 69 only when every joined error is an
+  `OfflineError`, otherwise the first error that is not offline decides. Test: a stopped target
+  joined with a refusal exits 70.
 - `absent.go`: the `declared` set keyed by `Target{Container, User}` (69-79) becomes keyed by
   (container, checkout, seat); the synthesized `declare.LXCMember` for a record-only leaver gains
   `Checkout` and `Seat` from the record entry; `ReadCopy`/`WriteCopy` by key (132-138, 219);

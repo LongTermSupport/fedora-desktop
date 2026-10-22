@@ -1630,20 +1630,20 @@ handle to at most one entry that is not `left` (3.9.3).
 The names a seat takes, each made by one function of the paths package from the entry, never
 parsed back:
 
-| Name                    | Grammar                                                                                                                                                                                                             | Limit, and why                                                                                                                                                                                                                |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| seat key `<key>`        | the first 16 lowercase hex of SHA-256 of `<team>\n<checkout>\n<seat>` (seat in decimal)                                                                                                                             | the seat's identity in every guest and host path. Two entries of one container (any team, declared or in a record) with one key are refused at step 01 naming both, so a collision is refused, never trusted                  |
-| repo label `<repo>`     | the checkout's base name normalised by A's `NormaliseRepo` (lowercase `[a-z0-9_-]`, every other character `-`, leading `-` and `_` trimmed), cut to 24, trailing `-` and `_` trimmed; `checkout` if nothing is left | a label for people, read from the declared path, not the origin, so it is known before any guest read; uniqueness is the key's. Its characters need no systemd escaping and hold no `/`, `.` or `:`                           |
-| session unit            | `teamchat-session-<team>-<repo>-<seat>-<key>.service`                                                                                                                                                               | at most 17 + 22 + 1 + 24 + 1 + 4 + 1 + 16 + 8 = 94 bytes, under systemd's 255                                                                                                                                                 |
-| tmux session            | the unit's name less `.service`                                                                                                                                                                                     | at most 86 characters, with no `.` or `:`, which tmux does not keep in a session name                                                                                                                                         |
-| tmux server socket      | `/run/teamchat-session-<key>/tmux.sock` (`tmux -S`)                                                                                                                                                                 | a server per unit, 48 bytes. One shared `-L` server would run every later unit's pane inside the first unit's server, so its cgroup, and stopping that unit would end every seat of the user                                  |
-| runtime directory       | `/run/teamchat-session-<key>` (`RuntimeDirectory=teamchat-session-<key>`)                                                                                                                                           | the key alone, 38 bytes, so B's sockets below it stay under `sun_path`'s 107: `<runtime>/teamchat/run/<run id>/link.sock` is 78 bytes and `<runtime>/cc-socks/<pid>.sock` at most 60 (B 2.4.4). The unit's name would not fit |
-| session name            | `lxc-<key>`                                                                                                                                                                                                         | `desired.json`'s `session` (B 2.10), which `guest membership` checks                                                                                                                                                          |
-| guest seat root         | `~/.config/teamchat/lxc/<key>/seats/` (B's `<v2-state>`, which `run --kind lxc --key <key>` derives), the seat directory `<team>/` below it                                                                         | per seat, as a ccy session's `sessions/<session>/` (3.7.1): B's state root holds one directory per team, so two seats of one user in one team cannot share one                                                                |
-| guest desired directory | `~/.config/teamchat/lxc/<key>/membership/` (B's `<v2-desired>`)                                                                                                                                                     | per seat, as ccy's `control/<session>/` (3.7.5), for the reason below                                                                                                                                                         |
-| host copy               | `/var/lib/teamchat-admin/_lxc/<container>/<key>.json`                                                                                                                                                               | 3.9.3                                                                                                                                                                                                                         |
-| member target           | `<container>/<key>` (`lxc apply --member`, `lxc restart --member`)                                                                                                                                                  | ccy-teams computes the key with the same function                                                                                                                                                                             |
-| output field            | `<user>@<container>/<repo>-<seat>-<key>`                                                                                                                                                                            | 3.9.3's lines                                                                                                                                                                                                                 |
+| Name                    | Grammar                                                                                                                                                                                                             | Limit, and why                                                                                                                                                                                                                                                                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| seat key `<key>`        | the first 16 lowercase hex of SHA-256 of `<team>\n<checkout>\n<seat>` (seat in decimal)                                                                                                                             | the seat's identity in every guest and host path. Two entries of one container (any team, declared or in a record) with different (team, checkout, seat) and one key, which is a hash collision, are refused at step 01 naming both, so a collision is refused, never trusted; an entry and its own record entry share their key by design |
+| repo label `<repo>`     | the checkout's base name normalised by A's `NormaliseRepo` (lowercase `[a-z0-9_-]`, every other character `-`, leading `-` and `_` trimmed), cut to 24, trailing `-` and `_` trimmed; `checkout` if nothing is left | a label for people, read from the declared path, not the origin, so it is known before any guest read; uniqueness is the key's. Its characters need no systemd escaping and hold no `/`, `.` or `:`                                                                                                                                        |
+| session unit            | `teamchat-session-<team>-<repo>-<seat>-<key>.service`                                                                                                                                                               | at most 17 + 22 + 1 + 24 + 1 + 4 + 1 + 16 + 8 = 94 bytes, under systemd's 255                                                                                                                                                                                                                                                              |
+| tmux session            | the unit's name less `.service`                                                                                                                                                                                     | at most 86 characters, with no `.` or `:`, which tmux does not keep in a session name                                                                                                                                                                                                                                                      |
+| tmux server socket      | `/run/teamchat-session-<key>/tmux.sock` (`tmux -S`)                                                                                                                                                                 | a server per unit, 48 bytes. One shared `-L` server would run every later unit's pane inside the first unit's server, so its cgroup, and stopping that unit would end every seat of the user                                                                                                                                               |
+| runtime directory       | `/run/teamchat-session-<key>` (`RuntimeDirectory=teamchat-session-<key>`)                                                                                                                                           | the key alone, 38 bytes, so B's sockets below it stay under `sun_path`'s 107: `<runtime>/teamchat/run/<run id>/link.sock` is 78 bytes and `<runtime>/cc-socks/<pid>.sock` at most 60 (B 2.4.4). The unit's name would not fit                                                                                                              |
+| session name            | `lxc-<key>`                                                                                                                                                                                                         | `desired.json`'s `session` (B 2.10), which `guest membership` checks                                                                                                                                                                                                                                                                       |
+| guest seat root         | `~/.config/teamchat/lxc/<key>/seats/` (B's `<v2-state>`, which `run --kind lxc --key <key>` derives), the seat directory `<team>/` below it                                                                         | per seat, as a ccy session's `sessions/<session>/` (3.7.1): B's state root holds one directory per team, so two seats of one user in one team cannot share one                                                                                                                                                                             |
+| guest desired directory | `~/.config/teamchat/lxc/<key>/membership/` (B's `<v2-desired>`)                                                                                                                                                     | per seat, as ccy's `control/<session>/` (3.7.5), for the reason below                                                                                                                                                                                                                                                                      |
+| host copy               | `/var/lib/teamchat-admin/_lxc/<container>/<key>.json`                                                                                                                                                               | 3.9.3                                                                                                                                                                                                                                                                                                                                      |
+| member target           | `<container>/<key>` (`lxc apply --member`, `lxc restart --member`)                                                                                                                                                  | ccy-teams computes the key with the same function                                                                                                                                                                                                                                                                                          |
+| output field            | `<user>@<container>/<repo>-<seat>-<key>`                                                                                                                                                                            | 3.9.3's lines                                                                                                                                                                                                                                                                                                                              |
 
 **Why the desired membership is per seat, not per checkout.** B's desired file holds at most one
 seat per team (B 2.10) and B's state root one seat directory per team, so a file per checkout
@@ -1723,8 +1723,9 @@ any group but the agent user's own, and refuses to run as uid 0.
 #### 3.9.2 Order of one present phase
 
 01. Validate every entry (types, `seat` present, `(team, container, checkout, seat)` unique, no
-    two seat keys equal within a container across every team's entries and LXC record entries
-    not `left`, team declared present and its homeserver active) before touching any container.
+    two different (team, checkout, seat) with equal seat keys within a container, across every
+    team's entries and LXC record entries not `left`, every team's records read whatever
+    `--only-teams` says, team declared present and its homeserver active) before touching any container.
     A failure here is a declaration error: the phase fails naming the entries, before any
     change, whatever runs or not. An entry whose key the record holds for another `user` is not refused: the absent
     phase, which runs first, moves the seat off the old user (below), and this phase joins it
@@ -1758,8 +1759,9 @@ any group but the agent user's own, and refuses to run as uid 0.
     - `/etc/passwd` once per container, at most 1 MiB, and from it each entry's agent user (uid,
       gid, home);
     - each checkout once, however many seats name it: `.git/config` (`origin`; `insteadOf`
-      rewrites refused), and `.claude/ccy/ccy.env.local` (owned by the agent user's uid, else
-      refused), each at most 64 KiB;
+      rewrites refused), and `.claude/ccy/ccy.env.local` (owned by the uid of one of the agent
+      users whose entries in this container name that checkout, so seats of several users
+      can share one checkout, else refused), each at most 64 KiB;
     - derive the handle (3.7.4), at the member's first join only: once the LXC record holds a
       handle for (container, checkout, seat) in the team, that handle is kept, and a derivation
       that differs is refused by name ("the checkout's origin changed; give the entry another
@@ -1767,16 +1769,18 @@ any group but the agent user's own, and refuses to run as uid 0.
       is the entry's (`member add --seat <seat>`). The roster's state of the handle, read here
       before any change, chooses step 06's verb: no member, or a pending `add` of it, is `add`
       (which completes the pending one, SPEC-n2d MO5); `parked` or `lost` is `return`; `active`
-      is `reissue`, also when no record entry holds it (a join that an earlier phase made and
-      failed before its step 10 record write, or a record restored older than the roster: the
+      is `reissue`, also when no record entry holds it (a crash inside the step 06 record write,
+      step 10, or a record restored older than the roster: the
       handle carries the LXC kind and no other entry derives it, so it is this entry's); and
       `retired` is refused below. So no join reaches the child to be refused for its state.
       Two entries of a team, in any containers, whose
       handles are equal (derived here, or held by a record entry not `left`; a stopped
       container's never-joined entry has none yet and is compared when it next runs) are
-      refused by name, naming both; and an entry whose handle the team's roster holds as
+      refused by name, naming both, or, when one of them holds the handle in the record, naming
+      the other as the wrong one; and an entry whose handle the team's roster holds as
       `retired` is refused by name ("seat N of <prefix> is retired; give the entry another
-      seat"). Both are wrong declarations, so they fail the phase like every refusal here;
+      seat"). Both are wrong declarations, a running container's wrong facts (n3b-D1), so they
+      fail the phase like every refusal here, also when the container has just started;
     - check the source address: one of the guest's addresses inside the team's `allow_from` (which
       includes the live bridge subnet), on a link that is a host bridge;
     - for a team whose `origin` is `migration` (D §3.9), whether the guest still runs this member on
@@ -1809,7 +1813,9 @@ any group but the agent user's own, and refuses to run as uid 0.
 05. Guest check: `teamchat guest check --user <user> --team <team>` as the agent user in each
     running container, once per (user, team) however many seats share it, with `{"v":1,"team","base_url","plain_http_hosts"}` from the team's
     declaration on stdin for `reach` (what the member needs to work, for example the forge CLI
-    signed in; area B defines the list, B 2.13). Any failure in a container still running fails
+    signed in; area B defines the list, B 2.13). A `gh` or `reach` miss is offline (n3b-D1), and
+    since the check runs once per (user, team) it makes every seat of that user in that team
+    offline this phase; any other failure in a container still running fails
     the phase before any roster change (but see "A container that stops during the phase" below).
 06. Roster changes, under each team's lock in turn: every demotion of every team first, then every
     join (`member add --seat <seat>`, `return` or `reissue` with `--credential token`, as the
@@ -1842,7 +1848,14 @@ any group but the agent user's own, and refuses to run as uid 0.
     left out of `seats` in both the host copy and the guest's file, so its running keeper releases
     the old identity's seat and the next apply places the new one.
 09. Supervised session (`service: true`): see 3.9.4.
-10. Write the LXC record (3.9.3), only after the phase succeeded and only when it changed.
+10. Write the LXC record (3.9.3) at the end of every phase, failed or not, when it changed. A
+    handle a join made must never be unrecorded, or removing its entry later would park
+    nothing and leave its token valid: so the record is also written under each team's lock
+    as soon as that team's step 06 joins return, before step 07, with each joined entry's
+    handle (status `deferred` until its later steps complete, then `joined`, or `offline` when
+    deferred mid-phase). An entry whose steps a failed phase did not reach keeps the status it
+    had. `active` with no record entry (step 03's `reissue`) is then left only to a record
+    restored older than the roster, or a crash inside the step 06 write itself.
 
 **A container that stops during the phase** is offline, never the phase's failure. An
 `lxc-attach` that fails or times out (each has a 60 s bound), a step 04 kit write or a 3.9.4
@@ -1910,7 +1923,15 @@ running runs steps 2-5 for them, with the token already dead. A `left` entry is 
 again: its handle may meanwhile have joined elsewhere by `member return` (a seat moved to
 another container), and parking it would park that live member. A missing container is treated as a
 stopped one in this phase, never as an error: its handle is parked from the host side the same
-way, and its record entry and host copy are dropped, since there are no guest files left to clean. A running
+way, and its record entry and host copy are dropped, since there are no guest files left to clean
+(a user move's entry is rewritten for the new user instead, as step 5 does, so its handle is
+kept).
+
+A leaving seat whose record `user` is no longer in the running guest's `/etc/passwd` (the old
+user of a user move renamed or deleted, or any leaver's) has no files the host can reach as
+that user, and its token is already dead from step 1. Steps 2, 4 and 5 are skipped: step 3
+removes its unit (root's write), the host copy is deleted, and the record entry is dropped, or
+for a user move rewritten for the new user, as step 5 does. It is never held `left` for ever. A running
 container and a stopped one now follow the same order: the park comes first in both. The absent
 phase writes the LXC record when it changed it, as the present phase does after it succeeded
 (step 10).
