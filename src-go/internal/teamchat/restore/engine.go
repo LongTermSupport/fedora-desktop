@@ -11,7 +11,6 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
@@ -400,9 +399,7 @@ func (e *engine) fromStaged(ctx context.Context) (Answer, error) {
 	}
 	if !r.Offline {
 		x, err := e.d.Child.Export(ctx, t, ExportArgs{TeamFile: e.teamFile, Backup: r.Backup, SinceMS: e.tar.TimeMS})
-		if err != nil {
-			err = e.serverLost(err)
-		} else {
+		if err == nil {
 			r.Lost = &Lost{Count: x.Count, FirstMS: x.FirstMS, EndMS: x.EndMS, Truncated: x.Truncated}
 			err = e.write(StepStaged)
 		}
@@ -411,15 +408,6 @@ func (e *engine) fromStaged(ctx context.Context) (Answer, error) {
 		}
 	}
 	return e.swap(ctx)
-}
-
-// serverLost marks a child's failure against the live server as RS15's 69 when it answered at
-// validation.
-func (e *engine) serverLost(err error) error {
-	if e.rec.Offline {
-		return err
-	}
-	return fmt.Errorf("%w: %w", matrix.ErrUnreachable, err)
 }
 
 func (e *engine) stillStaged(err error) error {
@@ -509,7 +497,7 @@ func (e *engine) started(ctx context.Context) error {
 	}
 	got, err := e.d.Child.Check(ctx, t, nil, CheckArgs{TeamFile: e.teamFile})
 	if err != nil {
-		return e.serverLost(err)
+		return err
 	}
 	if want := e.rec.Roster; got.RestoreEpoch != want.RestoreEpoch || got.Rev < want.Rev {
 		return fmt.Errorf("the restored homeserver serves restore epoch %d rev %d, not the merged epoch %d at rev %d or later",

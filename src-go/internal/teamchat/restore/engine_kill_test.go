@@ -425,8 +425,8 @@ func TestEveryLaterFailureRecovers(t *testing.T) {
 			if err == nil {
 				t.Fatal("no error")
 			}
-			if effect == "child check staged=false" && !errors.Is(err, matrix.ErrUnreachable) {
-				t.Errorf("a failed live check = %v, want the homeserver lost", err)
+			if errors.Is(err, matrix.ErrUnreachable) {
+				t.Errorf("an injected failure = %v, reported as the homeserver lost", err)
 			}
 			w.invariants(0)
 			w.fail = map[string]error{}

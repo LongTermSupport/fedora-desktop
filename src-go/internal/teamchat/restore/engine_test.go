@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -416,6 +417,25 @@ func TestRestoreConfig(t *testing.T) {
 	}
 }
 
+// RS15: a live child that ran and answered keeps its own failure; only a homeserver it could
+// not reach is 69. The export (RS5) and the live check (RS7) are the two asks of the live server.
+func TestLiveChildRefusalIsNotServerLost(t *testing.T) {
+	refused := errors.New("the child refused")
+	for _, effect := range []string{"child export", "child check staged=false"} {
+		w := newWorld(t)
+		w.fail[effect] = refused
+		_, err := run(w, w.request())
+		if !errors.Is(err, refused) || errors.Is(err, matrix.ErrUnreachable) {
+			t.Errorf("%s refused: %v, want the refusal and not the homeserver lost", effect, err)
+		}
+		w = newWorld(t)
+		w.fail[effect] = fmt.Errorf("lost: %w", matrix.ErrUnreachable)
+		if _, err = run(w, w.request()); !errors.Is(err, matrix.ErrUnreachable) {
+			t.Errorf("%s lost the homeserver: %v, want it lost (69)", effect, err)
+		}
+	}
+}
+
 // RS4 or RS5 failing leaves the record staged and the team serving; the resume takes no second
 // backup, exports again, and completes.
 func TestRunPreBackupAndExportFailures(t *testing.T) {
@@ -427,10 +447,10 @@ func TestRunPreBackupAndExportFailures(t *testing.T) {
 		t.Errorf("pre = %d, or the team does not serve", r.Pre)
 	}
 	w = newWorld(t)
-	w.failAt("child export")
+	w.fail["child export"] = fmt.Errorf("the export: %w", matrix.ErrUnreachable)
 	_, err = run(w, w.request())
 	if !errors.Is(err, matrix.ErrUnreachable) {
-		t.Errorf("an export failure = %v, want the homeserver lost (69)", err)
+		t.Errorf("an export that lost the homeserver = %v, want it lost (69)", err)
 	}
 	if r := w.staged(); r.Pre != preM || r.Lost != nil {
 		t.Errorf("record = %+v", r)

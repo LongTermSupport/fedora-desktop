@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"slices"
@@ -144,6 +145,18 @@ func TestRestoreChildAFailedAnswerIsAChildError(t *testing.T) {
 	changed, err := stubRestore(s).Secure(t.Context(), alpha(t), testUnit, restore.SecureArgs{TeamFile: []byte(`{"v":1}`), Port: 1, Token: "t"})
 	if ce, ok := errors.AsType[*ChildError](err); !ok || ce.Class != ClassRefused || ExitCodeOf(err) != ExitRefused || !slices.Equal(changed, failed.Changed) {
 		t.Fatalf("a refused secure %q %v", changed, err)
+	}
+}
+
+// RS15: a live child's failed answer, as the engine returns it, exits by its own class; only
+// the unreachable class is 69.
+func TestRestoreChildLiveAnswerKeepsItsClassExit(t *testing.T) {
+	for class, want := range classExit {
+		s := &stubChild{a: Answer{Changed: []string{}, Error: &AnswerError{Class: class, Message: "no"}}}
+		_, err := stubRestore(s).Export(t.Context(), alpha(t), restore.ExportArgs{TeamFile: []byte(`{"v":1}`), Backup: 1})
+		if got := ExitCodeOf(fmt.Errorf("restore not done, staged: the export: %w", err)); got != want {
+			t.Errorf("a live %s answer exits %d, want %d", class, got, want)
+		}
 	}
 }
 

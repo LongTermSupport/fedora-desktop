@@ -38,8 +38,8 @@ func ExitCodeOf(err error) term.ExitCode {
 
 // verbExit is the code of a failure the verbs' own layer names: the lock and its guard, a lost
 // homeserver, the child, a refusal of a verb's or of the host steps. A lost homeserver comes
-// before the child, because the restore wraps the child's failure against the live server in
-// matrix.ErrUnreachable (RS15).
+// before the child, so a backup's or the matrix client's 69 wins over any child error it wraps
+// (RS15); a child that answered keeps its own class's code.
 func verbExit(err error) (term.ExitCode, bool) {
 	if errors.Is(err, teamlock.ErrBusy) {
 		return ExitBusy, true
