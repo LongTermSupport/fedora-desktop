@@ -98,7 +98,7 @@ Section 7 is the scope list the addendum must cover, not its expectations.
   (SY12).
 - **OF1. Offline members never block** (DESIGN-v2-FRAME.md, binding). No verb, phase or probe of
   any slice fails, refuses, exits non-zero or waits because another member is offline (its seat
-  lock free, its container stopped or missing, its link down, its sync stale). An operation over
+  lock free, its container stopped or missing) or its link is down or its sync quiet. An operation over
   many containers or seats takes each on its own; only one that targets that member alone may
   wait, bounded, or refuse, naming it. A send to an offline member is sent (SD2) and a silent
   target gets one TIMEOUT (SD4); nothing waits for its receipt. Each slice carries a test with
@@ -238,10 +238,11 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
   (70 on an unapproved entry, C 3.14). Every entry is validated before any container is touched
   (C 3.9.2 step 01).
 - **LX2. Containers.** `lxc-info -sH`: not running is held back (C 3.9.3: `SKIPPED` with a
-  recorded handle, else `DEFERRED`), and so is missing (OF1): `DEFERRED<TAB>..<TAB>container missing`, the other entries applied and the phase not failed; only `--only C` naming that
-  container alone exits 1 for it, and `declare check` names a declared container that does not
-  exist. Test: one missing and one stopped container beside a running one, which is placed and
-  joined as if alone. In the absent phase a stopped
+  recorded handle, else `DEFERRED`), and so is missing, by the same split (OF1): the line says
+  `container missing`, the record entry's status is `missing` (LX9; C 3.9.3 gains it), the other
+  entries are applied and the phase is not failed, under every `--only-teams` scope. Test: one
+  missing and one stopped container beside a running one, which is placed and joined as if
+  alone. In the absent phase a stopped
   container's member is parked from the host and its record entry stays (`left`, guest files
   pending, cleaned at the next phase that finds it running); a missing container's member is
   parked from the host and its entry is dropped (n3-D12).
@@ -280,9 +281,14 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
   the digest path, never `current`, each with a 60 s bound; stdout and stderr handled by TB2.4; 64
   or 78 fails the phase naming the op and the error's `exit` and `code`; a present phase's `place-bundle` 75 (GU3's identity change under a held seat) is `DEFERRED`
   naming the seat, the phase not failed, retried next apply; the absent phase's 75 is
-  a held seat (LX8). An `lxc-attach` that fails or times out is followed by `lxc-info -sH`: a
-  container no longer running is that entry's `DEFERRED` (OF1), the other entries carry on; only
-  a failure in a container still running fails the phase.
+  a held seat (LX8). An `lxc-attach` that fails or times out, an LX5 kit write or an SU2 call
+  that fails, is followed by `lxc-info -sH`: a container no longer running is that entry's
+  `DEFERRED` (OF1), the other entries carry on; only a failure in a container still running
+  fails the phase. An entry deferred mid-phase (here or by LX3) takes no further step: a handle
+  its step 06 join already made is kept in its record entry (`deferred` with the handle, so the
+  next apply rejoins it by `member return` or `reissue`, never a second `add`), and its seat is
+  left out of step 08's desired seats and the host copy's `seats`, as LX7's 75 case is. Tests:
+  a stop after step 06 and one during SU2.
 - **LX7. Roster changes and membership** (steps 06, 08): demotions of every team, then joins
   (`member add|return|reissue --credential token`, `--seat next` for LXC only), then promotions,
   through the child under each team's lock; then, once per user after every placement, the host
@@ -300,7 +306,8 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
 - **LX9. Output and the record** (C 3.9.3): `CHANGED|SKIPPED|DEFERRED` lines and one
   `LXC-SUMMARY`, every field the host's own (TB2.4); `/var/lib/teamchat-status/lxc/<team>.json`
   0640 root:`<owner group>`, atomic, only on change, written by each phase that changed it
-  (n3-D12); `since_ms` kept while status and handle stay.
+  (n3-D12); `since_ms` kept while status and handle stay. Status is `joined`, `stopped`,
+  `deferred`, `missing` (LX2) or `left`.
 - **SU1. The unit.** `teamchat-session-<user>.service` rendered from C 3.9.4's text exactly, its
   `<user>`, `<group>`, `<home>`, `<checkout>` grammar-checked; written to
   `/etc/systemd/system/` with its wants link in `multi-user.target.wants/` by LX5's rules (n3-D3);
@@ -317,9 +324,12 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
 - **LP1. The L3 probe as `health.Guests`**: (team, handle) to (container, user) from the LXC
   record; the seat lock under the user's seat directory through the guest root, by TB1's open,
   `LOCK_SH|LOCK_NB` on the reopened fd; a stopped container's seat is not held, and a missing
-  container, one that stops between `lxc-info` and the open (LX3's dead pid) or a guest user
-  with no seat directory yet is `Stopped` too, never a probe error (OF1, B 2.11's "taken as not
-  running"); an error is only a fault of the host's own reads. The lock file's
+  container or one that stops between `lxc-info` and the open (LX3's dead pid) is `Stopped` too,
+  and a running guest user with no seat directory yet is free with no record, never a probe
+  error (OF1, B 2.11's "taken as not running"); an error is only a fault of the host's own
+  reads. Each probe is bounded (its `lxc-info` calls and opens, 5 s in all): past the bound it is
+  an error, which the tick records as that member's problem (HT6), so a container hanging
+  mid-stop never stalls the team's tick; test with a hanging fake. The lock file's
   record is returned in both states, as `health.GuestProbe` carries it: while held, for the run
   id the tick keeps; when free, for `launch_failed_ms` (C 3.11.2 step 6). Its inputs: the init
   pid and pidfd by LX3's rule (`lxc-info` inside the health unit's sandbox), the user's home from

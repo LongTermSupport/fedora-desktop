@@ -36,7 +36,7 @@ Slices are PLAN.md's. The brief's "N5 migration" is PLAN.md's Phase 6, N6.
 | B2  | `health/online.go:180,189,206` (HT6; C 3.11.3)                                  | One LXC member's `launch-failed`, unprobeable seat, or unposted `disconnected` notice was a team-level problem. C's `status` exits 1 on any problem, and the board colours the team by problems.                                          | n2e                                    | `status.Problem` gains `member` (a handle of the record's own member entries; decode refuses any other). The tick sets it on those three problems. A reader judging a team counts only the problems that name no member. | **Fixed** f9dfa4c3b (tests in `status` and `health`, including `TestAStoppedMemberIsShownOfflineAndIsNoTeamProblem`; SPEC-n2e SR1, HT6) |
 | B3  | C 3.11.3, line 2092: "`teamchat-admin status` ... exits 1 if any has a problem" | A member that is merely offline (launch failed, coordinator wanted) makes `status` exit 1, and anything using it as a gate goes red.                                                                                                      | `status` verb (unbuilt; N2 wiring, N4) | Exit 1 only on problems with no `member`. Member problems are printed on the member's row.                                                                                                                               | Mechanism built (B2). Rule in SPEC-n2e SR1 and the FRAME. **Left:** the C 3.11.3 text and the verb itself.                              |
 | B4  | C 3.6.4, lines 970-974                                                          | `coordinator_wanted` (declared, not created yet, e.g. in a stopped LXC container) is "listed as a problem", so the team is red until that member first runs.                                                                              | n2e view and `status` (not built yet)  | Show it as team state (`coordinator_wanted: <handle>` and its fix) on the board, not as a team problem; or make it a member problem once the handle exists.                                                              | The FRAME says so. **Left:** C's text. The code does not emit it yet.                                                                   |
-| B5  | C 3.9.2 step 02 (line 1669), C32; SPEC-n3 LX2                                   | A declared container that no longer exists fails `lxc apply --phase present` for every other guest and team.                                                                                                                              | n3b                                    | Missing is `DEFERRED ... container missing`, like stopped. Only `--only C` for that container exits 1. `declare check` names it.                                                                                         | **Spec amended** 6cf0dc7fa (LX2). **Left:** C's text.                                                                                   |
+| B5  | C 3.9.2 step 02 (line 1669), C32; SPEC-n3 LX2                                   | A declared container that no longer exists fails `lxc apply --phase present` for every other guest and team.                                                                                                                              | n3b                                    | Missing is `DEFERRED ... container missing`, like stopped. Only `--only C` for that container exits 1. `declare check` names it.                                                                                         | **Spec amended** 6cf0dc7fa (LX2). **Left:** C's text in 3.9.1 and 3.9.2.                                                                |
 | B6  | SPEC-n3 LX3 (n3-D7)                                                             | "A different or dead pid refuses the container for this phase": a container that stops during the apply could fail the phase for all entries.                                                                                             | n3b                                    | That entry is `DEFERRED ... container stopped during the apply`, retried next apply.                                                                                                                                     | **Spec amended** 6cf0dc7fa                                                                                                              |
 | B7  | SPEC-n3 LX6; C 3.9.2 steps 05, 07, 08                                           | A guest op's failure fails the phase. An `lxc-attach` into a container that stopped meanwhile would fail every entry.                                                                                                                     | n3b                                    | After a failed or timed-out attach, ask `lxc-info -sH` again. If the container is not running, that entry is `DEFERRED`. Only a running container's failure fails the phase.                                             | **Spec amended** 6cf0dc7fa                                                                                                              |
 | B8  | SPEC-n3 LP1 (L3 probe); B 2.11 risk, line 2291                                  | A missing container, one that stops between `lxc-info` and the open, or a user with no seat directory yet, could answer a probe error, which is a problem on every tick.                                                                  | n3b                                    | Answer these as `Stopped`. An error is only a fault in the host's own reads. The problem it raises already names the member (B2).                                                                                        | **Spec amended** 6cf0dc7fa                                                                                                              |
@@ -131,15 +131,41 @@ DESIGN-v2.md's index points at it. Spec amendments:
 ## Fixed and committed, and what is left
 
 Fixed in built code (n2e): B1 (181390f52) and B2 (f9dfa4c3b). Both were done test first, run
-with `-race`, and passed `qa-changed`. Coverage: `status` 94.7%, `health` 93.7%,
-`health/view` 93.1%.
+with `-race`, and passed `qa-changed`. Coverage: `status` 94.8%, `health` 93.7%,
+`health/view` 93.1%. The proof of B2 is the three `membersProblem` assertions.
+`TestAStoppedMemberIsShownOfflineAndIsNoTeamProblem` passed before the change too, so it is a
+regression guard only.
+
+Review round 1 (`261022-offline-members-review.md`, FIX-FIRST, 6 medium and 6 low) led to these
+changes:
+
+- commit c88b3eacd: `member` crosses the child's view wire (SPEC-n2f CO3, finding 05). VW5's
+  invited coordinator is no longer dropped; it is a problem naming the coordinator, so it is
+  shown on that member's row and is never the team's (finding 07, which supersedes B1's first
+  form). `status.View.TeamProblems()` is the one split that team readers use (finding 09).
+- The FRAME:
+  - it separates "shown offline", liveness as A R27 defines it, from "never blocked on" (a failed
+    link, a quiet sync, an only-invited coordinator; finding 04);
+  - the exception no longer names a container-scoped apply that does not exist (finding 01);
+  - the raise remedy rests on A 3.1's `features` rule (finding 11);
+  - a probe of one member is bounded (finding 06).
+- SPEC-n3:
+  - LX2: a missing container follows stopped's `SKIPPED`/`DEFERRED` split under every scope, and
+    gets the record status `missing`. The `--only C` and `declare check` clauses are gone
+    (findings 01, 02, 10).
+  - LX6: the `lxc-info` re-check also covers LX5 and SU2 failures. An entry deferred mid-phase
+    takes no further step, keeps its handle and is left out of `seats` (finding 03).
+  - LP1: each probe is bounded to 5 s; a running guest with no seat directory is free (finding 06).
+  - LX9: names `missing`.
+- B5's "left" now includes C 3.9.1 (finding 12).
 
 Left, per slice:
 
-- **n3b** (unbuilt): build LX2, LX3, LX6 and LP1 as amended (B5 to B8). C 3.9.2's text still says
-  that a missing container fails the phase.
-- **`status` verb and the N4 board** (unbuilt): exit 1 and the team row count only problems with
-  no `member` (B3). C 3.11.3's text still says "any problem".
+- **n3b** (unbuilt): build LX2, LX3, LX6 and LP1 as amended (B5 to B8), and LX9's `missing` status.
+  C 3.9.1 and 3.9.2 still say that a missing container fails the phase, and C 3.9.3 lacks
+  `missing`.
+- **`status` verb and the N4 board** (unbuilt): exit 1 and the team row count only
+  `View.TeamProblems()` (B3). C 3.11.3's text still says "any problem".
 - **n2e view and C 3.6.4**: `coordinator_wanted` is to be shown as team state, not a problem (B4).
   The code does not emit it today.
 - **N6**: B10 to B13. These are D text fixes, owned by the migration slice when it is specified.
