@@ -542,6 +542,34 @@ class SegmentTest(TempDir):
             with self.assertRaises(mc.Failed):
                 mc.membership_dirs(bad_dirs, bad_relaunch)
 
+    def test_a_product_value_is_read_by_name(self) -> None:
+        """Any named string of this checkout's helpers/ or Go package, its placeholders filled;
+        a missing, doubled, non-text or badly filled one fails."""
+        membership = mc._checkout_module("helpers.pingbus.membership")
+        seat = mc._checkout_module("helpers.pingbus.seat")
+        self.assertEqual(mc.product_value("helpers/pingbus/membership.py", "APPLIED_FILE"), membership.APPLIED_FILE)
+        self.assertEqual(mc.product_value("helpers/pingbus/seat.py", "CHECKOUT_SEATS"), str(seat.CHECKOUT_SEATS))
+        self.assertEqual(mc.product_value("helpers/pingbus/statusline.py", "SESSIONS_DIR_TEMPLATE", ["uid=7"]),
+                         mc._checkout_module("helpers.pingbus.statusline").SESSIONS_DIR_TEMPLATE.format(uid=7))
+        self.assertEqual(mc.product_value("helpers/pingbus/hooks.py", "GOODBYE_REASONS[prompt_input_exit]"),
+                         mc._checkout_module("helpers.pingbus.hooks").GOODBYE_REASONS["prompt_input_exit"])
+        status, out, _ = run("product-value", "helpers/pingbus/membership.py", "APPLIED_FILE")
+        self.assertEqual((status, out), (0, membership.APPLIED_FILE + "\n"))
+        go = 'package x\nconst One = "a %s b %d"\nconst (\n\ttwo   = "t"\n\tthree string = "c" // why\n)\n'
+        self.assertEqual(mc.product_value("src-go/x.go", "One", ["p", "9"], go), "a p b 9")
+        self.assertEqual(mc.product_value("src-go/x.go", "two", source=go), "t")
+        self.assertEqual(mc.product_value("src-go/x.go", "three", source=go), "c")
+        unguarded = mc.product_value("src-go/internal/teams/hot/cc.go", "ccUnguarded")
+        self.assertIn(f'ccUnguarded = "{unguarded}"', (mc._checkout_root() / "src-go/internal/teams/hot/cc.go").read_text())
+        for rel, name, fills, source in (("src-go/x.go", "four", [], go), ("src-go/x.go", "One", ["p"], go),
+                                         ("src-go/x.go", "One", [], 'const One = "a"\nconst One = "b"\n'),
+                                         ("helpers/pingbus/membership.py", "NOPE", [], None),
+                                         ("helpers/pingbus/hooks.py", "GOODBYE_REASONS", [], None),
+                                         ("helpers/pingbus/statusline.py", "SESSIONS_DIR_TEMPLATE", ["x=1"], None),
+                                         ("docs/x.md", "A", [], None)):
+            with self.subTest(rel=rel, name=name), self.assertRaises(mc.Failed):
+                mc.product_value(rel, name, fills, source)
+
     def test_the_label_is_read_from_the_go_drawer(self) -> None:
         """The label is the Go statusline's `label` constant and the indent its display width:
         this checkout's, and a changed one followed rather than failed."""

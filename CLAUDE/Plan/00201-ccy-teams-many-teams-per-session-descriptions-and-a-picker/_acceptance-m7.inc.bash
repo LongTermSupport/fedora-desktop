@@ -24,14 +24,24 @@
 # and the plan library's PLAN_RUN_DIR, PLAN_REPO_ROOT and PLAN_SCRIPT_DIR.
 
 readonly M7_TEAMS=("${TEAM_A}" "${TEAM_B}")
+# m7_value <file> <name> — m7_check product-value: a named text of this checkout's product,
+# never a copy. Called at source time, under the caller's errexit: a reader that fails ends the
+# run before any leg.
+m7_value() { "${CHECK[@]}" product-value "$@"; }
 readonly M7_CCY_DIR="${PLAN_REPO_ROOT}/.claude/ccy"
-readonly M7_SEATS_DIR="${M7_CCY_DIR}/pingbus/seats"
+#: The checkout's seat directories (seat.py CHECKOUT_SEATS); the homeserver's state, the
+#: installer's state and the applied stamps' directories (render.py STATE_ROOT, health.py
+#: INSTALL_STATE_ROOT, checkout.py APPLIED_DIR); and where pingbus keeps a session's record in a
+#: container, its {uid} filled in there (statusline.py SESSIONS_DIR_TEMPLATE).
+M7_SEATS_DIR="${PLAN_REPO_ROOT}/$(m7_value helpers/pingbus/seat.py CHECKOUT_SEATS)"
+M7_INSTALL_STATE="$(m7_value helpers/agent_bus/health.py INSTALL_STATE_ROOT)"
+M7_STATE="$(m7_value helpers/agent_bus/render.py STATE_ROOT)"
+M7_APPLIED="$(m7_value helpers/agent_bus/checkout.py APPLIED_DIR)"
+M7_SESSIONS_TEMPLATE="$(m7_value helpers/pingbus/statusline.py SESSIONS_DIR_TEMPLATE)"
+readonly M7_SEATS_DIR M7_INSTALL_STATE M7_STATE M7_APPLIED M7_SESSIONS_TEMPLATE
 readonly M7_LAST_LAUNCH="${M7_CCY_DIR}/.last-launch.conf"
 readonly M7_LAST_LAUNCH_SAVED="${PLAN_RUN_DIR}/last-launch.conf.before"
 readonly M7_MEMBERS="${PLAN_RUN_DIR}/members"
-readonly M7_INSTALL_STATE="/var/lib/agent-bus-install"
-readonly M7_STATE="/var/lib/agent-bus"
-readonly M7_APPLIED="/var/lib/agent-bus-applied"
 #: The checkout as a ccy container sees it (claude-yolo mounts $PWD there).
 readonly M7_CTR_ROOT="/workspace"
 readonly M7_CTR_RUN_DIR="${M7_CTR_ROOT}/${PLAN_RUN_DIR#"${PLAN_REPO_ROOT}"/}"
@@ -54,11 +64,11 @@ readonly M7_SOLO_SHORT="${M7_SOLO_REPO}.1"
 readonly M7_PROMPT="Plan 00201 M7 acceptance: the instructions arrive on stdin"
 readonly M7_TURN="This session is an automated acceptance test of fedora-desktop Plan 00201 (milestone M7) in the owner's checkout. Run no command, read no file and change nothing. Reply with the single word READY, then end your turn with the line: STOPPING BECAUSE: acceptance turn done"
 readonly M7_MODEL="haiku"
-#: In a container: a session's per-session record (helpers/pingbus/hooks.py's default directory,
-#: as root there): `read` prints it, `exists` prints present or absent.
+#: In a container: a session's per-session record (`read` prints it, `exists` prints present or
+#: absent), in the directory M7_SESSIONS_TEMPLATE names, as root there.
 readonly M7_RECORD_PY='
 import os, sys
-path = os.path.join(f"/tmp/pingbus-sessions-{os.getuid()}", sys.argv[2])
+path = os.path.join(sys.argv[3].format(uid=os.getuid()), sys.argv[2])
 if sys.argv[1] == "read":
     with open(path, encoding="ascii") as handle:
         print(handle.read())
@@ -638,7 +648,7 @@ m7_check_about() {
 # M2 — the pingbus SessionStart hook recorded both teams for this session ID.
 m7_check_record() {
     local record
-    m7_exec record /dev/null python3 -c "${M7_RECORD_PY}" read "${SESSION_ID}" || {
+    m7_exec record /dev/null python3 -c "${M7_RECORD_PY}" read "${SESSION_ID}" "${M7_SESSIONS_TEMPLATE}" || {
         m7_show record
         printf '[FAIL] no per-session record for %s in the container\n' "${SESSION_ID}" >&2
         return 1
@@ -732,7 +742,7 @@ m7_check_session_end() {
     podman exec -d "${SESSION_CTR}" python3 -c '
 import os, sys, time
 session, marker = sys.argv[1], sys.argv[2]
-record = os.path.join(f"/tmp/pingbus-sessions-{os.getuid()}", session)
+record = os.path.join(sys.argv[3].format(uid=os.getuid()), session)
 def say(word):
     with open(marker + ".tmp", "w") as handle:
         handle.write(word + "\n")
@@ -744,7 +754,7 @@ say("watching")
 while os.path.exists(record):
     time.sleep(0.02)
 say("removed")
-' "${SESSION_ID}" "${ctr_marker}" >/dev/null || return 1
+' "${SESSION_ID}" "${ctr_marker}" "${M7_SESSIONS_TEMPLATE}" >/dev/null || return 1
     m7_poll 30 "the SessionEnd watcher started" m7_marker_is "${marker}" watching || return 1
     m7_end || return 1
     said="$(cat -- "${marker}")" || return 1
@@ -768,13 +778,13 @@ m7_check_plain() {
     podman container inspect --format '{{json .Config.Env}}' "${SESSION_CTR}" >"${env}" || return 1
     "${CHECK[@]}" expect-plain "${labels}" "${env}" || return 1
     m7_exec pingbus /dev/null sh -c 'if [ -e /usr/local/bin/pingbus ]; then echo present; else echo absent; fi' || return 1
-    m7_exec record /dev/null python3 -c "${M7_RECORD_PY}" exists "${SESSION_ID}" || return 1
+    m7_exec record /dev/null python3 -c "${M7_RECORD_PY}" exists "${SESSION_ID}" "${M7_SESSIONS_TEMPLATE}" || return 1
     if [[ "$(cat -- "$(m7_ev plain/pingbus.out)")" != absent || "$(cat -- "$(m7_ev plain/record.out)")" != absent ]]; then
         printf '[FAIL] the plain session has pingbus on its PATH or a per-session record\n' >&2
         return 1
     fi
     m7_end || return 1
-    evidence "P1 a plain ccy session: no seat label or PINGBUS_ variable but PINGBUS_MEMBERSHIP=off, no pingbus (so no bus status line), no record: plain/"
+    evidence "P1 a plain ccy session: no seat label or PINGBUS_ variable but its membership marker set off, no pingbus (so no bus status line), no record: plain/"
 }
 
 # ── the way out ──────────────────────────────────────────────────────────────────────────

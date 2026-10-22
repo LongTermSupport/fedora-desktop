@@ -61,7 +61,6 @@ m2_transcripts() {
 # is read, and the next keeper of that name rewrites it at its start. So the run removes its
 # own sessions' reports, and, before it starts, those an earlier run left: only names this
 # acceptance makes, and none whose session is still running.
-readonly M2_REPORTS="${PLAN_REPO_ROOT}/.claude/ccy/pingbus/sessions"
 readonly M2_OWN_NAMES='^(m1-plain|m2-plain|m2-nobus|m3-hot|m4-a|m4-b)-[0-9]+$'
 #: Whether sessions/ was there at the start: the cleanup removes it only if this run made it.
 M2_REPORTS_FOUND=1
@@ -80,8 +79,8 @@ m2_running() {
 
 m2_remove_stale_reports() {
     local dir name running
-    if [[ -d "${M2_REPORTS}" ]]; then
-        for dir in "${M2_REPORTS}"/*/; do
+    if [[ -d "${M3_REPORTS}" ]]; then
+        for dir in "${M3_REPORTS}"/*/; do
             [[ -d "${dir}" ]] || continue
             name="$(basename -- "${dir}")"
             [[ "${name}" =~ ${M2_OWN_NAMES} ]] || continue
@@ -93,9 +92,9 @@ m2_remove_stale_reports() {
             rm -rf -- "${dir}" || return 1
             printf '==> removed the report of %s, left by an earlier acceptance run\n' "${name}"
         done
-        rmdir --ignore-fail-on-non-empty -- "${M2_REPORTS}" || return 1
+        rmdir --ignore-fail-on-non-empty -- "${M3_REPORTS}" || return 1
     fi
-    [[ -d "${M2_REPORTS}" ]] || M2_REPORTS_FOUND=0
+    [[ -d "${M3_REPORTS}" ]] || M2_REPORTS_FOUND=0
 }
 
 m2_prepare() {
@@ -197,10 +196,10 @@ m2_cleanup() {
             podman rm -f -t 10 -- "${id}" >/dev/null || status=1
         done
         rm -f -- "${records}/${name}" || status=1
-        rm -rf -- "${M3_CCY_DIRS:?}/${name}" "${M2_REPORTS:?}/${name}" || status=1
+        rm -rf -- "${M3_CCY_DIRS:?}/${name}" "${M3_REPORTS:?}/${name}" || status=1
     done
-    if [[ "${M2_REPORTS_FOUND}" -eq 0 && -d "${M2_REPORTS}" ]]; then
-        rmdir --ignore-fail-on-non-empty -- "${M2_REPORTS}" || status=1
+    if [[ "${M2_REPORTS_FOUND}" -eq 0 && -d "${M3_REPORTS}" ]]; then
+        rmdir --ignore-fail-on-non-empty -- "${M3_REPORTS}" || status=1
     fi
     if [[ -d "${M2_EV}" ]]; then
         mkdir -p -- "${M2_EV}/transcripts" || status=1

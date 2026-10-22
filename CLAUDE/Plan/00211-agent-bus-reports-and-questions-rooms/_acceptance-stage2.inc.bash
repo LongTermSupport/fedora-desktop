@@ -25,20 +25,37 @@ CCY_PINGBUS_HOME="$(python3 -I "${PLAN_REPO_ROOT}/CLAUDE/Plan/00201-ccy-teams-ma
 CCY_PINGBUS_HOME="${CCY_PINGBUS_HOME%%$'\n'*}"
 [[ "${CCY_PINGBUS_HOME}" == /* ]] || { printf '[FATAL] m7_check session-paths named no session home: %s\n' "${CCY_PINGBUS_HOME}" >&2; return 1; }
 readonly CCY_PINGBUS_HOME
+# stage2_value <file> <name> — m7_check product-value: a named text of this checkout's product,
+# never a copy. Called at source time, under the caller's errexit, like the read above.
+stage2_value() {
+    python3 -I "${PLAN_REPO_ROOT}/CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/m7_check.py" \
+        product-value "$@"
+}
+# A team's state directory in its bundle (config.py STATE_DIR); its inbox, consumed and dropped
+# log there (inbox.py), which WHERE_PY is handed; and the human's Element acceptance record and
+# the Flatpak Element profile under a home (config.py), which the A3 fixture writes.
+TEAM_STATE_DIR="$(stage2_value helpers/pingbus/config.py STATE_DIR)"
+INBOX_NAMES=("$(stage2_value helpers/pingbus/inbox.py INBOX_DIR)" "$(stage2_value helpers/pingbus/inbox.py CONSUMED_DIR)"
+    "$(stage2_value helpers/pingbus/inbox.py DROPPED_LOG)")
+ELEMENT_ACCEPTED_DIR="$(stage2_value helpers/pingbus/config.py ELEMENT_ACCEPTED_DIR)"
+ELEMENT_ACCEPTED_FILE="$(stage2_value helpers/pingbus/config.py ELEMENT_ACCEPTED_FILE)"
+ELEMENT_FLATPAK_DIR="$(stage2_value helpers/pingbus/config.py ELEMENT_FLATPAK_DIR)"
+readonly TEAM_STATE_DIR INBOX_NAMES ELEMENT_ACCEPTED_DIR ELEMENT_ACCEPTED_FILE ELEMENT_FLATPAK_DIR
 # Each team's member.json in a ccy session home, one after another (none: no seat is held).
 readonly CCY_SEATED_SH="for f in ${CCY_PINGBUS_HOME}/*/member.json; do if [ -f \"\$f\" ]; then cat \"\$f\"; fi; done"
-# where.py <state dir> <event ID...>: `STATE present|missing`, then per event ID
-# `<ID> <inbox,consumed|-> <dropped|kept>`, read in the session's own team state directory.
+# where.py <state dir> <inbox> <consumed> <dropped log> <event ID...>: `STATE present|missing`,
+# then per event ID `<ID> <inbox,consumed|-> <dropped|kept>`, read in the session's own team
+# state directory by the names INBOX_NAMES holds.
 readonly WHERE_PY='import os, sys
-state = sys.argv[1]
+state, inbox, consumed, dropped_log = sys.argv[1:5]
 print("STATE", "present" if os.path.isdir(state) else "missing", sep="\t")
 dropped = set()
-log = os.path.join(state, "dropped.log")
+log = os.path.join(state, dropped_log)
 if os.path.exists(log):
     with open(log, encoding="utf-8") as handle:
         dropped = {line.split("\t")[1] for line in handle if line.count("\t") >= 1}
-for event in sys.argv[2:]:
-    where = [d for d in ("inbox", "consumed") if os.path.exists(os.path.join(state, d, event + ".json"))]
+for event in sys.argv[5:]:
+    where = [d for d in (inbox, consumed) if os.path.exists(os.path.join(state, d, event + ".json"))]
     print(event, ",".join(where) or "-", "dropped" if event in dropped else "kept", sep="\t")'
 # How long a report is given to reach an inbox it must not reach, before A3 looks.
 REPORT_SETTLE_S=15
@@ -112,7 +129,7 @@ session_state() {
     if [[ "${kind}" == "lxc" ]]; then
         home="${home}/.config/pingbus"
     fi
-    printf '%s/%s/state\n' "${home}" "${team}"
+    printf '%s/%s/%s\n' "${home}" "${team}" "${TEAM_STATE_DIR}"
 }
 
 # ccy_sessions — one session line per seat held in a running ccy container.
@@ -437,7 +454,7 @@ where_in() {
     local session="$1" state
     shift
     state="$(session_state "${session}")" || return 1
-    session_run "${session}" python3 -I -c "${WHERE_PY}" "${state}" "$@" </dev/null
+    session_run "${session}" python3 -I -c "${WHERE_PY}" "${state}" "${INBOX_NAMES[@]}" "$@" </dev/null
 }
 
 # inbox_clear <label> <where lines> — the session has a state directory, and the event is in
@@ -574,7 +591,7 @@ envelopes_ok() {
         printf '%s: the session has no state directory for the team\n' "$1" >&2
         return 1
     fi
-    if awk -F'\t' '$1 != "STATE" && ($2 != "consumed" || $3 != "kept") { bad = 1 } END { exit !bad }' <<<"$2"; then
+    if awk -F'\t' -v consumed="${INBOX_NAMES[1]}" '$1 != "STATE" && ($2 != consumed || $3 != "kept") { bad = 1 } END { exit !bad }' <<<"$2"; then
         printf '%s: not every attached message was taken by the session (inbox: not yet delivered, run --after-owner again shortly; dropped: refused):\n%s\n' \
             "$1" "$2" >&2
         return 1
@@ -816,10 +833,10 @@ EOF
     AGENT_BUS=("${FIX}/a3-agent-bus")
     QTEAM=t1
     local PLAN_RUN_DIR="${FIX}/a3-run-$1"
-    mkdir -p -- "${PLAN_RUN_DIR}" "${user}/.var/app/im.riot.Riot" || return 1
+    mkdir -p -- "${PLAN_RUN_DIR}" "${user}/${ELEMENT_FLATPAK_DIR}" || return 1
     if [[ "$1" == "accepted" ]]; then
-        mkdir -p -- "${user}/.config/pingbus" || return 1
-        (umask 077 && printf 'accepted\n' >"${user}/.config/pingbus/element-accepted") || return 1
+        mkdir -p -- "${user}/${ELEMENT_ACCEPTED_DIR}" || return 1
+        (umask 077 && printf 'accepted\n' >"${user}/${ELEMENT_ACCEPTED_DIR}/${ELEMENT_ACCEPTED_FILE}") || return 1
     fi
     a3_take || return 1
     if [[ "$1" != "accepted" ]]; then

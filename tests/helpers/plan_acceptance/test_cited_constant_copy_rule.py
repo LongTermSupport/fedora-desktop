@@ -21,12 +21,14 @@ drafted and not built: it reports the Matrix spec's event types, GitHub's API ad
 Code's environment names and deployed install paths, which the product does not own either.
 
 Its second clause needs no comment. OWNED names product constants a checker must never hold
-as a literal: the session home, the membership mount and file names, the status line's
-inner-only variable, ccy-teams' step marks, and the message texts the product names for its
-checkers. Each value is read from the product source when the rule runs. A finding is a line of
-a checker in an active plan folder whose code (not a comment or docstring) holds the value in
-the form its kind says: anywhere, as a file name after a `/`, or as a mark a pattern anchors to
-a line start (`^✓`). A text with placeholders is held when any fixed part of it, between
+as a literal: the session home, the membership mount, variable and file names, the status line's
+inner-only variable, the checkout's seat directory, the team-name grammar, the agent-bus state
+roots, the Tuwunel pin, ccy-teams' step marks and STATE words, and the message texts the product
+names for its checkers. Each value is read from the product source when the rule runs. A finding
+is a line of a checker in an active plan folder whose code (not a comment or docstring) holds the
+value in the form its kind says: anywhere, as a file name after a `/`, as a directory between
+two, as a mark a pattern anchors to a line start (`^✓`), or as a whole path (`/var/lib/agent-bus`
+and below it, not `/var/lib/agent-bus-applied`). A text with placeholders is held when any fixed part of it, between
 placeholders and long enough to be distinctive, is. The checkers' own unit tests (`test_*.py`) are outside this clause: their fixtures are
 fake input, which cannot judge a product.
 
@@ -225,9 +227,10 @@ def checker_files() -> dict[str, str]:
 
 
 #: How an owned value shows in a checker's code: anywhere; as a file name (after a `/`); as a
-#: directory inside a path (between two); or as a mark a pattern anchors to a line's start
-#: (after a `^`).
-ANYWHERE, FILE_NAME, DIRECTORY, LINE_START = "anywhere", "file name", "directory", "line start"
+#: directory inside a path (between two); as a mark a pattern anchors to a line's start
+#: (after a `^`); or as a whole path, not the head of a longer name (`/var/lib/agent-bus`, and
+#: under it, but not `/var/lib/agent-bus-applied`).
+ANYWHERE, FILE_NAME, DIRECTORY, LINE_START, PATH = "anywhere", "file name", "directory", "line start", "path"
 #: The owned values, as (product file, constant, kind). The value is read from the file.
 OWNED: tuple[tuple[str, str, str], ...] = (
     ("helpers/pingbus/seat.py", "SESSION_HOME", ANYWHERE),
@@ -239,6 +242,17 @@ OWNED: tuple[tuple[str, str, str], ...] = (
     ("src-go/internal/pingbus/statusline/statusline.go", "innerVar", ANYWHERE),
     ("src-go/internal/teams/hot/hot.go", "markDone", LINE_START),
     ("src-go/internal/teams/hot/hot.go", "markFailed", LINE_START),
+    ("helpers/pingbus/membership.py", "APPLIED_FILE", FILE_NAME),
+    ("helpers/pingbus/membership.py", "MEMBERSHIP_VAR", ANYWHERE),
+    ("helpers/pingbus/config.py", "ELEMENT_ACCEPTED_FILE", FILE_NAME),
+    ("helpers/pingbus/statusline.py", "SESSIONS_DIR_TEMPLATE", ANYWHERE),
+    ("helpers/pingbus/seat.py", "CHECKOUT_SEATS", ANYWHERE),
+    ("helpers/pingbus/protocol.py", "TEAM_NAME_PATTERN", ANYWHERE),
+    ("helpers/agent_bus/render.py", "STATE_ROOT", PATH),
+    ("helpers/agent_bus/checkout.py", "APPLIED_DIR", PATH),
+    ("helpers/agent_bus/health.py", "INSTALL_STATE_ROOT", PATH),
+    ("helpers/agent_bus/declare.py", "PIN_FILE", ANYWHERE),
+    ("src-go/internal/teams/hot/cc.go", "ccUnguarded", ANYWHERE),
 )
 #: A text constant with placeholders (`{name}` or a `%` verb) is matched by each fixed part
 #: between them, its ends stripped; a part shorter than this is not distinctive enough.
@@ -265,21 +279,24 @@ def go_constant_value(source: str, name: str) -> str | None:
     return found[0] if len(found) == 1 else None
 
 
-def owned_needles(values: list[tuple[str, str]]) -> list[str]:
+def owned_needles(values: list[tuple[str, str]]) -> list[re.Pattern[str]]:
     """What a checker holding each (value, kind) would show: the text the clause looks for."""
-    needles = []
+    texts = []
     for value, kind in values:
         if kind == FILE_NAME:
-            needles.append("/" + value)
+            texts.append(re.escape("/" + value))
         elif kind == DIRECTORY:
-            needles.append(f"/{value}/")
+            texts.append(re.escape(f"/{value}/"))
         elif kind == LINE_START:
-            needles.append("^" + value)
+            texts.append(re.escape("^" + value))
+        elif kind == PATH:
+            texts.append(re.escape(value) + r"(?![\w.-])")
         elif not _PLACEHOLDER.search(value):
-            needles.append(value)
+            texts.append(re.escape(value))
         else:
-            needles.extend(part.strip() for part in _PLACEHOLDER.split(value) if len(part.strip()) >= MIN_TEXT_HEAD)
-    return needles
+            texts.extend(re.escape(part.strip()) for part in _PLACEHOLDER.split(value)
+                         if len(part.strip()) >= MIN_TEXT_HEAD)
+    return [re.compile(text) for text in texts]
 
 
 def owned_values() -> list[tuple[str, str]]:
@@ -304,7 +321,7 @@ def _python_code_strings(source: str) -> list[tuple[int, str]]:
             if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings]
 
 
-def detect_owned(path: str, source: str, needles: list[str]) -> list[int]:
+def detect_owned(path: str, source: str, needles: list[re.Pattern[str]]) -> list[int]:
     """The lines of a checker's code (no comment, no docstring) that hold an owned value."""
     if path.endswith(".py"):
         try:
@@ -315,7 +332,7 @@ def detect_owned(path: str, source: str, needles: list[str]) -> list[int]:
         pieces = [(n, line) for n, line in enumerate(source.splitlines(), 1) if not line.lstrip().startswith("#")]
     else:
         return []
-    return sorted({n for n, text in pieces if any(needle in text for needle in needles)})
+    return sorted({n for n, text in pieces if any(needle.search(text) for needle in needles)})
 
 
 def _owned_scope(rel: str) -> bool:
@@ -379,7 +396,7 @@ FIXTURE_BASH = textwrap.dedent('''\
 
 #: The owned values the fixtures are judged by, in the product's own forms.
 FIXTURE_OWNED = [("/tmp/pingbus-home", ANYWHERE), ("membership.json", FILE_NAME), ("✓", LINE_START),
-                 ("pingbus/membership", DIRECTORY),
+                 ("pingbus/membership", DIRECTORY), ("/var/lib/agent-bus", PATH),
                  ("PINGBUS_STATUS_LINE_INNER", ANYWHERE),
                  ("several teams are active and --to/--re fit more than one", ANYWHERE),
                  ("{unit} is starting ({state})", ANYWHERE), ("{n} ok", ANYWHERE)]
@@ -401,6 +418,9 @@ FIXTURE_OWNED_BASH = textwrap.dedent('''\
     echo "membership.json alone"  # ok: no slash, a word of a message
     m6_membership() { printf '%s/pingbus/membership/%s' "${XDG_RUNTIME_DIR:?}" "$1"; }  # ruleid
     echo "the pingbus/membership tree"  # ok: not inside a path
+    readonly STATE_ROOT=/var/lib/agent-bus  # ruleid
+    sudo ls "/var/lib/agent-bus/${team}"  # ruleid: a path under it
+    sudo ls /var/lib/agent-bus-applied  # ok: another name, which has its own entry
 ''')
 
 FIXTURE_OWNED_PYTHON = textwrap.dedent('''\

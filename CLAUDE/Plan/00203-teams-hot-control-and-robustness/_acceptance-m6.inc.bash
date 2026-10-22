@@ -48,10 +48,7 @@ readonly M6_INSTALLER="${PLAN_REPO_ROOT}/files/usr/local/sbin/agent-bus-install"
 readonly M6_AGENT_BUS="/usr/local/bin/agent-bus"
 readonly M6_CCY_LIB="/var/local/claude-yolo/lib"
 readonly M6_CC_LAUNCHER="/var/local/claude-code/cc"
-readonly M6_SEATS="${PLAN_REPO_ROOT}/.claude/ccy/pingbus/seats"
-readonly M6_REPORTS="${PLAN_REPO_ROOT}/.claude/ccy/pingbus/sessions"
 readonly M6_RECORDS="${XDG_STATE_HOME:-${HOME}/.local/state}/ccy/sessions"
-readonly M6_ACCEPTED="${HOME}/.config/pingbus/element-accepted"
 #: Bounds, in seconds.
 readonly M6_UP_S=60
 M6_TEAMS_PRESENT=0
@@ -194,15 +191,15 @@ DRIVER
 m6_prepare() {
     local inventory address url org ports team i=0
     mkdir -p -- "${M6_EV}" || return 1
-    if [[ ! -f "${M6_ACCEPTED}" ]]; then
+    if [[ ! -f "${M3_ACCEPTED:?}" ]]; then
         printf '[FAIL] no Element consent in %s: pingbus runs no cc seat without it. Run cc --teams once from a terminal and accept, then run this again.\n' \
-            "${M6_ACCEPTED}" >&2
+            "${M3_ACCEPTED:?}" >&2
         return 1
     fi
     for team in "${M6_TEAM_A}" "${M6_TEAM_B}"; do
-        if m4_team_built "${team}" || [[ -e "${M6_SEATS}/${team}" ]]; then
+        if m4_team_built "${team}" || [[ -e "${M3_SEATS}/${team}" ]]; then
             printf '[FAIL] %s exists already (an interrupted run?): sudo %s remove --team %s --purge; rm -rf %s\n' \
-                "${team}" "${M6_INSTALLER}" "${team}" "${M6_SEATS}/${team}" >&2
+                "${team}" "${M6_INSTALLER}" "${team}" "${M3_SEATS}/${team}" >&2
             return 1
         fi
     done
@@ -245,7 +242,7 @@ m6_up() {
         printf '[FAIL] the cc session %s ended (exit %s): %s\n' "$1" "$(cat -- "$(m6_ev "$1.status")")" "$(cat -- "$(m6_ev "$1.err")")" >&2
         return 1
     fi
-    [[ -e "${M6_REPORTS}/$1/applied.json" && -e "$(m6_ev "$1.claude.pid")" ]] || return 3
+    [[ -e "${M3_REPORTS}/$1/${M3_APPLIED:?}" && -e "$(m6_ev "$1.claude.pid")" ]] || return 3
 }
 
 # m6_launch <session> <seats> [detach] — a cc session in ccy's tmux on the seats ("" for --bus),
@@ -309,7 +306,7 @@ m6_inbound() {
     python3 -I -c 'import json, sys
 settings, report, want = json.load(open(sys.argv[1])), json.load(open(sys.argv[2])), sys.argv[3]
 sys.exit(0 if settings.get("crossSessionInbound") == want and report.get("inbound") is (want == "accept") else 1)' \
-        "$(m6_ev "$1.settings.json")" "${M6_REPORTS}/$1/applied.json" "${want}" ||
+        "$(m6_ev "$1.settings.json")" "${M3_REPORTS}/$1/${M3_APPLIED:?}" "${want}" ||
         { printf '[FAIL] %s was not launched with crossSessionInbound %s, or its keeper says otherwise\n' "$1" "${want}" >&2; return 1; }
 }
 
@@ -321,7 +318,7 @@ m6_restart() {
     fi
     m6_drop_home "$1" || return 1
     m6_stop "$(m6_ev "$1.claude.pid")" || return 1
-    rm -f -- "$(m6_ev "$1.status")" "$(m6_ev "$1.claude.pid")" "${M6_REPORTS:?}/$1/applied.json" || return 1
+    rm -f -- "$(m6_ev "$1.status")" "$(m6_ev "$1.claude.pid")" "${M3_REPORTS:?}/$1/${M3_APPLIED:?}" || return 1
     m4_poll 20 "seat $2 free once $1 ended" m6_seat_is "${2#*@}" "${2%@*}" free || return 1
     m6_launch "$1" "$2"
 }
@@ -426,7 +423,7 @@ m6_cleanup() {
         m6_stop "$(m6_ev "${name}.claude.pid")" || status=1
         m6_stop "$(m6_ev "${name}.detached.pid")" || status=1
         rm -f -- "${M6_RECORDS:?}/${name}" || status=1
-        rm -rf -- "$(m6_membership "${name}")" "${M6_REPORTS:?}/${name}" || status=1
+        rm -rf -- "$(m6_membership "${name}")" "${M3_REPORTS:?}/${name}" || status=1
     done
     M6_NAMES=()
     if [[ "${M6_TEAMS_PRESENT}" -eq 1 ]]; then
@@ -438,7 +435,7 @@ m6_cleanup() {
         done
         M6_TEAMS_PRESENT=0
     fi
-    rm -rf -- "${M6_SEATS:?}/${M6_TEAM_A}" "${M6_SEATS:?}/${M6_TEAM_B}" || status=1
+    rm -rf -- "${M3_SEATS:?}/${M6_TEAM_A}" "${M3_SEATS:?}/${M6_TEAM_B}" || status=1
     [[ "${status}" -eq 0 ]] || printf '[FAIL] the M6 cleanup could not remove everything (see above)\n' >&2
     return "${status}"
 }

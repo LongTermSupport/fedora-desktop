@@ -43,8 +43,6 @@ readonly M4_EV="${PLAN_RUN_DIR}/m4"
 readonly M4_HOST_VARS="${M4_EV}/host_vars.yml"
 readonly M4_INSTALLER="${PLAN_REPO_ROOT}/files/usr/local/sbin/agent-bus-install"
 readonly M4_AGENT_BUS="/usr/local/bin/agent-bus"
-readonly M4_SEATS="${PLAN_REPO_ROOT}/.claude/ccy/pingbus/seats"
-readonly M4_REPORTS="${PLAN_REPO_ROOT}/.claude/ccy/pingbus/sessions"
 readonly M4_RECORDS="${XDG_STATE_HOME:-${HOME}/.local/state}/ccy/sessions"
 #: Bounds, in seconds.
 readonly M4_TURN_S=240
@@ -74,7 +72,7 @@ m4_poll() {
 m4_team_built() {
     local enabled
     enabled="$(systemctl show -P UnitFileState "agent-bus-hs@$1.service")" || return 1
-    [[ "${enabled}" == enabled ]] || sudo -n test -e "/var/lib/agent-bus/$1"
+    [[ "${enabled}" == enabled ]] || sudo -n test -e "${M3_STATE_ROOT:?}/$1"
 }
 
 # m4_run <label> <exit> <session args...> — ccy-teams session <args>, with no terminal; its
@@ -172,9 +170,9 @@ m4_prepare() {
     local inventory address url org ports team i=0
     mkdir -p -- "${M4_EV}" || return 1
     for team in "${M4_TEAM_A}" "${M4_TEAM_B}"; do
-        if m4_team_built "${team}" || [[ -e "${M4_SEATS}/${team}" ]]; then
+        if m4_team_built "${team}" || [[ -e "${M3_SEATS}/${team}" ]]; then
             printf '[FAIL] %s exists already (an interrupted run?): sudo %s remove --team %s --purge; rm -rf %s\n' \
-                "${team}" "${M4_INSTALLER}" "${team}" "${M4_SEATS}/${team}" >&2
+                "${team}" "${M4_INSTALLER}" "${team}" "${M3_SEATS}/${team}" >&2
             return 1
         fi
     done
@@ -389,7 +387,7 @@ m4_cleanup() {
         done
         M4_TEAMS_PRESENT=0
     fi
-    rm -rf -- "${M4_SEATS:?}/${M4_TEAM_A}" "${M4_SEATS:?}/${M4_TEAM_B}" "${M4_REPORTS:?}/${M4_A}" "${M4_REPORTS:?}/${M4_B}" || status=1
+    rm -rf -- "${M3_SEATS:?}/${M4_TEAM_A}" "${M3_SEATS:?}/${M4_TEAM_B}" "${M3_REPORTS:?}/${M4_A}" "${M3_REPORTS:?}/${M4_B}" || status=1
     [[ "${status}" -eq 0 ]] || printf '[FAIL] the M4 cleanup could not remove everything (see above)\n' >&2
     return "${status}"
 }

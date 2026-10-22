@@ -47,12 +47,12 @@ fail() {
 }
 ok() { printf '[OK] %s\n' "$*"; }
 
-# names <want> <command> — Plan 00201's m7_check <command>, read from this checkout's product
-# sources: exactly <want> non-empty lines, into NAMES.
+readonly M7_CHECK=(python3 -I "${repoRoot}/CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/m7_check.py")
+# names <want> <command> [<argument>...] — Plan 00201's m7_check <command>, read from this
+# checkout's product sources: exactly <want> non-empty lines, into NAMES.
 names() {
     local text
-    text="$(python3 -I "${repoRoot}/CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/m7_check.py" "$2")" \
-        || fail "m7_check $2 could not read the product (above)"
+    text="$("${M7_CHECK[@]}" "${@:2}")" || fail "m7_check ${*:2} could not read the product (above)"
     mapfile -t NAMES <<<"${text}"
     if [[ "${#NAMES[@]}" -ne "$1" ]] || printf '%s\n' "${NAMES[@]}" | grep -qx ''; then
         fail "m7_check $2 printed ${text}, want $1 non-empty lines"
@@ -64,6 +64,11 @@ names 4 session-paths
 readonly HOME_IN="${NAMES[0]}" SETTINGS_IN="${NAMES[1]}" MOUNT="${NAMES[2]}" DESIRED="${NAMES[3]}"
 names 3 session-names
 readonly ACTIVE="${NAMES[0]}" INNER="${NAMES[1]}"
+# membership.py's variable that carries a session's membership, and its value for none.
+names 1 product-value helpers/pingbus/membership.py MEMBERSHIP_VAR
+readonly MEMBERSHIP_VAR="${NAMES[0]}"
+names 1 product-value helpers/pingbus/membership.py MEMBERSHIP_OFF
+readonly MEMBERSHIP_OFF="${NAMES[0]}"
 
 # env_of <container> <name> — the value the container was started with, or "unset".
 env_of() {
@@ -171,7 +176,7 @@ cmd_plain() {
 
 cmd_nobus() {
     local ctr="${1:?nobus needs the container}" mounts procs
-    [[ "$(env_of "${ctr}" PINGBUS_MEMBERSHIP)" == off ]] || fail "(e) PINGBUS_MEMBERSHIP is not off"
+    [[ "$(env_of "${ctr}" "${MEMBERSHIP_VAR}")" == "${MEMBERSHIP_OFF}" ]] || fail "(e) ${MEMBERSHIP_VAR} is not ${MEMBERSHIP_OFF}"
     mounts="$(podman inspect --format '{{range .Mounts}}{{println .Destination}}{{end}}' "${ctr}")"
     if grep -qxF "${MOUNT}" <<<"${mounts}"; then fail "(e) the --no-bus session has the membership mount"; fi
     if podman exec "${ctr}" test -e /usr/local/bin/pingbus; then fail "(e) the --no-bus session has pingbus on PATH"; fi
@@ -181,7 +186,7 @@ cmd_nobus() {
     fi
     podman exec "${ctr}" python3 -I "/workspace/${PROCS_REL}" none /proc >/dev/null \
         || fail "(e) the --no-bus session runs a bus process (above)"
-    ok "(e) --no-bus: PINGBUS_MEMBERSHIP=off, no mount, no pingbus, no plugin, no settings, no keeper"
+    ok "(e) --no-bus: ${MEMBERSHIP_VAR}=${MEMBERSHIP_OFF}, no mount, no pingbus, no plugin, no settings, no keeper"
 }
 
 # cpu_of <container> — the container's CPU percentage, averaged over six samples ten seconds apart.
@@ -211,9 +216,9 @@ cmd_image() {
     required="$(awk -F'"' '/^REQUIRED_CONTAINER_VERSION=/ { print $2; exit }' "${LAUNCHER}")"
     [[ -n "${required}" ]] || fail "(d) ${LAUNCHER} names no REQUIRED_CONTAINER_VERSION"
     [[ "${label}" == "${required}" ]] || fail "(d) the image ${image} is ${label}, the launcher requires ${required}"
-    podman exec "${ctr}" grep -q 'PINGBUS_MEMBERSHIP-' /usr/local/bin/entrypoint.sh \
-        || fail "(d) the image's entrypoint does not read PINGBUS_MEMBERSHIP"
-    ok "(d) the image is ${label}, which the launcher requires: an older image is rebuilt before any launch, and an older launcher (no PINGBUS_MEMBERSHIP) is refused by this entrypoint"
+    podman exec "${ctr}" grep -qF -- "\${${MEMBERSHIP_VAR}-" /usr/local/bin/entrypoint.sh \
+        || fail "(d) the image's entrypoint does not read ${MEMBERSHIP_VAR}"
+    ok "(d) the image is ${label}, which the launcher requires: an older image is rebuilt before any launch, and an older launcher (no ${MEMBERSHIP_VAR}) is refused by this entrypoint"
 }
 
 cmd_spike() {

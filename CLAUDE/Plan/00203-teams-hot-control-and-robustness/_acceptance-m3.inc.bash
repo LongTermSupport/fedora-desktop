@@ -42,8 +42,6 @@ readonly M3_EV="${PLAN_RUN_DIR}/m3"
 readonly M3_HOST_VARS="${M3_EV}/host_vars.yml"
 readonly M3_INSTALLER="${PLAN_REPO_ROOT}/files/usr/local/sbin/agent-bus-install"
 readonly M3_AGENT_BUS="/usr/local/bin/agent-bus"
-readonly M3_SEATS="${PLAN_REPO_ROOT}/.claude/ccy/pingbus/seats"
-readonly M3_REPORTS="${PLAN_REPO_ROOT}/.claude/ccy/pingbus/sessions"
 readonly M3_TRANSCRIPTS="${PLAN_REPO_ROOT}/.claude/ccy/projects/-workspace"
 readonly M3_CHECK=(python3 -I "${PLAN_REPO_ROOT}/CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/m7_check.py")
 readonly M3_TURN="This session is an automated acceptance test of fedora-desktop Plan 00203 (milestone M3) in the owner's checkout. Run no command, read no file and change nothing. Reply with the single word READY, then end your turn with the line: STOPPING BECAUSE: acceptance turn done"
@@ -64,7 +62,10 @@ M3_TOKEN=""
 #: (membership.py), the membership directories of a ccy and a cc session under
 #: $XDG_RUNTIME_DIR and the relaunch request's file (ccy-teams' membership package), the done
 #: and failed step marks of `ccy-teams session` (hot.go), and the status line's teams row
-#: head and the variable that has it draw only the bus segment (statusline.go).
+#: head and the variable that has it draw only the bus segment (statusline.go); then, by
+#: m7_check product-value: the checkout's seat and session directories (seat.py), the applied
+#: membership's file name (membership.py), the human's Element acceptance (config.py), and the
+#: homeserver's and the installer's state roots (render.py, health.py).
 M3_PB_HOME=""
 M3_WATCH_LOG=""
 M3_DESIRED=""
@@ -75,6 +76,12 @@ M3_MARK_DONE=""
 M3_MARK_FAILED=""
 M3_SEG_HEAD=""
 M3_INNER_VAR=""
+M3_SEATS=""
+M3_REPORTS=""
+M3_APPLIED=""
+M3_ACCEPTED=""
+M3_STATE_ROOT=""
+M3_INSTALL_ROOT=""
 
 m3_ev() { printf '%s/%s' "${M3_EV}" "$1"; }
 
@@ -90,7 +97,19 @@ m3_lines() {
     fi
 }
 
+# m3_value <variable> <file> <name> — m7_check product-value: the named text of this checkout's
+# product, into the variable.
+m3_value() {
+    local text
+    text="$("${M3_CHECK[@]}" product-value "$2" "$3")" || {
+        printf '[FAIL] m7_check product-value %s %s could not read the product (above)\n' "$2" "$3" >&2
+        return 1
+    }
+    printf -v "$1" '%s' "${text}"
+}
+
 m3_read_names() {
+    local seats sessions accepted_dir accepted_file
     m3_lines 4 session-paths || return 1
     M3_PB_HOME="${M3_LINES[0]}" M3_DESIRED="${M3_LINES[3]}"
     m3_lines 3 session-names || return 1
@@ -101,9 +120,20 @@ m3_read_names() {
     M3_MARK_DONE="${M3_LINES[0]}" M3_MARK_FAILED="${M3_LINES[1]}"
     m3_lines 2 status-line-names || return 1
     M3_SEG_HEAD="${M3_LINES[0]}" M3_INNER_VAR="${M3_LINES[1]}"
+    m3_value seats helpers/pingbus/seat.py CHECKOUT_SEATS || return 1
+    m3_value sessions helpers/pingbus/seat.py SESSIONS_DIR || return 1
+    M3_SEATS="${PLAN_REPO_ROOT}/${seats}" M3_REPORTS="${PLAN_REPO_ROOT}/${seats%/*}/${sessions}"
+    m3_value M3_APPLIED helpers/pingbus/membership.py APPLIED_FILE || return 1
+    m3_value accepted_dir helpers/pingbus/config.py ELEMENT_ACCEPTED_DIR || return 1
+    m3_value accepted_file helpers/pingbus/config.py ELEMENT_ACCEPTED_FILE || return 1
+    M3_ACCEPTED="${HOME:?}/${accepted_dir}/${accepted_file}"
+    m3_value M3_STATE_ROOT helpers/agent_bus/render.py STATE_ROOT || return 1
+    m3_value M3_INSTALL_ROOT helpers/agent_bus/health.py INSTALL_STATE_ROOT || return 1
     printf '==> session home %s (watcher log %s), membership %s in %s and %s (relaunch %s), step marks %s %s, teams row head %q, %s\n' \
         "${M3_PB_HOME}" "${M3_WATCH_LOG}" "${M3_DESIRED}" "${M3_CCY_DIRS}" "${M3_CC_DIRS}" "${M3_RELAUNCH}" \
         "${M3_MARK_DONE}" "${M3_MARK_FAILED}" "${M3_SEG_HEAD}" "${M3_INNER_VAR}"
+    printf '==> seats %s, session records %s, applied %s, Element acceptance %s, state roots %s and %s\n' \
+        "${M3_SEATS}" "${M3_REPORTS}" "${M3_APPLIED}" "${M3_ACCEPTED}" "${M3_STATE_ROOT}" "${M3_INSTALL_ROOT}"
 }
 
 # m3_poll <seconds> <what> <command...> — until the command succeeds; it returns 3 for "not yet".
@@ -128,7 +158,7 @@ m3_teams() { (cd -- "${PLAN_REPO_ROOT}" && CCY_TEAMS_HOST_VARS="${M3_HOST_VARS}"
 m3_team_built() {
     local enabled
     enabled="$(systemctl show -P UnitFileState "agent-bus-hs@$1.service")" || return 1
-    [[ "${enabled}" == enabled ]] || sudo -n test -e "/var/lib/agent-bus/$1"
+    [[ "${enabled}" == enabled ]] || sudo -n test -e "${M3_STATE_ROOT:?}/$1"
 }
 
 # ── setup ─────────────────────────────────────────────────────────────────────────────────
