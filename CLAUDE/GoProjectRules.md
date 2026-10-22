@@ -405,10 +405,13 @@ returned literal such as `&stop{term.ExitCode(de.Code)}`) whatever the recovery 
 named anywhere in the function clears every recovery in it; a code handed on clears only the
 recovery whose block returns it unconditionally: a direct statement of the `if` body whose Init
 or Cond recovers (`if de, ok := ...; ok { return de.Code }`, the real tree's `create.Wizard.run`,
-`lxcadd.Adder.Run` and `summary`, `chooser.failed`, `ops.childExit`), a later direct statement of
-the block whose assignment recovers (`de, ok := ...; if !ok {...}; return de.Code`), or a direct
-statement of the type switch case. A code handed on for one kind inside a branch of its own
-leaves the others asked again, and is a finding. Naming another kind (`ErrInterrupted`,
+`lxcadd.Adder.Run` and `summary`, `chooser.failed`, `ops.childExit`) when the Cond is the bare
+recovery result (the `ok` the `if`'s Init declares, the `errors.As` call) or that `&& de.Code != 0`; a later direct statement
+after an assignment that recovers (`de, ok := ...; if !ok {...}; return de.Code`) or after an
+`if` whose Cond is the negated bare result (`if !errors.As(err, &de) {...}; return de.Code`); or
+a direct statement of the type switch case. A code handed on for one kind inside a branch of its
+own, or under a Cond that tests a kind or a particular code (`ok && de.Code == 130`), leaves the
+others asked again, and is a finding. Naming another kind (`ErrInterrupted`,
 `ErrRefused`) or reading `.Code` to print it does not count: the rest are still asked again.
 declare.py refuses in kinds: exit 64 (`declare.ErrUsage`) is the value just given, which another
 answer can fix; exit 78 (`declare.ErrRefused`) is the host_vars file, its entries, or the answer
@@ -423,9 +426,10 @@ recoverable input mistake).
   the create wizard's `isRefusal`, a type assertion, a type switch, a checker literal, a kind
   read of a different error, an interrupt cancelled then every other kind re-asked, `.Code`
   only printed, `.Is(declare.ErrRefused)`, the code handed on for an interrupt only and every
-  other kind re-asked; `good.go`: a retry on `ErrUsage` only, an exit with `.Code` bare,
-  converted and inside a returned `&stop{...}`, after an assignment, under `ok && de.Code != 0`
-  and from a type switch case, `.Is(declare.ErrUsage)`, a bare `errors.Is`). The stub
+  other kind re-asked, the same filtered in the recovering `if`'s Cond by a kind, by a code,
+  after `errors.As`, and by a bool variable; `good.go`: a retry on `ErrUsage` only, an exit with `.Code` bare,
+  converted and inside a returned `&stop{...}`, after an assignment, after a negated `errors.As`
+  guard, under `ok && de.Code != 0` and from a type switch case, `.Is(declare.ErrUsage)`, a bare `errors.Is`). The stub
   `fix/internal/declare` has the real shape.
 - Red, real tree: `lxcadd.Adder.checked` (the owner's three "entries 5 and 6 both declare"
   refusals), and in `create`: `Wizard.checked`, `isRefusal` (any refusal read as "not
@@ -443,8 +447,10 @@ recoverable input mistake).
     (`if !errors.Is(err, declare.ErrInterrupted) { ...; return false, nil }; return de.Code`):
     the return is direct, so it clears; telling a re-ask from any other early return is meaning.
   - A declare refusal re-wrapped in another error type before it is read: the type is hidden.
-    The other half of the class, declare.py giving a refusal the right kind, is in
-    [Defect classes that cannot be a rule](#defect-classes-that-cannot-be-a-rule).
+- Flagged though hazard-free: a code handed on through a local (`code := de.Code; return code`);
+  return the field itself.
+- The other half of the class, declare.py giving a refusal the right kind, is in
+  [Defect classes that cannot be a rule](#defect-classes-that-cannot-be-a-rule).
 
 ## Defect classes that cannot be a rule
 

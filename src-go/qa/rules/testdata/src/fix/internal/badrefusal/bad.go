@@ -141,3 +141,23 @@ func filtersAfterAs(err error) (bool, error) {
 	fmt.Println("Try again.")
 	return false, nil
 }
+
+// filtersByAVariable is the same, the kind held in a variable the condition reads.
+func filtersByAVariable(err error) (bool, error) {
+	interrupted := errors.Is(err, declare.ErrInterrupted)
+	if de, ok := errors.AsType[*declare.Error](err); interrupted && ok { // want `a \*declare.Error is read without its kind`
+		return false, &stopCode{code: de.Code}
+	}
+	fmt.Println("Try again.")
+	return false, nil
+}
+
+// filtersByAVariableAlone tests only the variable, the recovery's ok unused.
+func filtersByAVariableAlone(err error) (bool, error) {
+	interrupted := errors.Is(err, declare.ErrInterrupted)
+	if de, _ := errors.AsType[*declare.Error](err); interrupted { // want `a \*declare.Error is read without its kind`
+		return false, &stopCode{code: de.Code}
+	}
+	fmt.Println("Try again.")
+	return false, nil
+}

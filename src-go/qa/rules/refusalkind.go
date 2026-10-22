@@ -19,8 +19,10 @@ errors.As, a type assertion or a type switch) and never tells the one kind askin
 from the rest: it names no declare.ErrUsage (errors.Is(err, declare.ErrUsage), .Is(declare.ErrUsage))
 and does not hand the exit code on whole (a return of .Code, or of .Code converted) whatever the
 recovery finds. A code handed on counts only where the return is unconditional in the block
-that recovers: a direct statement of the if body whose Init or Cond recovers, a later direct
-statement of the block whose assignment recovers, a direct statement of the type switch case.
+that recovers: a direct statement of the if body whose Init or Cond recovers, when the Cond is
+the bare recovery result (the ok its Init declares, the errors.As call) or that && .Code != 0; a later direct statement
+after an assignment that recovers, or after an if whose Cond is the negated bare result; a direct
+statement of the type switch case. A kind or a particular code tested in the Cond is a filter.
 A code handed on for one kind inside a branch of its own leaves the rest asked again. Naming
 another kind (ErrInterrupted, ErrRefused) or reading .Code to print it does not count: either way
 the rest are still asked again.
@@ -107,12 +109,17 @@ func codeHandedOn(pass *analysis.Pass, stmts []ast.Stmt) []ast.Node {
 	for i, s := range stmts {
 		switch s := s.(type) {
 		case *ast.IfStmt:
-			if returnsCode(pass, s.Body.List) {
-				if s.Init != nil {
-					parts = append(parts, s.Init)
-				}
-				parts = append(parts, s.Cond)
+			not, isNot := ast.Unparen(s.Cond).(*ast.UnaryExpr)
+			switch {
+			case unfiltered(pass, s.Init, s.Cond) && returnsCode(pass, s.Body.List):
+			case isNot && not.Op == token.NOT && unfiltered(pass, s.Init, not.X) && returnsCode(pass, stmts[i+1:]):
+			default:
+				continue
 			}
+			if s.Init != nil {
+				parts = append(parts, s.Init)
+			}
+			parts = append(parts, s.Cond)
 		case *ast.AssignStmt, *ast.DeclStmt, *ast.ExprStmt:
 			if returnsCode(pass, stmts[i+1:]) {
 				parts = append(parts, s)
@@ -120,6 +127,40 @@ func codeHandedOn(pass *analysis.Pass, stmts []ast.Stmt) []ast.Node {
 		}
 	}
 	return parts
+}
+
+// unfiltered is an if condition true for every refusal recovered, whatever its kind: the bare
+// result of the recovery (an ok the if's Init declares, or the errors.As call itself), or that
+// && a non-zero .Code. Any other test (a kind, a particular code, a bool from elsewhere) leaves
+// the rest to the statements after the if.
+func unfiltered(pass *analysis.Pass, init ast.Stmt, cond ast.Expr) bool {
+	switch c := ast.Unparen(cond).(type) {
+	case *ast.Ident:
+		obj := pass.TypesInfo.Uses[c]
+		return init != nil && obj != nil && init.Pos() <= obj.Pos() && obj.Pos() < init.End()
+	case *ast.CallExpr:
+		return recoversRefusal(pass, c)
+	case *ast.BinaryExpr:
+		return c.Op == token.LAND && unfiltered(pass, init, c.X) && codeNonZero(pass, c.Y)
+	}
+	return false
+}
+
+// codeNonZero is `de.Code != 0` or `0 != de.Code`.
+func codeNonZero(pass *analysis.Pass, e ast.Expr) bool {
+	b, ok := ast.Unparen(e).(*ast.BinaryExpr)
+	if !ok || b.Op != token.NEQ {
+		return false
+	}
+	isZero := func(x ast.Expr) bool {
+		lit, isLit := ast.Unparen(x).(*ast.BasicLit)
+		return isLit && lit.Value == "0"
+	}
+	isCode := func(x ast.Expr) bool {
+		sel, isSel := ast.Unparen(x).(*ast.SelectorExpr)
+		return isSel && isCodeField(pass, sel)
+	}
+	return (isCode(b.X) && isZero(b.Y)) || (isZero(b.X) && isCode(b.Y))
 }
 
 // returnsCode is whether a direct statement of stmts returns a declare.Error's Code (handsCodeOn).
