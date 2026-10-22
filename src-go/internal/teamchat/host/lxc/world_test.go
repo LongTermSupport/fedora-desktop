@@ -421,6 +421,7 @@ type world struct {
 	refresh   []string
 	log       []string
 	busErr    error
+	pinErr    error
 	members   []Target
 }
 
@@ -510,6 +511,9 @@ func (w *world) deps() Deps {
 }
 
 func (w *world) pin(_ context.Context, c string) (Root, error) {
+	if w.pinErr != nil {
+		return nil, w.pinErr
+	}
 	b, err := w.lxc.get(c)
 	if err != nil {
 		return nil, err
