@@ -4,7 +4,7 @@ Usage: python3 -I write_formats.py <checkout> <root>
 
 Under <root>: the session record sess-1 (alpha, beta) in sessions/, the bundles of alpha and beta
 in pingbus/ (member.json, token and README as the admin's bundle holds them), each team's
-team.json (alpha: coordinator, beta: worker), a fresh down mark for beta, and applied.json
+team.json (alpha: coordinator, beta: worker), alpha's colour.json (#60a5fa), a fresh down mark for beta, and applied.json
 holding seat 1 of alpha. Each file is written by the function that writes it in use.
 """
 
@@ -55,6 +55,7 @@ def main(checkout: str, root: pathlib.Path) -> None:
         }
         protocol.parse_team_record(record, team.server_name, name)
         inbox.TeamState(bundle / "state").save_team_record(record)
+    inbox.TeamState(home / "alpha" / "state").save_colour("#60a5fa")
     statusline.set_team_down(home, "beta", True)
     seat = membership.AppliedSeat(team="alpha", seat="1", handle="myrepo.1+local.podman")
     membership.write_applied(home / membership.APPLIED_FILE, membership.Applied(generation=3, seats=(seat,), refused=()))

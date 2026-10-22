@@ -17,9 +17,9 @@ Two version numbers move independently — see
 
 ---
 
-## 3.100.9 — container 2.79.4
+## 3.100.10 — container 2.79.5
 
-Follows 3.100.8. The image changes, so the next launch rebuilds it once.
+Follows 3.100.8 (3.100.9 and container 2.79.4 were never released: this branch's earlier cuts). The image changes, so the next launch rebuilds it once.
 
 - **Each agent team in its own colour on the status line, with this member's name** (Plan
   00217). A team piece reads `alpha: fedora-desktop.2 (c)`: the team, this session's member in

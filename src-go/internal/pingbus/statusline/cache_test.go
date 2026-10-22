@@ -120,7 +120,7 @@ func TestCacheStoresASettledRenderAndServesItAgain(t *testing.T) {
 	cw.file("pingbus/alpha/state/team.json", "{", 0o600)
 	now := cw.settled(0)
 	first := cw.render(now)
-	if !strings.Contains(first.out, "alpha (role?)") || !strings.HasPrefix(first.err, "pingbus status-line: the role cannot be read (alpha: ") {
+	if !strings.Contains(first.out, "alpha: myrepo.1 (role?)") || !strings.HasPrefix(first.err, "pingbus status-line: the role cannot be read (alpha: ") {
 		t.Fatalf("first render: %+v", first)
 	}
 	info, err := os.Stat(cw.cacheFile())
@@ -133,7 +133,7 @@ func TestCacheStoresASettledRenderAndServesItAgain(t *testing.T) {
 	// Proof the repeat is served from the cache: the stored segment is changed by hand.
 	poison(t, cw.cacheFile())
 	again := cw.render(now)
-	if !strings.Contains(again.out, "alpha (POISON role?)") || again.err != first.err {
+	if !strings.Contains(again.out, "alpha: POISON myrepo.1 (role?)") || again.err != first.err {
 		t.Errorf("repeat render: %+v", again)
 	}
 }
@@ -141,17 +141,17 @@ func TestCacheStoresASettledRenderAndServesItAgain(t *testing.T) {
 // S33: a change to any file the render read misses the cache.
 func TestCacheMissesWhenAnInputChanges(t *testing.T) {
 	cw := newCacheWorld(t)
-	if first := cw.render(cw.settled(0)); !strings.Contains(first.out, "alpha (coordinator)") {
+	if first := cw.render(cw.settled(0)); !strings.Contains(first.out, "alpha: myrepo.1 (c)") {
 		t.Fatalf("first: %+v", first)
 	}
 	cw.file("pingbus/alpha/state/team.json", alphaRecord("worker"), 0o600)
-	if second := cw.render(cw.settled(time.Second)); !strings.Contains(second.out, "alpha (worker)") || second.err != "" {
+	if second := cw.render(cw.settled(time.Second)); !strings.Contains(second.out, "alpha: myrepo.1 (w)") || second.err != "" {
 		t.Errorf("after the role changed: %+v", second)
 	}
 	if err := os.Chmod(filepath.Join(cw.root, "pingbus/alpha/token"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	if third := cw.render(cw.settled(2 * time.Second)); !strings.Contains(third.out, "alpha (role?)") {
+	if third := cw.render(cw.settled(2 * time.Second)); !strings.Contains(third.out, "alpha: member? (role?)") {
 		t.Errorf("after the token's chmod: %+v", third)
 	}
 }
@@ -296,39 +296,61 @@ func TestCacheShowsAMembershipChangeAtOnce(t *testing.T) {
 	cw.dir("membership")
 	cw.file("membership/membership.json", membershipRecord("alpha"), 0o644)
 	cw.file("pingbus/applied.json", appliedRecord("alpha"), 0o600)
-	cw.cachedThenPoisoned("alpha (coordinator)")
+	cw.cachedThenPoisoned("alpha: myrepo.1 (c)")
 
 	cw.file("membership/membership.json", membershipRecord("alpha", "beta"), 0o644)
 	cw.file("pingbus/applied.json", appliedRecord("alpha", "beta"), 0o600)
-	cw.renderAfterChange("a seat added", "alpha (coordinator), beta (worker)")
+	cw.renderAfterChange("a seat added", "alpha: myrepo.1 (c),")
 
-	cw.cachedThenPoisoned("beta (worker)")
+	cw.cachedThenPoisoned("beta: myrepo.1 (w)")
 	cw.file("membership/membership.json", membershipRecord("beta"), 0o644)
 	cw.file("pingbus/applied.json", appliedRecord("beta"), 0o600)
-	cw.renderAfterChange("a seat dropped", "beta (worker)", "alpha")
+	cw.renderAfterChange("a seat dropped", "beta: myrepo.1 (w)", "alpha")
 }
 
 // S33: a role changed in the team record shows at once over a cached segment.
 func TestCacheShowsARoleChangeAtOnce(t *testing.T) {
 	cw := newCacheWorld(t)
-	cw.cachedThenPoisoned("alpha (coordinator)")
+	cw.cachedThenPoisoned("alpha: myrepo.1 (c)")
 	cw.file("pingbus/alpha/state/team.json", alphaRecord("worker"), 0o600)
-	cw.renderAfterChange("the role changed", "alpha (worker)")
+	cw.renderAfterChange("the role changed", "alpha: myrepo.1 (w)")
+}
+
+// C13: a colour override made, changed and removed shows at once over a cached segment, and its
+// diagnostic is stored with the segment.
+func TestCacheShowsAColourChangeAtOnce(t *testing.T) {
+	cw := newCacheWorld(t)
+	cw.cachedThenPoisoned(sgr(autoColour("alpha")) + "alpha: myrepo.1 (c)")
+	cw.file("pingbus/alpha/state/colour.json", `{"v": 1, "colour": "#60a5fa"}`, 0o600)
+	cw.renderAfterChange("an override made", sgr("#60a5fa")+"alpha: myrepo.1 (c)")
+
+	cw.cachedThenPoisoned(sgr("#60a5fa"))
+	cw.file("pingbus/alpha/state/colour.json", `{"v": 1}`, 0o600)
+	cw.renderAfterChange("an override spoiled", "alpha: myrepo.1 (c) (colour?)")
+	if again := cw.render(cw.settled(0)); !strings.HasSuffix(again.err, "the colour cannot be read (alpha: the colour file is not {\"v\": 1, \"colour\": \"#rrggbb\"})\n") {
+		t.Errorf("the stored colour line: %q", again.err)
+	}
+
+	cw.cachedThenPoisoned("(colour?)")
+	if err := os.Remove(filepath.Join(cw.root, "pingbus/alpha/state/colour.json")); err != nil {
+		t.Fatal(err)
+	}
+	cw.renderAfterChange("the override removed", sgr(autoColour("alpha"))+"alpha: myrepo.1 (c)", "(colour?)")
 }
 
 // S33: a down mark made, then removed, shows and clears at once over a cached segment.
 func TestCacheShowsADownMarkAtOnce(t *testing.T) {
 	cw := newCacheWorld(t)
-	cw.cachedThenPoisoned("alpha (coordinator)")
+	cw.cachedThenPoisoned("alpha: myrepo.1 (c)")
 	cw.dir("pingbus/down")
 	cw.file("pingbus/down/alpha", "", 0o600)
-	cw.renderAfterChange("a mark made", "alpha (coordinator) (down)")
+	cw.renderAfterChange("a mark made", "alpha: myrepo.1 (c) (down)")
 
 	cw.cachedThenPoisoned("(down)")
 	if err := os.Remove(filepath.Join(cw.root, "pingbus/down/alpha")); err != nil {
 		t.Fatal(err)
 	}
-	cw.renderAfterChange("the mark removed", "alpha (coordinator)", "(down)")
+	cw.renderAfterChange("the mark removed", "alpha: myrepo.1 (c)", "(down)")
 }
 
 func poison(t *testing.T, path string) {
@@ -337,7 +359,7 @@ func poison(t *testing.T, path string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, bytes.ReplaceAll(raw, []byte("alpha ("), []byte("alpha (POISON ")), 0o600); err != nil {
+	if err := os.WriteFile(path, bytes.ReplaceAll(raw, []byte("alpha: myrepo"), []byte("alpha: POISON myrepo")), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

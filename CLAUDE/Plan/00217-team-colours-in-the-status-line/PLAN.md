@@ -53,12 +53,12 @@ re-recorded from the Python.
 
 ### Phase 2: The status line, both implementations
 
-- [ ] ⬜ **Task 2.1**: Python `statusline.py`: a colour span per team, `colour.json` read, the
+- [x] ✅ **Task 2.1**: Python `statusline.py`: a colour span per team, `colour.json` read, the
   `(colour?)` mark and stderr line (C10 to C12), and the member name piece (C15 to C18), test
   first.
-- [ ] ⬜ **Task 2.2**: Go `statusline`: the palette copy with its Python parity and contrast tests,
+- [x] ✅ **Task 2.2**: Go `statusline`: the palette copy with its Python parity and contrast tests,
   the same rendering, the cache fingerprinting `colour.json` (C6, C10 to C13), test first.
-- [ ] ⬜ **Task 2.3**: The oracle: new scenarios in `scenarios.json` (auto colours, an override, each
+- [x] ✅ **Task 2.3**: The oracle: new scenarios in `scenarios.json` (auto colours, an override, each
   refusal, a cache change of the colour), re-recorded with `-update` from the Python, and the Go
   passing it; `writers_test.go` reads a `colour.json` written by the real writer.
 
