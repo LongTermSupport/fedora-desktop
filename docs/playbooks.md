@@ -1240,6 +1240,22 @@ NordVPN OpenVPN manager:
 - Uses NordVPN service credentials (stored encrypted in `localhost.yml`)
 - See [docs/nordvpn-installation.md](nordvpn-installation.md) for setup guide
 
+#### play-opencode.yml
+
+opencode, the open-source terminal coding agent
+([anomalyco/opencode](https://github.com/anomalyco/opencode), formerly `sst/opencode`):
+
+- Installs the release pinned in the play, checksum-verified, for the login user:
+  `~/.local/bin/opencode` links to `~/.local/lib/opencode-<version>/opencode`, and other
+  versions there are removed
+- Writes `/etc/opencode/opencode.json`, the system managed config that no user or project
+  config can override: sessions are never shared to upstream's public share service, and
+  `autoupdate` is off. The version is the play's pin: bump it there (the `update-versions`
+  skill), never with `/update` or `opencode upgrade`, which the next run of the play undoes
+- Writes no provider credential. Sign in once with `opencode auth login`, which keeps the
+  key in `~/.local/share/opencode/auth.json`; `opencode auth list` shows what is signed in
+- Joining opencode sessions to the agent bus is designed, not built: Plan 00215
+
 #### play-lxcfreeze.yml
 
 `lxcfreeze` — freeze and thaw LXC containers. The LXC counterpart to `podfreeze`

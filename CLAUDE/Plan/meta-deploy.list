@@ -156,3 +156,12 @@ playbooks/imports/play-git-configure-and-tools.yml
 # pinned checkout. Afterwards, the owner's hand check (PLAN.md Task 2.3): the yellow mark in a
 # stale checkout's prompt.
 00183-prompt-shows-stale-tracking-ref/acceptance.bash
+# play-opencode.yml, a new optional play (Plan 00215 Task 1.4): downloads opencode 1.19.3 (the
+# open-source terminal coding agent) from its GitHub release, checks the tarball's sha256
+# against the pin, installs it for you as ~/.local/bin/opencode (linked to
+# ~/.local/lib/opencode-1.19.3/) and removes any other version there, writes
+# /etc/opencode/opencode.json (sessions never shared to upstream's share service, autoupdate
+# off), and stops if `opencode --version` is not 1.19.3. It writes no provider key and starts
+# nothing. Needs sudo once. Afterwards, to use it, sign in to a model provider once with
+# `opencode auth login` (Plan 00215 decision O1).
+playbooks/imports/optional/common/play-opencode.yml

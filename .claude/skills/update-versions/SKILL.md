@@ -49,7 +49,8 @@ For each pin the user agrees to update:
    will FAIL verification if you bump the version but not the hash. Known
    checksum-pinning plays: `play-markless.yml`, `play-photography.yml`
    (RapidRAW, ART), `play-cli-tools.yml` (`ouchSha256`, the release API's
-   `digest` for the `ouchArch` asset), `play-network-tools.yml`
+   `digest` for the `ouchArch` asset), `play-opencode.yml` (`opencodeSha256`, the
+   release API's `digest` for `opencodeAsset`), `play-network-tools.yml`
    (`ooklaSpeedtestSha256`), and the agent team bus's
    `files/usr/local/share/agent-bus/tuwunel.pin` (one sha256 per architecture,
    from the release API's per-asset `digest`). Grep the same file for `sha256`/`checksum`/
@@ -91,13 +92,7 @@ before bumping.
 
 ## Tracking a new pin
 
-When a new playbook hardcodes an upstream version, add a row to the `MANIFEST`
-heredoc in `scripts/check-pinned-versions.bash`:
-
-```
-<playbook-path>|<var-name>|<owner/repo>|<extra-tag-prefix>|<note>
-```
-
-Leave `<owner/repo>` empty for a non-GitHub pin that must be checked by hand
-(put the where-to-look hint in `<note>`). Use `<extra-tag-prefix>` for tags that
-carry more than a leading `v` (e.g. darktable's `release-`).
+When a new playbook hardcodes an upstream version, add an entry to
+`vars/version-pins.yml`, the manifest `scripts/check-pinned-versions.bash` reads. Its
+header documents the fields (`playbook`, `var`, `github`, `tag_prefix`, `note`,
+`installed`); `./scripts/qa-version-pins.bash` validates it.

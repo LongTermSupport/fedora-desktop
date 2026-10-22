@@ -1,0 +1,172 @@
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
+---
+# opencode — the open-source terminal coding agent (github.com/anomalyco/opencode, formerly
+# sst/opencode), installed for the login user from its pinned, checksum-verified release.
+#
+# Standalone / opt-in play — run directly:
+#   ./playbooks/imports/optional/common/play-opencode.yml
+#
+# It installs the binary only. No provider credential is written: the owner signs in once with
+# `opencode auth login`, which keeps the key in ~/.local/share/opencode/auth.json (0600), out of
+# this repo. Joining opencode sessions to the agent bus is Plan 00215 Phase 2, a design that
+# waits on agent bus v2 (Plan 00209); this play does not touch the bus.
+#
+# Upstream facts behind every choice here, with sources:
+#   CLAUDE/Plan/00215-opencode-install-and-agent-bus-member/research/opencode-upstream-facts.md
+- hosts: desktop
+  name: opencode - terminal coding agent
+  become: false
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    # Pin by version and checksum. Update deliberately (the update-versions skill);
+    # vars/version-pins.yml names this var. The sha256 is the release API's published
+    # `digest` for opencodeAsset and must change with every version bump.
+    # @see https://github.com/anomalyco/opencode/releases
+    opencodeVersion: "1.19.3"
+    opencodeSha256: "13a8fb2978302071b86f9d7e00da9c8895f9cd846978379c3bdc6a5333536c9b"
+    # The glibc x64 build. Upstream also ships -baseline (no AVX2) and -musl variants;
+    # switch to -baseline only for a CPU without AVX2.
+    opencodeAsset: "opencode-linux-x64.tar.gz"
+    opencodeUrl: "https://github.com/anomalyco/opencode/releases/download/v{{ opencodeVersion }}/{{ opencodeAsset }}"
+    opencodeHome: "/home/{{ user_login }}"
+    opencodeLibDir: "{{ opencodeHome }}/.local/lib"
+    opencodeDir: "{{ opencodeLibDir }}/opencode-{{ opencodeVersion }}"
+    opencodeBin: "{{ opencodeHome }}/.local/bin/opencode"
+    # System managed config: read last, after the user and project configs, so nothing a
+    # repo or a session sets can turn it off.
+    opencodeManagedDir: "/etc/opencode"
+  tasks:
+    - name: Assert this host can run the x64 opencode build
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['architecture'] == 'x86_64'
+        fail_msg: >-
+          play-opencode.yml installs {{ opencodeAsset }}, an x86_64 build, and this host is
+          {{ ansible_facts['architecture'] }}. Add the matching upstream asset and its sha256
+          to the play before running it here.
+
+    - name: Create the user's local bin and lib directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      loop:
+        - "{{ opencodeHome }}/.local/bin"
+        - "{{ opencodeLibDir }}"
+      become: true
+
+    - name: Create the versioned opencode directory
+      ansible.builtin.file:
+        path: "{{ opencodeDir }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      become: true
+      become_user: "{{ user_login }}"
+
+    - name: Download the opencode release tarball (checksum-verified)
+      ansible.builtin.get_url:
+        url: "{{ opencodeUrl }}"
+        dest: "{{ opencodeDir }}/{{ opencodeAsset }}"
+        checksum: "sha256:{{ opencodeSha256 }}"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+      become: true
+      become_user: "{{ user_login }}"
+
+    - name: Extract the opencode binary
+      ansible.builtin.unarchive:
+        src: "{{ opencodeDir }}/{{ opencodeAsset }}"
+        dest: "{{ opencodeDir }}"
+        remote_src: true
+        creates: "{{ opencodeDir }}/opencode"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+      become: true
+      become_user: "{{ user_login }}"
+
+    - name: Symlink opencode into the user's local bin
+      ansible.builtin.file:
+        src: "{{ opencodeDir }}/opencode"
+        dest: "{{ opencodeBin }}"
+        state: link
+        force: true
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+      become: true
+      become_user: "{{ user_login }}"
+
+    - name: Find opencode versions other than the pinned one
+      ansible.builtin.find:
+        paths: "{{ opencodeLibDir }}"
+        patterns: "opencode-*"
+        file_type: directory
+        excludes: "opencode-{{ opencodeVersion }}"
+      register: opencode_old_versions
+      become: true
+      become_user: "{{ user_login }}"
+
+    - name: Remove opencode versions other than the pinned one
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ opencode_old_versions.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+      become: true
+      become_user: "{{ user_login }}"
+
+    - name: Create the opencode managed config directory
+      ansible.builtin.file:
+        path: "{{ opencodeManagedDir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      become: true
+
+    # share: disabled — a session is never uploaded to upstream's public share service,
+    # whatever a project config asks. autoupdate: false — the pin is the version; a bump is
+    # a commit to this play, never /update or `opencode upgrade`.
+    - name: Deploy the opencode managed config
+      ansible.builtin.copy:
+        dest: "{{ opencodeManagedDir }}/opencode.json"
+        content: "{{ opencode_managed_config | to_nice_json(indent=2) }}\n"
+        owner: root
+        group: root
+        mode: "0644"
+      vars:
+        opencode_managed_config:
+          $schema: "https://opencode.ai/config.json"
+          share: "disabled"
+          autoupdate: false
+      become: true
+
+    - name: Verify opencode runs
+      ansible.builtin.command:
+        argv:
+          - "{{ opencodeBin }}"
+          - --version
+      register: opencode_version
+      changed_when: false
+      become: true
+      become_user: "{{ user_login }}"
+
+    - name: Assert the opencode version matches the pin
+      ansible.builtin.assert:
+        that:
+          - opencode_version.stdout | trim == opencodeVersion
+        fail_msg: "opencode reports '{{ opencode_version.stdout }}' — expected version {{ opencodeVersion }}"
+
+    - name: Display opencode next steps
+      ansible.builtin.debug:
+        msg:
+          - "opencode {{ opencodeVersion }} installed at {{ opencodeBin }}"
+          - "Sign in to a model provider once:  opencode auth login"
+          - "Check it:                          opencode auth list ; opencode models"
+          - "Sessions are never shared and never self-update ({{ opencodeManagedDir }}/opencode.json)."
