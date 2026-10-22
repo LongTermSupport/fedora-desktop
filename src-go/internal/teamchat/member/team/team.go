@@ -95,8 +95,9 @@ type Engine interface {
 	// View is what Judge needs of ids and relations; r is the roster an outbox entry's
 	// AddressedToRosterAgent reads.
 	View(t paths.TeamID, ids, relations []string, r proto.Roster) (View, error)
-	// Persist is one store write of b, then a wake of delivery; ErrRemoved after a remove.
-	Persist(ctx context.Context, b Batch) error
+	// Persist is one store write of b, then a wake of delivery; ErrRemoved after a remove. It
+	// answers the main room's floor the store then keeps (B 2.3.2), which the marker carries.
+	Persist(ctx context.Context, b Batch) (mainFloor int64, err error)
 	// ResetPosition is SY6: drop next_batch and store the new epoch; fresh stays as it is.
 	ResetPosition(ctx context.Context, t paths.TeamID, epoch int64) error
 	// SetEnded records the store's run's end (EN1, EN3).

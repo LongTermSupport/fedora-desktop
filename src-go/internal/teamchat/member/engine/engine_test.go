@@ -430,7 +430,15 @@ func (w *world) status() state.Status {
 
 func (w *world) persist(id paths.TeamID, items ...team.Item) {
 	w.t.Helper()
-	check(w.t, w.e.Persist(w.t.Context(), team.Batch{Team: id, NextBatch: "s1", Items: items}))
+	w.persistBatch(team.Batch{Team: id, NextBatch: "s1", Items: items})
+}
+
+// persistBatch is b persisted, and the main floor the store then keeps.
+func (w *world) persistBatch(b team.Batch) int64 {
+	w.t.Helper()
+	floor, err := w.e.Persist(w.t.Context(), b)
+	check(w.t, err)
+	return floor
 }
 
 func (w *world) serve(ctx context.Context, op string, args any) (wire.Done, *recorder) {

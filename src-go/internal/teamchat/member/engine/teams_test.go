@@ -53,7 +53,7 @@ func TestAStoreThatDoesNotDecodeIsTheTeamsFailureOnly(t *testing.T) {
 	if _, err := w.e.Load(ops, agent(ops, 1)); err == nil || !strings.Contains(err.Error(), "does not decode") {
 		t.Fatalf("Load of a refused store = %v", err)
 	}
-	if err := w.e.Persist(t.Context(), team.Batch{Team: ops}); err == nil {
+	if _, err := w.e.Persist(t.Context(), team.Batch{Team: ops}); err == nil {
 		t.Fatal("Persist into a refused store succeeded")
 	}
 	f.mu.Lock()
@@ -173,7 +173,7 @@ func TestRemoveFlushesDeletesTheStoreAndClosesTheSeat(t *testing.T) {
 	if !strings.Contains(logged, "dropped 0 pending (2 handed) and 0 awaiting") || !strings.Contains(logged, "floor marker") {
 		t.Fatalf("link.log = %q", logged)
 	}
-	if err := w.e.Persist(t.Context(), team.Batch{Team: ops}); !errors.Is(err, team.ErrRemoved) {
+	if _, err := w.e.Persist(t.Context(), team.Batch{Team: ops}); !errors.Is(err, team.ErrRemoved) {
 		t.Fatalf("Persist after the removal = %v", err)
 	}
 	check(t, w.e.Ack(t.Context(), d.Ack))

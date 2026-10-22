@@ -31,7 +31,7 @@ func (fakeEngine) Load(paths.TeamID, string) (state.Store, error) { return state
 func (fakeEngine) View(paths.TeamID, []string, []string, proto.Roster) (team.View, error) {
 	return team.View{}, errFake
 }
-func (fakeEngine) Persist(context.Context, team.Batch) error                  { return errFake }
+func (fakeEngine) Persist(context.Context, team.Batch) (int64, error)         { return 0, errFake }
 func (fakeEngine) ResetPosition(context.Context, paths.TeamID, int64) error   { return errFake }
 func (fakeEngine) SetEnded(context.Context, paths.TeamID, state.RunEnd) error { return errFake }
 func (fakeEngine) BeginRun(context.Context, paths.TeamID) error               { return errFake }

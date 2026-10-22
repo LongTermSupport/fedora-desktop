@@ -24,7 +24,7 @@ func TestStatusShowsEachTeamItsMembersRoomsAndTheRuntime(t *testing.T) {
 		},
 		Rooms: proto.SideRooms{Questions: qRoom},
 	})
-	check(t, w.e.Persist(t.Context(), team.Batch{Team: ops, NextBatch: "s1", Counts: team.Counts{Ignored: 2, Gaps: 1}}))
+	w.persistBatch(team.Batch{Team: ops, NextBatch: "s1", Counts: team.Counts{Ignored: 2, Gaps: 1}})
 	check(t, w.e.Refuse(t.Context(), dev, w.run))
 	d, out := w.serve(t.Context(), wire.OpStatus, wire.TeamsArgs{})
 	if d != (wire.Done{}) || out.flushes != 1 {

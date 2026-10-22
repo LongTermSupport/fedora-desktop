@@ -44,20 +44,20 @@ func TestTheFloorMarkerIsCoalesced(t *testing.T) {
 	r := w.start()
 	w.batch()
 	r.poll(t)
-	first := w.later("one")
+	first := w.quiet("one")
 	w.batch()
 	r.poll(t)
 	if f := w.marker(); f != w.ts(first) || w.markerPuts() != 1 {
 		t.Fatalf("marker %d, %d puts", f, w.markerPuts())
 	}
-	w.later("two")
+	w.quiet("two")
 	w.batch()
 	r.poll(t)
 	if n := w.markerPuts(); n != 1 {
 		t.Errorf("%d puts within 10 s", n)
 	}
 	w.clk.Advance(floorPutGap)
-	third := w.later("three")
+	third := w.quiet("three")
 	w.batch()
 	r.poll(t)
 	if f := w.marker(); f != w.ts(third) || w.markerPuts() != 2 {
@@ -77,10 +77,10 @@ func TestFlushFloor(t *testing.T) {
 	r := w.startTeam(tm)
 	w.batch()
 	r.poll(t)
-	w.later("one")
+	w.quiet("one")
 	w.batch()
 	r.poll(t)
-	second := w.later("two")
+	second := w.quiet("two")
 	w.batch()
 	r.poll(t)
 	check(t, tm.FlushFloor(t.Context()))
@@ -92,7 +92,7 @@ func TestFlushFloor(t *testing.T) {
 		t.Error("a refused put was taken")
 	}
 	w.clk.Advance(floorPutGap)
-	w.later("three")
+	w.quiet("three")
 	w.batch()
 	r.poll(t)
 	if n := w.log.count("was not put"); n != 1 {
@@ -171,5 +171,28 @@ func TestASuspendBetweenPolls(t *testing.T) {
 	}
 	if n := w.log.count("a freeze or suspend"); n != 1 {
 		t.Errorf("log %q", w.log.String())
+	}
+}
+
+// B 2.3.2: the marker carries the store's room floor, just below the oldest item still owed, not
+// the batch's high-water; a later batch with nothing owed older leaves it where the store has it.
+func TestTheMarkerStaysBelowAnOwedItem(t *testing.T) {
+	w := newWorld(t)
+	r := w.start()
+	w.batch()
+	r.poll(t)
+	id := w.say(alice, human("hello", user(me)))
+	b := w.batch()
+	r.poll(t)
+	owed := b.Items[0].Pending.SentMS
+	if f := w.marker(); f != owed-1 || w.ts(id) != owed {
+		t.Fatalf("marker %d with an item owed at %d", f, owed)
+	}
+	w.clk.Advance(floorPutGap)
+	w.quiet("after")
+	w.batch()
+	r.poll(t)
+	if f := w.marker(); f != owed-1 {
+		t.Errorf("marker %d moved past the owed item at %d", f, owed)
 	}
 }

@@ -191,13 +191,17 @@ func roomID(h *held, r proto.Roster, purpose string) string {
 // removing items still pending or handed; then a wake of every wait. An item already pending
 // or delivered is not added twice. A full pending list refuses the whole batch, loudly (B
 // 2.3.2), so nothing is dropped and the batch is fetched again.
-func (e *Engine) Persist(ctx context.Context, b team.Batch) error {
-	var out error
+func (e *Engine) Persist(ctx context.Context, b team.Batch) (int64, error) {
+	var (
+		out   error
+		floor int64
+	)
 	if err := e.do(ctx, func() {
 		var added map[string]proto.Verdict
 		out = e.changeLocked(b.Team, func(_ *held, s *state.Store) (bool, error) {
 			var err error
 			added, err = apply(s, b)
+			floor = s.Sync.FloorMS[proto.PurposeMain]
 			return err == nil, err
 		})
 		if out != nil {
@@ -212,9 +216,9 @@ func (e *Engine) Persist(ctx context.Context, b team.Batch) error {
 		h.counts = addCounts(h.counts, b.Counts)
 		e.wake()
 	}); err != nil {
-		return err
+		return 0, err
 	}
-	return out
+	return floor, out
 }
 
 // apply is b in a copy of its store; it is the items added, with their verdicts.
