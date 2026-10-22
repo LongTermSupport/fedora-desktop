@@ -64,6 +64,16 @@ func (w *StoreWriter) Write(s Store) error {
 	return w.dir.Replace(w.lock.Seat().Store(), data, fileMode)
 }
 
+// Remove deletes the seat's store.json, and nothing else (seat.lock stays the same inode),
+// syncing the directory, while the lock is still held (LN8; the keeper's deletion after a
+// removal that timed out). A store already gone is fs.ErrNotExist.
+func (w *StoreWriter) Remove() error {
+	if err := w.lock.Held(); err != nil {
+		return err
+	}
+	return w.dir.Unlink(w.lock.Seat().Store())
+}
+
 // Close closes the seat directory; the lock stays its holder's to close.
 func (w *StoreWriter) Close() error { return w.dir.Close() }
 

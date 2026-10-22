@@ -64,12 +64,28 @@ func ReadPair(root *homefs.Root, s paths.Seat) (Pair, error) {
 	return readPair(root, s, func() {})
 }
 
+// ReadPairAt reads the pair in dir, a seat directory below root that no layout names (EN5's
+// host-held --bundle DIR), by ReadPair's rules; dir must be absolute and clean. A nil team is
+// seat.json's own, checked against nothing, and a refusal then names no team.
+func ReadPairAt(root *homefs.Root, dir string, team *paths.TeamID) (Pair, error) {
+	s, err := paths.SeatAt(dir)
+	if err != nil {
+		return Pair{}, exits.New(exits.CodeBundle, team, notAsMust, exits.Name(dir))
+	}
+	return readPairOf(root, s, team, func() {})
+}
+
 // readPair is ReadPair with between run after the token's read, before seat.json's second.
 func readPair(root *homefs.Root, s paths.Seat, between func()) (Pair, error) {
 	team, err := paths.ParseTeamID(filepath.Base(s.Dir()))
 	if err != nil {
 		return Pair{}, exits.New(exits.CodeBundle, nil, notATeam, exits.Name(s.Dir()))
 	}
+	return readPairOf(root, s, &team, between)
+}
+
+// readPairOf reads team's pair in the seat directory s; a nil team is seat.json's own.
+func readPairOf(root *homefs.Root, s paths.Seat, team *paths.TeamID, between func()) (Pair, error) {
 	dir, err := root.Sub(s.Dir(), homefs.Private)
 	if errors.Is(err, fs.ErrNotExist) {
 		return Pair{}, err
@@ -84,13 +100,13 @@ func readPair(root *homefs.Root, s paths.Seat, between func()) (Pair, error) {
 	return p, err
 }
 
-func readIn(dir *homefs.Root, s paths.Seat, team paths.TeamID, between func()) (Pair, error) {
+func readIn(dir *homefs.Root, s paths.Seat, team *paths.TeamID, between func()) (Pair, error) {
 	found, err := dir.Exists(s.Password())
 	if err != nil {
 		return Pair{}, err
 	}
 	if found {
-		return Pair{}, exits.New(exits.CodeBundle, &team, password, exits.Name(s.Dir()))
+		return Pair{}, exits.New(exits.CodeBundle, team, password, exits.Name(s.Dir()))
 	}
 	data, token, err := readOnce(dir, s, team, between)
 	if errors.Is(err, ErrTorn) {
@@ -103,12 +119,12 @@ func readIn(dir *homefs.Root, s paths.Seat, team paths.TeamID, between func()) (
 	if err != nil {
 		return Pair{}, err
 	}
-	return p, checkStore(dir, s, p)
+	return p, checkStore(dir, s, team, p)
 }
 
 // readOnce reads seat.json, token and seat.json again; the pair is ErrTorn unless both
 // seat.json reads are the same inode and bytes.
-func readOnce(dir *homefs.Root, s paths.Seat, team paths.TeamID, between func()) ([]byte, homefs.File, error) {
+func readOnce(dir *homefs.Root, s paths.Seat, team *paths.TeamID, between func()) ([]byte, homefs.File, error) {
 	first, err := dir.Read(s.Bundle(), seat.MaxBundle)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, homefs.File{}, err
@@ -134,46 +150,46 @@ func readOnce(dir *homefs.Root, s paths.Seat, team paths.TeamID, between func())
 	return first.Data, token, nil
 }
 
-func decode(s paths.Seat, team paths.TeamID, data []byte, token homefs.File) (Pair, error) {
+func decode(s paths.Seat, team *paths.TeamID, data []byte, token homefs.File) (Pair, error) {
 	if token.Perm != tokenMode {
-		return Pair{}, exits.New(exits.CodeBundle, &team, modeNot600, exits.Name(s.Dir()))
+		return Pair{}, exits.New(exits.CodeBundle, team, modeNot600, exits.Name(s.Dir()))
 	}
 	secret, err := seat.ParseSecret(string(token.Data))
 	if err != nil {
-		return Pair{}, exits.New(exits.CodeBundle, &team, notOneLine, exits.Name(s.Dir()))
+		return Pair{}, exits.New(exits.CodeBundle, team, notOneLine, exits.Name(s.Dir()))
 	}
 	b, err := seat.DecodeMemberBundle(data)
 	if err != nil {
-		return Pair{}, exits.New(exits.CodeBundle, &team, shape, exits.Name(s.Dir()))
+		return Pair{}, exits.New(exits.CodeBundle, team, shape, exits.Name(s.Dir()))
 	}
-	if b.Bundle.Team != team {
-		return Pair{}, exits.New(exits.CodeBundle, &team, otherTeam, exits.Name(s.Dir()), exits.Team(b.Bundle.Team))
+	if team != nil && b.Bundle.Team != *team {
+		return Pair{}, exits.New(exits.CodeBundle, team, otherTeam, exits.Name(s.Dir()), exits.Team(b.Bundle.Team))
 	}
-	return Pair{Team: team, Bundle: b, Token: secret}, nil
+	return Pair{Team: b.Bundle.Team, Bundle: b, Token: secret}, nil
 }
 
 // checkStore refuses a pair whose user id is not the one the seat's store was written for; a
 // seat with no store yet has nothing to differ from.
-func checkStore(dir *homefs.Root, s paths.Seat, p Pair) error {
+func checkStore(dir *homefs.Root, s paths.Seat, team *paths.TeamID, p Pair) error {
 	st, err := state.Read(dir, s.Store(), state.MaxStore, state.DecodeStore)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		return nil
 	case errors.Is(err, state.ErrInvalid) || errors.Is(err, homefs.ErrConfig):
-		return exits.New(exits.CodeStore, &p.Team, badStore, exits.Name(s.Dir()))
+		return exits.New(exits.CodeStore, team, badStore, exits.Name(s.Dir()))
 	case err != nil:
 		return err
 	case st.UserID != p.Bundle.Bundle.UserID:
-		return exits.New(exits.CodeBundle, &p.Team, otherUser, exits.Name(s.Dir()), exits.Name(p.Bundle.Bundle.UserID))
+		return exits.New(exits.CodeBundle, team, otherUser, exits.Name(s.Dir()), exits.Name(p.Bundle.Bundle.UserID))
 	}
 	return nil
 }
 
 // fault is a failed read of full: a file that is not as the member must have it (TB4), or
 // missing where the pair needs it, is 78 bundle; any other failure is returned as it is.
-func fault(team paths.TeamID, full string, err error) error {
+func fault(team *paths.TeamID, full string, err error) error {
 	if errors.Is(err, homefs.ErrConfig) || errors.Is(err, fs.ErrNotExist) {
-		return exits.New(exits.CodeBundle, &team, notAsMust, exits.Name(full))
+		return exits.New(exits.CodeBundle, team, notAsMust, exits.Name(full))
 	}
 	return err
 }

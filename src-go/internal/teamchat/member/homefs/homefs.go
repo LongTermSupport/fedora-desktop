@@ -246,6 +246,20 @@ func (r *Root) OpenLock(full string) (*os.File, error) {
 	return os.NewFile(uintptr(fd), full), nil
 }
 
+// OpenExistingLock opens the lock file full read-only for a probe's momentary shared lock,
+// making nothing: a missing file is fs.ErrNotExist, and one there must be the caller's regular
+// file, mode 0600, as OpenLock requires.
+func (r *Root) OpenExistingLock(full string) (*os.File, error) {
+	fd, err := r.open(full, unix.O_RDONLY|unix.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.checkLock(fd, full); err != nil {
+		return nil, errors.Join(err, unix.Close(fd))
+	}
+	return os.NewFile(uintptr(fd), full), nil
+}
+
 // Entries are the names in the directory full, sorted, with their types.
 func (r *Root) Entries(full string) ([]Entry, error) {
 	fd, err := r.open(full, unix.O_DIRECTORY|unix.O_RDONLY, 0)
@@ -288,9 +302,14 @@ func (r *Root) Exists(full string) (bool, error) {
 	return found, err
 }
 
-// Unlink removes the file or link at full, never following it.
+// Unlink removes the file or link at full, never following it, and syncs its directory.
 func (r *Root) Unlink(full string) error {
-	return r.inParent(full, func(parent int, name string) error { return unix.Unlinkat(parent, name, 0) })
+	return r.inParent(full, func(parent int, name string) error {
+		if err := unix.Unlinkat(parent, name, 0); err != nil {
+			return err
+		}
+		return unix.Fsync(parent)
+	})
 }
 
 // Rename moves the entry at from to the name to, which must not exist (fs.ErrExist), and

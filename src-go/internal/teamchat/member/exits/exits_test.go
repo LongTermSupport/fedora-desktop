@@ -253,6 +253,17 @@ func TestDecodeRoundTrips(t *testing.T) {
 	}
 }
 
+// Object is the error object Write prints, as a value another object can carry (the link
+// socket's done line, B 2.4.4).
+func TestObjectIsWhatWritePrints(t *testing.T) {
+	e := New(CodeSeatHeld, team(t), "seat {} is held", Name("alpha/1"))
+	var buf bytes.Buffer
+	Write(&buf, e)
+	if got := string(e.Object().Compact()) + "\n"; got != buf.String() {
+		t.Errorf("got %s want %s", got, buf.String())
+	}
+}
+
 func TestDecodeRefusesAnythingButTheErrorObject(t *testing.T) {
 	ok := `{"kind":"error","v":1,"exit":75,"code":"seat-held","team":null,"message":"m"}`
 	if _, err := Decode([]byte(ok)); err != nil {

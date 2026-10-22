@@ -214,6 +214,10 @@ func methodArgs(t *testing.T, method reflect.Type, valid map[reflect.Type]reflec
 	var good, zero []reflect.Value
 	for i := 1; i < method.NumIn(); i++ {
 		in := method.In(i)
+		// A base directory is no id: an empty one is an error its own test checks, not a panic.
+		if in.Kind() == reflect.String {
+			return []reflect.Value{reflect.ValueOf("/srv/probe/state")}, nil
+		}
 		v, ok := valid[in]
 		if !ok {
 			t.Fatalf("no valid %s to call a method with: add one", in)
