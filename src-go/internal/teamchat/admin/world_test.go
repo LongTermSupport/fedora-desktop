@@ -249,10 +249,22 @@ func (w *world) open(_ context.Context, team paths.TeamID, port int, regKey stri
 		w.crash.Admin = w.admin
 		a = w.crash
 	}
-	return Opened{Deps: apply.Deps{
-		Admin: a, Now: w.now, RosterPath: w.root + paths.RosterFile(team), RoomsPath: w.root + paths.RoomsFile(team),
-		GuestDir: w.root + paths.GuestTokenDir(team),
-	}}, nil
+	return Opened{
+		Deps: apply.Deps{
+			Admin: a, Now: w.now, RosterPath: w.root + paths.RosterFile(team), RoomsPath: w.root + paths.RoomsFile(team),
+			GuestDir: w.root + paths.GuestTokenDir(team),
+		},
+		Member: w.member,
+	}, nil
+}
+
+// member is a member client of alpha's homeserver with token.
+func (w *world) member(token string) (*matrix.Client, error) {
+	c, err := matrix.NewMember(matrix.Config{BaseURL: w.srv.URL(), PlainHTTPHosts: []string{"127.0.0.1"}, Token: token, Clock: w})
+	if err == nil {
+		w.t.Cleanup(c.Close)
+	}
+	return c, err
 }
 
 type fakeSystemd struct{ w *world }

@@ -36,6 +36,8 @@ var argKeys = map[string][]string{
 	apply.OpMemberSet:     {keyTeamFile, keyHandle, keyHumanText},
 	apply.OpRoleApply:     {keyTeamFile},
 	apply.OpTeamApply:     {"input", "approved", "reg_key"},
+	OpTeamView:            {keyTeamFile},
+	OpMemberDisconnected:  {keyTeamFile, keyHandle, keyRun, keySinceMS},
 }
 
 // The args' keys; each flag of a member verb is the key of the same name (--human-text is
@@ -48,6 +50,8 @@ const (
 	keyKind       = "kind"
 	keyHumanText  = "human_text"
 	keyCredential = "credential"
+	keyRun        = "run"
+	keySinceMS    = "since_ms"
 )
 
 // Serve runs one request in the child and answers it (CV1, CV2).
@@ -67,6 +71,12 @@ func Serve(ctx context.Context, open Opener, req Request) Answer {
 	if err != nil {
 		return failure(ClassFailed, err.Error())
 	}
+	switch req.Op {
+	case OpTeamView:
+		return serveView(ctx, open, team)
+	case OpMemberDisconnected:
+		return serveDisconnected(ctx, open, team, args)
+	}
 	var mr apply.MemberRequest
 	if req.Op != apply.OpRoleApply {
 		if mr, err = memberRequest(req.Op, args); err != nil {
@@ -75,12 +85,22 @@ func Serve(ctx context.Context, open Opener, req Request) Answer {
 	}
 	o, err := open(ctx, req.Team, team.Port, "")
 	if err != nil {
-		return failure(ClassConfig, "the team's admin files: "+err.Error())
+		return openFailure(err)
 	}
 	if req.Op == apply.OpRoleApply {
 		return answerOf(apply.RoleApply(ctx, o.Deps, team))
 	}
 	return answerOf(apply.RunMember(ctx, o.Deps, team, mr))
+}
+
+// openFailure is the Opener's failure by its class (n2f-C1): its own refusal 70, a homeserver
+// that did not answer 69, and the child's files, or anything else, 78.
+func openFailure(err error) Answer {
+	class := errorClass(err)
+	if class == ClassFailed {
+		return failure(ClassConfig, "the team's admin files: "+err.Error())
+	}
+	return failure(class, "the team's admin client: "+err.Error())
 }
 
 func failure(class ErrorClass, message string) Answer {
@@ -177,7 +197,7 @@ func serveTeamApply(ctx context.Context, open Opener, id paths.TeamID, args map[
 	}
 	o, err := open(ctx, id, in.Team.Port, key.Str())
 	if err != nil {
-		return failure(ClassConfig, "the team's admin files: "+err.Error())
+		return openFailure(err)
 	}
 	d := o.Deps
 	d.Approvals = carried{g}
