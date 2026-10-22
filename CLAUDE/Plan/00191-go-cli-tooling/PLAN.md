@@ -593,7 +593,7 @@ today; rewriting them is out of scope.
       the in-repo prelude (`inrepo.go`: `.gitignore`, dist and `ccy.env.local` checks, token
       directories; its texts and the export body held to the libraries by a test), new
       `gitx.TrackedUnder`; hand-over wherever the bash's prelude asks, refuses or reads otherwise
-      (F12 lists them), decided before anything is written; declared D10 (warning and error
+      (F12 lists them), decided before anything is written; declared package divergence D10 (warning and error
       colour only on a terminal; `export-token-missing` joins the allowance) and D11 (a failed
       write is exit 1). Difftest: `TestLauncherParity` green against bash and `LAUNCHER=` a
       `-tags difftest` build, `TestFrontParity` green, `TestFrontAnswersItself` now covers
@@ -602,7 +602,14 @@ today; rewriting them is out of scope.
       terminal).
     - Phase 2 done: every standalone flag that needs no terminal is the front's. Phases 3 to 5
       (the launch path itself: argument parsing, the prelude for a real launch, then the rest)
-      wait for the owner, per the D4/D10 default.
+      wait for the owner, per the plan decisions D4 and D10 (Task 4.2's gate, unrelated to the
+      package divergences of `front.go`).
+    - Review fix (CCY 3.99.14.10, `subagent-reports/261022-launcher-last-flags-review-opus.md`):
+      the front hands over, before any write, when git would quote a tracked path under
+      `.claude/ccy` (non-ASCII, `"`, `\`, control byte) or `git ls-files` wrote to stderr, as the
+      bash judges the quoted listing; a leading-nought version number is handed over (matches the
+      bash's printing, no new divergence). Red: five new cases answered instead of handing over;
+      green after the fix, real temporary git repositories including `café/README.md`.
     - Follow-up, not fixed: the project handler test
       `test_matches_write_to_root_claude_projects_returns_false` in
       `.claude/hooks/handlers/pre_tool_use/tests/test_system_paths.py` already fails on F44

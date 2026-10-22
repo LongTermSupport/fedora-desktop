@@ -144,12 +144,26 @@ func (f Front) trackedSafely(ctx context.Context) string {
 		return "git cannot list the tracked files: " + err.Error()
 	}
 	for _, file := range tracked {
+		if gitQuotes(file) {
+			return "a tracked path under " + ccyDir + " that git quotes, which the bash reads with the quotes on"
+		}
 		base := path.Base(file)
 		if !slices.Contains(safeTracked, base) && !strings.HasPrefix(base, "claude-supervise") {
 			return "a file that must not be tracked is tracked under " + ccyDir
 		}
 	}
 	return ""
+}
+
+// gitQuotes reports whether git's default core.quotePath would quote name: a byte outside
+// printable ASCII, a double quote or a backslash.
+func gitQuotes(name string) bool {
+	for i := range len(name) {
+		if c := name[i]; c < ' ' || c > '~' || c == '"' || c == '\\' {
+			return true
+		}
+	}
+	return false
 }
 
 // tokenDirs are the directories the bash makes in HOME: the store, the parents first.
@@ -205,6 +219,9 @@ func versionOf(text *string, line *regexp.Regexp, firstOnly bool) (int64, string
 	}
 	for _, l := range lines {
 		if m := line.FindStringSubmatch(l); m != nil {
+			if len(m[1]) > 1 && m[1][0] == '0' {
+				return -1, "a version number with a leading nought, which the bash prints as written: " + m[1]
+			}
 			v, err := strconv.ParseInt(m[1], 10, 64)
 			if err != nil {
 				return -1, "a version number too long for the bash: " + m[1]

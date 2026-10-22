@@ -154,6 +154,10 @@ func TestTrackedUnder(t *testing.T) {
 	if got, err := gitx.New(f).TrackedUnder(context.Background(), dir, ".claude/ccy"); err != nil || got != nil {
 		t.Fatalf("nothing tracked: got %q, %v", got, err)
 	}
+	f.On([]string{"git", "ls-files"}, execx.Result{Stderr: []byte("warning: odd\n")})
+	if _, err := gitx.New(f).TrackedUnder(context.Background(), dir, ".claude/ccy"); err == nil {
+		t.Fatal("a git that wrote to stderr was not an error")
+	}
 	f.On([]string{"git", "ls-files"}, gitFail("fatal: detected dubious ownership"))
 	if _, err := gitx.New(f).TrackedUnder(context.Background(), dir, ".claude/ccy"); err == nil {
 		t.Fatal("a failing git was not an error")

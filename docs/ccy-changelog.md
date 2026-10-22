@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.14.10 — container 2.78.14
+
+Follows 3.99.14.9. The image is unchanged, so there is no rebuild.
+
+- **The Go front hands over wherever git would quote a tracked path under `.claude/ccy`.** A name
+  with a byte outside printable ASCII, a `"` or a `\` is listed quoted, and the bash judges it with
+  the quote on, so it may refuse where the unquoted name looks safe. Anything git prints on stderr
+  while listing also hands over, and so does a version number with a leading nought (the bash
+  prints it as written).
+
 ## 3.99.14.9 — container 2.78.14
 
 Follows 3.99.14.8. The image is unchanged, so there is no rebuild.

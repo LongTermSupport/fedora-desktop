@@ -1,6 +1,7 @@
 package ccylaunch
 
 import (
+	"context"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -299,21 +300,23 @@ func TestInRepoHandsOver(t *testing.T) {
 				t.Fatal(err)
 			}
 		},
-		".git a file":                      func(t *testing.T, r *run) { t.Helper(); r.front.Dir = t.TempDir(); r.write(t, ".git", "gitdir: x\n") },
-		"a restart":                        env("CCY_RESTART_RELAUNCH=0f9c2b3e-1111-4222-8333-444455556666"),
-		"CCY_MAX_AGE":                      env("CCY_MAX_AGE=4h"),
-		"a carried deadline":               env("CCY_RELAUNCH_DEADLINE_EPOCH=1894712400"),
-		".claude a file":                   file(".claude", "x"),
-		".claude/ccy a file":               file(".claude/ccy", "x"),
-		"a .gitignore that is a directory": dir(gitignoreRel),
-		"a .gitignore holding a NUL":       file(gitignoreRel, "*\x00\n"),
-		"a dist that is a directory":       dir(distRel),
-		"a dist version too long":          file(distRel, "# ccy.env.local.dist version 9999999999999999999\n"),
-		"a local file that is a directory": dir(localRel),
-		"a based-on version too long":      file(localRel, "# based on ccy.env.local.dist version 9999999999999999999\n"),
-		"old session directories":          dir(".claude/ccy/sessions"),
-		"a hostname restriction":           file(allowedRel, "*\n"),
-		"a custom Dockerfile":              file(".claude/ccy/Dockerfile", "FROM x\n"),
+		".git a file":                              func(t *testing.T, r *run) { t.Helper(); r.front.Dir = t.TempDir(); r.write(t, ".git", "gitdir: x\n") },
+		"a restart":                                env("CCY_RESTART_RELAUNCH=0f9c2b3e-1111-4222-8333-444455556666"),
+		"CCY_MAX_AGE":                              env("CCY_MAX_AGE=4h"),
+		"a carried deadline":                       env("CCY_RELAUNCH_DEADLINE_EPOCH=1894712400"),
+		".claude a file":                           file(".claude", "x"),
+		".claude/ccy a file":                       file(".claude/ccy", "x"),
+		"a .gitignore that is a directory":         dir(gitignoreRel),
+		"a .gitignore holding a NUL":               file(gitignoreRel, "*\x00\n"),
+		"a dist that is a directory":               dir(distRel),
+		"a dist version too long":                  file(distRel, "# ccy.env.local.dist version 9999999999999999999\n"),
+		"a dist version with a leading nought":     file(distRel, "# ccy.env.local.dist version 04\n"),
+		"a based-on version with a leading nought": file(localRel, "# based on ccy.env.local.dist version 04\n"),
+		"a local file that is a directory":         dir(localRel),
+		"a based-on version too long":              file(localRel, "# based on ccy.env.local.dist version 9999999999999999999\n"),
+		"old session directories":                  dir(".claude/ccy/sessions"),
+		"a hostname restriction":                   file(allowedRel, "*\n"),
+		"a custom Dockerfile":                      file(".claude/ccy/Dockerfile", "FROM x\n"),
 		"git cannot answer": func(_ *testing.T, r *run) {
 			r.runner.On([]string{"git", "ls-files"}, execx.Result{Stderr: []byte("fatal: detected dubious ownership"), ExitCode: 128})
 		},
@@ -396,6 +399,67 @@ func TestInRepoAnswersWithTheSafeFilesTracked(t *testing.T) {
 	r.tracked(".claude/ccy/.gitignore", ".claude/ccy/ccy.env", ".claude/ccy/ccy.env.local.dist", ".claude/ccy/mounts",
 		".claude/ccy/claude-supervise.py", ".claude/ccy/CLAUDE.md", ".claude/ccy/README.md", ".claude/ccy/allowed-hostnames")
 	r.answered(t, term.ExitOK)
+}
+
+// realRepoRun is a current checkout that is a real git repository with files tracked, git being
+// the real one: the bash reads git's quoted listing, so the front must not judge an unquoted one.
+func realRepoRun(t *testing.T, tracked ...string) *run {
+	t.Helper()
+	r := repoRun(t, nil, "--prevent")
+	r.current(t)
+	if err := os.Remove(r.at(".git")); err != nil {
+		t.Fatal(err)
+	}
+	r.front.Runner = execx.OS{}
+	git := func(args ...string) {
+		t.Helper()
+		cmd := execx.Cmd{Name: "git", Args: args, Dir: r.front.Dir}
+		if _, err := (execx.OS{}).Run(context.Background(), cmd); err != nil {
+			t.Fatalf("git %v: %v", args, err)
+		}
+	}
+	git("init", "-q")
+	for _, rel := range tracked {
+		r.write(t, rel, "x\n")
+		git("add", "-f", "--", rel)
+	}
+	return r
+}
+
+// A path git would quote (non-ASCII, a quote, a backslash, a control byte) is one the bash
+// reads with its quote still on, so the bash may refuse where an unquoted name is safe: the
+// front hands over, before it writes anything.
+func TestInRepoHandsOverWhereGitQuotesATrackedPath(t *testing.T) {
+	for name, rel := range map[string]string{
+		"non-ASCII":    ".claude/ccy/café/README.md",
+		"a quote":      ".claude/ccy/a\"b/README.md",
+		"a backslash":  ".claude/ccy/a\\b/README.md",
+		"a tab":        ".claude/ccy/a\tb/README.md",
+		"a safe name":  "",
+		"a safe track": ".claude/ccy/README.md",
+	} {
+		t.Run(name, func(t *testing.T) {
+			var r *run
+			if rel == "" {
+				r = realRepoRun(t)
+			} else {
+				r = realRepoRun(t, rel)
+			}
+			if name == "a safe track" || rel == "" {
+				r.answered(t, term.ExitOK)
+				return
+			}
+			r.handsOverUntouched(t)
+		})
+	}
+}
+
+// Anything git says on stderr is a line the bash counts as a tracked file, though it exits 0.
+func TestInRepoHandsOverWhenGitWritesToStderr(t *testing.T) {
+	r := repoRun(t, nil, "--prevent")
+	r.current(t)
+	r.runner.On([]string{"git", "ls-files", "-z", "--", ".claude/ccy"}, execx.Result{Stderr: []byte("warning: something\n")})
+	r.handsOverUntouched(t)
 }
 
 // D11: a write the prelude cannot make ends the run, naming it. Nobody, root included, makes a

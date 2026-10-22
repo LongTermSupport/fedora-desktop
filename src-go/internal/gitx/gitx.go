@@ -93,11 +93,15 @@ func (g *Git) ListFiles(ctx context.Context, dir string) ([]string, error) {
 }
 
 // TrackedUnder is the tracked files at or under path in the work tree at dir, as git names
-// them (relative to dir, unquoted); a git that cannot answer is an error, never "none".
+// them (relative to dir, unquoted); a git that cannot answer, or that says anything on stderr
+// while it does, is an error, never "none".
 func (g *Git) TrackedUnder(ctx context.Context, dir, path string) ([]string, error) {
 	res, err := g.run(ctx, dir, "ls-files", "-z", "--", path)
 	if err != nil {
 		return nil, err
+	}
+	if len(res.Stderr) > 0 {
+		return nil, fmt.Errorf("git ls-files wrote to stderr: %s", strings.TrimSpace(string(res.Stderr)))
 	}
 	var out []string
 	for p := range strings.SplitSeq(string(res.Stdout), "\x00") {
