@@ -36,6 +36,16 @@ LINKS = [link("lo", "127.0.0.1", "::1"), link("wlan0", "198.51.100.7")]
 DEFAULT = {"dst": "default", "gateway": "198.51.100.1", "dev": "wlan0", "protocol": "dhcp", "flags": []}
 
 
+class BusIfaceTest(unittest.TestCase):
+    def test_the_name_is_agent_bus_install_s(self) -> None:
+        """Read from this checkout's installer, so a renamed interface is followed."""
+        self.assertRegex(dc.bus_iface(), r"^[A-Za-z0-9_.-]+$")
+        self.assertEqual(dc.bus_iface_in("x=1\nreadonly BUS_IFACE=bus7\nreadonly Y=2\n"), "bus7")
+        for broken in ("", "BUS_IFACE=bus7\n", "readonly BUS_IFACE=a\nreadonly BUS_IFACE=b\n"):
+            with self.subTest(source=broken), self.assertRaises(ValueError):
+                dc.bus_iface_in(broken)
+
+
 class ValidAddressTest(unittest.TestCase):
     def test_concrete_canonical_addresses_are_accepted(self) -> None:
         for text in (BUS, "2001:db8::1"):
@@ -61,8 +71,8 @@ class ConflictsTest(unittest.TestCase):
         self.assertEqual(dc.conflicts(BUS, LINKS, [DEFAULT, other]), [])
 
     def test_the_address_already_on_agentbus0_is_a_rerun_not_a_conflict(self) -> None:
-        links = [*LINKS, link("agentbus0", BUS)]
-        routes = [DEFAULT, {"type": "local", "dst": BUS, "table": "local", "dev": "agentbus0", "flags": []}]
+        links = [*LINKS, link(dc.bus_iface(), BUS)]
+        routes = [DEFAULT, {"type": "local", "dst": BUS, "table": "local", "dev": dc.bus_iface(), "flags": []}]
         self.assertEqual(dc.conflicts(BUS, links, routes), [])
 
     def test_the_address_on_another_interface_is_named(self) -> None:
@@ -72,7 +82,7 @@ class ConflictsTest(unittest.TestCase):
         self.assertIn(BUS, reasons[0])
 
     def test_the_address_on_agentbus0_and_elsewhere_is_still_a_conflict(self) -> None:
-        reasons = dc.conflicts(BUS, [*LINKS, link("agentbus0", BUS), link("eth1", BUS)], [DEFAULT])
+        reasons = dc.conflicts(BUS, [*LINKS, link(dc.bus_iface(), BUS), link("eth1", BUS)], [DEFAULT])
         self.assertEqual(len(reasons), 1)
         self.assertIn("eth1", reasons[0])
 
@@ -96,8 +106,8 @@ class ConflictsTest(unittest.TestCase):
         self.assertIn("unreachable", reasons[0])
 
     def test_a_route_on_agentbus0_itself_is_ours(self) -> None:
-        route = {"dst": BUS, "dev": "agentbus0", "protocol": "kernel", "flags": []}
-        self.assertEqual(dc.conflicts(BUS, [*LINKS, link("agentbus0", BUS)], [DEFAULT, route]), [])
+        route = {"dst": BUS, "dev": dc.bus_iface(), "protocol": "kernel", "flags": []}
+        self.assertEqual(dc.conflicts(BUS, [*LINKS, link(dc.bus_iface(), BUS)], [DEFAULT, route]), [])
 
 
 def fake_ip(links: list[dict], routes: list[dict]):

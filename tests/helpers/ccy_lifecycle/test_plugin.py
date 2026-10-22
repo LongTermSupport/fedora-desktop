@@ -571,7 +571,8 @@ class CombinedTests(PluginTestCase):
 SUPERVISOR_PATH_ENV = "CCY_SUPERVISOR_PATH"
 SUPERVISOR_IN_REPO = REPO_ROOT / ".claude/ccy/claude-supervise.py"
 HARNESS_MARKER = "class PluginTestHarness"
-PLUGIN_NAME = "ccy-lifecycle"
+#: The name the plugin registers under, its own PLUGIN_NAME, never a copy.
+PLUGIN_NAME = load_plugin_module().PLUGIN_NAME
 HARNESS_SESSION = "sess-contract"
 
 

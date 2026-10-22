@@ -49,8 +49,9 @@ the session ran and what they printed. Commands (stdout is the payload; reasons 
                                      PIDs of `pingbus watch --supervise` and its `--child`
   seat-containers TEAM               stdin "ID<TAB>seats" (the desired seats): those holding a TEAM seat
   expect-no-seats-label              stdin a container's labels (JSON): a ccy session, no ccy-seats
-  launch-keys CHECKOUT CONFIG_VERSION   LAST_SSH_KEYS, one per line, refused when ccy would
-                                     discard the record (another format, a key missing)
+  launch-keys CHECKOUT CONFIG_VERSION LAUNCHER   LAST_SSH_KEYS, one per line, refused when ccy
+                                     would discard the record (another format, or a choice key
+                                     the installed LAUNCHER's bash text requires missing)
   ccy-token CHECKOUT                 the name of the ccy token ccy last launched CHECKOUT
                                      with, refused when ccy would refuse it (never its value)
   scrub CHECKOUT DIR                 replace that token's value in every file under DIR;
@@ -124,13 +125,30 @@ def _template_re(template: str, fields: Sequence[str], skipped: Sequence[str] = 
     return re.compile(pattern)
 
 
+#: How each field of envelope.FIRST_LINE is matched: the nonce and the counts M2 judges are
+#: captured, the noun is either form, the rest are digits.
+_NOTICE_FIELDS = {
+    "nonce": "(?P<number>[0-9a-f]{8})", "total": r"(?P<total>\d+)", "noun": "messages?",
+    "humans": r"(?P<humans>\d+)", "agents": r"\d+", "pings": r"(?P<pings>\d+)", "timeouts": r"\d+",
+}
+
+
+def notice_re(template: str) -> re.Pattern[str]:
+    """The first line of a delivery, built from `template` (envelope.FIRST_LINE) up to its
+    `{who}`: every other field must be one _NOTICE_FIELDS knows, so a new field fails here."""
+    head, who, _ = template.partition("{who}")
+    pattern = re.escape(head)
+    for field, matcher in _NOTICE_FIELDS.items():
+        pattern = pattern.replace(re.escape("{" + field + "}"), matcher)
+    if not who or re.search(r"\\\{[a-z_]+\\\}", pattern):
+        raise ValueError(f"envelope.FIRST_LINE has a field u20_check does not know, or no {{who}}: {template!r}")
+    return re.compile(pattern)
+
+
 #: The first line of a delivery the watcher writes to the socket (envelope.FIRST_LINE, Plan
 #: 00194 SPEC-inject.md), with each count M2 judges and the nonce captured; "the notice" of
 #: these checks is a delivery since then.
-NOTICE_RE = re.compile(
-    re.escape(envelope.FIRST_LINE.split(":", 1)[0]).replace(re.escape("{nonce}"), "(?P<number>[0-9a-f]{8})")
-    + r": (?P<total>\d+) messages? \((?P<humans>\d+) from humans, \d+ from agents, (?P<pings>\d+) pings, "
-    r"\d+ timeouts\)")
+NOTICE_RE = notice_re(envelope.FIRST_LINE)
 #: The hooks' fixed texts about a session's watcher (SPEC-inject E26) that a check looks for.
 HOOK_TEXTS = ("watcher_failed", "watcher_restarted")
 
@@ -670,14 +688,27 @@ def seat_containers(listing: str, team: str) -> list[str]:
 _CONF_RE = re.compile(r'(?:export\s+)?([A-Z_]+)=(?:"([^"]*)"|(\S*))\s*')
 
 
-_LAUNCH_CHOICE_KEYS = ("LAST_TOKEN", "LAST_SSH_KEYS", "LAST_NETWORK")
+#: The launcher's check that every choice key of the record format is present (the loop in
+#: claude-yolo's saved-configuration reader).
+_LAUNCH_CHOICE_LOOP_RE = re.compile(r"^\s*for key in ((?:LAST_[A-Z_]+ )*LAST_[A-Z_]+); do$", re.MULTILINE)
 
 
-def launch_keys(checkout_dir: pathlib.Path, config_version: str) -> list[str]:
+def launch_choice_keys(launcher_text: str) -> tuple[str, ...]:
+    """The choice keys the launcher refuses a record without, read from its bash text: its
+    one `for key in LAST_...; do` loop. LAST_SSH_KEYS must be one of them."""
+    found = _LAUNCH_CHOICE_LOOP_RE.findall(launcher_text)
+    if len(found) != 1 or "LAST_SSH_KEYS" not in found[0].split():
+        raise ValueError(f"want exactly one `for key in LAST_...; do` loop naming LAST_SSH_KEYS in the "
+                         f"ccy launcher, found {found!r}")
+    return tuple(found[0].split())
+
+
+def launch_keys(checkout_dir: pathlib.Path, config_version: str, choice_keys: Sequence[str]) -> list[str]:
     """The SSH keys (paths, or `ssh-agent`) ccy's headless Quick Launch will take from this
     checkout's record; refused when ccy would discard the record (another or no record
-    format, or a choice key missing), since a headless launch then has no choices and is
-    refused (D57). The ccy version that wrote it does not matter (Plan 00135 Task 7.5)."""
+    format, or one of `choice_keys` missing, launch_choice_keys of the installed launcher),
+    since a headless launch then has no choices and is refused (D57). The ccy version that
+    wrote it does not matter (Plan 00135 Task 7.5)."""
     conf = up.ccy_launch_conf(checkout_dir)
     if not conf.is_file():
         raise ValueError(f"no ccy launch record at {conf}: {up.LAUNCH_HINT}")
@@ -691,7 +722,7 @@ def launch_keys(checkout_dir: pathlib.Path, config_version: str) -> list[str]:
     if saved != config_version:
         raise ValueError(f"{conf} is in record format {saved or 'none'} and the installed ccy reads format "
                          f"{config_version}, {relaunch}")
-    missing = [key for key in _LAUNCH_CHOICE_KEYS if key not in values]
+    missing = [key for key in choice_keys if key not in values]
     if missing:
         raise ValueError(f"{conf} has no {', '.join(missing)} line, {relaunch}")
     return values["LAST_SSH_KEYS"].split()
@@ -818,7 +849,8 @@ COMMANDS = {
     "supervised-watcher": (0, lambda a: print(" ".join(supervised_watcher(sys.stdin.read())))),
     "seat-containers": (1, lambda a: _print_lines(seat_containers(sys.stdin.read(), a[0]))),
     "expect-no-seats-label": (0, lambda a: _verdict(expect_no_seats_label(json.loads(sys.stdin.read())))),
-    "launch-keys": (2, lambda a: _print_lines(launch_keys(pathlib.Path(a[0]), a[1]))),
+    "launch-keys": (3, lambda a: _print_lines(launch_keys(
+        pathlib.Path(a[0]), a[1], launch_choice_keys(pathlib.Path(a[2]).read_text(encoding="utf-8"))))),
     "ccy-token": (1, lambda a: print(_token(a[0]).name)),
     "scrub": (2, lambda a: _print_lines(scrub(pathlib.Path(a[1]), _token(a[0]).value))),
 }

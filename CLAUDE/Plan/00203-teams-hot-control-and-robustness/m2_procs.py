@@ -10,6 +10,7 @@ from a source tree (`python3 -c ...`) is out of scope: a ccy container runs the 
 
   keeper-only     (M1 b) exactly one bus process, `pingbus seat keep --launch --parent ...`,
                   holding keeper.lock; no other process holds keeper.lock or seat.lock
+                  (both names read from the checkout's helpers/pingbus/seat.py)
   at-most-keeper  (M2 c) no bus process, or one: `pingbus seat keep`
   none            (M2 e) no bus process
 
@@ -19,7 +20,9 @@ stderr, exit 1; usage 64.
 
 from __future__ import annotations
 
+import ast
 import dataclasses
+import functools
 import os
 import pathlib
 import sys
@@ -27,7 +30,12 @@ from collections.abc import Sequence
 
 EXIT_OK, EXIT_FAIL, EXIT_USAGE = 0, 1, 64
 BUS_PROGRAMS = ("pingbus", "agent-bus")
-LOCK_NAMES = ("keeper.lock", "seat.lock")
+#: The seat module that names the keeper and seat locks, in the checkout this file is in (a ccy
+#: container sees it at /workspace). Its source is read, not imported: the container runs this
+#: under `python3 -I`, and only two string constants are wanted.
+SEAT_SOURCE = pathlib.PurePosixPath("helpers/pingbus/seat.py")
+#: seat.py's names for the keeper's lock and a seat's lock, in that order.
+LOCK_CONSTANTS = ("KEEPER_LOCK", "LOCK_FILE")
 
 
 class Failed(Exception):
@@ -75,6 +83,38 @@ def is_launch_keeper(argv: Sequence[str]) -> bool:
     return is_keeper(argv) and "--launch" in words and "--parent" in words
 
 
+def _checkout_root() -> pathlib.Path:
+    """The checkout's top: the first directory above this file holding ansible.cfg."""
+    here = pathlib.Path(__file__).resolve().parent
+    for candidate in (here, *here.parents):
+        if (candidate / "ansible.cfg").exists():
+            return candidate
+        if (candidate / ".git").exists():
+            break
+    raise Failed(f"no ansible.cfg above {here}: not inside a fedora-desktop checkout")
+
+
+def lock_names_in(source: str) -> tuple[str, str]:
+    """The keeper and seat lock file names, as seat.py's module-level string constants."""
+    found: dict[str, list[object]] = {name: [] for name in LOCK_CONSTANTS}
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            name = node.targets[0].id
+            if name in found:
+                found[name].append(node.value.value if isinstance(node.value, ast.Constant) else node.value)
+    names = [values[0] for values in found.values() if len(values) == 1 and isinstance(values[0], str) and values[0]]
+    if len(names) != len(LOCK_CONSTANTS):
+        raise Failed(f"{SEAT_SOURCE} does not assign {' and '.join(LOCK_CONSTANTS)} one string each: {found!r}")
+    keeper, seat = names
+    return keeper, seat
+
+
+@functools.cache
+def lock_names() -> tuple[str, str]:
+    """The keeper and seat lock names this checkout's seat.py uses."""
+    return lock_names_in((_checkout_root() / SEAT_SOURCE).read_text(encoding="utf-8"))
+
+
 def _locks(fd_dir: pathlib.Path) -> tuple[str, ...]:
     found = set()
     try:
@@ -86,7 +126,7 @@ def _locks(fd_dir: pathlib.Path) -> tuple[str, ...]:
             name = os.path.basename(os.readlink(entry))
         except OSError:
             continue
-        if name in LOCK_NAMES:
+        if name in lock_names():
             found.add(name)
     return tuple(sorted(found))
 
@@ -126,9 +166,9 @@ def keeper_only(procs: Sequence[Process]) -> list[str]:
     bus = bus_processes(procs)
     if len(bus) != 1 or not is_launch_keeper(bus[0].argv):
         raise Failed(f"want one bus process, `pingbus seat keep --launch --parent ...`, found: {_seen(bus)}")
-    keeper = bus[0]
-    if "keeper.lock" not in keeper.locks:
-        raise Failed(f"the keeper does not hold keeper.lock: {keeper.line()}")
+    keeper, keeper_lock = bus[0], lock_names()[0]
+    if keeper_lock not in keeper.locks:
+        raise Failed(f"the keeper does not hold {keeper_lock}: {keeper.line()}")
     others = [p for p in procs if p.locks and p.pid != keeper.pid]
     if others:
         raise Failed(f"processes other than the keeper hold a keeper or seat lock: {_seen(others)}")

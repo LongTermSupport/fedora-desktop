@@ -1092,6 +1092,50 @@ whether the handle is that entry's. It advises `ccy-teams apply <team>`, never a
 exactly one path, held under the method's allowance for a single recorded known instance, and
 Plan 00211 Task 2.9 narrows it (an entry giving `host`, `seat` and `repo` is decided by them).
 
+### fixture-plain-member-bundle
+
+**What it is.** Bash in an active plan folder, `scripts/`, `files/` or `tests/` that runs
+`agent-bus add-member --out=<home>/<entry>`, where `<home>` is a value the same program (a plan
+folder, whose scripts are sourced together, or one file elsewhere) gives `PINGBUS_HOME` on the
+host. Names are followed through the program's assignments. `--out=-`, `--setenv=PINGBUS_HOME=`
+(systemd-run, a dedicated agent user's own home) and `-e PINGBUS_HOME=` (podman exec) are not
+findings. Run by `tests/helpers/plan_acceptance/test_plain_member_bundle_rule.py` (in
+`qa-helper-tests.bash`), which proves the rule against its fixtures first.
+
+**Why it exists.** A bundle the invoking user's pingbus loads is, in production, a seat: its own
+0700 directory (`agent-bus seat take`), linked into the session home (the keeper). pingbus judges
+the two shapes differently: `config.load_bundle` runs a `host` member beside the owner's Element
+profile only through the link. Plan 00211's A3 wrote its worker straight into the home, so the
+host refused it for a reason that is not the product's, and nothing after A3 ran.
+
+**How to fix a finding.** Give the bundle a directory of its own (add-member makes `--out` 0700,
+owned by the user who ran sudo) and link `<home>/<team>` to it with an absolute `ln -s`, as the
+keeper does. Do not loosen the check in `config.py`.
+
+### checker-copies-cited-constant
+
+**What it is.** In an active plan folder, `tests/` or `scripts/` (the test suites), a checker
+constant holding a literal (Python: a
+module-level `NAME = <literal>`; bash: a top-level `[readonly] NAME=` with no expansion) whose
+own comment, the lines directly above it or a trailing one, names a product source file
+(`.py` or `.go` under `helpers/`, `src-go/internal/`, `files/` or `extensions/`) together with
+a constant that file defines: a word of the comment, or the checker constant's own name. Run by
+`tests/helpers/plan_acceptance/test_cited_constant_copy_rule.py` (in `qa-helper-tests.bash`),
+which proves the rule against its fixtures first.
+
+**Why it exists.** The comment says the value is the product's, and a copy of it drifts. Plan
+00201's `m7_check.py` held `GUARD_TAIL = "exec pingbus status-line"`, a copy of `seat.py`
+`STATUS_LINE_GUARD`'s tail; Plan 00213 changed the guard and check M3 failed a correct
+session. The rule catches only the copies a comment admits to. A wider rule (any checker
+literal inside a product constant) would report the Matrix spec, GitHub's address and install
+paths, which the product does not own either; the copies it cannot see soundly are listed in
+Plan 00201 Task 2.21.
+
+**How to fix a finding.** Read the value from the product: import its module from this checkout,
+lazily, through the repo root above the checker (`m7_check.py` `_checkout_module`). A checker
+that runs where no checkout is mounted is handed the value by the script that starts it. Do not
+delete the comment to quiet the rule: the copy is still a copy.
+
 ---
 
 ## Changing a Gate

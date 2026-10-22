@@ -30,7 +30,7 @@ from helpers.pingbus import cli, inbox, protocol
 from tests.helpers.pingbus import test_cli as bus
 
 MARKER = "MARKER-never-printed"
-TEAM_RE = r"[a-z][a-z0-9-]{0,23}"
+TEAM_RE = protocol.TEAM_NAME_PATTERN
 LOCALPART_RE = rf"(?:{protocol.HANDLE_PATTERN}|{protocol.HUMAN_LOCALPART_PATTERN})"
 USER_RE = r"@[\x21-\x7e]{1,254}"
 COUNT_RE = r"(?:\d+|-)"

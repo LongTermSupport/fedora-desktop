@@ -274,6 +274,50 @@ a repository is no longer offered for a checkout of it. Report:
   columns from its heading (64d5bc3b6). Left: the host run (meta-deploy, play-claude-yolo.yml
   entry) and the owner's `ccy-teams lxc-add` of the member refused before. Reports:
   `subagent-reports/261022-lxc-add-*.md`.
+- [ ] 🔄 **Task 2.21**: M7's host run stopped at M3: the checker still expected the Python
+  `exec pingbus status-line` guard after Plan 00213 made it run `pingbus-status-line`. A
+  checker defect: `m7_check.py` copied seat.py's value. It now expects exactly what this
+  checkout's `seat.session_settings` writes for a seated session, and that its guard ends by
+  running the kit settings' command; `DESCRIPTION_MAX` is read from protocol.py, and Plan
+  00194's `goodbye_check.py` reads `TEXT_KEY`, the goodbye template and `DISCONNECT_TEXT` from
+  pingbus. Defence: `checker-copies-cited-constant` (`tests/helpers/plan_acceptance/`,
+  CLAUDE/QA.md), red with 4 findings. Done in code; left: the host rerun (meta-deploy).
+  The independent search (`subagent-reports/261022-m3-owned-value-independent-search.md`)
+  found more copies than a sound rule catches. Every copy of a named or computed value is now
+  read from the product, no product code changed (its A1-A3, A6-A14, A16-A19; A15's subject is
+  a plan script): `subagent-reports/261022-m3-referred-fixes.md`. That includes the drifted
+  Tuwunel pin in Plan 00161's `triage_probe.py` (v1.9.3, now read from `tuwunel.pin`, v1.9.4).
+  Round 2 (`subagent-reports/261022-m3-round2-fixes.md`) read B3 (board table), B6 (removal
+  words), B13 (login words) and B7's ✓/✗ marks from the product; B9's `DISCONNECT_TEXT` was
+  already read. M7's and 00203 M3's teams segment is judged by `m7_check expect-segment` /
+  `expect-segment-rows`, read from statusline.py (`_team_piece`, `ROLE_LETTERS`) since Plan
+  00217 changed it.
+  LEFT, CHECKER FIXES: split off by the coordinator as Task 2.22 (below); they do not block
+  this task's merge.
+  REFERRED TO THE OWNER: the inline message or command text (A4, A5, B2, B4, B5, B7's
+  "relaunches once"/"re-baseline", B8, B10-B12, B14, B15), and Plan 00211's
+  `_acceptance-stage2.inc.bash` fake A3 seat grep for `a host member must not run as a user with an Element profile` (inline in config.py's `ConfigError` and roles.go). The product holds each
+  as text inside a call, not a named value, so the checker can read it only once the product
+  names it: deployed code changes with version bumps and host deploys, a product decision.
+  Report: `subagent-reports/261022-m3-dbf-report.md`.
+- [ ] **Task 2.22**: Follow-up to Task 2.21, split off by the coordinator so that Task 2.21's
+  branch could merge: the copies of product values that Task 2.21's search found in other
+  plans' checkers and left unfixed. Each one reads its value through the `m7_check`
+  commands Task 2.21 added (`session-paths`, `hot-marks`, `status-line-names`), as Plan
+  00203's M3 already does in `m3_read_names`. The sites, all in Plan 00203:
+  - `_acceptance-m4.inc.bash`: the `✓` step mark at 238, 239, 242, 251, 256, 284, 322, 330,
+    346, 358 and 366; `/tmp/pingbus-home` and `PINGBUS_STATUS_LINE_INNER` at 306;
+    `ccy/membership/.../membership.json` at 109 and 315.
+  - `_acceptance-m6.inc.bash`: the `✓`/`✗` marks at 281, 282, 341, 363 and 387;
+    `membership.json` at 94.
+  - `m2-check.bash`: `MOUNT=/run/ccy/membership` at 24, `HOME_IN=/tmp/pingbus-home` at 25,
+    `membership.json` at 86, 95, 116, 121 and 123.
+  - `_triage-hs.inc.bash`: `/tmp/pingbus-home/watch.log` at 157, 161, 162 and 171.
+  - Also Plan 00161's `triage_probe.pinned_tuwunel_version`, which repeats
+    `declare.declared_software`'s inline pin parse (round 2 F3). Both are strict, but they
+    can drift, so declare.py should expose the reader.
+  - Also the inline-text copies Task 2.21 refers to the owner: the product has to name each
+    text as a constant before a checker can read it.
 
 ## Success Criteria
 

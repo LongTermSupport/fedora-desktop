@@ -69,10 +69,10 @@ unset TMUX TMUX_PANE
 source "$LIB_DIR/common-pure.bash"
 # shellcheck source=/dev/null
 source "$LIB_DIR/tmux-session.bash"
-# A label of its own as well as a directory of its own: either alone keeps this suite off
-# every real server. The Go binary cannot be pointed at another label, so the server is the
-# one it uses (ccy), alone in this private directory.
-CCY_TMUX_SOCKET=ccy
+# A directory of its own keeps this suite off every real server. The Go binary cannot be
+# pointed at another label, so the server is the one ccy uses, CCY_TMUX_SOCKET as the library
+# just sourced sets it (never a copy; were it to differ from the Go binary's, the cases that
+# drive both would fail), alone in this private directory.
 BUILD_DIR="$(mktemp -d)"
 
 cleanup() {
@@ -240,7 +240,6 @@ WHO="$SOCK_DIR/who.bash"
 cat >"$WHO" <<'EOF'
 source "$1/common-pure.bash"
 source "$1/tmux-session.bash"
-CCY_TMUX_SOCKET=ccy
 out=$(ccy_tmux_current_session 2>&1)
 printf '%s rc=%s\n' "$out" "$?" >"$2.tmp"
 mv "$2.tmp" "$2"

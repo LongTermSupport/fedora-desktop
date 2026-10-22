@@ -301,6 +301,19 @@ class TranscriptTest(unittest.TestCase):
 
 
 class NoticesTest(unittest.TestCase):
+    def test_the_notice_pattern_is_built_from_envelope_first_line(self) -> None:
+        """The whole first line is the product's template, so a reworded one is followed and
+        a field the check does not know fails at once."""
+        self.assertEqual(uc.NOTICE_RE.pattern, uc.notice_re(uc.envelope.FIRST_LINE).pattern)
+        moved = uc.notice_re("d {nonce} {timeouts}/{agents}/{pings}/{humans} of {total} {noun}: {who}")
+        match = moved.match("d 0a1b2c3d 4/3/2/1 of 9 messages: x")
+        self.assertIsNotNone(match)
+        assert match is not None
+        self.assertEqual((match["number"], match["total"], match["humans"], match["pings"]), ("0a1b2c3d", "9", "1", "2"))
+        for broken in ("d {nonce} {total} {newfield}: {who}", "d {nonce} {total}"):
+            with self.subTest(template=broken), self.assertRaises(ValueError):
+                uc.notice_re(broken)
+
     def test_only_peer_entries_count(self) -> None:
         lines = [typed_line(notice(1, 0, 1, 5)),
                  peer_line("Another Claude session sent:\n" + notice(1, 0, 1, 7) + "\nEnd."),
@@ -696,6 +709,10 @@ class ContainerTest(unittest.TestCase):
 
 
 class LaunchChoicesTest(unittest.TestCase):
+    #: This checkout's launcher, whose choice keys the record is held to.
+    LAUNCHER = uc._repo_root() / "files" / "var" / "local" / "claude-yolo" / "claude-yolo"
+    KEYS = uc.launch_choice_keys(LAUNCHER.read_text(encoding="utf-8"))
+
     def conf(self, tmp: str, version: str = "3.86.1", keys: str = "/home/u/.ssh/id_ed25519 ssh-agent",
              config: str | None = "1", omit: str = "") -> pathlib.Path:
         checkout = pathlib.Path(tmp)
@@ -703,51 +720,65 @@ class LaunchChoicesTest(unittest.TestCase):
         lines = ["# CCY Launch Configuration"]
         if config is not None:
             lines.append(f"SAVED_CONFIG_VERSION={config}")
-        lines += [f'SAVED_CCY_VERSION="{version}"', 'LAST_TOKEN="team1"', f'LAST_SSH_KEYS="{keys}"', 'LAST_NETWORK=""']
+        lines.append(f'SAVED_CCY_VERSION="{version}"')
+        lines += [f'{key}="{keys if key == "LAST_SSH_KEYS" else ""}"' for key in self.KEYS]
         lines = [line for line in lines if not (omit and line.startswith(f"{omit}="))]
         (checkout / ".claude" / "ccy" / ".last-launch.conf").write_text("\n".join(lines) + "\n", encoding="utf-8")
         return checkout
 
+    def test_the_choice_keys_are_the_launcher_s(self) -> None:
+        """Read from the launcher's own presence loop, so a key ccy adds is required here too."""
+        self.assertIn("LAST_SSH_KEYS", self.KEYS)
+        self.assertIn("LAST_TOKEN", self.KEYS)
+        text = "x=1\n    for key in LAST_A LAST_SSH_KEYS; do\n        :\n    done\n"
+        self.assertEqual(uc.launch_choice_keys(text), ("LAST_A", "LAST_SSH_KEYS"))
+        for broken in ("", "    for key in LAST_A; do\n", text + text):
+            with self.subTest(text=broken), self.assertRaises(ValueError):
+                uc.launch_choice_keys(broken)
+
     def test_the_saved_keys(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             checkout = self.conf(tmp)
-            self.assertEqual(uc.launch_keys(checkout, "1"), ["/home/u/.ssh/id_ed25519", "ssh-agent"])
+            self.assertEqual(uc.launch_keys(checkout, "1", self.KEYS), ["/home/u/.ssh/id_ed25519", "ssh-agent"])
 
     def test_another_ccy_version_of_the_same_format_is_taken(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertEqual(uc.launch_keys(self.conf(tmp, version="3.80.0"), "1"),
+            self.assertEqual(uc.launch_keys(self.conf(tmp, version="3.80.0"), "1", self.KEYS),
                              ["/home/u/.ssh/id_ed25519", "ssh-agent"])
 
     def test_no_keys_is_no_ssh(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertEqual(uc.launch_keys(self.conf(tmp, keys=""), "1"), [])
+            self.assertEqual(uc.launch_keys(self.conf(tmp, keys=""), "1", self.KEYS), [])
 
     def test_another_or_no_format_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(ValueError):
-                uc.launch_keys(self.conf(tmp, config="2"), "1")
+                uc.launch_keys(self.conf(tmp, config="2"), "1", self.KEYS)
             with self.assertRaises(ValueError):
-                uc.launch_keys(self.conf(tmp, config=None), "1")
+                uc.launch_keys(self.conf(tmp, config=None), "1", self.KEYS)
 
     def test_a_missing_key_is_refused(self) -> None:
-        for key in ("LAST_TOKEN", "LAST_SSH_KEYS", "LAST_NETWORK"):
+        for key in self.KEYS:
             with tempfile.TemporaryDirectory() as tmp:
                 with self.assertRaises(ValueError, msg=key):
-                    uc.launch_keys(self.conf(tmp, omit=key), "1")
+                    uc.launch_keys(self.conf(tmp, omit=key), "1", self.KEYS)
 
     def test_no_record_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(ValueError):
-                uc.launch_keys(pathlib.Path(tmp), "1")
+                uc.launch_keys(pathlib.Path(tmp), "1", self.KEYS)
 
     def test_cli(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             checkout = self.conf(tmp)
-            self.assertEqual(run_main("launch-keys", str(checkout), "1")[:2],
+            self.assertEqual(run_main("launch-keys", str(checkout), "1", str(self.LAUNCHER))[:2],
                              (0, "/home/u/.ssh/id_ed25519\nssh-agent\n"))
-            status, _, err = run_main("launch-keys", str(checkout), "2")
+            status, _, err = run_main("launch-keys", str(checkout), "2", str(self.LAUNCHER))
             self.assertEqual(status, 1)
             self.assertIn("launch ccy", err)
+            status, _, err = run_main("launch-keys", str(checkout), "1", str(pathlib.Path(tmp) / "no-launcher"))
+            self.assertEqual(status, 1)
+            self.assertIn("no-launcher", err)
 
 
 class CcyTokenTest(unittest.TestCase):

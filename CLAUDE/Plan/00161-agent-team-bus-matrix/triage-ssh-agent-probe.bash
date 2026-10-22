@@ -77,7 +77,7 @@ collect_keys() {
     config_version="$(awk -F= '/^CONFIG_VERSION=/ { print $2; exit }' "${CCY_LAUNCHER_TEXT}")"
     [[ -n "${config_version}" ]] || { printf 'FAIL: %s names no CONFIG_VERSION\n' "${CCY_LAUNCHER_TEXT}" >&2; exit 1; }
     printf 'ccy: %s\n' "$(grep -m1 '^CCY_VERSION=' "${CCY_LAUNCHER_TEXT}")"
-    keys="$("${U20[@]}" launch-keys "${repoRoot}" "${config_version}")"
+    keys="$("${U20[@]}" launch-keys "${repoRoot}" "${config_version}" "${CCY_LAUNCHER_TEXT}")"
     if [[ -z "${keys}" ]]; then
         printf 'Quick Launch saved no SSH key for this checkout\n'
         return 1

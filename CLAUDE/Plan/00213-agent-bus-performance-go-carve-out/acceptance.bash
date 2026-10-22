@@ -80,10 +80,17 @@ for tool in go jq ansible lxc-info lxc-attach sha256sum cmp od; do
     fi
 done
 
-KIT_BIN=/usr/local/share/agent-bus/kit/pingbus-status-line
+# The member kit's directory is helpers/agent_bus/admin.py's KIT_DIR, read, never a copy.
+if ! KIT_DIR="$(python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); from helpers.agent_bus import admin; print(admin.KIT_DIR)' \
+    "${PLAN_REPO_ROOT}")" || [[ "${KIT_DIR}" != /?* ]]; then
+    printf '[FATAL] cannot read KIT_DIR from %s/helpers/agent_bus/admin.py (above): got %s\n' "${PLAN_REPO_ROOT}" "${KIT_DIR}" >&2
+    exit 1
+fi
+readonly KIT_DIR
+KIT_BIN="${KIT_DIR}/pingbus-status-line"
 STAGED_BIN=/opt/claude-yolo/optional/agent-bus/pingbus-status-line
 HOST_PINGBUS=/usr/local/bin/pingbus
-KIT_SETTINGS=/usr/local/share/agent-bus/kit/settings.json
+KIT_SETTINGS="${KIT_DIR}/settings.json"
 STAGED_SETTINGS=/opt/claude-yolo/optional/agent-bus/settings.json
 RENDERS=40
 # shellcheck source-path=SCRIPTDIR

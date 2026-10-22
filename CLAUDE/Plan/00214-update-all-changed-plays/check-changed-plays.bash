@@ -18,9 +18,6 @@ set -euo pipefail
 check="${1:?usage: check-changed-plays.bash <same|report|reminder> <repo root> <run dir>}"
 root="${2:?usage: check-changed-plays.bash <check> <repo root> <run dir>}"
 runDir="${3:?usage: check-changed-plays.bash <check> <repo root> <run dir>}"
-readonly SAFE_PATH='^[A-Za-z0-9_@%+=:,./-]+$'
-readonly REMEDY='To run every play that changed or failed since it ran here: '
-
 fail() {
     printf '[FAIL] %s\n' "$1" >&2
     exit 1
@@ -37,13 +34,27 @@ changed_plays() {
     helper helpers.play_ledger.changed_plays --repo-root "${root}" || fail "changed_plays gave no answer (exit $?); its reason is above"
 }
 
-# This checkout's run.bash --changed, quoted as login_message quotes it (shlex.quote).
-expected_command() {
-    if [[ "${root}/run.bash" =~ ${SAFE_PATH} ]]; then
-        printf '%s/run.bash --changed\n' "${root}"
-    else
-        printf "'%s/run.bash' --changed\n" "${root}"
-    fi
+# What login_message says, read from this checkout's helper, never a copy: on the first line
+# the words it names run.bash --changed's work with (_RUNS_CHANGED), on the second this
+# checkout's command as run_changed_command quotes it for a document with a play to run.
+login_words() {
+    PYTHONPATH="${root}" /usr/bin/python3 -P -c 'import sys
+from helpers.host_health import login_message
+from helpers.play_ledger import freshness
+command = login_message.run_changed_command({"plays": [{"state": freshness.STALE}]}, checkout=sys.argv[1])
+if not command or "\n" in command or "\n" in login_message._RUNS_CHANGED:
+    sys.exit(f"login_message gave no one-line command or words: {command!r}")
+print(login_message._RUNS_CHANGED)
+print(command)' "${root}"
+}
+
+# Sets runs and command from login_words, failing if they cannot be read.
+read_login_words() {
+    local text
+    text="$(login_words)" || fail "cannot read _RUNS_CHANGED and run_changed_command from helpers/host_health/login_message.py (above)"
+    mapfile -t words <<<"${text}"
+    [[ "${#words[@]}" -eq 2 && -n "${words[0]}" && -n "${words[1]}" ]] || fail "want two lines from login_message, got: ${text}"
+    runs="${words[0]}" command="${words[1]}"
 }
 
 check_same() {
@@ -76,8 +87,10 @@ plays_to_run() {
 }
 
 check_report() {
-    local printed command
-    command="$(expected_command)"
+    local printed runs command remedy
+    local -a words
+    read_login_words
+    remedy="To run ${runs}: ${command}"
     # A collection, as host-health.service runs it at login, so the document is this code's.
     helper helpers.host_health.login_report --repo-root "${root}" --no-notify >"${runDir}/collection.out" ||
         fail "the collection exited $?; its output is in ${runDir}/collection.out"
@@ -85,7 +98,7 @@ check_report() {
     printed="$("${HOME}/.local/bin/fedora-desktop-health")"
     printf '%s\n' "${printed}" >"${runDir}/fedora-desktop-health.out"
     if plays_to_run; then
-        grep -qxF "  ${REMEDY}${command}" "${runDir}/fedora-desktop-health.out" || fail "fedora-desktop-health does not print: ${REMEDY}${command}"
+        grep -qxF "  ${remedy}" "${runDir}/fedora-desktop-health.out" || fail "fedora-desktop-health does not print: ${remedy}"
         printf '  ok: it prints %s\n' "${command}"
     elif grep -qF 'run.bash --changed' "${runDir}/fedora-desktop-health.out"; then
         fail "fedora-desktop-health names run.bash --changed with no play to run"
@@ -93,8 +106,9 @@ check_report() {
 }
 
 check_reminder() {
-    local second command
-    command="$(expected_command)"
+    local second runs command
+    local -a words
+    read_login_words
     # Global, not local: the EXIT trap runs after this function has returned.
     stamps="$(mktemp -d)"
     trap 'rm -rf "${stamps}"' EXIT
@@ -102,7 +116,7 @@ check_reminder() {
     second="$(helper helpers.host_health.login_message --once-a-day --stamp-dir "${stamps}")"
     printf '%s\n' "${second}" >"${runDir}/login-second.out"
     if plays_to_run; then
-        [[ "${second}" == *", or ${command} to run every play"* ]] || fail "the reminder does not name ${command}: ${second}"
+        [[ "${second}" == *", or ${command} to run ${runs}"* ]] || fail "the reminder does not name ${command}: ${second}"
         printf '  ok: the reminder names %s\n' "${command}"
     fi
 }

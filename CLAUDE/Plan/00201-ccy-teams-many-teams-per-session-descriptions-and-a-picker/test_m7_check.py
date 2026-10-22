@@ -18,6 +18,7 @@ import json
 import pathlib
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 from contextlib import redirect_stderr, redirect_stdout
@@ -50,6 +51,21 @@ DESC_B = "Plan 00201 acceptance team B"
 ADDRESS = "192.0.2.10"
 SID = "0123abcd-4567-89ab-cdef-0123456789ab"
 EV = "$" + "e" * 43
+#: A team's colour span on the status line (a 24-bit foreground escape, then the reset).
+COLOUR, RESET = "\x1b[38;2;232;121;249m", "\x1b[0m"
+
+
+def spans(*pieces: str) -> str:
+    """Team pieces as the drawer joins them: each its own colour span, plain spaces between."""
+    return " ".join(f"{COLOUR}{piece}{RESET}" for piece in pieces)
+
+
+def drawer(letters: dict[str, str], draw: object) -> types.SimpleNamespace:
+    """A stand-in statusline.py: its ROLE_LETTERS and a `_team_piece` drawing (team, member,
+    role) by `draw`."""
+    return types.SimpleNamespace(
+        ROLE_LETTERS=letters, _team_piece=lambda _env, team, found, _unknown: draw(team, *found)
+    )
 
 
 def run(*argv: str, stdin: str = "") -> tuple[int, str, str]:
@@ -301,6 +317,26 @@ class ListRowTest(TempDir):
         path = self.write("list", "\n".join(self.MEASURED[2:]) + "\n")
         self.assertEqual(run("expect-list-row", path, TEAM_A, DESC_A)[0], 1)
 
+    def test_the_headings_and_team_kind_are_read_from_the_go_table(self) -> None:
+        self.assertEqual(mc.board_table(), (("TEAM", "MEMBER", "KIND", "STATE"), "team"))
+        moved = 'var headings = [columns]string{"T", "WHO", "K", "S", "A"}\n\tKindTeam  Kind = "group"\n'
+        self.assertEqual(mc.board_table(moved), (("T", "WHO", "K", "S"), "group"))
+        width = len(DESC_A)
+        heading = f"{'T':<10}  {'WHO':<{width}}  {'K':<5}  {'S':<4}  A"
+        row = f"{TEAM_A:<10}  {DESC_A:<{width}}  {'group':<5}  {'up':<4}  -"
+        mc.expect_list_row(f"{heading}\n\n{row}\n", TEAM_A, DESC_A, mc.board_table(moved))
+        with self.assertRaises(mc.Failed):
+            mc.expect_list_row(f"{heading}\n\n{row}\n", TEAM_A, DESC_A)
+        for broken in (
+            'KindTeam Kind = "team"\n',
+            'var headings = [columns]string{"A", "B", "C"}\nKindTeam Kind = "team"\n',
+            'var headings = [columns]string{"A", "B", "C", "D"}\n'
+            'var headings = [columns]string{"A", "B", "C", "D"}\nKindTeam Kind = "team"\n',
+            'var headings = [columns]string{"A", "B", "C", "D"}\n',
+        ):
+            with self.subTest(broken=broken), self.assertRaises(mc.Failed):
+                mc.board_table(broken)
+
 
 class BlockTest(TempDir):
     def stderr(self) -> str:
@@ -397,42 +433,141 @@ class RoutingTest(TempDir):
 class SegmentTest(TempDir):
     """M3: `pingbus status-line` prints the session's own status line, then `👥 TEAMS` on rows of
     its own (wrapped after a comma at COLUMNS, later rows indented under the first), each team
-    with this session's role in it (Plan 00203 Task 3.8); a role that could not be read fails."""
+    `team: member (letter)` in its own colour with this session's role in it (Plan 00203 Task
+    3.8, Plan 00217 C10 and C15); a role or a member that could not be read fails."""
 
     def test_expect_segment_wants_the_inner_line_then_the_teams(self) -> None:
-        shown = self.write("seg", "model \x1b[2m|\x1b[0m dir\n\x1b[36m👥 a (worker), b (coordinator)\x1b[0m\n")
-        wrapped = self.write("wrapped", "model | dir\nmore\n\x1b[36m👥 a (worker),\x1b[0m\n"
-                                        "\x1b[36m   b (worker) (down)\x1b[0m\n")
-        alone = self.write("alone", "\x1b[36m👥 a (worker), b (worker)\x1b[0m\n")
-        old = self.write("old", "model | dir | \x1b[36mbus: a,b\x1b[0m\n")
-        no_role = self.write("no-role", "model | dir\n\x1b[36m👥 a,b\x1b[0m\n")
-        unknown = self.write("unknown", "model | dir\n\x1b[36m👥 a (worker), b (role?)\x1b[0m\n")
-        appended = self.write("appended", "model | dir | \x1b[36m👥 a (worker), b (worker)\x1b[0m\n")
-        unindented = self.write("unindented", "model\n\x1b[36m👥 a (worker),\x1b[0m\nb (worker)\n")
-        broken = self.write("broken", "model\n\x1b[31m👥 no record of this session's teams (pingbus status)\x1b[0m\n")
+        shown = self.write("seg", f"model \x1b[2m|\x1b[0m dir\n👥 {spans('a: repo.1 (w),', 'b: repo.1 (c)')}\n")
+        wrapped = self.write("wrapped", f"model | dir\nmore\n👥 {spans('a: repo.1 (w),')}\n"
+                                        f"   {spans('b: repo.1 (w) (down)')}\n")
+        refused = {
+            "alone": (f"👥 {spans('a: repo.1 (w),', 'b: repo.1 (w)')}\n", "the session's own line is missing"),
+            "old": ("model | dir | \x1b[36mbus: a,b\x1b[0m\n", "the bus: segment"),
+            "pre-00217": ("model\n\x1b[36m👥 a (worker), b (coordinator)\x1b[0m\n", "the `team (role)` form"),
+            "no-role": (f"model | dir\n👥 {spans('a: repo.1,', 'b: repo.1')}\n", "each team shows its role"),
+            "role-unknown": (f"model\n👥 {spans('a: repo.1 (w),', 'b: repo.1 (role?)')}\n", "a role not read"),
+            "member-unknown": (f"model\n👥 {spans('a: member? (w),', 'b: repo.1 (c)')}\n", "a member not read"),
+            "colour-unknown": (f"model\n👥 {spans('a: repo.1 (w) (colour?),', 'b: repo.1 (c)')}\n", "colour?"),
+            "uncoloured": ("model\n👥 a: repo.1 (w), b: repo.1 (c)\n", "each team in its own colour"),
+            "one-span": (f"model\n👥 {COLOUR}a: repo.1 (w), b: repo.1 (c){RESET}\n", "one span for two teams"),
+            "appended": (f"model | dir | 👥 {spans('a: repo.1 (w),', 'b: repo.1 (w)')}\n", "must start a row"),
+            "unindented": (f"model\n👥 {spans('a: repo.1 (w),')}\n{spans('b: repo.1 (w)')}\n", "not indented"),
+            "broken": ("model\n\x1b[31m👥 no record of this session's teams (pingbus status)\x1b[0m\n", "a note"),
+        }
         self.assertEqual(run("expect-segment", shown, "a,b")[0], 0)
         self.assertEqual(run("expect-segment", wrapped, "a,b")[0], 0)
         self.assertEqual(run("expect-segment", shown, "b,a")[0], 1)
-        self.assertEqual(run("expect-segment", alone, "a,b")[0], 1, "the session's own line is missing")
-        self.assertEqual(run("expect-segment", old, "a,b")[0], 1)
-        self.assertEqual(run("expect-segment", no_role, "a,b")[0], 1, "each team shows its role")
-        self.assertEqual(run("expect-segment", unknown, "a,b")[0], 1, "a role that could not be read")
-        self.assertEqual(run("expect-segment", appended, "a,b")[0], 1, "the teams must start a row")
-        self.assertEqual(run("expect-segment", unindented, "a,b")[0], 1)
-        self.assertEqual(run("expect-segment", broken, "a,b")[0], 1)
+        for name, (text, why) in refused.items():
+            with self.subTest(name):
+                self.assertEqual(run("expect-segment", self.write(name, text), "a,b")[0], 1, why)
+
+    def test_expect_segment_rows_wants_the_teams_alone(self) -> None:
+        """Plan 00203 M3 draws the segment alone (the inner-only variable set): the same rows,
+        with no line before them."""
+        alone = self.write("alone", f"👥 {spans('a: repo.1 (w),', 'b: repo.1 (c)')}\n")
+        wrapped = self.write("wrapped", f"👥 {spans('a: repo.1 (w),')}\n   {spans('b: repo.1 (w) (down)')}\n")
+        refused = {
+            "inner": (f"model | dir\n👥 {spans('a: repo.1 (w),', 'b: repo.1 (c)')}\n", "a line before the rows"),
+            "pre-00217": ("\x1b[36m👥 a (worker), b (coordinator)\x1b[0m\n", "the `team (role)` form"),
+            "role-unknown": (f"👥 {spans('a: repo.1 (w),', 'b: repo.1 (role?)')}\n", "a role not read"),
+            "uncoloured": ("👥 a: repo.1 (w), b: repo.1 (c)\n", "each team in its own colour"),
+            "empty": ("", "no rows"),
+        }
+        self.assertEqual(run("expect-segment-rows", alone, "a,b")[0], 0)
+        self.assertEqual(run("expect-segment-rows", wrapped, "a,b")[0], 0)
+        self.assertEqual(run("expect-segment-rows", alone, "a")[0], 1)
+        for name, (text, why) in refused.items():
+            with self.subTest(name):
+                self.assertEqual(run("expect-segment-rows", self.write(name, text), "a,b")[0], 1, why)
+        golden = (_repo_root() / "src-go/internal/pingbus/statusline/golden/testdata/golden"
+                  / "bus-two-teams-with-roles/1.stdout").read_text(encoding="utf-8")
+        mc.expect_segment(golden, "alpha,beta", inner=False)
+
+    def test_the_drawers_golden_two_teams_pass(self) -> None:
+        """The golden the Go drawer and statusline.py are both held to: two teams with roles."""
+        golden = (_repo_root() / "src-go/internal/pingbus/statusline/golden/testdata/golden"
+                  / "bus-two-teams-with-roles/1.stdout").read_text(encoding="utf-8")
+        mc.expect_segment(f"model | dir\n{golden}", "alpha,beta")
+        with self.assertRaises(mc.Failed):
+            mc.expect_segment(golden, "alpha,beta")
+
+    def test_the_piece_is_drawn_by_statusline_py(self) -> None:
+        """The piece's separators and letters are statusline.py's `_team_piece` and ROLE_LETTERS,
+        never a copy: a drawer that changes them is followed; one whose roles differ in shape, or
+        that leaves out a part, fails."""
+        statusline = importlib.import_module("helpers.pingbus.statusline")
+        self.assertEqual(mc.segment_piece(statusline).replace(mc._PIECE_TEAM, "t")
+                         .replace(mc._PIECE_MEMBER, "m").replace(mc._PIECE_LETTER, "x"), "t: m (x)")
+        letters = {"coordinator": "K", "worker": "W"}
+        other = mc.segment_piece_re(drawer(letters, lambda team, member, role: f"{team} @ {member} [{letters[role]}]"))
+        self.assertIsNotNone(other.fullmatch("abc @ repo.1 [K] (down)"))
+        self.assertIsNone(other.fullmatch("abc: repo.1 (c)"))
+        self.assertIsNone(other.fullmatch("abc @ repo.1 [role?]"))
+        shapes = drawer({"coordinator": "c", "worker": "w"},
+                        lambda team, member, role: f"{team}{':' if role == 'worker' else ''} {member} ({role[0]})")
+        with self.assertRaises(mc.Failed):
+            mc.segment_piece(shapes)
+        with self.assertRaises(mc.Failed):
+            mc.segment_piece(drawer({"coordinator": "c"}, lambda team, _member, _role: f"{team} (c)"))
+
+    def test_the_session_paths_are_seat_and_membership_s(self) -> None:
+        seat = mc._checkout_module("helpers.pingbus.seat")
+        membership = mc._checkout_module("helpers.pingbus.membership")
+        home = str(seat.SESSION_HOME)
+        self.assertEqual(
+            mc.session_paths(),
+            [home, f"{home}/{seat.SESSION_SETTINGS}", membership.CCY_MOUNT, membership.DESIRED_FILE],
+        )
+        status, out, _ = run("session-paths")
+        self.assertEqual((status, out.splitlines()), (0, mc.session_paths()))
+
+    def test_the_label_is_read_from_the_go_drawer(self) -> None:
+        """The label is the Go statusline's `label` constant and the indent its display width:
+        this checkout's, and a changed one followed rather than failed."""
+        self.assertEqual(mc.segment_label(), ("👥 ", "   "))
+        self.assertEqual(mc.segment_label('const (\n\tlabel       = "T"\n\tother = "x"\n)\n'), ("T ", "  "))
+        mc.expect_segment(f"model\nT {spans('a: repo.1 (w),')}\n  {spans('b: repo.1 (c)')}\n", "a,b",
+                          label=("T ", "  "))
+        with self.assertRaises(mc.Failed):
+            mc.segment_label('const (\n\tnolabel = "T"\n)\n')
+        with self.assertRaises(mc.Failed):
+            mc.segment_label('label = "A"\nlabel = "B"\n')
 
     def test_expect_session_settings(self) -> None:
-        guard = '[ -e "$PINGBUS_HOME/active" ] || exec sh "$PINGBUS_HOME/statusline-inner"; exec pingbus status-line'
-        seated = self.write("seated.json", json.dumps({
-            "crossSessionInbound": "accept",
-            "statusLine": {"type": "command", "command": guard, "refreshInterval": 1}}))
-        kit = self.write("kit.json", json.dumps({
-            "crossSessionInbound": "accept",
-            "statusLine": {"type": "command", "command": "pingbus status-line"}}))
-        plain = self.write("plain.json", json.dumps({"statusLine": {"type": "command", "command": guard}}))
+        """What a seated session's settings must hold is what this checkout's seat.py writes,
+        never a copy: the copy said `exec pingbus status-line` after Plan 00213 made the kit
+        run `pingbus-status-line`, and failed M3 on a correct session."""
+        seat = importlib.import_module("helpers.pingbus.seat")
+        written = seat.session_settings(None, seated=True)
+        seated = self.write("seated.json", json.dumps(written))
+        padded = dict(written, statusLine=dict(written["statusLine"], padding=1))
+        python_era = dict(written, statusLine=dict(
+            written["statusLine"], command=written["statusLine"]["command"].replace(
+                "exec pingbus-status-line", "exec pingbus status-line")))
+        kit = dict(written, statusLine={"type": "command", "command": "pingbus-status-line"})
+        slow = dict(written, statusLine=dict(written["statusLine"], refreshInterval=1))
+        plain = dict(written, crossSessionInbound="refuse")
         self.assertEqual(run("expect-session-settings", seated)[0], 0)
-        self.assertEqual(run("expect-session-settings", kit)[0], 1, "not the shell guard")
-        self.assertEqual(run("expect-session-settings", plain)[0], 1, "no inbound accept")
+        self.assertEqual(run("expect-session-settings", self.write("padded.json", json.dumps(padded)))[0], 0,
+                         "Claude Code's own padding may be added")
+        self.assertEqual(run("expect-session-settings", self.write("old.json", json.dumps(python_era)))[0], 1,
+                         "the guard of the Python status line is not what the kit runs now")
+        self.assertEqual(run("expect-session-settings", self.write("kit.json", json.dumps(kit)))[0], 1,
+                         "not the shell guard")
+        self.assertEqual(run("expect-session-settings", self.write("slow.json", json.dumps(slow)))[0], 1,
+                         "not the seated refresh interval")
+        self.assertEqual(run("expect-session-settings", self.write("plain.json", json.dumps(plain)))[0], 1,
+                         "no inbound accept")
+
+    def test_the_seated_guard_runs_the_kit_command(self) -> None:
+        """The checkout's seat.py guard and its kit settings agree, and the check says so when
+        they do not."""
+        kit = json.loads((_repo_root() / mc.KIT_SETTINGS).read_text(encoding="utf-8"))
+        self.assertEqual(mc.kit_command(), kit["statusLine"]["command"])
+        self.assertTrue(mc.seated_status_line()["command"].endswith("exec " + mc.kit_command()))
+        settings = {"crossSessionInbound": "accept", "statusLine": mc.seated_status_line()}
+        with self.assertRaises(mc.Failed):
+            mc.expect_session_settings(settings, kit="pingbus status-line")
 
 
 class SessionStatusLineTest(TempDir):

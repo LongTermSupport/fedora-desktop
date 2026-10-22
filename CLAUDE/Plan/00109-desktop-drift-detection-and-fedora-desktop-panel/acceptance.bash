@@ -113,11 +113,11 @@ plan_start_log auto
 # this file. Every host-specific path below is resolved at runtime from $HOME or from the
 # production helpers themselves, which is also what stops this gate and the producer
 # disagreeing about where anything lives.
-EXT_UUID="fedora-desktop@fedora-desktop"
+#
+# The extension's uuid and the two health unit names are the plays' own vars, read below
+# (play_var) once the abort helper exists.
 EXT_FILES=(extension.js metadata.json statusDocument.js stylesheet.css sections/health.js)
-HEALTH_UNIT="host-health.service"
 HEALTH_TARGET="graphical-session.target"
-COLLECT_TIMER="host-health-collect.timer"
 VMTEST_SCENARIO="server-host-health-kernel-change"
 VMTEST_SCRIPTS=(
     guest-prepare-server-host-health-kernel-change.bash
@@ -209,6 +209,21 @@ read_field() {
     fi
     printf -v "${target}" '%s' "${line#"${key} "}"
 }
+
+# One play-level `vars:` entry (four spaces, `name: value`, a plain value) of a play in this
+# checkout, into the named variable: the name the play deploys under, never a copy of it.
+# It must be declared exactly once, or the gate aborts. Assigns, as read_field does.
+play_var() {
+    local target="$1" play="${PLAN_REPO_ROOT}/$2" name="$3" lines=""
+    if ! lines="$(grep -E -e "^    ${name}: [^ {\"']+$" "${play}")" || [[ "${lines}" == *$'\n'* ]]; then
+        abort "want exactly one plain '${name}:' play var in ${play}, found: ${lines:-none}" \
+            "this gate judges the names the play deploys under, so it will not guess them"
+    fi
+    printf -v "${target}" '%s' "${lines#"    ${name}: "}"
+}
+play_var EXT_UUID playbooks/imports/optional/common/play-fedora-desktop-panel.yml extension_name
+play_var HEALTH_UNIT playbooks/imports/optional/common/play-host-health-login-report.yml unit_name
+play_var COLLECT_TIMER playbooks/imports/optional/common/play-host-health-login-report.yml collect_timer
 
 # Whitespace-separated membership, without a subshell or a grep per call.
 contains_word() {

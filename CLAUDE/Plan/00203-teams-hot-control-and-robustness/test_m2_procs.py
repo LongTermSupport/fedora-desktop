@@ -132,6 +132,15 @@ class ProcTest(unittest.TestCase):
         self.host_list(keeper_locks=("keeper.lock", "seat.lock"))
         mp.keeper_only(mp.processes(self.proc))
 
+    def test_the_lock_names_are_seat_py_s(self) -> None:
+        """The two names come from this checkout's seat.py, so a renamed lock is followed."""
+        self.assertEqual(mp.lock_names(), ("keeper.lock", "seat.lock"))
+        self.assertEqual(mp.lock_names_in('X = 1\nKEEPER_LOCK = "k.l"\nLOCK_FILE = "s.l"\n'), ("k.l", "s.l"))
+        for broken in ('KEEPER_LOCK = "k.l"\n', 'KEEPER_LOCK = "a"\nKEEPER_LOCK = "b"\nLOCK_FILE = "s"\n',
+                       'KEEPER_LOCK = NAME\nLOCK_FILE = "s"\n'):
+            with self.assertRaises(mp.Failed):
+                mp.lock_names_in(broken)
+
     def test_m2_e_none(self) -> None:
         self.process("1", ["catatonit", "--", "/entrypoint.sh", "claude"])
         self.process("2", ["claude", "--dangerously-skip-permissions", "-p", "about pingbus"])

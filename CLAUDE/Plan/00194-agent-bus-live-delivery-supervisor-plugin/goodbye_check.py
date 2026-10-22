@@ -2,7 +2,8 @@
 
 The run reads each throwaway team's room as its human reads it in Element: the client API's
 /messages pages, newest first. From those it counts what one seat's member posted since a
-scenario started, and judges the count. Stdlib only; every command reads files or arguments
+scenario started, and judges the count. Stdlib only, plus this checkout's pingbus for the
+key and texts it judges (read from the product, never copied); every command reads files or arguments
 and prints a value or a verdict, so test_goodbye_check.py covers it without a homeserver.
 
     handle <user_id>                              the seat's handle (the user ID's localpart)
@@ -22,7 +23,9 @@ Exit 0 OK, 1 FAIL (the reason on stderr), 64 usage.
 
 from __future__ import annotations
 
+import importlib
 import json
+import pathlib
 import re
 import sys
 from collections.abc import Callable, Sequence
@@ -31,12 +34,27 @@ EXIT_OK = 0
 EXIT_FAIL = 1
 EXIT_USAGE = 64
 
-#: The pingbus content key of an agent's text (helpers/pingbus/protocol.py TEXT_KEY).
-TEXT_KEY = "agent_bus.text"
-#: The session-end goodbye (helpers/pingbus/hooks.py, template `goodbye`).
-GOODBYE_TEXT = "{handle} left the team: session ended ({reason})"
-#: What the host says of a session that ended without one (helpers/pingbus/cli.py).
-DISCONNECT_TEXT = "{handle} disconnected: session ended without a goodbye"
+
+def _checkout_module(name: str) -> object:
+    """A module of this checkout's pingbus: the texts judged here are the product's own, read
+    from it, never copied (a copy drifts and then fails a correct session)."""
+    here = pathlib.Path(__file__).resolve().parent
+    for candidate in (here, *here.parents):
+        if (candidate / "ansible.cfg").exists():
+            if str(candidate) not in sys.path:
+                sys.path.insert(0, str(candidate))
+            return importlib.import_module(name)
+        if (candidate / ".git").exists():
+            break
+    raise ImportError(f"no ansible.cfg above {here}: not inside a fedora-desktop checkout")
+
+
+#: The pingbus content key of an agent's text.
+TEXT_KEY = _checkout_module("helpers.pingbus.protocol").TEXT_KEY
+#: The session-end goodbye.
+GOODBYE_TEXT = _checkout_module("helpers.pingbus.hooks").TEMPLATES["goodbye"]
+#: What the host says of a session that ended without one.
+DISCONNECT_TEXT = _checkout_module("helpers.pingbus.cli").DISCONNECT_TEXT
 #: What the launcher prints when its disconnect notice fails (lib/agent-bus-membership.bash),
 #: and the first line of a Python traceback.
 PANE_FAILURES = (

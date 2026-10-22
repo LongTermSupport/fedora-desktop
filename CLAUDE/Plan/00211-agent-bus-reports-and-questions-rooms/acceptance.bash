@@ -25,8 +25,9 @@
 #      or LXC. No team with a coordinator is REJECTED, named, before anything is changed; a
 #      coordinator in no session this host can drive is offline, and the test question is NOT
 #      JUDGED;
-#   A3 a throwaway worker in that team, added for the run as a host member on loopback and
-#      removed again on cleanup, posts a `pingbus report`; with its token, reading, joining and
+#   A3 a throwaway worker in that team, added for the run as a host member on loopback, taken
+#      as a seat (its bundle in a seat directory, linked into a session home, as `agent-bus seat
+#      take` and the keeper make one) and removed again on cleanup, posts a `pingbus report`; with its token, reading, joining and
 #      posting in the questions room are each refused 403 M_FORBIDDEN; after 15 s the report
 #      is in the inbox of no online session of the team (NOT JUDGED with none online);
 #   A4 the first online declared LXC member's `pingbus report`, run inside its container, is
@@ -245,6 +246,10 @@ if [[ "${FAKE}" -eq 1 ]]; then
     reject_leg "A3 (fake) the report was consumed" inbox_clear "a fixture inbox" $'STATE\tpresent\n$r1\tconsumed\tkept'
     reject_leg "A3 (fake) a session with no state directory proves nothing" \
         inbox_clear "a fixture inbox" $'STATE\tmissing\n$r1\t-\tkept'
+    check_leg "A3 (fake) the worker is a linked seat, which pingbus runs beside an accepted Element profile" \
+        fake_a3_seat accepted
+    check_leg "A3 (fake) the same seat beside an Element profile never accepted is refused for that profile, as pingbus refuses it" \
+        fake_a3_seat unaccepted
     check_leg "A3 (fake) 403 M_FORBIDDEN is a refusal" fake_refused 403 '{"errcode":"M_FORBIDDEN","error":"no"}'
     reject_leg "A3 (fake) 200 is no refusal" fake_refused 200 '{"event_id":"x"}'
     reject_leg "A3 (fake) another 403 is no refusal" fake_refused 403 '{"errcode":"M_UNKNOWN_TOKEN"}'

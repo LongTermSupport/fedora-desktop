@@ -264,7 +264,7 @@ u20_prerequisites() {
         u20_owner_needs "the ccy image has no ${CCY_KIT_PINGBUS}: ${play}"
         return 1
     fi
-    if ! keys="$("${U20[@]}" launch-keys "${PLAN_REPO_ROOT}" "${config_version}")"; then
+    if ! keys="$("${U20[@]}" launch-keys "${PLAN_REPO_ROOT}" "${config_version}" "${CCY_LAUNCHER_TEXT}")"; then
         u20_owner_needs "launch ccy ${ccy_version} interactively in ${PLAN_REPO_ROOT} once, choosing the token and SSH keys the acceptance sessions reuse (Quick Launch saves them)"
         return 1
     fi

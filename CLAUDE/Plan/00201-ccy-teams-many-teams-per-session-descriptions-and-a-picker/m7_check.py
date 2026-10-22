@@ -4,8 +4,12 @@
 _acceptance-m7.inc.bash drives the host (agent-bus-install, agent-bus, ccy-teams, two headless
 ccy sessions, podman exec into them, the human's curl); this module writes what it hands them
 and judges what comes back. Every judgement rests on what a tool printed or recorded, never on
-the model's prose. Standard library only, and only `bus-ports` imports from this checkout
-(declare.py, lazily). Commands (stdout is the payload, reasons on stderr):
+the model's prose. Standard library only; the host-side commands read the values the product owns
+from this checkout, lazily, never a copy: `bus-ports` (declare.py), `team-file` (protocol.py),
+`session-paths` and `expect-session-settings` (seat.py, membership.py, and the kit's settings.json), `expect-list-row` (the board's
+table.go), `hot-marks` (hot.go), and `status-line-names` and `expect-segment` (statusline.go and
+statusline.py). Commands
+(stdout is the payload, reasons on stderr):
 
   team-file TEAM PORT ADDRESS HUMAN ORG DESCRIPTION   a throwaway team file (JSON)
   host-vars TEAMFILE...              a host_vars file declaring those teams (agent_bus_teams)
@@ -31,9 +35,13 @@ the model's prose. Standard library only, and only `bus-ports` imports from this
   expect-about STATUS TEAM DESCRIPTION   that team's ABOUT line carries DESCRIPTION
   expect-sent OUT TEAM               one SENT line, for TEAM; prints its event ID
   expect-choices STDERR (TEAM DESCRIPTION)...   the "several teams are active" refusal, listing each
-  expect-session-settings SETTINGS   a seated ccy session's own settings.json: inbound accepted, the guarded status line
+  session-paths                      seat.py's session home and its settings file, membership.py's mount and desired file, one per line
+  hot-marks                          the done and failed step marks of ccy-teams session add/remove (hot.go), one per line
+  status-line-names                  the Go status line's teams row head, then its inner-only variable (statusline.go)
+  expect-session-settings SETTINGS   a seated ccy session's own settings.json: inbound accepted, the seated status line this checkout's seat.py writes
   session-status-line PROC           IN THE SESSION'S CONTAINER: the status line its claude draws, the payload on stdin
   expect-segment OUT TEAMS           the status line printed the session's own line, then 👥 TEAMS on rows of its own
+  expect-segment-rows OUT TEAMS      the status line drawn alone (the inner-only variable set): only the 👥 TEAMS rows
   expect-plain LABELS_JSON ENV_JSON  a ccy session container with no seat label or PINGBUS_ variable but PINGBUS_MEMBERSHIP=off
 
 Exit codes: 0 ok; 1 an expectation failed or the input was malformed; 3 not there yet;
@@ -63,8 +71,6 @@ GITHUB_API = "https://api.github.com"
 #: A documentation network (CLAUDE/ExampleValues.md): the team admits nothing real beyond loopback
 #: and the bus address, as Plan 00161's acceptance team does.
 ALLOW_FROM_EXAMPLE = "192.0.2.0/24"
-#: helpers/pingbus/protocol.py DESCRIPTION_MAX; the installer applies the full rule again.
-DESCRIPTION_MAX = 120
 SESSION_ID_RE = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 )
@@ -72,12 +78,21 @@ _GITHUB_RE = re.compile(
     r"(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)"
     r"(?P<owner>[A-Za-z0-9-]+)/[A-Za-z0-9._-]+?(?:\.git)?/?"
 )
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
-#: How `pingbus status-line` starts its teams row, and indents a wrapped one under it.
-SEGMENT_LABEL = "👥 "
-SEGMENT_INDENT = "   "
-#: One team of the segment: its name, the role it was read to have, then its marks.
-_SEGMENT_TEAM_RE = re.compile(r"(?P<team>[a-z][a-z0-9-]*) \((?:worker|coordinator)\)(?: \([a-z]+\))*")
+#: The Go `pingbus-status-line` that draws the segment, in this checkout; its `label` constant
+#: is read from the source, not copied (expect-segment runs on the host).
+STATUS_LINE_GO = pathlib.PurePosixPath("src-go/internal/pingbus/statusline/statusline.go")
+_GO_LABEL_RE = re.compile(r'^\s*label\s*=\s*"([^"\\]+)"\s*$', re.MULTILINE)
+#: The Go table `ccy-teams --list` prints; its `headings` and the team row's `KindTeam` are read
+#: from the source, not copied (expect-list-row runs on the host).
+BOARD_TABLE_GO = pathlib.PurePosixPath("src-go/internal/teams/board/table.go")
+_GO_HEADINGS_RE = re.compile(r"^var headings = \[columns\]string\{([^}]*)\}\s*$", re.MULTILINE)
+_GO_KIND_TEAM_RE = re.compile(r'^\s*KindTeam\s+Kind\s*=\s*"([^"\\]+)"\s*$', re.MULTILINE)
+#: Stand-ins for the team and the member when segment_piece_re has statusline.py draw a piece:
+#: control characters, which no team name, handle or fixed text of the piece holds.
+_PIECE_TEAM, _PIECE_MEMBER, _PIECE_LETTER = "\x00\x01\x00", "\x00\x02\x00", "\x00\x03\x00"
+#: A mark after a team's role, such as `(down)`; a mark of something unreadable (`(colour?)`)
+#: has a `?` and is not one of these.
+_SEGMENT_MARKS = r"(?: \([a-z]+\))*"
 #: pingbus cli.py, word for word: the refusal when several teams are active and none is inferred.
 CHOICES_TEXT = "several teams are active and --to/--re fit more than one (or none): name one with --team:"
 
@@ -89,9 +104,15 @@ class Failed(Exception):
 # ---------------------------------------------------------------- the throwaway teams
 
 
+def description_max() -> int:
+    """The longest description, from this checkout's helpers/pingbus/protocol.py; the
+    installer applies the full rule again."""
+    return _checkout_module("helpers.pingbus.protocol").DESCRIPTION_MAX
+
+
 def is_description(value: str) -> bool:
     return (
-        1 <= len(value) <= DESCRIPTION_MAX
+        1 <= len(value) <= description_max()
         and value == value.strip()
         and not any(unicodedata.category(ch) in ("Cc", "Cf") for ch in value)
     )
@@ -105,7 +126,7 @@ def team_file(
     meaningless."""
     if not is_description(description):
         raise ValueError(
-            f"description must be 1 to {DESCRIPTION_MAX} characters, stripped, "
+            f"description must be 1 to {description_max()} characters, stripped, "
             "with no control or format character"
         )
     return {
@@ -157,20 +178,30 @@ def bus_ports(
     return ports
 
 
-def _declare() -> object:
-    """helpers.agent_bus.declare from this checkout, imported only by the host-side commands
-    that need it."""
+def _checkout_root() -> pathlib.Path:
+    """This checkout's top: the first directory above this file holding ansible.cfg."""
     here = pathlib.Path(__file__).resolve().parent
     for candidate in (here, *here.parents):
         if (candidate / "ansible.cfg").exists():
-            if str(candidate) not in sys.path:
-                sys.path.insert(0, str(candidate))
-            return importlib.import_module("helpers.agent_bus.declare")
+            return candidate
         if (candidate / ".git").exists():
             break
     raise ValueError(
         f"no ansible.cfg above {here}: not inside a fedora-desktop checkout"
     )
+
+
+def _checkout_module(name: str) -> object:
+    """A module of this checkout's helpers, imported only by the host-side commands that
+    need it."""
+    root = str(_checkout_root())
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    return importlib.import_module(name)
+
+
+def _declare() -> object:
+    return _checkout_module("helpers.agent_bus.declare")
 
 
 def owner_bus_ports(count: int, host_vars_path: str) -> list[int]:
@@ -341,19 +372,41 @@ def seat_containers(listing: str, teams: Sequence[str]) -> list[str]:
     return found
 
 
-def expect_list_row(listing: str, team: str, description: str) -> None:
+def board_table(source: str | None = None) -> tuple[tuple[str, str, str, str], str]:
+    """The board's first four column headings (TEAM, MEMBER, KIND, STATE: colTeam to colState)
+    and the KIND a team row shows, read from `source`, default this checkout's table.go. Each
+    must be declared exactly once, or this fails rather than guess."""
+    if source is None:
+        source = (_checkout_root() / BOARD_TABLE_GO).read_text(encoding="utf-8")
+    found = _GO_HEADINGS_RE.findall(source)
+    if len(found) != 1:
+        raise Failed(f"want exactly one `var headings = [columns]string{{...}}` in {BOARD_TABLE_GO}, found {found!r}")
+    names = re.findall(r'"([^"\\]+)"', found[0])
+    kinds = _GO_KIND_TEAM_RE.findall(source)
+    if len(names) < 4 or len(kinds) != 1:
+        raise Failed(f"want four or more headings and one `KindTeam Kind = \"...\"` in {BOARD_TABLE_GO}, "
+                     f"found {names!r} and {kinds!r}")
+    return (names[0], names[1], names[2], names[3]), kinds[0]
+
+
+def expect_list_row(
+    listing: str, team: str, description: str,
+    table: tuple[tuple[str, str, str, str], str] | None = None,
+) -> None:
     """The team row of `ccy-teams --list`, piped: the TEAM cell, the MEMBER cell, which is the
-    description printed whole, then the KIND `team`, each cell starting exactly where its
+    description printed whole, then the KIND of a team row, each cell starting exactly where its
     heading does. The board sizes each column to its longest value (board.measure), so the
-    widths are read from the heading line, never assumed."""
+    widths are read from the heading line, never assumed. `table` is (headings, team kind),
+    default board_table()."""
+    (first, *rest), team_kind = board_table() if table is None else table
     lines = listing.splitlines()
     heading = lines[0] if lines else ""
-    starts = [heading.find(f"  {name}  ") + 2 for name in ("MEMBER", "KIND", "STATE")]
-    if not heading.startswith("TEAM ") or min(starts) < 2 or starts != sorted(starts):
-        raise Failed(f"ccy-teams --list did not start with its TEAM MEMBER KIND STATE heading: {heading!r}")
+    starts = [heading.find(f"  {name}  ") + 2 for name in rest]
+    if not heading.startswith(f"{first} ") or min(starts) < 2 or starts != sorted(starts):
+        raise Failed(f"ccy-teams --list did not start with its {first} {' '.join(rest)} heading: {heading!r}")
     member, kind, state = starts
     row = (team.ljust(member - 2) + "  " + description.ljust(kind - member - 2) + "  "
-           + "team".ljust(state - kind - 2) + "  ")
+           + team_kind.ljust(state - kind - 2) + "  ")
     rows = [line for line in lines[1:] if line.startswith(f"{team} ") or line == team]
     if not any(line[:state] == row for line in rows):
         raise Failed(
@@ -433,23 +486,60 @@ def expect_choices(stderr: str, teams: Sequence[tuple[str, str]]) -> None:
         raise Failed(f"the refusal does not list {missing!r}: {stderr!r}")
 
 
-#: How the shell guard a seated ccy session's settings name ends (helpers/pingbus/seat.py
-#: STATUS_LINE_GUARD, Plan 00203 H34): with the `active` flag, `pingbus status-line` runs.
-GUARD_TAIL = "exec pingbus status-line"
+#: The member kit's settings in this checkout, whose status line command a seated session's
+#: guard runs (the ccy image's /opt/claude-yolo/optional/agent-bus/settings.json).
+KIT_SETTINGS = pathlib.PurePosixPath("files/opt/claude-yolo/optional/agent-bus/settings.json")
 #: Each status line command is given this long before the leg calls it hung.
 STATUS_LINE_TIMEOUT_S = 30
 
 
-def expect_session_settings(settings: object) -> None:
-    """The settings `pingbus seat exec` wrote for a seated ccy session (H34): inbound accepted,
-    and the status line the shell guard that ends in `pingbus status-line`."""
-    line = settings.get("statusLine") if isinstance(settings, dict) else None
+def seated_status_line() -> dict:
+    """The status line `pingbus seat exec` writes for a seated session, from this checkout's
+    own helpers/pingbus/seat.py (Plan 00203 H34): never a copy, so it cannot drift from the kit."""
+    seat = _checkout_module("helpers.pingbus.seat")
+    return seat.session_settings(None, seated=True)["statusLine"]
+
+
+def session_paths() -> list[str]:
+    """Where a ccy session keeps what the legs read, from this checkout's seat.py and
+    membership.py, never a copy: the session home `pingbus seat exec` builds, the settings it
+    writes there, the membership mount's destination, and the desired membership's file name."""
+    seat = _checkout_module("helpers.pingbus.seat")
+    membership = _checkout_module("helpers.pingbus.membership")
+    home = pathlib.PurePosixPath(seat.SESSION_HOME)
+    paths = [str(home), str(home / seat.SESSION_SETTINGS), membership.CCY_MOUNT, membership.DESIRED_FILE]
+    if not all(isinstance(path, str) and path and "\n" not in path for path in paths):
+        raise Failed(f"seat.py and membership.py name no usable session paths: {paths!r}")
+    return paths
+
+
+def kit_command() -> str:
+    """The status line command of this checkout's member kit settings."""
+    path = _checkout_root() / KIT_SETTINGS
+    line = json.loads(path.read_text(encoding="utf-8")).get("statusLine")
     command = line.get("command") if isinstance(line, dict) else None
+    if not isinstance(command, str) or not command.strip():
+        raise Failed(f"{path} names no status line command: {line!r}")
+    return command
+
+
+def expect_session_settings(settings: object, want: dict | None = None, kit: str | None = None) -> None:
+    """The settings `pingbus seat exec` wrote for a seated ccy session (H34): inbound accepted,
+    and the status line exactly what this checkout's seat.py writes for a seated session (each
+    key it sets; Claude Code's own padding may be added), a shell guard that ends by running
+    the kit's status line command. `want` and `kit` default to this checkout's."""
+    want = seated_status_line() if want is None else want
+    kit = kit_command() if kit is None else kit
+    guard = want.get("command")
+    if not isinstance(guard, str) or not guard.startswith("[ -e ") or not guard.endswith(f"exec {kit}"):
+        raise Failed(f"this checkout's seat.py guard {guard!r} does not end by running the kit's "
+                     f"status line command {kit!r} ({KIT_SETTINGS})")
+    line = settings.get("statusLine") if isinstance(settings, dict) else None
     problems = []
     if not isinstance(settings, dict) or settings.get("crossSessionInbound") != "accept":
         problems.append("no crossSessionInbound accept")
-    if not isinstance(command, str) or not command.startswith("[ -e ") or not command.endswith(GUARD_TAIL):
-        problems.append(f"the status line is {line!r}, not the shell guard ending {GUARD_TAIL!r}")
+    if not isinstance(line, dict) or any(line.get(key) != value for key, value in want.items()):
+        problems.append(f"the status line is {line!r}, not the seated guard this checkout writes, {want!r}")
     if problems:
         raise Failed(f"the session's settings: {'; '.join(problems)}")
 
@@ -496,23 +586,147 @@ def session_status_line(proc: pathlib.Path, payload: bytes) -> str:
     return text.rstrip("\n")
 
 
-def expect_segment(text: str, teams: str) -> None:
+#: ccy-teams' hot add/remove, whose step marks are read from its const block.
+HOT_GO = pathlib.PurePosixPath("src-go/internal/teams/hot/hot.go")
+
+
+def go_string_const(source: str, name: str, where: object) -> str:
+    """The value of the one plain `name = "..."` line (a Go const block's string entry) in
+    `source`; zero or several such lines fail rather than guess."""
+    found = re.findall(rf'^\s*{re.escape(name)}\s*=\s*"([^"\\]+)"\s*$', source, re.MULTILINE)
+    if len(found) != 1:
+        raise Failed(f"want exactly one `{name} = \"...\"` constant in {where}, found {found!r}")
+    return found[0]
+
+
+def hot_marks(source: str | None = None) -> list[str]:
+    """The marks `ccy-teams session add/remove` starts a done and a failed step with (hot.go's
+    markDone and markFailed)."""
+    if source is None:
+        source = (_checkout_root() / HOT_GO).read_text(encoding="utf-8")
+    return [go_string_const(source, "markDone", HOT_GO), go_string_const(source, "markFailed", HOT_GO)]
+
+
+def status_line_names(source: str | None = None) -> list[str]:
+    """The Go status line's teams row head (segment_label) and the variable that has it draw
+    only the bus segment (statusline.go's innerVar)."""
+    if source is None:
+        source = (_checkout_root() / STATUS_LINE_GO).read_text(encoding="utf-8")
+    return [segment_label(source)[0], go_string_const(source, "innerVar", STATUS_LINE_GO)]
+
+
+def segment_label(source: str | None = None) -> tuple[str, str]:
+    """How the status line starts its teams row and indents a wrapped one under it: the Go
+    drawer's `label` constant (read from `source`, default this checkout's statusline.go) and a
+    space, and as many spaces as that takes columns, by helpers/pingbus/statusline.py's
+    display_width, the reference Go's displayWidth is the port of."""
+    if source is None:
+        source = (_checkout_root() / STATUS_LINE_GO).read_text(encoding="utf-8")
+    found = _GO_LABEL_RE.findall(source)
+    if len(found) != 1:
+        raise Failed(f"want exactly one `label = \"...\"` constant in {STATUS_LINE_GO}, found {found!r}")
+    head = f"{found[0]} "
+    return head, " " * _checkout_module("helpers.pingbus.statusline").display_width(head)
+
+
+def _statusline() -> object:
+    return _checkout_module("helpers.pingbus.statusline")
+
+
+def segment_piece(statusline: object | None = None) -> str:
+    """How the status line draws one team, with stand-ins for the team, the member and the role's
+    letter: this checkout's helpers/pingbus/statusline.py `_team_piece` (Plan 00217 C15; the Go
+    drawer's teamsText is its port, both held to the same goldens), drawn once for each role in
+    its ROLE_LETTERS. The separators are the product's; a drawer whose pieces differ by more than
+    the letter, or that does not show each stand-in once, fails rather than guess."""
+    statusline = _statusline() if statusline is None else statusline
+    shapes = set()
+    for role, letter in statusline.ROLE_LETTERS.items():
+        piece = statusline._team_piece({}, _PIECE_TEAM, (_PIECE_MEMBER, role), False)
+        if any(piece.count(part) != 1 for part in (_PIECE_TEAM, _PIECE_MEMBER, letter)):
+            raise Failed(f"statusline.py drew {piece!r} for role {role!r}: want the team, the member "
+                         f"and the letter {letter!r} once each")
+        shapes.add(piece.replace(letter, _PIECE_LETTER))
+    if len(shapes) != 1:
+        raise Failed(f"statusline.py draws its roles in different shapes: {sorted(shapes)!r}")
+    return shapes.pop()
+
+
+def segment_piece_re(statusline: object | None = None) -> re.Pattern[str]:
+    """One team of the segment: segment_piece with the team a team name (protocol.py's
+    TEAM_NAME_PATTERN), the member one word and the letter of a role that was read (one of
+    ROLE_LETTERS, never ROLE_UNKNOWN), then any marks such as `(down)`."""
+    statusline = _statusline() if statusline is None else statusline
+    letters = "|".join(re.escape(letter) for letter in statusline.ROLE_LETTERS.values())
+    groups = {
+        _PIECE_TEAM: f"(?P<team>{_checkout_module('helpers.pingbus.protocol').TEAM_NAME_PATTERN})",
+        _PIECE_MEMBER: r"(?P<member>[^\s,()]+)",
+        _PIECE_LETTER: f"(?:{letters})",
+    }
+    parts = re.split(f"({'|'.join(map(re.escape, groups))})", segment_piece(statusline))
+    return re.compile("".join(groups.get(part, re.escape(part)) for part in parts) + _SEGMENT_MARKS)
+
+
+def _coloured_spans(row: str, statusline: object) -> list[str] | None:
+    """C10: what follows a row's plain lead is spans joined by plain spaces, each a colour (an
+    escape that is not the reset), its text, the reset. The spans' texts, or None."""
+    reset = statusline.RESET
+    if not row.endswith(reset):
+        return None
+    texts = []
+    for span in row.removesuffix(reset).split(f"{reset} "):
+        colour = statusline.ANSI_ESCAPE_RE.match(span)
+        if colour is None or colour[0] == reset or statusline.ANSI_ESCAPE_RE.search(span, colour.end()):
+            return None
+        texts.append(span[colour.end():])
+    return texts
+
+
+def _segment_teams(raw_rows: list[str], leads: list[str], piece_re: re.Pattern[str],
+                   statusline: object) -> str | None:
+    """The team names the segment's rows show, comma-separated, if every row is its lead then
+    spans of one team piece each, every piece but the last ending in a comma, each a team whose
+    role and member were read; else None."""
+    texts: list[str] = []
+    for row, lead in zip(raw_rows, leads, strict=True):
+        found = _coloured_spans(row.removeprefix(lead), statusline) if row.startswith(lead) else None
+        if found is None:
+            return None
+        texts.extend(found)
+    if not all(text.endswith(",") for text in texts[:-1]):
+        return None
+    pieces = [piece_re.fullmatch(text.removesuffix(",")) for text in texts[:-1]] + [piece_re.fullmatch(texts[-1])]
+    if not all(pieces) or any(match["member"] == statusline.MEMBER_UNKNOWN for match in pieces):
+        return None
+    return ",".join(match["team"] for match in pieces)
+
+
+def expect_segment(text: str, teams: str, label: tuple[str, str] | None = None, inner: bool = True) -> None:
     """`pingbus status-line` prints the session's own status line, then `👥 TEAMS` on rows of its
     own: the first row starts with the label, later rows are indented under it (it wraps after a
-    comma at COLUMNS). Each team is `team (role)`, then any marks such as `(down)`, its role one
-    that was read (Plan 00203 Task 3.8); TEAMS is the team names alone, comma-separated."""
-    lines = _ANSI_RE.sub("", text).strip("\n").splitlines()
-    starts = [index for index, line in enumerate(lines) if line.startswith(SEGMENT_LABEL)]
+    comma at COLUMNS). Each team is drawn as segment_piece_re: `team: member (letter)`, then any
+    marks, its role one that was read (Plan 00203 Task 3.8) and its member one that was read
+    (Plan 00217 C16), each team in its own colour span (C10). TEAMS is the team names alone,
+    comma-separated. `label` is (head, indent), default segment_label(). With `inner` False the
+    segment was drawn alone (the inner-only variable set): no line may come before its rows."""
+    head, indent = segment_label() if label is None else label
+    statusline = _statusline()
+    piece_re = segment_piece_re(statusline)
+    raw = text.strip("\n").splitlines()
+    lines = [statusline.ANSI_ESCAPE_RE.sub("", line) for line in raw]
+    starts = [index for index, line in enumerate(lines) if line.startswith(head)]
     first = starts[-1] if starts else len(lines)
-    inner, rows = lines[:first], lines[first:]
-    shown = None
-    if rows and all(row.startswith(SEGMENT_INDENT) and row.strip() for row in rows[1:]):
-        joined = " ".join([rows[0].removeprefix(SEGMENT_LABEL), *(row.removeprefix(SEGMENT_INDENT) for row in rows[1:])])
-        pieces = [_SEGMENT_TEAM_RE.fullmatch(piece.strip()) for piece in joined.split(",")]
-        shown = ",".join(match["team"] for match in pieces if match) if all(pieces) else None
-    if not any(line.strip() for line in inner) or shown != teams:
-        raise Failed(f"the status line is {lines!r}, want the session's own line then {SEGMENT_LABEL}"
-                     f"{', '.join(f'{team} (worker|coordinator)' for team in teams.split(','))}")
+    before = lines[:first]
+    leads = [head, *(indent for _ in raw[first + 1:])]
+    shown = _segment_teams(raw[first:], leads, piece_re, statusline) if first < len(raw) else None
+    before_ok = any(line.strip() for line in before) if inner else not before
+    if not before_ok or shown != teams:
+        letters = "|".join(statusline.ROLE_LETTERS.values())
+        want = ", ".join(segment_piece(statusline).replace(_PIECE_TEAM, team)
+                         .replace(_PIECE_MEMBER, "<member>").replace(_PIECE_LETTER, letters)
+                         for team in teams.split(","))
+        lead = "the session's own line then " if inner else "nothing but "
+        raise Failed(f"the status line is {raw!r}, want {lead}{head}{want}, each team in its own colour")
 
 
 def expect_plain(labels: object, env: object) -> None:
@@ -615,12 +829,16 @@ COMMANDS: dict[str, tuple[int, Callable[[Sequence[str]], int | None]]] = {
     "expect-about": (3, lambda a: expect_about(_read(a[0]), a[1], a[2])),
     "expect-sent": (2, lambda a: _print(expect_sent(_read(a[0]), a[1]))),
     "expect-choices": (-1, lambda a: expect_choices(_read(a[0]), _groups(a[1:], 2))),
+    "session-paths": (0, lambda a: _lines(session_paths())),
+    "hot-marks": (0, lambda a: _lines(hot_marks())),
+    "status-line-names": (0, lambda a: _lines(status_line_names())),
     "expect-session-settings": (1, lambda a: expect_session_settings(_json_file(a[0]))),
     "session-status-line": (
         1,
         lambda a: _print(session_status_line(pathlib.Path(a[0]), sys.stdin.read().encode("utf-8"))),
     ),
     "expect-segment": (2, lambda a: expect_segment(_read(a[0]), a[1])),
+    "expect-segment-rows": (2, lambda a: expect_segment(_read(a[0]), a[1], inner=False)),
     "expect-plain": (2, lambda a: expect_plain(_json_file(a[0]), _json_file(a[1]))),
 }
 
