@@ -363,6 +363,7 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
   under the lock), `ready` sent. A connect before that is refused. The link ignores `SIGTERM`,
   `SIGINT`, `SIGHUP`; a closed control socket (the keeper's death, its pidfd checked against
   `getppid`) posts `disconnected` for every held seat within 5 s and exits (T20).
+  **W-D1.** `link` takes an optional `--state DIR`, which the keeper passes it.
 - **LN2. The socket protocol** (B 2.4.4): `SO_PEERCRED` uid; one request per connection, at most
   64 KiB (else 10); a `kit` digest not the link's is 78; every request carries `deadline_ms`
   (`CLOCK_BOOTTIME`), set by the table (hooks 300 ms, local reads 2 s, sends 30 s, `history` and
@@ -371,6 +372,8 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
   `keeper.json` (4 KiB, strict) and probes `keeper.lock`: 69 `no-link` with the restart time,
   69 `link-failed` with the kind's recovery, 69 `no-session` without `TEAMCHAT_RUNTIME`; under
   300 ms. `wait` alone reconnects (1 s doubling to 5 s) with its one deadline (T3).
+  **W-D2.** With a team's server down, a verb that needs it exits 20 `unreachable` for that
+  team only (B 2.4.5); 69 stays "no runtime".
 - **LN4. `recv`, `wait`, `inbox`** (B 2.2.1, 2.4.4): caps of 8 entries and 12 KiB then `more`;
   items `handed` and persisted before any record is sent; delivered only on the CLI's `ack`
   after it flushed stdout; no `ack` in 10 s, a closed connection or a failed stdout returns them

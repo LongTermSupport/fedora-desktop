@@ -112,7 +112,7 @@ func TestServeRefusesBadArgumentsAndUnbuiltOps(t *testing.T) {
 	if d := w.e.Serve(ctx, wire.Request{Op: wire.OpVerify, Args: []byte(`{"team":null,"id":"x"}`)}, &recorder{}); d.Exit != 1 {
 		t.Fatalf("verify on an ended context = %+v", d)
 	}
-	if d := w.e.Serve(ctx, wire.Request{Op: wire.OpWait, Args: []byte(`{"team":null,"timeout_s":1}`)}, &recorder{}); d != (wire.Done{}) {
+	if d := w.e.Serve(ctx, wire.Request{Op: wire.OpWait, Args: []byte(`{"team":null,"timeout_s":1}`)}, &recorder{}); d.Exit != int(exits.ExitTimedOut) {
 		t.Fatalf("wait on an ended context = %+v", d)
 	}
 	if d := w.e.Serve(ctx, wire.Request{Op: wire.OpInbox, Args: []byte(`{"team":null}`)}, &recorder{}); d.Exit != 1 {
@@ -130,11 +130,11 @@ func TestPersistAddsEachItemOnceAppliesRedactionsAndFloors(t *testing.T) {
 	w.persist(ops, humanItem(ops, 1, 1, "a"), humanItem(ops, 2, 2, "b"))
 	d := w.done(wire.OpRecv, wire.TeamsArgs{})
 	check(t, w.e.Ack(t.Context(), d.Ack))
-	check(t, w.e.Persist(t.Context(), team.Batch{
+	w.persistBatch(team.Batch{
 		Team: ops, NextBatch: "s2", RestoreEpoch: 3, Floors: map[string]int64{proto.PurposeQuestions: 9},
 		Items:   []team.Item{humanItem(ops, 1, 1, "again"), humanItem(ops, 3, 3, "c"), humanItem(ops, 4, 4, "d"), humanItem(ops, 4, 4, "d")},
 		Redacts: []string{evID(3)},
-	}))
+	})
 	s := w.store(ops)
 	if len(s.Pending) != 1 || s.Pending[0].ID != evID(4) || s.Sync.NextBatch != "s2" || s.Sync.RestoreEpoch != 3 ||
 		s.Sync.FloorMS[proto.PurposeQuestions] != 9 {
@@ -153,16 +153,24 @@ func TestPersistFloorsSitBelowTheOldestOwedItem(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
 	ops := tid(t, "ops")
 	w.held(ops)
-	check(t, w.e.Persist(t.Context(), team.Batch{
+	floor, err := w.e.Persist(t.Context(), team.Batch{
 		Team: ops, NextBatch: "s1", Floors: map[string]int64{proto.PurposeMain: 300},
 		Items: []team.Item{humanItem(ops, 2, 200, "b"), humanItem(ops, 1, 100, "a")},
-	}))
+	})
+	check(t, err)
+	if floor != 99 {
+		t.Fatalf("Persist's floor = %d, not the store's 99", floor)
+	}
 	if got := w.store(ops).Sync.FloorMS[proto.PurposeMain]; got != 99 {
 		t.Fatalf("the floor with items owed = %d", got)
 	}
 	d := w.done(wire.OpRecv, wire.TeamsArgs{})
 	check(t, w.e.Ack(t.Context(), d.Ack))
-	check(t, w.e.Persist(t.Context(), team.Batch{Team: ops, NextBatch: "s2", Floors: map[string]int64{proto.PurposeMain: 500}}))
+	floor, err = w.e.Persist(t.Context(), team.Batch{Team: ops, NextBatch: "s2", Floors: map[string]int64{proto.PurposeMain: 500}})
+	check(t, err)
+	if floor != 500 {
+		t.Fatalf("Persist's floor with none owed = %d", floor)
+	}
 	if got := w.store(ops).Sync.FloorMS[proto.PurposeMain]; got != 500 {
 		t.Fatalf("the floor with none owed = %d", got)
 	}
@@ -179,7 +187,7 @@ func TestAFullPendingListRefusesTheWholeBatch(t *testing.T) {
 		it.Pending.From = agent(ops, 2)
 		batch = append(batch, it)
 	}
-	err := w.e.Persist(t.Context(), team.Batch{Team: ops, Items: batch, Counts: team.Counts{Ignored: 1}})
+	_, err := w.e.Persist(t.Context(), team.Batch{Team: ops, Items: batch, Counts: team.Counts{Ignored: 1}})
 	if err == nil {
 		t.Fatal("a batch past the cap was persisted")
 	}

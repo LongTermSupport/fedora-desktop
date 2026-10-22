@@ -435,13 +435,13 @@ func (e *fakeEngine) View(_ paths.TeamID, ids, relations []string, _ proto.Roste
 	return v, nil
 }
 
-func (e *fakeEngine) Persist(_ context.Context, b team.Batch) error {
+func (e *fakeEngine) Persist(_ context.Context, b team.Batch) (int64, error) {
 	e.mu.Lock()
 	hook := e.persistErr
 	e.mu.Unlock()
 	if hook != nil {
 		if err := hook(b); err != nil {
-			return err
+			return 0, err
 		}
 	}
 	e.mu.Lock()
@@ -453,9 +453,16 @@ func (e *fakeEngine) Persist(_ context.Context, b team.Batch) error {
 			s.Pending = append(s.Pending, it.Pending)
 		}
 	}
+	floor := s.Sync.FloorMS[proto.PurposeMain]
+	for _, p := range s.Pending {
+		if p.Room == proto.PurposeMain && p.SentMS <= floor {
+			floor = p.SentMS - 1
+			s.Sync.FloorMS[proto.PurposeMain] = floor
+		}
+	}
 	e.mu.Unlock()
 	e.batches <- b
-	return nil
+	return floor, nil
 }
 
 func (e *fakeEngine) ResetPosition(_ context.Context, _ paths.TeamID, epoch int64) error {
