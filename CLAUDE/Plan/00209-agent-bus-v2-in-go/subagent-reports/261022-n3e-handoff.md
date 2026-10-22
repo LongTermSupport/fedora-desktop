@@ -1032,6 +1032,27 @@ These override 15a where they differ (`261022-n3e-brief-review-2.md`).
   connect failure: nothing reached Claude Code. Only `ErrPartial` leaves the entry `unknown`.
 - The four low findings of round 2 go to the builders with round 1's.
 
+## 15c. Lead's check of 15b
+
+15b stands. The lead checked it against the round 2 review instead of running a third review.
+It adds what 15b leaves out from that review's fixes:
+
+- **The budget (n3e-7).**
+  - Carried items are exempt, as admin items are.
+  - The window is copied into `judged` and committed at persist, as `flood` is, so a discarded
+    answer counts nothing. Test that.
+  - The receive limit's `rate` drops stay ordinary `Dropped` counts.
+  - n3e-D1 records that the window is held in memory only, so a link restart resets it.
+- **The render count (n3e-10).** `Config.OnUnusable` only records and returns, and nothing
+  reached from it calls the engine. `records.Runtime.Unusable` gets its golden and PK2's
+  record-kind check. Test: under `-race` on the fake clock, a failed slot completes and its
+  count reaches `status`.
+- **An earlier run's entries (n3e-9).** The return to `pending` must be idempotent and keyed by
+  the run id, so a crash between `BeginRun` and the first load only repeats it. Test with a
+  `SIGKILL` before and after the write. If the builder drops the earlier `missed` entries, they
+  record why in a decision.
+- **`ErrRetry` (n3e-6).** Add a DV3 test row for it.
+
 ## 16. B27 and the owner's offline rule, carried
 
 **B27** (DESIGN-v2-B-member.md 1.5, in full): "The status line always exits 0, wraps the
