@@ -22,7 +22,12 @@ func memberNames(t *testing.T) map[string][]string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	aside, err := StateSeat("/home/u/.local/state/teamchat/seats/sessions/s1", mustTeam(t, "ops"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	names := map[string][]string{
+		"StateSeat":           {aside.Dir()},
 		"FloorAccountData":    {FloorAccountData},
 		"InboxSocket":         {socket},
 		"GuestUnitFile":       {GuestUnitFile(user)},
@@ -41,6 +46,13 @@ func memberNames(t *testing.T) map[string][]string {
 func memberZeroDerivations() map[string]func() string {
 	var user GuestUser
 	return map[string]func() string{
+		"StateSeat": func() string {
+			s, err := StateSeat("/home/u", TeamID{})
+			if err != nil {
+				return err.Error()
+			}
+			return s.Dir()
+		},
 		"GuestUnitFile":      func() string { return GuestUnitFile(user) },
 		"GuestUnitWantsLink": func() string { return GuestUnitWantsLink(user) },
 		"GuestRuntimeParents": func() string {
@@ -64,7 +76,12 @@ func TestMemberNames(t *testing.T) {
 	if err != nil || len(parents) != 2 {
 		t.Fatalf("GuestRuntimeParents = %v, %v", parents, err)
 	}
+	aside, err := StateSeat("/srv/seats", mustTeam(t, "ops"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	for got, want := range map[string]string{
+		aside.Store():            "/srv/seats/ops/store.json",
 		FloorAccountData:         "teamchat.floor",
 		socket:                   "/run/user/1000/cc-socks/4242.sock",
 		GuestUnitFile(user):      "/etc/systemd/system/teamchat-session-" + user.String() + ".service",
@@ -113,6 +130,11 @@ func TestMemberNamesRefuseBadInput(t *testing.T) {
 	for _, uid := range []int{0, -1} {
 		if _, err := GuestRuntimeParents(sampleGuestUser(t), uid); !errors.Is(err, ErrInvalid) {
 			t.Errorf("GuestRuntimeParents(uid %d) = %v, want ErrInvalid", uid, err)
+		}
+	}
+	for _, dir := range []string{"seats", "/seats/", "/a/../seats", "/"} {
+		if _, err := StateSeat(dir, mustTeam(t, "ops")); !errors.Is(err, ErrInvalid) {
+			t.Errorf("StateSeat(%q) = %v, want ErrInvalid", dir, err)
 		}
 	}
 	for _, ms := range []int64{0, -1} {

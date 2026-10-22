@@ -29,3 +29,4 @@ rclone-cache-status	qa-go
 wsi-lower-media-volume	qa-go
 pingbus-status-line	qa-go
 teamchat-admin	qa-go
+teamchat	qa-go

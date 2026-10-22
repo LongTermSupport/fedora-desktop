@@ -40,7 +40,7 @@ func (s *Store) Claim(a *Alloc, seat Seat) (*Claim, error) {
 	if held {
 		return nil, fmt.Errorf("%w: %s; release it first", ErrHeld, seat.Name)
 	}
-	id, err := newClaim()
+	id, err := NewClaim()
 	if err != nil {
 		return nil, err
 	}
