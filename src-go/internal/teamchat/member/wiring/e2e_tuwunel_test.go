@@ -19,7 +19,7 @@ import (
 func tuwunelServer(t *testing.T) homeserver {
 	t.Helper()
 	ctx := t.Context()
-	hs := tuwunelhs.Start(ctx, t, server)
+	hs := tuwunelhs.Start(ctx, t, alpha.server)
 	anon, err := matrix.NewAdmin(matrix.Config{BaseURL: hs.Base, Clock: clock.System()})
 	check(t, err)
 	t.Cleanup(anon.Close)
@@ -28,7 +28,7 @@ func tuwunelServer(t *testing.T) homeserver {
 	adm, err := anon.WithToken(sess.AccessToken.Reveal())
 	check(t, err)
 	for _, local := range accounts {
-		if _, err := adm.CreateAccount(ctx, user(local), tuwunelhs.RandomKey(t), ""); err != nil {
+		if _, err := adm.CreateAccount(ctx, proto.UserID(local, alpha.server), tuwunelhs.RandomKey(t), ""); err != nil {
 			t.Fatalf("CreateAccount %s: %v", local, err)
 		}
 	}

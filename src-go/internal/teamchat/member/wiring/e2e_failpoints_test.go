@@ -55,7 +55,7 @@ func (s *session) awaitLinkKilled(recv bool) map[string]int {
 func (s *session) recvAny() []string {
 	s.w.t.Helper()
 	var ids []string
-	for line := range strings.SplitSeq(string(s.exec("recv", "--team", teamName).Stdout), "\n") {
+	for line := range strings.SplitSeq(string(s.exec("recv", "--team", s.w.team.name).Stdout), "\n") {
 		var r map[string]any
 		if json.Unmarshal([]byte(line), &r) != nil {
 			continue

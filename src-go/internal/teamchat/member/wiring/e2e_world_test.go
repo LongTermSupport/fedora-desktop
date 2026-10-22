@@ -41,20 +41,28 @@ const (
 
 var accounts = []string{alice, coord, me, peer}
 
-func mustTeam() paths.TeamID {
-	t, err := paths.ParseTeamID(teamName)
+// teamOf is a team of the world: its name, its id and its homeserver's name.
+type teamOf struct {
+	name   string
+	id     paths.TeamID
+	server string
+}
+
+func mustTeam(name string) teamOf {
+	id, err := paths.ParseTeamID(name)
 	if err != nil {
 		panic(err)
 	}
-	return t
+	return teamOf{name: name, id: id, server: paths.ServerName(id)}
 }
 
 var (
-	alphaID = mustTeam()
-	server  = paths.ServerName(alphaID)
+	alpha   = mustTeam(teamName)
+	alphaID = alpha.id
 )
 
-func user(local string) string { return proto.UserID(local, server) }
+// user is local's user id on the world's team's homeserver.
+func (w *world) user(local string) string { return proto.UserID(local, w.team.server) }
 
 func check(t *testing.T, err error) {
 	t.Helper()
@@ -64,17 +72,25 @@ func check(t *testing.T, err error) {
 }
 
 // homeserver is the team's server, fakehs or a real Tuwunel: its URL, its admin, and a token
-// for any account.
+// for any account; fake is the fakehs, nil for a Tuwunel.
 type homeserver struct {
 	base  string
 	admin *matrix.Admin
 	mint  func(userID string) (string, error)
+	fake  *fakehs.Server
 }
 
-// fakeServer is fakehs over HTTP on the wall clock, its accounts made, for the member processes.
+// fakeServer is team alpha's fakehs (fakeServerFor).
 func fakeServer(t *testing.T) homeserver {
 	t.Helper()
-	srv := fakehs.New(fakehs.Options{ServerName: server, Quirks: fakehs.TuwunelQuirks()})
+	return fakeServerFor(t, alpha)
+}
+
+// fakeServerFor is fakehs for tm over HTTP on the wall clock, its accounts made, for the member
+// processes.
+func fakeServerFor(t *testing.T, tm teamOf) homeserver {
+	t.Helper()
+	srv := fakehs.New(fakehs.Options{ServerName: tm.server, Quirks: fakehs.TuwunelQuirks()})
 	check(t, srv.Start())
 	t.Cleanup(func() {
 		if err := srv.CheckModelled(); err != nil {
@@ -88,12 +104,12 @@ func fakeServer(t *testing.T) homeserver {
 	for _, local := range accounts {
 		srv.AddUser(local, "pw", false)
 	}
-	token, err := srv.MintToken(proto.AdminID(server))
+	token, err := srv.MintToken(proto.AdminID(tm.server))
 	check(t, err)
 	adm, err := matrix.NewAdmin(matrix.Config{BaseURL: srv.URL(), Token: token, Clock: clock.System()})
 	check(t, err)
 	t.Cleanup(adm.Close)
-	return homeserver{base: srv.URL(), admin: adm, mint: srv.MintToken}
+	return homeserver{base: srv.URL(), admin: adm, mint: srv.MintToken, fake: srv}
 }
 
 type recorder struct{ ids proto.RoomIDs }
@@ -117,6 +133,7 @@ func (r *recorder) Record(purpose, id string) error {
 // path is at most 107 bytes.
 type world struct {
 	t       *testing.T
+	team    teamOf
 	hs      homeserver
 	main    string
 	tokens  map[string]string
@@ -135,7 +152,7 @@ func newWorld(t *testing.T, hs homeserver) *world {
 	t.Helper()
 	dir := t.TempDir()
 	w := &world{
-		t: t, hs: hs, tokens: map[string]string{}, dir: dir,
+		t: t, team: alpha, hs: hs, tokens: map[string]string{}, dir: dir,
 		home: dir + "/h", rt: dir + "/r", state: dir + "/s", desired: dir + "/d", kit: dir + "/k/" + testDigest,
 	}
 	for _, d := range []string{w.home, w.rt, w.state, w.desired, w.kit + "/bin"} {
@@ -146,6 +163,16 @@ func newWorld(t *testing.T, hs homeserver) *world {
 	check(t, os.Link(w.kit+"/bin/teamchat", w.agent))
 	w.populate()
 	return w
+}
+
+// join is the world's second team, tm on hs: the same directories and kit, its own rooms,
+// tokens and seat directory in the one state root.
+func (w *world) join(tm teamOf, hs homeserver) *world {
+	w.t.Helper()
+	other := *w
+	other.team, other.hs, other.main, other.tokens = tm, hs, "", map[string]string{}
+	other.populate()
+	return &other
 }
 
 // copySelf copies the test binary to path, executable.
@@ -169,33 +196,33 @@ func (w *world) copySelf(path string) {
 func (w *world) populate() {
 	t := w.t
 	roster := proto.Roster{
-		Team: teamName, Name: "Alpha", Humans: []string{user(alice)},
+		Team: w.team.name, Name: w.team.name, Humans: []string{w.user(alice)},
 		Members: map[string]proto.RosterMember{
-			user(coord): {Role: proto.RoleCoordinator, HumanText: true},
-			user(me):    {Role: proto.RoleWorker, HumanText: true},
-			user(peer):  {Role: proto.RoleWorker, HumanText: true},
+			w.user(coord): {Role: proto.RoleCoordinator, HumanText: true},
+			w.user(me):    {Role: proto.RoleWorker, HumanText: true},
+			w.user(peer):  {Role: proto.RoleWorker, HumanText: true},
 		},
 		Forge: proto.Forge{Kind: proto.ForgeGitHub, Org: "example-org"}, Limits: proto.DefaultLimits(),
 	}
 	rec := &recorder{}
-	if _, err := rooms.Converge(t.Context(), w.hs.admin, rec, rooms.Team{Server: server, Team: teamName, Roster: roster}, proto.RoomIDs{}); err != nil {
+	if _, err := rooms.Converge(t.Context(), w.hs.admin, rec, rooms.Team{Server: w.team.server, Team: w.team.name, Roster: roster}, proto.RoomIDs{}); err != nil {
 		t.Fatalf("Converge: %v", err)
 	}
 	w.main = rec.ids.Main
 	for _, local := range accounts {
-		token, err := w.hs.mint(user(local))
+		token, err := w.hs.mint(w.user(local))
 		check(t, err)
 		w.tokens[local] = token
 		if _, err := w.client(local).Join(t.Context(), w.main); err != nil {
 			t.Fatalf("%s joins main: %v", local, err)
 		}
 	}
-	seatDir := w.state + "/" + teamName
+	seatDir := w.state + "/" + w.team.name
 	check(t, os.Mkdir(seatDir, 0o700))
 	issuer, err := paths.ParseDigest("0123456789abcdef")
 	check(t, err)
 	b := seat.Bundle{
-		V: 1, Team: alphaID, ServerName: server, UserID: user(me), AdminID: proto.AdminID(server),
+		V: 1, Team: w.team.id, ServerName: w.team.server, UserID: w.user(me), AdminID: proto.AdminID(w.team.server),
 		MainRoom: w.main, BaseURL: w.hs.base, PlainHTTPHosts: []string{"127.0.0.1"},
 		DeviceID: paths.SeatDevice, IssuedMS: clock.System().WallMS() - 1000, Issuer: issuer,
 	}
@@ -238,7 +265,7 @@ func (w *world) client(local string) *matrix.Client {
 // say posts alice's message to main, mentioning me.
 func (w *world) say(text string) string {
 	w.t.Helper()
-	data, err := json.Marshal(map[string]any{"msgtype": "m.text", "body": text, "m.mentions": map[string]any{"user_ids": []string{user(me)}}})
+	data, err := json.Marshal(map[string]any{"msgtype": "m.text", "body": text, "m.mentions": map[string]any{"user_ids": []string{w.user(me)}}})
 	check(w.t, err)
 	id, err := w.client(alice).Send(w.t.Context(), w.main, proto.MessageType, "", data)
 	check(w.t, err)
@@ -252,9 +279,9 @@ func (w *world) peerText(text string) string {
 	check(w.t, err)
 	v, err := proto.Parse(raw)
 	check(w.t, err)
-	r, err := proto.DecodeRoster(v, server, teamName, w.main)
+	r, err := proto.DecodeRoster(v, w.team.server, w.team.name, w.main)
 	check(w.t, err)
-	out, err := proto.Composer{Server: server, Self: user(peer), Token: w.tokens[peer], Roster: r}.Text(proto.Text{To: []string{user(me)}, Text: text}, "", text)
+	out, err := proto.Composer{Server: w.team.server, Self: w.user(peer), Token: w.tokens[peer], Roster: r}.Text(proto.Text{To: []string{w.user(me)}, Text: text}, "", text)
 	check(w.t, err)
 	id, err := w.client(peer).Send(w.t.Context(), w.main, proto.MessageType, "", out.Content.Compact())
 	check(w.t, err)
@@ -270,7 +297,7 @@ func (w *world) lifecycle() []string {
 	for _, raw := range page.Chunk {
 		v, err := proto.Parse(raw)
 		check(w.t, err)
-		if str(v, "sender") != user(me) {
+		if str(v, "sender") != w.user(me) {
 			continue
 		}
 		content, ok := v.Get("content")
@@ -304,15 +331,21 @@ func (w *world) awaitNotice(want string) {
 // eventually polls cond every 20 ms until it holds, or fails the test at settle with what().
 func eventually(t *testing.T, cond func() bool, what func() string) {
 	t.Helper()
+	within(t, settle, cond, what)
+}
+
+// within is eventually with its own bound.
+func within(t *testing.T, limit time.Duration, cond func() bool, what func() string) {
+	t.Helper()
 	tick := time.NewTicker(20 * time.Millisecond)
 	defer tick.Stop()
-	bound := time.NewTimer(settle)
+	bound := time.NewTimer(limit)
 	defer bound.Stop()
 	for !cond() {
 		select {
 		case <-tick.C:
 		case <-bound.C:
-			t.Fatalf("not within %v: %s", settle, what())
+			t.Fatalf("not within %v: %s", limit, what())
 		}
 	}
 }
@@ -427,10 +460,17 @@ func (w *world) launch(flags ...string) *session {
 // and the link has it.
 func (s *session) seatedIn() {
 	s.w.t.Helper()
-	eventually(s.w.t, func() bool { return s.exec("status", "--team", teamName).ExitCode == 0 }, s.describe)
+	eventually(s.w.t, func() bool { return s.exec("status", "--team", s.w.team.name).ExitCode == 0 }, s.describe)
 }
 
 func (s *session) exited() bool { return len(s.ended) > 0 }
+
+// as is the session seen through tm's world: its team's verbs, messages and notices.
+func (s *session) as(tm *world) *session {
+	view := *s
+	view.w = tm
+	return &view
+}
 
 func (s *session) describe() string {
 	return "stdout:\n" + s.out.text() + "\nstderr:\n" + s.errOut.text() + "\nkeeper.log:\n" + s.log("keeper.log") +
@@ -496,7 +536,7 @@ func (s *session) recvUntil(ids ...string) []map[string]any {
 	var got []map[string]any
 	seen := map[string]int{}
 	eventually(s.w.t, func() bool {
-		for _, r := range s.records("recv", "--team", teamName) {
+		for _, r := range s.records("recv", "--team", s.w.team.name) {
 			if id, ok := r["id"].(string); ok {
 				seen[id]++
 			}

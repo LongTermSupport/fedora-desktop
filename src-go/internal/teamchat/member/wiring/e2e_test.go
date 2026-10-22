@@ -1,6 +1,7 @@
 package wiring
 
 import (
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -58,6 +59,56 @@ func hotAddRemove(t *testing.T, hs homeserver) {
 	s.recvUntil(w.say("after the hot add"))
 	w.desire(3, nil, []state.Farewell{{Team: alphaID, Seat: mySeat, Reason: state.FarewellReleased}})
 	w.awaitNotice("left released")
+}
+
+// The owner's offline rule (B 2.13: the team is marked down after 15 s; nothing else is
+// affected): a team whose homeserver cannot be reached does not stop the session. recv answers
+// at once from the store, a verb that needs the server exits 20 unreachable for that team only
+// (B 2.2's table; 69 is no runtime), status shows it down, and the other team works throughout.
+// Once its server is back, so is the team, within the backoff's cap.
+func TestE2EOfflineServer(t *testing.T) {
+	w := newWorld(t, fakeServer(t))
+	betaTeam := mustTeam("beta")
+	beta := w.join(betaTeam, fakeServerFor(t, betaTeam))
+	check(t, w.hs.fake.Stop())
+	s := w.launch("--state", w.state, "--seat", teamName+"/"+mySeat, "--seat", betaTeam.name+"/"+mySeat)
+	b := s.as(beta)
+	b.seatedIn()
+	clk := clock.System()
+	from := clk.Boot()
+	if recs := s.records("recv", "--team", teamName); len(recs) != 0 || clk.Boot()-from > answerBound {
+		t.Fatalf("recv for the offline team: %v in %v", recs, clk.Boot()-from)
+	}
+	if r := s.exec("history", "--team", teamName); r.ExitCode != 20 || !strings.Contains(string(r.Stderr), `"code":"unreachable"`) {
+		t.Fatalf("history for the offline team: exit %d %s", r.ExitCode, r.Stderr)
+	}
+	b.records("history", "--team", betaTeam.name)
+	b.recvUntil(beta.say("beta works"))
+	eventually(t, func() bool { return s.down(teamName) }, s.describe)
+	if s.down(betaTeam.name) {
+		t.Fatalf("beta is down: %s", s.describe())
+	}
+	check(t, w.hs.fake.Start())
+	within(t, backoffCap+settle, func() bool { return !s.down(teamName) }, s.describe)
+	s.recvUntil(w.say("alpha is back"))
+}
+
+// answerBound is how soon a verb the link serves from the store answers.
+const answerBound = 5 * time.Second
+
+// backoffCap is the most a team's retry waits (teamsync's maxBackoff).
+const backoffCap = 30 * time.Second
+
+// down is whether status shows the team down.
+func (s *session) down(name string) bool {
+	s.w.t.Helper()
+	for _, r := range s.records("status", "--team", name) {
+		if r["kind"] == "team" {
+			return r["down"] == true
+		}
+	}
+	s.w.t.Fatalf("status has no team record for %s", name)
+	return false
 }
 
 // A SIGTERM to the keeper ends the session: its goodbye is left other, and it exits.
