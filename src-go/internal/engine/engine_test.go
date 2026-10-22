@@ -314,3 +314,42 @@ func TestUIDMapRefusals(t *testing.T) {
 		t.Fatalf("docker UIDMap error = %v, want ErrNoUIDMap", err)
 	}
 }
+
+// E10: --help's questions. The inspect is bare (no --format), its answer only whether it
+// succeeded; claude --help's output is one stream, stdout and stderr merged.
+func TestHelpQuestions(t *testing.T) {
+	ctx := context.Background()
+	e, f := engineOn(t, Docker)
+	f.On([]string{"docker", "image", "inspect", "claude-yolo:latest"}, execx.Result{Stdout: []byte("[]\n")})
+	f.On([]string{"docker", "run", "--rm", "--entrypoint", "claude", "claude-yolo:latest", "--help"},
+		execx.Result{Stdout: []byte("Usage: claude\n"), Stderr: []byte("warn\n")})
+	if err := e.Inspect(ctx, "claude-yolo:latest"); err != nil {
+		t.Fatalf("Inspect: %v", err)
+	}
+	out, err := e.ClaudeHelp(ctx, "claude-yolo:latest")
+	if err != nil || out != "Usage: claude\nwarn\n" {
+		t.Fatalf("ClaudeHelp = %q, %v", out, err)
+	}
+	if got := f.Calls()[0].Args; !slices.Equal(got, []string{"image", "inspect", "claude-yolo:latest"}) {
+		t.Fatalf("inspect ran %q", got)
+	}
+
+	e, f = engineOn(t, Podman)
+	f.On([]string{"podman", "image", "inspect"}, execx.Result{ExitCode: 125, Stderr: []byte("Error: cannot connect\n")})
+	f.On([]string{"podman", "run"}, execx.Result{ExitCode: 126, Stdout: []byte("Error: no such entrypoint\n")})
+	if inspectErr := e.Inspect(ctx, "claude-yolo:latest"); inspectErr == nil {
+		t.Fatal("a failed inspect succeeded")
+	}
+	out, err = e.ClaudeHelp(ctx, "claude-yolo:latest")
+	if err == nil || out != "Error: no such entrypoint\n" {
+		t.Fatalf("a failed claude --help = %q, %v; want its output and an error", out, err)
+	}
+
+	var zero Engine
+	if err = zero.Inspect(ctx, "x"); !errors.Is(err, ErrUnknownKind) {
+		t.Fatalf("zero Engine Inspect = %v", err)
+	}
+	if _, err = zero.ClaudeHelp(ctx, "x"); !errors.Is(err, ErrUnknownKind) {
+		t.Fatalf("zero Engine ClaudeHelp = %v", err)
+	}
+}

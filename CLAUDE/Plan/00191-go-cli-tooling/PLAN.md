@@ -475,7 +475,50 @@ today; rewriting them is out of scope.
     would take the first line typed to a later `Foreground` child (give `Lines` a `Close`, or
     exit the flow after a cancel); the send at `lines.go:187` sits outside the `select`, so a
     copied `Lines` can hang (move it in, or use `Lines` by pointer only).
-  - Phase 2 (the standalone-mode cut-overs) follows.
+  - Phase 2 built, CCY 3.99.14.0 (host run pending: `meta-deploy.list`, play-claude-yolo.yml).
+    `src-go/cmd/claude-yolo` over `internal/ccylaunch` (F1-F9 in its package doc), installed by
+    the play at `/var/local/claude-yolo/claude-yolo` (root, 0755, checksum-compared copy, built
+    with `-X main.Version=<CCY_VERSION>` read from the bash launcher and asserted); the bash
+    launcher is copied first, beside it, as `claude-yolo.bash` (same owner and mode), so a
+    failed build leaves the old launcher working. The image does not copy the launcher.
+    - Handled in Go: `--version`/`-v` and `--help`/`-h` only (help text embedded as
+      `help.txt`, held byte for byte to the bash heredoc by a test; the engine's two help
+      questions are `engine` E10). Everything else is `execx.Exec` of `claude-yolo.bash`, no
+      shell, argv and environment unchanged. Not cut over: `--list-tokens`, `--token-usage`,
+      `--export-token`, `--prevent`, `--top`. They cannot pass the harness byte for byte yet:
+      the harness pins the clock through the fake `date`, which a Go reading its own clock
+      never asks, and `tokens` colours expiry only on a terminal (a decided departure) where
+      the goldens hold bash's colours; `--token-usage` would need its HTTP and the curl fake
+      reconciled. None uses `ui.Lines`, so its two follow-ups above stay open for the first
+      flag that prompts.
+    - Routing and fail-safe: the front answers a handled flag only where the bash would reach
+      its own answer as modelled, and otherwise hands over (F4: `CCY_GH_TOKEN_HANDOFF` set,
+      `BASH_ENV`-like variables or an exported function, an engine name or program not found,
+      a tool the bash runs first missing, a library or the launcher missing or unreadable, an
+      override `ccy_host_dir` refuses, by a Go `realpath -m` checked against the real one).
+      `CCY_LEGACY` set to anything but empty or 0 sends every run to the bash (risk 10). A
+      hand-over that cannot exec exits 1 naming the path. Documented in `docs/ccy.md`.
+    - D3, the version and hash rule: `--version` prints the front's `-X main.Version` and, as
+      `Hash:`, the bash launcher's own `CCY_HASH` rule (its text less `CCY_HASH=` lines, then
+      `lib/*.bash` and `lib/*.py`, md5, 16 hex), computed by `ccylaunch.IntegrityHash` and held
+      to the bash block itself by a test. So Quick Launch's check is unchanged: the bash writes
+      and compares the same value the front prints. The front refuses `--version` and `--help`
+      when its version is not the bash's `CCY_VERSION` (two checkouts' halves), which is what
+      pins the binary. The pre-commit gate demands the bump for `src-go/cmd/claude-yolo/` and
+      `src-go/internal/ccylaunch/` (tests and `difftest/` aside;
+      `test-ccy-container-version-hook.bash` red 6 on the old hook, green 105). Narrowed from
+      D3's "hash over the binary itself", for the owner to overrule: a binary's bytes change
+      with every edit to a shared package (`execx`, `engine`, `term`) and every Go toolchain
+      upgrade, none of which the gate can see, so Quick Launch would report a "developer
+      error" after each. Not covered, by either rule: a change to a shared package alters the
+      front's behaviour without a bump.
+    - Acceptance in the container: the harness green against bash unchanged (82), against the
+      front in-process (`TestFrontParity`, 82; `TestFrontAnswersItself` with the bash's two
+      answers broken; `TestFrontHandsOver` with a launch flag mutated), and by hand with
+      `LAUNCHER=` the built binary beside a copy of the bash (82 of 82);
+      `test-ccy-info-flags.bash` now runs every case against the bash and the built front, and
+      the legacy and missing-launcher cases (90 of 90). `--help` byte for byte: the help
+      scenarios with and without an image.
 
 ### Phase 5: Review
 

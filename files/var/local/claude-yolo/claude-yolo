@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.99.13.19"  # Container 2.78.13: the GH_TOKEN hand-off checks ownership against id -u, not an exported EUID, and refuses a newline-only file as empty (Plan 00191). See docs/ccy-changelog.md.
+CCY_VERSION="3.99.14.0"  # Container 2.78.13: ccy is a Go front that answers --version and --help and runs this launcher, installed as claude-yolo.bash, for the rest; CCY_LEGACY=1 runs it for everything (Plan 00191). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the

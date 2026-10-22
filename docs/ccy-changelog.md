@@ -17,6 +17,24 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.14.0 — container 2.78.13
+
+Follows 3.99.13.19. The image is unchanged, so there is no rebuild.
+
+- **`ccy` is now a Go program in front of the bash launcher** (Plan 00191 Task 4.5, phase 2).
+  `play-claude-yolo.yml` builds `src-go/cmd/claude-yolo` and installs it as
+  `/var/local/claude-yolo/claude-yolo`, and installs the bash launcher beside it as
+  `claude-yolo.bash`. The Go program answers `--version`/`-v` and `--help`/`-h` with the same
+  output as before, and execs the bash launcher, unchanged arguments and environment, for every
+  other run, and for these two too wherever the bash might answer differently (a token hand-off
+  to take, a refused path override, an engine not found, and the like).
+- **`CCY_LEGACY=1`** sends every run to the bash launcher: the way back if the Go program
+  misbehaves ([docs](ccy.md#the-go-front-and-ccy_legacy)).
+- `--version`'s `Hash:` is still the bash launcher's own hash, so Quick Launch files compare as
+  before; the Go program refuses both flags if its version is not the bash launcher's.
+- The pre-commit version gate covers the Go program's sources (`src-go/cmd/claude-yolo`,
+  `src-go/internal/ccylaunch`, tests aside).
+
 ## 3.99.13.19 — container 2.78.13
 
 Follows 3.99.13.18. The image is unchanged, so there is no rebuild.

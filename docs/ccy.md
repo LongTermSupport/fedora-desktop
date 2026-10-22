@@ -1674,6 +1674,22 @@ Release notes for both version numbers live in [the CCY changelog](ccy-changelog
 one-line comment on the `CCY_VERSION` line describes only the current release — the rebuild
 banner prints it verbatim, so it must stay short.
 
+### The Go front and `CCY_LEGACY`
+
+The launcher is being ported to Go one flag at a time (Plan 00191). `/var/local/claude-yolo/claude-yolo`
+is a Go program that answers `--version` and `--help` itself and runs the bash launcher,
+installed beside it as `claude-yolo.bash`, for everything else, with the same arguments and
+environment. Both carry the same `CCY_VERSION`; the Go program refuses `--version` and
+`--help` if they differ (re-run `play-claude-yolo.yml`), and `Hash:` is the bash launcher's own
+hash, the one Quick Launch files keep.
+
+If the Go program misbehaves, run any `ccy` command with **`CCY_LEGACY=1`** (for example
+`CCY_LEGACY=1 ccy --version`, or `export CCY_LEGACY=1` in your shell) and every run goes
+straight to the bash launcher. If `claude-yolo.bash` is missing, `ccy` stops with an error
+naming its path rather than doing nothing. Going back to a bash-only install is running
+`play-claude-yolo.yml` from a checkout before this change: it copies the bash launcher over
+`claude-yolo` again.
+
 ### Claude Code auto-update
 
 Once per 24 hours, per image, CCY compares the bundled Claude Code against npm and runs a

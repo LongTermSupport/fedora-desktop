@@ -33,6 +33,9 @@
 //     included). The uid map is read from stdout only.
 //   - E9. An Engine is built only by New, which refuses any kind but podman or docker; the
 //     zero Engine runs nothing. So the program an Engine runs is always one of the two.
+//   - E10. ccy --help's two questions: a bare image inspect (Inspect), whose every failure the
+//     help reads as "not built yet" as the bash launcher did, since it only says how to build
+//     the image; and claude --help run in the image (ClaudeHelp), its output merged.
 package engine
 
 import (
@@ -122,6 +125,29 @@ func (e Engine) ImageExists(ctx context.Context, image string) (bool, error) {
 	default:
 		return false, err
 	}
+}
+
+// Inspect is a bare `image inspect IMAGE`, its output discarded: nil when the engine answered
+// for the image. --help asks only this, and says how to build the image on any failure, as the
+// bash launcher did (E10); a launch asks ImageExists, which tells a missing image apart.
+func (e Engine) Inspect(ctx context.Context, image string) error {
+	if _, err := e.run(ctx, "image", "inspect", image); err != nil {
+		return fmt.Errorf("inspect image %s: %w", image, err)
+	}
+	return nil
+}
+
+// ClaudeHelp is `claude --help` run in the image, stdout and stderr as one stream: on a failure
+// the text is returned with the error, so the person sees why it would not run (E10).
+func (e Engine) ClaudeHelp(ctx context.Context, image string) (string, error) {
+	if err := e.known(); err != nil {
+		return "", err
+	}
+	out, err := execx.Combined(ctx, e.runner, e.cmd("run", "--rm", "--entrypoint", "claude", image, "--help"))
+	if err != nil {
+		return out, fmt.Errorf("claude --help in %s: %w", image, err)
+	}
+	return out, nil
 }
 
 // ContainerQuery is a `ps`: every container (All) or the running ones, narrowed by the
