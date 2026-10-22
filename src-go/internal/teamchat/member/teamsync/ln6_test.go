@@ -170,7 +170,7 @@ func TestNotices(t *testing.T) {
 	}
 }
 
-// B 2.2's exit table: a verb's homeserver failure is its own exit, never internal: no usable
+// B 2.2.4's exit table: a verb's homeserver failure is its own exit, never internal: no usable
 // answer is 20 unreachable, a refused token 21, a forbidden room 22, a rate limit 14.
 func TestLN6ServerFailuresAreTheirExits(t *testing.T) {
 	limited := []byte(`{"errcode":"M_LIMIT_EXCEEDED","error":"x","retry_after_ms":0}`)

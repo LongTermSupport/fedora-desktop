@@ -61,10 +61,10 @@ func hotAddRemove(t *testing.T, hs homeserver) {
 	w.awaitNotice("left released")
 }
 
-// The owner's offline rule (B 2.13: the team is marked down after 15 s; nothing else is
+// The owner's offline rule (B 2.4.5: the team is marked down after 15 s; nothing else is
 // affected): a team whose homeserver cannot be reached does not stop the session. recv answers
 // at once from the store, a verb that needs the server exits 20 unreachable for that team only
-// (B 2.2's table; 69 is no runtime), status shows it down, and the other team works throughout.
+// (B 2.2.4's table; 69 is no runtime), status shows it down, and the other team works throughout.
 // Once its server is back, so is the team, within the backoff's cap.
 func TestE2EOfflineServer(t *testing.T) {
 	w := newWorld(t, fakeServer(t))

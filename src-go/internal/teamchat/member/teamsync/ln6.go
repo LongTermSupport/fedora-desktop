@@ -26,7 +26,7 @@ const (
 	verbRate        exits.Template = "the homeserver of team {} is rate limiting the member"
 )
 
-// verbErr is a verb's homeserver failure as B 2.2's exit, never internal: a refused token, a
+// verbErr is a verb's homeserver failure as B 2.2.4's exit, never internal: a refused token, a
 // forbidden request, a rate limit, or no usable answer. Anything else, a context's end and an
 // exits error included, is returned as it is.
 func (t *Team) verbErr(err error) error {
