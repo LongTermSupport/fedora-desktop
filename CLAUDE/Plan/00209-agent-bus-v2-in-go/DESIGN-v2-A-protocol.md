@@ -450,8 +450,8 @@ an extra rule. Owner decision OD-A5 lets the owner open reactions to humans for 
 
 A parked member stays joined in main and reports (its token is revoked, so it can neither read nor
 post): parked members stay in the desired membership of main and reports, which proto's `Desired`
-gives C with the invites, and C diffs it against the room (`MembershipDiff`); a removed member is kicked from every room and deactivated (C). A demoted or parked
-coordinator is kicked from questions before any new coordinator is invited (00211 section 3; R10
+gives C with the invites, and C diffs it against the room (`MembershipDiff`); a removed member is
+kicked from every room and deactivated (C). A demoted or parked coordinator is kicked from questions before any new coordinator is invited (00211 section 3; R10
 demote before promote), and while the roster names no non-parked coordinator, questions is closed.
 
 ### 4.4 Topics
@@ -525,8 +525,8 @@ only source of who is in the team, what each may do, and the team's policy. It r
 | `forge.org`, `repos`, `exclude`, `path_prefixes` | v1's allow-list, P15 and P27 semantics, P59 counts; at least one of `org` or a repo; an excluded repo is not also listed; `repos`: optional, absent is none; `exclude`: each `OWNER/REPO`, of any owner (v1 had bare names under `org`); an empty `exclude` or `path_prefixes` list is none, and is not written (11.2)                                                                                                                        | P15, P27, P59 |
 | `limits`                                         | optional; keys and bounds of section 11; an absent key takes its default; a value outside its bounds makes the roster invalid (never clamped)                                                                                                                                                                                                                                                                                                 | P59           |
 
-Unknown keys are ignored (section 3). `name`, `rooms` and `forge` are required. `parked` makes a member's events drop `sender` and makes it
-unaddressable; its account stays in the rooms. A removed member is absent from `members` (C kicks
+Unknown keys are ignored (section 3). `name`, `rooms` and `forge` are required. `parked` makes a
+member's events drop `sender` and makes it unaddressable; its account stays in the rooms. A removed member is absent from `members` (C kicks
 and deactivates it). No `orchestrator` alias: v2 writes and reads `coordinator` only.
 
 **Why `human_text` and `limits` move from the bundle to the roster.** In v1 each bundle carried

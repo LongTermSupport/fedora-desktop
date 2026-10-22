@@ -217,9 +217,9 @@ display name starts as the v1 name.
 
 The reserved team ids of A 2.2 (`admin`, `backup`, `ctl`, `fence`, `health`, `install`,
 `membership`, `seats`, `server`, `status`) are refused, because each would make a name in the table
-above equal a fixed one. No new fixed `teamchat-<x>` name, and no new fixed child of a per-team root,
-may take a declared team id, since a live team's id cannot change; C's validator refuses such an id
-at declaration. A v1 team with a reserved name migrates under a short id (5.10).
+above equal a fixed one. No new fixed `teamchat-<x>` name, and no new fixed child of a per-team
+root, may take a declared team id, since a live team's id cannot change; C's validator refuses such
+an id at declaration. A v1 team with a reserved name migrates under a short id (5.10).
 
 One string must never name two teams, so the v1 name and the v2 id spaces are kept apart:
 
@@ -288,8 +288,8 @@ so a rename changes none of them. A v1 team may be named anything that fits
 `Element-teamchat-x`, which is v2's profile for the team with id `x`. D requires C's validator to
 refuse a v2 team id `x` while a v1 team `teamchat-x` is declared. C's runtime validator expands
 every `<team>`-derived v2 name against every declared v1 team and fails on any equality; the paths
-unit test (4.1 part 3) cannot, because host_vars are private and a unit test cannot read them. The other
-derived names cannot collide, because v1 never puts a team name after a `teamchat-` prefix:
+unit test (4.1 part 3) cannot, because host_vars are private and a unit test cannot read them.
+The other derived names cannot collide, because v1 never puts a team name after a `teamchat-` prefix:
 `teamchat-<team>` users, `teamchat-server@<team>` units, and launchers
 `teamchat-<team>-element.desktop` against v1's `agent-bus-<team>-element.desktop`.
 
@@ -1107,8 +1107,8 @@ the owner each seat's pending count before the leave, so that nothing goes unsee
   `{team, id, remote_members: [{handle, moves_by_own_iac: true}]}`. `team` is the v1 name. `id` is
   written only when that name is not free as a v2 id (3.5): ccy-teams proposes the name cut to 22
   characters with trailing hyphens removed, the owner may change it, and ccy-teams refuses an id
-  that fails the grammar or names another v1 team or a v2 team (an id this v1 team's own
-  rolled-back move left is allowed). M0 checks it again (5.4). This list is D's, not C's, so a
+  that fails the grammar, is reserved (3.5) or names another v1 team or a v2 team (an id this v1
+  team's own rolled-back move left is allowed). M0 checks it again (5.4). This list is D's, not C's, so a
   plain v2 deploy never reads it and cannot build the team by mistake (5.1, first row).
 - **Through meta-deploy.** A team name is install-specific, so it can never appear in the tracked
   `meta-deploy.list`. The plan queues one generic plan script, `migrate-declared.bash`, which runs
