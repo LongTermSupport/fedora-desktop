@@ -76,6 +76,16 @@ a recommendation where there is one, then stop and wait for the answers. The own
 by dictation from that message, so a question asked in a tool dialog, or scattered across
 several messages, gets lost in the scrollback.
 
+### On the desktop host, a GNOME notification can reach the owner — sparingly
+
+**Standing rule from the owner:** a session running on the desktop itself (not in a CCY or
+LXC container) can send a desktop notification with `notify-send`, for example
+`notify-send 'fedora-desktop' 'meta-deploy finished: 5 of 6 passed'`. Send one only when the
+owner asked to be told about something, or for an event they need to act on: a run they are
+waiting for has finished, or work is blocked on them. **Do not spam:** no progress pings and
+no routine updates; the chat remains the report. A container session has no desktop session
+bus, so this does not apply there.
+
 ### `meta-deploy.bash` is how host runs reach the owner — keep its list exact
 
 **Standing rule from the owner:** "META DEPLOY IS PERMANENTLY AND CONTINUOUSLY UPDATED TO
