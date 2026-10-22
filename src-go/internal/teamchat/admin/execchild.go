@@ -27,8 +27,9 @@ func (e *configError) Error() string { return e.problem }
 // maxChildStderr caps the child's stderr, which is only ever shown as an explanation.
 const maxChildStderr = maxLine
 
-// ChildWait bounds every child op: no op may outlive the play's wait for the team lock, so a
-// child that never answers cannot hold the lock (or root's read of it) for longer.
+// ChildWait bounds each child op to the play's wait for the team lock, so a child that never
+// answers holds the lock for a bounded time. A verb that asks the child more than once, as team
+// apply does, holds the lock across several of these, so a waiter can still time out.
 const ChildWait = 10 * time.Minute
 
 // ExecChild is the production Child (CS1-CS5): Self started as `ctl-child` under the

@@ -68,7 +68,9 @@ The packages:
   `health.ErrViewChild`.
 - **CS5.** A context that ends stops the child (execx's TERM, then KILL after the grace) and is
   the context's error. Every `Ask` runs under a deadline of `ChildWait` (10 minutes, one
-  constant for every op): no op may outlive the play's wait for the team lock.
+  constant for every op, equal to the play's wait for the team lock), so a child that never
+  answers holds the lock for a bounded time. A verb that asks more than once (`team apply`)
+  holds the lock across several such waits, so a waiter can still time out.
 
 ## 3. The child's new operations (CO, C 3.11.2)
 
