@@ -372,9 +372,15 @@ func (r *reader) questions(ctx context.Context) error {
 	f := r.in.Roster
 	c, ok := f.Members[f.Coordinator]
 	open := ok && c.State == apply.MemberActive
-	// An invite not yet accepted is a coordinator offline since it was promoted: shown by its
-	// membership, never a problem (FRAME, offline members never block).
-	if s := r.roomsOf(f.Coordinator)[proto.PurposeQuestions]; open && s != joined && s != invited {
+	// An invite not yet accepted is a coordinator whose session has not run since its promotion:
+	// the coordinator's own problem, never the team's (FRAME, offline members never block).
+	switch s := r.roomsOf(f.Coordinator)[proto.PurposeQuestions]; {
+	case !open || s == joined:
+	case s == invited:
+		r.view.Problems = append(r.view.Problems, status.Problem{
+			What: "the coordinator " + f.Coordinator + " has not joined the questions room yet", Fix: "ccy-teams restart " + f.Coordinator, Member: f.Coordinator,
+		})
+	default:
 		r.problem("the coordinator "+f.Coordinator+" has not joined the questions room", "ccy-teams restart "+f.Coordinator)
 	}
 	if r.roster == nil {

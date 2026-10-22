@@ -125,7 +125,11 @@ func encodeView(v health.View) proto.Value {
 	}
 	problems := make([]proto.Value, 0, len(v.Problems))
 	for _, p := range v.Problems {
-		problems = append(problems, proto.Obj(proto.M("what", proto.Str(p.What)), proto.M("fix", proto.Str(p.Fix))))
+		fields := []proto.Member{proto.M("what", proto.Str(p.What)), proto.M("fix", proto.Str(p.Fix))}
+		if p.Member != "" {
+			fields = append(fields, proto.M("member", proto.Str(p.Member)))
+		}
+		problems = append(problems, proto.Obj(fields...))
 	}
 	return proto.Obj(proto.M("members", proto.Arr(members...)), proto.M("humans", proto.Arr(humans...)), proto.M("problems", proto.Arr(problems...)))
 }
@@ -256,11 +260,19 @@ func decodeHuman(v proto.Value) (status.Human, error) {
 	return h, f.err()
 }
 
+// decodeProblem is one problem; `member`, when there, is a non-empty handle that validView then
+// requires among the view's members.
 func decodeProblem(v proto.Value) (status.Problem, error) {
-	f, err := newFields(v, "what", "fix")
+	obj, err := keys(v, []string{"what", "fix"}, "member")
 	if err != nil {
 		return status.Problem{}, fmt.Errorf("a problem: %w", err)
 	}
+	f := &fields{obj: obj}
 	p := status.Problem{What: f.str("what"), Fix: f.str("fix")}
+	if _, named := obj["member"]; named {
+		if p.Member = f.str("member"); p.Member == "" {
+			f.errs = append(f.errs, errors.New("member is empty"))
+		}
+	}
 	return p, f.err()
 }

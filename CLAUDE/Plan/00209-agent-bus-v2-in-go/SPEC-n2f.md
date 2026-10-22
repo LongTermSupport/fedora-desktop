@@ -86,7 +86,8 @@ The packages:
   answers `ok` with `notice` `{"posted": bool, "why": "<line>"}`; a transient failure (NT2) is
   class `unreachable`.
 - **CO3. Root decodes both strictly** (CC6's rules): `view` and `notice` only with `ok`, only
-  for their op, exact keys, every string one line; a `view` decodes into `status.Member`,
+  for their op, exact keys (a problem's `member` the one optional key, a non-empty handle of
+  the view's own members, SR1), every string one line; a `view` decodes into `status.Member`,
   `status.Human` and `status.Problem` and must make a record that `status.Encode` accepts (SR1's
   value rules, so a membership word, a kind or a role the record cannot hold is refused before
   anything is written). An answer with a `view` or `notice` for another op is refused, and a

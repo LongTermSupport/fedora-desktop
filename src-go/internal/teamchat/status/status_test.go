@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -258,6 +259,22 @@ func TestShown(t *testing.T) {
 	broken := Shown(Record{}, false, errors.New("boom"), written)
 	if broken.Current || len(broken.Problems) != 1 || broken.Problems[0].What != "the status record cannot be read" {
 		t.Fatalf("broken %+v", broken)
+	}
+}
+
+// TeamProblems is what judges a team (SR1, SR5): every problem shown but a member's own.
+func TestTeamProblemsLeaveOutAMembersOwn(t *testing.T) {
+	rec := decoded(t)
+	own := Problem{What: "web.2+box.lxc launch-failed", Fix: "ccy-teams restart web.2+box.lxc", Member: "web.2+box.lxc"}
+	rec.Problems = append(rec.Problems, own)
+	written := time.UnixMilli(rec.WrittenMS)
+	fresh := Shown(rec, true, nil, written)
+	if len(fresh.Problems) != 2 || !slices.Equal(fresh.TeamProblems(), rec.Problems[:1]) {
+		t.Fatalf("shown %+v, team %+v", fresh.Problems, fresh.TeamProblems())
+	}
+	expired := Shown(rec, true, nil, written.Add(Lifetime))
+	if team := expired.TeamProblems(); len(team) != 2 || !strings.HasPrefix(team[0].What, "health has not run since ") {
+		t.Fatalf("expired team %+v", team)
 	}
 }
 

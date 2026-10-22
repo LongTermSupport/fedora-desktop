@@ -502,3 +502,9 @@ func Shown(r Record, found bool, readErr error, now time.Time) View {
 	v.Problems = append(v.Problems, r.Problems...)
 	return v
 }
+
+// TeamProblems are the problems that judge the team (the `status` verb's exit, the board's team
+// row): every one shown but those that name a member, which are that member's own (SR1).
+func (v View) TeamProblems() []Problem {
+	return slices.DeleteFunc(slices.Clone(v.Problems), func(p Problem) bool { return p.Member != "" })
+}

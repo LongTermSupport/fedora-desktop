@@ -25,9 +25,10 @@ and `element`, `desired.json` (C 3.7.5; the sweep asks it through a seam), and c
   is absent from `rooms`). `backup.last_run` is `ok`, `failed` or `none`. `online` is on LXC
   member entries only. Every `what` and `fix` is one printable line. A problem may carry
   `member`, the handle of a member entry of the same record: a liveness problem of that one
-  member (HT6's three), shown on its entry and never the team's health. A reader that judges a
-  team (the `status` verb's exit, the board's team row) counts only the problems with no
-  `member` (DESIGN-v2-FRAME.md, offline members never block). No field can hold a token:
+  member (HT6's three, VW5's invited coordinator), shown on its entry and never the team's
+  health. A reader that judges a team (the `status` verb's exit, the board's team row) counts
+  only `View.TeamProblems()` (SR5), the problems with no `member` (DESIGN-v2-FRAME.md, offline
+  members never block). No field can hold a token:
   the record has no free-form field but `what`, `fix`, `name` and the events' `what`, which the
   writer builds.
 - **SR2. Write.** `Write(path, rec, gid)` writes 0640 with the owner group through
@@ -42,7 +43,8 @@ and `element`, `desired.json` (C 3.7.5; the sweep asks it through a seam), and c
 - **SR5. The board's view.** `Shown(rec, found, err, now)` is what a reader shows: the record's
   own problems, plus "health has not run since <time>" (fix: `systemctl status teamchat-health.timer`) when `now` is past `expires_ms`, or "the status record cannot be read"
   when it is unreadable, or "no status record yet" when it is missing. It never shows an expired
-  record as current: `Current` is false past `expires_ms`.
+  record as current: `Current` is false past `expires_ms`. `TeamProblems()` is every problem
+  shown but those that name a member: what judges the team (SR1).
 
 ## 2. The team lock (`teamchat/teamlock`, C 3.4)
 
@@ -117,10 +119,13 @@ Read-only, as the admin, from the roster file and `rooms.json`:
 - **VW4. Drift.** The rooms engine run against a client that writes nothing: every write it
   would make is one problem (fix `ccy-teams apply <team>`), and drift it refuses is one problem
   naming its room and step.
-- **VW5. Questions.** No worker joined or invited, the open coordinator joined or invited, and
-  the form (open or closed) the roster gives: each its own problem. A coordinator still only
-  invited is one whose session has not run since its promotion: it is offline, shown by its
-  `invite` membership, and is no problem (DESIGN-v2-FRAME.md, offline members never block).
+- **VW5. Questions.** No worker joined or invited, the open coordinator joined, and the form
+  (open or closed) the roster gives: each its own problem. A coordinator still only invited is
+  one whose session has not run since its promotion (or whose link does not accept the invite):
+  its `invite` membership shows it, and its problem "the coordinator <handle> has not joined the
+  questions room yet" (fix `ccy-teams restart <handle>`) carries `member` (SR1), so it is never
+  the team's (DESIGN-v2-FRAME.md, offline members never block). One neither joined nor invited
+  stays a team problem.
 - **VW6. Pending.** A `pending` operation is the problem "<op> did not finish (step <step>)",
   fix: the verb that rolls it forward. The view never completes it.
 

@@ -417,8 +417,8 @@ func TestTheCoordinatorNotJoinedIsAProblem(t *testing.T) {
 }
 
 // VW5 and the offline rule (FRAME): a coordinator invited to questions whose session has not run
-// since is offline, shown by its membership, and is no problem.
-func TestAnOfflineCoordinatorInvitedIsNoProblem(t *testing.T) {
+// since is shown by its membership and by a problem of its own, never the team's.
+func TestAnOfflineCoordinatorInvitedIsNoTeamProblem(t *testing.T) {
 	w := newWorld(t)
 	if err := w.seat(t, coord).Leave(t.Context(), w.rooms.Questions); err != nil {
 		t.Fatal(err)
@@ -427,8 +427,11 @@ func TestAnOfflineCoordinatorInvitedIsNoProblem(t *testing.T) {
 		t.Fatal(err)
 	}
 	v := w.read(t)
-	if got := whats(v.Problems); len(got) != 0 {
-		t.Fatalf("problems %v", got)
+	want := status.Problem{
+		What: "the coordinator " + coord + " has not joined the questions room yet", Fix: "ccy-teams restart " + coord, Member: coord,
+	}
+	if !slices.Equal(v.Problems, []status.Problem{want}) {
+		t.Fatalf("problems %+v", v.Problems)
 	}
 	i := slices.IndexFunc(v.Members, func(m status.Member) bool { return m.Handle == coord })
 	if i < 0 || v.Members[i].Rooms[proto.PurposeQuestions] != "invite" {
