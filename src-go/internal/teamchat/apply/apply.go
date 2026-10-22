@@ -280,7 +280,7 @@ func (r *run) converge(ctx context.Context, step string) error {
 	if err != nil {
 		return refused(step, err)
 	}
-	t := rooms.Team{Server: r.team.ServerName, Team: r.team.ID.String(), Description: r.team.Description, Roster: roster}
+	t := rooms.Team{Server: r.team.ServerName, Team: r.team.ID.String(), Description: r.team.Description, Colour: r.team.Colour, Roster: roster}
 	res, err := rooms.Converge(ctx, r.d.Admin, recorder{r}, t, r.files.rooms)
 	r.res.Changed = append(r.res.Changed, res.Changed...)
 	if res.RosterRev != 0 {

@@ -36,6 +36,7 @@ const (
 	keyContainer, keyUser, keyCheckout         = "container", "user", "checkout"
 	keySite, keySeat, keyHumanText, keyService = "site", "seat", "human_text", "service"
 	keyLXCMembers, keyAddress, keyVersion      = "lxc_members", "address", "v"
+	keyColour                                  = "colour"
 )
 
 // Declaration is the v2 keys of host_vars.
@@ -64,6 +65,8 @@ type Team struct {
 	Humans      []string
 	Coordinator string
 	Trust       proto.Forge
+	// Colour is the colour override as stored hex (n3e-D4), empty when the team declares none.
+	Colour string
 }
 
 // LXCMember is one teamchat_lxc_members entry.
@@ -180,7 +183,7 @@ func readTeams(f fields, key, address string) ([]Team, error) {
 
 var teamOptional = []string{
 	keyName, keyPurge, keyPort, keyServerName, keyDescription, keyListen, keyAllowFrom, keyURL,
-	keyHumans, keyCoordinator, keyTrust,
+	keyHumans, keyCoordinator, keyTrust, keyColour,
 }
 
 // readTeam reads one team entry (DR3).
@@ -261,6 +264,7 @@ func readValues(t *Team, f fields, address string) error {
 		{keyHumans, func(n node) error { t.Humans, err = n.humans(); return err }},
 		{keyCoordinator, func(n node) error { t.Coordinator, err = n.coordinator(); return err }},
 		{keyTrust, func(n node) error { t.Trust, err = n.trust(); return err }},
+		{keyColour, func(n node) error { t.Colour, err = n.colour(); return err }},
 	}
 	for _, r := range readers {
 		if f.has(r.key) {

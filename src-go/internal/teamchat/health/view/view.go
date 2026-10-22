@@ -330,7 +330,7 @@ func (r *reader) drift(ctx context.Context) error {
 	for _, room := range r.known() {
 		d.purpose[room.id] = room.purpose
 	}
-	team := rooms.Team{Server: r.server, Team: r.in.Team.ID.String(), Description: r.in.Team.Description, Roster: *r.roster}
+	team := rooms.Team{Server: r.server, Team: r.in.Team.ID.String(), Description: r.in.Team.Description, Colour: r.in.Team.Colour, Roster: *r.roster}
 	_, err := rooms.Converge(ctx, d, d, team, r.in.Rooms)
 	for _, w := range d.writes {
 		r.problem(w, r.applyFix())
@@ -392,7 +392,7 @@ func (r *reader) questions(ctx context.Context) error {
 // form compares the questions room's power levels with those A's spec gives the roster.
 func (r *reader) form(ctx context.Context, id string, open bool) error {
 	var want proto.Value
-	for _, spec := range proto.Desired(r.server, *r.roster, r.in.Rooms, r.in.Team.Description, "") {
+	for _, spec := range proto.Desired(r.server, *r.roster, r.in.Rooms, r.in.Team.Description, r.in.Team.Colour) {
 		for _, ev := range spec.State {
 			if spec.Purpose == proto.PurposeQuestions && ev.Type == proto.PowerLevelsType {
 				want = ev.Content

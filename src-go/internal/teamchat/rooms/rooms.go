@@ -39,7 +39,9 @@ type Recorder interface {
 // derived it (its Rev is the roster file's `rev`; its Rooms are ignored) and the description.
 type Team struct {
 	Server, Team, Description string
-	Roster                    proto.Roster
+	// Colour is the declared colour override as stored hex, "" when none is declared (n3e-D4).
+	Colour string
+	Roster proto.Roster
 }
 
 // Result is the converged rooms: their IDs, the CHANGED lines, and the roster `rev` written,
@@ -96,6 +98,7 @@ func (e *engine) converge(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	e.planColourClear(&rooms[0])
 	rosterWrite, err := e.planRoster(rooms[0])
 	if err != nil {
 		return err
@@ -146,7 +149,7 @@ func drift(purpose, step, format string, args ...any) error {
 // (RE1).
 func (e *engine) find(ctx context.Context) ([]proto.RoomSpec, error) {
 	for {
-		specs := proto.Desired(e.t.Server, e.t.Roster, e.ids, e.t.Description, "")
+		specs := proto.Desired(e.t.Server, e.t.Roster, e.ids, e.t.Description, e.t.Colour)
 		i := slices.IndexFunc(specs, func(s proto.RoomSpec) bool { return s.RoomID == "" })
 		if i < 0 {
 			return specs, nil
@@ -311,6 +314,21 @@ func (e *engine) read(ctx context.Context, specs []proto.RoomSpec) ([]room, erro
 		rooms = append(rooms, room{spec: spec, state: state, members: present(state)})
 	}
 	return rooms, nil
+}
+
+// planColourClear adds the `{}` colour event to main's spec when no colour is declared and the
+// admin's colour event says something else (C8): an override removed from the declaration is
+// cleared, and a team that never had one is left without the event. A colour event another
+// user sent is not the admin's to clear.
+func (e *engine) planColourClear(main *room) {
+	if e.t.Colour != "" {
+		return
+	}
+	cur, ok := main.state[key{proto.ColourType, ""}]
+	if !ok || cur.Sender != e.admin || cur.Content.Equal(proto.ColourContent("")) {
+		return
+	}
+	main.spec.State = append(slices.Clone(main.spec.State), proto.StateEvent{Type: proto.ColourType, Content: proto.ColourContent("")})
 }
 
 // present are the users joined or invited.
