@@ -199,7 +199,8 @@ rules:
   # no io or Protocol base, when an instance is passed as a stream-named keyword argument
   # (directly or through a variable, tuple assignments included), assigned to sys.stdout
   # or sys.stderr, given to redirect_stdout/redirect_stderr, or assigned over a parameter
-  # whose annotation names TextIO (TextIO | None included). A stand-in defined in one
+  # whose annotation names TextIO or IO[str] anywhere in it. semgrep anchors a
+  # metavariable-regex at the start of the value, so each regex spans the whole of it. A stand-in defined in one
   # module and handed over in another, or passed positionally, is not seen.
   - id: stream-stand-in-not-a-text-stream
     languages: [python]
@@ -244,7 +245,7 @@ rules:
               - pattern: $F(..., $K=$C(...), ...)
               - metavariable-regex:
                   metavariable: $K
-                  regex: '(?i)(^(std(out|err)|out|err|output|stream|file|sink|unchecked|log|diagnostics|errors)$|_stream|_sink|^out_|^err_)'
+                  regex: '(?i)^(std(out|err)|out|err|output|stream|file|sink|unchecked|log|diagnostics|errors|out_\w*|err_\w*|\w*_stream|\w*_sink)$'
           - patterns:
               - pattern-either:
                   - pattern-inside: |
@@ -262,7 +263,7 @@ rules:
               - pattern: $F(..., $K=$V, ...)
               - metavariable-regex:
                   metavariable: $K
-                  regex: '(?i)(^(std(out|err)|out|err|output|stream|file|sink|unchecked|log|diagnostics|errors)$|_stream|_sink|^out_|^err_)'
+                  regex: '(?i)^(std(out|err)|out|err|output|stream|file|sink|unchecked|log|diagnostics|errors|out_\w*|err_\w*|\w*_stream|\w*_sink)$'
           - pattern: sys.stdout = $C(...)
           - pattern: sys.stderr = $C(...)
           - pattern: contextlib.redirect_stdout($C(...))
@@ -279,7 +280,7 @@ rules:
                           ...
               - metavariable-regex:
                   metavariable: $ANN
-                  regex: '\b(TextIO|TextIOBase|IO\[str\])\b'
+                  regex: '[^\n]*\b(TextIO|TextIOBase|IO\[str\])'
               - pattern: $P = $C(...)
     message: >
       stream-stand-in-not-a-text-stream: an object with only write() is handed over as a

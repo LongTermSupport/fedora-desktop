@@ -55,12 +55,14 @@ reports when an instance of that class is handed over as a stream:
   included);
 - assigned to `sys.stdout` or `sys.stderr`;
 - given to `redirect_stdout` or `redirect_stderr`;
-- assigned over a parameter whose annotation names `TextIO` (`TextIO | None` included).
+- assigned over a parameter whose annotation names `TextIO` or `IO[str]` anywhere in it.
 
 After the adversarial review (round 1) the stream-name list was widened to the names this
 repo uses (`log`, `diagnostics`, `errors`, `*_stream`, `*_sink`, `out_*`, `err_*`) and the
-parameter branch to optional annotations. The widened rule finds the same 3 sites on the
-pre-fix code and nothing else in the tree.
+parameter branch to any annotation naming `TextIO` or `IO[str]`. Round 2 found that
+semgrep anchors a `metavariable-regex` at the start of the value, so the suffix names and
+wrapped annotations never matched; each regex now spans the whole value. The widened rule
+finds the same 3 sites on the pre-fix code and nothing else in the tree.
 
 **Excluded, as not carrying the hazard.** Classes that are real streams, and Protocols, which
 are interfaces rather than stand-ins.
@@ -76,7 +78,12 @@ case.
 
 ## Proof
 
-**Fixture.** `.semgrep/speech-to-text.py` has 11 `ruleid` and 3 `ok` lines, one or more for every branch of the rule (keyword, variable, 2-, 3- and 4-element tuples, `sys.stdout`/`sys.stderr`, `redirect_stdout`/`redirect_stderr`, a `TextIO` parameter); the branches beyond the first six were added after the conformance review.
+**Fixture.** `.semgrep/speech-to-text.py` has 26 `ruleid` and 4 `ok` lines for this rule, one or more for every branch and name
+alternative: keyword, variable, 2-, 3- and 4-element tuples, `sys.stdout`/`sys.stderr`,
+`redirect_stdout`/`redirect_stderr` with and without `contextlib.`, each stream name
+family, and parameters annotated `TextIO`, `TextIO | None`, `typing.TextIO`,
+`Optional[TextIO]`, `"TextIO"` and `IO[str]`. The lines beyond the first six were added in
+answer to the conformance and adversarial reviews.
 `semgrep --test` reported "All tests passed".
 
 **Red commit.** 804178386 contains the rule alone, before any fix.

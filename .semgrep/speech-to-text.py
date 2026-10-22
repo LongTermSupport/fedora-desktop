@@ -4,7 +4,9 @@
 import contextlib
 import io
 import sys
-from typing import Protocol, TextIO
+import typing
+from contextlib import redirect_stderr, redirect_stdout
+from typing import IO, Optional, Protocol, TextIO
 
 
 def installed_by_directory(model_dir):
@@ -144,6 +146,48 @@ def through_other_stream_names(run):
     run(out_stream=_Sink(), err_target=None)
     # ruleid: stream-stand-in-not-a-text-stream
     run(diagnostics=_Sink())
+
+
+def over_other_annotations(a: typing.TextIO, b: Optional[TextIO], c: "TextIO", d: IO[str]):
+    # ruleid: stream-stand-in-not-a-text-stream
+    a = _Locked(a)
+    # ruleid: stream-stand-in-not-a-text-stream
+    b = _Locked(b)
+    # ruleid: stream-stand-in-not-a-text-stream
+    c = _Locked(c)
+    # ruleid: stream-stand-in-not-a-text-stream
+    d = _Locked(d)
+    return a, b, c, d
+
+
+def bare_redirects(work):
+    # ruleid: stream-stand-in-not-a-text-stream
+    with redirect_stdout(_Sink()):
+        work()
+    # ruleid: stream-stand-in-not-a-text-stream
+    with redirect_stderr(_Sink()):
+        work()
+
+
+def through_the_other_names(run, first, second, third):
+    # ruleid: stream-stand-in-not-a-text-stream
+    run(log=_Sink())
+    # ruleid: stream-stand-in-not-a-text-stream
+    run(errors=_Sink())
+    # ruleid: stream-stand-in-not-a-text-stream
+    run(err_target=_Sink())
+    a, b, c, err = first, second, third, _Sink()
+    # ruleid: stream-stand-in-not-a-text-stream
+    run(a, b, c, stderr=err)
+
+
+def through_names_ending_in_stream_or_sink(run):
+    # ruleid: stream-stand-in-not-a-text-stream
+    run(log_stream=_Sink())
+    # ruleid: stream-stand-in-not-a-text-stream
+    run(event_sink=_Sink())
+    # ok: stream-stand-in-not-a-text-stream
+    run(streamer=_Sink())
 
 
 def over_a_parameter(err: TextIO, helper):

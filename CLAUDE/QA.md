@@ -857,7 +857,8 @@ stream-named keyword argument (`stdout`, `stderr`, `out`, `err`, `output`, `stre
 `file`, `sink`, `unchecked`, `log`, `diagnostics`, `errors`, or ending `_stream` or `_sink`,
 or starting `out_` or `err_`), directly or through a variable; as `sys.stdout` or
 `sys.stderr`; to `redirect_stdout` or `redirect_stderr`; or assigned over a parameter
-whose annotation names `TextIO` (`TextIO | None` included). Run by
+whose annotation names `TextIO` or `IO[str]` anywhere in it (`TextIO | None`,
+`Optional[TextIO]`, `typing.TextIO`, a quoted `"TextIO"`). Run by
 `qa-speech-to-text-rules.bash` over every tracked Python file.
 
 **Why it exists.** Python accepts any object where a `TextIO` is declared and no type
@@ -870,8 +871,8 @@ text stream is expected. Found and defended under Defence Before Fix.
 
 **How to fix a finding.** Use `io.StringIO` to collect output. For a wrapper (a lock, a
 filter), derive from `io.TextIOBase`, which supplies `writelines` and `print(file=)`
-support through `write`, and delegate `flush` to the wrapped stream. Where several threads share
-the stream, write each line with one `write` call: `print(file=)` makes two writes, so
+support through `write`, and delegate `flush` to the wrapped stream. Where several
+threads share the stream, write each line with one `write` call: `print(file=)` makes two writes, so
 another thread's line can land between them. Never add the one
 missing method: the next consumer calls another.
 
