@@ -20,7 +20,7 @@
 #      running members), each that has not named; an offline coordinator is named, not waited for;
 #   A1, A2 `sudo agent-bus check-rooms <team>` passes for every present team: the rooms, the
 #      index, the back-links, exact power levels and join rules, every human in, no worker in
-#      questions, every coordinator joined to both rooms or, still invited, named offline;
+#      questions, every coordinator joined to both rooms or, with no live status, named offline;
 #   the coordinator: the first team whose registry names one, and the session it runs in, ccy
 #      or LXC. No team with a coordinator is REJECTED, named, before anything is changed; a
 #      coordinator in no session this host can drive is offline, and the test question is NOT

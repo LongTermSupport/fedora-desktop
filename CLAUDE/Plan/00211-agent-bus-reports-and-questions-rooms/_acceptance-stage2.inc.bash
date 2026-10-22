@@ -639,7 +639,7 @@ EOF
 }
 
 # fake_a12 <teams json> [<team>=<rc>|offline...] — check-rooms answers rc (1 prints a PROBLEM
-# line); `offline` answers 0 with an OFFLINE line, as for a coordinator still invited.
+# line); `offline` answers 0 with an OFFLINE line, as for a coordinator with no live status.
 fake_a12() {
     printf '%s\n' "$1" >"${TEAMS_JSON}" || return 1
     shift

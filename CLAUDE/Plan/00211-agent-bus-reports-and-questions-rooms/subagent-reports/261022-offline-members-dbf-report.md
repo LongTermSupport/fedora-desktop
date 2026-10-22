@@ -4,7 +4,12 @@ Branch `fix/offline-members-never-block` (worktree of F44 c159e6626). Defence re
 fixes `978d02f45`, `a51a29e17`, `a14af5445`, `f84831b0e`, the Go merge `1e00176bd` (branch
 `fix/offline-members-go`, `48959ab50`); plan notes `b37ea0269`, journal `2f3dd9e3a`. After the
 conformance review (`261022-offline-members-conformance-round1.md`): the rule widened, red
-again on its own, `1d9951f0e`; its fix `96a8fdb6c`.
+again on its own, `1d9951f0e`; its fix `96a8fdb6c`. After the adversarial review round 1
+(`261022-offline-members-review-round1.md`, over-corrections the rule cannot see): `521e97108`
+(check-rooms by live status), `0be44b47f` (wind-down and shutdown by the live container list),
+`49256e214` (SPEC/PLAN/owner's steps), `1959e982d` (NOT JUDGED verdicts, R9 by declared
+members, the offline prefix, and the rule counting `plan_lxc_online_named`, red first in its
+fixture), `617b48bc4` (roles wording by the container list, restart's cleanup hint).
 
 ## Specification followed
 
@@ -27,15 +32,15 @@ the owner's rule as recorded in CLAUDE/AgentNotes.md, no exceptions recorded.
 
 Originating instance: 00211 stage 1's `s2_check` refused a stopped declared LXC container and
 stopped deploy 2 ("start it, then run meta-deploy again"). Class: code that treats a declared
-team member that is offline (container stopped, session not running, coordinator invited but
-not joined) as a failure or a precondition. Hazard: normal lifecycle blocks a play, deploy,
+team member that is offline (container stopped, session not running, coordinator with no live
+status) as a failure or a precondition. Hazard: normal lifecycle blocks a play, deploy,
 acceptance or tool, and the owner is told to start a member to go on.
 
 ## Rule
 
 `offline-member-blocks`, a reading detector in Python (`tests/helpers/agent_bus_lxc/ test_offline_member_rule.py`), documented in CLAUDE/QA.md and AgentNotes.md. Three detectors:
 A, member-reading bash with its own LXC state read or an unguarded `lxc-attach` (no
-`plan_lxc_online` in its plan folder); B, team-member code (Python, Go, bash) whose message
+`plan_lxc_online` or `plan_lxc_online_named` in its plan folder); B, team-member code (Python, Go, bash) whose message
 makes starting a member the way on; C, a teams Go flow failing on a non-empty LXC row list.
 Excludes comments, completed plans and non-member code. Next wider rule considered: any
 `lxc-attach`/`lxc-info` anywhere, or any "not running" text; not built because the lab, VM and
@@ -85,15 +90,22 @@ findings in 10 files at the first red, 1 more at the second. Final: 0.
 ## Fixes
 
 Each examined individually. 00211 stage 1 and 2 and 00213 C3: `plan_lxc_online`
-(`CLAUDE/Plan/_members.inc.bash`, tested in `scripts/test-planlib.bash`), offline named, not
-judged. `admin.py check_rooms`: an invited coordinator is an `OFFLINE` line, exit 0; `leave`,
-or questions joined without reports, stays a `PROBLEM` (tests in `test_admin_side_rooms.py`,
-`test_cli.py`); CCY 3.99.14.13, container 2.78.16. `members.py` deferred and summary wording,
+and `plan_lxc_online_named` (`CLAUDE/Plan/_members.inc.bash`, tested in
+`scripts/test-planlib.bash`): offline named on a fixed prefix, not judged; ABORTING and an
+unreadable container fail. A check that judged no member prints `ACCEPTED, <check> NOT JUDGED`
+(00211 S2, the test question, A3's inbox half, A4, A5; 00213 C3; 00203 R9). `admin.py
+check_rooms`: a coordinator not joined is judged by its live `agent_bus.status` in the team
+room: none is an `OFFLINE` line, exit 0; a listening one not joined, `leave`, `ban` or any
+other membership is a `PROBLEM` (tests in `test_admin_side_rooms.py`, `test_cli.py`); CCY
+3.99.14.14, container 2.78.17. `members.py` deferred and summary wording,
 `derive.py` unmounted-store wording. Go (sub-agent, `261022-offline-members-go-report.md`):
-roles judges an entry by its record handle with no checkout read; wind-down and shutdown list
-offline rows and never exit 1 for them, a running unreachable member still fails. Plan 00203
-R9 judges running containers only. `restart`: a ccy session with an open tmux session and a
-stopped container is left as it is, named offline, not a failure. No suppression; no instance
+roles judges an entry by its record handle with no checkout read, and names an unreadable
+entry offline only when the container list says stopped; wind-down and shutdown list offline
+rows (a record `stopped` is checked against the live container list) and never exit 1 for
+them, a running unreachable member still fails. Plan 00203 R9 judges the online containers of
+the declared `service: true` entries only, each unit by name. `restart`: a ccy session with an open tmux session and a
+stopped container is left as it is, named offline, not a failure, with the cleanup hint
+(ccy-sessions ends the leftover tmux session) and no restart asked for. No suppression; no instance
 satisfied by rewording alone where it still failed the run. No fix was applied by pattern: the
 20 findings are in 13 files of three languages with different shapes, and each was read.
 
@@ -106,7 +118,9 @@ satisfied by rewording alone where it still failed the run. No fix was applied b
    the declaration's role wrong. It now advises `ccy-teams apply <team>`, never starting the
    container. Count: 1 path left, every other fixed. Fixing it would take a way to name an
    LXC entry's handle without its checkout or its record (the entry's own `host`/`seat`/`repo`,
-   which the play already honours). The rule does not flag it; recorded in PLAN.md Task 2.8.
+   which the play already honours). The rule does not flag it; recorded in PLAN.md Task 2.8,
+   and the follow-up that decides an entry giving `host`, `seat` and `repo` by its fields is
+   PLAN.md Task 2.9.
 2. The board's record-based "container stopped at the last apply" is unchanged because Plan
    00209's acceptance-s1 compares `ccy-teams --list` bytes; recorded as Plan 00209 Task 7.4.
 
@@ -125,7 +139,9 @@ No DBF manifest declaration and no register-graded toolchain. The project's test
 pattern gives a rule in the project, a single-rule run and a stable identifier in every
 message; it lacks a resolver command and a listing command (the identifier names its CLAUDE/QA.md
 section; the listing is that file's rule sections). Recorded here as the toolchain owner's gap
-under clause 3.2, with the `qa-changed` routing gap above.
+under clause 3.2, with the `qa-changed` routing gap above. Detector B bans start-to-go-on
+advice on every path, failing or not; review round 1 suggested limiting it to failure paths.
+Not done: no instance needs it (the restart hint is cleanup advice and does not match).
 
 ## The original defect
 
