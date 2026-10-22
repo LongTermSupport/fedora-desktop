@@ -263,6 +263,11 @@ linters:
       - path: internal/teamchat/state/state\.go
         linters: [gosec]
         text: "G304"
+      # The host_vars file is the one the owner's checkout names; ccy-teams reads it to show and
+      # edit the owner's own declarations.
+      - path: internal/teamchat/declare/hostvars/hostvars\.go
+        linters: [gosec]
+        text: "G304"
   settings:
     tagliatelle:
       case:
