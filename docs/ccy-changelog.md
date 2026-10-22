@@ -17,13 +17,44 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.15.6 — container 2.78.19
+## 3.100.9 — container 2.79.4
 
-Follows 3.99.15.5. The image changes, so the next launch rebuilds it once.
+Follows 3.100.8. The image changes, so the next launch rebuilds it once.
 
-- **Team colours, first part** (Plan 00217). The image's pingbus carries
-  `helpers/pingbus/colours.py`, the palette and the `colour:` override grammar the status line's
-  team colours will use; nothing draws them yet.
+- **Each agent team in its own colour on the status line, with this member's name** (Plan
+  00217). A team piece reads `alpha: fedora-desktop.2 (c)`: the team, this session's member in
+  it and its role, in the team's colour. The colour comes from the team's name, in a palette
+  legible on dark terminals, unless the team's `colour:` overrides it.
+
+## 3.100.8 — container 2.79.3
+
+Follows 3.99.15.7 (3.100.0 to 3.100.8 and containers 2.79.0 to 2.79.3 were never released:
+review rounds on one branch; container 2.79.3 also carries 2.78.19's declare.py and agent-bus
+check-rooms). The image changes: the play builds it, and a host that has not run the play
+rebuilds it once at its next launch.
+
+- **`ccy --opencode` (or `-oc`) runs opencode instead of Claude Code** (Plan 00215): the image
+  carries opencode 1.19.3, pinned by sha256, with sharing and the updater off and its ctrl+z
+  suspend unbound. The flag changes only the command the container runs; the session has no bus
+  kit and no supervisor, so `--teams`, `--supervise`, `--headless` and the session limits are
+  refused with it, as is a bare first message (opencode reads it as a directory: use
+  `--prompt`). An opencode session is marked no-restore and skipped by `ccy-sessions restore`.
+  It needs a model provider key file in `~/.claude-tokens/ccy/provider-keys/`, handed by name to
+  that container only (and never written to `--debug`'s trace), and stops before anything starts
+  without one.
+- **A Quick Launch with no bus kit (`--opencode`, and `--no-bus`) leaves the saved team alone**:
+  not taken, and kept for the next launch to offer. `--no-bus` used to fail late at the seats.
+- Any other launch is byte for byte what it was (the launcher's differential harness).
+
+## 3.99.15.7 — container 2.78.19
+
+Follows 3.99.15.5 (3.99.15.6 was this branch's earlier cut, never released). The image changes, so the next launch rebuilds it once.
+
+- **`agent-bus check-rooms` passes with an offline coordinator, judged by its live status**
+  (Plan 00211). A coordinator with no live status in the team room (no session of it is on
+  the bus) that has not joined the side rooms is an `OFFLINE` line, and the check exits 0. One
+  whose session is listening but has not joined, one that left a side room, and any other
+  membership (`ban`) are a `PROBLEM`.
 
 ## 3.99.15.5 — container 2.78.18
 

@@ -35,6 +35,9 @@ done
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../_planlib.inc.bash
 source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../_members.inc.bash
+source "${repoRoot}/CLAUDE/Plan/_members.inc.bash"
 plan_init "${BASH_SOURCE[0]}"
 
 PLAN_USAGE="usage: acceptance.bash [-h|--help]
@@ -109,5 +112,13 @@ acceptance_m3
 acceptance_m4
 acceptance_m6
 acceptance_robust
-printf '\nACCEPTED: every milestone passed\n' | tee -a "${REPORT}"
+if [[ "${R9_NOT_JUDGED}" -eq 1 ]]; then
+    printf '\nACCEPTED, R9 NOT JUDGED (no container that declares a member unit is online): every other check passed\n' |
+        tee -a "${REPORT}"
+elif [[ "${R9_OFFLINE}" -gt 0 ]]; then
+    printf '\nACCEPTED: every milestone passed; R9 judged the online containers (%s offline, named above, not judged)\n' \
+        "${R9_OFFLINE}" | tee -a "${REPORT}"
+else
+    printf '\nACCEPTED: every milestone passed\n' | tee -a "${REPORT}"
+fi
 plan_finish

@@ -83,34 +83,50 @@ read_members() {
     jq -e 'type == "array"' "${MEMBERS_JSON}" >/dev/null
 }
 
-# c3_lxc — every container a present agent_bus_lxc_members entry names is RUNNING, and its
-# copy of the kit (members.py copies the host kit in) holds the reference binary, which runs
-# there. Every container is judged before the verdict, so one run names all that are down or
-# behind.
+# c3_lxc — in every online container a present agent_bus_lxc_members entry names, its copy of
+# the kit (members.py copies the host kit in) holds the reference binary, which runs there. A
+# container that is not running is offline: named, not judged, never a failure
+# (CLAUDE/AgentNotes.md). With every declared container offline, C3 judged nothing and sets
+# C3_NOT_JUDGED=1 for the verdict; with some offline, C3_OFFLINE counts them. Every online
+# container is judged before the verdict, so one run names all that are behind.
+C3_NOT_JUDGED=0
+C3_OFFLINE=0
+
+# accepted_line — the ACCEPTED verdict, naming C3 as NOT JUDGED when it judged nothing, and the
+# offline count when it judged only some.
+accepted_line() {
+    if [[ "${C3_NOT_JUDGED}" -eq 1 ]]; then
+        printf 'ACCEPTED, C3 NOT JUDGED (no declared LXC member online): the Go status line is installed on the host and in the ccy build context, matches the Python and costs a fraction of it\n'
+        return 0
+    fi
+    if [[ "${C3_OFFLINE}" -gt 0 ]]; then
+        printf 'ACCEPTED: the Go status line is installed on the host, in the ccy build context and in every online LXC member (%s offline, named above, not judged), matches the Python and costs a fraction of it\n' "${C3_OFFLINE}"
+        return 0
+    fi
+    printf 'ACCEPTED: the Go status line is installed everywhere, matches the Python and costs a fraction of it\n'
+}
+
 c3_lxc() {
-    local containers name state got want bad=0
+    local containers online name got want bad=0
+    local -a names
     containers="$(jq -r '[.[] | select((.state // "present") == "present") | .container] | unique | .[]' "${MEMBERS_JSON}")" || return 1
     if [[ -z "${containers}" ]]; then
         say_report "no present agent_bus_lxc_members entry: nothing to check"
         return 0
     fi
+    mapfile -t names <<<"${containers}"
+    online="$(plan_lxc_online_named "${REPORT}" "${names[@]}")" || return 1
+    if [[ -z "${online}" ]]; then
+        say_report "C3 NOT JUDGED: no declared LXC member is online"
+        C3_NOT_JUDGED=1
+        return 0
+    fi
+    C3_OFFLINE=$((${#names[@]} - $(wc -l <<<"${online}")))
     want="$(sha256sum "${BUILT}" | cut -d' ' -f1)" || return 1
     while IFS= read -r name; do
-        state="$(sudo -n lxc-info -n "${name}" -sH)" || {
-            printf 'lxc-info failed for container %s: is it the name of an LXC container here?\n' "${name}" >&2
-            bad=1
-            continue
-        }
-        if [[ "${state}" != "RUNNING" ]]; then
-            printf 'container %s is %s, not RUNNING: start it, then run meta-deploy again (the play copies its kit only while it runs)\n' \
-                "${name}" "${state}" >&2
-            say_report "- container ${name}: ${state}"
-            bad=1
-            continue
-        fi
         got="$(sudo -n lxc-attach -n "${name}" --clear-env -- env -i PATH=/usr/bin:/bin \
             sha256sum /usr/local/share/agent-bus/kit/pingbus-status-line)" || {
-            printf 'container %s: its kit has no pingbus-status-line: re-run the deploy with it running\n' "${name}" >&2
+            printf 'container %s (online): its kit has no pingbus-status-line: play-agent-bus.yml copies the kit into an online container, so run the deploy again\n' "${name}" >&2
             bad=1
             continue
         }
@@ -132,7 +148,7 @@ c3_lxc() {
             printf 'container %s: pingbus-status-line printed %s for an empty payload, not one empty line\n' "${name}" "${got}" >&2
             bad=1
         fi
-    done <<<"${containers}"
+    done <<<"${online}"
     return "${bad}"
 }
 

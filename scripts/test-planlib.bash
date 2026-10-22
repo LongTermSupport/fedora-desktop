@@ -34,6 +34,10 @@ fi
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../CLAUDE/Plan/_planlib.inc.bash
 source "${LIB}"
+# The members library beside it (plan_lxc_online), tested at the end.
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../CLAUDE/Plan/_members.inc.bash
+source "${REPO_ROOT}/CLAUDE/Plan/_members.inc.bash"
 
 LIB_SRC="$(cat "${LIB}")"
 readonly LIB_SRC
@@ -808,6 +812,82 @@ while IFS= read -r line; do
     esac
 done < <(printf '%s\n' "${LIB_CODE}" | grep -F '[@]')
 assert_eq "every array expansion uses the set -u-safe bracket-at-plus form" "" "${UNGUARDED_LINES}"
+
+# ── plan_lxc_online: an offline member is named and left out, never a failure ────────────
+
+FAKE_LXC="${TMPROOT}/lxc"
+mkdir -p "${FAKE_LXC}"
+# The fake lxc-info answers `-n NAME -sH` with NAME.state from its directory; no file is a
+# container that does not exist (lxc-info exits 1).
+cat >"${FAKE_LXC}/lxc-info" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+state="$(dirname "$0")/$2.state"
+if [[ "$3" != "-sH" ]] || [[ ! -f "${state}" ]]; then
+    printf '%s does not exist\n' "$2" >&2
+    exit 1
+fi
+cat -- "${state}"
+EOF
+chmod 0755 "${FAKE_LXC}/lxc-info"
+printf 'RUNNING\n' >"${FAKE_LXC}/up-a.state"
+printf 'STOPPED\n' >"${FAKE_LXC}/down-b.state"
+printf 'RUNNING\n' >"${FAKE_LXC}/up-c.state"
+PLAN_LXC_INFO=("${FAKE_LXC}/lxc-info")
+ONLINE="$(plan_lxc_online up-a down-b up-c 2>"${CAPTURE_FILE}")"
+RC=$?
+OUT="$(cat "${CAPTURE_FILE}")"
+assert_eq "plan_lxc_online succeeds with an offline container among them" "0" "${RC}"
+assert_eq "plan_lxc_online prints the running containers only, in order" $'up-a\nup-c' "${ONLINE}"
+assert_contains "plan_lxc_online names the offline one on its fixed prefix" "offline: down-b (container stopped)" "${OUT}"
+ONLINE="$(plan_lxc_online down-b 2>"${CAPTURE_FILE}")"
+RC=$?
+assert_eq "every container offline is still not a failure" "0" "${RC}"
+assert_eq "every container offline prints no online one" "" "${ONLINE}"
+ONLINE="$(plan_lxc_online 2>"${CAPTURE_FILE}")"
+RC=$?
+assert_eq "no container named is not a failure" "0" "${RC}"
+assert_eq "no container named prints nothing" "" "${ONLINE}"
+ONLINE="$(plan_lxc_online up-a missing-d 2>"${CAPTURE_FILE}")"
+RC=$?
+OUT="$(cat "${CAPTURE_FILE}")"
+assert_eq "a container lxc-info cannot read is a failure (a wrong entry, not offline)" "1" "${RC}"
+assert_contains "the failure names the container" "missing-d" "${OUT}"
+printf 'FROZEN\n' >"${FAKE_LXC}/frozen-e.state"
+printf 'ABORTING\n' >"${FAKE_LXC}/broken-f.state"
+ONLINE="$(plan_lxc_online frozen-e 2>"${CAPTURE_FILE}")"
+RC=$?
+OUT="$(cat "${CAPTURE_FILE}")"
+assert_eq "a container in another state (frozen) is not online and not a failure" "0" "${RC}"
+assert_contains "it is named by its own state, not called stopped" "offline: frozen-e (container frozen)" "${OUT}"
+ONLINE="$(plan_lxc_online up-a broken-f 2>"${CAPTURE_FILE}")"
+RC=$?
+OUT="$(cat "${CAPTURE_FILE}")"
+assert_eq "a container ABORTING is a failure (broken, not offline)" "1" "${RC}"
+assert_contains "the ABORTING failure names the container" "container broken-f is ABORTING" "${OUT}"
+
+# plan_lxc_online_named: offline lines go to the report; any other stderr is passed through
+# and never reported as an offline container.
+NAMED_REPORT="${TMPROOT}/named-report.md"
+: >"${NAMED_REPORT}"
+printf '#!/usr/bin/env bash\nprintf "sudo: a warning\\n" >&2\nexec "%s" "$@"\n' "${FAKE_LXC}/lxc-info" >"${FAKE_LXC}/noisy-lxc-info"
+chmod 0755 "${FAKE_LXC}/noisy-lxc-info"
+PLAN_LXC_INFO=("${FAKE_LXC}/noisy-lxc-info")
+SAVED_RUN_DIR="${PLAN_RUN_DIR:-}"
+PLAN_RUN_DIR="${TMPROOT}"
+ONLINE="$(plan_lxc_online_named "${NAMED_REPORT}" up-a down-b 2>"${CAPTURE_FILE}")"
+RC=$?
+OUT="$(cat "${CAPTURE_FILE}")"
+REPORTED="$(cat "${NAMED_REPORT}")"
+assert_eq "plan_lxc_online_named succeeds with an offline container" "0" "${RC}"
+assert_eq "plan_lxc_online_named prints the online one" "up-a" "${ONLINE}"
+assert_eq "only the offline container is reported" "- down-b (container stopped): offline, not judged" "${REPORTED}"
+assert_contains "other stderr is passed through" "sudo: a warning" "${OUT}"
+ONLINE="$(plan_lxc_online_named "${NAMED_REPORT}" up-a missing-d 2>"${CAPTURE_FILE}")"
+RC=$?
+assert_eq "plan_lxc_online_named fails as plan_lxc_online does" "1" "${RC}"
+PLAN_RUN_DIR="${SAVED_RUN_DIR}"
+PLAN_LXC_INFO=(sudo -n lxc-info)
 
 # ── summary ──────────────────────────────────────────────────────────────────────────────
 

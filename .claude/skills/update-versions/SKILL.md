@@ -91,13 +91,12 @@ before bumping.
 
 ## Tracking a new pin
 
-When a new playbook hardcodes an upstream version, add a row to the `MANIFEST`
-heredoc in `scripts/check-pinned-versions.bash`:
+When a new playbook hardcodes an upstream version, add an entry to
+`vars/version-pins.yml`, the manifest `scripts/check-pinned-versions.bash` reads. Its
+header documents the fields (`playbook`, `var`, `github`, `tag_prefix`, `note`,
+`installed`); `./scripts/qa-version-pins.bash` validates it.
 
-```
-<playbook-path>|<var-name>|<owner/repo>|<extra-tag-prefix>|<note>
-```
-
-Leave `<owner/repo>` empty for a non-GitHub pin that must be checked by hand
-(put the where-to-look hint in `<note>`). Use `<extra-tag-prefix>` for tags that
-carry more than a leading `v` (e.g. darktable's `release-`).
+The manifest holds playbook pins only. The ccy base image pins its release binaries as
+`ARG <NAME>_VERSION` / `ARG <NAME>_SHA256` pairs in `files/var/local/claude-yolo/Dockerfile`
+(Lightpanda, opencode), which the script does not report: check those by hand, bump the
+pair together, and bump the container version with them (CLAUDE/ContainerRules.md).

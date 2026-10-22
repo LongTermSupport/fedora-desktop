@@ -262,8 +262,8 @@ func (r *Restart) askToRestart(ctx context.Context, j *job) {
 		return
 	}
 	if j.container = running[j.name]; j.container == "" {
-		j.done(resultFailed, "its container is not running, so its supervisor cannot restart it; "+
-			"end it in ccy-sessions, then run restart again to start it")
+		j.done(resultLeft, "offline: its container is stopped (its tmux session is still open), "+
+			"so there is nothing to restart in place; ccy-sessions ends the leftover tmux session")
 		return
 	}
 	pending, err := membership.RelaunchPending(j.memDir)

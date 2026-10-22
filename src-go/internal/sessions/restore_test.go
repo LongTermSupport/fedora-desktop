@@ -200,6 +200,24 @@ func TestRestoreSkipsNoRestoreRecordsAndRunningSessionsKeepingTheirManifestEntry
 	}
 }
 
+// Plan 00215: an opencode session (ccy --opencode or -oc before any "--") is not brought back,
+// even with its restore mark on: it has no Claude conversation to resume, and a resume would
+// hand opencode Claude's flags. A word after "--" is claude's and does not count.
+func TestRestoreSkipsOpencodeSessions(t *testing.T) {
+	h := newHarness(t)
+	restoreHost(h)
+	a := realDir(t, h, "a")
+	record(t, h, registry.Record{Name: "ccy-o", Dir: a, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true, Args: []string{"--token", "work", "--opencode"}})
+	record(t, h, registry.Record{Name: "ccy-s", Dir: a, Launcher: "/launch/ccy", Prefix: "ccy", Restore: true, Args: []string{"-oc"}})
+	exitCodeIs(t, h.run("restore"), 0, h)
+	contains(t, "skips", h.stderr(),
+		"skip ccy-o: an opencode session is not restored (Plan 00215); start it again with ccy --opencode.\n",
+		"skip ccy-s: an opencode session is not restored (Plan 00215); start it again with ccy --opencode.\n")
+	if len(startedSessions(h)) != 0 {
+		t.Fatal("nothing is started")
+	}
+}
+
 func TestARunningSessionWithNoEarlierEntryIsRecordedAsNone(t *testing.T) {
 	h := newHarness(t)
 	restoreHost(h)

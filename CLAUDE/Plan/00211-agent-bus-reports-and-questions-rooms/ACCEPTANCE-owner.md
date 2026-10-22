@@ -3,9 +3,11 @@
 Deploy 2's acceptance ends by asking a test question in one team's questions room. The
 question comes from that team's coordinator, in its own session, whether that is a ccy
 session or an LXC member. Its run report names the team, the coordinator and the question
-number (`Q<n>`). If no team has a coordinator, or the coordinator's session is not running,
-the acceptance is REJECTED and names what to do, and no question is asked. Then, in Element,
-signed in as yourself:
+number (`Q<n>`). If no team has a coordinator, the acceptance is REJECTED and names what to
+do. If the coordinator is offline (its session not running, or a host member not driven from
+the acceptance), the run is ACCEPTED with the test question NOT JUDGED: no question is asked,
+and its last line says to run `deploy-stage-2.bash` again once the coordinator is online.
+These steps wait for that run. Then, in Element, signed in as yourself:
 
 1. Accept the invites to `<team> · reports` and `<team> · questions`.
 2. In the reports room, see that the composer is disabled: you cannot post there.
@@ -17,5 +19,6 @@ signed in as yourself:
 Then run `./CLAUDE/Plan/meta-deploy.bash`, whose queue then holds
 `acceptance-after-owner.bash`. It checks (A5) that your reply and its edit reached the
 coordinator, attached to the test question, and that its session took both. The
-coordinator's session must be running for that check. Say which of steps 2 to 6 did not hold,
+coordinator's session must be running for that check: with it offline, A5 is NOT JUDGED and
+the run says to run it again once the coordinator is online. Say which of steps 2 to 6 did not hold,
 if any: A5 cannot see those, so they are journalled from what you report.

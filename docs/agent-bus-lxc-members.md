@@ -238,8 +238,8 @@ and team in the same run:
   it is left as it is. Its seat stays its own. The first run with the container up refreshes
   its kit, env file, config check and unit.
 - **DEFERRED**: the member has not joined yet, or its handle is parked, or the desktop has no
-  record that it joined. Start the container, then run the play again (`ccy-teams apply <team>`)
-  to join it, or take the entry out until it is wanted.
+  record that it joined. It is offline, and joins on the first run of the play
+  (`ccy-teams apply <team>`) with its container online.
 
 The desktop knows a member's handle without entering the container from the entry, when it
 gives `host`, `seat` and `repo`, or else from the member record below. A member that has joined

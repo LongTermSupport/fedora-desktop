@@ -29,6 +29,8 @@ type session struct {
 	supervised bool
 	// holdsOnStart is whether a started session takes its seat.
 	holdsOnStart bool
+	// containerGone is a live tmux session whose container is not running.
+	containerGone bool
 }
 
 // machine is teamtest's populated world, with ccy-proj on seat 1 of alpha running in a
@@ -177,7 +179,7 @@ func (m *machine) fakePodman() {
 	m.Fake.OnFunc([]string{"podman", "ps"}, func(execx.Cmd) (execx.Result, error) {
 		var b strings.Builder
 		for _, s := range m.sessions {
-			if !s.live || s.prefix != "ccy" {
+			if !s.live || s.prefix != "ccy" || s.containerGone {
 				continue
 			}
 			if pending, err := membership.RelaunchPending(m.dir(s.name)); err == nil && pending && s.supervised {

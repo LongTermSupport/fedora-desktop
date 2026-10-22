@@ -202,9 +202,9 @@ def running_root(store, value):
     # A store this host does not mount is read through the running container's own root, with its own mounts.
     pid = init_pid()
     if pid is None:
-        die("container " + container + " keeps its root filesystem in LXC's " + store + " store (lxc.rootfs.path = " +
-            value + "), which is mounted only inside the running container, and it is not running: start it, then " +
-            "try again")
+        die("container " + container + " is offline, and keeps its root filesystem in LXC's " + store +
+            " store (lxc.rootfs.path = " + value + "), which is mounted only inside the running container, so " +
+            "its checkout cannot be read from here while it is offline")
     return "/proc/self/fd/" + str(running_dir(pid, "root"))
 
 rootfs, mounts, running = None, [], None
