@@ -43,6 +43,11 @@ type recorder struct {
 	failOp string
 	// swapReopen, when set, makes the reopen through /proc/self/fd open this file instead.
 	swapReopen string
+	// stallPath, when set, makes an openat2 of it wait until stall is closed: a stalled mount.
+	stallPath string
+	stall     chan struct{}
+	// closes, when set, is sent each descriptor closed.
+	closes chan int
 }
 
 func newRecorder() *recorder {
@@ -123,6 +128,13 @@ func (r *recorder) openat2(dirfd int, path string, how *unix.OpenHow) (int, erro
 	if err := r.step(call{op: "openat2", path: path, flags: how.Flags, resolve: how.Resolve}); err != nil {
 		return -1, err
 	}
+	r.mu.Lock()
+	stall := r.stall
+	stalled := r.stallPath != "" && r.stallPath == path
+	r.mu.Unlock()
+	if stalled {
+		<-stall
+	}
 	fd, err := unrecorded(openAgain, func() (int, error) { return r.real.openat2(dirfd, path, how) })
 	if err == nil {
 		r.opened(fd, path, how.Flags&unix.O_PATH != 0)
@@ -148,8 +160,13 @@ func (r *recorder) close(fd int) error {
 	stepErr := r.step(call{op: "close"})
 	r.mu.Lock()
 	delete(r.open, fd)
+	closes := r.closes
 	r.mu.Unlock()
-	return errors.Join(r.real.close(fd), stepErr)
+	err := errors.Join(r.real.close(fd), stepErr)
+	if closes != nil {
+		closes <- fd
+	}
+	return err
 }
 
 func (r *recorder) fstat(fd int, st *unix.Stat_t) error {

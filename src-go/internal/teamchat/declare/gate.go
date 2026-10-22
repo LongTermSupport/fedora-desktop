@@ -71,7 +71,7 @@ func ParseLXCEntry(s string) (LXCEntry, error) {
 	seat, err := strconv.Atoi(seatText)
 	if !slash || !userOK || !flagOK || !checkoutOK || err != nil || strconv.Itoa(seat) != seatText ||
 		!validSeat(int64(seat)) || (flag != "true" && flag != "false") || !validContainer(container) ||
-		!validCheckout(checkout) {
+		!paths.ValidGuestPath(checkout) {
 		return LXCEntry{}, bad
 	}
 	u, err := paths.ParseGuestUser(user)
@@ -541,7 +541,7 @@ func readLXCEntries(n node) ([]LXCEntry, error) {
 		if e.Container, err = f.at(keyContainer).checked(validContainer, "is not a container name"); err != nil {
 			return nil, err
 		}
-		if e.Checkout, err = f.at(keyCheckout).checked(validCheckout, "is not an absolute, clean path below /"); err != nil {
+		if e.Checkout, err = f.at(keyCheckout).checked(paths.ValidGuestPath, msgCheckout); err != nil {
 			return nil, err
 		}
 		if e.Seat, err = f.at(keySeat).seat(); err != nil {

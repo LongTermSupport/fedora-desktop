@@ -117,6 +117,8 @@ func TestGuestRefusesBeforeRunning(t *testing.T) {
 		"a relative home": func(a *Attach) { a.Home = "home/<user>" },
 		"an unclean home": func(a *Attach) { a.Home = "/home/../agent" },
 		"a control":       func(a *Attach) { a.Home = "/home/a\nb" },
+		"a C1 control":    func(a *Attach) { a.Home = "/home/a\u0085b" },
+		"a bidi override": func(a *Attach) { a.Home = "/home/a\u202eb" },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {

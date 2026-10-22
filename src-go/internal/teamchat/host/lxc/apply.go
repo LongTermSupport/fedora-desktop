@@ -8,10 +8,8 @@ import (
 	"io/fs"
 	"net/netip"
 	"path"
-	"path/filepath"
 	"slices"
 	"strconv"
-	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
@@ -65,7 +63,6 @@ const (
 	gitConfig    = "/.git/config"
 	envLocal     = "/.claude/ccy/ccy.env.local"
 	maxUnit      = 64 << 10
-	maxSeat      = 9999
 )
 
 // The record statuses a phase uses beyond lxcstate's: the entry dropped, left as it is, or
@@ -312,11 +309,11 @@ func (r *run) team(ctx context.Context, in declare.Input, targets map[Target]boo
 // key of any other panics.
 func seatOf(team paths.TeamID, m declare.LXCMember) (lxcstate.SeatID, error) {
 	c := m.Checkout
-	if m.Seat < 1 || m.Seat > maxSeat {
-		return lxcstate.SeatID{}, fmt.Errorf("seat %d is not 1-9999", m.Seat)
+	if !paths.ValidLXCSeat(m.Seat) {
+		return lxcstate.SeatID{}, fmt.Errorf("seat %d is not 1-%d", m.Seat, paths.MaxLXCSeat)
 	}
-	if !filepath.IsAbs(c) || filepath.Clean(c) != c || c == "/" || strings.ContainsAny(c, "\n\r") {
-		return lxcstate.SeatID{}, errors.New("the checkout is not an absolute, clean path below / on one line")
+	if !paths.ValidGuestPath(c) {
+		return lxcstate.SeatID{}, errors.New("the checkout is not an absolute, clean path below / with no control or format character")
 	}
 	return lxcstate.SeatID{Team: team, Checkout: c, Seat: m.Seat}, nil
 }
@@ -776,7 +773,7 @@ func liveHandles(rec lxcstate.Record) map[string]lxcstate.Entry {
 }
 
 // service is the facts a session unit needs (SU1): start.auto, systemd as init (n3-D17), tmux
-// on the guest PATH, and the unit's group.
+// where the unit runs it, and the unit's group.
 func (r *run) service(g *guestBox, m *member) error {
 	if !g.cfg.StartAuto {
 		return fmt.Errorf("%w: %s is not 1; the container's own play owns its config", guestfacts.ErrRefused, guestfacts.KeyStartAuto)
@@ -803,23 +800,17 @@ func (r *run) service(g *guestBox, m *member) error {
 	return err
 }
 
-// tmux finds tmux in a guest PATH directory by TB1: a link or a non-regular file at one entry is
-// not there, and the next is tried.
+// tmux checks the tmux the unit runs (unit.Tmux) by TB1: a link or a non-regular file
+// there is refused, and a tmux elsewhere on the guest PATH does not count.
 func tmux(root Root) error {
-	var tried []string
-	for _, dir := range guest.SystemDirs {
-		p := dir + "/tmux"
-		info, err := root.Stat(p)
-		switch {
-		case err == nil && info.Mode.IsRegular():
-			return nil
-		case err == nil, errors.Is(err, guestroot.ErrRefused), errors.Is(err, fs.ErrNotExist):
-			tried = append(tried, p)
-		default:
-			return err
-		}
+	info, err := root.Stat(unit.Tmux)
+	switch {
+	case err == nil && info.Mode.IsRegular():
+		return nil
+	case err == nil, errors.Is(err, guestroot.ErrRefused), errors.Is(err, fs.ErrNotExist):
+		return fmt.Errorf("%w: %s is not a regular file; the container's own play installs it", guestfacts.ErrRefused, unit.Tmux)
 	}
-	return fmt.Errorf("%w: tmux is not a regular file at %v; the container's own play installs it", guestfacts.ErrRefused, tried)
+	return err
 }
 
 // attach is the seat's lxc-attach identity, the digest kit's binary (never current).

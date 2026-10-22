@@ -59,12 +59,7 @@ const (
 	maxID          = 1<<32 - 2 // (uid_t)-1 is no id
 )
 
-var (
-	idGrammar = regexp.MustCompile(`^(0|[1-9][0-9]{0,9})$`)
-	// unitPath is the unit's grammar for a path (C 3.9.4): nothing a unit file or a shell reads
-	// as a specifier, a variable, a quote or a separator.
-	unitPath = regexp.MustCompile(`^[A-Za-z0-9/._-]+$`)
-)
+var idGrammar = regexp.MustCompile(`^(0|[1-9][0-9]{0,9})$`)
 
 // lines splits a passwd-form file into its entries of n colon-separated fields; blank lines
 // and # comments are skipped, and any other form refuses the file.
@@ -112,7 +107,8 @@ func parseID(s, file, what string) (int, error) {
 }
 
 // Passwd finds u in a guest passwd file: uid and gid nonzero, home absolute and clean in the
-// unit's grammar, the name exactly u and on one line only. hostUIDs is every uid the host's own
+// unit's grammar, the name exactly u and on one line only, and its uid no other account's
+// (which would own the agent's files as well). hostUIDs is every uid the host's own
 // passwd names (n3-D29); a uid among them is refused naming K15. A nil set checks none (the
 // L3 probe, after the apply enforced it).
 func Passwd(data []byte, u paths.GuestUser, hostUIDs map[int]bool) (Account, error) {
@@ -121,6 +117,7 @@ func Passwd(data []byte, u paths.GuestUser, hostUIDs map[int]bool) (Account, err
 		return Account{}, err
 	}
 	var found *Account
+	uids := map[int]int{}
 	for _, f := range entries {
 		uid, err := parseID(f[2], guestUsersFile, "uid")
 		if err != nil {
@@ -130,6 +127,7 @@ func Passwd(data []byte, u paths.GuestUser, hostUIDs map[int]bool) (Account, err
 		if err != nil {
 			return Account{}, err
 		}
+		uids[uid]++
 		if f[0] != u.String() {
 			continue
 		}
@@ -144,6 +142,9 @@ func Passwd(data []byte, u paths.GuestUser, hostUIDs map[int]bool) (Account, err
 	if err := checkAccount(*found, hostUIDs); err != nil {
 		return Account{}, err
 	}
+	if uids[found.UID] > 1 {
+		return Account{}, refuse(guestUsersFile, "another account shares the user's uid")
+	}
 	return *found, nil
 }
 
@@ -155,15 +156,11 @@ func checkAccount(a Account, hostUIDs map[int]bool) error {
 		return refuse(guestUsersFile, "the user's gid is 0")
 	case hostUIDs[a.UID]:
 		return refuse(guestUsersFile, "the user's uid is a host account's (K15): a host account sharing it could reach the agent's files")
-	case !validHome(a.Home):
+	case !paths.ValidUnitPath(a.Home):
 		return refuse(guestUsersFile, "the user's home is not an absolute clean path of [A-Za-z0-9/._-] other than /")
 	default:
 		return nil
 	}
-}
-
-func validHome(s string) bool {
-	return filepath.IsAbs(s) && filepath.Clean(s) == s && s != "/" && unitPath.MatchString(s)
 }
 
 // HostUIDs is the uid set of the host's own passwd (read by state.ReadFile), for K15.
@@ -459,9 +456,25 @@ func (g *gitScan) section(line string) error {
 		return refuse(gitFile, "it includes another file")
 	}
 	g.inSection = true
-	g.inOrigin = strings.EqualFold(m[1], "remote") && m[2] == "origin"
+	g.inOrigin = strings.EqualFold(m[1], "remote") && unescapeSubsection(m[2]) == "origin"
 	g.sawOrigin = g.sawOrigin || g.inOrigin
 	return nil
+}
+
+// unescapeSubsection is a subsection as git reads it: a backslash drops, and the byte after it
+// is taken as it is, so `orig\in` is origin.
+func unescapeSubsection(sub string) string {
+	var b strings.Builder
+	escaped := false
+	for i := range len(sub) {
+		if !escaped && sub[i] == '\\' {
+			escaped = true
+			continue
+		}
+		escaped = false
+		b.WriteByte(sub[i])
+	}
+	return b.String()
 }
 
 func (g *gitScan) key(line string) error {

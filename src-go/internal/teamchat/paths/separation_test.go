@@ -392,11 +392,11 @@ func poolDerived(t *testing.T, team TeamID) map[string]string {
 }
 
 // notName is whether an exported identifier is not a v2 name: a parser or a predicate over a
-// name, an id's, a kit's or a port's own text or number and its encoding, or the error the
+// name or a checkout, the seat bound, an id's, a kit's or a port's own text or number and its encoding, or the error the
 // parsers wrap. (A kit's text is sampled as HostKitDir, HostKitCurrent and CCYKitDir.)
 func notName(ident string) bool {
 	_, method, ok := strings.Cut(ident, ".")
-	return strings.HasPrefix(ident, "Parse") || ident == "IsClaimName" || ident == "ErrInvalid" ||
+	return strings.HasPrefix(ident, "Parse") || ident == "IsClaimName" || strings.HasPrefix(ident, "Valid") || ident == "MaxLXCSeat" || ident == "ErrInvalid" ||
 		ok && slices.Contains([]string{"String", "MarshalText", "UnmarshalText", "Int", "MarshalJSON", "UnmarshalJSON"}, method)
 }
 

@@ -108,23 +108,47 @@ func TestAWrongReplyIsMalformed(t *testing.T) {
 	}
 }
 
-func TestARefusalKeepsSystemdsErrorName(t *testing.T) {
+// TestAMalformedReplyShowsNoGuestText is B2 (TB2.4): a wrong reply is named by its count and
+// signature only, never by the values the guest sent.
+func TestAMalformedReplyShowsNoGuestText(t *testing.T) {
+	err := New(&fakeConn{body: []any{"\x1b[31mevil", uint32(7)}}).Start(t.Context(), unit(t))
+	want := "guest systemd StartUnit " + unit(t) + ": " + ErrMalformed.Error() + ": the reply holds 2 values of signature su"
+	if !errors.Is(err, ErrMalformed) || err.Error() != want {
+		t.Errorf("%q", err)
+	}
+}
+
+func TestARefusalKeepsSystemdsErrorNameAlone(t *testing.T) {
 	for _, refusal := range []error{
-		dbus.Error{Name: "org.freedesktop.systemd1.NoSuchUnit", Body: []any{"Unit x not found."}},
-		dbus.NewError("org.freedesktop.systemd1.NoSuchUnit", []any{"Unit x not found."}),
+		dbus.Error{Name: "org.freedesktop.systemd1.NoSuchUnit", Body: []any{"Unit \x1b[31mx not found."}},
+		dbus.NewError("org.freedesktop.systemd1.NoSuchUnit", []any{"Unit \x1b[31mx not found."}),
 	} {
 		err := New(&fakeConn{err: refusal}).Start(t.Context(), unit(t))
 		se, ok := errors.AsType[*SystemdError](err)
-		if !errors.Is(err, ErrSystemd) || !ok || se.Name != "org.freedesktop.systemd1.NoSuchUnit" || se.Message != "Unit x not found." {
+		if !errors.Is(err, ErrSystemd) || !ok || se.Name != "org.freedesktop.systemd1.NoSuchUnit" {
 			t.Fatalf("%v", err)
 		}
-		if err.Error() != "guest systemd StartUnit "+unit(t)+": systemd refused: org.freedesktop.systemd1.NoSuchUnit: Unit x not found." {
+		if err.Error() != "guest systemd StartUnit "+unit(t)+": systemd refused: org.freedesktop.systemd1.NoSuchUnit" {
 			t.Errorf("%q", err)
 		}
 	}
-	err := New(&fakeConn{err: dbus.Error{Name: "org.example.Bare"}}).Reload(t.Context())
-	if se, ok := errors.AsType[*SystemdError](err); !ok || se.Name != "org.example.Bare" || se.Message != "" {
+	err := New(&fakeConn{err: dbus.Error{Name: "org.example.Bare_1"}}).Reload(t.Context())
+	if se, ok := errors.AsType[*SystemdError](err); !ok || se.Name != "org.example.Bare_1" {
 		t.Errorf("%v", err)
+	}
+}
+
+// TestARefusalWithABadNameIsMalformed is B2: an error name outside the D-Bus grammar is not
+// printed; the refusal is a malformed reply.
+func TestARefusalWithABadNameIsMalformed(t *testing.T) {
+	for _, name := range []string{
+		"", "plain", "org.\x1b[31m.x", "org..x", "org.1x", "org.x.", ".org.x", "org.x-y", "org.x\n.y",
+		"o." + strings.Repeat("x", 254),
+	} {
+		err := New(&fakeConn{err: dbus.Error{Name: name}}).Reload(t.Context())
+		if !errors.Is(err, ErrMalformed) || errors.Is(err, ErrSystemd) || (name != "" && strings.Contains(err.Error(), name)) {
+			t.Errorf("%q: %q", name, err)
+		}
 	}
 }
 

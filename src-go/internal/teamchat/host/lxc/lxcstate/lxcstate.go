@@ -19,7 +19,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"golang.org/x/sys/unix"
 
@@ -94,21 +93,17 @@ type SeatID struct {
 	Seat     int          `json:"seat"`
 }
 
-// maxSeat is declare's highest seat number (DR4).
-const maxSeat = 9999
-
 // Key is the seat's key; a seat whose check fails panics, as paths.LXCSeatKey does.
 func (s SeatID) Key() paths.SeatKey { return paths.LXCSeatKey(s.Team, s.Checkout, s.Seat) }
 
-// check is declare's rule for the key's inputs (DR4): an absolute, clean checkout below / on one
-// line, and a seat 1-9999.
+// check is declare's rule for the key's inputs (DR4): paths.ValidLXCSeat and
+// paths.ValidGuestPath.
 func (s SeatID) check() error {
-	if s.Seat < 1 || s.Seat > maxSeat {
-		return invalid("a seat is not 1-9999")
+	if !paths.ValidLXCSeat(s.Seat) {
+		return invalid("a seat is not 1-%d", paths.MaxLXCSeat)
 	}
-	if !filepath.IsAbs(s.Checkout) || filepath.Clean(s.Checkout) != s.Checkout || s.Checkout == "/" ||
-		strings.ContainsAny(s.Checkout, "\n\r") {
-		return invalid("a checkout is not an absolute, clean path below / on one line")
+	if !paths.ValidGuestPath(s.Checkout) {
+		return invalid("a checkout is not an absolute, clean path below / with no control or format character")
 	}
 	return nil
 }

@@ -356,13 +356,19 @@ func readLXCMember(n node, present map[string]bool) (LXCMember, error) {
 	if m.User, err = guestUser(f.at(keyUser)); err != nil {
 		return LXCMember{}, err
 	}
-	if m.Checkout, err = f.at(keyCheckout).checked(validCheckout, "is not an absolute, clean path below /"); err != nil {
+	if m.Checkout, err = f.at(keyCheckout).checked(paths.ValidGuestPath, msgCheckout); err != nil {
 		return LXCMember{}, err
 	}
 	if m.Seat, err = f.at(keySeat).seat(); err != nil {
 		return LXCMember{}, err
 	}
-	return m, readLXCOptional(&m, f)
+	if err = readLXCOptional(&m, f); err != nil {
+		return LXCMember{}, err
+	}
+	if m.Service && !paths.ValidUnitPath(m.Checkout) {
+		return LXCMember{}, f.at(keyCheckout).fail("is not a path a session unit can carry, of [A-Za-z0-9/._-]")
+	}
+	return m, nil
 }
 
 func readLXCOptional(m *LXCMember, f fields) error {

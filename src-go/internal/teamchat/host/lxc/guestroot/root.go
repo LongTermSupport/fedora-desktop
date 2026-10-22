@@ -22,6 +22,8 @@ import (
 	"io/fs"
 	"path/filepath"
 	"strconv"
+	"sync"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -105,14 +107,22 @@ type Pinner struct {
 }
 
 // Root is one running guest's root directory, held open with its init pinned (LX3, n3-D7).
-// Every read and write below it keeps TB1. Safe for one goroutine at a time.
+// Every read and write below it keeps TB1, and each read is bounded (B5). Safe for one
+// goroutine at a time; a read abandoned at its bound ends on its own.
 type Root struct {
 	sys    sys
 	kernel Kernel
-	fd     int
-	pidfd  int
-	pid    int
-	proc   string
+	// fd and pidfd are set once, before the root is handed out, and released once.
+	fd    int
+	pidfd int
+	pid   int
+	proc  string
+	bound time.Duration
+
+	mu       sync.Mutex
+	closed   bool
+	inflight int
+	lateErr  error
 }
 
 // Info is a guest inode by fstat.
@@ -151,7 +161,7 @@ func (p Pinner) pinWith(ctx context.Context, s sys, pid func(context.Context) (i
 	if err != nil {
 		return nil, fmt.Errorf("guestroot: pidfd of %d: %w", first, err)
 	}
-	r := &Root{sys: s, kernel: p.Kernel, fd: -1, pidfd: pidfd, pid: first, proc: p.Proc}
+	r := &Root{sys: s, kernel: p.Kernel, fd: -1, pidfd: pidfd, pid: first, proc: p.Proc, bound: readBound}
 	rootPath := p.Proc + "/" + strconv.Itoa(first) + "/root"
 	fd, err := s.openat(unix.AT_FDCWD, rootPath, rootFlags|unix.O_DIRECTORY, 0)
 	if err != nil {
@@ -186,7 +196,7 @@ func openDirWith(s sys, dir string) (*Root, error) {
 	if err != nil {
 		return nil, fmt.Errorf("guestroot: %s: %w", dir, err)
 	}
-	r := &Root{sys: s, fd: fd, pidfd: -1}
+	r := &Root{sys: s, fd: fd, pidfd: -1, bound: readBound}
 	info, err := r.statFD(fd, dir)
 	if err == nil && !info.Mode.IsDir() {
 		err = fmt.Errorf("%w: %s is %s", ErrRefused, dir, kind(info.Mode))
@@ -203,7 +213,10 @@ func (r *Root) PID() int { return r.pid }
 // Alive is nil while the pinned init lives (always, for a fixture root), ErrGone once it has
 // died.
 func (r *Root) Alive() error {
-	if r.fd < 0 {
+	r.mu.Lock()
+	closed := r.closed
+	r.mu.Unlock()
+	if closed || r.fd < 0 {
 		return errClosed
 	}
 	if r.kernel == nil {
@@ -219,21 +232,22 @@ func (r *Root) Alive() error {
 	return nil
 }
 
-// Close releases the root's descriptors.
+// Close releases the root's descriptors, or, while a read abandoned at its bound is still in
+// flight, leaves the last such read to release them, so no descriptor number it may still use
+// is reused under it. Its error holds any abandoned read's error kept since the last Close.
 func (r *Root) Close() error {
-	if r.fd < 0 && r.pidfd < 0 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
 		return errClosed
 	}
-	var err error
-	if r.fd >= 0 {
-		err = r.sys.close(r.fd)
-		r.fd = -1
+	r.closed = true
+	err := r.lateErr
+	r.lateErr = nil
+	if r.inflight > 0 {
+		return err
 	}
-	if r.pidfd >= 0 {
-		err = errors.Join(err, r.sys.close(r.pidfd))
-		r.pidfd = -1
-	}
-	return err
+	return errors.Join(err, r.release())
 }
 
 // InitExe is the pinned init's binary as the host sees it: the host's /proc/<pid>/exe opened
@@ -256,13 +270,28 @@ func (r *Root) InitExe() (Info, error) {
 	return info, err
 }
 
-// live runs op between two looks at the init: a root whose init died before or during it
-// answers ErrGone.
+// release closes the root's descriptors, under mu, once.
+func (r *Root) release() error {
+	var err error
+	if r.fd >= 0 {
+		err = r.sys.close(r.fd)
+	}
+	if r.pidfd >= 0 {
+		err = errors.Join(err, r.sys.close(r.pidfd))
+	}
+	return err
+}
+
+// live runs op between two looks at the init, counted in flight: a root whose init died
+// before or during it answers ErrGone. A write and InitExe, a host path, run so, unbounded.
 func (r *Root) live(op func() error) error {
 	if err := r.Alive(); err != nil {
 		return err
 	}
-	err := op()
+	if err := r.enter(); err != nil {
+		return err
+	}
+	err := errors.Join(op(), r.leave())
 	if aerr := r.Alive(); aerr != nil {
 		return aerr
 	}
