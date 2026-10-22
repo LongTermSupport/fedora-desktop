@@ -50,7 +50,7 @@ playbooks/imports/play-agent-bus.yml
 # play-agent-bus.yml again (no change after the entry above), then the whole
 # play-claude-yolo.yml, then acceptance.bash. The kit's settings.json runs the static Go
 # pingbus-status-line, copied into every running LXC member. The ccy play gives the host CCY
-# 3.100.4 (the Go front and --opencode: see the play-claude-yolo.yml entry below) and puts the binary in the
+# 3.100.5 (the Go front and --opencode: see the play-claude-yolo.yml entry below) and puts the binary in the
 # image's build context (container 2.79.1, rebuilt once at the next ccy launch; the image
 # also carries the farewell-reason fix, the reports and questions admin tool and Go 1.26.10 in the project image): a seated session's status line is
 # the Go one and refreshes every 25 s. The acceptance checks the kit's, the image's and each
@@ -88,7 +88,7 @@ playbooks/imports/play-agent-bus.yml
 # launched interactively in this checkout once (Quick Launch), and the hooks daemon installed.
 00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker
 # play-claude-yolo.yml, the whole play (Plan 00191 Tasks 4.3, 4.4, 4.4b and 4.5, and Plan 00215):
-# the host's ccy becomes CCY 3.100.4 (container 2.79.1: the next launch rebuilds the image once,
+# the host's ccy becomes CCY 3.100.5 (container 2.79.1: the next launch rebuilds the image once,
 # for its guide and for opencode 1.19.3, the open-source coding agent, downloaded at build and
 # stopped unless its sha256 is the pinned one). New flag: `ccy --opencode` (or -oc) runs opencode
 # in the container instead of Claude Code, with no bus kit and no supervisor; it needs a model

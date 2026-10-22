@@ -36,21 +36,19 @@ ccy_agent_arg() {
 # longer judges the arguments, which are opencode's.
 ccy_agent_options() {
     [ "$CCY_AGENT" = opencode ] || return 0
-    local dir="$CCY_ROOT/provider-keys" file name mode clash=""
+    local dir="$CCY_ROOT/provider-keys" file name clash=""
     [ "$HEADLESS_MODE" != true ] || clash="--headless (opencode's own is opencode run)"
     [ "$SUPERVISE_MODE" != true ] || clash="--supervise (the supervisor is Claude Code's)"
     [ "$TEAMS_GIVEN" != true ] || clash="--teams (an opencode bus member is Plan 00215 Phase 3)"
     [ -z "$OPT_MAX_AGE$OPT_RUN_FOR$OPT_UNTIL${CCY_MAX_AGE:-}" ] || clash="a session limit (--max-age, --run-for, --until or CCY_MAX_AGE: the supervisor carries them out)"
     [[ "${CLAUDE_ARGS[0]:--}" == -* ]] || clash="a first message ('${CLAUDE_ARGS[0]}': opencode reads a bare first word as its project directory; give it with --prompt)"
-    if [ -n "$clash" ]; then
-        print_error "--opencode cannot be used with $clash. Drop one."
-        return 64
-    fi
+    [ -z "$clash" ] || { print_error "--opencode cannot be used with $clash. Drop one." && return 64; }
     for file in "$dir"/*; do
         [ -e "$file" ] || [ -L "$file" ] || continue
-        name=${file##*/} mode=$(stat -c %a -- "$file") || return 1
-        if ! [[ "$name" =~ ^[A-Z][A-Z0-9_]*_API_KEY$ ]] || [ -L "$file" ] || [ ! -f "$file" ] || ! grep -q '[^[:space:]]' "$file" || [ "$mode" != 600 ] || [ "$(wc -l <"$file")" -gt 1 ]; then
-            print_error "$file is not a provider key: one is a regular file, mode 0600 (this is $mode), of one line, named for the variable opencode reads it from (<PROVIDER>_API_KEY)."
+        name=${file##*/}
+        # find: a regular file (not a link) of mode 0600; awk: one line, not blank, no CR.
+        if ! [[ "$name" =~ ^[A-Z][A-Z0-9_]*_API_KEY$ ]] || [ "$(find "$file" -maxdepth 0 -type f -perm 600)" != "$file" ] || ! awk 'NR > 1 || /\r/ { bad = 1 } /[^[:space:]]/ { ok = 1 } END { exit !(ok && !bad) }' "$file"; then
+            print_error "$file is not a provider key: one is a regular file, mode 0600, of one line with Unix line endings, named for the variable opencode reads it from (<PROVIDER>_API_KEY)."
             return 1
         fi
         CCY_AGENT_KEYS+=("$name") CCY_AGENT_RUN_ARGS+=(-e "$name")
@@ -82,8 +80,12 @@ ccy_agent_command() {
 # ccy_agent_container <engine args...> — the engine with each provider key in its environment
 # only: local -x ends with this function, so nothing the launcher starts afterwards has one. A
 # key that can no longer be read, or reads as blank, is 1: the session would start without it.
+# --debug's set -x is paused while a key is in a traced word (local - restores it on return), and
+# resumed for the engine call, whose argv holds the key's name only.
 ccy_agent_container() {
-    local name value
+    local - name value traced=""
+    [[ $- != *x* ]] || traced=1
+    { set +x; } 2>/dev/null
     for name in "${CCY_AGENT_KEYS[@]}"; do
         if ! value=$(<"$CCY_ROOT/provider-keys/$name") || ! [[ "$value" =~ [^[:space:]] ]]; then
             print_error "The provider key $CCY_ROOT/provider-keys/$name could not be read, or is blank: not starting."
@@ -91,5 +93,6 @@ ccy_agent_container() {
         fi
         local -x "$name=$value"
     done
+    [ -z "$traced" ] || set -x
     container_cmd "$@"
 }

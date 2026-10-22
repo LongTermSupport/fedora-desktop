@@ -144,7 +144,7 @@ fresh
 CCY_AGENT=opencode
 key OPENROUTER_API_KEY sk-x 644
 check "a key others can read is refused" "1" "$(options)"
-check "the mode is named" "1" "$(grep -c '644' "$work/err")"
+check "the mode it needs is named" "1" "$(grep -c 'mode 0600' "$work/err")"
 fresh
 CCY_AGENT=opencode
 key OPENROUTER_API_KEY "$(printf 'one\ntwo')"
@@ -158,6 +158,11 @@ fresh
 CCY_AGENT=opencode
 key OPENROUTER_API_KEY "   "
 check "a blank key is refused" "1" "$(options)"
+fresh
+CCY_AGENT=opencode
+printf 'sk-x\r\n' >"$CCY_ROOT/provider-keys/OPENROUTER_API_KEY"
+chmod 600 "$CCY_ROOT/provider-keys/OPENROUTER_API_KEY"
+check "a key with a Windows line ending is refused" "1" "$(options)"
 fresh
 CCY_AGENT=opencode
 key ANTHROPIC_API_KEY
@@ -185,6 +190,12 @@ check "the engine gets each key's value" "ANTHROPIC_API_KEY=sk-ant-test OPENROUT
 ccy_agent_container run >/dev/null
 check "after the run no key is set in the launcher" "unset unset" "${ANTHROPIC_API_KEY-unset} ${OPENROUTER_API_KEY-unset}"
 check "nothing the launcher starts later inherits a key" "0" "$(env | grep -c '_API_KEY=')"
+container_cmd() { env >"$work/child-env"; }
+(set -x; ccy_agent_container run) 2>"$work/trace"
+check "under --debug's set -x no key reaches the trace" "0" "$(grep -c -e sk-ant-test -e sk-or-test "$work/trace")"
+check "  the trace still shows the engine call" "1" "$(grep -c -E '^\++ container_cmd run$' "$work/trace")"
+check "  and the engine still gets the key" "1" "$(grep -c '^OPENROUTER_API_KEY=sk-or-test$' "$work/child-env")"
+check "  and set -x is on again after the call" "on" "$(set -x; ccy_agent_container run 2>/dev/null; case $- in *x*) echo on ;; *) echo off ;; esac)"
 container_cmd() { return 3; }
 check "a failed run's status comes back" "3" "$(ccy_agent_container run; echo $?)"
 container_cmd() { echo started >"$work/started"; }

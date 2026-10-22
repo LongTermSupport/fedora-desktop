@@ -58,7 +58,7 @@ with sources) and [research/agent-bus-member-facts.md](research/agent-bus-member
   `/etc/opencode/opencode.json` (`share` disabled), `OPENCODE_DISABLE_AUTOUPDATE=1`, and
   `/etc/opencode/tui.json` unbinding opencode's ctrl+z suspend. The desktop play
   `play-opencode.yml`, its pin row and its docs are removed (O7).
-- [x] ✅ **Task 1.3**: `ccy --opencode` / `-oc` (CCY 3.100.4), in `lib/agent-choice.bash`:
+- [x] ✅ **Task 1.3**: `ccy --opencode` / `-oc` (CCY 3.100.5), in `lib/agent-choice.bash`:
   the parse's last branch takes the flag; `--teams`, `--supervise`, `--headless` and the
   session limits are refused with it (64), and so is a bare first message (opencode's project
   argument: use `--prompt`); the session runs with no bus kit and no supervisor, a Quick Launch's

@@ -17,9 +17,9 @@ Two version numbers move independently — see
 
 ---
 
-## 3.100.4 — container 2.79.1
+## 3.100.5 — container 2.79.1
 
-Follows 3.99.14.12 (3.100.0 to 3.100.3 and container 2.79.0 were never released: review rounds on
+Follows 3.99.14.12 (3.100.0 to 3.100.4 and container 2.79.0 were never released: review rounds on
 one branch). The image changes, so the next launch rebuilds it once.
 
 - **`ccy --opencode` (or `-oc`) runs opencode instead of Claude Code** (Plan 00215): the image
@@ -29,7 +29,8 @@ one branch). The image changes, so the next launch rebuilds it once.
   refused with it, as is a bare first message (opencode reads it as a directory: use
   `--prompt`). An opencode session is marked no-restore and skipped by `ccy-sessions restore`.
   It needs a model provider key file in `~/.claude-tokens/ccy/provider-keys/`, handed by name to
-  that container only, and stops before anything starts without one.
+  that container only (and never written to `--debug`'s trace), and stops before anything starts
+  without one.
 - **A Quick Launch with no bus kit (`--opencode`, and `--no-bus`) leaves the saved team alone**:
   not taken, and kept for the next launch to offer. `--no-bus` used to fail late at the seats.
 - Any other launch is byte for byte what it was (the launcher's differential harness).
