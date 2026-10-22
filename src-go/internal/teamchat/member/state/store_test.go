@@ -268,9 +268,9 @@ func TestStoreListCapsFireFirst(t *testing.T) {
 		"pings":         {func(s *Store) { s.Outbox.Pings = append(s.Outbox.Pings, s.Outbox.Pings[0]) }, count("pings", capPings)},
 		"ping targets":  {func(s *Store) { s.Outbox.Pings[0].To = append(s.Outbox.Pings[0].To, otherID) }, "a ping is not to 1 to 16"},
 		"awaiting":      {func(s *Store) { s.Awaiting = append(s.Awaiting, s.Awaiting[0]) }, count("awaiting", capAwaiting)},
-		"awaiting size": {func(s *Store) { s.Awaiting[0].IDs = append(s.Awaiting[0].IDs, manyIDs(40)...) }, "a awaiting entry is over"},
+		"awaiting size": {func(s *Store) { s.Awaiting[0].IDs = append(s.Awaiting[0].IDs, manyIDs(40)...) }, "an entry of awaiting is over"},
 		"missed":        {func(s *Store) { s.Missed = append(s.Missed, s.Missed[0]) }, count("missed", capMissed)},
-		"missed size":   {func(s *Store) { s.Missed[0].IDs = manyIDs(14) }, "a missed entry is over"},
+		"missed size":   {func(s *Store) { s.Missed[0].IDs = manyIDs(14) }, "an entry of missed is over"},
 		"sending":       {func(s *Store) { s.Outbox.Sending = append(s.Outbox.Sending, s.Outbox.Sending[0]) }, count("sending", capSending)},
 		"gate keys": {func(s *Store) {
 			s.Outbox.Gate.Recent = append(s.Outbox.Gate.Recent, s.Outbox.Gate.Recent[0])
