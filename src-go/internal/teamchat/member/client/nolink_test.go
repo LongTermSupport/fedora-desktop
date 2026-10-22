@@ -4,6 +4,7 @@ import (
 	"net"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -54,6 +55,24 @@ func TestNoLinkRunning(t *testing.T) {
 	w.keeper()
 	if e := w.noLink("status"); e.Code != exits.CodeNoLink {
 		t.Fatalf("no keeper.json: %+v", e)
+	}
+}
+
+// LN3: a link whose backlog is full (EAGAIN on connect) is no link, as one not yet listening is.
+func TestAFullBacklogIsNoLink(t *testing.T) {
+	w := newWorld(t)
+	w.keeper()
+	w.keeperJSON(state.LinkRunning, state.KindHost, nil)
+	inv, err := cli.Parse([]string{"inbox"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	full := func(string) (*net.UnixConn, error) { return nil, &net.OpError{Op: "dial", Err: syscall.EAGAIN} }
+	if code := run(w.cliEnv(), inv, inv.Verb.Name, deps{clock: w.clk, dial: full}); code != exits.ExitNoRuntime {
+		t.Fatalf("exit %d, stderr %q", code, w.stderr.String())
+	}
+	if e := w.errorObject(); e.Code != exits.CodeNoLink {
+		t.Fatalf("error %+v", e)
 	}
 }
 

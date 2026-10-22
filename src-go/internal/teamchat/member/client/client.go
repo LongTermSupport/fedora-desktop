@@ -218,7 +218,8 @@ func (c conn) serve(req wire.Request, wait time.Duration) term.ExitCode {
 // once is one connection: the request, the records copied, the done.
 func (c conn) once(req wire.Request, deadline time.Duration) outcome {
 	sock, err := c.dial(c.run.LinkSock())
-	if errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED) {
+	// EAGAIN is a link whose backlog is full: as good as gone for this try.
+	if errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.EAGAIN) {
 		return outcome{gone: true}
 	}
 	if err != nil {
