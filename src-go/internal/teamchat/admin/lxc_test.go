@@ -262,14 +262,14 @@ func TestLXCVerbsNeedTheirSeams(t *testing.T) {
 	if out := w.lxcVerb(sys, decl, "lxc", "apply", "--phase", "present"); out.code != term.ExitFailure || !strings.Contains(out.stderr, "not wired") {
 		t.Fatalf("unwired apply: %d %s", out.code, out.stderr)
 	}
-	if out := w.lxcVerb(sys, "", "lxc", "restart", "--container", "box-1", "--key", seatKey(t, 1)); out.code != term.ExitFailure {
+	if out := w.lxcVerb(sys, "", "lxc", "restart", "--member", "box-1/"+seatKey(t, 1)); out.code != term.ExitFailure {
 		t.Fatalf("unwired restart: %d %s", out.code, out.stderr)
 	}
 	sys.LXC = func() (*lxc.Deps, error) { return nil, errors.New("no lxc-ls") }
 	if out := w.lxcVerb(sys, decl, "lxc", "apply", "--phase", "present"); out.code != ExitConfig || !strings.Contains(out.stderr, "no lxc-ls") {
 		t.Fatalf("apply: %d %s", out.code, out.stderr)
 	}
-	if out := w.lxcVerb(sys, "", "lxc", "restart", "--container", "box-1", "--key", seatKey(t, 1)); out.code != ExitConfig {
+	if out := w.lxcVerb(sys, "", "lxc", "restart", "--member", "box-1/"+seatKey(t, 1)); out.code != ExitConfig {
 		t.Fatalf("restart: %d %s", out.code, out.stderr)
 	}
 }
@@ -292,19 +292,30 @@ type brokenWriter struct{}
 
 func (brokenWriter) Write([]byte) (int, error) { return 0, errors.New("stdout closed") }
 
-// lxc restart: --container and --key, nothing else; a seat no record holds is refused (70);
+// lxc restart: one --member C/K, nothing else; a seat no record holds is refused (70);
 // a stopped container holding the seat is 69, naming it.
 func TestLXCRestart(t *testing.T) {
 	w := newWorld(t)
 	decl := lxcDecl(t, lxcEntry("box-1", 1))
 	sys := w.lxcSys(t, decl, stopped("box-1"))
 	key := seatKey(t, 1)
-	for _, args := range [][]string{{}, {"--container", "box-1"}, {"--key", key}, {"--container", "Box 1", "--key", key}, {"--container", "box-1", "--key", "nokey"}, {"--container", "box-1", "--key", key, "--seat", "1"}} {
+	target := "box-1/" + key
+	for _, args := range [][]string{
+		{},
+		{"--member"},
+		{"--member", "box-1"},
+		{"--member", "Box 1/" + key},
+		{"--member", "box-1/nokey"},
+		{"--member", target, "--seat", "1"},
+		{"--member", target, "--member", "box-2/" + key},
+		{"--container", "box-1", "--key", key},
+		{"--member", target, "extra"},
+	} {
 		if out := w.lxcVerb(sys, "", append([]string{"lxc", "restart"}, args...)...); out.code != term.ExitUsage {
 			t.Errorf("%v: %d %s", args, out.code, out.stderr)
 		}
 	}
-	if out := w.lxcVerb(sys, "", "lxc", "restart", "--container", "box-1", "--key", key); out.code != ExitRefused || !strings.Contains(out.stderr, "names no seat") {
+	if out := w.lxcVerb(sys, "", "lxc", "restart", "--member", target); out.code != ExitRefused || !strings.Contains(out.stderr, "names no seat") {
 		t.Fatalf("no record: %d %s", out.code, out.stderr)
 	}
 	box, err := paths.ParseContainerName("box-1")
@@ -321,7 +332,7 @@ func TestLXCRestart(t *testing.T) {
 	if _, err := lxcstate.WriteRecord(w.root, rec, os.Getgid()); err != nil {
 		t.Fatal(err)
 	}
-	out := w.lxcVerb(sys, "", "lxc", "restart", "--container", "box-1", "--key", key)
+	out := w.lxcVerb(sys, "", "lxc", "restart", "--member", target)
 	if out.code != ExitUnreachable || out.stdout != "" || !strings.Contains(out.stderr, "container box-1 is offline") {
 		t.Fatalf("stopped: %d %q %s", out.code, out.stdout, out.stderr)
 	}
@@ -349,6 +360,8 @@ func TestExitCodeOfAnOfflineMember(t *testing.T) {
 		"nested":                   {errors.Join(errors.Join(off, off), errors.Join(off, drift)), ExitRefused},
 		"nested offline":           {errors.Join(errors.Join(off), off), ExitUnreachable},
 		"wrapped":                  {fmt.Errorf("lxc: %w", off), ExitUnreachable},
+		"a wrapped join":           {fmt.Errorf("lxc: %w", errors.Join(off, drift)), ExitRefused},
+		"a wrapped offline join":   {fmt.Errorf("lxc: %w", errors.Join(off, fmt.Errorf("again: %w", off))), ExitUnreachable},
 	} {
 		if got := ExitCodeOf(c.err); got != c.want {
 			t.Errorf("%s: %d, want %d", name, got, c.want)
