@@ -75,10 +75,10 @@ originals are gone.
   until the panel's TERM or the parent's end; a stream still at the volume it set is restored
   exactly, and a player with no stream found is paused and played again instead.
 - `internal/ccylaunch/` — `claude-yolo`, the ccy launcher's Go front (Plan 00191 Task 4.5,
-  F1-F9 in its package doc): installed as the launcher with the bash launcher beside it as
-  `claude-yolo.bash`, it answers `--version` and `--help` and execs the bash for every other
-  run, and for those two wherever the bash might answer otherwise; `CCY_LEGACY=1` sends every
-  run to the bash. Its `difftest` package is the launcher's differential harness.
+  F1-F11 in its package doc): installed as the launcher with the bash launcher beside it as
+  `claude-yolo.bash`, it answers `--version`, `--help` and the standalone flags its package doc
+  lists, and execs the bash for every other run, and for those wherever the bash might answer
+  otherwise; `CCY_LEGACY=1` sends every run to the bash. Its `difftest` package is the launcher's differential harness.
 - `internal/ccproject/` — `cc-project-dir`, the directory host `cc` starts its session in
   (Plan 00167, P1-P7 in its package doc): the top of the git work tree, or outside one the
   fedora-desktop checkout baked in with `-X main.RootDir`, offered `[Y/n]` at a terminal.

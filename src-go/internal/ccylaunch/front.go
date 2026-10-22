@@ -49,6 +49,18 @@
 //     file, a collation that could sort it otherwise, a name the bash dates otherwise (T1), a
 //     day the clocks change), and, for this flag and every later one, to a bash of another
 //     version (F6 refuses only --version and --help).
+//   - F11. `--token-usage` first, with nothing after it but `--json`, prints every token's usage
+//     as the bash's usage_report does (tokenusage.go): a table, or one JSON document; exit 0
+//     when any token's usage was read, 1 when none was, 64 for another option. A token a launch
+//     could use is asked of the API once, by curl with the token fed on its stdin (execx.Feed),
+//     unless the cache holds a fresh answer from that very file; the answer is cached as the
+//     bash caches it. It hands over wherever the bash could read the pool, a setting, a cache
+//     entry or the API's headers otherwise: poolWhy's reasons, an undated file, a name, HOME,
+//     TMPDIR or setting outside printable ASCII, a TTL that is not a plain decimal above
+//     nought, an unreadable token or one holding a NUL, a setting holding a token, a cache that
+//     is not a directory or an entry that is not a regular file, and, once the API has
+//     answered, a rate-limit header outside printable ASCII (not cached) or a reset time the
+//     bash's arithmetic or date reads otherwise.
 //
 // The front tells the time by its Clock: the machine's (SystemClock) in the installed program;
 // the differential harness's pinned clock only in a build with the difftest tag.
@@ -142,7 +154,7 @@ func (f Front) Run(ctx context.Context) term.ExitCode {
 		if f.Version == "" || l.version != f.Version {
 			return f.handOver(bash)
 		}
-		code, why := f.answer(flag)
+		code, why := f.answer(ctx, flag)
 		if why != "" {
 			return f.handOver(bash)
 		}
@@ -175,6 +187,7 @@ const (
 	flagVersion
 	flagHelp
 	flagListTokens
+	flagTokenUsage
 )
 
 // flagOf is the run the arguments ask for, among those the front answers.
@@ -191,6 +204,8 @@ func flagOf(args []string) flagKind {
 		if len(args) == 1 {
 			return flagListTokens
 		}
+	case "--token-usage":
+		return flagTokenUsage
 	}
 	return flagNone
 }
@@ -198,14 +213,17 @@ func flagOf(args []string) flagKind {
 // flagTools are the programs the bash launcher runs to answer the flag, beyond bashTools.
 var flagTools = map[flagKind][]string{
 	flagListTokens: {"date", "ls", "basename"},
+	flagTokenUsage: {"date", "stat", "mktemp", "cat", "mv", "rm", "chmod", "mkdir", "dirname", "awk", "basename"},
 }
 
 // answer runs a flag the front answers past --version and --help: its exit code, or why the
 // bash should answer it instead, decided before anything is written.
-func (f Front) answer(flag flagKind) (term.ExitCode, string) {
+func (f Front) answer(ctx context.Context, flag flagKind) (term.ExitCode, string) {
 	switch flag {
 	case flagListTokens:
 		return f.listTokens()
+	case flagTokenUsage:
+		return f.tokenUsage(ctx)
 	case flagNone, flagVersion, flagHelp:
 	}
 	return term.ExitFailure, "not a flag the front answers"

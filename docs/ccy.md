@@ -1677,8 +1677,9 @@ banner prints it verbatim, so it must stay short.
 ### The Go front and `CCY_LEGACY`
 
 The launcher is being ported to Go one flag at a time (Plan 00191). `/var/local/claude-yolo/claude-yolo`
-is a Go program that answers `--version`, `--help` and `--list-tokens` (on its own) itself,
-with the bash launcher's output, and runs the bash launcher,
+is a Go program that answers `--version`, `--help`, `--list-tokens` (on its own) and
+`--token-usage [--json]` itself, with the bash launcher's output (and the same usage cache and
+API call, the token fed to curl on its stdin), and runs the bash launcher,
 installed beside it as `claude-yolo.bash`, for everything else, with the same arguments and
 environment plus `CCY_LAUNCHER_FRONT`, its own path. The bash launcher reads that once, takes
 it only if it is the `claude-yolo` beside it, and unsets it before it starts tmux, the engine

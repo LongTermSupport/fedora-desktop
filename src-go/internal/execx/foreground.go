@@ -42,7 +42,7 @@ type Foregrounder interface {
 // would make a Ctrl-C the child handled exit 130. With `podman run -it` a raw-mode terminal
 // turns Ctrl-C into a byte, so no SIGINT is sent at all.
 func (OS) Foreground(c Cmd) (Exit, error) {
-	if err := c.checkSecrets(); err != nil {
+	if err := errors.Join(c.checkSecrets(), c.refuseFeed()); err != nil {
 		return Exit{}, err
 	}
 	cmd := exec.Command(c.Name, c.Args...)
@@ -117,7 +117,7 @@ func exitOf(name string, waitErr error, received []os.Signal) (Exit, error) {
 // Foreground implements Foregrounder for tests: it records the command and answers it from
 // the same rules as Run, the rule's ExitCode being the child's.
 func (f *Fake) Foreground(c Cmd) (Exit, error) {
-	if err := c.checkSecrets(); err != nil {
+	if err := errors.Join(c.checkSecrets(), c.refuseFeed()); err != nil {
 		return Exit{}, err
 	}
 	f.mu.Lock()

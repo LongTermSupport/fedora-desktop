@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.14.6 — container 2.78.14
+
+Follows 3.99.14.5. The image is unchanged, so there is no rebuild.
+
+- **`ccy --token-usage [--json]` is answered by the Go front.** The table, the JSON document,
+  the exit codes, the usage cache it reads and writes and the one API call per account are the
+  bash launcher's; the token reaches curl on its stdin, never in its arguments or environment.
+  The front hands the run to the bash wherever the two could differ: a token file name with no
+  date or outside printable ASCII, a `CCY_USAGE_*` setting, `HOME` or `TMPDIR` outside it, a
+  `CCY_USAGE_TTL` that is not a plain number above nought, a token it cannot read, a cache
+  entry that is not a plain file, or an API answer it does not read as the bash does.
+
 ## 3.99.14.5 — container 2.78.14
 
 Follows 3.99.14.4. The image is unchanged, so there is no rebuild.
