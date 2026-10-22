@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net"
+	"sync"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -15,6 +16,39 @@ import (
 // doing, so it is ErrGuest and fails that member alone (B5); it is never a TB1 refusal, which
 // a caller may read as a free or empty answer.
 var ErrStalled = fmt.Errorf("%w: a guest call did not end within its bound", ErrGuest)
+
+// Memo is one member's stalls over one run (R2-3): once a call through a Root scoped to it is
+// abandoned at its bound, every later call through it answers ErrStalled at once, naming that
+// first stall, so a mount that does not answer is waited out once and not once per call.
+type Memo struct {
+	mu      sync.Mutex
+	stalled error
+}
+
+// Scoped is a view of the same root whose calls share m's stalls; its Close closes the root.
+func (r *Root) Scoped(m *Memo) *Root { return &Root{pinned: r.pinned, memo: m} }
+
+// prior is the memo's first stall, nil with none or with no memo.
+func (m *Memo) prior() error {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.stalled
+}
+
+// keep records err as the memo's stall, when it is the first.
+func (m *Memo) keep(err error) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.stalled == nil {
+		m.stalled = err
+	}
+}
 
 // callBound is each read's and write's longest wait.
 const callBound = 10 * time.Second
@@ -29,6 +63,9 @@ func bounded[T any](r *Root, p string, op func() (T, error), late func(T) error)
 	var zero T
 	if err := r.Alive(); err != nil {
 		return zero, err
+	}
+	if prior := r.memo.prior(); prior != nil {
+		return zero, fmt.Errorf("%s was not tried: %w", p, prior)
 	}
 	if err := r.enter(); err != nil {
 		return zero, err
@@ -63,7 +100,9 @@ func bounded[T any](r *Root, p string, op func() (T, error), late func(T) error)
 	if aerr := r.Alive(); aerr != nil {
 		return zero, aerr
 	}
-	return zero, fmt.Errorf("%w: %s did not answer within %v", ErrStalled, p, r.bound)
+	stall := fmt.Errorf("%w: %s did not answer within %v", ErrStalled, p, r.bound)
+	r.memo.keep(stall)
+	return zero, stall
 }
 
 // guestFault is an error of a call below the root classed by its origin, not its errno (R2-1):

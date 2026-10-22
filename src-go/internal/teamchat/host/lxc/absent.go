@@ -418,9 +418,9 @@ func (r *run) waitFree(ctx context.Context, g *guestBox, m *member) (seatWait, e
 		return seatWait{}, err
 	}
 	lock := layout.Seat(m.team.ID).Lock()
-	deadline := r.d.Clock.Now().Add(SeatFreeWait)
+	deadline, root := r.d.Clock.Now().Add(SeatFreeWait), g.rootOf(m)
 	for {
-		held, record, err := g.root.ProbeLock(lock)
+		held, record, err := root.ProbeLock(lock)
 		if lockFree(err) {
 			return seatWait{}, nil
 		}

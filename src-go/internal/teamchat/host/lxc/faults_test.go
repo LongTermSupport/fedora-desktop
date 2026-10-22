@@ -411,6 +411,37 @@ func TestCheckoutReadFaultFailsThatSeatAlone(t *testing.T) {
 	}
 }
 
+// R2-3: a stall is waited out once per user and run. Two seats of agent1 on a stalled checkout
+// fail at the reads after one bound in all; agent2's seat on another checkout of the same
+// container waits nothing and applies.
+func TestAStallIsWaitedOutOncePerUser(t *testing.T) {
+	const other = "/srv/agent2/src/repo"
+	w := newWorld(t)
+	b := w.addBox("c1")
+	writeTree(t, b.dir, map[string]string{
+		other[1:] + gitConfig: "[remote \"origin\"]\n\turl = https://github.com/example/repo.git\n",
+	})
+	b.stalls = &stallLog{paths: map[string]bool{checkout + gitConfig: true}, stalled: map[*guestroot.Memo]bool{}}
+	third := w.memberAt("t1", "c1", 3)
+	third.User, third.Checkout = agent2(t), other
+	w.declare([]string{"t1"}, w.member("t1", "c1"), w.memberAt("t1", "c1", 2), third)
+	_, err := w.apply(PhasePresent)
+	if !errors.Is(err, guestroot.ErrStalled) {
+		t.Fatalf("err %v", err)
+	}
+	if b.stalls.waits != 1 {
+		t.Fatalf("the stall was waited out %d times", b.stalls.waits)
+	}
+	for seat := 1; seat <= 2; seat++ {
+		if e, found := w.entryAt("c1", seat); found && e.Status == lxcstate.StatusJoined {
+			t.Fatalf("seat %d on the stalled checkout joined: %+v", seat, e)
+		}
+	}
+	if e, found := w.record().Find(mustBox(t, "c1"), other, 3); !found || e.Status != lxcstate.StatusJoined {
+		t.Fatalf("agent2's seat %+v %v", e, found)
+	}
+}
+
 // R2-1 with R2-2: a lock the guest answers with an errno is a probe that failed, never a free
 // seat.
 func TestLockProbeErrnoIsNotFree(t *testing.T) {

@@ -216,6 +216,46 @@ func TestAMissingPathIsNotAGuestFault(t *testing.T) {
 	}
 }
 
+// R2-3: once a call through a root scoped to a memo stalls, every later call through that memo,
+// a read or a write of any path, answers ErrStalled at once, with no call made below the root;
+// a root scoped to another memo, and the root itself, still answer.
+func TestAStallIsPaidOncePerMemo(t *testing.T) {
+	r, rec, release, closes := stalledRoot(t)
+	rootFD := r.fd
+	memo := &Memo{}
+	member := r.Scoped(memo)
+	if got := readFile(member, "/stalled", 10); !errors.Is(got.err, ErrStalled) {
+		t.Fatalf("a stalled read: %v", got.err)
+	}
+	before := rec.count()
+	for name, err := range map[string]error{
+		"ReadFile":  readFileErr(member, "/ok"),
+		"Stat":      second(member.Stat("/ok")),
+		"ReadDir":   readDirErr(member, "/"),
+		"ProbeLock": probeLockErr(member, "/ok"),
+		"Dial":      second(member.DialSocket(t.Context(), "/ok")),
+		"WriteFile": second(member.Writer().WriteFile("/", "n", []byte("x"), 0o644)),
+	} {
+		if !errors.Is(err, ErrStalled) || !errors.Is(err, ErrGuest) || !strings.Contains(err.Error(), "/stalled") {
+			t.Errorf("%s after a stall: %v", name, err)
+		}
+	}
+	if n := rec.count() - before; n != 0 {
+		t.Fatalf("calls after the stall made %d system calls", n)
+	}
+	r.bound = time.Minute
+	for name, root := range map[string]*Root{"another memo": r.Scoped(&Memo{}), "the root": r} {
+		if got := readFile(root, "/ok", 10); got.err != nil || string(got.data) != "fine" {
+			t.Errorf("%s: %+v", name, got)
+		}
+	}
+	if err := member.Close(); err != nil {
+		t.Fatal(err)
+	}
+	release()
+	waitClosed(t, closes, rootFD)
+}
+
 // A guest socket nothing listens on is a connect its caller reads as the bus down: never
 // ErrGuest, which would make it a wrong fact.
 func TestAConnectNoOneAnswersIsNotAGuestFault(t *testing.T) {

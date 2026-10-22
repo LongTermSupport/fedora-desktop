@@ -121,27 +121,63 @@ type fakeRoot struct {
 	exe      *guestroot.Info
 	probeErr error
 	faults   map[string]error
+	stalls   *stallLog
+	memo     *guestroot.Memo
+}
+
+// Scoped keeps the fake's faults on the scoped view, and the memo its stalls are counted by.
+func (r fakeRoot) Scoped(m *guestroot.Memo) Root {
+	r.Root, r.memo = r.Root.Scoped(m), m
+	return r
 }
 
 func (r fakeRoot) Stat(p string) (guestroot.Info, error) {
-	if err := r.faults[p]; err != nil {
+	if err := r.fault(p); err != nil {
 		return guestroot.Info{}, err
 	}
 	return r.Root.Stat(p)
 }
 
 func (r fakeRoot) ReadFile(p string, limit int64) ([]byte, guestroot.Info, bool, error) {
-	if err := r.faults[p]; err != nil {
+	if err := r.fault(p); err != nil {
 		return nil, guestroot.Info{}, false, err
 	}
 	return r.Root.ReadFile(p, limit)
 }
 
 func (r fakeRoot) ReadDir(p string, valid func(string) bool, limit int) ([]string, bool, error) {
-	if err := r.faults[p]; err != nil {
+	if err := r.fault(p); err != nil {
 		return nil, false, err
 	}
 	return r.Root.ReadDir(p, valid, limit)
+}
+
+// stallLog is a box's stalled paths and the bounds its roots waited out: as guestroot's Memo
+// does, a call through a memo that has stalled answers at once, of any path, waiting nothing.
+type stallLog struct {
+	mu      sync.Mutex
+	paths   map[string]bool
+	waits   int
+	stalled map[*guestroot.Memo]bool
+}
+
+func (s *stallLog) call(m *guestroot.Memo, p string) error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch {
+	case m != nil && s.stalled[m]:
+		return errStall
+	case !s.paths[p]:
+		return nil
+	}
+	s.waits++
+	if m != nil {
+		s.stalled[m] = true
+	}
+	return errStall
 }
 
 func (r fakeRoot) ProbeLock(p string) (bool, []byte, error) {
@@ -158,6 +194,14 @@ func (r fakeRoot) InitExe() (guestroot.Info, error) {
 	return r.Stat("/usr/lib/systemd/systemd")
 }
 
+// fault is the planted answer of a read of p: a stall, or a fault.
+func (r fakeRoot) fault(p string) error {
+	if err := r.stalls.call(r.memo, p); err != nil {
+		return err
+	}
+	return r.faults[p]
+}
+
 // box is one fake container.
 type box struct {
 	state lxccmd.State
@@ -167,8 +211,10 @@ type box struct {
 	exe   *guestroot.Info
 	// stateErr fails lxc-info's state of the box, and probeErr its root's lock probes.
 	stateErr, probeErr error
-	// faults fails its root's reads of each path with the error, as guestroot answers them.
+	// faults fails its root's reads of each path with the error, as guestroot answers them, and
+	// stalls stalls them.
 	faults map[string]error
+	stalls *stallLog
 }
 
 type guestCall struct {
@@ -580,7 +626,7 @@ func (w *world) pin(_ context.Context, c string) (Root, error) {
 	if err != nil {
 		return nil, err
 	}
-	return fakeRoot{Root: r, exe: b.exe, probeErr: b.probeErr, faults: b.faults}, nil
+	return fakeRoot{Root: r, exe: b.exe, probeErr: b.probeErr, faults: b.faults, stalls: b.stalls}, nil
 }
 
 func (w *world) apply(phase Phase, only ...string) (Report, error) {

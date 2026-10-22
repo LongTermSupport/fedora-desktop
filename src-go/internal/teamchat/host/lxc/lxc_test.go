@@ -3,6 +3,7 @@ package lxc
 import (
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
@@ -13,6 +14,21 @@ func TestLineString(t *testing.T) {
 	}
 	if got := l.String(); got != "DEFERRED\tt1\tagent1@c1/repo-1-"+keyOf(t, "t1").String()+"\tseat held" {
 		t.Fatalf("line %q", got)
+	}
+}
+
+// Pinned's scoped view reads the same root, and stays a Root that can be scoped again.
+func TestPinnedScopedReadsTheSameRoot(t *testing.T) {
+	r, err := guestroot.OpenDir(newGuest(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scoped := Pinned(r).Scoped(&guestroot.Memo{}).Scoped(&guestroot.Memo{})
+	if data, err := readGuest(scoped, guestGroup); err != nil || len(data) == 0 {
+		t.Fatalf("%q %v", data, err)
+	}
+	if err := scoped.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 

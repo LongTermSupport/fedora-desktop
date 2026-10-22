@@ -105,7 +105,13 @@ func (w *world) lxcSys(t *testing.T, decl string, boxes fakeBoxes) *System {
 	sys.LXC = func() (*lxc.Deps, error) {
 		return &lxc.Deps{
 			Root: w.root, LockDir: w.root + paths.AdminRunDir, Clock: w, LXC: boxes,
-			Pin: func(context.Context, string) (lxc.Root, error) { return guestroot.OpenDir(t.TempDir()) },
+			Pin: func(context.Context, string) (lxc.Root, error) {
+				r, err := guestroot.OpenDir(t.TempDir())
+				if err != nil {
+					return nil, err
+				}
+				return lxc.Pinned(r), nil
+			},
 			Bus: func(context.Context, lxc.Root) (guestbus.Systemd, error) {
 				return nil, errors.New("the fake has no guest systemd")
 			},
