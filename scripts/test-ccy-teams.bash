@@ -656,10 +656,11 @@ quick() {
         HEADLESS_MODE="$1" SESSION_RESTORE="${QUICK_RESTORE:-false}" NO_SSH_MODE=false SSH_KEYS=() SPECIFIED_TOKEN=""
         SPECIFIED_NETWORK="" NO_NETWORK_MODE=false NETWORK_FROM_CONFIG=false
         TEAMS_GIVEN="${QUICK_TEAMS_GIVEN:-false}" TEAMS_LIST="${QUICK_TEAMS_LIST:-}" CCY_SEATS="" CCY_ORIG_ARGS=(--orig)
-        CCY_SESSION_NAME="${QUICK_SESSION-ccy-proj-1}"
+        CCY_SESSION_NAME="${QUICK_SESSION-ccy-proj-1}" NO_BUS_MODE="${QUICK_NO_BUS:-false}"
         [ "${2:-}" = --no-ssh ] && NO_SSH_MODE=true
         . "$0" >"$QUICK_OUT"
         printf "%s|%s" "$TEAMS_LIST" "${CCY_ORIG_ARGS[*]}" >"$TEAMS_END"
+        printf "%s" "${quick_kept_team:-}" >"$TEAMS_KEPT"
         printf "token=%s keys=%s no_ssh=%s net=%s no_net=%s" "$SPECIFIED_TOKEN" "${SSH_KEYS[*]}" \
             "$NO_SSH_MODE" "$SPECIFIED_NETWORK" "$NO_NETWORK_MODE"' "$work/quick.bash" "$headless" "$@" \
         2>"$work/quick.err")
@@ -669,6 +670,8 @@ export PROMPT_LOG="$work/prompt.log"
 # What the block printed on stdout: a headless session's stdout is its output (StderrHygiene).
 export QUICK_OUT="$work/quick.out"
 export TEAMS_LOG="$work/teams-launched.log" TEAMS_END="$work/teams-end.txt" TEAMS_REC="$work/teams-recorded.log"
+# The saved team a launch on no team (--no-bus, --opencode) left alone, to be written back.
+export TEAMS_KEPT="$work/teams-kept.txt"
 # recorded_after <quick args...>: what the launch put into its session's record (ccy-teams
 # record-seats calls), or none.
 recorded_after() {
@@ -758,6 +761,22 @@ save personal /keys/id_a proj_net dev1@team-a
 check "a session restore never takes the saved team: it is in a team only if its own record says so" \
     "ran= end=|--orig" "$(QUICK_RESTORE=true teams_after false)"
 check "  and it records nothing" "none" "$(QUICK_RESTORE=true recorded_after false)"
+# Plan 00215: a launch on no team (--no-bus, or --opencode, which sets it) is asked as usual, takes
+# the saved choices on a yes, but not the team, which it keeps to write back for the next launch.
+for answer in y n; do
+    save personal /keys/id_a proj_net dev1@team-a
+    check "no bus kit, $answer typed: no team is launched into" "ran= end=|--orig" \
+        "$(QUICK_NO_BUS=true QUICK_ANSWER=$answer teams_after false)"
+    check "  the saved team is kept to write back" "dev1@team-a" "$(cat "$TEAMS_KEPT")"
+    check "  no Team line offers it" "no" "$(has "Team:    dev1@team-a" "$work/quick.err")"
+    check "  and it records nothing" "none" \
+        "$(save personal /keys/id_a proj_net dev1@team-a; QUICK_NO_BUS=true QUICK_ANSWER=$answer recorded_after false)"
+done
+save personal /keys/id_a proj_net dev1@team-a
+check "no bus kit, y typed: the other saved choices are taken" "token=personal keys=/keys/id_a" \
+    "$(QUICK_NO_BUS=true QUICK_ANSWER=y quick false | grep -o 'token=[^ ]* keys=[^ ]*')"
+save personal /keys/id_a proj_net dev1@team-a
+check "a launch with the bus keeps nothing aside" "" "$(QUICK_ANSWER=y quick false >/dev/null; cat "$TEAMS_KEPT")"
 save personal /keys/id_a proj_net dev1@team-a
 check "a quick-launched team goes into the session's own record, as an explicit --teams does" \
     "record-seats ccy-proj-1 dev1@team-a" "$(QUICK_ANSWER=y recorded_after false)"

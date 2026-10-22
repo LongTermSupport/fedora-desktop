@@ -17,9 +17,9 @@ Two version numbers move independently — see
 
 ---
 
-## 3.100.3 — container 2.79.1
+## 3.100.4 — container 2.79.1
 
-Follows 3.99.14.12 (3.100.0 to 3.100.2 and container 2.79.0 were never released: review rounds on
+Follows 3.99.14.12 (3.100.0 to 3.100.3 and container 2.79.0 were never released: review rounds on
 one branch). The image changes, so the next launch rebuilds it once.
 
 - **`ccy --opencode` (or `-oc`) runs opencode instead of Claude Code** (Plan 00215): the image

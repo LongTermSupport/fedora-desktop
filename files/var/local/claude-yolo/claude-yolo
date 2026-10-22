@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.100.3"  # ccy --opencode (-oc) runs opencode instead of Claude Code (Plan 00215). See docs/ccy-changelog.md.
+CCY_VERSION="3.100.4"  # ccy --opencode (-oc) runs opencode instead of Claude Code (Plan 00215). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -629,7 +629,8 @@ NEXT_IS_COMPOSE=false
 HEADLESS_MODE=false
 SUPERVISE_MODE=false
 NO_SUPERVISE_MODE=false
-NO_BUS_MODE=false
+# A saved team a Quick Launch with no bus kit leaves alone, written back for the next launch.
+NO_BUS_MODE=false quick_kept_team=""
 PROMPT_TEXT=""
 NEXT_IS_MAX_AGE=false
 NEXT_IS_RUN_FOR=false
