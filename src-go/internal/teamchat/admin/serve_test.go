@@ -108,6 +108,7 @@ func TestServeRefusesWhatTheArgsCannotMean(t *testing.T) {
 		{"a team file that does not decode", apply.OpRoleApply, []proto.Member{proto.M("team_file", proto.Obj())}, "team.json"},
 		{"a seat below zero", apply.OpMemberAdd, replaced(good[apply.OpMemberAdd], 2, proto.Int(-1)), "seat"},
 		{"seat zero", apply.OpMemberAdd, replaced(good[apply.OpMemberAdd], 2, proto.Int(0)), "seat"},
+		{"a seat past the bound", apply.OpMemberAdd, replaced(good[apply.OpMemberAdd], 2, proto.Int(paths.MaxLXCSeat+1)), fmt.Sprintf("1 to %d", paths.MaxLXCSeat)},
 		{"another team's input", apply.OpTeamApply, replaced(good[apply.OpTeamApply], 0, parsed(t, beta.Encode())), "team beta"},
 		{"an input that does not decode", apply.OpTeamApply, replaced(good[apply.OpTeamApply], 0, proto.Obj()), "input"},
 		{"an approval that does not decode", apply.OpTeamApply, replaced(good[apply.OpTeamApply], 1, proto.Obj()), "approved"},
