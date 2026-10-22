@@ -11,7 +11,9 @@
 // godbus reads it: one whose whole length is over MaxMessage closes the connection, and so
 // does a SASL line over its cap. Errors keep their class, so a caller can tell systemd's own
 // refusal (ErrSystemd, with the D-Bus error name in a *SystemdError) from a peer that went
-// away (ErrGone) and from a reply of the wrong shape (ErrMalformed).
+// away (ErrGone) and from a reply of the wrong shape (ErrMalformed). No guest text reaches an
+// error (TB2.4): a refusal keeps only an error name that passes the D-Bus name grammar, never
+// its message, and a wrong reply is named by its value count and signature.
 package guestbus
 
 import (
@@ -20,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"syscall"
 	"time"
 
@@ -54,18 +57,13 @@ var (
 	ErrNotSessionUnit = errors.New("guestbus: not a seat's session unit")
 )
 
-// SystemdError is systemd's own refusal of a call, by its D-Bus error name. It is ErrSystemd.
+// SystemdError is systemd's own refusal of a call, by its D-Bus error name, which passed
+// validErrorName. It is ErrSystemd.
 type SystemdError struct {
-	Name    string
-	Message string
+	Name string
 }
 
-func (e *SystemdError) Error() string {
-	if e.Message == "" {
-		return "systemd refused: " + e.Name
-	}
-	return "systemd refused: " + e.Name + ": " + e.Message
-}
+func (e *SystemdError) Error() string { return "systemd refused: " + e.Name }
 
 // Is makes every SystemdError ErrSystemd.
 func (e *SystemdError) Is(target error) bool { return target == ErrSystemd }
@@ -185,7 +183,7 @@ func (s systemd) call(ctx context.Context, method, unit string, job bool) error 
 		return fmt.Errorf("guest systemd %s: %w", what, classify(err))
 	}
 	if !replyFits(body, job) {
-		return fmt.Errorf("guest systemd %s: %w: the reply holds %d values (%v)", what, ErrMalformed, len(body), body)
+		return fmt.Errorf("guest systemd %s: %w: the reply holds %d values of signature %s", what, ErrMalformed, len(body), dbus.SignatureOf(body...))
 	}
 	return nil
 }
@@ -202,13 +200,21 @@ func replyFits(body []any, job bool) bool {
 	return ok
 }
 
-// classify gives a call's error its class: systemd's refusal by name, or a peer that is gone.
+// classify gives a call's error its class: systemd's refusal by name (a name outside the
+// grammar is a malformed reply), or a peer that is gone.
 func classify(err error) error {
+	name, isDBus := "", false
 	if e, ok := errors.AsType[dbus.Error](err); ok {
-		return &SystemdError{Name: e.Name, Message: errorMessage(e.Body)}
+		name, isDBus = e.Name, true
 	}
 	if e, ok := errors.AsType[*dbus.Error](err); ok {
-		return &SystemdError{Name: e.Name, Message: errorMessage(e.Body)}
+		name, isDBus = e.Name, true
+	}
+	if isDBus {
+		if !validErrorName(name) {
+			return fmt.Errorf("%w: a refusal whose error name is not a D-Bus name", ErrMalformed)
+		}
+		return &SystemdError{Name: name}
 	}
 	for _, gone := range []error{
 		io.EOF, io.ErrUnexpectedEOF, io.ErrClosedPipe, dbus.ErrClosed, net.ErrClosed, syscall.ECONNRESET, syscall.EPIPE,
@@ -220,14 +226,25 @@ func classify(err error) error {
 	return err
 }
 
-// errorMessage is a D-Bus error's text: its first body value, when that is a string.
-func errorMessage(body []any) string {
-	if len(body) == 0 {
-		return ""
+// maxName is the longest D-Bus name.
+const maxName = 255
+
+// validErrorName is the D-Bus error name grammar: at most 255 bytes, two or more elements
+// joined by dots, each [A-Za-z_][A-Za-z0-9_]*.
+func validErrorName(name string) bool {
+	elems := strings.Split(name, ".")
+	if len(name) > maxName || len(elems) < 2 {
+		return false
 	}
-	s, ok := body[0].(string)
-	if !ok {
-		return ""
+	for _, el := range elems {
+		if el == "" || (el[0] >= '0' && el[0] <= '9') {
+			return false
+		}
+		for _, c := range []byte(el) {
+			if c != '_' && (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') {
+				return false
+			}
+		}
 	}
-	return s
+	return true
 }
