@@ -285,6 +285,11 @@ linters:
       - path: internal/teamchat/element/.*_test\.go
         linters: [gosec]
         text: "G302|G304"
+      # The kit refuses a directory others can write; its tests build one, and read back by
+      # computed path what the kit wrote under a temporary directory.
+      - path: internal/teamchat/member/kit/.*_test\.go
+        linters: [gosec]
+        text: "G302|G304"
   settings:
     tagliatelle:
       case:

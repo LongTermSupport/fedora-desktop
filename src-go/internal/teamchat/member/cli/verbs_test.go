@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/kit"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
@@ -154,5 +155,16 @@ func TestVerbsIsACopy(t *testing.T) {
 	v[0].Flags[0].Name = "changed"
 	if Verbs()[0].Flags[0].Name == "changed" {
 		t.Error("the table changed through its copy")
+	}
+}
+
+// The hook events the parser takes are those the kit's hooks.json names.
+func TestHookEventsAreTheKits(t *testing.T) {
+	args := make([]string, 0, len(kit.Hooks))
+	for _, h := range kit.Hooks {
+		args = append(args, h.Arg)
+	}
+	if !slices.Equal(args, HookEvents) {
+		t.Errorf("kit %q, cli %q", args, HookEvents)
 	}
 }
