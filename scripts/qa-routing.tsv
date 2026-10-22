@@ -28,9 +28,11 @@
 # Order is the contract. The src-go row precedes the YAML row so src-go/.golangci.yml runs the
 # Go gate; a Python script with a shell word in its shebang is Python because @py precedes @sh.
 #
-# The Go tests execute these files as parity references, so a change to one must run the Go gate.
-also	files/var/local/claude-yolo/lib/common-pure.bash	go	-
-also	files/var/local/claude-yolo/lib/session-registry.bash	go	-
+# The Go tests execute these files as parity references, so a change to one must run the Go gate:
+# lib/common-pure.bash and lib/session-registry.bash are sourced by Go tests, and the launcher's
+# differential harness (src-go/internal/ccylaunch/difftest) runs the launcher, every library
+# and the Dockerfile whose label and hash it reports, against its goldens.
+also	files/var/local/claude-yolo/claude-yolo,files/var/local/claude-yolo/lib/*.bash,files/var/local/claude-yolo/Dockerfile	go	-
 also	helpers/agent_bus/declare.py	go	-
 # The status line's writer test runs these writers of the files it reads (SPEC-status-line.md 8).
 also	helpers/pingbus/*.py,helpers/agent_bus/admin.py,helpers/agent_bus/checkout.py	go	-
@@ -154,6 +156,10 @@ also	scripts/qa-speech-to-text-rules.bash,src-go/qa/sttrules/*,src-go/qa/cmd/qa-
 also	vars/vm-test-scenarios.yml	vmtest-manifest	covered
 also	vars/fedora-version.yml,helpers/vmtest/scenarios.py,helpers/vmtest/upstream.py,helpers/vmtest/validate_manifest.py,files/home/.local/share/vmtest/guest-acceptance-*,files/home/.local/share/vmtest/guest-prepare-*	vmtest-manifest	-
 also	scripts/qa-vmtest-manifest.bash,src-go/qa/vmtestmanifest/*,src-go/qa/cmd/qa-vmtest-manifest/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	vmtest-manifest	-
+# The project-owned hooks-daemon handlers and their tests run whole (it is fast) when one changes
+# or is deleted, or the gate's script does. It needs the daemon's interpreter, so it is a gate, not
+# a per-file check; the handlers' Python still gets its per-file ruff and unit-test routing.
+also	.claude/hooks/handlers/*,scripts/qa-hook-handlers.bash	hook-handlers	-
 also	src-go/qa/ansible/*,src-go/qa/cmd/qa-ansible/*,src-go/qa/internal/cmdmain/*,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*	ansible-patterns	-
 # Each .semgrep/ file is read by one gate and no per-file check applies to it (.semgrep is an
 # excluded shell tree, so the rows below would only report it skipped). These rows end the search
@@ -175,4 +181,4 @@ first	@sh	bash-syntax,shellcheck,shell-directives,semgrep,ready-wait-files	cover
 post	any:@sh	bash-limits	-
 post	any:@sh,any:@py	toolchain	-
 post	any:@sh,any:@py	hidden-bindings	-
-perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go-qa qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-ansible-pause qa-gh-scopes qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings
+perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go-qa qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-ansible-pause qa-gh-scopes qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings qa-hook-handlers

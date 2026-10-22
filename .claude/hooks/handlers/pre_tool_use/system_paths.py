@@ -57,28 +57,39 @@ def _resolve_project_root() -> str:
     )
 
 
-def _is_claude_projects_path(resolved: str) -> bool:
-    """Return True if *resolved* is under a Claude Code agent runtime directory.
+def _claude_projects_root(path: str) -> str | None:
+    """Return the Claude Code projects directory *path* lies lexically under, else None.
 
     Matches /root/.claude/projects/... and /home/<user>/.claude/projects/...
-    using a resolved-prefix check, not a substring match, so a crafted path
-    like /var/evil/.claude/projects/../../etc/passwd cannot bypass the block.
+    by prefix on the normalised path, not a substring match, so a crafted path
+    like /var/evil/.claude/projects/../../etc/passwd (normalised to /etc/passwd)
+    cannot bypass the block.
     """
-    if resolved.startswith("/root/.claude/projects/"):
-        return True
+    if path.startswith("/root/.claude/projects/"):
+        return "/root/.claude/projects"
     # /home/<user>/.claude/projects/  — match exactly three leading components
     # before .claude so we don't accidentally exempt /home/user/work/.claude/...
-    if resolved.startswith("/home/"):
-        parts = Path(resolved).parts  # ('/', 'home', '<user>', '.claude', ...)
-        # parts[0]='/', parts[1]='home', parts[2]=<user>, parts[3]='.claude',
-        # parts[4]='projects'
-        if (
-            len(parts) >= 5
-            and parts[3] == ".claude"
-            and parts[4] == "projects"
-        ):
-            return True
-    return False
+    if path.startswith("/home/"):
+        parts = Path(path).parts  # ('/', 'home', '<user>', '.claude', 'projects', ...)
+        if len(parts) >= 5 and parts[3] == ".claude" and parts[4] == "projects":
+            return "/".join(parts[:5]).replace("//", "/")
+    return None
+
+
+def _is_claude_projects_path(file_path: str) -> bool:
+    """Return True if *file_path* is under a Claude Code agent runtime directory.
+
+    The exempt directory may itself be a symlink (in the CCY container /root/.claude
+    links to the project's .claude/ccy), so the path is judged twice: lexically under
+    the projects directory, and, once symlinks are followed, still under the projects
+    directory's own target. A link planted inside it that leaves it is not exempt.
+    """
+    lexical = os.path.normpath(file_path)
+    root = _claude_projects_root(lexical)
+    if root is None:
+        return False
+    real_root = os.path.realpath(root)
+    return os.path.realpath(lexical).startswith(real_root + os.sep)
 
 
 class SystemPathsHandler(Handler):
@@ -100,6 +111,14 @@ class SystemPathsHandler(Handler):
         "/root/",
         "/home/",
     ]
+
+    # Deployed files whose source is not the files/ mirror of their path
+    # (play-claude-yolo.yml installs the bash launcher as claude-yolo.bash and builds
+    # the Go front as claude-yolo).
+    INSTALLED_UNDER_ANOTHER_NAME: ClassVar[dict[str, str]] = {
+        "/var/local/claude-yolo/claude-yolo.bash": "files/var/local/claude-yolo/claude-yolo",
+        "/var/local/claude-yolo/claude-yolo": "src-go/cmd/claude-yolo and src-go/internal/ccylaunch (the Go front)",
+    }
 
     def __init__(self) -> None:
         super().__init__(name="prevent-system-file-edits", priority=8, terminal=True)
@@ -139,8 +158,7 @@ class SystemPathsHandler(Handler):
         # deployed system config.
         # Use a resolved-prefix check (not a substring match) so a crafted
         # path containing /.claude/projects/ mid-string cannot bypass the block.
-        resolved = str(Path(file_path).resolve())
-        if _is_claude_projects_path(resolved):
+        if _is_claude_projects_path(file_path):
             return False
 
         # Check if file_path starts with any blocked system path
@@ -232,6 +250,8 @@ class SystemPathsHandler(Handler):
         Returns:
             Suggested project path for editing
         """
+        if file_path in self.INSTALLED_UNDER_ANOTHER_NAME:
+            return self.INSTALLED_UNDER_ANOTHER_NAME[file_path]
         if file_path.startswith("/var/local/"):
             return f"files/var/local/{file_path.split('/var/local/', 1)[1]}"
         if file_path.startswith("/etc/"):

@@ -1,0 +1,30 @@
+agent_bus_address: 2001:DB8:0:0:0:0:0:10
+agent_bus_teams:
+  - team: alpha
+    port: 6167
+    listen: ["2001:db8::5", "192.0.2.5"]
+  - team: beta
+    port: 6168
+    listen: '["192.0.2.6"]'
+  - team: gamma
+    port: 6169
+    listen: [""]
+  - team: delta
+    port: 6170
+    listen: [1]
+  - team: eps
+    port: 6171
+    listen: "192.0.2.7"
+  - team: zeta
+    port: 6172
+    listen: !vault |
+      $ANSIBLE_VAULT;1.1;AES256
+      30303030303030303030303030303030
+  - team: eta
+    port: 6173
+    listen: [broken
+  - team: theta
+    listen: ["192.0.2.8"]
+  - team: iota
+    port: 6174
+    listen: ["not an address"]

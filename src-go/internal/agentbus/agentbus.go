@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/bus/seat"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
 )
 
@@ -102,6 +105,13 @@ type Client struct {
 	Runner execx.Runner
 	Root   *sudo.Sudo
 	Err    io.Writer
+
+	// ListSeats reads the seats of a resolved checkout top as the user uid; nil is seat.List.
+	// A test's world sets it to bring its disk up to date before the real reader reads it.
+	ListSeats func(top string, uid int) (seat.Listing, error)
+
+	// uid is the user a checkout must belong to for SeatList; nil is os.Getuid.
+	uid func() int
 }
 
 // WithStderr is a copy of the client whose commands' stderr goes to wrap(w) for each stream w
@@ -122,23 +132,29 @@ func (c *Client) WithStderr(wrap func(io.Writer) io.Writer) *Client {
 	return &out
 }
 
-// SeatList is "agent-bus seat list" run as the user in the checkout dir. The wrapper exits
-// 78 when one seat is unreadable but the others were still printed: that is not an error,
-// it returns the seats it did print and unreadable true.
+// SeatList is what "agent-bus seat list" answered in the checkout dir, read in-process by
+// bus/seat ("" is the working directory's git top level, one git run; a named dir starts no
+// process). A seat that cannot be read is left out and named on Err, and a refusal of the
+// whole list is said there too ("agent-bus: <text>", as the wrapper's stderr carried it):
+// neither is an error, both return unreadable true. What v1 crashed on is an error.
 func (c *Client) SeatList(ctx context.Context, dir string) ([]Seat, bool, error) {
-	res, runErr := c.userRun(ctx, dir, "seat", "list")
-	unreadable := false
-	if runErr != nil {
-		if !errors.Is(runErr, ErrConfig) {
-			return nil, false, runErr
-		}
-		unreadable = true
+	listing, err := c.readSeats(ctx, dir)
+	if refusal, refused := errors.AsType[*seat.RefusalError](err); refused {
+		return []Seat{}, true, c.say(refusal.Msg)
 	}
-	seats, err := ParseSeats(string(res.Stdout))
 	if err != nil {
 		return nil, false, fmt.Errorf("agent-bus seat list: %w", err)
 	}
-	return seats, unreadable, nil
+	for _, failure := range listing.Failures {
+		if err := c.say(failure); err != nil {
+			return nil, false, err
+		}
+	}
+	seats := make([]Seat, 0, len(listing.Seats))
+	for _, s := range listing.Seats {
+		seats = append(seats, Seat{Team: s.Team, Seat: s.Seat, Held: s.Held, Handle: s.Handle})
+	}
+	return seats, len(listing.Failures) > 0, nil
 }
 
 // SeatChoose is "agent-bus seat choose <team>" run as the user in the working directory: the
@@ -275,6 +291,32 @@ func (c *Client) RemoveTeam(ctx context.Context, team string, purge bool) error 
 		argv = append(argv, "--purge")
 	}
 	return c.rootShow(ctx, installerName, argv...)
+}
+
+func (c *Client) readSeats(ctx context.Context, dir string) (seat.Listing, error) {
+	top, err := seat.Checkout(ctx, gitx.New(c.Runner), dir)
+	if err != nil {
+		return seat.Listing{}, err
+	}
+	uid := os.Getuid
+	if c.uid != nil {
+		uid = c.uid
+	}
+	if c.ListSeats != nil {
+		return c.ListSeats(top, uid())
+	}
+	return seat.List(top, uid())
+}
+
+// say writes one line to Err as the wrapper's stderr carried it; with no Err it is dropped.
+func (c *Client) say(text string) error {
+	if c.Err == nil {
+		return nil
+	}
+	if _, err := io.WriteString(c.Err, wrapperName+": "+text+"\n"); err != nil {
+		return fmt.Errorf("agent-bus seat list: %w", err)
+	}
+	return nil
 }
 
 func (c *Client) seatTake(ctx context.Context, dir, list, memberType string, noPrompt bool, extra ...string) error {

@@ -1,0 +1,118 @@
+=== exit 0
+=== stdout
+✓ Creating .claude/ccy/.gitignore for security
+# CCY Token: work | Expires: 2030-06-01 | Generated: 2030-01-15 12:00:00
+# Paste into terminal on target machine, or save in LastPass/1Password.
+# Other files of this name: asks before removing them; CCY_TOKEN_IMPORT_REMOVE_OTHERS=1 removes, =0 keeps.
+bash <<'CCYTOKEN'
+set -eo pipefail
+name='work'
+date='2030-06-01'
+token='{token:work}'
+case "${CCY_TOKEN_IMPORT_REMOVE_OTHERS:-}" in
+    "" | 0 | 1) ;;
+    *)
+        echo "CCY_TOKEN_IMPORT_REMOVE_OTHERS must be 1 (remove), 0 (keep) or unset (ask). Nothing imported." >&2
+        exit 64
+        ;;
+esac
+dir="$HOME/.claude-tokens/ccy/tokens"
+mkdir -p "$dir"
+chmod 700 "$HOME/.claude-tokens/ccy" "$dir"
+printf '%s' "$token" > "$dir/$name.$date.token"
+chmod 600 "$dir/$name.$date.token"
+echo "Token '$name' imported (expires $date). Use with: ccy --token $name"
+# ccy launches a name with its EARLIEST-dated file, so an older file of this name (often an
+# expired one) shadows the token just written. Only <name>.<YYYY-MM-DD>.token is a candidate.
+others=()
+for f in "$dir/$name".*.token; do
+    [ -f "$f" ] || continue
+    mid="${f##*/}"
+    mid="${mid#"$name".}"
+    mid="${mid%.token}"
+    if [[ "$mid" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] && [ "$mid" != "$date" ]; then
+        others+=("$f")
+    fi
+done
+if [ "${#others[@]}" -gt 0 ]; then
+    echo "Other files for token '$name' (ccy launches with the earliest-dated one):"
+    for f in "${others[@]}"; do
+        echo "  ${f##*/}"
+    done
+    answer="${CCY_TOKEN_IMPORT_REMOVE_OTHERS:-}"
+    if [ -z "$answer" ]; then
+        # stdin is this script, so the question goes to the terminal itself.
+        if [ -t 2 ] && read -r -p "Remove them? [y/N] " reply < /dev/tty; then
+            case "$reply" in
+                y | Y | yes | Yes | YES) answer=1 ;;
+                *) answer=0 ;;
+            esac
+        else
+            echo "No terminal to ask, so they were kept. CCY_TOKEN_IMPORT_REMOVE_OTHERS=1 removes them without asking."
+            answer=0
+        fi
+    fi
+    if [ "$answer" = 1 ]; then
+        for f in "${others[@]}"; do
+            rm -- "$f"
+            echo "Removed ${f##*/}"
+        done
+    else
+        echo "Kept them."
+    fi
+fi
+CCYTOKEN
+=== stderr
+✓ Writing .claude/ccy/ccy.env.local.dist (version 3); commit it
+=== calls
+=== files
+dir  home/.claude-tokens 0700
+dir  home/.claude-tokens/ccy 0700
+dir  home/.claude-tokens/ccy/projects 0700
+dir  home/.claude-tokens/ccy/tokens 0700
+file home/.claude-tokens/ccy/tokens/work.2030-06-01.token 0600
+     | {token:work}
+dir  project/.claude 0700
+dir  project/.claude/ccy 0700
+file project/.claude/ccy/.gitignore 0600
+     | # CCY session data - NEVER commit sensitive files
+     | # Only .gitignore, Dockerfile, allowed-hostnames, ccy.env, ccy.env.local.dist,
+     | # mounts and the claude-supervise* supervisor (any extension or none) are safe
+     | # to track. ccy.env.local is this checkout's own and is never tracked.
+     | *
+     | !.gitignore
+     | !Dockerfile
+     | !allowed-hostnames
+     | !ccy.env
+     | !ccy.env.local.dist
+     | !mounts
+     | !claude-supervise*
+file project/.claude/ccy/ccy.env.local.dist 0600
+     | # ccy.env.local.dist version 3
+     | #
+     | # Written by ccy on every launch: commit it, never edit it (ccy rewrites it).
+     | #
+     | # The template for ccy.env.local, this checkout's own settings: the role one install
+     | # plays, never secrets and never anything every clone should share (that goes in
+     | # ccy.env). ccy.env.local is never committed. It is placed by the install's own
+     | # infrastructure-as-code, not by hand and not by an agent working in the checkout.
+     | # ccy sources it inside the container, after ccy.env, so its values win.
+     | #
+     | # To make one: copy this file to ccy.env.local, change the line below to
+     | # "# based on ccy.env.local.dist version 3", and uncomment what this install needs.
+     | # When this dist's version moves on, ccy says so at launch: compare the two files.
+     | #
+     | # based on ccy.env.local.dist version 3
+     | 
+     | # ── Hooks daemon host role ────────────────────────────────────────────────────
+     | # The name the hooks daemon matches this session's host against: persistent_crons
+     | # "hosts:" lists and the top-level "hosts:" block in .claude/hooks-daemon.yaml.
+     | # Order: HOOKS_DAEMON_HOSTNAME, then CCY_HOST_HOSTNAME (ccy sets it to the host
+     | # machine's name), then the container's hostname. Set it to give this install a
+     | # role, e.g. the one install that runs a role-scoped cron job. Only matters in a
+     | # project that uses the hooks daemon.
+     | # It also names the host part of the handle of an agent team bus seat that
+     | # "ccy --teams <seat>@<team>" creates in this checkout; unset, that part is "local".
+     | # A team is chosen by each launch, never here: the container refuses to start when
+     | # this file sets a bus variable.
+     | #export HOOKS_DAEMON_HOSTNAME=<role-name>
