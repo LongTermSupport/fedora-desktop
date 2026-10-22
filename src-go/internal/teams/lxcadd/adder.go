@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -115,6 +116,8 @@ type Adder struct {
 	before agentbus.Roster
 	// lxcPath is where root's LXC keeps its containers, for the lxc-attach hints.
 	lxcPath string
+	// team is the team of this run, for the way on a refusal names.
+	team string
 }
 
 // New is the Adder over a host and the flows it hands the work to: apply joins the member.
@@ -139,7 +142,27 @@ type answers struct {
 	// derived is the handle the checkout gives, shown before the yes and never written: the
 	// entry carries neither a host nor a seat, so the play derives them again.
 	derived declare.Derived
+	// declared is the entry already declaring this member, when the file has one (Entry 0: none):
+	// as answered, nothing is written and the team is applied; otherwise the owner may update it.
+	declared declare.Declared
 }
+
+// writes is what the answers do to the file: add an entry, update the one there, or nothing.
+func (a answers) writes() string {
+	switch {
+	case a.declared.Entry == 0:
+		return writeAdd
+	case len(a.declared.Differs) > 0:
+		return writeUpdate
+	}
+	return writeNothing
+}
+
+const (
+	writeAdd     = "add"
+	writeUpdate  = "update"
+	writeNothing = "nothing"
+)
 
 func (a answers) entry() declare.LxcEntry {
 	e := declare.LxcEntry{Team: a.team, Container: a.container, User: a.user, Checkout: a.checkout}
@@ -219,6 +242,7 @@ func (a *Adder) gumErr(err error) error {
 }
 
 func (a *Adder) add(ctx context.Context, team string) error {
+	a.team = team
 	if err := a.prepare(ctx, team); err != nil {
 		return err
 	}
@@ -240,17 +264,64 @@ func (a *Adder) add(ctx context.Context, team string) error {
 	if err != nil {
 		return err
 	}
-	held := coordinatorOf(team, roster, declared)
 	ans := answers{team: team, role: roleWorker}
 	a.term.Steps = 4
-	if err = a.ask(ctx, &ans, running, held); err != nil {
+	if err = a.ask(ctx, &ans, running, roster, declared); err != nil {
 		return err
 	}
 	a.sayStopped(team, declared, stopped)
+	if ans.declared, err = a.Declare.LxcCompare(ctx, ans.entry()); err != nil {
+		return err
+	}
+	if err = a.sayDeclared(ctx, ans); err != nil {
+		return err
+	}
 	if err = a.summary(ctx, ans); err != nil {
 		return err
 	}
 	return a.write(ctx, ans)
+}
+
+// Update and stop are the two ways on from a member declared otherwise than answered.
+const stopChoice = "Stop; change nothing"
+
+func updateChoice(entry int) string {
+	return fmt.Sprintf("Update entry %d to these answers", entry)
+}
+
+// sayDeclared says that the member is declared already, when it is, as which entry of which
+// file and how that entry differs from the answers; a different entry is updated only when the
+// owner chooses to. Re-adding a member is never refused as a duplicate of itself (Plan 00201:
+// an earlier lxc-add had written it before its play failed).
+func (a *Adder) sayDeclared(ctx context.Context, ans answers) error {
+	if ans.declared.Entry == 0 {
+		return nil
+	}
+	a.term.Printf("%s is already declared in team %s, as entry %d of agent_bus_lxc_members in %s.\n",
+		ans.label(), ans.team, ans.declared.Entry, term.AbbrevHome(a.HostVars, a.Home))
+	if ans.writes() == writeNothing {
+		a.term.Printf("It is as answered, so nothing is written; %s is applied, which joins it.\n", ans.team)
+		return nil
+	}
+	a.term.Printf("It differs from the answers:\n")
+	for _, d := range ans.declared.Differs {
+		given := d.Given
+		if given == "-" {
+			given = "not set"
+		}
+		a.term.Printf("  %s: %s in the file, %s as answered\n", d.Key, d.File, given)
+	}
+	head := flow.Here(ans.team, addCrumb, "Declared").About(ans.label() + " is entry " + strconv.Itoa(ans.declared.Entry) + " already")
+	update := updateChoice(ans.declared.Entry)
+	choice, err := a.Gum.Choose(ctx, head, "Update or stop", update, []string{update, stopChoice})
+	if err != nil {
+		return a.gumErr(err)
+	}
+	if choice != update {
+		a.term.Printf("Nothing was changed. ccy-teams apply %s joins it as declared.\n", ans.team)
+		return &stop{term.ExitFailure}
+	}
+	return nil
 }
 
 // prepare is what the questions need before the first is asked: a terminal, gum, and a team
@@ -330,9 +401,11 @@ func (a *Adder) deferred(ans answers) (string, error) {
 // holding says who holds the team's coordinator role, from the declaration and from the live
 // team: a declared LXC member (its entry), or a member of the live team (its roster line).
 type holding struct {
-	holder   string // empty: the team has none
+	holder   string // empty: the team has none, or the member being added holds it (self)
 	declared *declare.LxcMember
 	member   agentbus.Member
+	// self is the member being added holding it already: its own entry says coordinator.
+	self bool
 }
 
 // named is the holder as the takeover names it.
@@ -367,10 +440,13 @@ func (a *Adder) teamRoster(ctx context.Context, team string) (agentbus.Roster, e
 }
 
 // coordinatorOf reads the declared LXC members first (a present coordinator there is the one
-// the play will set), then the live roster.
-func coordinatorOf(team string, roster agentbus.Roster, declared []declare.LxcMember) holding {
+// the play will set; the member being added, label, is self), then the live roster.
+func coordinatorOf(team, label string, roster agentbus.Roster, declared []declare.LxcMember) holding {
 	for _, m := range declared {
 		if m.Team == team && m.State == "present" && m.Role == agentbus.RoleCoordinator {
+			if m.User+"@"+m.Container == label {
+				return holding{self: true}
+			}
 			return holding{holder: m.User + "@" + m.Container, declared: &m}
 		}
 	}
@@ -380,7 +456,7 @@ func coordinatorOf(team string, roster agentbus.Roster, declared []declare.LxcMe
 	return holding{}
 }
 
-func (a *Adder) ask(ctx context.Context, ans *answers, running []string, held holding) error {
+func (a *Adder) ask(ctx context.Context, ans *answers, running []string, roster agentbus.Roster, declared []declare.LxcMember) error {
 	if err := a.askContainer(ctx, ans, running); err != nil {
 		return err
 	}
@@ -390,8 +466,12 @@ func (a *Adder) ask(ctx context.Context, ans *answers, running []string, held ho
 	if err := a.askCheckout(ctx, ans); err != nil {
 		return err
 	}
-	return a.askRole(ctx, ans, held)
+	return a.askRole(ctx, ans, coordinatorOf(ans.team, ans.label(), roster, declared))
 }
+
+// keepChoice is the role question's coordinator line for a member whose own entry is the team's
+// coordinator already.
+func keepChoice(team string) string { return "Keep it the coordinator (it is " + team + "'s already)" }
 
 // step starts the next question: its numbered title and hint on the terminal, and the heading
 // its prompt carries (the team, the step, and the answers so far).
@@ -469,17 +549,22 @@ func (a *Adder) checkoutOK(ctx context.Context, ans *answers, path string) (bool
 // never changed without a question.
 func (a *Adder) askRole(ctx context.Context, ans *answers, held holding) error {
 	duties := "A worker does the work it is given. The coordinator takes the humans' requests, dispatches them to the workers and is copied on what workers tell humans; "
-	coord := coordinator.NoneChoice(ans.team)
-	if held.holder == "" {
+	coord, suggested := coordinator.NoneChoice(ans.team), roleWorker
+	switch {
+	case held.self:
+		duties += ans.label() + "'s entry makes it " + ans.team + "'s coordinator already."
+		coord = keepChoice(ans.team)
+		suggested = coord
+	case held.holder == "":
 		duties += ans.team + " has none yet."
-	} else {
+	default:
 		duties += ans.team + "'s coordinator is " + held.named().Named() + ", and a team has one."
 		coord = coordinator.TakeoverChoice(held.named())
 	}
 	if err := a.step(ctx, ans, "Role", duties); err != nil {
 		return err
 	}
-	role, err := a.Gum.Choose(ctx, a.head, "Role", roleWorker, []string{roleWorker, coord})
+	role, err := a.Gum.Choose(ctx, a.head, "Role", suggested, []string{roleWorker, coord})
 	if err != nil {
 		return a.gumErr(err)
 	}
@@ -539,8 +624,10 @@ func (a *Adder) problem(msg string, tryAgain bool) {
 	a.term.Printf("  %s.\n", msg)
 }
 
-// checked is the outcome of a declare.py check: accepted, refused (said, and false), or a
-// failure to run it (an error).
+// checked is the outcome of a declare.py check: accepted; the answer refused (ErrUsage: said,
+// and false, so it is asked again); or the run ended (an error). A refusal of any other kind is
+// the host_vars file's, or the answer against its entries, which no retyping can pass, so it
+// is never asked again: it is said with the file it is about and the run stops.
 func (a *Adder) checked(err error) (bool, error) {
 	if err == nil {
 		return true, nil
@@ -549,19 +636,36 @@ func (a *Adder) checked(err error) (bool, error) {
 	if !ok {
 		return false, err
 	}
-	a.problem(de.Error(), true)
-	return false, nil
+	if errors.Is(err, declare.ErrUsage) {
+		a.problem(de.Error(), true)
+		return false, nil
+	}
+	if errors.Is(err, declare.ErrInterrupted) {
+		return false, a.cancelled()
+	}
+	if !errors.Is(err, declare.ErrRefused) {
+		a.term.Printf("declare.py failed (exit %d): %s\nNothing was changed.\n", de.Code, de.Error())
+		return false, &stop{term.ExitCode(de.Code)}
+	}
+	file := term.AbbrevHome(a.HostVars, a.Home)
+	a.problem(de.Error(), false)
+	a.term.Printf("That is a refusal of %s, not of the answer, so it is not asked again: fix the entry it names in %s, "+
+		"then run ccy-teams lxc-add %s again; nothing was changed.\n", file, file, a.team)
+	return false, &stop{term.ExitCode(de.Code)}
 }
 
 // summary checks the whole entry as one (a second coordinator, a duplicate), shows what will
 // be written, and asks the one yes that covers writing it and applying the team.
 func (a *Adder) summary(ctx context.Context, ans answers) error {
+	if ans.writes() == writeNothing {
+		return a.confirmApply(ctx, ans)
+	}
 	check := ans.entry()
 	if ans.takeover.declared != nil {
 		// The declared coordinator is made a worker first; until then a second one is refused.
 		check.Role = ""
 	}
-	if _, err := a.Declare.LxcAddDryRun(ctx, check); err != nil {
+	if _, err := a.Declare.LxcAddDryRun(ctx, check, ans.writes() == writeUpdate); err != nil {
 		if de, ok := errors.AsType[*declare.Error](err); ok {
 			a.term.Printf("%s\nRefused; nothing was changed.\n", de.Error())
 			return &stop{term.ExitCode(de.Code)}
@@ -584,6 +688,10 @@ func (a *Adder) summary(ctx context.Context, ans answers) error {
 		ans.derived.Repo, ans.derived.Host, ans.derived.Seat)
 	question := "Add " + ans.label() + " to " + ans.team + "? (saved to " + term.AbbrevHome(a.HostVars, a.Home) +
 		", then " + ans.team + " is applied: sudo asks for your password)"
+	if ans.writes() == writeUpdate {
+		question = "Update entry " + strconv.Itoa(ans.declared.Entry) + ", " + ans.label() + " in " + ans.team + "? (saved to " +
+			term.AbbrevHome(a.HostVars, a.Home) + ", then " + ans.team + " is applied: sudo asks for your password)"
+	}
 	head := flow.Here(ans.team, addCrumb, "Review").About(ans.label() + " joins team " + ans.team + " · role " + ans.role)
 	yes, err := a.Gum.Confirm(ctx, head, question, true)
 	if err != nil {
@@ -591,6 +699,21 @@ func (a *Adder) summary(ctx context.Context, ans answers) error {
 	}
 	if !yes {
 		a.term.Printf("Nothing was added.\n")
+		return &stop{term.ExitFailure}
+	}
+	return nil
+}
+
+// confirmApply is the one yes for a member declared as answered: nothing is written, and the
+// team is applied as after a write, which joins the member.
+func (a *Adder) confirmApply(ctx context.Context, ans answers) error {
+	head := flow.Here(ans.team, addCrumb, "Review").About(ans.label() + " is declared in team " + ans.team + " already")
+	yes, err := a.Gum.Confirm(ctx, head, "Apply "+ans.team+" now, to join "+ans.label()+"? (nothing is written; sudo asks for your password)", true)
+	if err != nil {
+		return a.gumErr(err)
+	}
+	if !yes {
+		a.term.Printf("Nothing was changed; ccy-teams apply %s joins it later.\n", ans.team)
 		return &stop{term.ExitFailure}
 	}
 	return nil
@@ -708,7 +831,15 @@ func (a *Adder) declareAndApply(ctx context.Context, ans answers) error {
 	if err != nil {
 		return err
 	}
-	change, err := a.Declare.LxcAdd(ctx, ans.entry())
+	var change declare.Change
+	switch ans.writes() {
+	case writeAdd:
+		change, err = a.Declare.LxcAdd(ctx, ans.entry())
+	case writeUpdate:
+		change, err = a.Declare.LxcUpdate(ctx, ans.entry())
+	default:
+		change = declare.Change{Text: "LXC member " + ans.label() + " is already declared in team " + ans.team}
+	}
 	if err != nil {
 		undo(ctx)
 		return err

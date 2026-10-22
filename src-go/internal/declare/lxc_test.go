@@ -43,7 +43,7 @@ func TestLxcFlagsAreThoseGivenAndNoOther(t *testing.T) {
 func TestLxcAddDryRunReturnsTheEntryLines(t *testing.T) {
 	f := &execx.Fake{}
 	script(f, "lxc-add", "  - team: alpha\n    container: \"container-c\"\n")
-	got, err := newClient(f).LxcAddDryRun(context.Background(), LxcEntry{Team: "alpha"})
+	got, err := newClient(f).LxcAddDryRun(context.Background(), LxcEntry{Team: "alpha"}, false)
 	if err != nil || got != "  - team: alpha\n    container: \"container-c\"\n" {
 		t.Fatalf("%q %v", got, err)
 	}
@@ -191,8 +191,87 @@ func TestRealLxcAddListAndRefusals(t *testing.T) {
 	if err != nil || len(listed) != 1 || listed[0].Role != "worker" || listed[0].State != "present" {
 		t.Fatalf("%+v %v", listed, err)
 	}
-	if _, err = c.LxcAdd(ctx, m); !errors.Is(err, ErrUsage) {
-		t.Fatalf("a duplicate was not refused as a usage mistake: %v", err)
+	// The same member again is the add done (Plan 00201: the owner's "entries 5 and 6").
+	again, err := c.LxcAdd(ctx, m)
+	if err != nil || again.Changed || !strings.Contains(again.Text, "agent@container-a is already declared in team alpha") {
+		t.Fatalf("the member declared already: %+v %v", again, err)
+	}
+	if err = c.LxcCheck(ctx, LxcEntry{Team: "alpha", Container: "container-a", User: "agent"}); err != nil {
+		t.Fatalf("the user question refused a member the file declares: %v", err)
+	}
+}
+
+func TestRealLxcMemberDeclaredOtherwiseIsComparedAndUpdated(t *testing.T) {
+	c := realCopy(t)
+	ctx := context.Background()
+	m := LxcEntry{Team: "alpha", Container: "container-a", User: "agent", Host: "worker", Checkout: "/srv/agent/one"}
+	if _, err := c.LxcAdd(ctx, m); err != nil {
+		t.Fatal(err)
+	}
+	other := m
+	other.Checkout = "/srv/agent/two"
+	if _, err := c.LxcAdd(ctx, other); !errors.Is(err, ErrRefused) {
+		t.Fatalf("a member declared otherwise was not refused as the file's: %v", err)
+	}
+	found, err := c.LxcCompare(ctx, other)
+	if err != nil || !reflect.DeepEqual(found, Declared{Entry: 1, Differs: []Difference{
+		{Key: "checkout", File: `"/srv/agent/one"`, Given: `"/srv/agent/two"`},
+	}}) {
+		t.Fatalf("%+v %v", found, err)
+	}
+	if _, err = c.LxcAddDryRun(ctx, other, true); err != nil {
+		t.Fatal(err)
+	}
+	if change, updateErr := c.LxcUpdate(ctx, other); updateErr != nil || !change.Changed {
+		t.Fatalf("%+v %v", change, updateErr)
+	}
+	if listed, listErr := c.LxcMembers(ctx); listErr != nil || len(listed) != 1 || listed[0].Checkout != "/srv/agent/two" {
+		t.Fatalf("%+v %v", listed, listErr)
+	}
+	if found, err = c.LxcCompare(ctx, LxcEntry{Team: "alpha", Container: "container-z", User: "agent"}); err != nil || found.Entry != 0 {
+		t.Fatalf("a member the file does not declare: %+v %v", found, err)
+	}
+}
+
+func TestLxcCompareReadsTheEntryAndItsDifferences(t *testing.T) {
+	f := &execx.Fake{}
+	script(f, "lxc-compare", "DECLARED\t5\nDIFFERS\trole\t\"worker\"\t\"coordinator\"\nDIFFERS\tseat\t\"2\"\t-\n")
+	e := LxcEntry{Team: "alpha", Container: "container-a", User: "agent", Checkout: "/srv/a", Role: "coordinator"}
+	got, err := newClient(f).LxcCompare(context.Background(), e)
+	want := Declared{Entry: 5, Differs: []Difference{
+		{Key: "role", File: `"worker"`, Given: `"coordinator"`}, {Key: "seat", File: `"2"`, Given: "-"},
+	}}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if ran := lastLine(t, f); ran != prefix+" lxc-compare --file /hv.yml --team alpha --container container-a --user agent"+
+		" --checkout /srv/a --role coordinator" {
+		t.Fatalf("ran %q", ran)
+	}
+	for _, bad := range []string{"DECLARED\tx\n", "DECLARED\t1\nDECLARED\t2\n", "DIFFERS\trole\t1\t2\n", "DECLARED\t1\nDIFFERS\trole\n"} {
+		g := &execx.Fake{}
+		script(g, "lxc-compare", bad)
+		if _, err = newClient(g).LxcCompare(context.Background(), e); err == nil {
+			t.Fatalf("an unreadable answer was accepted: %q", bad)
+		}
+	}
+}
+
+func TestLxcUpdateAndItsDryRunPassUpdate(t *testing.T) {
+	f := &execx.Fake{}
+	script(f, "lxc-add", "CHANGED\tLXC member agent@container-a in team alpha updated, in /hv.yml\n")
+	c := newClient(f)
+	if change, err := c.LxcUpdate(context.Background(), LxcEntry{Team: "alpha"}); err != nil || !change.Changed {
+		t.Fatalf("%+v %v", change, err)
+	}
+	if ran := lastLine(t, f); ran != prefix+" lxc-add --file /hv.yml --team alpha --update" {
+		t.Fatalf("ran %q", ran)
+	}
+	if _, err := c.LxcAddDryRun(context.Background(), LxcEntry{Team: "alpha"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if ran := lastLine(t, f); ran != prefix+" lxc-add --file /hv.yml --team alpha --update --dry-run" {
+		t.Fatalf("ran %q", ran)
 	}
 }
 
@@ -233,8 +312,8 @@ func TestRealUserOfOneTeamCanBeCheckedAndAddedToASecond(t *testing.T) {
 		t.Fatalf("the user question was refused for a user the container already has in another team: %v", err)
 	}
 	second.Host = "other"
-	if err := c.LxcCheck(ctx, second); !errors.Is(err, ErrUsage) {
-		t.Fatalf("a second host for the same user was not refused: %v", err)
+	if err := c.LxcCheck(ctx, second); !errors.Is(err, ErrRefused) {
+		t.Fatalf("a second host for the same user was not refused as against the file: %v", err)
 	}
 	second.Host, second.Checkout = "worker", "/srv/agent/two"
 	if _, err := c.LxcAdd(ctx, second); err != nil {
@@ -289,7 +368,7 @@ func TestRealLxcCoordinatorRefusedTwice(t *testing.T) {
 		t.Fatal(err)
 	}
 	second := LxcEntry{Team: "alpha", Container: "container-c", User: "agent", Host: "worker", Role: "coordinator"}
-	if err := c.LxcCheck(ctx, second); !errors.Is(err, ErrUsage) {
+	if err := c.LxcCheck(ctx, second); !errors.Is(err, ErrRefused) {
 		t.Fatalf("a second coordinator: %v", err)
 	}
 }

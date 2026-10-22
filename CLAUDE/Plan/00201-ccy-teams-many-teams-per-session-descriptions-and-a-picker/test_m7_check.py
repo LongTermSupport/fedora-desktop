@@ -241,14 +241,16 @@ class SeatsTest(TempDir):
 
 
 class ListRowTest(TempDir):
+    HEADING = f"{'TEAM':<24}  {'MEMBER':<80}  {'KIND':<6}  {'STATE':<13}  APPLIED"
+
     def row(self, team: str, member: str, kind: str = "team") -> str:
-        return f"{team:<24}  {member:<36}  {kind:<6}  {'up':<13}  {'up to date':<18}  {'-':<26}  {'-':<7}  -"
+        return f"{team:<24}  {member:<80}  {kind:<6}  {'up':<13}  {'up to date':<18}  {'-':<26}  {'-':<7}  -"
 
     def test_the_description_is_whole_on_the_team_row(self) -> None:
         text = (
             "\n".join(
                 [
-                    "TEAM  MEMBER ...",
+                    self.HEADING,
                     "",
                     self.row(TEAM_A, DESC_A),
                     self.row(TEAM_B, DESC_B),
@@ -265,10 +267,39 @@ class ListRowTest(TempDir):
         cut = DESC_A[:35] + "…"
         path = self.write(
             "list",
-            self.row(TEAM_A, cut) + "\n" + self.row(TEAM_B, "(no description)") + "\n",
+            self.HEADING + "\n\n" + self.row(TEAM_A, cut) + "\n" + self.row(TEAM_B, "(no description)") + "\n",
         )
         self.assertEqual(run("expect-list-row", path, TEAM_A, DESC_A)[0], 1)
         self.assertEqual(run("expect-list-row", path, TEAM_B, DESC_B)[0], 1)
+
+    #: `ccy-teams --list` piped, as src-go/internal/teams/board's Layout(rows, 0) renders these
+    #: rows (recorded from the Go table code): each column as wide as its longest value, so
+    #: TEAM is 10 wide here, not 24.
+    MEASURED = [
+        "TEAM        MEMBER                                                                     KIND  STATE  APPLIED     SESSION  RESTORE  WHERE",
+        "",
+        "accept201a  Plan 00201 acceptance team A: a throwaway team, removed when the run ends  team  up     up to date  -        -        -",
+        "accept201b  Plan 00201 acceptance team B                                               team  up     up to date  -        -        -",
+        "accept201b  1                                                                          ccy   free   -           -        -        /home/u/proj",
+    ]
+
+    def test_the_go_tables_measured_columns_pass(self) -> None:
+        path = self.write("list", "\n".join(self.MEASURED) + "\n")
+        self.assertEqual(run("expect-list-row", path, TEAM_A, DESC_A)[0], 0)
+        self.assertEqual(run("expect-list-row", path, TEAM_B, DESC_B)[0], 0)
+
+    def test_a_row_off_the_headings_columns_fails(self) -> None:
+        """One space more or less before MEMBER or KIND is misaligned output, not a pass."""
+        shifted = list(self.MEASURED)
+        shifted[2] = shifted[2].replace("accept201a  Plan", "accept201a   Plan").replace("ends  team", "ends team")
+        shifted[3] = shifted[3].replace("B   ", "B    ", 1)
+        path = self.write("list", "\n".join(shifted) + "\n")
+        self.assertEqual(run("expect-list-row", path, TEAM_A, DESC_A)[0], 1)
+        self.assertEqual(run("expect-list-row", path, TEAM_B, DESC_B)[0], 1)
+
+    def test_no_heading_fails(self) -> None:
+        path = self.write("list", "\n".join(self.MEASURED[2:]) + "\n")
+        self.assertEqual(run("expect-list-row", path, TEAM_A, DESC_A)[0], 1)
 
 
 class BlockTest(TempDir):

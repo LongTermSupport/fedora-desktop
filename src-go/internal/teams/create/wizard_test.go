@@ -273,7 +273,7 @@ func newWzHarness(t *testing.T) *wzHarness {
 	f.On([]string{"gh", "api", "repos/other/tool"}, wzOK("true\n"))
 	f.On([]string{"gh", "api", "repos/example-org/readonly"}, wzOK("false\n"))
 	f.On([]string{"gh", "api", "repos/other/missing"}, execx.Result{ExitCode: 1, Stderr: []byte("gh: Not Found (HTTP 404)")})
-	f.On([]string{"gh", "api", "users/nope"}, execx.Result{ExitCode: 1})
+	f.On([]string{"gh", "api", "users/nope"}, execx.Result{ExitCode: 1, Stderr: []byte("gh: Not Found (HTTP 404)\n")})
 	f.On([]string{"git", "rev-parse", "--is-inside-work-tree"}, wzOK("true\n"))
 	f.On([]string{"git", "rev-parse", "--show-toplevel"}, wzOK(wzHome+"/proj\n"))
 	f.On([]string{"git", "remote", "get-url", "origin"}, wzOK("git@github.com:Example-Org/Proj.git\n"))
@@ -573,9 +573,10 @@ func TestWizardOutsideACheckoutOffersTheOwnerFirstAndNoDefaults(t *testing.T) {
 		t.Error("a session was offered outside a checkout")
 	}
 	// the owner is looked up, lower-cased, and the scope says so in words
-	if !h.run.called("gum spin --title Looking up example-org on GitHub… -- gh api users/example-org --silent") {
+	if !h.run.called("gh api users/example-org --silent") {
 		t.Errorf("no lookup: %v", h.run.lines())
 	}
+	wzContain(t, "stderr", h.err(), "  Looking up example-org on GitHub…")
 	wzContain(t, "summary", h.boxes(), "everything example-org owns: any repository, any branch")
 	wzContain(t, "create", strings.Join(h.run.matching("env "), "\n"), "--team example-org --human owner --org example-org")
 	wzLack(t, "create", strings.Join(h.run.matching("env "), "\n"), "--repo")
@@ -596,7 +597,6 @@ func TestWizardInACheckoutOffersTheOwnerOfThatCheckoutSecond(t *testing.T) {
 
 func TestAnOwnerGitHubDoesNotKnowIsRefusedWithAReason(t *testing.T) {
 	h := newWzHarness(t)
-	h.run.queue("gum spin", wzExit(1))
 	h.run.queue("gum choose", wzOK(scopeOwner+": example-org\n"))
 	h.run.queue("gum input", wzOK("nope\n"), wzOK("example-org\n"), wzOK("example-org\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1), wzExit(1))
@@ -613,7 +613,7 @@ func TestAnOwnerTheTeamFileRefusesIsNotLookedUp(t *testing.T) {
 	h.run.queue("gum input", wzOK("bad_owner\n"), wzOK("bad_owner\n"), wzOK("bad_owner\n"))
 	wzCode(t, h.invoke(), 1, h)
 	wzContain(t, "stderr", h.err(), "  --org: must be a lower-case GitHub owner. Try again.", "Giving up after 3 tries; nothing was changed.")
-	if h.run.called("gum spin") {
+	if h.run.called("gh api users/bad_owner") {
 		t.Error("looked a refused owner up")
 	}
 }
@@ -912,12 +912,12 @@ func TestAnOrgGivenAsAFlagIsCheckedInTheInteractiveRunToo(t *testing.T) {
 	h.run.queue("gum input", wzOK("beta\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1), wzExit(1))
 	wzCode(t, h.invoke("--org", "example-org"), 0, h)
-	if !h.run.called("gh auth status") || !h.run.called("gum spin --title Looking up example-org on GitHub… -- gh api users/example-org --silent") {
+	if !h.run.called("gh auth status") || !h.run.called("gh api users/example-org --silent") {
 		t.Errorf("not looked up: %v", h.run.lines())
 	}
+	wzContain(t, "stderr", h.err(), "  Looking up example-org on GitHub…")
 	wzContain(t, "steps", h.err(), "1/4  Team name", "4/4  Other machines")
 	h = newWzHarness(t)
-	h.run.queue("gum spin", wzExit(1))
 	wzCode(t, h.invoke("--org", "nope"), 1, h)
 	wzContain(t, "stderr", h.err(), "no user or organisation called 'nope'", "create stopped")
 }
@@ -1097,7 +1097,7 @@ func TestAFlagValueMayLookLikeAFlag(t *testing.T) {
 	// team named --yes, so the next steps, read from the file, cannot be read for it and the run
 	// ends there with the reader's refusal; the old fake answered them, which no file can.
 	h.createWrites = "  - team: proj\n    port: 6169\n"
-	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "--yes", "--human", "owner", "--org", "example-org"), 64, h)
+	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "--yes", "--human", "owner", "--org", "example-org"), 78, h)
 	wzContain(t, "create", strings.Join(h.run.matching("env "), "\n"), "--team --yes")
 	wzContain(t, "stderr", h.err(), "declare: --team: team --yes is not declared present, with a port, in agent_bus_teams")
 }
@@ -1420,6 +1420,128 @@ func TestYesNeedsADescription(t *testing.T) {
 	if h.run.called("env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare create") || len(h.applied) != 0 {
 		t.Error("something was written or installed")
 	}
+}
+
+// ── a refusal of the host_vars file is not a wrong answer (project_refusal_kind) ─────────
+
+// wzFileRefusal is declare.py refusing the host_vars file as it stands (exit 78).
+func wzFileRefusal() execx.Result {
+	return execx.Result{ExitCode: 78, Stderr: []byte("declare: agent_bus_teams is vault-encrypted\n")}
+}
+
+// wzStoppedOnTheFile asserts a run that stopped at once on a refusal of the file: exit 78, the
+// refusal and the file named, nothing asked again and nothing written.
+func wzStoppedOnTheFile(t *testing.T, h *wzHarness, code term.ExitCode, header string) {
+	t.Helper()
+	wzCode(t, code, 78, h)
+	wzContain(t, "stderr", h.err(), "agent_bus_teams is vault-encrypted",
+		"That is a refusal of ~/fd/localhost.yml, not of the answer, so it is not asked again",
+		"then run ccy-teams create again; nothing was changed.")
+	wzLack(t, "stderr", h.err(), "Try again", "Giving up")
+	if n := len(h.run.matching("gum input --header " + header)); n > 1 {
+		t.Errorf("%q asked %d times", header, n)
+	}
+	if h.run.called("env PYTHONPATH=/root /usr/bin/python3 -P -m helpers.agent_bus.declare create") {
+		t.Error("something was written")
+	}
+}
+
+func TestAFileRefusalOfTheTeamNameStopsAtOnceNamingTheFile(t *testing.T) {
+	h := newWzHarness(t)
+	h.fake.On(wzDP("check", "--team", "proj"), wzFileRefusal())
+	h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("proj\n"), wzOK("proj\n"))
+	wzStoppedOnTheFile(t, h, h.invoke(), "Team name")
+}
+
+func TestAFileRefusalOfARepositoryIsNotCalledAMalformedName(t *testing.T) {
+	h := newWzHarness(t)
+	h.fake.On(wzDP("check", "--repo", "example-org/proj"), wzFileRefusal())
+	h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("example-org/proj\n"), wzOK("example-org/proj\n"))
+	wzStoppedOnTheFile(t, h, h.invoke(), "Repositories")
+	wzLack(t, "stderr", h.err(), "not OWNER/REPO")
+	if h.run.called("gh api repos/example-org/proj") {
+		t.Error("looked up a repository the file check refused")
+	}
+}
+
+func TestAFileRefusalOfTheLoginEndsTheRunBeforeThePeopleQuestion(t *testing.T) {
+	h := newWzHarness(t)
+	h.fake.On(wzDP("check", "--human", "owner"), wzFileRefusal())
+	h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("Builds the example site\n"))
+	code := h.invoke()
+	wzCode(t, code, 78, h)
+	wzContain(t, "stderr", h.err(), "agent_bus_teams is vault-encrypted")
+	wzLack(t, "stderr", h.err(), "cannot be an account name")
+	if h.run.called("gum input --header People") {
+		t.Error("asked for people after the file was refused")
+	}
+}
+
+func TestACheckThatCrashesEndsTheRunAsAFailureNotARefusalOfTheFile(t *testing.T) {
+	h := newWzHarness(t)
+	h.fake.On(wzDP("check", "--team", "proj"), execx.Result{ExitCode: 1, Stderr: []byte("Traceback (most recent call last):\n")})
+	h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("proj\n"))
+	wzCode(t, h.invoke(), 1, h)
+	wzContain(t, "stderr", h.err(), "declare.py failed (exit 1)", "Traceback")
+	wzLack(t, "stderr", h.err(), "refusal of", "Try again")
+	if n := len(h.run.matching("gum input --header Team name")); n != 1 {
+		t.Errorf("team name asked %d times", n)
+	}
+}
+
+func TestAnInterruptedCheckCancelsTheRun(t *testing.T) {
+	h := newWzHarness(t)
+	h.fake.On(wzDP("check", "--team", "proj"), execx.Result{ExitCode: 130})
+	h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("proj\n"))
+	wzCode(t, h.invoke(), 130, h)
+	wzContain(t, "stderr", h.err(), "Cancelled; nothing was changed.")
+	if n := len(h.run.matching("gum input --header Team name")); n != 1 {
+		t.Errorf("team name asked %d times", n)
+	}
+}
+
+// ── a gh that fails is not a name GitHub does not know ───────────────────────────────────
+
+func TestAnOwnerLookupThatFailsOtherwiseThanNotFoundEndsTheRunWithGhsWords(t *testing.T) {
+	for _, stderr := range []string{
+		"error connecting to api.github.com",
+		"gh: Bad credentials (HTTP 401)",
+		"gh: API rate limit exceeded (HTTP 403)",
+		"gh: Server Error (HTTP 502)",
+	} {
+		h := newWzHarness(t)
+		h.fake.On([]string{"gh", "api", "users/example-org"}, execx.Result{ExitCode: 1, Stderr: []byte(stderr + "\n")})
+		h.run.queue("gum choose", wzOK(scopeOwner+": example-org\n"))
+		h.run.queue("gum input", wzOK("example-org\n"), wzOK("example-org\n"))
+		wzCode(t, h.invoke(), 1, h)
+		wzContain(t, "stderr", h.err(), "ERROR:", "users/example-org", stderr)
+		wzLack(t, "stderr", h.err(), "no user or organisation", "Try again")
+		if n := len(h.run.matching("gum input --header GitHub owner")); n != 1 {
+			t.Errorf("%s: owner asked %d times", stderr, n)
+		}
+	}
+}
+
+func TestARepositoryLookupThatFailsOtherwiseThanNotFoundEndsTheRunWithGhsWords(t *testing.T) {
+	h := newWzHarness(t)
+	h.tty = false
+	h.fake.On([]string{"gh", "api", "repos/other/tool"}, execx.Result{ExitCode: 1, Stderr: []byte("error connecting to api.github.com\n")})
+	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--repo", "other/tool"), 1, h)
+	wzContain(t, "stderr", h.err(), "ERROR:", "repos/other/tool", "error connecting to api.github.com")
+	wzLack(t, "stderr", h.err(), "not found, or your gh login cannot see it", "create stopped: fix the repositories")
+}
+
+func TestAnOwnerGitHubAnswers404ForIsTheOnlyNotFound(t *testing.T) {
+	h := newWzHarness(t)
+	h.tty = false
+	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--org", "nope"), 1, h)
+	wzContain(t, "stderr", h.err(), "GitHub has no user or organisation called 'nope' that your gh login can see.")
+	wzLack(t, "stderr", h.err(), "ERROR: gh")
 }
 
 func TestYesPassesTheDescriptionToTheEntry(t *testing.T) {
