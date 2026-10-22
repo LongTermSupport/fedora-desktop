@@ -263,6 +263,11 @@ linters:
       - path: internal/teamchat/state/state\.go
         linters: [gosec]
         text: "G304"
+      # The team lock is opened by the path its caller names (paths.TeamLock of a parsed team
+      # id), never following a link; its tests read back the holder line it wrote.
+      - path: internal/teamchat/teamlock/teamlock(_test)?\.go
+        linters: [gosec]
+        text: "G304"
       # The host_vars file is the one the owner's checkout names; ccy-teams reads it to show and
       # edit the owner's own declarations.
       - path: internal/teamchat/declare/hostvars/hostvars\.go
@@ -274,6 +279,12 @@ linters:
       - path: internal/teamchat/seat/.*_test\.go
         linters: [gosec]
         text: "G301|G302|G304|G306"
+      # The Element profiles refuse a consent others can read and put back a profile directory
+      # others can enter (SPEC-n2e.md EL3, EL4); their tests build those states, and read back
+      # what was written under a temporary home.
+      - path: internal/teamchat/element/.*_test\.go
+        linters: [gosec]
+        text: "G302|G304"
   settings:
     tagliatelle:
       case:
@@ -290,6 +301,14 @@ linters:
           # C 3.7.2's records (seat.json, held.json, released.json) are snake_case files, as the
           # Matrix keys inside them are.
           - pkg: internal/teamchat/seat
+            rules:
+              json: snake
+          # C 3.11.3's status record and 3.11.2's lxc-online.json are snake_case host files, as
+          # every teamchat record is.
+          - pkg: internal/teamchat/status
+            rules:
+              json: snake
+          - pkg: internal/teamchat/health
             rules:
               json: snake
     cyclop:

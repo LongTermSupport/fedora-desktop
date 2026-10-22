@@ -3,6 +3,7 @@ package seat
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"testing"
@@ -107,6 +108,122 @@ func TestReleaseRetriesATransientNotice(t *testing.T) {
 	rec, err := decodeNoticeRecord([]byte(readFile(t, w.releasedPool(taken)+"/notice.json")))
 	if err != nil || rec.Posted || rec.Why != "token refused" {
 		t.Errorf("notice.json %+v, %v", rec, err)
+	}
+}
+
+// NT3 (n2e-D7): a transient notice failure is recorded with its class and until_ms ten minutes
+// on; a retry before it asks again and keeps it, whatever run the member's lock names by then;
+// one at or after it records the notice not posted in time and the release retires the token.
+func TestATransientNoticeHoldsAReleaseTenMinutesAtMost(t *testing.T) {
+	w := newWorld(t)
+	w.seed()
+	taken := w.take("s1")
+	w.keep("s1", lockRecord)()
+	w.notices.answer(Outcome{}, fmt.Errorf("posting: %w", context.DeadlineExceeded))
+	until := w.clock.Now().Add(noticeBound).UnixMilli()
+	if err := w.release("s1", false); err == nil {
+		t.Fatal("a transient notice failure completed the release")
+	}
+	if rec := w.heldNotice(); rec.Posted || rec.Why != "timed out"+whyRetried || rec.UntilMS != until {
+		t.Fatalf("notice.json after the first failure: %+v", rec)
+	}
+	// The quarantined seat directory is still the container's, through its mount.
+	lock := w.releasedSession(taken) + "/seat.lock"
+	w.sleep(noticeBound / 2)
+	writeFile(t, lock, `{"v":1,"run":"fedcba9876543210","started_ms":2}`)
+	w.retryHeld(until, "fedcba9876543210", 2)
+	w.sleep(noticeBound/2 - time.Millisecond)
+	writeFile(t, lock, lockRecord)
+	w.retryHeld(until, testRun, 3)
+	w.sleep(time.Millisecond)
+	if err := w.release("s1", false); err != nil {
+		t.Fatalf("the release at until_ms: %v", err)
+	}
+	if len(w.notices.calls()) != 3 || exists(t, w.pool().HeldToken()) {
+		t.Errorf("at until_ms: %d calls, token kept %v", len(w.notices.calls()), exists(t, w.pool().HeldToken()))
+	}
+	rec, err := decodeNoticeRecord([]byte(readFile(t, w.releasedPool(taken)+"/notice.json")))
+	if err != nil || rec.Posted || rec.Why != whyNotInTime || rec.UntilMS != until {
+		t.Errorf("notice.json %+v, %v", rec, err)
+	}
+}
+
+// NT3: once a release has given the notice up, a retry (its retire failed) gives it up again
+// whatever run the member's lock names by then, so a new run id cannot start the bound again.
+func TestAGivenUpNoticeStaysGivenUpOnTheRelease(t *testing.T) {
+	w := newWorld(t)
+	w.seed()
+	taken := w.take("s1")
+	w.keep("s1", lockRecord)()
+	w.notices.answer(Outcome{}, fmt.Errorf("posting: %w", context.DeadlineExceeded))
+	until := w.clock.Now().Add(noticeBound).UnixMilli()
+	if err := w.release("s1", false); err == nil {
+		t.Fatal("a transient notice failure completed the release")
+	}
+	w.sleep(noticeBound)
+	token := readFile(t, w.pool().HeldToken())
+	if err := os.WriteFile(w.pool().HeldToken(), []byte("two words"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.release("s1", false); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a held token that is not a credential: %v", err)
+	}
+	if rec := w.heldNotice(); rec.Why != whyNotInTime || rec.UntilMS != until {
+		t.Fatalf("the given-up notice: %+v", rec)
+	}
+	if err := os.WriteFile(w.pool().HeldToken(), []byte(token), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, w.releasedSession(taken)+"/seat.lock", `{"v":1,"run":"fedcba9876543210","started_ms":2}`)
+	if err := w.release("s1", false); err != nil {
+		t.Fatalf("the retry after the give-up: %v", err)
+	}
+	if len(w.notices.calls()) != 1 || w.alive(token) {
+		t.Errorf("%d notices asked, token alive %v", len(w.notices.calls()), w.alive(token))
+	}
+}
+
+// retryHeld is a retried release of s1 still held by the transient bound: it asks again (calls
+// in all), records run, and keeps until.
+func (w *world) retryHeld(until int64, run string, calls int) {
+	w.t.Helper()
+	if err := w.release("s1", false); err == nil {
+		w.t.Fatal("a retry before until_ms completed the release")
+	}
+	if rec := w.heldNotice(); rec.UntilMS != until || rec.Run.String() != run || len(w.notices.calls()) != calls {
+		w.t.Fatalf("a retry moved until_ms or did not ask: %+v, %d calls", rec, len(w.notices.calls()))
+	}
+}
+
+func (w *world) heldNotice() NoticeRecord {
+	w.t.Helper()
+	rec, err := decodeNoticeRecord([]byte(readFile(w.t, w.pool().HeldNotice())))
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	return rec
+}
+
+func (w *world) sleep(d time.Duration) {
+	w.t.Helper()
+	if err := w.clock.Sleep(w.t.Context(), d); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+// NT3: until_ms is a not-posted record's only, and never negative.
+func TestNoticeRecordUntil(t *testing.T) {
+	for _, bad := range []string{
+		`{"v":1,"claim":"0123456789abcdef","run":"0123456789abcdef","posted":true,"until_ms":5}`,
+		`{"v":1,"claim":"0123456789abcdef","run":"0123456789abcdef","posted":false,"why":"x","until_ms":-1}`,
+	} {
+		if _, err := decodeNoticeRecord([]byte(bad)); err == nil {
+			t.Errorf("decoded %s", bad)
+		}
+	}
+	good := `{"v":1,"claim":"0123456789abcdef","run":"0123456789abcdef","posted":false,"why":"x","until_ms":5}`
+	if rec, err := decodeNoticeRecord([]byte(good)); err != nil || rec.UntilMS != 5 {
+		t.Errorf("%+v, %v", rec, err)
 	}
 }
 
@@ -575,6 +692,34 @@ func TestTakeReleasesASeatWhoseSessionIsOver(t *testing.T) {
 	}
 	if len(w.notices.calls()) != 1 || !exists(t, w.releasedPool(first)+"/notice.json") {
 		t.Errorf("the ended session's notice: %v", w.notices.calls())
+	}
+}
+
+// NT3, SD3: the crashed-session path's give-up is the run's, so a later run that crashes is
+// asked its own notice.
+func TestAnnouncesGiveUpIsTheRuns(t *testing.T) {
+	w := newWorld(t)
+	w.seed()
+	w.take("s1")
+	w.keep("s1", lockRecord)()
+	w.notices.answer(Outcome{}, fmt.Errorf("posting: %w", context.DeadlineExceeded))
+	if err := w.store.Announce(t.Context(), w.seat, mustSession(t, "s1")); err == nil {
+		t.Fatal("a transient notice failure was not an error")
+	}
+	w.sleep(noticeBound)
+	if err := w.store.Announce(t.Context(), w.seat, mustSession(t, "s1")); err != nil {
+		t.Fatal(err)
+	}
+	if rec := w.heldNotice(); rec.Why != whyNotInTime || rec.UntilMS != 0 || len(w.notices.calls()) != 1 {
+		t.Fatalf("the given-up notice %+v, %d asked", rec, len(w.notices.calls()))
+	}
+	w.notices.answer(Outcome{Posted: true}, nil)
+	w.keep("s1", `{"v":1,"run":"fedcba9876543210","started_ms":2}`)()
+	if err := w.store.Announce(t.Context(), w.seat, mustSession(t, "s1")); err != nil {
+		t.Fatal(err)
+	}
+	if calls := w.notices.calls(); len(calls) != 2 || calls[1].Run.String() != "fedcba9876543210" {
+		t.Errorf("the later run's crash: %+v", calls)
 	}
 }
 

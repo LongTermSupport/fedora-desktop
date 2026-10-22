@@ -9,6 +9,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
@@ -151,7 +152,7 @@ func (s *Store) noticeStep(ctx context.Context, h *dir, pool paths.PoolSeat, rec
 			return err
 		}
 	}
-	return s.announce(ctx, h, pool, rec, lock)
+	return s.announce(ctx, h, pool, rec, lock, true)
 }
 
 // heldRecord is held/, opened by fd (the caller closes it), and its held.json; h is nil when
@@ -252,30 +253,65 @@ func (s *Store) announceHeld(ctx context.Context, seat Seat, session paths.Sessi
 	if err != nil || lock.state != lockFree {
 		return err
 	}
-	return s.announce(ctx, h, pool, rec, lock)
+	return s.announce(ctx, h, pool, rec, lock, false)
 }
 
-// announce is step 3 (SD1, SD2): a free lock that names a run with no launch failure, not
-// already recorded for this claim, is asked of the announcer and its outcome recorded in the
-// holding h, which is this claim's whatever has happened to held/ since.
-func (s *Store) announce(ctx context.Context, h *dir, pool paths.PoolSeat, rec HeldRecord, lock lockProbe) error {
+// noticeBound is how long a transient notice failure holds a release (n2e-D7): a member that
+// makes its own notice fail, by spending its rate limit, delays its token's retirement this long
+// at most.
+const noticeBound = 10 * time.Minute
+
+// The why of a notice not posted because of transient failures: still retried after the
+// failure's class, and given up.
+const (
+	whyRetried   = "; asked again until until_ms"
+	whyNotInTime = "not posted in time"
+)
+
+// announce is step 3 (SD1, SD2, NT3): a free lock that names a run with no launch failure, not
+// already settled for this claim, is asked of the announcer and its outcome recorded in the
+// holding h, which is this claim's whatever has happened to held/ since. A transient failure is
+// recorded with until_ms and stops for the retry; at until_ms the notice is given up and the
+// caller goes on. The bound is the claim's, whatever run the member's lock names by then, so a
+// member that rewrites its run id cannot start the bound again. A release's give-up keeps
+// until_ms, so a release retried after it (its retire failed) gives the notice up again whatever
+// the run; the crashed-session path's give-up does not, as a later run's crash is due its own.
+func (s *Store) announce(ctx context.Context, h *dir, pool paths.PoolSeat, rec HeldRecord, lock lockProbe, releasing bool) error {
 	run, ok := runOf(lock)
 	if !ok {
 		return nil
 	}
 	data, err := h.read(pool.HeldNotice(), maxRecord)
+	until := s.clock.Now().Add(noticeBound).UnixMilli()
 	if err == nil {
-		if prev, decErr := decodeNoticeRecord(data); decErr == nil && prev.Claim == rec.Claim && prev.Run == run {
+		prev, decErr := decodeNoticeRecord(data)
+		thisClaim := decErr == nil && prev.Claim == rec.Claim
+		switch {
+		case thisClaim && prev.UntilMS == 0 && prev.Run == run:
 			return nil
+		case thisClaim && prev.UntilMS != 0 && s.clock.Now().UnixMilli() >= prev.UntilMS:
+			gaveUp := NoticeRecord{V: recordVersion, Claim: rec.Claim, Run: run, Why: whyNotInTime}
+			if releasing {
+				gaveUp.UntilMS = prev.UntilMS
+			}
+			return s.recordNotice(h, pool, gaveUp)
+		case thisClaim && prev.UntilMS != 0:
+			until = prev.UntilMS
 		}
 	} else if !errors.Is(err, unix.ENOENT) {
 		return err
 	}
 	out, err := s.announcer.Disconnected(ctx, Notice{Bundle: pool.Held(), SinceMS: rec.SinceMS, Run: run})
 	if err != nil {
-		return fmt.Errorf("seat: the disconnected notice for %s: %w", pool.Dir(), err)
+		pending := NoticeRecord{V: recordVersion, Claim: rec.Claim, Run: run, Why: matrix.Class(err) + whyRetried, UntilMS: until}
+		return errors.Join(fmt.Errorf("seat: the disconnected notice for %s: %w", pool.Dir(), err), s.recordNotice(h, pool, pending))
 	}
-	data, err = encodeRecord(NoticeRecord{V: recordVersion, Claim: rec.Claim, Run: run, Posted: out.Posted, Why: out.Why})
+	return s.recordNotice(h, pool, NoticeRecord{V: recordVersion, Claim: rec.Claim, Run: run, Posted: out.Posted, Why: out.Why})
+}
+
+// recordNotice writes held/notice.json through h, refusing a record that does not decode.
+func (s *Store) recordNotice(h *dir, pool paths.PoolSeat, r NoticeRecord) error {
+	data, err := encodeRecord(r)
 	if err != nil {
 		return err
 	}
@@ -293,17 +329,35 @@ type seatLockRecord struct {
 	LaunchFailedMS *int64      `json:"launch_failed_ms,omitempty"`
 }
 
+// LockRecord is a seat lock record decoded: the run, when it started, and whether the keeper
+// recorded a launch failure (INT7).
+type LockRecord struct {
+	Run          paths.RunID
+	StartedMS    int64
+	LaunchFailed bool
+}
+
+// DecodeLockRecord reads B 2.5's seat lock record strictly, the run id by its grammar; the
+// health tick reads an LXC seat's by the same rule.
+func DecodeLockRecord(data []byte) (LockRecord, error) {
+	var rec seatLockRecord
+	if err := decodeStrict(data, []string{"v", "run", "started_ms"}, &rec); err != nil {
+		return LockRecord{}, err
+	}
+	if rec.V != recordVersion {
+		return LockRecord{}, invalid("seat lock record: v is not 1")
+	}
+	return LockRecord{Run: rec.Run, StartedMS: rec.StartedMS, LaunchFailed: rec.LaunchFailedMS != nil}, nil
+}
+
 // runOf is the ended run a free seat lock names (SD1): none when the lock is missing or its
 // record is empty, undecodable, of a run id that fails its grammar, or of a failed launch.
 func runOf(lock lockProbe) (paths.RunID, bool) {
 	if lock.state != lockFree || len(lock.record) == 0 {
 		return paths.RunID{}, false
 	}
-	var rec seatLockRecord
-	if err := decodeStrict(lock.record, []string{"v", "run", "started_ms"}, &rec); err != nil {
-		return paths.RunID{}, false
-	}
-	if rec.V != recordVersion || rec.LaunchFailedMS != nil {
+	rec, err := DecodeLockRecord(lock.record)
+	if err != nil || rec.LaunchFailed {
 		return paths.RunID{}, false
 	}
 	return rec.Run, true

@@ -142,11 +142,14 @@ func ParseSeatName(s string) (SeatName, error) {
 	if err != nil {
 		return SeatName{}, err
 	}
-	if len(s) > maxSeatName || strings.Contains(s, claimSuffix) {
+	if len(s) > maxSeatName || IsClaimName(s) {
 		return SeatName{}, fmt.Errorf("%w seat name: longer than %d bytes or holds %s", ErrInvalid, maxSeatName, claimSuffix)
 	}
 	return SeatName{v}, nil
 }
+
+// IsClaimName says whether a directory entry is a claim's name, which no seat name is.
+func IsClaimName(name string) bool { return strings.Contains(name, claimSuffix) }
 
 // ParseGuestUser checks a guest user name (the portable user-name grammar).
 func ParseGuestUser(s string) (GuestUser, error) {

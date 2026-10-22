@@ -355,9 +355,6 @@ func teamDerived(t *testing.T, team TeamID) map[string][]string {
 	return names
 }
 
-// notName is whether an exported identifier is not a v2 name: a parser, an id's, a kit's or a
-// port's own text or number and its encoding, or the error the parsers wrap. (A kit's text is
-// sampled as HostKitDir, HostKitCurrent and CCYKitDir.)
 // poolDerived is every seat store name of a team: the pool seat's, its claim's, the session's
 // and the quarantines', the guest placement's claim and the guest token copy.
 func poolDerived(t *testing.T, team TeamID) map[string]string {
@@ -394,9 +391,12 @@ func poolDerived(t *testing.T, team TeamID) map[string]string {
 	}
 }
 
+// notName is whether an exported identifier is not a v2 name: a parser or a predicate over a
+// name, an id's, a kit's or a port's own text or number and its encoding, or the error the
+// parsers wrap. (A kit's text is sampled as HostKitDir, HostKitCurrent and CCYKitDir.)
 func notName(ident string) bool {
 	_, method, ok := strings.Cut(ident, ".")
-	return strings.HasPrefix(ident, "Parse") || ident == "ErrInvalid" ||
+	return strings.HasPrefix(ident, "Parse") || ident == "IsClaimName" || ident == "ErrInvalid" ||
 		ok && slices.Contains([]string{"String", "MarshalText", "UnmarshalText", "Int", "MarshalJSON", "UnmarshalJSON"}, method)
 }
 

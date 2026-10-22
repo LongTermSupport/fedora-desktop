@@ -202,13 +202,16 @@ type ReleasedRecord struct {
 }
 
 // NoticeRecord is held/notice.json, the disconnected notice judged for one run (C 3.7.3
-// release step 3): posted (or a goodbye found), or not possible for good, and why.
+// release step 3): posted (or a goodbye found), or not possible for good, and why. A not-posted
+// record with UntilMS is a transient failure still being retried until then, or, past it, one a
+// release gave up (n2e-D7).
 type NoticeRecord struct {
-	V      int           `json:"v"`
-	Claim  paths.ClaimID `json:"claim"`
-	Run    paths.RunID   `json:"run"`
-	Posted bool          `json:"posted"`
-	Why    string        `json:"why,omitempty"`
+	V       int           `json:"v"`
+	Claim   paths.ClaimID `json:"claim"`
+	Run     paths.RunID   `json:"run"`
+	Posted  bool          `json:"posted"`
+	Why     string        `json:"why,omitempty"`
+	UntilMS int64         `json:"until_ms,omitempty"`
 }
 
 func encodeRecord(v any) ([]byte, error) { return json.Marshal(v) }
@@ -242,6 +245,9 @@ func decodeNoticeRecord(data []byte) (NoticeRecord, error) {
 	}
 	if r.V != recordVersion || r.Posted == (r.Why != "") || !oneLine(r.Why) {
 		return NoticeRecord{}, invalid("notice.json: v is not 1, or why is not one line given only when not posted")
+	}
+	if r.UntilMS < 0 || r.Posted && r.UntilMS != 0 {
+		return NoticeRecord{}, invalid("notice.json: until_ms is negative, or on a posted notice")
 	}
 	return r, nil
 }

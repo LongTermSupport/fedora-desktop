@@ -257,6 +257,23 @@ func (e *Error) Error() string {
 // Is matches the failure class.
 func (e *Error) Is(target error) bool { return target == e.kind }
 
+// Class is err's failure class as fixed text, never err's own text, so a record can carry it:
+// a cancelled or timed-out context, a failed call's class, or "not a homeserver answer".
+func Class(err error) string {
+	switch e, ok := errors.AsType[*Error](err); {
+	case errors.Is(err, context.Canceled):
+		return "cancelled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timed out"
+	case ok:
+		if k, isKind := errors.AsType[*kindError](e.kind); isKind {
+			return k.text
+		}
+		return ErrRefused.text
+	}
+	return "not a homeserver answer"
+}
+
 // Unwrap is the caller's context error when the call was cancelled, else nil.
 func (e *Error) Unwrap() error { return e.cause }
 

@@ -243,8 +243,8 @@ its first caller.
   `role apply`, `team approve|apply|remove`), with crash and roll-forward tests on fakehs. Not
   covered: the `-tags tuwunel` round trip of the verbs (CV6's last line); the production
   `Child`, `Opener`, `Bundles` and `OwnerGroup` (`cmd/teamchat-admin` wires no `Sys`); the
-  play's install tasks and C 3.5.2 step 1's Fedora check (gate A); `seatDevice` still duplicates
-  n2c's `paths.SeatDevice` until the merge.
+  play's install tasks and C 3.5.2 step 1's Fedora check (gate A).
+
 - [ ] 🔄 **Task 2.4**: Seats and bundles in the seat store (C 3.7), the declarations (C 3.8),
   Element profiles (C 3.10), health and the status records (C 3.11), backups and restore (C 3.12).
   Slice n2b (`SPEC-n2b.md` DR1-DR8, HV1-HV3 and GD1-GD3) covers the declarations of C 3.8: the
@@ -273,6 +273,15 @@ its first caller.
   - C 3.10, 3.11 and 3.12 (n2b covers C 3.8).
 
   One low finding of the last review round is open, with its fix, in the report.
+  Slice n2e (`feat/bus-v2-n2e`, `SPEC-n2e.md`, report `subagent-reports/261022-n2e.md`) covers, as
+  inert code: the status records and the team lock (TL1); the health tick of C 3.11 with the
+  view (`health`, `health/view`), the disconnected notice (`notice`), and NT3's bound and
+  `Holdings` in `seat`; the owner's seat sweep (`sweep`, DC21, INT7); and Element profiles of
+  C 3.10 (`element`). Not covered: the D-Bus, probe, child and announcer adapters (DC17); the
+  units and timers; backups and restore (C 3.12). The team lock is built twice: n2d's
+  `host/lock.go` is the design that survives, moved into `teamlock` at merge by the steps in
+  the report.
+
 - [ ] ⬜ **Task 2.5**: Acceptance: C 3.14's tests; the M44 real-Tuwunel test, and Tuwunel's answers
   for a locked and a deactivated account recorded into `fakehs` (host or VM lab); VM-lab scenario
   `teamchat-coexist` (P1) to its N2 stage, a host-only team cycle (D 4.3); the install on the host with the footprint before and after (P2); host
