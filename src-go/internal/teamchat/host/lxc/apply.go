@@ -1081,7 +1081,8 @@ func (r *run) failAll(ms []*member, step string, err error) {
 }
 
 // unit is step 09 for one seat (SU1, SU2): its unit written with its wants link, then Reload and
-// Start (new or last found down) or Restart (changed); unchanged is left alone; `service: false`
+// Start (new, or the seat not recorded joined) or Restart (changed); a joined seat's unchanged
+// unit is left alone; `service: false`
 // stops and removes it. systemd refusing, or gone, is the unit down: offline, never a failure.
 func (r *run) unit(ctx context.Context, g *guestBox, m *member) {
 	if g.gone || m.done || !m.settled {
@@ -1135,7 +1136,8 @@ func (r *run) placeUnit(ctx context.Context, g *guestBox, m *member) error {
 		return err
 	}
 	linked, err := w.Symlink(path.Dir(link), path.Base(link), file)
-	retry := m.prior.Why == whyUnitDown
+	// Only a joined seat's unit is known started; any other's start is made again.
+	retry := m.prior.Status != lxcstate.StatusJoined
 	if err != nil || !wrote && !linked && !retry {
 		return err
 	}

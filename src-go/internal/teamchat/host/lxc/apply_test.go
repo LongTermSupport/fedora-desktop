@@ -615,6 +615,37 @@ func TestUnitRefusedIsOffline(t *testing.T) {
 	}
 }
 
+// A unit start that failed is started again by the next apply, though its file and link are
+// unchanged, and only then is the seat recorded joined; a joined seat's unit is left alone.
+func TestUnitStartFailedIsRetried(t *testing.T) {
+	w := newWorld(t)
+	w.addBox("c1")
+	w.declare([]string{"t1"}, w.member("t1", "c1"))
+	w.bus.err = context.DeadlineExceeded
+	if _, err := w.apply(PhasePresent); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err %v", err)
+	}
+	if e := w.entry("c1"); e.Status == lxcstate.StatusJoined {
+		t.Fatalf("a seat whose unit did not start was recorded %+v", e)
+	}
+	w.bus.err, w.bus.calls = nil, nil
+	r, err := w.apply(PhasePresent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(w.bus.calls, []string{"Reload", "Start " + unitOf(t, "t1")}) {
+		t.Fatalf("systemd %v", w.bus.calls)
+	}
+	hasLine(t, r, lineOf(t, "CHANGED", "c1", "unit started"))
+	if e := w.entry("c1"); e.Status != lxcstate.StatusJoined {
+		t.Fatalf("entry %+v", e)
+	}
+	w.bus.calls = nil
+	if _, err := w.apply(PhasePresent); err != nil || len(w.bus.calls) != 0 {
+		t.Fatalf("a joined seat's unit was started again: %v %v", w.bus.calls, err)
+	}
+}
+
 func TestBusyTeamLockIs75(t *testing.T) {
 	w := newWorld(t)
 	w.addBox("c1")

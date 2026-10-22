@@ -44,10 +44,11 @@ func (r *run) only(state declare.State) {
 // running is parked from the host and never waited for.
 func (r *run) absent(ctx context.Context) {
 	r.only(declare.StateAbsent)
+	// An absent entry the record does not hold has already gone: it takes no step and prints
+	// nothing, so the phase converges.
+	r.members = slices.DeleteFunc(r.members, func(m *member) bool { return !m.recorded })
 	for _, m := range r.members {
-		if m.recorded {
-			m.decl.User = m.prior.User
-		}
+		m.decl.User = m.prior.User
 	}
 	r.undeclared()
 	for _, t := range r.teams {

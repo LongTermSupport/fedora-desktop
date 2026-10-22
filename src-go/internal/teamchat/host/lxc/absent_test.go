@@ -206,6 +206,28 @@ func TestAbsentHeldByOp75IsDeferred(t *testing.T) {
 	hasLine(t, r, lineOf(t, "DEFERRED", "c1", "seat still held; token revoked"))
 }
 
+// An absent entry the record does not hold has nothing to leave: no line, the steady state
+// once a seat has gone, so the phase converges.
+func TestAbsentUnrecordedEntryIsSilent(t *testing.T) {
+	w := newWorld(t)
+	w.addBox("c1")
+	m := w.member("t1", "c1")
+	m.State = declare.StateAbsent
+	w.declare([]string{"t1"}, m)
+	for range 2 {
+		r, err := w.apply(PhaseAbsent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(r.Lines) != 0 || r.Summary != "0 changed, 0 skipped, 0 deferred" {
+			t.Fatalf("lines %v, summary %q", lines(r), r.Summary)
+		}
+	}
+	if len(w.roster.parks) != 0 || len(w.lxc.calls) != 0 {
+		t.Fatalf("parked %v or attached %v", w.roster.parks, w.lxc.verbs())
+	}
+}
+
 func TestAbsentStopsOnlyItsOwnSeatsUnit(t *testing.T) {
 	w := newWorld(t)
 	b := w.addBox("c1")
