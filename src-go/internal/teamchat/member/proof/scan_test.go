@@ -67,7 +67,7 @@ func TestNeedle(t *testing.T) {
 }
 
 func TestScanFindsANeedleInsideAJSONString(t *testing.T) {
-	envelope := `\"quoted\"\né teamchat delivery ` + nonceA + `: 2 items\\n\tend`
+	envelope := `\"quoted\"\n\` + `u00e9 teamchat delivery ` + nonceA + `: 2 items\\n\tend`
 	path := transcript(t, `{"type":"assistant"}`+"\n"+idleLine(envelope))
 	got := scan(t, path, Mark{}, []string{nonceA, nonceB}, big)
 	if !slices.Equal(got.Found, []string{nonceA}) || got.Reset {
