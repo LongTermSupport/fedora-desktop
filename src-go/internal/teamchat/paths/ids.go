@@ -52,6 +52,15 @@ type DisplayName struct{ s string }
 // ServerVersion is the pinned homeserver's version, part of its binary's name.
 type ServerVersion struct{ s string }
 
+// ClaimID names one take of a pool seat, or one placement: 16 lowercase hex from crypto/rand
+// (C 3.7.1).
+type ClaimID struct{ s string }
+
+// SeatName names a pool seat's directory: the seat's handle, A 2.3's localpart, whole (C 3.7.1,
+// SPEC-n2c n2c-D1). Its grammar is one segment of dot-separated words that never holds the
+// claim suffix.
+type SeatName struct{ s string }
+
 // Port is a team's homeserver port. Ports are declared per team, never computed (D 3.8).
 type Port struct{ n uint16 }
 
@@ -59,6 +68,8 @@ var (
 	teamIDGrammar      = regexp.MustCompile(`^[a-z][a-z0-9-]{0,21}$`)
 	runIDGrammar       = regexp.MustCompile(`^[0-9a-f]{16}$`)
 	checkoutKeyGrammar = regexp.MustCompile(`^[0-9a-f]{32}$`)
+	claimIDGrammar     = regexp.MustCompile(`^[0-9a-f]{16}$`)
+	seatNameGrammar    = regexp.MustCompile(`^[a-z0-9][a-z0-9_+-]*(?:\.[a-z0-9_+-]+)*$`)
 	guestUserGrammar   = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
 	// digestGrammar is lowercase hex, from 64-bit to SHA-256 length: never a word such as the
 	// kit root's current link.
@@ -114,6 +125,27 @@ func ParseRunID(s string) (RunID, error) {
 func ParseCheckoutKey(s string) (CheckoutKey, error) {
 	v, err := check("checkout key", checkoutKeyGrammar, s)
 	return CheckoutKey{v}, err
+}
+
+// ParseClaimID checks a claim id.
+func ParseClaimID(s string) (ClaimID, error) {
+	v, err := check("claim id", claimIDGrammar, s)
+	return ClaimID{v}, err
+}
+
+// maxSeatName bounds a seat name as segmentGrammar bounds the other segments.
+const maxSeatName = 128
+
+// ParseSeatName checks a seat name.
+func ParseSeatName(s string) (SeatName, error) {
+	v, err := check("seat name", seatNameGrammar, s)
+	if err != nil {
+		return SeatName{}, err
+	}
+	if len(s) > maxSeatName || strings.Contains(s, claimSuffix) {
+		return SeatName{}, fmt.Errorf("%w seat name: longer than %d bytes or holds %s", ErrInvalid, maxSeatName, claimSuffix)
+	}
+	return SeatName{v}, nil
 }
 
 // ParseGuestUser checks a guest user name (the portable user-name grammar).
@@ -232,6 +264,24 @@ func (k CheckoutKey) MarshalText() ([]byte, error) { return marshal("checkout ke
 // UnmarshalText decodes a checkout key through ParseCheckoutKey.
 func (k *CheckoutKey) UnmarshalText(b []byte) error { return unmarshal(k, ParseCheckoutKey, string(b)) }
 
+// String is the claim id's text.
+func (c ClaimID) String() string { return c.s }
+
+// MarshalText encodes a parsed claim id; the zero value is refused.
+func (c ClaimID) MarshalText() ([]byte, error) { return marshal("claim id", c.s) }
+
+// UnmarshalText decodes through ParseClaimID.
+func (c *ClaimID) UnmarshalText(b []byte) error { return unmarshal(c, ParseClaimID, string(b)) }
+
+// String is the seat name's text.
+func (n SeatName) String() string { return n.s }
+
+// MarshalText encodes a parsed seat name; the zero value is refused.
+func (n SeatName) MarshalText() ([]byte, error) { return marshal("seat name", n.s) }
+
+// UnmarshalText decodes through ParseSeatName.
+func (n *SeatName) UnmarshalText(b []byte) error { return unmarshal(n, ParseSeatName, string(b)) }
+
 // String is the guest user's text.
 func (u GuestUser) String() string { return u.s }
 
@@ -295,6 +345,10 @@ func (r RunID) text() string { return must("run id", r.s) }
 func (k CheckoutKey) text() string { return must("checkout key", k.s) }
 
 func (u GuestUser) text() string { return must("guest user", u.s) }
+
+func (c ClaimID) text() string { return must("claim id", c.s) }
+
+func (n SeatName) text() string { return must("seat name", n.s) }
 
 func (s SetID) text() string { return must("set id", s.s) }
 

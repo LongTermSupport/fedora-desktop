@@ -255,6 +255,49 @@ func TestOwnerSeatStore(t *testing.T) {
 	}
 }
 
+// The pool seat's records, its claim, the session's seat and the two quarantines (C 3.7.1-3.7.3).
+func TestPoolSeatNames(t *testing.T) {
+	store, err := SeatStore("/home/u/.local/state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, team, seat, claim := sampleCheckoutKey(t), mustTeam(t, "ops"), sampleSeatName(t), sampleClaimID(t)
+	session := sampleSessionName(t)
+	root := "/home/u/.local/state/teamchat/seats/"
+	pool := root + "pool/" + key.String() + "/ops/r.1+s.host"
+	p := store.PoolSeat(key, team, seat)
+	home, err := HomeLayout("/home/u", "/run/user/1000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ got, want string }{
+		{store.PoolTeam(key, team), root + "pool/" + key.String() + "/ops"},
+		{p.Dir(), pool},
+		{p.Password(), pool + "/password"},
+		{p.Token(), pool + "/token"},
+		{p.Bundle(), pool + "/seat.json"},
+		{p.ReleasedRecord(), pool + "/released.json"},
+		{p.Held(), pool + "/held"},
+		{p.HeldRecord(), pool + "/held/held.json"},
+		{p.HeldToken(), pool + "/held/token"},
+		{p.HeldBundle(), pool + "/held/seat.json"},
+		{p.HeldNotice(), pool + "/held/notice.json"},
+		{store.PoolClaim(key, team, seat, claim).Dir(), pool + ".new-" + claim.String()},
+		{store.SessionSeat(session, team).Dir(), root + "sessions/sess-1/ops"},
+		{store.ReleasedSession(session, team, claim).Dir(), root + "released/sessions/sess-1/ops-" + claim.String()},
+		{store.ReleasedPool(key, team, seat, claim), root + "released/pool/" + key.String() + "/ops/r.1+s.host-" + claim.String()},
+		{home.SeatClaim(team, claim).Dir(), "/home/u/.config/teamchat/seats/ops.new-" + claim.String()},
+		{GuestTokenCopy(team, seat), "/var/lib/teamchat-ctl/ops/guest/r.1+s.host.token"},
+	} {
+		if c.got != c.want {
+			t.Errorf("got %q, want %q", c.got, c.want)
+		}
+	}
+	if SeatDevice != "TCSEAT" {
+		t.Errorf("SeatDevice = %q", SeatDevice)
+	}
+}
+
 // $XDG_STATE_HOME is honoured when it is an absolute path, as the XDG spec says; a relative one
 // is ignored.
 func TestStateHomeHonoursAnAbsoluteXDGStateHome(t *testing.T) {
