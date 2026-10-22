@@ -369,23 +369,25 @@ func TestTuwunelRestoreSecureRT2(t *testing.T) {
 	}
 }
 
-// RT3: the secured epoch survives a stop by SIGTERM and one by SIGKILL; each plain start on the
-// same path serves it first, and the revoked token stays refused.
+// RT3: the secured epoch survives a stop by SIGTERM and, in a run of its own, one by SIGKILL,
+// each sent to the server the secure has just written to; the plain start on the same path
+// serves it first, and the revoked token stays refused.
 func TestTuwunelEpochSurvivesTheStopRT3(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), tuwunelTestLimit)
-	defer cancel()
-	w := newRealWorld(ctx, t)
-	sc := w.beforeAndAfterN(ctx, t)
-	n := sc.tar.Manifest.Backup
-	s := w.stage(ctx, t, n)
-	m := w.secure(ctx, t, s, sc.tar, false)
-	path := w.root + paths.HomeserverPrivateRestoreDatabase(alpha(t), n)
 	for _, sig := range []syscall.Signal{syscall.SIGTERM, syscall.SIGKILL} {
-		if err := s.Stop(sig); err != nil {
-			t.Fatalf("stop by %v: %v", sig, err)
-		}
-		s = tuwunelhs.StartWith(ctx, t, server, options(w.root, alpha(t), path))
-		w.wantServed(ctx, t, s, sc, m)
+		t.Run(sig.String(), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), tuwunelTestLimit)
+			defer cancel()
+			w := newRealWorld(ctx, t)
+			sc := w.beforeAndAfterN(ctx, t)
+			n := sc.tar.Manifest.Backup
+			s := w.stage(ctx, t, n)
+			m := w.secure(ctx, t, s, sc.tar, false)
+			if err := s.Stop(sig); err != nil {
+				t.Fatalf("stop by %v: %v", sig, err)
+			}
+			s = tuwunelhs.StartWith(ctx, t, server, options(w.root, alpha(t), w.root+paths.HomeserverPrivateRestoreDatabase(alpha(t), n)))
+			w.wantServed(ctx, t, s, sc, m)
+		})
 	}
 }
 

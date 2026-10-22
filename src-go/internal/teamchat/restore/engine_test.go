@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/backup"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
@@ -433,6 +434,20 @@ func TestLiveChildRefusalIsNotServerLost(t *testing.T) {
 		if _, err = run(w, w.request()); !errors.Is(err, matrix.ErrUnreachable) {
 			t.Errorf("%s lost the homeserver: %v, want it lost (69)", effect, err)
 		}
+	}
+}
+
+// RS15: RS4's backup finding the homeserver not running is a server lost after validation
+// (69), not BT1's refusal of the backup verb (70).
+func TestPreBackupNotRunningIsServerLost(t *testing.T) {
+	w := newWorld(t)
+	w.fail["backup"] = fmt.Errorf("the ready step: %w", backup.ErrNotRunning)
+	_, err := run(w, w.request())
+	if !errors.Is(err, matrix.ErrUnreachable) || errors.Is(err, backup.ErrNotRunning) || !strings.Contains(err.Error(), "not running") {
+		t.Fatalf("a pre-restore backup of a server gone = %v, want it lost (69)", err)
+	}
+	if r := w.staged(); r.Pre != 0 {
+		t.Errorf("pre = %d", r.Pre)
 	}
 }
 

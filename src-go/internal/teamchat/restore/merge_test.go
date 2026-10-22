@@ -242,6 +242,22 @@ func TestMergeResolvesAPendingOperationOffline(t *testing.T) {
 	}
 }
 
+// RM12: a pending retire of a handle added after N, which N does not hold, is still a retire:
+// retired and in retire, not lost and in return.
+func TestMergeOfflineRetiresAHandleNewSinceN(t *testing.T) {
+	current := roster(t, 20, 5, 0, map[string]apply.Member{h1: token(apply.MemberActive, 3), h3: token(apply.MemberActive, 12)}, nil)
+	backup := roster(t, 10, 4, 0, map[string]apply.Member{h1: token(apply.MemberActive, 3)}, nil)
+	current.Pending = &apply.Pending{Op: apply.OpMemberRetire, Step: "x", Handle: h3}
+	m, err := Merge(current, backup, MergeOptions{Team: opsTeam(t), Offline: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkResolved(t, m, h3, apply.MemberRetired, "", "retire")
+	if slices.Contains(m.Lists.Return, h3) || !strings.Contains(m.Lists.Pending, "retired") {
+		t.Errorf("return %v, resolution %q", m.Lists.Return, m.Lists.Pending)
+	}
+}
+
 func checkResolved(t *testing.T, m Merged, handle, state, needs, list string) {
 	t.Helper()
 	if handle == "" {

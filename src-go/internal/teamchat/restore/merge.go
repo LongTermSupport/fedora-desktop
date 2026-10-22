@@ -164,13 +164,15 @@ func resolve(p *apply.Pending, current, backup apply.RosterFile, m *Merged) {
 	merged, inMerged := m.Roster.Members[h]
 	_, inBak := backup.Members[h]
 	switch {
-	case !inMerged || !inBak || merged.State == apply.MemberRetired:
+	case !inMerged || merged.State == apply.MemberRetired:
 		l.Pending = p.Op + " of " + h + ": left as the merge has it"
 	case p.Op == apply.OpMemberRetire:
 		merged.State, merged.Needs = apply.MemberRetired, ""
 		l.drop(h)
 		l.Retire = append(l.Retire, h)
 		l.Pending = p.Op + " of " + h + ": retired"
+	case !inBak:
+		l.Pending = p.Op + " of " + h + ": left as the merge has it"
 	case current.Members[h].State == apply.MemberActive && backup.Members[h].State == apply.MemberActive:
 		merged.Needs = needsReissue
 		l.drop(h)

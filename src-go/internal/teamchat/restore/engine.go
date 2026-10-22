@@ -9,8 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/backup"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
@@ -385,15 +387,7 @@ func (e *engine) unstaged(ctx context.Context, keepCopy bool) error {
 func (e *engine) fromStaged(ctx context.Context) (Answer, error) {
 	r, t := &e.rec, e.team()
 	if !r.Offline && !r.FromBackup && r.Pre == 0 {
-		m, err := e.d.Backup(ctx, e.held, []int64{r.Backup})
-		if err == nil && (m < 1 || m > maxBackup) {
-			err = fmt.Errorf("the pre-restore backup answered the number %d", m)
-		}
-		if err == nil {
-			r.Pre = m
-			err = e.write(StepStaged)
-		}
-		if err != nil {
+		if err := e.preBackup(ctx); err != nil {
 			return Answer{}, e.stillStaged(fmt.Errorf("the pre-restore backup: %w", err))
 		}
 	}
@@ -409,6 +403,32 @@ func (e *engine) fromStaged(ctx context.Context) (Answer, error) {
 	}
 	return e.swap(ctx)
 }
+
+// preBackup is RS4: backup M of the live server, recorded as pre.
+func (e *engine) preBackup(ctx context.Context) error {
+	m, err := e.d.Backup(ctx, e.held, []int64{e.rec.Backup})
+	if errors.Is(err, backup.ErrNotRunning) {
+		return &serverLostError{err}
+	}
+	if err == nil && (m < 1 || m > maxBackup) {
+		err = fmt.Errorf("the pre-restore backup answered the number %d", m)
+	}
+	if err == nil {
+		e.rec.Pre = m
+		err = e.write(StepStaged)
+	}
+	return err
+}
+
+// serverLostError is RS15's 69 for a homeserver that answered at validation and was not
+// running at RS4's backup: it is matrix.ErrUnreachable and hides BT1's not running, which is
+// the backup verb's refusal (70) only.
+type serverLostError struct{ err error }
+
+func (e *serverLostError) Error() string { return e.err.Error() }
+
+// Is makes a serverLostError matrix.ErrUnreachable.
+func (e *serverLostError) Is(target error) bool { return target == matrix.ErrUnreachable }
 
 func (e *engine) stillStaged(err error) error {
 	return fmt.Errorf("restore not done, staged: %w; restore --team %s --resume or --discard", err, e.team())

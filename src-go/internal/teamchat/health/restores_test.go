@@ -6,18 +6,29 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
 )
 
+// restores answers state, from its from-th read on when from is set (a record that appears
+// later), and err.
 type restores struct {
-	state RestoreState
-	err   error
+	mu          sync.Mutex
+	state       RestoreState
+	err         error
+	from, reads int
 }
 
 func (r *restores) State(context.Context, paths.TeamID) (RestoreState, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.reads++
+	if r.reads < r.from {
+		return RestoreState{}, r.err
+	}
 	return r.state, r.err
 }
 
@@ -72,6 +83,22 @@ func TestNoRestartWhileARestoreIsRecorded(t *testing.T) {
 	}
 	if !hasProblem(rec, "restore interrupted") {
 		t.Fatalf("problems %v", whats(rec.Problems))
+	}
+}
+
+// HB3, RG3: a restore recorded after the gather, while the re-probes ran, is read again under
+// the lock, so the unit is not restarted and the record shows the restore.
+func TestNoRestartWhenARestoreIsRecordedDuringTheReprobes(t *testing.T) {
+	w := newWorld(t, "alpha")
+	w.restores.state = interrupted()
+	w.restores.from = 2
+	w.prober.fails = 3
+	if out := w.run(t); out[0].Result != ResultWritten {
+		t.Fatalf("outcome %+v", out[0])
+	}
+	rec := w.record(t, "alpha")
+	if w.units.restarts != 0 || w.restores.reads != 2 || rec.Restore == nil || !hasProblem(rec, "restore interrupted") {
+		t.Fatalf("restarts %d, reads %d, restore %+v, problems %v", w.units.restarts, w.restores.reads, rec.Restore, whats(rec.Problems))
 	}
 }
 
