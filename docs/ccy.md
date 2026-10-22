@@ -895,7 +895,7 @@ project directory, so a bare first word (`ccy -oc "fix it"`) is refused, and a l
 opencode's to read. A Quick Launch's saved team is not taken, and is kept for the next launch.
 
 opencode cannot use the Claude login. It needs a model provider key, which you add once as a file
-in `~/.claude-tokens/ccy/provider-keys/`, named for the variable opencode reads it from
+in `~/.claude-tokens/ccy/provider-keys/` (the play makes the directory, empty), named for the variable opencode reads it from
 (`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, ...), holding the key on one line, mode 0600. Which
 provider is yours to choose. Each key is handed by name to that session's container only, never
 exported. With no key, or a file there that is not one, the launch stops before anything starts.
@@ -905,7 +905,9 @@ An opencode session is on no agent team and has no supervisor, so `--teams`, `--
 Code's own `--debug` and does nothing for opencode, though the chooser still ticks it; the CCY
 and entrypoint layers apply as usual. Claude Code's ctrl+z guard is the
 supervisor's; for opencode the image unbinds its suspend key instead (`/etc/opencode/tui.json`).
-The image's `/etc/opencode/opencode.json` turns sharing off. opencode reads the project's `CLAUDE.md`
+The image's `/etc/opencode/opencode.json` turns sharing off. opencode is in the `claude-yolo`
+image's base stage, but the play builds only `claude-yolo:latest`: a project whose Dockerfile
+builds `FROM claude-yolo:base` has no opencode until `ccy --rebuild` is run there. opencode reads the project's `CLAUDE.md`
 and `.claude/skills/` when there is no `AGENTS.md`; moving projects to `AGENTS.md` is later work
 ([Plan 00215](../CLAUDE/Plan/00215-opencode-install-and-agent-bus-member/PLAN.md)).
 

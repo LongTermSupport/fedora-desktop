@@ -1248,6 +1248,16 @@
         group: "{{ user_login }}"
         mode: "0700"
 
+    # ccy --opencode's model provider keys (lib/agent-choice.bash): the directory only; which
+    # provider, and so which key file, is the owner's choice.
+    - name: Create Claude YOLO Provider Keys Directory
+      ansible.builtin.file:
+        path: /home/{{ user_login }}/.claude-tokens/ccy/provider-keys
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0700"
+
     - name: Calculate Dockerfile Hash for Build
       ansible.builtin.shell: md5sum /opt/claude-yolo/Dockerfile | cut -d' ' -f1 | cut -c1-16
       register: dockerfile_hash

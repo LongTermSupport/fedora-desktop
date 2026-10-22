@@ -20,7 +20,8 @@ Two version numbers move independently — see
 ## 3.100.6 — container 2.79.1
 
 Follows 3.99.15.4 (3.100.0 to 3.100.5 and container 2.79.0 were never released: review rounds on
-one branch). The image changes, so the next launch rebuilds it once.
+one branch). The image changes: the play builds it, and a host that has not run the play
+rebuilds it once at its next launch.
 
 - **`ccy --opencode` (or `-oc`) runs opencode instead of Claude Code** (Plan 00215): the image
   carries opencode 1.19.3, pinned by sha256, with sharing and the updater off and its ctrl+z

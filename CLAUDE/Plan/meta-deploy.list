@@ -99,7 +99,8 @@
 # checked against its pinned sha256 at build), built by the 00213 entry above; the next launch
 # rebuilds only a project's own image. Plan 00215: new flag `ccy --opencode` (or -oc) runs
 # opencode in the container instead of Claude Code, with no bus kit and no supervisor; it needs a
-# model provider key file first (docs/ccy.md, "opencode"; Plan 00215 Task 1.4), and without one it
+# model provider key file first, in ~/.claude-tokens/ccy/provider-keys/, which the play makes
+# empty (docs/ccy.md, "opencode"; Plan 00215 Task 1.4), and without one it
 # stops before anything starts; an opencode session is not restored after a reboot, and a Quick
 # Launch's saved team is not taken by it (or by --no-bus), and is kept for the next launch. A
 # launch without the flag is unchanged. /var/local/claude-yolo/claude-yolo becomes a Go program (built here from
