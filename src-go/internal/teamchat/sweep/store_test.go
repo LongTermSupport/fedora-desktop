@@ -195,3 +195,22 @@ func TestSweepNeverAnnouncesAStart(t *testing.T) {
 		t.Errorf("an ended run: announced %d", w.notices.count())
 	}
 }
+
+// SW4, INT7: a free lock whose record carries launch_failed_ms is never announced, by the
+// sweep of a session that goes on or by the release of one that is over; the release still
+// completes.
+func TestSweepNeverAnnouncesALaunchFailure(t *testing.T) {
+	const failed = `{"v":1,"run":"` + testRun + `","started_ms":1,"launch_failed_ms":2}`
+	w := newWorld(t)
+	w.write(w.sessionSeat().Lock(), failed)
+	if got := w.sweep(); len(got) != 1 || got[0].Action != Kept {
+		t.Errorf("kept: %+v", got)
+	}
+	w.sessions.live["s1"] = false
+	if got := w.sweep(); len(got) != 1 || got[0].Action != Released {
+		t.Errorf("released: %+v", got)
+	}
+	if w.notices.count() != 0 || exists(t, w.pool().Held()) || !exists(t, w.pool().ReleasedRecord()) {
+		t.Errorf("announced %d; held/ there %v", w.notices.count(), exists(t, w.pool().Held()))
+	}
+}
