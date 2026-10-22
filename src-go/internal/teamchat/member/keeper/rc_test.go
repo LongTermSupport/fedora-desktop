@@ -206,7 +206,9 @@ func TestChangesWhileRestarting(t *testing.T) {
 	mustDo(t, w.clk.BlockUntil(t.Context(), 1))
 	w.writeDesired(desiredJSON(2, state.InboundAccept, "beta/1"))
 	w.changed()
+	// The removal is logged before the add takes its seat: wait for both.
 	w.logged("seat alpha released")
+	w.logged("seat beta/1 held")
 	if exists(t, alpha.Store()) || w.held(alpha) || !w.held(beta) {
 		t.Fatal("the removal or the add did not happen with no link")
 	}
