@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 )
 
 // The member end to end, every process real: the keeper (`run`), its link, its CMD and the
@@ -16,7 +17,9 @@ const linkEndBound = 5 * time.Second
 
 // seated is `run --plain --state S --seat alpha/2`.
 func (w *world) seated() *session {
-	return w.launch("--state", w.state, "--seat", teamName+"/"+mySeat)
+	s := w.launch("--state", w.state, "--seat", teamName+"/"+mySeat)
+	s.seatedIn()
+	return s
 }
 
 // A human's item and a peer's reach recv, once each, and are acked: the next recv and the
@@ -39,6 +42,19 @@ func TestE2EItems(t *testing.T) {
 	if recs := s.records("inbox", "--team", teamName); len(recs) != 0 {
 		t.Fatalf("inbox after the acks: %v", recs)
 	}
+}
+
+// A seat desired.json adds while the session runs receives; one it takes out with a farewell
+// says left (RC1, B 2.10).
+func TestE2EHotAddRemove(t *testing.T) {
+	w := newWorld(t, fakeServer(t))
+	w.desire(1, nil, nil)
+	s := w.launch("--desired", w.desired, "--state", w.state)
+	w.desire(2, []state.DesiredSeat{{Team: alphaID, Seat: mySeat}}, nil)
+	s.seatedIn()
+	s.recvUntil(w.say("after the hot add"))
+	w.desire(3, nil, []state.Farewell{{Team: alphaID, Seat: mySeat, Reason: state.FarewellReleased}})
+	w.awaitNotice("left released")
 }
 
 // A SIGTERM to the keeper ends the session: its goodbye is left other, and it exits.

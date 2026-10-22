@@ -20,6 +20,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix/fakehs"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/rooms"
@@ -209,6 +210,20 @@ func (w *world) replace(path string, data []byte) {
 	check(w.t, os.Rename(tmp, path))
 }
 
+// desire writes the desired membership generation gen, inbound accept, by rename.
+func (w *world) desire(gen int64, seats []state.DesiredSeat, farewell []state.Farewell) {
+	w.t.Helper()
+	session, err := paths.ParseSessionName("e2e")
+	check(w.t, err)
+	data, err := state.Desired{
+		Session: session, Generation: gen, WrittenMS: clock.System().WallMS(),
+		Seats: append([]state.DesiredSeat{}, seats...), Farewell: append([]state.Farewell{}, farewell...),
+		Inbound: state.InboundAccept,
+	}.Encode()
+	check(w.t, err)
+	w.replace(w.desired+"/desired.json", data)
+}
+
 // client is local's own client.
 func (w *world) client(local string) *matrix.Client {
 	w.t.Helper()
@@ -350,7 +365,7 @@ func (l *lines) find(prefix string) (string, bool) {
 }
 
 // launch is `teamchat run --plain --kind other <flags> --kit <kit> -- agent`, once its CMD has
-// started and its link answers status.
+// started.
 func (w *world) launch(flags ...string) *session {
 	w.t.Helper()
 	args := append([]string{"run", "--plain", "--kind", "other"}, flags...)
@@ -392,8 +407,14 @@ func (w *world) launch(flags ...string) *session {
 	if len(fields) == 3 {
 		s.runtime = fields[2]
 	}
-	eventually(w.t, func() bool { return s.exec("status", "--team", teamName).ExitCode == 0 }, s.describe)
 	return s
+}
+
+// seatedIn waits until the session's link answers status for team alpha: its seat is held
+// and the link has it.
+func (s *session) seatedIn() {
+	s.w.t.Helper()
+	eventually(s.w.t, func() bool { return s.exec("status", "--team", teamName).ExitCode == 0 }, s.describe)
 }
 
 func (s *session) exited() bool { return len(s.ended) > 0 }
