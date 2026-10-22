@@ -203,13 +203,25 @@ its first caller.
 
 ### Phase 2: N2, the host side
 
-- [ ] ⬜ **Task 2.1**: The N2 spec from area C; `teamchat-admin` with caller classes and the
+- [ ] 🔄 **Task 2.1**: The N2 spec from area C; `teamchat-admin` with caller classes and the
   `teamchat-ctl` child (C 3.3); DC17's dependencies with their go-deps allowlist rows.
+  Slice n2a (`feat/bus-v2-n2a`, `SPEC-n2a.md` CA1-CA7 and CC1-CC6, report
+  `subagent-reports/261021-n2a.md`) covers the command skeleton: C 3.3's verb table, the caller
+  classes (exit 77), every unbuilt verb exiting 1, `version`, and the child's boundary as a typed
+  start spec with its self-check and strict request and answer codecs. Not covered: starting the
+  child (it waits for `execx` to carry a credential and a replaced environment, n2a-D6), and
+  DC17's dependencies, which this slice does not need.
 - [ ] ⬜ **Task 2.2**: The homeserver instance per team (C 3.2): the pinned Tuwunel, the hardened
   `teamchat-server@<team>` unit carrying D's `InaccessiblePaths=`, checked by D's gate (seam 49).
-- [ ] ⬜ **Task 2.3**: Install and apply (C 3.5), the rooms engine from A's specs (C 3.6), the
+- [ ] 🔄 **Task 2.3**: Install and apply (C 3.5), the rooms engine from A's specs (C 3.6), the
   roster, members, humans and roles; the service-account localparts `conduit` (HC-A6) and
   `tuwunel` reserved (A 2.3) (seam 18).
+  Slice n2a (`SPEC-n2a.md` RE1-RE10) covers the rooms engine of C 3.6.2 step 4 only
+  (`internal/teamchat/rooms`): find, adopt or create in A 5.2's order, drift refused before any
+  write, kicks before state before invites, the roster `rev` rule, idempotent, and accepted by
+  proto's trust checks, on fakehs and, under `-tags tuwunel`, against the pinned Tuwunel 1.9.4.
+  Not covered: install and apply, the roster file and `rooms.json`, members, humans, roles, and
+  the reserved localparts.
 - [ ] ⬜ **Task 2.4**: Seats and bundles in the seat store (C 3.7), the declarations (C 3.8),
   Element profiles (C 3.10), health and the status records (C 3.11), backups and restore (C 3.12).
 - [ ] ⬜ **Task 2.5**: Acceptance: C 3.14's tests; the M44 real-Tuwunel test, and Tuwunel's answers
