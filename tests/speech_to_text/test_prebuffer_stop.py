@@ -127,8 +127,9 @@ class PrebufferStopTest(unittest.TestCase):
         """Run pre-buffer mode, SIGTERM at each offset in term_after; returns facts.
 
         The offsets count from the moment `after` is ready: "mic", the fake pw-record's stop
-        handler installed (its ready file), or "model", the stub recorder loaded. A timer
-        from the start raced both on a loaded host.
+        handler installed (its ready file), or "model", that and the stub recorder loaded.
+        A timer from the start raced both on a loaded host. If it never becomes ready no
+        TERM is sent at all (one before the handler would end this test process).
         """
         StubRecorder.load_seconds = load_seconds
         StubRecorder.mic_result = self.events / "pw-record.json"
@@ -140,22 +141,32 @@ class PrebufferStopTest(unittest.TestCase):
         stop = wsi_stream.GracefulStop(grace)
         terms = []
         seen = []
-        ready = {"mic": lambda: (self.events / "pw-record.ready").exists(),
-                 "model": lambda: StubRecorder.instance is not None}[after]
+        mic_ready = (self.events / "pw-record.ready").exists
+        ready = {"mic": mic_ready,
+                 "model": lambda: mic_ready() and StubRecorder.instance is not None}[after]
+        finished = threading.Event()
 
         def send_terms():
             cap = time.monotonic() + 30
-            while not ready() and time.monotonic() < cap:
+            while not ready() and not finished.is_set() and time.monotonic() < cap:
                 time.sleep(0.005)
             seen.append(ready())
+            if not seen[0]:
+                return
             start = time.monotonic()
             for offset in term_after:
-                time.sleep(max(0.0, start + offset - time.monotonic()))
+                if finished.wait(max(0.0, start + offset - time.monotonic())):
+                    return
                 terms.append(time.monotonic())
                 os.kill(os.getpid(), signal.SIGTERM)
 
-        threading.Thread(target=send_terms, daemon=True).start()
-        rc = wsi_stream.run_prebuffered_streaming(args, stop)
+        sender = threading.Thread(target=send_terms, daemon=True)
+        sender.start()
+        try:
+            rc = wsi_stream.run_prebuffered_streaming(args, stop)
+        finally:
+            finished.set()
+            sender.join(5)
         self.assertEqual(seen, [True], f"the {after} never became ready, so no TERM was timed from it")
         mic = stt_stubs.pw_record_result(self.events)
         return {

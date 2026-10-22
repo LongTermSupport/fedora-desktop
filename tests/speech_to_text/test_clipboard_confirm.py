@@ -52,12 +52,12 @@ data=${data%x}
 mode=$(cat "$FAKE_CLIP/mode")
 case "$mode:$runs" in
     never:* | first-never:1) exec sleep 600 ;;
-    late:*) sleep 0.15 ;;
+    late:*) sleep @LATE_SECONDS@ ;;
 esac
 if [ "$mode" = newline ]; then data="$data"$'\n'; fi
 printf '%s' "$data" > "$FAKE_CLIP/selection.tmp"
 mv "$FAKE_CLIP/selection.tmp" "$FAKE_CLIP/selection"
-"""
+""".replace("@LATE_SECONDS@", f"{LATE_SECONDS:g}")
 
 FAKE_WL_PASTE = r"""#!/usr/bin/bash
 set -euo pipefail

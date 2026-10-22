@@ -805,8 +805,8 @@ thing banned.
 
 ### test-wall-clock-ceiling-under-a-second
 
-**What it is.** A test that bounds an elapsed time from above by less than a second:
-`assertLess`, `assertLessEqual` or `assert ... <` / `<=` on a difference (`now - started`,
+**What it is.** An assertion, in any Python file, that bounds an elapsed time from above
+by less than a second: `assertLess`, `assertLessEqual` or `assert ... <` / `<=` on a difference (`now - started`,
 or a variable assigned one), against a number literal under 1. Run by
 `qa-speech-to-text-rules.bash` over every tracked Python file.
 

@@ -62,8 +62,8 @@ type Env struct {
 const usageText = `usage: qa-speech-to-text-rules [--root DIR] [--scripts DIR] [PATH...]
 
 The rules in .semgrep/speech-to-text.yml (a model judged present without its weights, a dropdown
-label that explains itself, a test timed too tightly for a loaded host) over every JavaScript and Python file git would publish, after proving
-each rule against its fixture in .semgrep/.
+label that explains itself, a test timed too tightly for a loaded host) over every JavaScript
+and Python file git would publish, after proving each rule against its fixture in .semgrep/.
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent

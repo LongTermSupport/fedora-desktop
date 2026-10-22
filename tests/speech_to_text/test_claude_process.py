@@ -64,11 +64,21 @@ class ClaudeProcessTest(unittest.TestCase):
         if fail:
             stub.write_text(f"#!/bin/bash\necho 'wsi-claude-token: {fail}' >&2\nexit 1\n")
         else:
-            # No sleep at all for 0: the stub answers at once, so a 1 s limit is never close
+            # No sleep at all for 0: the stub answers at once
             pause = f"sleep {seconds}\n" if seconds else ""
             stub.write_text(f"#!/bin/bash\n{pause}echo 'using the stub account' >&2\n"
                             f"printf '%s' '{token_file}'\n")
         stub.chmod(0o755)
+
+    def recording_timeout(self):
+        """A stub `timeout` ahead of the real one on PATH: it records the limit claude was
+        given and runs claude with none, so a test of a 1 s limit judges the limit the
+        script chose, and a loaded host's slow claude start cannot use it up. Returns the
+        file the limit is written to."""
+        stub = self.bin / "timeout"
+        stub.write_text('#!/bin/bash\nprintf \'%s\' "$1" > "$HOME/claude-timeout"\nshift\nexec "$@"\n')
+        stub.chmod(0o755)
+        return self.home / "claude-timeout"
 
     def run_script(self, mode="ok", budget=None, args=()):
         env = {"HOME": str(self.home), "PATH": f"{self.bin}:/usr/bin:/bin",
@@ -163,12 +173,16 @@ class ClaudeProcessTest(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "Rewrite: raw words")
 
     def test_a_limit_inside_1_to_170_seconds_is_used(self):
+        # claude is given the whole limit (the chooser answers at once), through the stub
+        # timeout, so only the script's own few milliseconds before it run against the 1 s
         self.chooser()
+        limit = self.recording_timeout()
         for value in ("1", "170"):
             with self.subTest(value=value):
                 result = self.run_script(budget=value)
                 self.assertEqual((result.returncode, result.stdout.strip()), (0, "Rewritten by Claude."),
                                  result.stderr)
+                self.assertEqual(limit.read_text(), value, "claude was not given the whole limit")
 
     def test_a_run_that_crosses_a_second_of_the_clock_keeps_a_1_s_limit(self):
         # The run starts 0.01 s before the clock's next whole second and the chooser takes
@@ -177,10 +191,12 @@ class ClaudeProcessTest(unittest.TestCase):
         # nothing and failed the 1 s limit test_a_limit_inside_1_to_170_seconds_is_used
         # accepts, at random, and more often the longer a loaded host made the run.
         self.chooser(seconds=0.03)
+        limit = self.recording_timeout()
         time.sleep((0.99 - time.time() % 1) % 1)
         result = self.run_script(budget=1)
         self.assertEqual((result.returncode, result.stdout.strip()), (0, "Rewritten by Claude."),
                          result.stderr)
+        self.assertEqual(limit.read_text(), "1", "claude was not given the whole limit")
 
     def test_a_chooser_that_used_up_the_limit_leaves_claude_unrun(self):
         self.chooser(seconds=3)
