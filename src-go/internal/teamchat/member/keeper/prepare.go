@@ -65,6 +65,7 @@ type keeper struct {
 	nextMS       *int64
 	restartTimer *timer
 	endTimer     *timer
+	rewatchTimer *timer
 	timers       map[*timer]struct{}
 
 	cmd        execx.Started

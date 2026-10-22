@@ -289,7 +289,7 @@ func TestDesiredAtLaunch(t *testing.T) {
 	})
 	t.Run("watch fails", func(t *testing.T) {
 		w := newWorld(t, claudeLaunch...)
-		w.watch.err = errors.New("no inotify")
+		w.watch.fail(errors.New("no inotify"))
 		w.refused(exits.CodeRuntime)
 	})
 	for _, kind := range []string{"ccy", "lxc"} {

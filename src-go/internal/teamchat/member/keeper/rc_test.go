@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"errors"
 	"os"
 	"slices"
 	"strings"
@@ -71,7 +72,7 @@ func TestDesiredRefused(t *testing.T) {
 }
 
 // RC1: an overflow re-reads the file; an event about another name does not; a watch that
-// ends is logged.
+// ends is watched again and the file re-read, and a change after it is followed.
 func TestDesiredEvents(t *testing.T) {
 	w, l, c, res := claudeWorld(t)
 	w.watch.events <- WatchEvent{Name: ".desired.tmp", Op: unix.IN_CREATE}
@@ -81,12 +82,52 @@ func TestDesiredEvents(t *testing.T) {
 		t.Fatalf("desired %+v", d)
 	}
 	w.logged("generation 2 applied", 1)
-	close(w.watch.events)
+	w.watch.end()
 	w.logged("no longer watched")
+	if d := l.expect(t, wire.KindDesired).Desired; d.Generation != 2 || d.State != state.DesiredApplied {
+		t.Fatalf("desired after the watch came back %+v", d)
+	}
+	if n := w.watch.watches(); n != 2 {
+		t.Fatalf("%d watches", n)
+	}
+	w.writeDesired(desiredJSON(3, state.InboundAccept))
+	w.changed()
+	if d := l.expect(t, wire.KindDesired).Desired; d.Generation != 3 {
+		t.Fatalf("desired %+v", d)
+	}
 	c.code(0)
 	ended(t, l, res, wire.EndExit, 0, 0)
 	if n := strings.Count(w.stderr.String()+w.stdout.String(), "desired"); n != 0 {
 		t.Fatal("the keeper wrote to the terminal")
+	}
+}
+
+// RC1: the desired directory going (its watch ignored) is refused missing and published, the
+// watch is tried again until the directory is back, and then the file applies again.
+func TestDesiredDirectoryGoes(t *testing.T) {
+	for _, op := range []uint32{unix.IN_IGNORED, unix.IN_DELETE_SELF, unix.IN_MOVE_SELF} {
+		w, l, c, res := claudeWorld(t, "alpha/1")
+		alpha := w.layout.Seat(mustTeam(t, "alpha"))
+		w.reported(l, alpha)
+		w.watch.fail(errors.New("no such directory"))
+		w.watch.events <- WatchEvent{Op: op}
+		d := l.expect(t, wire.KindDesired).Desired
+		if d.State != state.DesiredRefused || d.Code == nil || *d.Code != state.CodeMissing {
+			t.Fatalf("%#x: desired %+v", op, d)
+		}
+		if k := w.keeperJSON(); k.Desired != state.DesiredRefused {
+			t.Fatalf("%#x: keeper.json %+v", op, k)
+		}
+		w.watch.fail(nil)
+		w.advance(1, rewatchGap)
+		if d := l.expect(t, wire.KindDesired).Desired; d.State != state.DesiredApplied || d.Generation != 1 {
+			t.Fatalf("%#x: desired once watched again %+v", op, d)
+		}
+		if !w.held(alpha) {
+			t.Fatalf("%#x: the seat was let go", op)
+		}
+		c.code(0)
+		ended(t, l, res, wire.EndExit, 0, 0)
 	}
 }
 
