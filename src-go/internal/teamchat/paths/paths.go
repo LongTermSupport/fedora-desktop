@@ -395,7 +395,7 @@ func (s Seat) Token() string { return s.Dir() + "/token" }
 func (s Seat) Lock() string { return s.Dir() + "/seat.lock" }
 
 // Store is the member's state for the team.
-func (s Seat) Store() string { return s.Dir() + "/store.json" }
+func (s Seat) Store() string { return s.Dir() + "/" + storeFile }
 
 // Report is the seat's report, which carries the run id of the session that wrote it.
 func (s Seat) Report() string { return s.Dir() + "/report.json" }
