@@ -460,24 +460,34 @@ func (cl call) lost(ctx, tryCtx context.Context, detail string) *Error {
 }
 
 func (cl call) judge(ans *answer) ([]byte, error) {
-	code := errcodeOf(ans.body)
-	switch s := ans.status; {
+	if e := StatusError(cl.method, cl.path, ans.status, errcodeOf(ans.body)); e != nil {
+		return nil, e
+	}
+	return ans.body, nil
+}
+
+// StatusError is the failure of a call to method and path answered with status and errcode,
+// classed as every call classes it; nil for a 200. A package that judges failures builds its
+// test errors with it.
+func StatusError(method, path string, status int, errcode string) *Error {
+	cl := call{method: method, path: path}
+	switch s := status; {
 	case s == http.StatusOK:
-		return ans.body, nil
+		return nil
 	case s >= 200 && s < 300:
-		return nil, cl.fail(ErrRefused, s, code, "an unexpected success status", false)
+		return cl.fail(ErrRefused, s, errcode, "an unexpected success status", false)
 	case s >= 300 && s < 400:
-		return nil, cl.fail(ErrRefused, s, code, "redirect refused", false)
+		return cl.fail(ErrRefused, s, errcode, "redirect refused", false)
 	case s == http.StatusUnauthorized:
-		return nil, cl.fail(ErrAuthRefused, s, code, "the access token was refused", false)
+		return cl.fail(ErrAuthRefused, s, errcode, "the access token was refused", false)
 	case s == http.StatusForbidden:
-		return nil, cl.fail(ErrForbidden, s, code, "forbidden", false)
+		return cl.fail(ErrForbidden, s, errcode, "forbidden", false)
 	case s == http.StatusNotFound:
-		return nil, cl.fail(ErrNotFound, s, code, "not found", false)
+		return cl.fail(ErrNotFound, s, errcode, "not found", false)
 	case s >= 500:
-		return nil, cl.fail(ErrRefused, s, code, "server error", true)
+		return cl.fail(ErrRefused, s, errcode, "server error", true)
 	default:
-		return nil, cl.fail(ErrRefused, s, code, "refused", false)
+		return cl.fail(ErrRefused, s, errcode, "refused", false)
 	}
 }
 
