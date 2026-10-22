@@ -36,6 +36,10 @@ ROOM_TOPIC = "Agent team bus: agents' pings and the team's humans' addressed mes
 PREFIX = "agent_bus"
 EVENT_TEAM = f"{PREFIX}.team"
 EVENT_STATUS = f"{PREFIX}.status"
+#: The team's colour override on the status line (Plan 00217 SPEC-team-colours C8): the admin
+#: keeps it, `{"colour": "#rrggbb"}` or `{}`, beside the record rather than in it, so a member
+#: that does not know it is unaffected. Informational, as the topic is.
+EVENT_COLOUR = f"{PREFIX}.colour"
 PING_KEY = f"{PREFIX}.ping"
 TEXT_KEY = f"{PREFIX}.text"
 

@@ -52,9 +52,10 @@ the Python (SPEC-status-line S40).
 ## 2. The override
 
 - **C7** A present `agent_bus_teams` entry may set `colour:`, a palette name (C1, lower case) or
-  `#rrggbb` (six hex digits, either case, stored lower case). It is validated by the team file's
-  rules (`teamfile.parse_team_file`), so `ccy-teams`, `declare check` and the play all refuse the
-  same values, with `team file: colour: ...` naming the rule:
+  `#rrggbb` (six hex digits, either case, stored lower case; quoted in YAML, where `#` starts a
+  comment). It is validated by the team file's rules (`teamfile.parse_team_file`), so the play
+  (`agent-bus-install team`) and `ccy-teams` (whose `declare` reads every entry through them)
+  refuse the same values, with `team file: colour: ...` naming the rule:
   - not a string, or neither a palette name nor `#` and six hex digits: `must be one of <names>, or #rrggbb`;
   - a hex below C2's contrast against any reference background: `#<hex> is too dark to read on a dark terminal (contrast <ratio>:1 against <background>, at least 4.5:1 needed)`.
     An entry without `colour` uses the auto colour.
@@ -69,7 +70,8 @@ the Python (SPEC-status-line S40).
 - **C9** A member's syncer reads the event from the admin alone, when it verifies the room and when
   a sync carries that event type (both filters name it). An event from anyone else, or one whose
   content is not exactly `{"colour": <a colour C7 accepts as hex>}`, is no colour and never a loss
-  of trust (the event is informational, as the topic is), and is said once in the watcher's log.
+  of trust (the event is informational, as the topic is, and like the topic it is not logged:
+  only the admin can write it, so a bad one is not expected).
   The colour is kept in `<bundle>/state/colour.json` as `{"v": 1, "colour": "#rrggbb"}`, mode
   0600, written atomically; with no colour the file is removed. A loss of trust removes it too.
   A member on an older pingbus ignores the event type: it shows the auto colour, and nothing else
@@ -128,6 +130,9 @@ belongs to. Each team piece now names this session's member in that team, in the
 - **C18** Under PINGBUS_MEMBERSHIP (a seated session) the bundle is the seat's own (the session
   home's link to it), so `<member>` is the seat this session holds, the same as the seat's handle
   `pingbus status` prints.
+
+SPEC-status-line section 8's on-disk formats gain `colour.json`: `inbox.TeamState.save_colour`
+writes it, and `writers_test.go` reads what it wrote.
 
 ## 5. Not built
 

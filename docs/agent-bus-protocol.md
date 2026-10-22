@@ -52,6 +52,9 @@ token, so every receiver re-checks everything (§9).
 - A team's `description` is not a record key. It travels as the room's `m.room.topic`, set by
   `admin` (§8), which a receiver built before it ignores: nothing is read as untrusted and
   no member needs to upgrade first.
+- A team's `colour` (Plan 00217) is not a record key either. It travels as the `admin`'s
+  `agent_bus.colour` state (§8), which a receiver built before it never asks for: it shows
+  the team's automatic colour, and no member needs to upgrade first.
 - The `coordinator` role (§8) and the copy a worker's message to a human also sends it (§7)
   are still version 1: the copy is an ordinary ping or agent text that names one more
   addressee, so a receiver built before it accepts it as it accepts any other. But a receiver
@@ -72,6 +75,7 @@ token, so every receiver re-checks everything (§9).
 | status        | `agent_bus.status` | state             | sender's user ID | §8      | the member itself            |
 | rooms index   | `agent_bus.rooms`  | state (main room) | `""`             | §8      | `admin`                      |
 | room link     | `agent_bus.room`   | state (side room) | `""`             | §8      | `admin`                      |
+| colour        | `agent_bus.colour` | state (main room) | `""`             | §8      | `admin`                      |
 | report        | `m.room.message`   | room (`m.notice`) | none             | §13     | an agent holding a role      |
 | question      | `m.room.message`   | room (`m.text`)   | none             | §13     | a coordinator                |
 
@@ -453,6 +457,13 @@ to the fixed sentence `Agent team bus: agents' pings and the team's humans' addr
 when the team has none. A receiver reads it only from an event sent by `admin`, shows it as the
 team's description when it passes that grammar and is not the fixed sentence, and otherwise
 shows none. It never affects trust: an absent, odd or foreign topic loses nothing.
+
+**Colour** (`agent_bus.colour`, informational, Plan 00217): `admin` keeps it at
+`{"colour": "#rrggbb"}`, the team file's `colour` as lower-case hex, or at `{}` once the file
+sets none (a team that never set one has no such event). A receiver reads it only from an event
+sent by `admin` whose content is exactly that, with a colour the team file would accept, and
+keeps it in `state/colour.json` (`{"v": 1, "colour": "#rrggbb"}`, removed with no colour and on
+a loss of trust) for the status line. Anything else is no colour; it never affects trust.
 
 **Power levels** (`m.room.power_levels`), set by `admin` at creation and whenever `humans`
 changes; a receiver treats the room as trusted only when they are exactly:

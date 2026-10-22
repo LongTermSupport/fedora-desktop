@@ -105,6 +105,10 @@ user_email: "yourname@example.com"
 #                                # 1 to 120 characters; shown by ccy-teams, the ccy --teams picker, pingbus
 #                                # status and the room topic. Changing it restarts nothing; it travels as
 #                                # the room topic, so an older pingbus just shows none.
+#     colour: "#60a5fa"          # optional: the team's colour on the status line, a palette name (teal, cyan,
+#                                # sky, blue, indigo, violet, purple, magenta, pink, mint) or a quoted
+#                                # "#rrggbb" legible on a dark terminal; absent, a colour from the team's name.
+#                                # Changing it restarts nothing; an older pingbus shows the automatic colour.
 #     listen: ["<bus_ip>"]
 #     allow_from: ["<cidr>"]     # only other machines (WireGuard) or a non-default bridge; the LXC bridge is added by the play
 #     humans: ["<name>"]

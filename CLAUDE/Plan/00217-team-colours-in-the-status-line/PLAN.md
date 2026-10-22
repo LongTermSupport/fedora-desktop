@@ -64,11 +64,11 @@ re-recorded from the Python.
 
 ### Phase 3: The override's route
 
-- [ ] ⬜ **Task 3.1**: `teamfile.py` accepts and validates `colour` (C7); `localhost.yml.dist`
+- [x] ✅ **Task 3.1**: `teamfile.py` accepts and validates `colour` (C7); `localhost.yml.dist`
   documents it.
-- [ ] ⬜ **Task 3.2**: The admin keeps the `agent_bus.colour` state event (C8); the protocol spec
+- [x] ✅ **Task 3.2**: The admin keeps the `agent_bus.colour` state event (C8); the protocol spec
   names it.
-- [ ] ⬜ **Task 3.3**: The syncer reads it and `inbox.TeamState` keeps `colour.json` (C9).
+- [x] ✅ **Task 3.3**: The syncer reads it and `inbox.TeamState` keeps `colour.json` (C9).
 
 ### Phase 4: Deploy and review
 
