@@ -1,6 +1,7 @@
 package state
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -17,6 +18,7 @@ const (
 	aliceID = "@alice:" + server
 	sha     = "0123456789abcdef0123456789abcdef01234567"
 	txn     = "tc0123456789abcdef0123456789abcdef"
+	txn2    = "tc0123456789abcdef0123456789abcde0"
 )
 
 // eventID is the n-th distinct event id.
@@ -36,10 +38,20 @@ func sampleStore(t *testing.T) Store {
 	}
 	s.Awaiting = []Awaiting{{Nonce: "3f9c2a71", IDs: []string{eventID(3)}, Transcript: TranscriptMark{Path: "/home/u/.claude/projects/p/x.jsonl", Offset: 81920}, AtMS: 13, Written: WrittenYes}}
 	s.Missed = []Missed{{Nonce: "3f9c2a72", IDs: []string{eventID(4)}, Offset: 90112, AtMS: 14}}
-	s.Ledger = []Ledger{{ID: eventID(5), Room: proto.PurposeMain, Item: records.KindPeer, Thread: new(eventID(6)), From: otherID, AtMS: 15}}
+	s.Pending = append(s.Pending, Pending{ID: eventID(8), Room: proto.PurposeMain, Item: records.KindPing, SentMS: 12, From: otherID, Verb: new("review")})
+	s.Ledger = []Ledger{
+		{ID: eventID(5), Room: proto.PurposeMain, Item: records.KindPeer, Thread: new(eventID(6)), From: otherID, AtMS: 15},
+		{ID: eventID(9), Room: proto.PurposeMain, Item: records.KindPing, From: otherID, AtMS: 15, Verb: new(proto.VerbDone)},
+	}
 	s.Receipts = []Receipt{{ID: eventID(5), Room: proto.PurposeMain}}
 	s.Outbox.Pings = []Ping{{ID: eventID(7), Verb: "review", Ref: new("commit:owner/repo@" + sha), To: []string{otherID, aliceID}, SentMS: 16, DueMS: 17, Answered: []int{1}, Reported: []int{}}}
-	s.Outbox.Sending = []Sending{{Txn: txn, Room: proto.PurposeMain, Kind: SendText, SinceMS: 18}}
+	s.Outbox.Sending = []Sending{
+		{Txn: txn, Room: proto.PurposeMain, Kind: SendText, SinceMS: 18, Type: proto.MessageType, Content: json.RawMessage(`{"body":"hi","msgtype":"m.text"}`)},
+		{
+			Txn: txn2, Room: proto.PurposeMain, Kind: SendPing, SinceMS: 18, Type: proto.MessageType, Content: json.RawMessage(`{"body":"review"}`), Tried: true,
+			Ping: &SendingPing{Verb: "review", Ref: new("commit:owner/repo@" + sha), To: []string{otherID}, TimeoutMS: 900_000},
+		},
+	}
 	s.Outbox.Gate.Recent = []GateKey{{Key: strings.Repeat("ab", 32), AtMS: 19}}
 	s.Run.Ended = &RunEnd{Notice: NoticeLeft, Reason: new("exit"), State: StateAttempted, Txn: new(txn), AtMS: 20}
 	return s
@@ -147,6 +159,44 @@ func TestStoreRules(t *testing.T) {
 	}
 }
 
+// n3d-D1, n3d-D30: a send in flight carries a strict object of content and, for an
+// answer-expecting ping, its outbox part; a ping item carries its verb, no other item does.
+func TestN3dD1SendingAndVerbRules(t *testing.T) {
+	for name, mutate := range map[string]func(*Store){
+		"sending bad type":          func(s *Store) { s.Outbox.Sending[0].Type = "m.reaction" },
+		"sending content a list":    func(s *Store) { s.Outbox.Sending[0].Content = json.RawMessage(`["hi"]`) },
+		"sending content a string":  func(s *Store) { s.Outbox.Sending[0].Content = json.RawMessage(`"hi"`) },
+		"sending content null":      func(s *Store) { s.Outbox.Sending[0].Content = nil },
+		"sending content float":     func(s *Store) { s.Outbox.Sending[0].Content = json.RawMessage(`{"n":1.5}`) },
+		"sending content twice key": func(s *Store) { s.Outbox.Sending[0].Content = json.RawMessage(`{"n":1,"n":2}`) },
+		"sending content over cap": func(s *Store) {
+			s.Outbox.Sending[0].Content = json.RawMessage(`{"body":"` + strings.Repeat("x", maxSendContent-10) + `"}`)
+		},
+		"sending ping on a text":    func(s *Store) { s.Outbox.Sending[0].Ping = s.Outbox.Sending[1].Ping },
+		"sending ping answer verb":  func(s *Store) { s.Outbox.Sending[1].Ping.Verb, s.Outbox.Sending[1].Ping.Ref = proto.VerbDone, nil },
+		"sending ping unknown verb": func(s *Store) { s.Outbox.Sending[1].Ping.Verb = "poke" },
+		"sending ping no ref":       func(s *Store) { s.Outbox.Sending[1].Ping.Ref = nil },
+		"sending ping bad ref":      func(s *Store) { s.Outbox.Sending[1].Ping.Ref = new("nothing") },
+		"sending ping no target":    func(s *Store) { s.Outbox.Sending[1].Ping.To = []string{} },
+		"sending ping null targets": func(s *Store) { s.Outbox.Sending[1].Ping.To = nil },
+		"sending ping twice target": func(s *Store) { s.Outbox.Sending[1].Ping.To = []string{otherID, otherID} },
+		"sending ping foreign user": func(s *Store) { s.Outbox.Sending[1].Ping.To = []string{"@alice:other"} },
+		"sending ping 17 targets":   func(s *Store) { s.Outbox.Sending[1].Ping.To = targets(capPingTargets + 1) },
+		"sending ping no timeout":   func(s *Store) { s.Outbox.Sending[1].Ping.TimeoutMS = 0 },
+		"pending ping no verb":      func(s *Store) { s.Pending[2].Verb = nil },
+		"pending ping bad verb":     func(s *Store) { s.Pending[2].Verb = new("poke") },
+		"pending human with verb":   func(s *Store) { s.Pending[0].Verb = new("review") },
+		"ledger ping no verb":       func(s *Store) { s.Ledger[1].Verb = nil },
+		"ledger peer with verb":     func(s *Store) { s.Ledger[0].Verb = new(proto.VerbAck) },
+	} {
+		s := sampleStore(t)
+		mutate(&s)
+		if _, err := s.encode(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: encode = %v, want ErrInvalid", name, err)
+		}
+	}
+}
+
 // TestStoreGateCreditIsInteger holds the integer credit of proto.Bucket: B's 9.5 is refused.
 func TestStoreGateCreditIsInteger(t *testing.T) {
 	s := sampleStore(t)
@@ -190,17 +240,20 @@ func fullStore(t *testing.T) Store {
 	t.Helper()
 	s := sampleStore(t)
 	longID := "@" + strings.Repeat("r", 40) + ".999999+" + strings.Repeat("s", 48) + ".podman:" + server // A4's 128 bytes
+	longLocal := longID[1 : len(longID)-len(server)-1]
 	s.Pending, s.Ledger, s.Receipts = nil, nil, nil
 	s.Pending = []Pending{}
 	for i := range capPending {
-		item := records.KindHuman
+		// The largest entries: an agent's ping with its verb, and a TIMEOUT keyed on the
+		// longest localpart in the reserve.
+		id, item, verb := eventID(i)+"~"+longLocal, records.KindTimeout, (*string)(nil)
 		if i < capPending-pendingReserve {
-			item = records.KindPeer
+			id, item, verb = eventID(i), records.KindPing, new(proto.VerbBlocked)
 		}
-		s.Pending = append(s.Pending, Pending{ID: eventID(i), Room: proto.PurposeQuestions, Item: item, SentMS: farMS, From: longID, Handed: new("0badf00d")})
+		s.Pending = append(s.Pending, Pending{ID: id, Room: proto.PurposeQuestions, Item: item, SentMS: farMS, From: longID, Handed: new("0badf00d"), Verb: verb})
 	}
 	for i := range capLedger {
-		s.AddLedger(Ledger{ID: eventID(i), Room: proto.PurposeQuestions, Item: records.KindTimeout, Thread: new(eventID(i)), From: longID, AtMS: farMS})
+		s.AddLedger(Ledger{ID: eventID(i) + "~" + longLocal, Room: proto.PurposeQuestions, Item: records.KindTimeout, Thread: new(eventID(i)), From: longID, AtMS: farMS})
 	}
 	for i := range capReceipts {
 		s.Receipts = append(s.Receipts, Receipt{ID: eventID(i), Room: proto.PurposeQuestions})
@@ -222,7 +275,7 @@ func fullStore(t *testing.T) Store {
 	}
 	s.Outbox.Sending = []Sending{}
 	for range capSending {
-		s.Outbox.Sending = append(s.Outbox.Sending, Sending{Txn: txn, Room: proto.PurposeQuestions, Kind: SendNotice, SinceMS: farMS})
+		s.Outbox.Sending = append(s.Outbox.Sending, largestSending(t))
 	}
 	s.Outbox.Gate.Recent = []GateKey{}
 	for range capGateKeys {
@@ -247,6 +300,56 @@ func TestStoreFullFitsTheFileCap(t *testing.T) {
 	if bound > MaxStore {
 		t.Fatalf("the list caps sum to %d bytes, over the file cap of %d", bound, MaxStore)
 	}
+	// n3d-D1: the file cap is that sum rounded up to the next 256 KiB, no more.
+	const step = 256 << 10
+	if want := (bound + step - 1) / step * step; MaxStore != want {
+		t.Fatalf("the file cap is %d, want the sum %d rounded up to %d", MaxStore, bound, want)
+	}
+}
+
+// n3d-D1, n3d-D24: 32 sends in flight of at most 20 KiB each, and 96 gate keys; the largest
+// send its grammar allows is within its entry size, and a full sending list round-trips.
+func TestN3dD1SendingAndGateCaps(t *testing.T) {
+	if capSending != 32 || sizeSending != 20<<10 || capGateKeys != 96 || maxSendContent != 16384 {
+		t.Fatalf("caps: sending %d of %d bytes, gate keys %d, content %d", capSending, sizeSending, capGateKeys, maxSendContent)
+	}
+	entry, err := json.Marshal(largestSending(t))
+	check(t, err)
+	if len(entry) > sizeSending {
+		t.Fatalf("the largest send in flight is %d bytes, over %d", len(entry), sizeSending)
+	}
+	s := fullStore(t)
+	data, err := s.encode()
+	check(t, err)
+	back, err := DecodeStore(data)
+	check(t, err)
+	if len(back.Outbox.Sending) != capSending || string(back.Outbox.Sending[0].Content) != string(s.Outbox.Sending[0].Content) {
+		t.Fatalf("a full sending list did not round-trip: %d entries", len(back.Outbox.Sending))
+	}
+	if err := back.AddSending(largestSending(t)); !errors.Is(err, ErrFull) {
+		t.Fatalf("a 33rd send in flight = %v", err)
+	}
+	if err := back.AddGateKey(GateKey{}); !errors.Is(err, ErrFull) {
+		t.Fatalf("a 97th gate key = %v", err)
+	}
+}
+
+// n3d-D1: a ping that expects no answer is sent with no outbox part; a sample store
+// round-trips its sends with their content and ping.
+func TestN3dD1SendingRoundTrips(t *testing.T) {
+	s := sampleStore(t)
+	s.Outbox.Sending = append(s.Outbox.Sending, Sending{Txn: txn, Room: proto.PurposeMain, Kind: SendPing, SinceMS: 1, Type: proto.MessageType, Content: json.RawMessage(`{"body":"done"}`)})
+	data, err := s.encode()
+	check(t, err)
+	back, err := DecodeStore(data)
+	check(t, err)
+	got := back.Outbox.Sending[1]
+	if !got.Tried || got.Ping == nil || got.Ping.TimeoutMS != 900_000 || *got.Ping.Ref != "commit:owner/repo@"+sha || string(got.Content) != `{"body":"review"}` {
+		t.Fatalf("the ping in flight read back as %+v", got)
+	}
+	if back.Outbox.Sending[2].Ping != nil || *back.Pending[2].Verb != "review" || *back.Ledger[1].Verb != proto.VerbDone || back.Pending[0].Verb != nil {
+		t.Fatalf("read back %+v", back)
+	}
 }
 
 // TestStoreListCapsFireFirst holds each list's cap, entry count and entry size, firing before
@@ -259,10 +362,13 @@ func TestStoreListCapsFireFirst(t *testing.T) {
 	}{
 		"pending": {func(s *Store) {
 			p := s.Pending[len(s.Pending)-1]
-			p.ID = eventID(capPending)
+			p.ID = eventID(capPending) + p.ID[len(eventID(0)):]
 			s.Pending = append(s.Pending, p)
 		}, count("pending", capPending)},
-		"pending agent": {func(s *Store) { s.Pending[len(s.Pending)-1].Item = records.KindPing }, "agent items"},
+		"pending agent": {func(s *Store) {
+			last := &s.Pending[len(s.Pending)-1]
+			last.ID, last.Item, last.Verb = eventID(capPending), records.KindPing, new(proto.VerbDone)
+		}, "agent items"},
 		"ledger":        {func(s *Store) { s.Ledger = append(s.Ledger, s.Ledger[0]) }, count("ledger", capLedger)},
 		"receipts":      {func(s *Store) { s.Receipts = append(s.Receipts, s.Receipts[0]) }, count("receipts", capReceipts)},
 		"pings":         {func(s *Store) { s.Outbox.Pings = append(s.Outbox.Pings, s.Outbox.Pings[0]) }, count("pings", capPings)},
@@ -288,6 +394,50 @@ func TestStoreListCapsFireFirst(t *testing.T) {
 			t.Errorf("%s: encode = %v, want the rule %q", name, err, c.rule)
 		}
 	}
+}
+
+// longRef is a path reference of A 9.1's longest, 700 characters.
+func longRef(t *testing.T) string {
+	t.Helper()
+	segs := make([]string, 0, 8)
+	for range 7 {
+		segs = append(segs, strings.Repeat("p", 64))
+	}
+	segs = append(segs, strings.Repeat("q", 58))
+	ref := "path:" + strings.Repeat("o", 39) + "/" + strings.Repeat("r", 100) + "@" + sha + ":" + strings.Join(segs, "/")
+	if len(ref) != proto.MaxRefLen || !validRef(ref) {
+		t.Fatalf("the long reference is %d characters, valid %v", len(ref), validRef(ref))
+	}
+	return ref
+}
+
+// largestSending is a send in flight as large as its grammar lets one be: the content at its
+// cap, a review ping to 16 of the longest user ids with the longest reference.
+func largestSending(t *testing.T) Sending {
+	t.Helper()
+	to := make([]string, 0, capPingTargets)
+	for j := range capPingTargets {
+		id := fmt.Sprintf("@%s.%d+%s.podman:%s", strings.Repeat("r", 40), 999984+j, strings.Repeat("s", 48), server)
+		if len(id) != maxUserID {
+			t.Fatalf("a long user id is %d bytes", len(id))
+		}
+		to = append(to, id)
+	}
+	content := `{"body":"` + strings.Repeat("x", maxSendContent-len(`{"body":""}`)) + `"}`
+	return Sending{
+		Txn: txn, Room: proto.PurposeQuestions, Kind: SendPing, SinceMS: farMS, Type: proto.MessageType,
+		Content: json.RawMessage(content), Tried: true,
+		Ping: &SendingPing{Verb: "review", Ref: new(longRef(t)), To: to, TimeoutMS: farMS},
+	}
+}
+
+// targets is n distinct agents of the team's server.
+func targets(n int) []string {
+	ids := make([]string, 0, n)
+	for i := range n {
+		ids = append(ids, fmt.Sprintf("@r.%d+s.podman:%s", i+1, server))
+	}
+	return ids
 }
 
 func manyIDs(n int) []string {

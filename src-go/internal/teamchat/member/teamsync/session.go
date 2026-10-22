@@ -667,6 +667,9 @@ func (s *sess) take(j *judged, v proto.Verdict, id string, restored func(int64) 
 			ID: v.Event.ID, Room: proto.PurposeMain, Item: itemKind(v.Kind), SentMS: v.Event.OriginTs,
 			From: v.Event.Sender, Restored: restored != nil && restored(v.Event.OriginTs),
 		}
+		if p.Item == records.KindPing {
+			p.Verb = new(v.Content.Ping.Verb)
+		}
 		j.batch.Items = append(j.batch.Items, team.Item{Pending: p, Verdict: v})
 	case proto.Ignore:
 		if v.Reason != proto.IgnoreSeen {
