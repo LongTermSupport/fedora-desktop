@@ -16,11 +16,12 @@ type What string
 
 // Op is a guest operation's output contract: its verb, the fixed set of what it may report
 // changed (TB2.4: the host refuses any other line), and whether it may exit 75, which only an
-// op that takes a seat lock does (GU1).
+// op that takes a seat lock does (GU1), and whether it acts on one seat's key (`--key`).
 type Op struct {
 	Verb    string
 	Changes []What
 	Busy    bool
+	Keyed   bool
 }
 
 var registry struct {

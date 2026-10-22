@@ -29,7 +29,11 @@ func attach(t *testing.T) Attach {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Attach{Container: "c1", User: u, UID: 1001, GID: 1001, Home: "/home/<user>", Kit: paths.HostKitDir(d)}
+	k, err := paths.ParseSeatKey("aeb4d70a3a7e7c04")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return Attach{Container: "c1", User: u, Key: k, UID: 1001, GID: 1001, Home: "/home/<user>", Kit: paths.HostKitDir(d)}
 }
 
 // errorLine is the error object the member binary writes as stderr's last line for code.
@@ -64,7 +68,7 @@ func TestGuestArgv(t *testing.T) {
 		"-n", "c1", "-u", "1001", "-g", "1001", "--clear-env",
 		"--set-var", "HOME=/home/<user>", "--set-var", "USER=agent", "--set-var", "LOGNAME=agent",
 		"--set-var", "PATH=/usr/local/bin:/usr/bin:/bin",
-		"--", a.Kit.Binary(), "guest", "place-bundle", "--user", "agent", "--team", "t1",
+		"--", a.Kit.Binary(), "guest", "place-bundle", "--user", "agent", "--key", "aeb4d70a3a7e7c04", "--team", "t1",
 	}
 	if len(calls) != 1 || calls[0].Name != "lxc-attach" || !slices.Equal(calls[0].Args, want) {
 		t.Fatalf("%v", calls)
@@ -134,6 +138,13 @@ func TestGuestRefusesBeforeRunning(t *testing.T) {
 	}
 	if _, err := (LXC{Runner: f, DesktopUID: 1000}).Guest(t.Context(), attach(t), guest.OpCheck, []string{"a\x00b"}, nil); !errors.Is(err, ErrRefused) {
 		t.Fatalf("a NUL in an argument: %v", err)
+	}
+	noKey := attach(t)
+	noKey.Key = paths.SeatKey{}
+	for _, op := range []guest.Op{guest.OpPlaceBundle, guest.OpMembership, guest.OpRemove} {
+		if _, err := (LXC{Runner: f, DesktopUID: 1000}).Guest(t.Context(), noKey, op, nil, nil); !errors.Is(err, ErrRefused) {
+			t.Fatalf("%s with no key: %v", op.Verb, err)
+		}
 	}
 	if len(f.Calls()) != 0 {
 		t.Fatal("ran")
@@ -260,5 +271,24 @@ func TestGuestAttachFailures(t *testing.T) {
 	f.OnError([]string{"lxc-attach"}, boom)
 	if _, err := (LXC{Runner: f, DesktopUID: 1000}).Guest(t.Context(), attach(t), guest.OpCheck, nil, nil); !errors.Is(err, boom) {
 		t.Errorf("the start failure is not wrapped: %v", err)
+	}
+}
+
+// Only a seat op takes --key: guest check is the user's, so a key is not passed to it, and an
+// attach with no key may run it.
+func TestOnlyASeatOpTakesTheKey(t *testing.T) {
+	for _, a := range []Attach{attach(t), func() Attach { a := attach(t); a.Key = paths.SeatKey{}; return a }()} {
+		f := &execx.Fake{}
+		f.On([]string{"lxc-attach"}, execx.Result{})
+		if _, err := (LXC{Runner: f, DesktopUID: 1000}).Guest(t.Context(), a, guest.OpCheck, []string{"--team", "t1"}, nil); err != nil {
+			t.Fatal(err)
+		}
+		calls := f.Calls()
+		if len(calls) != 1 || slices.Contains(calls[0].Args, "--key") {
+			t.Fatalf("%v", calls)
+		}
+		if got := calls[0].Args[len(calls[0].Args)-5:]; !slices.Equal(got, []string{"check", "--user", "agent", "--team", "t1"}) {
+			t.Fatalf("%q", got)
+		}
 	}
 }

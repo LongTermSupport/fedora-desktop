@@ -31,10 +31,12 @@ const setVar = "--set-var"
 // maxChangedLine is the longest `CHANGED` line a guest op may print (TB2.4).
 const maxChangedLine = 256
 
-// Attach is who a guest op runs as and with which kit (C 3.9.1).
+// Attach is who a guest op runs as, on which seat, and with which kit (C 3.9.1). Key is the
+// seat's, which a seat op (guest.Op.Keyed) is given as `--key`; guest check takes none.
 type Attach struct {
 	Container string
 	User      paths.GuestUser
+	Key       paths.SeatKey
 	UID, GID  int
 	Home      string
 	// Kit is HostKitDir(digest), resolved once by the host: never current.
@@ -92,7 +94,7 @@ func (e *AttachError) Unwrap() error { return e.Err }
 
 // Guest runs `lxc-attach -n C -u UID -g GID --clear-env --set-var HOME=<home> --set-var
 // USER=<u> --set-var LOGNAME=<u> --set-var PATH=/usr/local/bin:/usr/bin:/bin -- <kit>/bin/teamchat
-// <op words> --user <u> [args]` with stdin, bounded by GuestWait, its stdout and stderr each
+// <op words> --user <u> [--key <key>] [args]` with stdin, the key for a seat op only, bounded by GuestWait, its stdout and stderr each
 // capped at MaxGuestOutput. A uid or gid of 0, or the desktop's uid, is refused before anything
 // runs (TB3). A token reaches the op only on stdin, and no error quotes stdin or a guest byte.
 func (l LXC) Guest(ctx context.Context, a Attach, op guest.Op, args []string, stdin []byte) (GuestResult, error) {
@@ -104,6 +106,9 @@ func (l LXC) Guest(ctx context.Context, a Attach, op guest.Op, args []string, st
 	defer cancel()
 	user := a.User.String()
 	words := append(strings.Fields(op.Verb), "--user", user)
+	if op.Keyed {
+		words = append(words, "--key", a.Key.String())
+	}
 	stdout, stderr := &capped{}, &capped{}
 	_, err = l.Runner.Run(ctx, execx.Cmd{
 		Name: "lxc-attach",
@@ -156,10 +161,20 @@ func (l LXC) checkGuest(a Attach, op guest.Op, args []string) (guest.Op, error) 
 			return guest.Op{}, fmt.Errorf("%w: an argument holds a NUL", ErrRefused)
 		}
 	}
+	return registered(a, op)
+}
+
+// registered is the registered op of op's verb, refused when it is a seat op and the attach
+// names no seat key.
+func registered(a Attach, op guest.Op) (guest.Op, error) {
 	for _, o := range guest.Ops() {
-		if o.Verb == op.Verb {
-			return o, nil
+		if o.Verb != op.Verb {
+			continue
 		}
+		if o.Keyed && a.Key == (paths.SeatKey{}) {
+			return guest.Op{}, fmt.Errorf("%w: %s with no seat key", ErrRefused, o.Verb)
+		}
+		return o, nil
 	}
 	return guest.Op{}, fmt.Errorf("%w: %q is not a guest op", ErrRefused, op.Verb)
 }

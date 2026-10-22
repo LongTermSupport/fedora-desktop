@@ -22,6 +22,7 @@ package paths
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strconv"
 )
 
@@ -157,6 +158,24 @@ func SessionUnit(team TeamID, checkout string, seat int) string {
 	key := LXCSeatKey(team, checkout, seat)
 	return guestSessionPrefix + team.text() + "-" + LXCRepoLabel(checkout) + "-" + strconv.Itoa(seat) + "-" +
 		key.text() + ".service"
+}
+
+// maxSessionUnit is the longest SessionUnit (C 3.9.1).
+const maxSessionUnit = 94
+
+// sessionUnitGrammar is SessionUnit's form, read from its end: the team and repo label (both
+// [a-z0-9_-], the team starting with a letter), the seat 1-9999 and the key.
+var sessionUnitGrammar = regexp.MustCompile(`^` + regexp.QuoteMeta(guestSessionPrefix) +
+	`[a-z][a-z0-9_-]*-[1-9][0-9]{0,3}-([0-9a-f]{16})\.service$`)
+
+// ParseSessionUnit reads the seat key of a name in SessionUnit's form, so a caller that names a
+// guest unit can name no other kind.
+func ParseSessionUnit(name string) (SeatKey, error) {
+	m := sessionUnitGrammar.FindStringSubmatch(name)
+	if m == nil || len(name) > maxSessionUnit {
+		return SeatKey{}, fmt.Errorf("%w session unit: not %s<team>-<repo>-<seat>-<key>.service", ErrInvalid, guestSessionPrefix)
+	}
+	return SeatKey{m[1]}, nil
 }
 
 // GuestRuntimeDir is the XDG_RUNTIME_DIR a seat's session unit gives the session, its

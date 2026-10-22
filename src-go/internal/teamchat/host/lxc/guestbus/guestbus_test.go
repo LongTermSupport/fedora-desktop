@@ -46,13 +46,13 @@ func (f *fakeConn) Close() error {
 	return nil
 }
 
-func user(t *testing.T) paths.GuestUser {
+func unit(t *testing.T) string {
 	t.Helper()
-	u, err := paths.ParseGuestUser("agent1")
+	team, err := paths.ParseTeamID("alpha")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return u
+	return paths.SessionUnit(team, "/srv/agent1/src/repo.1", 2)
 }
 
 // verb is one Systemd method, the D-Bus method it sends, its arguments and whether it is a job.
@@ -66,14 +66,13 @@ type verb struct {
 
 func verbs(t *testing.T) []verb {
 	t.Helper()
-	u := user(t)
-	unit := "teamchat-session-agent1.service"
+	u := unit(t)
 	return []verb{
 		{"reload", func(s Systemd, ctx context.Context) error { return s.Reload(ctx) }, "Reload", nil, false},
-		{"start", func(s Systemd, ctx context.Context) error { return s.Start(ctx, u) }, "StartUnit", []any{unit, "replace"}, true},
-		{"restart", func(s Systemd, ctx context.Context) error { return s.Restart(ctx, u) }, "RestartUnit", []any{unit, "replace"}, true},
-		{"stop", func(s Systemd, ctx context.Context) error { return s.Stop(ctx, u) }, "StopUnit", []any{unit, "replace"}, true},
-		{"reset-failed", func(s Systemd, ctx context.Context) error { return s.ResetFailed(ctx, u) }, "ResetFailedUnit", []any{unit}, false},
+		{"start", func(s Systemd, ctx context.Context) error { return s.Start(ctx, u) }, "StartUnit", []any{u, "replace"}, true},
+		{"restart", func(s Systemd, ctx context.Context) error { return s.Restart(ctx, u) }, "RestartUnit", []any{u, "replace"}, true},
+		{"stop", func(s Systemd, ctx context.Context) error { return s.Stop(ctx, u) }, "StopUnit", []any{u, "replace"}, true},
+		{"reset-failed", func(s Systemd, ctx context.Context) error { return s.ResetFailed(ctx, u) }, "ResetFailedUnit", []any{u}, false},
 	}
 }
 
@@ -114,12 +113,12 @@ func TestARefusalKeepsSystemdsErrorName(t *testing.T) {
 		dbus.Error{Name: "org.freedesktop.systemd1.NoSuchUnit", Body: []any{"Unit x not found."}},
 		dbus.NewError("org.freedesktop.systemd1.NoSuchUnit", []any{"Unit x not found."}),
 	} {
-		err := New(&fakeConn{err: refusal}).Start(t.Context(), user(t))
+		err := New(&fakeConn{err: refusal}).Start(t.Context(), unit(t))
 		se, ok := errors.AsType[*SystemdError](err)
 		if !errors.Is(err, ErrSystemd) || !ok || se.Name != "org.freedesktop.systemd1.NoSuchUnit" || se.Message != "Unit x not found." {
 			t.Fatalf("%v", err)
 		}
-		if err.Error() != "guest systemd StartUnit teamchat-session-agent1.service: systemd refused: org.freedesktop.systemd1.NoSuchUnit: Unit x not found." {
+		if err.Error() != "guest systemd StartUnit "+unit(t)+": systemd refused: org.freedesktop.systemd1.NoSuchUnit: Unit x not found." {
 			t.Errorf("%q", err)
 		}
 	}
@@ -134,13 +133,13 @@ func TestAClosedPeerIsGone(t *testing.T) {
 		io.EOF, io.ErrUnexpectedEOF, io.ErrClosedPipe, dbus.ErrClosed, net.ErrClosed,
 		syscall.ECONNRESET, syscall.EPIPE, fmt.Errorf("read: %w", syscall.ECONNRESET),
 	} {
-		err := New(&fakeConn{err: cause}).Stop(t.Context(), user(t))
+		err := New(&fakeConn{err: cause}).Stop(t.Context(), unit(t))
 		if !errors.Is(err, ErrGone) || !errors.Is(err, cause) {
 			t.Errorf("%v: %v", cause, err)
 		}
 	}
 	for _, other := range []error{ErrTooLarge, context.Canceled, errors.New("odd")} {
-		err := New(&fakeConn{err: other}).Stop(t.Context(), user(t))
+		err := New(&fakeConn{err: other}).Stop(t.Context(), unit(t))
 		if errors.Is(err, ErrGone) || !errors.Is(err, other) {
 			t.Errorf("%v: %v", other, err)
 		}
@@ -155,16 +154,27 @@ func TestACallThatNeverAnswersEndsAtItsBound(t *testing.T) {
 		t.Errorf("New's bound: %+v", s)
 	}
 	f := &fakeConn{block: true}
-	err := newSystemd(f, time.Millisecond).Restart(t.Context(), user(t))
+	err := newSystemd(f, time.Millisecond).Restart(t.Context(), unit(t))
 	if !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrGone) {
 		t.Errorf("%v", err)
 	}
 }
 
-func TestAZeroUserIsRefusedUnsent(t *testing.T) {
-	f := &fakeConn{}
-	if err := New(f).Start(t.Context(), paths.GuestUser{}); !errors.Is(err, ErrNoUser) || len(f.calls) != 0 {
-		t.Errorf("%v %+v", err, f.calls)
+// The client names a seat's session unit and nothing else (TB2: the host never asks the guest's
+// systemd to act on a unit C does not own).
+func TestANameThatIsNotASessionUnitIsRefusedUnsent(t *testing.T) {
+	for _, name := range []string{"", "sshd.service", "teamchat-session-alpha.service", unit(t) + "\n"} {
+		f := &fakeConn{}
+		for _, v := range []func(Systemd) error{
+			func(s Systemd) error { return s.Start(t.Context(), name) },
+			func(s Systemd) error { return s.Restart(t.Context(), name) },
+			func(s Systemd) error { return s.Stop(t.Context(), name) },
+			func(s Systemd) error { return s.ResetFailed(t.Context(), name) },
+		} {
+			if err := v(New(f)); !errors.Is(err, ErrNotSessionUnit) || len(f.calls) != 0 {
+				t.Errorf("%q: %v %+v", name, err, f.calls)
+			}
+		}
 	}
 }
 

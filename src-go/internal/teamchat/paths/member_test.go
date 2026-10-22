@@ -176,6 +176,33 @@ func TestParseGuestRuntimeDirName(t *testing.T) {
 	}
 }
 
+// The host's guest systemd client starts, stops and restarts a session unit only, read back
+// to its key by this grammar.
+func TestParseSessionUnit(t *testing.T) {
+	team := mustTeam(t, "ops")
+	unit := SessionUnit(team, sampleCheckout, 1)
+	if got, err := ParseSessionUnit(unit); err != nil || got != sampleSeatKey(t) {
+		t.Fatalf("ParseSessionUnit(%q) = %q, %v", unit, got, err)
+	}
+	longTeam := mustTeam(t, "a"+strings.Repeat("b", 21))
+	longest := SessionUnit(longTeam, "/srv/"+strings.Repeat("r", 40), 9999)
+	if _, err := ParseSessionUnit(longest); err != nil {
+		t.Errorf("ParseSessionUnit(%q) = %v", longest, err)
+	}
+	stem := strings.TrimSuffix(unit, ".service")
+	for _, bad := range []string{
+		"", stem, "sshd.service", "teamchat-session-" + sampleKeyText + ".service",
+		strings.Replace(unit, "-1-", "-0-", 1), strings.Replace(unit, "-1-", "-10000-", 1),
+		strings.Replace(unit, sampleKeyText, strings.ToUpper(sampleKeyText), 1),
+		"teamchat-session-ops-thing-1-" + sampleKeyText + "0.service", "x" + unit, unit + "\n",
+		"teamchat-session-ops-a.b-1-" + sampleKeyText + ".service",
+	} {
+		if _, err := ParseSessionUnit(bad); !errors.Is(err, ErrInvalid) {
+			t.Errorf("ParseSessionUnit(%q) = %v, want ErrInvalid", bad, err)
+		}
+	}
+}
+
 func TestMemberNamesRefuseBadInput(t *testing.T) {
 	for _, c := range []struct {
 		dir string
