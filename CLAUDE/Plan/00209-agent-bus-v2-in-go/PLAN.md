@@ -232,6 +232,17 @@ its first caller.
   step 1, `team approve`'s verb and password-sudo boundary, `team remove`, and the member verbs.
   Carried to the member verbs: `team apply` refuses another operation's `pending` record
   (n2b-D22); when those verbs land it becomes C 3.6.3's roll-forward.
+  Slice n2d (`feat/bus-v2-n2d`, `SPEC-n2d.md` MO1-MO8, CV1-CV6 and HS1-HS14, report
+  `subagent-reports/261022-n2d.md`) covers, as inert code: the member operations
+  (`add|return|reissue|park|retire|set`) and `role apply` with their `pending` roll-forward
+  (n2b-D22's refusal replaced), the admin's notices (n2b-D9 replaced), the guest token copy;
+  the team lock; `team apply`'s steps 1-9 and 11 (`host.Apply`) and `team remove [--purge]`; the
+  `teamchat-ctl` child's ops; and the `teamchat-admin` verbs over seams (`member *`,
+  `role apply`, `team approve|apply|remove`), with crash and roll-forward tests on fakehs. Not
+  covered: the `-tags tuwunel` round trip of the verbs (CV6's last line); the production
+  `Child`, `Opener`, `Bundles` and `OwnerGroup` (`cmd/teamchat-admin` wires no `Sys`); the
+  play's install tasks and C 3.5.2 step 1's Fedora check (gate A); `seatDevice` still duplicates
+  n2c's `paths.SeatDevice` until the merge.
 - [ ] 🔄 **Task 2.4**: Seats and bundles in the seat store (C 3.7), the declarations (C 3.8),
   Element profiles (C 3.10), health and the status records (C 3.11), backups and restore (C 3.12).
   Slice n2b (`SPEC-n2b.md` DR1-DR8, HV1-HV3 and GD1-GD3) covers the declarations of C 3.8: the
