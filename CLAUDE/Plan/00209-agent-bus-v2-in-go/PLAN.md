@@ -265,7 +265,8 @@ its first caller.
 ### Phase 6: N6, migration
 
 - [ ] ⬜ **Task 6.1**: The N6 spec from area D; `internal/teamchat/migrate/v1`, the only package
-  that names v1 (D 5.5); `teamchat-admin migrate <step>` M0-M8, the fence, the carry plan, the
+  that names v1 (D 5.5), and D 4.1 part 2's analyzer over `migrate/v1` (GoProjectRules.md,
+  red/green); `teamchat-admin migrate <step>` M0-M8, the fence, the carry plan, the
   commit and rollback (D 5); `ccy-teams migrate` and `migrate-declared.bash` (D 5.10, seam 55).
 - [ ] ⬜ **Task 6.2**: Acceptance: VM-lab scenarios `teamchat-migrate` and
   `teamchat-migrate-rollback` (P1); the migration pilot (P4); the first real team, the owner's

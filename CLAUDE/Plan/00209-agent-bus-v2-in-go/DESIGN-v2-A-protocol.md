@@ -156,6 +156,7 @@ homeserver or a cache:
 | Input is valid UTF-8; a `\uD800`-`\uDFFF` escape not forming a pair is an error           | drop `schema`              |
 | An object with a repeated key is an error                                                 | drop `schema`              |
 | A number is an integer in `[-(2^53-1), 2^53-1]`; a fraction or exponent is an error       | drop `schema`              |
+| `-0` is the integer 0                                                                     | -                          |
 | `true`/`false` are booleans only, never `1`/`0`; `1.0` is not `1`                         | drop `schema`              |
 | Unknown keys inside a typed `teamchat.*` object of a known major are ignored (section 3)  | -                          |
 | Keys this design names as forbidden (for example `m.new_content` on an agent event) fail  | drop with the reason named |
@@ -186,6 +187,16 @@ cannot see what the decoder already repaired.
 | feature               | `[a-z][a-z0-9-]{0,31}`                                                                                                                                                          | new    |
 | question              | `Q[1-9][0-9]{0,8}`                                                                                                                                                              | 00211  |
 
+**Reserved team ids.** `admin`, `backup`, `ctl`, `fence`, `health`, `install`, `membership`,
+`seats`, `server` and `status` are refused as team ids (`teamchat/paths`, `ParseTeamID`). They are
+the ids that would make a team-derived name equal a fixed one: the tails of the fixed
+`teamchat-<x>` names (team `ctl`'s homeserver user would be `teamchat-ctl`, the control user) and
+the fixed children of the per-team roots (`/run/teamchat/<team>` sits beside the ccy session's
+`/run/teamchat/membership`). The fixed names hold the list complete: the paths test derives it from
+them. No new fixed `teamchat-<x>` name, and no new fixed child of a per-team root, may take a
+declared team id, since a live team's id cannot change; C's validator refuses such an id at
+declaration (C 3.8; D 3.5).
+
 A value that fails its grammar is never rendered anywhere, not in a log line either: diagnostics
 name rooms and events by ID only and carry fixed text (v1 lesson, `protocol.py:291-292`).
 
@@ -199,6 +210,11 @@ name rooms and events by ID only and carry fixed text (v1 lesson, `protocol.py:2
 | `<seat>` | `[1-9][0-9]{0,5}` or `[a-z][a-z0-9]{0,11}` | a counter-issued number or an owner-chosen seat name             |
 | `<site>` | `[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?`     | the install's site label (v1 called it `host`), never a hostname |
 | `<type>` | `podman`, `lxc`, `docker`, `vm`, `host`    | what the member runs in                                          |
+
+Normalisation of a repository name or a site label folds ASCII case only; every other character
+outside the part's grammar, a non-ASCII one included, becomes `-` (`NormaliseRepo`,
+`NormaliseSite`); a site label whose result fails the grammar, or a repository name with nothing
+left, is refused.
 
 The short name is `<repo>.<seat>`; it names a member in `--to` and in reply commands only when no
 other member of the team has the same short name (v1 `cli.py:891-910`).
@@ -228,8 +244,9 @@ as a handle.
 **Reserved.** `humans` (a fixed word in the envelope, 13.2, so no human may be named it), `admin`
 (the team's admin account, the bundle pins `@admin:<server_name>`), `teamchat` (the literal `from:`
 of a MEMBERSHIP entry, 13.3, so a human account named `teamchat` cannot pass for it) and the
-homeserver's own service account localpart, `conduit` (v1 reserved it, and host check HC-A6
-found Tuwunel 1.9.4's service account is `@conduit`; the list is fixed in `teamchat/proto`).
+homeserver's own service account localparts: `conduit` and `tuwunel` are reserved (whichever
+homeserver HC-A6 chooses; v1 reserved `conduit`, and host check HC-A6 found Tuwunel 1.9.4's
+service account is `@conduit`; the list is fixed in `teamchat/proto`).
 The seat name `probe` is reserved for the acceptance probe (5.1 role `probe`; C 3.3): its handle is
 `teamchat.probe+<site>.host`, made by C for a team's first acceptance check and parked between
 checks, so it is never counter-issued, never removed and never reused for anything else (R9

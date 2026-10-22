@@ -1273,9 +1273,11 @@ how the link applies them.
     check does. (b) **No store, and the seat was just taken** (every new ccy session, because
     area C quarantines a released session's state, DC15; the first start of an LXC or host
     seat): verify the room, then **resume from the server**. In each synced room the start
-    point is the **earlier** of this seat's resume marker (the room's `teamchat.floor` account data, 2.3.2,
-    read by `GET /user/<me>/rooms/<room>/account_data/teamchat.floor` and decoded strictly; its own join event when it has none or it does not decode, which `link.log`
-    and `status` say) and the seat's last release, `released_ms` in the bundle's `seat.json`, which
+    point is the **earlier** of this seat's resume marker (the room's `teamchat.floor` account
+    data, 2.3.2, read by `GET /user/<me>/rooms/<room>/account_data/teamchat.floor` and decoded
+    strictly; its own join event when it has none, which is only a 404 whose errcode is
+    `M_NOT_FOUND`, any other 404 being a fault, or when it does not decode, which `link.log` and
+    `status` say) and the seat's last release, `released_ms` in the bundle's `seat.json`, which
     the host writes at each take and no container can reach (C 3.7.2). The marker is set with the
     token, so a released session that kept a copy of the token could move it forward past messages
     sent for the next holder; the host's release time bounds that, so an item after the last

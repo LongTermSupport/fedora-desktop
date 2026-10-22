@@ -1196,8 +1196,8 @@ allocation lock):
    token, if one was written, dies at this take's device logout (step 3). The handle's state,
    from the status record's roster, decides what follows: `active` with no `needs` goes on;
    `parked` or `lost` goes to `member return` and `needs: reissue` to `member reissue` (each a
-   placement, above, and asking the owner's password); `retired` is refused and its pool directory moved to
-   quarantine.
+   placement, above, and asking the owner's password); `retired` is refused and its pool
+   directory moved to quarantine.
 2. `mkdirat(held)` in the pool seat directory and write `held/held.json` with a fresh claim id
    (`openat(O_CREAT|O_EXCL|O_NOFOLLOW)`, 0600, fsync each and the directory).
 3. Log the seat's device out, then log in as the seat, over the member URL. Each login is
@@ -1787,7 +1787,8 @@ of what the host knows, not the only place it is known (LR 7 item 4). A record c
 fails `apply` and `lxc-add` and shows on the team row.
 
 The host's copy of each guest user's desired membership is
-`/var/lib/teamchat-admin/lxc/<container>/<user>.json` (root 0600):
+`/var/lib/teamchat-admin/_lxc/<container>/<user>.json` (root 0600; `_lxc`, like `_sets`, starts
+with an underscore, which no team id can):
 `{"v": 1, "generation": 4, "seats": [{"team": "<team>", "seat": "2"}], "farewell": []}`. It is
 written before the guest's file (3.9.2 step 8 and the absent phase), so `generation` never goes
 down, a converged apply compares against it and writes nothing, and a guest file the agent changed
@@ -2237,7 +2238,7 @@ and its link has stopped on that team at the 401 (B 2.6 step 08). The recovery i
 the same password-sudo session that ran the restore, before its `sudo -k`. For each handle in the
 answer's `reissue` list that has a pool record on this host, it runs `member reissue --credential password`, as the hot reissue when the seat is held (3.7.3) and as a placement when it is not.
 Each held session's link resumes on its new `token` with its store intact, then reads the
-roster's raised `restore_epoch` (below). A reissue that fails, or a handle whose pool record is
+roster's changed `restore_epoch` (below). A reissue that fails, or a handle whose pool record is
 not on this host, stays `needs: reissue` on the board with its fix, and the seat's next take
 reissues it (3.7.3 take step 1). An LXC guest seat whose `cred_seq` is above the backup's is
 refused too, and only `lxc apply` reissues it, so the same session then runs
@@ -2245,7 +2246,7 @@ refused too, and only `lxc apply` reissues it, so the same session then runs
 answer names the play for any that fails.
 
 **After a restore, members' sync positions are ahead of the database** (operations 3): the
-restored stream counter is behind every `next_batch` a member stored. The raised `restore_epoch`
+restored stream counter is behind every `next_batch` a member stored. The changed `restore_epoch`
 in the roster event (A's roster, section 7) tells area B's link to drop its `next_batch` and
 resume as for a seat with no member store (B 2.6 step 01), its ledger and floors removing
 duplicates. The link cannot rely on `/sync` to bring it that event, since its `since` is the

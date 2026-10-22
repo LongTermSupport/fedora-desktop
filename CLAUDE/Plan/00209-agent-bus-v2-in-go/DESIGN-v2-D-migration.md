@@ -153,14 +153,14 @@ name, so no name below changes when a team is renamed.
 
 ### 3.3 Binaries and Go packages
 
-| v2 name                                            | Kind                                                                                                                                                                                                                                                                                                                                           | v1 counterpart (INV 1)                                            |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| v2 name                                            | Kind                                                                                                                                                                                                                                                                                                                                                    | v1 counterpart (INV 1)                                            |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | `teamchat`                                         | Static Go member binary: CLI, keeper (`run`), link, hooks, status line (B). On PATH as `/usr/local/bin/teamchat`, a symlink into `<v2-kit>/current/bin/teamchat` (host, LXC). Every member kind's launcher ends in `teamchat run --claude --kind <kind>`, and the LXC unit runs it in its tmux pane, so there is no separate launcher binary (B 2.4.1). | `pingbus` zipapp; `agent-bus-claude`, which has no v2 counterpart |
-| `teamchat-admin`                                   | Static Go, root, at `/usr/local/sbin/teamchat-admin`: installer, admin verbs, health, backup, restore, migration steps (C, D). C may split the installer out as `teamchat-install`; that name is reserved for that use.                                                                                                                        | `agent-bus`, `agent-bus-install`, `agent-bus.pyz`                 |
-| `/usr/local/lib/teamchat/server/tuwunel-<version>` | v2's own pinned homeserver binary (C), never v1's copy, so a v1 pin bump cannot move v2 and the reverse.                                                                                                                                                                                                                                       | `/usr/local/lib/agent-bus/tuwunel`                                |
-| `src-go/cmd/teamchat`, `src-go/cmd/teamchat-admin` | Go entry points.                                                                                                                                                                                                                                                                                                                               | `src-go/cmd/pingbus-status-line`                                  |
-| `src-go/internal/teamchat/...`                     | All v2 Go packages. `src-go/internal/teamchat/paths` is the single source of every path and name constant in this section.                                                                                                                                                                                                                     | `src-go/internal/{agentbus,pingbus}`                              |
-| `src-go/internal/teamchat/migrate/v1`              | The only package that may name v1 (D17, 4.1).                                                                                                                                                                                                                                                                                                  | (new)                                                             |
+| `teamchat-admin`                                   | Static Go, root, at `/usr/local/sbin/teamchat-admin`: installer, admin verbs, health, backup, restore, migration steps (C, D). C may split the installer out as `teamchat-install`; that name is reserved for that use.                                                                                                                                 | `agent-bus`, `agent-bus-install`, `agent-bus.pyz`                 |
+| `/usr/local/lib/teamchat/server/tuwunel-<version>` | v2's own pinned homeserver binary (C), never v1's copy, so a v1 pin bump cannot move v2 and the reverse.                                                                                                                                                                                                                                                | `/usr/local/lib/agent-bus/tuwunel`                                |
+| `src-go/cmd/teamchat`, `src-go/cmd/teamchat-admin` | Go entry points.                                                                                                                                                                                                                                                                                                                                        | `src-go/cmd/pingbus-status-line`                                  |
+| `src-go/internal/teamchat/...`                     | All v2 Go packages. `src-go/internal/teamchat/paths` is the single source of every path and name constant in this section.                                                                                                                                                                                                                              | `src-go/internal/{agentbus,pingbus}`                              |
+| `src-go/internal/teamchat/migrate/v1`              | The only package that may name v1 (D17, 4.1).                                                                                                                                                                                                                                                                                                           | (new)                                                             |
 
 `ccy-teams` stays `ccy-teams`. It is the owner's tool for both systems (3.9).
 
@@ -210,9 +210,16 @@ picking the wrong skill in a session where the user loaded one by hand.
 never changed. That is two characters shorter than v1's `{0,23}` (RH 5), so that the homeserver's
 dynamic user `teamchat-<team>` fits systemd's 31-character user name limit. The team's display
 name is separate and never an identifier (DESIGN-v2.md). A migrated team's id is its v1 name when
-that name is free as a v2 id: it fits the grammar (at most 22 characters) and no v2 team has it.
+that name is free as a v2 id: it fits the grammar (at most 22 characters), is not reserved (below)
+and no v2 team has it.
 Otherwise the id is a short one chosen when the move is declared (5.1, 5.10). Either way the
 display name starts as the v1 name.
+
+The reserved team ids of A 2.2 (`admin`, `backup`, `ctl`, `fence`, `health`, `install`,
+`membership`, `seats`, `server`, `status`) are refused, because each would make a name in the table
+above equal a fixed one. No new fixed `teamchat-<x>` name, and no new fixed child of a per-team root,
+may take a declared team id, since a live team's id cannot change; C's validator refuses such an id
+at declaration. A v1 team with a reserved name migrates under a short id (5.10).
 
 One string must never name two teams, so the v1 name and the v2 id spaces are kept apart:
 
@@ -270,7 +277,7 @@ the image is not touched.
 | v2 name                                                                                                                                                                                                                                                                     | v1 counterpart (INV 10, 7)                             |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
 | host_vars `teamchat_teams`, `teamchat_address`, `teamchat_lxc_members`, `teamchat_element_teams` (C owns the fields), and `teamchat_migrations` (D owns it, 5.10)                                                                                                           | `agent_bus_*`                                          |
-| Play `playbooks/imports/play-teamchat.yml` (and `play-teamchat-element.yml` if C keeps Element separate), tag `teamchat`, run-scope variable `teamchat_only_teams`                                                                                                          | `play-agent-bus.yml`, `agent_bus_only_teams`           |
+| Play `playbooks/imports/play-teamchat.yml` (and `playbooks/imports/optional/common/play-teamchat-element.yml`, where v1's Element play is, if C keeps Element separate), tag `teamchat`, run-scope variable `teamchat_only_teams`                                           | `play-agent-bus.yml`, `agent_bus_only_teams`           |
 | Docs `docs/teamchat.md`, `docs/teamchat-protocol.md`, `docs/teamchat-migration.md`                                                                                                                                                                                          | `docs/agent-bus*.md`                                   |
 | Tests `scripts/test-teamchat-*.bash`, Go tests beside the packages, VM lab scenarios `teamchat-*`                                                                                                                                                                           | `scripts/test-agent-bus-install.bash` and others       |
 | Element profile `--profile teamchat-<team>`, its directory `~/.var/app/im.riot.Riot/config/Element-teamchat-<team>/`, launcher `~/.local/share/applications/teamchat-<team>-element.desktop` (all by team id) with Name `<name> team (teamchat)`, `<name>` the display name | `--profile <team>`, `agent-bus-<team>-element.desktop` |
@@ -279,8 +286,9 @@ the image is not touched.
 so a rename changes none of them. A v1 team may be named anything that fits
 `^[a-z][a-z0-9-]{0,23}$`, so a v1 team named `teamchat-x` would own the v1 profile
 `Element-teamchat-x`, which is v2's profile for the team with id `x`. D requires C's validator to
-refuse a v2 team id `x` while a v1 team `teamchat-x` is declared. The paths unit test (4.1 part 3) expands every
-`<team>`-derived v2 name against every declared v1 team and fails on any equality. The other
+refuse a v2 team id `x` while a v1 team `teamchat-x` is declared. C's runtime validator expands
+every `<team>`-derived v2 name against every declared v1 team and fails on any equality; the paths
+unit test (4.1 part 3) cannot, because host_vars are private and a unit test cannot read them. The other
 derived names cannot collide, because v1 never puts a team name after a `teamchat-` prefix:
 `teamchat-<team>` users, `teamchat-server@<team>` units, and launchers
 `teamchat-<team>-element.desktop` against v1's `agent-bus-<team>-element.desktop`.
@@ -375,12 +383,19 @@ and CI. A bash wrapper `scripts/qa-teamchat-separate.bash` execs it, inside the 
 check has three parts:
 
 1. **v2 files hold no v1 name.**
-   - Scope: every file that v2 owns. That is `src-go/cmd/teamchat*`, `src-go/internal/teamchat/`,
-     `files/**/teamchat*`, `files/opt/claude-yolo/optional/teamchat/`, `playbooks/imports/play-teamchat*.yml`
-     and the task files those plays include.
+   - Scope: every file that v2 owns (`InScope`). That is `src-go/cmd/teamchat*`,
+     `src-go/internal/teamchat/` less the two homes below, anything under `files/`, `tasks/` or
+     `vars/` below a component named `teamchat*` (`files/opt/claude-yolo/optional/teamchat/`
+     included), and any `play-teamchat*.yml` or `.yaml` under `playbooks/imports/`, at any depth.
+   - The task files those plays include are held by K7: every `tasks/`, `files/` or `vars/` path
+     a scoped YAML file names, judged where it leads (`path.Clean`), is in scope or in
+     `SharedFiles`, else it is a finding. `SharedFiles` holds one entry,
+     `tasks/build-go-command.yml`, with its reason. Scoping task files by name alone would let a
+     v2 play include a task file named without `teamchat`, unseen.
    - Test: no line matches the v1 name list `src-go/qa/teamchatseparate/v1-names.txt`. That list
      is `agent-bus`, `agent_bus`, `agentbus`, `pingbus`, `PINGBUS_`, `AGENT_BUS_`, `CCY_TEAMS_PINGBUS`,
-     `CC_TEAMS_`, `/run/ccy/membership`, `$XDG_RUNTIME_DIR/ccy/membership`, `.claude/ccy/pingbus`,
+     `CC_TEAMS_`, `/run/ccy/membership`, `$XDG_RUNTIME_DIR/ccy/membership`, `/ccy/membership`
+     (which also covers the `{{ }}` and Join forms of both), `.claude/ccy/pingbus`,
      `/opt/claude-yolo/optional/agent-bus` and `Element-<team>` without the `teamchat-` part.
    - Deliberate v1 references have named homes, and nothing else may hold one:
      - `src-go/internal/teamchat/v1names`: the v1 constants v2 needs to stay away from v1 or to
@@ -412,9 +427,10 @@ check has three parts:
    a prefix of a v2 name and no v2 name is a prefix of a v1 name. This guards against a careless
    glob or `rm -r <prefix>*`.
 
-The red proof: a fixture under `testdata/` with one v1 path in a v2 play, and one `os.WriteFile`
-in an adapter fixture. The gate must fail on each. The green proof: a v2 unit rendered from
-`v1names` passes.
+The red proof of parts 1 and 3 is unit tests over in-memory and real-git trees, not a fixture under
+`testdata/`: one v1 path in a v2 play must fail the gate, naming the file and line. The green proof:
+a v2 unit rendered from `v1names` passes. Part 2's red proof, one `os.WriteFile` in an adapter
+fixture that the analyzer must fail, is built with the analyzer and the adapter (PLAN.md Task 6.1).
 
 ### 4.2 Runtime confinement
 
