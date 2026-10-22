@@ -3,7 +3,8 @@
 // lock taken through teamlock, the refusals before any change, the in-memory render of a
 // team's homeserver config, unit drop-in and `team.json` with the five-way answer, the first
 // apply's files, the firewall, the backup, the unit, readiness, the bound addresses, and the
-// records written last. Every host effect (systemd, firewalld, the network, the readiness
+// records written last; Serve, the start and readiness of a team already applied, and the base
+// unit's sandbox lines (SPEC-n2g SM3, n2g-D17). Every host effect (systemd, firewalld, the network, the readiness
 // probe, the backup, the status record, bootstrap) is a seam in Deps; the files are written
 // under Deps.Root.
 package host
@@ -62,6 +63,7 @@ const (
 const (
 	verbApply  = "team apply"
 	verbRemove = "team remove"
+	verbServe  = "serve"
 )
 
 // The readiness wait (C 3.5.2 step 8).
@@ -757,32 +759,34 @@ func (a *applying) waitReady(ctx context.Context) error {
 // ready waits up to 60 s for the unit to be active and its server_version to answer. A unit
 // that is neither active nor activating fails at once; its journal tail is only explanation,
 // the verdict is the state (H 7.13).
-func (a *applying) ready(ctx context.Context, port int) error {
-	start := a.d.Clock.Now()
+func (a *applying) ready(ctx context.Context, port int) error { return ready(ctx, a.d, a.unit, port) }
+
+func ready(ctx context.Context, d Deps, unit string, port int) error {
+	start := d.Clock.Now()
 	var last error
 	for {
-		st, err := a.d.Systemd.State(ctx, a.unit)
+		st, err := d.Systemd.State(ctx, unit)
 		if err != nil {
 			return err
 		}
 		switch st.Active {
 		case active:
-			if last = a.d.Ready.ServerVersion(ctx, port); last == nil {
+			if last = d.Ready.ServerVersion(ctx, port); last == nil {
 				return nil
 			}
 		case "activating", "reloading":
-			last = fmt.Errorf("%s is %s", a.unit, st.Active)
+			last = fmt.Errorf("%s is %s", unit, st.Active)
 		default:
-			tail, jerr := a.d.Systemd.JournalTail(ctx, a.unit)
+			tail, jerr := d.Systemd.JournalTail(ctx, unit)
 			if jerr != nil {
-				return fmt.Errorf("%s is %s; its journal cannot be read: %w", a.unit, st.Active, jerr)
+				return fmt.Errorf("%s is %s; its journal cannot be read: %w", unit, st.Active, jerr)
 			}
-			return fmt.Errorf("%s is %s; the journal's last lines, as explanation only:\n%s", a.unit, st.Active, tail)
+			return fmt.Errorf("%s is %s; the journal's last lines, as explanation only:\n%s", unit, st.Active, tail)
 		}
-		if a.d.Clock.Now().Sub(start) >= readyWait {
-			return fmt.Errorf("%s is not ready within %v: %w", a.unit, readyWait, last)
+		if d.Clock.Now().Sub(start) >= readyWait {
+			return fmt.Errorf("%s is not ready within %v: %w", unit, readyWait, last)
 		}
-		if err := a.d.Clock.Sleep(ctx, readyPoll); err != nil {
+		if err := d.Clock.Sleep(ctx, readyPoll); err != nil {
 			return err
 		}
 	}
@@ -790,26 +794,34 @@ func (a *applying) ready(ctx context.Context, port int) error {
 
 // addresses is step 9: the bound address set is loopback and listen exactly (H 7.21).
 func (a *applying) addresses(_ context.Context) error {
-	listeners, err := a.d.Network.Listeners()
-	if err != nil {
+	if err := boundAs(a.d, a.unit, a.in.Team.Port, a.in.Team.Listen); err != nil {
 		return a.fail(StepAddresses, err)
 	}
+	return nil
+}
+
+// boundAs holds the unit's bound addresses on port to loopback and listen exactly.
+func boundAs(d Deps, unit string, port int, listen []string) error {
+	listeners, err := d.Network.Listeners()
+	if err != nil {
+		return err
+	}
 	want := []string{loopbackListen}
-	for _, l := range a.in.Team.Listen {
+	for _, l := range listen {
 		if !slices.Contains(want, l) {
 			want = append(want, l)
 		}
 	}
 	var got []string
 	for _, l := range listeners {
-		if l.Unit == a.unit && int(l.Addr.Port()) == a.in.Team.Port && !slices.Contains(got, l.Addr.Addr().String()) {
+		if l.Unit == unit && int(l.Addr.Port()) == port && !slices.Contains(got, l.Addr.Addr().String()) {
 			got = append(got, l.Addr.Addr().String())
 		}
 	}
 	slices.Sort(want)
 	slices.Sort(got)
 	if !slices.Equal(got, want) {
-		return a.fail(StepAddresses, fmt.Errorf("%s is bound to %q, not %q", a.unit, got, want))
+		return fmt.Errorf("%s is bound to %q, not %q", unit, got, want)
 	}
 	return nil
 }
