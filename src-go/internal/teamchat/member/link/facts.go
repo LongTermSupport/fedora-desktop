@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/engine"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/homefs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
@@ -118,6 +119,45 @@ func (s *Session) EndReason() *string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.file.EndReason
+}
+
+// Unusable is session.json's counts of unusable inputs.
+func (s *Session) Unusable() state.Unusable {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.file.Unusable
+}
+
+// Inbox is the inbox socket and transcript session.json holds, each empty before the first
+// accepted facts, as the engine takes them.
+func (s *Session) Inbox() engine.SessionFacts {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var f engine.SessionFacts
+	if s.file.Socket != nil {
+		f.Socket = *s.file.Socket
+	}
+	if s.file.Transcript != nil {
+		f.Transcript = *s.file.Transcript
+	}
+	return f
+}
+
+// RecordRender writes session.json with unusable.render n (DV2), the rest unchanged.
+func (s *Session) RecordRender(n int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := s.file
+	next.Unusable.Render = n
+	data, err := next.Encode()
+	if err == nil {
+		err = s.d.runRoot.Replace(s.d.layout.Run(s.d.run).Session(), data, 0o600)
+	}
+	if err != nil {
+		return err
+	}
+	s.file = next
+	return nil
 }
 
 // AcceptFacts judges a hook's facts and keeps them (LN7). The peer must descend from the
