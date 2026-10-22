@@ -160,3 +160,26 @@ func TestTheSeatIsWatchedWhileTheTeamRuns(t *testing.T) {
 		t.Fatal("the watch outlived Run")
 	}
 }
+
+// n3d W: the team goroutine's config is the engine's TeamConfig, the link's forge checker
+// among it, so a delivered ping is checked with the same login and health as a send.
+func TestTheTeamsConfigCarriesTheEnginesTeamConfig(t *testing.T) {
+	f := newFixture(t)
+	f.cfg.Forge = stubForge{}
+	f.cfg.Plain = true
+	f.cfg.RemovedUserIDs = []string{"@a:example.org"}
+	ch := &seatChanges{}
+	got := teamsyncConfig(f.cfg, ch)
+	if got.Forge != f.cfg.Forge || got.Watcher != ch || got.Team != f.cfg.Team || got.Seat != f.cfg.Seat ||
+		got.Run != f.cfg.Run || got.Engine != f.cfg.Engine || got.Ends != f.cfg.Ends || got.Root != f.cfg.Root ||
+		got.Clock != f.cfg.Clock || got.Log != f.cfg.Log || !got.Plain ||
+		!slices.Equal(got.RemovedUserIDs, f.cfg.RemovedUserIDs) || got.FirstSessionStart != f.cfg.FirstSessionStart {
+		t.Fatalf("teamsyncConfig = %+v, from %+v", got, f.cfg)
+	}
+}
+
+type stubForge struct{}
+
+func (stubForge) Check(context.Context, proto.ForgeCheck, proto.Forge) (team.ForgeResult, error) {
+	return team.ForgeResult{Outcome: team.ForgeProven}, nil
+}

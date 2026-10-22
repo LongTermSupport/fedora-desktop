@@ -87,6 +87,8 @@ type TeamConfig struct {
 	FirstSessionStart <-chan struct{}
 	Clock             clock.Clock
 	Log               io.Writer
+	// Forge is the link's one forge checker, Config.Forge (n3d-D20).
+	Forge team.Forge
 }
 
 // RecordWriter is where a request's records go, in order.

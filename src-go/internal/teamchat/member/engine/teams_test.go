@@ -324,3 +324,16 @@ func TestViewOfATeamNotHeldOrWithNoStore(t *testing.T) {
 		t.Fatal("a team with no store saw an id")
 	}
 }
+
+// n3d W: a team's goroutine checks its delivered pings with the link's one forge checker
+// (n3d-D20), the same the engine's sends use.
+func TestATeamIsGivenTheLinksForge(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	f := w.fake(ops)
+	check(t, w.e.Add(t.Context(), ops, w.seat(ops, true, nil), nil))
+	<-f.running
+	if got, ok := f.cfg.Forge.(*fakeForge); !ok || got != w.forge {
+		t.Fatalf("the team's forge = %#v, want the engine's", f.cfg.Forge)
+	}
+}

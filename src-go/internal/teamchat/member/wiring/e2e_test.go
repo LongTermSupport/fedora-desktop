@@ -16,9 +16,9 @@ import (
 // linkEndBound is how soon a link whose keeper died posts its disconnected (endWait).
 const linkEndBound = 5 * time.Second
 
-// seated is `run --plain --state S --seat alpha/2`.
+// seated is `run --plain --state S --seat alpha/<self's seat>`.
 func (w *world) seated() *session {
-	s := w.launch("--state", w.state, "--seat", teamName+"/"+mySeat)
+	s := w.launch("--state", w.state, "--seat", teamName+"/"+w.seatName)
 	s.seatedIn()
 	return s
 }
