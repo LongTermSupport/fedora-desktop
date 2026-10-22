@@ -49,7 +49,8 @@ func Restart(ctx context.Context, d Deps, container paths.ContainerName, key pat
 	file := paths.GuestUnitFile(id.Team, id.Checkout, id.Seat)
 	_, _, found, err := root.ReadFile(file, maxUnit)
 	if err == nil && !found {
-		err = fmt.Errorf("%w: %s has no session unit %s; lxc apply places it", guestfacts.ErrRefused, seat, file)
+		err = fmt.Errorf("%w: %s has no session unit %s: the seat has service: false, or no apply has placed its unit yet",
+			guestfacts.ErrRefused, seat, file)
 	}
 	if err != nil {
 		return &host.Error{Verb: restartVerb, Step: "unit", Drift: refused(err), Err: err}
