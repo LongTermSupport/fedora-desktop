@@ -29,7 +29,6 @@ import (
 // keeper is one session's keeper; every field is the loop goroutine's.
 type keeper struct {
 	cfg            Config
-	ctx            context.Context
 	stdout, stderr io.Writer
 	events         chan func()
 	done           chan struct{}
@@ -42,7 +41,6 @@ type keeper struct {
 	runID     paths.RunID
 	run       paths.Run
 	madeRun   bool
-	keepRun   bool
 	klock     *lock.KeeperLock
 	kit       paths.Kit
 	digest    paths.Digest
@@ -99,9 +97,9 @@ const (
 	ending
 )
 
-func newKeeper(ctx context.Context, cfg Config, stdout, stderr io.Writer) *keeper {
+func newKeeper(cfg Config, stdout, stderr io.Writer) *keeper {
 	return &keeper{
-		cfg: cfg, ctx: ctx, stdout: stdout, stderr: stderr,
+		cfg: cfg, stdout: stdout, stderr: stderr,
 		events: make(chan func()), done: make(chan struct{}),
 		desiredState: state.DesiredApplied, inbound: state.InboundRefuse,
 		removedIDs: map[paths.TeamID][]string{}, linkStatus: state.LinkRestarting,
@@ -110,31 +108,34 @@ func newKeeper(ctx context.Context, cfg Config, stdout, stderr io.Writer) *keepe
 }
 
 // prepare is B 2.4.1 steps 1-6: everything before the link starts.
+// Its lock tries and the kit's --version are bounded by their own clocks; a stop arrives
+// by Signals once the loop runs.
 func (k *keeper) prepare() error {
+	ctx := context.Background()
 	if err := k.openRunRoot(); err != nil {
 		return err
 	}
-	if err := k.resolveKit(); err != nil {
+	if err := k.resolveKit(ctx); err != nil {
 		return err
 	}
 	if err := k.readLaunchDesired(); err != nil {
 		return err
 	}
-	if err := k.sweep(); err != nil {
+	if err := k.sweep(ctx); err != nil {
 		return err
 	}
-	if err := k.makeRun(); err != nil {
+	if err := k.makeRun(ctx); err != nil {
 		return err
 	}
 	if err := k.claudeArgv(); err != nil {
 		return err
 	}
-	return k.takeLaunchSeats()
+	return k.takeLaunchSeats(ctx)
 }
 
 // resolveKit is step 2: the kit, checked by its --version, re-executed when it is another
 // version than this binary.
-func (k *keeper) resolveKit() error {
+func (k *keeper) resolveKit(ctx context.Context) error {
 	l := k.cfg.Layout
 	named := ""
 	switch {
@@ -156,7 +157,7 @@ func (k *keeper) resolveKit() error {
 		}
 		k.kit, named = kit, name
 	}
-	printed, err := k.kitVersion()
+	printed, err := k.kitVersion(ctx)
 	if err != nil {
 		return err
 	}
@@ -202,9 +203,9 @@ func (k *keeper) currentKit() (paths.Kit, string, error) {
 }
 
 // kitVersion is the digest the kit's binary prints: one line, a digest.
-func (k *keeper) kitVersion() (string, error) {
+func (k *keeper) kitVersion(ctx context.Context) (string, error) {
 	bin := k.kit.Binary()
-	res, err := k.cfg.Runner.Run(k.ctx, execx.Cmd{Name: bin, Args: []string{"--version"}})
+	res, err := k.cfg.Runner.Run(ctx, execx.Cmd{Name: bin, Args: []string{"--version"}})
 	if err != nil || res.ExitCode != 0 {
 		k.logf("%s --version: exit %d, %v", bin, res.ExitCode, err)
 		return "", fault(exits.CodeRuntime, msgKitVersion, exits.Name(k.kit.String()))
@@ -273,7 +274,7 @@ func readTrusted(f *os.File, limit int) ([]byte, error) {
 	if err := unix.Fstat(int(f.Fd()), &st); err != nil {
 		return nil, err
 	}
-	owner := st.Uid == uint32(os.Geteuid()) || st.Uid == 0
+	owner := int64(st.Uid) == int64(os.Geteuid()) || st.Uid == 0
 	if st.Mode&unix.S_IFMT != unix.S_IFREG || !owner || st.Mode&0o022 != 0 {
 		return nil, errUntrusted
 	}
@@ -289,7 +290,7 @@ func readTrusted(f *os.File, limit int) ([]byte, error) {
 
 // sweep is step 3 (T8): each runtime left behind whose keeper.lock is free and whose keeper
 // and session are gone, or which never wrote session.pid, is removed under that lock.
-func (k *keeper) sweep() error {
+func (k *keeper) sweep(ctx context.Context) error {
 	rr := k.cfg.Layout.RunRoot()
 	entries, err := k.runRoot.Entries(rr)
 	if err != nil {
@@ -301,13 +302,13 @@ func (k *keeper) sweep() error {
 		if perr != nil || e.Type != fs.ModeDir {
 			continue
 		}
-		k.sweepOne(k.cfg.Layout.Run(id))
+		k.sweepOne(ctx, k.cfg.Layout.Run(id))
 	}
 	return nil
 }
 
-func (k *keeper) sweepOne(run paths.Run) {
-	kl, err := lock.TakeKeeper(k.ctx, k.cfg.Locks, k.runRoot, run)
+func (k *keeper) sweepOne(ctx context.Context, run paths.Run) {
+	kl, err := lock.TakeKeeper(ctx, k.cfg.Locks, k.runRoot, run)
 	if err != nil {
 		if !errors.Is(err, lock.ErrBusy) {
 			k.logf("leftover %s: keeper.lock: %v", run.Dir(), err)
@@ -342,7 +343,7 @@ func (k *keeper) gone(p state.Process) bool {
 }
 
 // makeRun is step 4: the run id, its directory, keeper.lock, keeper.log and session.pid.
-func (k *keeper) makeRun() error {
+func (k *keeper) makeRun(ctx context.Context) error {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		return fault(exits.CodeInternal, msgInternal, exits.Words("draw a run id"))
@@ -352,12 +353,12 @@ func (k *keeper) makeRun() error {
 		return err
 	}
 	k.runID, k.run = id, k.cfg.Layout.Run(id)
-	if err := k.runRoot.Mkdir(k.run.Dir()); err != nil {
-		k.logf("make %s: %v", k.run.Dir(), err)
+	if merr := k.runRoot.Mkdir(k.run.Dir()); merr != nil {
+		k.logf("make %s: %v", k.run.Dir(), merr)
 		return fault(exits.CodeRuntime, msgRunDir, exits.Name(k.run.Dir()))
 	}
 	k.madeRun = true
-	if k.klock, err = lock.TakeKeeper(k.ctx, k.cfg.Locks, k.runRoot, k.run); err != nil {
+	if k.klock, err = lock.TakeKeeper(ctx, k.cfg.Locks, k.runRoot, k.run); err != nil {
 		k.logf("take %s: %v", k.run.KeeperLock(), err)
 		return fault(exits.CodeRuntime, msgRunDir, exits.Name(k.run.Dir()))
 	}
@@ -374,7 +375,11 @@ func (k *keeper) makeRun() error {
 
 // openAppend opens a fresh log file of the run: made here, never through a link.
 func openAppend(path string) (*os.File, error) {
-	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL|os.O_APPEND|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o600)
+	fd, err := unix.Open(path, unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_APPEND|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o600)
+	if err != nil {
+		return nil, &fs.PathError{Op: "open", Path: path, Err: err}
+	}
+	return os.NewFile(uintptr(fd), path), nil
 }
 
 // writeSessionPID writes session.pid, with the session from step 7 on.
@@ -432,7 +437,8 @@ func (k *keeper) claudeArgv() error {
 	if k.cfg.Launch.ResumeRecorded {
 		argv = append(argv, k.resume()...)
 	}
-	k.argv = append(argv, "--plugin-dir", k.kit.PluginDir(), "--settings", k.run.Settings())
+	argv = append(argv, "--plugin-dir", k.kit.PluginDir(), "--settings", k.run.Settings())
+	k.argv = argv
 	return nil
 }
 
@@ -485,7 +491,7 @@ func (k *keeper) claudeConfigDir() *string {
 func projectDir(cwd string) string {
 	b := []byte(cwd)
 	for i, c := range b {
-		if !('a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9') {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') {
 			b[i] = '-'
 		}
 	}
@@ -528,9 +534,9 @@ func (k *keeper) wanted() []want {
 
 // takeLaunchSeats is step 6's locks: a seat another session holds fails the launch (75); any
 // other failure is logged and the launch goes on without that seat (the owner's rule).
-func (k *keeper) takeLaunchSeats() error {
+func (k *keeper) takeLaunchSeats(ctx context.Context) error {
 	for _, w := range k.wanted() {
-		s, err := k.takeSeat(w)
+		s, err := k.takeSeat(ctx, w)
 		if errors.Is(err, lock.ErrBusy) {
 			return exits.New(exits.CodeSeatHeld, &w.team, msgSeatHeld, exits.Team(w.team))
 		}
@@ -542,14 +548,14 @@ func (k *keeper) takeLaunchSeats() error {
 }
 
 // takeSeat takes w's seat lock and writes its record; a failure other than busy is logged.
-func (k *keeper) takeSeat(w want) (*seat, error) {
+func (k *keeper) takeSeat(ctx context.Context, w want) (*seat, error) {
 	root, err := k.state()
 	if err != nil {
 		k.logf("seat %s not held: the state root: %v", w.team, err)
 		return nil, err
 	}
 	ps := k.cfg.Layout.Seat(w.team)
-	l, err := k.klock.TakeSeat(k.ctx, root, ps)
+	l, err := k.klock.TakeSeat(ctx, root, ps)
 	if err != nil {
 		if !errors.Is(err, lock.ErrBusy) {
 			k.logf("seat %s not held: %v", w.team, err)

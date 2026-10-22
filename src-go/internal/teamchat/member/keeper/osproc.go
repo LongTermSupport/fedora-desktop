@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -63,22 +64,6 @@ type pidfd struct {
 	exited chan struct{}
 }
 
-// wait closes exited once the pidfd is readable, which is the process's end.
-func (p *pidfd) wait() {
-	rc, err := p.f.SyscallConn()
-	if err != nil {
-		return
-	}
-	err = rc.Read(func(fd uintptr) bool {
-		fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
-		n, perr := unix.Poll(fds, 0)
-		return perr != nil || n > 0
-	})
-	if err == nil {
-		close(p.exited)
-	}
-}
-
 func (p *pidfd) Signal(sig syscall.Signal) error {
 	rc, err := p.f.SyscallConn()
 	if err != nil {
@@ -97,6 +82,25 @@ func (p *pidfd) Signal(sig syscall.Signal) error {
 func (p *pidfd) Exited() <-chan struct{} { return p.exited }
 
 func (p *pidfd) Close() error { return p.f.Close() }
+
+// wait closes exited once the pidfd is readable, which is the process's end.
+func (p *pidfd) wait() {
+	rc, err := p.f.SyscallConn()
+	if err != nil {
+		return
+	}
+	err = rc.Read(func(fd uintptr) bool {
+		if fd > math.MaxInt32 {
+			return true
+		}
+		fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+		n, perr := unix.Poll(fds, 0)
+		return perr != nil || n > 0
+	})
+	if err == nil {
+		close(p.exited)
+	}
+}
 
 // inotify is the production Watcher: one inotify instance, non-blocking, so a read waits in
 // the runtime's poller and Close ends it.
@@ -135,6 +139,11 @@ func (w *inotify) Watch(dir string) (<-chan WatchEvent, error) {
 	return ch, nil
 }
 
+func (w *inotify) Close() error {
+	w.once.Do(func() { close(w.done) })
+	return w.f.Close()
+}
+
 func (w *inotify) read(ch chan<- WatchEvent) {
 	defer close(ch)
 	buf := make([]byte, 64<<10)
@@ -155,11 +164,6 @@ func (w *inotify) read(ch chan<- WatchEvent) {
 			}
 		}
 	}
-}
-
-func (w *inotify) Close() error {
-	w.once.Do(func() { close(w.done) })
-	return w.f.Close()
 }
 
 // parseEvents reads the kernel's inotify records.

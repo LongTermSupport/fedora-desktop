@@ -3,6 +3,7 @@ package keeper
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -19,10 +20,10 @@ const otherDigest = "fedcba9876543210fedcba9876543210"
 // plainLaunch is a host launch of a plain command with no team.
 var plainLaunch = []string{"--plain", "--kind", "host", "--", "sleep", "60"}
 
-// refused runs a keeper that must refuse its launch with exit, its stderr naming code.
-func (w *world) refused(exit term.ExitCode, code string) {
+// refused runs a keeper that must refuse its launch with 78, its stderr naming code.
+func (w *world) refused(code string) {
 	w.t.Helper()
-	exitOf(w.t, w.start(), exit)
+	exitOf(w.t, w.start(), exits.ExitConfig)
 	if !strings.Contains(w.stderr.String(), `"code":"`+code+`"`) {
 		w.t.Fatalf("stderr %q, want code %s", w.stderr.String(), code)
 	}
@@ -35,7 +36,7 @@ func (w *world) refused(exit term.ExitCode, code string) {
 func TestRuntimeParentMustBePrivate(t *testing.T) {
 	w := newWorld(t, plainLaunch...)
 	mustDo(t, os.Chmod(w.rt, 0o755))
-	w.refused(exits.ExitConfig, exits.CodeRuntime)
+	w.refused(exits.CodeRuntime)
 }
 
 // ccy's run root is made without a parent, and must still be the user's own, mode 0700.
@@ -56,6 +57,7 @@ func TestRunRootWithoutParent(t *testing.T) {
 	})
 	t.Run("cannot be made", func(t *testing.T) {
 		w := newWorld(t, plainLaunch...)
+		mustDo(t, os.MkdirAll(filepath.Dir(w.layout.RunRoot()), 0o700))
 		mustDo(t, os.WriteFile(w.layout.RunRoot(), nil, 0o600))
 		cfg := w.config()
 		cfg.RuntimeParent = ""
@@ -63,8 +65,9 @@ func TestRunRootWithoutParent(t *testing.T) {
 	})
 	t.Run("parent cannot hold it", func(t *testing.T) {
 		w := newWorld(t, plainLaunch...)
+		mustDo(t, os.MkdirAll(filepath.Dir(w.layout.RunRoot()), 0o700))
 		mustDo(t, os.WriteFile(w.layout.RunRoot(), nil, 0o600))
-		w.refused(exits.ExitConfig, exits.CodeRuntime)
+		w.refused(exits.CodeRuntime)
 	})
 }
 
@@ -110,7 +113,7 @@ func TestKitVersionChecks(t *testing.T) {
 	t.Run("named kit prints another", func(t *testing.T) {
 		w := newWorld(t, plainLaunch...)
 		w.runner.On([]string{w.kit.Binary(), "--version"}, execx.Result{Stdout: []byte(otherDigest + "\n")})
-		w.refused(exits.ExitConfig, exits.CodeRuntime)
+		w.refused(exits.CodeRuntime)
 	})
 	t.Run("kit flag of another version", func(t *testing.T) {
 		w := newWorld(t, plainLaunch...)
@@ -128,35 +131,35 @@ func TestKitVersionChecks(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			w := newWorld(t, plainLaunch...)
 			w.runner.On([]string{w.kit.Binary(), "--version"}, execx.Result{Stdout: []byte(out)})
-			w.refused(exits.ExitConfig, exits.CodeRuntime)
+			w.refused(exits.CodeRuntime)
 		})
 	}
 	t.Run("version exits non-zero", func(t *testing.T) {
 		w := newWorld(t, plainLaunch...)
 		w.runner.On([]string{w.kit.Binary(), "--version"}, execx.Result{Stdout: []byte(digest + "\n"), ExitCode: 1})
-		w.refused(exits.ExitConfig, exits.CodeRuntime)
+		w.refused(exits.CodeRuntime)
 	})
 	t.Run("version cannot run", func(t *testing.T) {
 		w := newWorld(t, plainLaunch...)
 		w.runner.OnError([]string{w.kit.Binary(), "--version"}, errors.New("no binary"))
-		w.refused(exits.ExitConfig, exits.CodeRuntime)
+		w.refused(exits.CodeRuntime)
 	})
 	t.Run("current is not a digest under the root", func(t *testing.T) {
 		w := newWorld(t, plainLaunch...)
 		mustDo(t, os.Remove(w.kitRoot+"/current"))
 		mustDo(t, os.Symlink("../elsewhere/"+digest, w.kitRoot+"/current"))
-		w.refused(exits.ExitConfig, exits.CodeRuntime)
+		w.refused(exits.CodeRuntime)
 	})
 	t.Run("current names no digest", func(t *testing.T) {
 		w := newWorld(t, plainLaunch...)
 		mustDo(t, os.Remove(w.kitRoot+"/current"))
 		mustDo(t, os.Symlink("latest", w.kitRoot+"/current"))
-		w.refused(exits.ExitConfig, exits.CodeRuntime)
+		w.refused(exits.CodeRuntime)
 	})
 	t.Run("current missing", func(t *testing.T) {
 		w := newWorld(t, plainLaunch...)
 		mustDo(t, os.Remove(w.kitRoot+"/current"))
-		w.refused(exits.ExitConfig, exits.CodeRuntime)
+		w.refused(exits.CodeRuntime)
 	})
 	t.Run("current absolute", func(t *testing.T) {
 		w := newWorld(t, plainLaunch...)
@@ -220,7 +223,7 @@ func TestSettingsRefused(t *testing.T) {
 			w := newWorld(t, claudeLaunch...)
 			w.writeDesired(desiredJSON(1, state.InboundAccept))
 			mustDo(t, os.WriteFile(w.kit.Settings(), []byte(body), 0o644))
-			w.refused(exits.ExitConfig, exits.CodeRuntime)
+			w.refused(exits.CodeRuntime)
 			if !w.runGone() {
 				t.Fatal("the refused launch left its run")
 			}
@@ -230,21 +233,21 @@ func TestSettingsRefused(t *testing.T) {
 		w := newWorld(t, claudeLaunch...)
 		w.writeDesired(desiredJSON(1, state.InboundAccept))
 		mustDo(t, os.Chmod(w.kit.Settings(), 0o664))
-		w.refused(exits.ExitConfig, exits.CodeRuntime)
+		w.refused(exits.CodeRuntime)
 	})
 	t.Run("a link", func(t *testing.T) {
 		w := newWorld(t, claudeLaunch...)
 		w.writeDesired(desiredJSON(1, state.InboundAccept))
 		mustDo(t, os.Rename(w.kit.Settings(), w.dir+"/real.json"))
 		mustDo(t, os.Symlink(w.dir+"/real.json", w.kit.Settings()))
-		w.refused(exits.ExitConfig, exits.CodeRuntime)
+		w.refused(exits.CodeRuntime)
 	})
 	t.Run("a directory", func(t *testing.T) {
 		w := newWorld(t, claudeLaunch...)
 		w.writeDesired(desiredJSON(1, state.InboundAccept))
 		mustDo(t, os.Remove(w.kit.Settings()))
 		mustDo(t, os.Mkdir(w.kit.Settings(), 0o755))
-		w.refused(exits.ExitConfig, exits.CodeRuntime)
+		w.refused(exits.CodeRuntime)
 	})
 }
 
@@ -253,7 +256,7 @@ func TestSettingsRefused(t *testing.T) {
 func TestDesiredAtLaunch(t *testing.T) {
 	t.Run("missing", func(t *testing.T) {
 		w := newWorld(t, claudeLaunch...)
-		w.refused(exits.ExitConfig, exits.CodeMembership)
+		w.refused(exits.CodeMembership)
 		if len(w.watch.dirs) != 1 || w.watch.dirs[0] != w.desired {
 			t.Fatalf("watched %v", w.watch.dirs)
 		}
@@ -261,17 +264,17 @@ func TestDesiredAtLaunch(t *testing.T) {
 	t.Run("undecodable", func(t *testing.T) {
 		w := newWorld(t, claudeLaunch...)
 		w.writeDesired(`{"v":1}`)
-		w.refused(exits.ExitConfig, exits.CodeMembership)
+		w.refused(exits.CodeMembership)
 	})
 	t.Run("watch fails", func(t *testing.T) {
 		w := newWorld(t, claudeLaunch...)
 		w.watch.err = errors.New("no inotify")
-		w.refused(exits.ExitConfig, exits.CodeRuntime)
+		w.refused(exits.CodeRuntime)
 	})
 	for _, kind := range []string{"ccy", "lxc"} {
 		t.Run(kind+" without desired", func(t *testing.T) {
 			w := newWorld(t, "--plain", "--kind", kind, "--", "sleep", "1")
-			w.refused(exits.ExitConfig, exits.CodeMembership)
+			w.refused(exits.CodeMembership)
 		})
 	}
 	t.Run("host without desired", func(t *testing.T) {

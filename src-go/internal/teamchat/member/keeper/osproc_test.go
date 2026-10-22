@@ -14,6 +14,7 @@ import (
 )
 
 var helpers = reexec.Helpers{
+	"main": runMain,
 	"wait": func(h *reexec.Helper) int {
 		if err := h.Ready(); err != nil {
 			return 1
@@ -159,13 +160,13 @@ func TestParseEvents(t *testing.T) {
 func putUint32(b []byte, v uint32) { binary.NativeEndian.PutUint32(b, v) }
 
 // event is one inotify record as the kernel writes it, the name NUL padded to 16 bytes.
-func event(wd int32, mask uint32, name string) []byte {
+func event(wd uint32, mask uint32, name string) []byte {
 	n := 0
 	if name != "" {
 		n = 16
 	}
 	b := make([]byte, unix.SizeofInotifyEvent+n)
-	putUint32(b[0:], uint32(wd))
+	putUint32(b[0:], wd)
 	putUint32(b[4:], mask)
 	putUint32(b[12:], uint32(n))
 	copy(b[unix.SizeofInotifyEvent:], name)

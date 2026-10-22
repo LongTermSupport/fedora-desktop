@@ -75,7 +75,6 @@ func (k *keeper) loop() term.ExitCode {
 		k.logf("start the link: %v", err)
 		k.linkDown()
 	}
-	ctxDone := k.ctx.Done()
 	for !k.finished {
 		var exited <-chan struct{}
 		if k.claudeAlive() {
@@ -90,9 +89,6 @@ func (k *keeper) loop() term.ExitCode {
 			k.onWatch(ev, ok)
 		case <-exited:
 			k.claudeExited()
-		case <-ctxDone:
-			ctxDone = nil
-			k.stop(syscall.SIGTERM)
 		}
 	}
 	close(k.done)
@@ -161,6 +157,11 @@ func (k *keeper) startLink(endOnly bool) error {
 	}
 	l := &link{proc: proc, conn: conn, startedAt: k.cfg.Clock.Boot(), endOnly: endOnly}
 	k.link = l
+	if k.linkStatus == state.LinkRestarting && k.nextMS == nil {
+		// keeper.json's restarting link names when it is due; this one is due now.
+		due := l.startedAt.Milliseconds()
+		k.nextMS = &due
+	}
 	k.logf("link %d started", proc.Pid())
 	go func() {
 		st, werr := proc.Wait()
@@ -300,6 +301,9 @@ func (k *keeper) onMsg(l *link, m wire.Msg, fd *os.File) {
 	case wire.KindReady:
 		k.onReady(l)
 	case wire.KindStarted:
+		if !k.started {
+			k.logf("Claude Code's first SessionStart")
+		}
 		k.started = true
 	case wire.KindState:
 		failpoint.Hit(failpoint.KeeperLinkWriting)
@@ -327,9 +331,10 @@ func (k *keeper) onReady(l *link) {
 	if k.phase == ending {
 		return
 	}
-	k.linkStatus = state.LinkRunning
+	k.linkStatus, k.nextMS = state.LinkRunning, nil
 	k.writeKeeper()
 	k.writeReports()
+	k.logf("the link is ready")
 	if k.phase == launching {
 		k.phase = running
 		k.startCmd()
@@ -394,7 +399,7 @@ func (k *keeper) crashed(ran time.Duration) {
 	k.writeKeeper()
 	k.writeReports()
 	k.restartTimer = k.after(delay, func() {
-		k.restartTimer, k.nextMS = nil, nil
+		k.restartTimer = nil
 		k.restartNow()
 	})
 }
@@ -411,10 +416,10 @@ func (k *keeper) restartNow() {
 // fail is a link failed for good: keeper.json and every report say so first, then every seat
 // lock is closed (T23) and the desired membership is no longer followed.
 func (k *keeper) fail(why string) {
-	k.logf("the link failed: %s", why)
 	k.linkStatus, k.why, k.nextMS = state.LinkFailed, &why, nil
 	k.writeKeeper()
 	k.writeReports()
+	k.logf("the link failed: %s", why)
 	for _, s := range k.seats {
 		k.cancelSeat(s)
 		k.closeSeatLock(s)
@@ -466,6 +471,7 @@ func (k *keeper) onClaude(p state.Process) {
 		return
 	}
 	if k.cmd != nil && p.PID == k.cmd.Pid() {
+		k.logf("Claude Code is CMD %d", p.PID)
 		k.claudeProc = &p
 		return
 	}
@@ -480,6 +486,7 @@ func (k *keeper) onClaude(p state.Process) {
 		return
 	}
 	k.claude, k.claudeProc = fd, &p
+	k.logf("Claude Code %d is held by a pidfd", p.PID)
 }
 
 func (k *keeper) cmdExited(st execx.ExitStatus, err error) {
@@ -558,11 +565,11 @@ func (k *keeper) stop(sig syscall.Signal) {
 	}
 	k.stopped, k.stopSig = true, sig
 	k.logf("stop: %v", sig)
-	switch k.phase {
-	case launching:
+	if k.phase == launching {
 		k.killLink()
 		return
-	case ending:
+	}
+	if k.phase == ending {
 		return
 	}
 	k.cancel(k.afterTerm)

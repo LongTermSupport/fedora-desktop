@@ -16,7 +16,6 @@
 package keeper
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -144,8 +143,8 @@ var errExeced = errors.New("keeper: re-executed")
 
 // Run is the keeper: B 2.4.1's steps, then the loop until CMD and Claude Code have ended and
 // the link has had the end. Its exit is CMD's status, 78 for a launch failure.
-func Run(ctx context.Context, cfg Config, stdout, stderr io.Writer) term.ExitCode {
-	k := newKeeper(ctx, cfg, stdout, stderr)
+func Run(cfg Config, stdout, stderr io.Writer) term.ExitCode {
+	k := newKeeper(cfg, stdout, stderr)
 	if err := k.prepare(); err != nil {
 		if errors.Is(err, errExeced) {
 			k.close(false)
@@ -176,7 +175,7 @@ func Main(e cli.Env, inv cli.Invocation) term.ExitCode {
 	// The keeper idles for the session's life: no collection cycle, and a small heap cap.
 	debug.SetGCPercent(-1)
 	debug.SetMemoryLimit(16 << 20)
-	return Run(context.Background(), cfg, e.Stdout, e.Stderr)
+	return Run(cfg, e.Stdout, e.Stderr)
 }
 
 // production is Main's Config without its signals and watcher.
@@ -273,8 +272,8 @@ func (k *keeper) openRunRoot() error {
 		return fault(exits.CodeRuntime, msgRuntimeParent, exits.Name(k.cfg.RuntimeParent))
 	}
 	defer k.closeQuietly(parent)
-	if err := parent.MkdirAll(rr); err != nil {
-		k.logf("make %s: %v", rr, err)
+	if merr := parent.MkdirAll(rr); merr != nil {
+		k.logf("make %s: %v", rr, merr)
 		return fault(exits.CodeRuntime, msgRunRoot, exits.Name(rr))
 	}
 	if k.runRoot, err = parent.Sub(rr, homefs.Private); err != nil {

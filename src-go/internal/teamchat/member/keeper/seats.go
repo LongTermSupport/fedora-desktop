@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -59,7 +60,7 @@ func (k *keeper) cancelSeat(s *seat) {
 // writeKeeper writes keeper.json, the status line's view of the link.
 func (k *keeper) writeKeeper() {
 	var session *paths.SessionName
-	if k.desired != nil {
+	if kind := k.cfg.Launch.Kind; k.desired != nil && (kind == cli.KindCCY || kind == cli.KindLXC) {
 		name := k.desired.Session
 		session = &name
 	}
@@ -206,7 +207,8 @@ func (k *keeper) reconcile() {
 // add takes a seat while the session runs; one another session holds is refused to the link,
 // with its holder's run.
 func (k *keeper) add(w want) {
-	s, err := k.takeSeat(w)
+	// A hot add's lock tries are bounded by Locks; nothing cancels them mid-loop.
+	s, err := k.takeSeat(context.Background(), w)
 	if errors.Is(err, lock.ErrBusy) {
 		k.refuse(w.team)
 		return
@@ -323,6 +325,7 @@ func (k *keeper) removed(s *seat, userID string) {
 	s.removing = nil
 	if rm.farewell != nil && *rm.farewell == state.FarewellReleased {
 		s.owedTxn = rm.txn
+		k.logf("seat %s: its leave notice is owed", s.team)
 		s.owedTimer = k.after(owedWait, func() {
 			k.logf("seat %s: the leave notice was not posted in time", s.team)
 			k.drop(s)

@@ -67,6 +67,8 @@ type world struct {
 
 	mu      sync.Mutex
 	nextPID int
+	linkErr error
+	readies int
 }
 
 // newWorld is a world launched by args, in which DESIRED and STATE stand for the world's own
@@ -102,7 +104,7 @@ func newWorld(t *testing.T, args ...string) *world {
 	mustDo(t, err)
 	w.layout = layout
 	w.runner.On([]string{kit.Binary(), "--version"}, execx.Result{Stdout: []byte(digest + "\n")})
-	w.starter.OnStart([]string{linkName}, w.startLink)
+	w.starter.OnStart([]string{linkName}, func(c execx.Cmd) (execx.Started, error) { return w.startLink(c) })
 	w.parse(args...)
 	return w
 }
@@ -149,7 +151,7 @@ func (w *world) startWith(cfg Config) <-chan term.ExitCode {
 	ended := make(chan struct{})
 	w.ended = ended
 	go func() {
-		code := Run(context.Background(), cfg, &w.stdout, &w.stderr)
+		code := Run(cfg, &w.stdout, &w.stderr)
 		close(ended)
 		res <- code
 	}()
@@ -170,6 +172,12 @@ func (w *world) newChild(c execx.Cmd) *child {
 }
 
 func (w *world) startLink(c execx.Cmd) (execx.Started, error) {
+	w.mu.Lock()
+	linkErr := w.linkErr
+	w.mu.Unlock()
+	if linkErr != nil {
+		return nil, linkErr
+	}
 	if len(c.ExtraFiles) != 1 {
 		return nil, errors.New("the link has no control socket")
 	}
@@ -182,6 +190,8 @@ func (w *world) startLink(c execx.Cmd) (execx.Started, error) {
 		return nil, err
 	}
 	l := &fakeLink{child: w.newChild(c), conn: conn}
+	// The link's socket end closes with it, as a process's descriptors do.
+	l.onEx = func() { mustClose(conn) }
 	w.links <- l
 	return l, nil
 }
@@ -224,8 +234,16 @@ func (w *world) up(adds int) *fakeLink {
 	for range adds {
 		l.expect(w.t, wire.KindAdd)
 	}
-	l.send(w.t, wire.Msg{Kind: wire.KindReady, Ready: &wire.Ready{}})
+	w.ready(l)
 	return l
+}
+
+// ready tells l it is ready and waits until the keeper has taken it.
+func (w *world) ready(l *fakeLink) {
+	w.t.Helper()
+	l.send(w.t, wire.Msg{Kind: wire.KindReady, Ready: &wire.Ready{}})
+	w.readies++
+	w.logged("the link is ready", w.readies)
 }
 
 // running is a launched keeper with its link ready and CMD started, the link told the pid.
@@ -233,22 +251,39 @@ func (w *world) running(adds int) (*fakeLink, *child, <-chan term.ExitCode) {
 	w.t.Helper()
 	res := w.start()
 	l := w.up(adds)
-	c := <-w.cmds
+	c := w.cmd()
 	l.expect(w.t, wire.KindPID)
+	w.sessionStarted(l)
 	return l, c, res
 }
 
-// runDir is the session's runtime directory, the one entry of the run root.
+// sessionStarted is the link's report of Claude Code's first SessionStart, for a --claude
+// launch; without it CMD's end is a launch failure.
+func (w *world) sessionStarted(l *fakeLink) {
+	w.t.Helper()
+	if w.launch.Mode == cli.LaunchClaude {
+		l.send(w.t, wire.Msg{Kind: wire.KindStarted, Started: &wire.Started{}})
+		w.logged("Claude Code's first SessionStart")
+	}
+}
+
+// runDir is the session's runtime directory: the one entry of the run root with a keeper.log,
+// which no leftover a test plants has.
 func (w *world) runDir() paths.Run {
 	w.t.Helper()
 	entries, err := os.ReadDir(w.layout.RunRoot())
 	mustDo(w.t, err)
-	if len(entries) != 1 {
-		w.t.Fatalf("the run root holds %d entries", len(entries))
+	var runs []paths.Run
+	for _, e := range entries {
+		id, perr := paths.ParseRunID(e.Name())
+		if perr == nil && exists(w.t, w.layout.Run(id).KeeperLog()) {
+			runs = append(runs, w.layout.Run(id))
+		}
 	}
-	id, err := paths.ParseRunID(entries[0].Name())
-	mustDo(w.t, err)
-	return w.layout.Run(id)
+	if len(runs) != 1 {
+		w.t.Fatalf("the run root holds %d runs with a keeper.log", len(runs))
+	}
+	return runs[0]
 }
 
 // runGone is whether the run root has no runtime left.
@@ -325,7 +360,7 @@ func (w *world) changed() {
 
 // desiredJSON is a desired.json with the given seats ("team/seat") and inbound.
 func desiredJSON(gen int, inbound string, seats ...string) string {
-	var list []string
+	list := make([]string, 0, len(seats))
 	for _, s := range seats {
 		team, seat, ok := strings.Cut(s, "/")
 		if !ok {
@@ -413,27 +448,9 @@ func (c *child) env(name string) string {
 // fakeLink is the link's end: its control socket, closed when it exits as a process's would be.
 type fakeLink struct {
 	*child
+
 	conn *wire.Conn
 }
-
-func (l *fakeLink) exit(st execx.ExitStatus) {
-	l.child.onEx = func() {
-		if err := l.conn.Close(); err != nil {
-			panic(err)
-		}
-	}
-	l.child.exit(st)
-}
-
-func (l *fakeLink) Signal(sig syscall.Signal) error {
-	l.sigs <- sig
-	if sig == syscall.SIGKILL {
-		l.exit(execx.ExitStatus{Code: 128 + int(sig), Signal: sig})
-	}
-	return nil
-}
-
-func (l *fakeLink) code(n int) { l.exit(execx.ExitStatus{Code: n}) }
 
 func (l *fakeLink) recv(t *testing.T) (wire.Msg, *os.File) {
 	t.Helper()
@@ -472,18 +489,6 @@ type procTable struct {
 	ticks map[int]int64
 }
 
-func (p *procTable) set(pid int, ticks int64) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.ticks[pid] = ticks
-}
-
-func (p *procTable) gone(pid int) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	delete(p.ticks, pid)
-}
-
 func (p *procTable) StartTicks(pid int) (int64, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -492,6 +497,12 @@ func (p *procTable) StartTicks(pid int) (int64, error) {
 		return 0, fs.ErrNotExist
 	}
 	return t, nil
+}
+
+func (p *procTable) set(pid int, ticks int64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.ticks[pid] = ticks
 }
 
 type fakePidfds struct {
@@ -531,9 +542,10 @@ func (p *fakePidfd) Signal(sig syscall.Signal) error {
 	return nil
 }
 
-func (p *fakePidfd) exit()                   { p.once.Do(func() { close(p.exited) }) }
 func (p *fakePidfd) Exited() <-chan struct{} { return p.exited }
 func (p *fakePidfd) Close() error            { return nil }
+
+func (p *fakePidfd) exit() { p.once.Do(func() { close(p.exited) }) }
 
 type fakeWatcher struct {
 	events chan WatchEvent
@@ -598,6 +610,54 @@ func (h *holder) release(t *testing.T) {
 	mustDo(t, h.f.Close())
 }
 
+// pollGap is how often a barrier looks again; bound caps the whole wait.
+const pollGap = 5 * time.Millisecond
+
+// eventually waits until cond holds: the barrier between the keeper's sources, which the loop
+// takes in no fixed order.
+func (w *world) eventually(what string, cond func() bool) {
+	w.t.Helper()
+	for range int(bound / pollGap) {
+		if cond() {
+			return
+		}
+		time.Sleep(pollGap)
+	}
+	w.t.Fatalf("never: %s", what)
+}
+
+// logged waits until keeper.log holds sub n times.
+func (w *world) logged(sub string, n ...int) {
+	w.t.Helper()
+	want := 1
+	if len(n) == 1 {
+		want = n[0]
+	}
+	run := w.runDir()
+	w.eventually("keeper.log says "+sub, func() bool {
+		return strings.Count(w.logOf(run), sub) >= want
+	})
+}
+
+// claude is the link naming Claude Code as pid, a process apart from CMD, and the pidfd the
+// keeper holds it by.
+func (w *world) claude(l *fakeLink) *fakePidfd {
+	w.t.Helper()
+	pid := claudePID
+	w.proc.set(pid, int64(pid)*10)
+	l.send(w.t, wire.Msg{Kind: wire.KindClaude, Claude: &state.Process{PID: pid, StartTicks: int64(pid) * 10}})
+	w.logged(fmt.Sprintf("Claude Code %d is held by a pidfd", pid))
+	return w.pidfds.get(pid)
+}
+
+// expectSig fails unless the next signal on sigs is want.
+func expectSig(t *testing.T, sigs <-chan syscall.Signal, want syscall.Signal) {
+	t.Helper()
+	if got := <-sigs; got != want {
+		t.Fatalf("sent %v, want %v", got, want)
+	}
+}
+
 // session is a running plain launch.
 type session struct {
 	w   *world
@@ -614,6 +674,7 @@ func (w *world) startPlain(cfg Config) *session {
 	l := w.up(len(w.launch.Seats))
 	c := <-w.cmds
 	l.expect(w.t, wire.KindPID)
+	w.sessionStarted(l)
 	return &session{w: w, l: l, c: c, res: res, run: w.runDir()}
 }
 
@@ -632,6 +693,13 @@ func (w *world) logOf(run paths.Run) string {
 	data, err := os.ReadFile(run.KeeperLog())
 	mustDo(w.t, err)
 	return string(data)
+}
+
+// mustClose closes c, which must not fail: a fake's descriptor.
+func mustClose(c interface{ Close() error }) {
+	if err := c.Close(); err != nil {
+		panic(err)
+	}
 }
 
 func contains(s, sub string) bool { return strings.Contains(s, sub) }

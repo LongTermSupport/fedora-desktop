@@ -7,6 +7,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/wire"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -36,19 +37,8 @@ func TestLaunchHoldsSeatsAndRunsCmd(t *testing.T) {
 	l.send(t, wire.Msg{Kind: wire.KindReady, Ready: &wire.Ready{}})
 	c := <-w.cmds
 	l.expect(t, wire.KindPID)
-	run := w.runDir()
-	if !hasArgs(c.cmd, "claude", "--plugin-dir", w.kit.PluginDir(), "--settings", run.Settings()) {
-		t.Fatalf("CMD argv %q", c.cmd.Line())
-	}
-	if v := c.env("TEAMCHAT_RUNTIME"); v != run.Dir() {
-		t.Fatalf("TEAMCHAT_RUNTIME %q", v)
-	}
-	if k := w.keeperJSON(); k.Link != state.LinkRunning || k.Desired != state.DesiredApplied {
-		t.Fatalf("keeper.json %+v", k)
-	}
-	if r := w.lockRecord(alpha); r.Run.String() != run.Dir()[len(run.Dir())-16:] || r.StartedMS != wallStart {
-		t.Fatalf("lock record %+v", r)
-	}
+	w.sessionStarted(l)
+	launched(t, w, c, alpha)
 	c.code(0)
 	end := l.expect(t, wire.KindEnd)
 	if end.End.How != wire.EndExit || end.End.Status != 0 {
@@ -81,5 +71,23 @@ func TestHeldSeatFailsTheLaunch(t *testing.T) {
 	}
 	if !w.runGone() {
 		t.Fatal("the run was left")
+	}
+}
+
+// launched checks a running launch: CMD's argv and environment, keeper.json and the lock record.
+func launched(t *testing.T, w *world, c *child, alpha paths.Seat) {
+	t.Helper()
+	run := w.runDir()
+	if !hasArgs(c.cmd, "claude", "--plugin-dir", w.kit.PluginDir(), "--settings", run.Settings()) {
+		t.Fatalf("CMD argv %q", c.cmd.Line())
+	}
+	if v := c.env("TEAMCHAT_RUNTIME"); v != run.Dir() {
+		t.Fatalf("TEAMCHAT_RUNTIME %q", v)
+	}
+	if k := w.keeperJSON(); k.Link != state.LinkRunning || k.Desired != state.DesiredApplied {
+		t.Fatalf("keeper.json %+v", k)
+	}
+	if r := w.lockRecord(alpha); r.Run.String() != run.Dir()[len(run.Dir())-16:] || r.StartedMS != wallStart {
+		t.Fatalf("lock record %+v", r)
 	}
 }
