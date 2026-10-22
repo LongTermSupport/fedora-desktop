@@ -1,6 +1,7 @@
 package link
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -63,9 +64,10 @@ func (n *fakeNotices) presences() []string {
 	return slices.Clone(n.presence)
 }
 
-// fakeTeam runs until cancelled.
+// fakeTeam runs until cancelled; its re-fetch delivers each item when deliver is set.
 type fakeTeam struct {
 	notices *fakeNotices
+	deliver bool
 	mu      sync.Mutex
 	ran     bool
 }
@@ -78,7 +80,10 @@ func (f *fakeTeam) Run(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func (*fakeTeam) Refetch(context.Context, string, string) (proto.Verdict, error) {
+func (f *fakeTeam) Refetch(_ context.Context, _, id string) (proto.Verdict, error) {
+	if f.deliver {
+		return proto.Verdict{Outcome: proto.Deliver, Event: proto.Event{ID: id, OriginTs: startWall}, Human: proto.Human{Body: "hello"}}, nil
+	}
 	return proto.Verdict{}, errors.New("no refetch")
 }
 
@@ -187,22 +192,7 @@ type linkWorld struct {
 
 func newLinkWorld(t *testing.T) *linkWorld {
 	t.Helper()
-	w := &linkWorld{
-		home: newHome(t), t: t, in: make(chan got, 64), ends: &fakeEnds{},
-		parent: &fakeParent{exited: make(chan struct{})}, proc: newFakeProc(),
-		exit: make(chan int, 1), teams: map[paths.TeamID]*fakeTeam{},
-	}
-	if n := len(w.layout.Run(w.run).LinkSock()); n > 100 {
-		t.Fatalf("the test's link.sock is %d bytes; shorten the test's name", n)
-	}
-	k, err := lock.TakeKeeper(t.Context(), w.clk, w.root, w.layout.Run(w.run))
-	check(t, err)
-	t.Cleanup(func() { check(t, k.Release()) })
-	w.keeper = k
-	keeperEnd, linkEnd, err := wire.Pair()
-	check(t, err)
-	w.conn, err = wire.NewConn(keeperEnd)
-	check(t, err)
+	w, linkEnd := newKeeperWorld(t)
 	linkConn, err := wire.NewConn(linkEnd)
 	check(t, err)
 	kit, err := paths.ParseDigest(kitHex)
@@ -218,11 +208,42 @@ func newLinkWorld(t *testing.T) *linkWorld {
 			w.ln = l
 		},
 	}
+	return w
+}
+
+// newKeeperWorld is a home and a keeper holding its run, reading its end of the control socket;
+// the link's end is returned, for a link in this process or another.
+func newKeeperWorld(t *testing.T) (*linkWorld, *os.File) {
+	t.Helper()
+	w := &linkWorld{
+		home: newHome(t), t: t, in: make(chan got, 64), ends: &fakeEnds{},
+		parent: &fakeParent{exited: make(chan struct{})}, proc: newFakeProc(),
+		exit: make(chan int, 1), teams: map[paths.TeamID]*fakeTeam{},
+	}
+	if n := len(w.layout.Run(w.run).LinkSock()); n > 100 {
+		t.Fatalf("the test's link.sock is %d bytes; shorten the test's name", n)
+	}
+	k, err := lock.TakeKeeper(t.Context(), w.clk, w.root, w.layout.Run(w.run))
+	check(t, err)
+	t.Cleanup(func() { check(t, k.Release()) })
+	w.keeper = k
+	return w, w.connect()
+}
+
+// connect is a fresh control socket: the keeper reads its end into w.in, and the link's end is
+// returned.
+func (w *linkWorld) connect() *os.File {
+	w.t.Helper()
+	keeperEnd, linkEnd, err := wire.Pair()
+	check(w.t, err)
+	conn, err := wire.NewConn(keeperEnd)
+	check(w.t, err)
+	w.conn = conn
 	go func() {
 		for {
-			m, fd, err := w.conn.Recv()
+			m, fd, err := conn.Recv()
 			if fd != nil {
-				check(t, fd.Close())
+				check(w.t, fd.Close())
 			}
 			w.in <- got{m, err}
 			if err != nil {
@@ -230,7 +251,7 @@ func newLinkWorld(t *testing.T) *linkWorld {
 			}
 		}
 	}()
-	return w
+	return linkEnd
 }
 
 func (w *linkWorld) newTeam(cfg engine.TeamConfig) (team.Team, error) {
@@ -318,6 +339,19 @@ func (w *linkWorld) exited() int {
 // seat makes id's seat with its bundle and a fresh store, takes it, and is the add.
 func (w *linkWorld) seat(id paths.TeamID) (wire.Msg, *os.File) {
 	w.t.Helper()
+	l := w.seatHolding(id, nil)
+	fd, err := l.Dup()
+	check(w.t, err)
+	return addOf(id), fd
+}
+
+func addOf(id paths.TeamID) wire.Msg {
+	return wire.Msg{Kind: wire.KindAdd, Add: &wire.Add{Team: id, Seat: "main", RemovedUserIDs: []string{}}}
+}
+
+// seatHolding makes id's seat with its bundle and a store owing pending, and takes it.
+func (w *linkWorld) seatHolding(id paths.TeamID, pending []state.Pending) *lock.SeatLock {
+	w.t.Helper()
 	s := w.layout.Seat(id)
 	check(w.t, w.root.MkdirAll(s.Dir()))
 	issuer, err := paths.ParseDigest(kitHex)
@@ -330,15 +364,17 @@ func (w *linkWorld) seat(id paths.TeamID) (wire.Msg, *os.File) {
 	}.Encode()
 	check(w.t, err)
 	check(w.t, w.root.Create(s.Bundle(), b, 0o600))
-	store, err := json.Marshal(state.NewStore(id, agent(id), state.StoreRun{ID: w.run, StartedMS: startWall}, state.Gate{}))
+	st := state.NewStore(id, agent(id), state.StoreRun{ID: w.run, StartedMS: startWall}, state.Gate{})
+	if pending != nil {
+		st.Pending = pending
+	}
+	store, err := json.Marshal(st)
 	check(w.t, err)
 	check(w.t, w.root.Create(s.Store(), store, 0o600))
 	l, err := w.keeper.TakeSeat(w.t.Context(), w.root, s)
 	check(w.t, err)
 	w.t.Cleanup(func() { check(w.t, l.Close()) })
-	fd, err := l.Dup()
-	check(w.t, err)
-	return wire.Msg{Kind: wire.KindAdd, Add: &wire.Add{Team: id, Seat: "main", RemovedUserIDs: []string{}}}, fd
+	return l
 }
 
 func (w *linkWorld) add(id paths.TeamID) {
@@ -362,19 +398,33 @@ func (w *linkWorld) ready(ids ...paths.TeamID) {
 // status is a status request over link.sock, answered by the engine.
 func (w *linkWorld) status() string {
 	w.t.Helper()
+	return w.request(wire.OpStatus, w.clk.Boot()+2*time.Second)
+}
+
+// request is one request over link.sock with deadline on the boot clock, and its answer up to
+// and with its done line; a hand-out is left unacked, so closing returns it.
+func (w *linkWorld) request(op string, deadline time.Duration) string {
+	w.t.Helper()
 	c, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: w.layout.Run(w.run).LinkSock(), Net: "unix"})
 	check(w.t, err)
 	defer func() { check(w.t, c.Close()) }()
 	line, err := wire.Request{
-		V: 1, Op: wire.OpStatus, Kit: kitHex, DeadlineMS: (w.clk.Boot() + 2*time.Second).Milliseconds(),
+		V: 1, Op: op, Kit: kitHex, DeadlineMS: deadline.Milliseconds(),
 		Args: json.RawMessage(`{"team":null}`),
 	}.Encode()
 	check(w.t, err)
 	_, err = c.Write(append(line, '\n'))
 	check(w.t, err)
-	data, err := io.ReadAll(c)
-	check(w.t, err)
-	return string(data)
+	var out strings.Builder
+	r := bufio.NewReader(c)
+	for {
+		l, err := r.ReadString('\n')
+		out.WriteString(l)
+		if strings.HasPrefix(l, `{"done"`) || errors.Is(err, io.EOF) {
+			return out.String()
+		}
+		check(w.t, err)
+	}
 }
 
 // linkLockFree tries link.lock once: on an ended context, a held lock's wait for the next try
@@ -527,6 +577,25 @@ func TestAKeeperGoneBeforeTheLaunch(t *testing.T) {
 	w.start()
 	check(t, w.conn.Close())
 	if code := w.exited(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+}
+
+func TestPidfdFiresBeforeLaunch(t *testing.T) {
+	w := newLinkWorld(t)
+	close(w.parent.exited)
+	w.start()
+	if code := w.exited(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+}
+
+func TestAnEngineThatCannotBeMadeIs78(t *testing.T) {
+	w := newLinkWorld(t)
+	w.cfg.Engine = func(engine.Config) (*engine.Engine, error) { return nil, errors.New("no engine") }
+	w.start()
+	w.launch(0)
+	if code := w.exited(); code != int(exits.ExitConfig) {
 		t.Fatalf("exit %d", code)
 	}
 }
