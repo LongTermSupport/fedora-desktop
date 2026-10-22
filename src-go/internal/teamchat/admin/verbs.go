@@ -243,6 +243,11 @@ func underLock(ctx context.Context, sys *System, op string, team paths.TeamID, a
 	if a == nil {
 		return nil, err
 	}
+	if a.OK {
+		if lie := asked(op, args, *a); lie != nil {
+			return nil, lie
+		}
+	}
 	if serr := sys.Host.Status.Refresh(ctx, team, false); serr != nil {
 		err = errors.Join(err, fmt.Errorf("the status record: %w", serr))
 	}
@@ -262,6 +267,52 @@ func underLock(ctx context.Context, sys *System, op string, team paths.TeamID, a
 		}
 	}
 	return proto.Obj(members...).Compact(), err
+}
+
+// asked checks a child's answer against the request before root acts on it (C 3.3: the answer
+// is the one thing root parses that a less-privileged process wrote): the handle asked for (for
+// an add, the prefix's, numbered by the seat unless it is next), and a credential of the kind
+// asked for exactly when the verb issues one.
+func asked(op string, args []proto.Member, a Answer) error {
+	byKey := map[string]proto.Value{}
+	for _, m := range args {
+		byKey[m.Key] = m.Val
+	}
+	req, err := memberRequest(op, byKey)
+	if err != nil {
+		return err
+	}
+	lie := func(what string) error {
+		return fmt.Errorf("the %s child answered %s, not what it was asked: no bundle is made", paths.CtlUser, what)
+	}
+	if !answeredHandle(req, a.Handle) {
+		return lie("handle " + strconv.Quote(a.Handle))
+	}
+	issues := op == apply.OpMemberAdd || op == apply.OpMemberReturn || op == apply.OpMemberReissue
+	switch {
+	case issues && a.Credential == nil:
+		return lie("no credential")
+	case !issues && a.Credential != nil:
+		return lie("a credential")
+	case issues && a.Credential.Kind != req.Credential:
+		return lie("a " + a.Credential.Kind + " credential")
+	}
+	return nil
+}
+
+func answeredHandle(req apply.MemberRequest, handle string) bool {
+	switch req.Op {
+	case apply.OpRoleApply:
+		return handle == ""
+	case apply.OpMemberAdd:
+		h, ok := proto.ParseHandle(handle)
+		if !ok || h.Prefix().String() != req.Prefix {
+			return false
+		}
+		n, numbered := h.SeatNumber()
+		return numbered && (req.Seat == 0 || n == req.Seat)
+	}
+	return handle == req.Handle
 }
 
 // readTeamFile is the applied `team.json` (DC18): a member verb never takes a declaration.

@@ -292,7 +292,8 @@ func TestAddCrashedAtEachStepIsRolledForwardByTheSameVerb(t *testing.T) {
 		landed bool
 		step   string
 	}{
-		{"Account", 1, false, apply.StepAccount},
+		{"Account", 1, false, apply.StepAccount}, // the refusals' look, before pending
+		{"Account", 2, false, apply.StepAccount},
 		{"CreateAccount", 1, true, apply.StepAccount},
 		{"ResetPassword", 1, true, apply.StepCredential},
 		{"LoginDevice", 1, true, apply.StepCredential},
@@ -483,22 +484,27 @@ func TestVerbFlagsAreStrict(t *testing.T) {
 	}
 }
 
+// TestVerbInputRefusals: input that cannot be read is 1, another team is 64, and a one-field
+// approval the approved team cannot take is 70; none prints anything on stdout.
 func TestVerbInputRefusals(t *testing.T) {
 	w := newWorld(t)
+	w.ok(t, encodeDoc(t, alphaDoc()), "team", "approve", "--team", "alpha")
 	other := alphaDoc()
 	docTeam(other)["team"] = "beta"
 	for name, c := range map[string]struct {
 		stdin string
 		args  []string
+		code  term.ExitCode
+		text  string
 	}{
-		"apply of no json":         {"nope", []string{"team", "apply"}},
-		"approve of another team":  {encodeDoc(t, other), []string{"team", "approve", "--team", "alpha"}},
-		"approve of no json":       {"nope", []string{"team", "approve", "--team", "alpha"}},
-		"apply of a large input":   {strings.Repeat(" ", maxRequest+1), []string{"team", "apply"}},
-		"approve of a bad --only":  {encodeDoc(t, alphaDoc()), []string{"team", "approve", "--team", "alpha", "--only", "colour", "--set", "x"}},
-		"approve of a bad request": {encodeDoc(t, alphaDoc()), []string{"team", "approve", "--team", "alpha", "--only", "humans", "--set", "x"}},
+		"apply of no json":         {"nope", []string{"team", "apply"}, term.ExitFailure, "strict JSON"},
+		"approve of another team":  {encodeDoc(t, other), []string{"team", "approve", "--team", "alpha"}, term.ExitUsage, "team beta"},
+		"approve of no json":       {"nope", []string{"team", "approve", "--team", "alpha"}, term.ExitFailure, "strict JSON"},
+		"apply of a large input":   {strings.Repeat(" ", maxRequest+1), []string{"team", "apply"}, term.ExitFailure, "over"},
+		"approve of a bad --only":  {encodeDoc(t, alphaDoc()), []string{"team", "approve", "--team", "alpha", "--only", "colour", "--set", "x"}, ExitRefused, "colour"},
+		"approve of a bad request": {encodeDoc(t, alphaDoc()), []string{"team", "approve", "--team", "alpha", "--only", "humans", "--set", "x"}, ExitRefused, "humans"},
 	} {
-		if out := w.verb(c.stdin, c.args...); out.code == term.ExitOK || out.stdout != "" {
+		if out := w.verb(c.stdin, c.args...); out.code != c.code || out.stdout != "" || !strings.Contains(out.stderr, c.text) {
 			t.Errorf("%s: %+v", name, out)
 		}
 	}
@@ -520,6 +526,37 @@ func TestAFailedStatusRefreshStillPrintsTheBundle(t *testing.T) {
 	out := w.verb("", addArgs("3", "password")...)
 	if out.code != term.ExitFailure || decodeDoc(t, out).Bundle == nil || !strings.Contains(out.stderr, "disk full") {
 		t.Fatalf("%+v", out)
+	}
+}
+
+// TestAChildsAnswerIsCheckedAgainstTheRequest: root builds a bundle only for the handle and the
+// credential kind it asked for (C 3.3: the answer is written by a less-privileged process).
+func TestAChildsAnswerIsCheckedAgainstTheRequest(t *testing.T) {
+	cases := map[string]struct {
+		args []string
+		lie  func(*Answer)
+	}{
+		"another prefix's handle":  {addArgs("4", "password"), func(a *Answer) { a.Handle = "other.4+desk.podman" }},
+		"another seat":             {addArgs("4", "password"), func(a *Answer) { a.Handle = "myrepo.5+desk.podman" }},
+		"another prefix for next":  {addArgs("next", "password"), func(a *Answer) { a.Handle = "other.1+desk.podman" }},
+		"another handle":           {on("reissue", "--credential", "password"), func(a *Answer) { a.Handle = coord }},
+		"another kind":             {addArgs("4", "password"), func(a *Answer) { a.Credential.Kind = apply.CredToken }},
+		"no credential for an add": {addArgs("4", "password"), func(a *Answer) { a.Credential = nil }},
+		"a credential for a park":  {on("park"), func(a *Answer) { a.Credential = &apply.Credential{Kind: apply.CredPassword, Secret: "x"} }},
+		"a handle for role apply":  {[]string{"role", "apply", "--team", "alpha"}, func(a *Answer) { a.Handle = coord }},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t)
+			w.applied(t)
+			w.ok(t, "", addArgs("3", "password")...)
+			bundled := len(w.bundled)
+			w.lie = c.lie
+			out := w.verb("", c.args...)
+			if out.code != term.ExitFailure || out.stdout != "" || len(w.bundled) != bundled || !strings.Contains(out.stderr, "not what it was asked") {
+				t.Fatalf("%+v, bundled %v", out, w.bundled)
+			}
+		})
 	}
 }
 

@@ -467,7 +467,7 @@ type crash struct {
 // asked again finishing it with a working credential and one of each notice.
 func TestAddRollsForwardFromEveryStep(t *testing.T) {
 	crashes := []crash{
-		{"Account", 1, false, StepAccount},
+		{"Account", 2, false, StepAccount}, // the first is the refusals' (MO3)
 		{"CreateAccount", 1, true, StepAccount},
 		{"ResetPassword", 1, true, StepCredential},
 		{"Invite", 1, false, StepRooms},

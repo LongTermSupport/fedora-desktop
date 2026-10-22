@@ -91,6 +91,7 @@ type world struct {
 	statErr error
 	bundled []string
 	crash   *crashing
+	lie     func(*Answer) // a child that answers what it was not asked
 	regKeys []string
 	gidErr  error
 }
@@ -161,7 +162,11 @@ func (c inProcessChild) Ask(ctx context.Context, req Request) (Answer, error) {
 	if stderr.Len() > 0 {
 		return Answer{}, errors.New(stderr.String())
 	}
-	return DecodeAnswer(bytes.TrimSuffix(stdout.Bytes(), []byte("\n")))
+	a, err := DecodeAnswer(bytes.TrimSuffix(stdout.Bytes(), []byte("\n")))
+	if err == nil && a.OK && c.w.lie != nil {
+		c.w.lie(&a)
+	}
+	return a, err
 }
 
 // Bundle is the seat side's bundle as a test reads it: the handle and the credential.

@@ -111,8 +111,9 @@ func RoleApply(ctx context.Context, d Deps, team declare.Team) (Result, error) {
 	return r.res, withOp(err, OpRoleApply)
 }
 
+// withOp names op in a failure that names none yet: a roll-forward's names the pending one.
 func withOp(err error, op string) error {
-	if e, ok := errors.AsType[*Error](err); ok {
+	if e, ok := errors.AsType[*Error](err); ok && e.Op == "" {
 		e.Op = op
 	}
 	return err
@@ -142,22 +143,50 @@ func (r *run) member(ctx context.Context, req MemberRequest) error {
 		return err
 	}
 	if p := r.files.roster.Pending; p != nil {
-		if p.Op == req.Op && p.Handle == handle {
-			r.res.Handle = handle
-			return r.resume(ctx, p, req.Credential)
-		}
-		if err = r.rollForward(ctx); err != nil {
+		var retry bool
+		retry, err = r.retryOf(req, handle, p)
+		switch {
+		case err != nil:
 			return err
+		case retry:
+			r.res.Handle = p.Handle
+			// A set asked again with the other value runs again once its first is finished.
+			if err = r.resume(ctx, p, req.Credential); err != nil || req.Op != OpMemberSet {
+				return err
+			}
+		default:
+			if err = r.rollForward(ctx); err != nil {
+				return err
+			}
 		}
 		if handle, err = r.target(req); err != nil {
 			return err
 		}
 	}
 	r.res.Handle = handle
-	if err = r.refuse(req, handle); err != nil {
+	if err = r.refuse(ctx, req, handle); err != nil {
 		return err
 	}
 	return r.start(ctx, req, handle)
+}
+
+// retryOf is whether req asks again for the pending operation p (MO5): the same verb on its
+// handle, or for `add --seat next` on its prefix. An add asked again with another human_text
+// is refused, before any change.
+func (r *run) retryOf(req MemberRequest, handle string, p *Pending) (bool, error) {
+	if p.Op != req.Op {
+		return false, nil
+	}
+	if req.Op != OpMemberAdd {
+		return p.Handle == handle, nil
+	}
+	if p.Handle != handle && (req.Seat != 0 || mustHandle(p.Handle).Prefix().String() != req.Prefix) {
+		return false, nil
+	}
+	if m := r.files.roster.Members[p.Handle]; m.HumanText != req.HumanText {
+		return false, refusedf("member.add of %s is pending with human_text %t: ask again with the same arguments, or any other verb finishes it", p.Handle, m.HumanText)
+	}
+	return true, nil
 }
 
 // target checks what a request says on its own and answers its handle (MO3, MO4).
@@ -220,8 +249,26 @@ func issues(op string) bool {
 	return op == OpMemberAdd || op == OpMemberReturn || op == OpMemberReissue
 }
 
-// refuse is MO3's refusals of the handle's state, before any change.
-func (r *run) refuse(req MemberRequest, h string) error {
+// refuse is MO3's refusals of the handle's state, and of an account that is there deactivated
+// for the verbs that bring a member in, before any change.
+func (r *run) refuse(ctx context.Context, req MemberRequest, h string) error {
+	if err := r.refuseState(req, h); err != nil {
+		return err
+	}
+	if req.Op != OpMemberAdd && req.Op != OpMemberReturn {
+		return nil
+	}
+	acct, found, err := r.d.Admin.Account(ctx, r.userID(h))
+	switch {
+	case err != nil:
+		return failed(StepAccount, err)
+	case found && acct.Deactivated:
+		return refused(StepAccount, fmt.Errorf("member %s's account is deactivated", h))
+	}
+	return nil
+}
+
+func (r *run) refuseState(req MemberRequest, h string) error {
 	f := &r.files.roster
 	m, known := f.Members[h]
 	coordinator := h == r.team.Coordinator || h == f.Coordinator
@@ -292,12 +339,17 @@ func mustHandle(s string) proto.Handle {
 }
 
 // rollForward completes the pending operation another verb started (MO5): a credential it
-// issued is revoked and never answered.
+// issued is revoked and never answered. A failure names the pending operation.
 func (r *run) rollForward(ctx context.Context) error {
 	p := r.files.roster.Pending
-	switch {
-	case p == nil:
+	if p == nil {
 		return nil
+	}
+	return withOp(r.finishPending(ctx, p), p.Op)
+}
+
+func (r *run) finishPending(ctx context.Context, p *Pending) error {
+	switch {
 	case p.Op == OpTeamApply && !isRoleStep(p.Step):
 		if err := r.converge(ctx, StepRooms); err != nil {
 			return err
@@ -390,7 +442,8 @@ func (r *run) step(ctx context.Context, p *Pending, cred string) error {
 
 func (r *run) userID(h string) string { return proto.UserID(h, r.team.ServerName) }
 
-// account makes the member's account when there is none; a deactivated one is refused.
+// account makes the member's account when there is none. One deactivated since the verb's
+// refusals ends the operation, and an add's claim is dropped, so no later verb is blocked.
 func (r *run) account(ctx context.Context, p *Pending) error {
 	id := r.userID(p.Handle)
 	acct, found, err := r.d.Admin.Account(ctx, id)
@@ -398,7 +451,11 @@ func (r *run) account(ctx context.Context, p *Pending) error {
 	case err != nil:
 		return failed(StepAccount, err)
 	case found && acct.Deactivated:
-		return refused(StepAccount, fmt.Errorf("member %s's account is deactivated", p.Handle))
+		if r.files.roster.Members[p.Handle].State == MemberClaimed {
+			delete(r.files.roster.Members, p.Handle)
+			r.note("member " + p.Handle + " claim dropped")
+		}
+		return errors.Join(refused(StepAccount, fmt.Errorf("member %s's account is deactivated", p.Handle)), r.clear(StepAccount))
 	case found && r.files.roster.Members[p.Handle].State == MemberClaimed:
 		r.note("member " + p.Handle + " account adopted")
 	case !found:
@@ -422,7 +479,7 @@ func (r *run) credential(ctx context.Context, p *Pending, kind string) error {
 	m.State = MemberActive
 	if kind == "" {
 		m.Needs = needsReissue
-		f.Members[p.Handle] = m
+		f.Members[p.Handle] = r.revoked(m)
 		r.res.Credential = nil
 		r.note("member " + p.Handle + " revoked")
 		return nil
@@ -449,9 +506,15 @@ func (r *run) park(ctx context.Context, p *Pending) error {
 	}
 	m := r.files.roster.Members[p.Handle]
 	m.State, m.SinceMS = MemberParked, r.now()
-	r.files.roster.Members[p.Handle] = m
+	r.files.roster.Members[p.Handle] = r.revoked(m)
 	r.note("member " + p.Handle + " parked")
 	return nil
+}
+
+// revoked is m with no credential recorded, at the next write's seq (C 3.6.1).
+func (r *run) revoked(m Member) Member {
+	m.Cred, m.CredSeq, m.CredMS = "", r.files.roster.Seq+1, r.now()
+	return m
 }
 
 func (r *run) deactivate(ctx context.Context, p *Pending) error {
