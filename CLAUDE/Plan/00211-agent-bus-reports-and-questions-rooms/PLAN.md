@@ -216,8 +216,11 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   (`tests/helpers/agent_bus_lxc/test_offline_member_rule.py`, CLAUDE/QA.md). Fixed: the 00211
   and 00213 acceptances (`CLAUDE/Plan/_members.inc.bash`), `agent-bus check-rooms` (an invited
   coordinator is an `OFFLINE` line, exit 0), the LXC play's deferred wording, and ccy-teams'
-  roles, wind-down and shutdown; Plan 00203's R9. CCY 3.99.14.13, container 2.78.16. Done in
-  code, on `fix/offline-members-never-block`; reports `subagent-reports/261022-offline-members-*`.
+  roles, wind-down, shutdown and restart; Plan 00203's R9. CCY 3.99.14.13, container 2.78.16.
+  Done in code, on `fix/offline-members-never-block`; reports
+  `subagent-reports/261022-offline-members-*`. For the owner: a role change still stops when a
+  declared LXC entry's checkout cannot be read and the team has no member record at all
+  (nothing else names that entry's handle); it advises `ccy-teams apply`, never a start.
 
 ### Phase 3: the owner's view (Go)
 
