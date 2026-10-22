@@ -102,12 +102,12 @@ CCY_VERSION="3.0.1"  # Fix: persist sessions in .claude/ccy/
   (tests and the `difftest` harness aside): installed as `claude-yolo` with the bash
   launcher beside it, it is built with `CCY_VERSION` (`-X main.Version`), so the same gate
   demands the bump. `CCY_HASH` stays the bash launcher's hash; the front refuses
-  `--version` when its version is not the bash's (Plan 00191 Task 4.5). **Blind spot:** the
-  gate watches only those two paths, so a change to a shared package the front imports
-  (`src-go/internal/execx`, `engine`, `term`, ...), to `src-go/go.mod`/`go.sum` or to vendored
-  code changes the installed front with no bump, and neither `CCY_VERSION` nor `CCY_HASH`
-  shows it. A version pin also cannot tell apart two branches that share a `CCY_VERSION`.
-  When such a change alters what the front does, bump `CCY_VERSION` by hand.
+  `--version` when its version is not the bash's (Plan 00191 Task 4.5). The gate also
+  demands the bump for any non-test file in a package the front builds from (`go list -deps`
+  of `src-go/cmd/claude-yolo`: `execx`, `engine`, `tokens`, `term`, vendored code, ...) and for
+  `src-go/go.mod`/`go.sum`; it asks Go only when such a file is staged, and a Go that cannot
+  answer rejects the commit. A version pin still cannot tell apart two branches that share a
+  `CCY_VERSION`, and `CCY_HASH` does not show the front.
 - **`files/var/local/claude-yolo/Dockerfile`** — image content carries its own
   version: bump `LABEL claude-yolo-version` in the Dockerfile **and**
   `REQUIRED_CONTAINER_VERSION` in the launcher, which must match.

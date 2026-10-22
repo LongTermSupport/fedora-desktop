@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.14.11 — container 2.78.14
+
+Follows 3.99.14.10. The image is unchanged, so there is no rebuild.
+
+- **The Go front's description lists every flag it answers** (`--version`, `--help`,
+  `--list-tokens`, `--token-usage`, `--prevent`, `--export-token NAME`); behaviour is unchanged.
+  The commit gate now also demands a bump for a change in any package the front builds from.
+
 ## 3.99.14.10 — container 2.78.14
 
 Follows 3.99.14.9. The image is unchanged, so there is no rebuild.

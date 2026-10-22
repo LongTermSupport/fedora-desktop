@@ -230,11 +230,13 @@ today; rewriting them is out of scope.
   is deleted; the four oracle suites are Go-only (the bash library cases stay); `qa-changed.bash`
   runs them for any `src-go/` file in the binary's build closure; docs updated; CCY 3.95.7.
   Done pending the owner's host run (`meta-deploy.bash` lists `play-claude-yolo.yml`).
+
 - [x] ✅ **Task 4.2**: The ccy launcher: assess and plan. Assessed in
   [ASSESS-ccy-launcher.md](ASSESS-ccy-launcher.md) (about 15,400 lines with its lib and cc, all
   of it host-side; a strangler port at the same install path, phased). Decisions D1-D10
   defaulted by the coordinator under the owner's standing "do not gate on me"; each can be
   overruled before the phase it shapes merges:
+
   - D1 (a) strangler at the same path; D2 keep `/var/local/claude-yolo/claude-yolo`, root-owned;
     D5 plain line prompts first; D6 keep both Python pieces; D7 no partial hand-over inside the
     launch path; D8 delete the dead bash now. These are the assessment's recommendations.
@@ -244,7 +246,8 @@ today; rewriting them is out of scope.
     until the owner hits launcher defects or asks. The reversible choice.
   - D9: keep Docker support. Dropping it removes a working capability, which is the
     owner's call, not a default.
-- [ ] 🔄 **Task 4.3**: Launcher phase 0.1: delete the dead bash of the assessment's section
+
+- [x] ✅ **Task 4.3**: Launcher phase 0.1: delete the dead bash of the assessment's section
   5.3, after re-proving each name dead on current F44 (the assessment predates later work;
   the goodbye acceptance now uses `ccy_known_prompts`, so that one is live). CCY bump.
   Re-proved on the branch: only the take-over chain was dead. Deleted from
@@ -256,8 +259,12 @@ today; rewriting them is out of scope.
   and call it as their parity oracle; `ccy_registry_restore` and `_restore_args` were already
   gone), `ccy_known_prompts` (Plan 00194's goodbye harness, `screen_test.go`) and
   `_ccy_tmux_clients` (`ccy_tmux_attach`, `ccy_tmux_is_detached`). The restore chain can go
-  only with the Go parity cases that call it: the owner's call.
-- [ ] 🔄 **Task 4.4**: Launcher phase 0.2: the differential harness, proven able to fail.
+  only with the Go parity cases that call it: the owner's call. Named follow-up, deferred to
+  that decision: remove the restore chain and its Go test cases together.
+
+- [x] ✅ **Task 4.4**: Launcher phase 0.2: the differential harness, proven able to fail.
+  Named follow-up, deferred: a pseudo-terminal driver for the interactive scenarios (see "Not
+  covered yet" below).
   Built as the Go test package `src-go/internal/ccylaunch/difftest` (test only; a recorded
   oracle on purpose, noted in `src-go/CLAUDE.md`). Each scenario runs the launcher once in a
   sandbox: scratch HOME, a one-commit repository, TMPDIR and XDG_RUNTIME_DIR, TZ=UTC, a PATH of
@@ -281,6 +288,7 @@ today; rewriting them is out of scope.
   the link (`readlink`, when it is one) but uses it only when timedatectl names no zone, which
   no world does, so the goldens do not depend on it. The launcher's pid is marked only where the launcher
   writes it. qa-changed routes the launcher, `lib/*.bash` and the Dockerfile to the Go gate.
+
   - Not redirected, on purpose: `CCY_LIFECYCLE_PLUGIN_PATH` (`lib/session-lifecycle.bash`)
     names the plugin's path inside the image, not on the host, and nothing reads the export.
   - Matrix: 82 scenarios. Standalone modes 43 (`--version`/`-v`, `--help`/`-h` with and without
@@ -300,7 +308,7 @@ today; rewriting them is out of scope.
     scenario differ on the line it changed: dropping `--dangerously-skip-permissions` from the
     run line fails `launch-plain`, and `-v` answering as `-V` fails `version-short`; it does
     not run under `-update`. By hand with
-    `LAUNCHER=`: an unmodified scratch copy is green (78 of 78 after the review fixes); the same copy with
+    `LAUNCHER=`: an unmodified scratch copy is green (82 of 82 after the review fixes); the same copy with
     `--label ccy=true` changed to `--label ccy=yes` is red, 22 scenarios failing on that line.
   - Bash behaviour the goldens now pin, for the port to decide deliberately: a trailing
     `--engine` is ignored; under docker one `podman network ls` still runs; an unknown
@@ -315,11 +323,13 @@ today; rewriting them is out of scope.
     exporting them in Task 4.4b; the dead `CCY_LIFECYCLE_PLUGIN_PATH` export is still to go.
   - Review (Opus, FIX-FIRST): `subagent-reports/261021-launcher-harness-review-opus.md`; every
     finding fixed as above.
+
 - [x] ✅ **Task 4.4b**: Launcher review follow-ups (round 1 finding 1, round 2 findings 1, 2,
   4, 5, 7; the hand-off's round 2 findings 1, 2 and 6, round 3 findings 1 to 4 and 7), CCY
   3.99.13.15 to 3.99.13.18,
   containers 2.78.12 and 2.78.13 (the image carries the guide, corrected twice; the commit
   hook requires a bump each time).
+
   - Secrets: the launcher held `GH_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN` exported from
     `claude-yolo`'s pre-run `export` (every later program: uname, timedatectl, sudo, curl in
     the restart update, compose) and `create_token`'s `export GH_TOKEN` (global from then on),
@@ -428,14 +438,10 @@ today; rewriting them is out of scope.
     - Red first: `scripts/test-ccy-token-handoff.bash` failed 6 of 100 (the newline-only file
       silent, a genuine hand-off refused under an exported `EUID`, another user's hand-off
       taken under a forged `EUID`); green 100 of 100.
-  - Narrow check of round 3 (Opus, MERGE):
-    `subagent-reports/261021-launcher-token-handoff-review-4-opus.md`. Follow-ups, not
-    blocking: take the uid from `id -u` once instead of `$EUID`, which bash reads from an
-    exported environment variable (same-user threat model only); a hand-off file holding
-    only a newline is removed with no message (test the value read, not `read`'s status);
-    the changelog line on a refused base should say the error lists the four bases.
+
 - [x] ✅ **Task 4.5**: Launcher phases 1 and 2: the foundation packages, then `--version`,
   `--help` and the other standalone modes, each a one-flag cut-over.
+
   - Phase 1 built (nothing cut over or installed, no play change, no CCY bump), each package
     to the intended behaviour its package doc numbers, test first, bash suites' cases ported
     as Go tables: `internal/engine` (E1-E9: selection, a runner for image inspect, ps, rm -f,
@@ -481,16 +487,13 @@ today; rewriting them is out of scope.
     with `-X main.Version=<CCY_VERSION>` read from the bash launcher and asserted); the bash
     launcher is copied first, beside it, as `claude-yolo.bash` (same owner and mode), so a
     failed build leaves the old launcher working. The image does not copy the launcher.
-    - Handled in Go: `--version`/`-v` and `--help`/`-h` only (help text embedded as
+    - First cut (superseded by the later bullets, which cut over `--list-tokens`,
+      `--token-usage`, `--prevent` and `--export-token NAME`; only `--top` and the interactive
+      export stay in bash): `--version`/`-v` and `--help`/`-h` (help text embedded as
       `help.txt`, held byte for byte to the bash heredoc by a test; the engine's two help
       questions are `engine` E10). Everything else is `execx.Exec` of `claude-yolo.bash`, no
-      shell, argv and environment unchanged. Not cut over: `--list-tokens`, `--token-usage`,
-      `--export-token`, `--prevent`, `--top`. They cannot pass the harness byte for byte yet:
-      the harness pins the clock through the fake `date`, which a Go reading its own clock
-      never asks, and `tokens` colours expiry only on a terminal (a decided departure) where
-      the goldens hold bash's colours; `--token-usage` would need its HTTP and the curl fake
-      reconciled. None uses `ui.Lines`, so its two follow-ups above stay open for the first
-      flag that prompts.
+      shell, argv and environment unchanged. The `ui.Lines` follow-ups above stay open for the
+      first flag that prompts.
     - Routing and fail-safe: the front answers a handled flag only where the bash would reach
       its own answer as modelled, and otherwise hands over (F4: `CCY_GH_TOKEN_HANDOFF` set,
       `BASH_ENV`-like variables or an exported function, an engine name or program not found,
@@ -610,12 +613,16 @@ today; rewriting them is out of scope.
       bash judges the quoted listing; a leading-nought version number is handed over (matches the
       bash's printing, no new divergence). Red: five new cases answered instead of handing over;
       green after the fix, real temporary git repositories including `café/README.md`.
-    - Follow-up, not fixed: the project handler test
-      `test_matches_write_to_root_claude_projects_returns_false` in
-      `.claude/hooks/handlers/pre_tool_use/tests/test_system_paths.py` already fails on F44
-      (identical on the base). `qa-all.bash` does not run the project handler tests:
-      `scripts/qa-helper-tests.bash` runs only `tests/helpers/**/test_*.py`, and no other
-      gate names `.claude/hooks`. Decide whether a gate should run them, then fix the test.
+    - The failing project handler test is Task 4.6.
+
+- [ ] ⬜ **Task 4.6**: The project hook handler tests are run by no gate.
+  `test_matches_write_to_root_claude_projects_returns_false` in
+  `.claude/hooks/handlers/pre_tool_use/tests/test_system_paths.py` fails on F44 (identical on
+  the base). `qa-all.bash` does not run them: `scripts/qa-helper-tests.bash` runs only
+  `tests/helpers/**/test_*.py`, and no other gate names `.claude/hooks`. Wire the project
+  handler tests into qa (a gate, or the helper-tests gate's scope, run with the daemon's
+  interpreter, which the gate must fail loudly without), then fix the failing test or justify
+  it in writing. Not done in the review-fix pass.
 
 ### Phase 5: Review
 

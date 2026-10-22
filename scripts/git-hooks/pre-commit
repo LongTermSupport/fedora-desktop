@@ -136,13 +136,10 @@ CCY_HELPER_DIR="helpers/ssh_agent_filter"
 
 # The Go front installed as the launcher (src-go/cmd/claude-yolo, internal/ccylaunch: Plan 00191
 # Task 4.5) carries CCY_VERSION too, from -ldflags, so its own sources demand the same bump; its
-# tests and the differential harness under it do not change the program.
-CCY_STAGED=()
-for FILE in "${STAGED_CHANGE_LIST[@]}"; do
-    case "$FILE" in src-go/internal/ccylaunch/difftest/* | src-go/*_test.go) ;;
-        "$CCY_SCRIPT" | "$CCY_LIB_DIR"/*.bash | "$CCY_HELPER_DIR"/*.py | src-go/cmd/claude-yolo/* | src-go/internal/ccylaunch/*) CCY_STAGED+=("$FILE") ;;
-    esac
-done
+# tests and the differential harness under it do not change the program. So does every package
+# the front builds from: lib/ccy-staged.bash asks Go (see it), and a failure ends the commit.
+CCY_STAGED_TEXT=$("${HOOK_LIB%/*}/ccy-staged.bash" "$CCY_SCRIPT" "$CCY_LIB_DIR" "$CCY_HELPER_DIR" "${STAGED_CHANGE_LIST[@]}")
+mapfile -t CCY_STAGED < <(printf '%s' "$CCY_STAGED_TEXT")
 
 if [ ${#CCY_STAGED[@]} -gt 0 ]; then
     echo "🔍 Checking CCY version bump requirement (${#CCY_STAGED[@]} CCY file(s) staged)..."

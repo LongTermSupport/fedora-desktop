@@ -241,6 +241,69 @@ for f in "${front_files[@]:3}"; do
     front_restore
 done
 
+echo "=== the CCY version gate: the packages the front builds from ==="
+
+# A real module: the command imports internal/tokens, which imports internal/leaf; internal/unrelated
+# is in the module but not in the command's build.
+sg="$repo/src-go"
+# The module file's name is assembled: qa-changed picks a suite whose text names a changed file's basename.
+modfile="go.m""od"
+printf 'module example.test/m\n\ngo 1.21\n' >"$sg/$modfile"
+mkdir -p "$sg/internal/tokens" "$sg/internal/leaf" "$sg/internal/unrelated"
+printf 'package main\n\nimport _ "example.test/m/internal/tokens"\n\nfunc main() {}\n' >"$sg/cmd/claude-yolo/main.go"
+printf 'package tokens\n\nimport _ "example.test/m/internal/leaf"\n' >"$sg/internal/tokens/tokens.go"
+printf 'package tokens\n' >"$sg/internal/tokens/tokens_test.go"
+printf 'package leaf\n' >"$sg/internal/leaf/leaf.go"
+printf 'package unrelated\n' >"$sg/internal/unrelated/unrelated.go"
+git -C "$repo" add -A
+git -C "$repo" commit -q --no-verify -m 'a real module for the front'
+closure_files=(internal/tokens/tokens.go internal/tokens/tokens_test.go internal/leaf/leaf.go internal/unrelated/unrelated.go "$modfile")
+closure_restore() {
+    local f
+    for f in "${closure_files[@]}"; do git -C "$repo" show "HEAD:src-go/$f" >"$sg/$f"; done
+    git -C "$repo" add -A
+}
+for f in internal/tokens/tokens.go internal/leaf/leaf.go "$modfile"; do
+    if [ "$f" = "$modfile" ]; then printf 'module example.test/m\n\ngo 1.22\n' >"$sg/$f"; else printf '\nvar _ = 1\n' >>"$sg/$f"; fi
+    check "a change to src-go/$f, which the front builds from, without a bump is rejected" "1" "$(hook_status)"
+    check "…and says to bump CCY_VERSION" "yes" "$(has 'CCY version bump required')"
+    closure_restore
+done
+printf '\nvar _ = 1\n' >>"$sg/internal/tokens/tokens.go"
+write_launcher 1.0.1 2.0
+check "a change to a package the front builds from, with CCY_VERSION bumped, passes" "0" "$(hook_status)"
+closure_restore
+baseline
+
+# A checkout reached through a symlink: the Go tool takes its directory from $PWD, so a judgement
+# by filesystem path would find nothing in the closure and pass silently.
+ln -s "$repo" "$work/linked-checkout"
+printf '\nvar _ = 1\n' >>"$sg/internal/tokens/tokens.go"
+git -C "$repo" add -A
+link_rc=0
+(cd "$work/linked-checkout" && bash hooks/pre-commit) >"$work/hook.out" 2>&1 || link_rc=$?
+check "a closure change without a bump, committed through a symlinked checkout, is rejected" "1" "$link_rc"
+check "…and says to bump CCY_VERSION" "yes" "$(has 'CCY version bump required')"
+closure_restore
+baseline
+
+# An embedded file in a subdirectory of a package the front builds from is part of the program.
+mkdir -p "$sg/internal/leaf/assets"
+printf 'package leaf\n\nimport _ "embed"\n\n//go:embed assets/note.txt\nvar note string\n' >"$sg/internal/leaf/leaf.go"
+printf 'note\n' >"$sg/internal/leaf/assets/note.txt"
+git -C "$repo" add -A
+git -C "$repo" commit -q --no-verify -m 'an embedded asset in a subdirectory'
+printf 'changed\n' >"$sg/internal/leaf/assets/note.txt"
+check "a change to an embedded file in a subdirectory of a closure package without a bump is rejected" "1" "$(hook_status)"
+git -C "$repo" show HEAD:src-go/internal/leaf/assets/note.txt >"$sg/internal/leaf/assets/note.txt"
+baseline
+printf '\nvar _ = 1\n' >>"$sg/internal/unrelated/unrelated.go"
+check "a change to a package the front does not build from needs no bump" "0" "$(hook_status)"
+closure_restore
+printf '\nvar _ = 1\n' >>"$sg/internal/tokens/tokens_test.go"
+check "a change to a test file of a package the front builds from needs no bump" "0" "$(hook_status)"
+closure_restore
+
 echo "=== a diff larger than a pipe buffer is still judged ==="
 
 # Both gates read `git diff` through a pipe into a reader that stops at the first changed code
