@@ -50,6 +50,8 @@ type world struct {
 	t      *testing.T
 	clk    *clock.Fake
 	srv    *fakehs.Server
+	base   string
+	adm    *matrix.Admin
 	team   paths.TeamID
 	self   string
 	main   string
@@ -81,11 +83,29 @@ func newWorld(t *testing.T) *world {
 			t.Errorf("close: %v", err)
 		}
 	})
-	w := &world{t: t, clk: clk, srv: srv, team: alphaID, self: me, tokens: map[string]string{}, log: &syncBuffer{}, watch: newFakeWatcher()}
+	w := emptyWorld(t, srv.URL())
+	w.clk, w.srv = clk, srv
 	srv.AddUser(proto.AdminLocalpart, "pw", true)
-	for _, local := range []string{alice, coord, me, peer, deaf} {
+	for _, local := range accounts {
 		srv.AddUser(local, "pw", false)
 	}
+	w.populate(func(id string) (string, error) { return srv.MintToken(id) })
+	return w
+}
+
+// accounts are the world's accounts besides the admin.
+var accounts = []string{alice, coord, me, peer, deaf}
+
+func emptyWorld(t *testing.T, base string) *world {
+	t.Helper()
+	return &world{t: t, base: base, team: alphaID, self: me, tokens: map[string]string{}, log: &syncBuffer{}, watch: newFakeWatcher()}
+}
+
+// populate makes team alpha's rooms as the keeper does, gives each account a token by mint and
+// joins it to main, and places me's pair in a new seat directory.
+func (w *world) populate(mint func(userID string) (string, error)) {
+	t := w.t
+	t.Helper()
 	w.roster = baseRoster()
 	rec := &recorder{}
 	if _, err := rooms.Converge(t.Context(), w.admin(), rec, rooms.Team{Server: server, Team: teamName, Roster: w.roster}, proto.RoomIDs{}); err != nil {
@@ -93,8 +113,8 @@ func newWorld(t *testing.T) *world {
 	}
 	w.ids, w.main = rec.ids, rec.ids.Main
 	w.roster = w.readRoster()
-	for _, local := range []string{alice, coord, me, peer, deaf} {
-		token, err := srv.MintToken(user(local))
+	for _, local := range accounts {
+		token, err := mint(user(local))
 		check(t, err)
 		w.tokens[local] = token
 		if _, err := w.client(local).Join(t.Context(), w.main); err != nil {
@@ -104,14 +124,17 @@ func newWorld(t *testing.T) *world {
 	w.seatDir()
 	w.eng = newFakeEngine(t, w.team, runID(t, linkRun))
 	w.ends = &fakeEnds{backed: make(chan struct{}, 8)}
-	return w
 }
 
+// admin is the team's admin client: the one given, or a new token from fakehs.
 func (w *world) admin() *matrix.Admin {
 	w.t.Helper()
+	if w.adm != nil {
+		return w.adm
+	}
 	token, err := w.srv.MintToken(proto.AdminID(server))
 	check(w.t, err)
-	a, err := matrix.NewAdmin(matrix.Config{BaseURL: w.srv.URL(), Token: token, Clock: noWait{}})
+	a, err := matrix.NewAdmin(matrix.Config{BaseURL: w.base, Token: token, Clock: noWait{}})
 	check(w.t, err)
 	w.t.Cleanup(a.Close)
 	return a
@@ -120,7 +143,7 @@ func (w *world) admin() *matrix.Admin {
 // client is local's own client, on real timers, so it arms nothing on the fake clock.
 func (w *world) client(local string) *matrix.Client {
 	w.t.Helper()
-	c, err := matrix.NewMember(matrix.Config{BaseURL: w.srv.URL(), PlainHTTPHosts: []string{"127.0.0.1"}, Token: w.tokens[local], Clock: noWait{}})
+	c, err := matrix.NewMember(matrix.Config{BaseURL: w.base, PlainHTTPHosts: []string{"127.0.0.1"}, Token: w.tokens[local], Clock: noWait{}})
 	check(w.t, err)
 	w.t.Cleanup(c.Close)
 	return c
@@ -153,7 +176,7 @@ func (w *world) bundle() seat.Bundle {
 	check(w.t, err)
 	return seat.Bundle{
 		V: 1, Team: w.team, ServerName: server, UserID: user(w.self), AdminID: proto.AdminID(server),
-		MainRoom: w.main, BaseURL: w.srv.URL(), PlainHTTPHosts: []string{"127.0.0.1"},
+		MainRoom: w.main, BaseURL: w.base, PlainHTTPHosts: []string{"127.0.0.1"},
 		DeviceID: paths.SeatDevice, IssuedMS: startMS - 1000, Issuer: issuer,
 	}
 }
