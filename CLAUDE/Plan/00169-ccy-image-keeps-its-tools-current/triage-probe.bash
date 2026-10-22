@@ -23,7 +23,11 @@ readonly NODE_TAG="node:lts-slim"
 readonly NODE_REPO="library/node"
 readonly NODE_REF="lts-slim"
 readonly DEPLOYED_LIB="/var/local/claude-yolo/lib/common.bash"
-readonly DEPLOYED_LAUNCHER="/var/local/claude-yolo/claude-yolo"
+# The deployed bash launcher, read as text. Since CCY 3.99.14.0 claude-yolo is a Go binary and
+# the bash is claude-yolo.bash beside it; a host not yet deployed has only claude-yolo.
+DEPLOYED_LAUNCHER="/var/local/claude-yolo/claude-yolo.bash"
+[[ -f "${DEPLOYED_LAUNCHER}" ]] || DEPLOYED_LAUNCHER="/var/local/claude-yolo/claude-yolo"
+readonly DEPLOYED_LAUNCHER
 readonly PLAY="playbooks/imports/play-claude-yolo.yml"
 readonly ENGINE="${CCY_CONTAINER_ENGINE:-podman}"   # the launcher's own default (lib/common.bash)
 

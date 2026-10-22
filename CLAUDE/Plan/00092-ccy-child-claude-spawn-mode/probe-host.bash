@@ -11,7 +11,10 @@ set -euo pipefail
 CHECK="${1:?usage: probe-host.bash <H1|H2|H3|H4>}"
 
 BUILD_CTX="/opt/claude-yolo"
-DEPLOYED_LAUNCHER="/var/local/claude-yolo/claude-yolo"
+# The deployed bash launcher, read as text. Since CCY 3.99.14.0 claude-yolo is a Go binary and
+# the bash is claude-yolo.bash beside it; a host not yet deployed has only claude-yolo.
+DEPLOYED_LAUNCHER="/var/local/claude-yolo/claude-yolo.bash"
+[[ -f "${DEPLOYED_LAUNCHER}" ]] || DEPLOYED_LAUNCHER="/var/local/claude-yolo/claude-yolo"
 WRAPPER_REL="optional/child-claude/bin/ccy-claude"
 SKILL_REL="optional/child-claude/skills/child-claude/SKILL.md"
 

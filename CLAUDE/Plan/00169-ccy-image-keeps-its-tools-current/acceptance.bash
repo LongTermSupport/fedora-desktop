@@ -90,6 +90,11 @@ fi
 plan_start_log auto
 
 readonly CCY_LAUNCHER="/var/local/claude-yolo/claude-yolo"
+# The deployed copy of the checkout's bash launcher. Since CCY 3.99.14.0 claude-yolo is a Go
+# binary and the bash is claude-yolo.bash beside it; a host not yet deployed has only claude-yolo.
+CCY_LAUNCHER_TEXT="${CCY_LAUNCHER}.bash"
+[[ -f "${CCY_LAUNCHER_TEXT}" ]] || CCY_LAUNCHER_TEXT="${CCY_LAUNCHER}"
+readonly CCY_LAUNCHER_TEXT
 readonly ENTRYPOINT_DEPLOYED="/opt/claude-yolo/entrypoint.sh"
 readonly IMAGE="claude-yolo:latest"
 readonly ENGINE="${CCY_CONTAINER_ENGINE:-podman}"   # the launcher's own default (lib/common.bash)
@@ -160,7 +165,7 @@ launch() {
 }
 
 printf '=== deployed files and the image ===\n'
-deployedPairs=("${sourceDir}/entrypoint.sh:${ENTRYPOINT_DEPLOYED}" "${sourceDir}/claude-yolo:${CCY_LAUNCHER}")
+deployedPairs=("${sourceDir}/entrypoint.sh:${ENTRYPOINT_DEPLOYED}" "${sourceDir}/claude-yolo:${CCY_LAUNCHER_TEXT}")
 for lib in "${sourceDir}"/lib/*.bash; do
     deployedPairs+=("${lib}:${CCY_LAUNCHER%/*}/lib/${lib##*/}")
 done
