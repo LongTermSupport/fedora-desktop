@@ -402,12 +402,18 @@ Packages:
 - new `internal/teamchat/member/keeper`
 - `internal/execx` (gap 7)
 - one exported helper in `reexec`: `func Command(tb testing.TB, name string, args ...string) execx.Cmd`,
-  so the keeper starts a fake link that is a real process
+  so the keeper starts a fake link that is a real process. `reexec.Start`'s helpers wait on a
+  stdin line (`Ready`), but the keeper gives the link stdin `/dev/null`: a `Command` helper is
+  free-running (no `Ready`, stdin unused), and its test waits on the helper's `ready` over
+  `wire`, never on stdin
+- `member/state`: `Report` gains `why` (null, `crash-loop`, `config` or `launch-failed`; n3c-D21)
 
 Imports: keeper -> clock, failpoint, wire, lock, state, homefs, paths, exits, execx, cli
-(`Launch`), `x/sys/unix`. The keeper imports no matrix, no proto, no `member/bundle` and no
-`member/team` (B14: no network call; B11: only the link reads a token). A source-scan test holds
-that.
+(`Launch`), `x/sys/unix`. Two source-scan tests hold the boundary. B14 (no network call) is
+transitive: `go list -deps ./internal/teamchat/member/keeper` holds no `matrix` and no
+`net/http`. B11 (only the link reads a token) is direct: the keeper's own files import no
+`proto`, no `member/bundle`, no `seat` and no `member/team` (`state` and `cli` import `proto`,
+so a transitive `proto` rule could not hold).
 
 ### API
 
@@ -419,7 +425,7 @@ type Started interface {
 	Wait() (ExitStatus, error)        // wait4 once; ExitStatus{Code int; Signal syscall.Signal}
 	Signal(sig syscall.Signal) error  // pidfd_send_signal
 }
-type Starter interface { Start(c Cmd) (Started, error) }   // Cmd gains Setsid bool (the link) beside NewSession
+type Starter interface { Start(c Cmd) (Started, error) }   // Cmd's built NewSession is setsid: the link sets it; no new field
 func (OS) Start(c Cmd) (Started, error)
 func (f *Fake) OnStart(prefix []string, fn func(Cmd) (Started, error)) // scripted form
 func (f *Fake) Start(c Cmd) (Started, error)
@@ -435,9 +441,16 @@ type Config struct {
 	Execer   execx.Execer          // RN1's re-exec into the kit
 	LinkCmd  func(run paths.Run, kit paths.Kit) execx.Cmd // production: <kit>/bin/teamchat link --run <dir>; tests: reexec.Command
 	Proc     Proc                  // /proc reads: start ticks (field 22), ppid; a fake in tests
+	Pidfds   Pidfds                // Claude Code is no child of the keeper when a wrapper sits between
 	Signals  <-chan os.Signal      // signal.Notify'd by Main; a channel the test writes in tests
 	Inotify  Watcher               // RC1; production on x/sys/unix inotify, fake in tests
 }
+// Pidfds opens a pidfd on a pid that is not the keeper's child (Claude Code under a wrapper,
+// B 2.4.2): the caller re-checks the start time through Proc after the open, then signals it
+// and waits for it to become readable (its exit). Production is pidfd_open, pidfd_send_signal
+// and a poll; tests script it.
+type Pidfds interface { Open(pid int) (Pidfd, error) }
+type Pidfd interface { Signal(sig syscall.Signal) error; Exited() <-chan struct{}; Close() error }
 func Run(ctx context.Context, cfg Config, stdout, stderr io.Writer) term.ExitCode // RN1-RN3, KP1-KP3
 func Main(e cli.Env, inv cli.Invocation) term.ExitCode                            // the `run` verb; W puts it in cmd/teamchat's map
 type Watcher interface { Watch(dir string) (<-chan WatchEvent, error); Close() error }
@@ -476,12 +489,17 @@ type Proc interface { StartTicks(pid int) (int64, error); PPid(pid int) (int, er
 
      - `crossSessionInbound` is the desired file's `inbound`, or `refuse` with no `--desired`.
        It is always written.
+     - The kit's `settings.json` is host-placed, so it may not be the member's file: it is read
+       with no link followed, `O_NONBLOCK`, an `fstat` regular-file check and a cap, and refused
+       unless owned by the uid or root and not group- or other-writable.
      - A missing or undecodable `desired.json` under `--desired` is 78 `membership` (n3-D16).
      - Append `--plugin-dir <kit>/plugin/teamchat --settings <v2-run>/settings.json` after
        CMD's last argument.
-     - `--resume-recorded` reads `conversation.json` (strict, a hint). It appends
+     - `--resume-recorded` reads `conversation.json` (`state.Read`, strict, a hint). It appends
        `--resume <id>` only when `<config>/projects/<derived cwd dir>/<id>.jsonl` exists, and
-       otherwise says why in `keeper.log`.
+       otherwise says why in `keeper.log`. "Exists" is an `fstatat` with
+       `AT_SYMLINK_NOFOLLOW` that finds a regular file: the transcript is never opened (it could
+       be a FIFO), and a link there is "does not exist".
      - `--plain` gets nothing appended.
 
   6. Take every desired seat's lock through `KeeperLock.TakeSeat`. A seat that is held fails the
@@ -504,12 +522,15 @@ type Proc interface { StartTicks(pid int) (int64, error); PPid(pid int) (int, er
      SessionStart, is `launch-failed`:
 
      - the lock record is rewritten with `launch_failed_ms` (LK4);
-     - no notice is posted;
-     - `keeper.log` and every `report.json` say it, with CMD's status and its first stderr line;
+     - no notice is posted (the link records `run.ended` `none` `launch-failed`, n3c-D20);
+     - `keeper.log` says it with CMD's status and its first stderr line; every `report.json`
+       says `why` `launch-failed` and nothing more, because the stderr line is CMD's text and
+       `report.json` goes to area C's views (n3c-D21);
      - `run` exits 78 `launch`.
 
-     The keeper learns that the first SessionStart happened from the `state` message's
-     `session_started: true` (n3c-D6).
+     The keeper learns that the first SessionStart happened from the session-level `started`
+     message (n3c-D6; P2 note 5), never from a per-team one, so a launch with no team (T6) is
+     judged the same way.
 
   8. From step 7 on, nothing reaches the terminal. Every diagnostic goes to `keeper.log` (B47).
 
@@ -519,7 +540,8 @@ type Proc interface { StartTicks(pid int) (int64, error); PPid(pid int) (int, er
   `debug.SetMemoryLimit(16<<20)`. No goroutine polls.
 
 - **A stop.** It is forwarded once: to Claude Code by `pidfd_send_signal` when the keeper has its
-  pid (from a `claude` message, after re-checking the start time), else to CMD. 5 s after the
+  pid (from a `claude` message: `Pidfds.Open`, then the start time re-checked through `Proc`),
+  else to CMD. 5 s after the
   forward, whatever of the two still runs gets `SIGTERM`, and at 7 s `SIGKILL`.
 
 - **Without a stop.** When one of CMD and Claude Code ends, the keeper waits 3 s for the other,
@@ -540,7 +562,8 @@ type Proc interface { StartTicks(pid int) (int64, error); PPid(pid int) (int, er
 - **Supervising the link** (B48). It is restarted after 1, 2, 4, 8 and 16 s, and a run of 10
   minutes resets the count. The 6th exit, or one exit 78, makes it `failed`:
 
-  - `keeper.json` and every `report.json` say `failed`, with its `why` (`crash-loop`, `config`);
+  - `keeper.json` and every `report.json` say `failed`, with its `why` (`crash-loop`, `config`;
+    `report.json`'s `why` is n3c-D21's new field);
   - the keeper closes every seat descriptor it holds (T23);
   - desired changes are no longer applied.
 
@@ -556,8 +579,11 @@ type Proc interface { StartTicks(pid int) (int64, error); PPid(pid int) (int, er
     `desired{…}` to the link, which puts it in `status` and one hook line.
   - A deleted file is the same refusal with `code` `missing` (n3-D19). A file written again
     clears it.
-  - **Add:** `TakeSeat`. If the seat is held, `report.json` and a NOTICE (through the link) carry
-    the holder's run id, read from the lock file with `state.DecodeLockRecord`.
+  - **Add:** `TakeSeat`. If the seat is held, the holder's run id (read from the lock file with
+    `state.DecodeLockRecord`, grammar-checked) goes to `keeper.log` and to the link as
+    `refused{team, holder_run}`, which shows it in `status` and `status.json`. The keeper never
+    writes that seat's `report.json`: it is in the seat directory and is the holder's, which
+    already carries the holder's run id (n3c-D21). The NOTICE is n3e's (n3c-D23).
   - **Remove:** send `remove` with a `txn` the keeper draws itself (`tc` and 32 hex from
     `crypto/rand`, n3c-D14), with no matrix import.
   - **Remove, answered within 10 s:** the `removed` answer carries the user id. The keeper
@@ -1107,6 +1133,75 @@ Tests:
 - The VM lab's LXC run follows n3b's merge (SPEC-n3 section 0). It is a host run: put it in
   `meta-deploy.list` only when n3b's play exists. It is not W's to start.
 
+## 8a. Corrections to sections 4-8 from the brief review
+
+These override the text above where they differ (`261022-n3c-brief-review.md` gives each
+finding's reason). They assume P2 notes 1-12 of that review are applied.
+
+- **P4, construction.** `engine.Config.Ends team.Ends` cannot be built: P6's ends call
+  `Engine.SetEnded` (EN1), and the engine is built with the ends. It is
+  `NewEnds func(team.Engine) team.Ends`. `TeamConfig` gains `Ends team.Ends`, `Root *homefs.Root`,
+  `Plain bool` and `FirstSessionStart <-chan struct{}` (closed by the link on the first accepted
+  SessionStart, or at once under `--plain`), which `teamsync.Config` needs and only the link
+  knows. `link.Config.Engine` is `func(engine.Config) (*engine.Engine, error)`.
+- **P4, the ack.** `Serve` returns `done` with an `ack`; the engine also has
+  `Ack(ctx, ack string) error` (one write: out of `pending`, into the ledger) and
+  `Return(ctx, ack string) error` (one write: back to `pending`, `repeat`), called by the
+  link's connection handler on the CLI's `{"ack"}`, on a close, or at 10 s.
+- **P4, every keeper message.** The link handles each keeper message kind: `launch`, `add`,
+  `remove`, `owed`, `pid`, `claude`, `token` (held in memory, never logged; the link sends
+  `token` to the keeper when a hook supplied it, and a new link is given it back, B 2.4.2), `desired` (RC1's link half: `status`, `status.json`;
+  the hook line is n3e's), `refused` (`status` and `status.json`), and `end` (`Ends.End`).
+  The link sends `started {}` once, when `AcceptFacts` first accepts a SessionStart (P2 note 5).
+- **P4, removal.** Step 1 is followed by `Team.FlushFloor` under a 2 s deadline, best effort,
+  before `StoreWriter.Remove` (SY10 "before the store goes"), so the answer stays inside the
+  keeper's 10 s (n3c-D22).
+- **P4, `owed`.** The team is not run: the link calls `NewTeam(cfg).Notices()` and
+  `Ends.Leave`, never `Run` (P5 contract below).
+- **P5, `Notices` without `Run`.** `Team.Notices()` works before `Run` and after it returns: it
+  reads the pair and builds the client on first use. `Roster()` is false until a verification;
+  the ends then verify main themselves (`RoomState`, as `notice` does).
+- **P5, the start.** The store's `run` is this link's own run after a link restart: then no
+  `Ends.Close` and no `BeginRun`. Otherwise `Ends.Close(prev)` first, then `Engine.BeginRun`, both
+  before the first long-poll; a crash between them closes the same run again, by the same txn.
+  Whether a `fresh` store is (b) or (c) is decided again from `RemovedUserIDs` (the store has no
+  field for it). `Engine.Load(t, userID)` takes the pair's `user_id`.
+- **P5, EN4.** Strike "Neither runs after `launch-failed`; P6's `Back` checks that": `Back` runs
+  only after the first SessionStart (at once under `--plain`), which a launch failure never has.
+  `Back` posts only when `LatestOwn` (from time 0, the page bound) is `disconnected`, so a link
+  restart in the same run, whose latest is its own `back`, posts nothing.
+- **P5, trust.** `proto.VerifyMain` takes `[]proto.StateEvent`, `RoomState` gives
+  `[]json.RawMessage`, and the converter is `notice`'s unexported `stateEvents`. P5 adds
+  `proto.StateEvents(raw []json.RawMessage) []proto.StateEvent` in a new proto file (pure); W
+  makes `notice` call it.
+- **P5, `FlushFloor`** is on `team.Team` (P2 note 4), not the concrete type.
+- **P5, `last_sync_ok_ms`** goes through `Engine.SetHealth` (P2 note 10). Counters ride on the
+  persisted batch only, so a discarded answer's events are counted once, when re-fetched.
+- **P5, clock assertions.** P5 adds `clock`'s compile-time assertions against `matrix.Timers`
+  and `fakehs.Options.Hold`, and the `AfterFunc`-driven matrix deadline test (P2 note 9).
+- **P5, a stopped team's NOTICE** (SY8) is n3e's; n3c shows the stop in `status` and
+  `status.json` (n3c-D23).
+- **P5, tests.** Add minor b's: a re-add whose pair has a user id not in `RemovedUserIDs` resumes
+  by SY1 (b).
+- **P6, ends.** `ends.Config` gains `Engine team.Engine` and `Run paths.RunID` (this link's).
+  `End` skips a team whose `EndTeam.Run.ID` is not this run (its previous run is not closed yet,
+  so this run posted nothing and records nothing). The proto `Composer.Token` and
+  `notice.Notice.Token` come from `Notices.Token()` (P2 note 1); `Handle` from
+  `proto.Localpart(Anchors().Self, server)`.
+- **P6, EN1 `launch-failed`** records `run.ended` `{"notice":"none","reason":"launch-failed","state":"skipped","txn":null}`
+  through `SetEnded`; P6 adds `ReasonLaunchFailed` to `member/state`'s closed set (n3c-D20).
+- **P6, EN3 `attempted`** is judged from the room first, as `null` is (n3c-D19).
+- **P6, EN5.** `bundle.ReadPairAt(root, dir, nil)`: the team is seat.json's own (P2 note 12).
+- **P6, the client's `kit`** is the CLI's own source digest (`cli.Env.Digest`), not
+  `TEAMCHAT_KIT`'s: ccy's kit (`paths.CCYKitDir`) is named by no digest, and the check is that
+  the CLI binary and the link are one build (B 2.4.4).
+- **P6, LN3.** A fourth answer: `keeper.lock` held and `link` `running` (not yet ready, or its
+  exit not yet seen) is 69 `no-link` with no restart time.
+- **P6, tests.** "EN4, never after `launch-failed`" becomes "EN4: `back` only when the latest is
+  `disconnected`; nothing on a link restart in the same run".
+- **W.** `teamsync.New(Config)` is not `NewTeam`'s type: W writes the adapter from
+  `engine.TeamConfig` to `teamsync.Config` (adding `Watcher`, `HTTP`, `Log`), and `NewEnds`.
+
 ## 9. Decisions n3c takes (the spec is silent)
 
 | ID      | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
@@ -1116,10 +1211,10 @@ Tests:
 | n3c-D3  | the control socket is `AF_UNIX` `SOCK_SEQPACKET` (boundaries kept, `SCM_RIGHTS` with its message), one strict JSON object of at most 8 KiB per message, exactly one descriptor on `add` and none elsewhere; B 2.4.2 names the messages but no format                                                                                                                                                                                                                                                                                                                              |
 | n3c-D4  | `verify`'s deadline is 30 s, as a send's (it is one network request); B 2.4.4's table does not list it                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | n3c-D5  | the verb functions are passed to `cli.Run` in `Env.Verbs` by `cmd/teamchat`, so `cli` never imports keeper, link or client (keeper imports `cli.Launch`; a cycle otherwise)                                                                                                                                                                                                                                                                                                                                                                                                       |
-| n3c-D6  | the keeper learns "the first SessionStart reached the link" from a `state` message field `session_started: true` (B 2.4.1 step 7 needs it and names no message); `--plain` has none, and RN3's launch failure applies under `--claude` only                                                                                                                                                                                                                                                                                                                                       |
+| n3c-D6  | the keeper learns "the first SessionStart reached the link" from a session-level link-to-keeper message `started {}`, sent once (B 2.4.1 step 7 needs it and names no message; a per-team field could not reach the keeper of a session with no team, T6); `--plain` has none, and RN3's launch failure applies under `--claude` only                                                                                                                                                                                                                                             |
 | n3c-D7  | `wait --timeout` defaults to 110 s (inside Claude Code's 120 s default Bash timeout) and is at most 3600 s; at its deadline with nothing pending it exits 0 with no records, as `recv` does (B 2.2.1 gives no default)                                                                                                                                                                                                                                                                                                                                                            |
 | n3c-D8  | `history --limit` defaults to 20 and is at most 100 (one `/messages` page)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| n3c-D9  | a poison relation (round-3 minor d) is bounded: after 5 consecutive transient failures fetching the same related id, it is cached as an unknown sender for the link's life with one `link.log` line, and the answer goes on; 5 tries at 1, 2, 4, 8, 16 s is about 31 s, so a team is `down` for at most about that long on one bad event                                                                                                                                                                                                                                          |
+| n3c-D9  | a poison relation (round-3 minor d) is bounded: after 5 consecutive transient failures fetching the same related id, it is cached as an unknown sender for the link's life with one `link.log` line naming the event id and the related id, and the answer goes on. A failure counts only when the sync answer it belongs to itself arrived, so an outage (the sync failing too) never poisons a relation. The waits between the 5 tries are SY8's 1, 2, 4 and 8 s, so one bad event holds its team about 15 s, about when it would be marked `down`                              |
 | n3c-D10 | UH1's dedupe (minor e) is a set of counted event ids, 1024 entries, oldest evicted, the cache's size and lifetime; a discarded and re-fetched answer counts nothing twice                                                                                                                                                                                                                                                                                                                                                                                                         |
 | n3c-D11 | own sends (minor f) are kept in memory only, per team, inside the resolver (bounded as the cache, 1024); a link restart loses them and the fetch backs them. This is the statement round 3 asked of n3-D20: the builder of P5 adds one sentence to n3-D20 in SPEC-n3 in the same commit                                                                                                                                                                                                                                                                                           |
 | n3c-D12 | the token race: on a 401 the team goroutine re-reads the pair once (MS3's reader); a pair whose `seat.json` or token bytes differ from the pair in use is retried at once; only a 401 on an unchanged pair, or a second 401, stops the team with 21 `token`                                                                                                                                                                                                                                                                                                                       |
@@ -1129,6 +1224,11 @@ Tests:
 | n3c-D16 | `reach --team T` (B 2.2.1, ccy-teams' hot add): reads `<v2-bundle>` of T's `seat.json` alone (`homefs` `Read` and `seat.DecodeMemberBundle`; no token read), then `matrix.NewMember` with the bundle's `base_url` and `plain_http_hosts` (placeholder token, as `guest check`'s reach) and `Versions` within 3 s; prints nothing and exits 0, 20 `unreachable`, or 78 `bundle`. It is P6's                                                                                                                                                                                        |
 | n3c-D17 | `seat disconnected`'s "not possible for good" outcomes (`notice.Outcome.Why`) exit 0 with one stderr line, since the host's pass must not retry them; a transient failure is 20, so the pass tries again next minute                                                                                                                                                                                                                                                                                                                                                              |
 | n3c-D18 | every transaction id the link records in `run.ended` (the end's `left` and `disconnected`) is `tc` and 32 hex from `crypto/rand`, as `member/state` requires (`store.go:95`, `^tc[0-9a-f]{32}$`); `matrix.NewTxnID` (`pb`) is not used for them. Only EN3's closing of an unseen run uses `notice.TxnID` (`tc-disc-<ended run id>`), posted through `notice.Disconnected` and recorded nowhere. The host's call for the same run then finds the link's `disconnected` as the latest own lifecycle notice and posts nothing, so no double post depends on the two txns being equal |
+| n3c-D19 | EN3 judges an `attempted` end from the room first, as it does a `null` one: it re-sends by the recorded txn only when the member's latest own lifecycle notice since `run.started_ms` is neither `left` nor `disconnected`. A link whose send went unanswered exits and frees the seat, the host's pass then posts `tc-disc-<run>`, and a blind re-send by the `tc` txn would be a second goodbye for one run (P5); a send that did land is found and not repeated                                                                                                                |
+| n3c-D20 | a `launch-failed` end records `run.ended = {"notice":"none","reason":"launch-failed","state":"skipped","txn":null,"at_ms":N}` (`member/state` gains `ReasonLaunchFailed` beside `ReasonRestart`); closing acts only on `attempted` and `null` (n3-D2), so the next take posts nothing for a run that never reached Claude Code, as B 2.11's table says; left `null`, it would be closed as `disconnected`                                                                                                                                                                         |
+| n3c-D21 | `report.json` gains `why` (null; `crash-loop` or `config` with `link` `failed`; `launch-failed`), since B 2.4.1 step 7 and B48 have every `report.json` say them and the built codec cannot. CMD's status and first stderr line go to `keeper.log` only: CMD's text is not put in a file area C's views read. The keeper writes `report.json` only for a seat it holds, once the link's first `state` for it has given the handle; a refused add's holder run id goes to `keeper.log`, `status` and `status.json`, never into the holder's `report.json` in the seat directory    |
+| n3c-D22 | the removal's `teamchat.floor` PUT (SY10 "at a removal before the store goes") runs under a 2 s deadline before the store is deleted, best effort, so the `removed` answer stays inside the keeper's 10 s, which B 2.5 says covers local work only                                                                                                                                                                                                                                                                                                                                |
+| n3c-D23 | the NOTICE of a stopped team (SY8) and of a refused add (RC1) is n3e's, with their hook line: n3c has no locally made item, and shows both in `status` and `status.json`. SPEC-n3's SY8 and RC1 say "a NOTICE"; the P3 and P5 reports record this departure                                                                                                                                                                                                                                                                                                                       |
 
 ## 10. Reports
 
