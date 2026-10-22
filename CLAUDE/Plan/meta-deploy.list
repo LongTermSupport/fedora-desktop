@@ -8,7 +8,7 @@
 # for the script to do. A triage-only plan is run once, read-only. Words after the folder
 # name are passed to that plan's triage.bash, both runs.
 #
-# One entry per line, three kinds:
+# One entry per line, four kinds:
 #   <plan folder>                  its triage, deploy and acceptance scripts, in order
 #   playbooks/<path>.yml           a change no plan owns; run as one unit through its own
 #                                  shebang, which goes through run.bash, exactly as
@@ -17,6 +17,17 @@
 #                                  fits; run as one unit, like a playbook entry, except
 #                                  that a script named *acceptance*.bash may exit 2 for
 #                                  COULD NOT ESTABLISH, as an acceptance.bash may
+#   changed-plays                  every play that has run here and has to run again, as
+#                                  one unit: the checkout's ./run.bash --changed --yes, in
+#                                  playbook-main.yml order, stopping at the first failure
+#
+# changed-plays runs WHERE IT STANDS in the list, like every other entry, and decides which
+# plays it runs when it starts, so the entries above it have already run (a play an entry
+# above ran is no longer changed, and is not run twice). Put it above the plan entries whose
+# deploy or acceptance expects the changed plays to have run, which is the usual case, and
+# below an entry it must follow. It replaces a hand-copied list of stale plays: name a
+# playbooks/ entry only for a play that must run at a fixed point between two plan steps.
+# Its description says which changed plays the agent expects it to pick up and why.
 #
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
@@ -33,8 +44,9 @@
 # play-agent-bus.yml again (it passed on its own at 67033c224, so no change), then the whole
 # play-claude-yolo.yml, then acceptance.bash. The kit's settings.json runs the static Go
 # pingbus-status-line, copied into every running LXC member. The ccy play gives the host CCY
-# 3.99.14.14 (the Go front: see the play-claude-yolo.yml entry below) and puts the binary in the
-# image's build context (container 2.78.17, rebuilt once at the next ccy launch; the image
+# 3.99.15.5 (the Go front and the image build lock: see the play-claude-yolo.yml entry below)
+# and puts the binary in the image's build context (container 2.78.17, rebuilt once at the
+# next ccy launch; the image
 # also carries the farewell-reason fix, the reports and questions admin tool and Go 1.26.10 in the project image): a seated session's status line is
 # the Go one and refreshes every 25 s. The acceptance checks the kit's, the image's and each
 # online declared LXC member's binary are this checkout's build (a member whose container is
@@ -74,9 +86,19 @@
 # and checks their firewalld rules are gone, however the run ends. Needs sudo once, ccy
 # launched interactively in this checkout once (Quick Launch), and the hooks daemon installed.
 00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker
-# play-claude-yolo.yml, the whole play (Plan 00191 Tasks 4.3, 4.4, 4.4b and 4.5): the host's ccy
-# becomes CCY 3.99.14.14 (container 2.78.17: the next launch rebuilds the image once, for its
-# guide, the room-ID fix in its pingbus, and agent-bus check-rooms passing an offline coordinator). /var/local/claude-yolo/claude-yolo becomes a Go program (built here from
+# play-claude-yolo.yml, the whole play (Plan 00191 Tasks 4.3, 4.4, 4.4b and 4.5, Plan 00216): the
+# host's ccy becomes CCY 3.99.15.5. Plan 00216: only one image build runs at a time; two ccy
+# launches started together build the image once, the second waiting (it says on stderr every
+# 30 s whose build it waits for) and then using that build. The play's own image build takes the
+# same lock (lib/image-build-lock.bash, newly installed with lib/image-build.bash), so it waits
+# for a launch's build and a launch waits for it. `ccy --build-lock` (answered by the Go front)
+# shows the build in progress and stops a hung one after a [y/N]. Check after the run: start
+# `ccy --rebuild=full` in two terminals at the same moment: the second prints the waiting line
+# and starts its own build only when the first has finished (an explicit rebuild always builds);
+# while one builds, `ccy --build-lock` in a third terminal names it, and `n` leaves it running.
+# Container 2.78.17 (the next launch rebuilds the image once, for its guide, the room-ID fix in
+# its pingbus, and agent-bus check-rooms passing an offline coordinator).
+# /var/local/claude-yolo/claude-yolo becomes a Go program (built here from
 # src-go/cmd/claude-yolo, installed only when its checksum changes) that answers --version,
 # --help, --list-tokens, --token-usage [--json], --prevent and --export-token NAME itself
 # (everything else, --top and the interactive export included, stays in the bash) and execs
@@ -117,12 +139,30 @@ playbooks/imports/play-claude-yolo.yml
 # is this checkout's build, builds the ccy-teams from before stage 1 from git, and runs each three
 # times in turn: `--list` must print the same bytes (a difference in every round rejects, one in
 # some rounds only is a live change and a note) and run faster (it took 9-23 s before), and an
-# open, drawn on this terminal and answered with Esc at its first screen, must be faster and
-# start exactly one declare status and no agent-bus seat list. A live member.json that sets
-# report_per_hour must be listed, not refused. Needs sudo once (so both read the member rosters)
-# and a terminal. A failure names the check, and a --list diff is in the report. An open that
-# asks a question first (a team to describe, an update) leaves S3 NOT JUDGED (exit 2, COULD NOT
-# ESTABLISH in the summary): answer it in ccy-teams and run again. An out-of-date team is offered
-# its update on every open, so it blocks S3 until play-agent-bus.yml has applied it; its entry
-# above normally has.
+# open, drawn on this terminal from an empty folder under TMPDIR that is in no checkout and
+# answered with Esc at its first screen, must be faster and start exactly one declare status and
+# no agent-bus seat list. A member.json that sets report_per_hour must be listed, not refused:
+# on a fixture in the run directory (always, and the report says so) and on any live seat. Needs
+# sudo once (so both read the member rosters) and a terminal. A failure names the check, and a
+# --list diff is in the report. An open whose first screen is a question leaves S3 NOT JUDGED
+# (exit 2, COULD NOT ESTABLISH in the summary), and the run log names the question. It comes
+# back on every open: for a team limited to some folders or with no description, until that is
+# settled or never chosen; while teams are out of date, until they are applied; with no team,
+# until one is made. Settle it in ccy-teams and run again.
 00209-agent-bus-v2-in-go/acceptance-s1.bash
+# Plan 00214 acceptance (issue #110), LAST, with no changed-plays entry above it: it needs plays
+# still to run. Runs no play and needs no sudo. It checks that the health report's
+# play-freshness check and run.bash --changed's helper name the same plays (the report said 10
+# where --changed ran 25), then runs one collection as host-health.service does (a git fetch,
+# and the status document and handoff file rewritten) and checks that fedora-desktop-health and
+# the login shell's second reminder of the day print this checkout's run.bash --changed. With
+# no play to run it says NOT JUDGED (exit 2).
+00214-update-all-changed-plays
+# Every play that has to run again here (issue #110 gap 3), after the acceptance above, which
+# needs them still stale: ./run.bash --changed --yes, in playbook-main.yml order, stopping at
+# the first failure. It is expected to pick up play-host-health-login-report.yml (Plan 00214
+# changed fedora-desktop-health's --help) and play-fedora-desktop-panel.yml (the panel's
+# "Re-run a play…" count now leaves out plays --changed does not run), plus every other play
+# the acceptance listed as changed or failed. Needs sudo. Afterwards log out and back in so
+# the panel loads its new code (Wayland), and fedora-desktop-health should list no play.
+changed-plays
