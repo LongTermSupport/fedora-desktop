@@ -3,11 +3,14 @@ package admin
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/rooms"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -260,6 +263,24 @@ func TestExitTable(t *testing.T) {
 	for code, n := range want {
 		if int(code) != n {
 			t.Errorf("exit %d, want %d", code, n)
+		}
+	}
+}
+
+func TestExitCodeOf(t *testing.T) {
+	cases := map[string]struct {
+		err  error
+		want term.ExitCode
+	}{
+		"drift":        {&rooms.Error{Purpose: "main", Step: rooms.StepAdopt, Drift: true, Err: errors.New("two")}, ExitRefused},
+		"unreachable":  {&rooms.Error{Purpose: "main", Step: rooms.StepRead, Err: matrix.ErrUnreachable}, ExitUnreachable},
+		"rate limited": {fmt.Errorf("x: %w", matrix.ErrRateLimited), ExitUnreachable},
+		"forbidden":    {&rooms.Error{Purpose: "main", Step: rooms.StepKick, Err: matrix.ErrForbidden}, term.ExitFailure},
+		"recorder":     {&rooms.Error{Purpose: "main", Step: rooms.StepRecord, Err: errors.New("disk full")}, term.ExitFailure},
+	}
+	for name, c := range cases {
+		if got := ExitCodeOf(c.err); got != c.want {
+			t.Errorf("%s: exit %d, want %d", name, got, c.want)
 		}
 	}
 }
