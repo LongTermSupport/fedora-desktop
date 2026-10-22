@@ -20,7 +20,9 @@ it reaches a host only with the install. v1 is untouched; ccy-teams' side (host_
 **Trust rule for every adapter.** Root never decides from a file a member or the owner can
 write. Every file root or the child reads is opened `O_RDONLY|O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC`
 (so a FIFO or a device never blocks the open), `fstat`ed, and refused unless it is a regular
-file; its size is capped (`state.ReadFile` is the one reader). Every external program runs
+file; its size is capped (`state.ReadFile` is the one reader; `state.ReadOwnedFile`, and
+`state.ReadOwnedTarget` for `/etc/os-release`, which the distribution ships as a link, add the
+owner and the refusal of group or other write for the files of HF1 to HF3). Every external program runs
 through `execx`, with no secret in argv.
 
 The packages:

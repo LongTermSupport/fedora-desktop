@@ -1,23 +1,18 @@
 package admin
 
 import (
-	"errors"
 	"fmt"
-	"io"
-	"io/fs"
 	"os"
 	"os/user"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
 
-	"golang.org/x/sys/unix"
-
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
 )
 
 // maxHostFile caps the owner group file, the pin and /etc/os-release.
@@ -28,55 +23,13 @@ const osRelease = "/etc/os-release"
 
 var groupNameRE = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
 
-// hostOpen is how root opens a file it decides from: never following a link, never blocking on
-// a FIFO or a device, and not inherited by a child.
-const hostOpen = os.O_RDONLY | unix.O_NOFOLLOW | unix.O_NONBLOCK | unix.O_CLOEXEC
+// rootFile reads a file root decides from (state.ReadOwnedFile or state.ReadOwnedTarget).
+type rootFile func(path string, limit int64, uid uint32) ([]byte, bool, error)
 
-// readRootFile is path's content when it is a regular file owned by owner and writable by
-// neither group nor other, at most maxHostFile bytes; found is false when there is none.
-func readRootFile(path string, owner uint32, flags int) ([]byte, bool, error) {
-	f, err := os.OpenFile(filepath.Clean(path), flags, 0)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, fmt.Errorf("cannot open %s: %w", path, err)
-	}
-	data, err := readOwned(f, path, owner)
-	if cerr := f.Close(); err == nil && cerr != nil {
-		err = fmt.Errorf("cannot close %s: %w", path, cerr)
-	}
-	return data, err == nil, err
-}
-
-func readOwned(f *os.File, path string, owner uint32) ([]byte, error) {
-	info, err := f.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("cannot stat %s: %w", path, err)
-	}
-	st, ok := info.Sys().(*syscall.Stat_t)
-	switch {
-	case !info.Mode().IsRegular() || !ok:
-		return nil, fmt.Errorf("%s is not a regular file", path)
-	case st.Uid != owner:
-		return nil, fmt.Errorf("%s is owned by uid %d, not %d", path, st.Uid, owner)
-	case info.Mode().Perm()&0o022 != 0:
-		return nil, fmt.Errorf("%s is writable by its group or by others", path)
-	}
-	data, err := io.ReadAll(io.LimitReader(f, maxHostFile+1))
-	if err != nil {
-		return nil, fmt.Errorf("cannot read %s: %w", path, err)
-	}
-	if len(data) > maxHostFile {
-		return nil, fmt.Errorf("%s is over %d bytes", path, maxHostFile)
-	}
-	return data, nil
-}
-
-// readConfigFile is readRootFile with every failure, a missing file included, the install's
-// (78).
-func readConfigFile(path string, owner uint32, flags int) ([]byte, error) {
-	data, found, err := readRootFile(path, owner, flags)
+// readConfigFile is path read by read, owned by owner and capped at maxHostFile, with every
+// failure, a missing file included, the install's (78).
+func readConfigFile(path string, owner uint32, read rootFile) ([]byte, error) {
+	data, found, err := read(path, maxHostFile, owner)
 	if err == nil && !found {
 		err = fmt.Errorf("there is no %s: run %s", path, paths.PlayFile)
 	}
@@ -95,7 +48,7 @@ func OwnerGroupFile(root string, lookupGroup func(name string) (int, error)) fun
 func ownerGroupFile(root string, lookupGroup func(string) (int, error), owner uint32) func() (int, error) {
 	return func() (int, error) {
 		path := root + paths.OwnerGroupFile
-		raw, err := readConfigFile(path, owner, hostOpen)
+		raw, err := readConfigFile(path, owner, state.ReadOwnedFile)
 		if err != nil {
 			return 0, err
 		}
@@ -130,7 +83,7 @@ func ReadPin(root string) (host.Pin, error) { return readPin(root, 0) }
 
 func readPin(root string, owner uint32) (host.Pin, error) {
 	path := root + paths.ServerPinFile
-	raw, err := readConfigFile(path, owner, hostOpen)
+	raw, err := readConfigFile(path, owner, state.ReadOwnedFile)
 	if err != nil {
 		return host.Pin{}, err
 	}
@@ -165,7 +118,7 @@ func decodePin(raw []byte) (host.Pin, error) {
 // neither group nor other, says ID=fedora, quoted or not. The distribution ships the file as a
 // link into /usr/lib, so this one read follows a link.
 func checkFedora(root string, owner uint32) error {
-	raw, err := readConfigFile(root+osRelease, owner, hostOpen&^unix.O_NOFOLLOW)
+	raw, err := readConfigFile(root+osRelease, owner, state.ReadOwnedTarget)
 	if err != nil {
 		return &configError{"team apply needs Fedora: " + err.Error()}
 	}
