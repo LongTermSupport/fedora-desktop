@@ -106,6 +106,13 @@ one definition, read by both.
   MERGE), then the qa-reviewer agent (one FIX-FIRST: queue a `changed-plays` entry after
   the acceptance, so the changed help text and panel reach the host). Reports in
   `subagent-reports/`.
+- [x] ✅ **Task 4.3b**: The host acceptance's report leg found the collection crashing with
+  `'_Sink' object has no attribute 'writelines'`: `check_freshness` now calls `writelines`,
+  and the login report handed it a stand-in with only `write()`. Defence Before Fix: the
+  semgrep rule `stream-stand-in-not-a-text-stream` (CLAUDE/QA.md), red first; both
+  instances fixed (the login report's channels are `io.StringIO`, pingbus's `_LockedStream`
+  an `io.TextIOBase`, CCY 3.100.9, container 2.79.4); a test drives the real check through
+  the login report's streams with a stale play. Report in `subagent-reports/`.
 - [ ] ⬜ **Task 4.4**: The owner runs meta-deploy: the acceptance passes on the host, then
   the `changed-plays` entry runs every changed play.
 
