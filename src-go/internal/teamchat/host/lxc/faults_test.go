@@ -3,9 +3,11 @@ package lxc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"syscall"
 	"testing"
 
@@ -16,10 +18,15 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxccmd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/unit"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
-var errFault = errors.New("planted fault")
+var (
+	errFault = errors.New("planted fault")
+	// errStall is a guest call abandoned at its bound, as guestroot answers it.
+	errStall = fmt.Errorf("%w: /x did not answer within 10s", guestroot.ErrStalled)
+)
 
 // failedAt checks that err is a host.Error of step.
 func failedAt(t *testing.T, err error, step string) {
@@ -314,19 +321,21 @@ func TestGoneAskedOfAFailingLXCInfoIsNotOffline(t *testing.T) {
 // The L3 wait: a probe error in a running container fails the leaver, as does lxc-info failing
 // after one; only an answered stop is offline.
 func TestAbsentWaitProbeFailures(t *testing.T) {
-	w := leaving(t)
-	w.lxc.boxes["c1"].probeErr = errFault
-	_, err := w.apply(PhaseAbsent)
-	failedAt(t, err, "wait")
-	if slices.Contains(w.lxc.verbs(), "c1 guest remove") {
-		t.Fatal("a seat whose lock could not be probed was removed")
+	for _, probeErr := range []error{errFault, errStall} {
+		w := leaving(t)
+		w.lxc.boxes["c1"].probeErr = probeErr
+		_, err := w.apply(PhaseAbsent)
+		failedAt(t, err, "wait")
+		if slices.Contains(w.lxc.verbs(), "c1 guest remove") {
+			t.Fatalf("%v: a seat whose lock could not be probed was removed", probeErr)
+		}
 	}
 
-	w = leaving(t)
+	w := leaving(t)
 	b := w.lxc.boxes["c1"]
 	holdSeat(t, b, `{"v":1,"run":"`+runID+`","started_ms":1}`)
 	w.clock.onSleep = func() { b.stateErr = errFault }
-	_, err = w.apply(PhaseAbsent)
+	_, err := w.apply(PhaseAbsent)
 	if !errors.Is(err, errFault) {
 		t.Fatalf("err %v", err)
 	}
@@ -340,6 +349,136 @@ func TestWaitFreeLayoutError(t *testing.T) {
 	wait, err := r.waitFree(t.Context(), &guestBox{name: mustBox(t, "c1")}, m)
 	if err == nil {
 		t.Fatalf("a layout error was a free seat: %+v", wait)
+	}
+}
+
+// guestErrno is a call below the guest root failing with errno, as guestroot answers it: a
+// guest user's FUSE mount answering host root (R2-1).
+func guestErrno(p string, errno syscall.Errno) error {
+	return fmt.Errorf("%w: guestroot: %s: %w", guestroot.ErrGuest, p, errno)
+}
+
+var guestErrnos = []syscall.Errno{syscall.EACCES, syscall.EIO}
+
+// R2-1: a guest user's run root that cannot be listed, whatever the errno, keeps every digest
+// and fails no seat; the kit sweep goes on for the rest.
+func TestKitSweepListingFaultKeepsEveryDigest(t *testing.T) {
+	for _, errno := range guestErrnos {
+		w := newWorld(t)
+		b := w.addBox("c1")
+		dir := oldKit(t, b)
+		root, err := paths.GuestLoginRunRoot(agent2UID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sessionPIDUnder(t, b, root, recordedTicks+1)
+		b.faults = map[string]error{root: guestErrno(root, errno)}
+		w.declare([]string{"t1"}, w.member("t1", "c1"))
+		if _, err := w.apply(PhasePresent); err != nil {
+			t.Fatalf("%v: %v", errno, err)
+		}
+		if _, err := os.Stat(dir); err != nil {
+			t.Fatalf("%v: the old kit was removed: %v", errno, err)
+		}
+		if e := w.entry("c1"); e.Status != lxcstate.StatusJoined {
+			t.Fatalf("%v: entry %+v", errno, e)
+		}
+	}
+}
+
+// R2-1: a checkout the guest answers with an errno fails the seats on it alone, as refused; a
+// seat of the same container on another checkout applies.
+func TestCheckoutReadFaultFailsThatSeatAlone(t *testing.T) {
+	const other = "/srv/agent2/src/repo"
+	for _, errno := range guestErrnos {
+		w := newWorld(t)
+		b := w.addBox("c1")
+		writeTree(t, b.dir, map[string]string{
+			other[1:] + gitConfig: "[remote \"origin\"]\n\turl = https://github.com/example/repo.git\n",
+		})
+		b.faults = map[string]error{checkout + gitConfig: guestErrno(checkout+gitConfig, errno)}
+		second := w.memberAt("t1", "c1", 2)
+		second.User, second.Checkout = agent2(t), other
+		w.declare([]string{"t1"}, w.member("t1", "c1"), second)
+		_, err := w.apply(PhasePresent)
+		herr, ok := errors.AsType[*host.Error](err)
+		if !ok || !herr.Drift || herr.Step != stepReads {
+			t.Fatalf("%v: err %v, want seat 1 refused at the reads", errno, err)
+		}
+		if e, found := w.record().Find(mustBox(t, "c1"), other, 2); !found || e.Status != lxcstate.StatusJoined {
+			t.Fatalf("%v: the other seat's entry %+v %v", errno, e, found)
+		}
+	}
+}
+
+// R2-3: a stall is waited out once per user and run. Two seats of agent1 on a stalled checkout
+// fail at the reads after one bound in all; agent2's seat on another checkout of the same
+// container waits nothing and applies.
+func TestAStallIsWaitedOutOncePerUser(t *testing.T) {
+	const other = "/srv/agent2/src/repo"
+	w := newWorld(t)
+	b := w.addBox("c1")
+	writeTree(t, b.dir, map[string]string{
+		other[1:] + gitConfig: "[remote \"origin\"]\n\turl = https://github.com/example/repo.git\n",
+	})
+	b.stalls = &stallLog{paths: map[string]bool{checkout + gitConfig: true}, stalled: map[*guestroot.Memo]bool{}}
+	third := w.memberAt("t1", "c1", 3)
+	third.User, third.Checkout = agent2(t), other
+	w.declare([]string{"t1"}, w.member("t1", "c1"), w.memberAt("t1", "c1", 2), third)
+	_, err := w.apply(PhasePresent)
+	if !errors.Is(err, guestroot.ErrStalled) {
+		t.Fatalf("err %v", err)
+	}
+	if b.stalls.waits != 1 {
+		t.Fatalf("the stall was waited out %d times", b.stalls.waits)
+	}
+	for seat := 1; seat <= 2; seat++ {
+		if e, found := w.entryAt("c1", seat); found && e.Status == lxcstate.StatusJoined {
+			t.Fatalf("seat %d on the stalled checkout joined: %+v", seat, e)
+		}
+	}
+	if e, found := w.record().Find(mustBox(t, "c1"), other, 3); !found || e.Status != lxcstate.StatusJoined {
+		t.Fatalf("agent2's seat %+v %v", e, found)
+	}
+}
+
+// R2-1 with R2-2: a lock the guest answers with an errno is a probe that failed, never a free
+// seat.
+func TestLockProbeErrnoIsNotFree(t *testing.T) {
+	for _, errno := range guestErrnos {
+		w := leaving(t)
+		w.lxc.boxes["c1"].probeErr = guestErrno("/lock", errno)
+		_, err := w.apply(PhaseAbsent)
+		failedAt(t, err, "wait")
+		if slices.Contains(w.lxc.verbs(), "c1 guest remove") {
+			t.Fatalf("%v: a seat whose lock could not be probed was removed", errno)
+		}
+
+		w = placed(t)
+		g := w.faulty(func(r Root) Root { return faultyRoot{Root: r, lockErr: guestErrno("/lock", errno)} })
+		if got, err := g.Probe(t.Context(), mustTeam(t, "t1"), firstHandle); err == nil {
+			t.Fatalf("%v: probe %+v, want an error", errno, got)
+		}
+	}
+}
+
+// N1: a tmux the guest answers with a stall or an errno keeps that error, the member's; only
+// a tmux that is not there, or not a regular file, sends the operator to the container's play.
+func TestTmuxFaultKeepsItsCause(t *testing.T) {
+	r, err := guestroot.OpenDir(newGuest(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := r.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	for _, cause := range []error{errStall, guestErrno(unit.Tmux, syscall.EIO)} {
+		err := tmux(fakeRoot{Root: r, faults: map[string]error{unit.Tmux: cause}})
+		if !errors.Is(err, cause) || !refused(err) || strings.Contains(err.Error(), "installs it") {
+			t.Errorf("%v: %v", cause, err)
+		}
 	}
 }
 

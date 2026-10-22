@@ -144,6 +144,23 @@ type guestBox struct {
 	missing   bool
 	// fault is lxc-ls or lxc-info failing for the box (the absent phase): the host's, not offline.
 	fault error
+	// memos is each guest user's stalls this run.
+	memos map[paths.GuestUser]*guestroot.Memo
+}
+
+// rootOf is the box's root scoped to m's guest user for this run: once a call for that user
+// stalls, the user's later calls, any seat's, answer at once instead of waiting out the bound
+// again (R2-3). A guest user's mount is what stalls, so the user is the scope.
+func (g *guestBox) rootOf(m *member) Root {
+	if g.memos == nil {
+		g.memos = map[paths.GuestUser]*guestroot.Memo{}
+	}
+	memo, ok := g.memos[m.decl.User]
+	if !ok {
+		memo = &guestroot.Memo{}
+		g.memos[m.decl.User] = memo
+	}
+	return g.root.Scoped(memo)
 }
 
 // checkoutFiles is one checkout's guest files, read once per container however many seats
@@ -494,9 +511,23 @@ func (r *run) step(ctx context.Context, g *guestBox, m *member, name string, err
 	}
 }
 
-// refused is a guest fact TB1 or a grammar refused.
+// refused is the member's own failure: a guest fact TB1 or a grammar refused, or a call below
+// the guest root that the guest answered with an error, whatever its errno, a stall included
+// (R2-1). Only an error before the pin, the host out of descriptors or memory, and the host's
+// own /proc are the host's.
 func refused(err error) bool {
+	return badFact(err) || errors.Is(err, guestroot.ErrGuest)
+}
+
+// badFact is a guest fact TB1 or a grammar refused.
+func badFact(err error) bool {
 	return errors.Is(err, guestfacts.ErrRefused) || errors.Is(err, guestroot.ErrRefused) || errors.Is(err, guestroot.ErrTooLarge)
+}
+
+// lockFree is a lock probe's error that reads as a free seat with no record (LP1): a lock not
+// there yet, or one TB1 refuses. A guest's error, a stall included, is a probe that failed.
+func lockFree(err error) bool {
+	return badFact(err) || errors.Is(err, fs.ErrNotExist)
 }
 
 // present is C 3.9.2 steps 02-09.
@@ -684,7 +715,7 @@ func (r *run) member(ctx context.Context, g *guestBox, m *member, passwd []byte,
 	if r.origins[m.team.ID] != status.OriginMigration {
 		return nil
 	}
-	held, err := r.d.V1.Holds(ctx, g.root, m.decl.User, m.team.ID)
+	held, err := r.d.V1.Holds(ctx, g.rootOf(m), m.decl.User, m.team.ID)
 	if err != nil {
 		// The holdback answers for this seat alone: the container's other seats read on.
 		r.fail(m, &host.Error{Verb: verb, Step: stepReads, Err: fmt.Errorf("%s: v1 holdback: %w", m.name(), err)})
@@ -710,7 +741,7 @@ func (r *run) facts(g *guestBox, m *member, passwd []byte, addrs []netip.Addr) e
 			return err
 		}
 	}
-	co, err := g.checkout(m.decl.Checkout)
+	co, err := g.checkout(g.rootOf(m), m.decl.Checkout)
 	if err != nil {
 		return err
 	}
@@ -737,20 +768,21 @@ func (r *run) facts(g *guestBox, m *member, passwd []byte, addrs []netip.Addr) e
 	return guestfacts.Source(addrs, m.team.AllowFrom, g.cfg.Link, r.d.Bridge)
 }
 
-// checkout is the checkout's .git/config and ccy.env.local, read once per container.
-func (g *guestBox) checkout(dir string) (*checkoutFiles, error) {
+// checkout is the checkout's .git/config and ccy.env.local, read once per container through
+// root.
+func (g *guestBox) checkout(root Root, dir string) (*checkoutFiles, error) {
 	if co, ok := g.checkouts[dir]; ok {
 		return co, nil
 	}
 	co := &checkoutFiles{}
-	git, _, found, err := g.root.ReadFile(dir+gitConfig, guestfacts.MaxCheckout)
+	git, _, found, err := root.ReadFile(dir+gitConfig, guestfacts.MaxCheckout)
 	if err != nil {
 		return nil, err
 	}
 	if found {
 		co.git = git
 	}
-	env, info, found, err := g.root.ReadFile(dir+envLocal, guestfacts.MaxCheckout)
+	env, info, found, err := root.ReadFile(dir+envLocal, guestfacts.MaxCheckout)
 	if err != nil {
 		return nil, err
 	}
@@ -827,21 +859,22 @@ func (r *run) service(g *guestBox, m *member) error {
 	if !g.cfg.StartAuto {
 		return fmt.Errorf("%w: %s is not 1; the container's own play owns its config", guestfacts.ErrRefused, guestfacts.KeyStartAuto)
 	}
-	exe, err := g.root.InitExe()
+	root := g.rootOf(m)
+	exe, err := root.InitExe()
 	if err != nil {
 		return err
 	}
-	sd, err := g.root.Stat(guestSystemd)
+	sd, err := root.Stat(guestSystemd)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 	if err != nil || sd.Dev != exe.Dev || sd.Ino != exe.Ino {
 		return fmt.Errorf("%w: the container's init is not %s; the container's own play owns its config", guestfacts.ErrRefused, guestSystemd)
 	}
-	if err = tmux(g.root); err != nil {
+	if err = tmux(root); err != nil {
 		return err
 	}
-	group, err := readGuest(g.root, guestGroup)
+	group, err := readGuest(root, guestGroup)
 	if err != nil {
 		return err
 	}
@@ -1159,12 +1192,12 @@ func (r *run) placeUnit(ctx context.Context, g *guestBox, m *member) error {
 	if err != nil {
 		return fmt.Errorf("%w: %w", guestfacts.ErrRefused, err)
 	}
-	file, link := m.unitFile(), m.wantsLink()
-	_, _, existed, err := g.root.ReadFile(file, maxUnit)
+	file, link, root := m.unitFile(), m.wantsLink(), g.rootOf(m)
+	_, _, existed, err := root.ReadFile(file, maxUnit)
 	if err != nil {
 		return err
 	}
-	w := g.root.Writer()
+	w := root.Writer()
 	if _, err = w.MkdirAll(path.Dir(file)); err != nil {
 		return err
 	}
@@ -1185,7 +1218,7 @@ func (r *run) placeUnit(ctx context.Context, g *guestBox, m *member) error {
 	if existed && wrote {
 		how, start = "unit restarted", guestbus.Systemd.Restart
 	}
-	err = r.systemd(ctx, g, func(s guestbus.Systemd) error {
+	err = r.systemd(ctx, root, func(s guestbus.Systemd) error {
 		if reloadErr := s.Reload(ctx); reloadErr != nil {
 			return reloadErr
 		}
@@ -1200,16 +1233,16 @@ func (r *run) placeUnit(ctx context.Context, g *guestBox, m *member) error {
 // removeUnit stops and removes the seat's unit and its wants link, when it has one; no other
 // seat's unit is touched.
 func (r *run) removeUnit(ctx context.Context, g *guestBox, m *member) error {
-	file, link := m.unitFile(), m.wantsLink()
-	_, _, found, err := g.root.ReadFile(file, maxUnit)
+	file, link, root := m.unitFile(), m.wantsLink(), g.rootOf(m)
+	_, _, found, err := root.ReadFile(file, maxUnit)
 	if err != nil || !found {
 		return err
 	}
-	return r.systemd(ctx, g, func(s guestbus.Systemd) error {
+	return r.systemd(ctx, root, func(s guestbus.Systemd) error {
 		if err := s.Stop(ctx, m.unitName()); err != nil {
 			return err
 		}
-		w := g.root.Writer()
+		w := root.Writer()
 		if _, err := w.Remove(path.Dir(file), path.Base(file)); err != nil {
 			return err
 		}
@@ -1220,9 +1253,9 @@ func (r *run) removeUnit(ctx context.Context, g *guestBox, m *member) error {
 	})
 }
 
-// systemd runs calls on the guest's systemd, closing it after.
-func (r *run) systemd(ctx context.Context, g *guestBox, calls func(guestbus.Systemd) error) error {
-	s, err := r.d.Bus(ctx, g.root)
+// systemd runs calls on the guest's systemd, reached through root, closing it after.
+func (r *run) systemd(ctx context.Context, root Root, calls func(guestbus.Systemd) error) error {
+	s, err := r.d.Bus(ctx, root)
 	if err != nil && !refused(err) {
 		return fmt.Errorf("%w: %w", errUnreachable, err)
 	}

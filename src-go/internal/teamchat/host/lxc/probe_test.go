@@ -319,6 +319,12 @@ func TestProbeHostFaultsAreErrors(t *testing.T) {
 		{"a read of a running guest", func(w *world) Guests {
 			return w.faulty(func(r Root) Root { return faultyRoot{Root: r, readErr: errFault} })
 		}},
+		{"a stalled read of a running guest", func(w *world) Guests {
+			return w.faulty(func(r Root) Root { return faultyRoot{Root: r, readErr: errStall} })
+		}},
+		{"a stalled lock probe of a running guest", func(w *world) Guests {
+			return w.faulty(func(r Root) Root { return faultyRoot{Root: r, lockErr: errStall} })
+		}},
 		{"a lock probe of a running guest", func(w *world) Guests {
 			return w.faulty(func(r Root) Root { return faultyRoot{Root: r, lockErr: errFault} })
 		}},

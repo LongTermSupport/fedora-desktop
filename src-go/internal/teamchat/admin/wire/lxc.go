@@ -61,7 +61,7 @@ func (m machine) pin() func(ctx context.Context, container string) (lxc.Root, er
 		if err != nil {
 			return nil, err
 		}
-		return r, nil
+		return lxc.Pinned(r), nil
 	}
 }
 

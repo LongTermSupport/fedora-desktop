@@ -38,6 +38,10 @@ var (
 	ErrRefused = errors.New("guestroot: refused")
 	// ErrTooLarge is a file, a directory or a tree over its cap.
 	ErrTooLarge = errors.New("guestroot: over its cap")
+	// ErrGuest is a call below the root that failed on the guest's side, its errno wrapped:
+	// whatever the errno, a file or a mount the guest controls answered it, so it fails that
+	// member alone (R2-1). Only the host out of descriptors or memory is the host's fault.
+	ErrGuest = errors.New("guestroot: the guest failed the call")
 
 	errClosed = errors.New("guestroot: the root is closed")
 )
@@ -108,8 +112,16 @@ type Pinner struct {
 
 // Root is one running guest's root directory, held open with its init pinned (LX3, n3-D7).
 // Every read and write below it keeps TB1, and each is bounded (B5). Safe for one
-// goroutine at a time; a call abandoned at its bound ends on its own.
+// goroutine at a time; a call abandoned at its bound ends on its own. A Root scoped to a Memo
+// (Scoped) is a view of the same pinned root whose calls share that memo's stalls.
 type Root struct {
+	*pinned
+
+	memo *Memo
+}
+
+// pinned is what every view of one root shares: its descriptors and its calls in flight.
+type pinned struct {
 	sys    sys
 	kernel Kernel
 	// fd and pidfd are set once, before the root is handed out, and released once.
@@ -161,7 +173,7 @@ func (p Pinner) pinWith(ctx context.Context, s sys, pid func(context.Context) (i
 	if err != nil {
 		return nil, fmt.Errorf("guestroot: pidfd of %d: %w", first, err)
 	}
-	r := &Root{sys: s, kernel: p.Kernel, fd: -1, pidfd: pidfd, pid: first, proc: p.Proc, bound: callBound}
+	r := &Root{pinned: &pinned{sys: s, kernel: p.Kernel, fd: -1, pidfd: pidfd, pid: first, proc: p.Proc, bound: callBound}}
 	rootPath := p.Proc + "/" + strconv.Itoa(first) + "/root"
 	fd, err := s.openat(unix.AT_FDCWD, rootPath, rootFlags|unix.O_DIRECTORY, 0)
 	if err != nil {
@@ -196,7 +208,7 @@ func openDirWith(s sys, dir string) (*Root, error) {
 	if err != nil {
 		return nil, fmt.Errorf("guestroot: %s: %w", dir, err)
 	}
-	r := &Root{sys: s, fd: fd, pidfd: -1, bound: callBound}
+	r := &Root{pinned: &pinned{sys: s, fd: fd, pidfd: -1, bound: callBound}}
 	info, err := r.statFD(fd, dir)
 	if err == nil && !info.Mode.IsDir() {
 		err = fmt.Errorf("%w: %s is %s", ErrRefused, dir, kind(info.Mode))

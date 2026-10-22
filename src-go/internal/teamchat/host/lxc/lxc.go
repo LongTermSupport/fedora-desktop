@@ -134,19 +134,33 @@ type Containers interface {
 	Guest(ctx context.Context, a lxccmd.Attach, op guest.Op, args []string, stdin []byte) (lxccmd.GuestResult, error)
 }
 
-// Root is a pinned guest root as the phases use it: *guestroot.Root in production.
+// Root is a pinned guest root as the phases use it: a *guestroot.Root by Pinned in production.
 type Root interface {
+	guestReads
 	Alive() error
 	Close() error
+	InitExe() (guestroot.Info, error)
+	Writer() *guestroot.Writer
+	// Scoped is a view of the same root whose calls share m's stalls (R2-3).
+	Scoped(m *guestroot.Memo) Root
+}
+
+// guestReads is a root's reads below the guest's root, each bounded.
+type guestReads interface {
 	Stat(p string) (guestroot.Info, error)
 	ReadFile(p string, limit int64) ([]byte, guestroot.Info, bool, error)
 	ReadDir(p string, valid func(string) bool, limit int) ([]string, bool, error)
 	ReadProcStat(pid int) ([]byte, bool, error)
 	ProbeLock(p string) (bool, []byte, error)
 	DialSocket(ctx context.Context, p string) (*net.UnixConn, error)
-	InitExe() (guestroot.Info, error)
-	Writer() *guestroot.Writer
 }
+
+// Pinned is a pinned guest root as a Root.
+func Pinned(r *guestroot.Root) Root { return pinnedRoot{r} }
+
+type pinnedRoot struct{ *guestroot.Root }
+
+func (p pinnedRoot) Scoped(m *guestroot.Memo) Root { return pinnedRoot{p.Root.Scoped(m)} }
 
 // V1Holdback is D's adapter (a seam until N6): whether the guest still runs this member on v1.
 // It is handed the guest root, never a bare descriptor.
