@@ -3,8 +3,9 @@
 **State of this brief.** Sections 0-6 are written in full. Sections 7-15 (parts n3e-5 to
 n3e-13) give each part's packages, files, API and tests in a compact form; section 16 carries
 B27 and the offline rule in full; section 17 lists the decisions; section 18 is the common rules
-text. Left for the next writer, if the review asks for it: expanding sections 7-15's digested
-facts to the depth of sections 3-6, and the review loop (Opus, at most 2 rounds).
+text. Review round 1 was FIX-FIRST (4 major, 6 medium, 9 low); section 15a answers every major
+and medium and overrides the sections above it. Left: review round 2, and expanding sections
+7-15's digested facts if that review asks for it.
 
 Design only; no code is written here. n3e is SPEC-n3.md section 6 (DV1-DV6, HK1-HK3, SL1, PK1,
 PK2, PT1), with B27 in full (Plan 00217's team colours and short member name), the owner's
@@ -955,6 +956,52 @@ n3e's five, n3d's); each run prints its seed and a failing seed replays it; afte
 are checked over the fake transcript, the stores and fakehs. A fixed seed list runs in the gate (a
 `go test -tags busfailpoints ./internal/teamchat/member/pt1/` row added to the Go gate in its own
 hunk, n3e-D19); `-pt1.random=<n>` is the manual long run.
+
+## 15a. Corrections from the brief review (round 1)
+
+These override sections 0-15 where they differ (`261022-n3e-brief-review.md` gives each finding's
+reason). A builder reads this section with its own.
+
+- **`held back:` is filled (major 1).** n3e-7 adds the teamsync hunk: each event `proto.Judge`
+  refuses with reason `rate` adds one to `Batch.HeldBack[sender]` of the batch it belongs to
+  (counted once, when the batch is persisted, as the other counts are). n3e-6 renders it.
+- **The coordinator reaches the engine (major 2).** n3e-3 adds `Health.Coordinator *string` (the
+  roster's coordinator handle, nil when none); n3e-7's teamsync fills it at every verification and
+  roster change. `HookView` and `OnTeams` read it from `Health`, never from `Roster()`: no hook op
+  makes a network call or calls a team method.
+- **The unusable counts are shown (major 3).** n3e-10 adds `func (e *Engine) SetUnusable(ctx, u state.Unusable) error`, called by the link whenever `Session.CountUnusable` changes a count (and
+  once at start from session.json); the engine writes `unusable_hook_stdin` into `status.json`
+  and both counts into `status`'s `runtime` record (`unusable` object). n3e-6's `OnRender` calls
+  `CountUnusable("render")`, which leads to the same call.
+- **A stall reaches the hooks (major 4).** While stalled (B 2.7.3: every write failed for 120 s),
+  delivery counts as not live for the hooks: `HookView.Live` is false, every deliverable pending id
+  is in `NotPushed`, the prompt brings back the pending counts with `hooktext.Stalled`, and Stop
+  blocks once per pending set. The stall clears at the next full write.
+- **An earlier run's entries (medium).** When a link takes a store whose `run` is not this run
+  (after `Ends.Close` and `BeginRun`), each `awaiting` entry is declared missing at once in one
+  write (its items back to pending `repeat` and `held`, out of the ledger; the old session's
+  transcript is not this session's) and every `missed` entry is dropped. So no boot-clock time from
+  another boot is ever compared (n3e-D9 holds within one run).
+- **The transcript open (medium).** The FIFO test is right and the open is changed to match it:
+  `proof.Scan` opens TB1's way, `O_PATH|O_NOFOLLOW`, `fstat`, refuses anything but a regular file
+  by name, then reopens through `/proc/self/fd/<n>` with `O_RDONLY|O_NONBLOCK|O_CLOEXEC` and checks
+  device and inode again. A FIFO is never opened for reading.
+- **Tagged tests run in the gate (medium).** n3e-D19 widens: n3e-6 (the first part that adds
+  `busfailpoints` tests in n3e) adds one Go gate row, `go test -race -tags busfailpoints` over
+  `./internal/teamchat/...`, in its own hunk, for the lead to approve; n3e-13 adds its fixed seeds
+  under the same row. Until the row merges, each part runs its tagged tests by hand and reports it.
+- **execx (medium).** n3e-5 runs the inner command with `execx.Starter.Start` and `Cmd.NewSession`
+  as built; only the group kill (`unix.Kill(-pid, SIGKILL)`, behind a seam) and the bounded pipe
+  read are new.
+- **hooktext imports no client (medium).** `hooktext.Recovery(message string) string`; the hook
+  passes `client.ReadDown(run).Error(nil, boot).Message`. So the engine and the link, which import
+  hooktext, never import the CLI package.
+- **n3e-6 is split (medium).** The pure `member/deliver` package (`Choose`, `Build`, its goldens)
+  moves to n3e-1, which becomes "the inbox socket, fakeinbox and the delivery builder" (three
+  packages; `deliver` imports `proto`, `state`, `paths` only, so it needs nothing from n3e-3).
+  n3e-6 keeps the engine loop and the link hunk. n3e-6's API for `deliver` is unchanged.
+- The review's low findings are wording and test-list points; each part's builder applies the
+  one for its part from the review report.
 
 ## 16. B27 and the owner's offline rule, carried
 
