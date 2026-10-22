@@ -335,6 +335,29 @@ func TestBuildLockKillsOnlyTheSameProcesses(t *testing.T) {
 	}
 }
 
+// F14: two live builds are each asked about, in turn, from one piped input.
+func TestBuildLockAsksAboutEachBuild(t *testing.T) {
+	r := liveBuild(t, "n\nn\n")
+	r.lock(t, "claude-yolo_proj.lock", "4243 1650 claude-yolo:proj\n", true)
+	code, out := r.start(t)
+	if code != term.ExitOK || len(r.sent) != 0 {
+		t.Fatalf("exit %d, signals %q", code, r.sent)
+	}
+	if n := strings.Count(out, "Nothing was stopped."); n != 2 {
+		t.Fatalf("answered %d of the 2 questions:\n%s", n, out)
+	}
+}
+
+// F14: a process that has exited and waits to be reaped counts as gone.
+func TestBuildLockCountsAZombieAsGone(t *testing.T) {
+	r := newLockRig(t, "y\n")
+	writeTree(t, r.proc, map[string]string{"4242/stat": "4242 (bash) Z 1 0 0 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 50000 0 0\n"})
+	r.lock(t, "claude-yolo_latest.lock", "4242 1600 claude-yolo:latest\n", true)
+	if code, out := r.start(t); code != term.ExitOK || !strings.Contains(out, "has gone") {
+		t.Fatalf("exit %d, stdout %q", code, out)
+	}
+}
+
 // F14: a failed signal is the run's failure, named.
 func TestBuildLockReportsAFailedSignal(t *testing.T) {
 	r := liveBuild(t, "y\n")

@@ -89,8 +89,14 @@ func (f Front) buildLock(ctx context.Context) term.ExitCode {
 	if err := p.Err(); err != nil {
 		return f.fail("ccy: could not write the answer: " + err.Error())
 	}
+	in := f.Stdin
+	if in == nil {
+		in = strings.NewReader("")
+	}
+	// One reader for every question: piped answers are read a line at a time, in order.
+	lines := &ui.Lines{In: in, Out: f.Stderr}
 	for _, build := range live {
-		if code, done := f.offerStop(ctx, build.rec, build.path); done {
+		if code, done := f.offerStop(ctx, lines, build.rec, build.path); done {
 			return code
 		}
 	}
@@ -134,12 +140,7 @@ func (f Front) reportLock(p *term.Printer, path string) (*heldBuild, bool, error
 }
 
 // offerStop asks about one build and stops it on yes; done is true when the run ends here.
-func (f Front) offerStop(ctx context.Context, rec buildRecord, path string) (term.ExitCode, bool) {
-	in := f.Stdin
-	if in == nil {
-		in = strings.NewReader("")
-	}
-	lines := &ui.Lines{In: in, Out: f.Stderr}
+func (f Front) offerStop(ctx context.Context, lines *ui.Lines, rec buildRecord, path string) (term.ExitCode, bool) {
 	h := ui.Here("ccy", "Image builds").About(rec.image + " · process " + strconv.Itoa(rec.pid))
 	yes, err := lines.YesNo(ctx, h, fmt.Sprintf("Stop the build of %s by process %d, and every process it started?", rec.image, rec.pid), false)
 	var p term.Printer
@@ -331,7 +332,8 @@ func (f Front) unvouched(rec buildRecord) (string, error) {
 }
 
 // procStat is a process's parent and start tick, from <proc>/<pid>/stat (fields 4 and 22,
-// counted after the command name's closing bracket); alive is false when it has gone.
+// counted after the command name's closing bracket); alive is false when it has gone, and for a
+// process that has exited and only waits to be reaped (state Z or X, field 3).
 type procInfo struct {
 	ppid  int
 	start int64
@@ -361,7 +363,8 @@ func (f Front) procStat(pid int) (procInfo, bool, error) {
 	if ppidErr != nil || startErr != nil {
 		return procInfo{}, false, fmt.Errorf("process %d: unreadable %s", pid, path)
 	}
-	return procInfo{ppid: ppid, start: start}, true, nil
+	exited := fields[0] == "Z" || fields[0] == "X"
+	return procInfo{ppid: ppid, start: start}, !exited, nil
 }
 
 // bootTime is the machine's boot time in epoch seconds (btime in <proc>/stat).

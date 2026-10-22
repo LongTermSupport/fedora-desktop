@@ -76,7 +76,10 @@ one after a `[y/N]`.
   seen (its start tick), then SIGKILL to those left after 10 s unless the record has left the
   lock and every one has ended, and fails naming it after 5 s more. Its probe takes a shared
   lock for an instant, so a launch arriving at that instant says once that it is waiting
-  before it takes the lock: accepted.
+  before it takes the lock: accepted. Also accepted: a stopped in-place update leaves its
+  temporary `ccy-claude-update-<pid>` container (as Ctrl-C always has), and a wall clock that
+  steps forward just before a holder writes its record can make the front refuse that holder
+  (the safe side).
 - **D7. Bash within the limits.** The launcher and lib/common.bash are on the ratchet
   allowlist; both shrank (the three duplicated Dockerfile checks moved into
   `ccy_base_image_build`). The two new libraries are within every limit.
@@ -94,7 +97,7 @@ one after a `[y/N]`.
 - [x] ✅ **Task 1.3**: `ccy --build-lock` in the Go front, `buildlock_test.go` first (F14), help
   text in both launchers, difftest goldens re-recorded (one build where the missing-image
   scenario built twice; the lock file in the run directory).
-- [x] ✅ **Task 1.4**: CCY 3.99.15.1 with its changelog entry, docs/ccy.md, QA.md and the gate
+- [x] ✅ **Task 1.4**: CCY 3.99.15.2 with its changelog entry, docs/ccy.md, QA.md and the gate
   row, and the play-claude-yolo.yml entry of meta-deploy.list.
 
 ### Phase 2: Review and deploy
