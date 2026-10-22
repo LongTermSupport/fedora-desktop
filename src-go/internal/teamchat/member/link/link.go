@@ -25,6 +25,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/engine"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/homefs"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/inbox"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/lock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
@@ -113,6 +114,12 @@ type link struct {
 	stateMu   sync.Mutex
 	states    map[paths.TeamID]wire.State
 	stateWake chan struct{}
+
+	// render is the latest unusable.render count the engine told, not yet written when dirty.
+	renderMu    sync.Mutex
+	render      int64
+	renderDirty bool
+	renderWake  chan struct{}
 }
 
 // Run is the link (LN1): link.lock (78 if another link holds it), the keeper's pidfd, the
@@ -125,7 +132,7 @@ func Run(ctx context.Context, cfg Config) term.ExitCode {
 	}
 	l := &link{
 		cfg: cfg, msgs: make(chan received), quit: make(chan struct{}), first: make(chan struct{}),
-		states: map[paths.TeamID]wire.State{}, stateWake: make(chan struct{}, 1),
+		states: map[paths.TeamID]wire.State{}, stateWake: make(chan struct{}, 1), renderWake: make(chan struct{}, 1),
 	}
 	code := l.run(ctx)
 	if err := ll.Release(); err != nil {
@@ -167,6 +174,7 @@ func (l *link) run(parentCtx context.Context) term.ExitCode {
 	engDone := make(chan error, 1)
 	go func() { engDone <- l.eng.Run(ctx) }()
 	l.bg.Go(l.reportStates)
+	l.bg.Go(l.recordRender)
 	defer l.teardown(ctx, cancel, engDone)
 	pending := l.awaitAdds(ctx, hold, launch.Seats)
 	stopHold()
@@ -267,11 +275,16 @@ func (l *link) build(launch wire.Launch) term.ExitCode {
 	if err != nil {
 		return refuse(l.cfg.Log, "read session.json", err)
 	}
+	var dialer inbox.Dialer
+	if l.delivery == state.DeliverySocket {
+		dialer = inbox.NewDialer(l.cfg.Clock)
+	}
 	l.eng, err = l.cfg.Engine(engine.Config{
 		Root: l.cfg.StateRoot, RunRoot: l.cfg.RunRoot, Layout: l.cfg.Layout, Run: l.cfg.Run,
 		Clock: l.cfg.Clock, Log: l.cfg.Log, NewTeam: l.cfg.NewTeam, NewEnds: l.cfg.NewEnds,
 		Delivery: l.delivery, Plain: plain, FirstSessionStart: l.first,
 		OnState: l.onState, Runtime: l.runtime,
+		Inbox: dialer, Unusable: l.session.Unusable(), OnUnusable: l.onUnusable,
 	})
 	if err != nil {
 		return refuse(l.cfg.Log, "make the engine", err)
@@ -337,6 +350,11 @@ func (l *link) dispatch(ctx context.Context, r received) bool {
 		l.mu.Lock()
 		l.token = m.Token.Token
 		l.mu.Unlock()
+		// The socket and transcript come from session.json, so a restarted link delivers
+		// again before any hook.
+		f := l.session.Inbox()
+		f.Token = m.Token.Token
+		l.logErr("tell the engine the session", l.eng.SetSession(ctx, f))
 	case wire.KindDesired:
 		l.logErr("set the desired membership", l.eng.SetDesired(ctx, *m.Desired))
 	case wire.KindRefused:
@@ -516,6 +534,41 @@ func (l *link) reportStates() {
 			s := states[t]
 			l.send(wire.Msg{Kind: wire.KindState, State: &s})
 		}
+	}
+}
+
+// onUnusable is the engine's counts, on its state goroutine: the render count kept for
+// recordRender, so the goroutine never waits on a file.
+func (l *link) onUnusable(u state.Unusable) {
+	l.renderMu.Lock()
+	l.render, l.renderDirty = u.Render, true
+	l.renderMu.Unlock()
+	select {
+	case l.renderWake <- struct{}{}:
+	default:
+	}
+}
+
+// recordRender writes each render count told into session.json, and the last one at the end.
+func (l *link) recordRender() {
+	for {
+		select {
+		case <-l.quit:
+			l.writeRender()
+			return
+		case <-l.renderWake:
+			l.writeRender()
+		}
+	}
+}
+
+func (l *link) writeRender() {
+	l.renderMu.Lock()
+	n, dirty := l.render, l.renderDirty
+	l.renderDirty = false
+	l.renderMu.Unlock()
+	if dirty {
+		l.logErr("record the render count", l.session.RecordRender(n))
 	}
 }
 
