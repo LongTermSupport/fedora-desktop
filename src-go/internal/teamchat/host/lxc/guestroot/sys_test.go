@@ -123,7 +123,7 @@ func (r *recorder) openat2(dirfd int, path string, how *unix.OpenHow) (int, erro
 	if err := r.step(call{op: "openat2", path: path, flags: how.Flags, resolve: how.Resolve}); err != nil {
 		return -1, err
 	}
-	fd, err := r.real.openat2(dirfd, path, how)
+	fd, err := unrecorded(openAgain, func() (int, error) { return r.real.openat2(dirfd, path, how) })
 	if err == nil {
 		r.opened(fd, path, how.Flags&unix.O_PATH != 0)
 	}
@@ -137,7 +137,7 @@ func (r *recorder) openat(dirfd int, path string, flags int, mode uint32) (int, 
 	if r.swapReopen != "" && strings.HasPrefix(path, "/proc/self/fd/") {
 		path = r.swapReopen
 	}
-	fd, err := r.real.openat(dirfd, path, flags, mode)
+	fd, err := unrecorded(interrupted, func() (int, error) { return r.real.openat(dirfd, path, flags, mode) })
 	if err == nil {
 		r.opened(fd, path, flags&unix.O_PATH != 0)
 	}
@@ -163,28 +163,28 @@ func (r *recorder) read(fd int, p []byte) (int, error) {
 	if err := r.step(call{op: "read"}); err != nil {
 		return 0, err
 	}
-	return r.real.read(fd, p)
+	return unrecorded(interrupted, func() (int, error) { return r.real.read(fd, p) })
 }
 
 func (r *recorder) write(fd int, p []byte) (int, error) {
 	if err := r.step(call{op: "write"}); err != nil {
 		return 0, err
 	}
-	return r.real.write(fd, p)
+	return unrecorded(interrupted, func() (int, error) { return r.real.write(fd, p) })
 }
 
 func (r *recorder) getdents(fd int, buf []byte) (int, error) {
 	if err := r.step(call{op: "getdents"}); err != nil {
 		return 0, err
 	}
-	return r.real.getdents(fd, buf)
+	return unrecorded(interrupted, func() (int, error) { return r.real.getdents(fd, buf) })
 }
 
 func (r *recorder) flock(fd, how int) error {
 	if err := r.step(call{op: "flock", oflags: how}); err != nil {
 		return err
 	}
-	return r.real.flock(fd, how)
+	return unrecordedErr(func() error { return r.real.flock(fd, how) })
 }
 
 func (r *recorder) mkdirat(dirfd int, path string, mode uint32) error {
@@ -248,6 +248,73 @@ func (r *recorder) dial(ctx context.Context, name string) (*net.UnixConn, error)
 		return nil, err
 	}
 	return r.real.dial(ctx, name)
+}
+
+// realRetries bounds the recorder's own retry of a real error that the production code retries.
+const realRetries = 64
+
+// unrecorded is f, retried while again says its real error is one the production code retries
+// (EINTR, and openat2's EAGAIN). The production retry is a recorded call, so a run that met a
+// real one would number its calls unlike the counting run, and the fault sweep would fail the
+// wrong call; retried here, a run's count does not depend on the load. An injected error returns
+// from step before f runs, so the production retry stays tested.
+func unrecorded[T any](again func(error) bool, f func() (T, error)) (T, error) {
+	v, err := f()
+	for i := 0; i < realRetries && again(err); i++ {
+		v, err = f()
+	}
+	return v, err
+}
+
+func unrecordedErr(f func() error) error {
+	_, err := unrecorded(interrupted, func() (struct{}, error) { return struct{}{}, f() })
+	return err
+}
+
+func interrupted(err error) bool { return errors.Is(err, unix.EINTR) }
+
+func openAgain(err error) bool { return errors.Is(err, unix.EINTR) || errors.Is(err, unix.EAGAIN) }
+
+func TestRecorderRetriesARealInterruptOutsideTheCount(t *testing.T) {
+	rec := newRecorder()
+	fails := 2
+	rec.real = interruptingSys{sys: linuxSys{}, fails: &fails}
+	g := newTree(t)
+	g.file("/f", "x", 0o644)
+	if _, err := g.root(rec).Stat("/f"); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(rec.callsOf("openat2")); fails != 0 || n == 0 {
+		t.Fatalf("fails left %d, openat2 recorded %d times", fails, n)
+	}
+	rec.arm(-1, nil)
+	fails = 2
+	if _, err := g.root(rec).Stat("/f"); err != nil {
+		t.Fatal(err)
+	}
+	counted := rec.count()
+	rec.arm(-1, nil)
+	if _, err := g.root(rec).Stat("/f"); err != nil || rec.count() != counted {
+		t.Fatalf("a real interrupt changed the count: %d, then %d (%v)", counted, rec.count(), err)
+	}
+	if got := unrecordedErr(func() error { return unix.EINTR }); !errors.Is(got, unix.EINTR) {
+		t.Fatalf("an interrupt every time ended as %v", got)
+	}
+}
+
+// interruptingSys is the real system whose first *fails openat2 calls are interrupted.
+type interruptingSys struct {
+	sys
+
+	fails *int
+}
+
+func (s interruptingSys) openat2(dirfd int, path string, how *unix.OpenHow) (int, error) {
+	if *s.fails > 0 {
+		*s.fails--
+		return -1, unix.EINTR
+	}
+	return s.sys.openat2(dirfd, path, how)
 }
 
 // tree is a fixture guest root in a temporary directory.
