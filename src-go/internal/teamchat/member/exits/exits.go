@@ -34,6 +34,27 @@ const (
 
 func (c Class) String() string { return string(c) }
 
+// Does is what an agent does on an exit of the class (B 2.2.4's class table).
+func (c Class) Does() string {
+	switch c {
+	case ClassFix:
+		return "change the message or the command; never retry it unchanged"
+	case ClassWait:
+		return "wait and try once more; do not loop"
+	case ClassRead:
+		return "read the records it printed (team-failed) and carry on"
+	case ClassTell:
+		return "stop using teamchat for this and tell a human; start nothing"
+	case ClassLifecycle:
+		return "returned to the host and launchers, never to an agent"
+	case ClassNone:
+	}
+	return "-"
+}
+
+// Classes are the classes an agent meets, in B's order.
+var Classes = []Class{ClassFix, ClassWait, ClassRead, ClassTell}
+
 // The exits of B 2.2.4.
 const (
 	ExitInternal    term.ExitCode = term.ExitFailure
@@ -203,6 +224,12 @@ func New(code string, team *paths.TeamID, t Template, fills ...Fill) *Error {
 	if !ok {
 		panic("exits: unknown code " + code)
 	}
+	return &Error{Exit: exit, Code: code, Team: team, Message: Format(t, fills...).text}
+}
+
+// Format is a template filled as one fill, for a part of a message such as one choice in a
+// list; it panics as New does on a fill count that differs from the slots.
+func Format(t Template, fills ...Fill) Fill {
 	parts := strings.Split(string(t), slot)
 	if len(parts) != len(fills)+1 {
 		panic(fmt.Sprintf("exits: template %q has %d slots, given %d fills", t, len(parts)-1, len(fills)))
@@ -214,7 +241,16 @@ func New(code string, team *paths.TeamID, t Template, fills ...Fill) *Error {
 			b.WriteString(fills[i].text)
 		}
 	}
-	return &Error{Exit: exit, Code: code, Team: team, Message: b.String()}
+	return Fill{b.String()}
+}
+
+// Join is fills as one, sep between each.
+func Join(sep Template, fills ...Fill) Fill {
+	texts := make([]string, len(fills))
+	for i, f := range fills {
+		texts[i] = f.text
+	}
+	return Fill{strings.Join(texts, string(sep))}
 }
 
 // internalMessage is the error object's message for a failure no verb named.

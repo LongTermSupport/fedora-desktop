@@ -103,6 +103,17 @@ func TestClassesNameEveryAgentExit(t *testing.T) {
 	}
 }
 
+func TestEveryClassSaysWhatToDo(t *testing.T) {
+	for _, c := range append(slices.Clone(Classes), ClassLifecycle) {
+		if c.Does() == "-" || c.Does() == "" {
+			t.Errorf("class %s does nothing", c)
+		}
+	}
+	if ClassNone.Does() != "-" {
+		t.Error("none")
+	}
+}
+
 func TestNewFillsTheTemplateWithCheckedNamesOnly(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -133,6 +144,17 @@ func TestNewFillsTheTemplateWithCheckedNamesOnly(t *testing.T) {
 		if e.Exit != ExitUsage || e.Code != CodeUsage || e.Team != nil || e.Error() != e.Message {
 			t.Errorf("%s: %+v", c.name, e)
 		}
+	}
+}
+
+func TestFormatAndJoinComposeAList(t *testing.T) {
+	list := Join("; ", Format("{} ({})", Name("alpha"), Description("Release work")), Format("{} ({})", Name("beta"), Description("x\ny")))
+	e := New(CodeAmbiguousTeam, nil, "pass --team with one of: {}", list)
+	if e.Message != "pass --team with one of: alpha (Release work); beta (?)" || e.Exit != ExitUsage {
+		t.Errorf("%+v", e)
+	}
+	if Join(", ").text != "" {
+		t.Error("an empty join")
 	}
 }
 
