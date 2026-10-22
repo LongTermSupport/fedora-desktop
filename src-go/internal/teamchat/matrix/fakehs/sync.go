@@ -97,11 +97,16 @@ func (s *Server) sync(r *request, _ []string) (any, error) {
 	if err := s.syncPresence(r); err != nil {
 		return nil, err
 	}
-	timer := time.NewTimer(time.Duration(timeoutMS) * time.Millisecond)
-	defer timer.Stop()
+	waits := since >= 0 && timeoutMS > 0
+	var timedOut <-chan time.Time
+	if waits {
+		var stop func() bool
+		timedOut, stop = s.hold(time.Duration(timeoutMS) * time.Millisecond)
+		defer stop()
+	}
 	for {
 		answer := s.syncOnce(r, since, flt)
-		if _, hasRooms := answer["rooms"]; hasRooms || since < 0 || timeoutMS == 0 {
+		if _, hasRooms := answer["rooms"]; hasRooms || !waits {
 			return answer, nil
 		}
 		changed := s.changed
@@ -109,7 +114,7 @@ func (s *Server) sync(r *request, _ []string) (any, error) {
 		select {
 		case <-changed:
 			s.mu.Lock()
-		case <-timer.C:
+		case <-timedOut:
 			s.mu.Lock()
 			return s.syncOnce(r, since, flt), nil
 		case <-r.done:
