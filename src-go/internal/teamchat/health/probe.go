@@ -68,7 +68,7 @@ func (t *Tick) homeserver(ctx context.Context, team Team, f *facts) error {
 		return nil
 	}
 	f.probe = status.ProbeMissed
-	if t.cfg.Clock.Now().Sub(state.ActiveSince) < StartGrace {
+	if f.held || t.cfg.Clock.Now().Sub(state.ActiveSince) < StartGrace {
 		return nil
 	}
 	probe, now, stop, err := t.probeAgain(ctx, team.ID, unit, state)

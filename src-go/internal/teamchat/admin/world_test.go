@@ -94,6 +94,7 @@ type world struct {
 	crash   *crashing
 	lie     func(*Answer) // a child that answers what it was not asked
 	regKeys []string
+	ports   []int
 	gidErr  error
 }
 
@@ -112,6 +113,9 @@ func newWorld(t *testing.T) *world {
 		}
 	}
 	if err := os.WriteFile(w.root+paths.ServerUnitTemplateFile, []byte("[Unit]\nDescription=v2 team homeserver %i\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(w.root+osRelease, []byte("NAME=Fedora Linux\nID=fedora\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	w.srv = fakehs.New(fakehs.Options{ServerName: server, Now: w.now, Quirks: fakehs.TuwunelQuirks()})
@@ -171,7 +175,10 @@ func (c inProcessChild) Ask(ctx context.Context, req Request) (Answer, error) {
 }
 
 // Bundle is the seat side's bundle as a test reads it: the handle and the credential.
-func (w *world) Bundle(_ context.Context, team declare.Team, handle string, c apply.Credential) (proto.Value, error) {
+func (w *world) Bundle(_ context.Context, team declare.Team, handle, mainRoom string, c apply.Credential) (proto.Value, error) {
+	if mainRoom != w.rooms(w.t).Main {
+		return proto.Value{}, errors.New("the bundle's main room is not the team's")
+	}
 	w.bundled = append(w.bundled, handle)
 	return proto.Obj(
 		proto.M("team", proto.Str(team.ID.String())), proto.M("handle", proto.Str(handle)),
@@ -215,8 +222,7 @@ func (w *world) sys() *System {
 	return &System{
 		Host: host.Deps{
 			Root: w.root, LockDir: w.root + paths.AdminRunDir, Clock: w,
-			Rand: bytes.NewReader(bytes.Repeat([]byte{0xab}, 64)), Pin: w.pin(), Software: digest,
-			CtlUID: os.Getuid(), CtlGID: os.Getgid(),
+			Rand: bytes.NewReader(bytes.Repeat([]byte{0xab}, 64)), Software: digest,
 			Approvals: declare.FileApprovals{Path: func(id paths.TeamID) string { return w.root + paths.ApprovedFile(id) }, GID: -1},
 			Systemd:   &fakeSystemd{w: w}, Firewall: &fakeFirewall{w: w}, Network: w, Ready: w, Status: &fakeStatus{w: w},
 			Backup: func(context.Context, *teamlock.Lock) error { return nil },
@@ -225,6 +231,8 @@ func (w *world) sys() *System {
 		Bundles:    w,
 		OwnerGroup: w.ownerGroup,
 		Open:       w.open,
+		Pin:        func() (host.Pin, error) { return w.pin(), nil },
+		CtlIDs:     func() (User, error) { return User{UID: os.Getuid(), GID: os.Getgid()}, nil },
 	}
 }
 
@@ -240,17 +248,30 @@ func (w *world) ownerGroup() (int, error) { return -1, w.gidErr }
 
 // open is the child's reach to alpha: the admin client over fakehs, wrapped by the crash the
 // test set, and the team's files under ctl/.
-func (w *world) open(_ context.Context, team paths.TeamID, regKey string) (apply.Deps, error) {
+func (w *world) open(_ context.Context, team paths.TeamID, port int, regKey string) (Opened, error) {
 	w.regKeys = append(w.regKeys, regKey)
+	w.ports = append(w.ports, port)
 	var a apply.Admin = w.admin
 	if w.crash != nil {
 		w.crash.Admin = w.admin
 		a = w.crash
 	}
-	return apply.Deps{
-		Admin: a, Now: w.now, RosterPath: w.root + paths.RosterFile(team), RoomsPath: w.root + paths.RoomsFile(team),
-		GuestDir: w.root + paths.GuestTokenDir(team),
+	return Opened{
+		Deps: apply.Deps{
+			Admin: a, Now: w.now, RosterPath: w.root + paths.RosterFile(team), RoomsPath: w.root + paths.RoomsFile(team),
+			GuestDir: w.root + paths.GuestTokenDir(team),
+		},
+		Member: w.member,
 	}, nil
+}
+
+// member is a member client of alpha's homeserver with token.
+func (w *world) member(token string) (*matrix.Client, error) {
+	c, err := matrix.NewMember(matrix.Config{BaseURL: w.srv.URL(), PlainHTTPHosts: []string{"127.0.0.1"}, Token: token, Clock: w})
+	if err == nil {
+		w.t.Cleanup(c.Close)
+	}
+	return c, err
 }
 
 type fakeSystemd struct{ w *world }
