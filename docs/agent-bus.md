@@ -709,8 +709,8 @@ pink, mint), chosen from the team's name. To choose it yourself, give the team's
 `agent_bus_teams` entry `colour: violet` (a name from that list) or `colour: "#rrggbb"` (quoted:
 `#` starts a YAML comment; a hex too dark to read is refused), and run `play-agent-bus.yml`; the
 team's admin passes it to every member as room state, and each member's status line draws it
-at its next refresh. A member whose pingbus predates the colour ignores it and shows the
-automatic colour. A colour file that cannot be read gives the automatic colour, the mark
+at its next refresh. A member whose pingbus predates the colour never receives it and keeps
+its old one-colour status line, unharmed. A colour file that cannot be read gives the automatic colour, the mark
 `(colour?)` and one stderr line. The member kit's `settings.json`
 makes `pingbus-status-line` the status line command (a Go binary that starts in milliseconds,
 built into the kit and the ccy image by the plays; `pingbus status-line` is the same command in

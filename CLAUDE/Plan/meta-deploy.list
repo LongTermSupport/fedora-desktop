@@ -63,12 +63,14 @@
 # team sets one yet, so every team shows its automatic colour). If the 00213 entry above is
 # still in the list it has already run this play from this checkout, and this run changes
 # nothing; it stays so the colours are delivered once 00213 has passed and left the list. The
-# ccy image with this pingbus is container 2.79.6, built only by a play-claude-yolo.yml run:
-# the 00213 entry's, or the play-claude-yolo.yml entry below. Needs sudo once. Afterwards restart the teams' agent
-# sessions so their syncers keep an override; a running one still draws the colours. Check
-# (Task 4.3): every team's row is in its own colour in a ccy session, a host session and an LXC
-# member; then set `colour: violet` on one team in host_vars, run play-agent-bus.yml again, and
-# that team's row changes colour in each without a restart.
+# status line of a running host or LXC session draws the colours at its next refresh. A ccy
+# session's status line is built into its image, container 2.79.6, which only a
+# play-claude-yolo.yml run builds (the 00213 entry's, or the play-claude-yolo.yml entry below),
+# so a ccy session shows them only once started after that run. Needs sudo once. Check
+# (Task 4.3), after the whole list has run: restart the teams' agent sessions (so their syncers
+# keep an override), and every team's row is in its own colour in a ccy session, a host session
+# and an LXC member; then set `colour: violet` on one team in host_vars, run play-agent-bus.yml
+# again, and that team's row changes colour in each without a restart.
 playbooks/imports/play-agent-bus.yml
 # Plan 00211 deploy 2 (Task 2.6), the reports and questions rooms, LAST. It needs every team's
 # agent sessions restarted since pingbus 0.2.0 was installed, ccy and LXC alike, which the

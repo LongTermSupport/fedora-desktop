@@ -74,8 +74,8 @@ the Python (SPEC-status-line S40).
   only the admin can write it, so a bad one is not expected).
   The colour is kept in `<bundle>/state/colour.json` as `{"v": 1, "colour": "#rrggbb"}`, mode
   0600, written atomically; with no colour the file is removed. A loss of trust removes it too.
-  A member on an older pingbus ignores the event type: it shows the auto colour, and nothing else
-  changes for it.
+  A member on an older pingbus ignores the event type: it keeps its old status line (one colour,
+  no member name), and nothing else changes for it.
 
 ## 3. The status line
 

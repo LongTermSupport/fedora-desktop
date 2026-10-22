@@ -53,8 +53,8 @@ token, so every receiver re-checks everything (§9).
   `admin` (§8), which a receiver built before it ignores: nothing is read as untrusted and
   no member needs to upgrade first.
 - A team's `colour` (Plan 00217) is not a record key either. It travels as the `admin`'s
-  `agent_bus.colour` state (§8), which a receiver built before it never asks for: it shows
-  the team's automatic colour, and no member needs to upgrade first.
+  `agent_bus.colour` state (§8), which a receiver built before it never asks for: it keeps
+  its old status line, and no member needs to upgrade first.
 - The `coordinator` role (§8) and the copy a worker's message to a human also sends it (§7)
   are still version 1: the copy is an ordinary ping or agent text that names one more
   addressee, so a receiver built before it accepts it as it accepts any other. But a receiver
