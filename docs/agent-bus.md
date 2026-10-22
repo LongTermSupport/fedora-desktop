@@ -616,8 +616,10 @@ stopped or failed.
   reports and questions rooms.
 - `sudo agent-bus check-rooms <team>` reads the reports and questions rooms and prints a
   `PROBLEM` line for each fault, with its repair: a room missing or changed, a human not in
-  one, a worker in questions, a coordinator that has not joined (restart its session). It
-  changes nothing and exits 1 on any problem.
+  one, a worker in questions, a coordinator that left a room, and a coordinator whose session
+  is listening but has not joined both. A coordinator with no live status in the team room that
+  has not joined is offline (no session of it is on the bus): it gets an `OFFLINE` line and is not a
+  problem. It changes nothing and exits 1 on any problem.
 - `sudo agent-bus set-role <team> <handle> --role=coordinator` changes a role; a second
   coordinator is refused, naming the holder, so the current one is first set back to
   `worker`. `ccy-teams` does the same from a seat's menu, and bare `ccy --teams` offers it

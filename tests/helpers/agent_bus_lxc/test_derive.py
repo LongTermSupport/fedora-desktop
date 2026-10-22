@@ -354,13 +354,14 @@ class RunningRootfsTest(RunningContainer):
                 self.assertEqual(derive.parse_probe(run.stdout).origin, REMOTE)
         self.assertIn(f"-P {self.lxc.lxcpath} -n {CONTAINER} -p -H", self.calls.read_text(encoding="utf-8"))
 
-    def test_a_stopped_container_is_refused_saying_why_it_must_run(self) -> None:
+    def test_a_stopped_container_in_an_unmounted_store_is_named_offline(self) -> None:
         self.store("zfs:lxc/devbox")
         self.lxc_info("")
         run = self.probe()
         self.assertNotEqual(run.returncode, 0)
         self.assertIn("zfs", run.stderr)
-        self.assertIn("not running", run.stderr)
+        self.assertIn("is offline", run.stderr)
+        self.assertNotIn("start it", run.stderr)
 
     def test_lxc_info_failing_is_refused_with_its_words(self) -> None:
         self.store("lvm:/dev/lxc/devbox")

@@ -17,10 +17,11 @@ Two version numbers move independently — see
 
 ---
 
-## 3.100.7 — container 2.79.2
+## 3.100.8 — container 2.79.3
 
-Follows 3.99.15.5 (3.100.0 to 3.100.6 and containers 2.79.0 and 2.79.1 were never released: review rounds on
-one branch; container 2.79.2 also carries 2.78.18's declare.py). The image changes: the play builds it, and a host that has not run the play
+Follows 3.99.15.7 (3.100.0 to 3.100.8 and containers 2.79.0 to 2.79.3 were never released:
+review rounds on one branch; container 2.79.3 also carries 2.78.19's declare.py and agent-bus
+check-rooms). The image changes: the play builds it, and a host that has not run the play
 rebuilds it once at its next launch.
 
 - **`ccy --opencode` (or `-oc`) runs opencode instead of Claude Code** (Plan 00215): the image
@@ -35,6 +36,16 @@ rebuilds it once at its next launch.
 - **A Quick Launch with no bus kit (`--opencode`, and `--no-bus`) leaves the saved team alone**:
   not taken, and kept for the next launch to offer. `--no-bus` used to fail late at the seats.
 - Any other launch is byte for byte what it was (the launcher's differential harness).
+
+## 3.99.15.7 — container 2.78.19
+
+Follows 3.99.15.5 (3.99.15.6 was this branch's earlier cut, never released). The image changes, so the next launch rebuilds it once.
+
+- **`agent-bus check-rooms` passes with an offline coordinator, judged by its live status**
+  (Plan 00211). A coordinator with no live status in the team room (no session of it is on
+  the bus) that has not joined the side rooms is an `OFFLINE` line, and the check exits 0. One
+  whose session is listening but has not joined, one that left a side room, and any other
+  membership (`ban`) are a `PROBLEM`.
 
 ## 3.99.15.5 — container 2.78.18
 

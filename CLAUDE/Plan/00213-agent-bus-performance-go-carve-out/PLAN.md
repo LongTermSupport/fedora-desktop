@@ -188,7 +188,9 @@ as hooks-daemon issue #131 and is not this plan's to fix.
     S7 passes over both names. The Python stays as the oracle.
 
   There is no Python fallback. `acceptance.bash` checks C1 to C5: the installed binaries are
-  this checkout's build in the kit, the image and each declared LXC member; the goldens pass
+  this checkout's build in the kit, the image and each online declared LXC member (one whose
+  container is stopped is named offline and not judged: the owner's rule, Plan 00211 Task
+  2.8); the goldens pass
   for the installed Python and Go; and one Go render costs under a fifth of a Python render's
   CPU. In the container that was about 4 ms against 42 ms. Measuring the idle member with 1.1
   is still to do.

@@ -4,7 +4,7 @@
 # plan_deploy_leg and check_leg, which ShellCheck cannot see through (SC2329), and suppression
 # is banned. Sourced, never executed: no shell options, no `exit`. Every function returns
 # non-zero with a message on stderr when it does not pass. The caller sets HOST_PINGBUS,
-# STAGED_PINGBUS, LXC_INFO, LXC_ATTACH, MEMBERS_JSON and REPORT.
+# STAGED_PINGBUS, LXC_ATTACH, MEMBERS_JSON and REPORT; plan_lxc_online asks PLAN_LXC_INFO.
 
 WANT=""
 FIX=""
@@ -42,34 +42,59 @@ s1_check() {
     done
 }
 
-# s2_check — every declared LXC container is RUNNING and its pingbus is WANT. Every container
-# is judged before the verdict, so one run names all that are down or old.
+# online_containers <container>... — the online ones, one per line; each offline one is said
+# and reported as not judged. An offline member is normal lifecycle and never fails a check
+# (CLAUDE/AgentNotes.md). Only a container lxc-info cannot read, or one ABORTING, fails.
+online_containers() { plan_lxc_online_named "${REPORT}" "$@"; }
+
+# declared_containers — the containers of the present agent_bus_lxc_members entries, once each.
+declared_containers() {
+    jq -r '[.[] | select((.state // "present") == "present") | .container] | unique | .[]' "${MEMBERS_JSON}"
+}
+
+# read_online — ONLINE, the online declared LXC containers, read once (ONLINE_READ=1); each
+# offline one is named.
+ONLINE=""
+ONLINE_READ=0
+read_online() {
+    local containers
+    local -a names
+    containers="$(declared_containers)" || return 1
+    if [[ -n "${containers}" ]]; then
+        mapfile -t names <<<"${containers}"
+        ONLINE="$(online_containers "${names[@]}")" || return 1
+    fi
+    ONLINE_READ=1
+}
+
+# s2_check — the pingbus of every online declared LXC container is WANT. An offline one is named
+# and not judged. Every online container is judged before the verdict, so one run names all
+# that are old. It reads which are online itself unless read_online has.
 s2_check() {
-    local containers name state got bad=0
-    containers="$(jq -r '[.[] | select((.state // "present") == "present") | .container] | unique | .[]' "${MEMBERS_JSON}")" || return 1
+    local containers online name got bad=0
+    local -a names
+    containers="$(declared_containers)" || return 1
     if [[ -z "${containers}" ]]; then
         printf 'no present agent_bus_lxc_members entry: nothing to check\n' | tee -a "${REPORT}"
         return 0
     fi
+    online="${ONLINE}"
+    if [[ "${ONLINE_READ}" -ne 1 ]]; then
+        mapfile -t names <<<"${containers}"
+        online="$(online_containers "${names[@]}")" || return 1
+    fi
+    if [[ -z "${online}" ]]; then
+        printf 'not judged: no declared LXC member is online\n' | tee -a "${REPORT}"
+        return 0
+    fi
     while IFS= read -r name; do
-        state="$("${LXC_INFO[@]}" -n "${name}" -sH)" || {
-            printf 'lxc-info failed for container %s: is it the name of an LXC container here?\n' "${name}" >&2
-            bad=1
-            continue
-        }
-        if [[ "${state}" != "RUNNING" ]]; then
-            printf 'container %s is %s, not RUNNING: start it, then run meta-deploy again (deploy 1 copies its kit only while it runs)\n' "${name}" "${state}" >&2
-            printf -- '- %s: %s\n' "${name}" "${state}" >>"${REPORT}"
-            bad=1
-            continue
-        fi
         got="$("${LXC_ATTACH[@]}" -n "${name}" --clear-env -- env -i PATH=/usr/local/bin:/usr/bin:/bin pingbus version)" || {
             printf 'pingbus version failed in container %s: its kit is missing or broken\n' "${name}" >&2
             bad=1
             continue
         }
         same_version "container ${name}" "${got}" || bad=1
-    done <<<"${containers}"
+    done <<<"${online}"
     return "${bad}"
 }
 
@@ -101,7 +126,8 @@ set -euo pipefail
 cat -- "$(dirname "$0")/$2.version"
 EOF
     chmod 0755 "${FIX}/lxc-info" "${FIX}/lxc-attach" || return 1
-    LXC_INFO=("${FIX}/lxc-info")
+    PLAN_LXC_INFO=("${FIX}/lxc-info")
+    printf -- '- the container states come from %s\n' "${PLAN_LXC_INFO[*]}" >>"${REPORT}"
     LXC_ATTACH=("${FIX}/lxc-attach")
     printf 'print("pingbus 0.1.0 protocol 1")\n' >"${FIX}/old-pingbus"
     printf 'print("%s")\n' "${WANT}" >"${FIX}/new-pingbus"
