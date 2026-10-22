@@ -32,6 +32,10 @@ WORKER = "myrepo.1+workstation.podman"
 SECOND = "myrepo.2+workstation.podman"
 
 
+#: The clock check-rooms is given when a test publishes a status (Unix ms).
+NOW_MS = 1_900_000_000_000
+
+
 def uid(handle: str) -> str:
     return f"@{handle}:{SN}"
 
@@ -343,7 +347,7 @@ class ListAndCheckTest(SideRoomsCase):
         coordinator, token = self.member(role="coordinator")
         check = admin.check_rooms(self.ctx(), self.transport)
         self.assertEqual(check.problems, [])
-        self.assertTrue(any(coordinator in o and "questions" in o and "offline" in o for o in check.offline),
+        self.assertTrue(any(coordinator in o and "is offline" in o for o in check.offline),
                         check.offline)
         for room in (self.room(), self.side(REPORTS), self.side(QUESTIONS)):
             self.assertEqual(self.join(room, token), 200)
@@ -356,17 +360,55 @@ class ListAndCheckTest(SideRoomsCase):
         self.assertEqual(self.fake.request("POST", f"/_matrix/client/v3/rooms/{q(room)}/leave",
                                            body={}, token=token)[0], 200)
         check = admin.check_rooms(self.ctx(), self.transport)
-        self.assertTrue(any(coordinator in p and "questions" in p and "(leave)" in p for p in check.problems),
+        self.assertTrue(any(coordinator in p and "has left questions" in p for p in check.problems),
                         check.problems)
         self.assertFalse(any("questions" in o for o in check.offline), check.offline)
 
+    def listening(self, coordinator: str, token: str, until: int) -> None:
+        """The member's session publishes `agent_bus.status` in the team room, as a listener does."""
+        self.assertEqual(self.join(self.room(), token), 200)
+        path = f"/_matrix/client/v3/rooms/{q(self.room())}/state/{protocol.EVENT_STATUS}/{q(uid(coordinator))}"
+        content = {"v": protocol.PROTOCOL_VERSION, "state": protocol.STATUS_LISTENING, "until": until}
+        self.assertEqual(self.fake.request("PUT", path, body=content, token=token)[0], 200)
+
     def test_check_rooms_names_a_running_coordinator_not_in_reports_a_problem(self) -> None:
-        """It took the questions invite, so its session runs; reports not joined is wrong."""
+        """Its session is listening; reports not joined is wrong, whatever questions holds."""
         coordinator, token = self.member(role="coordinator")
         self.assertEqual(self.join(self.side(QUESTIONS), token), 200)
-        check = admin.check_rooms(self.ctx(), self.transport)
-        self.assertTrue(any(coordinator in p and "not reports (-)" in p for p in check.problems), check.problems)
+        self.listening(coordinator, token, until=NOW_MS + 60_000)
+        check = admin.check_rooms(self.ctx(), self.transport, now_ms=NOW_MS)
+        self.assertTrue(any(coordinator in p and "reports (-)" in p and "pingbus status" in p
+                            for p in check.problems), check.problems)
         self.assertEqual(check.offline, [])
+
+    def test_check_rooms_names_a_listening_coordinator_still_invited_a_problem(self) -> None:
+        """A running coordinator can leave the questions invite pending on purpose (its bundle
+        takes no human text): running and wrong, so a problem, never offline."""
+        coordinator, token = self.member(role="coordinator")
+        self.listening(coordinator, token, until=NOW_MS + 60_000)
+        check = admin.check_rooms(self.ctx(), self.transport, now_ms=NOW_MS)
+        self.assertTrue(any(coordinator in p and "questions (invite)" in p for p in check.problems),
+                        check.problems)
+        self.assertEqual(check.offline, [])
+
+    def test_check_rooms_takes_a_lapsed_status_as_offline(self) -> None:
+        coordinator, token = self.member(role="coordinator")
+        self.listening(coordinator, token, until=NOW_MS - 1)
+        check = admin.check_rooms(self.ctx(), self.transport, now_ms=NOW_MS)
+        self.assertEqual(check.problems, [])
+        self.assertTrue(any(coordinator in o and "offline" in o for o in check.offline), check.offline)
+
+    def test_check_rooms_names_any_other_membership_a_problem(self) -> None:
+        """A `ban` or `knock` is a problem whether the coordinator runs or not (the fake
+        homeserver cannot ban, so the judgement is asked directly)."""
+        for live in (False, True):
+            problems: list[str] = []
+            offline: list[str] = []
+            seen = {REPORTS: {"@c:x": "join"}, QUESTIONS: {"@c:x": "ban"}}
+            admin._judge_coordinator(self.ctx(), "@c:x", seen, live, problems, offline)
+            self.assertEqual(len(problems), 1, problems)
+            self.assertIn("is ban in questions", problems[0])
+            self.assertEqual(offline, [])
 
     def test_check_rooms_reads_only(self) -> None:
         self.member(role="coordinator")

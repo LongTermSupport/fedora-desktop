@@ -180,7 +180,7 @@ find_session() {
     found="$(awk -F'\t' -v team="$1" -v handle="$2" \
         '$5 == team && substr($6, 2, index($6, ":") - 2) == handle { print; exit }' <<<"${SESSIONS}")"
     if [[ -z "${found}" ]]; then
-        printf 'team %s: the coordinator %s is offline (no running session this host can drive)\n' "$1" "$2" |
+        printf 'team %s: the coordinator %s is not driven from here (offline, or a host member): the test question is NOT JUDGED\n' "$1" "$2" |
             tee -a "${REPORT}" >&2
         return 0
     fi
@@ -256,7 +256,7 @@ rooms_joined() {
     offline="$(not_joined offline)" || return 1
     while IFS=$'\t' read -r team user; do
         if [[ -n "${team}" ]]; then
-            printf 'team %s: the coordinator %s is offline (no running session this host can drive): its questions join is not judged\n' \
+            printf 'team %s: the coordinator %s is not driven from here (offline, or a host member): not waited for here; A1/A2 judges its joins by its live status\n' \
                 "${team}" "${user}" | tee -a "${REPORT}"
         fi
     done <<<"${offline}"
@@ -269,7 +269,7 @@ rooms_joined() {
         fi
         if [[ "${SECONDS}" -ge "${deadline}" ]]; then
             while IFS=$'\t' read -r team user room membership; do
-                printf 'team %s: %s is online and has not joined %s (%s; invite or -: its pingbus has not synced since deploy 2, so its session started before deploy 1; leave: its running pingbus is older than deploy 1): its session is out of date\n' \
+                printf 'team %s: %s is online and has not joined %s (%s; invite or -: its pingbus has not synced since deploy 2, so its session started before deploy 1; leave: its running pingbus is older than deploy 1): a session started before deploy 1 runs the old pingbus, and joins once it is relaunched\n' \
                     "${team}" "${user}" "${room}" "${membership}" >&2
             done <<<"${pending}"
             return 1
@@ -284,8 +284,9 @@ rooms_joined() {
 # a12_check — A1 and A2: `agent-bus check-rooms` passes for every team. It reads as admin that
 # each side room exists (questions once the team has a coordinator), the index and back-links
 # agree, power levels and join rules are exact, every human is joined or invited, no worker is
-# in questions, and every running coordinator has joined both rooms; one still invited is
-# offline, printed as an OFFLINE line on a passing (rc 0) run. Every team is judged first.
+# in questions, and every coordinator whose session is listening has joined both rooms; one
+# with no live status that has not joined is offline, an OFFLINE line on a passing (rc 0) run.
+# Every team is judged first.
 a12_check() {
     local team out rc bad=0
     while IFS= read -r team; do
