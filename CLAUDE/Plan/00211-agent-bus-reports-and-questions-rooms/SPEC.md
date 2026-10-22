@@ -266,7 +266,9 @@ A sync never refuses it: failing every sync would take the member off the bus en
   hand with `--no-human-text` whose member is later made coordinator is the one case left, and
   it is loud: the member leaves the questions invite pending (4.4), `pingbus status` shows
   `questions: refused (human_text is false; re-issue the bundle without --no-human-text)`, the
-  hook context says the same, and the deploy-2 wait leg and health name it as not joined.
+  hook context says the same, and health names it as a problem: its session publishes a live
+  `agent_bus.status` (listening) in the team room, so `agent-bus check-rooms` reads it as a
+  running coordinator that has not joined (5.4), never as offline.
 
 ## 5. Creation and migration (IaC)
 
@@ -336,23 +338,27 @@ is about: the coordinator **joining the questions room**. So:
     the pingbus build context.
   - No room is created, because the admin code that would create one is not on F44.
   - The deploy-1 acceptance (`acceptance.bash --stage 1`) checks two versions: the host
-    `pingbus version`, and the in-container `pingbus version` of every declared LXC member. It
-    refuses a declared container that is down.
+    `pingbus version`, and the in-container `pingbus version` of every online declared LXC
+    member. A declared container that is stopped is offline: named and not judged, never a
+    refusal (an offline member never blocks, `CLAUDE/AgentNotes.md`). With every declared
+    container offline, S2 is NOT JUDGED. A container `lxc-info` cannot read is a failure.
   - The closing message asks the owner to restart the teams' sessions.
 - **Deploy 2, admin side.** `deploy.bash --stage 2` runs these `plan_deploy_leg`s, failing fast:
-  1. **Pre-flight.** Every declared LXC container is up and its kit's pingbus is the new one;
-     a container that is down is refused, named. Containers can stop between deploys.
+  1. **Pre-flight.** `acceptance.bash --stage 1` again: the kit's pingbus in every online
+     declared LXC container is the new one. Containers can stop between deploys; a stopped one
+     is named offline and passed over. Its kit is brought up to date by the play run that
+     finds it online.
   2. **The play**, the whole `play-agent-bus.yml`. It creates the rooms and the index, and
      invites the humans and every coordinator.
   3. **`acceptance.bash --stage 2`** (11.2). It primes sudo again before its log opens, so a
      long image rebuild cannot let `sudo -n` lapse before the wait, which is its first leg:
-     **the joins.** Up to 180 s for each team's coordinator to have **joined** the questions
-     room, and each seat held in a running ccy session the reports room, read through the new
-     `ROOM` lines of `agent-bus list` (5.5). It refuses naming each that has not, with its
-     membership: "`<user>` has not joined questions (`invite` or `-`: its pingbus has not
-     synced since deploy 2; `leave`: its running pingbus is older than deploy 1): restart that
-     session, then run meta-deploy again". The re-run's play invites a `leave` coordinator
-     again.
+     **the joins.** Up to 180 s for each coordinator in a session this host can drive (a ccy
+     seat or an online LXC member) to have **joined** the questions room, and each seat held in
+     a running ccy session the reports room, read through the new `ROOM` lines of `agent-bus list` (5.5). It refuses naming each that has not, with its membership (`invite` or `-`: a
+     session started before deploy 1 runs the old pingbus, and joins once it is relaunched;
+     `leave`: its running pingbus is older than deploy 1). A coordinator not driven from here
+     (offline, or a host member) is named and not waited for: A1/A2 judges its joins by its
+     live status (5.4). The re-run's play invites a `leave` coordinator again.
 
 A coordinator that becomes old later (a session relaunched from a stale image) and rejects a
 new invite is `leave` in the questions room. Health names it (5.4), and the next play run
@@ -370,11 +376,19 @@ check reads, as `admin`:
 - every human is in each room;
 - no worker is in questions;
 - each coordinator is joined to questions, and to reports (a coordinator running 0.2.0
-  joins both).
+  joins both), judged by whether it runs: its session's `agent_bus.status` in the team room
+  (`state: listening`, `until` in the future) says it does.
+  - Running and not joined (invited, or no membership) is a fault: `pingbus status` in its
+    session names why (a bundle that takes no human text leaves the invite pending, 4.5).
+  - No live status and invited, or never joined, is **offline**: an `OFFLINE` line, never a
+    fault. It joins when its session next runs.
+  - `leave`, `ban`, `knock`, or no membership of questions at all, is a fault whether it runs
+    or not.
 
-Each fault is a `PROBLEM` line with its repair (run the agent-bus play, or restart the
-coordinator's session and run the play), and any fault exits 1. Stage 2's acceptance (A1,
-A2) runs it for every team.
+Each fault is a `PROBLEM` line with its repair (run the agent-bus play, or update the
+coordinator's pingbus and run the play), and any fault exits 1. Offline lines alone exit 0.
+Stage 2's acceptance (A1, A2) runs it for every team and copies the offline lines into its
+report.
 
 ### 5.5 `agent-bus list`: a new line kind
 
@@ -722,35 +736,49 @@ Go (`src-go/internal/agentbus`, `src-go/internal/teams/board`), test-first:
   Phase 2 **before** the stage-2 `deploy.bash` that runs it.
   - **`--fake`** runs anywhere and changes nothing. It runs the verdict functions over fixture
     room states it writes, each with a negative fixture the verdict must refuse.
-  - **Stage 1:** S1, the host pingbus is the new version; S2, every declared LXC member's
-    in-container pingbus is the new version, and a container that is down is refused.
+  - **Offline members never block** (`CLAUDE/AgentNotes.md`). A declared member whose
+    container is stopped, or whose session is not running, is named offline and passed over. A
+    check with no online member to run on is reported NOT JUDGED, never PASS and never a
+    failure, and the verdict line names it (`ACCEPTED, <check> NOT JUDGED: ...`). A running
+    member is judged in full.
+  - **Stage 1:** S1, the host pingbus is the new version; S2, every online declared LXC
+    member's in-container pingbus is the new version (NOT JUDGED with none online).
   - **Stage 2:**
     - **A1:** every installed team has a reports room, and every team with a coordinator has a
       questions room. The index and back-links agree. Power levels and join rules are exact,
       read as `admin` through the admin tool.
-    - **A2:** every human is joined or invited to each side room. Every coordinator is joined to
-      questions, and no other agent is. Every running member is joined to reports: a running
+    - **A2:** every human is joined or invited to each side room. Every running coordinator is
+      joined to questions (an offline one is an `OFFLINE` line, 5.4), and no other agent is.
+      Every running member is joined to reports: a running
       member is a seat held in a running ccy session, found by `podman exec` into each
       container labelled `ccy=true` (its session home `/tmp/pingbus-home`). An LXC member's
       session cannot be seen from the host, so its reports join is judged by A4.
     - **The coordinator** is the first team's whose registry (`agent-bus list`) names one, found
-      by its handle among the sessions the host can drive: a ccy seat, or a declared LXC member.
-      No team with a coordinator, or one in no such session, is REJECTED, named, before A3
-      changes anything; it is never skipped.
+      by its handle among the sessions the host can drive: a ccy seat, or an online declared
+      LXC member. No team with a coordinator is REJECTED, named, before A3 changes anything. A
+      coordinator in no such session is not driven from here (offline, or a host member): it is
+      named, and the test question is NOT JUDGED.
+    - **Scope change (Task 2.8, the owner's rule).** This section first REJECTED a coordinator
+      in no session the host can drive. Task 2.6's done condition is now: the test question is
+      asked once the coordinator is online. A run with it offline is ACCEPTED with the test
+      question and A5 NOT JUDGED, and its next-step line says to run `deploy-stage-2.bash`
+      again once the coordinator is online; the plan is not done until a run asks it.
     - **A3:** in that team, with a worker's token, from a member added for the run and removed
       through `plan_on_cleanup` (registered before `add-member` runs):
       - `/messages` on questions, a join and a post are each refused (`M_FORBIDDEN`);
       - a `pingbus report` lands in reports, and after 15 s its event is in neither the inbox
-        nor the consumed directory of any session of the team (the coordinator's at least).
-    - **A4:** one LXC member's `pingbus report`, run through the guest path `members.py` uses,
-      lands in reports. With no LXC member declared, A4 is reported NOT JUDGED, never PASS.
+        nor the consumed directory of any online session of the team (NOT JUDGED with none).
+    - **A4:** one online LXC member's `pingbus report`, run through the guest path `members.py`
+      uses, lands in reports. With no LXC member declared or online, A4 is NOT JUDGED, never
+      PASS.
   - **`--after-owner`** is the R9 exception: a human step lies between it and the deploy. After
     the owner's Element steps it runs **A5** through the coordinator's session (found again by
     its handle): its `pingbus history --room questions` shows the owner's thread reply and an
     edit as `in HUMAN` lines attached to the test question, and its session took both: each
     event is in its consumed directory and not in `dropped.log` (an envelope delivery, or its
     own `recv`). A5 saves the raw events under `untracked/` for Task 4.2 to turn into
-    anonymised fixtures.
+    anonymised fixtures. With the coordinator offline, A5 is NOT JUDGED and the run says to
+    run `acceptance-after-owner.bash` again once it is online.
 
 ### 11.3 The owner's steps (ACCEPTANCE-owner.md)
 

@@ -189,17 +189,22 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   `ACCEPTANCE-owner.md` is written. Both are committed before Task 2.6 (SPEC §11.2, §11.3).
   A1-A2 are `agent-bus check-rooms` per team. A3's worker is a throwaway host member on
   loopback, added and removed by the run (a seat name used once). A4 runs in an LXC container
-  through the guest path, and is NOT JUDGED (never PASS) when no LXC member is declared. The
-  test question and A5 run in the registry's coordinator's own session, a ccy seat (`podman exec`) or an LXC member; no coordinator, or one in no session the host can drive, is
-  REJECTED. A2 also judges the running ccy seats' reports joins, A3 that no inbox took the
+  through the guest path, and is NOT JUDGED (never PASS) when no LXC member is declared or
+  online. The test question and A5 run in the registry's coordinator's own session, a ccy seat
+  (`podman exec`) or an online LXC member. No coordinator is REJECTED; one in no session the
+  host can drive is named offline, and the test question and A5 are NOT JUDGED (Task 2.8,
+  SPEC §11.2). A2 also judges the running ccy seats' reports joins, A3 that no inbox took the
   report, A5 that the session took the reply and edit. `--fake --stage 2` passes in the
   container, the joins included.
 - [ ] 🔄 **Task 2.6**: `deploy.bash --stage 2` with the legs of SPEC §5.3: pre-flight (the
-  passed-spike check; `acceptance.bash --stage 1` again, for LXC containers up and new), the
-  agent-bus play, the ccy play (the image carries the admin tool, container 2.78.11 as integrated), then
-  acceptance, whose first leg is the joins wait (it primes sudo again first). Written and queued as `deploy-stage-2.bash`, whose
-  description asks the owner to restart every team's sessions first; the merge and the run are
-  left. `acceptance-after-owner.bash` is queued only once the owner has done the Element steps.
+  passed-spike check; `acceptance.bash --stage 1` again, for online LXC containers new, a
+  stopped one named offline), the agent-bus play, the ccy play (the image carries the admin
+  tool, container 2.78.11 as integrated), then acceptance, whose first leg is the joins wait
+  (it primes sudo again first). Written and queued as `deploy-stage-2.bash`, whose description
+  asks the owner to restart every team's sessions first; the merge and the run are left.
+  `acceptance-after-owner.bash` is queued only once the owner has done the Element steps.
+  Scope change (Task 2.8): done when a run has asked the test question; a run with the
+  coordinator offline is ACCEPTED with it and A5 NOT JUDGED, and is run again once it is online.
 - [x] ✅ **Task 2.7**: Fix the rc 70 the host's play hit on every team ("list the admin's rooms:
   the homeserver answered with no list of room IDs"). Tuwunel joins each team admin to its own
   server admin room, room version 11 (`!opaque:server`), and `joined_rooms()` refused the whole
@@ -210,17 +215,22 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   homeserver now models the admin room. CCY 3.99.14.12, container 2.78.15. Done in code, on
   `fix/agent-bus-room-id-shapes`; reports `subagent-reports/261022-room-id-*`.
 - [x] ✅ **Task 2.8** (the owner's rule): a declared team member that is offline (container
-  stopped, session not running, coordinator invited but not joined) is named offline and never
+  stopped, session not running, coordinator with no live status) is named offline and never
   blocks a play, deploy, acceptance or tool; a running member that is wrong still fails
   (CLAUDE/AgentNotes.md). Defence: the rule `offline-member-blocks`
   (`tests/helpers/agent_bus_lxc/test_offline_member_rule.py`, CLAUDE/QA.md). Fixed: the 00211
-  and 00213 acceptances (`CLAUDE/Plan/_members.inc.bash`), `agent-bus check-rooms` (an invited
-  coordinator is an `OFFLINE` line, exit 0), the LXC play's deferred wording, and ccy-teams'
+  and 00213 acceptances (`CLAUDE/Plan/_members.inc.bash`), `agent-bus check-rooms` (a
+  coordinator not joined with no live `agent_bus.status` is an `OFFLINE` line, exit 0; with a
+  live one it is a `PROBLEM`), the LXC play's deferred wording, and ccy-teams'
   roles, wind-down, shutdown and restart; Plan 00203's R9. CCY 3.99.14.14, container 2.78.17.
   Done in code, on `fix/offline-members-never-block`; reports
   `subagent-reports/261022-offline-members-*`. For the owner: a role change still stops when a
   declared LXC entry's checkout cannot be read and the team has no member record at all
   (nothing else names that entry's handle); it advises `ccy-teams apply`, never a start.
+- [ ] ⬜ **Task 2.9** (follow-up to 2.8): ccy-teams roles decides an LXC entry that gives
+  `host`, `seat` and `repo` by those fields, before the member record or the checkout, as
+  `members.py` already does. Needs `Repo` on `declare.LxcMember`; test first. This narrows the
+  role-change stop in 2.8 to an entry that gives no seat and repo, with no record.
 
 ### Phase 3: the owner's view (Go)
 
