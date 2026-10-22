@@ -21,8 +21,8 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
-// memberToken is the member's own access token, which its free text may never hold (R43).
-const memberToken = "syt_cmVwby4x_abcdefghijklmnopqrst_0a1b2c"
+// memberAccess is the member's own access token, which its free text may never hold (R43).
+const memberAccess = "syt_cmVwby4x_abcdefghijklmnopqrst_0a1b2c"
 
 // fakeForge is the forge checker: every check answers result and err.
 type fakeForge struct {
@@ -67,6 +67,15 @@ func sendRoster(id paths.TeamID) proto.Roster {
 	}
 }
 
+// coordinatorRoster is sendRoster with this member (agent 1) the coordinator and agent 3 a
+// worker: the roster for a halt, which only a coordinator sends (A 8.1).
+func coordinatorRoster(id paths.TeamID) proto.Roster {
+	r := sendRoster(id)
+	r.Members[agent(id, 1)] = proto.RosterMember{Role: proto.RoleCoordinator, HumanText: true}
+	r.Members[agent(id, 3)] = proto.RosterMember{Role: proto.RoleWorker, HumanText: true}
+	return r
+}
+
 // sendingWith is id held over s with its verified roster and its sends recovered, so its
 // sender posts.
 func (w *world) sendingWith(id paths.TeamID, s state.Store) *fakeTeam {
@@ -75,10 +84,21 @@ func (w *world) sendingWith(id paths.TeamID, s state.Store) *fakeTeam {
 	<-f.running
 	f.notices.set(sendRoster(id))
 	f.notices.mu.Lock()
-	f.notices.token = memberToken
+	f.notices.token = memberAccess
 	f.notices.mu.Unlock()
 	w.recover(id, f)
 	return f
+}
+
+// downWith is sendingWith for a team down before its recovery, so its sender posts none of the
+// store's queued sends.
+func (w *world) downWith(id paths.TeamID, s state.Store) {
+	w.t.Helper()
+	f := w.add(id, encodeStore(w.t, s))
+	<-f.running
+	f.notices.set(sendRoster(id))
+	w.e.SetHealth(id, team.Health{Down: true})
+	w.recover(id, f)
 }
 
 func (w *world) sending(id paths.TeamID) *fakeTeam {
@@ -92,29 +112,36 @@ func (w *world) recover(id paths.TeamID, f *fakeTeam) {
 }
 
 // request is one send request with its stdin.
-func (w *world) request(ctx context.Context, op string, args any, stdin *string) (wire.Done, *recorder) {
+func (w *world) request(ctx context.Context, op string, args any, stdin *string) answer {
 	w.t.Helper()
 	raw, err := json.Marshal(args)
 	check(w.t, err)
 	out := &recorder{}
-	return w.e.Serve(ctx, wire.Request{V: 1, Op: op, Args: raw, Stdin: stdin}, out), out
+	return answer{w.e.Serve(ctx, wire.Request{V: 1, Op: op, Args: raw, Stdin: stdin}, out), out}
 }
 
-func (w *world) say(tm *paths.TeamID, text string, to ...string) (wire.Done, *recorder) {
+func (w *world) say(tm *paths.TeamID, text string, to ...string) answer {
 	w.t.Helper()
 	return w.request(w.t.Context(), wire.OpSay, wire.SayArgs{Team: tm, To: to}, &text)
 }
 
-func (w *world) ping(tm *paths.TeamID, verb string, ref *string, to ...string) (wire.Done, *recorder) {
+func (w *world) ping(tm *paths.TeamID, verb string, ref *string, to ...string) answer {
 	w.t.Helper()
 	return w.request(w.t.Context(), wire.OpPing, wire.PingArgs{Team: tm, Verb: verb, Ref: ref, To: to}, nil)
 }
 
-func firstOf(d wire.Done, _ *recorder) wire.Done { return d }
+// answer is a send request's done and its records.
+type answer struct {
+	d   wire.Done
+	out *recorder
+}
+
+func firstOf(a answer) wire.Done { return a.d }
 
 // sentOf is the request's one sent record.
-func sentOf(t *testing.T, d wire.Done, out *recorder) records.Sent {
+func sentOf(t *testing.T, a answer) records.Sent {
 	t.Helper()
+	d, out := a.d, a.out
 	if d.Error != nil || len(out.recs) != 1 {
 		t.Fatalf("the send = %+v %v, records %s", d, d.Error, out.kinds())
 	}
@@ -125,18 +152,18 @@ func sentOf(t *testing.T, d wire.Done, out *recorder) records.Sent {
 	return s
 }
 
-func posted(t *testing.T, d wire.Done, out *recorder) string {
+func posted(t *testing.T, a answer) string {
 	t.Helper()
-	s := sentOf(t, d, out)
+	s := sentOf(t, a)
 	if s.Queued || s.ID == nil || s.Room != proto.PurposeMain {
 		t.Fatalf("the send was not posted: %+v", s)
 	}
 	return *s.ID
 }
 
-func queued(t *testing.T, d wire.Done, out *recorder) {
+func queued(t *testing.T, a answer) {
 	t.Helper()
-	if s := sentOf(t, d, out); !s.Queued || s.ID != nil || s.Room != proto.PurposeMain {
+	if s := sentOf(t, a); !s.Queued || s.ID != nil || s.Room != proto.PurposeMain {
 		t.Fatalf("the send was not queued: %+v", s)
 	}
 }
@@ -298,7 +325,7 @@ func TestN3dD28SayReadsItsText(t *testing.T) {
 	refusedCode(t, "empty", firstOf(w.say(&ops, "", "alice")), exits.CodeEmpty)
 	refusedCode(t, "not UTF-8", firstOf(w.say(&ops, "a\xffb", "alice")), exits.CodeSchema)
 	refusedCode(t, "over 4096 bytes", firstOf(w.say(&ops, strings.Repeat("a", 4097), "alice")), exits.CodeSize)
-	refusedCode(t, "the own token", firstOf(w.say(&ops, "token "+memberToken, "alice")), exits.CodeSecret)
+	refusedCode(t, "the own token", firstOf(w.say(&ops, "token "+memberAccess, "alice")), exits.CodeSecret)
 	if d := w.done(wire.OpSay, map[string]any{"nope": 1}); d.Error == nil || d.Error.Code != exits.CodeSchema {
 		t.Fatalf("say with bad arguments = %+v", d)
 	}
@@ -329,6 +356,12 @@ func TestSD3_1TheChargeAndTheEntryAreOneWrite(t *testing.T) {
 	if len(f.notices.sent()) != 0 {
 		t.Errorf("a failed charge was sent: %v", f.notices.sent())
 	}
+	w.local(func() {
+		h := w.e.teams[ops]
+		var err error
+		h.writer, err = state.NewStoreWriter(w.root, h.lock)
+		check(t, err)
+	})
 }
 
 // SD3-3: the duplicate window: the same text to the same addressee is refused within 60 s and
@@ -393,14 +426,14 @@ func TestSD3_5TheSendOrder(t *testing.T) {
 	posted(t, w.ping(&ops, "review", new(reviewRef), "repo.3"))
 	w.forge.set(proto.ReasonProvenance, nil)
 	refusedCode(t, "a duplicate failing provenance", firstOf(w.ping(&ops, "review", new(reviewRef), "repo.3")), exits.CodeProvenance)
-	refusedCode(t, "a secret to nobody", firstOf(w.say(&ops, "token "+memberToken, "nobody")), exits.CodeUnknownMember)
+	refusedCode(t, "a secret to nobody", firstOf(w.say(&ops, "token "+memberAccess, "nobody")), exits.CodeUnknownMember)
 }
 
 // n3d-D11: the send side's forge results, each spending nothing.
 func TestN3dD11TheForgeResults(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
 	ops := tid(t, "ops")
-	w.sending(ops)
+	f := w.sending(ops)
 	credit := w.store(ops).Outbox.Gate.Credit
 	for _, c := range []struct {
 		outcome string
@@ -422,6 +455,7 @@ func TestN3dD11TheForgeResults(t *testing.T) {
 		t.Errorf("a forge refusal spent %d", credit-got)
 	}
 	w.forge.set(team.ForgeProven, nil)
+	f.notices.set(coordinatorRoster(ops))
 	calls := w.forge.count()
 	posted(t, w.ping(&ops, "halt", nil, "repo.3"))
 	if w.forge.count() != calls {
@@ -471,7 +505,7 @@ func TestSD3_8A401AnswersTheWaitingOp(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
 	ops := tid(t, "ops")
 	f := w.sending(ops)
-	full := w.store(ops).Outbox.Gate.Credit
+	full := proto.FullBucket(proto.DefaultLimits(), w.clk.WallMS()).Credit
 	f.notices.setSendErr(matrix.StatusError("PUT", "/send", 401, "M_UNKNOWN_TOKEN"))
 	refusedCode(t, "a 401", firstOf(w.say(&ops, "hello", "repo.2")), exits.CodeToken)
 	s := w.store(ops)
@@ -518,8 +552,7 @@ func TestSD3_9TheSendingAndPingCaps(t *testing.T) {
 	for i := range 32 {
 		s.Outbox.Sending = append(s.Outbox.Sending, queuedText(w, ops, i))
 	}
-	w.sendingWith(ops, s)
-	w.e.SetHealth(ops, team.Health{Down: true})
+	w.downWith(ops, s)
 	credit := w.store(ops).Outbox.Gate.Credit
 	refusedCode(t, "the 33rd", firstOf(w.say(&ops, "one more", "repo.2")), exits.CodeStore)
 	if got := w.store(ops).Outbox.Gate.Credit; got != credit {
@@ -531,9 +564,8 @@ func TestSD3_9TheSendingAndPingCaps(t *testing.T) {
 		d.Outbox.Pings = append(d.Outbox.Pings, outPing(i, startWall, agent(dev, 3)))
 	}
 	d.Outbox.Sending = append(d.Outbox.Sending, queuedHalt(w, dev))
-	w.sendingWith(dev, d)
-	w.e.SetHealth(dev, team.Health{Down: true})
-	refusedCode(t, "the 257th ping", firstOf(w.ping(&dev, "halt", nil, "repo.3")), exits.CodeStore)
+	w.downWith(dev, d)
+	refusedCode(t, "the 257th ping", firstOf(w.ping(&dev, "review", new(reviewRef), "repo.3")), exits.CodeStore)
 	queued(t, w.ping(&dev, proto.VerbDone, new(reviewRef), "repo.3"))
 }
 
@@ -659,14 +691,20 @@ func TestSY4an3dEachPostRecordsTheOwnSend(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
 	ops := tid(t, "ops")
 	f := w.sending(ops)
+	f.notices.set(coordinatorRoster(ops))
 	pingID := posted(t, w.ping(&ops, "halt", nil, "repo.3"))
 	textID := posted(t, w.say(&ops, "hello alice", "alice"))
+	bothID := posted(t, w.say(&ops, "hello both", "alice", "repo.2"))
 	own := f.notices.owned()
 	if r := own[pingID]; r != (proto.Related{Sender: agent(ops, 1), RoomID: mainRoom, Verb: "halt", AddressedToRosterAgent: true}) {
 		t.Errorf("the ping's own send = %+v", r)
 	}
-	if r := own[textID]; r != (proto.Related{Sender: agent(ops, 1), RoomID: mainRoom, AddressedToRosterAgent: true}) {
-		t.Errorf("the text's own send = %+v", r)
+	// A text to a human alone reaches no agent that hears humans (HumanReader).
+	if r := own[textID]; r != (proto.Related{Sender: agent(ops, 1), RoomID: mainRoom}) {
+		t.Errorf("the text to alice's own send = %+v", r)
+	}
+	if r := own[bothID]; r != (proto.Related{Sender: agent(ops, 1), RoomID: mainRoom, AddressedToRosterAgent: true}) {
+		t.Errorf("the text to alice and repo.2's own send = %+v", r)
 	}
 }
 
@@ -675,7 +713,7 @@ func TestN3dD5AtMostSixteenAddressees(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
 	ops := tid(t, "ops")
 	f := w.sending(ops)
-	r := sendRoster(ops)
+	r := coordinatorRoster(ops)
 	var to []string
 	for i := 10; i < 27; i++ {
 		r.Members[agent(ops, i)] = proto.RosterMember{Role: proto.RoleWorker, HumanText: true}
@@ -705,20 +743,16 @@ func TestSD3_7ADeadlineWhileWaitingAnswersQueued(t *testing.T) {
 	f := w.sending(ops)
 	f.notices.setSendErr(matrix.StatusError("PUT", "/send", 502, ""))
 	ctx, cancel := context.WithCancel(t.Context())
-	type answer struct {
-		d   wire.Done
-		out *recorder
-	}
 	got := make(chan answer, 1)
 	go func() {
-		d, out := w.request(ctx, wire.OpSay, wire.SayArgs{Team: &ops, To: []string{"repo.2"}}, new("slow"))
-		got <- answer{d, out}
+		got <- w.request(ctx, wire.OpSay, wire.SayArgs{Team: &ops, To: []string{"repo.2"}}, new("slow"))
 	}()
 	waitFor(w, func() bool { return len(f.notices.sent()) == 1 })
 	cancel()
 	a := <-got
-	queued(t, a.d, a.out)
+	queued(t, a)
 	f.notices.setSendErr(nil)
+	check(t, w.clk.BlockUntil(t.Context(), 1))
 	w.clk.Advance(30 * time.Second)
 	w.until(w.sendsLeft(ops))
 	if got := f.notices.sent(); len(got) != 2 || got[0] != got[1] {

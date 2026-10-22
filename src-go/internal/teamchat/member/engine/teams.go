@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/failpoint"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/lock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
@@ -51,6 +52,21 @@ type held struct {
 	// roster is the roster cache (n3d-D3), nil for none; rosterRev is its rev.
 	roster    *proto.Roster
 	rosterRev int64
+	// recovered is whether this run's recovery of tried sends is done (n3d-D4): until it is
+	// the sender posts nothing. poke wakes the sender (capacity 1); waiting are the ops waiting
+	// on their send's answer, by txn; unsent counts the sends dropped unposted this run.
+	recovered bool
+	poke      chan struct{}
+	waiting   map[string]chan sendResult
+	unsent    int64
+}
+
+// pokeSender wakes the team's sender, never blocking: one pending wake is enough.
+func (h *held) pokeSender() {
+	select {
+	case h.poke <- struct{}{}:
+	default:
+	}
 }
 
 // Removed is a removal's answer: the team's user id (n3c-D13), "" when the link never read
@@ -71,7 +87,10 @@ func (e *Engine) Add(ctx context.Context, t paths.TeamID, l *lock.SeatLock, remo
 	if l.Seat().Dir() != e.cfg.Layout.Seat(t).Dir() {
 		return errors.Join(fmt.Errorf("engine: the seat lock is not team %s's", t), l.Close())
 	}
-	h := &held{id: t, lock: l, content: map[string]proto.Verdict{}, answers: map[string][]answerNote{}, stopped: make(chan struct{})}
+	h := &held{
+		id: t, lock: l, content: map[string]proto.Verdict{}, answers: map[string][]answerNote{}, stopped: make(chan struct{}),
+		poke: make(chan struct{}, 1), waiting: map[string]chan sendResult{},
+	}
 	var addErr error
 	if err := e.do(ctx, func() { addErr = e.load(h) }); err != nil {
 		return errors.Join(err, l.Close())
@@ -166,8 +185,9 @@ func restoreHanded(s *state.Store) int {
 	return n
 }
 
-// start runs tm for h, unless the team was removed meanwhile or its store is refused. The team
-// goroutine outlives the add's request: its context keeps ctx's values, never its end.
+// start runs tm for h, and its sender beside it, unless the team was removed meanwhile or its
+// store is refused. Both outlive the add's request: their context keeps ctx's values, never its
+// end, and h.cancel ends both.
 func (e *Engine) start(ctx context.Context, h *held, tm team.Team) {
 	h.team = tm
 	if tm == nil {
@@ -186,6 +206,7 @@ func (e *Engine) start(ctx context.Context, h *held, tm team.Team) {
 			e.logf("team %s: the team goroutine ended: %v", h.id, err)
 		}
 	}()
+	go e.sendLoop(runCtx, h)
 	e.publish()
 }
 
@@ -254,8 +275,12 @@ func (e *Engine) drop(h *held) error {
 				handed++
 			}
 		}
-		e.logf("team %s removed: dropped %d pending (%d handed), %d awaiting items and %d outbox pings", h.id,
-			len(h.store.Pending)-handed, handed, len(h.store.Awaiting), len(h.store.Outbox.Pings))
+		e.logf("team %s removed: dropped %d pending (%d handed), %d awaiting items, %d outbox pings and %d queued sends", h.id,
+			len(h.store.Pending)-handed, handed, len(h.store.Awaiting), len(h.store.Outbox.Pings), len(h.store.Outbox.Sending))
+	}
+	for txn, wait := range h.waiting {
+		wait <- sendResult{err: exits.New(exits.CodeUsage, &h.id, msgNotHeld, exits.Team(h.id))}
+		delete(h.waiting, txn)
 	}
 	err := h.writer.Remove()
 	if errors.Is(err, fs.ErrNotExist) {

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -50,7 +51,7 @@ func (w *world) onHS(id paths.TeamID) hsTeam {
 	})
 	srv.AddUser(proto.AdminLocalpart, "pw", true)
 	r := sendRoster(id)
-	for _, user := range append(slices.Collect(mapKeys(r.Members)), alice(id)) {
+	for _, user := range append(slices.Collect(maps.Keys(r.Members)), alice(id)) {
 		local, ok := proto.Localpart(user, server)
 		if !ok {
 			w.t.Fatalf("%s is not of %s", user, server)
@@ -64,8 +65,8 @@ func (w *world) onHS(id paths.TeamID) hsTeam {
 	w.t.Cleanup(admin.Close)
 	rec := &mainRecorder{}
 	r.Rooms = proto.SideRooms{}
-	if _, err := rooms.Converge(w.t.Context(), admin, rec, rooms.Team{Server: server, Team: id.String(), Roster: r}, proto.RoomIDs{}); err != nil {
-		w.t.Fatalf("Converge: %v", err)
+	if _, convErr := rooms.Converge(w.t.Context(), admin, rec, rooms.Team{Server: server, Team: id.String(), Roster: r}, proto.RoomIDs{}); convErr != nil {
+		w.t.Fatalf("Converge: %v", convErr)
 	}
 	token, err := srv.MintToken(agent(id, 1))
 	check(w.t, err)
@@ -83,16 +84,6 @@ func (w *world) onHS(id paths.TeamID) hsTeam {
 	f.notices.hs = c
 	f.notices.mu.Unlock()
 	return hsTeam{srv: srv, client: c, main: rec.main}
-}
-
-func mapKeys[V any](m map[string]V) func(func(string) bool) {
-	return func(yield func(string) bool) {
-		for k := range m {
-			if !yield(k) {
-				return
-			}
-		}
-	}
 }
 
 // own are this member's message events in main, oldest first: each event's id and content.

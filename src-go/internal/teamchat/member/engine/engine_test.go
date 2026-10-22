@@ -584,9 +584,12 @@ func TestALostLogLineIsCountedInTheNext(t *testing.T) {
 	}
 }
 
-// n3d-D4: the engine has the recovery seam D6a fills; until then it is a no-op.
-func TestN3dTheRecoverySeamIsThere(t *testing.T) {
+// n3d-D4: the recovery is team.Engine's seam; for a team not held it is ErrRemoved, as every
+// other team call is, so the team goroutine ends.
+func TestN3dTheRecoveryOfATeamNotHeldIsRemoved(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
 	var eng team.Engine = w.e
-	check(t, eng.RecoverSends(t.Context(), tid(t, "ops"), nil))
+	if err := eng.RecoverSends(t.Context(), tid(t, "ops"), nil); !errors.Is(err, team.ErrRemoved) {
+		t.Fatalf("RecoverSends = %v, want ErrRemoved", err)
+	}
 }

@@ -155,8 +155,8 @@ func pingBody(p proto.Ping, n namer) string {
 	return strings.Join(parts, " ") + " -> " + strings.Join(to, ", ")
 }
 
-// candidate is one held team as the resolver reads it on the state goroutine.
-type candidate struct {
+// sendCandidate is one held team as the resolver reads it on the state goroutine.
+type sendCandidate struct {
 	id      paths.TeamID
 	tm      team.Team
 	cached  *proto.Roster
@@ -165,7 +165,7 @@ type candidate struct {
 }
 
 // roster is the team's verified roster, else its cached one (n3d-D3); off the state goroutine.
-func (c candidate) roster() (proto.Roster, bool) {
+func (c sendCandidate) roster() (proto.Roster, bool) {
 	if c.tm != nil {
 		if r, ok := c.tm.Notices().Roster(); ok {
 			return r, true
@@ -199,26 +199,9 @@ func (e *Engine) addressed(ctx context.Context, flag *paths.TeamID, names []stri
 	if err != nil {
 		return sendTeam{}, nil, err
 	}
-	var (
-		found    []resolution
-		first    *resolution
-		noRoster bool
-	)
-	for _, c := range cands {
-		r, ok := c.roster()
-		if !ok {
-			if flag != nil {
-				return sendTeam{}, nil, exits.New(exits.CodeUnreachable, &c.id, msgNoRoster, exits.Team(c.id))
-			}
-			noRoster = true
-			continue
-		}
-		res := resolve(sendTeam{id: c.id, tm: c.tm, roster: r, self: c.self, anchors: c.anchors}, names, toCoordinator)
-		if res.whole() {
-			found = append(found, res)
-		} else if first == nil {
-			first = &res
-		}
+	found, first, noRoster, err := resolveAll(cands, flag, names, toCoordinator)
+	if err != nil {
+		return sendTeam{}, nil, err
 	}
 	switch {
 	case len(found) > 1:
@@ -241,16 +224,43 @@ func (e *Engine) addressed(ctx context.Context, flag *paths.TeamID, names []stri
 	return sendTeam{}, nil, exits.New(exits.CodeUnknownMember, flag, msgUnknownMember, exits.Name(first.missing))
 }
 
+// resolveAll reads the names in every candidate: the teams that hold them all, the first that
+// does not, and whether a team was skipped for having no roster (an error with --team).
+func resolveAll(cands []sendCandidate, flag *paths.TeamID, names []string, toCoordinator bool) ([]resolution, *resolution, bool, error) {
+	var (
+		found    []resolution
+		first    *resolution
+		noRoster bool
+	)
+	for _, c := range cands {
+		r, ok := c.roster()
+		if !ok {
+			if flag != nil {
+				return nil, nil, false, exits.New(exits.CodeUnreachable, &c.id, msgNoRoster, exits.Team(c.id))
+			}
+			noRoster = true
+			continue
+		}
+		res := resolve(sendTeam{id: c.id, tm: c.tm, roster: r, self: c.self, anchors: c.anchors}, names, toCoordinator)
+		if res.whole() {
+			found = append(found, res)
+		} else if first == nil {
+			first = &res
+		}
+	}
+	return found, first, noRoster, nil
+}
+
 // candidates are the held teams a send may go to: the flag's, or every one.
-func (e *Engine) candidates(ctx context.Context, flag *paths.TeamID) ([]candidate, error) {
-	var cands []candidate
+func (e *Engine) candidates(ctx context.Context, flag *paths.TeamID) ([]sendCandidate, error) {
+	var cands []sendCandidate
 	if err := e.do(ctx, func() {
 		for _, id := range e.order() {
 			h := e.teams[id]
 			if h.removed || flag != nil && *flag != id {
 				continue
 			}
-			c := candidate{id: id, tm: h.team, self: h.userID, anchors: h.anchors}
+			c := sendCandidate{id: id, tm: h.team, self: h.userID, anchors: h.anchors}
 			if h.roster != nil {
 				r := *h.roster
 				c.cached = &r
@@ -354,25 +364,30 @@ func (e *Engine) send(ctx context.Context, st sendTeam, kind string, compose com
 		return ending()
 	}
 	if chargeErr != nil {
-		if _, ok := errors.AsType[*exits.Error](chargeErr); !ok {
-			e.logf("team %s: a send was not charged: %v", st.id, chargeErr)
-			chargeErr = exits.New(exits.CodeStore, &st.id, msgStoreWrite, exits.Team(st.id))
+		if xe, ok := errors.AsType[*exits.Error](chargeErr); ok {
+			return doneOf(xe)
 		}
-		return doneOf(chargeErr)
+		e.logf("team %s: a send was not charged: %v", st.id, chargeErr)
+		return doneOf(exits.New(exits.CodeStore, &st.id, msgStoreWrite, exits.Team(st.id)))
 	}
 	failpoint.Hit(failpoint.LinkAfterChargeBeforeSend)
 	if queuedNow {
 		return answerSent(out, st.id, nil)
 	}
+	return e.await(ctx, out, st.id, entry.Txn, wait)
+}
+
+// await is a charged send's answer: posted when the sender answers by ctx's end, else queued.
+func (e *Engine) await(ctx context.Context, out RecordWriter, t paths.TeamID, txn string, wait chan sendResult) wire.Done {
 	select {
 	case r := <-wait:
-		return e.answerResult(out, st.id, r)
+		return e.answerResult(out, t, r)
 	case <-ctx.Done():
 	}
-	if r, ok := e.unwait(st.id, entry.Txn, wait); ok {
-		return e.answerResult(out, st.id, r)
+	if r, ok := e.unwait(context.WithoutCancel(ctx), t, txn, wait); ok {
+		return e.answerResult(out, t, r)
 	}
-	return answerSent(out, st.id, nil)
+	return answerSent(out, t, nil)
 }
 
 func (e *Engine) answerResult(out RecordWriter, t paths.TeamID, r sendResult) wire.Done {
@@ -394,9 +409,9 @@ func answerSent(out RecordWriter, t paths.TeamID, id *string) wire.Done {
 }
 
 // unwait takes an ended op's send off the sender's answer list; a result already given is
-// still the op's.
-func (e *Engine) unwait(t paths.TeamID, txn string, wait chan sendResult) (sendResult, bool) {
-	if err := e.do(context.Background(), func() {
+// still the op's. ctx must not be the op's ended one.
+func (e *Engine) unwait(ctx context.Context, t paths.TeamID, txn string, wait chan sendResult) (sendResult, bool) {
+	if err := e.do(ctx, func() {
 		if h := e.teams[t]; h != nil {
 			delete(h.waiting, txn)
 		}
@@ -661,12 +676,6 @@ func lookupOf(h *held) storeLookup {
 	return l
 }
 
-// with is the lookup judging against r.
-func (l storeLookup) with(r proto.Roster) storeLookup {
-	l.roster = r
-	return l
-}
-
 func (l storeLookup) Seen(id string) bool { return l.seen[id] }
 
 func (l storeLookup) Event(id string) (proto.Related, bool) {
@@ -685,6 +694,12 @@ func (l storeLookup) OwnPing(id string) (proto.OwnPing, bool) {
 		return proto.OwnPing{}, false
 	}
 	return proto.OwnPing{Verb: p.Verb, To: slices.Clone(p.To), OriginTs: p.SentMS}, true
+}
+
+// with is the lookup judging against r.
+func (l storeLookup) with(r proto.Roster) storeLookup {
+	l.roster = r
+	return l
 }
 
 // queuedRecords are status's queued records of a team's sends in flight (n3d-D21).
