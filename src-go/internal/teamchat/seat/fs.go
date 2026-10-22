@@ -68,8 +68,11 @@ func ownedDir(fd int, path string) error {
 
 func (d *dir) close() error { return unix.Close(d.fd) }
 
-// rel is full's path relative to the root.
+// rel is full's path relative to the root, "." for the root itself.
 func (d *dir) rel(full string) (string, error) {
+	if full == d.path {
+		return ".", nil
+	}
 	rest, ok := strings.CutPrefix(full, d.path+"/")
 	if !ok || filepath.Clean(full) != full {
 		return "", fmt.Errorf("%w: %s is not below %s", ErrConfig, full, d.path)
