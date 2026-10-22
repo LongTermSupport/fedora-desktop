@@ -197,7 +197,7 @@ m2_cleanup() {
             podman rm -f -t 10 -- "${id}" >/dev/null || status=1
         done
         rm -f -- "${records}/${name}" || status=1
-        rm -rf -- "${XDG_RUNTIME_DIR:?}/ccy/membership/${name}" "${M2_REPORTS:?}/${name}" || status=1
+        rm -rf -- "${M3_CCY_DIRS:?}/${name}" "${M2_REPORTS:?}/${name}" || status=1
     done
     if [[ "${M2_REPORTS_FOUND}" -eq 0 && -d "${M2_REPORTS}" ]]; then
         rmdir --ignore-fail-on-non-empty -- "${M2_REPORTS}" || status=1

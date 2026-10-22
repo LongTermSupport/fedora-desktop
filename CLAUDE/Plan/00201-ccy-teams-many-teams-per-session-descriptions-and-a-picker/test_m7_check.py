@@ -521,6 +521,27 @@ class SegmentTest(TempDir):
         status, out, _ = run("session-paths")
         self.assertEqual((status, out.splitlines()), (0, mc.session_paths()))
 
+    def test_the_session_names_are_seat_s(self) -> None:
+        seat = mc._checkout_module("helpers.pingbus.seat")
+        self.assertEqual(mc.session_names(), [seat.ACTIVE_FLAG, seat.STATUS_LINE_INNER, seat.WATCH_LOG])
+        status, out, _ = run("session-names")
+        self.assertEqual((status, out.splitlines()), (0, mc.session_names()))
+
+    def test_the_membership_dirs_are_read_from_the_go_package(self) -> None:
+        """This checkout's, and a changed one followed; a missing or doubled one fails."""
+        dirs = mc.membership_dirs()
+        self.assertEqual(len(dirs), 3)
+        membership_go = (mc._checkout_root() / mc.MEMBERSHIP_GO).read_text(encoding="utf-8")
+        self.assertIn(f'ccyRoot = "{dirs[0]}"', membership_go)
+        status, out, _ = run("membership-dirs")
+        self.assertEqual((status, out.splitlines()), (0, dirs))
+        source = 'const (\n\tccyRoot = "a/b"\n\tccRoot  = "c/d"\n)\n'
+        self.assertEqual(mc.membership_dirs(source, 'const RelaunchFile = "r.json"\n'), ["a/b", "c/d", "r.json"])
+        for bad_dirs, bad_relaunch in ((source.replace("ccRoot", "other"), 'const RelaunchFile = "r"\n'),
+                                       (source, 'const Relaunch = "r"\n')):
+            with self.assertRaises(mc.Failed):
+                mc.membership_dirs(bad_dirs, bad_relaunch)
+
     def test_the_label_is_read_from_the_go_drawer(self) -> None:
         """The label is the Go statusline's `label` constant and the indent its display width:
         this checkout's, and a changed one followed rather than failed."""

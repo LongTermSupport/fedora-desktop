@@ -99,14 +99,21 @@ type Init struct {
 // New is the command over a host, on the wall clock.
 func New(h *host.Host) *Init { return &Init{Host: h, Now: time.Now} }
 
+// Where the membership directories are under the runtime directory: a ccy session's, and a
+// cc session's (H31).
+const (
+	ccyRoot = "ccy/membership"
+	ccRoot  = "pingbus/membership"
+)
+
 // Dir is a ccy session's membership directory under the runtime directory.
 func Dir(runtimeDir, session string) string {
-	return filepath.Join(runtimeDir, "ccy", "membership", session)
+	return filepath.Join(runtimeDir, ccyRoot, session)
 }
 
 // CCDir is a cc session's membership directory under the runtime directory (H31).
 func CCDir(runtimeDir, session string) string {
-	return filepath.Join(runtimeDir, "pingbus", "membership", session)
+	return filepath.Join(runtimeDir, ccRoot, session)
 }
 
 // DirOf is the membership directory of a session of the kind.

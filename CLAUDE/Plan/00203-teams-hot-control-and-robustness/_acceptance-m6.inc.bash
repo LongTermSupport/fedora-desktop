@@ -61,7 +61,7 @@ m6_ev() { printf '%s/%s' "${M6_EV}" "$1"; }
 
 m6_teams() { (cd -- "${PLAN_REPO_ROOT}" && CCY_TEAMS_HOST_VARS="${M6_HOST_VARS}" ccy-teams "$@"); }
 
-m6_membership() { printf '%s/pingbus/membership/%s' "${XDG_RUNTIME_DIR:?}" "$1"; }
+m6_membership() { printf '%s/%s' "${M3_CC_DIRS:?}" "$1"; }
 
 # m6_run <label> <exit> <session args...> — ccy-teams session <args>, with no terminal; its
 # stderr saved as <label>.err and shown; fails unless it exited <exit>.
@@ -78,7 +78,7 @@ m6_run() {
 
 # m6_said <label> <pattern> [no] — the run's stderr has (or, with "no", has not) a matching line.
 m6_said() {
-    if grep -qE -- "$2" "$(m6_ev "$1.err")"; then
+    if grep -qP -- "$2" "$(m6_ev "$1.err")"; then
         [[ "${3:-}" != no ]] && return 0
         printf '[FAIL] %s said what it must not: %s\n' "$1" "$2" >&2
         return 1
@@ -91,7 +91,7 @@ m6_said() {
 # m6_desired <session> — the seats of its desired membership, seat@team comma-separated.
 m6_desired() {
     python3 -I -c 'import json, sys; d = json.load(open(sys.argv[1])); print(",".join(s["seat"] + "@" + s["team"] for s in d["seats"]))' \
-        "$(m6_membership "$1")/membership.json"
+        "$(m6_membership "$1")/${M3_DESIRED:?}"
 }
 
 m6_desired_is() {
@@ -278,8 +278,8 @@ m6_start() {
 m6_check_move() {
     local seat
     m6_run move 0 move "${M6_A}" "${M6_TEAM_A}" "${M6_TEAM_B}" --yes || return 1
-    m6_said move "^✓ session ${M6_A}: running, can be hot-controlled$" || return 1
-    m6_said move "^✓ route: this host reaches ${M6_TEAM_B}'s homeserver$" || return 1
+    m6_said move "^\\Q${M3_MARK_DONE:?}\\E session ${M6_A}: running, can be hot-controlled$" || return 1
+    m6_said move "^\\Q${M3_MARK_DONE:?}\\E route: this host reaches ${M6_TEAM_B}'s homeserver$" || return 1
     m6_said move "^Moved: ${M6_A} is in ${M6_TEAM_B}, and no longer in ${M6_TEAM_A}\\.$" || return 1
     seat="$(m6_desired "${M6_A}")" || return 1
     [[ "${seat}" == *"@${M6_TEAM_B}" && "${seat}" != *,* ]] || { printf '[FAIL] %s desires %s, not one seat of %s\n' "${M6_A}" "${seat}" "${M6_TEAM_B}" >&2; return 1; }
@@ -338,10 +338,10 @@ m6_check_bus() {
     m6_desired_is "${M6_C}" "" || return 1
     m6_inbound "${M6_C}" false || return 1
     m6_run bus-add 1 add "${M6_C}" "${M6_TEAM_A}" --yes || return 1
-    m6_said bus-add "^✗ session: ${M6_C} is in ${M6_TEAM_A} as seat [0-9]+, but it started on no team" || return 1
+    m6_said bus-add "^\\Q${M3_MARK_FAILED:?}\\E session: ${M6_C} is in ${M6_TEAM_A} as seat [0-9]+, but it started on no team" || return 1
     m6_said bus-add "and cc has nothing that can restart it" || return 1
     m6_said bus-add 'Nothing restarted' no || return 1
-    [[ ! -e "$(m6_membership "${M6_C}")/relaunch.json" ]] || { printf '[FAIL] a relaunch was asked of the cc session %s\n' "${M6_C}" >&2; return 1; }
+    [[ ! -e "$(m6_membership "${M6_C}")/${M3_RELAUNCH:?}" ]] || { printf '[FAIL] a relaunch was asked of the cc session %s\n' "${M6_C}" >&2; return 1; }
     seat="$(m6_desired "${M6_C}")" || return 1
     [[ "${seat}" == *"@${M6_TEAM_A}" && "${seat}" != *,* ]] || { printf '[FAIL] %s desires %s, not one seat of %s\n' "${M6_C}" "${seat}" "${M6_TEAM_A}" >&2; return 1; }
     grep -qx -- "arg=${seat}" "${M6_RECORDS}/${M6_C}" || { printf '[FAIL] the record of %s does not name %s\n' "${M6_C}" "${seat}" >&2; return 1; }
@@ -360,7 +360,7 @@ m6_check_bus() {
     m6_run bus-repair 78 repair "${M6_C}" --yes || return 1
     m6_said bus-repair "is a cc session: its seat keeper ends with its claude" || return 1
     m6_run bus-remove 0 remove "${M6_C}" "${M6_TEAM_A}" --yes || return 1
-    m6_said bus-remove '^✓ record: no --teams \(cc keeps --bus\)$' || return 1
+    m6_said bus-remove "^\\Q${M3_MARK_DONE:?}\\E record: no --teams \\(cc keeps --bus\\)$" || return 1
     grep -qx -- 'arg=--bus' "${M6_RECORDS}/${M6_C}" || { printf '[FAIL] the record of %s left the bus\n' "${M6_C}" >&2; return 1; }
     if grep -q -- '^arg=--teams' "${M6_RECORDS}/${M6_C}"; then
         printf '[FAIL] the record of %s still names a team\n' "${M6_C}" >&2
@@ -384,7 +384,7 @@ m6_check_reused() {
         return 1
     fi
     m6_run reused-add 78 add "${M6_D}" "${M6_TEAM_B}" --yes || return 1
-    m6_said reused-add "^✗ session ${M6_D}: it was started without --teams or --bus" || return 1
+    m6_said reused-add "^\\Q${M3_MARK_FAILED:?}\\E session ${M6_D}: it was started without --teams or --bus" || return 1
     m6_run reused-claim 0 add "${M6_B}" "${M6_TEAM_A}/1" --yes || return 1
     m6_said reused-claim "named by session ${M6_D}" no
 }

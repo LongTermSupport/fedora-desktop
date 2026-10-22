@@ -51,6 +51,40 @@ readonly CCY_RESTART_LIB="/var/local/claude-yolo/lib/restart-request.bash"
 readonly CCY_IMAGE="claude-yolo:latest"
 readonly CCY_KIT_PINGBUS="/opt/claude-yolo/optional/agent-bus/pingbus"
 readonly U20=(python3 -I "${PLAN_SCRIPT_DIR}/u20_check.py")
+#: Plan 00201's reader of the names the product owns, from this checkout.
+readonly U20_NAMES_CHECK=(python3 -I "${PLAN_REPO_ROOT}/CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/m7_check.py")
+#: Names the product owns, read by u20_read_names before any U20 leg, never copied: the
+#: membership mount in a ccy container and the desired membership's file (membership.py), the
+#: watcher log in the session home (seat.py), and the named session's membership directory
+#: under $XDG_RUNTIME_DIR (ccy-teams' membership package).
+U20_MOUNT=""
+U20_DESIRED=""
+U20_WATCH_LOG=""
+U20_NAMED_DIR=""
+
+# u20_lines <want> <command> — m7_check <command>'s stdout into U20_LINES: exactly <want>
+# non-empty lines.
+u20_lines() {
+    local text
+    text="$("${U20_NAMES_CHECK[@]}" "$2")" || { printf '[FAIL] m7_check %s could not read the product (above)\n' "$2" >&2; return 1; }
+    mapfile -t U20_LINES <<<"${text}"
+    if [[ "${#U20_LINES[@]}" -ne "$1" ]] || printf '%s\n' "${U20_LINES[@]}" | grep -qx ''; then
+        printf '[FAIL] m7_check %s printed %s, want %d non-empty lines\n' "$2" "${text}" "$1" >&2
+        return 1
+    fi
+}
+
+u20_read_names() {
+    local home
+    u20_lines 4 session-paths || return 1
+    home="${U20_LINES[0]}" U20_MOUNT="${U20_LINES[2]}" U20_DESIRED="${U20_LINES[3]}"
+    u20_lines 3 session-names || return 1
+    U20_WATCH_LOG="${home}/${U20_LINES[2]}"
+    u20_lines 3 membership-dirs || return 1
+    U20_NAMED_DIR="${XDG_RUNTIME_DIR:?}/${U20_LINES[0]}/${U20_NAMED}"
+    printf '==> membership mount %s (%s), watcher log %s, named session membership %s\n' \
+        "${U20_MOUNT}" "${U20_DESIRED}" "${U20_WATCH_LOG}" "${U20_NAMED_DIR}"
+}
 readonly U20_CCY_DIR="${PLAN_REPO_ROOT}/.claude/ccy"
 readonly U20_BUS_DIR="${U20_CCY_DIR}/pingbus"
 readonly U20_SEATS_DIR="${U20_BUS_DIR}/seats"
@@ -152,9 +186,9 @@ u20_membership_listing() {
     [[ "${1:-}" != running ]] || filter=(--filter status=running)
     while read -r id; do
         [[ -n "${id}" ]] || continue
-        src="$(podman inspect --format '{{range .Mounts}}{{if eq .Destination "/run/ccy/membership"}}{{.Source}}{{end}}{{end}}' "${id}")" || return 1
+        src="$(podman inspect --format "{{range .Mounts}}{{if eq .Destination \"${U20_MOUNT:?}\"}}{{.Source}}{{end}}{{end}}" "${id}")" || return 1
         [[ -n "${src}" ]] || continue
-        seats="$(jq -r '[.seats[] | "\(.seat)@\(.team)"] | join(",")' "${src}/membership.json")" || return 1
+        seats="$(jq -r '[.seats[] | "\(.seat)@\(.team)"] | join(",")' "${src}/${U20_DESIRED:?}")" || return 1
         [[ -z "${seats}" ]] || printf '%s\t%s\n' "${id}" "${seats}"
     done < <(podman ps -a --filter label=ccy=true "${filter[@]}" --format '{{.ID}}')
 }
@@ -422,7 +456,7 @@ u20_container_up() {
 # (`ccy-teams internal membership-init "${session:-$container}"`), the mount's basename.
 u20_note_report() {
     local src
-    src="$(podman inspect --format '{{range .Mounts}}{{if eq .Destination "/run/ccy/membership"}}{{.Source}}{{end}}{{end}}' "$1")" || return 1
+    src="$(podman inspect --format "{{range .Mounts}}{{if eq .Destination \"${U20_MOUNT:?}\"}}{{.Source}}{{end}}{{end}}" "$1")" || return 1
     [[ -n "${src}" ]] || { printf '[FAIL] container %s has no membership mount\n' "$1" >&2; return 1; }
     U20_REPORT_NAMES+=("$(basename -- "${src}")")
 }
@@ -964,7 +998,7 @@ u20_keep_watch_log() {
     if [[ -z "${U20_SEAT_OF[${s}]:-}" || -z "${U20_CTR[${s}]:-}" ]]; then
         return 0
     fi
-    podman exec "${U20_CTR[${s}]}" cat /tmp/pingbus-home/watch.log >"$(u20_ev "${s}")/watch.log" || return 1
+    podman exec "${U20_CTR[${s}]}" cat "${U20_WATCH_LOG:?}" >"$(u20_ev "${s}")/watch.log" || return 1
 }
 
 # u20_close <session> — close its input (claude sees end of file and exits, and the container
@@ -1120,7 +1154,6 @@ u20_check_plain() {
 # its own in ccy's tmux (the registry trampoline's shape), so it IS that tmux session. Its input
 # is a fifo this run holds; it is never sent a turn.
 readonly U20_NAMED="u20-named-$$"
-readonly U20_NAMED_DIR="${XDG_RUNTIME_DIR:?}/ccy/membership/${U20_NAMED}"
 #: Its registry record: a launch in ccy's tmux writes one, `--no-restore` or not.
 readonly U20_NAMED_RECORD="${XDG_STATE_HOME:-${HOME}/.local/state}/ccy/sessions/${U20_NAMED}"
 # Every seated session's keeper reports to .claude/ccy/pingbus/sessions/<name>/ (Plan 00203
@@ -1211,7 +1244,10 @@ u20_named_down() {
     for id in $(podman ps -a --filter "label=ccy-session=${U20_NAMED}" --format '{{.ID}}'); do
         podman rm -f -t 10 -- "${id}" >/dev/null || return 1
     done
-    rm -rf -- "${U20_NAMED_DIR}" "${U20_REPORTS:?}/${U20_NAMED}" || return 1
+    if [[ -n "${U20_NAMED_DIR}" ]]; then
+        rm -rf -- "${U20_NAMED_DIR}" || return 1
+    fi
+    rm -rf -- "${U20_REPORTS:?}/${U20_NAMED}" || return 1
     rm -f -- "${U20_NAMED_RECORD}" || return 1
     if [[ "${U20_REPORTS_FOUND}" -eq 0 && -d "${U20_REPORTS}" ]]; then
         rmdir --ignore-fail-on-non-empty -- "${U20_REPORTS}" || return 1
@@ -1243,12 +1279,12 @@ u20_check_named_seated() {
     u20_named_launch || return 1
     u20_poll "${U20_START_S}" "the named session's container running" u20_named_up || return 1
     u20_poll "${U20_START_S}" "seat accb@${TEAM} held by the named session" u20_seat_held accb || return 1
-    src="$(podman inspect --format '{{range .Mounts}}{{if eq .Destination "/run/ccy/membership"}}{{.Source}}{{end}}{{end}}' "${U20_CTR[named]}")" || return 1
+    src="$(podman inspect --format "{{range .Mounts}}{{if eq .Destination \"${U20_MOUNT:?}\"}}{{.Source}}{{end}}{{end}}" "${U20_CTR[named]}")" || return 1
     if [[ "${src}" != "${U20_NAMED_DIR}" ]]; then
         printf '[FAIL] the named session mounts %s, not its own membership directory %s\n' "${src:-nothing}" "${U20_NAMED_DIR}" >&2
         return 1
     fi
-    seats="$(jq -r '[.seats[] | "\(.seat)@\(.team)"] | join(",")' "${U20_NAMED_DIR}/membership.json")" || return 1
+    seats="$(jq -r '[.seats[] | "\(.seat)@\(.team)"] | join(",")' "${U20_NAMED_DIR:?}/${U20_DESIRED:?}")" || return 1
     if [[ "${seats}" != "accb@${TEAM}" ]]; then
         printf '[FAIL] the named session'\''s membership lists %s, want accb@%s\n' "${seats:-no seat}" "${TEAM}" >&2
         return 1

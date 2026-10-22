@@ -257,6 +257,7 @@ check_leg() {
 
 plan_deploy_leg "remove acceptance members and a ${TEAM} team left by an interrupted run" teardown leftover
 plan_deploy_leg "remove U23 members left by an interrupted run" u23_teardown leftover
+plan_deploy_leg "U20: the names its checks judge by, from this checkout's seat.py, membership.py and ccy-teams" u20_read_names
 plan_deploy_leg "U20: ccy, its image and this checkout's saved launch choices for the M2 sessions; no acceptance seat, its container or a named session's report left by an earlier run" u20_prerequisites
 plan_deploy_leg "the references the pings carry" resolve_reference
 plan_deploy_leg "the desktop user's gh login for github.com, lent to the members for the run" read_gh_login

@@ -54,6 +54,7 @@ readonly GB_MAX_PAGES=40
 #: every question a launch can wait at (ccy_known_prompts).
 readonly GB_CCY_LIB="${PLAN_REPO_ROOT}/files/var/local/claude-yolo/lib"
 GB_CHECKOUT=""
+GB_MEMBERSHIP_DIRS=""
 GB_SEATS_DIR=""
 GB_SOCKET=""
 GB_TOKEN=""
@@ -75,8 +76,15 @@ gb_ev() { printf '%s/%s' "${PLAN_RUN_DIR}" "$1"; }
 gb_evidence() { printf -- '- %s\n' "$*" >>"${REPORT}"; }
 
 # gb_paths — where the run's own checkout and tmux socket live (the socket under
-# XDG_RUNTIME_DIR: a socket path is limited to 108 bytes).
+# XDG_RUNTIME_DIR: a socket path is limited to 108 bytes), and where ccy-teams keeps a ccy
+# session's membership directories, read from this checkout's Go source (m7_check
+# membership-dirs), never copied.
 gb_paths() {
+    local dirs
+    dirs="$("${CHECK[@]}" membership-dirs)" || return 1
+    dirs="${dirs%%$'\n'*}"
+    [[ -n "${dirs}" ]] || { printf '[FAIL] m7_check membership-dirs named no directory\n' >&2; return 1; }
+    GB_MEMBERSHIP_DIRS="${XDG_RUNTIME_DIR:?}/${dirs}"
     GB_CHECKOUT="${PLAN_RUN_DIR}/checkout/accept194"
     GB_SEATS_DIR="${GB_CHECKOUT}/.claude/ccy/pingbus/seats"
     GB_SOCKET="${XDG_RUNTIME_DIR}/accept194-tmux/ccy"
@@ -215,11 +223,11 @@ gb_remove_my_containers() {
 }
 
 # gb_remove_membership_dirs — the desired-membership directory ccy-teams made for each named
-# session (XDG_RUNTIME_DIR/ccy/membership/<session>), the acceptance's names only.
+# session (GB_MEMBERSHIP_DIRS/<session>), the acceptance's names only.
 gb_remove_membership_dirs() {
     local name dir
     for name in "${GB_SESSIONS[@]}"; do
-        dir="${XDG_RUNTIME_DIR:?}/ccy/membership/${name}"
+        dir="${GB_MEMBERSHIP_DIRS:?}/${name}"
         if [[ -e "${dir}" || -L "${dir}" ]]; then
             rm -rf -- "${dir}" || return 1
             printf '==> deleted %s\n' "${dir}"
@@ -754,7 +762,7 @@ gb_check_gone() {
         fi
     done
     for name in "${GB_SESSIONS[@]}"; do
-        if [[ -n "$(gb_containers "${name}")" || -e "${XDG_RUNTIME_DIR:?}/ccy/membership/${name}" ]]; then
+        if [[ -n "$(gb_containers "${name}")" || -e "${GB_MEMBERSHIP_DIRS:?}/${name}" ]]; then
             printf '[FAIL] a container or the membership directory of %s remains\n' "${name}" >&2
             return 1
         fi

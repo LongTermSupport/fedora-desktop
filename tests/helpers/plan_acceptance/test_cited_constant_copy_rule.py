@@ -220,15 +220,18 @@ def checker_files() -> dict[str, str]:
     return out
 
 
-#: How an owned value shows in a checker's code: anywhere; as a file name (after a `/`); or as a
-#: mark a pattern anchors to a line's start (after a `^`).
-ANYWHERE, FILE_NAME, LINE_START = "anywhere", "file name", "line start"
+#: How an owned value shows in a checker's code: anywhere; as a file name (after a `/`); as a
+#: directory inside a path (between two); or as a mark a pattern anchors to a line's start
+#: (after a `^`).
+ANYWHERE, FILE_NAME, DIRECTORY, LINE_START = "anywhere", "file name", "directory", "line start"
 #: The owned values, as (product file, constant, kind). The value is read from the file.
 OWNED: tuple[tuple[str, str, str], ...] = (
     ("helpers/pingbus/seat.py", "SESSION_HOME", ANYWHERE),
     ("helpers/pingbus/membership.py", "CCY_MOUNT", ANYWHERE),
     ("helpers/pingbus/membership.py", "DESIRED_FILE", FILE_NAME),
     ("src-go/internal/teams/membership/desired.go", "RelaunchFile", FILE_NAME),
+    ("src-go/internal/teams/membership/membership.go", "ccyRoot", DIRECTORY),
+    ("src-go/internal/teams/membership/membership.go", "ccRoot", DIRECTORY),
     ("src-go/internal/pingbus/statusline/statusline.go", "innerVar", ANYWHERE),
     ("src-go/internal/teams/hot/hot.go", "markDone", LINE_START),
     ("src-go/internal/teams/hot/hot.go", "markFailed", LINE_START),
@@ -264,6 +267,8 @@ def owned_needles(values: list[tuple[str, str]]) -> list[str]:
     for value, kind in values:
         if kind == FILE_NAME:
             needles.append("/" + value)
+        elif kind == DIRECTORY:
+            needles.append(f"/{value}/")
         elif kind == LINE_START:
             needles.append("^" + value)
         elif not _PLACEHOLDER.search(value):
@@ -367,6 +372,7 @@ FIXTURE_BASH = textwrap.dedent('''\
 
 #: The owned values the fixtures are judged by, in the product's own forms.
 FIXTURE_OWNED = [("/tmp/pingbus-home", ANYWHERE), ("membership.json", FILE_NAME), ("✓", LINE_START),
+                 ("pingbus/membership", DIRECTORY),
                  ("PINGBUS_STATUS_LINE_INNER", ANYWHERE),
                  ("several teams are active and --to/--re fit more than one", ANYWHERE),
                  ("{unit} is starting ({state})", ANYWHERE), ("{n} ok", ANYWHERE)]
@@ -386,6 +392,8 @@ FIXTURE_OWNED_BASH = textwrap.dedent('''\
     grep -qP "^\\\\Q${M3_MARK_DONE}\\\\E re-baseline" "${err}"  # ok: read through m7_check
     cp "${src}/membership.json.bak" .  # ruleid: still the file name after a slash
     echo "membership.json alone"  # ok: no slash, a word of a message
+    m6_membership() { printf '%s/pingbus/membership/%s' "${XDG_RUNTIME_DIR:?}" "$1"; }  # ruleid
+    echo "the pingbus/membership tree"  # ok: not inside a path
 ''')
 
 FIXTURE_OWNED_PYTHON = textwrap.dedent('''\

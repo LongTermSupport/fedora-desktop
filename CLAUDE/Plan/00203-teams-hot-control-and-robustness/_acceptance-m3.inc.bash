@@ -58,11 +58,19 @@ M3_SID=""
 M3_SEAT=""
 M3_TOKEN=""
 
-#: Names the product owns, read from this checkout by m3_read_names (m7_check), never copied:
-#: the session home in a ccy container (seat.py), the done and failed step marks of
-#: `ccy-teams session add/remove` (hot.go), and the status line's teams row head and the
-#: variable that has it draw only the bus segment (statusline.go).
+#: Names the product owns, read from this checkout by m3_read_names (m7_check), never copied.
+#: The dispatcher reads them before M2, because M2, M4 and M6 judge by them too: the session
+#: home in a ccy container and its watcher log (seat.py), the desired membership's file name
+#: (membership.py), the membership directories of a ccy and a cc session under
+#: $XDG_RUNTIME_DIR and the relaunch request's file (ccy-teams' membership package), the done
+#: and failed step marks of `ccy-teams session` (hot.go), and the status line's teams row
+#: head and the variable that has it draw only the bus segment (statusline.go).
 M3_PB_HOME=""
+M3_WATCH_LOG=""
+M3_DESIRED=""
+M3_CCY_DIRS=""
+M3_CC_DIRS=""
+M3_RELAUNCH=""
 M3_MARK_DONE=""
 M3_MARK_FAILED=""
 M3_SEG_HEAD=""
@@ -84,13 +92,18 @@ m3_lines() {
 
 m3_read_names() {
     m3_lines 4 session-paths || return 1
-    M3_PB_HOME="${M3_LINES[0]}"
+    M3_PB_HOME="${M3_LINES[0]}" M3_DESIRED="${M3_LINES[3]}"
+    m3_lines 3 session-names || return 1
+    M3_WATCH_LOG="${M3_PB_HOME}/${M3_LINES[2]}"
+    m3_lines 3 membership-dirs || return 1
+    M3_CCY_DIRS="${XDG_RUNTIME_DIR:?}/${M3_LINES[0]}" M3_CC_DIRS="${XDG_RUNTIME_DIR:?}/${M3_LINES[1]}" M3_RELAUNCH="${M3_LINES[2]}"
     m3_lines 2 hot-marks || return 1
     M3_MARK_DONE="${M3_LINES[0]}" M3_MARK_FAILED="${M3_LINES[1]}"
     m3_lines 2 status-line-names || return 1
     M3_SEG_HEAD="${M3_LINES[0]}" M3_INNER_VAR="${M3_LINES[1]}"
-    printf '==> session home %s, step marks %s %s, teams row head %q, %s\n' \
-        "${M3_PB_HOME}" "${M3_MARK_DONE}" "${M3_MARK_FAILED}" "${M3_SEG_HEAD}" "${M3_INNER_VAR}"
+    printf '==> session home %s (watcher log %s), membership %s in %s and %s (relaunch %s), step marks %s %s, teams row head %q, %s\n' \
+        "${M3_PB_HOME}" "${M3_WATCH_LOG}" "${M3_DESIRED}" "${M3_CCY_DIRS}" "${M3_CC_DIRS}" "${M3_RELAUNCH}" \
+        "${M3_MARK_DONE}" "${M3_MARK_FAILED}" "${M3_SEG_HEAD}" "${M3_INNER_VAR}"
 }
 
 # m3_poll <seconds> <what> <command...> — until the command succeeds; it returns 3 for "not yet".
@@ -377,7 +390,6 @@ m3_cleanup() {
 acceptance_m3() {
     plan_on_cleanup m3_cleanup
     printf '## M3: hot add and remove\n\n' >>"${REPORT}"
-    plan_deploy_leg "the names M3 judges by, from this checkout's seat.py, hot.go and statusline.go" m3_read_names
     plan_deploy_leg "two throwaway teams, ${M3_TEAM_A} and ${M3_TEAM_B}" m3_prepare
     plan_deploy_leg "a throwaway headless session on ${M3_TEAM_A} in ccy's tmux, and its first turn" m3_start
     check_leg "(a) session add ${M3_TEAM_B}: every step done, no relaunch" m3_check_add

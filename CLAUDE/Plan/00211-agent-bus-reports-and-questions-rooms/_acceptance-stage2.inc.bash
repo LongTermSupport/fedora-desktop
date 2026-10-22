@@ -18,7 +18,13 @@
 # whatever kind of session it runs in.
 
 readonly GUEST_PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
-readonly CCY_PINGBUS_HOME="/tmp/pingbus-home"
+# The ccy session home is this checkout's seat.py SESSION_HOME, read through Plan 00201's
+# m7_check session-paths (its first line), never copied. Sourced under the caller's errexit,
+# so a reader that fails ends the run here.
+CCY_PINGBUS_HOME="$(python3 -I "${PLAN_REPO_ROOT}/CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/m7_check.py" session-paths)"
+CCY_PINGBUS_HOME="${CCY_PINGBUS_HOME%%$'\n'*}"
+[[ "${CCY_PINGBUS_HOME}" == /* ]] || { printf '[FATAL] m7_check session-paths named no session home: %s\n' "${CCY_PINGBUS_HOME}" >&2; return 1; }
+readonly CCY_PINGBUS_HOME
 # Each team's member.json in a ccy session home, one after another (none: no seat is held).
 readonly CCY_SEATED_SH="for f in ${CCY_PINGBUS_HOME}/*/member.json; do if [ -f \"\$f\" ]; then cat \"\$f\"; fi; done"
 # where.py <state dir> <event ID...>: `STATE present|missing`, then per event ID

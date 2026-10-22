@@ -7,7 +7,8 @@ and judges what comes back. Every judgement rests on what a tool printed or reco
 the model's prose. Standard library only; the host-side commands read the values the product owns
 from this checkout, lazily, never a copy: `bus-ports` (declare.py), `team-file` (protocol.py),
 `session-paths` and `expect-session-settings` (seat.py, membership.py, and the kit's settings.json), `expect-list-row` (the board's
-table.go), `hot-marks` (hot.go), and `status-line-names` and `expect-segment` (statusline.go and
+table.go), `hot-marks` (hot.go), `session-names` (seat.py), `membership-dirs` (ccy-teams'
+membership package), and `status-line-names` and `expect-segment` (statusline.go and
 statusline.py). Commands
 (stdout is the payload, reasons on stderr):
 
@@ -37,6 +38,9 @@ statusline.py). Commands
   expect-choices STDERR (TEAM DESCRIPTION)...   the "several teams are active" refusal, listing each
   session-paths                      seat.py's session home and its settings file, membership.py's mount and desired file, one per line
   hot-marks                          the done and failed step marks of ccy-teams session add/remove (hot.go), one per line
+  session-names                      seat.py's active flag, inner status line and watcher log names in a session home
+  membership-dirs                    ccy-teams' ccy and cc membership directories under $XDG_RUNTIME_DIR, then its
+                                     relaunch request's file name (membership.go, desired.go)
   status-line-names                  the Go status line's teams row head, then its inner-only variable (statusline.go)
   expect-session-settings SETTINGS   a seated ccy session's own settings.json: inbound accepted, the seated status line this checkout's seat.py writes
   session-status-line PROC           IN THE SESSION'S CONTAINER: the status line its claude draws, the payload on stdin
@@ -607,6 +611,37 @@ def hot_marks(source: str | None = None) -> list[str]:
     return [go_string_const(source, "markDone", HOT_GO), go_string_const(source, "markFailed", HOT_GO)]
 
 
+def session_names() -> list[str]:
+    """The names seat.py keeps in a session home: the `active` flag, the session's own status
+    line command, and the watcher's log."""
+    seat = _checkout_module("helpers.pingbus.seat")
+    names = [seat.ACTIVE_FLAG, seat.STATUS_LINE_INNER, seat.WATCH_LOG]
+    if not all(isinstance(name, str) and name and "/" not in name and "\n" not in name for name in names):
+        raise Failed(f"seat.py names no usable session home entries: {names!r}")
+    return names
+
+
+#: ccy-teams' membership package, whose directories and relaunch file are read from its source.
+MEMBERSHIP_GO = pathlib.PurePosixPath("src-go/internal/teams/membership/membership.go")
+DESIRED_GO = pathlib.PurePosixPath("src-go/internal/teams/membership/desired.go")
+
+
+def membership_dirs(membership_go: str | None = None, desired_go: str | None = None) -> list[str]:
+    """Where ccy-teams keeps a session's membership, from this checkout's Go sources: a ccy
+    session's directory and a cc session's under $XDG_RUNTIME_DIR (membership.go's ccyRoot
+    and ccRoot), and the relaunch request's file name in it (desired.go's RelaunchFile)."""
+    root = _checkout_root()
+    if membership_go is None:
+        membership_go = (root / MEMBERSHIP_GO).read_text(encoding="utf-8")
+    if desired_go is None:
+        desired_go = (root / DESIRED_GO).read_text(encoding="utf-8")
+    relaunch = re.findall(r'^const RelaunchFile = "([^"\\]+)"$', desired_go, re.MULTILINE)
+    if len(relaunch) != 1:
+        raise Failed(f"want exactly one `const RelaunchFile = \"...\"` in {DESIRED_GO}, found {relaunch!r}")
+    return [go_string_const(membership_go, "ccyRoot", MEMBERSHIP_GO),
+            go_string_const(membership_go, "ccRoot", MEMBERSHIP_GO), relaunch[0]]
+
+
 def status_line_names(source: str | None = None) -> list[str]:
     """The Go status line's teams row head (segment_label) and the variable that has it draw
     only the bus segment (statusline.go's innerVar)."""
@@ -831,6 +866,8 @@ COMMANDS: dict[str, tuple[int, Callable[[Sequence[str]], int | None]]] = {
     "expect-choices": (-1, lambda a: expect_choices(_read(a[0]), _groups(a[1:], 2))),
     "session-paths": (0, lambda a: _lines(session_paths())),
     "hot-marks": (0, lambda a: _lines(hot_marks())),
+    "session-names": (0, lambda a: _lines(session_names())),
+    "membership-dirs": (0, lambda a: _lines(membership_dirs())),
     "status-line-names": (0, lambda a: _lines(status_line_names())),
     "expect-session-settings": (1, lambda a: expect_session_settings(_json_file(a[0]))),
     "session-status-line": (
