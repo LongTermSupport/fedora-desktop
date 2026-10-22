@@ -12,14 +12,17 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
-// sessionPID plants a session.pid naming digest, for a keeper of pid 4242 whose guest
+// recordedTicks is the keeper start time every planted session.pid records.
+const recordedTicks = 77
+
+// sessionPID plants a session.pid naming the old digest, for a keeper of pid 4242 whose guest
 // /proc/4242/stat starts at ticks.
-func sessionPID(t *testing.T, b *box, digest string, recorded, ticks int64) {
+func sessionPID(t *testing.T, b *box, ticks int64) {
 	t.Helper()
 	run := "run/teamchat-session-agent1/teamchat/run/" + runID + "/session.pid"
 	writeTree(t, b.dir, map[string]string{
-		run: `{"v":1,"run":"` + runID + `","keeper":{"pid":4242,"start_ticks":` + strconv.FormatInt(recorded, 10) +
-			`},"session":null,"kit":"` + digest + `","launch":"claude","inbound":"accept","kind":"lxc"}`,
+		run: `{"v":1,"run":"` + runID + `","keeper":{"pid":4242,"start_ticks":` + strconv.Itoa(recordedTicks) +
+			`},"session":null,"kit":"` + oldDigest + `","launch":"claude","inbound":"accept","kind":"lxc"}`,
 		"proc/4242/stat": "4242 (teamchat) S 1 1 1 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 " + strconv.FormatInt(ticks, 10) + " 0 0\n",
 	})
 }
@@ -33,13 +36,25 @@ func oldKit(t *testing.T, b *box) string {
 
 func TestOldKitRemovedUnlessALiveSessionNamesIt(t *testing.T) {
 	for _, tc := range []struct {
-		name       string
-		plant      func(t *testing.T, b *box)
-		kept       bool
+		name  string
+		plant func(t *testing.T, b *box)
+		kept  bool
 	}{
 		{"no session", func(*testing.T, *box) {}, false},
-		{"live session", func(t *testing.T, b *box) { t.Helper(); sessionPID(t, b, oldDigest, 77, 77) }, true},
-		{"start time differs", func(t *testing.T, b *box) { t.Helper(); sessionPID(t, b, oldDigest, 77, 78) }, false},
+		{"live session", func(t *testing.T, b *box) { t.Helper(); sessionPID(t, b, 77) }, true},
+		{"start time differs", func(t *testing.T, b *box) { t.Helper(); sessionPID(t, b, 78) }, false},
+		{"keeper gone", func(t *testing.T, b *box) {
+			t.Helper()
+			sessionPID(t, b, 77)
+			if err := os.Remove(filepath.Join(b.dir, "proc/4242/stat")); err != nil {
+				t.Fatal(err)
+			}
+		}, false},
+		{"forged stat", func(t *testing.T, b *box) {
+			t.Helper()
+			sessionPID(t, b, 77)
+			writeTree(t, b.dir, map[string]string{"proc/4242/stat": "not a stat"})
+		}, true},
 		{"forged record", func(t *testing.T, b *box) {
 			t.Helper()
 			writeTree(t, b.dir, map[string]string{"run/teamchat-session-agent1/teamchat/run/" + runID + "/session.pid": "{not json"})

@@ -28,7 +28,7 @@ func leaving(t *testing.T) *world {
 // seatLock is the guest path of agent1's seat lock for team.
 func seatLock(t *testing.T, team string) string {
 	t.Helper()
-	u := mustUser(t, "agent1")
+	u := agent1(t)
 	l, err := paths.HomeLayout("/srv/agent1", paths.GuestRuntimeDir(u))
 	if err != nil {
 		t.Fatal(err)
@@ -74,7 +74,7 @@ func TestAbsentParksThenRemovesInOrder(t *testing.T) {
 		t.Fatalf("desired %s", w.lxc.calls[0].Stdin)
 	}
 	hasLine(t, r, "CHANGED\tt1\tagent1@c1\tparked and removed")
-	if _, found := w.record("t1").Find(mustBox(t, "c1"), mustUser(t, "agent1")); found {
+	if _, found := w.record().Find(mustBox(t, "c1"), agent1(t)); found {
 		t.Fatal("a removed member kept its entry")
 	}
 	if w.clock.sleeps != 0 {
@@ -105,7 +105,7 @@ func TestAbsentHeldSeatDeferredThenRetried(t *testing.T) {
 	if w.clock.sleeps != int(SeatFreeWait/SeatFreeGap) {
 		t.Fatalf("slept %d times", w.clock.sleeps)
 	}
-	if e := w.entry("t1", "c1"); e.Status != lxcstate.StatusLeft || e.Handle != firstHandle {
+	if e := w.entry("c1"); e.Status != lxcstate.StatusLeft || e.Handle != firstHandle {
 		t.Fatalf("entry %+v", e)
 	}
 	if slices.Contains(w.lxc.verbs(), "c1 guest remove") {
@@ -119,7 +119,7 @@ func TestAbsentHeldSeatDeferredThenRetried(t *testing.T) {
 	if len(w.roster.parks) != 0 {
 		t.Fatalf("a left member was parked again: %v", w.roster.parks)
 	}
-	if _, found := w.record("t1").Find(mustBox(t, "c1"), mustUser(t, "agent1")); found {
+	if _, found := w.record().Find(mustBox(t, "c1"), agent1(t)); found {
 		t.Fatal("the retry did not remove the member")
 	}
 }
@@ -147,7 +147,7 @@ func TestAbsentStopsWaitingWhenTheContainerStops(t *testing.T) {
 		t.Fatalf("slept %d times after the container stopped", w.clock.sleeps)
 	}
 	hasLine(t, r, "SKIPPED\tt1\tagent1@c1\toffline: container stopped; guest files pending")
-	if e := w.entry("t1", "c1"); e.Status != lxcstate.StatusLeft {
+	if e := w.entry("c1"); e.Status != lxcstate.StatusLeft {
 		t.Fatalf("entry %+v", e)
 	}
 }
@@ -161,18 +161,18 @@ func TestAbsentOfflineContainers(t *testing.T) {
 		t.Fatal(err)
 	}
 	hasLine(t, r, "CHANGED\tt1\tagent1@c1\tparked; guest files pending (offline: container stopped)")
-	if e := w.entry("t1", "c1"); e.Status != lxcstate.StatusLeft {
+	if e := w.entry("c1"); e.Status != lxcstate.StatusLeft {
 		t.Fatalf("entry %+v", e)
 	}
 	if w.clock.sleeps != 0 || len(w.lxc.calls) != 0 {
 		t.Fatalf("waited or attached for a stopped container: %d %v", w.clock.sleeps, w.lxc.verbs())
 	}
-	cp, _, err := lxcstate.ReadCopy(w.host, mustBox(t, "c1"), mustUser(t, "agent1"))
+	cp, _, err := lxcstate.ReadCopy(w.host, mustBox(t, "c1"), agent1(t))
 	if err != nil || len(cp.Seats) != 0 {
 		t.Fatalf("the host copy kept the seat: %+v %v", cp, err)
 	}
 	b.state = lxccmd.Running
-	if _, err := w.apply(PhaseAbsent); err != nil {
+	if _, err = w.apply(PhaseAbsent); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Contains(w.lxc.verbs(), "c1 guest membership") || !slices.Contains(w.lxc.verbs(), "c1 guest remove") {
@@ -186,7 +186,7 @@ func TestAbsentOfflineContainers(t *testing.T) {
 		t.Fatal(err)
 	}
 	hasLine(t, r, "CHANGED\tt1\tagent1@c1\tparked; entry dropped (offline: container missing)")
-	if _, found := w.record("t1").Find(mustBox(t, "c1"), mustUser(t, "agent1")); found {
+	if _, found := w.record().Find(mustBox(t, "c1"), agent1(t)); found {
 		t.Fatal("a missing container's member kept its entry")
 	}
 }
@@ -223,7 +223,7 @@ func TestAbsentKeepsTheUnitForAnotherTeam(t *testing.T) {
 	if len(w.bus.calls) != 0 {
 		t.Fatalf("the unit of a user still in t2 was touched: %v", w.bus.calls)
 	}
-	cp, _, err := lxcstate.ReadCopy(w.host, mustBox(t, "c1"), mustUser(t, "agent1"))
+	cp, _, err := lxcstate.ReadCopy(w.host, mustBox(t, "c1"), agent1(t))
 	if err != nil || len(cp.Seats) != 1 || cp.Seats[0].Team.String() != "t2" {
 		t.Fatalf("copy %+v %v", cp, err)
 	}

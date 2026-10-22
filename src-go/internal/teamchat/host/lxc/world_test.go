@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -44,9 +45,10 @@ func mustTeam(t *testing.T, s string) paths.TeamID {
 	return id
 }
 
-func mustUser(t *testing.T, s string) paths.GuestUser {
+// agent1 is the fixture's one guest user.
+func agent1(t *testing.T) paths.GuestUser {
 	t.Helper()
-	u, err := paths.ParseGuestUser(s)
+	u, err := paths.ParseGuestUser("agent1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,6 +115,7 @@ func newGuest(t *testing.T) string {
 // fakeRoot is a fixture guest root whose init is its own systemd, or exe when set.
 type fakeRoot struct {
 	*guestroot.Root
+
 	exe *guestroot.Info
 }
 
@@ -164,16 +167,6 @@ func (f *fakeLXC) Containers(context.Context) ([]string, error) {
 	}
 	slices.Sort(out)
 	return out, nil
-}
-
-func (f *fakeLXC) get(c string) (*box, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	b, ok := f.boxes[c]
-	if !ok {
-		return nil, fmt.Errorf("lxc-info: container %s does not exist", c)
-	}
-	return b, nil
 }
 
 func (f *fakeLXC) State(_ context.Context, c string) (lxccmd.State, error) {
@@ -242,11 +235,21 @@ func (f *fakeLXC) Guest(_ context.Context, a lxccmd.Attach, op guest.Op, args []
 	return lxccmd.GuestResult{}, nil
 }
 
+func (f *fakeLXC) get(c string) (*box, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	b, ok := f.boxes[c]
+	if !ok {
+		return nil, fmt.Errorf("lxc-info: container %s does not exist", c)
+	}
+	return b, nil
+}
+
 // verbs is each guest op run, as "<container> <verb>".
 func (f *fakeLXC) verbs() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	var out []string
+	out := make([]string, 0, len(f.calls))
 	for _, c := range f.calls {
 		out = append(out, c.Container+" "+c.Verb)
 	}
@@ -260,16 +263,20 @@ type fakeRoster struct {
 	joins   []string
 	parks   []string
 	joinErr error
-	log     *[]string
+	// membersErr and parkErr fail those calls; rename is a handle Join answers instead.
+	membersErr, parkErr error
+	rename              string
+	log                 *[]string
 }
 
 func (f *fakeRoster) Members(_ context.Context, team paths.TeamID) (map[string]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := map[string]string{}
-	for k, v := range f.roster[team] {
-		out[k] = v
+	if f.membersErr != nil {
+		return nil, f.membersErr
 	}
+	out := map[string]string{}
+	maps.Copy(out, f.roster[team])
 	return out, nil
 }
 
@@ -287,6 +294,9 @@ func (f *fakeRoster) Join(_ context.Context, team paths.TeamID, j Join) (Joined,
 		}
 		handle = h.String()
 	}
+	if f.rename != "" {
+		handle = f.rename
+	}
 	f.joins = append(f.joins, j.Op+" "+handle)
 	if f.roster[team] == nil {
 		f.roster[team] = map[string]string{}
@@ -299,10 +309,17 @@ func (f *fakeRoster) Join(_ context.Context, team paths.TeamID, j Join) (Joined,
 func (f *fakeRoster) Park(_ context.Context, team paths.TeamID, handle string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.parkErr != nil {
+		return f.parkErr
+	}
 	f.parks = append(f.parks, team.String()+" "+handle)
 	f.roster[team][handle] = apply.MemberParked
 	f.note("park " + handle)
 	return nil
+}
+
+func (f *fakeRoster) Reach(_ context.Context, team paths.TeamID) ([]byte, error) {
+	return []byte(`{"v":1,"team":"` + team.String() + `"}`), nil
 }
 
 func (f *fakeRoster) note(s string) {
@@ -311,30 +328,12 @@ func (f *fakeRoster) note(s string) {
 	}
 }
 
-func (f *fakeRoster) Reach(_ context.Context, team paths.TeamID) ([]byte, error) {
-	return []byte(`{"v":1,"team":"` + team.String() + `"}`), nil
-}
-
 // fakeBus is the guest's systemd, recording its calls.
 type fakeBus struct {
 	mu    sync.Mutex
 	calls []string
 	err   error
 	log   *[]string
-}
-
-func (b *fakeBus) call(name string, u paths.GuestUser) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	s := name
-	if u.String() != "" {
-		s += " " + u.String()
-	}
-	b.calls = append(b.calls, s)
-	if b.log != nil {
-		*b.log = append(*b.log, "systemd "+s)
-	}
-	return b.err
 }
 
 func (b *fakeBus) Reload(context.Context) error { return b.call("Reload", paths.GuestUser{}) }
@@ -350,6 +349,20 @@ func (b *fakeBus) ResetFailed(_ context.Context, u paths.GuestUser) error {
 }
 
 func (b *fakeBus) Close() error { return nil }
+
+func (b *fakeBus) call(name string, u paths.GuestUser) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	s := name
+	if u.String() != "" {
+		s += " " + u.String()
+	}
+	b.calls = append(b.calls, s)
+	if b.log != nil {
+		*b.log = append(*b.log, "systemd "+s)
+	}
+	return b.err
+}
 
 var _ guestbus.Systemd = (*fakeBus)(nil)
 
@@ -395,20 +408,20 @@ func (v *fakeV1) Holds(context.Context, Root, paths.GuestUser, paths.TeamID) (bo
 
 // world is one host, its containers and the child, from which Deps is built.
 type world struct {
-	t          *testing.T
-	host       string
-	lxc        *fakeLXC
-	roster     *fakeRoster
-	bus        *fakeBus
-	clock      *fakeClock
-	v1         *fakeV1
-	origin     string
-	decl       declare.Declaration
-	approvals  fakeApprovals
-	refresh    []string
-	log        []string
-	busErr     error
-	members    []Target
+	t         *testing.T
+	host      string
+	lxc       *fakeLXC
+	roster    *fakeRoster
+	bus       *fakeBus
+	clock     *fakeClock
+	v1        *fakeV1
+	origin    string
+	decl      declare.Declaration
+	approvals fakeApprovals
+	refresh   []string
+	log       []string
+	busErr    error
+	members   []Target
 }
 
 func newWorld(t *testing.T) *world {
@@ -454,7 +467,7 @@ func (w *world) team(id string) declare.Team {
 // member declares agent1 of container c in team, present, with its service on.
 func (w *world) member(team, c string) declare.LXCMember {
 	return declare.LXCMember{
-		Team: mustTeam(w.t, team), Container: c, User: mustUser(w.t, "agent1"), Checkout: checkout,
+		Team: mustTeam(w.t, team), Container: c, User: agent1(w.t), Checkout: checkout,
 		Service: true, State: declare.StatePresent,
 	}
 }
@@ -520,27 +533,29 @@ func (w *world) apply(phase Phase, only ...string) (Report, error) {
 	return Apply(context.Background(), w.deps(), req)
 }
 
-func (w *world) record(team string) lxcstate.Record {
+// record is team t1's record.
+func (w *world) record() lxcstate.Record {
 	w.t.Helper()
-	r, _, err := lxcstate.ReadRecord(w.host, mustTeam(w.t, team))
+	r, _, err := lxcstate.ReadRecord(w.host, mustTeam(w.t, "t1"))
 	if err != nil {
 		w.t.Fatal(err)
 	}
 	return r
 }
 
-func (w *world) entry(team, c string) lxcstate.Entry {
+// entry is the record entry of agent1 in c, in team t1.
+func (w *world) entry(c string) lxcstate.Entry {
 	w.t.Helper()
-	e, ok := w.record(team).Find(mustBox(w.t, c), mustUser(w.t, "agent1"))
+	e, ok := w.record().Find(mustBox(w.t, c), agent1(w.t))
 	if !ok {
-		w.t.Fatalf("no record entry for %s in %s", c, team)
+		w.t.Fatalf("no record entry for %s in t1", c)
 	}
 	return e
 }
 
 // lines is the report's lines as text.
 func lines(r Report) []string {
-	var out []string
+	out := make([]string, 0, len(r.Lines))
 	for _, l := range r.Lines {
 		out = append(out, l.String())
 	}

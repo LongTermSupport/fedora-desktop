@@ -41,11 +41,11 @@ type kitEntry struct {
 	data []byte
 }
 
-// hostFault is an error of the host's own, which fails the phase rather than a member.
-type hostFault struct{ err error }
+// hostFaultError is an error of the host's own, which fails the phase rather than a member.
+type hostFaultError struct{ err error }
 
-func (e *hostFault) Error() string { return e.err.Error() }
-func (e *hostFault) Unwrap() error { return e.err }
+func (e *hostFaultError) Error() string { return e.err.Error() }
+func (e *hostFaultError) Unwrap() error { return e.err }
 
 // readHostKit walks the host kit at dir by an os.Root (no link followed), each file read by the
 // host's trust read; a link, a device or anything else, a tree over kitDepth or over kitBytes,
@@ -122,7 +122,7 @@ func (r *run) placeKit(ctx context.Context, g *guestBox) bool {
 	if err == nil {
 		return true
 	}
-	if hf, ok := errors.AsType[*hostFault](err); ok {
+	if hf, ok := errors.AsType[*hostFaultError](err); ok {
 		r.errs = append(r.errs, &host.Error{Verb: verb, Step: "kit", Err: hf.err})
 		return false
 	}
@@ -143,16 +143,16 @@ func (r *run) guestKit(g *guestBox) error {
 		}
 	case errors.Is(err, fs.ErrNotExist):
 		if r.kit == nil {
-			kit, err := readHostKit(r.d.HostKit)
-			if err != nil {
-				return &hostFault{err}
+			kit, readErr := readHostKit(r.d.HostKit)
+			if readErr != nil {
+				return &hostFaultError{readErr}
 			}
 			r.kit = kit
 		}
-		if _, err := w.MkdirAll(paths.HostKitRoot); err != nil {
+		if _, err = w.MkdirAll(paths.HostKitRoot); err != nil {
 			return fmt.Errorf("kit: %w", err)
 		}
-		if _, err := w.PlaceDir(paths.HostKitRoot, digest, r.kit.fill); err != nil {
+		if _, err = w.PlaceDir(paths.HostKitRoot, digest, r.kit.fill); err != nil {
 			return fmt.Errorf("kit: %w", err)
 		}
 	default:
@@ -238,6 +238,9 @@ func isRunID(s string) bool {
 	return err == nil
 }
 
+// errKeepAll is a run record that cannot be read for sure: every digest is kept.
+var errKeepAll = errors.New("a run record cannot be read for sure")
+
 func runsOf(root Root, parent string, live map[string]bool) (bool, error) {
 	runs, found, err := root.ReadDir(parent, isRunID, maxRuns)
 	if refused(err) {
@@ -247,36 +250,44 @@ func runsOf(root Root, parent string, live map[string]bool) (bool, error) {
 		return false, err
 	}
 	for _, run := range runs {
-		data, _, found, err := root.ReadFile(parent+"/"+run+"/session.pid", memberstate.MaxSessionPID)
-		switch {
-		case refused(err):
+		err = sessionRun(root, parent+"/"+run, live)
+		if errors.Is(err, errKeepAll) {
 			return true, nil
-		case err != nil:
+		}
+		if err != nil {
 			return false, err
-		case !found:
-			continue
-		}
-		sp, err := memberstate.DecodeSessionPID(data)
-		if err != nil {
-			return true, nil
-		}
-		stat, found, err := root.ReadProcStat(sp.Keeper.PID)
-		if err != nil || !found {
-			if refused(err) {
-				return true, nil
-			}
-			if err != nil {
-				return false, err
-			}
-			continue
-		}
-		ticks, err := guestfacts.StartTicks(stat)
-		if err != nil {
-			return true, nil
-		}
-		if ticks == sp.Keeper.StartTicks {
-			live[sp.Kit.String()] = true
 		}
 	}
 	return false, nil
+}
+
+// sessionRun marks the digest one run's session.pid names as live when its keeper is still the
+// recorded process. A record that is refused or does not decode is errKeepAll.
+func sessionRun(root Root, dir string, live map[string]bool) error {
+	data, _, found, err := root.ReadFile(dir+"/session.pid", memberstate.MaxSessionPID)
+	if refused(err) {
+		return errKeepAll
+	}
+	if err != nil || !found {
+		return err
+	}
+	sp, err := memberstate.DecodeSessionPID(data)
+	if err != nil {
+		return fmt.Errorf("%w: %w", errKeepAll, err)
+	}
+	stat, found, err := root.ReadProcStat(sp.Keeper.PID)
+	if refused(err) {
+		return errKeepAll
+	}
+	if err != nil || !found {
+		return err
+	}
+	ticks, err := guestfacts.StartTicks(stat)
+	if err != nil {
+		return fmt.Errorf("%w: %w", errKeepAll, err)
+	}
+	if ticks == sp.Keeper.StartTicks {
+		live[sp.Kit.String()] = true
+	}
+	return nil
 }

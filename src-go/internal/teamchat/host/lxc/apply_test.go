@@ -61,14 +61,24 @@ func TestPresentPlacesAndJoins(t *testing.T) {
 	if !slices.Equal(w.roster.joins, []string{"member.add " + firstHandle}) {
 		t.Fatalf("joins %v", w.roster.joins)
 	}
-	e := w.entry("t1", "c1")
+	e := w.entry("c1")
 	if e.Status != lxcstate.StatusJoined || e.Handle != firstHandle {
 		t.Fatalf("entry %+v", e)
 	}
-	cp, found, err := lxcstate.ReadCopy(w.host, mustBox(t, "c1"), mustUser(t, "agent1"))
+	cp, found, err := lxcstate.ReadCopy(w.host, mustBox(t, "c1"), agent1(t))
 	if err != nil || !found || cp.Generation != 1 || len(cp.Seats) != 1 {
 		t.Fatalf("copy %+v %v %v", cp, found, err)
 	}
+	placedKit(t, b)
+	placedUnit(t, w, b)
+	if !slices.Equal(w.refresh, []string{"t1"}) {
+		t.Fatalf("refresh %v", w.refresh)
+	}
+}
+
+// placedKit checks the kit, its current link and the member binary's link in b.
+func placedKit(t *testing.T, b *box) {
+	t.Helper()
 	kit := filepath.Join(b.dir, paths.HostKitRoot, kitDigest)
 	info, err := os.Stat(filepath.Join(kit, "bin/teamchat"))
 	if err != nil || info.Mode().Perm() != 0o755 {
@@ -83,7 +93,12 @@ func TestPresentPlacesAndJoins(t *testing.T) {
 	if target, err := os.Readlink(filepath.Join(b.dir, paths.MemberBinaryPath)); err != nil || target != paths.HostKitCurrent().Binary() {
 		t.Fatalf("bin link %q %v", target, err)
 	}
-	u := mustUser(t, "agent1")
+}
+
+// placedUnit checks agent1's unit file and wants link in b, and the systemd calls.
+func placedUnit(t *testing.T, w *world, b *box) {
+	t.Helper()
+	u := agent1(t)
 	if text, ok := guestFile(t, b, paths.GuestUnitFile(u)); !ok || !strings.Contains(text, "Group=agents") {
 		t.Fatalf("unit %q", text)
 	}
@@ -92,9 +107,6 @@ func TestPresentPlacesAndJoins(t *testing.T) {
 	}
 	if !slices.Equal(w.bus.calls, []string{"Reload", "Start agent1"}) {
 		t.Fatalf("systemd %v", w.bus.calls)
-	}
-	if !slices.Equal(w.refresh, []string{"t1"}) {
-		t.Fatalf("refresh %v", w.refresh)
 	}
 }
 
@@ -132,7 +144,7 @@ func TestOfflineContainersNeverFailTheTeam(t *testing.T) {
 	hasLine(t, r, "DEFERRED\tt1\tagent1@c3\toffline: container missing")
 	hasLine(t, r, "DEFERRED\tt1\tagent1@c4\toffline: container stopped")
 	for _, c := range []string{"c2", "c3", "c4"} {
-		if e := w.entry("t1", c); e.Status != lxcstate.StatusOffline || e.Handle != "" {
+		if e := w.entry(c); e.Status != lxcstate.StatusOffline || e.Handle != "" {
 			t.Fatalf("%s entry %+v", c, e)
 		}
 	}
@@ -155,7 +167,7 @@ func TestOfflineWithHandleIsSkipped(t *testing.T) {
 		t.Fatal(err)
 	}
 	hasLine(t, r, "SKIPPED\tt1\tagent1@c1\toffline: container stopped")
-	if e := w.entry("t1", "c1"); e.Status != lxcstate.StatusOffline || e.Handle != firstHandle {
+	if e := w.entry("c1"); e.Status != lxcstate.StatusOffline || e.Handle != firstHandle {
 		t.Fatalf("entry %+v", e)
 	}
 	b.state = lxccmd.Running
@@ -166,7 +178,7 @@ func TestOfflineWithHandleIsSkipped(t *testing.T) {
 	if len(w.roster.joins) != 0 {
 		t.Fatalf("a running, joined member was joined again: %v", w.roster.joins)
 	}
-	if e := w.entry("t1", "c1"); e.Status != lxcstate.StatusJoined {
+	if e := w.entry("c1"); e.Status != lxcstate.StatusJoined {
 		t.Fatalf("entry %+v lines %v", e, lines(r))
 	}
 }
@@ -176,7 +188,7 @@ func TestMemberTargetOfflineIs69(t *testing.T) {
 	w.addBox("c1")
 	w.addBox("c2").state = lxccmd.Stopped
 	w.declare([]string{"t1"}, w.member("t1", "c1"), w.member("t1", "c2"))
-	w.members = []Target{{Container: mustBox(t, "c2"), User: mustUser(t, "agent1")}}
+	w.members = []Target{{Container: mustBox(t, "c2"), User: agent1(t)}}
 	_, err := w.apply(PhasePresent)
 	off, ok := errors.AsType[*OfflineError](err)
 	if !ok || off.Container.String() != "c2" || !strings.Contains(err.Error(), "lxc-start") {
@@ -192,7 +204,7 @@ func TestMemberTargetScopesThePhase(t *testing.T) {
 	w.addBox("c1")
 	w.addBox("c2")
 	w.declare([]string{"t1"}, w.member("t1", "c1"), w.member("t1", "c2"))
-	w.members = []Target{{Container: mustBox(t, "c2"), User: mustUser(t, "agent1")}}
+	w.members = []Target{{Container: mustBox(t, "c2"), User: agent1(t)}}
 	if _, err := w.apply(PhasePresent); err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +213,7 @@ func TestMemberTargetScopesThePhase(t *testing.T) {
 			t.Fatalf("scoped to c2, ran %v", v)
 		}
 	}
-	w.members = []Target{{Container: mustBox(t, "c9"), User: mustUser(t, "agent1")}}
+	w.members = []Target{{Container: mustBox(t, "c9"), User: agent1(t)}}
 	if _, err := w.apply(PhasePresent); err == nil {
 		t.Fatal("a --member no entry declares was accepted")
 	}
@@ -299,7 +311,7 @@ func TestRunningWrongFactsFailThatMemberAlone(t *testing.T) {
 					t.Fatalf("a refused member was attached to: %v", v)
 				}
 			}
-			if _, found := w.record("t1").Find(mustBox(t, "c2"), mustUser(t, "agent1")); found {
+			if _, found := w.record().Find(mustBox(t, "c2"), agent1(t)); found {
 				t.Fatal("a refused member was recorded")
 			}
 		})
@@ -379,18 +391,25 @@ func TestGuestCheckExits(t *testing.T) {
 				return nil
 			}
 			r, err := w.apply(PhasePresent)
-			if (err != nil) != tc.fails {
-				t.Fatalf("err %v", err)
-			}
-			if tc.fails {
-				if herr, ok := errors.AsType[*host.Error](err); !ok || herr.Step != "guest check" || herr.Drift {
-					t.Fatalf("err %#v", err)
-				}
-			} else {
-				hasLine(t, r, tc.line)
-			}
+			guestCheckOutcome(t, r, err, tc.fails, tc.line)
 			hasLine(t, r, "CHANGED\tt1\tagent1@c1\tjoined as "+firstHandle)
 		})
+	}
+}
+
+// guestCheckOutcome checks that a failing guest check failed its member as a guest check
+// error, or else printed line.
+func guestCheckOutcome(t *testing.T, r Report, err error, fails bool, line string) {
+	t.Helper()
+	if (err != nil) != fails {
+		t.Fatalf("err %v", err)
+	}
+	if !fails {
+		hasLine(t, r, line)
+		return
+	}
+	if herr, ok := errors.AsType[*host.Error](err); !ok || herr.Step != "guest check" || herr.Drift {
+		t.Fatalf("err %#v", err)
 	}
 }
 
@@ -409,10 +428,10 @@ func TestPlaceBundleHeldSeatIsDeferredThenReissued(t *testing.T) {
 		t.Fatal(err)
 	}
 	hasLine(t, r, "DEFERRED\tt1\tagent1@c1\tseat held; the new identity is placed at the next apply")
-	if e := w.entry("t1", "c1"); e.Status != lxcstate.StatusDeferred || e.Handle != firstHandle {
+	if e := w.entry("c1"); e.Status != lxcstate.StatusDeferred || e.Handle != firstHandle {
 		t.Fatalf("entry %+v", e)
 	}
-	cp, _, err := lxcstate.ReadCopy(w.host, mustBox(t, "c1"), mustUser(t, "agent1"))
+	cp, _, err := lxcstate.ReadCopy(w.host, mustBox(t, "c1"), agent1(t))
 	if err != nil || len(cp.Seats) != 0 {
 		t.Fatalf("a deferred seat reached the copy: %+v %v", cp, err)
 	}
@@ -424,7 +443,7 @@ func TestPlaceBundleHeldSeatIsDeferredThenReissued(t *testing.T) {
 	if !slices.Equal(w.roster.joins, []string{"member.reissue " + firstHandle}) {
 		t.Fatalf("joins %v", w.roster.joins)
 	}
-	if e := w.entry("t1", "c1"); e.Status != lxcstate.StatusJoined {
+	if e := w.entry("c1"); e.Status != lxcstate.StatusJoined {
 		t.Fatalf("entry %+v", e)
 	}
 }
@@ -449,7 +468,7 @@ func TestStopAfterJoinThenReissueOnce(t *testing.T) {
 	if _, err := w.apply(PhasePresent); err != nil {
 		t.Fatal(err)
 	}
-	if e := w.entry("t1", "c1"); e.Status != lxcstate.StatusOffline || e.Why != "offline: bundle not placed" {
+	if e := w.entry("c1"); e.Status != lxcstate.StatusOffline || e.Why != "offline: bundle not placed" {
 		t.Fatalf("a still-stopped container lost its pending reissue: %+v", e)
 	}
 	b.state = lxccmd.Running
@@ -526,7 +545,7 @@ func TestOtherTeamsSeatsKeptOutsideOnlyTeams(t *testing.T) {
 	if _, err := w.apply(PhasePresent, "t2"); err != nil {
 		t.Fatal(err)
 	}
-	cp, _, err := lxcstate.ReadCopy(w.host, mustBox(t, "c1"), mustUser(t, "agent1"))
+	cp, _, err := lxcstate.ReadCopy(w.host, mustBox(t, "c1"), agent1(t))
 	if err != nil || len(cp.Seats) != 2 {
 		t.Fatalf("copy %+v %v", cp, err)
 	}
@@ -540,7 +559,7 @@ func TestOtherTeamsSeatsKeptOutsideOnlyTeams(t *testing.T) {
 func TestUnitChangedRestartsAndServiceOffRemoves(t *testing.T) {
 	w := placed(t)
 	b := w.lxc.boxes["c1"]
-	u := mustUser(t, "agent1")
+	u := agent1(t)
 	writeTree(t, b.dir, map[string]string{paths.GuestUnitFile(u)[1:]: "old text"})
 	if _, err := w.apply(PhasePresent); err != nil {
 		t.Fatal(err)
@@ -580,10 +599,10 @@ func TestUnitRefusedIsOffline(t *testing.T) {
 		t.Fatal(err)
 	}
 	hasLine(t, r, "SKIPPED\tt1\tagent1@c1\toffline: unit down; ccy-teams restart starts it")
-	if e := w.entry("t1", "c1"); e.Status != lxcstate.StatusOffline || e.Handle != firstHandle {
+	if e := w.entry("c1"); e.Status != lxcstate.StatusOffline || e.Handle != firstHandle {
 		t.Fatalf("entry %+v", e)
 	}
-	cp, _, err := lxcstate.ReadCopy(w.host, mustBox(t, "c1"), mustUser(t, "agent1"))
+	cp, _, err := lxcstate.ReadCopy(w.host, mustBox(t, "c1"), agent1(t))
 	if err != nil || len(cp.Seats) != 1 {
 		t.Fatalf("a unit deferral dropped the seat: %+v %v", cp, err)
 	}
@@ -602,8 +621,8 @@ func TestBusyTeamLockIs75(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		if err := held.Release(); err != nil {
-			t.Error(err)
+		if releaseErr := held.Release(); releaseErr != nil {
+			t.Error(releaseErr)
 		}
 	}()
 	d := w.deps()

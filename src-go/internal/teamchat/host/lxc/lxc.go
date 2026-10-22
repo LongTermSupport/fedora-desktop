@@ -30,6 +30,7 @@ import (
 // Phase is which half of the play's LXC work a run is (C 3.9.2).
 type Phase string
 
+// The two phases of a run (C 3.9.2).
 const (
 	PhaseAbsent  Phase = "absent"
 	PhasePresent Phase = "present"
@@ -53,6 +54,7 @@ type Request struct {
 // LineKind is an output line's first field (C 3.9.3).
 type LineKind string
 
+// The kinds of output line (C 3.9.3).
 const (
 	Changed  LineKind = "CHANGED"
 	Skipped  LineKind = "SKIPPED"
@@ -163,11 +165,11 @@ type Deps struct {
 	Approvals declare.Approvals
 	Origin    func(ctx context.Context, team paths.TeamID) (string, error) // the stamp's origin
 	V1        V1Holdback
-	Kit       paths.Digest  // the host kit's digest (n3-D26)
-	HostKit   string        // the host kit directory, walked by the host's trust reads
-	HostUIDs  map[int]bool  // every uid of the host's passwd (n3-D29)
-	OwnerGID  int           // the LXC record's group
-	Bridge    string        // wire.Bridge
+	Kit       paths.Digest                                       // the host kit's digest (n3-D26)
+	HostKit   string                                             // the host kit directory, walked by the host's trust reads
+	HostUIDs  map[int]bool                                       // every uid of the host's passwd (n3-D29)
+	OwnerGID  int                                                // the LXC record's group
+	Bridge    string                                             // wire.Bridge
 	Refresh   func(ctx context.Context, team paths.TeamID) error // the status record, after a change
 }
 

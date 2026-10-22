@@ -7,7 +7,7 @@ import (
 )
 
 func TestLineString(t *testing.T) {
-	l := Line{Kind: Deferred, Team: mustTeam(t, "t1"), User: mustUser(t, "agent1"), Container: mustBox(t, "c1"), Why: "seat held"}
+	l := Line{Kind: Deferred, Team: mustTeam(t, "t1"), User: agent1(t), Container: mustBox(t, "c1"), Why: "seat held"}
 	if got := l.String(); got != "DEFERRED\tt1\tagent1@c1\tseat held" {
 		t.Fatalf("line %q", got)
 	}

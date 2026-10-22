@@ -76,8 +76,8 @@ func (r *run) undeclared() {
 				continue
 			}
 			r.members = append(r.members, &member{
-				decl:  declare.LXCMember{Team: t.ID, Container: e.Container.String(), User: e.User, State: declare.StateAbsent},
-				team:  t, box: e.Container, prior: e, handle: e.Handle, target: r.req.Members != nil,
+				decl: declare.LXCMember{Team: t.ID, Container: e.Container.String(), User: e.User, State: declare.StateAbsent},
+				team: t, box: e.Container, prior: e, handle: e.Handle, target: r.req.Members != nil,
 			})
 		}
 	}
@@ -127,16 +127,16 @@ func (r *run) leave(ctx context.Context, m *member) {
 func (r *run) dropSeat(m *member) error {
 	h, ok := proto.ParseHandle(m.handle)
 	if !ok {
-		return &host.Error{Verb: verb, Step: "membership", Err: fmt.Errorf("the record's handle for %s@%s is not a handle", m.decl.User, m.box)}
+		return &host.Error{Verb: verb, Step: stepMembership, Err: fmt.Errorf("the record's handle for %s@%s is not a handle", m.decl.User, m.box)}
 	}
 	cp, _, err := lxcstate.ReadCopy(r.d.Root, m.box, m.decl.User)
 	if err != nil {
-		return &host.Error{Verb: verb, Step: "membership", Err: err}
+		return &host.Error{Verb: verb, Step: stepMembership, Err: err}
 	}
 	next, changed := cp.Next(without(cp, m.team.ID, h.Seat))
 	if changed {
 		if err := lxcstate.WriteCopy(r.d.Root, m.box, m.decl.User, next); err != nil {
-			return &host.Error{Verb: verb, Step: "membership", Err: err}
+			return &host.Error{Verb: verb, Step: stepMembership, Err: err}
 		}
 	}
 	return nil
@@ -226,7 +226,7 @@ func (r *run) leaveGuest(ctx context.Context, g *guestBox, m *member, parked boo
 		}
 	}
 	if err != nil {
-		r.leaveFailed(ctx, g, m, "membership", err)
+		r.leaveFailed(ctx, g, m, stepMembership, err)
 		return
 	}
 	held, run, stopped := r.waitFree(ctx, g, m)

@@ -1,6 +1,7 @@
 package lxc
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -41,8 +42,11 @@ const (
 	whyCheck         = "offline: guest check "
 )
 
-// stepValidate is step 01's name in an error.
-const stepValidate = "validate"
+// The steps an error names: step 01, and the membership change a join or a leave makes.
+const (
+	stepValidate   = "validate"
+	stepMembership = "membership"
+)
 
 // The guest files the reads take (C 3.9.2 step 03).
 const (
@@ -379,7 +383,7 @@ func (r *run) containers(ctx context.Context) bool {
 		r.errs = append(r.errs, &host.Error{Verb: verb, Step: "state", Err: err})
 		return false
 	}
-	slices.SortFunc(r.boxes, func(a, b *guestBox) int { return compare(a.name.String(), b.name.String()) })
+	slices.SortFunc(r.boxes, func(a, b *guestBox) int { return cmp.Compare(a.name.String(), b.name.String()) })
 	for _, g := range r.boxes {
 		why := ""
 		if !slices.Contains(names, g.name.String()) {
@@ -397,16 +401,6 @@ func (r *run) containers(ctx context.Context) bool {
 	return true
 }
 
-func compare(a, b string) int {
-	switch {
-	case a < b:
-		return -1
-	case a > b:
-		return 1
-	}
-	return 0
-}
-
 // users is the box's guest users, in order.
 func users(g *guestBox) []paths.GuestUser {
 	var out []paths.GuestUser
@@ -415,7 +409,7 @@ func users(g *guestBox) []paths.GuestUser {
 			out = append(out, m.decl.User)
 		}
 	}
-	slices.SortFunc(out, func(a, b paths.GuestUser) int { return compare(a.String(), b.String()) })
+	slices.SortFunc(out, func(a, b paths.GuestUser) int { return cmp.Compare(a.String(), b.String()) })
 	return out
 }
 
@@ -520,7 +514,7 @@ func (r *run) facts(g *guestBox, m *member, passwd []byte, addrs []netip.Addr) e
 	}
 	m.acct = acct
 	if m.decl.Service {
-		if err := r.service(g, m); err != nil {
+		if err = r.service(g, m); err != nil {
 			return err
 		}
 	}
@@ -572,7 +566,7 @@ func (r *run) service(g *guestBox, m *member) error {
 	if err != nil || sd.Dev != exe.Dev || sd.Ino != exe.Ino {
 		return fmt.Errorf("%w: the container's init is not %s; the container's own play owns its config", guestfacts.ErrRefused, guestSystemd)
 	}
-	if err := tmux(g.root); err != nil {
+	if err = tmux(g.root); err != nil {
 		return err
 	}
 	group, err := readGuest(g.root, guestGroup, guestfacts.MaxPasswd)
@@ -667,8 +661,8 @@ func (r *run) joins(ctx context.Context, team paths.TeamID) error {
 		return &host.Error{Verb: verb, Step: host.StepLock, Err: err}
 	}
 	defer func() {
-		if err := lock.Release(); err != nil {
-			r.errs = append(r.errs, err)
+		if releaseErr := lock.Release(); releaseErr != nil {
+			r.errs = append(r.errs, releaseErr)
 		}
 	}()
 	roster, err := r.d.Roster.Members(ctx, team)
@@ -789,13 +783,13 @@ func (r *run) membership(ctx context.Context, g *guestBox, u paths.GuestUser) {
 	}
 	cp, _, err := lxcstate.ReadCopy(r.d.Root, g.name, u)
 	if err != nil {
-		r.failAll(active, "membership", err)
+		r.failAll(active, stepMembership, err)
 		return
 	}
 	next, changed := cp.Next(seats(cp, ms), nil)
 	if changed {
 		if err := lxcstate.WriteCopy(r.d.Root, g.name, u, next); err != nil {
-			r.failAll(active, "membership", err)
+			r.failAll(active, stepMembership, err)
 			return
 		}
 	}
@@ -903,14 +897,14 @@ func (r *run) placeUnit(ctx context.Context, g *guestBox, m *member) error {
 		return err
 	}
 	w := g.root.Writer()
-	if _, err := w.MkdirAll(path.Dir(file)); err != nil {
+	if _, err = w.MkdirAll(path.Dir(file)); err != nil {
 		return err
 	}
 	wrote, err := w.WriteFile(path.Dir(file), path.Base(file), text, 0o644)
 	if err != nil {
 		return err
 	}
-	if _, err := w.MkdirAll(path.Dir(link)); err != nil {
+	if _, err = w.MkdirAll(path.Dir(link)); err != nil {
 		return err
 	}
 	linked, err := w.Symlink(path.Dir(link), path.Base(link), file)
@@ -923,8 +917,8 @@ func (r *run) placeUnit(ctx context.Context, g *guestBox, m *member) error {
 		how, start = "unit restarted", guestbus.Systemd.Restart
 	}
 	err = r.systemd(ctx, g, func(s guestbus.Systemd) error {
-		if err := s.Reload(ctx); err != nil {
-			return err
+		if reloadErr := s.Reload(ctx); reloadErr != nil {
+			return reloadErr
 		}
 		return start(s, ctx, u)
 	})

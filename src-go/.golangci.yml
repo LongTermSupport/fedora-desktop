@@ -122,6 +122,11 @@ linters:
       - path: internal/teamchat/host/lxc/guestroot/.*_test\.go
         linters: [gosec]
         text: "G301|G302|G306"
+      # The lxc phase tests build fixture guest trees with the modes a real guest has, read
+      # back the files the phases wrote by fixture path, and name fixture seat handles.
+      - path: internal/teamchat/host/lxc/[a-z_]+_test\.go
+        linters: [gosec]
+        text: "G101|G301|G302|G304|G306"
       # The QA module cannot import execx (it is a separate module), so its process runner is
       # its own one process seam, for the same reason.
       - path: qa/internal/proc/proc\.go
