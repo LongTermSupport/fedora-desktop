@@ -1113,6 +1113,9 @@ Rules:
   link's shared functions) minimal and in their own hunks, and only in the files your section owns.
 - Where your part meets n3d, use the fake section 2.3 names; if n3d has merged, use its code and
   say so.
+- n3d adds two methods to team.Engine. Any fake team.Engine (or other team interface) your
+  tests define must embed the interface (`type fakeEngine struct{ team.Engine; ... }`), so a
+  method added later does not break it to compile.
 - The offline rule: an offline member or an unreachable server is shown, never blocks; the
   status line and the hooks always exit 0. Your part carries a test with one team stopped beside
   a running one.
