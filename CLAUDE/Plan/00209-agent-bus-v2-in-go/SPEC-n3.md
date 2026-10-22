@@ -288,8 +288,8 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
   that fails, is followed by `lxc-info -sH`: a container no longer running is that entry's
   `DEFERRED` (OF1), the other entries carry on; only a failure in a container still running
   fails the phase. An entry deferred mid-phase (here or by LX3) takes no further step. A handle
-  its step 06 join already made is recorded by C 3.9.3's split (a known handle on a container
-  not running is `SKIPPED`, status `stopped`, never a second `add`); when its bundle was not
+  its step 06 join already made is recorded `offline`, as a known handle on a container not
+  running is (C 3.9.3), never a second `add`, while its output line stays the `DEFERRED`; when its bundle was not
   placed (a deferral before step 07 completed), the roster member is marked `needs: reissue`
   (C 3.6.1, shown on the board), and step 06 of the first apply that finds the container
   running runs `member reissue` for that need. An entry deferred before step 08 is left out of

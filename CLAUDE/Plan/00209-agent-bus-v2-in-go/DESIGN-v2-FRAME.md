@@ -118,8 +118,8 @@ is the member reporting itself, not one member blocking another.
   not posted yet) carries `member` and is shown on that member's row, never as the team's
   (`SPEC-n2e.md` SR1, HT6), and so is a coordinator still only invited (VW5). A team reader
   judges the team by `status.View.TeamProblems()` alone.
-- `lxc apply`'s `SKIPPED` and `DEFERRED` lines and the LXC record's `stopped`, `deferred`,
-  `missing` and `left` (C 3.9.3, `SPEC-n3.md` LX2 and LX9).
+- `lxc apply`'s `SKIPPED` and `DEFERRED` lines and the LXC record's `offline` (a stopped,
+  frozen or missing container), `deferred` and `left` (C 3.9.3, `SPEC-n3.md` LX2 and LX9).
 - In the rooms: the one `disconnected` and the `back` that follows it (A 7.4), and Matrix
   presence, which is display only (A 6.6).
 
