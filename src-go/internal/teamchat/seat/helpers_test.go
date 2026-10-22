@@ -57,11 +57,17 @@ func mustSecret(t *testing.T, s string) Secret {
 // testBundle is a pool seat.json for the test handle, its member URL on loopback.
 func testBundle(t *testing.T) Bundle {
 	t.Helper()
+	return bundleAt(t, testBase)
+}
+
+// bundleAt is the test handle's pool seat.json with its member URL at base.
+func bundleAt(t *testing.T, base string) Bundle {
+	t.Helper()
 	team := mustTeam(t)
 	server := paths.ServerName(team)
 	return Bundle{
 		V: 1, Team: team, ServerName: server, UserID: "@" + testHandle + ":" + server,
-		AdminID: "@admin:" + server, MainRoom: testRoom, BaseURL: testBase,
+		AdminID: "@admin:" + server, MainRoom: testRoom, BaseURL: base,
 		PlainHTTPHosts: []string{loopback}, DeviceID: paths.SeatDevice, IssuedMS: testIssuedMS,
 		Issuer: mustDigest(t),
 	}
