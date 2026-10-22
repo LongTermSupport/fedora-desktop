@@ -4,8 +4,9 @@
 n3e-13) give each part's packages, files, API and tests in a compact form; section 16 carries
 B27 and the offline rule in full; section 17 lists the decisions; section 18 is the common rules
 text. Review round 1 was FIX-FIRST (4 major, 6 medium, 9 low); section 15a answers every major
-and medium and overrides the sections above it. Left: review round 2, and expanding sections
-7-15's digested facts if that review asks for it.
+and medium and overrides the sections above it. Round 2 was FIX-FIRST (1 major, 3 medium, 4
+low); section 15b answers those and overrides 15a. The two rounds allowed are spent, so 15b is
+not re-reviewed: the lead decides whether a third look is needed.
 
 Design only; no code is written here. n3e is SPEC-n3.md section 6 (DV1-DV6, HK1-HK3, SL1, PK1,
 PK2, PT1), with B27 in full (Plan 00217's team colours and short member name), the owner's
@@ -1002,6 +1003,34 @@ reason). A builder reads this section with its own.
   n3e-6 keeps the engine loop and the link hunk. n3e-6's API for `deliver` is unchanged.
 - The review's low findings are wording and test-list points; each part's builder applies the
   one for its part from the review report.
+
+## 15b. Corrections from the brief review (round 2)
+
+These override 15a where they differ (`261022-n3e-brief-review-2.md`).
+
+- **The delivery budget is built (major).** 15a's `rate` count is wrong: `rate` is the receive
+  limit, which refuses human messages too. B 2.7.3's budget (A 11.1 `deliver_per_sender`: an
+  agent sender's PEER, PING and member-sent NOTICE items admitted at most 10 per team per rolling
+  600 s, `proto.DeliveryWindowMs`; HUMAN, TIMEOUT and admin items never held back) is built nowhere.
+  n3e-7 builds it in teamsync, applied as an item would enter `pending` (in the batch's admission
+  step), a window per (team, sender) in memory; an item over it never enters `pending` and adds
+  one to `Batch.HeldBack[sender]`. Tests: T19's flooding peer (11th item in 600 s held back, the
+  window sliding on the fake clock), HUMAN and TIMEOUT never held.
+- **The render count cannot deadlock (medium).** `OnRender` is not called on the state goroutine
+  into the link. The engine keeps `Unusable.Render` itself (counted on the state goroutine when a
+  slot fails) and reports it through the existing `OnState`-style path: `Config.OnUnusable func(state.Unusable)`, which must not block, and the link writes session.json from it off the
+  goroutine. The hook-stdin count goes the other way through `SetUnusable`. n3e-10 owns the
+  `unusable` object in `status`'s `runtime` record and `unusable_hook_stdin` in `status.json`.
+- **An earlier run's awaiting entries (medium).** n3e-9 owns this (in `proof.go`, run at the
+  team's first load in a new run). The items go back to `pending` marked `repeat` and **not**
+  `held`: a new session never saw the old socket, so they are delivered on the new socket (B 2.7.3:
+  `held` is for "pushing them again into a session that holds socket messages"); their ids leave
+  the ledger in the same write; every earlier `missed` entry is dropped.
+- **`WriteUser` that wrote nothing (medium).** When `WriteUser` returns `ErrRetry` after the
+  awaiting entry was persisted (no byte of the user line written), the engine removes the entry
+  and returns its items to `pending` with no `repeat`, in one write, and retries in 10 s, as for a
+  connect failure: nothing reached Claude Code. Only `ErrPartial` leaves the entry `unknown`.
+- The four low findings of round 2 go to the builders with round 1's.
 
 ## 16. B27 and the owner's offline rule, carried
 
