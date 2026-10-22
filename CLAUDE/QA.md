@@ -911,9 +911,11 @@ instructions hung such a batch on a question nobody knew was owed.
 
 ### homeserver-list-narrow-grammar
 
-**What it is.** In first-party Python under `helpers/` and `CLAUDE/Plan/`, a function
-that calls the homeserver (`.call(`, `.transport(`, `._request(`) and applies
-`protocol.is_room_id` or `protocol.is_event_id` inside `all(...)` or `any(...)`. Run by
+**What it is.** In first-party Python under `helpers/` and `CLAUDE/Plan/`, a list drawn
+from a homeserver answer (a call to a method the rule's `HOMESERVER_CALLS` names, such as
+`.call(`, `.sync(` or `.state(`, or a local name bound from one) that is checked with
+`protocol.is_room_id` or `protocol.is_event_id` so that one item refuses it all: inside
+`all(...)` or `any(...)`, or in a loop whose `if` on the check raises. Run by
 `tests/helpers/pingbus/test_identifier_grammar.py` (in `qa-helper-tests.bash`), which
 proves the rule against its fixture first.
 

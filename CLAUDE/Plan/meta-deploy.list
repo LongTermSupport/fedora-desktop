@@ -118,7 +118,7 @@ playbooks/imports/play-agent-bus.yml
 # the container runs that need them; a GH_TOKEN you export reaches the session through the new
 # lib/token-handoff.bash (a private file whose path only goes to the tmux re-run, deleted at
 # once; any other path in CCY_GH_TOKEN_HANDOFF is refused); --debug's log is 0600 with tokens
-# of a known prefix masked (the terminal still shows the raw trace). Container 2.78.14 (the guide in the image is corrected),
+# of a known prefix masked (the terminal still shows the raw trace). Container 2.78.15 (the guide in the image is corrected, and its pingbus has the room-ID fix),
 # so the next launch rebuilds the image once. It also rebuilds ~/.local/bin/ccy-teams with
 # Plan 00209 stage 1 (the team, seat and declare reads in-process), which the check below
 # judges. Afterwards start a ccy session as usual: it
