@@ -42,6 +42,15 @@ type held struct {
 	health  team.Health
 	counts  team.Counts
 	removed bool
+	// answers are the answers to own pings this link read, by ping (n3d-D8).
+	answers map[string][]answerNote
+	// timeoutRetryMS is when a TIMEOUT write the store refused is tried again, 0 for none;
+	// timeoutRefused is whether that refusal was logged.
+	timeoutRetryMS int64
+	timeoutRefused bool
+	// roster is the roster cache (n3d-D3), nil for none; rosterRev is its rev.
+	roster    *proto.Roster
+	rosterRev int64
 }
 
 // Removed is a removal's answer: the team's user id (n3c-D13), "" when the link never read
@@ -62,7 +71,7 @@ func (e *Engine) Add(ctx context.Context, t paths.TeamID, l *lock.SeatLock, remo
 	if l.Seat().Dir() != e.cfg.Layout.Seat(t).Dir() {
 		return errors.Join(fmt.Errorf("engine: the seat lock is not team %s's", t), l.Close())
 	}
-	h := &held{id: t, lock: l, content: map[string]proto.Verdict{}, stopped: make(chan struct{})}
+	h := &held{id: t, lock: l, content: map[string]proto.Verdict{}, answers: map[string][]answerNote{}, stopped: make(chan struct{})}
 	var addErr error
 	if err := e.do(ctx, func() { addErr = e.load(h) }); err != nil {
 		return errors.Join(err, l.Close())
@@ -78,7 +87,10 @@ func (e *Engine) Add(ctx context.Context, t paths.TeamID, l *lock.SeatLock, remo
 	if err != nil {
 		e.logf("team %s: no team goroutine: %v", t, err)
 	}
-	return e.do(ctx, func() { e.start(ctx, h, tm) })
+	return e.do(ctx, func() {
+		e.start(ctx, h, tm)
+		e.arm()
+	})
 }
 
 // load is Add's local half, on the state goroutine.
@@ -115,6 +127,7 @@ func (e *Engine) load(h *held) error {
 		}
 		h.store = &s
 	}
+	e.loadRoster(h)
 	e.teams[h.id] = h
 	return nil
 }
@@ -241,16 +254,18 @@ func (e *Engine) drop(h *held) error {
 				handed++
 			}
 		}
-		e.logf("team %s removed: dropped %d pending (%d handed) and %d awaiting items", h.id,
-			len(h.store.Pending)-handed, handed, len(h.store.Awaiting))
+		e.logf("team %s removed: dropped %d pending (%d handed), %d awaiting items and %d outbox pings", h.id,
+			len(h.store.Pending)-handed, handed, len(h.store.Awaiting), len(h.store.Outbox.Pings))
 	}
 	err := h.writer.Remove()
 	if errors.Is(err, fs.ErrNotExist) {
 		err = nil
 	}
+	err = errors.Join(err, e.removeRoster(h))
 	delete(e.teams, h.id)
 	delete(e.sent, h.id)
 	e.publish()
+	e.arm()
 	return errors.Join(err, h.writer.Close(), h.lock.Close())
 }
 
@@ -266,6 +281,7 @@ func (e *Engine) Shutdown(ctx context.Context) error {
 			errs = append(errs, h.writer.Close(), h.lock.Close())
 		}
 		clear(e.teams)
+		e.arm()
 	}); err != nil {
 		return err
 	}

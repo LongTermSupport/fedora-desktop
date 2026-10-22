@@ -170,7 +170,7 @@ func TestRemoveFlushesDeletesTheStoreAndClosesTheSeat(t *testing.T) {
 		t.Fatalf("flushes %d, store kept %v, lock held %v", f.flushes, w.storeExists(ops), l.Held())
 	}
 	logged := w.log.String()
-	if !strings.Contains(logged, "dropped 0 pending (2 handed) and 0 awaiting") || !strings.Contains(logged, "floor marker") {
+	if !strings.Contains(logged, "dropped 0 pending (2 handed), 0 awaiting items and 0 outbox pings") || !strings.Contains(logged, "floor marker") {
 		t.Fatalf("link.log = %q", logged)
 	}
 	if err := w.e.Persist(t.Context(), team.Batch{Team: ops}); !errors.Is(err, team.ErrRemoved) {

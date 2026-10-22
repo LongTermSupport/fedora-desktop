@@ -534,11 +534,9 @@ func TestALostLogLineIsCountedInTheNext(t *testing.T) {
 	}
 }
 
-// n3d-D3, n3d-D4: the engine has the two seams D3 and D6a fill; until then each is a no-op.
-func TestN3dTheSendSeamsAreThere(t *testing.T) {
+// n3d-D4: the engine has the recovery seam D6a fills; until then it is a no-op.
+func TestN3dTheRecoverySeamIsThere(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
-	ops := tid(t, "ops")
 	var eng team.Engine = w.e
-	check(t, eng.SaveRoster(t.Context(), ops, 1, json.RawMessage(`{}`)))
-	check(t, eng.RecoverSends(t.Context(), ops, nil))
+	check(t, eng.RecoverSends(t.Context(), tid(t, "ops"), nil))
 }

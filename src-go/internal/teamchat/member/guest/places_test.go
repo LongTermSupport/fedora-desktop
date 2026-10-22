@@ -707,12 +707,17 @@ func TestSetAside(t *testing.T) {
 	check(t, err)
 	wantWhats(t, whats)
 	store := w.store()
+	check(t, os.WriteFile(w.seat.RosterCache(), []byte("{}"), 0o600))
 	ino := w.lockInode()
 	whats, err = w.setAside()
 	check(t, err)
 	wantWhats(t, whats, WhatStore)
 	if w.exists(w.seat.Store()) || !bytes.Equal(w.read(w.seat.StoreAside(nowMS)), store) || w.lockInode() != ino {
 		t.Fatal("the store was not set aside, or seat.lock changed")
+	}
+	// n3d-D3: the roster cache goes with the store, so a seat placed again starts from none.
+	if w.exists(w.seat.RosterCache()) {
+		t.Fatal("roster.json outlived the set-aside")
 	}
 }
 

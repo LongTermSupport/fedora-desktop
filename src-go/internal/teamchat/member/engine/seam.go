@@ -9,6 +9,7 @@ import (
 	"slices"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -158,7 +159,11 @@ func view(h *held, ids, relations []string, r proto.Roster) team.View {
 			v.SeenIDs[l.ID] = true
 		}
 		if related[l.ID] {
-			v.Events[l.ID] = proto.Related{Sender: l.From, RoomID: roomID(h, r, l.Room), AddressedToSelf: true, AddressedToRosterAgent: true}
+			rel := proto.Related{Sender: l.From, RoomID: roomID(h, r, l.Room), AddressedToSelf: true, AddressedToRosterAgent: true}
+			if l.Verb != nil {
+				rel.Verb = *l.Verb
+			}
+			v.Events[l.ID] = rel
 		}
 	}
 	for _, p := range s.Outbox.Pings {
@@ -188,28 +193,45 @@ func roomID(h *held, r proto.Roster, purpose string) string {
 }
 
 // Persist is one store write of b (SY5): its position, floors and new items, its redactions
-// removing items still pending or handed; then a wake of every wait. An item already pending
-// or delivered is not added twice. A full pending list refuses the whole batch, loudly (B
-// 2.3.2), so nothing is dropped and the batch is fetched again.
+// removing items still pending or handed, and the outbox updates its echoes and answers made,
+// expired pings pruned; then a wake of every wait and the TIMEOUT timer re-armed. An item
+// already pending or delivered is not added twice. A full pending list refuses the whole
+// batch, loudly (B 2.3.2), so nothing is dropped and the batch is fetched again; an answer in
+// a refused batch is not counted until it is (SY7 case 4).
 func (e *Engine) Persist(ctx context.Context, b team.Batch) error {
 	var out error
 	if err := e.do(ctx, func() {
-		var added map[string]proto.Verdict
+		defer e.arm()
+		var (
+			added   map[string]proto.Verdict
+			notes   map[string][]answerNote
+			unknown []string
+			pruned  []string
+		)
+		now := e.cfg.Clock.WallMS()
 		out = e.changeLocked(b.Team, func(_ *held, s *state.Store) (bool, error) {
 			var err error
-			added, err = apply(s, b)
-			return err == nil, err
+			if added, err = apply(s, b); err != nil {
+				return false, err
+			}
+			notes, unknown = applyOutbox(s, b)
+			pruned = pruneOutbox(s, now)
+			return true, nil
 		})
 		if out != nil {
 			return
 		}
-		// Memory follows the disk: only a written batch's content and counts are kept.
+		// Memory follows the disk: only a written batch's content, counts and answers are kept.
 		h := e.teams[b.Team]
 		maps.Copy(h.content, added)
 		for _, id := range b.Redacts {
 			delete(h.content, id)
 		}
 		h.counts = addCounts(h.counts, b.Counts)
+		h.note(notes, pruned)
+		for _, id := range unknown {
+			e.logf("team %s: an answer to %s, which is not in the outbox, is ignored", b.Team, id)
+		}
 		e.wake()
 	}); err != nil {
 		return err
@@ -236,7 +258,11 @@ func apply(s *state.Store, b team.Batch) (map[string]proto.Verdict, error) {
 		if known[it.Pending.ID] {
 			continue
 		}
-		if err := s.AddPending(it.Pending); err != nil {
+		p := it.Pending
+		if verb := it.Verdict.Content.Ping.Verb; p.Item == records.KindPing && verb != "" {
+			p.Verb = &verb // n3d-D30: a ping's verb from its verdict
+		}
+		if err := s.AddPending(p); err != nil {
 			return nil, fmt.Errorf("engine: team %s: %w", b.Team, err)
 		}
 		known[it.Pending.ID] = true
@@ -289,21 +315,20 @@ func (e *Engine) BeginRun(ctx context.Context, t paths.TeamID) error {
 	})
 }
 
-// SetHealth is a team goroutine's state, for status, status.json and the keeper's report.
+// SetHealth is a team goroutine's state, for status, status.json and the keeper's report. It
+// re-arms the TIMEOUT timer too, so one that slept through a suspend is corrected by the first
+// sync after it (n3d-D7).
 func (e *Engine) SetHealth(t paths.TeamID, hl team.Health) {
 	if err := e.do(context.Background(), func() {
 		if h := e.teams[t]; h != nil && !h.removed {
 			h.health = hl
 			e.publish()
 		}
+		e.arm()
 	}); err != nil {
 		e.logf("team %s: health not recorded: %v", t, err)
 	}
 }
-
-// SaveRoster keeps a verified roster in the seat's roster cache (n3d-D3): D3's; D1 gives the
-// seam alone.
-func (e *Engine) SaveRoster(context.Context, paths.TeamID, int64, json.RawMessage) error { return nil }
 
 // RecoverSends finds a restarted link's tried sends among its own events (n3d-D4): D6a's; D1
 // gives the seam alone.
