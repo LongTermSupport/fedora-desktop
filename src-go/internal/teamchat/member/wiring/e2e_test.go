@@ -46,8 +46,11 @@ func TestE2EItems(t *testing.T) {
 
 // A seat desired.json adds while the session runs receives; one it takes out with a farewell
 // says left (RC1, B 2.10).
-func TestE2EHotAddRemove(t *testing.T) {
-	w := newWorld(t, fakeServer(t))
+func TestE2EHotAddRemove(t *testing.T) { hotAddRemove(t, fakeServer(t)) }
+
+func hotAddRemove(t *testing.T, hs homeserver) {
+	t.Helper()
+	w := newWorld(t, hs)
 	w.desire(1, nil, nil)
 	s := w.launch("--desired", w.desired, "--state", w.state)
 	w.desire(2, []state.DesiredSeat{{Team: alphaID, Seat: mySeat}}, nil)
