@@ -248,7 +248,7 @@ if [[ "${FAKE}" -eq 1 ]]; then
         inbox_clear "a fixture inbox" $'STATE\tmissing\n$r1\t-\tkept'
     check_leg "A3 (fake) the worker is a linked seat, which pingbus runs beside an accepted Element profile" \
         fake_a3_seat accepted
-    reject_leg "A3 (fake) the same seat beside an Element profile never accepted is refused, as pingbus refuses it" \
+    check_leg "A3 (fake) the same seat beside an Element profile never accepted is refused for that profile, as pingbus refuses it" \
         fake_a3_seat unaccepted
     check_leg "A3 (fake) 403 M_FORBIDDEN is a refusal" fake_refused 403 '{"errcode":"M_FORBIDDEN","error":"no"}'
     reject_leg "A3 (fake) 200 is no refusal" fake_refused 200 '{"event_id":"x"}'

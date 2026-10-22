@@ -1083,7 +1083,8 @@ keeper does. Do not loosen the check in `config.py`.
 
 ### checker-copies-cited-constant
 
-**What it is.** In an active plan folder, a checker constant holding a literal (Python: a
+**What it is.** In an active plan folder, `tests/` or `scripts/` (the test suites), a checker
+constant holding a literal (Python: a
 module-level `NAME = <literal>`; bash: a top-level `[readonly] NAME=` with no expansion) whose
 own comment, the lines directly above it or a trailing one, names a product source file
 (`.py` or `.go` under `helpers/`, `src-go/internal/`, `files/` or `extensions/`) together with

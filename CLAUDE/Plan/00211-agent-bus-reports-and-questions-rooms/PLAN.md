@@ -234,7 +234,7 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   `host`, `seat` and `repo` by those fields, before the member record or the checkout, as
   `members.py` already does. Needs `Repo` on `declare.LxcMember`; test first. This narrows the
   role-change stop in 2.8 to an entry that gives no seat and repo, with no record.
-- [x] ✅ **Task 2.10**: the host's stage-2 run stopped at A3: "a host member must not run as a
+- [ ] 🔄 **Task 2.10** (done in code; left: the host rerun, queued in meta-deploy): the host's stage-2 run stopped at A3: "a host member must not run as a
   user with an Element profile". A checker defect: A3 wrote its worker as a plain bundle in the
   home it ran pingbus with, and `config.load_bundle` runs a host member beside Element only as
   a linked seat. A3 now takes it as a seat (its own 0700 directory, linked into the session

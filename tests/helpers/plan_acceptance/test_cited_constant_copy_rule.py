@@ -8,7 +8,7 @@ Plan 00213 changed the guard to run `pingbus-status-line` the copy failed check 
 session.
 
 The rule reads code rather than running it. A finding is a constant of a checker in an active
-plan folder (Python: a module-level `NAME = <literal>`; bash: a top-level `[readonly] NAME=`
+plan folder, `tests/` or `scripts/` (Python: a module-level `NAME = <literal>`; bash: a top-level `[readonly] NAME=`
 with no expansion in its value) whose own comment (the comment lines directly above it, or a
 trailing comment) names a product source file (under helpers/, src-go/internal/, files/ or
 extensions/) together with a module-level constant that file defines: a token of the comment,
@@ -192,13 +192,21 @@ def subject_sources() -> Subject:
     return subject
 
 
+#: Where checkers live: the plan folders' acceptance, triage and probes, the test suites
+#: (`tests/`) and the scripts' test suites (`scripts/test-*.bash` and their helpers).
+CHECKER_ROOTS = (PLAN_DIR, "tests", "scripts")
+
+
 def checker_files() -> dict[str, str]:
     out: dict[str, str] = {}
-    for path in _walk(PLAN_DIR):
-        rel = path.relative_to(REPO_ROOT).as_posix()
-        source = _text(path)
-        if source is not None and rel.count("/") > 2 and (rel.endswith(".py") or _is_bash(rel, source)):
-            out[rel] = source
+    for root in CHECKER_ROOTS:
+        for path in _walk(root):
+            rel = path.relative_to(REPO_ROOT).as_posix()
+            if rel.startswith("tests/helpers/plan_acceptance/") or (root == PLAN_DIR and rel.count("/") <= 2):
+                continue
+            source = _text(path)
+            if source is not None and (rel.endswith(".py") or _is_bash(rel, source)):
+                out[rel] = source
     return out
 
 

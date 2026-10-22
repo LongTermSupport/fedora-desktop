@@ -64,7 +64,10 @@ environment carries `PINGBUS_MEMBERSHIP` (`agent-bus-membership.bash`), which ou
 `HOOKS_DAEMON_HOSTNAME` is read only by `suggest-handle` (`cli.py` `ROLE_VAR`), not by
 `report`. The rule and the search agree on one instance. Text search found the `--out` and
 `PINGBUS_HOME` pairs; reading found that the home's team entry had to be a link, which no text
-in A3 says.
+in A3 says. Not read by the search: the Go test fixtures under `src-go/internal` (seat, teams,
+statusline), which matched its text searches; the rule does not read Go either. They are Go
+unit tests that build their inputs in memory and run no host pingbus, so they cannot hand a
+plain bundle to the desktop user's pingbus; recorded here as unread, not cleared.
 
 ## Sweep and count
 
@@ -95,6 +98,18 @@ before a commit. Green through the module run and `./scripts/qa-changed.bash` (r
 
 No manifest declaration; no register-graded detector for bash, so the rule is a Python test
 that reads bash text. No inline suppression route exists for it.
+
+Two gaps in the project's toolchain, recorded rather than closed here (gates are outside this
+remediation): `qa-changed.bash` reruns a `tests/helpers` rule only when the rule module
+changes, so a new instance in a scanned bash file is caught only by `qa-all.bash` and CI; and
+no QA gate runs a plan's `acceptance.bash --fake` or its checker tests, so the regression legs
+for A3 are run by hand (`acceptance.bash --stage 2 --fake`, rc 0 at the tip) and by the plan's
+own run. The QA.md section arrived in the fix commit `fe0ca54d2`, not the red `bd3cf6661`, so at
+the red the printed identifier resolved only to the test module's own docstring.
+
+Review: conformance round 1 (`261022-a3-m3-conformance-round1.md`) and Opus round 1
+(`261022-a3-m3-review-round1.md`, MERGE). From Opus: the never-accepted `--fake` leg now
+checks that the refusal is the Element one, and Task 2.10 stays 🔄 until the host rerun.
 
 ## The original defect
 

@@ -816,6 +816,19 @@ EOF
         (umask 077 && printf 'accepted\n' >"${user}/.config/pingbus/element-accepted") || return 1
     fi
     a3_take || return 1
+    if [[ "$1" != "accepted" ]]; then
+        # Never accepted: refused, and for the Element profile, not for any other reason.
+        if python3 -I -c "${FAKE_A3_LOAD}" "${PLAN_REPO_ROOT}" "${A3_HOME}" "${QTEAM}" "${user}" 2>"${FIX}/a3-refusal"; then
+            printf 'the A3 seat loaded beside an Element profile never accepted\n' >&2
+            return 1
+        fi
+        grep -qF 'a host member must not run as a user with an Element profile' "${FIX}/a3-refusal" || {
+            printf 'the A3 seat was refused, but not for the Element profile:\n' >&2
+            cat -- "${FIX}/a3-refusal" >&2
+            return 1
+        }
+        return 0
+    fi
     type="$(python3 -I -c "${FAKE_A3_LOAD}" "${PLAN_REPO_ROOT}" "${A3_HOME}" "${QTEAM}" "${user}")" || return 1
     if [[ "${type}" != "host" ]]; then
         printf 'the A3 worker loaded as a %s member, not host\n' "${type}" >&2
