@@ -36,6 +36,29 @@ func TestViewIsJudgesLookup(t *testing.T) {
 	}
 }
 
+// receipts is the engine's side of B 2.7.5 as a team goroutine sees it (n3e-7).
+type receipts struct{ team.Receipts }
+
+var _ team.Receipts = receipts{}
+
+// n3e's additions are type-level: Health's room facts are nil until a verification reads them,
+// and a batch's held-back counts are keyed by the agent sender's user id (n3e-D1).
+func TestN3esFieldsStartEmpty(t *testing.T) {
+	var h team.Health
+	if h.Colour != nil || h.Description != nil || h.Coordinator != nil {
+		t.Error("a zero Health holds a room fact")
+	}
+	colour, about, coordinator := "#2dd4bf", "The docs team", "repo.1+site.podman"
+	h = team.Health{Colour: &colour, Description: &about, Coordinator: &coordinator}
+	if *h.Colour != colour || *h.Description != about || *h.Coordinator != coordinator {
+		t.Errorf("Health %+v", h)
+	}
+	b := team.Batch{HeldBack: map[string]int64{"@repo.2+site.podman:ops.teamchat.internal": 1}}
+	if b.HeldBack["@repo.2+site.podman:ops.teamchat.internal"] != 1 || (team.Batch{}).HeldBack != nil {
+		t.Errorf("HeldBack %v", b.HeldBack)
+	}
+}
+
 // A zero View knows nothing, and reading it never panics.
 func TestAZeroViewKnowsNothing(t *testing.T) {
 	var v team.View

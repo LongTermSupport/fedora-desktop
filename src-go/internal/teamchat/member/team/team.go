@@ -35,6 +35,9 @@ type Batch struct {
 	// Gap is SY3's bound hit.
 	Gap    bool
 	Counts Counts
+	// HeldBack is B 2.7.3's delivery budget: agent sender user id -> the items over its
+	// budget in this batch, which never entered pending (n3e-D1).
+	HeldBack map[string]int64
 }
 
 // Item is one judged event: its pending entry, with its content held in memory (B 2.7.3
@@ -83,6 +86,13 @@ type Health struct {
 	// LastSyncOKMS is the wall time of the last sync answered, 0 before the first: an empty
 	// answer is never persisted, so the store cannot hold it.
 	LastSyncOKMS int64
+	// Colour, Description and Coordinator are the main room's facts at the last verification,
+	// nil for none: the admin's colour override (stored hex, n3e-D4), the admin's topic when it
+	// is a team description (n3e-D5), and the roster's non-parked coordinator's handle. A hook
+	// op reads them here and never from Roster(), which may make a network call.
+	Colour      *string
+	Description *string
+	Coordinator *string
 }
 
 // ErrRemoved is a write for a team the engine has removed.
@@ -106,6 +116,15 @@ type Engine interface {
 	// already. The team calls it after Ends.Close returns nil.
 	BeginRun(ctx context.Context, t paths.TeamID) error
 	SetHealth(t paths.TeamID, h Health)
+}
+
+// Receipts is the engine's side of B 2.7.5's read receipts, as a team goroutine sends them.
+type Receipts interface {
+	// PendingReceipts is the team's receipts not yet sent, and a channel closed when they
+	// next change.
+	PendingReceipts(t paths.TeamID) (rs []state.Receipt, changed <-chan struct{})
+	// ReceiptSent drops the receipt for id once the homeserver has it.
+	ReceiptSent(ctx context.Context, t paths.TeamID, id string) error
 }
 
 // Team is one team goroutine, as the engine and the link see it.
