@@ -37,29 +37,30 @@
 # image's build context (container 2.78.15, rebuilt once at the next ccy launch; the image
 # also carries the farewell-reason fix, the reports and questions admin tool and Go 1.26.10 in the project image): a seated session's status line is
 # the Go one and refreshes every 25 s. The acceptance checks the kit's, the image's and each
-# declared LXC member's binary are this checkout's build (a declared container that is down is
-# refused, named), runs the recorded Python goldens against the installed Python and Go, and
+# online declared LXC member's binary are this checkout's build (a member whose container is
+# stopped is named offline and not judged, never a failure), runs the recorded Python goldens against the installed Python and Go, and
 # measures the CPU one render costs in each: Go must cost under a fifth (the report has the
 # figures). Needs sudo once. Afterwards restart the teams' agent sessions; a running one keeps
 # its old status line.
 00213-agent-bus-performance-go-carve-out/deploy.bash
 # Plan 00211 deploy 2 (Task 2.6), the reports and questions rooms, LAST. It needs every team's
 # agent sessions restarted since pingbus 0.2.0 was installed, ccy and LXC alike, which the
-# host reboot did, and every declared LXC member's container RUNNING: the last run refused, at
-# its pre-flight, a declared member whose container was stopped. This runs
+# host reboot did. A team member that is offline (its container stopped, or its session not
+# running) is named as offline and never blocks the run. This runs
 # deploy.bash --stage 2: it refuses unless the spike report says every fact holds, then runs
-# acceptance.bash --stage 1 again as the pre-flight (the host's and every declared LXC
-# member's pingbus is 0.2.0, and a declared container that is down is refused, named). Then the
+# acceptance.bash --stage 1 again as the pre-flight (the host's and every online declared LXC
+# member's pingbus is 0.2.0; an offline member is named, not judged). Then the
 # whole play-agent-bus.yml keeps each team's reports and questions rooms (created when
 # play-agent-bus.yml passed at 67033c224), the index and the invites; the whole play-claude-yolo.yml finds the ccy image already
-# at container 2.78.15. Then acceptance.bash --stage 2 waits up to 180 s for every coordinator
-# to join its questions room and every running ccy seat its reports room, naming any that has
-# not, and checks the rooms. It finds the first team's coordinator in its running ccy session
-# or LXC member; with no team coordinator, or one whose session is not running, it is
-# REJECTED, named, before it changes anything. It adds and removes one throwaway worker that
-# must be refused the questions room and whose test report must reach no inbox, posts a second
-# test report from inside an LXC member when one is declared (else it says that check was not
-# judged), and has the coordinator ask a test question. Needs sudo once. Afterwards do the
+# at container 2.78.15. Then acceptance.bash --stage 2 waits up to 180 s for every online
+# coordinator to join its questions room and every running ccy seat its reports room, naming
+# any that has not (an offline coordinator is named, not waited for), and checks the rooms. It
+# finds the first team's coordinator in its running ccy session or LXC member; with no team
+# coordinator it is REJECTED, named, before it changes anything. It adds and removes one
+# throwaway worker that must be refused the questions room and whose test report must reach no
+# online inbox, posts a second test report from inside an online LXC member (with none, that
+# check is NOT JUDGED), and has the coordinator ask a test question (NOT JUDGED when the
+# coordinator is offline). Needs sudo once. Afterwards, if the test question was asked, do the
 # Element steps of the plan's ACCEPTANCE-owner.md.
 00211-agent-bus-reports-and-questions-rooms/deploy-stage-2.bash
 # Plan 00201 Task 2.7 (M7): the automated two-team acceptance again, because its M3 check

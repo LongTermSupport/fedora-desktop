@@ -9,9 +9,10 @@ rule reads code rather than running it, with three detectors:
 A. Bash that reads the declared LXC members (it names `agent_bus_lxc_members` or MEMBERS_JSON),
    in an active plan folder, `files/` or `scripts/`: an LXC state read of its own (`lxc-info -s`,
    or a `${LXC_INFO[@]}` call) is a finding, because the state must come from `plan_lxc_online`
-   (CLAUDE/Plan/_planlib.inc.bash), which names an offline container and leaves it out but never
-   fails on one; and a file that enters a container (`lxc-attach`, or a `${LXC_ATTACH[@]}` call)
-   without calling `plan_lxc_online` is a finding at its first entry.
+   (CLAUDE/Plan/_members.inc.bash), which names an offline container and leaves it out but never
+   fails on one; and a file that enters a container (`lxc-attach -n`, or a `${LXC_ATTACH[@]}`
+   call) is a finding at its first entry unless its program calls `plan_lxc_online`: the file
+   itself, or another file of its plan folder (a plan's scripts are sourced together).
 B. In team-member code (the agent-bus and pingbus helpers, ccy-teams' packages, the agent-bus
    sbin tools, and the member-reading bash of A), a message that makes starting a member the way
    on: "start it, then ...", "restart that session, then ...", "Start container ...", "... with
@@ -85,7 +86,9 @@ def reads_members(path: str, source: str) -> bool:
     return _is_bash(path, source) and MEMBER_LIST.search(source) is not None
 
 
-def detector_a(source: str) -> list[int]:
+def detector_a(source: str, program_asks: bool = False) -> list[int]:
+    """`program_asks`: another file of the same program (a plan folder's scripts are sourced
+    together) calls plan_lxc_online, so this file's entries are of containers it listed."""
     found: list[int] = []
     first_entry = None
     for number, line in enumerate(source.splitlines(), 1):
@@ -95,7 +98,7 @@ def detector_a(source: str) -> list[int]:
             found.append(number)
         if first_entry is None and CONTAINER_ENTRY.search(line):
             first_entry = number
-    if first_entry is not None and HELPER_CALL.search(source) is None:
+    if first_entry is not None and not program_asks and HELPER_CALL.search(source) is None:
         found.append(first_entry)
     return sorted(set(found))
 
@@ -190,12 +193,30 @@ def teams_packages() -> dict[str, dict[str, str]]:
     return packages
 
 
+def plan_folder(rel: str) -> str | None:
+    parts = rel.split("/")
+    return "/".join(parts[:3]) if rel.startswith(PLAN_DIR + "/") and len(parts) > 3 else None
+
+
+def folders_asking() -> set[str]:
+    """The active plan folders one of whose files calls plan_lxc_online."""
+    asking: set[str] = set()
+    for path in _walk(PLAN_DIR):
+        rel = path.relative_to(REPO_ROOT).as_posix()
+        folder = plan_folder(rel)
+        source = _text(path)
+        if folder is not None and source is not None and HELPER_CALL.search(source):
+            asking.add(folder)
+    return asking
+
+
 def sweep() -> list[str]:
     found: list[str] = []
     bash = member_bash_files()
+    asking = folders_asking()
     for rel, source in sorted(bash.items()):
         found.extend(f"{rel}:{n}: {RULE_ID} (A): read the declared LXC members' state through plan_lxc_online"
-                     for n in detector_a(source))
+                     for n in detector_a(source, plan_folder(rel) in asking))
     for rel, source in sorted({**member_code_files(), **bash}.items()):
         found.extend(f"{rel}:{n}: {RULE_ID} (B): an offline member is named and passed over, never a reason "
                      "to start it" for n in detector_b(source))
@@ -294,6 +315,11 @@ class RuleProof(unittest.TestCase):
 
     def test_a_is_satisfied_by_the_shared_helper(self) -> None:
         self.assertEqual(detector_a(FIXTURE_BASH_WITH_HELPER), [])
+        # Asked elsewhere in its plan folder: the entry is of a listed container; the state reads
+        # are still findings.
+        self.assertEqual(detector_a(FIXTURE_BASH, program_asks=True), [4, 5])
+        self.assertEqual(plan_folder("CLAUDE/Plan/00211-x/sub/a.bash"), "CLAUDE/Plan/00211-x")
+        self.assertIsNone(plan_folder("files/usr/local/bin/x.bash"))
 
     def test_b_fires_on_the_python_fixture(self) -> None:
         self.assertEqual(detector_b(FIXTURE_PYTHON), marked(FIXTURE_PYTHON))

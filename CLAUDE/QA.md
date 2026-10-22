@@ -981,7 +981,8 @@ proves each against its fixture first:
 - **A.** Bash that reads the declared LXC members (it names `agent_bus_lxc_members` or
   `MEMBERS_JSON`), in an active plan folder, `files/` or `scripts/`, that reads a container's
   state itself (`lxc-info -s`, a `${LXC_INFO[@]}` call), or enters a container (`lxc-attach -n`,
-  a `${LXC_ATTACH[@]}` call) without calling `plan_lxc_online`.
+  a `${LXC_ATTACH[@]}` call) when neither the file nor another file of its plan folder calls
+  `plan_lxc_online`.
 - **B.** In team-member code (`helpers/agent_bus*`, `helpers/pingbus`, ccy-teams' packages,
   `declare`, `agentbus`, the `agent-bus-*` sbin tools, and the bash of A), a message that makes
   starting a member the way on: "start it, then ...", "restart that session, then ...",
@@ -995,7 +996,7 @@ pre-flight that refused a stopped LXC member stopped the whole deploy, and the s
 was copied into the next plan's acceptance.
 
 **How to fix a finding.** In bash, list the containers with `plan_lxc_online` (in
-`CLAUDE/Plan/_planlib.inc.bash`). It prints the running ones and names each other one as
+`CLAUDE/Plan/_members.inc.bash`). It prints the running ones and names each other one as
 `<container> is offline (container stopped)`, never failing on it. In Go or Python, ask the
 container list or the member record. Then judge only the online members. A check that needs an
 online member and has none says NOT JUDGED and does not fail the run. Do not weaken a check of

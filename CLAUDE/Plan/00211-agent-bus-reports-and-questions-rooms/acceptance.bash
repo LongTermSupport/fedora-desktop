@@ -6,31 +6,37 @@
 #      staged into the ccy build context (/opt/claude-yolo/optional/agent-bus/pingbus, built by
 #      play-claude-yolo.yml and baked into the image) both print this checkout's
 #      `pingbus version` line: 0.2.0 is the release that knows the reports and questions rooms;
-#   S2 every LXC container named by a present agent_bus_lxc_members entry is RUNNING and its
-#      kit's pingbus prints that same line; a container that is down is refused, named.
+#   S2 the kit's pingbus in every online LXC container named by a present agent_bus_lxc_members
+#      entry prints that same line.
+# OFFLINE MEMBERS NEVER BLOCK (CLAUDE/AgentNotes.md): a declared member whose container is
+# stopped, or whose session is not running, is named as offline and passed over; a check with
+# no online member to run on is NOT JUDGED, never PASS and never a failure. A running member is
+# judged in full.
 # STAGE 2 (deploy 2, the admin side). The sessions it drives are the seats held in running ccy
-# sessions (podman exec) and the declared LXC members (lxc-attach), _acceptance-stage2.inc.bash:
-#   the joins: up to 180 s for every coordinator to have joined its questions room and every
-#      seat held in a running ccy session its reports room (SPEC §5.3 leg 3, and A2's running
-#      members), each that has not named;
+# sessions (podman exec) and the online declared LXC members (lxc-attach),
+# _acceptance-stage2.inc.bash:
+#   the joins: up to 180 s for every online coordinator to have joined its questions room and
+#      every seat held in a running ccy session its reports room (SPEC §5.3 leg 3, and A2's
+#      running members), each that has not named; an offline coordinator is named, not waited for;
 #   A1, A2 `sudo agent-bus check-rooms <team>` passes for every present team: the rooms, the
 #      index, the back-links, exact power levels and join rules, every human in, no worker in
-#      questions, every coordinator joined to both rooms;
+#      questions, every coordinator joined to both rooms or, still invited, named offline;
 #   the coordinator: the first team whose registry names one, and the session it runs in, ccy
-#      or LXC. No team with a coordinator, or a coordinator in no session this host can drive,
-#      is REJECTED, named, before anything is changed;
+#      or LXC. No team with a coordinator is REJECTED, named, before anything is changed; a
+#      coordinator in no session this host can drive is offline, and the test question is NOT
+#      JUDGED;
 #   A3 a throwaway worker in that team, added for the run as a host member on loopback and
 #      removed again on cleanup, posts a `pingbus report`; with its token, reading, joining and
 #      posting in the questions room are each refused 403 M_FORBIDDEN; after 15 s the report
-#      is in the inbox of no session of the team;
-#   A4 the first declared LXC member's `pingbus report`, run inside its container, is taken by
-#      the homeserver. With no LXC member declared, A4 is reported NOT JUDGED, never PASS;
-#   then the coordinator asks a test question in its own session, which the owner answers in
-#   Element (ACCEPTANCE-owner.md).
+#      is in the inbox of no online session of the team (NOT JUDGED with none online);
+#   A4 the first online declared LXC member's `pingbus report`, run inside its container, is
+#      taken by the homeserver. With no LXC member online, A4 is NOT JUDGED, never PASS;
+#   then the coordinator, when online, asks a test question in its own session, which the
+#   owner answers in Element (ACCEPTANCE-owner.md).
 # --after-owner (A5, after the owner's Element steps): the coordinator's
 #   `pingbus history --room questions`, in its session, shows the owner's thread reply and its
 #   edit attached to the test question, and its session took both (consumed, none dropped).
-#   The raw lines are kept for Task 4.2.
+#   The raw lines are kept for Task 4.2. With the coordinator offline, A5 is NOT JUDGED.
 #
 # RUN ON THE HOST, as the desktop user (not root): deploy.bash --stage N runs --stage N as its
 # last leg. The one prompt is sudo's, before the log opens (R3). `--fake` runs the verdict
@@ -44,7 +50,8 @@
 # Never queue the plan folder itself in meta-deploy.list: that runs deploy.bash and this script
 # with no --stage, which both refuse. Queue deploy-stage-2.bash or acceptance-after-owner.bash.
 #
-# EXIT CODES: 0 ACCEPTED; 1 REJECTED (a check failed and names itself); 64 usage.
+# EXIT CODES: 0 ACCEPTED (any NOT JUDGED check is listed); 1 REJECTED (a check failed and
+# names itself); 64 usage.
 set -euo pipefail
 
 # ── R1 bootstrap: script-relative, filesystem-only, bounded at the repo boundary ──────────
@@ -69,8 +76,8 @@ plan_init "${BASH_SOURCE[0]}"
 PLAN_USAGE="usage: acceptance.bash --stage 1|2 [--fake] | --after-owner [-h|--help]
 
 Plan 00211's verdict on each deploy:
-  --stage 1      deploy 1: the host's, the ccy image's and every declared LXC member's pingbus
-                 are this checkout's (S1, S2)
+  --stage 1      deploy 1: the host's, the ccy image's and every online declared LXC member's
+                 pingbus are this checkout's (S1, S2); an offline member is named, not judged
   --stage 2      deploy 2: the coordinators and running ccy seats have joined, every team's
                  side rooms are sound (A1, A2), a worker is kept out of questions and wakes
                  no inbox (A3), an LXC member reports (A4, or NOT JUDGED with none); then the
@@ -121,7 +128,6 @@ fi
 # What the verdicts run. --fake points each at a fixture; nothing else differs.
 HOST_PINGBUS="/usr/local/bin/pingbus"
 STAGED_PINGBUS="/opt/claude-yolo/optional/agent-bus/pingbus"
-LXC_INFO=(sudo -n lxc-info)
 LXC_ATTACH=(sudo -n lxc-attach)
 AGENT_BUS=(sudo -n agent-bus)
 PODMAN=(podman)
@@ -131,6 +137,9 @@ TEAMS_JSON=""
 REPORT=""
 # A seat name used once: `a` and the month, day and time (the seat pattern allows 12 characters).
 RUN_TAG="a$(date +%m%d%H%M%S)"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../_members.inc.bash
+source "${PLAN_REPO_ROOT}/CLAUDE/Plan/_members.inc.bash"
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=_acceptance-stage1.inc.bash
 source "${PLAN_SCRIPT_DIR}/_acceptance-stage1.inc.bash"
@@ -196,10 +205,17 @@ if [[ "${FAKE}" -eq 1 ]]; then
             fake_s2 "${TWO}" lxc-a=RUNNING:new lxc-b=RUNNING:new
         check_leg "S2 (fake) no member declared" fake_s2 '[]'
         check_leg "S2 (fake) an absent member's container is not judged" fake_s2 "${GONE}" lxc-c=STOPPED:old
-        reject_leg "S2 (fake) a stopped container" fake_s2 "${TWO}" lxc-a=RUNNING:new lxc-b=STOPPED:new
+        check_leg "S2 (fake) a stopped container is offline, named and not judged (its old pingbus does not matter)" \
+            fake_s2 "${TWO}" lxc-a=RUNNING:new lxc-b=STOPPED:old
+        check_leg "S2 (fake) every container stopped: not judged, not a failure" \
+            fake_s2 "${TWO}" lxc-a=STOPPED:old lxc-b=STOPPED:old
         reject_leg "S2 (fake) a running container with the old pingbus" \
             fake_s2 "${TWO}" lxc-a=RUNNING:old lxc-b=RUNNING:new
-        printf '\nFAKE ACCEPTED: the stage-1 verdicts accept new versions and refuse old, missing and down ones\n' | tee -a "${REPORT}"
+        reject_leg "S2 (fake) a running container with the old pingbus beside a stopped one" \
+            fake_s2 "${TWO}" lxc-a=RUNNING:old lxc-b=STOPPED:new
+        reject_leg "S2 (fake) a container lxc-info cannot read (no such container)" \
+            fake_s2 '[{"team":"t1","container":"lxc-none","user":"u1"}]'
+        printf '\nFAKE ACCEPTED: the stage-1 verdicts accept new versions and pass over offline containers, and refuse old and missing ones\n' | tee -a "${REPORT}"
         plan_finish
     fi
     plan_deploy_leg "write the stage-2 fixture commands" fake2_setup
@@ -213,9 +229,13 @@ if [[ "${FAKE}" -eq 1 ]]; then
     reject_leg "the joins (fake) the coordinator rejected the invite" fake_join leave join
     reject_leg "the joins (fake) the coordinator has no ROOM line" fake_join absent join
     reject_leg "the joins (fake) a running ccy seat has not joined reports" fake_join join invite
+    check_leg "the joins (fake) an offline coordinator, only invited, is named and not waited for" \
+        fake_join invite join none
+    check_leg "the sessions (fake) a declared LXC member whose container is stopped is offline, not a session" \
+        fake_lxc_offline
     check_leg "the coordinator (fake) found in its ccy session" fake_pick alpha ccy
     check_leg "the coordinator (fake) found as an LXC member" fake_pick alpha lxc
-    reject_leg "the coordinator (fake) in no session this host can drive" fake_pick alpha none
+    check_leg "the coordinator (fake) in no session this host can drive is offline, not a failure" fake_pick alpha none
     reject_leg "the coordinator (fake) no team has one" fake_pick none ccy
     check_leg "A3 (fake) the report is in no inbox" inbox_clear "a fixture inbox" $'STATE\tpresent\n$r1\t-\tkept'
     reject_leg "A3 (fake) the report reached an inbox" inbox_clear "a fixture inbox" $'STATE\tpresent\n$r1\tinbox\tkept'
@@ -241,7 +261,7 @@ if [[ "${FAKE}" -eq 1 ]]; then
     reject_leg "A5 (fake) one never arrived" envelopes_ok "a fixture session" \
         $'STATE\tpresent\n$e1\tconsumed\tkept\n$e2\t-\tkept'
     not_judged "A4 (fake) the NOT JUDGED line" "printed for a stage with no LXC member, never PASS"
-    printf '\nFAKE ACCEPTED: the stage-2 and A5 verdicts accept sound fixtures and refuse each fault\n' | tee -a "${REPORT}"
+    printf '\nFAKE ACCEPTED: the stage-2 and A5 verdicts accept sound fixtures, pass over offline members and refuse each fault\n' | tee -a "${REPORT}"
     plan_finish
 fi
 
@@ -267,6 +287,14 @@ if [[ "${AFTER_OWNER}" -eq 1 ]]; then
     printf '# Plan 00211 acceptance, after the owner (A5)\n\nRun directory: %s\n\n' "${PLAN_RUN_DIR}" >"${REPORT}"
     plan_deploy_leg "read agent_bus_lxc_members" read_members
     plan_deploy_leg "the sessions this host can drive (ccy seats, LXC members)" read_sessions
+    plan_deploy_leg "A5 the test question and its coordinator" a5_find
+    if [[ -z "${A5_SESSION}" ]]; then
+        not_judged "A5 the owner's reply and its edit reached the coordinator, and its session took both" \
+            "the coordinator ${A5_HANDLE} of team ${A5_TEAM} is offline"
+        printf '\nACCEPTED, A5 NOT JUDGED: the coordinator is offline; run acceptance-after-owner.bash again once it is online\n' |
+            tee -a "${REPORT}"
+        plan_finish
+    fi
     check_leg "A5 the owner's reply and its edit reached the coordinator, and its session took both" a5_check
     printf '\nACCEPTED: the questions room carries a human answer and its edit to the coordinator\n' | tee -a "${REPORT}"
     plan_finish
@@ -277,31 +305,57 @@ plan_deploy_leg "this checkout's pingbus version" want_version
 plan_deploy_leg "read agent_bus_lxc_members" read_members
 if [[ "${STAGE}" == "1" ]]; then
     check_leg "S1 the host's pingbus and the ccy image's staged pingbus are this checkout's" s1_check
-    check_leg "S2 every declared LXC member's pingbus is this checkout's, and none is down" s2_check
-    printf '\nACCEPTED: deploy 1 is on the host, in the ccy build context and in every declared LXC container\n' | tee -a "${REPORT}"
+    plan_deploy_leg "which declared LXC members are online (an offline one is named)" read_online
+    s2_name="S2 every online declared LXC member's pingbus is this checkout's"
+    if [[ -n "$(declared_containers)" ]] && [[ -z "${ONLINE}" ]]; then
+        not_judged "${s2_name}" "no declared LXC member is online"
+        printf '\nACCEPTED, S2 NOT JUDGED: deploy 1 is on the host and in the ccy build context; no declared LXC member is online\n' |
+            tee -a "${REPORT}"
+        plan_finish
+    fi
+    check_leg "${s2_name}" s2_check
+    printf '\nACCEPTED: deploy 1 is on the host, in the ccy build context and in every online declared LXC container\n' | tee -a "${REPORT}"
     plan_finish
 fi
 
 plan_deploy_leg "read agent_bus_teams" read_teams
 plan_deploy_leg "the sessions this host can drive (ccy seats, LXC members)" read_sessions
 # The wait runs here, straight after this script primed sudo, not after the image rebuild.
-check_leg "the joins: every coordinator joins questions, every running ccy seat reports (up to ${JOIN_WAIT_S} s)" rooms_joined
+check_leg "the joins: every online coordinator joins questions, every running ccy seat reports (up to ${JOIN_WAIT_S} s)" rooms_joined
 check_leg "A1/A2 every team's side rooms are sound (agent-bus check-rooms)" a12_check
-check_leg "the coordinator: a team has one, in a session this host can drive" pick_coordinator
+check_leg "the coordinator: a team has one (offline is named)" pick_coordinator
 plan_deploy_leg "A3 add a throwaway worker (removed on cleanup)" a3_take
 check_leg "A3 a worker reports, and is refused the questions room" a3_check
-check_leg "A3 the worker's report is in no inbox of its team" a3_inbox_check
+if [[ -n "$(qteam_sessions)" ]]; then
+    check_leg "A3 the worker's report is in no inbox of its team" a3_inbox_check
+else
+    not_judged "A3 the worker's report is in no inbox of its team" "no member of team ${QTEAM} is online"
+fi
 a4_said="took an LXC member's report"
 if [[ -n "$(a4_member)" ]]; then
     check_leg "A4 an LXC member reports from inside its container" a4_check
+elif [[ -n "$(declared_containers)" ]]; then
+    not_judged "A4 an LXC member reports from inside its container" "no online LXC member"
+    a4_said="did not judge A4 (no LXC member is online)"
 else
     not_judged "A4 an LXC member reports from inside its container" \
         "no agent_bus_lxc_members entry is present, so this host has no LXC member to report"
     a4_said="did not judge A4 (no LXC member is declared)"
 fi
-check_leg "the test question, asked by the coordinator in its own session" ask_test_question
-printf '\nACCEPTED: deploy 2 made every team'\''s side rooms, kept a worker out of questions and every inbox, %s, and asked the test question\n' \
-    "${a4_said}" | tee -a "${REPORT}"
-printf '\n==> NEXT (the owner): the Element steps in ACCEPTANCE-owner.md, then meta-deploy runs\n'
-printf '    acceptance-after-owner.bash (A5).\n'
+asked="asked the test question"
+if [[ -n "${COORD}" ]]; then
+    check_leg "the test question, asked by the coordinator in its own session" ask_test_question
+else
+    not_judged "the test question, asked by the coordinator in its own session" \
+        "the coordinator ${QHANDLE} of team ${QTEAM} is offline"
+    asked="did not ask the test question (the coordinator is offline)"
+fi
+printf '\nACCEPTED: deploy 2 made every team'\''s side rooms, kept a worker out of questions and every online inbox, %s, and %s\n' \
+    "${a4_said}" "${asked}" | tee -a "${REPORT}"
+if [[ -n "${COORD}" ]]; then
+    printf '\n==> NEXT (the owner): the Element steps in ACCEPTANCE-owner.md, then meta-deploy runs\n'
+    printf '    acceptance-after-owner.bash (A5).\n'
+else
+    printf '\n==> NEXT: with the coordinator online again, run deploy-stage-2.bash again for the test question.\n'
+fi
 plan_finish

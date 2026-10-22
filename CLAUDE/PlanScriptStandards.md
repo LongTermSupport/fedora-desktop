@@ -117,6 +117,13 @@ a run was dying) is on disk before anything reports on it. A `>(…)` process su
 cannot be waited on at all. The handler is armed for **EXIT and INT/TERM/HUP**, so a Ctrl-C'd
 run still leaves a complete log.
 
+**Declared team members are listed online or offline, never refused.** A script that judges
+the declared LXC members asks `plan_lxc_online <container>...` (`CLAUDE/Plan/_members.inc.bash`, sourced after the
+library) which of them
+run, judges those, and names each other one as offline: an offline member never fails a
+run ([AgentNotes.md](AgentNotes.md#an-offline-team-member-never-blocks-anything), rule
+`offline-member-blocks` in [QA.md](QA.md#offline-member-blocks)).
+
 **Teardown registers, it does not trap.** A script that creates something it must remove —
 a throwaway container, a signal raised to a live session, a temp tree — calls
 `plan_on_cleanup <function>` (library 1.3.0+) instead of installing its own

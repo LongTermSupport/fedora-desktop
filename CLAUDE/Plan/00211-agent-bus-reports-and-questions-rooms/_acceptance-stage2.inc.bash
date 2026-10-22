@@ -3,15 +3,17 @@
 # (the joins, A1-A4, the test question) and --after-owner (A5), with their --fake fixtures.
 # Sourced after _acceptance-stage1.inc.bash, never executed: no shell options, no `exit`. Every
 # function returns non-zero with a message on stderr when it does not pass. The caller sets
-# AGENT_BUS, CURL, HOST_PINGBUS, LXC_INFO, LXC_ATTACH, PODMAN, MEMBERS_JSON, TEAMS_JSON, RUN_TAG
-# and REPORT.
+# AGENT_BUS, CURL, HOST_PINGBUS, LXC_ATTACH, PODMAN, MEMBERS_JSON, TEAMS_JSON, RUN_TAG and
+# REPORT. An offline member (its container stopped, or no running session) is named and passed
+# over, never a failure (CLAUDE/AgentNotes.md); a check with no online member to run on is NOT
+# JUDGED.
 #
 # A SESSION is a member's running pingbus this host can drive, one tab-separated line:
 #   ccy <container ID> - <pingbus home> <team> <user ID>   a seat held in a running ccy
 #       session (podman, label ccy=true); `pingbus seat exec` links each team's seat into the
 #       session home /tmp/pingbus-home, which a `podman exec` names as PINGBUS_HOME
 #   lxc <container> <user> <home> <team> <user ID>          a present agent_bus_lxc_members
-#       entry, driven through the guest path members.py uses
+#       entry whose container is online, driven through the guest path members.py uses
 # The coordinator is found among them by the handle the registry gives it (`agent-bus list`),
 # whatever kind of session it runs in.
 
@@ -126,11 +128,20 @@ ccy_sessions() {
     done <<<"${ids}"
 }
 
-# lxc_sessions — one session line per present agent_bus_lxc_members entry. Stage 1, run again
-# as deploy 2's pre-flight, refused a declared container that is down.
+# lxc_sessions — one session line per present agent_bus_lxc_members entry whose container is
+# online. An entry whose container is not running is offline: named, and not a session.
 lxc_sessions() {
-    local entries entry container user team home uid
-    entries="$(jq -c '.[] | select((.state // "present") == "present")' "${MEMBERS_JSON}")" || return 1
+    local entries entry containers online container user team home uid
+    local -a names
+    containers="$(declared_containers)" || return 1
+    if [[ -z "${containers}" ]]; then
+        return 0
+    fi
+    mapfile -t names <<<"${containers}"
+    online="$(online_containers "${names[@]}")" || return 1
+    entries="$(jq -c --arg online "${online}" '($online | split("\n")) as $up
+        | .[] | select((.state // "present") == "present" and (.container as $c | any($up[]; . == $c)))' \
+        "${MEMBERS_JSON}")" || return 1
     while IFS= read -r entry; do
         if [[ -z "${entry}" ]]; then
             continue
@@ -141,7 +152,7 @@ lxc_sessions() {
         home="$(guest_home "${container}" "${user}")" || return 1
         uid="$(in_guest "${container}" "${user}" "${home}" "${team}" cat -- "${home}/.config/pingbus/${team}/member.json" </dev/null |
             jq -r '.user_id')" || {
-            printf 'container %s: %s has no readable pingbus bundle for team %s: run play-agent-bus.yml with the container running\n' \
+            printf 'container %s (online): %s has no readable pingbus bundle for team %s: play-agent-bus.yml writes it into an online container, so run that play (meta-deploy)\n' \
                 "${container}" "${user}" "${team}" >&2
             return 1
         }
@@ -156,27 +167,29 @@ read_sessions() {
     lxc="$(lxc_sessions)" || return 1
     SESSIONS="$(printf '%s\n%s\n' "${ccy}" "${lxc}" | awk 'NF')"
     printf '%s\n' "${SESSIONS}" >"${PLAN_RUN_DIR}/sessions.tsv" || return 1
-    printf 'sessions: %s seat(s) held in running ccy sessions, %s declared LXC member(s)\n' \
+    printf 'sessions: %s seat(s) held in running ccy sessions, %s online declared LXC member(s)\n' \
         "$(awk -F'\t' '$1 == "ccy"' <<<"${SESSIONS}" | wc -l)" "$(awk -F'\t' '$1 == "lxc"' <<<"${SESSIONS}" | wc -l)" |
         tee -a "${REPORT}"
 }
 
-# find_session <team> <handle> — the session line of that member, or a refusal naming it.
+# find_session <team> <handle> — the session line of that member, or nothing when it is offline
+# (no running ccy session holds its seat and no online LXC member is it; a host member is not
+# driven from here), which is said, naming it.
 find_session() {
     local found
     found="$(awk -F'\t' -v team="$1" -v handle="$2" \
         '$5 == team && substr($6, 2, index($6, ":") - 2) == handle { print; exit }' <<<"${SESSIONS}")"
     if [[ -z "${found}" ]]; then
-        printf 'team %s: the coordinator %s runs in no session this host can drive (no running ccy session holds its seat, and no present agent_bus_lxc_members entry is it), so no test question can be asked from it: start its session (a host member is not driven), then run meta-deploy again\n' \
-            "$1" "$2" >&2
-        return 1
+        printf 'team %s: the coordinator %s is offline (no running session this host can drive)\n' "$1" "$2" |
+            tee -a "${REPORT}" >&2
+        return 0
     fi
     printf '%s\n' "${found}"
 }
 
 # pick_coordinator — QTEAM, the first team whose registry names a coordinator (`agent-bus
-# list`), QHANDLE that coordinator and COORD its session. No team with a coordinator has no
-# questions room to accept, which is a refusal, never a pass.
+# list`), QHANDLE that coordinator and COORD its session, empty when it is offline. No team with
+# a coordinator has no questions room to accept, which is a refusal, never a pass.
 pick_coordinator() {
     local team roster handle
     while IFS= read -r team; do
@@ -193,26 +206,38 @@ pick_coordinator() {
         return 1
     fi
     COORD="$(find_session "${QTEAM}" "${QHANDLE}")" || return 1
+    if [[ -z "${COORD}" ]]; then
+        printf 'the questions room is judged in team %s; its coordinator %s is offline, so the test question is not judged\n' \
+            "${QTEAM}" "${QHANDLE}" | tee -a "${REPORT}"
+        return 0
+    fi
     printf 'the questions room is judged in team %s, through its coordinator %s\n' "${QTEAM}" "$(session_label "${COORD}")" |
         tee -a "${REPORT}"
 }
 
 # ── the joins (SPEC §5.3 leg 3, and A2's running members) ────────────────────────────────
 
-# not_joined — one `<team> <user ID> <room> <membership>` line per account that has not joined
-# a room it must: each coordinator its team's questions room, and each seat held in a running
-# ccy session its team's reports room (membership `-` when there is no ROOM line). An LXC
-# member's session cannot be seen from the host, so its reports join is judged by A4.
+# not_joined <online|offline> — online: one `<team> <user ID> <room> <membership>` line per
+# account that has not joined a room it must: each online coordinator its team's questions
+# room, and each seat held in a running ccy session its team's reports room (membership `-`
+# when there is no ROOM line). offline: one `<team> <handle>` line per coordinator in no session
+# this host can drive, which is offline and whose join is not judged. An LXC member's session
+# cannot be seen from the host, so its reports join is judged by A4.
 not_joined() {
-    local team roster running
+    local which="$1" team roster running online
     while IFS= read -r team; do
         roster="$("${AGENT_BUS[@]}" list "${team}")" || return 1
         running="$(awk -F'\t' -v team="${team}" '$1 == "ccy" && $5 == team { print $6 }' <<<"${SESSIONS}")"
-        awk -F'\t' -v team="${team}" -v running="${running}" '
-            BEGIN { n = split(running, ids, "\n"); for (i = 1; i <= n; i++) if (ids[i] != "") want[ids[i] "\treports"] = 1 }
-            $1 == "MEMBER" && $3 == "coordinator" { coordinator[$2] = 1 }
+        online="$(awk -F'\t' -v team="${team}" '$5 == team { print substr($6, 2, index($6, ":") - 2) }' <<<"${SESSIONS}")"
+        awk -F'\t' -v team="${team}" -v running="${running}" -v online="${online}" -v which="${which}" '
+            BEGIN { n = split(running, ids, "\n"); for (i = 1; i <= n; i++) if (ids[i] != "") want[ids[i] "\treports"] = 1
+                    n = split(online, hs, "\n"); for (i = 1; i <= n; i++) if (hs[i] != "") on[hs[i]] = 1 }
+            $1 == "MEMBER" && $3 == "coordinator" && !($2 in on) { if (which == "offline") printf "%s\t%s\n", team, $2 }
+            $1 == "MEMBER" && $3 == "coordinator" && ($2 in on) { coordinator[$2] = 1 }
+            which == "offline" { next }
             $1 == "ROOM" { seen[$2 "\t" $3] = $4; local_[$2] = substr($2, 2, index($2, ":") - 2) }
             END {
+                if (which == "offline") exit
                 for (u in local_) if (local_[u] in coordinator) want[u "\tquestions"] = 1
                 for (h in coordinator) { found = 0; for (u in local_) if (local_[u] == h) found = 1
                     if (!found) printf "%s\t@%s\tquestions\t-\n", team, h }
@@ -221,22 +246,30 @@ not_joined() {
     done <<<"${TEAMS}"
 }
 
-# rooms_joined — every coordinator has joined its questions room, and every running ccy seat
-# its reports room, within JOIN_WAIT_S; else each that has not is named.
+# rooms_joined — every online coordinator has joined its questions room, and every running ccy
+# seat its reports room, within JOIN_WAIT_S; else each that has not is named. An offline
+# coordinator is named and its join is not judged: it joins when it comes online.
 JOIN_WAIT_S=180
 JOIN_POLL_S=10
 rooms_joined() {
-    local pending deadline=$((SECONDS + JOIN_WAIT_S)) team user room membership
+    local pending offline deadline=$((SECONDS + JOIN_WAIT_S)) team user room membership
+    offline="$(not_joined offline)" || return 1
+    while IFS=$'\t' read -r team user; do
+        if [[ -n "${team}" ]]; then
+            printf 'team %s: the coordinator %s is offline (no running session this host can drive): its questions join is not judged\n' \
+                "${team}" "${user}" | tee -a "${REPORT}"
+        fi
+    done <<<"${offline}"
     while true; do
-        pending="$(not_joined)" || return 1
+        pending="$(not_joined online)" || return 1
         if [[ -z "${pending}" ]]; then
-            printf 'every coordinator has joined questions, and every running ccy seat (%s) reports\n' \
+            printf 'every online coordinator has joined questions, and every running ccy seat (%s) reports\n' \
                 "$(awk -F'\t' '$1 == "ccy"' <<<"${SESSIONS}" | wc -l)" | tee -a "${REPORT}"
             return 0
         fi
         if [[ "${SECONDS}" -ge "${deadline}" ]]; then
             while IFS=$'\t' read -r team user room membership; do
-                printf 'team %s: %s has not joined %s (%s; invite or -: its pingbus has not synced since deploy 2, so its session is not running or started before deploy 1; leave: its running pingbus is older than deploy 1): restart that session, then run meta-deploy again\n' \
+                printf 'team %s: %s is online and has not joined %s (%s; invite or -: its pingbus has not synced since deploy 2, so its session started before deploy 1; leave: its running pingbus is older than deploy 1): its session is out of date\n' \
                     "${team}" "${user}" "${room}" "${membership}" >&2
             done <<<"${pending}"
             return 1
@@ -260,6 +293,9 @@ a12_check() {
         case "${rc}" in
             0)
                 printf -- '- team %s: the side rooms are sound\n' "${team}" | tee -a "${REPORT}"
+                if [[ -n "${out}" ]]; then
+                    printf '%s\n' "${out}" | tee -a "${REPORT}"
+                fi
                 ;;
             1)
                 printf 'team %s: agent-bus check-rooms found problems:\n%s\n' "${team}" "${out}" >&2
@@ -400,11 +436,15 @@ inbox_clear() {
     printf '%s: not in its inbox\n' "$1"
 }
 
-# a3_inbox_check — A3: after REPORT_SETTLE_S, the worker's report is in no inbox of any session
-# of its team this host can drive (the coordinator's at least). Reports is never synced.
+# qteam_sessions — the sessions of QTEAM's online members this host can drive.
+qteam_sessions() { awk -F'\t' -v team="${QTEAM}" '$5 == team' <<<"${SESSIONS}"; }
+
+# a3_inbox_check — A3: after REPORT_SETTLE_S, the worker's report is in no inbox of any online
+# session of its team this host can drive. Reports is never synced. The caller runs it only
+# when there is one; with none, the inbox half of A3 is NOT JUDGED.
 a3_inbox_check() {
     local sessions session out count=0 bad=0
-    sessions="$(awk -F'\t' -v team="${QTEAM}" '$5 == team' <<<"${SESSIONS}")"
+    sessions="$(qteam_sessions)"
     sleep "${REPORT_SETTLE_S}"
     while IFS= read -r session; do
         out="$(where_in "${session}" "${A3_EVENT}")" || {
@@ -444,11 +484,11 @@ guest_home() {
     printf '%s\n' "${home}"
 }
 
-# a4_member — the first LXC session, or nothing when no LXC member is declared.
+# a4_member — the first LXC session, or nothing when no declared LXC member is online.
 a4_member() { awk -F'\t' '$1 == "lxc" { print; exit }' <<<"${SESSIONS}"; }
 
-# a4_check — A4: the first declared LXC member's `pingbus report`, run inside its container,
-# lands. The caller runs it only when there is one; with none, A4 is reported NOT JUDGED.
+# a4_check — A4: the first online declared LXC member's `pingbus report`, run inside its
+# container, lands. The caller runs it only when there is one; with none, A4 is NOT JUDGED.
 a4_check() {
     local session out
     session="$(a4_member)"
@@ -523,11 +563,14 @@ envelopes_ok() {
     printf '%s: the session took every attached message\n' "$1"
 }
 
-# a5_check — A5: the coordinator's `pingbus history --room questions`, in its session, shows the
-# owner's reply and edit attached to the newest stage-2 run's test question, and its session
-# took both. The raw history lines are kept in this run directory for Task 4.2.
-a5_check() {
-    local runs dirs saved team handle q session out ids where
+# a5_find — A5's question and coordinator: A5_TEAM, A5_HANDLE and A5_Q from the newest stage-2
+# run's test-question file, and A5_SESSION the coordinator's session, empty when it is offline.
+A5_TEAM=""
+A5_HANDLE=""
+A5_Q=""
+A5_SESSION=""
+a5_find() {
+    local runs dirs saved
     runs="${PLAN_REPO_ROOT}/untracked/plan-runs/$(basename "${PLAN_SCRIPT_DIR}")/acceptance"
     dirs=()
     if [[ -d "${runs}" ]]; then
@@ -539,10 +582,18 @@ a5_check() {
         return 1
     fi
     saved="${dirs[${#dirs[@]} - 1]}"
-    IFS=$'\t' read -r team handle q <"${saved}" || return 1
-    session="$(find_session "${team}" "${handle}")" || return 1
-    printf 'test question %s of team %s, asked by %s, read through %s (%s)\n' "${q}" "${team}" "${handle}" \
-        "$(session_label "${session}")" "${saved}" | tee -a "${REPORT}"
+    IFS=$'\t' read -r A5_TEAM A5_HANDLE A5_Q <"${saved}" || return 1
+    printf 'test question %s of team %s, asked by %s (%s)\n' "${A5_Q}" "${A5_TEAM}" "${A5_HANDLE}" "${saved}" |
+        tee -a "${REPORT}"
+    A5_SESSION="$(find_session "${A5_TEAM}" "${A5_HANDLE}")" || return 1
+}
+
+# a5_check — A5: the coordinator's `pingbus history --room questions`, in its session, shows the
+# owner's reply and edit attached to the test question a5_find found, and its session took
+# both. The raw history lines are kept in this run directory for Task 4.2.
+a5_check() {
+    local team="${A5_TEAM}" q="${A5_Q}" session="${A5_SESSION}" out ids where
+    printf 'read through %s\n' "$(session_label "${session}")" | tee -a "${REPORT}"
     out="$(session_run "${session}" pingbus history --room questions --team "${team}" </dev/null)" || {
         printf 'A5: pingbus history failed for %s\n' "$(session_label "${session}")" >&2
         return 1
@@ -613,7 +664,7 @@ fake_rosters() {
     fi
     {
         printf 'HUMAN\talice\tjoin\nMEMBER\talpha\t%s\tjoin\tactive\n' "${role}"
-        printf 'ROOM\t@alice:t1.internal\tquestions\tjoin\n'
+        printf 'ROOM\t@alice:t1.internal\tquestions\tjoin\nROOM\t@alpha:t1.internal\treports\tjoin\n'
         if [[ "$2" != "absent" ]]; then
             printf 'ROOM\t@alpha:t1.internal\tquestions\t%s\n' "$2"
         fi
@@ -639,13 +690,28 @@ fake_sessions() {
     esac
 }
 
-# fake_join <alpha questions> <beta reports> — deploy 2's wait over fixtures, with no waiting.
+# fake_join <alpha questions> <beta reports> [<alpha's session: ccy|none>] — deploy 2's wait
+# over fixtures, with no waiting; alpha is online in ccy container c1 unless none is given.
 fake_join() {
     fake_rosters alpha "$1" "$2" || return 1
-    fake_sessions none || return 1
+    fake_sessions "${3:-ccy}" || return 1
     SESSIONS="$(ccy_sessions)" || return 1
     JOIN_WAIT_S=0
     pick_teams && rooms_joined
+}
+
+# fake_lxc_offline — a declared LXC member whose container is stopped is no session, and the
+# read of the sessions does not fail on it.
+fake_lxc_offline() {
+    MEMBERS_JSON="${FIX}/members.json"
+    printf '%s\n' '[{"team":"t1","container":"lxc-down","user":"u1"}]' >"${MEMBERS_JSON}" || return 1
+    printf 'STOPPED\n' >"${FIX}/lxc-down.state" || return 1
+    local got
+    got="$(lxc_sessions)" || return 1
+    if [[ -n "${got}" ]]; then
+        printf 'the stopped member was read as a session: %s\n' "${got}" >&2
+        return 1
+    fi
 }
 
 # fake_join_nocoord — t1 has no coordinator: no questions join is owed.
@@ -658,7 +724,7 @@ fake_join_nocoord() {
 }
 
 # fake_pick <t1's coordinator: alpha|none> <alpha's session: ccy|lxc|none> — the coordinator
-# is found in its session, of either kind, or refused.
+# is found in its session, of either kind, or found offline (COORD empty, no failure).
 SESSIONS_LXC=""
 fake_pick() {
     fake_rosters "$1" join join || return 1
@@ -672,6 +738,13 @@ fake_pick() {
     QHANDLE=""
     COORD=""
     pick_teams && pick_coordinator || return 1
+    if [[ "$2" == "none" ]]; then
+        if [[ -n "${COORD}" ]]; then
+            printf 'the offline fixture coordinator was found as %s\n' "${COORD}" >&2
+            return 1
+        fi
+        return 0
+    fi
     if [[ "$(session_field "${COORD}" 1)" != "$2" ]] || [[ "$(session_field "${COORD}" 6)" != "@alpha:t1.internal" ]]; then
         printf 'the fixture coordinator was found as %s\n' "${COORD}" >&2
         return 1

@@ -1059,7 +1059,7 @@ the wrong binary still fails. This applies to designs too: a new team flow, the 
 included, is built so that an offline member is shown as offline and blocks nothing.
 
 In plan bash, list the declared containers with `plan_lxc_online`
-(`CLAUDE/Plan/_planlib.inc.bash`). Its tests are in `scripts/test-planlib.bash`. The rule
+(`CLAUDE/Plan/_members.inc.bash`). Its tests are in `scripts/test-planlib.bash`. The rule
 `offline-member-blocks` ([QA.md](QA.md#offline-member-blocks)) holds this.
 
 ---
