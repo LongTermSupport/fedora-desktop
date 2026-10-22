@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -207,18 +208,71 @@ func TestBackupBusyAndRestorePending(t *testing.T) {
 // sources.
 func (w *world) stampBeta(t *testing.T) {
 	t.Helper()
-	beta := teamID(t, "beta")
-	for _, dir := range []string{paths.AdminState(beta), paths.StatusTeamDir(beta)} {
+	w.stampTeam(t, "beta")
+}
+
+// copyAlpha gives the stamped team name alpha's backup sources under its own name.
+func (w *world) copyAlpha(t *testing.T, name string) {
+	t.Helper()
+	from, to := alpha(t), teamID(t, name)
+	root, err := os.OpenRoot(w.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cerr := root.Close(); cerr != nil {
+			t.Error(cerr)
+		}
+	}()
+	for _, f := range []string{paths.AdminState(from) + "/config.toml", paths.RosterFile(from), paths.RoomsFile(from), paths.CtlState(from) + "/admin.token"} {
+		src := strings.TrimPrefix(f, "/")
+		raw, err := root.ReadFile(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dst := strings.ReplaceAll(src, "/"+from.String()+"/", "/"+to.String()+"/")
+		if err = root.MkdirAll(filepath.Dir(dst), 0o700); err == nil {
+			err = root.WriteFile(dst, []byte(strings.ReplaceAll(string(raw), from.String(), to.String())), 0o600)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// stampTeam stamps the team name, beta's team.json under its own name.
+func (w *world) stampTeam(t *testing.T, name string) {
+	t.Helper()
+	id := teamID(t, name)
+	for _, dir := range []string{paths.AdminState(id), paths.StatusTeamDir(id)} {
 		if err := os.MkdirAll(w.root+dir, 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := os.WriteFile(w.root+paths.TeamDeclaration(beta), []byte(betaTeamJSON), 0o600); err != nil {
+	if err := os.WriteFile(w.root+paths.TeamDeclaration(id), []byte(strings.ReplaceAll(betaTeamJSON, "beta", name)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	stamp := `{"v":1,"team":"beta","config":"c","software":"s","tuwunel":"1.9.4","applied_ms":1}`
-	if err := os.WriteFile(w.root+paths.StampFile(beta), []byte(stamp), 0o600); err != nil {
+	stamp := `{"v":1,"team":"` + name + `","config":"c","software":"s","tuwunel":"1.9.4","applied_ms":1}`
+	if err := os.WriteFile(w.root+paths.StampFile(id), []byte(stamp), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// BV2 and the owner's rule: `backup --all` never fails because one team is down. The down team,
+// listed first, is shown failed; the team after it is still backed up; the exit is 1.
+func TestBackupAllGoesOnPastADownTeam(t *testing.T) {
+	w, u := backupWorld(t)
+	w.stampTeam(t, "able")
+	w.copyAlpha(t, "able")
+	u.inactive[paths.ServerUnit(teamID(t, "able"))] = true
+	out := w.backupVerb(w.backupDeps(u), "backup", "--all")
+	lines := strings.Split(strings.TrimSuffix(out.stderr, "\n"), "\n")
+	if out.code != term.ExitFailure || out.stdout != "" || len(lines) != 2 ||
+		!strings.HasPrefix(lines[0], "able failed: ") || !strings.Contains(lines[0], "not running") || lines[1] != "alpha backup 1" {
+		t.Fatalf("a down team first = %+v", out)
+	}
+	if len(u.kills) != 1 || !strings.HasPrefix(u.kills[0], paths.ServerUnit(alpha(t))) {
+		t.Fatalf("signals %q", u.kills)
 	}
 }
 

@@ -71,7 +71,8 @@ func backupArgs(args []string) (paths.TeamID, bool, error) {
 }
 
 // backupAll is BV2 (n2g-D5): every stamped team in turn, one stderr line each, nothing on
-// stdout, 1 when any failed.
+// stdout, 1 when any failed. One team's failure, a homeserver down included, never stops the
+// teams after it (the owner's rule).
 func backupAll(ctx context.Context, e Env, sys *System, d backup.Deps) term.ExitCode {
 	teams, err := health.Stamps{Root: sys.Host.Root}.Stamped(ctx)
 	if err != nil {
