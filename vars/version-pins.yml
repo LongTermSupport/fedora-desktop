@@ -74,16 +74,6 @@ version_pins:
         Not yet established. Needs a host to determine how the installed version is
         resolved; declared rather than omitted so the gap is counted, not invisible.
 
-  - playbook: playbooks/imports/optional/common/play-opencode.yml
-    var: opencodeVersion
-    github: anomalyco/opencode
-    installed:
-      kind: untracked
-      why: >-
-        An optional play, and `kind: command` reports a missing binary as a finding on every
-        host that never ran it. The play asserts that the binary it installs reports the pin on
-        every run, and removes the unpinned copy `opencode upgrade` may put in ~/.opencode/bin.
-
   - playbook: playbooks/imports/optional/common/play-md-viewer.yml
     var: md_viewer_version
     note: >-

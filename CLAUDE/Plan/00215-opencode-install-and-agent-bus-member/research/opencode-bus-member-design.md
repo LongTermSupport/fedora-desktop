@@ -190,7 +190,7 @@ would have to ship, so it is listed as open, not assumed.
 
 The guard-rail row is the difference that matters most: an opencode worker in this repository
 runs **without** the hooks daemon (no destructive-git, secret-read, sed or plan guards).
-Section 6 and decisions O2 and O3 follow from it.
+Section 6 (the owner's O2, O3 and O5: inside the ccy container) follows from it.
 
 ## 5. The member-adapter seam in v2
 
@@ -294,22 +294,29 @@ placed as files. The one visible addition is the launch-mode argument of `teamch
 (O4), an argument spelling rather than one of Gate A's names, put to the owner with v2's
 other names in any case.
 
-## 6. Where an opencode worker runs
+## 6. Where an opencode session runs, and in what role
 
-The play installs opencode for the login user on the host, for the owner's own use. A
-**worker** is different: unattended, permissive by default, and outside the hooks daemon. Run
-directly as the login user on the host, it can read and change everything that user can (the
-vault password file, other checkouts, the owner's GitHub token). So the recommendation is to
-run workers where v2 already isolates members:
+The owner's answers (PLAN.md, O2, O3, O5) settle this. Nothing dictates where opencode runs:
+it is a choice of agent, made per launch, beside the existing launchers.
 
-- **an LXC guest** (v2 N3's LXC member kind, Plan 00209 Task 3.3, B 2.13), with opencode
-  installed in the guest by the guest's own play; or
-- **the ccy container**, which would put opencode into the ccy image: a ccy image change with a
-  CCY version bump, after v2's kit is in the image (Plan 00209 N4, Task 4.1), which is itself
-  held by Gate A.
+- **ccy first, and only ccy until the idea is proven (O2).** `ccy --opencode` (`-oc`) runs
+  opencode in the ccy container instead of Claude Code; the image carries the pinned opencode,
+  and nothing is installed on the host. `cc` (the desktop level), LXC guests and localhost come
+  later; `cc` also waits on hooks-daemon support for opencode, since a host session without the
+  daemon's guards is what section 4's last rows warn about.
+- **Workers are podman-contained, inside the ccy container (O3).** The container is the guard
+  rail that opencode's permissive defaults and the missing hooks daemon do not give: a worker
+  sees the checkout, the mounts and the tokens of its own ccy session, and nothing else on the
+  host. So the per-worker `permission` policy is no longer a precondition; opencode runs with
+  `--auto`, as Claude Code runs with `--dangerously-skip-permissions`.
+- **Any role (O5).** An opencode member may be a team's coordinator or a worker, as the owner
+  chooses; nothing in the seam or the launch locks it to one.
 
-A host member is v2's seam 56 (Plan 00209 Task 5.1, N5), refused until defined and held by
-**Gate B** (a host member's seat is a pool seat). This is decision O2.
+So the Phase 3 member kind is the ccy one: v2's kit in the ccy image (Plan 00209 N4, Task 4.1)
+with the opencode adapter beside the Claude Code one, selected by the same `--opencode` flag.
+Until then an opencode ccy session carries no bus kit, and `--teams` with `--opencode` is
+refused. An LXC member and a host member (v2's seam 56, Plan 00209 Task 5.1, held by **Gate
+B**) follow only when the owner extends O2.
 
 ## 7. Host checks an implementation must pass (per pinned opencode version)
 

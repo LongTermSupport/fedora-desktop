@@ -879,6 +879,31 @@ credentials or state.
 
 ---
 
+## opencode
+
+`ccy --opencode` (or `-oc`) runs [opencode](https://github.com/anomalyco/opencode), the
+open-source terminal coding agent, in the container instead of Claude Code. Everything else is
+an ordinary ccy session: tmux, mounts, tokens, the firewall and the session record, which keeps
+the flag, so a restored session runs opencode again. The image pins opencode (its Dockerfile's
+`OPENCODE_VERSION`, checked by sha256 at build) and starts it as `opencode --auto`: as with
+Claude Code's `--dangerously-skip-permissions`, the container is the isolation. ccy's other
+arguments go to opencode unchecked (`--model provider/model`), and `--prompt` becomes
+opencode's `--prompt`.
+
+opencode cannot use the Claude login. It needs a model provider key, which you add once as a file
+in `~/.claude-tokens/ccy/provider-keys/`, named for the variable opencode reads it from
+(`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, ...), holding the key on one line, mode 0600. Which
+provider is yours to choose. Each key is handed by name to that session's container only, never
+exported. With no key, or a file there that is not one, the launch stops before anything starts.
+
+An opencode session is on no agent team and has no supervisor, so `--teams`, `--supervise`,
+`--headless` and the session limits are refused with it. Claude Code's ctrl+z guard is the
+supervisor's; for opencode the image unbinds its suspend key instead (`/etc/opencode/tui.json`).
+The image's `/etc/opencode/opencode.json` turns sharing off. opencode keeps its own data inside the
+container, so a session's history goes with the container. It reads the project's `CLAUDE.md`
+and `.claude/skills/` when there is no `AGENTS.md`; moving projects to `AGENTS.md` is later work
+([Plan 00215](../CLAUDE/Plan/00215-opencode-install-and-agent-bus-member/PLAN.md)).
+
 ## Command Reference
 
 Run `ccy --help` for the authoritative list — it also prints Claude Code's own help from
@@ -895,6 +920,7 @@ are forwarded unchanged.
 | `--headless`                                | Run non-interactively — requires `--prompt` (not the positional form). With no launch-choice flag it takes the saved Quick Launch choices (never the saved team) without asking, or is refused when there are none; a key that needs a passphrase is refused unless your ssh-agent holds it (`ssh-add` it; that one key is then forwarded) |
 | `--teams`, `--teams T` or `--teams S@T[,…]` | Put this session in agent team bus teams, one seat per team: bare, choose the teams from a list with their descriptions; a team alone asks which seat (`--teams dev-team`), or name them (`--teams dev1@dev-team,qa2@other-team`) (see [the agent team bus](#--teams--the-agent-team-bus)); without it a session is in no team             |
 | `--supervise`                               | Wrap `claude` in the in-container supervisor                                                                                                                                                                                                                                                                                               |
+| `--opencode`, `-oc`                         | Run opencode instead of Claude Code (see [opencode](#opencode))                                                                                                                                                                                                                                                                            |
 | `--no-restore`                              | Do not bring this session back after a reboot (see [restore](#sessions-survive-a-reboot))                                                                                                                                                                                                                                                  |
 | `--top`                                     | Container manager: list and stop running CCY containers                                                                                                                                                                                                                                                                                    |
 | `ccy-sessions`                              | Separate command: every CCY tmux session with its CPU, network, token and SSH key, attach or end one; `--list` prints the table; `reboot --in N` warns them and reboots; `restore` brings them back                                                                                                                                        |

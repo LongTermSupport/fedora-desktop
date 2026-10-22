@@ -5,6 +5,15 @@ otherwise. Doc paths are under `packages/web/src/content/docs/` in
 <https://github.com/anomalyco/opencode>; read them at the tag with
 `gh api -H "Accept: application/vnd.github.raw" "repos/anomalyco/opencode/contents/<path>?ref=v1.19.3"`.
 
+"The play" below is the desktop-level `play-opencode.yml` these facts were first gathered for.
+The owner's O2 and O7 removed it: the ccy image installs opencode instead, from the same tarball
+and sha256, with the same managed config, and `OPENCODE_DISABLE_AUTOUPDATE=1` (the switch the
+update check does read). The upgrade risk below is the container's own, gone with the container.
+Two facts were added for the image: `terminal_suspend` defaults to `ctrl+z` (`keybinds.mdx`),
+which the image unbinds in a `tui.json` named by `OPENCODE_TUI_CONFIG` (`tui.mdx` "Configure");
+and the image's `opencode.json` was checked with `opencode debug config` (share `disabled`,
+autoupdate `false`). The `tui.json` is not checked headless: it is a hand check (PLAN.md Task 1.4).
+
 ## Project
 
 - `sst/opencode` now redirects to **`anomalyco/opencode`** (`gh api repos/sst/opencode`

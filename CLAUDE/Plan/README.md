@@ -34,7 +34,7 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00215-opencode-install-and-agent-bus-member](00215-opencode-install-and-agent-bus-member/) - In Progress. Install opencode (the open-source terminal coding agent) by a pinned optional play, and design opencode sessions as agent-bus v2 members through a member-adapter seam; the build waits on Plan 00209
+- [00215-opencode-install-and-agent-bus-member](00215-opencode-install-and-agent-bus-member/) - In Progress. opencode (the open-source terminal coding agent) in the ccy image, pinned, and `ccy --opencode` (`-oc`) to run it instead of Claude Code; opencode sessions designed as agent-bus v2 members through a member-adapter seam, the build waiting on Plan 00209
 
 - [00213-agent-bus-performance-go-carve-out](00213-agent-bus-performance-go-carve-out/) - In Progress. pingbus starts a Python interpreter on every status-line refresh and hook event, costing several CPU threads across a team; cut the refresh rate, skip the host pyenv shim, then port `pingbus status-line` to Go with a parity test (the hooks port moved to Plan 00209)
 

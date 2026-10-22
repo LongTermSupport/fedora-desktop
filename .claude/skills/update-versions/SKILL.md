@@ -49,8 +49,7 @@ For each pin the user agrees to update:
    will FAIL verification if you bump the version but not the hash. Known
    checksum-pinning plays: `play-markless.yml`, `play-photography.yml`
    (RapidRAW, ART), `play-cli-tools.yml` (`ouchSha256`, the release API's
-   `digest` for the `ouchArch` asset), `play-opencode.yml` (`opencodeSha256`, the
-   release API's `digest` for `opencodeAsset`), `play-network-tools.yml`
+   `digest` for the `ouchArch` asset), `play-network-tools.yml`
    (`ooklaSpeedtestSha256`), and the agent team bus's
    `files/usr/local/share/agent-bus/tuwunel.pin` (one sha256 per architecture,
    from the release API's per-asset `digest`). Grep the same file for `sha256`/`checksum`/
@@ -96,3 +95,8 @@ When a new playbook hardcodes an upstream version, add an entry to
 `vars/version-pins.yml`, the manifest `scripts/check-pinned-versions.bash` reads. Its
 header documents the fields (`playbook`, `var`, `github`, `tag_prefix`, `note`,
 `installed`); `./scripts/qa-version-pins.bash` validates it.
+
+The manifest holds playbook pins only. The ccy base image pins its release binaries as
+`ARG <NAME>_VERSION` / `ARG <NAME>_SHA256` pairs in `files/var/local/claude-yolo/Dockerfile`
+(Lightpanda, opencode), which the script does not report: check those by hand, bump the
+pair together, and bump the container version with them (CLAUDE/ContainerRules.md).

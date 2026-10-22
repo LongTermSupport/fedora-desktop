@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.100.0 — container 2.79.0
+
+Follows 3.99.14.12. The image changes, so the next launch rebuilds it once.
+
+- **`ccy --opencode` (or `-oc`) runs opencode instead of Claude Code** (Plan 00215): the image
+  carries opencode 1.19.3, pinned by sha256, with sharing and the updater off and its ctrl+z
+  suspend unbound. The flag changes only the command the container runs; the session has no bus
+  kit and no supervisor, so `--teams`, `--supervise`, `--headless` and the session limits are
+  refused with it. It needs a model provider key file in `~/.claude-tokens/ccy/provider-keys/`,
+  handed by name to that container only, and stops before anything starts without one. A launch
+  without the flag is byte for byte what it was (the launcher's differential harness).
+
 ## 3.99.14.11 — container 2.78.14
 
 Follows 3.99.14.10. The image is unchanged, so there is no rebuild.

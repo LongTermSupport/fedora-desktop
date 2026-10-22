@@ -1,6 +1,6 @@
 # Plan 00215: opencode install and agent bus member
 
-**Status**: In Progress (Phase 1 built, awaiting its host run; Phase 2 designed; Phase 3 waits on Plan 00209)
+**Status**: In Progress (Phase 1 built in ccy, awaiting its host run; Phase 2 designed; Phase 3 waits on Plan 00209)
 **Created**: 2026-10-22
 **Owner**: joseph
 **Priority**: Medium
@@ -9,15 +9,17 @@
 
 The owner wants opencode, the open-source terminal coding agent
 ([anomalyco/opencode](https://github.com/anomalyco/opencode), formerly `sst/opencode`), as an
-extra team worker for GitHub issues, plans and suggestions. That needs two things: opencode
-installed the way this repo installs every pinned upstream binary, and opencode sessions able
-to join an agent-bus team, be woken by deliveries and answer.
+extra team member for GitHub issues, plans and suggestions. That needs two things: opencode
+able to run where the owner chooses, and opencode sessions able to join an agent-bus team, be
+woken by deliveries and answer.
 
-Phase 1 is the install: an optional play, pinned by version and sha256, for the login user,
-with no credential in the repo. Phase 2 is the bus membership design, written against agent
-bus v2 (`teamchat`, [Plan 00209](../00209-agent-bus-v2-in-go/)) because v1's wake path is
-Claude Code's own and v1 is being replaced. Phase 3 builds that design, and **every Phase 3
-task depends on Plan 00209, not on v1**.
+Phase 1 is the first place it runs, decided by the owner (O2, O3, O7): **inside ccy only**.
+The ccy image carries the pinned opencode, and `ccy --opencode` (`-oc`) runs it instead of
+Claude Code in an otherwise ordinary session. Nothing is installed at desktop level. Phase 2 is
+the bus membership design, written against agent bus v2 (`teamchat`,
+[Plan 00209](../00209-agent-bus-v2-in-go/)) because v1's wake path is Claude Code's own and v1 is
+being replaced. Phase 3 builds that design, and **every Phase 3 task depends on Plan 00209, not
+on v1**.
 
 Facts: [research/opencode-upstream-facts.md](research/opencode-upstream-facts.md) (upstream,
 with sources) and [research/agent-bus-member-facts.md](research/agent-bus-member-facts.md)
@@ -26,37 +28,49 @@ with sources) and [research/agent-bus-member-facts.md](research/agent-bus-member
 
 ## Goals
 
-- `play-opencode.yml` installs the pinned opencode, checksum-verified, idempotent and fail-fast,
-  tracked by `vars/version-pins.yml` so `scripts/check-pinned-versions.bash` reports its drift.
+- The ccy base image installs the pinned opencode, checksum-verified at build, and
+  `ccy --opencode` changes only the command the container runs: tmux, mounts, tokens, firewall
+  and the session record stay as for any launch, and a launch without the flag is unchanged.
+- opencode's model provider key stored the way ccy stores its tokens and handed by name to the
+  one container run, never exported; no key, a clear failure before anything starts.
 - A design that lets an opencode session be a v2 team member with the same HUMAN, PEER and PING
-  authority as a Claude Code member, and the exact shape of the member-adapter seam v2 would
-  need.
+  authority as a Claude Code member, through one member-adapter seam in v2 (O4).
 
 ## Non-Goals
 
-- Any bus code, on v1 or v2, in this plan's Phases 1-2.
-- An opencode member on v1.
-- Writing provider credentials, or choosing the provider, for the owner (decision O1).
+- opencode at desktop level, in `cc`, in LXC guests or on localhost: later, once ccy has proven
+  the idea (O2). `cc` also waits on hooks-daemon support for opencode.
+- Any bus code, on v1 or v2, in this plan's Phases 1-2; an opencode member on v1.
+- Moving projects from `CLAUDE.md` to `AGENTS.md` (O6): later, separate work.
+- Choosing the model provider for the owner (O1).
 - Any new owner-visible `teamchat` name or path: Plan 00209's Gate A is untouched.
 
 ## Tasks
 
-### Phase 1: install
+### Phase 1: opencode in ccy
 
 - [x] ✅ **Task 1.1**: Research the upstream release assets and their verification, where
   opencode keeps config and credentials, and its non-interactive and server modes
   ([research/opencode-upstream-facts.md](research/opencode-upstream-facts.md)).
-- [x] ✅ **Task 1.2**: `playbooks/imports/optional/common/play-opencode.yml`: opencode 1.19.3,
-  `opencode-linux-x64.tar.gz`, sha256 from the release API's digest, installed under
-  `~/.local/lib/opencode-<version>/` and linked as `~/.local/bin/opencode`, other versions
-  removed, any unpinned `~/.opencode/bin/opencode` removed, version asserted;
-  `/etc/opencode/opencode.json` managed config with `share` disabled and `autoupdate: false`
-  (which 1.19.3's update notice does not read). No credential.
-- [x] ✅ **Task 1.3**: Track the pin in `vars/version-pins.yml` (the manifest
-  `scripts/check-pinned-versions.bash` reads), name the checksum in the `update-versions`
-  skill, and document the play in `docs/playbooks.md`.
-- [ ] 🔄 **Task 1.4**: Host run: queued in `CLAUDE/Plan/meta-deploy.list`. Done when the play
-  has run on the host and `opencode --version` there prints the pin.
+- [x] ✅ **Task 1.2**: The ccy base image (`files/var/local/claude-yolo/Dockerfile`, container
+  2.79.0) installs opencode 1.19.3 from `opencode-linux-x64.tar.gz`, sha256 from the release
+  API's digest (`OPENCODE_VERSION`/`OPENCODE_SHA256`), version asserted at build; managed
+  `/etc/opencode/opencode.json` (`share` disabled), `OPENCODE_DISABLE_AUTOUPDATE=1`, and
+  `/etc/opencode/tui.json` unbinding opencode's ctrl+z suspend. The desktop play
+  `play-opencode.yml`, its pin row and its docs are removed (O7).
+- [x] ✅ **Task 1.3**: `ccy --opencode` / `-oc` (CCY 3.100.0), in `lib/agent-choice.bash`:
+  the parse's last branch takes the flag; `--teams`, `--supervise`, `--headless` and the
+  session limits are refused with it (64); the session runs with no bus kit and no supervisor;
+  provider keys are files in `~/.claude-tokens/ccy/provider-keys/` named for opencode's variable
+  (`<PROVIDER>_API_KEY`, 0600, one line), none by default, a missing or malformed one failing
+  (1) before anything is asked; each key is handed by name to the container run only
+  (`local -x` around the engine call). Proven by `scripts/test-ccy-agent-choice.bash` and four
+  new launcher differential-harness scenarios; every existing scenario's golden is unchanged
+  but the three `--help` ones. Documented in `docs/ccy.md` ("opencode").
+- [ ] 🔄 **Task 1.4**: Host run: the `play-claude-yolo.yml` entry in
+  `CLAUDE/Plan/meta-deploy.list`. Done when the image has rebuilt with opencode, a key file is in
+  place, and `ccy --opencode` starts opencode in its tmux session; hand check that ctrl+z in it
+  does not freeze the session.
 
 ### Phase 2: bus membership design (no code)
 
@@ -64,63 +78,84 @@ with sources) and [research/agent-bus-member-facts.md](research/agent-bus-member
   paths, Plan 00161) and v2 (Plan 00209 on F44 and the DESIGN and SPEC files on
   `feat/bus-v2-n3`) ([research/agent-bus-member-facts.md](research/agent-bus-member-facts.md)).
 - [x] ✅ **Task 2.2**: Write the design: join, wake, deliver, reply, authority, the differences
-  from a Claude Code member, the adapter seam and its shape
+  from a Claude Code member, the adapter seam and its shape, and where opencode runs (section 6:
+  O2, O3, O5, inside ccy first, any role)
   ([research/opencode-bus-member-design.md](research/opencode-bus-member-design.md)).
-- [ ] ⬜ **Task 2.3**: Owner decisions O1-O7 below answered.
+- [x] ✅ **Task 2.3**: Owner decisions O1-O7 answered (below).
 
 ### Phase 3: build (depends on Plan 00209, not on v1)
 
-Each task names the Plan 00209 work it waits for. None starts before the owner has answered
-O2 and O4.
+Each task names the Plan 00209 work it waits for.
 
 - [ ] ⬜ **Task 3.1**: Put the seam (design section 5) to Plan 00209 so n3e, the Claude Code
-  delivery slice of N3, is built as the first adapter. **Depends on** Plan 00209 Task 3.2
+  delivery slice of N3, is built as the first adapter (O4). **Depends on** Plan 00209 Task 3.2
   (n3e) not yet built. If n3e lands first without it, this task becomes carving it out.
 - [ ] ⬜ **Task 3.2**: The opencode adapter in v2's member, with a fake opencode server for the
   tests and host checks H-OC1 to H-OC5 (design section 7). **Depends on** Plan 00209 N3
   (Task 3.2) merged.
-- [ ] ⬜ **Task 3.3**: The opencode member kind where O2 places it: an LXC guest (**depends
-  on** Plan 00209 Task 3.3, N3's LXC members), or a host member (**depends on** Plan 00209
-  Task 5.1, seam 56, and its **Gate B**), or the ccy image (**depends on** Plan 00209 N4,
-  Task 4.1's v2 kit in the image, and a CCY version bump).
-- [ ] ⬜ **Task 3.4**: Acceptance: one opencode worker on a throwaway v2 team answers a HUMAN
-  message, a PEER message and a closed-verb ping from the coordinator, and its HUMAN items get
-  read receipts only after proof. **Depends on** Tasks 3.2-3.3.
+- [ ] ⬜ **Task 3.3**: The opencode member kind in ccy (O2): v2's kit in the ccy image with the
+  opencode adapter, chosen by `--opencode`, which then stops refusing `--teams`. **Depends on**
+  Plan 00209 N4 (Task 4.1, v2's kit in the image) and a CCY version bump.
+- [ ] ⬜ **Task 3.4**: Acceptance: one opencode member on a throwaway v2 team answers a HUMAN
+  message, a PEER message and a closed-verb ping, and its HUMAN items get read receipts only
+  after proof. **Depends on** Tasks 3.2-3.3.
 
 ## Owner decisions
 
-Each has the default the design assumes.
+Answered by the owner; O1 and O4 are the coordinator's recommendations, recorded as the
+defaults the owner accepted.
 
-- **O1 Provider and credentials.** Which model provider opencode workers use, and how its key
-  reaches them. Default: the owner signs in once per place a worker runs with
-  `opencode auth login` (kept in `~/.local/share/opencode/auth.json`, outside the repo); a
-  vault variable written by a play only if a worker must be provisioned unattended.
-- **O2 Where workers run.** Default: an LXC guest, because an opencode worker runs outside the
-  hooks daemon and allows nearly everything by default; not the host login user (Plan 00209
-  seam 56 and Gate B), and not the ccy image unless O2 says so.
-- **O3 Worker permissions.** opencode's `permission` rules are a worker's only guard rail.
-  Default: a per-worker policy that denies `git push --force`, `git reset --hard`, history
-  rewrites and reads outside the checkout, set by the play that provisions the worker.
-- **O4 The seam and its launch spelling.** Default: v2 defines the in-process adapter seam of
-  design section 5 now, in n3e, and `teamchat run` gains an opencode launch mode beside
-  `--claude` and `--plain` (spelling, e.g. `--opencode`, put with v2's names). An opencode
-  session keeps Claude Code's first-join relaunch for parity, though opencode itself would not
-  need it.
-- **O5 Role.** Default: opencode members are workers only, never a team's coordinator.
-- **O6 Claude Code files.** opencode reads `CLAUDE.md` and `.claude/skills/` by default.
-  Default: keep it (the repo's rules reach the worker), knowing the Claude-specific skills,
-  including the bus skill, are written for Claude Code.
-- **O7 Managed config.** Default: keep the play's `/etc/opencode/opencode.json` (`share`
-  disabled, `autoupdate` off) for every opencode session on the host.
+- **O1 Provider and credentials.** The owner said "you tell me". Coordinator recommendation,
+  the default: opencode cannot use the Claude subscription login, so it needs a provider API
+  key. Store it with ccy's existing token mechanism (`--export-token`, `--list-tokens` and the
+  hand-off pattern GH_TOKEN uses) and pass it by name only to the container run that needs it;
+  do not export it to every child. Which provider (Anthropic API, OpenRouter, ...) is the
+  owner's billing call: make the key's env var name configurable by provider and default to
+  none, failing fast with a clear message when `--opencode` is used and no key is set.
+  *As built:* the key lives beside ccy's tokens (`~/.claude-tokens/ccy/provider-keys/<VAR>`)
+  and is handed on as GH_TOKEN is; `--list-tokens` and `--export-token` do not show it yet (see
+  Open questions).
+- **O2 Where it runs.** Do not dictate where opencode runs. `cc` and `ccy` work as normal, and a
+  flag `--opencode` (short `-oc`; check that the launcher's argument parser can take a
+  two-letter short flag, and if not, propose the nearest form and record why) makes the session
+  run opencode instead of claude. **ccy only at first.** `cc` (desktop level), LXC and localhost
+  come later, once the idea is proven. `cc` support also waits on hooks-daemon support for
+  opencode. *Checked:* ccy's parser matches each argument whole, with no bundling of short
+  flags, so `-oc` is taken as one flag and never reaches claude (which would read it as `-o -c`).
+- **O3 Worker permissions.** Workers run podman-contained, inside the ccy container.
+- **O4 The seam.** Coordinator default, accepted: the v2 bus gets one plug point for "deliver a
+  message to this kind of agent", with Claude Code as the first user and opencode the second,
+  instead of hard-coding Claude.
+- **O5 Role.** No lock-down. Coordinator or worker is the user's choice.
+- **O6 Claude Code files.** Do not keep opencode reading CLAUDE.md or .claude/skills. Instead,
+  projects move to AGENTS.md. Record this as a later, separate piece of work; do not migrate
+  anything now. *Verified fact* ([Claude Code memory docs](https://code.claude.com/docs/en/memory.md#agents-md)):
+  from v2.1.277 Claude Code reads `AGENTS.md` natively, but only when no `CLAUDE.md`,
+  `CLAUDE.local.md` or `.claude/CLAUDE.md` exists in the working directory or above it; the
+  `/config` setting "Project instructions" = `claude-md-and-agents-md` loads both; the
+  documented fallback is a `CLAUDE.md` that contains `@AGENTS.md`, with any Claude-specific
+  notes below the import. So the later move can be: `AGENTS.md` holds the shared instructions,
+  and `CLAUDE.md` becomes `@AGENTS.md` plus the Claude-only parts, which keeps the
+  CLAUDE.md-only features (path rules, the hooks daemon block) working. Until that move,
+  opencode keeps its default of reading `CLAUDE.md` (setting `OPENCODE_DISABLE_CLAUDE_CODE`
+  now would leave an opencode session in this repo with no project rules at all).
+- **O7 Managed config.** No opinion. **Do not install opencode at desktop level yet.** The first
+  test is podman-contained, in a ccy-type container. (The image keeps the managed config.)
+
+## Open questions
+
+- **Provider keys and the token commands (O1).** `--list-tokens` and `--export-token` list and
+  export Claude tokens only; showing provider keys there touches the Go front's answers and
+  its differential harness. Worth doing once a key is in use, or not at all?
 
 ## Success Criteria
 
-- [ ] The play has run on the host and `opencode --version` prints the pin (Task 1.4).
-- [x] `scripts/check-pinned-versions.bash` lists `opencodeVersion` against `anomalyco/opencode`
-  (checked in the container: `1.19.3`, up to date).
-- [x] The design covers join, wake, delivery, reply, authority, the differences and the seam,
-  and leaves Gate A untouched.
-- [ ] The owner has answered O1-O7.
+- [ ] The image has rebuilt on the host with opencode 1.19.3, and `ccy --opencode` starts it
+  with a provider key (Task 1.4).
+- [x] A launch without `--opencode` is byte for byte what it was (the differential harness).
+- [x] The design covers join, wake, delivery, reply, authority, the differences, the seam and
+  where opencode runs, and leaves Gate A untouched.
+- [x] The owner has answered O1-O7.
 
 ## Delivery & Milestones
 
@@ -128,4 +163,4 @@ Each has the default the design assumes.
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00215-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- Phase 1 play and Phase 2 design on branch `feat/opencode`.
+- Phase 2 design, and the rework to ccy after the owner's answers, on branch `feat/opencode`.
