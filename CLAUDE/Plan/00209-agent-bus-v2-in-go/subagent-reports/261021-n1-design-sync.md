@@ -165,3 +165,13 @@ No applied fix changes an answered decision:
 
 `34c001bd` (paths and host-check minors), `efeda2f6` (matrix), `b933d7a7` (A 2-11), `64610201`
 (A 13-14), and the commit carrying this report.
+
+## Review round 2 (`261021-n1-design-sync-review-2.md`, MERGE, 0 major, 2 minor, 2 nit)
+
+- Finding 1 (minor): fixed; D 5.10 and the DESIGN-v2.md INT3 row say a reserved name has no
+  proposal and the owner chooses the id.
+- Finding 2 (minor): fixed; M0 checks that each ccy seat's checkout derives the same `<repo>`
+  under `NormaliseRepo` as its v1 handle (check and refusal cells), and D, A and row 41
+  qualify the identity statements with the non-ASCII fold exception.
+- Finding 3 (nit): fixed; SPEC-matrix.md M52 auth line rewrapped to 100 characters.
+- Finding 4 (nit): fixed; PLAN.md Task 2.3 names `conduit` (HC-A6) and `tuwunel` (A 2.3).

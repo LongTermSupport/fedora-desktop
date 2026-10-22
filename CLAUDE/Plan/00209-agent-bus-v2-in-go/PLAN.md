@@ -203,8 +203,8 @@ its first caller.
 - [ ] ⬜ **Task 2.2**: The homeserver instance per team (C 3.2): the pinned Tuwunel, the hardened
   `teamchat-server@<team>` unit carrying D's `InaccessiblePaths=`, checked by D's gate (seam 49).
 - [ ] ⬜ **Task 2.3**: Install and apply (C 3.5), the rooms engine from A's specs (C 3.6), the
-  roster, members, humans and roles; the service-account localparts `conduit` and `tuwunel`
-  reserved by HC-A6 (seam 18).
+  roster, members, humans and roles; the service-account localparts `conduit` (HC-A6) and
+  `tuwunel` reserved (A 2.3) (seam 18).
 - [ ] ⬜ **Task 2.4**: Seats and bundles in the seat store (C 3.7), the declarations (C 3.8),
   Element profiles (C 3.10), health and the status records (C 3.11), backups and restore (C 3.12).
 - [ ] ⬜ **Task 2.5**: Acceptance: C 3.14's tests; the M44 real-Tuwunel test, and Tuwunel's answers

@@ -265,8 +265,9 @@ is the shape the endpoint promises).
   user-interactive auth challenge: a 401 with no errcode, a `session` (M4's token grammar) and a
   flow whose only stage is `m.login.password`, else it is malformed (no session, not an object)
   or `ErrRefused` (no such flow). The second request answers it,
-  `{"auth": {"type": "m.login.password", "identifier": {"type": "m.id.user", "user": u}, "password": p, "session": s}}`, and must be answered 200 with an object. A wrong password (401
-  `M_FORBIDDEN`) is `ErrForbidden`; any other 401 is `ErrAuthRefused` (a dead token answers
+  `{"auth": {"type": "m.login.password", "identifier": {"type": "m.id.user", "user": u}, "password": p, "session": s}}`
+  , and must be answered 200 with an object. A wrong password (401 `M_FORBIDDEN`) is
+  `ErrForbidden`; any other 401 is `ErrAuthRefused` (a dead token answers
   `M_UNKNOWN_TOKEN` at the first request); a first answer that is not a 401, or a 401 with an
   errcode, is judged as M10 says, so a server that asks no auth is done in one request. Neither
   request is retried after a lost answer.

@@ -2232,4 +2232,5 @@ Each assumption below is settled in [DESIGN-v2.md](DESIGN-v2.md) section 3, the 
   posted again with their v1 numbers, and new questions are numbered above the roster's
   `question_floor` (5.1, 6.5).
 - Handles keep their v1 values when a member moves (the grammar is unchanged except that its third
-  part is called `site`), so a seat's identity survives migration.
+  part is called `site`), so a seat's identity survives migration (except a repository name with a
+  non-ASCII letter `str.lower()` folds to ASCII, A 2.3).
