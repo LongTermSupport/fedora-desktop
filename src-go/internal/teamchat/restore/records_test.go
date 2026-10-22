@@ -2,6 +2,7 @@ package restore
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -23,6 +24,26 @@ func recordAt(t *testing.T, root string, r Record) {
 func minimalRecord(t *testing.T, step Step) Record {
 	t.Helper()
 	return Record{Team: opsTeam(t), Backup: 7, Step: step, Roster: apply.NewRosterFile(opsTeam(t))}
+}
+
+// RG3: --resume and --discard need the record: with none the take is refused (70), naming that
+// nothing is recorded; with one it passes; one that cannot be looked at fails.
+func TestRecordedGuard(t *testing.T) {
+	ops := opsTeam(t)
+	root := teamDir(t, ops)
+	err := Recorded(root)(ops)
+	if !errors.Is(err, ErrRefused) || err.Error() != "no restore of team ops is recorded: there is nothing to resume or discard" {
+		t.Fatalf("Recorded with no record = %v", err)
+	}
+	recordAt(t, root, minimalRecord(t, StepStaged))
+	if err = Recorded(root)(ops); err != nil {
+		t.Fatalf("Recorded with a record = %v", err)
+	}
+	file := t.TempDir()
+	writeFile(t, file+paths.AdminState(ops), "")
+	if err = Recorded(file)(ops); err == nil || errors.Is(err, ErrRefused) {
+		t.Fatalf("Recorded that cannot look = %v", err)
+	}
 }
 
 // HB2: with no restore.json there is no restore and no problem.

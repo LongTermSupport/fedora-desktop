@@ -105,6 +105,7 @@ func (m machine) system(digest string) (*admin.System, error) {
 		CtlIDs:     m.ctlIDs,
 		Health:     func() (admin.HealthTick, error) { return tick() },
 		Home:       admin.LookupHome,
+		Restore:    func() (admin.Restorer, error) { return nil, restore.ErrUnproven },
 	}, nil
 }
 

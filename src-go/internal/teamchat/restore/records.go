@@ -2,13 +2,31 @@ package restore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/health"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 )
+
+// Recorded is the guard of --resume and --discard (RG3): the opposite of Guard, it refuses
+// (ErrRefused) while no restore.json exists in root/<team>/.
+func Recorded(root string) teamlock.Guard {
+	guard := Guard(root)
+	return func(team paths.TeamID) error {
+		err := guard(team)
+		switch {
+		case errors.Is(err, ErrPending):
+			return nil
+		case err == nil:
+			return refusedf("no restore of team %s is recorded: there is nothing to resume or discard", team)
+		}
+		return err
+	}
+}
 
 // Records is the health tick's view of the recorded restores under the host prefix Root (HB2):
 // restore.json read by the trust rule as a file of OwnerUID's (root's, 0 on a host).
