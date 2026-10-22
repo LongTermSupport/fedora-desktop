@@ -1,8 +1,9 @@
 #!/bin/bash
 # The agent a ccy session runs: Claude Code, or opencode with --opencode or -oc (Plan 00215
 # decisions O1, O2, O3). The flag changes the command the container runs and nothing the session
-# is built from: tmux, mounts, tokens, firewall and the session record are as for any launch, and
-# the record keeps the flag, so a restore runs opencode again.
+# is built from: tmux, mounts, tokens, firewall and the session record are as for any launch. The
+# record keeps the flag and is marked no-restore (ccy_registry_wants_restore): there is no Claude
+# conversation to resume, so ccy-sessions restore skips it.
 #
 # opencode cannot use the Claude login, so it needs a model provider key. Each is a file in
 # $CCY_ROOT/provider-keys/ (~/.claude-tokens/ccy/provider-keys/), named for the variable opencode
@@ -40,6 +41,7 @@ ccy_agent_options() {
     [ "$SUPERVISE_MODE" != true ] || clash="--supervise (the supervisor is Claude Code's)"
     [ "$TEAMS_GIVEN" != true ] || clash="--teams (an opencode bus member is Plan 00215 Phase 3)"
     [ -z "$OPT_MAX_AGE$OPT_RUN_FOR$OPT_UNTIL${CCY_MAX_AGE:-}" ] || clash="a session limit (--max-age, --run-for, --until or CCY_MAX_AGE: the supervisor carries them out)"
+    [[ "${CLAUDE_ARGS[0]:--}" == -* ]] || clash="a first message ('${CLAUDE_ARGS[0]}': opencode reads a bare first word as its project directory; give it with --prompt)"
     if [ -n "$clash" ]; then
         print_error "--opencode cannot be used with $clash. Drop one."
         return 64
@@ -47,12 +49,11 @@ ccy_agent_options() {
     for file in "$dir"/*; do
         [ -e "$file" ] || [ -L "$file" ] || continue
         name=${file##*/} mode=$(stat -c %a -- "$file") || return 1
-        if ! [[ "$name" =~ ^[A-Z][A-Z0-9_]*_API_KEY$ ]] || [ -L "$file" ] || [ ! -f "$file" ] || [ ! -s "$file" ] || [ "$mode" != 600 ] || [ "$(wc -l <"$file")" -gt 1 ]; then
+        if ! [[ "$name" =~ ^[A-Z][A-Z0-9_]*_API_KEY$ ]] || [ -L "$file" ] || [ ! -f "$file" ] || ! grep -q '[^[:space:]]' "$file" || [ "$mode" != 600 ] || [ "$(wc -l <"$file")" -gt 1 ]; then
             print_error "$file is not a provider key: one is a regular file, mode 0600 (this is $mode), of one line, named for the variable opencode reads it from (<PROVIDER>_API_KEY)."
             return 1
         fi
-        CCY_AGENT_KEYS+=("$name")
-        CCY_AGENT_RUN_ARGS+=(-e "$name")
+        CCY_AGENT_KEYS+=("$name") CCY_AGENT_RUN_ARGS+=(-e "$name")
     done
     if [ "${#CCY_AGENT_KEYS[@]}" -eq 0 ]; then
         print_error "--opencode needs a model provider key, and $dir holds none."
@@ -79,11 +80,16 @@ ccy_agent_command() {
 }
 
 # ccy_agent_container <engine args...> — the engine with each provider key in its environment
-# only: local -x ends with this function, so nothing the launcher starts afterwards has one.
+# only: local -x ends with this function, so nothing the launcher starts afterwards has one. A
+# key that can no longer be read, or reads as blank, is 1: the session would start without it.
 ccy_agent_container() {
-    local name
+    local name value
     for name in "${CCY_AGENT_KEYS[@]}"; do
-        local -x "$name=$(<"$CCY_ROOT/provider-keys/$name")"
+        if ! value=$(<"$CCY_ROOT/provider-keys/$name") || ! [[ "$value" =~ [^[:space:]] ]]; then
+            print_error "The provider key $CCY_ROOT/provider-keys/$name could not be read, or is blank: not starting."
+            return 1
+        fi
+        local -x "$name=$value"
     done
     container_cmd "$@"
 }

@@ -71,12 +71,13 @@ ccy_registry_dir() {
 }
 
 # ccy_registry_wants_restore [args...] — false when `--no-restore` appears among the
-# launcher's own arguments (before any `--`; after it every word is claude's).
+# launcher's own arguments (before any `--`; after it every word is claude's), and for an
+# opencode session (--opencode or -oc, Plan 00215), which has no Claude conversation to resume.
 ccy_registry_wants_restore() {
     local arg
     for arg in "$@"; do
         [[ "$arg" == "--" ]] && return 0
-        [[ "$arg" == "--no-restore" ]] && return 1
+        [[ "$arg" == "--no-restore" || "$arg" == "--opencode" || "$arg" == "-oc" ]] && return 1
     done
     return 0
 }
@@ -124,7 +125,7 @@ CCY_REGISTRY_DROP_FLAGS=(--rebuild --create-token --list-tokens --token-usage --
     --help --version -h -v)
 CCY_REGISTRY_DROP_VALUE_FLAGS=(--update-token --export-token --connect --disconnect --prompt --run-for --until --compose)
 CCY_REGISTRY_KEEP_VALUE_FLAGS=(--token --ssh-key --network --engine --max-age --teams)
-CCY_REGISTRY_KEEP_FLAGS=(--no-ssh --github-443 --no-network --supervise --no-supervise --no-bus)
+CCY_REGISTRY_KEEP_FLAGS=(--no-ssh --github-443 --no-network --supervise --no-supervise --no-bus --opencode -oc)
 
 # ccy_registry_flag_class <word> — drop, drop-value, keep-value, keep, or unknown.
 ccy_registry_flag_class() {

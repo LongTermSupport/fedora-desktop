@@ -112,6 +112,18 @@ for var in OPT_MAX_AGE OPT_RUN_FOR OPT_UNTIL CCY_MAX_AGE; do
     check "a session limit ($var) is refused (64)" "64" "$(options)"
 done
 
+fresh
+key OPENROUTER_API_KEY
+CCY_AGENT=opencode
+CLAUDE_ARGS=("fix it" --model x)
+check "a bare first message is refused (64)" "64" "$(options)"
+check "it is told to use --prompt" "1" "$(grep -c -- "give it with --prompt" "$work/err")"
+fresh
+key OPENROUTER_API_KEY
+CCY_AGENT=opencode
+CLAUDE_ARGS=(--model "openrouter/x")
+check "a flag's value is not a first message" "0" "$(options)"
+
 echo "=== opencode: the provider key ==="
 fresh
 CCY_AGENT=opencode
@@ -144,6 +156,10 @@ chmod 600 "$CCY_ROOT/provider-keys/OPENROUTER_API_KEY"
 check "an empty key is refused" "1" "$(options)"
 fresh
 CCY_AGENT=opencode
+key OPENROUTER_API_KEY "   "
+check "a blank key is refused" "1" "$(options)"
+fresh
+CCY_AGENT=opencode
 key ANTHROPIC_API_KEY
 ln -s "$CCY_ROOT/provider-keys/ANTHROPIC_API_KEY" "$CCY_ROOT/provider-keys/OPENAI_API_KEY"
 check "a key that is a link is refused" "1" "$(options)"
@@ -171,6 +187,13 @@ check "after the run no key is set in the launcher" "unset unset" "${ANTHROPIC_A
 check "nothing the launcher starts later inherits a key" "0" "$(env | grep -c '_API_KEY=')"
 container_cmd() { return 3; }
 check "a failed run's status comes back" "3" "$(ccy_agent_container run; echo $?)"
+container_cmd() { echo started >"$work/started"; }
+rm -f "$work/started"
+: >"$CCY_ROOT/provider-keys/OPENROUTER_API_KEY"
+check "a key gone blank since the check stops the run (1)" "1" "$(ccy_agent_container run 2>/dev/null; echo $?)"
+check "the engine is not started without it" "no" "$([ -e "$work/started" ] && echo yes || echo no)"
+rm -f "$CCY_ROOT/provider-keys/OPENROUTER_API_KEY"
+check "a key gone since the check stops the run (1)" "1" "$(ccy_agent_container run 2>/dev/null; echo $?)"
 
 echo "=== the launcher calls it ==="
 check "the parse's last branch is the flag" "1" "$(grep -c -x -F "        ccy_agent_arg \"\$arg\"" "$LAUNCHER")"
@@ -179,6 +202,8 @@ check "the container runs the chosen agent" "1" "$(grep -c -x -F "    \"\${CCY_A
 check "the run goes through the key hand-over" "1" "$(grep -c -F "GH_TOKEN=\"\$GH_TOKEN\" ccy_agent_container run " "$LAUNCHER")"
 check "the keys' -e arguments are in the run" "1" "$(grep -c -F "\"\${CCY_AGENT_RUN_ARGS[@]}\"" "$LAUNCHER")"
 check "--opencode is offered as a ccy flag in the did-you-mean list" "1" "$(grep -c -- '--prevent --opencode --help' "$LAUNCHER")"
+check "a Quick Launch's saved team is dropped for a launch with no bus kit" "1" "$(grep -c -x -F "        elif [ \"\$NO_BUS_MODE\" = true ]; then quick_team=\"\" # --no-bus or --opencode: on no team" "$LAUNCHER")"
+check "and the saved team is joined only through quick_team" "1 0" "$(grep -c -F "if [[ -n \"\$quick_team\" && \"\$TEAMS_GIVEN\" = false" "$LAUNCHER") $(grep -c -F "TEAMS_LIST=\"\$LAST_TEAMS\"" "$LAUNCHER")"
 check "--help names both spellings" "1" "$(grep -c -- '^  --opencode, -oc ' "$LAUNCHER")"
 
 echo

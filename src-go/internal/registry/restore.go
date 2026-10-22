@@ -18,6 +18,9 @@ const (
 	flagSupervise   = "--supervise"
 	flagNoSupervise = "--no-supervise"
 	flagCompose     = "--compose"
+	// ccy's --opencode and its short spelling (Plan 00215).
+	flagOpencode      = "--opencode"
+	flagOpencodeShort = "-oc"
 )
 
 // Class is what a restore does with one word of a recorded launch.
@@ -43,7 +46,7 @@ var (
 	dropFlags      = []string{"--rebuild", "--create-token", "--list-tokens", "--token-usage", "--custom", "--custom-docker", "--top", "--prevent", "--debug", "--headless", "--disable-custom-docker", "--ssh-agent", "--no-restore", "--help", "--version", "-h", "-v"}
 	dropValueFlags = []string{"--update-token", "--export-token", "--connect", "--disconnect", "--prompt", "--run-for", "--until", flagCompose}
 	keepValueFlags = []string{"--token", "--ssh-key", "--network", "--engine", "--max-age", "--teams"}
-	keepFlags      = []string{"--no-ssh", "--github-443", "--no-network", flagSupervise, flagNoSupervise, "--no-bus"}
+	keepFlags      = []string{"--no-ssh", "--github-443", "--no-network", flagSupervise, flagNoSupervise, "--no-bus", flagOpencode, flagOpencodeShort}
 )
 
 // FlagClass classifies one launcher word.
@@ -241,6 +244,24 @@ func ResumeID(args []string) string {
 		}
 	}
 	return id
+}
+
+// Opencode reports whether a ccy record's launch ran opencode instead of Claude Code: ccy's
+// --opencode or -oc (Plan 00215), an option of ccy's own, so only before a bare "--". Such a
+// session carries no bus kit and no supervisor, and has no Claude conversation to resume.
+func Opencode(prefix string, args []string) bool {
+	if prefix != prefixCCY {
+		return false
+	}
+	for _, word := range args {
+		switch word {
+		case "--":
+			return false
+		case flagOpencode, flagOpencodeShort:
+			return true
+		}
+	}
+	return false
 }
 
 // Supervised is whether a ccy supervisor carries the session on after a compaction. Only ccy

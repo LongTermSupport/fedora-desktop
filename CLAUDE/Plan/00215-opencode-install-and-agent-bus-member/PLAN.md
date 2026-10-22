@@ -58,9 +58,12 @@ with sources) and [research/agent-bus-member-facts.md](research/agent-bus-member
   `/etc/opencode/opencode.json` (`share` disabled), `OPENCODE_DISABLE_AUTOUPDATE=1`, and
   `/etc/opencode/tui.json` unbinding opencode's ctrl+z suspend. The desktop play
   `play-opencode.yml`, its pin row and its docs are removed (O7).
-- [x] ✅ **Task 1.3**: `ccy --opencode` / `-oc` (CCY 3.100.1), in `lib/agent-choice.bash`:
+- [x] ✅ **Task 1.3**: `ccy --opencode` / `-oc` (CCY 3.100.2), in `lib/agent-choice.bash`:
   the parse's last branch takes the flag; `--teams`, `--supervise`, `--headless` and the
-  session limits are refused with it (64); the session runs with no bus kit and no supervisor;
+  session limits are refused with it (64), and so is a bare first message (opencode's project
+  argument: use `--prompt`); the session runs with no bus kit and no supervisor, a Quick Launch's
+  saved team is not taken, and its record is marked no-restore, which `ccy-sessions restore` and
+  ccy-teams' bus discovery also read from the record's `--opencode`/`-oc` (`registry.Opencode`);
   provider keys are files in `~/.claude-tokens/ccy/provider-keys/` named for opencode's variable
   (`<PROVIDER>_API_KEY`, 0600, one line), none by default, a missing or malformed one failing
   (1) before anything is asked; each key is handed by name to the container run only

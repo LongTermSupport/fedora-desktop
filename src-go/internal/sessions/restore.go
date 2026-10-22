@@ -188,6 +188,10 @@ func (r *restoreRun) record(ctx context.Context, rec registry.Record) {
 		a.sayf("skip %s: marked no-restore.\n", rec.Name)
 		return
 	}
+	if registry.Opencode(rec.Prefix, rec.Args) {
+		a.sayf("skip %s: an opencode session is not restored (Plan 00215); start it again with ccy --opencode.\n", rec.Name)
+		return
+	}
 	entry := restore.Entry{
 		Name: rec.Name, Prefix: rec.Prefix, Dir: rec.Dir, Resume: registry.ResumeID(rec.Args),
 		Supervised: registry.Supervised(rec.Prefix, rec.Args), Going: restore.GoingPending,

@@ -883,12 +883,14 @@ credentials or state.
 
 `ccy --opencode` (or `-oc`) runs [opencode](https://github.com/anomalyco/opencode), the
 open-source terminal coding agent, in the container instead of Claude Code. Everything else is
-an ordinary ccy session: tmux, mounts, tokens, the firewall and the session record, which keeps
-the flag, so a restored session runs opencode again. The image pins opencode (its Dockerfile's
+an ordinary ccy session: tmux, mounts, tokens, the firewall and the session record. It is not
+brought back after a reboot (`ccy-sessions restore` skips it): it has no Claude conversation to
+resume, and opencode keeps its history inside the container. The image pins opencode (its Dockerfile's
 `OPENCODE_VERSION`, checked by sha256 at build) and starts it as `opencode --auto`: as with
 Claude Code's `--dangerously-skip-permissions`, the container is the isolation. ccy's other
 arguments go to opencode unchecked (`--model provider/model`), and `--prompt` becomes
-opencode's `--prompt`.
+opencode's `--prompt`. A bare first message (`ccy -oc "fix it"`) is refused: opencode would read
+it as a project directory, so give it with `--prompt`. A Quick Launch's saved team is not taken.
 
 opencode cannot use the Claude login. It needs a model provider key, which you add once as a file
 in `~/.claude-tokens/ccy/provider-keys/`, named for the variable opencode reads it from
@@ -899,8 +901,7 @@ exported. With no key, or a file there that is not one, the launch stops before 
 An opencode session is on no agent team and has no supervisor, so `--teams`, `--supervise`,
 `--headless` and the session limits are refused with it. Claude Code's ctrl+z guard is the
 supervisor's; for opencode the image unbinds its suspend key instead (`/etc/opencode/tui.json`).
-The image's `/etc/opencode/opencode.json` turns sharing off. opencode keeps its own data inside the
-container, so a session's history goes with the container. It reads the project's `CLAUDE.md`
+The image's `/etc/opencode/opencode.json` turns sharing off. opencode reads the project's `CLAUDE.md`
 and `.claude/skills/` when there is no `AGENTS.md`; moving projects to `AGENTS.md` is later work
 ([Plan 00215](../CLAUDE/Plan/00215-opencode-install-and-agent-bus-member/PLAN.md)).
 

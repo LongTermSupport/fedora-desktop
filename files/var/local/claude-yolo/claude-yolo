@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.100.1"  # ccy --opencode (-oc) runs opencode instead of Claude Code (Plan 00215). See docs/ccy-changelog.md.
+CCY_VERSION="3.100.2"  # ccy --opencode (-oc) runs opencode instead of Claude Code (Plan 00215). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -1010,10 +1010,7 @@ fi
 
 # Handle debug layer selection
 if [ "$SHOW_DEBUG_CHOOSER" = true ]; then
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo "Debug Layer Selection"
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
+    printf '%s\nDebug Layer Selection\n%s\n\n' "════════════════════════════════════════════════════════════════════════════════" "════════════════════════════════════════════════════════════════════════════════"
     echo "Select which layers to debug (enter numbers separated by commas):"
     echo ""
     echo "  1. CCY wrapper (bash -x in ccy script)"
@@ -1261,6 +1258,7 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
         if [ "$SESSION_RESTORE" = true ]; then quick_unasked="Session restore" quick_team=""
         elif [ "$HEADLESS_MODE" = true ]; then quick_unasked="Headless launch" quick_team=""
         elif ccy_nobody_to_ask; then quick_unasked="No terminal to ask on" quick_team=""
+        elif [ "$NO_BUS_MODE" = true ]; then quick_team="" # --no-bus or --opencode: on no team
         fi
         ccy-teams describe-seats --prefix "  Team:    " "${TEAMS_LIST:-$quick_team}"
         echo ""
@@ -1288,8 +1286,8 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
                     # --teams wins: joining a team is not a preference, so a restore takes --teams
                     # only from the session's own record. The seats go into that record, as an
                     # explicit --teams would be, so a restore of this session replays them.
-                    if [[ -n "$LAST_TEAMS" && "$TEAMS_GIVEN" = false && "$use_config" != unasked ]]; then
-                        TEAMS_LIST="$LAST_TEAMS"
+                    if [[ -n "$quick_team" && "$TEAMS_GIVEN" = false && "$use_config" != unasked ]]; then
+                        TEAMS_LIST="$quick_team"
                         ccy_launch_teams
                         CCY_ORIG_ARGS+=(--teams "$CCY_SEATS")
                         [ -z "$CCY_SESSION_NAME" ] || ccy-teams record-seats "$CCY_SESSION_NAME" "$CCY_SEATS" || exit 1
