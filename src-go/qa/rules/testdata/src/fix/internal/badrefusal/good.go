@@ -99,3 +99,12 @@ func guardsThenExits(err error) int {
 	}
 	return de.Code
 }
+
+// asInTheInit recovers with errors.As in the if's Init and tests its result alone.
+func asInTheInit(err error) int {
+	var de *declare.Error
+	if ok := errors.As(err, &de); ok {
+		return de.Code
+	}
+	return 1
+}

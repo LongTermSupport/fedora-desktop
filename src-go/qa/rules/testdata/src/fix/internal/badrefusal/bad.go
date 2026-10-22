@@ -161,3 +161,33 @@ func filtersByAVariableAlone(err error) (bool, error) {
 	fmt.Println("Try again.")
 	return false, nil
 }
+
+// filtersInTheInit folds the kind into the ok the condition reads.
+func filtersInTheInit(err error) (bool, error) {
+	var de *declare.Error
+	if ok := errors.As(err, &de) && errors.Is(err, declare.ErrInterrupted); ok { // want `a \*declare.Error is read without its kind`
+		return false, &stopCode{code: de.Code}
+	}
+	fmt.Println("Try again.")
+	return false, nil
+}
+
+// filtersBesideTheInit declares the kind beside the recovery and tests it.
+func filtersBesideTheInit(err error) (bool, error) {
+	var de *declare.Error
+	if found, interrupted := errors.As(err, &de), errors.Is(err, declare.ErrInterrupted); found && interrupted { // want `a \*declare.Error is read without its kind`
+		return false, &stopCode{code: de.Code}
+	}
+	fmt.Println("Try again.")
+	return false, nil
+}
+
+// filtersByTheSecondName tests only the kind declared beside the recovery.
+func filtersByTheSecondName(err error) (bool, error) {
+	var de *declare.Error
+	if _, interrupted := errors.As(err, &de), errors.Is(err, declare.ErrInterrupted); interrupted { // want `a \*declare.Error is read without its kind`
+		return false, &stopCode{code: de.Code}
+	}
+	fmt.Println("Try again.")
+	return false, nil
+}
