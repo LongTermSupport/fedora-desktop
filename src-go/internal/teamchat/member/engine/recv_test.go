@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
@@ -254,7 +255,7 @@ func TestWaitSleepsUntilAnItemIsPersisted(t *testing.T) {
 	}
 }
 
-func TestWaitAtItsDeadlineAnswersWithNothing(t *testing.T) {
+func TestWaitAtItsDeadlineTimesOut(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
 	ops := tid(t, "ops")
 	w.held(ops)
@@ -266,10 +267,10 @@ func TestWaitAtItsDeadlineAnswersWithNothing(t *testing.T) {
 	}()
 	w.until(func() bool { return len(w.e.waiters) == 1 })
 	cancel()
-	if d := <-got; d != (wire.Done{}) || len(out.recs) != 0 {
+	if d := <-got; d.Exit != int(exits.ExitTimedOut) || d.Error == nil || d.Error.Code != exits.CodeTimedOut || d.Error.Team != nil || len(out.recs) != 0 {
 		t.Fatalf("wait at its deadline = %+v %s", d, out.kinds())
 	}
-	if d := done(ctx, errors.New("x")); d != (wire.Done{}) {
+	if d := done(ctx, errors.New("x")); d.Exit != int(exits.ExitTimedOut) {
 		t.Fatalf("done at the deadline = %+v", d)
 	}
 	if d := done(t.Context(), errors.New("x")); d.Exit != 1 {

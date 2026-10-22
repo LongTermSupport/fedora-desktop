@@ -112,7 +112,7 @@ func TestServeRefusesBadArgumentsAndUnbuiltOps(t *testing.T) {
 	if d := w.e.Serve(ctx, wire.Request{Op: wire.OpVerify, Args: []byte(`{"team":null,"id":"x"}`)}, &recorder{}); d.Exit != 1 {
 		t.Fatalf("verify on an ended context = %+v", d)
 	}
-	if d := w.e.Serve(ctx, wire.Request{Op: wire.OpWait, Args: []byte(`{"team":null,"timeout_s":1}`)}, &recorder{}); d != (wire.Done{}) {
+	if d := w.e.Serve(ctx, wire.Request{Op: wire.OpWait, Args: []byte(`{"team":null,"timeout_s":1}`)}, &recorder{}); d.Exit != int(exits.ExitTimedOut) {
 		t.Fatalf("wait on an ended context = %+v", d)
 	}
 	if d := w.e.Serve(ctx, wire.Request{Op: wire.OpInbox, Args: []byte(`{"team":null}`)}, &recorder{}); d.Exit != 1 {
