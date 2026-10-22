@@ -1,5 +1,8 @@
 # n2d-host handoff (Plan 00209, N2 slice n2d, the host half)
 
+**Superseded**: the work below was finished by the next builder; its report is
+`261022-n2d-host.md`. This file is kept as the record of the hand-over.
+
 The builder of the host half stopped at its context budget. This file is what a fresh builder
 needs to finish. Worktree: `/workspace/untracked/worktrees/bus-v2-n2d-host`, branch
 `feat/bus-v2-n2d-host` (cut from `feat/bus-v2-n2d`). Never write in the lead's worktree
