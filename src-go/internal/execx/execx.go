@@ -216,6 +216,8 @@ type Fake struct {
 	execs       []Cmd
 	foregrounds []Cmd
 	execErr     error
+	startRules  []startRule
+	starts      []Cmd
 }
 
 // On answers every command whose argv starts with prefix. Later rules win over earlier

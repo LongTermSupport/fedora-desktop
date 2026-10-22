@@ -234,7 +234,7 @@ var dynamicNames = []allowance{
 	},
 	{
 		pkg:    "internal/teamchat/reexec",
-		fn:     "start",
+		fn:     "command",
 		reason: "the test binary itself, re-run as a second process (SPEC-n3 gap 8)",
 	},
 	{

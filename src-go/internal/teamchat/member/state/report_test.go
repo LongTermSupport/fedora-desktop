@@ -7,7 +7,7 @@ import (
 )
 
 const reportApplied = `{"v":1,"run":"` + sampleRun + `","started_ms":1760000000000,"seat":"alpha/2","handle":"repo.2+site.podman",` +
-	`"link":"running","last_sync_ok_ms":1760000000000,"pending":0,"delivery":"socket",` +
+	`"link":"running","why":null,"last_sync_ok_ms":1760000000000,"pending":0,"delivery":"socket",` +
 	`"desired":{"generation":3,"state":"applied","code":null},"store":"ok","needs_relaunch":false}`
 
 func TestDecodeReport(t *testing.T) {
@@ -15,7 +15,10 @@ func TestDecodeReport(t *testing.T) {
 	accepts(t, DecodeReport, reportApplied, refused,
 		edit(t, reportApplied, `"last_sync_ok_ms":1760000000000`, `"last_sync_ok_ms":null`),
 		edit(t, edit(t, reportApplied, `"alpha/2"`, `"alpha/lead"`), `repo.2+`, `repo.lead+`),
-		edit(t, edit(t, reportApplied, `"store":"ok"`, `"store":"refused"`), `"delivery":"socket"`, `"delivery":"none"`))
+		edit(t, edit(t, reportApplied, `"store":"ok"`, `"store":"refused"`), `"delivery":"socket"`, `"delivery":"none"`),
+		edit(t, reportApplied, `"why":null`, `"why":"launch-failed"`),
+		edit(t, reportApplied, `"link":"running","why":null`, `"link":"failed","why":"crash-loop"`),
+		edit(t, reportApplied, `"link":"running","why":null`, `"link":"failed","why":"config"`))
 	for _, code := range []string{CodeJSON, CodeSchema, CodeVersion, CodeSeat} {
 		accepts(t, DecodeReport, edit(t, refused, `"missing"`, `"`+code+`"`))
 	}
@@ -56,7 +59,7 @@ func TestReportCap(t *testing.T) {
 	big := "9007199254740991"
 	doc := edit(t, reportApplied, `"alpha/2"`, `"`+longTeam(0)+`/`+strings.Repeat("a", 12)+`"`)
 	doc = edit(t, doc, `"repo.2+site.podman"`, `"`+strings.Repeat("r", 48)+"."+strings.Repeat("a", 12)+"+"+strings.Repeat("s", 63)+`.podman"`)
-	doc = edit(t, doc, `"link":"running"`, `"link":"restarting"`)
+	doc = edit(t, doc, `"link":"running","why":null`, `"link":"restarting","why":"launch-failed"`)
 	doc = edit(t, doc, `"generation":3`, `"generation":`+big)
 	doc = edit(t, doc, `"pending":0`, `"pending":2048`)
 	doc = edit(t, doc, `"state":"applied","code":null`, `"state":"refused","code":"version"`)
