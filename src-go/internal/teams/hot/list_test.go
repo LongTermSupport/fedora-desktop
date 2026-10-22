@@ -44,6 +44,31 @@ func TestListSaysWhatIsWrongWithASession(t *testing.T) {
 	}
 }
 
+func TestListSaysWhenTheKeepersReportCannotBeRead(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
+	r.labelled("abc123\trunning\t" + session + "\n")
+	r.m.report = "{not json"
+	if code := r.run(t, "list"); code != term.ExitOK {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	got := r.Out.String()
+	if !strings.Contains(got, "its seat keeper's report cannot be read: ") || !strings.Contains(got, membership.ReportPath(r.Checkout(), session)) {
+		t.Fatalf("a report that cannot be read is said, with its path: %q", got)
+	}
+	if rows, err := r.x.Sessions(t.Context()); err != nil || len(rows) != 1 || strings.Contains(rows[0].State, "ok") {
+		t.Fatalf("the row is not ok: %+v %v", rows, err)
+	}
+}
+
+func TestListIsQuietAboutAReportTheKeeperHasNotWrittenYet(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
+	r.labelled("abc123\trunning\t" + session + "\n")
+	r.m.report = "-"
+	if code := r.run(t, "list"); code != term.ExitOK || strings.Contains(r.Out.String(), "report") {
+		t.Fatalf("exit %d: %q", code, r.Out.String())
+	}
+}
+
 // Fable's M6 review B1, the ccy half: a ccy --no-bus under the name of an ended ccy session finds
 // that session's membership; the record its own launch wrote says --no-bus, so the list reads it
 // as a session off the bus, in no team.
@@ -147,6 +172,26 @@ func TestSessionsNeedAnAbsoluteRuntimeDirectory(t *testing.T) {
 	r.Env["XDG_RUNTIME_DIR"] = "relative"
 	if _, err := r.x.Sessions(t.Context()); err == nil || !strings.Contains(err.Error(), "XDG_RUNTIME_DIR") {
 		t.Fatalf("err %v", err)
+	}
+}
+
+// On a terminal `session list` is the table for a person, and says once what it cannot list.
+func TestListOnATerminalIsTheTable(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
+	r.labelled("old1\trunning\tccy-old\n")
+	r.Host.IsTerminal = func(any) bool { return true }
+	if code := r.run(t, "list"); code != term.ExitOK {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	heading, lines, err := SessionLines([]Session{{Name: "ccy-old", Checkout: "-", State: "old or --no-bus: relaunch it to change it while it runs"}}, r.Host.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := heading + "\n" + lines[0] + "\n"; r.Out.String() != want {
+		t.Fatalf("stdout\n%q\nwant\n%q", r.Out.String(), want)
+	}
+	if strings.Count(r.ErrOut.String(), OnlyTmuxLine) != 1 {
+		t.Fatalf("stderr %q", r.ErrOut.String())
 	}
 }
 

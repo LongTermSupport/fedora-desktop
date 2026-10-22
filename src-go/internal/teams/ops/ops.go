@@ -260,7 +260,9 @@ func (o *Ops) childExit(err error) term.ExitCode {
 }
 
 // runPlay is play-agent-bus.yml for those teams alone, run by its own shebang (run.bash's
-// single-play mode knows how this machine gives Ansible its sudo password), streamed.
+// single-play mode knows how this machine gives Ansible its sudo password), streamed. Changed is
+// told as soon as it has run, passed or not, so the read of the teams that checks what it did
+// is a new one.
 func (o *Ops) runPlay(ctx context.Context, teams []string) error {
 	o.Term.Say("Running play-agent-bus.yml for " + strings.Join(teams, " ") +
 		": it starts each team's homeserver, and creates its room and its people's accounts.")
@@ -275,6 +277,7 @@ func (o *Ops) runPlay(ctx context.Context, teams []string) error {
 		Name: o.Cfg.Play, Args: []string{"-e", playJSON(teams)}, Env: env, ExtraFiles: files,
 		Stdin: o.Stdin, Stdout: o.Stdout, Stderr: o.Term.Err,
 	})
+	o.changed()
 	if err != nil {
 		return fmt.Errorf("play-agent-bus.yml: %w", err)
 	}

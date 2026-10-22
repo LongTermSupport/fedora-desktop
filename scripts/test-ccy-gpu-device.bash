@@ -34,6 +34,8 @@ fi
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+# Resolved, as the library stores an override: the expected paths below are then exact.
+work=$(realpath -- "$work")
 
 passed=0
 failed=0
@@ -77,8 +79,85 @@ check "launcher: no unconditional --device /dev/dri line" "0" \
     "$(grep -c -E '^\s*--device /dev/dri:/dev/dri' "$LAUNCHER")"
 check "launcher: the run argv expands GPU_DEVICE_FLAGS" "1" \
     "$(grep -c -F -- "\"\${GPU_DEVICE_FLAGS[@]}\"" "$LAUNCHER")"
-check "launcher: GPU_DEVICE_FLAGS is filled from gpu_device_flags /dev/dri" "1" \
-    "$(grep -c -F 'mapfile -t GPU_DEVICE_FLAGS < <(gpu_device_flags /dev/dri)' "$LAUNCHER")"
+# /dev/dri unless CCY_GPU_DEVICE_DIR names another directory (the differential harness's sandbox).
+check "launcher: GPU_DEVICE_FLAGS is filled from gpu_device_flags GPU_DEVICE_DIR" "1" \
+    "$(grep -c -F "mapfile -t GPU_DEVICE_FLAGS < <(gpu_device_flags \"\$GPU_DEVICE_DIR\")" "$LAUNCHER")"
+
+echo "=== lib/host-paths.bash: the overrides fail fast ==="
+
+# host_paths <VAR=value>... — source the library as the launcher does, with the given
+# environment, and print its exit status and the three directories it chose.
+cat > "$work/host-paths-probe.bash" <<'PROBE'
+. "$1/common-pure.bash"
+. "$1/host-paths.bash"
+printf '%s|%s|%s\n' "$DOCKERFILE_DIR" "$GPU_DEVICE_DIR" "$ZONEINFO_DIR"
+PROBE
+host_paths() {
+    env -u CCY_DOCKERFILE_DIR -u CCY_GPU_DEVICE_DIR -u CCY_ZONEINFO_DIR "$@" \
+        bash "$work/host-paths-probe.bash" "$(dirname "$PURE_LIB")" 2>/dev/null
+    echo "rc=$?"
+}
+
+check "unset: the play's directories" \
+    "/opt/claude-yolo|/dev/dri|/usr/share/zoneinfo
+rc=0" "$(host_paths)"
+check "an empty override is the default" \
+    "/opt/claude-yolo|/dev/dri|/usr/share/zoneinfo
+rc=0" "$(host_paths CCY_GPU_DEVICE_DIR=)"
+check "an existing build context is used" \
+    "$work|/dev/dri|/usr/share/zoneinfo
+rc=0" "$(host_paths CCY_DOCKERFILE_DIR="$work")"
+check "a missing build context fails at start" "rc=1" "$(host_paths CCY_DOCKERFILE_DIR="$work/absent")"
+check "a missing zone database fails at start" "rc=1" "$(host_paths CCY_ZONEINFO_DIR="$work/absent")"
+check "an absent GPU directory under an existing parent is no GPU, not an error" \
+    "/opt/claude-yolo|$work/absent|/usr/share/zoneinfo
+rc=0" "$(host_paths CCY_GPU_DEVICE_DIR="$work/absent")"
+check "a GPU directory whose parent is missing fails at start" "rc=1" \
+    "$(host_paths CCY_GPU_DEVICE_DIR="$work/absent/dri")"
+for whole in / /dev /dev/ /dev/dri/.. //; do
+    check "CCY_GPU_DEVICE_DIR=$whole (the whole tree) is refused" "rc=1" "$(host_paths CCY_GPU_DEVICE_DIR="$whole")"
+done
+check "CCY_DOCKERFILE_DIR=/ is refused" "rc=1" "$(host_paths CCY_DOCKERFILE_DIR=/)"
+
+# Only the default or a directory outside the system trees: /proc, /sys and anything under /dev
+# but /dev/dri itself would hand the container what is no GPU.
+for system in /proc /proc/self /sys /sys/class /dev/shm /dev/dri/renderD128 /dev/dri/../shm; do
+    check "CCY_GPU_DEVICE_DIR=$system (a system tree) is refused" "rc=1" "$(host_paths CCY_GPU_DEVICE_DIR="$system")"
+done
+check "CCY_DOCKERFILE_DIR=/proc is refused" "rc=1" "$(host_paths CCY_DOCKERFILE_DIR=/proc)"
+check "CCY_ZONEINFO_DIR=/sys is refused" "rc=1" "$(host_paths CCY_ZONEINFO_DIR=/sys)"
+check "CCY_GPU_DEVICE_DIR=/dev/dri, the default named, is accepted" \
+    "/opt/claude-yolo|/dev/dri|/usr/share/zoneinfo
+rc=0" "$(host_paths CCY_GPU_DEVICE_DIR=/dev/dri)"
+check "CCY_GPU_DEVICE_DIR=/dev/dri/ is the default, stored resolved" \
+    "/opt/claude-yolo|/dev/dri|/usr/share/zoneinfo
+rc=0" "$(host_paths CCY_GPU_DEVICE_DIR=/dev/dri/)"
+
+# A relative override is refused whatever the current directory holds, naming the variable: a
+# relative GPU directory was silently no GPU, or --device dri:dri, which podman rejects.
+mkdir -p "$work/cwd/dri"
+for var in CCY_DOCKERFILE_DIR CCY_GPU_DEVICE_DIR CCY_ZONEINFO_DIR; do
+    for rel in dri . ./dri ../cwd/dri; do
+        got=$(cd "$work/cwd" && env -u CCY_DOCKERFILE_DIR -u CCY_GPU_DEVICE_DIR -u CCY_ZONEINFO_DIR "$var=$rel" \
+            bash "$work/host-paths-probe.bash" "$(dirname "$PURE_LIB")" 2>&1 >/dev/null)
+        rc=$?
+        check "$var=$rel (relative) is refused" "1" "$rc"
+        check "…naming $var and asking for an absolute path" "1" \
+            "$(grep -c -F "$var=$rel is a relative path" <<<"$got")"
+    done
+done
+
+# The resolved path is what is stored: a symlink and a .. are followed, so what is checked is
+# what is used.
+ln -s "$work/cwd" "$work/link"
+check "a symlinked build context is stored resolved" \
+    "$work/cwd|/dev/dri|/usr/share/zoneinfo
+rc=0" "$(host_paths CCY_DOCKERFILE_DIR="$work/link")"
+check "a GPU directory with .. is stored resolved" \
+    "/opt/claude-yolo|$work/cwd/dri|/usr/share/zoneinfo
+rc=0" "$(host_paths CCY_GPU_DEVICE_DIR="$work/link/../cwd/dri")"
+ln -s /dev "$work/devlink"
+check "a symlink into /dev is refused" "rc=1" "$(host_paths CCY_GPU_DEVICE_DIR="$work/devlink/shm")"
 
 echo
 printf 'passed: %s  failed: %s\n' "$passed" "$failed"

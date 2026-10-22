@@ -11,7 +11,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -24,10 +23,15 @@ import (
 // Stderr nil means captured into the Result; set, they stream there (a terminal UI, a
 // play's progress) and the Result holds nothing for them.
 type Cmd struct {
-	Name   string
-	Args   []string
-	Env    []string // KEY=VALUE added to the parent's environment
-	Unset  []string // variable names removed from the child's environment
+	Name  string
+	Args  []string
+	Env   []string // KEY=VALUE added to the parent's environment
+	Unset []string // variable names removed from the child's environment
+	// Secrets are added to this child's environment alone, by name; a command whose argv
+	// holds one's value is refused (ErrSecretInArgv).
+	Secrets []Secret
+	// Feed, when set, is the child's Stdin: a secret inside a line of text (see Feed).
+	Feed   *Feed
 	Dir    string
 	Stdin  io.Reader
 	Stdout io.Writer
@@ -102,6 +106,13 @@ type OS struct {
 // Grace also bounds the drain of the pipes after a normal exit, so it must exceed the time
 // the copy takes on a loaded host; a Grace of milliseconds can cut a finished command short.
 func (o OS) Run(ctx context.Context, c Cmd) (Result, error) {
+	if err := c.checkSecrets(); err != nil {
+		return Result{}, err
+	}
+	c, feedErr := c.fed()
+	if feedErr != nil {
+		return Result{}, feedErr
+	}
 	if c.NewSession {
 		return o.runSession(ctx, c)
 	}
@@ -116,8 +127,8 @@ func (o OS) Run(ctx context.Context, c Cmd) (Result, error) {
 		cmd.WaitDelay = o.Grace
 	}
 	cmd.Dir = c.Dir
-	if len(c.Env) > 0 || len(c.Unset) > 0 {
-		cmd.Env = ChildEnv(os.Environ(), c.Env, c.Unset)
+	if env, ok := c.childEnv(); ok {
+		cmd.Env = env
 	}
 	cmd.Stdin = c.Stdin
 	cmd.ExtraFiles = c.ExtraFiles
@@ -170,11 +181,12 @@ type rule struct {
 
 // Fake is a scripted, recording Runner for tests. Safe for concurrent use.
 type Fake struct {
-	mu      sync.Mutex
-	rules   []rule
-	calls   []Cmd
-	execs   []Cmd
-	execErr error
+	mu          sync.Mutex
+	rules       []rule
+	calls       []Cmd
+	execs       []Cmd
+	foregrounds []Cmd
+	execErr     error
 }
 
 // On answers every command whose argv starts with prefix. Later rules win over earlier
@@ -197,14 +209,14 @@ func (f *Fake) OnFunc(prefix []string, fn func(Cmd) (Result, error)) {
 
 // Run implements Runner.
 func (f *Fake) Run(_ context.Context, c Cmd) (Result, error) {
+	if err := c.checkSecrets(); err != nil {
+		return Result{}, err
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, c)
-	argv := c.argv()
-	for _, r := range slices.Backward(f.rules) {
-		if hasPrefix(argv, r.prefix) {
-			return r.answer(c)
-		}
+	if r, ok := f.match(c); ok {
+		return r.answer(c)
 	}
 	return Result{}, fmt.Errorf("%w: %s", ErrUnexpected, c.Line())
 }

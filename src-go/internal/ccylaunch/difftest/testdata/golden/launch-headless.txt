@@ -1,0 +1,115 @@
+=== exit 0
+=== stdout
+✓ Creating .claude/ccy/.gitignore for security
+✓ Using token: work (expires: [32m2030-06-01[0m)
+Validating token...
+✓ Token validated successfully
+
+]0;CCY: difftest-projectChecking for Claude Code updates (daily, image: claude-yolo:latest)...
+✓ Claude Code is up to date (2.0.0)
+✓ Token: Long-lived OAuth (CLAUDE_CODE_OAUTH_TOKEN)
+✓ State: /workspace/.claude/ (project-level, persists in git repo)
+✓ Skipping network connection (--no-network flag)
+
+✓ Configuration saved for quick launch next time
+✓ CCY version: {ccy_version}
+
+Container name: difftest-project_yolo
+
+════════════════════════════════════════════════════════════════════════════════
+Executing Claude Code with arguments:
+  claude --dangerously-skip-permissions -p run the tests
+════════════════════════════════════════════════════════════════════════════════
+
+all tests passed
+=== stderr
+✓ Writing .claude/ccy/ccy.env.local.dist (version 3); commit it
+=== calls
+getenforce
+podman info --format '{{.Host.Security.SELinuxEnabled}}'
+gh auth token
+podman run --rm -e CLAUDE_CODE_OAUTH_TOKEN --entrypoint claude claude-yolo:latest --version
+    env: CLAUDE_CODE_OAUTH_TOKEN
+podman info --format '{{.Host.Security.Rootless}}'
+podman ps -a --filter name=_yolo --filter status=exited --format '{{.Names}}'
+podman ps --filter name=_yolo --format '{{.Names}}'
+podman ps --filter name=difftest-project_yolo --format '{{.Names}}'
+podman image inspect claude-yolo:latest
+podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-version"}}'
+podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-dockerfile-hash"}}'
+podman run --rm --entrypoint claude claude-yolo:latest --version
+curl -fsSL https://registry.npmjs.org/@anthropic-ai/claude-code/latest
+ccy-teams internal claim-container-name difftest-project yolo '{pid}'
+podman rm -f difftest-project_yolo
+timedatectl show -p Timezone --value
+podman run -i --rm --name difftest-project_yolo --label ccy=true --label ccy-project=difftest-project --label ccy-github=none --label ccy-token=work --label ccy-ssh-keys=none -e PINGBUS_MEMBERSHIP=off -v '{sandbox}/project:/workspace' -v '{sandbox}/tmp/claude-yolo-XXXXXX:/tmp/claude-config-import:ro' -e CLAUDE_CODE_OAUTH_TOKEN -e GH_TOKEN -e GITHUB_USERNAME= -e DEBUG_MODE=false -e DEBUG_ENTRYPOINT=false -e SSH_KEY_PATHS= -e SSH_AGENT_FORWARDED=0 -e SSH_CONFIG_EXTRA_B64= -e SSH_KNOWN_HOSTS_PINS= -e GITHUB_SSH_443=0 -e CCY_HOST_HOSTNAME=difftest-host -e TZ=Europe/London -e CCY_CLAUDE_WRAPPER= -e CCY_NO_SUPERVISOR= -e 'CCY_LIFECYCLE_LAUNCH_ID=launch-1894708800-{pid}-{random}' -e CCY_LIFECYCLE_MAX_AGE_SECONDS= -e CCY_LIFECYCLE_DEADLINE_EPOCH= -e CCY_LIFECYCLE_WARN_MINUTES= -e CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 -e CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000 -e MAX_THINKING_TOKENS= -e TERM=xterm-256color -e COLORTERM=truecolor -e FORCE_COLOR=1 -w /workspace claude-yolo:latest claude --dangerously-skip-permissions -p 'run the tests'
+    env: CLAUDE_CODE_OAUTH_TOKEN GH_TOKEN
+=== files
+dir  home/.cache 0700
+dir  home/.cache/claude-yolo-update-checks 0700
+file home/.cache/claude-yolo-update-checks/claude-yolo_latest 0600
+     | 
+dir  home/.claude-tokens 0700
+dir  home/.claude-tokens/ccy 0700
+dir  home/.claude-tokens/ccy/projects 0700
+dir  home/.claude-tokens/ccy/tokens 0700
+file home/.claude-tokens/ccy/tokens/work.2030-06-01.token 0600
+     | {token:work}
+dir  project/.claude 0700
+dir  project/.claude/ccy 0700
+file project/.claude/ccy/.gitignore 0600
+     | # CCY session data - NEVER commit sensitive files
+     | # Only .gitignore, Dockerfile, allowed-hostnames, ccy.env, ccy.env.local.dist,
+     | # mounts and the claude-supervise* supervisor (any extension or none) are safe
+     | # to track. ccy.env.local is this checkout's own and is never tracked.
+     | *
+     | !.gitignore
+     | !Dockerfile
+     | !allowed-hostnames
+     | !ccy.env
+     | !ccy.env.local.dist
+     | !mounts
+     | !claude-supervise*
+file project/.claude/ccy/.last-launch.conf 0600
+     | # CCY Launch Configuration
+     | # Config Version: 2
+     | # CCY Version: {ccy_version}
+     | # CCY Hash: {ccy_hash}
+     | # Generated: 2030-01-15 12:00:00
+     | SAVED_CONFIG_VERSION=2
+     | SAVED_CCY_VERSION="{ccy_version}"
+     | SAVED_CCY_HASH="{ccy_hash}"
+     | LAST_TOKEN="work"
+     | LAST_SSH_KEYS=""
+     | LAST_NETWORK=""
+     | LAST_TEAMS=""
+     | LAST_LAUNCH_DATE="2030-01-15"
+file project/.claude/ccy/ccy.env.local.dist 0600
+     | # ccy.env.local.dist version 3
+     | #
+     | # Written by ccy on every launch: commit it, never edit it (ccy rewrites it).
+     | #
+     | # The template for ccy.env.local, this checkout's own settings: the role one install
+     | # plays, never secrets and never anything every clone should share (that goes in
+     | # ccy.env). ccy.env.local is never committed. It is placed by the install's own
+     | # infrastructure-as-code, not by hand and not by an agent working in the checkout.
+     | # ccy sources it inside the container, after ccy.env, so its values win.
+     | #
+     | # To make one: copy this file to ccy.env.local, change the line below to
+     | # "# based on ccy.env.local.dist version 3", and uncomment what this install needs.
+     | # When this dist's version moves on, ccy says so at launch: compare the two files.
+     | #
+     | # based on ccy.env.local.dist version 3
+     | 
+     | # ── Hooks daemon host role ────────────────────────────────────────────────────
+     | # The name the hooks daemon matches this session's host against: persistent_crons
+     | # "hosts:" lists and the top-level "hosts:" block in .claude/hooks-daemon.yaml.
+     | # Order: HOOKS_DAEMON_HOSTNAME, then CCY_HOST_HOSTNAME (ccy sets it to the host
+     | # machine's name), then the container's hostname. Set it to give this install a
+     | # role, e.g. the one install that runs a role-scoped cron job. Only matters in a
+     | # project that uses the hooks daemon.
+     | # It also names the host part of the handle of an agent team bus seat that
+     | # "ccy --teams <seat>@<team>" creates in this checkout; unset, that part is "local".
+     | # A team is chosen by each launch, never here: the container refuses to start when
+     | # this file sets a bus variable.
+     | #export HOOKS_DAEMON_HOSTNAME=<role-name>

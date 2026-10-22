@@ -88,6 +88,7 @@ var checkDefs = []checkDef{
 	{id: "version-pins", fixed: "whole gate (the version-pin manifest is well formed and every pin still resolves to a declared var)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runVersionPins},
 	{id: "go-deps", fixed: "whole gate (src-go's dependencies allowlisted, pinned and vendored in step)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runGoDeps},
 	{id: "go-vuln", fixed: "whole gate (govulncheck finds no vulnerability src-go reaches)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runGoVuln},
+	{id: "hook-handlers", fixed: "whole gate (the project hook handlers pass their tests under the daemon's interpreter)", gate: true, whole: true, tools: []string{toolBash}, run: runHookHandlers},
 	{id: "vmtest-manifest", fixed: "whole gate (the VM-test scenario manifest is valid and agrees with its guest scripts)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolPython}, run: runVmtestManifest},
 	{id: "deployed-drift", fixed: "repo-owned scripts against their deployed copies, whole gate", gate: true, tools: []string{toolBash, toolGo}, run: runDeployedDrift},
 	{id: "node-check", listed: true, noun: nounFiles, tools: []string{toolNode}, run: runNodeCheck},
@@ -201,6 +202,10 @@ func runGoDeps(ctx context.Context, s *session, _ *checkPlan) (checkResult, erro
 
 func runGoVuln(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.script(ctx, nil, "qa-go-vuln.bash")
+}
+
+func runHookHandlers(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.script(ctx, nil, "qa-hook-handlers.bash")
 }
 
 func runVmtestManifest(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
