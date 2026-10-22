@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 )
 
 // The delivery caps (A 13.1, E9): entries, and bytes as the session's socket carries the text.
@@ -270,33 +269,6 @@ func (d Delivery) closingFacts(out []string, history string) ([]string, error) {
 		out = append(out, strconv.Itoa(d.Pending)+" more pending: they follow in the next delivery")
 	}
 	return out, nil
-}
-
-// RenderMembership is the MEMBERSHIP delivery (A 13.3, 00203 H12): one entry of B's template
-// lines, each non-empty, at most MaxMembershipLine characters of valid UTF-8, with no control
-// (C0, DEL, C1), U+2028, U+2029, `<<` or `>>`, so no line can end the entry or start another.
-func RenderMembership(lines []string, nonce string) (string, error) {
-	if !nonceRe.MatchString(nonce) {
-		return "", &SlotError{Slot: "nonce"}
-	}
-	if len(lines) == 0 || slices.ContainsFunc(lines, badMembershipLine) {
-		return "", &SlotError{Slot: "membership line"}
-	}
-	marker := nonce + " 1/1>>"
-	out := []string{
-		"teamchat delivery " + nonce + ": a membership notice from teamchat: this session's teams changed",
-		"<<teamchat " + marker, "kind: " + kindMembership, "from: teamchat", "to: this session",
-	}
-	out = append(append(out, lines...), "authority: "+authorityMembership, "<<end teamchat "+marker)
-	return strings.Join(out, "\n"), nil
-}
-
-func badMembershipLine(line string) bool {
-	if line == "" || !utf8.ValidString(line) || utf8.RuneCountInString(line) > MaxMembershipLine ||
-		strings.Contains(line, "<<") || strings.Contains(line, ">>") {
-		return true
-	}
-	return strings.ContainsFunc(line, func(r rune) bool { return r < ' ' || r >= 0x7F && r <= 0x9F || r == 0x2028 || r == 0x2029 })
 }
 
 // FrameText is what a session is told at every SessionStart about how deliveries look

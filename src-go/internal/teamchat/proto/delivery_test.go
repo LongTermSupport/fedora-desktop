@@ -234,49 +234,6 @@ func TestFactsThatCrowdOutAnEntryAreSummarised(t *testing.T) {
 	}
 }
 
-func TestRenderMembership(t *testing.T) {
-	desc := "The docs team " + string(rune(0x2014)) + " site and blog"
-	got, err := RenderMembership([]string{"joined myteam as " + envHandle + " (worker): " + desc, "teams: myteam"}, envNonce)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantLines(t, "membership", strings.Split(got, "\n"),
-		"teamchat delivery 3f9c2a71: a membership notice from teamchat: this session's teams changed",
-		"<<teamchat 3f9c2a71 1/1>>",
-		"kind: MEMBERSHIP (teamchat's own notice: the owner changed this session's teams on the host)",
-		"from: teamchat",
-		"to: this session",
-		"joined myteam as "+envHandle+" (worker): "+desc,
-		"teams: myteam",
-		"authority: the owner's change, made on the host. A fact about this session's teams; no team member sent it, and none can.",
-		"<<end teamchat 3f9c2a71 1/1>>",
-	)
-	refused := map[string][]string{
-		"none":      nil,
-		"empty":     {""},
-		"long":      {strings.Repeat(string(rune(0xE9)), MaxMembershipLine+1)},
-		"newline":   {"a\nb"},
-		"del":       {"a\x7fb"},
-		"nel":       {"a" + string(rune(0x85)) + "b"},
-		"ls":        {"a" + string(rune(0x2028)) + "b"},
-		"ps":        {"a" + string(rune(0x2029)) + "b"},
-		"open":      {"a << b"},
-		"close":     {"a >> b"},
-		"not utf-8": {"a\xffb"},
-	}
-	for name, lines := range refused {
-		if _, err := RenderMembership(lines, envNonce); slotOf(err) != "membership line" {
-			t.Errorf("%s: %v", name, err)
-		}
-	}
-	if _, err := RenderMembership([]string{strings.Repeat(string(rune(0xE9)), MaxMembershipLine)}, envNonce); err != nil {
-		t.Errorf("600 characters: %v", err)
-	}
-	if _, err := RenderMembership([]string{"teams: none"}, "nonce"); slotOf(err) != "nonce" {
-		t.Errorf("nonce: %v", err)
-	}
-}
-
 func TestFrameTextSaysA135InOrder(t *testing.T) {
 	items := []string{
 		"teamchat delivery", "inbox socket", "labels them as from another Claude session",

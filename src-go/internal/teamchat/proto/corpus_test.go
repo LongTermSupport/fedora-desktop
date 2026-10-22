@@ -117,7 +117,7 @@ func envelopeCorpus() map[string]func() (string, error) {
 		return d.Render()
 	}
 	cases["membership"] = func() (string, error) {
-		return RenderMembership([]string{"joined myteam as " + envHandle + ", worker: the docs site", "teams: myteam"}, envNonce)
+		return fullMembership().Render(envNonce)
 	}
 	cases["frame"] = func() (string, error) { return FrameText, nil }
 	return cases
