@@ -1022,8 +1022,7 @@ build_container_with_hash() {
     local base_image_name="${4:-}"
 
     # Collect optional extra flags as array (avoids unquoted expansion)
-    local -a extra_flags=()
-    [[ -n "${3:-}" ]] && extra_flags=("$3")
+    local -a extra_flags=(${3:+"$3"})
 
     # Calculate Dockerfile hash
     local dockerfile_hash
@@ -1036,7 +1035,7 @@ build_container_with_hash() {
             --build-arg DOCKERFILE_HASH="$dockerfile_hash" \
             --target base \
             -t "$base_image_name" \
-            "$dockerfile_dir"
+            "$dockerfile_dir" || return
     fi
 
     # Build with hash as build arg (builds final stage: full image with LSPs)

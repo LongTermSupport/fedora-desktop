@@ -43,7 +43,7 @@ const (
 // The four flag groups are one list with the launcher's parser: a value-taking flag consumes the
 // NEXT word whatever it is.
 var (
-	dropFlags      = []string{"--rebuild", "--create-token", "--list-tokens", "--token-usage", "--custom", "--custom-docker", "--top", "--prevent", "--debug", "--headless", "--disable-custom-docker", "--ssh-agent", "--no-restore", "--help", "--version", "-h", "-v"}
+	dropFlags      = []string{"--rebuild", "--create-token", "--list-tokens", "--token-usage", "--custom", "--custom-docker", "--top", "--prevent", "--debug", "--headless", "--disable-custom-docker", "--ssh-agent", "--no-restore", "--help", "--version", "-h", "-v", "--build-lock"}
 	dropValueFlags = []string{"--update-token", "--export-token", "--connect", "--disconnect", "--prompt", "--run-for", "--until", flagCompose}
 	keepValueFlags = []string{"--token", "--ssh-key", "--network", "--engine", "--max-age", "--teams"}
 	keepFlags      = []string{"--no-ssh", "--github-443", "--no-network", flagSupervise, flagNoSupervise, "--no-bus", flagOpencode, flagOpencodeShort}

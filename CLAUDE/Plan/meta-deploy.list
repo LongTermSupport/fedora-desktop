@@ -44,8 +44,9 @@
 # play-agent-bus.yml again (it passed on its own at 67033c224, so no change), then the whole
 # play-claude-yolo.yml, then acceptance.bash. The kit's settings.json runs the static Go
 # pingbus-status-line, copied into every running LXC member. The ccy play gives the host CCY
-# 3.100.5 (the Go front and --opencode: see the play-claude-yolo.yml entry below) and puts the binary in the
-# image's build context (container 2.79.1, rebuilt once at the next ccy launch; the image
+# 3.100.6 (the Go front, the image build lock and --opencode: see the play-claude-yolo.yml entry
+# below) and puts the binary in the image's build context (container 2.79.1, rebuilt once at the
+# next ccy launch; the image
 # also carries the farewell-reason fix, the reports and questions admin tool and Go 1.26.10 in the project image): a seated session's status line is
 # the Go one and refreshes every 25 s. The acceptance checks the kit's, the image's and each
 # declared LXC member's binary are this checkout's build (a declared container that is down is
@@ -82,15 +83,24 @@
 # and checks their firewalld rules are gone, however the run ends. Needs sudo once, ccy
 # launched interactively in this checkout once (Quick Launch), and the hooks daemon installed.
 00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker
-# play-claude-yolo.yml, the whole play (Plan 00191 Tasks 4.3, 4.4, 4.4b and 4.5, and Plan 00215):
-# the host's ccy becomes CCY 3.100.5 (container 2.79.1: the next launch rebuilds the image once,
-# for its guide and for opencode 1.19.3, the open-source coding agent, downloaded at build and
-# stopped unless its sha256 is the pinned one). New flag: `ccy --opencode` (or -oc) runs opencode
-# in the container instead of Claude Code, with no bus kit and no supervisor; it needs a model
-# provider key file first (docs/ccy.md, "opencode"; Plan 00215 Task 1.4), and without one it
-# stops before anything starts; an opencode session is not restored after a reboot, and a
-# Quick Launch's saved team is not taken by it (or by --no-bus), and is kept for the next launch. A launch without the flag is unchanged. The image also gets the
-# room-ID fix in its pingbus (Plan 00211). /var/local/claude-yolo/claude-yolo becomes a Go program (built here from
+# play-claude-yolo.yml, the whole play (Plan 00191 Tasks 4.3, 4.4, 4.4b and 4.5, Plans 00216 and
+# 00215): the host's ccy becomes CCY 3.100.6. Plan 00216: only one image build runs at a time; two
+# ccy launches started together build the image once, the second waiting (it says on stderr every
+# 30 s whose build it waits for) and then using that build. The play's own image build takes the
+# same lock (lib/image-build-lock.bash, newly installed with lib/image-build.bash), so it waits
+# for a launch's build and a launch waits for it. `ccy --build-lock` (answered by the Go front)
+# shows the build in progress and stops a hung one after a [y/N]. Check after the run: start
+# `ccy --rebuild=full` in two terminals at the same moment: the second prints the waiting line
+# and starts its own build only when the first has finished (an explicit rebuild always builds);
+# while one builds, `ccy --build-lock` in a third terminal names it, and `n` leaves it running.
+# Container 2.79.1: the next launch rebuilds the image once, for its guide, the room-ID fix in its
+# pingbus (Plan 00211) and opencode 1.19.3, the open-source coding agent, downloaded at build and
+# stopped unless its sha256 is the pinned one. Plan 00215: new flag `ccy --opencode` (or -oc) runs
+# opencode in the container instead of Claude Code, with no bus kit and no supervisor; it needs a
+# model provider key file first (docs/ccy.md, "opencode"; Plan 00215 Task 1.4), and without one it
+# stops before anything starts; an opencode session is not restored after a reboot, and a Quick
+# Launch's saved team is not taken by it (or by --no-bus), and is kept for the next launch. A
+# launch without the flag is unchanged. /var/local/claude-yolo/claude-yolo becomes a Go program (built here from
 # src-go/cmd/claude-yolo, installed only when its checksum changes) that answers --version,
 # --help, --list-tokens, --token-usage [--json], --prevent and --export-token NAME itself
 # (everything else, --top and the interactive export included, stays in the bash) and execs
@@ -131,14 +141,16 @@ playbooks/imports/play-claude-yolo.yml
 # is this checkout's build, builds the ccy-teams from before stage 1 from git, and runs each three
 # times in turn: `--list` must print the same bytes (a difference in every round rejects, one in
 # some rounds only is a live change and a note) and run faster (it took 9-23 s before), and an
-# open, drawn on this terminal and answered with Esc at its first screen, must be faster and
-# start exactly one declare status and no agent-bus seat list. A live member.json that sets
-# report_per_hour must be listed, not refused. Needs sudo once (so both read the member rosters)
-# and a terminal. A failure names the check, and a --list diff is in the report. An open that
-# asks a question first (a team to describe, an update) leaves S3 NOT JUDGED (exit 2, COULD NOT
-# ESTABLISH in the summary): answer it in ccy-teams and run again. An out-of-date team is offered
-# its update on every open, so it blocks S3 until play-agent-bus.yml has applied it; its entry
-# above normally has.
+# open, drawn on this terminal from an empty folder under TMPDIR that is in no checkout and
+# answered with Esc at its first screen, must be faster and start exactly one declare status and
+# no agent-bus seat list. A member.json that sets report_per_hour must be listed, not refused:
+# on a fixture in the run directory (always, and the report says so) and on any live seat. Needs
+# sudo once (so both read the member rosters) and a terminal. A failure names the check, and a
+# --list diff is in the report. An open whose first screen is a question leaves S3 NOT JUDGED
+# (exit 2, COULD NOT ESTABLISH in the summary), and the run log names the question. It comes
+# back on every open: for a team limited to some folders or with no description, until that is
+# settled or never chosen; while teams are out of date, until they are applied; with no team,
+# until one is made. Settle it in ccy-teams and run again.
 00209-agent-bus-v2-in-go/acceptance-s1.bash
 # Plan 00214 acceptance (issue #110), LAST, with no changed-plays entry above it: it needs plays
 # still to run. Runs no play and needs no sudo. It checks that the health report's

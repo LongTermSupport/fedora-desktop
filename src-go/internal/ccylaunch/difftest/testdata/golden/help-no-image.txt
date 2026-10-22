@@ -89,6 +89,8 @@ Options:
   --no-restore           Do not bring this session back after a reboot on a machine
                          that restores sessions (ccy-sessions restore; docs/ccy.md)
   --top                  Container manager: list/stop all CCY containers
+  --build-lock           Show the image build in progress (a launch waits for another's build
+                         of the same image), and stop one that has hung, after asking
   --prevent              Disable CCY for this project folder (writes 'never' to .claude/ccy/allowed-hostnames)
   --help, -h             Show this help message
   --                     End of ccy options; everything after is forwarded raw to claude

@@ -926,6 +926,7 @@ are forwarded unchanged.
 | `--opencode`, `-oc`                         | Run opencode instead of Claude Code (see [opencode](#opencode))                                                                                                                                                                                                                                                                            |
 | `--no-restore`                              | Do not bring this session back after a reboot (see [restore](#sessions-survive-a-reboot))                                                                                                                                                                                                                                                  |
 | `--top`                                     | Container manager: list and stop running CCY containers                                                                                                                                                                                                                                                                                    |
+| `--build-lock`                              | Show the image build in progress (a launch waits for another's build of the same image) and stop a hung one after asking                                                                                                                                                                                                                   |
 | `ccy-sessions`                              | Separate command: every CCY tmux session with its CPU, network, token and SSH key, attach or end one; `--list` prints the table; `reboot --in N` warns them and reboots; `restore` brings them back                                                                                                                                        |
 | `--debug`                                   | Interactive debug-layer selection (CCY, entrypoint, Claude Code)                                                                                                                                                                                                                                                                           |
 | `--`                                        | End of CCY options; everything after is forwarded raw to `claude`                                                                                                                                                                                                                                                                          |
@@ -1694,6 +1695,13 @@ the `scripts/desktop-symlinks` wrapper: [ccy-debug-mounts.md](ccy-debug-mounts.m
 When the launcher requires a newer image than you have, the next `ccy` triggers a
 one-time rebuild automatically. You do not normally manage this by hand.
 
+Only one build of an image runs at a time (Plan 00216). A `ccy` started while another builds
+the same image waits, saying on stderr whose build it waits for, and then uses that build
+rather than making its own; the play's image build takes the same lock. `ccy --build-lock`
+shows the build in progress and stops one that has hung, after asking. The lock cannot go
+stale, and nothing about it is ever deleted by hand; the mechanism is described in
+`files/var/local/claude-yolo/lib/image-build-lock.bash`.
+
 The launcher also carries a **self-hash guard**: if its content changes without a version
 bump, it says so. Contributors must bump `CCY_VERSION` when editing the script — a
 pre-commit hook enforces it. See
@@ -1707,7 +1715,8 @@ banner prints it verbatim, so it must stay short.
 
 The launcher is being ported to Go one flag at a time (Plan 00191). `/var/local/claude-yolo/claude-yolo`
 is a Go program that answers `--version`, `--help`, `--list-tokens` (on its own),
-`--token-usage [--json]`, `--prevent` and `--export-token NAME` itself, with the bash launcher's
+`--token-usage [--json]`, `--prevent`, `--export-token NAME` and `--build-lock` (the Go
+program's own flag: the bash refuses it, so `CCY_LEGACY` cannot run it) itself, with the bash launcher's
 output (and the same JSON document, usage cache and API call, the token fed to curl on its
 stdin; for the last two, the same `.claude/ccy/` set-up first), and runs the bash launcher,
 installed beside it as `claude-yolo.bash`, for everything else, with the same arguments and
