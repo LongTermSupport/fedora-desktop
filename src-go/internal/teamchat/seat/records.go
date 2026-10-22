@@ -101,6 +101,36 @@ func DecodeHeldBundle(data []byte) (HeldBundle, error) {
 	return h, h.check()
 }
 
+// MemberBundle is seat.json as a member's seat directory holds it: a guest's pool form, or a
+// session's held form, which Held is then (nil for a guest's). Bundle is the pool fields of
+// either.
+type MemberBundle struct {
+	Bundle Bundle
+	Held   *HeldBundle
+}
+
+// DecodeMemberBundle reads a member's seat.json in exactly one of the two shapes seat writes
+// (SPEC-n3 MS3), chosen by the claim key: with one it is a held seat.json, without one a pool
+// seat.json, each decoded strictly.
+func DecodeMemberBundle(data []byte) (MemberBundle, error) {
+	v, err := proto.Parse(data)
+	if err != nil || v.Kind() != proto.KindObject {
+		return MemberBundle{}, invalid("seat.json: not a JSON object")
+	}
+	if _, held := v.Get(keyClaim); !held {
+		b, poolErr := DecodeBundle(data)
+		if poolErr != nil {
+			return MemberBundle{}, poolErr
+		}
+		return MemberBundle{Bundle: b}, nil
+	}
+	h, heldErr := DecodeHeldBundle(data)
+	if heldErr != nil {
+		return MemberBundle{}, heldErr
+	}
+	return MemberBundle{Bundle: h.Bundle, Held: &h}, nil
+}
+
 func (h HeldBundle) check() error {
 	if err := h.Bundle.check(); err != nil {
 		return err
