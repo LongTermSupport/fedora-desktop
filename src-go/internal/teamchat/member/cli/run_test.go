@@ -67,9 +67,10 @@ func TestAnUnbuiltVerbNamesItsSlice(t *testing.T) {
 		args []string
 		msg  string
 	}{
-		{[]string{"recv"}, "teamchat recv is not built in this binary; it lands with slice n3c"},
+		{[]string{"questions"}, "teamchat questions is not built in this binary; it lands with slice n3f"},
 		{[]string{"hook", "stop"}, "teamchat hook is not built in this binary; it lands with slice n3e"},
-		{[]string{"run", "--plain", "--kind", "other", "--", "bash"}, "teamchat run is not built in this binary; it lands with slice n3c"},
+		{[]string{"recv"}, "teamchat recv is not wired into this binary; tell a human"},
+		{[]string{"run", "--plain", "--kind", "other", "--", "bash"}, "teamchat run is not wired into this binary; tell a human"},
 	} {
 		var w world
 		if w.run(digest, c.args...) != term.ExitFailure || w.out.Len() != 0 {
@@ -113,8 +114,13 @@ func TestEnvVerbsRunsTheVerbsTheBinaryPasses(t *testing.T) {
 	if code := Run(e); code != term.ExitOK {
 		t.Fatalf("version: exit %d, not cli's own", code)
 	}
+	e.Args = []string{"questions"}
+	if code := Run(e); code != term.ExitFailure || !strings.Contains(errOut.String(), "teamchat questions is not built") {
+		t.Fatalf("questions: exit %d, stderr %q", code, errOut.String())
+	}
+	errOut.Reset()
 	e.Args = []string{"wait"}
-	if code := Run(e); code != term.ExitFailure || !strings.Contains(errOut.String(), "teamchat wait is not built") {
+	if code := Run(e); code != term.ExitFailure || !strings.Contains(errOut.String(), "teamchat wait is not wired into this binary") {
 		t.Fatalf("wait: exit %d, stderr %q", code, errOut.String())
 	}
 }
