@@ -172,12 +172,17 @@ func (p placement) fresh(root *homefs.Root, l paths.Layout) error {
 	return p.out.Changed(WhatSeat)
 }
 
-// into places the files into the existing seat directory dir: in place for the same identity;
+// into places the files into the existing seat directory dir, refusing first a seat.json or
+// token that is not the user's regular file within its cap: in place for the same identity;
 // for another, or a seat.json that does not decode, under the seat lock with the store set
 // aside and the old seat.json unlinked first, so a read between the renames finds no bundle
 // rather than the old user's with the new token; the lock released last.
 func (p placement) into(ctx context.Context, clock Clock, dir *homefs.Root, userID string) error {
-	if p.sameIdentity(dir, userID) {
+	same, err := p.sameIdentity(dir, userID)
+	if err != nil {
+		return err
+	}
+	if same {
 		return p.replace(dir)
 	}
 	hold, err := holdSeat(ctx, clock, dir, p.seat, p.team)
@@ -197,14 +202,22 @@ func (p placement) into(ctx context.Context, clock Clock, dir *homefs.Root, user
 	return errors.Join(err, hold.Release())
 }
 
-// sameIdentity is whether the seat's seat.json decodes to this team and user (and so seat).
-func (p placement) sameIdentity(dir *homefs.Root, userID string) bool {
+// sameIdentity is whether the seat's seat.json decodes to this team and user (and so seat); a
+// missing one, or one that does not decode, is another identity, and a seat.json or token
+// that cannot be read is the read's error.
+func (p placement) sameIdentity(dir *homefs.Root, userID string) (bool, error) {
+	if _, err := dir.Read(p.seat.Token(), seat.MaxSecret); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return false, err
+	}
 	f, err := dir.Read(p.seat.Bundle(), seat.MaxBundle)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
 	if err != nil {
-		return false
+		return false, err
 	}
 	b, err := seat.DecodeMemberBundle(f.Data)
-	return err == nil && b.Bundle.Team == p.team && b.Bundle.UserID == userID
+	return err == nil && b.Bundle.Team == p.team && b.Bundle.UserID == userID, nil
 }
 
 // replace replaces token, then seat.json, each only where its bytes differ.

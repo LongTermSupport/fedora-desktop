@@ -403,6 +403,37 @@ func TestPlaceBundleDifferentIdentitySetsTheStoreAside(t *testing.T) {
 	}
 }
 
+// GU1, GU3: a seat.json or token that is not the user's regular file within its cap is
+// refused as 78 before anything is set aside or unlinked, whoever the bundle names.
+func TestPlaceBundleRefusesASeatFileItCannotRead(t *testing.T) {
+	for name, plant := range map[string]func(w *world, path string){
+		"link": func(w *world, path string) { check(w.t, os.Symlink("/nowhere", path)) },
+		"fifo": func(w *world, path string) { check(w.t, unix.Mkfifo(path, 0o600)) },
+		"over its cap": func(w *world, path string) {
+			check(w.t, os.WriteFile(path, bytes.Repeat([]byte(" "), seat.MaxBundle+seat.MaxSecret+1), 0o600))
+		},
+	} {
+		for _, file := range []string{"seat.json", "token"} {
+			for _, n := range []int{1, 2} {
+				t.Run(name+" "+file+" "+strconv.Itoa(n), func(t *testing.T) {
+					w := newWorld(t)
+					w.placed(1, loginOne)
+					store := w.store()
+					path := w.seat.Dir() + "/" + file
+					check(t, os.Remove(path))
+					plant(w, path)
+					whats, err := w.place(w.issued(w.bundle(n), seat.KindToken, loginTwo))
+					wantExit(t, err, 78, exits.CodeBundle)
+					wantWhats(t, whats)
+					if !w.exists(path) || !bytes.Equal(w.read(w.seat.Store()), store) {
+						t.Fatal("a refused placement removed the file or set the store aside")
+					}
+				})
+			}
+		}
+	}
+}
+
 // GU3: a different identity with no store sets nothing aside.
 func TestPlaceBundleDifferentIdentityWithNoStore(t *testing.T) {
 	w := newWorld(t)
@@ -500,9 +531,16 @@ func TestPlaceBundleRefusesAnotherUsersSeat(t *testing.T) {
 	_, err := w.place(w.issued(w.bundle(1), seat.KindToken, loginTwo))
 	wantExit(t, err, 78, exits.CodeBundle)
 	check(t, os.Lchown(w.seat.Dir(), 0, 0))
-	check(t, os.Lchown(w.seat.Token(), otherUID, otherUID))
-	_, err = w.place(w.issued(w.bundle(2), seat.KindToken, loginTwo))
-	wantExit(t, err, 78, exits.CodeBundle)
+	store := w.store()
+	for _, path := range []string{w.seat.Token(), w.seat.Bundle()} {
+		check(t, os.Lchown(path, otherUID, otherUID))
+		_, err = w.place(w.issued(w.bundle(2), seat.KindToken, loginTwo))
+		wantExit(t, err, 78, exits.CodeBundle)
+		if !w.exists(path) || !bytes.Equal(w.read(w.seat.Store()), store) {
+			t.Fatalf("a refused placement over another uid's %s changed the seat", path)
+		}
+		check(t, os.Lchown(path, 0, 0))
+	}
 	check(t, os.Lchown(w.layout.State(), otherUID, otherUID))
 	_, err = w.place(w.issued(w.bundle(1), seat.KindToken, loginTwo))
 	wantExit(t, err, 78, exits.CodeBundle)
