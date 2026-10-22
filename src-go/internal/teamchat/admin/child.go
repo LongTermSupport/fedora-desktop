@@ -112,10 +112,14 @@ func ctlChild(ctx context.Context, e Env, args []string) term.ExitCode {
 	if err != nil {
 		return childFailed(e, "bad request: "+err.Error())
 	}
-	if e.Sys == nil || e.Sys.Open == nil {
+	sys, err := e.wired()
+	if err != nil && !errors.Is(err, errUnwired) {
+		return childFailed(e, err.Error())
+	}
+	if sys == nil || sys.Open == nil {
 		return childFailed(e, "op "+req.Op+" is not served by this build")
 	}
-	a := Serve(ctx, e.Sys.Open, req)
+	a := Serve(ctx, sys.Open, req)
 	raw, err = EncodeAnswer(a)
 	if err != nil {
 		return childFailed(e, "cannot encode the answer: "+err.Error())

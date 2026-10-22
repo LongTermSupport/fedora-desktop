@@ -21,14 +21,20 @@ import (
 )
 
 // System is what the verbs reach beyond the process, each a seam (CV3-CV5): the host's
-// (host.Deps; Bootstrap and LockWait are the verb's), the child, the seat side's bundles and
-// the owner group for root; for the child, its Opener.
+// (host.Deps; Bootstrap and LockWait are the verb's, and Pin, CtlUID and CtlGID team apply's
+// from Pin and CtlIDs), the child, the seat side's bundles, the owner group, the health tick
+// and the account database's homes; for the child, its Opener. A seam that reads a host file
+// reads it when a verb calls it, so a verb fails only on what it needs (n2f-W1).
 type System struct {
 	Host       host.Deps
 	Child      Child
 	Bundles    Bundles
 	OwnerGroup func() (int, error)
 	Open       Opener
+	Pin        func() (host.Pin, error)
+	CtlIDs     func() (User, error)
+	Health     func() (HealthTick, error)
+	Home       func(uid int) (string, error)
 }
 
 // Child asks the teamchat-ctl child one request (CC1); its start is the seam's (n2a-D6).
@@ -81,6 +87,7 @@ func rootRuns() map[string]func(context.Context, Env, []string) term.ExitCode {
 	runs := map[string]func(context.Context, Env, []string) term.ExitCode{
 		"team apply": teamApply, "team approve": teamApprove, "team remove": teamRemove,
 		"role apply": memberVerb(apply.OpRoleApply),
+		"health":     healthVerb, "element check": elementVerb(false), "element apply": elementVerb(true),
 	}
 	for _, op := range []string{apply.OpMemberAdd, apply.OpMemberReturn, apply.OpMemberReissue, apply.OpMemberPark, apply.OpMemberRetire, apply.OpMemberSet} {
 		runs["member "+strings.TrimPrefix(op, "member.")] = memberVerb(op)
@@ -99,11 +106,32 @@ var memberFlags = map[string][]string{
 	apply.OpRoleApply:     {},
 }
 
+// system is the verb's System: Sys, else what Wire builds (WR1); a wiring that fails is 78.
 func (e Env) system() (*System, term.ExitCode) {
-	if e.Sys == nil {
-		return nil, fail(e.Stderr, term.ExitFailure, "this build has its verbs but no host seams: they are not wired yet")
+	sys, err := e.wired()
+	switch {
+	case errors.Is(err, errUnwired):
+		return nil, fail(e.Stderr, term.ExitFailure, err.Error())
+	case err != nil:
+		return nil, fail(e.Stderr, ExitConfig, err.Error())
 	}
-	return e.Sys, term.ExitOK
+	return sys, term.ExitOK
+}
+
+var errUnwired = errors.New("this build has its verbs but no host seams: they are not wired yet")
+
+func (e Env) wired() (*System, error) {
+	switch {
+	case e.Sys != nil:
+		return e.Sys, nil
+	case e.Wire == nil:
+		return nil, errUnwired
+	}
+	sys, err := e.Wire()
+	if err != nil {
+		return nil, fmt.Errorf("the wiring: %w", err)
+	}
+	return sys, nil
 }
 
 func failWith(e Env, err error) term.ExitCode {
@@ -393,11 +421,19 @@ func teamApply(ctx context.Context, e Env, args []string) term.ExitCode {
 	if err != nil {
 		return failWith(e, err)
 	}
+	d := sys.Host
+	if d.Pin, err = sys.Pin(); err != nil {
+		return fail(e.Stderr, ExitConfig, "the server pin: "+err.Error())
+	}
+	ctl, err := sys.CtlIDs()
+	if err != nil {
+		return fail(e.Stderr, ExitConfig, "the "+paths.CtlUser+" account: "+err.Error())
+	}
+	d.CtlUID, d.CtlGID = ctl.UID, ctl.GID
 	in, err := readInput(e.Stdin)
 	if err != nil {
 		return failWith(e, err)
 	}
-	d := sys.Host
 	d.LockWait = host.PlayWait
 	d.Bootstrap = func(ctx context.Context, b host.Bootstrap) ([]string, error) { return bootstrap(ctx, sys, b) }
 	lines, err := host.Apply(ctx, d, in)

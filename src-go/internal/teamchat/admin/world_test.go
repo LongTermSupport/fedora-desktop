@@ -222,8 +222,7 @@ func (w *world) sys() *System {
 	return &System{
 		Host: host.Deps{
 			Root: w.root, LockDir: w.root + paths.AdminRunDir, Clock: w,
-			Rand: bytes.NewReader(bytes.Repeat([]byte{0xab}, 64)), Pin: w.pin(), Software: digest,
-			CtlUID: os.Getuid(), CtlGID: os.Getgid(),
+			Rand: bytes.NewReader(bytes.Repeat([]byte{0xab}, 64)), Software: digest,
 			Approvals: declare.FileApprovals{Path: func(id paths.TeamID) string { return w.root + paths.ApprovedFile(id) }, GID: -1},
 			Systemd:   &fakeSystemd{w: w}, Firewall: &fakeFirewall{w: w}, Network: w, Ready: w, Status: &fakeStatus{w: w},
 			Backup: func(context.Context, *teamlock.Lock) error { return nil },
@@ -232,6 +231,8 @@ func (w *world) sys() *System {
 		Bundles:    w,
 		OwnerGroup: w.ownerGroup,
 		Open:       w.open,
+		Pin:        func() (host.Pin, error) { return w.pin(), nil },
+		CtlIDs:     func() (User, error) { return User{UID: os.Getuid(), GID: os.Getgid()}, nil },
 	}
 }
 

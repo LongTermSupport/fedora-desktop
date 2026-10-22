@@ -27,7 +27,8 @@ const (
 )
 
 // Env is one run: the arguments after the program name, the streams, the process, the
-// source digest baked into the binary, and the seams the verbs reach (nil while unwired).
+// source digest baked into the binary, and the seams the verbs reach: Sys, or when it is nil
+// what Wire builds at the first verb that needs it (WR1; both nil while unwired).
 type Env struct {
 	Args           []string
 	Stdin          io.Reader
@@ -35,6 +36,7 @@ type Env struct {
 	Proc           Process
 	Digest         string
 	Sys            *System
+	Wire           func() (*System, error)
 }
 
 // Run is `teamchat-admin`: it finds the verb, decides the caller class, refuses the wrong one
