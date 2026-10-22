@@ -3,10 +3,13 @@
 #
 #   model-present-without-weights        a model judged present from its cache snapshot
 #   dropdown-label-carries-explanation   a dropdown option that explains itself, truncated
+#   test-wall-clock-ceiling-under-a-second   a test bounds an elapsed time under 1 s
+#   test-deadline-under-ten-steps        a test's loop step is over a tenth of its deadline
 #
-# Both came from the same failure: an `auto` model that was never fully downloaded, listed
-# as installed under labels too long to read. Each rule's reasoning, and how to fix a
-# finding, is in CLAUDE/QA.md under its identifier.
+# The first two came from the same failure: an `auto` model that was never fully
+# downloaded, listed as installed under labels too long to read. The last two came from
+# speech-to-text tests that passed alone and failed in the full gate on a loaded host.
+# Each rule's reasoning, and how to fix a finding, is in CLAUDE/QA.md under its identifier.
 #
 # The tool is Go (src-go/qa/sttrules, command src-go/qa/cmd/qa-speech-to-text-rules);
 # lib/go-tool.bash builds it into a private directory under the cache and runs it, so the exit

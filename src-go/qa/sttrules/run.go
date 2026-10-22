@@ -1,5 +1,6 @@
 // Package sttrules is the gate for the rules in .semgrep/speech-to-text.yml: a model judged
-// present from its cache snapshot, and a dropdown label that explains itself. The rules are
+// present from its cache snapshot, a dropdown label that explains itself, and a test whose pass
+// hangs on a wall-clock margin too tight for a loaded host. The rules are
 // semgrep data in two languages, proven against a fixture per language on every run; this package
 // owns what is scanned, the proof that every rule still matches, and the refusal to pass over a
 // file the analyser did not read. The specification is the plan's SPEC-qa-speech-to-text-rules.md.
@@ -61,7 +62,7 @@ type Env struct {
 const usageText = `usage: qa-speech-to-text-rules [--root DIR] [--scripts DIR] [PATH...]
 
 The rules in .semgrep/speech-to-text.yml (a model judged present without its weights, a dropdown
-label that explains itself) over every JavaScript and Python file git would publish, after proving
+label that explains itself, a test timed too tightly for a loaded host) over every JavaScript and Python file git would publish, after proving
 each rule against its fixture in .semgrep/.
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
