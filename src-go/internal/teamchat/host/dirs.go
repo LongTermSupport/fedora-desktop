@@ -29,8 +29,9 @@ func mkdirOwned(dir string, uid, gid int) error {
 	return os.Lchown(dir, uid, gid)
 }
 
-// mkdirShared makes a 0755 directory, or accepts one that is there and is a directory.
-func mkdirShared(dir string) error {
+// MkdirShared makes a 0755 directory, whatever the umask, or accepts one that is there and is a
+// directory; `team approve` makes the team's status directory with it.
+func MkdirShared(dir string) error {
 	_, err := mkdirMode(dir, sharedDirMode)
 	return err
 }

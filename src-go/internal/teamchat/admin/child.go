@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -25,6 +27,8 @@ const (
 	maxChanged = 4096
 	maxLine    = 4096
 	maxOp      = 64
+	maxNotes   = 64
+	maxSecret  = 4096
 	wireMajor  = 1
 )
 
@@ -90,9 +94,9 @@ func checkStarted(p Process) error {
 	return nil
 }
 
-// ctlChild is the child's side of the pipe: one request in, one answer out (CC2-CC5). This
-// build serves no operation.
-func ctlChild(e Env, args []string) term.ExitCode {
+// ctlChild is the child's side of the pipe: one request in, one answer out (CC2-CC5), served
+// through the Opener of e.Sys; without one it serves no operation.
+func ctlChild(ctx context.Context, e Env, args []string) term.ExitCode {
 	if len(args) > 0 {
 		return fail(e.Stderr, term.ExitUsage, "ctl-child takes no arguments")
 	}
@@ -107,7 +111,21 @@ func ctlChild(e Env, args []string) term.ExitCode {
 	if err != nil {
 		return childFailed(e, "bad request: "+err.Error())
 	}
-	return childFailed(e, "op "+req.Op+" is not served by this build")
+	if e.Sys == nil || e.Sys.Open == nil {
+		return childFailed(e, "op "+req.Op+" is not served by this build")
+	}
+	a := Serve(ctx, e.Sys.Open, req)
+	raw, err = EncodeAnswer(a)
+	if err != nil {
+		return childFailed(e, "cannot encode the answer: "+err.Error())
+	}
+	if code := answer(e, string(raw)+"\n"); code != term.ExitOK {
+		return code
+	}
+	if !a.OK {
+		return term.ExitFailure
+	}
+	return term.ExitOK
 }
 
 // childFailed answers a `failed` error and exits 1 (CC5).
@@ -211,12 +229,17 @@ func strictObject(raw []byte, want ...string) (map[string]proto.Value, error) {
 }
 
 func exactKeys(v proto.Value, want ...string) (map[string]proto.Value, error) {
+	return keys(v, want)
+}
+
+// keys is v as an object holding every key of want and no key outside want and optional.
+func keys(v proto.Value, want []string, optional ...string) (map[string]proto.Value, error) {
 	if v.Kind() != proto.KindObject {
 		return nil, errors.New("not an object")
 	}
 	out := make(map[string]proto.Value, len(want))
 	for _, m := range v.Members() {
-		if !slices.Contains(want, m.Key) {
+		if !slices.Contains(want, m.Key) && !slices.Contains(optional, m.Key) {
 			return nil, fmt.Errorf("unknown key %s", strconv.Quote(m.Key))
 		}
 		out[m.Key] = m.Val
@@ -245,11 +268,16 @@ var classExit = map[ErrorClass]term.ExitCode{
 	ClassFailed: term.ExitFailure, ClassRefused: ExitRefused, ClassUnreachable: ExitUnreachable, ClassConfig: ExitConfig,
 }
 
-// Answer is the child's one answer (CC5): what changed, or the failure.
+// Answer is the child's one answer (CC5, CV2): what changed, and for a member verb its handle,
+// the credential the caller asked for and notes for the status record; or the failure, with
+// the lines that changed before it.
 type Answer struct {
-	OK      bool
-	Changed []string
-	Error   *AnswerError
+	OK         bool
+	Changed    []string
+	Handle     string
+	Credential *apply.Credential
+	Notes      []string
+	Error      *AnswerError
 }
 
 // AnswerError is a failed answer's class and one-line message.
@@ -270,16 +298,26 @@ func (a Answer) validate() error {
 	if a.OK != (a.Error == nil) {
 		return errors.New("an answer is ok or carries an error, not both or neither")
 	}
-	if a.OK {
-		if len(a.Changed) > maxChanged {
-			return fmt.Errorf("more than %d changed lines", maxChanged)
+	if err := validLines("changed", a.Changed, maxChanged); err != nil {
+		return err
+	}
+	if !a.OK {
+		return a.validateFailure()
+	}
+	if a.Handle != "" && !validHandle(a.Handle) {
+		return errors.New("the handle is not a member handle")
+	}
+	if a.Credential != nil {
+		if err := validCredential(*a.Credential); err != nil {
+			return err
 		}
-		for _, line := range a.Changed {
-			if !validLine(line) {
-				return errors.New("a changed line is not one line")
-			}
-		}
-		return nil
+	}
+	return validLines("notes", a.Notes, maxNotes)
+}
+
+func (a Answer) validateFailure() error {
+	if a.Handle != "" || a.Credential != nil || len(a.Notes) > 0 {
+		return errors.New("a failed answer carries no handle, credential or notes")
 	}
 	if _, ok := classExit[a.Error.Class]; !ok {
 		return fmt.Errorf("error class %s", strconv.Quote(string(a.Error.Class)))
@@ -290,8 +328,37 @@ func (a Answer) validate() error {
 	return nil
 }
 
+func validLines(name string, lines []string, most int) error {
+	if len(lines) > most {
+		return fmt.Errorf("more than %d %s lines", most, name)
+	}
+	for _, line := range lines {
+		if !validLine(line) {
+			return fmt.Errorf("a %s line is not one line", name)
+		}
+	}
+	return nil
+}
+
 func validLine(s string) bool {
 	return s != "" && len(s) <= maxLine && !strings.ContainsFunc(s, breaksLine)
+}
+
+func validHandle(s string) bool {
+	h, ok := proto.ParseHandle(s)
+	return ok && h.String() == s
+}
+
+// validCredential is CV2's rule: a kind the verbs issue and a secret of 1 to maxSecret printable
+// ASCII bytes without a space. No error quotes the secret.
+func validCredential(c apply.Credential) error {
+	if c.Kind != apply.CredPassword && c.Kind != apply.CredToken {
+		return errors.New("the credential kind is not password or token")
+	}
+	if c.Secret == "" || len(c.Secret) > maxSecret || strings.ContainsFunc(c.Secret, func(r rune) bool { return r <= ' ' || r > '~' }) {
+		return fmt.Errorf("the credential's secret is not 1 to %d printable ASCII bytes without a space", maxSecret)
+	}
+	return nil
 }
 
 // EncodeAnswer is the answer on the wire.
@@ -299,16 +366,32 @@ func EncodeAnswer(a Answer) ([]byte, error) {
 	if err := a.validate(); err != nil {
 		return nil, err
 	}
-	head := []proto.Member{proto.M("v", proto.Int(wireMajor)), proto.M("ok", proto.Bool(a.OK))}
-	if a.OK {
-		lines := make([]proto.Value, 0, len(a.Changed))
-		for _, line := range a.Changed {
-			lines = append(lines, proto.Str(line))
-		}
-		return proto.Obj(append(head, proto.M("changed", proto.Arr(lines...)))...).Compact(), nil
+	members := []proto.Member{proto.M("v", proto.Int(wireMajor)), proto.M("ok", proto.Bool(a.OK))}
+	if a.OK || len(a.Changed) > 0 {
+		members = append(members, proto.M("changed", lineArray(a.Changed)))
 	}
-	errValue := proto.Obj(proto.M("class", proto.Str(string(a.Error.Class))), proto.M("message", proto.Str(a.Error.Message)))
-	return proto.Obj(append(head, proto.M("error", errValue))...).Compact(), nil
+	if !a.OK {
+		errValue := proto.Obj(proto.M("class", proto.Str(string(a.Error.Class))), proto.M("message", proto.Str(a.Error.Message)))
+		return proto.Obj(append(members, proto.M("error", errValue))...).Compact(), nil
+	}
+	if a.Handle != "" {
+		members = append(members, proto.M("handle", proto.Str(a.Handle)))
+	}
+	if c := a.Credential; c != nil {
+		members = append(members, proto.M("credential", proto.Obj(proto.M("kind", proto.Str(c.Kind)), proto.M("secret", proto.Str(c.Secret)))))
+	}
+	if len(a.Notes) > 0 {
+		members = append(members, proto.M("notes", lineArray(a.Notes)))
+	}
+	return proto.Obj(members...).Compact(), nil
+}
+
+func lineArray(lines []string) proto.Value {
+	items := make([]proto.Value, 0, len(lines))
+	for _, line := range lines {
+		items = append(items, proto.Str(line))
+	}
+	return proto.Arr(items...)
 }
 
 // DecodeAnswer reads the child's answer strictly, the one thing root parses that a
@@ -332,28 +415,66 @@ func DecodeAnswer(raw []byte) (Answer, error) {
 }
 
 func decodeDone(v proto.Value) (Answer, error) {
-	obj, err := exactKeys(v, "v", "ok", "changed")
+	obj, err := keys(v, []string{"v", "ok", "changed"}, "handle", "credential", "notes")
 	if err != nil {
 		return Answer{}, err
 	}
 	if err = checkMajor(obj["v"]); err != nil {
 		return Answer{}, err
 	}
-	if obj["changed"].Kind() != proto.KindArray {
-		return Answer{}, errors.New("changed is not an array")
-	}
 	a := Answer{OK: true}
-	for _, item := range obj["changed"].Items() {
-		if item.Kind() != proto.KindString {
-			return Answer{}, errors.New("a changed line is not a string")
+	if a.Changed, err = stringList(obj["changed"], "changed"); err != nil {
+		return Answer{}, err
+	}
+	if h, given := obj["handle"]; given {
+		if h.Kind() != proto.KindString || h.Str() == "" {
+			return Answer{}, errors.New("handle is not a member handle")
 		}
-		a.Changed = append(a.Changed, item.Str())
+		a.Handle = h.Str()
+	}
+	if c, given := obj["credential"]; given {
+		if a.Credential, err = decodeCredential(c); err != nil {
+			return Answer{}, err
+		}
+	}
+	if n, given := obj["notes"]; given {
+		if a.Notes, err = stringList(n, "notes"); err != nil {
+			return Answer{}, err
+		}
+		if len(a.Notes) == 0 {
+			return Answer{}, errors.New("notes is empty")
+		}
 	}
 	return a, a.validate()
 }
 
+func decodeCredential(v proto.Value) (*apply.Credential, error) {
+	c, err := exactKeys(v, "kind", "secret")
+	if err != nil {
+		return nil, fmt.Errorf("credential: %w", err)
+	}
+	if c["kind"].Kind() != proto.KindString || c["secret"].Kind() != proto.KindString {
+		return nil, errors.New("the credential's kind and secret are not strings")
+	}
+	return &apply.Credential{Kind: c["kind"].Str(), Secret: c["secret"].Str()}, nil
+}
+
+func stringList(v proto.Value, name string) ([]string, error) {
+	if v.Kind() != proto.KindArray {
+		return nil, fmt.Errorf("%s is not an array", name)
+	}
+	var out []string
+	for _, item := range v.Items() {
+		if item.Kind() != proto.KindString {
+			return nil, fmt.Errorf("a %s line is not a string", name)
+		}
+		out = append(out, item.Str())
+	}
+	return out, nil
+}
+
 func decodeFailed(v proto.Value) (Answer, error) {
-	obj, err := exactKeys(v, "v", "ok", "error")
+	obj, err := keys(v, []string{"v", "ok", "error"}, "changed")
 	if err != nil {
 		return Answer{}, err
 	}
@@ -368,6 +489,14 @@ func decodeFailed(v proto.Value) (Answer, error) {
 		return Answer{}, errors.New("error class and message are not strings")
 	}
 	a := Answer{Error: &AnswerError{Class: ErrorClass(e["class"].Str()), Message: e["message"].Str()}}
+	if lines, given := obj["changed"]; given {
+		if a.Changed, err = stringList(lines, "changed"); err != nil {
+			return Answer{}, err
+		}
+		if len(a.Changed) == 0 {
+			return Answer{}, errors.New("a failed answer's changed is empty")
+		}
+	}
 	return a, a.validate()
 }
 

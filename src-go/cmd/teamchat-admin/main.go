@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"os"
 
@@ -19,7 +20,7 @@ func main() {
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer, digest string) term.ExitCode {
-	return admin.Run(admin.Env{
+	return admin.Run(context.Background(), admin.Env{
 		Args: args, Stdin: stdin, Stdout: stdout, Stderr: stderr, Proc: admin.OSProcess(), Digest: digest,
 	})
 }

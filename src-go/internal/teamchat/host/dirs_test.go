@@ -21,7 +21,7 @@ func TestDirectoryModesIgnoreTheUmask(t *testing.T) {
 	strictUmask(t)
 	root := t.TempDir()
 	shared, owned := filepath.Join(root, "shared"), filepath.Join(root, "owned")
-	if err := mkdirShared(shared); err != nil {
+	if err := MkdirShared(shared); err != nil {
 		t.Fatal(err)
 	}
 	if err := mkdirOwned(owned, -1, -1); err != nil {
@@ -33,7 +33,7 @@ func TestDirectoryModesIgnoreTheUmask(t *testing.T) {
 	if got := mode(t, owned); got != 0o700 {
 		t.Errorf("owned mode %v", got)
 	}
-	if err := mkdirShared(shared); err != nil {
+	if err := MkdirShared(shared); err != nil {
 		t.Errorf("an existing directory: %v", err)
 	}
 	if err := mkdirOwned(owned, -1, -1); err != nil {
@@ -46,14 +46,14 @@ func TestDirectoryThatIsAFileIsRefused(t *testing.T) {
 	if err := os.WriteFile(file, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := mkdirShared(file); err == nil {
-		t.Error("mkdirShared accepted a file")
+	if err := MkdirShared(file); err == nil {
+		t.Error("MkdirShared accepted a file")
 	}
 	if err := mkdirOwned(file, -1, -1); err == nil {
 		t.Error("mkdirOwned accepted a file")
 	}
-	if err := mkdirShared(filepath.Join(file, "below")); err == nil {
-		t.Error("mkdirShared made a directory below a file")
+	if err := MkdirShared(filepath.Join(file, "below")); err == nil {
+		t.Error("MkdirShared made a directory below a file")
 	}
 }
 

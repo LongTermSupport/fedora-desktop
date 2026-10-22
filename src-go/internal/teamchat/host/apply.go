@@ -643,7 +643,7 @@ func (a *applying) startForBackup(ctx context.Context) error {
 
 func (a *applying) writeDropIn(ctx context.Context, text []byte) error {
 	file := a.path(paths.ServerDropInFile(a.team))
-	if err := mkdirShared(filepath.Dir(file)); err != nil {
+	if err := MkdirShared(filepath.Dir(file)); err != nil {
 		return err
 	}
 	if err := state.WriteFile(file, text, 0o644, -1); err != nil {
@@ -838,7 +838,7 @@ func (a *applying) writeStamp() error {
 		}
 	}
 	for _, dir := range []string{filepath.Dir(paths.StatusTeamDir(a.team)), paths.StatusTeamDir(a.team)} {
-		if err := mkdirShared(a.path(dir)); err != nil {
+		if err := MkdirShared(a.path(dir)); err != nil {
 			return err
 		}
 	}

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -147,6 +148,87 @@ func TestAnswerRoundTrip(t *testing.T) {
 	}
 }
 
+const sampleHandle = "myrepo.3+desk.podman"
+
+// TestAnswerCarriesAMemberVerbsFields is CV2: the handle, the credential and notes, and a
+// failure's changed lines.
+func TestAnswerCarriesAMemberVerbsFields(t *testing.T) {
+	cases := []struct {
+		answer Answer
+		wire   string
+	}{
+		{
+			Answer{OK: true, Changed: []string{"member x issued"}, Handle: sampleHandle, Credential: &apply.Credential{Kind: apply.CredToken, Secret: "syt_abc~1"}, Notes: []string{"a note"}},
+			`{"v":1,"ok":true,"changed":["member x issued"],"handle":"` + sampleHandle + `","credential":{"kind":"token","secret":"syt_abc~1"},"notes":["a note"]}`,
+		},
+		{
+			Answer{OK: true, Handle: sampleHandle},
+			`{"v":1,"ok":true,"changed":[],"handle":"` + sampleHandle + `"}`,
+		},
+		{
+			Answer{Changed: []string{"member x claimed"}, Error: &AnswerError{Class: ClassFailed, Message: "boom"}},
+			`{"v":1,"ok":false,"changed":["member x claimed"],"error":{"class":"failed","message":"boom"}}`,
+		},
+	}
+	for _, c := range cases {
+		raw, err := EncodeAnswer(c.answer)
+		if err != nil || string(raw) != c.wire {
+			t.Errorf("encode = %s, %v\nwant %s", raw, err, c.wire)
+			continue
+		}
+		back, err := DecodeAnswer(raw)
+		if err != nil || back.Handle != c.answer.Handle || !slices.Equal(back.Changed, c.answer.Changed) || !slices.Equal(back.Notes, c.answer.Notes) {
+			t.Errorf("decode %s = %+v, %v", raw, back, err)
+		}
+		if (back.Credential == nil) != (c.answer.Credential == nil) || back.Credential != nil && *back.Credential != *c.answer.Credential {
+			t.Errorf("decode %s: credential %v", raw, back.Credential)
+		}
+	}
+}
+
+func TestAnswerRefusesABadMemberField(t *testing.T) {
+	cred := func(kind, secret string) *apply.Credential { return &apply.Credential{Kind: kind, Secret: secret} }
+	failure := &AnswerError{Class: ClassFailed, Message: "x"}
+	for name, a := range map[string]Answer{
+		"credential on a failure": {Credential: cred(apply.CredToken, "s"), Error: failure},
+		"handle on a failure":     {Handle: sampleHandle, Error: failure},
+		"credential kind":         {OK: true, Credential: cred("key", "s")},
+		"secret with a space":     {OK: true, Credential: cred(apply.CredPassword, "a b")},
+		"secret empty":            {OK: true, Credential: cred(apply.CredPassword, "")},
+		"secret too long":         {OK: true, Credential: cred(apply.CredPassword, strings.Repeat("a", maxSecret+1))},
+		"secret not ascii":        {OK: true, Credential: cred(apply.CredPassword, "é")},
+		"handle":                  {OK: true, Handle: "not a handle"},
+		"note two lines":          {OK: true, Notes: []string{"a\nb"}},
+	} {
+		if _, err := EncodeAnswer(a); err == nil {
+			t.Errorf("%s: encoded", name)
+		}
+	}
+	const secret = "hunter2 with a space"
+	for name, raw := range map[string]string{
+		"issued on a failure":  `{"v":1,"ok":false,"credential":{"kind":"token","secret":"s"},"error":{"class":"failed","message":"x"}}`,
+		"failure no lines":     `{"v":1,"ok":false,"changed":[],"error":{"class":"failed","message":"x"}}`,
+		"issued, an extra key": `{"v":1,"ok":true,"changed":[],"credential":{"kind":"token","secret":"s","x":1}}`,
+		"issued as a string":   `{"v":1,"ok":true,"changed":[],"credential":"s"}`,
+		"issued as a number":   `{"v":1,"ok":true,"changed":[],"credential":{"kind":"token","secret":1}}`,
+		"issued with a space":  `{"v":1,"ok":true,"changed":[],"credential":{"kind":"token","secret":"` + secret + `"}}`,
+		"handle empty":         `{"v":1,"ok":true,"changed":[],"handle":""}`,
+		"handle number":        `{"v":1,"ok":true,"changed":[],"handle":3}`,
+		"notes empty":          `{"v":1,"ok":true,"changed":[],"notes":[]}`,
+		"notes number":         `{"v":1,"ok":true,"changed":[],"notes":[1]}`,
+		"notes object":         `{"v":1,"ok":true,"changed":[],"notes":{}}`,
+	} {
+		_, err := DecodeAnswer([]byte(raw))
+		if err == nil {
+			t.Errorf("%s: accepted", name)
+			continue
+		}
+		if strings.Contains(err.Error(), "hunter2") {
+			t.Errorf("%s: the error quotes the secret: %v", name, err)
+		}
+	}
+}
+
 func TestEncodeAnswerRefusesLineBreakers(t *testing.T) {
 	for _, r := range lineBreakers {
 		for name, a := range map[string]Answer{
@@ -258,7 +340,7 @@ func (errReader) Read([]byte) (int, error) { return 0, errors.New("eio") }
 
 func TestCtlChildUnreadableStdin(t *testing.T) {
 	var stdout, stderr strings.Builder
-	code := Run(Env{Args: []string{"ctl-child"}, Stdin: errReader{}, Stdout: &stdout, Stderr: &stderr, Proc: childProc(), Digest: digest})
+	code := Run(t.Context(), Env{Args: []string{"ctl-child"}, Stdin: errReader{}, Stdout: &stdout, Stderr: &stderr, Proc: childProc(), Digest: digest})
 	if code != term.ExitFailure || !strings.Contains(stdout.String(), "cannot read the request: eio") {
 		t.Fatalf("unreadable stdin: %d %q %q", code, stdout.String(), stderr.String())
 	}
@@ -293,7 +375,7 @@ func TestCtlChildChecksHowItWasStarted(t *testing.T) {
 
 func TestCtlChildUnwritableStdout(t *testing.T) {
 	var stderr strings.Builder
-	code := Run(Env{Args: []string{"ctl-child"}, Stdin: strings.NewReader(goodRequest), Stdout: failWriter{}, Stderr: &stderr, Proc: childProc(), Digest: digest})
+	code := Run(t.Context(), Env{Args: []string{"ctl-child"}, Stdin: strings.NewReader(goodRequest), Stdout: failWriter{}, Stderr: &stderr, Proc: childProc(), Digest: digest})
 	if code != term.ExitFailure || stderr.String() != "teamchat-admin: cannot write the answer: closed\n" {
 		t.Fatalf("unwritable stdout: %d %q", code, stderr.String())
 	}

@@ -7,6 +7,7 @@
 package admin
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"slices"
@@ -25,19 +26,20 @@ const (
 	ExitConfig      term.ExitCode = 78
 )
 
-// Env is one run: the arguments after the program name, the streams, the process, and the
-// source digest baked into the binary.
+// Env is one run: the arguments after the program name, the streams, the process, the
+// source digest baked into the binary, and the seams the verbs reach (nil while unwired).
 type Env struct {
 	Args           []string
 	Stdin          io.Reader
 	Stdout, Stderr io.Writer
 	Proc           Process
 	Digest         string
+	Sys            *System
 }
 
 // Run is `teamchat-admin`: it finds the verb, decides the caller class, refuses the wrong one
 // (CA3), and runs the verb.
-func Run(e Env) term.ExitCode {
+func Run(ctx context.Context, e Env) term.ExitCode {
 	v, rest, ok := lookup(e.Args)
 	if !ok {
 		return usage(e.Stderr)
@@ -52,7 +54,7 @@ func Run(e Env) term.ExitCode {
 	if v.run == nil {
 		return fail(e.Stderr, term.ExitFailure, v.name+" is not built yet")
 	}
-	return v.run(e, rest)
+	return v.run(ctx, e, rest)
 }
 
 // fail says what went wrong on stderr and returns code. A stderr that cannot be written to
@@ -87,7 +89,7 @@ func usage(stderr io.Writer) term.ExitCode {
 }
 
 // version prints the source digest the build carries (CA6).
-func version(e Env, args []string) term.ExitCode {
+func version(_ context.Context, e Env, args []string) term.ExitCode {
 	if len(args) > 0 {
 		return fail(e.Stderr, term.ExitUsage, "version takes no arguments")
 	}
@@ -102,7 +104,7 @@ func version(e Env, args []string) term.ExitCode {
 type verb struct {
 	name  string
 	class Class
-	run   func(e Env, args []string) term.ExitCode
+	run   func(ctx context.Context, e Env, args []string) term.ExitCode
 }
 
 // verbTable is C 3.3's verbs (CA1).
@@ -110,12 +112,13 @@ var verbTable = buildTable()
 
 func buildTable() []verb {
 	var table []verb
+	runs := rootRuns()
 	group := func(class Class, head string, words ...string) {
 		if len(words) == 0 {
-			table = append(table, verb{name: head, class: class})
+			table = append(table, verb{name: head, class: class, run: runs[head]})
 		}
 		for _, w := range words {
-			table = append(table, verb{name: head + " " + w, class: class})
+			table = append(table, verb{name: head + " " + w, class: class, run: runs[head+" "+w]})
 		}
 	}
 	group(ClassRoot, "team", "apply", "approve", "remove")
