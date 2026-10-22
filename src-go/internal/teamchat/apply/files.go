@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
@@ -176,7 +177,7 @@ func (r *reader) object(v proto.Value, path string, required []string, optional 
 	out := map[string]proto.Value{}
 	for _, m := range v.Members() {
 		if !slices.Contains(required, m.Key) && !slices.Contains(optional, m.Key) {
-			r.fail(path+"."+m.Key, "is not a known key")
+			r.fail(path+"."+declare.KeyText(m.Key), "is not a known key")
 		}
 		out[m.Key] = m.Val
 	}

@@ -2,6 +2,8 @@ package declare
 
 import (
 	"strconv"
+	"strings"
+	"unicode"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
@@ -24,9 +26,18 @@ func (n node) fail(problem string) error { return &FieldError{Field: n.path, Pro
 
 func (n node) key(k string) node {
 	if n.path == "" {
-		return node{path: k}
+		return node{path: KeyText(k)}
 	}
-	return node{path: n.path + "." + k}
+	return node{path: n.path + "." + KeyText(k)}
+}
+
+// KeyText is a key as a path names it: as it is when every character prints, else quoted, so
+// a key cannot put a line break or a tab into a refusal (DR2).
+func KeyText(k string) string {
+	if strings.IndexFunc(k, func(r rune) bool { return !unicode.IsPrint(r) }) >= 0 {
+		return strconv.Quote(k)
+	}
+	return k
 }
 
 // fields is an object's members by key, for one object read with its allowed keys.

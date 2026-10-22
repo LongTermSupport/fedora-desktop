@@ -39,6 +39,9 @@ const (
 
 var (
 	decimal = regexp.MustCompile(`^(0|-?[1-9][0-9]*)$`)
+	// templated is a string Ansible renders as a template: an expression, a statement or a
+	// comment opens in it.
+	templated = regexp.MustCompile(`\{[{%#]`)
 	// notAString is every plain scalar YAML 1.1 (as PyYAML, Ansible's parser, resolves it) or
 	// YAML 1.2 (core schema) reads as other than a string: booleans, null, integers, floats,
 	// sexagesimal numbers, timestamps, the merge key and the value key.
@@ -101,11 +104,15 @@ func document(data []byte) (*yaml.Node, error) {
 	return doc.Content[0], nil
 }
 
-// topKey is a top-level key's name. A merge key or an alias key could carry a v2 key that is
-// not written as one, so both are refused wherever they are.
+// topKey is a top-level key's name. A merge key, an alias key or a tagged key (Ansible's YAML
+// loader merges by the key's tag, not its text) could carry a v2 key that is not written as
+// one, so each is refused wherever it is.
 func topKey(key *yaml.Node) (string, error) {
 	if key.Kind != yaml.ScalarNode {
 		return "", fail(theFile, "has a top-level key that is an alias or not a string")
+	}
+	if key.Style&yaml.TaggedStyle != 0 {
+		return "", fail(declare.KeyText(key.Value), "is a tagged key, which is refused at the top level")
 	}
 	if key.Value == mergeKey && key.Style&(yaml.SingleQuotedStyle|yaml.DoubleQuotedStyle) == 0 {
 		return "", fail(mergeKey, "is a merge key, which is refused at the top level")
@@ -155,9 +162,9 @@ func mapping(n *yaml.Node, path string) (proto.Value, error) {
 		if key.Kind != yaml.ScalarNode || key.Anchor != "" || key.Style&yaml.TaggedStyle != 0 {
 			return proto.Value{}, fail(path, "has a key that is not a plain string")
 		}
-		at := key.Value
+		at := declare.KeyText(key.Value)
 		if path != "" {
-			at = path + "." + key.Value
+			at = path + "." + at
 		}
 		if key.Value == mergeKey && key.Style&(yaml.SingleQuotedStyle|yaml.DoubleQuotedStyle) == 0 {
 			return proto.Value{}, fail(at, "is a merge key, which is refused")
@@ -178,6 +185,9 @@ func mapping(n *yaml.Node, path string) (proto.Value, error) {
 // scalar is a quoted or block scalar as a string, a plain one as true, false, a decimal integer
 // or a string, and any other plain scalar refused.
 func scalar(n *yaml.Node, path string) (proto.Value, error) {
+	if templated.MatchString(n.Value) {
+		return proto.Value{}, fail(path, "is templated by Ansible, so the play would not read it as written")
+	}
 	if n.Style&(yaml.SingleQuotedStyle|yaml.DoubleQuotedStyle|yaml.LiteralStyle|yaml.FoldedStyle) != 0 {
 		return proto.Str(n.Value), nil
 	}

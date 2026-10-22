@@ -137,8 +137,24 @@ func TestReadRefusesByName(t *testing.T) {
 		},
 		"top merge key": {"<<: {teamchat_teams: []}\n", "<<", "merge"},
 		"top alias key": {"x: &k teamchat_teams\n*k : []\n", "the file", "alias"},
-		"map key":       {"teamchat_teams:\n  - ? [a]\n    : 1\n", "teamchat_teams[0]", "key"},
-		"unknown key":   {"teamchat_teams:\n  - team: alpha\n    state: absent\n    base_url: x\n", "teamchat_teams[0].base_url", "known"},
+		// PyYAML merges by the key's tag, not its text, so any tagged key is refused.
+		"top tagged merge key": {"!!merge \"<<\": {teamchat_teams: []}\n", "<<", "tag"},
+		"top tagged other key": {"!!merge hidden: {teamchat_teams: []}\n", "hidden", "tag"},
+		"top tag handle key": {
+			"%TAG !m! tag:yaml.org,2002:\n---\n!m!merge hidden: {teamchat_teams: []}\n", "hidden", "tag",
+		},
+		// Ansible templates every string it reads, so the play would not see the text read here.
+		"template": {
+			"teamchat_teams:\n  - team: alpha\n    state: absent\n    name: \"{{ x }}\"\n", "teamchat_teams[0].name", "templat",
+		},
+		"template statement": {
+			"teamchat_teams:\n  - team: alpha\n    state: absent\n    name: a {% if x %}b{% endif %}\n", "teamchat_teams[0].name", "templat",
+		},
+		"template comment": {
+			"teamchat_teams:\n  - team: alpha\n    state: absent\n    name: |\n      a {# x #}\n", "teamchat_teams[0].name", "templat",
+		},
+		"map key":     {"teamchat_teams:\n  - ? [a]\n    : 1\n", "teamchat_teams[0]", "key"},
+		"unknown key": {"teamchat_teams:\n  - team: alpha\n    state: absent\n    base_url: x\n", "teamchat_teams[0].base_url", "known"},
 	}
 	for name, c := range cases {
 		_, err := Read([]byte(c.doc))

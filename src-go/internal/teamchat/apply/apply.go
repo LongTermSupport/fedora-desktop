@@ -152,9 +152,14 @@ func (r *run) admins(ctx context.Context) error {
 	return nil
 }
 
+// load reads the two files. Another operation's pending record is that operation's to finish
+// (C 3.6.3), so it is refused before any change; a `team.apply` one is this verb's own.
 func (r *run) load(context.Context) error {
 	if err := r.files.load(); err != nil {
 		return &Error{Step: StepFiles, Err: err}
+	}
+	if p := r.files.roster.Pending; p != nil && p.Op != OpTeamApply {
+		return refused(StepFiles, fmt.Errorf("operation %s is pending at step %s; it is finished before the team is applied", p.Op, p.Step))
 	}
 	return nil
 }
@@ -230,6 +235,7 @@ func (r *run) human(ctx context.Context, name string, acct *matrix.Account) erro
 		r.note("human " + name + " unlocked")
 	case !known:
 		f.Humans[name] = Human{State: HumanActive, SinceMS: r.now()}
+		r.note("human " + name + " adopted")
 	default:
 		return nil
 	}

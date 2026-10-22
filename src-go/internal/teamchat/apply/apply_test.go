@@ -361,6 +361,52 @@ func TestADeclarationNotApprovedIsRefusedBeforeAnyCall(t *testing.T) {
 	}
 }
 
+// AP5: a team never approved is refused at the gate, naming its creation, before any call.
+func TestATeamNeverApprovedIsRefusedBeforeAnyCall(t *testing.T) {
+	w := newWorld(t)
+	mark := w.mark()
+	_, err := Run(t.Context(), w.deps(), input(t, teamDoc()))
+	e, ok := errors.AsType[*Error](err)
+	if !ok || e.Step != StepGate || !e.Drift || !strings.Contains(err.Error(), "SECURITY\talpha\tteam\t- -> new") || w.mark() != mark {
+		t.Fatalf("err = %v after %d requests", err, w.mark()-mark)
+	}
+}
+
+// Another operation's pending record is its own to finish (C 3.6.3): apply refuses it before
+// any change and leaves the file as it is.
+func TestAnotherOperationPendingIsRefused(t *testing.T) {
+	w := newWorld(t)
+	w.applied(t, teamDoc())
+	s := w.file(t)
+	s.roster.Pending = &Pending{Op: "member.add", Step: "account", SinceMS: 1, Handle: other}
+	if err := s.saveRoster(); err != nil {
+		t.Fatal(err)
+	}
+	before := string(w.file(t).roster.Encode())
+	mark := w.mark()
+	res, err := Run(t.Context(), w.deps(), input(t, teamDoc()))
+	e, ok := errors.AsType[*Error](err)
+	if !ok || e.Step != StepFiles || !e.Drift || !strings.Contains(err.Error(), "member.add") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(res.Changed) != 0 || len(w.writes(mark)) != 0 || string(w.file(t).roster.Encode()) != before {
+		t.Fatalf("changed %v, writes %v", res.Changed, w.writes(mark))
+	}
+}
+
+// n2b-D14: an account apply did not make, declared but not in the file, is adopted with a line.
+func TestAnExistingAccountIsAdoptedWithALine(t *testing.T) {
+	w := newWorld(t)
+	w.srv.AddUser("alice", "pw", false)
+	res := w.applied(t, teamDoc())
+	if !slices.Equal(res.Changed[:2], []string{"human alice adopted", "human bob created"}) {
+		t.Fatalf("changed %v", res.Changed)
+	}
+	if h := w.file(t).roster.Humans["alice"]; h.State != HumanActive {
+		t.Fatalf("alice %+v", h)
+	}
+}
+
 type failing struct{}
 
 func (failing) Load(paths.TeamID) (*declare.Gated, error) { return nil, errors.New("unreadable") }

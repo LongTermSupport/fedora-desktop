@@ -82,6 +82,14 @@ func TestRosterFileRefuses(t *testing.T) {
 	}
 }
 
+func TestRosterFileRefusalQuotesAKey(t *testing.T) {
+	raw := strings.Replace(fullRoster, `"seq":41`, `"seq":41,"x\nCHANGED\tforged":1`, 1)
+	_, err := DecodeRosterFile([]byte(raw), alphaID())
+	if err == nil || strings.ContainsAny(err.Error(), "\n\t") || !strings.Contains(err.Error(), `"x\nCHANGED\tforged"`) {
+		t.Fatalf("a control character in a key: %q", err)
+	}
+}
+
 func TestEmptyRosterFile(t *testing.T) {
 	f := NewRosterFile(alphaID())
 	want := `{"v":1,"team":"alpha","seq":0,"rev":0,"restore_epoch":0,"counters":{},"members":{},"humans":{},` +

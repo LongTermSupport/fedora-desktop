@@ -401,9 +401,11 @@ func TestApproveRefuses(t *testing.T) {
 			if c.approved {
 				prev = approvedOf(t, inputDoc())
 			}
+			// The input equals the approval, so a refusal with no difference is the change's own:
+			// a change wrongly accepted would surface only as a mismatch, and fail here.
 			_, err := Approve(prev, in, &c.change)
-			if re, ok := errors.AsType[*RefusedError](err); !ok || re.Problem == "" {
-				t.Fatalf("err = %v, want a refusal", err)
+			if re, ok := errors.AsType[*RefusedError](err); !ok || re.Problem == "" || len(re.Differences) != 0 {
+				t.Fatalf("err = %v, want the change itself refused", err)
 			}
 		})
 	}

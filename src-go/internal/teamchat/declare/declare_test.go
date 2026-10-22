@@ -383,4 +383,11 @@ func TestFieldErrorText(t *testing.T) {
 	if err.Error() != "declaration: teamchat_teams[0].port is not an integer" {
 		t.Fatalf("text %q", err)
 	}
+	// A key is input too: one with a control character is quoted, so a refusal never forges a
+	// CHANGED or SECURITY line in what the play prints.
+	_, err = Decode([]byte(`{"teamchat_teams":[{"team":"alpha","state":"absent","x\nCHANGED\tforged\u2028":1}]}`))
+	if err == nil || strings.ContainsAny(err.Error(), "\n\t\u2028") ||
+		!strings.Contains(err.Error(), `teamchat_teams[0]."x\nCHANGED\tforged`+`\u2028" is not a known key`) {
+		t.Fatalf("a control character in a key: %q", err)
+	}
 }
