@@ -86,10 +86,13 @@ func (*fakeTeam) Verify(context.Context, string) (records.Verified, error) {
 	return records.Verified{}, errors.New("no verify")
 }
 
-func (*fakeTeam) History(context.Context, string, int) ([]records.History, error) { return nil, nil }
-func (f *fakeTeam) Notices() team.Notices                                       { return f.notices }
-func (*fakeTeam) Wake()                                                          {}
-func (*fakeTeam) FlushFloor(context.Context) error                               { return nil }
+func (*fakeTeam) History(context.Context, string, int) ([]records.History, error) {
+	return nil, nil
+}
+
+func (f *fakeTeam) Notices() team.Notices          { return f.notices }
+func (*fakeTeam) Wake()                            {}
+func (*fakeTeam) FlushFloor(context.Context) error { return nil }
 
 func (f *fakeTeam) didRun() bool {
 	f.mu.Lock()
@@ -105,7 +108,8 @@ type fakeEnds struct {
 }
 
 func (*fakeEnds) Close(context.Context, paths.TeamID, team.Notices, state.StoreRun) error { return nil }
-func (*fakeEnds) Back(context.Context, paths.TeamID, team.Notices, state.StoreRun) error  { return nil }
+
+func (*fakeEnds) Back(context.Context, paths.TeamID, team.Notices, state.StoreRun) error { return nil }
 
 func (e *fakeEnds) End(_ context.Context, how team.End, teams []team.EndTeam) []error {
 	e.mu.Lock()
@@ -232,7 +236,7 @@ func newLinkWorld(t *testing.T) *linkWorld {
 func (w *linkWorld) newTeam(cfg engine.TeamConfig) (team.Team, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	f := &fakeTeam{notices: &fakeNotices{self: agent(cfg.Team, 1)}}
+	f := &fakeTeam{notices: &fakeNotices{self: agent(cfg.Team)}}
 	w.teams[cfg.Team] = f
 	return f, nil
 }
@@ -320,13 +324,13 @@ func (w *linkWorld) seat(id paths.TeamID) (wire.Msg, *os.File) {
 	check(w.t, err)
 	server := paths.ServerName(id)
 	b, err := seat.Bundle{
-		V: 1, Team: id, ServerName: server, UserID: agent(id, 1), AdminID: "@admin:" + server,
+		V: 1, Team: id, ServerName: server, UserID: agent(id), AdminID: "@admin:" + server,
 		MainRoom: mainRoom, BaseURL: "http://127.0.0.1:8448", PlainHTTPHosts: []string{"127.0.0.1"},
 		DeviceID: paths.SeatDevice, IssuedMS: startWall, Issuer: issuer,
 	}.Encode()
 	check(w.t, err)
 	check(w.t, w.root.Create(s.Bundle(), b, 0o600))
-	store, err := json.Marshal(state.NewStore(id, agent(id, 1), state.StoreRun{ID: w.run, StartedMS: startWall}, state.Gate{}))
+	store, err := json.Marshal(state.NewStore(id, agent(id), state.StoreRun{ID: w.run, StartedMS: startWall}, state.Gate{}))
 	check(w.t, err)
 	check(w.t, w.root.Create(s.Store(), store, 0o600))
 	l, err := w.keeper.TakeSeat(w.t.Context(), w.root, s)
@@ -373,10 +377,14 @@ func (w *linkWorld) status() string {
 	return string(data)
 }
 
+// linkLockFree tries link.lock once: on an ended context, a held lock's wait for the next try
+// ends at once.
 func (w *linkWorld) linkLockFree() bool {
 	w.t.Helper()
-	l, err := lock.TakeLink(w.t.Context(), w.clk, w.root, w.layout.Run(w.run))
-	if errors.Is(err, lock.ErrBusy) {
+	ctx, cancel := context.WithCancel(w.t.Context())
+	cancel()
+	l, err := lock.TakeLink(ctx, w.clk, w.root, w.layout.Run(w.run))
+	if errors.Is(err, context.Canceled) {
 		return false
 	}
 	check(w.t, err)
@@ -386,7 +394,7 @@ func (w *linkWorld) linkLockFree() bool {
 
 func TestReadyComesAfterTheSeatsAdds(t *testing.T) {
 	w := newLinkWorld(t)
-	a, b := tid(t, "alpha.example.com"), tid(t, "beta.example.com")
+	a, b := tid(t, "alpha"), tid(t, "beta")
 	w.ready(a, b)
 	if s := w.status(); !strings.Contains(s, a.String()) || !strings.Contains(s, b.String()) {
 		t.Fatalf("status %q", s)
@@ -418,7 +426,7 @@ func TestTheLinkHoldsLinkLock(t *testing.T) {
 
 func TestAFailedAddStillCounts(t *testing.T) {
 	w := newLinkWorld(t)
-	a := tid(t, "alpha.example.com")
+	a := tid(t, "alpha")
 	w.start()
 	w.launch(2)
 	// A descriptor that is not the seat's lock: the adopt fails, and the add counts.
@@ -437,7 +445,7 @@ func TestAFailedAddStillCounts(t *testing.T) {
 
 func TestReadyWaitsTenSecondsForTheAdds(t *testing.T) {
 	w := newLinkWorld(t)
-	a, b := tid(t, "alpha.example.com"), tid(t, "beta.example.com")
+	a, b := tid(t, "alpha"), tid(t, "beta")
 	w.start()
 	w.launch(2)
 	w.add(a)
@@ -526,7 +534,7 @@ func TestAParentThatCannotBeWatchedIs78(t *testing.T) {
 
 func TestEOFIsTheKeeperDying(t *testing.T) {
 	w := newLinkWorld(t)
-	a := tid(t, "alpha.example.com")
+	a := tid(t, "alpha")
 	w.ready(a)
 	check(t, w.conn.Close())
 	if code := w.exited(); code != 0 {
@@ -535,14 +543,14 @@ func TestEOFIsTheKeeperDying(t *testing.T) {
 	if ends := w.ends.endCalls(); len(ends) != 1 || ends[0] != "keeper-died ccy "+a.String() {
 		t.Fatalf("ends %q", ends)
 	}
-	if p := w.team(a).notices.presences(); len(p) != 1 || p[0] != agent(a, 1)+" offline" {
+	if p := w.team(a).notices.presences(); len(p) != 1 || p[0] != agent(a)+" offline" {
 		t.Fatalf("presence %q", p)
 	}
 }
 
 func TestTheParentsExitIsTheKeeperDying(t *testing.T) {
 	w := newLinkWorld(t)
-	a := tid(t, "alpha.example.com")
+	a := tid(t, "alpha")
 	w.ready(a)
 	close(w.parent.exited)
 	if code := w.exited(); code != 0 {
@@ -556,7 +564,7 @@ func TestTheParentsExitIsTheKeeperDying(t *testing.T) {
 func TestRemoveAnswersThenLeaves(t *testing.T) {
 	for _, farewell := range []string{state.FarewellReleased, state.FarewellRemoved, state.FarewellParked, ""} {
 		w := newLinkWorld(t)
-		a := tid(t, "alpha.example.com")
+		a := tid(t, "alpha")
 		w.ready(a)
 		txn := "tc" + strings.Repeat("ab", 16)
 		rm := &wire.Remove{Team: a, Txn: txn}
@@ -564,7 +572,7 @@ func TestRemoveAnswersThenLeaves(t *testing.T) {
 			rm.Farewell = &farewell
 		}
 		w.send(wire.Msg{Kind: wire.KindRemove, Remove: rm}, nil)
-		if r := w.next(wire.KindRemoved); r.Removed.Team != a || r.Removed.UserID != agent(a, 1) {
+		if r := w.next(wire.KindRemoved); r.Removed.Team != a || r.Removed.UserID != agent(a) {
 			t.Fatalf("removed %+v", r.Removed)
 		}
 		if l := w.next(wire.KindLeft); l.Left.Team != a {
@@ -583,14 +591,14 @@ func TestRemoveAnswersThenLeaves(t *testing.T) {
 func TestARemoveOfNoTeamIsLogged(t *testing.T) {
 	w := newLinkWorld(t)
 	w.ready()
-	a := tid(t, "alpha.example.com")
+	a := tid(t, "alpha")
 	w.send(wire.Msg{Kind: wire.KindRemove, Remove: &wire.Remove{Team: a, Txn: "tc" + strings.Repeat("0", 32)}}, nil)
 	until(t, func() bool { return strings.Contains(w.log.String(), "remove "+a.String()) })
 }
 
 func TestOwedLeavesWithoutRunning(t *testing.T) {
 	w := newLinkWorld(t)
-	a := tid(t, "alpha.example.com")
+	a := tid(t, "alpha")
 	w.ready()
 	txn := "tc" + strings.Repeat("cd", 16)
 	w.send(wire.Msg{Kind: wire.KindOwed, Owed: &wire.Owed{Team: a, Txn: txn}}, nil)
@@ -607,10 +615,10 @@ func TestOwedLeavesWithoutRunning(t *testing.T) {
 
 func TestTheSessionMessagesAreKept(t *testing.T) {
 	w := newLinkWorld(t)
-	a := tid(t, "alpha.example.com")
+	a := tid(t, "alpha")
 	w.ready()
-	secret := "sekrit-token-value"
-	w.send(wire.Msg{Kind: wire.KindToken, Token: &wire.Token{Token: secret}}, nil)
+	held := "inbox-" + "value"
+	w.send(wire.Msg{Kind: wire.KindToken, Token: &wire.Token{Token: held}}, nil)
 	w.send(wire.Msg{Kind: wire.KindDesired, Desired: &state.ReportDesired{Generation: 2, State: state.DesiredApplied}}, nil)
 	w.send(wire.Msg{Kind: wire.KindRefused, Refused: &wire.Refused{Team: a, HolderRun: w.run}}, nil)
 	w.send(wire.Msg{Kind: wire.KindReady, Ready: &wire.Ready{}}, nil)
@@ -622,7 +630,7 @@ func TestTheSessionMessagesAreKept(t *testing.T) {
 		t.Fatalf("status %q", s)
 	}
 	l := w.link()
-	if l.heldToken() != secret || strings.Contains(w.log.String(), secret) {
+	if l.heldToken() != held || strings.Contains(w.log.String(), held) {
 		t.Fatalf("token kept %q, log %q", l.heldToken(), w.log.String())
 	}
 }

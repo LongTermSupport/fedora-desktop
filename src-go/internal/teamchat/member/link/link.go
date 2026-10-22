@@ -149,9 +149,7 @@ func (l *link) run(parentCtx context.Context) term.ExitCode {
 	}
 	l.parent = parent
 	defer func() {
-		if err := parent.Close(); err != nil {
-			l.logf("link: close the keeper's pidfd: %v", err)
-		}
+		l.logErr("close the keeper's pidfd", parent.Close())
 	}()
 	ctx, cancel := context.WithCancel(parentCtx)
 	defer cancel()
@@ -169,7 +167,7 @@ func (l *link) run(parentCtx context.Context) term.ExitCode {
 	engDone := make(chan error, 1)
 	go func() { engDone <- l.eng.Run(ctx) }()
 	l.bg.Go(l.reportStates)
-	defer l.teardown(cancel, engDone)
+	defer l.teardown(ctx, cancel, engDone)
 	pending := l.awaitAdds(ctx, hold, launch.Seats)
 	stopHold()
 	ln, err := listen(l.cfg.RunRoot, l.cfg.Layout.Run(l.cfg.Run))
@@ -177,7 +175,7 @@ func (l *link) run(parentCtx context.Context) term.ExitCode {
 		return refuse(l.cfg.Log, "serve link.sock", err)
 	}
 	l.srv = newServer(ln, l.eng, l.cfg.Clock, l.cfg.UID, l.cfg.Kit, l.cfg.Log)
-	go l.srv.run()
+	go l.srv.run(ctx)
 	l.send(wire.Msg{Kind: wire.KindReady, Ready: &wire.Ready{}})
 	if l.cfg.started != nil {
 		l.cfg.started(l)
@@ -433,11 +431,11 @@ func (l *link) finish(ctx context.Context, how string) {
 }
 
 // teardown stops serving, shuts the engine and its teams, and waits for the link's goroutines.
-func (l *link) teardown(cancel context.CancelFunc, engDone <-chan error) {
+func (l *link) teardown(ctx context.Context, cancel context.CancelFunc, engDone <-chan error) {
 	if l.srv != nil {
 		l.logErr("close link.sock", l.srv.close())
 	}
-	l.logErr("shut the engine", l.eng.Shutdown(context.Background()))
+	l.logErr("shut the engine", l.eng.Shutdown(ctx))
 	cancel()
 	l.logErr("the state goroutine", <-engDone)
 	close(l.quit)

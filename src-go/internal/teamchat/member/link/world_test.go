@@ -2,7 +2,6 @@ package link
 
 import (
 	"bytes"
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -31,8 +30,8 @@ func tid(t *testing.T, s string) paths.TeamID {
 	return id
 }
 
-func agent(tm paths.TeamID, n int) string {
-	return fmt.Sprintf("@repo.%d+site.podman:%s", n, paths.ServerName(tm))
+func agent(tm paths.TeamID) string {
+	return "@repo.1+site.podman:" + paths.ServerName(tm)
 }
 
 // until polls cond, yielding between tries, until it holds or the test's time is up.

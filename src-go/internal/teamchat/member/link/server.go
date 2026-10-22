@@ -90,8 +90,8 @@ func newServer(ln *net.UnixListener, eng served, clk clock.Clock, uid int, kit p
 	return &server{ln: ln, eng: eng, clock: clk, uid: uid, kit: kit, log: log, conns: map[*net.UnixConn]bool{}}
 }
 
-// run accepts until the listener closes.
-func (s *server) run() {
+// run accepts until the listener closes; ctx is the engine's, which outlives the server.
+func (s *server) run(ctx context.Context) {
 	for {
 		c, err := s.ln.AcceptUnix()
 		if err != nil {
@@ -106,7 +106,7 @@ func (s *server) run() {
 		}
 		s.wg.Go(func() {
 			defer s.untrack(c)
-			s.handle(c)
+			s.handle(ctx, c)
 		})
 	}
 }
@@ -167,7 +167,7 @@ func (s *server) logf(format string, args ...any) {
 // handle is one connection: another uid's is closed; a line over 64 KiB is 10 size, one that
 // does not decode 10, another kit 78 runtime; one whose deadline has passed is closed unacted;
 // otherwise its records and done, and for a hand-out the wait for its ack.
-func (s *server) handle(c *net.UnixConn) {
+func (s *server) handle(base context.Context, c *net.UnixConn) {
 	if uid, err := peerUID(c); err != nil || uid != s.uid {
 		return
 	}
@@ -196,7 +196,7 @@ func (s *server) handle(c *net.UnixConn) {
 	if left <= 0 {
 		return
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(base)
 	stopDeadline := s.clock.AfterFunc(left, cancel)
 	done := s.eng.Serve(ctx, req, recordWriter{w})
 	stopDeadline()
@@ -208,7 +208,7 @@ func (s *server) handle(c *net.UnixConn) {
 	if sent {
 		failpoint.Hit(failpoint.LinkWhileHanded)
 	}
-	s.settle(c, r, done.Ack, sent)
+	s.settle(base, c, r, done.Ack, sent)
 }
 
 // refuse answers a refused request and reads what the client still sends, within readLimit:
@@ -234,19 +234,19 @@ func (s *server) answer(w *bufio.Writer, done wire.Done) bool {
 
 // settle waits ackWait for the client's {"ack"}: the same ack delivers the items, anything
 // else (another ack, a close, the wait's end, a done that never reached it) returns them.
-func (s *server) settle(c *net.UnixConn, r *bufio.Reader, ack string, sent bool) {
+func (s *server) settle(ctx context.Context, c *net.UnixConn, r *bufio.Reader, ack string, sent bool) {
 	if sent {
 		stop := s.clock.AfterFunc(ackWait, func() { s.closeConn(c) })
 		got, err := readAck(r)
 		stop()
 		if err == nil && got == ack {
-			if err := s.eng.Ack(context.Background(), ack); err != nil {
+			if err := s.eng.Ack(ctx, ack); err != nil {
 				s.logf("link: deliver hand-out %s: %v", ack, err)
 			}
 			return
 		}
 	}
-	if err := s.eng.Return(context.Background(), ack); err != nil {
+	if err := s.eng.Return(ctx, ack); err != nil {
 		s.logf("link: return hand-out %s: %v", ack, err)
 	}
 }
