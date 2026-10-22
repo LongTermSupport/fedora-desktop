@@ -18,6 +18,7 @@ import json
 import pathlib
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 from contextlib import redirect_stderr, redirect_stdout
@@ -50,6 +51,21 @@ DESC_B = "Plan 00201 acceptance team B"
 ADDRESS = "192.0.2.10"
 SID = "0123abcd-4567-89ab-cdef-0123456789ab"
 EV = "$" + "e" * 43
+#: A team's colour span on the status line (a 24-bit foreground escape, then the reset).
+COLOUR, RESET = "\x1b[38;2;232;121;249m", "\x1b[0m"
+
+
+def spans(*pieces: str) -> str:
+    """Team pieces as the drawer joins them: each its own colour span, plain spaces between."""
+    return " ".join(f"{COLOUR}{piece}{RESET}" for piece in pieces)
+
+
+def drawer(letters: dict[str, str], draw: object) -> types.SimpleNamespace:
+    """A stand-in statusline.py: its ROLE_LETTERS and a `_team_piece` drawing (team, member,
+    role) by `draw`."""
+    return types.SimpleNamespace(
+        ROLE_LETTERS=letters, _team_piece=lambda _env, team, found, _unknown: draw(team, *found)
+    )
 
 
 def run(*argv: str, stdin: str = "") -> tuple[int, str, str]:
@@ -417,29 +433,60 @@ class RoutingTest(TempDir):
 class SegmentTest(TempDir):
     """M3: `pingbus status-line` prints the session's own status line, then `👥 TEAMS` on rows of
     its own (wrapped after a comma at COLUMNS, later rows indented under the first), each team
-    with this session's role in it (Plan 00203 Task 3.8); a role that could not be read fails."""
+    `team: member (letter)` in its own colour with this session's role in it (Plan 00203 Task
+    3.8, Plan 00217 C10 and C15); a role or a member that could not be read fails."""
 
     def test_expect_segment_wants_the_inner_line_then_the_teams(self) -> None:
-        shown = self.write("seg", "model \x1b[2m|\x1b[0m dir\n\x1b[36m👥 a (worker), b (coordinator)\x1b[0m\n")
-        wrapped = self.write("wrapped", "model | dir\nmore\n\x1b[36m👥 a (worker),\x1b[0m\n"
-                                        "\x1b[36m   b (worker) (down)\x1b[0m\n")
-        alone = self.write("alone", "\x1b[36m👥 a (worker), b (worker)\x1b[0m\n")
-        old = self.write("old", "model | dir | \x1b[36mbus: a,b\x1b[0m\n")
-        no_role = self.write("no-role", "model | dir\n\x1b[36m👥 a,b\x1b[0m\n")
-        unknown = self.write("unknown", "model | dir\n\x1b[36m👥 a (worker), b (role?)\x1b[0m\n")
-        appended = self.write("appended", "model | dir | \x1b[36m👥 a (worker), b (worker)\x1b[0m\n")
-        unindented = self.write("unindented", "model\n\x1b[36m👥 a (worker),\x1b[0m\nb (worker)\n")
-        broken = self.write("broken", "model\n\x1b[31m👥 no record of this session's teams (pingbus status)\x1b[0m\n")
+        shown = self.write("seg", f"model \x1b[2m|\x1b[0m dir\n👥 {spans('a: repo.1 (w),', 'b: repo.1 (c)')}\n")
+        wrapped = self.write("wrapped", f"model | dir\nmore\n👥 {spans('a: repo.1 (w),')}\n"
+                                        f"   {spans('b: repo.1 (w) (down)')}\n")
+        refused = {
+            "alone": (f"👥 {spans('a: repo.1 (w),', 'b: repo.1 (w)')}\n", "the session's own line is missing"),
+            "old": ("model | dir | \x1b[36mbus: a,b\x1b[0m\n", "the bus: segment"),
+            "pre-00217": ("model\n\x1b[36m👥 a (worker), b (coordinator)\x1b[0m\n", "the `team (role)` form"),
+            "no-role": (f"model | dir\n👥 {spans('a: repo.1,', 'b: repo.1')}\n", "each team shows its role"),
+            "role-unknown": (f"model\n👥 {spans('a: repo.1 (w),', 'b: repo.1 (role?)')}\n", "a role not read"),
+            "member-unknown": (f"model\n👥 {spans('a: member? (w),', 'b: repo.1 (c)')}\n", "a member not read"),
+            "colour-unknown": (f"model\n👥 {spans('a: repo.1 (w) (colour?),', 'b: repo.1 (c)')}\n", "colour?"),
+            "uncoloured": ("model\n👥 a: repo.1 (w), b: repo.1 (c)\n", "each team in its own colour"),
+            "one-span": (f"model\n👥 {COLOUR}a: repo.1 (w), b: repo.1 (c){RESET}\n", "one span for two teams"),
+            "appended": (f"model | dir | 👥 {spans('a: repo.1 (w),', 'b: repo.1 (w)')}\n", "must start a row"),
+            "unindented": (f"model\n👥 {spans('a: repo.1 (w),')}\n{spans('b: repo.1 (w)')}\n", "not indented"),
+            "broken": ("model\n\x1b[31m👥 no record of this session's teams (pingbus status)\x1b[0m\n", "a note"),
+        }
         self.assertEqual(run("expect-segment", shown, "a,b")[0], 0)
         self.assertEqual(run("expect-segment", wrapped, "a,b")[0], 0)
         self.assertEqual(run("expect-segment", shown, "b,a")[0], 1)
-        self.assertEqual(run("expect-segment", alone, "a,b")[0], 1, "the session's own line is missing")
-        self.assertEqual(run("expect-segment", old, "a,b")[0], 1)
-        self.assertEqual(run("expect-segment", no_role, "a,b")[0], 1, "each team shows its role")
-        self.assertEqual(run("expect-segment", unknown, "a,b")[0], 1, "a role that could not be read")
-        self.assertEqual(run("expect-segment", appended, "a,b")[0], 1, "the teams must start a row")
-        self.assertEqual(run("expect-segment", unindented, "a,b")[0], 1)
-        self.assertEqual(run("expect-segment", broken, "a,b")[0], 1)
+        for name, (text, why) in refused.items():
+            with self.subTest(name):
+                self.assertEqual(run("expect-segment", self.write(name, text), "a,b")[0], 1, why)
+
+    def test_the_drawers_golden_two_teams_pass(self) -> None:
+        """The golden the Go drawer and statusline.py are both held to: two teams with roles."""
+        golden = (_repo_root() / "src-go/internal/pingbus/statusline/golden/testdata/golden"
+                  / "bus-two-teams-with-roles/1.stdout").read_text(encoding="utf-8")
+        mc.expect_segment(f"model | dir\n{golden}", "alpha,beta")
+        with self.assertRaises(mc.Failed):
+            mc.expect_segment(golden, "alpha,beta")
+
+    def test_the_piece_is_drawn_by_statusline_py(self) -> None:
+        """The piece's separators and letters are statusline.py's `_team_piece` and ROLE_LETTERS,
+        never a copy: a drawer that changes them is followed; one whose roles differ in shape, or
+        that leaves out a part, fails."""
+        statusline = importlib.import_module("helpers.pingbus.statusline")
+        self.assertEqual(mc.segment_piece(statusline).replace(mc._PIECE_TEAM, "t")
+                         .replace(mc._PIECE_MEMBER, "m").replace(mc._PIECE_LETTER, "x"), "t: m (x)")
+        letters = {"coordinator": "K", "worker": "W"}
+        other = mc.segment_piece_re(drawer(letters, lambda team, member, role: f"{team} @ {member} [{letters[role]}]"))
+        self.assertIsNotNone(other.fullmatch("abc @ repo.1 [K] (down)"))
+        self.assertIsNone(other.fullmatch("abc: repo.1 (c)"))
+        self.assertIsNone(other.fullmatch("abc @ repo.1 [role?]"))
+        shapes = drawer({"coordinator": "c", "worker": "w"},
+                        lambda team, member, role: f"{team}{':' if role == 'worker' else ''} {member} ({role[0]})")
+        with self.assertRaises(mc.Failed):
+            mc.segment_piece(shapes)
+        with self.assertRaises(mc.Failed):
+            mc.segment_piece(drawer({"coordinator": "c"}, lambda team, _member, _role: f"{team} (c)"))
 
     def test_the_session_paths_are_seat_and_membership_s(self) -> None:
         seat = mc._checkout_module("helpers.pingbus.seat")
@@ -457,7 +504,8 @@ class SegmentTest(TempDir):
         this checkout's, and a changed one followed rather than failed."""
         self.assertEqual(mc.segment_label(), ("👥 ", "   "))
         self.assertEqual(mc.segment_label('const (\n\tlabel       = "T"\n\tother = "x"\n)\n'), ("T ", "  "))
-        mc.expect_segment("model\nT a (worker),\n  b (worker)\n", "a,b", label=("T ", "  "))
+        mc.expect_segment(f"model\nT {spans('a: repo.1 (w),')}\n  {spans('b: repo.1 (c)')}\n", "a,b",
+                          label=("T ", "  "))
         with self.assertRaises(mc.Failed):
             mc.segment_label('const (\n\tnolabel = "T"\n)\n')
         with self.assertRaises(mc.Failed):

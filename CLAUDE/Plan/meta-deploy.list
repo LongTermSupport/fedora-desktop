@@ -102,7 +102,9 @@ playbooks/imports/play-agent-bus.yml
 # (the session's status line) changed since it last passed, and Plan 00213's cut-over made
 # that status line the Go one. The last run stopped at M3 because the checker still expected
 # the Python `exec pingbus status-line`; it now expects exactly what this checkout's seat.py
-# writes for a seated session, whose guard runs the kit's pingbus-status-line. acceptance.bash only: it makes two throwaway teams declared
+# writes for a seated session, whose guard runs the kit's pingbus-status-line, and the teams
+# drawn as Plan 00217 draws them (`accept201a: <member> (c), ...`, each team in its own colour),
+# the form read from this checkout's statusline.py. acceptance.bash only: it makes two throwaway teams declared
 # in a run-directory host_vars (your host_vars and teams are never touched), runs one headless
 # ccy session on both and a plain one (each one short turn on haiku), checks descriptions,
 # launch block, per-session record, status line, `say` and SessionEnd, then purges both teams

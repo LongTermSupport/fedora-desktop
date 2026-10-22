@@ -653,7 +653,9 @@ m7_check_record() {
 
 # M3 — the session's own settings (Plan 00203 H34, written by `pingbus seat exec`) make the
 # shell guard its status line, which runs `pingbus status-line` while a seat is held: this
-# checkout's own status line, then `👥 A (role), B (role)` on rows of its own. The leg runs the command claude was launched
+# checkout's own status line, then `👥 A: member (c), B: member (w)` on rows of its own, each
+# team in its own colour (Plan 00217; m7_check reads the form from statusline.py and keeps the
+# colour escapes, as podman exec without a terminal passes them). The leg runs the command claude was launched
 # with, in claude's own environment read from /proc (m7_check session-status-line), because
 # a bare `podman exec` lacks what `seat exec` gave claude (PINGBUS_HOME): run from there,
 # `pingbus status-line` reports the membership unreadable, which no session ever shows.
@@ -670,7 +672,7 @@ m7_check_segment() {
     fi
     m7_show status-line
     "${CHECK[@]}" expect-segment "$(m7_ev multi/status-line.out)" "${TEAM_A},${TEAM_B}" || return 1
-    evidence "M3 the session's settings make the guarded pingbus status-line its status line (multi/session-settings.out), and run as claude runs it, it prints this checkout's own status line then 👥 ${TEAM_A} and ${TEAM_B}, each with its role, below it for ${SESSION_ID}: multi/status-line.out"
+    evidence "M3 the session's settings make the guarded pingbus status-line its status line (multi/session-settings.out), and run as claude runs it, it prints this checkout's own status line then 👥 ${TEAM_A} and ${TEAM_B}, each with this member and its role in its own colour, below it for ${SESSION_ID}: multi/status-line.out"
 }
 
 # R1 — `say --to` a seat on team A only, no --team: the team is inferred and the SENT line names A.

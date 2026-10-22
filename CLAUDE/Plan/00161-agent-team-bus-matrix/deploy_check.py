@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Plan 00161 unit U16: is the bus address free for agentbus0? (deploy.bash's first leg)
+"""Plan 00161 unit U16: is the bus address free for the bus interface? (deploy.bash's first leg)
 
   syntax ADDRESS   exit 64 unless ADDRESS is a concrete, canonical IP literal: the rule
                    agent-bus-install applies to --bus-address (no wildcard, loopback,
                    link-local or multicast address). Runs nothing.
   free ADDRESS     exit 1, naming each, when ADDRESS is already assigned to an interface
-                   other than agentbus0, or when a route other than a default route covers
-                   it in any routing table; exit 0 when it is free. agentbus0's own address
-                   and routes are a previous run's, not a conflict. The interface's name
-                   is read from this checkout's agent-bus-install (exit 2 if it cannot be).
+                   other than the bus interface, or when a route other than a default route
+                   covers it in any routing table; exit 0 when it is free. The bus
+                   interface's own address and routes are a previous run's, not a conflict.
+                   The interface's name is agent-bus-install's BUS_IFACE, read from this
+                   checkout (exit 2 if it cannot be).
 
 `ip -j route get` names the device the kernel would use, not the route it matched, so it
 cannot tell a default route from a narrower one through the same gateway; the covering
@@ -83,7 +84,8 @@ def _describe_route(route: dict[str, Any]) -> str:
 
 
 def conflicts(address: str, links: list[dict[str, Any]], routes: list[dict[str, Any]]) -> list[str]:
-    """Why ADDRESS cannot be agentbus0's, from `ip -j addr` and the covering routes."""
+    """Why ADDRESS cannot be the bus interface's (bus_iface, agent-bus-install's BUS_IFACE),
+    from `ip -j addr` and the covering routes."""
     reasons, iface = [], bus_iface()
     holders = sorted({
         link.get("ifname", "?")

@@ -77,7 +77,6 @@ _GITHUB_RE = re.compile(
     r"(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)"
     r"(?P<owner>[A-Za-z0-9-]+)/[A-Za-z0-9._-]+?(?:\.git)?/?"
 )
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 #: The Go `pingbus-status-line` that draws the segment, in this checkout; its `label` constant
 #: is read from the source, not copied (expect-segment runs on the host).
 STATUS_LINE_GO = pathlib.PurePosixPath("src-go/internal/pingbus/statusline/statusline.go")
@@ -87,8 +86,12 @@ _GO_LABEL_RE = re.compile(r'^\s*label\s*=\s*"([^"\\]+)"\s*$', re.MULTILINE)
 BOARD_TABLE_GO = pathlib.PurePosixPath("src-go/internal/teams/board/table.go")
 _GO_HEADINGS_RE = re.compile(r"^var headings = \[columns\]string\{([^}]*)\}\s*$", re.MULTILINE)
 _GO_KIND_TEAM_RE = re.compile(r'^\s*KindTeam\s+Kind\s*=\s*"([^"\\]+)"\s*$', re.MULTILINE)
-#: One team of the segment: its name, the role it was read to have, then its marks.
-_SEGMENT_TEAM_RE = re.compile(r"(?P<team>[a-z][a-z0-9-]*) \((?:worker|coordinator)\)(?: \([a-z]+\))*")
+#: Stand-ins for the team and the member when segment_piece_re has statusline.py draw a piece:
+#: control characters, which no team name, handle or fixed text of the piece holds.
+_PIECE_TEAM, _PIECE_MEMBER, _PIECE_LETTER = "\x00\x01\x00", "\x00\x02\x00", "\x00\x03\x00"
+#: A mark after a team's role, such as `(down)`; a mark of something unreadable (`(colour?)`)
+#: has a `?` and is not one of these.
+_SEGMENT_MARKS = r"(?: \([a-z]+\))*"
 #: pingbus cli.py, word for word: the refusal when several teams are active and none is inferred.
 CHOICES_TEXT = "several teams are active and --to/--re fit more than one (or none): name one with --team:"
 
@@ -625,25 +628,102 @@ def segment_label(source: str | None = None) -> tuple[str, str]:
     return head, " " * _checkout_module("helpers.pingbus.statusline").display_width(head)
 
 
+def _statusline() -> object:
+    return _checkout_module("helpers.pingbus.statusline")
+
+
+def segment_piece(statusline: object | None = None) -> str:
+    """How the status line draws one team, with stand-ins for the team, the member and the role's
+    letter: this checkout's helpers/pingbus/statusline.py `_team_piece` (Plan 00217 C15; the Go
+    drawer's teamsText is its port, both held to the same goldens), drawn once for each role in
+    its ROLE_LETTERS. The separators are the product's; a drawer whose pieces differ by more than
+    the letter, or that does not show each stand-in once, fails rather than guess."""
+    statusline = _statusline() if statusline is None else statusline
+    shapes = set()
+    for role, letter in statusline.ROLE_LETTERS.items():
+        piece = statusline._team_piece({}, _PIECE_TEAM, (_PIECE_MEMBER, role), False)
+        if any(piece.count(part) != 1 for part in (_PIECE_TEAM, _PIECE_MEMBER, letter)):
+            raise Failed(f"statusline.py drew {piece!r} for role {role!r}: want the team, the member "
+                         f"and the letter {letter!r} once each")
+        shapes.add(piece.replace(letter, _PIECE_LETTER))
+    if len(shapes) != 1:
+        raise Failed(f"statusline.py draws its roles in different shapes: {sorted(shapes)!r}")
+    return shapes.pop()
+
+
+def segment_piece_re(statusline: object | None = None) -> re.Pattern[str]:
+    """One team of the segment: segment_piece with the team a team name (protocol.py's
+    TEAM_NAME_PATTERN), the member one word and the letter of a role that was read (one of
+    ROLE_LETTERS, never ROLE_UNKNOWN), then any marks such as `(down)`."""
+    statusline = _statusline() if statusline is None else statusline
+    letters = "|".join(re.escape(letter) for letter in statusline.ROLE_LETTERS.values())
+    groups = {
+        _PIECE_TEAM: f"(?P<team>{_checkout_module('helpers.pingbus.protocol').TEAM_NAME_PATTERN})",
+        _PIECE_MEMBER: r"(?P<member>[^\s,()]+)",
+        _PIECE_LETTER: f"(?:{letters})",
+    }
+    parts = re.split(f"({'|'.join(map(re.escape, groups))})", segment_piece(statusline))
+    return re.compile("".join(groups.get(part, re.escape(part)) for part in parts) + _SEGMENT_MARKS)
+
+
+def _coloured_spans(row: str, statusline: object) -> list[str] | None:
+    """C10: what follows a row's plain lead is spans joined by plain spaces, each a colour (an
+    escape that is not the reset), its text, the reset. The spans' texts, or None."""
+    reset = statusline.RESET
+    if not row.endswith(reset):
+        return None
+    texts = []
+    for span in row.removesuffix(reset).split(f"{reset} "):
+        colour = statusline.ANSI_ESCAPE_RE.match(span)
+        if colour is None or colour[0] == reset or statusline.ANSI_ESCAPE_RE.search(span, colour.end()):
+            return None
+        texts.append(span[colour.end():])
+    return texts
+
+
+def _segment_teams(raw_rows: list[str], leads: list[str], piece_re: re.Pattern[str],
+                   statusline: object) -> str | None:
+    """The team names the segment's rows show, comma-separated, if every row is its lead then
+    spans of one team piece each, every piece but the last ending in a comma, each a team whose
+    role and member were read; else None."""
+    texts: list[str] = []
+    for row, lead in zip(raw_rows, leads, strict=True):
+        found = _coloured_spans(row.removeprefix(lead), statusline) if row.startswith(lead) else None
+        if found is None:
+            return None
+        texts.extend(found)
+    if not all(text.endswith(",") for text in texts[:-1]):
+        return None
+    pieces = [piece_re.fullmatch(text.removesuffix(",")) for text in texts[:-1]] + [piece_re.fullmatch(texts[-1])]
+    if not all(pieces) or any(match["member"] == statusline.MEMBER_UNKNOWN for match in pieces):
+        return None
+    return ",".join(match["team"] for match in pieces)
+
+
 def expect_segment(text: str, teams: str, label: tuple[str, str] | None = None) -> None:
     """`pingbus status-line` prints the session's own status line, then `👥 TEAMS` on rows of its
     own: the first row starts with the label, later rows are indented under it (it wraps after a
-    comma at COLUMNS). Each team is `team (role)`, then any marks such as `(down)`, its role one
-    that was read (Plan 00203 Task 3.8); TEAMS is the team names alone, comma-separated. `label`
-    is (head, indent), default segment_label()."""
+    comma at COLUMNS). Each team is drawn as segment_piece_re: `team: member (letter)`, then any
+    marks, its role one that was read (Plan 00203 Task 3.8) and its member one that was read
+    (Plan 00217 C16), each team in its own colour span (C10). TEAMS is the team names alone,
+    comma-separated. `label` is (head, indent), default segment_label()."""
     head, indent = segment_label() if label is None else label
-    lines = _ANSI_RE.sub("", text).strip("\n").splitlines()
+    statusline = _statusline()
+    piece_re = segment_piece_re(statusline)
+    raw = text.strip("\n").splitlines()
+    lines = [statusline.ANSI_ESCAPE_RE.sub("", line) for line in raw]
     starts = [index for index, line in enumerate(lines) if line.startswith(head)]
     first = starts[-1] if starts else len(lines)
-    inner, rows = lines[:first], lines[first:]
-    shown = None
-    if rows and all(row.startswith(indent) and row.strip() for row in rows[1:]):
-        joined = " ".join([rows[0].removeprefix(head), *(row.removeprefix(indent) for row in rows[1:])])
-        pieces = [_SEGMENT_TEAM_RE.fullmatch(piece.strip()) for piece in joined.split(",")]
-        shown = ",".join(match["team"] for match in pieces if match) if all(pieces) else None
+    inner = lines[:first]
+    leads = [head, *(indent for _ in raw[first + 1:])]
+    shown = _segment_teams(raw[first:], leads, piece_re, statusline) if first < len(raw) else None
     if not any(line.strip() for line in inner) or shown != teams:
-        raise Failed(f"the status line is {lines!r}, want the session's own line then {head}"
-                     f"{', '.join(f'{team} (worker|coordinator)' for team in teams.split(','))}")
+        letters = "|".join(statusline.ROLE_LETTERS.values())
+        want = ", ".join(segment_piece(statusline).replace(_PIECE_TEAM, team)
+                         .replace(_PIECE_MEMBER, "<member>").replace(_PIECE_LETTER, letters)
+                         for team in teams.split(","))
+        raise Failed(f"the status line is {raw!r}, want the session's own line then {head}{want}, "
+                     "each team in its own colour")
 
 
 def expect_plain(labels: object, env: object) -> None:

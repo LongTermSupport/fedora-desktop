@@ -288,7 +288,10 @@ a repository is no longer offered for a checkout of it. Report:
   a plan script): `subagent-reports/261022-m3-referred-fixes.md`. That includes the drifted
   Tuwunel pin in Plan 00161's `triage_probe.py` (v1.9.3, now read from `tuwunel.pin`, v1.9.4).
   REFERRED TO THE OWNER: the 16 copies of inline message or command text (A4, A5, B2-B15; B9's
-  `DISCONNECT_TEXT` is fixed). The product holds each as text inside a call, not as a named
+  `DISCONNECT_TEXT` is fixed), and one added after that sweep: Plan 00211's
+  `_acceptance-stage2.inc.bash` fake A3 seat greps for `a host member must not run as a user with an Element profile`, inline in helpers/pingbus/config.py's `ConfigError` and roles.go's
+  refusal. M3's teams segment is read from statusline.py (`_team_piece`, `ROLE_LETTERS`) since
+  Plan 00217 changed it. The product holds each as text inside a call, not as a named
   value, so the checker can read it only once the product names it. That changes deployed code
   in pingbus, Go tools, run.bash and the speech-to-text extension, with their version bumps and
   host deploys, which is a product decision, not a checker fix. Report:
