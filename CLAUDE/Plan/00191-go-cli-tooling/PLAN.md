@@ -519,6 +519,18 @@ today; rewriting them is out of scope.
       `test-ccy-info-flags.bash` now runs every case against the bash and the built front, and
       the legacy and missing-launcher cases (90 of 90). `--help` byte for byte: the help
       scenarios with and without an image.
+    - Review (`subagent-reports/261022-launcher-phase2-review-opus.md`, FIX-FIRST) fixed,
+      CCY 3.99.14.2, container 2.78.14: the tmux insulation recorded `$0`, which behind the
+      front is `claude-yolo.bash`, as the session's `launcher=`, so restores and team restarts
+      would skip the front; it and both custom-Dockerfile modes now name
+      `$SCRIPT_DIR/claude-yolo`, as the restart relaunch did (`test-ccy-token-handoff.bash`
+      runs the launcher's own lines from a file named `claude-yolo.bash`: red 2, green 103).
+      Plan scripts of 00092, 00161, 00169 and 00203 that read the deployed launcher as text
+      read `claude-yolo` while it is a script, else `claude-yolo.bash`. `docs/ccy.md` gives the
+      way past a front that will not start; `ContainerRules.md` states the gate's blind spot;
+      the in-image guide names both files; the meta-deploy rollback note says what the
+      leftover `claude-yolo.bash` does. Left: the `system_paths` hook still maps the deployed
+      `claude-yolo` to the bash source.
 
 ### Phase 5: Review
 
