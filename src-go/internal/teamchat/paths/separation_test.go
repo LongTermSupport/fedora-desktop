@@ -123,7 +123,7 @@ var sampleTeams = []string{"x", "ops", strings.Repeat("z", 22)}
 func sampleNames(t *testing.T) map[string][]string {
 	t.Helper()
 	names := constNames()
-	for _, add := range []map[string][]string{idNames(t), baseNames(t), layoutNames(t), teamNames(t), hostNames(t), memberNames(t)} {
+	for _, add := range []map[string][]string{idNames(t), baseNames(t), layoutNames(t), teamNames(t), hostNames(t), memberNames(t), lxcNames(t)} {
 		for ident, values := range add {
 			names[ident] = append(names[ident], values...)
 		}
@@ -470,8 +470,9 @@ func TestPrefixCheckDiscriminates(t *testing.T) {
 // notDerived are the exported names D 3.1's derivation rule does not cover: a key inside a
 // teamchat_teams entry, the XDG state home the seat store sits under, and the seat's Matrix
 // device id (C 3.7.2), which is no path, and Claude Code's inbox socket, which is Claude Code's
-// name (B 2.7.1).
-var notDerived = []string{"TeamPortField", "StateHome", "SeatDevice", "InboxSocket"}
+// name (B 2.7.1), and an LXC guest's seat-store session name, lxc-<user> (C 3.7.5), which is
+// no path either.
+var notDerived = []string{"TeamPortField", "StateHome", "SeatDevice", "InboxSocket", "LXCSession"}
 
 // D 3.1: every v2 name is formed from the product name.
 func TestEveryNameIsDerivedFromTheProduct(t *testing.T) {
