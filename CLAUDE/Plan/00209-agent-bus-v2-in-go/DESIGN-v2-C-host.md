@@ -1187,8 +1187,8 @@ bytes, mode 0600 (S19). Its one other copy is in the pool's `held/`, for the rel
 - For an LXC member, placement is the same code inside the guest: `teamchat guest place-bundle` run as the
   agent user, reading the same JSON on stdin, placed by 3.9.2 step 07's rule (an existing seat
   directory keeps `store.json` and `seat.lock`; `token` then `seat.json` are replaced inside it).
-  The held-seat refusal above is for pool seats; `lxc apply` reissues a guest's seat only when the guest's bundle is missing or its token
-  refused, so no keeper is running on it.
+  The held-seat refusal above is for pool seats; `lxc apply` reissues a guest's seat only when
+  the guest's bundle is missing or its token refused, so no keeper is running on it.
 
 **Taking a seat for a session** (ccy-teams or the launcher, as the owner, under the checkout's
 allocation lock):
