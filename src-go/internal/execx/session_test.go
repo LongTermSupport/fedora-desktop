@@ -48,11 +48,32 @@ func pidFrom(t *testing.T, path string) int {
 	return 0
 }
 
+// processGone is a read of /proc/<pid> that failed because the process has been reaped: the
+// directory is gone (ENOENT), or it went between the open and the read (ESRCH).
+func processGone(err error) bool {
+	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ESRCH)
+}
+
+// A process reaped while its stat file was being read ends the wait; it is not an error.
+func TestProcessGoneCountsAProcessReapedMidRead(t *testing.T) {
+	for _, err := range []error{
+		&fs.PathError{Op: "open", Path: "1/stat", Err: syscall.ENOENT},
+		&fs.PathError{Op: "read", Path: "1/stat", Err: syscall.ESRCH},
+	} {
+		if !processGone(err) {
+			t.Errorf("processGone(%v) = false", err)
+		}
+	}
+	if processGone(&fs.PathError{Op: "read", Path: "1/stat", Err: syscall.EACCES}) {
+		t.Error("a refused read was taken for a process that ended")
+	}
+}
+
 // living is whether pid is a process that has not ended (a zombie has ended).
 func living(t *testing.T, pid int) bool {
 	t.Helper()
 	raw, err := fs.ReadFile(os.DirFS("/proc"), strconv.Itoa(pid)+"/stat")
-	if errors.Is(err, fs.ErrNotExist) {
+	if processGone(err) {
 		return false
 	}
 	if err != nil {
