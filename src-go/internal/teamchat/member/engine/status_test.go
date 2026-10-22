@@ -149,6 +149,28 @@ func TestStatusJSONNamesTheMemberAndTheColour(t *testing.T) {
 	}
 }
 
+// OF1: a stopped team is shown beside a running one, each with its member name and colour, so
+// the status line draws both.
+func TestAStoppedTeamIsDrawnBesideARunningOne(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops, dev := tid(t, "ops"), tid(t, "dev")
+	w.held(ops)
+	w.held(dev)
+	w.e.SetHealth(dev, team.Health{Down: true, Stopped: exits.CodeToken})
+	st := w.status()
+	if len(st.Teams) != 2 {
+		t.Fatalf("status.json = %+v", st)
+	}
+	for _, row := range st.Teams {
+		if row.Member == nil || row.Colour != colour.Auto(row.Team.String()) {
+			t.Errorf("row %+v", row)
+		}
+	}
+	if stopped := st.Teams[0]; stopped.Team != dev || !stopped.Down || stopped.Failed == nil || st.Teams[1].Down {
+		t.Fatalf("rows %+v", st.Teams)
+	}
+}
+
 // B27: the admin's override, held in Health, is the colour status.json carries.
 func TestStatusJSONCarriesTheColourOverride(t *testing.T) {
 	w := newWorld(t, state.DeliverySocket)
