@@ -111,8 +111,10 @@ Read-only, as the admin, from the roster file and `rooms.json`:
 - **VW4. Drift.** The rooms engine run against a client that writes nothing: every write it
   would make is one problem (fix `ccy-teams apply <team>`), and drift it refuses is one problem
   naming its room and step.
-- **VW5. Questions.** No worker joined or invited, the open coordinator joined, and the form
-  (open or closed) the roster gives: each its own problem.
+- **VW5. Questions.** No worker joined or invited, the open coordinator joined or invited, and
+  the form (open or closed) the roster gives: each its own problem. A coordinator still only
+  invited is one whose session has not run since its promotion: it is offline, shown by its
+  `invite` membership, and is no problem (DESIGN-v2-FRAME.md, offline members never block).
 - **VW6. Pending.** A `pending` operation is the problem "<op> did not finish (step <step>)",
   fix: the verb that rolls it forward. The view never completes it.
 

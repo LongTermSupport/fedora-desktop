@@ -416,6 +416,26 @@ func TestTheCoordinatorNotJoinedIsAProblem(t *testing.T) {
 	}
 }
 
+// VW5 and the offline rule (FRAME): a coordinator invited to questions whose session has not run
+// since is offline, shown by its membership, and is no problem.
+func TestAnOfflineCoordinatorInvitedIsNoProblem(t *testing.T) {
+	w := newWorld(t)
+	if err := w.seat(t, coord).Leave(t.Context(), w.rooms.Questions); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.admin.Invite(t.Context(), w.rooms.Questions, user(coord)); err != nil {
+		t.Fatal(err)
+	}
+	v := w.read(t)
+	if got := whats(v.Problems); len(got) != 0 {
+		t.Fatalf("problems %v", got)
+	}
+	i := slices.IndexFunc(v.Members, func(m status.Member) bool { return m.Handle == coord })
+	if i < 0 || v.Members[i].Rooms[proto.PurposeQuestions] != "invite" {
+		t.Fatalf("members %+v", v.Members)
+	}
+}
+
 // VW5: the questions room's form is not the roster's.
 func TestTheQuestionsRoomsFormIsChecked(t *testing.T) {
 	w := newWorld(t)

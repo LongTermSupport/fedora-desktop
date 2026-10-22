@@ -372,7 +372,9 @@ func (r *reader) questions(ctx context.Context) error {
 	f := r.in.Roster
 	c, ok := f.Members[f.Coordinator]
 	open := ok && c.State == apply.MemberActive
-	if open && r.roomsOf(f.Coordinator)[proto.PurposeQuestions] != joined {
+	// An invite not yet accepted is a coordinator offline since it was promoted: shown by its
+	// membership, never a problem (FRAME, offline members never block).
+	if s := r.roomsOf(f.Coordinator)[proto.PurposeQuestions]; open && s != joined && s != invited {
 		r.problem("the coordinator "+f.Coordinator+" has not joined the questions room", "ccy-teams restart "+f.Coordinator)
 	}
 	if r.roster == nil {
