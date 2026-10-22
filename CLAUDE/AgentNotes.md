@@ -122,6 +122,10 @@ entry below), is, at every commit, exactly what needs running **now**:
   [R8](PlanScriptStandards.md#r8--no-blanket-confirmation-prompt-running-the-script-is-the-consent)).
 - **Order by dependency:** deploys that others build on come first, and read-only triage
   that judges what the deploys left behind comes last.
+- **Stale plays are one `changed-plays` entry, not a hand-copied list.** It runs
+  `run.bash --changed --yes` at its place in the list, so put it above the plan entries that
+  expect those plays to have run. A `playbooks/` entry is for a play that must run at one
+  fixed point between two plan steps. The ordering rule is in `meta-deploy.list`'s header.
 
 Only what meta cannot do goes to the owner as a separate request: a reboot, a login, a
 look at the screen, a decision, or a different machine.
@@ -1036,12 +1040,15 @@ string, `CCY_SKIP_NETWORK_PREFLIGHT`) over a line number. Launcher line numbers 
 repo have gone stale within the hour of being verified, and a stale number that lands on
 plausible neighbouring code is worse than no citation at all.
 
-### `lxc-attach` chowns the file its stderr points at
+### `lxc-attach` chowns any file its stdout or stderr points at
 
 A probe such as `sudo lxc-attach -n NAME -- cmd | cat` with stderr left on the harness's
 capture file hands that file to root: the harness then cannot read its own output back
-and reports it as missing. Three triage probes were lost to this in Plan 00122 before
-the cause was seen. Every `lxc-attach` in a script or a probe goes through `2>&1 | cat`
+and reports it as missing. A plain `> file` redirect is no exception: a file made by the
+desktop user, mode 0600, is root-owned after
+`sudo -n lxc-attach -n NAME -- /bin/true > file`, so redirecting and then reading it back
+locks its author out. Three triage probes were lost to this in Plan 00122 before the cause
+was seen. Every `lxc-attach` in a script or a probe goes through `2>&1 | cat`
 or a `{ ...; } 2>&1 | cat` group, so both streams are a pipe. In Go (`lxcfreeze`'s DHCP
 renewal) the call goes through `sudo.Capture`, which hands the runner no writers, so both
 streams are captured pipes; never pass `os.Stderr` to it.

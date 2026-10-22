@@ -17,10 +17,10 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.14.15 — container 2.78.18
+## 3.99.15.5 — container 2.78.18
 
-Follows 3.99.14.12 (3.99.14.13 and .14, containers 2.78.16 and 2.78.17, were this branch's
-earlier cuts, never released). The image changes, so the next launch rebuilds it once.
+Follows 3.99.15.4 (3.99.14.13 to 3.99.14.15, containers 2.78.16 to 2.78.18, were this
+branch's earlier cuts, never released). The image changes, so the next launch rebuilds it once.
 
 - **The image's declare.py recognises an LXC member declared already** (Plan 00201). `lxc-add`
   of a member the host_vars declare as given answers UNCHANGED instead of refusing it as a
@@ -36,6 +36,26 @@ earlier cuts, never released). The image changes, so the next launch rebuilds it
   reads `repos`); a value another answer could pass is 64 and asked again. `add-repo` of a repository the team already trusts is
   UNCHANGED (exit 0), not 64. `create`'s "team X is already declared" names
   `ccy-teams apply X` as the way on.
+
+## 3.99.15.4 — container 2.78.15
+
+Follows 3.99.14.12 (3.99.15.0 to 3.99.15.3 were never released on their own). The image is
+unchanged from 2.78.15, so there is no further rebuild.
+
+- **One image build at a time** (Plan 00216). Two sessions started together each rebuilt the
+  image. Every build and in-place Claude Code update, the launcher's and the play's, now holds
+  the image's build lock (a kernel `flock` on
+  `$XDG_RUNTIME_DIR/ccy/image-builds/<image>.lock`, one per image; `claude-yolo:latest`'s covers
+  `:base`). A launch that finds a build running waits for it, saying every 30 s on stderr whose
+  build it is, how long it has run and how to stop it, and then checks again and uses that
+  build instead of making its own. It waits as long as the build takes. The lock cannot go
+  stale: the kernel lets it go when its holder exits or dies, and a child the build leaves
+  behind does not hold it. An explicit `--rebuild=full` still builds after waiting; an in-place
+  update is skipped when another launch updated the image meanwhile.
+- **`ccy --build-lock`** (the Go front) shows the builds in progress and stops a hung one after
+  a `[y/N]`: SIGTERM to its launch and everything it started, SIGKILL if it is still holding the
+  lock 10 s later. A record whose process has gone is said to be stale and ignored; nothing
+  ever needs deleting by hand.
 
 ## 3.99.14.12 — container 2.78.15
 

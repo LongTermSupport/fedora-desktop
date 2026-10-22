@@ -422,6 +422,60 @@ class TestTheFreshnessSeamKeepsItsChannelsApart(unittest.TestCase):
         )
         self.assertEqual(judged, [verdict])
 
+    def test_the_coverage_sentence_reaches_the_callers_sink(self) -> None:
+        """The section states what it judged and what it left out (Plan 00214, Task
+        1.3), from the same run whose findings it shows."""
+
+        def run(*, stdout, stderr, coverage, **_arguments) -> int:
+            coverage.append("3 plays run here under playbooks/imports/")
+            return check_freshness.EXIT_OK
+
+        coverage: list[str] = []
+        login_report.freshness_findings(
+            "/state/base", "/repo", stderr=io.StringIO(), run=run, coverage=coverage
+        )
+        self.assertEqual(coverage, ["3 plays run here under playbooks/imports/"])
+
+    def test_the_coverage_sentence_is_stated_under_the_sections_id(self) -> None:
+        """What `main` hands the status document: the sentence under `play-freshness`."""
+
+        def run(*, stdout, stderr, coverage, **_arguments) -> int:
+            coverage.append("3 plays run here under playbooks/imports/")
+            return check_freshness.EXIT_OK
+
+        stated: dict[str, str] = {}
+        login_report.freshness_section(
+            "/state/base", "/repo", stderr=io.StringIO(), judged=[], stated_coverage=stated,
+            run=run,
+        )
+        self.assertEqual(stated, {login_report.FRESHNESS: "3 plays run here under playbooks/imports/"})
+
+    def test_a_run_that_could_not_judge_states_no_coverage(self) -> None:
+        stated: dict[str, str] = {}
+        login_report.freshness_section(
+            "/state/base", "/repo", stderr=io.StringIO(), judged=[], stated_coverage=stated,
+            run=self._fake(check_freshness.EXIT_UNTRUSTWORTHY, "", "play-freshness: no\n"),
+        )
+        self.assertEqual(stated, {})
+
+    def test_a_stale_play_and_its_changed_paths_are_one_finding(self) -> None:
+        findings, _ = self._findings(
+            check_freshness.EXIT_FINDINGS,
+            out=(
+                "playbooks/imports/play-a.yml — changed since it was run here\n"
+                "    changed: files/a.conf, files/b.conf\n"
+                "    it last ran from a checkout with uncommitted changes\n"
+            ),
+        )
+        self.assertEqual(
+            [f.text for f in findings],
+            [
+                "playbooks/imports/play-a.yml — changed since it was run here; changed: "
+                "files/a.conf, files/b.conf; it last ran from a checkout with uncommitted "
+                "changes"
+            ],
+        )
+
     def test_an_orphan_detail_line_is_kept_not_dropped(self) -> None:
         """The fold must not be able to lose a line. An indented line with no headline
         before it becomes its own finding rather than being swallowed."""

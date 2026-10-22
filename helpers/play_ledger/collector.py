@@ -133,15 +133,16 @@ class RunCollector:
         """The play's real path, and whether it is tracked, from Ansible's `<file>:<line>` form.
 
         A play outside the root comes back with `tracked=False`: not an error, a play
-        the ledger does not track. It cannot be compared against this repo's
-        HEAD, so a row for it would be unanswerable — the same reasoning as
-        `check_freshness._drop_never_tracked`. A private play run from a linked
-        worktree is the usual case: it lives in the main checkout's untracked/.
+        the ledger does not track. Its file is not in this repo's history or working
+        tree, so a row for it would be unanswerable — the same reasoning by which
+        `changed_plays.judge` leaves out a play the repo never tracked. A private play
+        run from a linked worktree is the usual case: it lives in the main checkout's
+        untracked/.
 
         Inside the root the play is in scope even when git does not track it (a
         private play under the main checkout's untracked/): commit, dirty and
-        play_sha256 still describe it, and check_freshness drops it as never
-        tracked. The test is on the real path, so a private directory that is a
+        play_sha256 still describe it, and `changed_plays.judge` never judges it,
+        because it judges only the plays under `playbooks/imports/`. The test is on the real path, so a private directory that is a
         symlink to somewhere outside the root is outside too. Every other failure
         here propagates, so the plugin marks BROKEN.
         """

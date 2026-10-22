@@ -346,8 +346,10 @@ class SafetyStopTest(SessionCase):
         self.assertTrue(self.mic_stopped())
 
     def test_keepalives_keep_it_recording(self):
-        s = self.start(heartbeat_seconds=0.3)
-        for _ in range(10):
+        # The run outlasts the heartbeat, so only the keepalives can keep it recording; the
+        # heartbeat is ten keepalive gaps long, so a loaded host's scheduling delay cannot end it.
+        s = self.start(heartbeat_seconds=1.0)
+        for _ in range(15):
             time.sleep(0.1)
             s.keepalive()
         self.assertEqual(s.progress()["status"], "recording")

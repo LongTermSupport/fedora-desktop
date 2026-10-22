@@ -147,6 +147,10 @@ worse than no check:
 
 ## 6. The freshness check (Task 2.1)
 
+> **Superseded by Plan 00214 (issue #110).** The verdicts below are no longer the rule:
+> `check_freshness` now reads `changed_plays.judge`, the judgement `run.bash --changed`
+> uses (see that module's docstring). This section records the original design.
+
 `helpers/play_ledger/freshness.py` decides, `git_history.py` supplies git's answers,
 `check_freshness.py` wires them and prints. Run it with
 `python3 -m helpers.play_ledger.check_freshness`.

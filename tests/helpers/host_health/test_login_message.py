@@ -690,5 +690,124 @@ class TestOnDemand(unittest.TestCase):
         self.assertEqual(login_message.ON_DEMAND_COMMAND, "fedora-desktop-health")
 
 
+STALE_PLAY = {
+    "play-freshness": [
+        probe_results.broken("playbooks/imports/play-a.yml — changed since it was run here")
+    ]
+}
+
+#: This checkout, found the way the helper finds it: from where the code is.
+THIS_CHECKOUT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+
+
+def with_plays(plays: list[dict], sections: dict = STALE_PLAY) -> dict:
+    return status_document.build(sections=sections, kernel=KERNEL, at=NOW, plays=plays)
+
+
+class TestTheCommandThatClearsChangedPlays(unittest.TestCase):
+    """Issue #110, gap 1: when plays have to run again, the report and the startup
+    reminder print the one command that runs them, ready to paste: this checkout's own
+    `run.bash --changed`, its path resolved where the code runs, never written in."""
+
+    def test_a_stale_or_failed_play_yields_the_command(self) -> None:
+        for state in ("stale", "failed"):
+            command = login_message.run_changed_command(
+                with_plays([{"play": "playbooks/imports/play-a.yml", "state": state}]),
+                checkout="/home/me/fedora-desktop",
+            )
+            self.assertEqual(command, "/home/me/fedora-desktop/run.bash --changed")
+
+    def test_no_command_when_no_play_would_run(self) -> None:
+        """Fresh and unresolved plays are not run by --changed, so a command offered for
+        them would run nothing the report complained about."""
+        for plays in ([], [{"play": "playbooks/imports/play-a.yml", "state": "fresh"}],
+                      [{"play": "playbooks/imports/play-a.yml", "state": "unresolved"}]):
+            self.assertEqual(
+                login_message.run_changed_command(with_plays(plays), checkout="/c"), "")
+
+    def test_a_malformed_plays_list_yields_no_command_and_does_not_raise(self) -> None:
+        for odd in ({"plays": "nonsense"}, {"plays": [None, 7]}, "nonsense"):
+            self.assertEqual(login_message.run_changed_command(odd, checkout="/c"), "")
+
+    def test_a_checkout_path_with_a_space_stays_one_word(self) -> None:
+        command = login_message.run_changed_command(
+            with_plays([{"play": "playbooks/imports/play-a.yml", "state": "stale"}]),
+            checkout="/home/me/my repo",
+        )
+        self.assertEqual(command, "'/home/me/my repo/run.bash' --changed")
+
+    def test_the_report_prints_the_command_after_the_faults(self) -> None:
+        message = login_message.render(
+            with_plays([{"play": "playbooks/imports/play-a.yml", "state": "stale"}]),
+            now=NOW, running_kernel=KERNEL, command="/c/run.bash --changed",
+        )
+        self.assertEqual(
+            message.split("\n"),
+            [
+                "fedora-desktop: this machine needs attention",
+                "  - playbooks/imports/play-a.yml — changed since it was run here",
+                "  To run every play that changed or failed since it ran here: "
+                "/c/run.bash --changed",
+            ],
+        )
+
+    def test_the_command_line_is_not_counted_as_a_finding(self) -> None:
+        message = login_message.render(
+            with_plays([{"play": "playbooks/imports/play-a.yml", "state": "stale"}]),
+            now=NOW, running_kernel=KERNEL, command="/c/run.bash --changed",
+        )
+        self.assertEqual(login_message.item_counts(message), (1, 0))
+
+    def test_the_reminder_names_the_same_command(self) -> None:
+        message = login_message.render(
+            with_plays([{"play": "playbooks/imports/play-a.yml", "state": "stale"}]),
+            now=NOW, running_kernel=KERNEL, command="/c/run.bash --changed",
+        )
+        self.assertEqual(
+            login_message.reminder(message, command="/c/run.bash --changed"),
+            "fedora-desktop: 1 fault in the health report (shown in full earlier today) "
+            "— run fedora-desktop-health for the details, or /c/run.bash --changed to "
+            "run every play that changed or failed since it ran here",
+        )
+
+    def _main(self, base: str, *mode: str) -> str:
+        out = io.StringIO()
+        status = login_message.main(
+            ["--state-dir", base, *mode], stdout=out, now=NOW, running_kernel=KERNEL
+        )
+        self.assertEqual(status, 0)
+        return out.getvalue()
+
+    def test_on_demand_prints_this_checkouts_run_bash(self) -> None:
+        """The real entry point, with the checkout found from the code's own location:
+        what `fedora-desktop-health` runs."""
+        with tempfile.TemporaryDirectory() as base:
+            status_document.write_atomic(
+                status_document.path(base),
+                with_plays([{"play": "playbooks/imports/play-a.yml", "state": "stale"}]))
+            printed = self._main(base, "--on-demand")
+        self.assertIn(
+            f"{os.path.join(THIS_CHECKOUT, 'run.bash')} --changed", printed)
+
+    def test_the_login_shell_reminder_prints_it_too(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            status_document.write_atomic(
+                status_document.path(base),
+                with_plays([{"play": "playbooks/imports/play-a.yml", "state": "failed"}]))
+            self._main(base, "--once-a-day")
+            second = self._main(base, "--once-a-day")
+        self.assertEqual(second.count("\n"), 1)
+        self.assertIn(f"{os.path.join(THIS_CHECKOUT, 'run.bash')} --changed", second)
+
+    def test_no_command_when_every_play_is_fresh(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            status_document.write_atomic(
+                status_document.path(base),
+                with_plays([{"play": "playbooks/imports/play-a.yml", "state": "fresh"}],
+                           sections=FINDINGS))
+            printed = self._main(base, "--on-demand")
+        self.assertNotIn("run.bash", printed)
+
+
 if __name__ == "__main__":
     unittest.main()

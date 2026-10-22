@@ -245,7 +245,7 @@ a repository is no longer offered for a checkout of it. Report:
   ratchet, so the wait belongs in the Python helper.
 - [ ] 🔄 **Task 2.20**: `ccy-teams lxc-add` asked three times over "entries 5 and 6 both
   declare <user>@<container>" for a member an earlier run had declared (branch
-  `fix/lxc-add-already-declared`, CCY 3.99.14.15 / container 2.78.18, the image's declare.py).
+  `fix/lxc-add-already-declared`, CCY 3.99.15.5 / container 2.78.18, the image's declare.py).
   DBF class: a declare.py refusal read by its type and not its kind, so a refusal of the
   host_vars file is asked again as a wrong answer; defence `project_refusal_kind`
   ([GoProjectRules.md](../../GoProjectRules.md)), red at 0ca99358c with 4 findings (lxcadd
