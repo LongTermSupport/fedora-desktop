@@ -90,10 +90,10 @@ fi
 plan_start_log auto
 
 readonly CCY_LAUNCHER="/var/local/claude-yolo/claude-yolo"
-# The deployed copy of the checkout's bash launcher. Since CCY 3.99.14.0 claude-yolo is a Go
-# binary and the bash is claude-yolo.bash beside it; a host not yet deployed has only claude-yolo.
-CCY_LAUNCHER_TEXT="${CCY_LAUNCHER}.bash"
-[[ -f "${CCY_LAUNCHER_TEXT}" ]] || CCY_LAUNCHER_TEXT="${CCY_LAUNCHER}"
+# The deployed copy of the checkout's bash launcher: claude-yolo while it is a script (before
+# CCY 3.99.14.0, or rolled back), else claude-yolo.bash beside the Go front claude-yolo became.
+CCY_LAUNCHER_TEXT="${CCY_LAUNCHER}"
+[[ "$(head -c 2 "${CCY_LAUNCHER}")" == '#!' ]] || CCY_LAUNCHER_TEXT="${CCY_LAUNCHER}.bash"
 readonly CCY_LAUNCHER_TEXT
 readonly ENTRYPOINT_DEPLOYED="/opt/claude-yolo/entrypoint.sh"
 readonly IMAGE="claude-yolo:latest"

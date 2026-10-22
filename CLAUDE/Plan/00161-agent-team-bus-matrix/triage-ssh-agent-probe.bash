@@ -19,10 +19,10 @@ probe="${1:?usage: triage-ssh-agent-probe.bash <probe> <repo-root> <work-dir>}"
 repoRoot="${2:?usage: triage-ssh-agent-probe.bash <probe> <repo-root> <work-dir>}"
 work="${3:?usage: triage-ssh-agent-probe.bash <probe> <repo-root> <work-dir>}"
 
-# The bash launcher, read as text. Since CCY 3.99.14.0 claude-yolo is a Go binary and the bash
-# is claude-yolo.bash beside it; a host not yet deployed has only claude-yolo.
-CCY_LAUNCHER_TEXT="/var/local/claude-yolo/claude-yolo.bash"
-[[ -f "${CCY_LAUNCHER_TEXT}" ]] || CCY_LAUNCHER_TEXT="/var/local/claude-yolo/claude-yolo"
+# The bash launcher, read as text: claude-yolo while it is a script (before CCY 3.99.14.0, or
+# rolled back), else claude-yolo.bash beside the Go front that claude-yolo became.
+CCY_LAUNCHER_TEXT="/var/local/claude-yolo/claude-yolo"
+[[ "$(head -c 2 "${CCY_LAUNCHER_TEXT}")" == '#!' ]] || CCY_LAUNCHER_TEXT="/var/local/claude-yolo/claude-yolo.bash"
 readonly CCY_LAUNCHER_TEXT
 readonly FILTER="/var/local/claude-yolo/lib/ssh_agent_filter.py"
 readonly ATTEMPT_SECONDS=40

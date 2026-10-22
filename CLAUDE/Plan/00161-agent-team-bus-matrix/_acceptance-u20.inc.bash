@@ -40,10 +40,10 @@
 # and its functions send_ping, human_login, human_logout, human_curl, evidence.
 
 readonly CCY_LAUNCHER="/var/local/claude-yolo/claude-yolo"
-# The bash launcher, read as text. Since CCY 3.99.14.0 claude-yolo is a Go binary and the bash
-# is claude-yolo.bash beside it; a host not yet deployed has only claude-yolo.
-CCY_LAUNCHER_TEXT="${CCY_LAUNCHER}.bash"
-[[ -f "${CCY_LAUNCHER_TEXT}" ]] || CCY_LAUNCHER_TEXT="${CCY_LAUNCHER}"
+# The bash launcher, read as text: claude-yolo while it is a script (before CCY 3.99.14.0, or
+# rolled back), else claude-yolo.bash beside the Go front that claude-yolo became.
+CCY_LAUNCHER_TEXT="${CCY_LAUNCHER}"
+[[ "$(head -c 2 "${CCY_LAUNCHER}")" == '#!' ]] || CCY_LAUNCHER_TEXT="${CCY_LAUNCHER}.bash"
 readonly CCY_LAUNCHER_TEXT
 readonly CCY_SSH_LIB="/var/local/claude-yolo/lib/ssh-handling.bash"
 readonly CCY_RESTART_LIB="/var/local/claude-yolo/lib/restart-request.bash"

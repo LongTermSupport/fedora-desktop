@@ -23,10 +23,10 @@ set -euo pipefail
 
 readonly MOUNT=/run/ccy/membership
 readonly HOME_IN=/tmp/pingbus-home
-#: The deployed bash launcher, read as text. Since CCY 3.99.14.0 claude-yolo is a Go binary
-#: and the bash is claude-yolo.bash beside it; a host not yet deployed has only claude-yolo.
-LAUNCHER=/var/local/claude-yolo/claude-yolo.bash
-[[ -f "${LAUNCHER}" ]] || LAUNCHER=/var/local/claude-yolo/claude-yolo
+#: The deployed bash launcher, read as text: claude-yolo while it is a script (before CCY
+#: 3.99.14.0, or rolled back), else claude-yolo.bash beside the Go front that claude-yolo became.
+LAUNCHER=/var/local/claude-yolo/claude-yolo
+[[ "$(head -c 2 "${LAUNCHER}")" == '#!' ]] || LAUNCHER=/var/local/claude-yolo/claude-yolo.bash
 readonly LAUNCHER
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #: The inbound probe, relative to the checkout, which a ccy container sees at /workspace.
