@@ -172,28 +172,47 @@ class ClaudeProcessTest(unittest.TestCase):
         result = self.run_script("echo-prompt")
         self.assertEqual(result.stdout.strip(), "Rewrite: raw words")
 
+    SLOW_RUN_TRIES = 5
+
+    def run_within_a_second(self, budget, before_each=lambda: None):
+        """run_script with a 1 s limit, judged against the wall clock: a run refused in
+        under a second of real time is the defect (the script miscounted), and fails at
+        once. A host that stalls the run for a second or more makes a refusal correct,
+        and proves nothing either way, so such a run is tried again, up to SLOW_RUN_TRIES
+        times. The script normally takes 20-150 ms; stalls of 1-8 s were seen at load 85-100.
+        """
+        for _ in range(self.SLOW_RUN_TRIES):
+            before_each()
+            started = time.monotonic()
+            result = self.run_script(budget=budget)
+            took = time.monotonic() - started
+            if result.returncode == 0 or took < 1.0:
+                return result
+        self.fail(f"every one of {self.SLOW_RUN_TRIES} runs was stalled past its 1 s limit by "
+                  f"the host, so the limit could not be judged: {result.stderr}")
+
     def test_a_limit_inside_1_to_170_seconds_is_used(self):
-        # claude is given the whole limit (the chooser answers at once), through the stub
-        # timeout, so only the script's own few milliseconds before it run against the 1 s
+        # claude is given the whole limit (the chooser answers at once) through the stub
+        # timeout, so only the script's own work before claude runs against the 1 s
         self.chooser()
         limit = self.recording_timeout()
         for value in ("1", "170"):
             with self.subTest(value=value):
-                result = self.run_script(budget=value)
+                result = self.run_within_a_second(value)
                 self.assertEqual((result.returncode, result.stdout.strip()), (0, "Rewritten by Claude."),
                                  result.stderr)
                 self.assertEqual(limit.read_text(), value, "claude was not given the whole limit")
 
     def test_a_run_that_crosses_a_second_of_the_clock_keeps_a_1_s_limit(self):
-        # The run starts 0.01 s before the clock's next whole second and the chooser takes
-        # 0.03 s, so the run crosses it about 0.05 s in, a twentieth of the limit. bash's
-        # SECONDS, which counts whole seconds of the clock, called that 1 s, left claude
-        # nothing and failed the 1 s limit test_a_limit_inside_1_to_170_seconds_is_used
-        # accepts, at random, and more often the longer a loaded host made the run.
+        # The run starts 0.01 s before the clock's next whole second, so it crosses it about
+        # 0.01 s in, before the 0.03 s chooser has answered. bash's SECONDS, which counts
+        # whole seconds of the clock, called that 1 s, left claude nothing and failed the
+        # 1 s limit test_a_limit_inside_1_to_170_seconds_is_used accepts, at random, and
+        # more often the longer a loaded host made the run.
         self.chooser(seconds=0.03)
         limit = self.recording_timeout()
-        time.sleep((0.99 - time.time() % 1) % 1)
-        result = self.run_script(budget=1)
+        result = self.run_within_a_second(
+            1, before_each=lambda: time.sleep((0.99 - time.time() % 1) % 1))
         self.assertEqual((result.returncode, result.stdout.strip()), (0, "Rewritten by Claude."),
                          result.stderr)
         self.assertEqual(limit.read_text(), "1", "claude was not given the whole limit")

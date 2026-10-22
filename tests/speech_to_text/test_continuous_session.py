@@ -318,8 +318,11 @@ class FailureTest(SessionCase):
         block = threading.Event()
         self.addCleanup(block.set)
         transcriber = StubTranscriber(block=block)
-        s = self.start(transcriber=transcriber, drain_base_seconds=0.3,
-                       drain_rtf_factor=0, mic="plain")
+        # The pattern microphone pauses, so its first segment reaches the model about 0.3 s
+        # in. The plain one never pauses: its first segment was the 20 s soft cut, about
+        # 6 s of a quiet host and past the 10 s wait on a loaded one.
+        s = self.start(transcriber=transcriber, drain_base_seconds=0.3, drain_rtf_factor=0,
+                       env={"STUB_PATTERN": "speech=1.5,silence=1.0", "STUB_SPEED": "8"})
         # Stop only once a transcription is in flight; a fixed sleep raced it under load.
         self.assertTrue(self.wait_until(lambda: transcriber.calls), "no segment reached the model")
         s.stop("stop requested")
