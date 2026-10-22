@@ -60,6 +60,22 @@ func TestOldKitRemovedUnlessALiveSessionNamesIt(t *testing.T) {
 			}
 			sessionPIDUnder(t, b, root, 77)
 		}, true},
+		{"live login session of a user no acted entry names", func(t *testing.T, b *box) {
+			t.Helper()
+			root, err := paths.GuestLoginRunRoot(agent2UID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sessionPIDUnder(t, b, root, 77)
+		}, true},
+		{"live session under a /run/user name that is not a uid", func(t *testing.T, b *box) {
+			t.Helper()
+			sessionPIDUnder(t, b, "/run/user/0x3ea/teamchat/run", 77)
+		}, false},
+		{"/run/user cannot be listed", func(t *testing.T, b *box) {
+			t.Helper()
+			writeTree(t, b.dir, map[string]string{"run/user": "->/tmp"})
+		}, true},
 		{"live session under a name /run's grammar refuses", func(t *testing.T, b *box) {
 			t.Helper()
 			sessionPIDUnder(t, b, "/run/other/teamchat/run", 77)
@@ -103,6 +119,34 @@ func TestOldKitRemovedUnlessALiveSessionNamesIt(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+// --only-teams scopes the seats acted on, never the kit sweep: another team's hand-run seat in
+// the same container keeps the digest its keeper runs from.
+func TestKitSweepIgnoresTheScope(t *testing.T) {
+	for _, only := range [][]string{nil, {"t1"}} {
+		w := newWorld(t)
+		b := w.addBox("c1")
+		dir := oldKit(t, b)
+		root, err := paths.GuestLoginRunRoot(agent2UID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sessionPIDUnder(t, b, root, recordedTicks)
+		u2, err := paths.ParseGuestUser("agent2")
+		if err != nil {
+			t.Fatal(err)
+		}
+		m2 := w.memberAt("t2", "c1", 2)
+		m2.User, m2.Service = u2, false
+		w.declare([]string{"t1", "t2"}, w.member("t1", "c1"), m2)
+		if _, err := w.apply(PhasePresent, only...); err != nil {
+			t.Fatalf("only %v: %v", only, err)
+		}
+		if _, err := os.Stat(dir); err != nil {
+			t.Fatalf("only %v: the old kit was removed: %v", only, err)
+		}
 	}
 }
 
