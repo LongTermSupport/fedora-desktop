@@ -279,6 +279,11 @@ var shellStrings = []allowance{
 		fn:     "runInner",
 		reason: "the statusLine command of the session's settings, which Claude Code itself runs as /bin/sh -c (Plan 00213 SPEC-status-line.md S9); the status line runs it the same way",
 	},
+	{
+		pkg:    "internal/teamchat/member/statusline",
+		fn:     "deps.runInner",
+		reason: "the session's own statusLine command, which Claude Code runs as /bin/sh -c; teamchat status-line wraps it the same way (Plan 00209 B 2.9, SPEC-n3 SL1)",
+	},
 }
 
 // bindingSubjects are not judged by project_hidden_bindings: the rules package and the
