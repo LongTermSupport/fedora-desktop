@@ -63,6 +63,13 @@ func newWorld(t *testing.T) *world {
 	return w
 }
 
+func (w *world) Load(team paths.TeamID) (*declare.Gated, error) {
+	if err := w.call("approvals.load"); err != nil {
+		return nil, err
+	}
+	return w.approved[team.String()], nil
+}
+
 func (w *world) at(p string) string { return w.root + p }
 
 func (w *world) write(p, content string) {
@@ -98,13 +105,6 @@ func (w *world) called(name string) bool { return slices.Contains(w.log, name) }
 func (w *world) approve(in declare.Input) {
 	g := in.Gated()
 	w.approved[in.ID().String()] = &g
-}
-
-func (w *world) Load(team paths.TeamID) (*declare.Gated, error) {
-	if err := w.call("approvals.load"); err != nil {
-		return nil, err
-	}
-	return w.approved[team.String()], nil
 }
 
 // apply runs Apply over in with a fresh log.
@@ -147,13 +147,6 @@ type fakeSystemd struct {
 	startTo    string
 	journal    string
 	activating int
-}
-
-func (s *fakeSystemd) unit(name string) *UnitState {
-	if s.units[name] == nil {
-		s.units[name] = &UnitState{Active: "inactive"}
-	}
-	return s.units[name]
 }
 
 func (s *fakeSystemd) DaemonReload(context.Context) error { return s.w.call("daemon-reload") }
@@ -218,6 +211,13 @@ func (s *fakeSystemd) JournalTail(context.Context, string) (string, error) {
 }
 
 func (s *fakeSystemd) CleanState(context.Context, string) error { return s.w.call("clean") }
+
+func (s *fakeSystemd) unit(name string) *UnitState {
+	if s.units[name] == nil {
+		s.units[name] = &UnitState{Active: "inactive"}
+	}
+	return s.units[name]
+}
 
 type fakeFirewall struct {
 	w       *world

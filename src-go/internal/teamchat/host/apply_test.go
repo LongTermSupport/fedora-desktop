@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -13,7 +14,10 @@ import (
 )
 
 // ops is the sample team's id.
-func ops(t *testing.T) paths.TeamID { return mustTeam(t, "ops") }
+func ops(t *testing.T) paths.TeamID {
+	t.Helper()
+	return mustTeam(t, "ops")
+}
 
 // approved is the sample input, approved in w.
 func approved(w *world, doc map[string]any) declare.Input {
@@ -94,15 +98,7 @@ func TestFirstApply(t *testing.T) {
 	if got := regKeyOf([]byte(w.read(paths.ServerConfig(team)))); got != key {
 		t.Errorf("config key %q", got)
 	}
-	for p, m := range map[string]os.FileMode{
-		paths.AdminState(team): 0o700, paths.CtlState(team): 0o700, paths.ServerConfig(team): 0o600,
-		paths.ServerNameFile(team): 0o600, paths.ServerDropInFile(team): 0o644, paths.TeamDeclaration(team): 0o600,
-		paths.UnitsRecord(team): 0o600, paths.FirewallRecord(team): 0o600, paths.StampFile(team): 0o644,
-	} {
-		if got := mode(t, w.at(p)); got != m {
-			t.Errorf("%s: mode %v, want %v", p, got, m)
-		}
-	}
+	firstApplyModes(t, w, team)
 	if got := w.read(paths.TeamDeclaration(team)); got != string(in.Team.Canonical()) {
 		t.Errorf("team.json %s", got)
 	}
@@ -126,6 +122,21 @@ func TestFirstApply(t *testing.T) {
 		before(t, w.log, pair[0], pair[1])
 	}
 	lockIsFree(t, w)
+}
+
+// firstApplyModes holds each file and directory of a first apply to its mode.
+func firstApplyModes(t *testing.T, w *world, team paths.TeamID) {
+	t.Helper()
+	for p, m := range map[string]os.FileMode{
+		paths.AdminState(team): 0o700, paths.CtlState(team): 0o700, paths.ServerConfig(team): 0o600,
+		paths.ServerNameFile(team): 0o600, paths.ServerDropInFile(team): 0o644, paths.TeamDeclaration(team): 0o600,
+		paths.UnitsRecord(team): 0o600, paths.FirewallRecord(team): 0o600, paths.StampFile(team): 0o644,
+		filepath.Dir(paths.ServerDropInFile(team)): 0o755, paths.StatusTeamDir(team): 0o755,
+	} {
+		if got := mode(t, w.at(p)); got != m {
+			t.Errorf("%s: mode %v, want %v", p, got, m)
+		}
+	}
 }
 
 // HS12: a second apply with nothing changed reports nothing and changes nothing.
@@ -563,7 +574,7 @@ func TestFirewallRemoveFailureKeepsTheUnion(t *testing.T) {
 // HS4: a team with an LXC member admits the bridge; the bridge's failure is the render's.
 func TestLXCMemberAdmitsTheBridge(t *testing.T) {
 	doc := teamDoc()
-	doc["lxc_members"] = []any{map[string]any{"team": "ops", "container": "c1", "user": "dev", "checkout": "/home/dev/repo"}}
+	doc["lxc_members"] = []any{map[string]any{"team": "ops", "container": "c1", "user": "agent", "checkout": "/srv/checkouts/thing"}}
 	w := newWorld(t)
 	lines, err := w.apply(approved(w, doc))
 	if err != nil {

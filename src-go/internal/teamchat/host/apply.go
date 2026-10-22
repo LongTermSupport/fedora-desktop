@@ -2,7 +2,6 @@ package host
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -14,8 +13,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-
-	"golang.org/x/sys/unix"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -38,6 +35,12 @@ const (
 	StepRecords   = "records"
 	StepStatus    = "status"
 	StepPurge     = "purge"
+)
+
+// The verbs an Error names.
+const (
+	verbApply  = "team apply"
+	verbRemove = "team remove"
 )
 
 // The readiness wait (C 3.5.2 step 8).
@@ -222,11 +225,11 @@ func Apply(ctx context.Context, d Deps, in declare.Input) ([]string, error) {
 }
 
 func (a *applying) fail(step string, err error) error {
-	return &Error{Verb: "team apply", Step: step, Err: err}
+	return &Error{Verb: verbApply, Step: step, Err: err}
 }
 
 func (a *applying) refuse(format string, args ...any) error {
-	return &Error{Verb: "team apply", Step: StepRefusals, Drift: true, Err: fmt.Errorf(format, args...)}
+	return &Error{Verb: verbApply, Step: StepRefusals, Drift: true, Err: fmt.Errorf(format, args...)}
 }
 
 func (a *applying) note(line string) { a.changed = append(a.changed, line) }
@@ -260,7 +263,7 @@ func (a *applying) refusals(_ context.Context) error {
 		return a.fail(StepRefusals, err)
 	}
 	if err := declare.Hold(approved, a.in); err != nil {
-		return &Error{Verb: "team apply", Step: StepRefusals, Drift: true, Err: err}
+		return &Error{Verb: verbApply, Step: StepRefusals, Drift: true, Err: err}
 	}
 	if err := a.listenInterfaces(); err != nil {
 		return err
@@ -303,29 +306,12 @@ func (a *applying) listenInterfaces() error {
 // team's homeserver.
 func (a *applying) port() error {
 	port := a.in.Team.Port
-	entries, err := os.ReadDir(a.path(paths.AdminStateRoot))
+	other, taken, err := a.portRecordedBy(port)
 	if err != nil {
 		return a.fail(StepRefusals, err)
 	}
-	for _, e := range entries {
-		other, perr := paths.ParseTeamID(e.Name())
-		if perr != nil || other == a.team || !e.IsDir() {
-			continue
-		}
-		raw, found, rerr := state.ReadFile(a.path(paths.UnitsRecord(other)), fileMax)
-		if rerr != nil || !found {
-			if rerr != nil {
-				return a.fail(StepRefusals, rerr)
-			}
-			continue
-		}
-		u, derr := decodeUnits(raw, other)
-		if derr != nil {
-			return a.fail(StepRefusals, derr)
-		}
-		if u.port == port {
-			return a.refuse("port %d is recorded by team %s's units.json", port, other)
-		}
+	if taken {
+		return a.refuse("port %d is recorded by team %s's units.json", port, other)
 	}
 	listeners, err := a.d.Network.Listeners()
 	if err != nil {
@@ -343,6 +329,36 @@ func (a *applying) port() error {
 	return nil
 }
 
+// portRecordedBy is the other v2 team whose units.json records port, and whether there is one.
+func (a *applying) portRecordedBy(port int) (paths.TeamID, bool, error) {
+	var none paths.TeamID
+	entries, err := os.ReadDir(a.path(paths.AdminStateRoot))
+	if err != nil {
+		return none, false, err
+	}
+	for _, e := range entries {
+		other, perr := paths.ParseTeamID(e.Name())
+		if perr != nil || other == a.team || !e.IsDir() {
+			continue
+		}
+		raw, found, rerr := state.ReadFile(a.path(paths.UnitsRecord(other)), fileMax)
+		if rerr != nil {
+			return none, false, rerr
+		}
+		if !found {
+			continue
+		}
+		u, derr := decodeUnits(raw, other)
+		if derr != nil {
+			return none, false, derr
+		}
+		if u.port == port {
+			return other, true, nil
+		}
+	}
+	return none, false, nil
+}
+
 // render is step 3: the files in memory, what is installed, and the answer.
 func (a *applying) render(_ context.Context) error {
 	base, found, err := state.ReadFile(a.path(paths.ServerUnitTemplateFile), fileMax)
@@ -352,10 +368,10 @@ func (a *applying) render(_ context.Context) error {
 	if err != nil {
 		return a.fail(StepRender, err)
 	}
-	if err := a.readInstalled(); err != nil {
-		return a.fail(StepRender, err)
+	if err = a.readInstalled(); err == nil {
+		err = a.allowed()
 	}
-	if err := a.allowed(); err != nil {
+	if err != nil {
 		return a.fail(StepRender, err)
 	}
 	var devices []string
@@ -388,7 +404,7 @@ func (a *applying) readInstalled() error {
 		}
 	} else {
 		key := make([]byte, 64)
-		if _, err := io.ReadFull(a.d.Rand, key); err != nil {
+		if _, err = io.ReadFull(a.d.Rand, key); err != nil {
 			return fmt.Errorf("cannot make the registration key: %w", err)
 		}
 		a.regKey = hex.EncodeToString(key)
@@ -401,9 +417,9 @@ func (a *applying) readInstalled() error {
 		return err
 	}
 	if found {
-		u, err := decodeUnits(raw, a.team)
-		if err != nil {
-			return err
+		u, derr := decodeUnits(raw, a.team)
+		if derr != nil {
+			return derr
 		}
 		a.units = &u
 	}
@@ -463,37 +479,17 @@ func (a *applying) firewall(ctx context.Context) error {
 
 func (a *applying) converge(ctx context.Context) error {
 	record := a.path(paths.FirewallRecord(a.team))
-	raw, found, err := state.ReadFile(record, fileMax)
+	old, found, err := readRules(record, a.team)
 	if err != nil {
 		return err
 	}
-	var old []Rule
-	if found {
-		if old, err = decodeFirewall(raw, a.team); err != nil {
-			return err
-		}
-	}
-	wanted := make([]Rule, 0, len(a.allowFrom))
-	for _, s := range a.allowFrom {
-		source, err := netip.ParsePrefix(s)
-		if err != nil {
-			return err
-		}
-		zone, err := a.d.Firewall.Zone(ctx, source)
-		if err != nil {
-			return err
-		}
-		wanted = append(wanted, Rule{Zone: zone, Source: source, Port: a.in.Team.Port})
+	wanted, err := a.wantedRules(ctx)
+	if err != nil {
+		return err
 	}
 	same := found && slices.Equal(old, wanted)
 	if !same {
-		union := slices.Clone(old)
-		for _, r := range wanted {
-			if !slices.Contains(union, r) {
-				union = append(union, r)
-			}
-		}
-		if err := state.WriteFile(record, encodeFirewall(a.team, union), 0o600, -1); err != nil {
+		if err := state.WriteFile(record, encodeFirewall(a.team, union(old, wanted)), 0o600, -1); err != nil {
 			return err
 		}
 	}
@@ -513,6 +509,47 @@ func (a *applying) converge(ctx context.Context) error {
 		return nil
 	}
 	return state.WriteFile(record, encodeFirewall(a.team, wanted), 0o600, -1)
+}
+
+// readRules reads firewall.json, and whether it is there.
+func readRules(record string, team paths.TeamID) ([]Rule, bool, error) {
+	raw, found, err := state.ReadFile(record, fileMax)
+	if err != nil || !found {
+		return nil, false, err
+	}
+	rules, err := decodeFirewall(raw, team)
+	if err != nil {
+		return nil, false, err
+	}
+	return rules, true, nil
+}
+
+// wantedRules is one rule per allow_from source, in the zone that routes it.
+func (a *applying) wantedRules(ctx context.Context) ([]Rule, error) {
+	wanted := make([]Rule, 0, len(a.allowFrom))
+	for _, s := range a.allowFrom {
+		source, err := netip.ParsePrefix(s)
+		if err != nil {
+			return nil, err
+		}
+		zone, err := a.d.Firewall.Zone(ctx, source)
+		if err != nil {
+			return nil, err
+		}
+		wanted = append(wanted, Rule{Zone: zone, Source: source, Port: a.in.Team.Port})
+	}
+	return wanted, nil
+}
+
+// union is old with each rule of wanted it lacks appended.
+func union(old, wanted []Rule) []Rule {
+	all := slices.Clone(old)
+	for _, r := range wanted {
+		if !slices.Contains(all, r) {
+			all = append(all, r)
+		}
+	}
+	return all
 }
 
 // ensure makes r present (or absent) in the permanent and the runtime configuration, each
@@ -604,7 +641,7 @@ func (a *applying) startForBackup(ctx context.Context) error {
 
 func (a *applying) writeDropIn(ctx context.Context, text []byte) error {
 	file := a.path(paths.ServerDropInFile(a.team))
-	if err := os.Mkdir(filepath.Dir(file), 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
+	if err := mkdirShared(filepath.Dir(file)); err != nil {
 		return err
 	}
 	if err := state.WriteFile(file, text, 0o644, -1); err != nil {
@@ -799,7 +836,7 @@ func (a *applying) writeStamp() error {
 		}
 	}
 	for _, dir := range []string{filepath.Dir(paths.StatusTeamDir(a.team)), paths.StatusTeamDir(a.team)} {
-		if err := os.Mkdir(a.path(dir), 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
+		if err := mkdirShared(a.path(dir)); err != nil {
 			return err
 		}
 	}
@@ -808,53 +845,4 @@ func (a *applying) writeStamp() error {
 	}
 	a.note("stamp written")
 	return nil
-}
-
-// mkdirOwned makes a 0700 directory owned by uid and gid (-1 keeps the creator's), or accepts
-// one that is there and is a directory.
-func mkdirOwned(dir string, uid, gid int) error {
-	if err := os.Mkdir(dir, 0o700); err != nil {
-		if !errors.Is(err, fs.ErrExist) {
-			return err
-		}
-		if ok, err := isDir(dir); err != nil || !ok {
-			return errors.Join(err, fmt.Errorf("%s is not a directory", dir))
-		}
-		return nil
-	}
-	return errors.Join(os.Chmod(dir, 0o700), os.Lchown(dir, uid, gid))
-}
-
-// isDir is whether path is a directory, not following a link; a missing path is not one.
-func isDir(path string) (bool, error) {
-	info, err := os.Lstat(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return info.IsDir(), nil
-}
-
-// createOnly creates path with data and mode, never replacing a file that is there (link, not
-// rename; H 7.03).
-func createOnly(path string, data []byte, mode fs.FileMode) error {
-	temp := filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+"."+rand.Text()+".tmp")
-	f, err := os.OpenFile(filepath.Clean(temp), os.O_WRONLY|os.O_CREATE|os.O_EXCL|unix.O_NOFOLLOW, 0o600)
-	if err != nil {
-		return err
-	}
-	err = f.Chmod(mode)
-	if err == nil {
-		_, err = f.Write(data)
-	}
-	if err == nil {
-		err = f.Sync()
-	}
-	err = errors.Join(err, f.Close())
-	if err == nil {
-		err = os.Link(temp, path)
-	}
-	return errors.Join(err, os.Remove(temp))
 }
