@@ -1,12 +1,16 @@
 // Package client is the member CLI's side of link.sock (Plan 00209 B 2.4.4, SPEC-n3 LN3) and
-// the verbs that run outside a link: recv, wait, inbox, status, verify and history frame one
-// request each, copy the link's record lines to stdout and its error to stderr, and exit with
-// its done; `seat disconnected` (EN5) and `reach` (n3c-D16) talk to the homeserver themselves.
+// the verbs that run outside a link: recv, wait, inbox, status, verify, history and the sends
+// reply, say and ping frame one request each, copy the link's record lines to stdout and its
+// error to stderr, and exit with its done; `seat disconnected` (EN5) and `reach` (n3c-D16) talk to the homeserver themselves.
 //
 // When no link answers (ENOENT, ECONNREFUSED, or a close before done) the client reads
 // keeper.json and probes keeper.lock and exits 69 at once: no-link while the link is restarting
 // or not yet ready, link-failed when it failed or the keeper has gone, with the member kind's
-// recovery (B 2.4.2). Only wait retries, under its one deadline.
+// recovery (B 2.4.2). Only wait retries, under its one deadline; a send never reconnects.
+//
+// say and a reply without --verb take their text on stdin (n3d-D15, n3d-D28): a terminal is 64
+// usage before any read; one trailing newline is removed; then over 4096 bytes is 10 size,
+// none 10 empty, not UTF-8 10 schema. ping and reply --verb send stdin null without reading it.
 package client
 
 import (
@@ -66,7 +70,7 @@ func dialUnix(path string) (*net.UnixConn, error) {
 	return net.DialUnix("unix", nil, &net.UnixAddr{Name: path, Net: "unix"})
 }
 
-// Main is one of recv, wait, inbox, status, verify and history; cmd/teamchat puts it in
+// Main is one of recv, wait, inbox, status, verify, history, reply, say and ping; cmd/teamchat puts it in
 // cli.Env.Verbs under the verb's name.
 func Main(verb string) cli.RunFunc {
 	return func(e cli.Env, inv cli.Invocation) term.ExitCode {
@@ -87,13 +91,20 @@ func run(e cli.Env, inv cli.Invocation, op string, d deps) term.ExitCode {
 	return c.serve(req, wait)
 }
 
-// request is op's request, its deadline from now on the boot clock, and wait's timeout.
+// request is op's request, its deadline from now on the boot clock (after a send's stdin is
+// read), and wait's timeout.
 func request(e cli.Env, inv cli.Invocation, op string, clk clock.Clock) (wire.Request, time.Duration, error) {
 	var (
 		args    any = wire.TeamsArgs{Team: inv.Team}
+		stdin   *string
 		timeout time.Duration
 	)
 	switch op {
+	case wire.OpReply, wire.OpSay, wire.OpPing:
+		var err error
+		if args, stdin, err = sendArgs(e, inv, op); err != nil {
+			return wire.Request{}, 0, err
+		}
 	case wire.OpWait:
 		s, err := count(inv, "timeout", waitDefaultS, waitMaxS, msgTimeout)
 		if err != nil {
@@ -118,7 +129,7 @@ func request(e cli.Env, inv cli.Invocation, op string, clk clock.Clock) (wire.Re
 		return wire.Request{}, 0, exits.New(exits.CodeInternal, inv.Team, msgInternal, exits.Words("frame its request"))
 	}
 	deadline := clk.Boot() + wire.Deadline(op, timeout)
-	req := wire.Request{V: wire.Version, Op: op, Kit: e.Digest, DeadlineMS: deadline.Milliseconds(), Args: raw}
+	req := wire.Request{V: wire.Version, Op: op, Kit: e.Digest, DeadlineMS: deadline.Milliseconds(), Args: raw, Stdin: stdin}
 	if _, err := req.Encode(); err != nil {
 		return wire.Request{}, 0, exits.New(exits.CodeInternal, inv.Team, msgInternal, exits.Words("frame its request"))
 	}
