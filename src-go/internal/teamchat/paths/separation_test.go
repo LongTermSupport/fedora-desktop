@@ -158,6 +158,7 @@ func constNames() map[string][]string {
 		"ElementPlayFile": ElementPlayFile, "AnsibleTag": AnsibleTag, "TeamPortField": TeamPortField,
 		"CCYKitDir": CCYKitDir().String(), "SessionSeatMount": SessionSeatMount,
 		"SessionMembershipMount": SessionMembershipMount, "CCYRunRoot": CCYRunRoot,
+		"SeatDevice": SeatDevice,
 	}
 	names := map[string][]string{}
 	for ident, value := range values {
@@ -313,6 +314,9 @@ func teamDerived(t *testing.T, team TeamID) map[string][]string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for name, value := range poolDerived(t, team) {
+		names[name] = append(names[name], value)
+	}
 	for name, value := range map[string]string{
 		"HomeserverUser":         HomeserverUser(team),
 		"ServerName":             ServerName(team),
@@ -353,6 +357,42 @@ func teamDerived(t *testing.T, team TeamID) map[string][]string {
 // notName is whether an exported identifier is not a v2 name: a parser, an id's, a kit's or a
 // port's own text or number and its encoding, or the error the parsers wrap. (A kit's text is
 // sampled as HostKitDir, HostKitCurrent and CCYKitDir.)
+// poolDerived is every seat store name of a team: the pool seat's, its claim's, the session's
+// and the quarantines', the guest placement's claim and the guest token copy.
+func poolDerived(t *testing.T, team TeamID) map[string]string {
+	t.Helper()
+	store, err := SeatStore("/home/u/.local/state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err := HomeLayout("/home/u", "/run/user/1000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, seat, claim, session := sampleCheckoutKey(t), sampleSeatName(t), sampleClaimID(t), sampleSessionName(t)
+	p := store.PoolSeat(key, team, seat)
+	return map[string]string{
+		"Store.PoolTeam":          store.PoolTeam(key, team),
+		"Store.PoolSeat":          p.Dir(),
+		"PoolSeat.Dir":            p.Dir(),
+		"PoolSeat.Password":       p.Password(),
+		"PoolSeat.Token":          p.Token(),
+		"PoolSeat.Bundle":         p.Bundle(),
+		"PoolSeat.ReleasedRecord": p.ReleasedRecord(),
+		"PoolSeat.Held":           p.Held(),
+		"PoolSeat.HeldRecord":     p.HeldRecord(),
+		"PoolSeat.HeldToken":      p.HeldToken(),
+		"PoolSeat.HeldBundle":     p.HeldBundle(),
+		"PoolSeat.HeldNotice":     p.HeldNotice(),
+		"Store.PoolClaim":         store.PoolClaim(key, team, seat, claim).Dir(),
+		"Store.SessionSeat":       store.SessionSeat(session, team).Dir(),
+		"Store.ReleasedSession":   store.ReleasedSession(session, team, claim).Dir(),
+		"Store.ReleasedPool":      store.ReleasedPool(key, team, seat, claim),
+		"Layout.SeatClaim":        home.SeatClaim(team, claim).Dir(),
+		"GuestTokenCopy":          GuestTokenCopy(team, seat),
+	}
+}
+
 func notName(ident string) bool {
 	_, method, ok := strings.Cut(ident, ".")
 	return strings.HasPrefix(ident, "Parse") || ident == "ErrInvalid" ||
@@ -427,8 +467,9 @@ func TestPrefixCheckDiscriminates(t *testing.T) {
 }
 
 // notDerived are the exported names D 3.1's derivation rule does not cover: a key inside a
-// teamchat_teams entry, and the XDG state home the seat store sits under.
-var notDerived = []string{"TeamPortField", "StateHome"}
+// teamchat_teams entry, the XDG state home the seat store sits under, and the seat's Matrix
+// device id (C 3.7.2), which is no path.
+var notDerived = []string{"TeamPortField", "StateHome", "SeatDevice"}
 
 // D 3.1: every v2 name is formed from the product name.
 func TestEveryNameIsDerivedFromTheProduct(t *testing.T) {
@@ -712,6 +753,24 @@ func sampleDigest(t *testing.T) Digest {
 func sampleSessionName(t *testing.T) SessionName {
 	t.Helper()
 	v, err := ParseSessionName("sess-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func sampleSeatName(t *testing.T) SeatName {
+	t.Helper()
+	v, err := ParseSeatName("r.1+s.host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func sampleClaimID(t *testing.T) ClaimID {
+	t.Helper()
+	v, err := ParseClaimID("fedcba9876543210")
 	if err != nil {
 		t.Fatal(err)
 	}

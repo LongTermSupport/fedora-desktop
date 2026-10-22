@@ -1,0 +1,202 @@
+# SPEC: N2 slice n2c, seats and bundles (Plan 00209 Task 2.4, part)
+
+Built from area C's 3.7 (seats and the bundle) and the seam rows that cite it: 15 (`main_room`
+in the bundle), 24 (the bundle: what is in it, where, which modes), 27 (the disconnected notice
+from the host-held bundle), 32 (`released_ms`) and 59 (a changed seat account), with DC16 (c')
+and the corrected H-C13 take. Each expectation is numbered and has a Go test written first and
+seen to fail.
+
+The package is `src-go/internal/teamchat/seat`, the owner's side (ccy-teams and the launcher
+will call it; `teamchat guest place-bundle` will call its guest placement). Every name and path
+comes from `teamchat/paths`; every homeserver call goes through `teamchat/matrix`'s member client.
+
+**Gate B.** This is inert code and tests. Nothing in this slice deploys, installs or runs it: no
+play, unit, sudoers rule, install step, systemd or godbus. The only passwords are random test
+keys.
+
+**Out of this slice:** the root side of `member add|return|reissue` (the child that sets a
+password and answers the bundle) and wiring the bundle into `admin`'s answer codec; the hot
+reissue (3.7.3); seat choice and handles (3.7.4); `desired.json` and hot control (3.7.5, beyond
+the notice's inputs); the session record (00203 H5), which the caller answers through an
+interface; the quarantine's 7-day prune; the LXC tick's `lxc-online.json` (3.11.2 step 6), which
+is the health tick's record, not the seat store's.
+
+## 1. Names (`teamchat/paths`)
+
+- **SN1.** `paths` gains the seat store's names, each from a parsed id:
+  - `SeatName`: a pool seat's directory name, the handle's localpart (A 2.3), by a grammar
+    that can hold no separator, never starts with `.` and never contains `.new-` (n2c-D1);
+  - `ClaimID`: 16 lowercase hex;
+  - `Store.PoolSeat(key, team, seat)` with `password`, `token` (7.1's credential file, named so
+    the seam has one name to use), `seat.json`, `released.json`, `held/` and, in it,
+    `held.json`, `token`, `seat.json` and `notice.json`;
+  - `Store.PoolClaim(key, team, seat, claim)` = `<seat>.new-<claim>`;
+  - `Store.SessionSeat(session, team)` = `sessions/<session>/<team>`;
+  - `Store.ReleasedSession(session, team, claim)` = `released/sessions/<session>/<team>-<claim>`
+    and `Store.ReleasedPool(key, team, seat, claim)` = `released/pool/<key>/<team>/<seat>-<claim>`;
+  - `Layout.SeatClaim(team, claim)` = `<v2-state>/<team>.new-<claim>` (the guest placement);
+  - `GuestTokenCopy(team, seat)` = `ctl/<team>/guest/<handle>.token` under `CtlState` (3.6.3);
+  - `SeatDevice` = `TCSEAT`, the one fixed device id (3.7.2).
+
+## 2. The records (3.7.1, 3.7.2)
+
+- **SR1. `seat.json`.** One type with the 3.7.2 fields. The pool form has no `claim` and no
+  `released_ms`; the held form (written by a take into `held/` and the session) has both,
+  `released_ms` being a number or `null`. Decoding is strict (no unknown or repeated key, nothing
+  after the value, at most 16 KiB) and checks every field: `v` 1; `team` a team id; `server_name`
+  the team's (`paths.ServerName`); `user_id` an agent handle on that server; `admin_id` the
+  team's admin; `main_room` a room ID; `base_url` and `plain_http_hosts` a member URL the matrix
+  client accepts (M14); `device_id` `TCSEAT`; `issued_ms` not negative; `issuer` a digest;
+  `claim` a claim id. A pool record that carries `claim` or `released_ms`, or a held one that
+  lacks either, is refused. The seat's handle is `user_id`'s localpart.
+- **SR2. `held.json`** `{"v":1,"session":S,"claim":C,"since_ms":N}`, **`released.json`**
+  `{"v":1,"claim":C,"released_ms":N}`, **`notice.json`**
+  `{"v":1,"claim":C,"run":R,"posted":B,"why":W}` (`why` only when `posted` is false), each
+  strict like SR1.
+- **SR3. The issued bundle**, the `bundle` value of `member add|return|reissue`'s answer (3.7.3):
+  `{"seat": <pool seat.json>, "password": "<secret>"}` for a pool seat or
+  `{"seat": ..., "token": "<secret>"}` for a guest seat, exactly one credential, strict. A
+  credential is printable ASCII without a space (0x21 to 0x7e), 1 to 4096 bytes (n2c-D10). A secret's formatting never shows
+  it, and it is never marshalled except by the encoder of this one document.
+
+## 3. Writes (C24)
+
+- **SW1.** Every file is created by directory fd: `openat` with `O_CREAT|O_EXCL|O_NOFOLLOW`, mode
+  0600, written, `fsync`ed, then its directory `fsync`ed. A record that is replaced
+  (`released.json`, `notice.json`, the guest token copy) is written as `<name>.new` that way and
+  renamed over the old one, never followed. Every directory the store makes is 0700.
+- **SW2.** Every path below the seat store root is opened from the root's fd with `openat2`
+  `RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS`, so a link anywhere on the path is
+  refused, never followed. The root is opened `O_DIRECTORY|O_NOFOLLOW` and must be a directory
+  the caller owns, mode 0700; one that is not is refused (78-class configuration error).
+- **SW3.** Reading a record: the same `openat2`, `fstat` a regular file, at most the record's cap,
+  decoded strictly.
+
+## 4. The allocation lock (3.4, C26)
+
+- **SL1.** `Lock(ctx)` takes the checkout's allocation lock, `paths.AllocLock`, an exclusive
+  `flock` on a file opened `O_NOFOLLOW|O_CLOEXEC`, non-blocking, retried every 100 ms for at most
+  30 s by the injected clock; still held is `ErrBusy`. A take needs a held `*Alloc` (the API
+  enforces it); a release takes the lock itself, for its steps 2 and 5 only.
+
+## 5. The credential seam (DC16 (c'), DESIGN-v2.md 7.1)
+
+- **SC1.** A pool seat's credential is one interface, `Credential`: the name of its pool file;
+  `Mint` (take step 3, which answers the token this take keeps); `Retire` (release step 4).
+  `Password` is (c'), the one built. 7.1's (d1) or (d2) is another implementation; nothing
+  outside the interface names the password.
+- **SC2. `Password.Mint`** reads the pool's `password` (SW3, printable ASCII, no newline) and
+  makes three calls over the bundle's member URL: `LoginDevice` as `TCSEAT`, `Logout` with the
+  token it answered (ending that token and every earlier one of the device, H-C13), and
+  `LoginDevice` again, whose token is kept. A first login refused with `M_FORBIDDEN` is
+  `ErrReissue` ("the password was reset outside this pool"). The password never reaches an
+  error, a log or argv.
+- **SC3. `Password.Retire`** is `POST /logout` with the held token; `M_UNKNOWN_TOKEN` counts as
+  done.
+
+## 6. Take (3.7.3 "Taking a seat for a session")
+
+`Take(ctx, alloc, Take{Seat, Session, State})`, as the owner, under the allocation lock.
+
+- **ST1. Step 1.** The pool seat must have a complete record (its credential file and
+  `seat.json`) and no `<seat>.new-*` leftover (named, offering `member reissue`). The handle's
+  state decides: `active` goes on; `parked` or `lost` is `ErrReturn`; `needs: reissue` is
+  `ErrReissue`; `retired` is `ErrRetired`, its pool directory moved to
+  `released/pool/.../<seat>-<claim>/` under a fresh claim id, with its credential unlinked. A `held/` whose
+  `held.json` is missing or incomplete is moved to quarantine (a take that died before step 2
+  finished). A `held/` naming a session that is live or restorable is `ErrHeld`; one naming a
+  session that is over is released first (section 7, under the lock this take holds).
+- **ST2. Step 2.** `mkdirat(held)`; `held.json` with a fresh claim id and `since_ms` now.
+- **ST3. Step 3.** `Credential.Mint`. `ErrReissue` removes `held/`. Any other failure leaves
+  `held/` naming a session that holds nothing (the next take finds it over and releases it).
+- **ST4. Step 4.** `held/token`, then `held/seat.json`: the pool's `seat.json` with `claim` and
+  `released_ms` from `released.json` (`null` when there is none).
+- **ST5. Steps 5 to 7.** `sessions/<session>/` is opened by fd (made 0700 when missing);
+  `mkdirat(<team>)`, where `EEXIST` is refused naming the path; the new directory is opened
+  `O_DIRECTORY|O_NOFOLLOW`, must be a directory the owner owns, mode 0700, and empty; `token`,
+  then `seat.json`, are copied from `held/` by SW1.
+- **ST6.** After a take, every token of the seat's device minted before it is dead, whether or not
+  its release ran: proved on fakehs, which keeps a re-login's earlier token until a logout as
+  Tuwunel 1.9.4 does, and, with `-tags tuwunel`, against the real server.
+- **ST7. Kinds.** A ccy session and a host `cc` session take the same way into their session seat
+  directory (3.7.1; n2c-D3). An LXC guest's seat is not taken (section 9).
+
+## 7. Release (3.7.3 "Releasing a seat")
+
+`Release(ctx, Release{Seat, Session, Leaving})`, as the owner.
+
+- **SX1. Step 1.** Unless the session seat directory is already gone, wait, at most 60 s, for its
+  seat lock to be free or the session to be over. The probe is L3: `openat2(<team>/seat.lock, O_RDONLY|O_NONBLOCK, RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS)` from the fd of
+  `sessions/<session>/`, `fstat` a regular file, `flock(LOCK_SH|LOCK_NB)`. The lock is first
+  found by `O_PATH` and `fstat`ed, so only a regular file is ever opened for reading. A link, a
+  FIFO, a device, a directory, or a mode or owner that denies the owner is refused: free, naming
+  no run, as a missing lock file is (no keeper ever held it). Still held at the bound, the
+  release goes on (n2c-D14).
+- **SX2. Step 2.** Under the lock, `renameat2(sessions/<session>/<team>, released/sessions/<session>/<team>-<claim>, RENAME_NOREPLACE)` by fds; already gone goes on. One the owner
+  cannot move (a mode or owner its container set) is kept: steps 3 to 5 still run, then the
+  release is `ErrCopyKept` naming it, and a take that cleared the holding goes on (n2c-D14).
+- **SX3. Step 3 (the session is over, not leaving).** The notice's inputs (section 8). The
+  `Announcer` is called with `held/`'s path, `since_ms` from `held.json` and the run id. Posted
+  or a goodbye found, and not possible for good, are recorded as `held/notice.json` (the reason
+  in `why`) and the release goes on; a transient failure stops the release with `held/` kept,
+  and the next release resumes here.
+- **SX4. Step 4.** `Credential.Retire` with `held/token`; a transient failure stops the release
+  here. A `held/` with no `token` has nothing to retire.
+- **SX5. Step 5.** Under the lock: `released.json` (this claim, now), then `held/` moved to
+  `released/pool/<key>/<team>/<seat>-<claim>/` and its `token` unlinked. The pool's credential
+  file and `seat.json` are unchanged.
+- **SX6.** A release that stopped resumes from where it stopped, and a release of a seat with no
+  `held/` is done.
+
+## 8. The disconnected notice's inputs (3.7.5, B 2.5, B 2.11)
+
+- **SD1.** The run id is read from the free seat lock file through the L3 probe's fd, at most
+  4 KiB, decoded as B 2.5's `{"v":1,"run":R,"started_ms":N}` with an optional
+  `launch_failed_ms`. A file that is missing, empty, undecodable, or whose `run` fails the run id
+  grammar names no run; nothing is posted for it. One with `launch_failed_ms` is skipped.
+- **SD2.** A run that `held/notice.json` already records (same claim and run) is not asked again.
+- **SD3.** `Announce(ctx, Seat, Session)` is the crashed-session path (the launcher at `podman`
+  exit, the seat sweep): the same probe without the wait (a held lock is "not yet", no error),
+  the same inputs and record, and the seat stays held.
+- **SD4.** On a retry after step 2 the lock file is read in the quarantined session seat
+  directory, by the same probe (n2c-D5).
+
+## 9. Placement (3.7.3) and the host's kept copies
+
+- **SP1. Claim.** `Claim(seat)` makes `pool/<key>/<team>/<seat>.new-<claim>` by `mkdirat`
+  (0700), refusing any `<seat>.new-*` that already exists, naming it, and refusing a seat whose
+  `held/` exists (`ErrHeld`: release it first). `Abandon` removes the empty claimed directory
+  (a refusal from root). `QuarantineLeftovers` moves every leftover to
+  `released/pool/.../<seat>-<claim>/` with its credential unlinked (the reissue's first step).
+- **SP2. Fill.** Writes the credential file, then `seat.json` (SW1), into the claim; then
+  `renameat2(<seat>.new-<claim>, <seat>, RENAME_NOREPLACE)` when there is no `<seat>`, else
+  `RENAME_EXCHANGE`, the old record moved to `released/pool/.../<seat>-<claim>/` and its
+  credential unlinked. The issued `seat.json` must be a pool record naming this seat's team and
+  handle; anything else is refused before any write. The old record's `released.json`, checked,
+  is carried into the claim (n2c-D8).
+- **SP3. Guest (LXC).** `PlaceGuest(layout, issued)` is the same code run as the agent user in
+  the guest: `<v2-state>/<team>.new-<claim>/` (0700) with `token` and `seat.json` (0600),
+  swapped in as `<v2-state>/<team>/`, the old directory removed by `os.RemoveAll` (no link
+  followed). It takes a guest bundle (a token) only.
+- **SP4. The host's kept copies.** For a ccy or host member the host-held bundle is the pool's
+  `held/` (ST4). For an LXC member it is `GuestTokenCopy`, written by the `teamchat-ctl` child
+  with SW1's replace (`KeepGuestToken`), its directory made 0700.
+
+## 10. Decisions where the design is silent or in conflict
+
+| ID      | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| n2c-D1  | A pool seat's directory is named by the whole handle, not by its `<seat>` part. One checkout can hold handles of two types (`podman` and `host`) with the same seat number in one team, and C 3.7.4 counts numbers per prefix, so `<seat>` alone collides.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| n2c-D2  | The retired seat's pool directory goes to `released/pool/.../<seat>-<claim>/` under a fresh claim id naming the move, so it can never meet a release's quarantine of the same seat.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| n2c-D3  | A host `cc` session's seats are its session seat directory, as C 3.7.1 says, not B's header's `~/.config/teamchat/seats`: then one take and one release serve both kinds, and the quarantine rename never crosses a filesystem.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| n2c-D4  | A stale `held/` met by a take is released under the take's allocation lock, its homeserver calls included: the take already holds the lock, and a second `flock` from the same process would wait on itself.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| n2c-D5  | A release resumed after step 2 reads the ended run's id from the quarantined seat lock file, by the same probe; the design reads it only before the move, which a resume no longer can.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| n2c-D6  | The allocation lock's wait is bounded at 30 s, retried every 100 ms; the design gives no bound for it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| n2c-D7  | The credential seam is an interface of three members (its pool file, `Mint`, `Retire`). 7.1's (d1) is a `Mint` that checks the pool token by `whoami` and a `Retire` that does nothing; (d2) is a `Mint` that answers the freshly placed token and a `Retire` that logs out and unlinks the pool's `token`, with take step 1 reading a record with no `token` as "reissue".                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| n2c-D8  | A placement over an existing record carries its `released.json` into the new one (a broken one refuses the placement): `released_ms` bounds area B's store-less start (C 3.7.2, seam row 32), and a `return` or `reissue` must not reset it to `null`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| n2c-D9  | A release reads and writes its holding through the fd of the `held/` it found (steps 3 and 4), and does step 5 only while `held/held.json` still carries its claim; a `held/` that looked incomplete is judged again under the lock before it is quarantined, its `token` unlinked. Then a take that releases an ended holding itself (n2c-D4) while a release of it is outside the lock never has its new holding touched. A retired seat's `held/` is cleared as a take clears it before its pool record goes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| n2c-D10 | A credential refuses a space as well as a control character (SR3 says printable ASCII): every credential is a generated password or a homeserver token, and a space at either end of a file would be lost by the first tool that trims it. Every record key must be lowercase ASCII, since `encoding/json` matches a field name case-insensitively.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| n2c-D11 | A guest placement first removes any `<team>.new-*` an earlier one left: a guest has no quarantine and a leftover may hold a token. It takes no lock; `lxc apply` runs one placement per guest at a time.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| n2c-D12 | Whether steps 1 and 2 are owed is judged from host-owned state only, never from the session's copy, which its container may rewrite (C41). A release whose quarantine name `released/sessions/<session>/<team>-<claim>` exists counts steps 1 and 2 as done: it was resumed after step 2, and its session may since have taken another seat of the team into the same directory. A session seat directory gone at step 1 is gone at step 2, so one that a take of another seat made between them is left in place.                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| n2c-D14 | Revocation never depends on anything a member can write. `sessions/<session>/` is mounted read-write into the container, so it, the seat directory, the seat lock and its flock are all the member's. What decides whether a seat is held is the host's: `held/` (written under the allocation lock, where no container reaches) and the session record. The seat lock is advisory: a refused probe is free and names no run, as deleting the lock already was, and the wait for a held one is a bounded drain after which the release goes on. No two live holders can follow: a restorable session is `ErrHeld` whatever its lock, and each take's fresh login ends every earlier token of the device (ST6). A copy the owner cannot move is kept with a dead token (`ErrCopyKept`), never a reason to skip steps 3 to 5. Only the errnos a container can cause (`ELOOP`, `ENOTDIR`, `ENXIO`, `EACCES`, `EPERM`, a non-regular lock) are refusals; any other fault stops the release or take. |
+| n2c-D13 | Accepted, not fixed: two releases of one holding at once (the launcher's and the seat sweep's) may both ask the announcer, as the notice's transaction id stores it once (M22), and one may fail its `notice.json` replace and stop, the retry completing. A broken `released.json` is refused by a take and by a placement alike, so only a hand mend clears it; the next round of the design should say whether a reissue may drop it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |

@@ -211,8 +211,10 @@ its first caller.
   start spec with its self-check and strict request and answer codecs. Not covered: starting the
   child (it waits for `execx` to carry a credential and a replaced environment, n2a-D6), and
   DC17's dependencies, which this slice does not need.
+
 - [ ] ⬜ **Task 2.2**: The homeserver instance per team (C 3.2): the pinned Tuwunel, the hardened
   `teamchat-server@<team>` unit carrying D's `InaccessiblePaths=`, checked by D's gate (seam 49).
+
 - [ ] 🔄 **Task 2.3**: Install and apply (C 3.5), the rooms engine from A's specs (C 3.6), the
   roster, members, humans and roles; the service-account localparts `conduit` (HC-A6) and
   `tuwunel` reserved (A 2.3) (seam 18).
@@ -239,8 +241,27 @@ its first caller.
   YAML reader (`declare/hostvars`, `go.yaml.in/yaml/v3` vendored), and the go-deps `keepout` row
   that keeps YAML out of `teamchat-admin` (DC17). An Element entry takes `team` alone, so a
   `base_url` is refused (the N0 re-check's finding 5). Not covered: the host_vars writer (HV4,
-  ccy-teams'), `declare check`'s v1 rules, seats, bundles, Element profiles, health, status
-  records, backups and restore.
+  ccy-teams'), `declare check`'s v1 rules, Element profiles, health, status records, backups
+  and restore.
+  Slice n2c (`feat/bus-v2-n2c`, `SPEC-n2c.md` SN1 to SP4, n2c-D1 to D13, report
+  `subagent-reports/261022-n2c.md`) covers the owner's side of C 3.7 in `internal/teamchat/seat`:
+
+  - the seat store's names in `paths`, and the records (`seat.json`, `held.json`, `released.json`,
+    `notice.json`, the issued bundle);
+  - the directory-fd writes and the allocation lock;
+  - the credential seam with the (c') password;
+  - take (C 3.7.3) and release, with the disconnected notice's inputs and `Announce`;
+  - placement, and the guest placement with the kept guest token.
+
+  Tests run on fakehs and, under `-tags tuwunel`, against the pinned Tuwunel 1.9.4.
+  Not covered:
+
+  - the root side of `member add|return|reissue`;
+  - the hot reissue, seat choice and handles (3.7.4), `desired.json` and hot control;
+  - the quarantine prune;
+  - C 3.10, 3.11 and 3.12 (n2b covers C 3.8).
+
+  One low finding of the last review round is open, with its fix, in the report.
 - [ ] ⬜ **Task 2.5**: Acceptance: C 3.14's tests; the M44 real-Tuwunel test, and Tuwunel's answers
   for a locked and a deactivated account recorded into `fakehs` (host or VM lab); VM-lab scenario
   `teamchat-coexist` (P1) to its N2 stage, a host-only team cycle (D 4.3); the install on the host with the footprint before and after (P2); host
@@ -248,6 +269,7 @@ its first caller.
   DC8) in the VM lab, or on the host once gate B is cleared, except H-C15's clause that a held
   ccy session works again after ccy-teams' hot reissue, which needs N3 and N4 and is Task
   4.4's; restore stays refused (DC8) until that clause passes too.
+
   - **Gate A** (Task 0.5): the play tasks and units of Tasks 2.2 to 2.4 (and of any later task,
     such as 3.3) merge to F44, and the install on the host runs, only after the owner has
     confirmed OD-A7, DC1, DC5, DC15, OD-D1, OD-D5 and TID. The VM-lab parts of this task do not

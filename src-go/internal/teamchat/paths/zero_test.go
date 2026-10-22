@@ -18,7 +18,7 @@ import (
 // any of them panics, since the name would be the parent directory of every team or session.
 var guarded = []string{
 	"TeamID", "RunID", "CheckoutKey", "GuestUser", "SetID", "SessionName", "Digest", "DisplayName",
-	"ServerVersion", "Kit", "Layout", "Seat", "Run", "Store",
+	"ServerVersion", "Kit", "Layout", "Seat", "Run", "Store", "SeatName", "ClaimID", "PoolSeat",
 }
 
 // zeroDerivations is every exported function that takes a guarded type, given the zero value
@@ -79,6 +79,7 @@ func zeroDerivations() map[string]func() string {
 		"ElementLauncher":        func() string { return orError(ElementLauncher("/home/u", team)) },
 		"ProbeState":             func() string { return orError(ProbeState("/home/u/.local/state", team)) },
 		"AllocLock":              func() string { return orError(AllocLock("/run/user/1000", key)) },
+		"GuestTokenCopy":         func() string { return GuestTokenCopy(team, SeatName{}) },
 	}
 }
 
@@ -168,8 +169,11 @@ func TestEveryMethodOfAZeroValuePanics(t *testing.T) {
 		reflect.TypeFor[RunID]():       reflect.ValueOf(mustRun(t)),
 		reflect.TypeFor[SessionName](): reflect.ValueOf(sampleSessionName(t)),
 		reflect.TypeFor[CheckoutKey](): reflect.ValueOf(sampleCheckoutKey(t)),
+		reflect.TypeFor[SeatName]():    reflect.ValueOf(sampleSeatName(t)),
+		reflect.TypeFor[ClaimID]():     reflect.ValueOf(sampleClaimID(t)),
 	}
 	for _, recv := range []struct{ zero, valid any }{
+		{PoolSeat{}, store.PoolSeat(sampleCheckoutKey(t), mustTeam(t, "ops"), sampleSeatName(t))},
 		{Kit{}, HostKitCurrent()},
 		{Layout{}, CCYLayout()},
 		{Seat{}, CCYLayout().Seat(mustTeam(t, "ops"))},

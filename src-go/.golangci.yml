@@ -268,6 +268,12 @@ linters:
       - path: internal/teamchat/declare/hostvars/hostvars\.go
         linters: [gosec]
         text: "G304"
+      # The seat store refuses a directory others can enter and a record others can read (Plan
+      # 00209 SPEC-n2c.md SW1, SW2); its tests build those states, and read back by computed path
+      # what the store wrote under a temporary directory.
+      - path: internal/teamchat/seat/.*_test\.go
+        linters: [gosec]
+        text: "G301|G302|G304|G306"
   settings:
     tagliatelle:
       case:
@@ -279,6 +285,11 @@ linters:
             rules:
               json: snake
           - pkg: internal/teamchat/matrix/fakehs
+            rules:
+              json: snake
+          # C 3.7.2's records (seat.json, held.json, released.json) are snake_case files, as the
+          # Matrix keys inside them are.
+          - pkg: internal/teamchat/seat
             rules:
               json: snake
     cyclop:

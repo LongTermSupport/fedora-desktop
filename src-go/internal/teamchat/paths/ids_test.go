@@ -106,6 +106,34 @@ func TestParseGuestUserIsAPortableUserName(t *testing.T) {
 	}
 }
 
+func TestParseClaimIDIsSixteenLowercaseHex(t *testing.T) {
+	if _, err := ParseClaimID("0123456789abcdef"); err != nil {
+		t.Fatalf("a 16-hex claim id: %v", err)
+	}
+	for _, s := range []string{"", "0123456789abcde", "0123456789abcdef0", "0123456789ABCDEF", "../x"} {
+		if _, err := ParseClaimID(s); !errors.Is(err, ErrInvalid) {
+			t.Errorf("ParseClaimID(%q) = %v, want ErrInvalid", s, err)
+		}
+	}
+}
+
+// A seat name is a handle's localpart (A 2.3): one segment, never a claim's name (n2c-D1).
+func TestParseSeatNameIsOneHandleSegment(t *testing.T) {
+	for _, s := range []string{"repo.1+site.podman", "my_repo.coord+h-1.host", "r.new+s.lxc"} {
+		if _, err := ParseSeatName(s); err != nil {
+			t.Errorf("ParseSeatName(%q): %v", s, err)
+		}
+	}
+	for _, s := range []string{
+		"", ".", "..", ".a", "a/b", "a\x00b", "a b", "-a", "A.1+s.host", "a..b", "a.", "r.1.new-0123+s.host",
+		strings.Repeat("a", 129),
+	} {
+		if _, err := ParseSeatName(s); !errors.Is(err, ErrInvalid) {
+			t.Errorf("ParseSeatName(%q) = %v, want ErrInvalid", s, err)
+		}
+	}
+}
+
 // The identifiers the design gives no grammar for are held to one safe path segment.
 func TestSegmentIdentifiersRefuseWhatCouldLeaveTheirDirectory(t *testing.T) {
 	parsers := map[string]func(string) error{
@@ -162,11 +190,13 @@ func TestIDsDecodeOnlyThroughTheirParse(t *testing.T) {
 		Digest  Digest        `json:"digest"`
 		Display DisplayName   `json:"display"`
 		Version ServerVersion `json:"version"`
+		Claim   ClaimID       `json:"claim"`
+		Seat    SeatName      `json:"seat"`
 	}
 	valid := map[string]string{
 		"team": "ops", "run": "0123456789abcdef", "key": strings.Repeat("ab", 16), "user": "dev",
 		"set": "s1", "session": "sess-1", "digest": strings.Repeat("0a", 8), "display": "Ops",
-		"version": "1.2.3",
+		"version": "1.2.3", "claim": "fedcba9876543210", "seat": "r.1+s.host",
 	}
 	data, err := json.Marshal(valid)
 	if err != nil {
@@ -179,6 +209,7 @@ func TestIDsDecodeOnlyThroughTheirParse(t *testing.T) {
 	for field, id := range map[string]fmt.Stringer{
 		"team": got.Team, "run": got.Run, "key": got.Key, "user": got.User, "set": got.Set,
 		"session": got.Session, "digest": got.Digest, "display": got.Display, "version": got.Version,
+		"claim": got.Claim, "seat": got.Seat,
 	} {
 		if id.String() != valid[field] {
 			t.Errorf("%s decoded as %q, want %q", field, id.String(), valid[field])
@@ -186,13 +217,14 @@ func TestIDsDecodeOnlyThroughTheirParse(t *testing.T) {
 	}
 	again, err := json.Marshal(got)
 	if err != nil || string(again) != `{"team":"ops","run":"0123456789abcdef","key":"`+strings.Repeat("ab", 16)+
-		`","user":"dev","set":"s1","session":"sess-1","digest":"`+strings.Repeat("0a", 8)+`","display":"Ops","version":"1.2.3"}` {
+		`","user":"dev","set":"s1","session":"sess-1","digest":"`+strings.Repeat("0a", 8)+`","display":"Ops","version":"1.2.3",`+
+		`"claim":"fedcba9876543210","seat":"r.1+s.host"}` {
 		t.Fatalf("round trip: %s, %v", again, err)
 	}
 	invalid := map[string][]string{
 		"team": {"", "ctl", "../x", "Ops"}, "run": {"", "../x", "0123"}, "key": {"", "../x"},
 		"user": {"", "../x"}, "set": {"", ".."}, "session": {"", "a/b"}, "digest": {"", "current", "../x"},
-		"display": {"", "a\nb"}, "version": {"", "../x"},
+		"display": {"", "a\nb"}, "version": {"", "../x"}, "claim": {"", "../x"}, "seat": {"", "../x"},
 	}
 	for field, bads := range invalid {
 		for _, value := range bads {

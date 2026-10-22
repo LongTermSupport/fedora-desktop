@@ -500,6 +500,84 @@ func (s Store) DesiredFile(n SessionName) string { return s.Control(n) + "/" + d
 // Released is the quarantine of released seat directories.
 func (s Store) Released() string { return s.Root() + "/released" }
 
+// SeatDevice is a seat's one fixed Matrix device id: every take logs in as it (C 3.7.2).
+const SeatDevice = "TCSEAT"
+
+// claimSuffix joins a seat or team to the claim of a new directory being placed (C 3.7.3).
+const claimSuffix = ".new-"
+
+// PoolTeam is one checkout's pool seats of a team.
+func (s Store) PoolTeam(k CheckoutKey, t TeamID) string { return s.PoolCheckout(k) + "/" + t.text() }
+
+// PoolSeat is a pool seat's authoritative record, never mounted into a container.
+func (s Store) PoolSeat(k CheckoutKey, t TeamID, n SeatName) PoolSeat {
+	return PoolSeat{dir: s.PoolTeam(k, t) + "/" + n.text()}
+}
+
+// PoolClaim is the new directory a placement fills before it is swapped in as the pool seat.
+func (s Store) PoolClaim(k CheckoutKey, t TeamID, n SeatName, c ClaimID) PoolSeat {
+	return PoolSeat{dir: s.PoolSeat(k, t, n).Dir() + claimSuffix + c.text()}
+}
+
+// SessionSeat is the copy of a seat's bundle a session holds, with area B's state beside it.
+func (s Store) SessionSeat(n SessionName, t TeamID) Seat {
+	return Seat{dir: s.Session(n) + "/" + t.text()}
+}
+
+// ReleasedSession is where a released session seat directory is moved, never read again.
+func (s Store) ReleasedSession(n SessionName, t TeamID, c ClaimID) Seat {
+	return Seat{dir: s.Released() + "/sessions/" + n.text() + "/" + t.text() + "-" + c.text()}
+}
+
+// ReleasedPool is where a released held/ or a replaced pool record is moved, never read again.
+func (s Store) ReleasedPool(k CheckoutKey, t TeamID, n SeatName, c ClaimID) string {
+	return s.Released() + "/pool/" + k.text() + "/" + t.text() + "/" + n.text() + "-" + c.text()
+}
+
+// PoolSeat is a pool seat's directory.
+type PoolSeat struct{ dir string }
+
+// Dir is the pool seat's directory.
+func (p PoolSeat) Dir() string { return must("pool seat", p.dir) }
+
+// Password is the seat account's password (DC16 (c')), never copied out of the pool.
+func (p PoolSeat) Password() string { return p.Dir() + "/password" }
+
+// Token is the pool's token in place of the password, should the owner choose DESIGN-v2.md 7.1.
+func (p PoolSeat) Token() string { return p.Dir() + "/token" }
+
+// Bundle is the pool's seat.json, which has no claim and no release time.
+func (p PoolSeat) Bundle() string { return p.Dir() + "/seat.json" }
+
+// ReleasedRecord is the seat's last release.
+func (p PoolSeat) ReleasedRecord() string { return p.Dir() + "/released.json" }
+
+// Held is the holding session's bundle as the pool keeps it, present while a session holds it.
+func (p PoolSeat) Held() string { return p.Dir() + "/held" }
+
+// HeldRecord names the holding session and its claim.
+func (p PoolSeat) HeldRecord() string { return p.Held() + "/held.json" }
+
+// HeldToken is the holding session's token, kept for the release.
+func (p PoolSeat) HeldToken() string { return p.Held() + "/token" }
+
+// HeldBundle is the session copy's seat.json text.
+func (p PoolSeat) HeldBundle() string { return p.Held() + "/seat.json" }
+
+// HeldNotice records the disconnected notice judged for a run.
+func (p PoolSeat) HeldNotice() string { return p.Held() + "/notice.json" }
+
+// SeatClaim is the new directory a guest placement fills before it is swapped in as the seat.
+func (l Layout) SeatClaim(t TeamID, c ClaimID) Seat {
+	return Seat{dir: l.State() + "/" + t.text() + claimSuffix + c.text()}
+}
+
+// GuestTokenCopy is the teamchat-ctl user's copy of an LXC guest seat's token, which the health
+// tick posts the member's disconnected notice with (C 3.6.3).
+func GuestTokenCopy(t TeamID, n SeatName) string {
+	return CtlState(t) + "/guest/" + n.text() + ".token"
+}
+
 // AllocLock is the owner's allocation lock for one checkout, under $XDG_RUNTIME_DIR.
 func AllocLock(runtimeDir string, k CheckoutKey) (string, error) {
 	if err := checkBase("runtime", runtimeDir); err != nil {
