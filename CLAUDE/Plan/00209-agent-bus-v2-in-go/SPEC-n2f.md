@@ -117,6 +117,9 @@ the state root (`paths.CtlStateRoot` under a test root), the clock and the rando
   file in `ctl/<team>/` (0600, `O_EXCL|O_NOFOLLOW`), synced, linked to their name (an existing
   name fails, never replaced), the temporary unlinked and the directory synced. `ctl/<team>/`
   must be a directory the child's euid owns, mode 0700, opened without following a link.
+  Before the bootstrap, every `Open` removes through the held directory fd any
+  `.admin.password.*.tmp` and `.admin.token.*.tmp` a crash left between the create and the
+  unlink (the team lock keeps other writers out); one it cannot remove fails the open.
 - **OP5. Nothing secret escapes.** No error, CHANGED line or log holds the password, the token
   or the registration key; the step answers `admin registered` or `admin token stored` lines
   through `apply.Result` only by the bootstrap's own lines (OP3 prints none of its own).

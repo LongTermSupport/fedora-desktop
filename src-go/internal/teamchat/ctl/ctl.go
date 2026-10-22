@@ -19,7 +19,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -98,6 +100,9 @@ func Open(ctx context.Context, cfg Config, team paths.TeamID, port int, regKey s
 		return admin.Opened{}, err
 	}
 	defer func() { err = errors.Join(err, d.close()) }()
+	if err = d.sweep(passwordName, tokenName); err != nil {
+		return admin.Opened{}, err
+	}
 	b := bootstrap{dir: d, anon: anon, team: team, rand: cfg.Rand}
 	token, err := b.token(ctx, regKey)
 	if err != nil {
@@ -371,6 +376,40 @@ func (d *dir) create(name string, data []byte, rnd io.Reader) error {
 		return fmt.Errorf("cannot put %s in place: %w", d.at(name), err)
 	}
 	return d.sync()
+}
+
+// isTempOf is a temporary name tempName made for name: `.<name>.<anything>.tmp`.
+func isTempOf(entry, name string) bool {
+	rest, ok := strings.CutPrefix(entry, "."+name+".")
+	if !ok {
+		return false
+	}
+	middle, ok := strings.CutSuffix(rest, ".tmp")
+	return ok && middle != ""
+}
+
+// sweep removes every temporary of names a crash left between create's open and its unlink,
+// so no copy of a secret outlives the run that wrote it (OP4). The directory is listed through
+// the held fd; the team lock keeps any other writer out.
+func (d *dir) sweep(names ...string) error {
+	fd, err := unix.Openat(d.fd, ".", unix.O_DIRECTORY|unix.O_RDONLY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return fmt.Errorf("cannot list %s: %w", d.path, err)
+	}
+	f := os.NewFile(uintptr(fd), d.path)
+	entries, err := f.Readdirnames(-1)
+	if err = errors.Join(err, f.Close()); err != nil {
+		return fmt.Errorf("cannot list %s: %w", d.path, err)
+	}
+	for _, entry := range entries {
+		if !slices.ContainsFunc(names, func(name string) bool { return isTempOf(entry, name) }) {
+			continue
+		}
+		if err := d.remove(entry); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // remove deletes name if it is there, and syncs the directory.

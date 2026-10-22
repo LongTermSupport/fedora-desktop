@@ -360,6 +360,50 @@ func TestCrashAfterTheTokenBeforeThePasswordIsDeletedIsFinishedByTheNextApply(t 
 	w.bootstrapped(w.mustOpen(w.key()))
 }
 
+// TestACrashedWriteLeavesNoSecretBehind is OP4: a temporary password or token a crash left
+// between its create and its unlink is removed by the next Open, before the bootstrap, with or
+// without a key; nothing else in the directory is touched.
+func TestACrashedWriteLeavesNoSecretBehind(t *testing.T) {
+	stale := []string{".admin.password.0123456789abcdef.tmp", ".admin.token.fedcba9876543210.tmp"}
+	others := []string{".admin.token.tmp", "admin.token.1.tmp", "notes.tmp"}
+	plantStale := func(w *world) {
+		for _, name := range stale {
+			w.write(name, strings.Repeat("ab", passwordBytes))
+		}
+	}
+	for _, regKey := range []bool{true, false} {
+		w := newWorld(t)
+		w.mustOpen(w.key())
+		plantStale(w)
+		for _, name := range others {
+			w.write(name, "")
+		}
+		key := ""
+		if regKey {
+			key = w.key()
+		}
+		w.mustOpen(key)
+		want := append([]string{tokenName}, others...)
+		if got := w.entries(); !slices.Equal(slices.Sorted(slices.Values(got)), slices.Sorted(slices.Values(want))) {
+			t.Errorf("key %v: ctl/<team>/ = %v, want %v", regKey, got, want)
+		}
+	}
+	w := newWorld(t)
+	plantStale(w)
+	w.bootstrapped(w.mustOpen(w.key()))
+}
+
+func TestAStaleTemporaryThatCannotBeRemovedFailsTheOpen(t *testing.T) {
+	w := newWorld(t)
+	w.mkdir(filepath.Join(w.dir, ".admin.token.0123456789abcdef.tmp"), 0o700)
+	if _, err := w.open(w.key()); err == nil || !strings.Contains(err.Error(), ".admin.token.0123456789abcdef.tmp") {
+		t.Fatalf("err = %v", err)
+	}
+	if w.has(passwordName) {
+		t.Error("the bootstrap ran past a stale temporary it could not remove")
+	}
+}
+
 func TestALeftoverPasswordStaysWithoutAKey(t *testing.T) {
 	w := newWorld(t)
 	w.mustOpen(w.key())
