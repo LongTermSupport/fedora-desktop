@@ -350,6 +350,11 @@ linters:
           - pkg: internal/teamchat/member/wire
             rules:
               json: snake
+          # The GitHub REST API is snake_case (full_name, default_branch, author_association):
+          # the forge checker names every key it reads as the wire does.
+          - pkg: internal/teamchat/member/forge
+            rules:
+              json: snake
     cyclop:
       max-complexity: 15
     funlen:
