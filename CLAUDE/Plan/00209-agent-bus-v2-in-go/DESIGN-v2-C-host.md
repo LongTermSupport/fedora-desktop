@@ -100,14 +100,14 @@ fixes in section 6.
 
 ### 2.5 Declarations, the play, LXC
 
-| ID  | Requirement                                                                                                                                                                                                                                                                                                               | From                   |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| C28 | host_vars stays the IaC store; the play is the one route that turns a declaration into a running team. v2 keys are its own; v1's keys are never written by v2, and the one read is `agent_bus_teams[].port` by `declare check` (D §3.8).                                                                                  | D6, R2, FRAME          |
-| C29 | Every change that runs a play or writes host_vars takes the play lock first and writes host_vars only once it holds it.                                                                                                                                                                                                   | R34                    |
-| C30 | The declaration has one truth per fact: the team's coordinator is declared in one place, not in both a roster and a member entry, and a coordinator can be declared before its member exists.                                                                                                                             | LR 6 item 6, new       |
-| C31 | LXC members are applied by the play from the host. The container's checkout and accounts are read from the host side with no-follow walks and size caps. No container program runs as root, and no container needs Python.                                                                                                | R33, R48, LR 6 item 10 |
-| C32 | A stopped LXC container is ordinary (its member held back and recorded); only a missing container in the present phase, or a failure in a running one, fails the apply (the absent phase parks a missing container's member, 3.9.2). Everything checkable is checked for every running container before anything changes. | R33, R48, LR 1.5       |
-| C33 | Kits are versioned directories resolved once at launch, never replaced in place under a running session.                                                                                                                                                                                                                  | R49, DESIGN B9         |
+| ID  | Requirement                                                                                                                                                                                                                                                                                                                                                                                              | From                   |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| C28 | host_vars stays the IaC store; the play is the one route that turns a declaration into a running team. v2 keys are its own; v1's keys are never written by v2, and the one read is `agent_bus_teams[].port` by `declare check` (D §3.8).                                                                                                                                                                 | D6, R2, FRAME          |
+| C29 | Every change that runs a play or writes host_vars takes the play lock first and writes host_vars only once it holds it.                                                                                                                                                                                                                                                                                  | R34                    |
+| C30 | The declaration has one truth per fact: the team's coordinator is declared in one place, not in both a roster and a member entry, and a coordinator can be declared before its member exists.                                                                                                                                                                                                            | LR 6 item 6, new       |
+| C31 | LXC members are applied by the play from the host. The container's checkout and accounts are read from the host side with no-follow walks and size caps. No container program runs as root, and no container needs Python.                                                                                                                                                                               | R33, R48, LR 6 item 10 |
+| C32 | A stopped, frozen or missing LXC container is ordinary (its member held back and recorded `offline`, or `deferred` when it has no handle yet), and so is one that stops during the apply; only a failure in a container still running fails the apply (the absent phase parks a missing container's member, 3.9.2). Everything checkable is checked for every running container before anything changes. | R33, R48, LR 1.5       |
+| C33 | Kits are versioned directories resolved once at launch, never replaced in place under a running session.                                                                                                                                                                                                                                                                                                 | R49, DESIGN B9         |
 
 ### 2.6 Element, health, backups, the board
 
@@ -636,8 +636,8 @@ still up (operations 22).
 the repository can write, so a declaration edit alone must not change who can reach a team or
 act in it. The security fields are each team's `humans`, `coordinator`, `allow_from`, `listen`,
 `url` and `trust`, the team's existence itself, and the team's LXC members (each
-`teamchat_lxc_members` entry's team, container, user and `human_text`: an entry creates an
-account and places a token). `teamchat-admin team approve --team T` (root, password sudo, the
+`teamchat_lxc_members` entry's team, container, checkout, seat, user and `human_text`: an entry
+creates an account and places a token, and its checkout and seat name the member, 3.9.1). `teamchat-admin team approve --team T` (root, password sudo, the
 declaration on stdin) writes them to `/var/lib/teamchat-status/teams/<team>/approved.json`
 (0640 root:`<owner group>`) after `ccy-teams approve <team>` has shown the owner the whole
 difference. Step 2 compares against that file (a team with none differs in its existence);
@@ -795,7 +795,8 @@ decoded strictly (unknown or duplicate keys refused, sizes capped, exit 78 namin
 - `counters` never go down, even when an account creation fails (R9).
 - `coordinator` is the role last applied; the truth is the declaration (3.8, DC6).
   `coordinator_wanted` is a declared coordinator whose handle is not yet in the roster, or is
-  `lost` (3.6.4): a recorded pending promotion, shown on the board as a problem with its fix.
+  `lost` (3.6.4): a recorded pending promotion, shown on the board as team state with its fix,
+  never as a problem.
 - `pending` is the one operation in progress, if any:
   `{"op": "member.add", "handle": "<h>", "step": "account", "since_ms": 0}`. It is written before
   the first homeserver call of an operation and cleared after the last.
@@ -866,13 +867,13 @@ which rewrites the roster event and the membership of each room, the questions r
 included), posts the admin's notice for the change (below), refreshes the status record, and
 answers one JSON document on stdout. Verbs and their state machine:
 
-| Verb                                                                                        | From state         | Steps (each recorded in `pending` before it runs)                                                                                                  | To state  |
-| ------------------------------------------------------------------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| `member add --prefix P --seat S\|next --kind K --human-text B --credential password\|token` | (none)             | claim the handle in the roster (counter raised); create the account; issue the credential; converge the rooms (invite per A's specs); post `added` | `active`  |
-| `member return --handle H --credential password\|token`                                     | `parked`, `lost`   | revoke (password reset with device logout), or for `lost` create the account; issue the credential; converge the rooms; post `added`               | `active`  |
-| `member reissue --handle H --credential password\|token`                                    | `active`           | revoke; issue the credential (the lost-bundle recovery, C21)                                                                                       | `active`  |
-| `member park --handle H`                                                                    | `active`           | revoke; mark; converge the rooms; post `parked`                                                                                                    | `parked`  |
-| `member retire --handle H`                                                                  | `active`, `parked` | mark; converge the rooms (kick from every room); deactivate; post `removed`                                                                        | `retired` |
+| Verb                                                                                  | From state         | Steps (each recorded in `pending` before it runs)                                                                                                  | To state  |
+| ------------------------------------------------------------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| `member add --prefix P --seat S --kind K --human-text B --credential password\|token` | (none)             | claim the handle in the roster (counter raised); create the account; issue the credential; converge the rooms (invite per A's specs); post `added` | `active`  |
+| `member return --handle H --credential password\|token`                               | `parked`, `lost`   | revoke (password reset with device logout), or for `lost` create the account; issue the credential; converge the rooms; post `added`               | `active`  |
+| `member reissue --handle H --credential password\|token`                              | `active`           | revoke; issue the credential (the lost-bundle recovery, C21)                                                                                       | `active`  |
+| `member park --handle H`                                                              | `active`           | revoke; mark; converge the rooms; post `parked`                                                                                                    | `parked`  |
+| `member retire --handle H`                                                            | `active`, `parked` | mark; converge the rooms (kick from every room); deactivate; post `removed`                                                                        | `retired` |
 
 **The credential** (decision DC16). A seat's bundle carries one of two credentials, chosen by the
 caller:
@@ -910,9 +911,13 @@ any time (C23).
   again from the fresh status record, at most three times (seat numbers are counted per prefix
   across checkouts, while the allocation lock is per checkout, 3.7.4).
 - ccy-teams always passes an explicit `--seat S`: the pool directory it claims before calling
-  sudo is named by the seat (3.7.3). `--seat next` is for `lxc apply` only, where root chooses
-  under the team lock: the lowest number no active, parked or lost member of that prefix holds
-  (parked and lost ones keep their number for their return).
+  sudo is named by the seat (3.7.3). `lxc apply` passes the entry's declared seat too (n3b-D2,
+  3.9.1), so every caller passes `--seat S` and `--seat next` has no caller (its removal is in
+  the n3b-D2 rework scope). A number is never handed out twice: parked and lost members keep
+  theirs for their return, and a retired number is refused. An `add --seat S` or `return` whose
+  account is deactivated on the server records the handle `retired` and is refused with the
+  error class `retired` (SPEC-n2d MO4), which `lxc apply` alone among refusals turns into the
+  entry's `DEFERRED` (3.9.2 step 06).
 - `--human-text` sets the member's `human_text` in the roster, which is its one home: A's verdict
   and B's invite rule read it from the roster event (A §5.1), and the bundle does not carry it
   (3.7.2). Changing it is `member set --handle H --human-text B`, which converges the rooms like
@@ -969,9 +974,12 @@ exists (C30), and `role apply` handles it as follows:
 - A declared coordinator that is an `active` or `parked` handle is promoted now.
 - A declared coordinator that is not in the roster, or is `lost` (3.12.2), is recorded as
   `coordinator_wanted` (3.6.1),
-  and the status record lists it as a problem with its fix ("coordinator `<handle>` declared but
-  not yet a member: start its session, run the LXC apply, or `member return` it"). The team runs with no coordinator
-  meanwhile. This is a recorded pending state the board shows, not a skip.
+  and the status record shows it as team state (its `coordinator_wanted`, 3.11.3), not as a
+  problem, with its fix ("coordinator
+  `<handle>` declared but not yet a member: start its session, run the LXC apply, or
+  `member return` it"). It never makes the team's health bad or `status` exit 1: a member declared
+  but not created yet is offline (FRAME, "Offline members never block"). The team runs with no
+  coordinator meanwhile. This is a recorded pending state the board shows, not a skip.
 - The promotion is done at the end of the operation that creates that handle: `member add` or
   `member return` (3.6.3), or `lxc apply` (3.9.2 step 6), each under the team lock, demotion
   first as above. That operation clears `coordinator_wanted`.
@@ -1514,10 +1522,10 @@ teamchat_teams:
 teamchat_lxc_members:
   - team: <team>                        # a team declared present
     container: <container>
-    user: <agent-user>
+    user: <agent-user>                  # who runs the seat; not part of its name
     checkout: /home/<agent-user>/<repo> # read from the host side (3.9)
     site: <site>                        # optional; the handle's site (A §2.3)
-    seat: <n>                           # optional
+    seat: <n>                           # required, 1-9999; (team, container, checkout, seat) is the member (3.9.1)
     human_text: true                    # optional, default true
     service: false                      # optional: a supervised session in the guest
     state: present                      # present | absent
@@ -1541,8 +1549,11 @@ What changed from v1's keys, and why:
   lose `role`. A ccy member's role used to live only in the registry, set by `set-role`, and an LXC
   member's role in its entry: two truths that a live change and the next apply could fight over.
 - LXC entries lose `repo`, which existed only to park a destroyed container's handle. The LXC
-  apply record keeps the (container, user, team) to handle map on the host (3.9), so the handle is
+  apply record keeps the (team, container, checkout, seat) to handle map on the host (3.9), so the handle is
   known without it.
+- An LXC entry is a seat, not a user: `seat` is required and (team, container, checkout, seat)
+  is its identity, so one container, one user and one checkout may hold any number of members
+  (n3b-D2, 3.9.1). v1 refused a second entry for the same team, container and user.
 - `removed_humans` is gone: removing a name from `humans` kicks and locks that human, and adding
   it back unlocks (DC9).
 - The trust settings are grouped under `trust`, so the keys A owns are visibly A's. The keys
@@ -1596,10 +1607,57 @@ Reading and writing:
 with the declared members as JSON on stdin. ccy-teams' `lxc-add` edits host_vars under the play
 lock and runs the play scoped to the team, as v1 does. The play stays the one route (C31).
 
+**What an LXC member is** (n3b-D2, the owner's requirement: "it absolutely should be, no limits").
+An entry is one member, named by (team, container, checkout, seat). Its `user` is only who runs
+it, never part of its name. A container holds any number of entries, for any number of users and
+checkouts: several repos in one container, and a coordinator and a worker on one checkout, are
+each an entry of their own, with a seat, a desired membership, a session and a unit of their own.
+`seat` is required in every entry: it is part of the member's identity, so it is declared and
+stable, and every name below is known from the declaration alone, before the first join and for
+a stopped container. `lxc apply` never uses `--seat next`; it passes the entry's seat. The tool
+that adds an entry picks the seat when it writes the declaration, and the declaration records
+it: when the owner names none, `ccy-teams lxc-add` writes the
+lowest number that no LXC entry of the team declares, in any container or checkout, and no LXC
+handle in the team's roster holds, in any state. Counting across the whole team needs no guest
+read and keeps two clones of one origin in different containers off one handle (seat numbers
+are cheap). Two entries with the same (team,
+container, checkout, seat) are refused at step 01. The role is the entry's, through DC6's one
+truth: an entry is its team's coordinator when the team's `coordinator` names its handle, so a
+team has at most one, and an entry has no `role` key. A seat lives in one container: two entries,
+in any containers, whose handles derive equal are refused at step 03, and the record maps each
+handle to at most one entry that is not `left` (3.9.3).
+
+The names a seat takes, each made by one function of the paths package from the entry, never
+parsed back:
+
+| Name                    | Grammar                                                                                                                                                                                                             | Limit, and why                                                                                                                                                                                                                                                                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| seat key `<key>`        | the first 16 lowercase hex of SHA-256 of `<team>\n<checkout>\n<seat>` (seat in decimal)                                                                                                                             | the seat's identity in every guest and host path. Two entries of one container (any team, declared or in a record) with different (team, checkout, seat) and one key, which is a hash collision, are refused at step 01 naming both, so a collision is refused, never trusted; an entry and its own record entry share their key by design |
+| repo label `<repo>`     | the checkout's base name normalised by A's `NormaliseRepo` (lowercase `[a-z0-9_-]`, every other character `-`, leading `-` and `_` trimmed), cut to 24, trailing `-` and `_` trimmed; `checkout` if nothing is left | a label for people, read from the declared path, not the origin, so it is known before any guest read; uniqueness is the key's. Its characters need no systemd escaping and hold no `/`, `.` or `:`                                                                                                                                        |
+| session unit            | `teamchat-session-<team>-<repo>-<seat>-<key>.service`                                                                                                                                                               | at most 17 + 22 + 1 + 24 + 1 + 4 + 1 + 16 + 8 = 94 bytes, under systemd's 255                                                                                                                                                                                                                                                              |
+| tmux session            | the unit's name less `.service`                                                                                                                                                                                     | at most 86 characters, with no `.` or `:`, which tmux does not keep in a session name                                                                                                                                                                                                                                                      |
+| tmux server socket      | `/run/teamchat-session-<key>/tmux.sock` (`tmux -S`)                                                                                                                                                                 | a server per unit, 48 bytes. One shared `-L` server would run every later unit's pane inside the first unit's server, so its cgroup, and stopping that unit would end every seat of the user                                                                                                                                               |
+| runtime directory       | `/run/teamchat-session-<key>` (`RuntimeDirectory=teamchat-session-<key>`)                                                                                                                                           | the key alone, 38 bytes, so B's sockets below it stay under `sun_path`'s 107: `<runtime>/teamchat/run/<run id>/link.sock` is 78 bytes and `<runtime>/cc-socks/<pid>.sock` at most 60 (B 2.4.4). The unit's name would not fit                                                                                                              |
+| session name            | `lxc-<key>`                                                                                                                                                                                                         | `desired.json`'s `session` (B 2.10), which `guest membership` checks                                                                                                                                                                                                                                                                       |
+| guest seat root         | `~/.config/teamchat/lxc/<key>/seats/` (B's `<v2-state>`, which `run --kind lxc --key <key>` derives), the seat directory `<team>/` below it                                                                         | per seat, as a ccy session's `sessions/<session>/` (3.7.1): B's state root holds one directory per team, so two seats of one user in one team cannot share one                                                                                                                                                                             |
+| guest desired directory | `~/.config/teamchat/lxc/<key>/membership/` (B's `<v2-desired>`)                                                                                                                                                     | per seat, as ccy's `control/<session>/` (3.7.5), for the reason below                                                                                                                                                                                                                                                                      |
+| host copy               | `/var/lib/teamchat-admin/_lxc/<container>/<key>.json`                                                                                                                                                               | 3.9.3                                                                                                                                                                                                                                                                                                                                      |
+| member target           | `<container>/<key>` (`lxc apply --member`, `lxc restart --member`)                                                                                                                                                  | ccy-teams computes the key with the same function                                                                                                                                                                                                                                                                                          |
+| output field            | `<user>@<container>/<repo>-<seat>-<key>`                                                                                                                                                                            | 3.9.3's lines                                                                                                                                                                                                                                                                                                                              |
+
+**Why the desired membership is per seat, not per checkout.** B's desired file holds at most one
+seat per team (B 2.10) and B's state root one seat directory per team, so a file per checkout
+could not hold a coordinator and a worker of one team on one checkout. Per seat is what ccy
+already does: each ccy session has its own `sessions/<session>/` and `control/<session>/`
+(3.7.1). So each seat's `desired.json` lists at most its own seat, and its keeper holds that seat
+alone. Within one team, one checkout and one user, the seats share nothing but the user's
+`~/.config/teamchat/`.
+
 The rules the apply keeps from v1 (R33, R48, LR 1, LR 6): the checkout is read from the host side;
 everything checkable is checked for every running container before anything changes; demotions
-before promotions; a stopped container is ordinary and a missing one is an error in the present
-phase (the absent phase parks its member, 3.9.2); a running and
+before promotions; a stopped container is ordinary, and so, unlike v1, is a missing one: its
+entry is held back and every other entry is applied (3.9.3; the absent phase parks its member,
+3.9.2); a running and
 correct member is left alone (no new token on every run).
 
 What changes: no container program ever runs as root, and no container needs Python. There are
@@ -1616,7 +1674,7 @@ two write mechanisms, one per kind of path, and no path is written by both:
 | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `python3 -I -c <script>` run inside the guest as root (kit sync, user lookup, env file, unit) | no guest program run as root; root writes only root-owned system paths of the guest, from the host side, with `openat2(RESOLVE_IN_ROOT\|RESOLVE_NO_SYMLINKS\|RESOLVE_NO_MAGICLINKS\|RESOLVE_NO_XDEV)` and the checks below |
 | `python3 -I -c` as the agent user (bundle, `pingbus config check`)                            | `teamchat guest <op>` as the agent user (B 2.13), through `lxc-attach -u <uid> -g <gid> --clear-env` with `HOME`, `USER`, `LOGNAME` and `PATH` set, reading typed JSON on stdin                                            |
-| the env file naming the user's teams, written as root                                         | the desired membership `~/.config/teamchat/membership/desired.json`, written by `guest membership` as the agent user (3.9.2 step 8)                                                                                        |
+| the env file naming the user's teams, written as root                                         | a desired membership per seat, `~/.config/teamchat/lxc/<key>/membership/desired.json`, written by `guest membership` as the agent user (3.9.2 step 8)                                                                      |
 | `getent passwd` inside the guest                                                              | the guest's `/etc/passwd` read from the host side, size-capped                                                                                                                                                             |
 | the source-address check by a UDP connect inside the guest                                    | the guest's addresses from `lxc-info -iH` and its link from the container config, checked against `allow_from` on the host                                                                                                 |
 | a kit copied file by file into one directory, replaced in place                               | the kit written as `/usr/local/lib/teamchat/kit/<digest>/` from the host side and a `current` link swapped atomically; a digest kept while any live session names it (C33, 3.9.2 step 4)                                   |
@@ -1664,10 +1722,18 @@ any group but the agent user's own, and refuses to run as uid 0.
 
 #### 3.9.2 Order of one present phase
 
-01. Validate every entry (types, `(team, container, user)` unique, team declared present and its
-    homeserver active) before touching any container.
-02. For each container: `lxc-info -sH`. Missing fails the present phase. Not `RUNNING` is held
-    back (3.9.3).
+01. Validate every entry (types, `seat` present, `(team, container, checkout, seat)` unique, no
+    two different (team, checkout, seat) with equal seat keys within a container, across every
+    team's entries and LXC record entries not `left`, every team's records read whatever
+    `--only-teams` says, team declared present and its homeserver active) before touching any container.
+    A failure here is a declaration error: the phase fails naming the entries, before any
+    change, whatever runs or not. An entry whose key the record holds for another `user` is not refused: the absent
+    phase, which runs first, moves the seat off the old user (below), and this phase joins it
+    for the new one by `member return`, or holds it back while the key's entry stays `left`
+    under the old user.
+02. For each container: `lxc-info -sH`. Not `RUNNING` (stopped or frozen) is held back, and so is
+    missing, its line saying `container missing` (3.9.3). Neither fails the phase, under any
+    `--only-teams` scope: the other entries are applied as if alone.
 03. For each running container, read from the host side and change nothing yet:
     - the container config (a host file, root-owned): network link, `lxc.start.auto`; an
       unprivileged (`lxc.idmap`) container is refused by name, as v1 does;
@@ -1685,16 +1751,36 @@ any group but the agent user's own, and refuses to run as uid 0.
       Every read opens `O_PATH` first and `fstat`s it: anything but a regular file is refused by
       name. Only then is that inode reopened `O_RDONLY|O_NONBLOCK` through `/proc/self/fd/<n>`
       (device and inode checked again) and read, up to its cap, so a FIFO is never opened and the
-      host never becomes its reader. A stopped container is not read at all (3.9.3);
-    - the agent user from `/etc/passwd` (uid, gid, home), at most 1 MiB;
-    - the checkout: `.git/config` (`origin`; `insteadOf` rewrites refused), and
-      `.claude/ccy/ccy.env.local` (owned by the agent user's uid, else refused), each at most
-      64 KiB;
+      host never becomes its reader. A stopped container is not read at all (3.9.3). The init
+      pid is held by a pidfd and asked again once the root fd is open: a container that stopped
+      or restarted meanwhile, or whose pid changed, is that entry's
+      `DEFERRED<TAB><team><TAB><user>@<container>/<repo>-<seat>-<key><TAB>container stopped during the apply`, retried at the next apply, never
+      the phase's failure, and the same for every other seat of that container;
+    - `/etc/passwd` once per container, at most 1 MiB, and from it each entry's agent user (uid,
+      gid, home);
+    - each checkout once, however many seats name it: `.git/config` (`origin`; `insteadOf`
+      rewrites refused), and `.claude/ccy/ccy.env.local` (owned by the uid of one of the agent
+      users whose entries in this container name that checkout, so seats of several users
+      can share one checkout, else refused), each at most 64 KiB;
     - derive the handle (3.7.4), at the member's first join only: once the LXC record holds a
-      handle for (container, user, team), that handle is kept, and a derivation that differs is
-      refused by name ("the checkout's origin changed; retire and add the member to change its
-      handle"), so a guest's files never make a new account; the seat is the entry's, else the one
-      the LXC record holds, else the lowest free;
+      handle for (container, checkout, seat) in the team, that handle is kept, and a derivation
+      that differs is refused by name ("the checkout's origin changed; give the entry another
+      seat to take a new handle"), so a guest's files never make a new account. The seat number
+      is the entry's (`member add --seat <seat>`). The roster's state of the handle, read here
+      before any change, chooses step 06's verb: no member, or a pending `add` of it, is `add`
+      (which completes the pending one, SPEC-n2d MO5); `parked` or `lost` is `return`; `active`
+      is `reissue`, also when no record entry holds it (a crash between a join and the
+      record write that follows it, step 10, or a record restored older than the roster: the
+      handle carries the LXC kind and no other entry derives it, so it is this entry's); and
+      `retired` is refused below. So no join reaches the child to be refused for its state.
+      Two entries of a team, in any containers, whose
+      handles are equal (derived here, or held by a record entry not `left`; a stopped
+      container's never-joined entry has none yet and is compared when it next runs) are
+      refused by name, naming both, or, when one of them holds the handle in the record, naming
+      the other as the wrong one; and an entry whose handle the team's roster holds as
+      `retired` is refused by name ("seat N of <prefix> is retired; give the entry another
+      seat"). Both are wrong declarations, a running container's wrong facts (n3b-D1), so they
+      fail the phase like every refusal here, also when the container has just started;
     - check the source address: one of the guest's addresses inside the team's `allow_from` (which
       includes the live bridge subnet), on a link that is a host bridge;
     - for a team whose `origin` is `migration` (D §3.9), whether the guest still runs this member on
@@ -1712,9 +1798,12 @@ any group but the agent user's own, and refuses to run as uid 0.
     then swap `current` and the `/usr/local/bin/teamchat` link. The bytes
     written are the host's, whose digest the build recorded, so there is nothing to check inside
     the guest and no guest program runs. An old digest is deleted only when it is not `current`
-    and no live session names it: the host reads each `session.pid` (B 2.4.1) under the guest's
-    two runtime parents, both read every time (`/run/user/<uid>/teamchat/run/*/` and the session
-    unit's `/run/teamchat-session-<user>/teamchat/run/*/`, 3.9.4; an absent parent is no session)
+    and no live session names it: the host reads each `session.pid` (B 2.4.1) under every
+    runtime parent of the guest, all read every time (`/run/user/<uid>/teamchat/run/*/` for each
+    agent user's uid, and `/run/teamchat-session-<key>/teamchat/run/*/` for every entry of the
+    guest's `/run` whose name is `teamchat-session-` and a key, listed rather than taken from the
+    record, so a seat the record no longer names still keeps its digest, 3.9.4; an absent parent
+    is no session)
     through the root fd, decoded strictly and size-capped, and checks the recorded pid's
     start time in the guest's own `/proc`. The records are the guest's writing, which is safe in
     this one direction: a forged or undecodable record can only make the host keep a digest
@@ -1722,99 +1811,159 @@ any group but the agent user's own, and refuses to run as uid 0.
     parent, keeps the host's own `/usr/local/lib/teamchat/kit` digests (C33). A session resolves
     its kit once at launch (area B), so a digest it uses outlives every swap.
 05. Guest check: `teamchat guest check --user <user> --team <team>` as the agent user in each
-    running container, with `{"v":1,"team","base_url","plain_http_hosts"}` from the team's
+    running container, once per (user, team) however many seats share it, with `{"v":1,"team","base_url","plain_http_hosts"}` from the team's
     declaration on stdin for `reach` (what the member needs to work, for example the forge CLI
-    signed in; area B defines the list, B 2.13). Any failure fails the phase before any roster
-    change.
+    signed in; area B defines the list, B 2.13). A `gh` or `reach` miss is offline (n3b-D1), and
+    since the check runs once per (user, team) it makes every seat of that user in that team
+    offline this phase; any other failure in a container still running fails
+    the phase before any roster change (but see "A container that stops during the phase" below).
 06. Roster changes, under each team's lock in turn: every demotion of every team first, then every
-    join (`member add`, `return` or `reissue` with `--credential token`, as the state requires,
-    3.6.3), then every promotion, including each team's `coordinator_wanted` that one of these
+    join (`member add --seat <seat>`, `return` or `reissue` with `--credential token`, as the
+    state requires, 3.6.3; an `add` or `return` refused because the seat's account is
+    deactivated on the server is answered with the child's error class `retired`, having
+    recorded the handle `retired` (SPEC-n2d MO4). That class, and no other refusal, is that
+    entry's `DEFERRED ... seat <seat>'s account is deactivated; give the entry another seat`,
+    recorded `deferred`, the phase not failed, and the next apply's step 03 refuses the retired
+    number by name; any other refusal fails the phase), then every promotion, including each team's `coordinator_wanted` that one of these
     joins has just created (3.6.4).
-07. Place each new bundle: `teamchat guest place-bundle --user <user>` as the agent user, bundle
-    (with its team) on stdin. A seat directory that does not exist is written as
-    `~/.config/teamchat/seats/<team>.new-<claim>/` (0700) with `token` and `seat.json` (0600) and
-    renamed in as `~/.config/teamchat/seats/<team>/` with `RENAME_NOREPLACE`. One that exists keeps
+07. Place each new bundle: `teamchat guest place-bundle --user <user> --key <key>` as the agent
+    user, bundle (with its team) on stdin. A seat directory that does not exist is written as
+    `~/.config/teamchat/lxc/<key>/seats/<team>.new-<claim>/` (0700, its parents made 0700) with
+    `token` and `seat.json` (0600) and renamed in as `~/.config/teamchat/lxc/<key>/seats/<team>/`
+    with `RENAME_NOREPLACE`. One that exists keeps
     its `store.json` and `seat.lock` (B 2.5): `token`, then `seat.json`, are each replaced inside it
     by an `O_EXCL` temporary file and a rename. When its `seat.json` names a different identity (a
     retire and add, a new seat number; an undecodable `seat.json` counts as one), the op takes
     the seat lock, sets the store aside as `seat set-aside` does (B 2.3.2) and places the files,
     releasing the lock last; it exits 75 if the seat is held, which is `DEFERRED` naming the seat
     and retried at the next apply. Then the member's own config (area B).
-08. Membership: for each guest user whose desired membership differs from the host's record of it
-    (3.9.3), write the record first, then run `teamchat guest membership --user <user>` as the agent
-    user with the whole `desired.json` on stdin (3.7.5's schema): `session` is `lxc-<user>`,
-    `generation` one above the record's last, `seats` every team the user is placed in, `farewell`
-    empty, `inbound` `accept`. The op writes `~/.config/teamchat/membership/desired.json` (0700
-    directory, 0600 file) atomically, and the guest's keeper reconciles it at once (B 2.10). A
-    converged apply writes nothing. A user's seats span teams, so this step runs once per user
-    after every team's placement, under the play lock that every apply runs under (3.5.1).
-    `--only-teams` limits which entries a phase acts on, never what this file lists: `seats` still
-    names every team the user is placed in, the ones outside `--only-teams` taken from the host copy.
-    A seat whose `place-bundle` was `DEFERRED` in step 07 is left out of `seats` in both the host
-    copy and the guest's file, so the running keeper releases the old identity's seat and the next
-    apply places the new one.
+08. Membership, once per seat: for each seat whose desired membership differs from the host's
+    copy of it (3.9.3), write the copy first, then run `teamchat guest membership --user <user> --key <key>` as the agent user with the whole `desired.json` on stdin (3.7.5's schema):
+    `session` is `lxc-<key>`, `generation` one above the copy's last, `seats` the seat's own
+    `{team, seat}` once it is placed (one entry at most), `farewell` empty, `inbound` `accept`. The
+    op writes `~/.config/teamchat/lxc/<key>/membership/desired.json` (0700 directories, 0600 file)
+    atomically, and that seat's keeper reconciles it at once (B 2.10). A converged apply writes
+    nothing. A seat is one team's, so its file never names a team outside `--only-teams`, and one
+    seat's step never waits for another's. A seat whose `place-bundle` was `DEFERRED` in step 07 is
+    left out of `seats` in both the host copy and the guest's file, so its running keeper releases
+    the old identity's seat and the next apply places the new one.
 09. Supervised session (`service: true`): see 3.9.4.
-10. Write the LXC record (3.9.3), only after the phase succeeded and only when it changed.
+10. Write the LXC record (3.9.3) at the end of every phase, failed or not, when it changed. A
+    handle a join made is recorded at once, since an unrecorded one would be parked by nothing
+    when its entry is removed, leaving its token valid: so the record is also written under each team's lock
+    as soon as that team's step 06 joins return, before step 07, with each joined entry's
+    handle (status `deferred` until its later steps complete, then `joined`, or `offline` when
+    deferred mid-phase). An entry whose steps a failed phase did not reach keeps the status it
+    had. `active` with no record entry (step 03's `reissue`) is then left only to a record
+    restored older than the roster, or a crash between a join and that write; the next
+    apply's `reissue` then records it.
+
+**A container that stops during the phase** is offline, never the phase's failure. An
+`lxc-attach` that fails or times out (each has a 60 s bound), a step 04 kit write or a 3.9.4
+systemd call that fails, is followed by `lxc-info -sH`: a container no longer running prints
+`DEFERRED<TAB><team><TAB><user>@<container>/<repo>-<seat>-<key><TAB>container stopped during the apply`
+for that entry and for every other seat of that container not yet done, and the other containers'
+entries carry on; only a failure in a container still running fails the phase. An entry
+deferred mid-phase takes no further step. Its record status is `offline` when a handle exists,
+its step 06 join included (never a second `add`), else `deferred`; when
+its bundle was not placed, the roster member is marked `needs: reissue` (3.6.1), and step 06 of the
+first apply that finds the container running runs `member reissue` for it. An entry deferred
+before step 08 is left out of that step's `seats`, in the host copy and the guest's file alike;
+one deferred at step 09 keeps its seat, its bundle being placed.
 
 **The absent phase** runs first in the play, before any team is removed (3.5.1 step 10), so a
 leaving member is parked on a live server. A member leaves when its entry says `state: absent`,
-or when the LXC record names a (container, user, team) that no entry declares any more. For each
-leaving member of a running container, under its team's lock, which the health tick then cannot
-take (3.11.2):
+or when the team's LXC record names a (container, checkout, seat) that no entry declares any
+more. A seat also leaves its old user when the record's entry for a declared key names another
+`user`: steps 1-5 remove it under the old user from the record, and the present phase then
+joins it for the new one (`member return`); while the record entry for the key stays `left`
+under the old user (a stopped container, or a seat still held after step 4), the present phase
+holds the new one back as `DEFERRED` (`the seat's files under its old user are not yet removed`), since the new user's seat would share the old one's unit, runtime directory and host
+copy, which the retry of steps 2-5 removes. A user move keeps its handle: when its step 5
+completes, the record entry is not dropped but rewritten with the declared `user`, status
+`deferred` and its handle, so the present phase (this play's or a later one's) finds the handle
+recorded, joins it by `member return` and never derives it again, and a changed origin still
+meets step 03's refusal. Each seat leaves
+on its own: the other seats of its container, its checkout and its user are untouched. For each
+leaving member of a running container, under its team's lock, which the
+health tick then cannot take (3.11.2):
 
 1. `member park` (3.6.3) first, which revokes the token and posts the admin's `parked` notice. The
    desired file is the agent's own (B 2.10), so nothing the guest does may stand between the
    owner's removal and the revocation: once the token is dead the member can no longer read or
    post in the team, whatever its keeper still holds. Its link meets 401 and stops the team (B 2.6
    step 08).
-2. Rewrite the user's desired membership without the seat and with a `farewell` entry for it,
-   reason `parked` (record first, then `guest membership`, as step 8). The keeper removes the team
-   and posts nothing for it, because the admin's `parked` notice announces it (B 2.10).
-3. If the user now holds no team, its supervised session unit is stopped, disabled and removed
-   (3.9.4), which ends the keeper and frees every seat lock it held.
+2. Rewrite the seat's desired membership with no seat and a `farewell` entry for it, reason
+   `parked` (host copy first, then `guest membership --key <key>`, as step 8). The seat's keeper
+   removes the team and posts nothing for it, because the admin's `parked` notice announces it
+   (B 2.10).
+3. The seat's supervised session unit, if it has one, is stopped, disabled and removed (3.9.4),
+   which ends its keeper and frees its seat lock. No other seat's unit is touched.
 4. Wait for the seat to be free: the L3 probe below, every second, at most 60 s (B's removal bound
    of 10 s and its leave-notice bound of 30 s, with margin).
-5. `teamchat guest remove --user <user> --team <team>` as the agent user (B 2.13); it takes the
-   seat lock itself, so it cannot race a keeper that took the seat again.
+5. `teamchat guest remove --user <user> --key <key> --team <team>` as the agent user (B 2.13); it
+   takes the seat lock itself, so it cannot race a keeper that took the seat again, and removes
+   the seat's files and its desired file below `~/.config/teamchat/lxc/<key>/`, all but
+   `seat.lock`, which is never unlinked (B 2.5). The host copy is deleted after it, and the
+   record entry is dropped (a user move's is rewritten for the new user, above): a `left` entry exists only while guest files are pending, and takes
+   no part in step 01's key rule or step 03's equal-handle rule (its handle is parked, so a
+   newcomer with the same handle joins by `member return`).
 
 A seat still held after step 4 (an agent that rewrote its own desired file to keep the seat, or a
 keeper that does not answer) leaves only a seat whose token is dead: the phase reports it as
-`DEFERRED<TAB><team><TAB><user>@<container><TAB>seat still held by run <id>; token revoked` (the
+`DEFERRED<TAB><team><TAB><user>@<container>/<repo>-<seat>-<key><TAB>seat still held by run <id>; token revoked` (the
 run id read from the seat lock's content, B 2.5, and printed only if it passes its grammar), keeps
 the record entry as `left` with that `why`, and runs steps 2-5 again at the next apply. It never
 fails the phase for it, since the removal itself has already taken effect, and nothing the agent
 does can delay step 1.
 
-For a stopped container, the handle the record holds is parked from the host side at once
+For a stopped container, each leaving seat's handle the record holds is parked from the host side at once
 (revoking its token, so a guest started later cannot use it) and the guest's files are left: the
 record entry stays `left`, guest files pending, and the next phase that finds the container
-running runs steps 2-5 for them, with the token already dead. A missing container is treated as a
+running runs steps 2-5 for them, with the token already dead. A `left` entry is never parked
+again: its handle may meanwhile have joined elsewhere by `member return` (a seat moved to
+another container), and parking it would park that live member. A missing container is treated as a
 stopped one in this phase, never as an error: its handle is parked from the host side the same
-way, and its record entry is dropped, since there are no guest files left to clean. A running
+way, and its record entry and host copy are dropped, since there are no guest files left to clean
+(a user move's entry is rewritten for the new user instead, as step 5 does, so its handle is
+kept).
+
+A leaving seat whose record `user` is no longer in the running guest's `/etc/passwd` (the old
+user of a user move renamed or deleted, or any leaver's) has no files the host can reach as
+that user, and its token is already dead from step 1. Steps 2, 4 and 5 are skipped: step 3
+removes its unit (root's write), the host copy is deleted, and the record entry is dropped, or
+for a user move rewritten for the new user, as step 5 does. It is never held `left` for ever. A running
 container and a stopped one now follow the same order: the park comes first in both. The absent
-phase writes the LXC record when it changed it, as the present phase does after it succeeded
-(step 10).
+phase writes the LXC record when it changed it, at its end whether it failed or not, as the
+present phase does (step 10).
 
 Whether an LXC seat is held (C27) is probed from the host through the same `/proc/<init pid>/root`
-fd: the member's seat lock under the agent user's seat directory, by the L3 probe (open `O_PATH`
+fd: the member's seat lock, `~<user>/.config/teamchat/lxc/<key>/seats/<team>/seat.lock` with the
+user, checkout and seat from the record entry that holds the handle and is not `left` (the
+absent phase's step 4 probes the leaving entry's own key; a handle that only `left` entries hold
+has no live seat and is not held), by the L3 probe (open `O_PATH`
 with `RESOLVE_IN_ROOT|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS`, `fstat` a regular file, reopen
 that inode `O_RDONLY|O_NONBLOCK` through `/proc/self/fd/<n>`, then `LOCK_SH|LOCK_NB` on the
 reopened fd; a link, a FIFO or any other file on the path is free with no record). The host never
-enters the container for it. A stopped container's seat is not
+enters the container for it. A stopped container's seats are none of them
 held. Opening another process's `/proc/<pid>/root` needs ptrace read access to it, which root has
 in the play and which the health unit is given for this one purpose (3.11.1).
 
 #### 3.9.3 Stopped containers and the record
 
-A container that exists but is not running is never entered and never fails the apply (C32):
+A container that is not running (stopped or frozen), or is missing, is offline: it is never
+entered and never fails the apply (C32). Every seat in it is offline, each with a line of its
+own, and none of them blocks another seat, another container or the play. A missing one's lines
+say `container missing`:
 
-- present, with a handle the record knows: `SKIPPED` (its seat is still claimed, so no one else gets
-  the number);
-- present, with no known handle: `DEFERRED` (the team's seat choice then refuses to hand out a
-  number that could be this member's, as v1's `unheld_ok` did);
-- absent: parked from the host side, `DEFERRED` for the guest's files.
+- present, with a handle the record knows: `SKIPPED`, status `offline` (its seat is still claimed,
+  so no one else gets the number);
+- present, with no known handle: `DEFERRED` (its seat number is declared, so it stays this
+  member's, and `lxc-add` never offers a number an entry declares, as v1's `unheld_ok` kept it);
+- absent: parked from the host side, `DEFERRED` for the guest's files (a missing container's
+  entry is dropped, 3.9.2).
 
-Output: `CHANGED|SKIPPED|DEFERRED<TAB><team><TAB><user>@<container><TAB><why>` lines and one
+Output: `CHANGED|SKIPPED|DEFERRED<TAB><team><TAB><user>@<container>/<repo>-<seat>-<key><TAB><why>` lines, one per seat, and one
 `LXC-SUMMARY<TAB><text>`; the play shows the held-back lines in a task of their own, so they show
 without `-v`.
 
@@ -1822,18 +1971,28 @@ The record `/var/lib/teamchat-status/lxc/<team>.json`, 0640 root:`<owner group>`
 change:
 
 ```json
-{"v": 1, "team": "<team>", "members": [{"container": "<c>", "user": "<u>", "handle": "<h>", "status": "joined", "since_ms": 0, "why": ""}]}
+{"v": 1, "team": "<team>", "members": [{"container": "<c>", "checkout": "<path>", "seat": 2, "user": "<u>", "handle": "<h>", "status": "joined", "since_ms": 0, "why": ""}]}
 ```
 
-`status` is `joined`, `stopped`, `deferred` or `left`; `since_ms` stays while status and handle stay.
-The record is the host's map from (container, user, team) to handle, so the guest's bundle is a copy
-of what the host knows, not the only place it is known (LR 7 item 4). A record ccy-teams cannot read
-fails `apply` and `lxc-add` and shows on the team row.
+`status` is `joined`, `offline`, `deferred` or `left`; `since_ms` stays while status and handle stay.
+An entry is keyed (container, checkout, seat), at most one per key; a handle is held by at most
+one entry that is not `left`, and `left` entries may share it with that entry and with each other
+(a seat moved to another container while its old seat's files are pending, 3.9.2's absent
+phase). `user`
+is a field of it, who runs the seat, not part of the key. A `left` entry is changed only by the
+absent phase: a present entry held back on its key while the key's entry is `left` under another
+`user` (a user move) prints the user move's `DEFERRED` and leaves the record entry as it is,
+never `offline` over it. The record is the host's map from (team,
+container, checkout, seat) to handle and user, so the guest's bundle is a copy of what the host
+knows, not the only place it is known (LR 7 item 4). A record ccy-teams cannot read fails `apply`
+and `lxc-add` and shows on the team row.
 
-The host's copy of each guest user's desired membership is
-`/var/lib/teamchat-admin/_lxc/<container>/<user>.json` (root 0600; `_lxc`, like `_sets`, starts
+The host's copy of each seat's desired membership is
+`/var/lib/teamchat-admin/_lxc/<container>/<key>.json` (root 0600; `_lxc`, like `_sets`, starts
 with an underscore, which no team id can):
-`{"v": 1, "generation": 4, "seats": [{"team": "<team>", "seat": "2"}], "farewell": []}`. It is
+`{"v": 1, "team": "<team>", "checkout": "<path>", "seat": 2, "generation": 4, "seats": [{"team": "<team>", "seat": "2"}], "farewell": []}`.
+Its `team`, `checkout` and `seat` are the key's inputs, checked against the file's name when it
+is read, so a key collision can never hand one seat another's generation. It is
 written before the guest's file (3.9.2 step 8 and the absent phase), so `generation` never goes
 down, a converged apply compares against it and writes nothing, and a guest file the agent changed
 is put back at the next apply. It is the one place the generation is kept.
@@ -1843,10 +2002,12 @@ rendered declaration would heal it on its own; it is held as decision DC10 and n
 
 #### 3.9.4 The supervised session in a guest
 
-`service: true` gives the agent user a supervised session: B's `teamchat run --claude --kind lxc` in a tmux
-pane, restarted on exit (area B owns what runs and its arguments, B 2.2). v1 wrote a system unit
+`service: true` gives the seat a supervised session: B's `teamchat run --claude --kind lxc` in a tmux
+pane, restarted on exit (area B owns what runs and its arguments, B 2.2). One unit and one tmux
+server and session per seat, so a user with several seats has several units, each started,
+restarted, failed and removed alone (names: 3.9.1). v1 wrote a system unit
 with a guest script as root and ran the guest's `systemctl` as root. v2 writes the unit file,
-`/etc/systemd/system/teamchat-session-<user>.service`, and its wants link, an absolute link in
+`/etc/systemd/system/teamchat-session-<team>-<repo>-<seat>-<key>.service`, and its wants link, an absolute link in
 `/etc/systemd/system/multi-user.target.wants/` made by `symlinkat` to a temporary name and
 `renameat2`, into the guest from the host side (3.9.1's rules), so the unit also starts at the
 next boot with no `systemctl enable` (DC13 (b) relies on that). It asks the guest's own systemd to
@@ -1857,12 +2018,13 @@ owned by root, and connected through `/proc/self/fd/<n>`, never by a `connect` t
 D-Bus (DC17) to a process that already runs as the guest's root, with no guest program run. Host
 check H-C9 proves this on a real privileged container. If it cannot be made to work, the fallback
 is decision DC13 (start at the next container start only); running the guest's `systemctl` as root
-is not an option. A unit whose text is unchanged is not restarted; a user in no team has the unit
-stopped, disabled and removed. The unit text is C's alone (area B places no unit):
+is not an option. A unit whose text is unchanged is not restarted; a seat that leaves, or whose
+entry turns `service: false`, has its unit stopped, disabled and removed. The unit text is C's
+alone (area B places no unit):
 
 ```ini
 [Unit]
-Description=teamchat session for <user>
+Description=teamchat session for <user>: team <team>, <repo>, seat <seat>
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=600
@@ -1873,11 +2035,11 @@ Type=forking
 User=<user>
 Group=<group>
 WorkingDirectory=<checkout>
-RuntimeDirectory=teamchat-session-<user>
+RuntimeDirectory=teamchat-session-<key>
 RuntimeDirectoryMode=0700
-Environment=XDG_RUNTIME_DIR=/run/teamchat-session-<user> HOME=<home>
+Environment=XDG_RUNTIME_DIR=/run/teamchat-session-<key> HOME=<home>
 Environment=PATH=<home>/.local/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/usr/bin/tmux -L teamchat new-session -d -s teamchat /usr/local/bin/teamchat run --claude --kind lxc --desired <home>/.config/teamchat/membership --resume-recorded -- claude
+ExecStart=/usr/bin/tmux -S /run/teamchat-session-<key>/tmux.sock new-session -d -s teamchat-session-<team>-<repo>-<seat>-<key> /usr/local/bin/teamchat run --claude --kind lxc --key <key> --resume-recorded -- claude
 TimeoutStopSec=30
 Restart=always
 RestartSec=10
@@ -1888,14 +2050,21 @@ WantedBy=multi-user.target
 
 - The pane runs `teamchat run` directly, with no launcher script or environment file between them
   (the member fixer's B 6 C3), in B's grammar (B 2.2.1, 2.4.1): a Claude Code launch, kind `lxc`,
-  the desired directory `guest membership` writes (3.9.2 step 8), and `--resume-recorded`, so a
-  restart of the unit resumes the conversation the last session recorded (B43) instead of starting
-  a new one. A test renders this unit from its template and parses the `ExecStart` command line,
+  the seat's key (`--key`, from which `run` derives the seat's own state root, where `guest place-bundle` puts the seat directory, 3.9.2 step 7, and desired directory, which `guest membership` writes, step 8, by the same paths function as the host), and `--resume-recorded`,
+  so a restart of the unit resumes the conversation this seat's last session recorded (B43,
+  kept in its own state root) instead of starting a new one. A seat with `service: false` is
+  run by hand with the same line, `teamchat run --claude --kind lxc --key <key> -- claude`; its
+  key is on the play's line and the board's member row for the seat, and each
+  `~/.config/teamchat/lxc/<key>/seats/<team>/seat.json` names its handle. A test renders this unit from its template and parses the `ExecStart` command line,
   after tmux's own arguments, with `run`'s argument parser (3.14); the same test parses the ccy
   and host launch lines of B 6 C3 and B 2.11's kinds table.
 
 - `RuntimeDirectory=` gives the session a runtime directory without a login session, and is one of
-  the runtime parents 3.9.2 step 4 reads.
+  the runtime parents 3.9.2 step 4 reads. It holds the seat's tmux server socket too (`-S`), so
+  each unit has a tmux server of its own inside its own cgroup, and systemd removes the socket
+  with the directory when the unit stops. To look at a seat's pane:
+  `tmux -S /run/teamchat-session-<key>/tmux.sock attach -t teamchat-session-<team>-<repo>-<seat>-<key>`
+  as its user.
 
 - **A session that cannot start.** `PATH` is set explicitly, because systemd's default has no
   `~/.local/bin`, where Claude Code's installer puts it; `guest check` (3.9.2 step 05, B 2.13)
@@ -1913,13 +2082,15 @@ WantedBy=multi-user.target
   stop itself: it has the member say its goodbye and ends within its bound, the keeper last
   (section 7, B). `TimeoutStopSec=30` is above B's end bound with margin.
 
-- `ccy-teams restart` on an LXC member runs `teamchat-admin lxc restart --container C --user U`
-  (root, password sudo), which resets its failed state and restarts this unit over the guest's
+- `ccy-teams restart` on an LXC member runs `teamchat-admin lxc restart --member <container>/<key>`
+  (root, password sudo), which resets that seat's failed state and restarts its unit alone over the guest's
   private socket as above; under
   DC13 (b) it refuses, naming a container restart.
 
 - `<checkout>`, `<user>`, `<group>` and `<home>` are the host-side reads of 3.9.2 step 3, each
-  checked against its grammar before it is rendered into the unit.
+  checked against its grammar before it is rendered into the unit; `<team>`, `<repo>`, `<seat>`
+  and `<key>` are 3.9.1's names, made from the entry, whose characters (`[a-z0-9_-]`) systemd
+  reads as themselves.
 
 ### 3.10 Element profiles
 
@@ -2001,7 +2172,8 @@ Step 3 also probes each LXC member's seat lock (3.9.2) for its `online` entry.
    The questions room is checked item by item, as Plan 00211 5.4 did: no worker is joined or
    invited to it, the coordinator (when the roster has one that is not parked) is joined, and the
    room has the form, open or closed, that A's specs give for the roster (A §4.3); each is its own
-   problem. The read-only child never completes a `pending` operation (3.6.3): it reports it as a
+   problem, and one about the coordinator's own membership (still only invited, say) carries its
+   `member` (3.11.3). The read-only child never completes a `pending` operation (3.6.3): it reports it as a
    problem whose fix is the verb that rolls it forward.
 4. Backups: the newest usable backup (both halves present) and its age; a backup older than 1.5 days,
    or a failed last run, is a problem. Free space on the filesystem of `/var/lib` (every team's
@@ -2059,7 +2231,8 @@ restore, so the board sees a change at once:
   "backup": {"newest": {"id": 7, "time_ms": 0}, "last_run": "ok"},
   "disk": {"free_bytes": 0, "free_pct": 0},
   "restore": null,
-  "problems": [{"what": "<what is wrong>", "fix": "<what to run>"}],
+  "coordinator_wanted": null,
+  "problems": [{"what": "<what is wrong>", "fix": "<what to run>"}, {"what": "<what is wrong>", "fix": "<what to run>", "member": "<handle>"}],
   "events": [{"at_ms": 0, "what": "restarted after three missed probes"}]
 }
 ```
@@ -2074,7 +2247,13 @@ restore, so the board sees a change at once:
 - `online` is present on LXC member entries only: the tick's probe of the member's seat lock
   (3.11.2), up to about 70 s old. An entry whose disconnected notice could not be posted carries
   it as a problem, and one whose last run's lock file records a launch failure carries
-  `launch-failed` as a problem (3.9.4).
+  `launch-failed` as a problem (3.9.4); each such problem names the entry's handle in `member`.
+- `coordinator_wanted` is null, or `{"handle": "<handle>", "fix": "<what to run>"}`: the roster's
+  `coordinator_wanted` (3.6.1) with 3.6.4's fix. It is team state the board shows, never a problem,
+  so it never makes the team's health bad.
+- A problem may carry `member`, the handle of one of `members`: a problem about that one member,
+  shown on its entry and never the team's health (`SPEC-n2e.md` SR1). A problem with no `member`
+  is a team problem.
 - `disk` is the free space of `/var/lib`'s filesystem at the tick (3.11.2 step 4).
 - `restore` is null, or `{"step": "<step>", "backup": N, "pre": M}` copied from `restore.json`
   (3.12.2), with the problem "restore staged" (fix: `restore --resume` or `--discard`) or
@@ -2089,7 +2268,10 @@ restore, so the board sees a change at once:
 - Room purposes are A's; the record carries whatever purposes A's specs name. The names `main`,
   `reports` and `questions` above are v1's, used as examples only.
 - No token, password or device ID is in it (device IDs stay behind `human devices`, DESIGN B2).
-- `teamchat-admin status [<team>...]` prints these records for a human, and exits 1 if any has a problem.
+- `teamchat-admin status [<team>...]` prints these records for a human, and exits 1 if any has a
+  team problem (one with no `member`). A member's problem is printed on that member's row and
+  never changes the exit code: an offline member never makes its team's health bad (FRAME,
+  "Offline members never block").
 
 This record replaces v1's NOPASSWD reader design (DC4). Checked against what the owner needs:
 
@@ -2207,7 +2389,7 @@ no revoked credential is ever served.
     the staging unit's network namespace and nothing else, run by `systemd-run --pipe --wait`, with
     `IPAddressDeny=any` and `IPAddressAllow=127.0.0.1/32 ::1/128`, so it reaches the
     staged instance on loopback and nothing else. Root sends it on stdin, in one `restore.secure` request, the tar's `admin.token` (the admin token
-    the restored database knows) and the merged roster. It waits for the staged instance to answer
+    the restored database knows), the tar's `rooms.json` and the merged roster. It waits for the staged instance to answer
     on its loopback and applies the merged roster's revocations to it: every handle `retired` is
     kicked from every room and deactivated; every handle `parked` and every member with
     `needs: reissue` is revoked (password reset with device logout), which includes every
@@ -2220,8 +2402,11 @@ no revoked credential is ever served.
     change only `password` and `token`, so every seat's `teamchat.floor` resume marker (B 2.3.2)
     stays as backup `N` holds it. A restore can therefore only move a seat's resume point back,
     never forward, and a held seat re-logged after it resumes store-less from that marker and
-    `released_ms` (B 2.6 steps 01 and 08, B 6 C13). Root stops the staging unit and records
-    `"step": "staged"`.
+    `released_ms` (B 2.6 steps 01 and 08, B 6 C13). The child's `restore.check` then reads the
+    roster event back from the staged copy and must find the merged `restore_epoch` and `rev`.
+    `restore.check` is given the tar's `rooms.json` too, as `restore.secure` and `restore.swap`
+    are, so both act on the main room the backup has, which may differ from today's. Root stops
+    the staging unit and records `"step": "staged"`.
 06. **Pre-restore backup.** Back up the team as it is, `M`, through the internal backup function
     under the held team lock (3.4), while the live homeserver serves (C36), and record `"pre": M`.
     The order matters: Tuwunel keeps `database_backups_to_keep` backups (3.2.4) and prunes the
@@ -2244,7 +2429,11 @@ no revoked credential is ever served.
     directly (3.2.2). Root's own state is not touched. Record `"step": "start"` (fsync), and only
     then remove the block. The block covers only the renames: the database now in place is the
     secured one, so a crash or a boot from here on serves no revoked credential.
-09. **Start.** Start, wait ready, assert listening, and run the normal bootstrap (3.6.2), which
+09. **Start.** Start, wait ready, assert listening, check the served roster event by
+    `restore.check` against the live homeserver with the rooms now in the control state (the
+    tar's, swapped in at step 8): its
+    `restore_epoch` is the merged one and its `rev` at least the merged one, since a bootstrap
+    run before a kill may have written the next; then run the normal bootstrap (3.6.2), which
     converges the rooms (a room created after `N` is gone from the database and is recreated or
     adopted).
 10. **Clean up.** Delete `db.previous`, `config.restore.toml` and the `*.previous` files
@@ -2276,7 +2465,10 @@ against the directory before it is made, so a second resume is harmless:
 - `"step": "swap"` (the block is there): go forward. Every rename not yet made is made, the
   control swap is repeated (the child's writer is idempotent), and steps 9-10 run. Going forward
   is safe because the staged copy was secured in step 5.
-- `"step": "start"` (the block is gone, the secured database in place): steps 9-10.
+- `"step": "start"` (the secured database in place): remove the block if it is still there (a kill
+  between step 8's `start` record and its removal leaves it), then steps 9-10. Removing it is safe
+  because `start` is recorded only after the renames and the control swap are done; otherwise the
+  start would fail on the block at every resume.
 
 The status record shows the team as "restore staged" or "restore interrupted", with the fix. So no
 crash leaves a team serving an empty database or a revoked credential, no failure loses `N`, and no
@@ -2426,7 +2618,7 @@ backup and restore verbs, parsing the one JSON answer each prints.
 | hot control                     | `desired.json` order after the session record; active = seated and desired, each alone not active; leave with a farewell waits for the seat lock and exits 75 when it stays held                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | LXC read side                   | fixture rootfs trees: `dir`, bind mounts, a symlink at every component, an oversize file, an unprivileged config refused; `openat2` on the real kernel (Linux-only test)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | real Tuwunel                    | behind `-tags tuwunel` with `FAKEHS_TUWUNEL_BIN` (M44): bootstrap, the rooms of A's layout, the whole member lifecycle, a restricted join, a power-0 refusal, restore into a staging path                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| VM lab                          | the play on a fresh VM: no teams (nothing resident, no timer enabled); one team; two teams; an LXC member running, then stopped, then started; a new team with an LXC coordinator in one play; a coordinator declared before its ccy member exists, promoted at its first seat take; a Tuwunel pin bump with a play scoped to one team, which leaves the other teams' drop-ins on the old version and backs up the scoped team before its restart; a restore that succeeds and one forced to fail; v1 installed beside v2 and untouched (the list of everything v2 creates, which area D's proof uses)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| VM lab                          | the play on a fresh VM: no teams (nothing resident, no timer enabled); one team; two teams; an LXC member running, then stopped, then started; one container holding two repos of one user and a coordinator and a worker of one team on one checkout, each seat with its own unit, then stopped (every seat offline, the play green) and started; a new team with an LXC coordinator in one play; a coordinator declared before its ccy member exists, promoted at its first seat take; a Tuwunel pin bump with a play scoped to one team, which leaves the other teams' drop-ins on the old version and backs up the scoped team before its restart; a restore that succeeds and one forced to fail; v1 installed beside v2 and untouched (the list of everything v2 creates, which area D's proof uses)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | host checks                     | section 8, through meta-deploy                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 ### 3.15 Resident cost, honestly

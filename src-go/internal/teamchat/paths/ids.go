@@ -347,8 +347,6 @@ func (r RunID) text() string { return must("run id", r.s) }
 
 func (k CheckoutKey) text() string { return must("checkout key", k.s) }
 
-func (u GuestUser) text() string { return must("guest user", u.s) }
-
 func (c ClaimID) text() string { return must("claim id", c.s) }
 
 func (n SeatName) text() string { return must("seat name", n.s) }

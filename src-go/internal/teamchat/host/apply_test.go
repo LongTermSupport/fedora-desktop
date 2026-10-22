@@ -572,7 +572,7 @@ func TestFirewallRemoveFailureKeepsTheUnion(t *testing.T) {
 // HS4: a team with an LXC member admits the bridge; the bridge's failure is the render's.
 func TestLXCMemberAdmitsTheBridge(t *testing.T) {
 	doc := teamDoc()
-	doc["lxc_members"] = []any{map[string]any{"team": "ops", "container": "c1", "user": "agent", "checkout": "/srv/checkouts/thing"}}
+	doc["lxc_members"] = []any{map[string]any{"team": "ops", "container": "c1", "user": "agent", "checkout": "/srv/checkouts/thing", "seat": 1}}
 	w := newWorld(t)
 	lines, err := w.apply(approved(w, doc))
 	if err != nil {

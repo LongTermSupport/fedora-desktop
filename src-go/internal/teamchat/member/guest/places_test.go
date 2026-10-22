@@ -99,7 +99,18 @@ type world struct {
 	layout paths.Layout
 	team   paths.TeamID
 	seat   paths.Seat
-	clock  *fakeClock
+	key    paths.SeatKey
+	// session is the key's session name, the one `guest membership` takes.
+	session string
+	clock   *fakeClock
+}
+
+// seatKey is the key of team ops's seat n on one checkout.
+func seatKey(t *testing.T, n int) paths.SeatKey {
+	t.Helper()
+	tm, err := paths.ParseTeamID("ops")
+	check(t, err)
+	return paths.LXCSeatKey(tm, "/srv/checkouts/thing", n)
 }
 
 func newWorld(t *testing.T) *world {
@@ -111,11 +122,15 @@ func newWorld(t *testing.T) *world {
 	t.Cleanup(func() { check(t, root.Close()) })
 	user, err := paths.ParseGuestUser("dev")
 	check(t, err)
-	layout, err := paths.HomeLayout(dir, paths.GuestRuntimeDir(user))
+	key := seatKey(t, 1)
+	layout, err := paths.LXCLayout(dir, paths.GuestRuntimeDir(key), key)
 	check(t, err)
 	tm, err := paths.ParseTeamID("ops")
 	check(t, err)
-	return &world{t: t, home: &Identity{Root: root, User: user}, layout: layout, team: tm, seat: layout.Seat(tm), clock: &fakeClock{}}
+	return &world{
+		t: t, home: &Identity{Root: root, User: user}, layout: layout, team: tm, seat: layout.Seat(tm), key: key,
+		session: paths.LXCSession(key).String(), clock: &fakeClock{},
+	}
 }
 
 func userID(tm paths.TeamID, n int) string {
@@ -145,7 +160,7 @@ func (w *world) issued(b seat.Bundle, kind seat.Kind, token string) []byte {
 
 func (w *world) place(data []byte) ([]What, error) {
 	var r recorder
-	err := PlaceBundle(w.t.Context(), w.home, w.clock, bytes.NewReader(data), &r)
+	err := PlaceBundle(w.t.Context(), w.home, w.key, w.clock, bytes.NewReader(data), &r)
 	return r.whats, err
 }
 
@@ -157,10 +172,10 @@ func (failingReader) Read([]byte) (int, error) { return 0, errors.New("a broken 
 func TestAnUnreadableStdinIsAnError(t *testing.T) {
 	w := newWorld(t)
 	var r recorder
-	if err := PlaceBundle(t.Context(), w.home, w.clock, failingReader{}, &r); err == nil || errors.As(err, new(*exits.Error)) {
+	if err := PlaceBundle(t.Context(), w.home, w.key, w.clock, failingReader{}, &r); err == nil || errors.As(err, new(*exits.Error)) {
 		t.Fatalf("place-bundle: %v", err)
 	}
-	if err := Membership(w.home, failingReader{}, &r); err == nil || errors.As(err, new(*exits.Error)) {
+	if err := Membership(w.home, w.key, failingReader{}, &r); err == nil || errors.As(err, new(*exits.Error)) {
 		t.Fatalf("membership: %v", err)
 	}
 }
@@ -172,7 +187,7 @@ func TestALinkedConfigIsRefused(t *testing.T) {
 	check(t, os.Symlink("elsewhere", w.home.Root.Path()+"/.config"))
 	_, err := w.place(w.issued(w.bundle(1), seat.KindToken, loginOne))
 	wantExit(t, err, 78, exits.CodeBundle)
-	_, err = w.membership(w.desired("lxc-dev", 1))
+	_, err = w.membership(w.desired(w.session, 1))
 	wantExit(t, err, 78, exits.CodeMembership)
 }
 
@@ -193,7 +208,7 @@ func TestAFailedWriteIsAnError(t *testing.T) {
 
 func (w *world) placeBetween(data []byte, between func()) ([]What, error) {
 	var r recorder
-	err := placeBundle(w.t.Context(), w.home, w.clock, bytes.NewReader(data), &r, between)
+	err := placeBundle(w.t.Context(), w.home, w.key, w.clock, bytes.NewReader(data), &r, between)
 	return r.whats, err
 }
 
@@ -293,7 +308,9 @@ func TestPlaceBundleIntoNoSeat(t *testing.T) {
 	check(t, os.MkdirAll(w.layout.State()+"/ops.new-0011223344556677", 0o700))
 	check(t, os.WriteFile(w.layout.State()+"/ops.new-0011223344556677/token", []byte("old"), 0o600))
 	check(t, os.WriteFile(w.layout.State()+"/ops.new-8899aabbccddeeff", nil, 0o600))
-	check(t, os.Chmod(w.home.Root.Path()+"/.config/teamchat", 0o700))
+	for _, dir := range []string{"/.config/teamchat", "/.config/teamchat/lxc", "/.config/teamchat/lxc/" + w.key.String()} {
+		check(t, os.Chmod(w.home.Root.Path()+dir, 0o700))
+	}
 	check(t, os.Chmod(w.layout.State(), 0o700))
 	other := w.layout.State() + "/opsx.new-0011223344556677"
 	check(t, os.Mkdir(other, 0o700))
@@ -325,7 +342,10 @@ func TestPlaceBundleIntoNoSeat(t *testing.T) {
 func TestPlaceBundleMakesItsDirectoriesPrivate(t *testing.T) {
 	w := newWorld(t)
 	w.placed(1, loginOne)
-	for _, dir := range []string{w.home.Root.Path() + "/.config", w.home.Root.Path() + "/.config/teamchat", w.layout.State()} {
+	for _, dir := range []string{
+		w.home.Root.Path() + "/.config", w.home.Root.Path() + "/.config/teamchat", w.home.Root.Path() + "/.config/teamchat/lxc",
+		w.home.Root.Path() + "/.config/teamchat/lxc/" + w.key.String(), w.layout.State(),
+	} {
 		if got := w.mode(dir); got != os.ModeDir|0o700 {
 			t.Errorf("%s mode %v", dir, got)
 		}
@@ -548,7 +568,7 @@ func TestPlaceBundleRefusesAnotherUsersSeat(t *testing.T) {
 
 func (w *world) membership(data []byte) ([]What, error) {
 	var r recorder
-	err := Membership(w.home, bytes.NewReader(data), &r)
+	err := Membership(w.home, w.key, bytes.NewReader(data), &r)
 	return r.whats, err
 }
 
@@ -569,7 +589,7 @@ func (w *world) desired(session string, generation int64) []byte {
 // nothing.
 func TestMembershipWritesDesired(t *testing.T) {
 	w := newWorld(t)
-	data := w.desired("lxc-dev", 1)
+	data := w.desired(w.session, 1)
 	var spaced bytes.Buffer
 	check(t, json.Indent(&spaced, data, "", "  "))
 	whats, err := w.membership(spaced.Bytes())
@@ -582,7 +602,7 @@ func TestMembershipWritesDesired(t *testing.T) {
 	whats, err = w.membership(data)
 	check(t, err)
 	wantWhats(t, whats)
-	whats, err = w.membership(w.desired("lxc-dev", 2))
+	whats, err = w.membership(w.desired(w.session, 2))
 	check(t, err)
 	wantWhats(t, whats, WhatDesired)
 }
@@ -591,7 +611,7 @@ func TestMembershipWritesDesired(t *testing.T) {
 // membership and writes nothing.
 func TestMembershipRefuses(t *testing.T) {
 	w := newWorld(t)
-	for _, data := range [][]byte{w.desired("lxc-other", 1), w.desired("ccy-dev", 1), []byte("{}"), bytes.Repeat([]byte(" "), state.MaxDesired+1)} {
+	for _, data := range [][]byte{w.desired("lxc-dev", 1), w.desired(paths.LXCSession(seatKey(t, 2)).String(), 1), w.desired("ccy-dev", 1), []byte("{}"), bytes.Repeat([]byte(" "), state.MaxDesired+1)} {
 		whats, err := w.membership(data)
 		wantExit(t, err, 78, exits.CodeMembership)
 		wantWhats(t, whats)
@@ -607,16 +627,16 @@ func TestMembershipRefusesAnotherUsersDirectory(t *testing.T) {
 		t.Skip("needs root to make a file another uid's")
 	}
 	w := newWorld(t)
-	_, err := w.membership(w.desired("lxc-dev", 1))
+	_, err := w.membership(w.desired(w.session, 1))
 	check(t, err)
 	check(t, os.Lchown(w.layout.Desired(), otherUID, otherUID))
-	_, err = w.membership(w.desired("lxc-dev", 2))
+	_, err = w.membership(w.desired(w.session, 2))
 	wantExit(t, err, 78, exits.CodeMembership)
 }
 
 func (w *world) remove() ([]What, error) {
 	var r recorder
-	err := Remove(w.t.Context(), w.home, w.clock, w.team, &r)
+	err := Remove(w.t.Context(), w.home, w.key, w.clock, w.team, &r)
 	return r.whats, err
 }
 
@@ -642,6 +662,57 @@ func TestRemove(t *testing.T) {
 	whats, err = w.remove()
 	check(t, err)
 	wantWhats(t, whats)
+}
+
+// GU5: the key's desired.json goes with its seat, after the seat's files; with none, nothing
+// prints for it.
+func TestRemoveAlsoRemovesTheKeysDesiredFile(t *testing.T) {
+	w := newWorld(t)
+	w.placed(1, loginOne)
+	_, err := w.membership(w.desired(w.session, 1))
+	check(t, err)
+	whats, err := w.remove()
+	check(t, err)
+	wantWhats(t, whats, WhatSeat, WhatDesired)
+	if w.exists(w.layout.DesiredFile()) {
+		t.Fatal("desired.json is left")
+	}
+	whats, err = w.remove()
+	check(t, err)
+	wantWhats(t, whats)
+}
+
+// The other world is the same user's home with a second seat of the same team: its key's.
+func (w *world) other(n int) *world {
+	key := seatKey(w.t, n)
+	layout, err := paths.LXCLayout(w.home.Root.Path(), paths.GuestRuntimeDir(key), key)
+	check(w.t, err)
+	return &world{
+		t: w.t, home: w.home, layout: layout, team: w.team, seat: layout.Seat(w.team), key: key,
+		session: paths.LXCSession(key).String(), clock: w.clock,
+	}
+}
+
+// C 3.9.1: two seats of one user and one team are two keys, and each op acts on its key's
+// directories only.
+func TestTwoKeysOfOneUserAndTeamAreApart(t *testing.T) {
+	a := newWorld(t)
+	b := a.other(2)
+	if a.seat.Dir() == b.seat.Dir() || a.layout.DesiredFile() == b.layout.DesiredFile() {
+		t.Fatalf("one directory for two keys: %s %s", a.seat.Dir(), a.layout.DesiredFile())
+	}
+	a.placed(1, loginOne)
+	_, err := a.membership(a.desired(a.session, 1))
+	check(t, err)
+	_, err = b.membership(a.desired(a.session, 1))
+	wantExit(t, err, 78, exits.CodeMembership)
+	b.placed(1, loginTwo)
+	whats, err := b.remove()
+	check(t, err)
+	wantWhats(t, whats, WhatSeat)
+	if !a.exists(a.seat.Token()) || !a.exists(a.layout.DesiredFile()) || b.exists(b.seat.Token()) {
+		t.Fatal("removing one key's seat touched the other's")
+	}
 }
 
 // GU5: a directory in the seat directory is refused before anything is removed.
@@ -772,12 +843,15 @@ func TestEveryOpsWhatIsInItsSet(t *testing.T) {
 	for _, c := range []struct {
 		op   Op
 		what What
-	}{{OpPlaceBundle, WhatSeat}, {OpPlaceBundle, WhatToken}, {OpPlaceBundle, WhatBundle}, {OpPlaceBundle, WhatStore}, {OpMembership, WhatDesired}, {OpRemove, WhatSeat}, {OpSetAside, WhatStore}} {
+	}{{OpPlaceBundle, WhatSeat}, {OpPlaceBundle, WhatToken}, {OpPlaceBundle, WhatBundle}, {OpPlaceBundle, WhatStore}, {OpMembership, WhatDesired}, {OpRemove, WhatSeat}, {OpRemove, WhatDesired}, {OpSetAside, WhatStore}} {
 		if changes, ok := ChangesOf(c.op.Verb); !ok || !slices.Contains(changes, c.what) {
 			t.Errorf("%s is not in %s's set %q", c.what, c.op.Verb, changes)
 		}
 	}
 	if !OpPlaceBundle.Busy || OpMembership.Busy || !OpRemove.Busy || !OpSetAside.Busy {
 		t.Error("only place-bundle, remove and set-aside take a seat lock")
+	}
+	if !OpPlaceBundle.Keyed || !OpMembership.Keyed || !OpRemove.Keyed || OpSetAside.Keyed || OpCheck.Keyed {
+		t.Error("only place-bundle, membership and remove take --key")
 	}
 }

@@ -13,19 +13,19 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 )
 
-// MO5: a `member add --seat next` that crashed, asked again the same way (lxc apply's retry),
-// finishes the handle it claimed instead of claiming the next.
-func TestASeatNextRetryFinishesTheClaimedHandle(t *testing.T) {
+// MO5: a `member add --seat S` that crashed, asked again the same way (lxc apply's retry),
+// finishes the handle it claimed.
+func TestAnAddRetryFinishesTheClaimedHandle(t *testing.T) {
 	for _, c := range []crash{{"ResetPassword", 1, true, StepCredential}, {"Invite", 1, false, StepRooms}, {"Send", 1, true, StepNotice}} {
 		t.Run(c.method, func(t *testing.T) {
 			w := newWorld(t)
 			team := w.team(t)
 			bad := &crashing{Admin: w.admin, method: c.method, n: c.n, landed: c.landed}
-			if _, err := RunMember(t.Context(), w.memberDeps(bad), team, add(0, credToken)); !errors.Is(err, errCrash) {
+			if _, err := RunMember(t.Context(), w.memberDeps(bad), team, add(3, credToken)); !errors.Is(err, errCrash) {
 				t.Fatalf("err = %v", err)
 			}
 			claimed := w.file(t).roster.Pending.Handle
-			res := w.member(t, team, add(0, credToken))
+			res := w.member(t, team, add(3, credToken))
 			f := w.file(t).roster
 			if res.Handle != claimed || res.Credential == nil || len(f.Members) != 1 || f.Pending != nil {
 				t.Fatalf("retry answered %s (claimed %s), members %v", res.Handle, claimed, f.Members)
@@ -67,8 +67,10 @@ func TestARetryWithOtherArguments(t *testing.T) {
 	}
 }
 
-// MO3: an account that is there deactivated is refused before any change, for add and return.
-func TestADeactivatedAccountIsRefusedBeforeAnyChange(t *testing.T) {
+// MO4: an add or a return of a handle whose account is there deactivated records it retired,
+// one write and nothing else, and answers ErrRetired (class retired); asked again, MO3 refuses
+// the retired handle as any refusal.
+func TestADeactivatedAccountRetiresTheHandle(t *testing.T) {
 	w := newWorld(t)
 	team := w.team(t)
 	w.member(t, team, add(2, credPassword))
@@ -81,13 +83,48 @@ func TestADeactivatedAccountIsRefusedBeforeAnyChange(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	mark, seq := w.mark(), w.file(t).roster.Seq
-	_, err := RunMember(t.Context(), w.memberDeps(nil), team, add(3, credPassword))
-	refusedAt(t, "add", err, StepAccount, "deactivated")
-	_, err = RunMember(t.Context(), w.memberDeps(nil), team, on(OpMemberReturn, other))
-	refusedAt(t, "return", err, StepAccount, "deactivated")
-	if len(w.writes(mark)) != 0 || w.file(t).roster.Seq != seq {
-		t.Fatalf("a refusal wrote: %v", w.writes(mark))
+	before := w.file(t).roster.Members[other]
+	for _, req := range []MemberRequest{add(3, credPassword), on(OpMemberReturn, other)} {
+		h := req.Handle
+		if h == "" {
+			h = third
+		}
+		mark, seq := w.mark(), w.file(t).roster.Seq
+		res, err := RunMember(t.Context(), w.memberDeps(nil), team, req)
+		refusedAt(t, req.Op, err, StepAccount, "deactivated")
+		f := w.file(t).roster
+		if !errors.Is(err, ErrRetired) || f.Members[h].State != MemberRetired || f.Pending != nil ||
+			!slices.Equal(res.Changed, []string{"member " + h + " retired"}) {
+			t.Fatalf("%s: err %v, changed %v, member %+v", req.Op, err, res.Changed, f.Members[h])
+		}
+		if len(w.writes(mark)) != 0 || f.Seq != seq+1 {
+			t.Fatalf("%s: wrote %v, seq %d from %d", req.Op, w.writes(mark), f.Seq, seq)
+		}
+		_, err = RunMember(t.Context(), w.memberDeps(nil), team, req)
+		refusedAt(t, req.Op+" again", err, StepFiles, "retired")
+		if errors.Is(err, ErrRetired) {
+			t.Fatalf("%s again answered retired, not a refusal: %v", req.Op, err)
+		}
+	}
+	if m := w.file(t).roster.Members[other]; m.Kind != before.Kind || m.HumanText != before.HumanText {
+		t.Fatalf("a retired return changed more than its state: %+v from %+v", m, before)
+	}
+}
+
+// MO4: a retirement the refusal cannot save is the save's failure, and the handle stays as it was.
+func TestARefusalsRetirementThatCannotBeSavedFails(t *testing.T) {
+	w := newWorld(t)
+	team := w.team(t)
+	if _, err := w.admin.CreateAccount(t.Context(), user(third), "x-pass-1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.admin.SetDeactivated(t.Context(), user(third), true); err != nil {
+		t.Fatal(err)
+	}
+	s := &sabotage{Admin: w.admin, roster: filepath.Join(w.dir, "roster.json"), id: user(third)}
+	_, err := RunMember(t.Context(), w.memberDeps(s), team, add(3, credPassword))
+	if e, ok := errors.AsType[*Error](err); !ok || e.Drift || errors.Is(err, ErrRetired) {
+		t.Fatalf("err = %v, want the save's failure", err)
 	}
 }
 
@@ -159,23 +196,6 @@ func TestATokenCopyThatCannotBeKeptFailsTheStep(t *testing.T) {
 	}
 }
 
-// MO4: `--seat next` passes a free number whose account is deactivated, recording it retired.
-func TestSeatNextPassesADeactivatedAccount(t *testing.T) {
-	w := newWorld(t)
-	team := w.team(t)
-	if _, err := w.admin.CreateAccount(t.Context(), user(coord), "x-pass-1", ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := w.admin.SetDeactivated(t.Context(), user(coord), true); err != nil {
-		t.Fatal(err)
-	}
-	res := w.member(t, team, add(0, credPassword))
-	f := w.file(t).roster
-	if res.Handle != other || f.Members[coord].State != MemberRetired || !slices.Contains(res.Changed, "member "+coord+" retired") {
-		t.Fatalf("answered %s, changed %v, members %v", res.Handle, res.Changed, f.Members)
-	}
-}
-
 // MO5: an account deactivated after an add claimed its handle ends the add with the handle
 // retired, and a roll-forward that ends it this way lets the caller's verb run, with a note.
 func TestAClaimWhoseAccountIsDeactivatedIsDropped(t *testing.T) {
@@ -200,10 +220,13 @@ func TestAClaimWhoseAccountIsDeactivatedIsDropped(t *testing.T) {
 	if !slices.Contains(res.Changed, "member "+other+" human_text false") || len(res.Notes) != 1 || !strings.Contains(res.Notes[0], third) {
 		t.Fatalf("changed %v, notes %v", res.Changed, res.Notes)
 	}
+}
 
-	// The same verb asked again is the one refused.
-	w = newWorld(t)
-	team = w.team(t)
+// MO4, MO5: the same add asked again finds its account deactivated, retires its own handle and
+// is the one refused, as class retired.
+func TestAnAddWhoseClaimIsDeactivatedAnswersRetired(t *testing.T) {
+	w := newWorld(t)
+	team := w.team(t)
 	if _, err := RunMember(t.Context(), w.memberDeps(&crashing{Admin: w.admin, method: "Account", n: 2}), team, add(3, credPassword)); !errors.Is(err, errCrash) {
 		t.Fatalf("err = %v", err)
 	}
@@ -215,8 +238,8 @@ func TestAClaimWhoseAccountIsDeactivatedIsDropped(t *testing.T) {
 	}
 	_, err := RunMember(t.Context(), w.memberDeps(nil), team, add(3, credPassword))
 	refusedAt(t, "the retry", err, StepAccount, "deactivated")
-	if f := w.file(t).roster; f.Pending != nil || f.Members[third].State != MemberRetired {
-		t.Fatalf("roster %+v", f)
+	if f := w.file(t).roster; f.Pending != nil || f.Members[third].State != MemberRetired || !errors.Is(err, ErrRetired) {
+		t.Fatalf("roster %+v, err %v", f, err)
 	}
 }
 
@@ -258,7 +281,7 @@ func TestARetirementThatCannotBeSavedFails(t *testing.T) {
 	w.addMember(t, other, active())
 	s := &sabotage{Admin: w.admin, roster: filepath.Join(w.dir, "roster.json"), id: user(third)}
 	_, err := RunMember(t.Context(), w.memberDeps(s), team, MemberRequest{Op: OpMemberSet, Handle: other, HumanText: true})
-	if e, ok := errors.AsType[*Error](err); !ok || e.Drift || errors.Is(err, errDeactivated) {
+	if e, ok := errors.AsType[*Error](err); !ok || e.Drift || errors.Is(err, ErrRetired) {
 		t.Fatalf("err = %v, want the save's failure", err)
 	}
 }

@@ -226,10 +226,10 @@ func TestMemberAddThroughTheVerb(t *testing.T) {
 		t.Fatalf("status refreshed %v", w.status)
 	}
 	w.lockIsFree(t)
-	// The wanted coordinator is in no state yet, so next is its seat, 1.
-	token := decodeDoc(t, w.ok(t, "", addArgs("next", "token")...))
+	// The wanted coordinator is in no state yet; seat 1 is its handle.
+	token := decodeDoc(t, w.ok(t, "", addArgs("1", "token")...))
 	if token.Handle != coord || token.Bundle == nil || token.Bundle.Kind != "token" {
-		t.Fatalf("seat next %+v", token)
+		t.Fatalf("seat 1 %+v", token)
 	}
 }
 
@@ -469,6 +469,7 @@ func TestVerbFlagsAreStrict(t *testing.T) {
 		"bad team":            {"member", "park", "--team", "Alpha!", "--handle", sampleHandle},
 		"seat zero":           addArgs("0", "password"),
 		"seat word":           addArgs("three", "password"),
+		"seat next":           addArgs("next", "password"),
 		"credential":          addArgs("3", "key"),
 		"human text":          {"member", "set", "--team", "alpha", "--handle", sampleHandle, "--human-text", "yes"},
 		"flag value a flag":   {"member", "park", "--team", "--handle", sampleHandle},
@@ -543,7 +544,6 @@ func TestAChildsAnswerIsCheckedAgainstTheRequest(t *testing.T) {
 	}{
 		"another prefix's handle":  {addArgs("4", "password"), func(a *Answer) { a.Handle = "other.4+desk.podman" }},
 		"another seat":             {addArgs("4", "password"), func(a *Answer) { a.Handle = "myrepo.5+desk.podman" }},
-		"another prefix for next":  {addArgs("next", "password"), func(a *Answer) { a.Handle = "other.1+desk.podman" }},
 		"another handle":           {on("reissue", "--credential", "password"), func(a *Answer) { a.Handle = coord }},
 		"another kind":             {addArgs("4", "password"), func(a *Answer) { a.Credential.Kind = apply.CredToken }},
 		"no credential for an add": {addArgs("4", "password"), func(a *Answer) { a.Credential = nil }},

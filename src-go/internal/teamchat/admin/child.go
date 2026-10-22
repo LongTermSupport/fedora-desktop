@@ -263,14 +263,18 @@ type ErrorClass string
 
 // The failure classes.
 const (
-	ClassFailed      ErrorClass = "failed"
-	ClassRefused     ErrorClass = "refused"
+	ClassFailed  ErrorClass = "failed"
+	ClassRefused ErrorClass = "refused"
+	// ClassRetired is the refusal of an add or a return whose account is deactivated, the
+	// handle now retired (SPEC-n2d MO4); lxc apply tells it from every other refusal.
+	ClassRetired     ErrorClass = "retired"
 	ClassUnreachable ErrorClass = "unreachable"
 	ClassConfig      ErrorClass = "config"
 )
 
 var classExit = map[ErrorClass]term.ExitCode{
-	ClassFailed: term.ExitFailure, ClassRefused: ExitRefused, ClassUnreachable: ExitUnreachable, ClassConfig: ExitConfig,
+	ClassFailed: term.ExitFailure, ClassRefused: ExitRefused, ClassRetired: ExitRefused, ClassUnreachable: ExitUnreachable,
+	ClassConfig: ExitConfig,
 }
 
 // Answer is the child's one answer (CC5, CV2, CO1-CO3, BU1): what changed, and for a member

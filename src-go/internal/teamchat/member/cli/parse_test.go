@@ -43,9 +43,9 @@ func TestParseAcceptsBsForms(t *testing.T) {
 		{[]string{"seat", "disconnected", "--bundle", "/b", "--since", "1760000000000", "--seed", "abc"}, "seat disconnected", nil, map[string][]string{"bundle": {"/b"}, "since": {"1760000000000"}, "seed": {"abc"}}},
 		{[]string{"seat", "set-aside", "--team", "alpha", "--state", "/s"}, "seat set-aside", nil, map[string][]string{"team": {"alpha"}, "state": {"/s"}}},
 		{[]string{"guest", "check", "--user", "agent", "--team", "alpha"}, "guest check", nil, map[string][]string{"user": {"agent"}, "team": {"alpha"}}},
-		{[]string{"guest", "place-bundle", "--user", "agent"}, "guest place-bundle", nil, map[string][]string{"user": {"agent"}}},
-		{[]string{"guest", "membership", "--user", "agent"}, "guest membership", nil, map[string][]string{"user": {"agent"}}},
-		{[]string{"guest", "remove", "--user", "agent", "--team", "alpha"}, "guest remove", nil, map[string][]string{"user": {"agent"}, "team": {"alpha"}}},
+		{[]string{"guest", "place-bundle", "--user", "agent", "--key", "0123456789abcdef"}, "guest place-bundle", nil, map[string][]string{"user": {"agent"}, "key": {"0123456789abcdef"}}},
+		{[]string{"guest", "membership", "--user", "agent", "--key", "0123456789abcdef"}, "guest membership", nil, map[string][]string{"user": {"agent"}, "key": {"0123456789abcdef"}}},
+		{[]string{"guest", "remove", "--user", "agent", "--key", "0123456789abcdef", "--team", "alpha"}, "guest remove", nil, map[string][]string{"user": {"agent"}, "key": {"0123456789abcdef"}, "team": {"alpha"}}},
 	}
 	for _, c := range cases {
 		inv, err := Parse(c.args)
