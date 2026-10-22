@@ -300,3 +300,11 @@ func (e *Engine) SetHealth(t paths.TeamID, hl team.Health) {
 		e.logf("team %s: health not recorded: %v", t, err)
 	}
 }
+
+// SaveRoster keeps a verified roster in the seat's roster cache (n3d-D3): D3's; D1 gives the
+// seam alone.
+func (e *Engine) SaveRoster(context.Context, paths.TeamID, int64, json.RawMessage) error { return nil }
+
+// RecoverSends finds a restarted link's tried sends among its own events (n3d-D4): D6a's; D1
+// gives the seam alone.
+func (e *Engine) RecoverSends(context.Context, paths.TeamID, team.Notices) error { return nil }
