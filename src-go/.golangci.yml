@@ -331,6 +331,11 @@ linters:
           - pkg: internal/teamchat/member/state
             rules:
               json: snake
+          # B 2.4.4's link socket request (deadline_ms) and the control messages are snake_case,
+          # as every teamchat record is.
+          - pkg: internal/teamchat/member/wire
+            rules:
+              json: snake
     cyclop:
       max-complexity: 15
     funlen:
