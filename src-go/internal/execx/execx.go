@@ -11,7 +11,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -24,10 +23,15 @@ import (
 // Stderr nil means captured into the Result; set, they stream there (a terminal UI, a
 // play's progress) and the Result holds nothing for them.
 type Cmd struct {
-	Name   string
-	Args   []string
-	Env    []string // KEY=VALUE added to the parent's environment
-	Unset  []string // variable names removed from the child's environment
+	Name  string
+	Args  []string
+	Env   []string // KEY=VALUE added to the parent's environment
+	Unset []string // variable names removed from the child's environment
+	// Secrets are added to this child's environment alone, by name; a command whose argv
+	// holds one's value is refused (ErrSecretInArgv).
+	Secrets []Secret
+	// Feed, when set, is the child's Stdin: a secret inside a line of text (see Feed).
+	Feed   *Feed
 	Dir    string
 	Stdin  io.Reader
 	Stdout io.Writer
@@ -44,7 +48,7 @@ type Cmd struct {
 	// Credential, when set, runs the child as its uid, gid and exact supplementary group list
 	// (an empty list clears them); NoSetGroups is refused, as is a credential given to Exec.
 	Credential *syscall.Credential
-	// CleanEnv makes Env the child's whole environment: nothing of the parent's is inherited,
+	// CleanEnv makes Env and Secrets the child's whole environment: nothing of the parent's is inherited,
 	// an empty Env is an empty environment, and Unset beside it is refused.
 	CleanEnv bool
 }
@@ -68,17 +72,6 @@ func (c Cmd) check() error {
 	}
 	if c.Credential != nil && c.Credential.NoSetGroups {
 		return fmt.Errorf("%w: %s has a credential that keeps the parent's groups", ErrBadCmd, c.Name)
-	}
-	return nil
-}
-
-// environ is the child's environment as exec.Cmd takes it: nil inherits the parent's.
-func (c Cmd) environ() []string {
-	switch {
-	case c.CleanEnv:
-		return append([]string{}, c.Env...)
-	case len(c.Env) > 0 || len(c.Unset) > 0:
-		return ChildEnv(os.Environ(), c.Env, c.Unset)
 	}
 	return nil
 }
@@ -141,8 +134,12 @@ type OS struct {
 // Grace also bounds the drain of the pipes after a normal exit, so it must exceed the time
 // the copy takes on a loaded host; a Grace of milliseconds can cut a finished command short.
 func (o OS) Run(ctx context.Context, c Cmd) (Result, error) {
-	if err := c.check(); err != nil {
+	if err := errors.Join(c.check(), c.checkSecrets()); err != nil {
 		return Result{}, err
+	}
+	c, feedErr := c.fed()
+	if feedErr != nil {
+		return Result{}, feedErr
 	}
 	if c.NewSession {
 		return o.runSession(ctx, c)
@@ -159,7 +156,9 @@ func (o OS) Run(ctx context.Context, c Cmd) (Result, error) {
 		cmd.WaitDelay = o.Grace
 	}
 	cmd.Dir = c.Dir
-	cmd.Env = c.environ()
+	if env, ok := c.childEnv(); ok {
+		cmd.Env = env
+	}
 	cmd.Stdin = c.Stdin
 	cmd.ExtraFiles = c.ExtraFiles
 	var out, errBuf bytes.Buffer
@@ -211,11 +210,12 @@ type rule struct {
 
 // Fake is a scripted, recording Runner for tests. Safe for concurrent use.
 type Fake struct {
-	mu      sync.Mutex
-	rules   []rule
-	calls   []Cmd
-	execs   []Cmd
-	execErr error
+	mu          sync.Mutex
+	rules       []rule
+	calls       []Cmd
+	execs       []Cmd
+	foregrounds []Cmd
+	execErr     error
 }
 
 // On answers every command whose argv starts with prefix. Later rules win over earlier
@@ -238,17 +238,14 @@ func (f *Fake) OnFunc(prefix []string, fn func(Cmd) (Result, error)) {
 
 // Run implements Runner.
 func (f *Fake) Run(_ context.Context, c Cmd) (Result, error) {
-	if err := c.check(); err != nil {
+	if err := errors.Join(c.check(), c.checkSecrets()); err != nil {
 		return Result{}, err
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, c)
-	argv := c.argv()
-	for _, r := range slices.Backward(f.rules) {
-		if hasPrefix(argv, r.prefix) {
-			return r.answer(c)
-		}
+	if r, ok := f.match(c); ok {
+		return r.answer(c)
 	}
 	return Result{}, fmt.Errorf("%w: %s", ErrUnexpected, c.Line())
 }

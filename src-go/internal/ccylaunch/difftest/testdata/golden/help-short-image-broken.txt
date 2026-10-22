@@ -1,0 +1,229 @@
+=== exit 0
+=== stdout
+Claude Code YOLO Mode (ccy) - Container-based execution with --dangerously-skip-permissions
+
+Usage: ccy [OPTIONS] [CLAUDE_ARGS...]
+
+Options:
+  --rebuild[=MODE]       Rebuild: (default) full clean rebuild; claude=fast npm update base only; project=npm update + rebuild project image
+  --debug                Interactive debug layer selection (CCY, entrypoint, Claude Code)
+  --engine ENGINE        Use specific container engine (docker/podman, default: podman)
+  --ssh-key PATH         SSH private key to mount (can be specified multiple times). A
+                         key that needs a passphrase, when your ssh-agent holds it, is
+                         forwarded from the agent instead: those keys only, no prompt
+  --ssh-agent            Forward the session's ssh-agent ($SSH_AUTH_SOCK, e.g. from ssh -A)
+                         into the container; pushes authenticate as whoever it signs as.
+                         Runs that container with SELinux labelling disabled (the only
+                         way container_t can reach an unconfined agent's socket).
+  --no-ssh               Skip SSH key selection (git push will not work)
+  --github-443           Route GitHub SSH over ssh.github.com:443 (use when port 22 is firewall-blocked)
+                         Equivalent: export GITHUB_SSH_443=1 before launch (host-level enable)
+  --token NAME           Use specific named token
+  --create-token         Create a new named token
+  --update-token=NAME    Replace an existing named token (e.g. invalidated before expiry)
+  --list-tokens          List available tokens
+  --token-usage [--json] Print each token's 5-hour and 7-day usage and exit. Needs no
+                         terminal, repository or container. Costs 1 small API call per
+                         account unless read in the last 15 minutes (CCY_USAGE_TTL).
+                         Must be the first option; see "Token usage report" below
+  --export-token [NAME]  Export token(s) as portable import script (interactive if no name).
+                         Pasted, it offers to remove other dated files of the same name
+                         (default no); CCY_TOKEN_IMPORT_REMOVE_OTHERS=1 removes, =0 keeps
+  --network NETWORK      Auto-connect to specified container network on launch
+  --no-network           Skip network auto-detection
+  --compose start|skip|ask
+                         Answer the question that would start this project's compose
+                         services: start runs up -d, skip leaves them stopped, ask (the
+                         default) asks. A session's record keeps how they stood, and a
+                         restore after a reboot replays it with this flag
+  --connect [NETWORK]    Connect running container to network (also saves it as the
+                         project's default, which every later launch reconnects to)
+  --disconnect [NETWORK] Disconnect running container from network (picker if no name),
+                         and forget that network wherever a later launch reads it: the
+                         saved default, Quick Launch, and this project's restore records
+  --custom               Create/edit custom project Dockerfile interactively
+  --custom-docker        AI-guided Dockerfile creation and customization
+  --disable-custom-docker  Skip custom Dockerfile build, use base image (for fixing broken Dockerfiles)
+  --prompt "text"        Start Claude Code with a preseeded prompt
+  --headless             Run in headless mode (requires --prompt). With no --token,
+                         --ssh-key, --ssh-agent, --no-ssh, --network or --no-network it
+                         takes this checkout's saved Quick Launch choices without asking,
+                         and is refused when there are none; a key that needs a
+                         passphrase is refused unless your ssh-agent holds it (ssh-add it)
+  --teams [TEAM | SEAT@TEAM[,SEAT@TEAM...]]
+                         Put this session in agent team bus teams, one seat in each.
+                         Bare --teams chooses teams from a list with what each is for
+                         (Tab marks several); a team not covering this repository is
+                         widened only on a yes. The launch prints each team's seat, role
+                         and description; the status line shows 👥 A,B. With a team
+                         alone ccy asks the seat (lowest free is the default); name it
+                         (--teams 1@dev-team,qa2@other-team; quote a list with spaces)
+                         to skip the question, as a launch with nobody to ask must. A
+                         seat is created on first use (sudo agent-bus add-member) and held
+                         by one session. Needs play-agent-bus.yml; Quick Launch keeps both.
+  --no-bus               Leave the agent team bus kit out. Without --teams a session started
+                         in ccy's tmux is on no team but carries the kit idle (no hooks run,
+                         its own status line, no inbox socket; joining a team relaunches it).
+  --supervise            Force the PTY supervisor on and ARMED — it injects a
+                         real /compact when context goes red while idle. The
+                         supervisor already runs UNARMED by default whenever the
+                         project ships one (.claude/ccy/claude-supervise.py,
+                         deployed by the hooks daemon), because it carries the
+                         only ctrl+z guard; this flag adds the compaction.
+                         Override the whole wrap by exporting CCY_CLAUDE_WRAPPER,
+                         or per-project via a tracked .claude/ccy/ccy.env (then an
+                         untracked ccy.env.local), which entrypoint.sh sources
+                         before claude runs.
+  --no-supervise         Run claude unwrapped. Disables auto-compaction AND the
+                         ctrl+z guard, so ctrl+z can freeze the session.
+  --max-age DURATION     Restart the session on a fresh container (and so the newest Claude
+                         Code) once it has run this long, at the first idle point after a
+                         warning to the session. DURATION is days, hours and minutes:
+                         90m, 12h, 3d, 1d12h; between 30m and 30d. Off unless given, or
+                         CCY_MAX_AGE is exported. Needs the supervisor.
+  --run-for DURATION     Tell the session its time is up after this long (same DURATION
+                         form, 1m to 30d). Only announces; it never ends the session.
+  --until HH:MM          Same, at the next HH:MM local time. Use one of --run-for/--until.
+  --no-restore           Do not bring this session back after a reboot on a machine
+                         that restores sessions (ccy-sessions restore; docs/ccy.md)
+  --top                  Container manager: list/stop all CCY containers
+  --prevent              Disable CCY for this project folder (writes 'never' to .claude/ccy/allowed-hostnames)
+  --help, -h             Show this help message
+  --                     End of ccy options; everything after is forwarded raw to claude
+
+Unrecognised --flag args are validated against claude's own --help. Unknown
+flags fail fast with did-you-mean suggestions. Use `--` to forward a flag
+raw without validation.
+
+Features:
+  • Runs in isolated container with git/gh/ssh configured
+  • State persists in /workspace/.claude/ (project-level, part of your repo)
+  • Long-lived OAuth tokens (sk-ant-oat01-...) - same as GitHub Actions
+  • Named tokens with expiry tracking for multiple Claude accounts
+  • Automatic expiry checking - forces new token when expired
+  • Auto-updates Claude Code once per day, per image (fast in-place npm update
+    when behind; noop when current). Set CCY_AUTO_UPDATE=0 for notify-only.
+  • Mounts current directory as /workspace
+  • Files created have correct host user ownership
+  • Project-specific container extensions via .claude/ccy/Dockerfile
+
+Security:
+  ⚠  YOLO mode bypasses all permission checks
+  ✓  Container isolation prevents unintended host access
+  ✓  Cannot run as root user (safety check)
+  ✓  Tokens isolated from desktop Claude Code
+
+Examples:
+  ccy                           # Start Claude Code in container
+  ccy "implement feature X"     # Start with specific task
+  ccy --resume                  # Resume previous conversation
+  ccy --prompt "fix the bug"    # Start with prompt
+  ccy --headless --prompt "run tests"  # Run in headless mode
+  ccy --top                     # Container manager
+
+  # Token management:
+  ccy --create-token            # Create a new named token
+  ccy --update-token=personal   # Renew an existing token (e.g. after invalidation)
+  ccy --token personal          # Use "personal" token
+  ccy --list-tokens             # List available tokens
+  ccy --token-usage             # Usage limits of every token, as a table
+  ccy --token-usage --json      # The same, as one JSON document
+  ccy --export-token             # Interactive multi-token export
+  ccy --export-token personal    # Export specific token
+
+Custom Dockerfile (Quick template-based):
+  ccy --custom                  # Template selection workflow
+
+Custom Dockerfile (AI-guided planning):
+  ccy --custom-docker           # Comprehensive workflow with planning
+
+Network Management (run in separate terminal while ccy is running):
+  ccy --connect                 # Interactive network selection
+  ccy --connect myproject_default  # Connect to specific network
+  ccy --disconnect              # Pick a network to disconnect from
+  ccy --disconnect myproject_default  # Undo a wrong --connect, saved default included
+
+Token Management:
+  Tokens stored in: ~/.claude-tokens/ccy/tokens/
+  Format: NAME.YYYY-MM-DD.token (expiry date in filename)
+  Long-lived OAuth tokens (sk-ant-oat01-...) created via 'claude setup-token'
+  Expiry checked on launch - forces recreation when expired or expiring today
+  Desktop Claude Code (~/.claude/) is NEVER modified
+
+Token usage report (ccy --token-usage [--json]):
+  One row per token name. A name with two files reports the earliest-dated one, the file
+  'ccy --token NAME' launches with; the later file is listed as shadowed and not read.
+  A token expired or expiring today is reported unavailable and not read. Percentages are 0-100, the scale
+  the token menu shows (over 100 means past the limit). Token values are never printed.
+  Exit status: 0 when at least one token's usage was read; 1 when none was (no tokens,
+  all unavailable, CCY_TOKEN_USAGE=0, no curl); 64 on any option other than --json.
+  JSON (schema 1), one object on stdout:
+    schema          1; bumped only when a key is renamed or removed
+    generated_at    ISO-8601 UTC time of the report
+    scale           CCY_USAGE_SCALE in force: "fraction" (default) or "percent"
+    error           null, or why no token's usage could be read
+    tokens[]        one object per token name:
+      name            token name
+      file            file name the figures belong to (NAME.YYYY-MM-DD.token)
+      expires         YYYY-MM-DD from the file name, or null
+      status          "ok" (at least one figure read) or "unavailable"
+      reason          null when ok, else why the figures are unavailable
+      five_hour_pct   number 0-100+ or null
+      seven_day_pct   number 0-100+ or null
+      resets          {"five_hour": ISO-8601 UTC or null, "seven_day": ... or null}
+      binding_limit   the API's binding bucket (five_hour, seven_day, ...) or null
+      http_status     HTTP status of the reading request, or null
+      fetched_at      ISO-8601 UTC time the figures were read (may be cached), or null
+      warnings        list of strings, e.g. a bucket the API did not report
+      shadowed        list of other file names with this name, never read
+
+State Management:
+  Claude Code state (history, todos, settings) persists in /workspace/.claude/
+  This is the project-level state directory - you can commit it or .gitignore it
+  Each project has its own isolated state
+
+Project-Specific Container Extensions:
+  Command: ccy --custom
+  Location: .claude/ccy/Dockerfile
+  Image cached as: claude-yolo:<project-name>
+
+  Workflow:
+    1. Run 'ccy --custom' in your project
+    2. Select a template:
+       - Dockerfile.example-ansible (Ansible + testing tools)
+       - Dockerfile.example-golang (Go + dev tools)
+       - Dockerfile.project-template (generic, use for other stacks)
+    3. Choose how to proceed:
+       - Use Claude to customize (recommended)
+       - Edit manually in $EDITOR
+       - Use template as-is
+    4. If using Claude:
+       - Claude checks what's in base container
+       - Scans your project files
+       - Asks what tools you need
+       - Edits the Dockerfile with proper cache mounts
+       - Tells you to: exit, 'ccy --rebuild', 'ccy'
+    5. Custom image is cached (fast subsequent starts)
+
+  Templates include Claude instructions:
+    Each template has comments telling Claude how to customize it
+    Templates know what's already installed (git, gh, Node.js, npm, Claude Code)
+    Templates use cache mounts for fast rebuilds
+
+  Template Library:
+    Directory: /opt/claude-yolo/custom-dockerfiles/
+    Pattern: Dockerfile.<name>
+    Never overwritten by ansible - safe to customize
+    Add your own templates for reuse across projects
+
+════════════════════════════════════════════════════════════════════════════════
+Claude Code Help (from container):
+════════════════════════════════════════════════════════════════════════════════
+
+Note: the image exists, but 'claude --help' would not run inside it.
+  podman said: Error: no such entrypoint
+=== stderr
+=== calls
+podman image inspect claude-yolo:latest
+podman run --rm --entrypoint claude claude-yolo:latest --help
+=== files

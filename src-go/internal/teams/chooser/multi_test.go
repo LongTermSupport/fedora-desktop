@@ -8,7 +8,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-const deltaWiden = "CHOICE\tdelta\twiden\t\"Ships the images\"\n"
+const deltaWiden = "  - team: delta\n    org: other-org\n    description: Ships the images\n"
 
 const joinBeta = "CHOOSE:Join without adding (beta will treat " + repo + " references as external)"
 
@@ -129,7 +129,7 @@ func TestBlockedMarksThreeRoundsRunOutAndFailEvenWithKeptMarks(t *testing.T) {
 // S-B11: Create marked together with another team takes both.
 func TestCreateMarkedWithATeamTakesBoth(t *testing.T) {
 	r := newRig(t, alphaCovers+betaWiden)
-	r.choicesAfterCreate("CHOICE\tfresh\tcovers\t\"New\"\n")
+	r.choicesAfterCreate(freshCovers)
 	r.created = "fresh"
 	r.Script.Fzf = []string{"|alpha&&+ Create a team"}
 	exit(t, r.run("--type=podman"), term.ExitOK, r)

@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 )
 
 // noLxc is a host whose LXC cannot be listed, so the flow ends at once and says why.
@@ -47,7 +46,6 @@ func TestEveryRowsMenuOffersAddingAnLxcContainerWithNoHiddenKey(t *testing.T) {
 
 func TestChoosingTheLxcActionRunsLxcAddForTheRowsTeam(t *testing.T) {
 	h := newRig(t)
-	h.On(h.DeclarePrefix("declared"), teamtest.DeclaredAlpha, 0)
 	h.p.Lxc.Lister = noLxc{}
 	h.p.Lxc.SudoReady = func(context.Context, string) bool { return true }
 	r := h.run1(t)

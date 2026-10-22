@@ -1,0 +1,5 @@
+agent_bus_teams:
+  - team: Bad
+  - port: 1
+  - team: ok
+ -x

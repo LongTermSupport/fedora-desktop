@@ -1,0 +1,7 @@
+agent_bus_teams:
+  - team: alpha
+    port: 6167
+agent_bus_lxc_members:
+  - team: Bad
+    container: c
+    user: u

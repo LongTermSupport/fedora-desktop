@@ -64,7 +64,7 @@ func TestEnterOnAPersonWithSessionsOffersElementFirstAndNamesWhatAPasswordEnds(t
 func TestATeamsMenuHeaderShowsItsWholeDescription(t *testing.T) {
 	h := newRig(t)
 	long := "Coordinates the release of every example service across all regions"
-	h.OnDeclare("declared", "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\t\""+long+"\"\n")
+	h.WriteHostVars(t, teamtest.HostVarsAlpha+"    description: \""+long+"\"\n")
 	h.Script.Fzf = []string{"|Coordinates the release", "|ABORT", "|ABORT"}
 	if code := h.run(); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
@@ -173,7 +173,6 @@ func TestATeamsMenuWindsItsSessionsDown(t *testing.T) {
 // which opens the team's settings screen.
 func TestATeamsMenuOpensItsSettings(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("settings", "SETTING\tteam\t\"alpha\"\nSETTING\tdescription\t-\n")
 	h.Script.Fzf = []string{"|alpha", "|Edit settings", "|EXIT", "|ABORT"}
 	if code := h.run(); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
@@ -436,7 +435,6 @@ func TestChoosingTheRoleOfAnLxcMemberChangesItThroughTheSharedPath(t *testing.T)
 	h := newRig(t)
 	h.On("sudo -n -v", "", 0)
 	h.On(teamtest.SudoBus+"set-role alpha", "", 0)
-	h.OnDeclare("lxc-members", "")
 	h.Script.Fzf = []string{"|YES"}
 	r := h.run1(t)
 	if _, err := r.do(context.Background(), actCoordinator, h.row(t, r.snap, "proj.box+role.lxc")); err != nil {

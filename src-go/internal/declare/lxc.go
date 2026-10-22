@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	busdeclare "github.com/LongTermSupport/fedora-desktop/src-go/internal/bus/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/marker"
 )
 
@@ -39,46 +40,9 @@ func (e LxcEntry) args() []string {
 	return args
 }
 
-// LxcMember is an LXCMEMBER line of "declare lxc-members": an entry as the play reads it.
-type LxcMember struct {
-	Team      string
-	Container string
-	User      string
-	Host      string
-	Role      string // worker or coordinator (the legacy orchestrator is read as coordinator)
-	State     string // present or absent
-	// Checkout and Seat are the entry's own, "" where it leaves them out: an absent entry may
-	// name only its repo, and a seat is usually derived.
-	Checkout string
-	Seat     string
-}
-
-// LxcMembers is the entries of agent_bus_lxc_members, in file order.
-func (c *Client) LxcMembers(ctx context.Context) ([]LxcMember, error) {
-	out, err := c.runFile(ctx, "lxc-members")
-	if err != nil {
-		return nil, err
-	}
-	rows, err := marker.Fields(out, "LXCMEMBER", 9)
-	if err != nil {
-		return nil, fmt.Errorf("declare lxc-members: %w", err)
-	}
-	found := make([]LxcMember, 0, len(rows))
-	for _, f := range rows {
-		found = append(found, LxcMember{
-			Team: f[1], Container: f[2], User: f[3], Host: orNone(f[4]), Role: f[5], State: f[6],
-			Checkout: orNone(f[7]), Seat: orNone(f[8]),
-		})
-	}
-	return found, nil
-}
-
-// orNone is a field declare.py prints as "-" for a value the entry leaves out.
-func orNone(field string) string {
-	if field == "-" {
-		return ""
-	}
-	return field
+// LxcMembers is the entries of agent_bus_lxc_members, in file order, as the play reads them.
+func (c *Client) LxcMembers(context.Context) ([]LxcMember, error) {
+	return read(c, busdeclare.HostVars.LxcMembers)
 }
 
 // Identity is the repo and host of the handles a checkout gives: <repo>.<seat>+<host>.lxc.

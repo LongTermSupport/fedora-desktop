@@ -1,0 +1,7 @@
+agent_bus_element_teams:
+  - team: beta
+    base_url: http://192.0.2.10:6168
+agent_bus_teams:
+  - team: beta
+    port: 6168
+agent_bus_lxc_members:

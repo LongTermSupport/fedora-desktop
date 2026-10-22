@@ -1,0 +1,28 @@
+agent_bus_teams:
+  - team: alpha
+    port: 6167
+    org: true
+  - team: beta
+    port: 6168
+    org: 0
+  - team: gamma
+    port: 6169
+    org: Example-Org
+  - team: delta
+    port: 6170
+    org: ["example-org"]
+  - team: eps
+    port: 6171
+    org: [example-org
+  - team: zeta
+    port: 6172
+    org: !vault |
+      $ANSIBLE_VAULT;1.1;AES256
+      30303030303030303030303030303030
+  - team: eta
+    port: 6173
+    org: example-org
+    repos: [{"repo": "example-org/proj"}]
+  - team: theta
+    port: 6174
+    org: "example-org"

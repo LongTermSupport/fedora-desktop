@@ -5,24 +5,6 @@ import (
 	"testing"
 )
 
-func TestParseSeats(t *testing.T) {
-	out := "SEAT\talpha\t1\theld\tself\tproj.1+box.podman\n" +
-		"\n" +
-		"SEAT\talpha\tqa\tfree\t-\tproj.qa+box.podman\n" +
-		"CHANGED\tignored\n"
-	got, err := ParseSeats(out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []Seat{
-		{Team: "alpha", Seat: "1", Held: true, Self: true, Handle: "proj.1+box.podman"},
-		{Team: "alpha", Seat: "qa", Held: false, Self: false, Handle: "proj.qa+box.podman"},
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %+v", got)
-	}
-}
-
 func TestParseChoices(t *testing.T) {
 	out := "CHOICE\t1\tfree\tproj.1+box.podman\ta ccy session\n" +
 		"CHOICE\t2\tnew\tproj.2+box.podman\ta ccy session\n" +
@@ -54,18 +36,6 @@ func TestParseChoicesRejectsWhatIsNotUsable(t *testing.T) {
 	} {
 		if _, err := ParseChoices(out); err == nil {
 			t.Fatalf("accepted %q", out)
-		}
-	}
-}
-
-func TestParseSeatsRejectsMalformedLines(t *testing.T) {
-	for _, line := range []string{
-		"SEAT\talpha\t1\theld\tself",
-		"SEAT\talpha\t1\tbusy\tself\th",
-		"SEAT\talpha\t1\theld\tmaybe\th",
-	} {
-		if _, err := ParseSeats(line + "\n"); err == nil {
-			t.Fatalf("accepted %q", line)
 		}
 	}
 }

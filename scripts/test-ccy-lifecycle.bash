@@ -336,7 +336,7 @@ relaunch_case() {
         cd "$proj" || exit 99
         # shellcheck source=/dev/null
         source "$work/handler.bash"
-        export SCRIPT_DIR="$work/stub" VERSION_CHECK_CACHE="$work/cache-$name" IMAGE_NAME="img:tag"
+        export SCRIPT_DIR="$work/stub" CCY_LAUNCHER_PATH="$work/stub/claude-yolo" VERSION_CHECK_CACHE="$work/cache-$name" IMAGE_NAME="img:tag"
         export STUB_RECORD="$work/$name.record" PATH="$work/bin:$PATH"
         CCY_ORIG_ARGS=("$@")
         export CCY_ORIG_ARGS

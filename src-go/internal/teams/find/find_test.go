@@ -1,6 +1,7 @@
 package find
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -16,20 +17,28 @@ type rig struct {
 	f *Find
 }
 
-func newRig(t *testing.T, covering string) rig {
+// newRig declares alpha (Populated's) and, when covering names it, beta; each team covering
+// names trusts example-org, so it covers the checkout.
+func newRig(t *testing.T, covering ...string) rig {
 	t.Helper()
 	w := teamtest.Populated(t)
 	c := teamtest.Interactive(t, w)
 	w.On("git rev-parse --is-inside-work-tree", "true\n", 0)
 	w.On("git rev-parse --show-toplevel", w.Checkout()+"\n", 0)
-	w.On("git remote get-url origin", "git@example.com:example-org/proj.git\n", 0)
-	w.OnDeclare("github-remote", "example-org/proj\n")
-	w.OnDeclare("teams-for", covering)
+	w.On("git remote get-url origin", "git@github.com:Example-Org/proj.git\n", 0)
+	text := teamtest.HostVarsAlpha
+	if slices.Contains(covering, "alpha") {
+		text += "    org: example-org\n"
+	}
+	if slices.Contains(covering, "beta") {
+		text += "  - team: beta\n    port: 6168\n    org: example-org\n"
+	}
+	w.WriteHostVars(t, text)
 	return rig{World: w, Console: c, f: New(w.Host)}
 }
 
 func TestOneMatchIsPrintedOnStdoutAloneAndAsksNothing(t *testing.T) {
-	h := newRig(t, "TEAM\talpha\n")
+	h := newRig(t, "alpha")
 	if code := h.f.Run(t.Context(), nil); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
@@ -42,7 +51,7 @@ func TestOneMatchIsPrintedOnStdoutAloneAndAsksNothing(t *testing.T) {
 }
 
 func TestSeveralMatchesAreAllPrinted(t *testing.T) {
-	h := newRig(t, "TEAM\talpha\nTEAM\tbeta\n")
+	h := newRig(t, "alpha", "beta")
 	if code := h.f.Run(t.Context(), nil); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
@@ -53,7 +62,7 @@ func TestSeveralMatchesAreAllPrinted(t *testing.T) {
 
 // Q10: choosing is choose-teams now; for-checkout --choose is gone.
 func TestChooseIsNoLongerAnOption(t *testing.T) {
-	h := newRig(t, "TEAM\talpha\nTEAM\tbeta\n")
+	h := newRig(t, "alpha", "beta")
 	if code := h.f.Run(t.Context(), []string{"--choose"}); code != term.ExitUsage {
 		t.Fatalf("exit %d", code)
 	}
@@ -63,7 +72,7 @@ func TestChooseIsNoLongerAnOption(t *testing.T) {
 }
 
 func TestNoMatchSaysSoAndFails(t *testing.T) {
-	h := newRig(t, "")
+	h := newRig(t)
 	if code := h.f.Run(t.Context(), nil); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
 	}
@@ -78,7 +87,7 @@ func TestNoMatchSaysSoAndFails(t *testing.T) {
 }
 
 func TestNotAGitCheckoutFails(t *testing.T) {
-	h := newRig(t, "TEAM\talpha\n")
+	h := newRig(t, "alpha")
 	h.OnNotARepository()
 	if code := h.f.Run(t.Context(), nil); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
@@ -89,7 +98,7 @@ func TestNotAGitCheckoutFails(t *testing.T) {
 }
 
 func TestAContainersCheckoutFindsNoTeamForAHostSession(t *testing.T) {
-	h := newRig(t, "TEAM\talpha\n")
+	h := newRig(t, "alpha")
 	top := h.InLxcCheckout()
 	if code := h.f.Run(t.Context(), nil); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
@@ -100,8 +109,8 @@ func TestAContainersCheckoutFindsNoTeamForAHostSession(t *testing.T) {
 }
 
 func TestNotAGithubCheckoutFails(t *testing.T) {
-	h := newRig(t, "TEAM\talpha\n")
-	h.OnDeclare("github-remote", "")
+	h := newRig(t, "alpha")
+	h.On("git remote get-url origin", "git@example.com:example-org/proj.git\n", 0)
 	if code := h.f.Run(t.Context(), nil); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
 	}
@@ -111,7 +120,7 @@ func TestNotAGithubCheckoutFails(t *testing.T) {
 }
 
 func TestNoOriginFails(t *testing.T) {
-	h := newRig(t, "TEAM\talpha\n")
+	h := newRig(t, "alpha")
 	h.On("git remote get-url origin", "", 2)
 	if code := h.f.Run(t.Context(), nil); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
@@ -122,7 +131,7 @@ func TestNoOriginFails(t *testing.T) {
 }
 
 func TestUnknownOptionIsAUsageError(t *testing.T) {
-	h := newRig(t, "TEAM\talpha\n")
+	h := newRig(t, "alpha")
 	if code := h.f.Run(t.Context(), []string{"--bogus"}); code != term.ExitUsage {
 		t.Fatalf("exit %d", code)
 	}

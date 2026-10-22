@@ -8,16 +8,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 func TestCollectTeamsOrdersDeclaredThenUnitsThenStamps(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("declared", teamtest.DeclaredAlpha+
-		"TEAM\tbeta\t-\tpresent\tbeta.agent-bus.internal\t-\t\"Second team\"\n"+
-		"TEAM\tgone\t6169\tabsent\tgone.agent-bus.internal\t-\t-\n")
+	h.WriteHostVars(t, teamtest.HostVarsAlpha+
+		"  - team: beta\n    description: Second team\n"+
+		"  - team: gone\n    port: 6169\n    state: absent\n")
+	h.OnDeclare("status", "")
 	h.On("systemctl list-units", teamtest.UnitAlpha+"agent-bus-hs@gamma.service loaded failed failed Homeserver gamma\nother.service loaded active running x\n", 0)
 	teamtest.MustWrite(t, filepath.Join(h.c.AppliedDir, "delta.json"), "{}")
 	teamtest.MustWrite(t, filepath.Join(h.c.AppliedDir, "alpha.json"), "{}")
@@ -43,18 +43,19 @@ func TestCollectTeamsOrdersDeclaredThenUnitsThenStamps(t *testing.T) {
 func TestCollectTeamsReportsWhatItCouldNotRead(t *testing.T) {
 	h := newRig(t)
 	h.On("systemctl list-units", "", 0)
-	h.OnErr(h.DeclarePrefix("overview"), "declare: bad shape", 78)
+	h.WriteHostVars(t, "agent_bus_teams:\n  - team: alpha\n    port: port\n")
 	if err := h.c.collectTeams(t.Context(), NewSnapshot()); err == nil {
 		t.Fatal("a declare failure fails the collection")
 	}
-	for _, want := range []string{"declare: bad shape\n", "ERROR: the teams declared in " + h.c.HostVars + ", and whether each is applied as declared, could not be read (the reason is above).\n"} {
+	for _, want := range []string{"declare: line 3: the port is not a number\n", "ERROR: the teams declared in " + h.c.HostVars + ", and whether each is applied as declared, could not be read (the reason is above).\n"} {
 		if !strings.Contains(h.ErrOut.String(), want) {
 			t.Fatalf("stderr %q lacks %q", h.ErrOut.String(), want)
 		}
 	}
 
 	h = newRig(t)
-	h.OnDeclare("declared", "")
+	h.WriteHostVars(t, "")
+	h.OnDeclare("status", "")
 	h.OnErr("systemctl list-units", "boom", 1)
 	if err := h.c.collectTeams(t.Context(), NewSnapshot()); err == nil {
 		t.Fatal("a systemctl failure fails the collection")
@@ -73,6 +74,7 @@ func TestCollectTeamsReportsWhatItCouldNotRead(t *testing.T) {
 func TestCollectTeamsReadsStatusAndWords(t *testing.T) {
 	h := newRig(t)
 	h.On("systemctl list-units", "agent-bus-hs@b.service loaded active running x\nagent-bus-hs@a.service loaded active running x\n", 0)
+	h.WriteHostVars(t, "")
 	h.OnDeclare("status", "STATUS\ta\tcurrent\t-\nSTATUS\tb\toutdated\tunstamped\nSTATUS\tc\toutdated\tconfig,software\n"+
 		"STATUS\td\toutdated\tconfig\nSTATUS\te\tunbuilt\t-\nSTATUS\tf\tremoved\t-\nSTATUS\tg\tdecide\tabsent\n"+
 		"STATUS\th\tdecide\tundeclared\nSTATUS\ti\tunreadable\tbad yaml\n")
@@ -102,8 +104,8 @@ func TestCollectTeamsReadsStatusAndWords(t *testing.T) {
 		t.Fatalf("--installed %v", installed)
 	}
 
-	if calls := h.Spawned(); calls["declare.py overview"] != 1 || len(calls) != 2 {
-		t.Fatalf("declaration and status were not read in one run: %v", calls)
+	if calls := h.Spawned(); calls["declare.py status"] != 1 || len(calls) != 2 {
+		t.Fatalf("the declaration was not read in-process beside one status run: %v", calls)
 	}
 }
 
@@ -338,7 +340,7 @@ func TestCollectBuildsTheRows(t *testing.T) {
 
 func TestATeamRowsMemberCellIsItsDescription(t *testing.T) {
 	h := populated(t)
-	h.OnDeclare("declared", "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\t\"Builds the example site\"\n")
+	h.WriteHostVars(t, teamtest.HostVarsAlpha+"    description: Builds the example site\n")
 	s, err := h.c.Collect(t.Context())
 	if err != nil {
 		t.Fatalf("%v: %s", err, h.ErrOut.String())
@@ -352,15 +354,15 @@ func TestATeamRowsMemberCellIsItsDescription(t *testing.T) {
 }
 
 func TestAVaultedOrInvalidDescriptionIsSaidNotShownAsNone(t *testing.T) {
-	for state, want := range map[string]string{"!vaulted": "(description vaulted)", "!invalid": "(description invalid)"} {
+	for value, want := range map[string]string{"!vault x": "(description vaulted)", `""`: "(description invalid)"} {
 		h := populated(t)
-		h.OnDeclare("declared", "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\t"+state+"\n")
+		h.WriteHostVars(t, teamtest.HostVarsAlpha+"    description: "+value+"\n")
 		s, err := h.c.Collect(t.Context())
 		if err != nil {
 			t.Fatalf("%v: %s", err, h.ErrOut.String())
 		}
 		if got := s.Rows[0].Member; got != want {
-			t.Fatalf("%s: team row says %q, want %q", state, got, want)
+			t.Fatalf("%s: team row says %q, want %q", value, got, want)
 		}
 	}
 }
@@ -409,7 +411,8 @@ func TestCollectReadsEachSourceOncePerPass(t *testing.T) {
 
 func TestCollectNotInstalledAndDownTeams(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("declared", teamtest.DeclaredAlpha+"TEAM\tbeta\t6168\tpresent\tbeta.agent-bus.internal\t-\t-\n")
+	// beta is on no address (it listens on nothing and there is no bus address): no URL.
+	h.WriteHostVars(t, "agent_bus_teams:\n  - team: alpha\n    port: 6167\n    listen: [\"192.0.2.10\"]\n  - team: beta\n    port: 6168\n")
 	h.OnDeclare("status", "STATUS\talpha\tdecide\tabsent\nSTATUS\tbeta\tunbuilt\t-\nSTATUS\tgamma\tunreadable\tbad\n")
 	h.On("systemctl list-units", "agent-bus-hs@alpha.service loaded inactive dead x\nagent-bus-hs@gamma.service loaded failed failed x\n", 0)
 	h.On("tmux -L ccy list-sessions", "", 0)
@@ -441,7 +444,7 @@ func TestCollectNotInstalledAndDownTeams(t *testing.T) {
 
 func TestCollectNotInstalledUndeclaredPointsAtRemove(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("declared", "")
+	h.WriteHostVars(t, "")
 	h.OnDeclare("status", "STATUS\tzeta\tdecide\tundeclared\n")
 	h.On("systemctl list-units", "", 0)
 	h.On("tmux -L ccy list-sessions", "", 0)
@@ -458,7 +461,8 @@ func TestCollectNotInstalledUndeclaredPointsAtRemove(t *testing.T) {
 
 func TestCollectWithNoTeamsHasNoRows(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("declared", "")
+	h.WriteHostVars(t, "")
+	h.OnDeclare("status", "")
 	h.On("systemctl list-units", "", 0)
 	s, err := h.c.Collect(t.Context())
 	if err != nil || len(s.Rows) != 0 {
@@ -468,11 +472,7 @@ func TestCollectWithNoTeamsHasNoRows(t *testing.T) {
 
 func TestCollectMarksUnreadableSeats(t *testing.T) {
 	h := populated(t)
-	h.Fake.On([]string{"agent-bus", "seat", "list"}, execx.Result{
-		Stdout:   []byte("SEAT\talpha\t1\theld\tself\tproj.1+local.podman\n"),
-		Stderr:   []byte("agent-bus: seat 7 unreadable"),
-		ExitCode: 78,
-	})
+	h.BreakSeat(t, h.Checkout(), "alpha", "dev")
 	s, err := h.c.Collect(t.Context())
 	if err != nil {
 		t.Fatal(err)

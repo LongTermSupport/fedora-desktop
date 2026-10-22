@@ -1,0 +1,12 @@
+=== exit 1
+=== stdout
+=== stderr
+ERROR: Container engine 'buildah' not found
+Install buildah or set CCY_CONTAINER_ENGINE to an available engine
+=== calls
+=== files
+dir  home/.claude-tokens 0700
+dir  home/.claude-tokens/ccy 0700
+dir  home/.claude-tokens/ccy/tokens 0700
+file home/.claude-tokens/ccy/tokens/work.2030-06-01.token 0600
+     | {token:work}

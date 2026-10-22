@@ -2,6 +2,7 @@ package hot
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,6 +88,31 @@ func TestRoleNotToldInTimeSaysSo(t *testing.T) {
 	wantLines(t, r.ErrOut.String(), "✓ role: proj.3+local.podman set to coordinator",
 		"✗ session: not told within 10 s that it is alpha's coordinator: its watcher tells it at its next sync of alpha, "+
 			"or its next prompt does; run the same command again to wait for it")
+}
+
+func TestRoleNotToldBecauseTheReportCannotBeReadSaysWhy(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
+	r.m.tells = false
+	r.m.report = "{not json"
+	if code := r.run(t, "role", session, "alpha", coord, "--yes"); code != term.ExitFailure {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	if got := r.ErrOut.String(); !strings.Contains(got, "the session's report could not be read: ") {
+		t.Fatalf("the read error is said:\n%s", got)
+	}
+}
+
+func TestRoleNotToldWithNoReportYetIsTheTimeoutNotAReadError(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
+	r.m.tells = false
+	r.m.report = "-"
+	if code := r.run(t, "role", session, "alpha", coord, "--yes"); code != term.ExitFailure {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	got := r.ErrOut.String()
+	if !strings.Contains(got, "not told within 10 s") || strings.Contains(got, "could not be read") {
+		t.Fatalf("a report not written yet is waited for:\n%s", got)
+	}
 }
 
 func TestRoleOfATeamTheSessionIsNotInOrWhoseHomeserverIsDown(t *testing.T) {

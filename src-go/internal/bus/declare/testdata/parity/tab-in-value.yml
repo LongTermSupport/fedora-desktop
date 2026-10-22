@@ -1,0 +1,12 @@
+agent_bus_address: 192.0.2.10
+agent_bus_teams:
+  - team: alpha
+    port: 6167
+    server_name: 'alpha	bus'
+    org: example	org
+    path_prefixes: ["a\tb", "c"]
+    description: "a\tb"
+  - team: beta
+    port: 6168
+    listen: ["192.0.2.1\t"]
+    repos: [{"repo": "x\ty"}]

@@ -66,6 +66,14 @@
       ansible.builtin.dnf:
         name: util-linux-script
 
+    # The project's pytest, as python3-pytest is in the CCY image (.claude/ccy/Dockerfile):
+    # scripts/qa-hook-handlers.bash runs the hooks-daemon handler tests under the daemon's
+    # venv with the pytest of the python3 of the same version appended to its path.
+    - name: Install pytest for the QA gate that runs the hook handler tests
+      become: true
+      ansible.builtin.dnf:
+        name: python3-pytest
+
     # The QA toolchain is pinned, unlike the development tools below, because
     # scripts/qa-toolchain.bash ASSERTS these versions: a gate's verdict is a
     # property of the binary that produced it, so a host running different

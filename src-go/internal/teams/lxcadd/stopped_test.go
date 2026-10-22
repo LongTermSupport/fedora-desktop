@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -12,17 +13,19 @@ import (
 // The declared members whose containers are stopped (SPEC-lxc-stopped-members.md L11):
 // agent@container-c in alpha (stopped), a member of another team in the same stopped container,
 // alpha's member in the running container-b, and one alpha has let go of.
-const declaredAroundStopped = "LXCMEMBER\talpha\tcontainer-c\tagent\t-\tworker\tpresent\t/srv/agent\t-\n" +
-	"LXCMEMBER\tbeta\tcontainer-c\tother\t-\tworker\tpresent\t/srv/agent\t-\n" +
-	"LXCMEMBER\talpha\tcontainer-b\tagent\t-\tworker\tpresent\t/srv/agent\t-\n" +
-	"LXCMEMBER\talpha\tcontainer-c\tgone\t-\tworker\tabsent\t/srv/agent\t-\n"
+var declaredAroundStopped = []declare.LxcMember{
+	{Team: "alpha", Container: "container-c", User: "agent", Role: "worker", State: "present", Checkout: "/srv/agent"},
+	{Team: "beta", Container: "container-c", User: "other", Role: "worker", State: "present", Checkout: "/srv/agent"},
+	{Team: "alpha", Container: "container-b", User: "agent", Role: "worker", State: "present", Checkout: "/srv/agent"},
+	{Team: "alpha", Container: "container-c", User: "gone", Role: "worker", State: "absent", Checkout: "/srv/agent"},
+}
 
 const stoppedNotice = "Declared in alpha, container not running: agent@container-c. The play skips a member " +
 	"already joined and defers one not yet joined; neither blocks this add. Nothing is started."
 
 func TestTheTeamsDeclaredMembersInStoppedContainersAreSaidBeforeTheSummary(t *testing.T) {
 	r := newRig(t)
-	r.OnDeclare("lxc-members", declaredAroundStopped)
+	r.WriteHostVars(t, teamtest.HostVarsWithLxc(declaredAroundStopped...))
 	r.happy()
 	if code := r.run("alpha"); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
@@ -47,7 +50,7 @@ func TestTheTeamsDeclaredMembersInStoppedContainersAreSaidBeforeTheSummary(t *te
 
 func TestNoStoppedNoticeWhenEveryDeclaredMemberIsRunning(t *testing.T) {
 	r := newRig(t)
-	r.OnDeclare("lxc-members", "LXCMEMBER\talpha\tcontainer-b\tagent\t-\tworker\tpresent\t/srv/agent\t-\n")
+	r.WriteHostVars(t, teamtest.HostVarsWithLxc(declaredAroundStopped[2]))
 	r.happy()
 	if code := r.run("alpha"); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
