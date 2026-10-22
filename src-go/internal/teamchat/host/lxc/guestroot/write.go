@@ -27,7 +27,7 @@ const (
 // Writer is the root-write rules (C 3.9.1): every open adds RESOLVE_NO_XDEV, and every
 // directory on the path is opened O_DIRECTORY|O_NOFOLLOW and checked by fstat root-owned and
 // not group or other writable before anything is made in it. What a write makes is root's,
-// with its mode set by fchmod whatever the umask.
+// with its mode set by fchmod whatever the umask. Each call is bounded as a read is (bounded).
 type Writer struct{ r *Root }
 
 // Writer is the root's writer.
@@ -36,16 +36,13 @@ func (r *Root) Writer() *Writer { return &Writer{r: r} }
 // MkdirAll makes each missing directory of path, 0755 root, and checks each one already there
 // by the rules; it says whether one was made.
 func (w *Writer) MkdirAll(p string) (bool, error) {
-	changed := false
-	err := w.r.live(func() error {
-		fd, made, werr := w.walk(p, true)
-		if werr != nil {
-			return werr
+	return bounded(w.r, p, func() (bool, error) {
+		fd, made, err := w.walk(p, true)
+		if err != nil {
+			return false, err
 		}
-		changed = made
-		return w.r.closeFD(fd, p)
-	})
-	return changed, err
+		return made, w.r.closeFD(fd, p)
+	}, nil)
 }
 
 // WriteFile places data at dir/name with mode by an O_CREAT|O_EXCL|O_NOFOLLOW temporary,
@@ -55,29 +52,23 @@ func (w *Writer) WriteFile(dir, name string, data []byte, mode fs.FileMode) (boo
 	if err := errors.Join(checkName(name), checkMode(mode)); err != nil {
 		return false, err
 	}
-	changed := false
-	err := w.inDir(dir, func(dfd int) error {
-		var werr error
-		changed, werr = w.writeIn(dfd, join(dir, name), name, data, mode)
-		return werr
+	full := join(dir, name)
+	return inDir(w, dir, full, func(dfd int) (bool, error) {
+		return w.writeIn(dfd, full, name, data, mode)
 	})
-	return changed, err
 }
 
 // PlaceDir fills a fresh temporary directory under parent with fill, then renames it to name
 // with RENAME_NOREPLACE. A directory already at name is left as it is (changed false) once it
-// passes the rules; anything else there is refused. A failed fill removes the temporary.
+// passes the rules; anything else there is refused. A failed fill removes the temporary. fill
+// runs within the bound and may outlive a stalled call, so it touches only what it is given.
 func (w *Writer) PlaceDir(parent, name string, fill func(d *Dir) error) (bool, error) {
 	if err := checkName(name); err != nil {
 		return false, err
 	}
-	changed := false
-	err := w.inDir(parent, func(pfd int) error {
-		var perr error
-		changed, perr = w.placeIn(pfd, parent, name, fill)
-		return perr
+	return inDir(w, parent, join(parent, name), func(pfd int) (bool, error) {
+		return w.placeIn(pfd, parent, name, fill)
 	})
-	return changed, err
 }
 
 // Symlink makes dir/name a link to target by symlinkat to a temporary and renameat2 over the
@@ -90,13 +81,10 @@ func (w *Writer) Symlink(dir, name, target string) (bool, error) {
 	if target == "" || strings.ContainsRune(target, 0) {
 		return false, fmt.Errorf("%w: %q is not a link target", ErrRefused, target)
 	}
-	changed := false
-	err := w.inDir(dir, func(dfd int) error {
-		var lerr error
-		changed, lerr = w.linkIn(dfd, join(dir, name), name, target)
-		return lerr
+	full := join(dir, name)
+	return inDir(w, dir, full, func(dfd int) (bool, error) {
+		return w.linkIn(dfd, full, name, target)
 	})
-	return changed, err
 }
 
 // Remove unlinks dir/name, a file or a link, never a directory; absent is removed false.
@@ -105,21 +93,18 @@ func (w *Writer) Remove(dir, name string) (bool, error) {
 		return false, err
 	}
 	full := join(dir, name)
-	removed := false
-	err := w.inDir(dir, func(dfd int) error {
+	return inDir(w, dir, full, func(dfd int) (bool, error) {
 		uerr := w.r.sys.unlinkat(dfd, name, 0)
 		switch {
 		case errors.Is(uerr, unix.ENOENT):
-			return nil
+			return false, nil
 		case errors.Is(uerr, unix.EISDIR):
-			return fmt.Errorf("%w: %s is a directory", ErrRefused, full)
+			return false, fmt.Errorf("%w: %s is a directory", ErrRefused, full)
 		case uerr != nil:
-			return fmt.Errorf("guestroot: remove %s: %w", full, uerr)
+			return false, fmt.Errorf("guestroot: remove %s: %w", full, uerr)
 		}
-		removed = true
-		return w.sync(dfd, dir)
+		return true, w.sync(dfd, dir)
 	})
-	return removed, err
 }
 
 // RemoveTree removes the directory dir/name and everything under it through directory fds,
@@ -128,16 +113,14 @@ func (w *Writer) RemoveTree(dir, name string) (bool, error) {
 	if err := checkName(name); err != nil {
 		return false, err
 	}
-	removed := false
-	err := w.inDir(dir, func(dfd int) error {
-		var rerr error
-		removed, rerr = w.removeIn(dfd, join(dir, name), name, 0)
-		if rerr != nil || !removed {
-			return rerr
+	full := join(dir, name)
+	return inDir(w, dir, full, func(dfd int) (bool, error) {
+		removed, err := w.removeIn(dfd, full, name, 0)
+		if err != nil || !removed {
+			return removed, err
 		}
-		return w.sync(dfd, dir)
+		return true, w.sync(dfd, dir)
 	})
-	return removed, err
 }
 
 // Dir is a directory being filled by PlaceDir: Mkdir and WriteFile relative to it, each
@@ -172,15 +155,17 @@ func (d *Dir) WriteFile(name string, data []byte, mode fs.FileMode) error {
 	return d.w.createIn(d.fd, name, join(d.full, name), data, mode)
 }
 
-// inDir runs f with dir opened by the rules, on a live root.
-func (w *Writer) inDir(dir string, f func(dfd int) error) error {
-	return w.r.live(func() error {
+// inDir runs f with dir opened by the rules, on a live root, bounded as a read is: full is the
+// path a stall names.
+func inDir(w *Writer, dir, full string, f func(dfd int) (bool, error)) (bool, error) {
+	return bounded(w.r, full, func() (bool, error) {
 		dfd, _, err := w.walk(dir, false)
 		if err != nil {
-			return err
+			return false, err
 		}
-		return errors.Join(f(dfd), w.r.closeFD(dfd, dir))
-	})
+		v, err := f(dfd)
+		return v, errors.Join(err, w.r.closeFD(dfd, dir))
+	}, nil)
 }
 
 // walk opens each directory of path from the root down by the rules, making a missing one
