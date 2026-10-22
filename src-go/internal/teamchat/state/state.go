@@ -2,7 +2,8 @@
 // DESIGN-v2-C-host.md 3.6.1, S15; SPEC-n2b.md ST1-ST2): a write is a temporary file beside the
 // target, created exclusively without following a link, given its mode and group, written,
 // synced and renamed over the target, then the directory synced; a read refuses a link, a file
-// that is not regular, and a file over its cap.
+// that is not regular, and a file over its cap, and a read of a file root decides from (ST3,
+// SPEC-n2f's trust rule) also one of another owner or writable by its group or others.
 package state
 
 import (
@@ -13,6 +14,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 
 	"golang.org/x/sys/unix"
 )
@@ -61,30 +63,56 @@ func syncDir(dir string) error {
 	return errors.Join(d.Sync(), d.Close())
 }
 
+// readFlags open a file the reader decides from: never following a link, never blocking on a
+// FIFO or a device, and (as every os.OpenFile) not inherited by a child.
+const readFlags = os.O_RDONLY | unix.O_NOFOLLOW | unix.O_NONBLOCK
+
 // ReadFile is path's content; found is false when there is no file. A link, a file that is not
 // regular, and a file over limit bytes are refused (ST2).
 func ReadFile(path string, limit int64) ([]byte, bool, error) {
-	f, err := os.OpenFile(path, os.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
+	return read(path, limit, readFlags, nil)
+}
+
+// ReadOwnedFile is ReadFile of a file root decides from (ST3): it must also be owned by uid and
+// writable by neither its group nor others.
+func ReadOwnedFile(path string, limit int64, uid uint32) ([]byte, bool, error) {
+	return read(path, limit, readFlags, &uid)
+}
+
+// ReadOwnedTarget is ReadOwnedFile for a name the distribution ships as a link (os-release):
+// the link is followed, and the file it names is held to the same rules.
+func ReadOwnedTarget(path string, limit int64, uid uint32) ([]byte, bool, error) {
+	return read(path, limit, readFlags&^unix.O_NOFOLLOW, &uid)
+}
+
+func read(path string, limit int64, flags int, owner *uint32) ([]byte, bool, error) {
+	f, err := os.OpenFile(path, flags, 0)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, false, nil
 	}
 	if err != nil {
 		return nil, false, fmt.Errorf("cannot open %s: %w", path, err)
 	}
-	data, err := readOpen(f, path, limit)
+	data, err := readOpen(f, path, limit, owner)
 	if closeErr := f.Close(); err == nil && closeErr != nil {
 		err = fmt.Errorf("cannot close %s: %w", path, closeErr)
 	}
 	return data, err == nil, err
 }
 
-func readOpen(f *os.File, path string, limit int64) ([]byte, error) {
+func readOpen(f *os.File, path string, limit int64, owner *uint32) ([]byte, error) {
 	info, err := f.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("cannot stat %s: %w", path, err)
 	}
-	if !info.Mode().IsRegular() {
+	st, ok := info.Sys().(*syscall.Stat_t)
+	switch {
+	case !info.Mode().IsRegular() || !ok:
 		return nil, fmt.Errorf("%s is not a regular file", path)
+	case owner != nil && st.Uid != *owner:
+		return nil, fmt.Errorf("%s is owned by uid %d, not %d", path, st.Uid, *owner)
+	case owner != nil && info.Mode().Perm()&0o022 != 0:
+		return nil, fmt.Errorf("%s is writable by its group or by others", path)
 	}
 	data, err := io.ReadAll(io.LimitReader(f, limit+1))
 	if err != nil {

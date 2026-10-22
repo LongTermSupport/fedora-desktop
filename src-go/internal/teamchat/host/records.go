@@ -11,6 +11,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
 )
 
 // recordVersion is the `v` of units.json, firewall.json and the stamp.
@@ -174,6 +175,27 @@ func decodeStamp(raw []byte, team paths.TeamID) (stamp, error) {
 		r.fail("applied_ms", "is not an integer")
 	}
 	return s, r.err
+}
+
+// Stamp is a team's install stamp as another package reads it (C 3.5.2): the config and
+// software digests, the Tuwunel version, and when it was applied.
+type Stamp struct {
+	Config, Software, Tuwunel string
+	AppliedMS                 int64
+}
+
+// ReadStamp is team's stamp under root ("" on a host), read by the trust rule
+// (state.ReadFile) and decoded strictly; found is false when there is none.
+func ReadStamp(root string, team paths.TeamID) (Stamp, bool, error) {
+	raw, found, err := state.ReadFile(root+paths.StampFile(team), fileMax)
+	if err != nil || !found {
+		return Stamp{}, false, err
+	}
+	s, err := decodeStamp(raw, team)
+	if err != nil {
+		return Stamp{}, false, err
+	}
+	return Stamp{Config: s.config, Software: s.software, Tuwunel: s.tuwunel, AppliedMS: s.appliedMS}, true, nil
 }
 
 // record reads one object's fields strictly, keeping the first problem; a nested object's

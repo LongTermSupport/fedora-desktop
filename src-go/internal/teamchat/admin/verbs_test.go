@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/health"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -165,6 +166,9 @@ func TestApproveThenApply(t *testing.T) {
 	}
 	if len(w.regKeys) != 1 || len(w.regKeys[0]) != 128 {
 		t.Fatalf("the child was given registration keys %q", w.regKeys)
+	}
+	if !slices.Equal(w.ports, []int{8448}) {
+		t.Fatalf("the child opened ports %v, not the declared 8448 (OP6)", w.ports)
 	}
 	if w.rooms(t).Main == "" || w.roster(t).CoordinatorWanted != coord {
 		t.Fatalf("rooms %+v roster %+v", w.rooms(t), w.roster(t))
@@ -545,6 +549,10 @@ func TestAChildsAnswerIsCheckedAgainstTheRequest(t *testing.T) {
 		"no credential for an add": {addArgs("4", "password"), func(a *Answer) { a.Credential = nil }},
 		"a credential for a park":  {on("park"), func(a *Answer) { a.Credential = &apply.Credential{Kind: apply.CredPassword, Secret: "x"} }},
 		"a handle for role apply":  {[]string{"role", "apply", "--team", "alpha"}, func(a *Answer) { a.Handle = coord }},
+		"no main room for an add":  {addArgs("4", "password"), func(a *Answer) { a.MainRoom = "" }},
+		"a main room for a park":   {on("park"), func(a *Answer) { a.MainRoom = sampleRoom }},
+		"a view for a park":        {on("park"), func(a *Answer) { a.View = &health.View{} }},
+		"a notice for role apply":  {[]string{"role", "apply", "--team", "alpha"}, func(a *Answer) { a.Notice = &health.Notice{Posted: true} }},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -556,6 +564,29 @@ func TestAChildsAnswerIsCheckedAgainstTheRequest(t *testing.T) {
 			out := w.verb("", c.args...)
 			if out.code != term.ExitFailure || out.stdout != "" || len(w.bundled) != bundled || !strings.Contains(out.stderr, "not what it was asked") {
 				t.Fatalf("%+v, bundled %v", out, w.bundled)
+			}
+		})
+	}
+}
+
+// TestATeamApplyAnswerIsHeldToItsOp: team.apply's answer carries changed lines only; a handle,
+// notes, a credential or a main room in it is refused as a lie, as for the member verbs.
+func TestATeamApplyAnswerIsHeldToItsOp(t *testing.T) {
+	cases := map[string]func(*Answer){
+		"a handle":     func(a *Answer) { a.Handle = coord },
+		"notes":        func(a *Answer) { a.Notes = []string{"a note"} },
+		"a credential": func(a *Answer) { a.Credential = &apply.Credential{Kind: apply.CredPassword, Secret: "x"} },
+		"a main room":  func(a *Answer) { a.MainRoom = sampleRoom },
+	}
+	for name, lie := range cases {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t)
+			in := encodeDoc(t, alphaDoc())
+			w.ok(t, in, "team", "approve", "--team", "alpha")
+			w.lie = lie
+			out := w.verb(in, "team", "apply")
+			if out.code != term.ExitFailure || !strings.Contains(out.stderr, "not what it was asked") {
+				t.Fatalf("%+v", out)
 			}
 		})
 	}

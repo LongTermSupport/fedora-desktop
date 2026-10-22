@@ -45,14 +45,16 @@ const (
 // commandOwners maps a program to the packages that own every use of it, so its flags and
 // target forms are decided once (the gum and fzf prompts, the sudo and tmux argument forms).
 // A program with two owners is used for two different jobs: podman is read for a session's
-// container by sessprobe and driven (pause, unpause, networks) by podfreeze. A program absent
+// container by sessprobe and driven (pause, unpause, networks) by podfreeze, and systemctl is
+// the desktop's units through sudo in systemd and `clean --what=state` of a teamchat homeserver
+// as root in teamchat/units (whose other unit calls are D-Bus). A program absent
 // from the table is unowned: any package may run it.
 var commandOwners = map[string][]string{
 	"sudo":         {sudoPkg},
 	"tmux":         {"internal/tmuxccy"},
 	"gum":          {"internal/ui"},
 	"fzf":          {"internal/ui"},
-	"systemctl":    {"internal/systemd"},
+	"systemctl":    {"internal/systemd", "internal/teamchat/units"},
 	"busctl":       {"internal/systemd", "internal/wsimedia"},
 	"git":          {"internal/gitx"},
 	"ps":           {sessprobePkg},
@@ -139,6 +141,11 @@ var dynamicNames = []allowance{
 		pkg:    opsPkg,
 		fn:     "Ops.runElementPlay",
 		reason: "the Element play, run by its own shebang; its path is configuration",
+	},
+	{
+		pkg:    "internal/teamchat/admin",
+		fn:     "ExecChild.Ask",
+		reason: "teamchat-admin itself, run as the teamchat-ctl child: the running binary resolved from /proc/self/exe (SPEC-n2f CS2)",
 	},
 	{
 		pkg:    "internal/wsi",
