@@ -29,6 +29,8 @@ type fakeMachine struct {
 	selfErr, userErr, groupErr error
 	pinErr                     error
 	noCtl                      bool
+	proven                     bool
+	conn                       units.Conn
 	n                          counts
 }
 
@@ -48,8 +50,12 @@ func (f *fakeMachine) machine() machine {
 		runner:     &execx.Fake{},
 		dial: func(context.Context) (units.Conn, error) {
 			f.n.dials++
+			if f.conn != nil {
+				return f.conn, nil
+			}
 			return nil, errors.New("no bus here")
 		},
+		restoreProven: f.proven,
 	}
 }
 
@@ -88,8 +94,7 @@ func TestRestoreIsUnproven(t *testing.T) {
 func TestEverySeamIsSetAndNothingIsRead(t *testing.T) {
 	f := &fakeMachine{root: t.TempDir()}
 	sys := build(t, f)
-	// Backup is wired with the units manager's adapter (RW1); until then the verbs say so.
-	if missing := nilFields(reflect.ValueOf(*sys), "Backup"); len(missing) > 0 {
+	if missing := nilFields(reflect.ValueOf(*sys)); len(missing) > 0 {
 		t.Errorf("System seams left nil: %v", missing)
 	}
 	if missing := nilFields(reflect.ValueOf(sys.Host), "Bootstrap"); len(missing) > 0 {
@@ -169,14 +174,6 @@ func TestStatusIsTheTicks(t *testing.T) {
 	}
 	if line, err := sys.Host.Status.Remove(t.Context(), team); err != nil || line != "" {
 		t.Fatalf("Remove with no record = %q, %v", line, err)
-	}
-}
-
-// WR2, n2f-D6: a backup is refused until C 3.12 is built.
-func TestBackupIsRefused(t *testing.T) {
-	sys := build(t, &fakeMachine{root: t.TempDir()})
-	if err := sys.Host.Backup(t.Context(), nil); err == nil || err.Error() != "backups are not built yet (C 3.12)" {
-		t.Fatalf("Backup = %v", err)
 	}
 }
 

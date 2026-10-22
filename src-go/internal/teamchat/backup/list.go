@@ -108,7 +108,7 @@ func List(d Deps, team paths.TeamID) (Listing, error) {
 	for _, n := range slices.Backward(ids) {
 		e := Entry{ID: n, TimeMS: metas[n] * 1000}
 		if slices.Contains(tars, n) {
-			c, terr := readTar(d, team, n)
+			c, terr := ReadTar(d, team, n)
 			_, hasMeta := metas[n]
 			e.Usable = terr == nil && hasMeta
 			if terr == nil && e.TimeMS == 0 {

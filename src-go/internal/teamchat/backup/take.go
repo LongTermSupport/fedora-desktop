@@ -244,14 +244,15 @@ func writePair(d Deps, m Manifest, src Sources) (string, error) {
 	if err != nil {
 		return StepWrite, err
 	}
-	if _, err := readTar(d, m.Team, m.Backup); err != nil {
+	if _, err := ReadTar(d, m.Team, m.Backup); err != nil {
 		return StepVerify, errors.Join(err, os.Remove(path))
 	}
 	return "", nil
 }
 
-// readTar reads tar n back and validates it; found is false when there is none.
-func readTar(d Deps, team paths.TeamID, n int64) (Contents, error) {
+// ReadTar reads root's tar n of team back and validates it (BK3); a missing tar is an error. The
+// restore reads backup N through it (SM4's Tar).
+func ReadTar(d Deps, team paths.TeamID, n int64) (Contents, error) {
 	root, err := euid()
 	if err != nil {
 		return Contents{}, err

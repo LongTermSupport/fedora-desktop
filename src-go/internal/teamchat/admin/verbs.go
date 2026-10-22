@@ -24,7 +24,8 @@ import (
 // System is what the verbs reach beyond the process, each a seam (CV3-CV5): the host's
 // (host.Deps; Bootstrap and LockWait are the verb's, and Pin, CtlUID and CtlGID team apply's
 // from Pin and CtlIDs), the child, the seat side's bundles, the owner group, the health tick,
-// the account database's homes and the backups' effects (nil while unwired); for the child,
+// the account database's homes and the backups' effects, built when a backup verb runs, as it
+// reads the teamchat-ctl account (nil while unwired); for the child,
 // its Opener. A seam that reads a host file
 // reads it when a verb calls it, so a verb fails only on what it needs (n2f-W1).
 type System struct {
@@ -37,7 +38,7 @@ type System struct {
 	CtlIDs     func() (User, error)
 	Health     func() (HealthTick, error)
 	Home       func(uid int) (string, error)
-	Backup     *backup.Deps
+	Backup     func() (backup.Deps, error)
 	// Restore is the restore engine; production answers restore's refusal until DC8 (RW2).
 	Restore func() (Restorer, error)
 }
@@ -453,7 +454,7 @@ func teamApply(ctx context.Context, e Env, args []string) term.ExitCode {
 		return failWith(e, err)
 	}
 	d.LockWait = host.PlayWait
-	d.Bootstrap = func(ctx context.Context, b host.Bootstrap) ([]string, error) { return bootstrap(ctx, sys, b) }
+	d.Bootstrap = Bootstrapper(sys)
 	lines, err := host.Apply(ctx, d, in)
 	return printChanged(e, lines, err)
 }

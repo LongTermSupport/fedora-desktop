@@ -88,7 +88,7 @@ func takeReal(ctx context.Context, t *testing.T, d Deps, lock *teamlock.Lock, un
 	if res.Backup != want || res.TimeMS <= 0 || len(res.Pruned) != 0 || units.kills != int(want) {
 		t.Fatalf("backup %d: %+v after %d signals", want, res, units.kills)
 	}
-	c, err := readTar(d, lock.Team(), res.Backup)
+	c, err := ReadTar(d, lock.Team(), res.Backup)
 	if err != nil {
 		t.Fatalf("tar %d: %v", want, err)
 	}

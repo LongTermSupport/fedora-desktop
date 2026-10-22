@@ -461,3 +461,19 @@ func TestLastRunErrorIsOneLine(t *testing.T) {
 		}
 	}
 }
+
+// SM4's Tar: ReadTar is a taken tar decoded, and a missing one an error naming its number.
+func TestReadTar(t *testing.T) {
+	w := newWorld(t)
+	if _, err := ReadTar(w.deps(), w.team, 4); err == nil || !strings.Contains(err.Error(), "there is no tar of backup 4") {
+		t.Fatalf("ReadTar before Take = %v", err)
+	}
+	res, err := Take(context.Background(), w.deps(), w.lock, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := ReadTar(w.deps(), w.team, res.Backup)
+	if err != nil || c.Manifest.Backup != res.Backup || c.Manifest.Team != w.team {
+		t.Fatalf("ReadTar = %+v, %v", c.Manifest, err)
+	}
+}

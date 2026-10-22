@@ -18,7 +18,6 @@ import (
 // Interface checks: the adapters are the seams the wiring hands on.
 var (
 	_ Teams       = Stamps{}
-	_ Backups     = NoBackups{}
 	_ Guests      = GuestsNotBuilt{}
 	_ host.Status = StatusFiles{}
 )
@@ -249,32 +248,6 @@ func TestStatusFilesRemoveFailsOnAFileItCannotDelete(t *testing.T) {
 	}
 	if _, err := s.Remove(context.Background(), team); err == nil {
 		t.Fatal("a directory in lxc-online.json's place was removed silently")
-	}
-}
-
-// HR4: no backup and a last run of none, so the record says the backup has not run.
-func TestNoBackups(t *testing.T) {
-	state, err := NoBackups{}.State(context.Background(), id(t, "alpha"))
-	if err != nil || state.Newest != nil || state.LastRun != status.RunNone {
-		t.Fatalf("State = %+v, %v", state, err)
-	}
-	w := newWorld(t, "alpha")
-	tick, err := New(Config{
-		Clock: w.clock, Teams: w.teams, Units: w.units, Prober: w.prober, Viewer: w.viewer,
-		Backups: NoBackups{}, Restores: w.restores, Space: w.space, Guests: w.guests, Announcer: w.announcer, Locks: w.locks,
-		StatusPath:    func(team paths.TeamID) string { return filepath.Join(w.dir, team.String(), "status.json") },
-		LXCOnlinePath: func(team paths.TeamID) string { return filepath.Join(w.dir, team.String(), "lxc-online.json") },
-		GID:           -1,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out, err := tick.RunAll(context.Background()); err != nil || out[0].Result != ResultWritten {
-		t.Fatalf("RunAll = %+v, %v", out, err)
-	}
-	rec := w.record(t, "alpha")
-	if rec.Backup.LastRun != status.RunNone || !hasProblem(rec, "the backup has not run since the team was applied") {
-		t.Fatalf("backup %+v problems %v", rec.Backup, whats(rec.Problems))
 	}
 }
 

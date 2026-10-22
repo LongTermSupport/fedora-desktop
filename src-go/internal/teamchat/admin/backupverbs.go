@@ -33,10 +33,14 @@ func backupVerb(ctx context.Context, e Env, args []string) term.ExitCode {
 	if sys.Backup == nil {
 		return fail(e.Stderr, term.ExitFailure, errBackupsUnwired.Error())
 	}
-	if all {
-		return backupAll(ctx, e, sys)
+	d, err := sys.Backup()
+	if err != nil {
+		return fail(e.Stderr, ExitConfig, "the backups: "+err.Error())
 	}
-	res, taken, err := backupOne(ctx, sys, team)
+	if all {
+		return backupAll(ctx, e, sys, d)
+	}
+	res, taken, err := backupOne(ctx, sys, d, team)
 	if taken {
 		if code = answer(e, string(backupDoc(team, res).Compact())+"\n"); code != term.ExitOK {
 			return code
@@ -68,14 +72,14 @@ func backupArgs(args []string) (paths.TeamID, bool, error) {
 
 // backupAll is BV2 (n2g-D5): every stamped team in turn, one stderr line each, nothing on
 // stdout, 1 when any failed.
-func backupAll(ctx context.Context, e Env, sys *System) term.ExitCode {
+func backupAll(ctx context.Context, e Env, sys *System, d backup.Deps) term.ExitCode {
 	teams, err := health.Stamps{Root: sys.Host.Root}.Stamped(ctx)
 	if err != nil {
 		return failWith(e, err)
 	}
 	code := term.ExitOK
 	for _, t := range teams {
-		res, _, err := backupOne(ctx, sys, t.ID)
+		res, _, err := backupOne(ctx, sys, d, t.ID)
 		line := t.ID.String() + " backup " + strconv.FormatInt(res.Backup, 10)
 		if err != nil {
 			line, code = t.ID.String()+" failed: "+err.Error(), term.ExitFailure
@@ -89,12 +93,12 @@ func backupAll(ctx context.Context, e Env, sys *System) term.ExitCode {
 
 // backupOne is one team's backup under its lock: Take, then the status record refreshed
 // whether or not it was taken. taken says the backup is on disk even when err is not nil.
-func backupOne(ctx context.Context, sys *System, team paths.TeamID) (backup.Result, bool, error) {
+func backupOne(ctx context.Context, sys *System, d backup.Deps, team paths.TeamID) (backup.Result, bool, error) {
 	lock, err := teamlock.Take(ctx, sys.Host.LockDir, team, "backup", BackupWait, sys.Host.Clock, sys.Host.Guard)
 	if err != nil {
 		return backup.Result{}, false, err
 	}
-	res, err := backup.Take(ctx, *sys.Backup, lock, nil)
+	res, err := backup.Take(ctx, d, lock, nil)
 	taken := err == nil
 	if serr := sys.Host.Status.Refresh(ctx, team, false, nil); serr != nil {
 		err = errors.Join(err, fmt.Errorf("the status record: %w", serr))
@@ -132,7 +136,11 @@ func backupsVerb(_ context.Context, e Env, args []string) term.ExitCode {
 	if sys.Backup == nil {
 		return fail(e.Stderr, term.ExitFailure, errBackupsUnwired.Error())
 	}
-	l, err := backup.List(*sys.Backup, team)
+	d, err := sys.Backup()
+	if err != nil {
+		return fail(e.Stderr, ExitConfig, "the backups: "+err.Error())
+	}
+	l, err := backup.List(d, team)
 	if err != nil {
 		return failWith(e, err)
 	}

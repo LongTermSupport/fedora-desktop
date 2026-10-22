@@ -33,14 +33,13 @@ func ExitCodeOf(err error) term.ExitCode {
 	if e, ok := errors.AsType[*declare.RefusedError](err); ok && e != nil {
 		return ExitRefused
 	}
-	if errors.Is(err, matrix.ErrUnreachable) || errors.Is(err, matrix.ErrRateLimited) {
-		return ExitUnreachable
-	}
 	return term.ExitFailure
 }
 
-// verbExit is the code of a failure the verbs' own layer names: the lock and its guard, the
-// child, a refusal of a verb's or of the host steps.
+// verbExit is the code of a failure the verbs' own layer names: the lock and its guard, a lost
+// homeserver, the child, a refusal of a verb's or of the host steps. A lost homeserver comes
+// before the child, because the restore wraps the child's failure against the live server in
+// matrix.ErrUnreachable (RS15).
 func verbExit(err error) (term.ExitCode, bool) {
 	if errors.Is(err, teamlock.ErrBusy) {
 		return ExitBusy, true
@@ -48,7 +47,7 @@ func verbExit(err error) (term.ExitCode, bool) {
 	if errors.Is(err, restore.ErrPending) || errors.Is(err, restore.ErrRefused) || errors.Is(err, backup.ErrNotRunning) {
 		return ExitRefused, true
 	}
-	if errors.Is(err, backup.ErrLost) {
+	if errors.Is(err, backup.ErrLost) || errors.Is(err, matrix.ErrUnreachable) || errors.Is(err, matrix.ErrRateLimited) {
 		return ExitUnreachable, true
 	}
 	if e, ok := errors.AsType[*ChildError](err); ok {

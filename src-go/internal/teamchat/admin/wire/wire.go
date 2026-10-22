@@ -10,11 +10,13 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/admin"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/backup"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/ctl"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/health"
@@ -22,15 +24,13 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/hostnet"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/units"
 )
 
 // Bridge is the LXC bridge the members' allow rule is rendered from (NW4).
 const Bridge = "lxcbr0"
-
-// ErrBackupNotBuilt is step 6's backup until C 3.12 is built (n2f-D6).
-var ErrBackupNotBuilt = errors.New("backups are not built yet (C 3.12)")
 
 // New is the production wiring for a build of digest: Env.Wire of `teamchat-admin`'s main.
 func New(digest string) func() (*admin.System, error) {
@@ -46,6 +46,9 @@ type machine struct {
 	readPin    func() (host.Pin, error)
 	runner     execx.Runner
 	dial       func(context.Context) (units.Conn, error)
+	// restoreProven is set only once host checks H-C5 and H-C15 have passed (DC8, n2g-D8); a
+	// test sets it to run the engine over these adapters. Until then System.Restore refuses.
+	restoreProven bool
 }
 
 func production() machine {
@@ -71,6 +74,10 @@ func (m machine) system(digest string) (*admin.System, error) {
 	ownerGroup := sync.OnceValues(m.ownerGroup)
 	systemd := units.NewManager(m.dial, m.runner)
 	child := admin.ExecChild{Runner: m.runner, Self: self, Lookup: m.lookupUser}
+	backups := func() (backup.Deps, error) {
+		uid, err := m.ctlUID()
+		return backup.Deps{Root: root, Units: backupUnits{systemd}, Ready: hostnet.Readiness{}, Clock: clock, CtlUID: uid, StateOwnerUID: stateOwnerUID}, err
+	}
 	tick := sync.OnceValues(func() (*health.Tick, error) {
 		gid, err := ownerGroup()
 		if err != nil {
@@ -79,14 +86,15 @@ func (m machine) system(digest string) (*admin.System, error) {
 		return health.New(health.Config{
 			Clock: clock, Teams: health.Stamps{Root: root}, Units: systemd.Health(),
 			Prober: hostnet.Prober{Port: hostnet.TeamPort(root)}, Viewer: admin.ChildViewer{Child: child, Root: root},
-			Backups: health.NoBackups{}, Restores: restore.Records{Root: root}, Space: health.StatfsSpace{Path: root + "/var/lib"}, Guests: health.GuestsNotBuilt{},
+			// HB1 reads only root's tars and records and the homeserver tree, never ctl/<team>/.
+			Backups: backup.States(backup.Deps{Root: root, StateOwnerUID: stateOwnerUID}), Restores: restore.Records{Root: root}, Space: health.StatfsSpace{Path: root + "/var/lib"}, Guests: health.GuestsNotBuilt{},
 			Announcer: admin.ChildAnnouncer{Child: child, Root: root}, Locks: health.TeamLocks{Dir: run, Clock: clock},
 			StatusPath:    func(t paths.TeamID) string { return root + paths.StatusFile(t) },
 			LXCOnlinePath: func(t paths.TeamID) string { return root + paths.LXCOnlineFile(t) },
 			GID:           gid,
 		})
 	})
-	return &admin.System{
+	sys := &admin.System{
 		Host: host.Deps{
 			Root: root, LockDir: run, Clock: clock, Rand: rand.Reader, Software: digest,
 			// Load only: team approve writes approved.json with the owner group's gid.
@@ -95,7 +103,13 @@ func (m machine) system(digest string) (*admin.System, error) {
 			Network: hostnet.Network{Proc: m.proc, BridgeName: Bridge}, Ready: hostnet.Readiness{},
 			Status: statusFiles{root: root, tick: tick},
 			Guard:  restore.Guard(root),
-			Backup: func(context.Context, *teamlock.Lock) error { return ErrBackupNotBuilt },
+			Backup: func(ctx context.Context, held *teamlock.Lock) error {
+				d, err := backups()
+				if err == nil {
+					_, err = backup.Take(ctx, d, held, nil)
+				}
+				return err
+			},
 		},
 		Child:      child,
 		Bundles:    admin.SeatBundles{Clock: clock.Now, Digest: d},
@@ -105,8 +119,87 @@ func (m machine) system(digest string) (*admin.System, error) {
 		CtlIDs:     m.ctlIDs,
 		Health:     func() (admin.HealthTick, error) { return tick() },
 		Home:       admin.LookupHome,
-		Restore:    func() (admin.Restorer, error) { return nil, restore.ErrUnproven },
-	}, nil
+		Backup:     backups,
+	}
+	sys.Restore = func() (admin.Restorer, error) {
+		if !m.restoreProven {
+			return nil, restore.ErrUnproven
+		}
+		return m.engine(sys, self, systemd, backups)
+	}
+	return sys, nil
+}
+
+// stateOwnerUID owns the state root and root's own files on a host.
+const stateOwnerUID = 0
+
+// engine is the restore engine over the host's adapters (RW1, SM4), run by the verb under the
+// team lock it holds.
+func (m machine) engine(sys *admin.System, self string, systemd *units.Manager, backups func() (backup.Deps, error)) (admin.Restorer, error) {
+	b, err := backups()
+	if err != nil {
+		return nil, err
+	}
+	root := m.root
+	return admin.Engine{Deps: restore.Deps{
+		Root: root, CtlUID: b.CtlUID, StateOwnerUID: stateOwnerUID,
+		Units: restoreUnits{systemd}, Ready: b.Ready, Run: m.runner,
+		Child: admin.RestoreChild{Live: sys.Child, Unit: func(argv []string) admin.Child { return admin.UnitChild{Runner: m.runner, Argv: argv} }},
+		FS:    restore.OS{Root: root, StateOwnerUID: stateOwnerUID},
+		Tar: func(team paths.TeamID, n int64) (restore.Tar, error) {
+			c, err := backup.ReadTar(b, team, n)
+			return restore.Tar{
+				TimeMS: c.Manifest.TimeMS, ServerName: c.Manifest.ServerName, TeamFile: c.TeamJSON, Config: c.Config,
+				Roster: c.Roster, Rooms: c.Rooms, Token: c.Token,
+			}, err
+		},
+		Backup: func(ctx context.Context, held *teamlock.Lock, keep []int64) (int64, error) {
+			res, err := backup.Take(ctx, b, held, keep)
+			return res.Backup, err
+		},
+		Serve:     func(ctx context.Context, team paths.TeamID) error { return host.Serve(ctx, sys.Host, team) },
+		Bootstrap: admin.Bootstrapper(sys),
+		RegKey:    regKey,
+		Approvals: sys.Host.Approvals,
+		StatusRecord: func(team paths.TeamID) (*status.Record, error) {
+			rec, found, err := status.Read(root+paths.StatusFile(team), team)
+			if err != nil || !found {
+				return nil, err
+			}
+			return &rec, nil
+		},
+		Status: sys.Host.Status, Rand: rand.Reader, Clock: b.Clock,
+		Sandbox: host.TeamSandbox,
+		Version: func(team paths.TeamID) (paths.ServerVersion, error) { return host.ReadUnitsVersion(root, team) },
+		Self:    self,
+	}}, nil
+}
+
+// regKey is the registration key an applied config holds; a config without one was not
+// rendered by the apply.
+func regKey(config []byte) (string, error) {
+	if key := host.RegKeyOf(config); key != "" {
+		return key, nil
+	}
+	return "", errors.New("config.toml holds no registration key")
+}
+
+// ctlUID is the teamchat-ctl account's uid, which owns ctl/<team>/ (the trust rule).
+func (m machine) ctlUID() (uint32, error) {
+	u, err := m.ctlIDs()
+	if err != nil {
+		return 0, err
+	}
+	return ctlUID(u)
+}
+
+// ctlUID refuses a teamchat-ctl uid that is root's, which would make ctl/<team>/ root's own, or
+// that is no uid.
+func ctlUID(u admin.User) (uint32, error) {
+	if u.UID <= 0 || u.UID > math.MaxUint32 {
+		return 0, fmt.Errorf("the %s account has uid %d, not an unprivileged uid", paths.CtlUser, u.UID)
+	}
+	return uint32(u.UID), nil
 }
 
 func (m machine) ctlIDs() (admin.User, error) {
@@ -149,6 +242,28 @@ func (s statusFiles) files() (health.StatusFiles, error) {
 	}
 	return health.StatusFiles{Root: s.root, Tick: t}, nil
 }
+
+// backupUnits is the units Manager as backup.Units (SD10).
+type backupUnits struct{ m *units.Manager }
+
+func (u backupUnits) State(ctx context.Context, unit string) (backup.UnitState, error) {
+	s, err := u.m.State(ctx, unit)
+	return backup.UnitState{ActiveState: s.Active, InvocationID: s.InvocationID, NRestarts: s.NRestarts, Result: s.Result}, err
+}
+
+func (u backupUnits) Kill(ctx context.Context, unit, whom string, signal int32) error {
+	return u.m.Kill(ctx, unit, whom, signal)
+}
+
+// restoreUnits is the units Manager as restore.Units (SD10).
+type restoreUnits struct{ m *units.Manager }
+
+func (u restoreUnits) State(ctx context.Context, unit string) (restore.UnitState, error) {
+	s, err := u.m.State(ctx, unit)
+	return restore.UnitState{Load: s.Load, Active: s.Active, InvocationID: s.InvocationID, NRestarts: s.NRestarts, Result: s.Result}, err
+}
+
+func (u restoreUnits) Stop(ctx context.Context, unit string) error { return u.m.Stop(ctx, unit) }
 
 // systemClock is the wall clock: host.Clock and health.Clock.
 type systemClock struct{}

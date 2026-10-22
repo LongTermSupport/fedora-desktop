@@ -93,7 +93,9 @@ func (w *world) backupDeps(u *backupUnits) *backup.Deps {
 func (w *world) backupVerb(deps *backup.Deps, args ...string) outcome {
 	w.t.Helper()
 	sys := w.sys()
-	sys.Backup = deps
+	if deps != nil {
+		sys.Backup = func() (backup.Deps, error) { return *deps, nil }
+	}
 	var stdout, stderr bytes.Buffer
 	code := Run(w.t.Context(), Env{Args: args, Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr, Proc: rootProc(), Digest: digest, Sys: sys})
 	return outcome{code, stdout.String(), stderr.String()}
@@ -177,7 +179,8 @@ func TestBackupBusyAndRestorePending(t *testing.T) {
 		t.Fatal(err)
 	}
 	sys := w.sys()
-	sys.Backup = w.backupDeps(u)
+	deps := w.backupDeps(u)
+	sys.Backup = func() (backup.Deps, error) { return *deps, nil }
 	clock := &jumpClock{at: w.at}
 	sys.Host.Clock = clock
 	var stdout, stderr bytes.Buffer
@@ -285,7 +288,8 @@ func TestBackupsListsWithoutTheLock(t *testing.T) {
 	}
 }
 
-// BV4: the flags are strict (64, nothing done), and a build with no backup seam says so.
+// BV4: the flags are strict (64, nothing done), a build with no backup seam says so, and a
+// seam that cannot be built (no teamchat-ctl account) is 78.
 func TestBackupFlags(t *testing.T) {
 	w, u := backupWorld(t)
 	bad := map[string][]string{
@@ -309,6 +313,15 @@ func TestBackupFlags(t *testing.T) {
 	for _, args := range [][]string{{"backup", "--team", "alpha"}, {"backup", "--all"}, {"backups", "--team", "alpha"}} {
 		if out := w.backupVerb(nil, args...); out.code != term.ExitFailure || out.stderr != "teamchat-admin: backups are not wired yet\n" {
 			t.Errorf("%v unwired: %+v", args, out)
+		}
+	}
+	for _, args := range [][]string{{"backup", "--team", "alpha"}, {"backup", "--all"}, {"backups", "--team", "alpha"}} {
+		sys := w.sys()
+		sys.Backup = func() (backup.Deps, error) { return backup.Deps{}, errors.New("no teamchat-ctl account") }
+		var stdout, stderr bytes.Buffer
+		code := Run(t.Context(), Env{Args: args, Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr, Proc: rootProc(), Digest: digest, Sys: sys})
+		if code != ExitConfig || stdout.Len() != 0 || stderr.String() != "teamchat-admin: the backups: no teamchat-ctl account\n" || len(u.kills) != 0 {
+			t.Errorf("%v with no backups seam: %d %q %q", args, code, stdout.String(), stderr.String())
 		}
 	}
 }

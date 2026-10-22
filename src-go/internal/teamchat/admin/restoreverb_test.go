@@ -388,3 +388,19 @@ func TestRestoreRefusedIsSeventy(t *testing.T) {
 		t.Fatalf("ExitCodeOf = %d", got)
 	}
 }
+
+// RS15: the engine wraps the child's failure against the live server in matrix.ErrUnreachable
+// (the engine's serverLost), so 69 is judged before the child's class, which alone would be its own
+// code.
+func TestRestoreLostServerIsSixtyNine(t *testing.T) {
+	child := &ChildError{Class: ClassFailed, Message: "the export: connection refused"}
+	if got := ExitCodeOf(fmt.Errorf("%w: %w", matrix.ErrUnreachable, child)); got != ExitUnreachable {
+		t.Fatalf("ExitCodeOf(unreachable child) = %d", got)
+	}
+	if got := ExitCodeOf(fmt.Errorf("%w: %w", matrix.ErrRateLimited, child)); got != ExitUnreachable {
+		t.Fatalf("ExitCodeOf(rate-limited child) = %d", got)
+	}
+	if got := ExitCodeOf(child); got != term.ExitFailure {
+		t.Fatalf("ExitCodeOf(child) = %d", got)
+	}
+}
