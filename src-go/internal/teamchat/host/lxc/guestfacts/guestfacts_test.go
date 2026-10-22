@@ -303,18 +303,28 @@ func TestSameMember(t *testing.T) {
 	if !ok {
 		t.Fatal("handle")
 	}
-	same, ok := proto.ParsePrefix("repo+desk.lxc")
-	if !ok {
-		t.Fatal("prefix")
-	}
-	if err := SameMember(same, h); err != nil {
+	if err := SameMember(h, h); err != nil {
 		t.Fatal(err)
 	}
-	moved, ok := proto.ParsePrefix("other+desk.lxc")
-	if !ok {
-		t.Fatal("prefix")
+	const want = "the checkout's origin changed; give the entry another seat to take a new handle"
+	for _, s := range []string{"other.2+desk.lxc", "repo.3+desk.lxc"} {
+		derived, ok := proto.ParseHandle(s)
+		if !ok {
+			t.Fatal("handle")
+		}
+		refused(t, s, SameMember(derived, h), want)
 	}
-	refused(t, "moved", SameMember(moved, h), "the checkout's origin changed; retire and add the member to change its handle")
+}
+
+func TestPasswdNoAccountIsItsOwnRefusal(t *testing.T) {
+	_, err := Passwd([]byte("root:x:0:0::/root:/bin/sh\n"), agentUser(t), nil)
+	if !errors.Is(err, ErrNoAccount) || !errors.Is(err, ErrRefused) {
+		t.Fatalf("err %v", err)
+	}
+	_, err = Passwd([]byte("root:x:0:0::/root:/bin/sh\nagent:x:0:1002::/srv/agent:/bin/sh\n"), agentUser(t), nil)
+	if errors.Is(err, ErrNoAccount) || !errors.Is(err, ErrRefused) {
+		t.Fatalf("a uid 0 account: %v", err)
+	}
 }
 
 func TestParseConfig(t *testing.T) {

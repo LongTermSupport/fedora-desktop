@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strconv"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
@@ -36,10 +37,10 @@ const (
 	PhasePresent Phase = "present"
 )
 
-// Target is one member `--member C/U` names.
+// Target is one seat `--member C/K` names: its container and its seat key (n3b-D2).
 type Target struct {
 	Container paths.ContainerName
-	User      paths.GuestUser
+	Key       paths.SeatKey
 }
 
 // Request is one `lxc apply`: the phase, the --only-teams scope (nil: every team), the
@@ -61,18 +62,23 @@ const (
 	Deferred LineKind = "DEFERRED"
 )
 
-// Line is one output line, every field the host's own (TB2.4).
+// Line is one output line, one per seat, every field the host's own (TB2.4).
 type Line struct {
 	Kind      LineKind
 	Team      paths.TeamID
 	User      paths.GuestUser
 	Container paths.ContainerName
+	Checkout  string
+	Seat      int
+	Key       paths.SeatKey
 	Why       string
 }
 
-// String is `<kind>\t<team>\t<user>@<container>\t<why>`.
+// String is `<kind>\t<team>\t<user>@<container>/<repo>-<seat>-<key>\t<why>` (C 3.9.3).
 func (l Line) String() string {
-	return string(l.Kind) + "\t" + l.Team.String() + "\t" + l.User.String() + "@" + l.Container.String() + "\t" + l.Why
+	member := l.User.String() + "@" + l.Container.String() + "/" + paths.LXCRepoLabel(l.Checkout) + "-" +
+		strconv.Itoa(l.Seat) + "-" + l.Key.String()
+	return string(l.Kind) + "\t" + l.Team.String() + "\t" + member + "\t" + l.Why
 }
 
 // Report is a phase's lines and its summary, printed `LXC-SUMMARY\t<Summary>`.
@@ -95,7 +101,8 @@ type Roster interface {
 	// Members is the team's roster states by handle (the child's team.view).
 	Members(ctx context.Context, team paths.TeamID) (map[string]string, error)
 	// Join is member add|return|reissue with --credential token: the answer's handle and the
-	// seat.Issued bundle (JSON) for place-bundle.
+	// seat.Issued bundle (JSON) for place-bundle. The child's error class retired (SPEC-n2d
+	// MO4) is an error that errors.Is apply.ErrRetired.
 	Join(ctx context.Context, team paths.TeamID, j Join) (Joined, error)
 	Park(ctx context.Context, team paths.TeamID, handle string) error
 	// Reach is guest check's stdin for the team: {"v":1,"team","base_url","plain_http_hosts"}.
@@ -106,7 +113,7 @@ type Roster interface {
 type Join struct {
 	Op        string // apply.OpMemberAdd, OpMemberReturn or OpMemberReissue
 	Prefix    proto.Prefix
-	Seat      int // 0 is next
+	Seat      int // the entry's own seat, add only
 	HumanText bool
 	Handle    string // return and reissue
 }

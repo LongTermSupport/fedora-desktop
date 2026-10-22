@@ -176,7 +176,7 @@ func TestAbsentGuestStepFailures(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				hasLine(t, r, "SKIPPED\tt1\tagent1@c1\toffline: container stopped; guest files pending")
+				hasLine(t, r, lineOf(t, "SKIPPED", "t1", "c1", "offline: container stopped; guest files pending"))
 			} else {
 				failedAt(t, err, tc.step)
 			}
@@ -210,8 +210,8 @@ func TestAbsentMemberThatNeverJoinedIsDropped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hasLine(t, r, "CHANGED\tt1\tagent1@c1\t"+lineNoHandle)
-	if _, found := w.record().Find(mustBox(t, "c1"), agent1(t)); found {
+	hasLine(t, r, lineOf(t, "CHANGED", "t1", "c1", "")+lineNoHandle)
+	if _, found := w.record().Find(mustBox(t, "c1"), checkout, 1); found {
 		t.Fatal("a member that never joined kept its entry")
 	}
 	if len(w.roster.parks) != 0 || len(w.lxc.calls) != 0 {
@@ -222,12 +222,12 @@ func TestAbsentMemberThatNeverJoinedIsDropped(t *testing.T) {
 func TestAbsentOfflineTargetIs69(t *testing.T) {
 	w := leaving(t)
 	w.lxc.boxes["c1"].state = lxccmd.Stopped
-	w.members = []Target{{Container: mustBox(t, "c1"), User: agent1(t)}}
+	w.members = []Target{{Container: mustBox(t, "c1"), Key: keyOf(t, "t1")}}
 	r, err := w.apply(PhaseAbsent)
 	if off, ok := errors.AsType[*OfflineError](err); !ok || off.Container.String() != "c1" {
 		t.Fatalf("err %v", err)
 	}
-	hasLine(t, r, "CHANGED\tt1\tagent1@c1\tparked; guest files pending (offline: container stopped)")
+	hasLine(t, r, lineOf(t, "CHANGED", "t1", "c1", "parked; guest files pending (offline: container stopped)"))
 }
 
 func TestAbsentContainerListFailingIsOffline(t *testing.T) {
@@ -237,7 +237,7 @@ func TestAbsentContainerListFailingIsOffline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hasLine(t, r, "CHANGED\tt1\tagent1@c1\tparked; guest files pending (offline: container stopped)")
+	hasLine(t, r, lineOf(t, "CHANGED", "t1", "c1", "parked; guest files pending (offline: container stopped)"))
 }
 
 func TestHostKitWithAFifoIsRefused(t *testing.T) {
@@ -263,7 +263,7 @@ func TestUnreachableSystemdIsTheUnitDown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hasLine(t, r, "SKIPPED\tt1\tagent1@c1\t"+whyUnitDown)
+	hasLine(t, r, lineOf(t, "SKIPPED", "t1", "c1", "")+whyUnitDown)
 	if e := w.entry("c1"); e.Status != lxcstate.StatusOffline || e.Why != whyUnitDown {
 		t.Fatalf("entry %+v", e)
 	}
@@ -271,7 +271,7 @@ func TestUnreachableSystemdIsTheUnitDown(t *testing.T) {
 	if _, err = w.apply(PhasePresent); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(w.bus.calls, []string{"Reload", "Start agent1"}) {
+	if !slices.Equal(w.bus.calls, []string{"Reload", "Start "+unitOf(t, "t1")}) {
 		t.Fatalf("an unchanged unit last found down was not started: %v", w.bus.calls)
 	}
 }

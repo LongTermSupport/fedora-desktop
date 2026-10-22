@@ -8,7 +8,10 @@ import (
 	"io/fs"
 	"net/netip"
 	"path"
+	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
@@ -27,7 +30,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 )
 
-// The why of each offline and deferred line and record entry (C 3.9.3, n3b-D1).
+// The why of each offline and deferred line and record entry (C 3.9.3, n3b-D1, n3b-D2).
 const (
 	whyStopped       = "offline: container stopped"
 	whyMissing       = "offline: container missing"
@@ -40,11 +43,16 @@ const (
 	whyFailed        = "the last apply failed for this member"
 	whyV1            = "v1 not yet absent"
 	whyCheck         = "offline: guest check "
+	whyOldUser       = "the seat's files under its old user are not yet removed"
+	whyDeactivated   = "'s account is deactivated; give the entry another seat"
+	whyMoved         = "the seat moved off its old user; it returns at the next apply"
 )
 
-// The steps an error names: step 01, and the membership change a join or a leave makes.
+// The steps an error names: step 01, step 03's reads, and the membership change a join or a
+// leave makes.
 const (
 	stepValidate   = "validate"
+	stepReads      = "reads"
 	stepMembership = "membership"
 )
 
@@ -56,27 +64,48 @@ const (
 	gitConfig    = "/.git/config"
 	envLocal     = "/.claude/ccy/ccy.env.local"
 	maxUnit      = 64 << 10
+	maxSeat      = 9999
 )
 
-// member is one acted entry and what this phase made of it.
+// The record statuses a phase uses beyond lxcstate's: the entry dropped, left as it is, or
+// rewritten for a user move's new user.
+const (
+	statusDrop = "drop"
+	statusKeep = "keep"
+	statusMove = "move"
+)
+
+// member is one acted seat and what this phase made of it.
 type member struct {
-	decl   declare.LXCMember
-	team   declare.Team
-	box    paths.ContainerName
-	prior  lxcstate.Entry
-	handle string
+	decl declare.LXCMember
+	team declare.Team
+	box  paths.ContainerName
+	id   lxcstate.SeatID
+	key  paths.SeatKey
+	// prior is the seat's record entry, when recorded.
+	prior    lxcstate.Entry
+	recorded bool
+	handle   string
+	// want is the handle step 03 derived from the guest's facts.
+	want   string
 	acct   guestfacts.Account
 	group  string
 	prefix proto.Prefix
 	target bool
+	// moveTo is a user move's declared user; the leaver is the record's (the absent phase).
+	moveTo paths.GuestUser
 	// done is set once the member takes no further step this phase.
 	done bool
 	// failed is a member whose phase failed: its record entry is left unless status is set.
 	failed bool
-	// joined is a join made this phase; settled is a member whose bundle is in place.
+	// joined is a join made this phase; settled is a seat whose bundle is in place.
 	joined, settled bool
-	// heldSeat is a place-bundle 75: the seat is left out of the desired seats.
+	// complete is a seat that took every step of the present phase.
+	complete bool
+	// heldSeat is a place-bundle 75: the seat is left out of its desired membership.
 	heldSeat    bool
+	joinOp      string
+	bundle      []byte // never logged, never in an error
 	status, why string
 }
 
@@ -86,14 +115,42 @@ func (m *member) needsReissue() bool {
 	return m.prior.Handle != "" && (m.prior.Why == whyBundle || m.prior.Why == whySeatHeld || m.prior.Why == whyBundleFailed)
 }
 
+// name is the member as errors name it: `<user>@<container>/<repo>-<seat>`.
+func (m *member) name() string {
+	return m.decl.User.String() + "@" + seatText(m.box, m.decl.Checkout, m.decl.Seat)
+}
+
+// seatText is a seat as messages name it: `<container>/<repo>-<seat>`.
+func seatText(c paths.ContainerName, checkout string, seat int) string {
+	return c.String() + "/" + paths.LXCRepoLabel(checkout) + "-" + strconv.Itoa(seat)
+}
+
+// The seat's unit, its file and its wants link (SU1).
+func (m *member) unitName() string { return paths.SessionUnit(m.id.Team, m.id.Checkout, m.id.Seat) }
+
+func (m *member) unitFile() string { return paths.GuestUnitFile(m.id.Team, m.id.Checkout, m.id.Seat) }
+
+func (m *member) wantsLink() string {
+	return paths.GuestUnitWantsLink(m.id.Team, m.id.Checkout, m.id.Seat)
+}
+
 // guestBox is one container of the phase.
 type guestBox struct {
-	name    paths.ContainerName
-	root    Root
-	cfg     guestfacts.Config
-	members []*member
-	gone    bool
-	missing bool
+	name      paths.ContainerName
+	root      Root
+	cfg       guestfacts.Config
+	members   []*member
+	checkouts map[string]*checkoutFiles
+	gone      bool
+	missing   bool
+}
+
+// checkoutFiles is one checkout's guest files, read once per container however many seats
+// name it.
+type checkoutFiles struct {
+	git, env []byte
+	envUID   int
+	envFound bool
 }
 
 // live is the box's members still taking steps.
@@ -105,6 +162,13 @@ func (g *guestBox) live() []*member {
 		}
 	}
 	return out
+}
+
+// checkKey is what one `guest check` answers for: a user and a team in a container.
+type checkKey struct {
+	box  paths.ContainerName
+	user paths.GuestUser
+	team paths.TeamID
 }
 
 // run is one phase in progress.
@@ -120,6 +184,7 @@ type run struct {
 	errs    []error
 	changed map[paths.TeamID]bool
 	reach   map[paths.TeamID][]byte
+	checked map[checkKey]error
 	kit     *hostKit
 }
 
@@ -142,15 +207,15 @@ func Apply(ctx context.Context, d Deps, req Request) (Report, error) {
 	return report(r.lines), errors.Join(r.errs...)
 }
 
-// validate is step 01: every acted entry checked, and each acted team's input held against its
-// approval, before any container is touched.
+// validate is step 01: every acted entry checked, each acted team's input held against its
+// approval, and the seat keys of every team checked, before any container is touched.
 func validate(ctx context.Context, d Deps, req Request) (*run, error) {
 	if req.Phase != PhasePresent && req.Phase != PhaseAbsent {
 		return nil, fmt.Errorf("lxc apply: phase %q is not absent or present", req.Phase)
 	}
 	r := &run{
-		d: d, req: req, origins: map[paths.TeamID]string{},
-		records: map[paths.TeamID]lxcstate.Record{}, changed: map[paths.TeamID]bool{}, reach: map[paths.TeamID][]byte{},
+		d: d, req: req, origins: map[paths.TeamID]string{}, records: map[paths.TeamID]lxcstate.Record{},
+		changed: map[paths.TeamID]bool{}, reach: map[paths.TeamID][]byte{}, checked: map[checkKey]error{},
 	}
 	inputs := req.Decl.Inputs()
 	for _, id := range req.OnlyTeams {
@@ -158,7 +223,6 @@ func validate(ctx context.Context, d Deps, req Request) (*run, error) {
 			return nil, invalid(fmt.Errorf("--only-teams names %s, which is not a present team", id))
 		}
 	}
-	seen := map[string]bool{}
 	targets := map[Target]bool{}
 	for _, in := range inputs {
 		if req.OnlyTeams != nil && !slices.Contains(req.OnlyTeams, in.ID()) {
@@ -171,14 +235,17 @@ func validate(ctx context.Context, d Deps, req Request) (*run, error) {
 		if err := declare.Hold(approved, in); err != nil {
 			return nil, err
 		}
-		if err := r.team(ctx, in, seen, targets); err != nil {
+		if err := r.team(ctx, in, targets); err != nil {
 			return nil, err
 		}
 	}
 	for _, t := range req.Members {
 		if !targets[t] {
-			return nil, invalid(fmt.Errorf("--member %s/%s names no entry of the acted teams", t.Container, t.User))
+			return nil, invalid(fmt.Errorf("--member %s/%s names no seat of the acted teams", t.Container, t.Key))
 		}
+	}
+	if err := r.keys(); err != nil {
+		return nil, err
 	}
 	return r, nil
 }
@@ -187,39 +254,115 @@ func invalid(err error) error {
 	return &host.Error{Verb: verb, Step: stepValidate, Drift: true, Err: err}
 }
 
-// team adds one acted team: its stamp's origin, its record and its entries.
-func (r *run) team(ctx context.Context, in declare.Input, seen map[string]bool, targets map[Target]bool) error {
+// record is team's LXC record, read once per phase.
+func (r *run) record(team paths.TeamID) (lxcstate.Record, error) {
+	if rec, ok := r.records[team]; ok {
+		return rec, nil
+	}
+	rec, _, err := lxcstate.ReadRecord(r.d.Root, team)
+	if err != nil {
+		return lxcstate.Record{}, &host.Error{Verb: verb, Step: stepValidate, Err: err}
+	}
+	r.records[team] = rec
+	return rec, nil
+}
+
+// team adds one acted team: its stamp's origin, its record and its seats, each (container,
+// checkout, seat) once.
+func (r *run) team(ctx context.Context, in declare.Input, targets map[Target]bool) error {
 	id := in.ID()
 	origin, err := r.d.Origin(ctx, id)
 	if err != nil {
 		return &host.Error{Verb: verb, Step: stepValidate, Err: fmt.Errorf("team %s has no install stamp: %w", id, err)}
 	}
-	rec, _, err := lxcstate.ReadRecord(r.d.Root, id)
+	rec, err := r.record(id)
 	if err != nil {
-		return &host.Error{Verb: verb, Step: stepValidate, Err: err}
+		return err
 	}
 	r.teams = append(r.teams, in.Team)
-	r.origins[id], r.records[id] = origin, rec
+	r.origins[id] = origin
 	for _, m := range in.LXC {
 		c, err := paths.ParseContainerName(m.Container)
 		if err != nil {
 			return invalid(err)
 		}
-		key := id.String() + "\x00" + c.String() + "\x00" + m.User.String()
-		if seen[key] {
-			return invalid(fmt.Errorf("%s@%s is declared twice in team %s", m.User, c, id))
+		sid, err := seatOf(id, m)
+		if err != nil {
+			return invalid(fmt.Errorf("an entry of container %s in team %s: %w", c, id, err))
 		}
-		seen[key] = true
-		t := Target{Container: c, User: m.User}
+		t := Target{Container: c, Key: sid.Key()}
+		if targets[t] {
+			return invalid(fmt.Errorf("%s is declared twice in team %s", seatText(c, m.Checkout, m.Seat), id))
+		}
 		targets[t] = true
 		if r.req.Members != nil && !slices.Contains(r.req.Members, t) {
 			continue
 		}
-		mem := &member{decl: m, team: in.Team, box: c, target: r.req.Members != nil}
-		if prior, found := rec.Find(c, m.User); found {
-			mem.prior, mem.handle = prior, prior.Handle
+		mem := &member{decl: m, team: in.Team, box: c, id: sid, key: t.Key, target: r.req.Members != nil}
+		if prior, found := rec.Find(c, m.Checkout, m.Seat); found {
+			mem.prior, mem.handle, mem.recorded = prior, prior.Handle, true
 		}
 		r.members = append(r.members, mem)
+	}
+	return nil
+}
+
+// seatOf is m's seat in team, checked by declare's rule (DR4) before its key is made, since a
+// key of any other panics.
+func seatOf(team paths.TeamID, m declare.LXCMember) (lxcstate.SeatID, error) {
+	c := m.Checkout
+	if m.Seat < 1 || m.Seat > maxSeat {
+		return lxcstate.SeatID{}, fmt.Errorf("seat %d is not 1-9999", m.Seat)
+	}
+	if !filepath.IsAbs(c) || filepath.Clean(c) != c || c == "/" || strings.ContainsAny(c, "\n\r") {
+		return lxcstate.SeatID{}, errors.New("the checkout is not an absolute, clean path below / on one line")
+	}
+	return lxcstate.SeatID{Team: team, Checkout: c, Seat: m.Seat}, nil
+}
+
+// keyOwners is step 01's key rule: each seat key of a container held by one seat.
+type keyOwners map[Target]lxcstate.SeatID
+
+func (o keyOwners) claim(c paths.ContainerName, id lxcstate.SeatID) error {
+	t := Target{Container: c, Key: id.Key()}
+	if held, ok := o[t]; ok && held != id {
+		return invalid(fmt.Errorf("%s of team %s and %s of team %s have one seat key %s; give one entry another seat",
+			seatText(c, held.Checkout, held.Seat), held.Team, seatText(c, id.Checkout, id.Seat), id.Team, t.Key))
+	}
+	o[t] = id
+	return nil
+}
+
+// keys checks the key rule across every team's entries and record entries not left, whatever
+// --only-teams says (C 3.9.2 step 01).
+func (r *run) keys() error {
+	owners := keyOwners{}
+	for _, m := range r.req.Decl.LXC {
+		c, err := paths.ParseContainerName(m.Container)
+		if err != nil {
+			continue // an acted team's entry was refused by team; another team's apply refuses its own
+		}
+		id, err := seatOf(m.Team, m)
+		if err != nil {
+			continue
+		}
+		if err := owners.claim(c, id); err != nil {
+			return err
+		}
+	}
+	for _, t := range r.req.Decl.Teams {
+		rec, err := r.record(t.ID)
+		if err != nil {
+			return err
+		}
+		for _, e := range rec.Members {
+			if e.Status == lxcstate.StatusLeft {
+				continue
+			}
+			if err := owners.claim(e.Container, rec.SeatOf(e)); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -236,12 +379,15 @@ func (r *run) close() {
 }
 
 func (r *run) line(m *member, kind LineKind, why string) {
-	r.lines = append(r.lines, Line{Kind: kind, Team: m.team.ID, User: m.decl.User, Container: m.box, Why: why})
+	r.lines = append(r.lines, Line{
+		Kind: kind, Team: m.team.ID, User: m.decl.User, Container: m.box, Checkout: m.decl.Checkout,
+		Seat: m.decl.Seat, Key: m.key, Why: why,
+	})
 }
 
-// offline is n3b-D1 for one member: no further step, the record offline with why, and a
-// SKIPPED line when the record knows a handle, else DEFERRED. A pending reissue keeps its why,
-// so the next apply that finds the container running still reissues.
+// offline is n3b-D1 for one seat: no further step, the record offline with why, and a SKIPPED
+// line when the record knows a handle, else DEFERRED. A pending reissue keeps its why, so the
+// next apply that finds the container running still reissues.
 func (r *run) offline(m *member, why string) {
 	if m.done {
 		return
@@ -260,8 +406,8 @@ func (r *run) offline(m *member, why string) {
 	}
 }
 
-// boxGone is a container that stopped during the phase: each live member offline, by how far
-// it got.
+// boxGone is a container that stopped during the phase: each live seat offline, by how far it
+// got.
 func (r *run) boxGone(g *guestBox, why string) {
 	g.gone = true
 	for _, m := range g.live() {
@@ -276,25 +422,28 @@ func (r *run) boxGone(g *guestBox, why string) {
 	}
 }
 
-// fail is one member's failure: no further step, the error kept. A handle joined this phase is
-// recorded deferred, so the next apply reissues it rather than adding a second member.
+// fail is one seat's failure: no further step, the error kept. A handle joined this phase is
+// recorded deferred, so the next apply reissues it rather than adding a second member. A held
+// seat is already done, and its failure is still kept.
 func (r *run) fail(m *member, err error) {
-	if m.done {
+	if m.done && !m.heldSeat {
 		return
 	}
-	m.done, m.failed = true, true
-	switch {
-	case m.joined && !m.settled:
-		m.status, m.why = lxcstate.StatusDeferred, whyBundleFailed
-	case m.settled:
-		m.status, m.why = lxcstate.StatusDeferred, whyFailed
+	if !m.done {
+		switch {
+		case m.joined && !m.settled:
+			m.status, m.why = lxcstate.StatusDeferred, whyBundleFailed
+		case m.settled:
+			m.status, m.why = lxcstate.StatusDeferred, whyFailed
+		}
 	}
+	m.done, m.failed = true, true
 	r.errs = append(r.errs, err)
 }
 
-// refuse is a running member's wrong fact (exit 70), failing that member alone.
+// refuse is a running seat's wrong fact (exit 70), failing that seat alone.
 func (r *run) refuse(m *member, step string, err error) {
-	r.fail(m, &host.Error{Verb: verb, Step: step, Drift: true, Err: fmt.Errorf("%s@%s: %w", m.decl.User, m.box, err)})
+	r.fail(m, &host.Error{Verb: verb, Step: step, Drift: true, Err: fmt.Errorf("%s: %w", m.name(), err)})
 }
 
 // gone is whether err, met in container c, means c has gone offline (n3b-D1): the pin moved
@@ -312,7 +461,7 @@ func (r *run) gone(ctx context.Context, c paths.ContainerName, err error) bool {
 }
 
 // step is a failure of the steps after the reads, in a container: offline when the container
-// went, else the member's failure.
+// went, else the seat's failure.
 func (r *run) step(ctx context.Context, g *guestBox, m *member, name string, err error) {
 	switch {
 	case refused(err):
@@ -320,7 +469,7 @@ func (r *run) step(ctx context.Context, g *guestBox, m *member, name string, err
 	case r.gone(ctx, g.name, err):
 		r.boxGone(g, whyStoppedDuring)
 	default:
-		r.fail(m, &host.Error{Verb: verb, Step: name, Err: fmt.Errorf("%s@%s: %w", m.decl.User, m.box, err)})
+		r.fail(m, &host.Error{Verb: verb, Step: name, Err: fmt.Errorf("%s: %w", m.name(), err)})
 	}
 }
 
@@ -332,12 +481,14 @@ func refused(err error) bool {
 // present is C 3.9.2 steps 02-09.
 func (r *run) present(ctx context.Context) {
 	r.only(declare.StatePresent)
+	r.holdMoves()
 	if !r.containers(ctx) {
 		return
 	}
 	for _, g := range r.boxes {
 		r.reads(ctx, g)
 	}
+	r.equalHandles()
 	for _, g := range r.boxes {
 		if len(g.live()) > 0 && !r.placeKit(ctx, g) {
 			return
@@ -355,21 +506,33 @@ func (r *run) present(ctx context.Context) {
 		}
 	}
 	for _, g := range r.boxes {
-		for _, u := range users(g) {
-			r.membership(ctx, g, u)
-			r.unit(ctx, g, u)
+		for _, m := range g.members {
+			r.membership(ctx, g, m)
+			r.unit(ctx, g, m)
 		}
 	}
 }
 
-// containers is step 02: each entry's container listed and asked its state. A missing or not
+// holdMoves holds back each seat whose record entry names another user, a user move: the
+// absent phase moves it off the old user first, and until then its entry is left as it is
+// (C 3.9.3).
+func (r *run) holdMoves() {
+	for _, m := range r.members {
+		if m.recorded && m.prior.User != m.decl.User {
+			m.done, m.status = true, statusKeep
+			r.line(m, Deferred, whyOldUser)
+		}
+	}
+}
+
+// containers is step 02: each seat's container listed and asked its state. A missing or not
 // running one is offline; the running ones become the phase's boxes. False is a host fault.
 func (r *run) containers(ctx context.Context) bool {
 	byName := map[paths.ContainerName]*guestBox{}
 	for _, m := range r.members {
 		g, ok := byName[m.box]
 		if !ok {
-			g = &guestBox{name: m.box}
+			g = &guestBox{name: m.box, checkouts: map[string]*checkoutFiles{}}
 			byName[m.box] = g
 			r.boxes = append(r.boxes, g)
 		}
@@ -401,22 +564,10 @@ func (r *run) containers(ctx context.Context) bool {
 	return true
 }
 
-// users is the box's guest users, in order.
-func users(g *guestBox) []paths.GuestUser {
-	var out []paths.GuestUser
-	for _, m := range g.members {
-		if !slices.Contains(out, m.decl.User) {
-			out = append(out, m.decl.User)
-		}
-	}
-	slices.SortFunc(out, func(a, b paths.GuestUser) int { return cmp.Compare(a.String(), b.String()) })
-	return out
-}
-
 // reads is step 03 for one running container: the pin, its settings and addresses, and each
-// member's facts, with nothing changed.
+// seat's facts, with nothing changed.
 func (r *run) reads(ctx context.Context, g *guestBox) {
-	if g.gone {
+	if g.gone || len(g.live()) == 0 {
 		return
 	}
 	root, err := r.d.Pin(ctx, g.name.String())
@@ -441,19 +592,19 @@ func (r *run) reads(ctx context.Context, g *guestBox) {
 	}
 	passwd, err := readGuest(root, guestPasswd, guestfacts.MaxPasswd)
 	if err != nil {
-		r.readsFailed(ctx, g, "reads", err)
+		r.readsFailed(ctx, g, stepReads, err)
 		return
 	}
 	for _, m := range g.live() {
 		if err := r.member(ctx, g, m, passwd, addrs); err != nil {
-			r.readsFailed(ctx, g, "reads", err)
+			r.readsFailed(ctx, g, stepReads, err)
 			return
 		}
 	}
 }
 
-// readsFailed routes a read's error: the container gone is offline for all its members, a
-// refused fact fails each of them by name, anything else fails each of them.
+// readsFailed routes a read's error: the container gone is offline for all its seats, a refused
+// fact fails each of them by name, anything else fails each of them.
 func (r *run) readsFailed(ctx context.Context, g *guestBox, step string, err error) {
 	if !refused(err) && r.gone(ctx, g.name, err) {
 		r.boxGone(g, whyStoppedDuring)
@@ -480,14 +631,14 @@ func readGuest(root Root, p string, limit int64) ([]byte, error) {
 	return data, nil
 }
 
-// member is step 03's reads of one entry; a refusal fails that member alone, and only an error
-// that is not the member's own (the root gone, a host fault) is returned.
+// member is step 03's reads of one seat; a refusal fails that seat alone, and only an error
+// that is not the seat's own (the root gone, a host fault) is returned.
 func (r *run) member(ctx context.Context, g *guestBox, m *member, passwd []byte, addrs []netip.Addr) error {
 	err := r.facts(g, m, passwd, addrs)
 	switch {
 	case err == nil:
 	case refused(err):
-		r.refuse(m, "reads", err)
+		r.refuse(m, stepReads, err)
 		return nil
 	default:
 		return err
@@ -506,7 +657,8 @@ func (r *run) member(ctx context.Context, g *guestBox, m *member, passwd []byte,
 	return nil
 }
 
-// facts checks one entry's guest facts (C 3.9.2 step 03, LX4).
+// facts checks one seat's guest facts (C 3.9.2 step 03, LX4) and derives its handle: the
+// entry's seat number under the checkout's prefix, which a recorded handle must equal.
 func (r *run) facts(g *guestBox, m *member, passwd []byte, addrs []netip.Addr) error {
 	acct, err := guestfacts.Passwd(passwd, m.decl.User, r.d.HostUIDs)
 	if err != nil {
@@ -518,35 +670,102 @@ func (r *run) facts(g *guestBox, m *member, passwd []byte, addrs []netip.Addr) e
 			return err
 		}
 	}
-	git, _, found, err := g.root.ReadFile(m.decl.Checkout+gitConfig, guestfacts.MaxCheckout)
+	co, err := g.checkout(m.decl.Checkout)
 	if err != nil {
 		return err
 	}
-	if !found {
-		git = nil
+	if co.envFound && !r.owners(g, m.decl.Checkout, passwd)[co.envUID] {
+		return fmt.Errorf("%w: %s%s is not owned by an agent user whose entries name the checkout", guestfacts.ErrRefused, m.decl.Checkout, envLocal)
 	}
-	env, info, found, err := g.root.ReadFile(m.decl.Checkout+envLocal, guestfacts.MaxCheckout)
-	if err != nil {
+	if m.prefix, err = guestfacts.Prefix(m.decl, co.git, co.env); err != nil {
 		return err
 	}
-	if !found {
-		env = nil
-	} else if int(info.UID) != acct.UID {
-		return fmt.Errorf("%w: %s%s is not owned by %s", guestfacts.ErrRefused, m.decl.Checkout, envLocal, m.decl.User)
+	derived, ok := m.prefix.Numbered(m.decl.Seat)
+	if !ok {
+		return fmt.Errorf("%w: seat %d makes no handle of %s", guestfacts.ErrRefused, m.decl.Seat, m.prefix)
 	}
-	if m.prefix, err = guestfacts.Prefix(m.decl, git, env); err != nil {
-		return err
-	}
+	m.want = derived.String()
 	if m.handle != "" {
 		h, ok := proto.ParseHandle(m.handle)
 		if !ok {
 			return fmt.Errorf("%w: the record's handle is not a handle", guestfacts.ErrRefused)
 		}
-		if err := guestfacts.SameMember(m.prefix, h); err != nil {
-			return fmt.Errorf("%w; the checkout's origin changed: retire and add the member to change its handle", err)
+		if err := guestfacts.SameMember(derived, h); err != nil {
+			return err
 		}
 	}
 	return guestfacts.Source(addrs, m.team.AllowFrom, g.cfg.Link, r.d.Bridge)
+}
+
+// checkout is the checkout's .git/config and ccy.env.local, read once per container.
+func (g *guestBox) checkout(dir string) (*checkoutFiles, error) {
+	if co, ok := g.checkouts[dir]; ok {
+		return co, nil
+	}
+	co := &checkoutFiles{}
+	git, _, found, err := g.root.ReadFile(dir+gitConfig, guestfacts.MaxCheckout)
+	if err != nil {
+		return nil, err
+	}
+	if found {
+		co.git = git
+	}
+	env, info, found, err := g.root.ReadFile(dir+envLocal, guestfacts.MaxCheckout)
+	if err != nil {
+		return nil, err
+	}
+	if found {
+		co.env, co.envUID, co.envFound = env, int(info.UID), true
+	}
+	g.checkouts[dir] = co
+	return co, nil
+}
+
+// owners is the uids of the agent users whose entries in the container name the checkout, any
+// of whom may own its ccy.env.local (LX4), so seats of several users share one checkout.
+func (r *run) owners(g *guestBox, dir string, passwd []byte) map[int]bool {
+	out := map[int]bool{}
+	for _, e := range r.req.Decl.LXC {
+		if e.Container != g.name.String() || e.Checkout != dir {
+			continue
+		}
+		if acct, err := guestfacts.Passwd(passwd, e.User, r.d.HostUIDs); err == nil {
+			out[acct.UID] = true
+		}
+	}
+	return out
+}
+
+// equalHandles is step 03's handle rule for each acted team: two seats whose handles are equal,
+// derived here or held by a record entry not left, are refused by name; when the record holds
+// the handle for one of them, the other is the wrong one.
+func (r *run) equalHandles() {
+	for _, t := range r.teams {
+		holder := map[string]lxcstate.Entry{}
+		for _, e := range r.records[t.ID].Members {
+			if e.Handle != "" && e.Status != lxcstate.StatusLeft {
+				holder[e.Handle] = e
+			}
+		}
+		first := map[string]*member{}
+		for _, m := range r.members {
+			if m.team.ID != t.ID || m.done || m.want == "" {
+				continue
+			}
+			if e, ok := holder[m.want]; ok && (e.Container != m.box || e.Checkout != m.decl.Checkout || e.Seat != m.decl.Seat) {
+				r.refuse(m, stepReads, fmt.Errorf("%w: its handle %s is held by %s@%s; give the entry another seat",
+					guestfacts.ErrRefused, m.want, e.User, seatText(e.Container, e.Checkout, e.Seat)))
+				continue
+			}
+			if o, ok := first[m.want]; ok {
+				err := fmt.Errorf("%w: %s and %s derive one handle %s; give one entry another seat", guestfacts.ErrRefused, o.name(), m.name(), m.want)
+				r.refuse(o, stepReads, err)
+				r.refuse(m, stepReads, err)
+				continue
+			}
+			first[m.want] = m
+		}
+	}
 }
 
 // service is the facts a session unit needs (SU1): start.auto, systemd as init (n3-D17), tmux
@@ -596,23 +815,28 @@ func tmux(root Root) error {
 	return fmt.Errorf("%w: tmux is not a regular file at %v; the container's own play installs it", guestfacts.ErrRefused, tried)
 }
 
-// attach is the member's lxc-attach identity, the digest kit's binary (never current).
+// attach is the seat's lxc-attach identity, the digest kit's binary (never current).
 func (r *run) attach(m *member) lxccmd.Attach {
 	return lxccmd.Attach{
-		Container: m.box.String(), User: m.decl.User, UID: m.acct.UID, GID: m.acct.GID,
+		Container: m.box.String(), User: m.decl.User, Key: m.key, UID: m.acct.UID, GID: m.acct.GID,
 		Home: m.acct.Home, Kit: paths.HostKitDir(r.d.Kit),
 	}
 }
 
-// check is step 05, `guest check`: gh or reach failing is offline for that member alone, any
-// other error object fails it.
+// check is step 05, `guest check`, once per (user, team) in a container however many seats
+// share it: gh or reach failing is offline for every such seat, any other error object fails it.
 func (r *run) check(ctx context.Context, g *guestBox, m *member) {
-	reach, err := r.teamReach(ctx, m.team.ID)
-	if err != nil {
-		r.fail(m, &host.Error{Verb: verb, Step: "guest check", Err: err})
-		return
+	k := checkKey{box: m.box, user: m.decl.User, team: m.team.ID}
+	err, ran := r.checked[k]
+	if !ran {
+		reach, reachErr := r.teamReach(ctx, m.team.ID)
+		if reachErr != nil {
+			r.fail(m, &host.Error{Verb: verb, Step: "guest check", Err: reachErr})
+			return
+		}
+		_, err = r.d.LXC.Guest(ctx, r.attach(m), guest.OpCheck, []string{"--team", m.team.ID.String()}, reach)
+		r.checked[k] = err
 	}
-	_, err = r.d.LXC.Guest(ctx, r.attach(m), guest.OpCheck, []string{"--team", m.team.ID.String()}, reach)
 	if err == nil {
 		return
 	}
@@ -634,7 +858,7 @@ func (r *run) teamReach(ctx context.Context, team paths.TeamID) ([]byte, error) 
 	return b, err
 }
 
-// boxOf is the member's box.
+// boxOf is the seat's box.
 func (r *run) boxOf(m *member) *guestBox {
 	for _, g := range r.boxes {
 		if g.name == m.box {
@@ -644,8 +868,9 @@ func (r *run) boxOf(m *member) *guestBox {
 	return nil
 }
 
-// joins is steps 06 and 07 for one team under its lock: each live member's join, decided from
-// host facts (n3-D23), then its bundle placed. A busy lock fails the phase (75).
+// joins is steps 06 and 07 for one team under its lock: each live seat's join, decided from
+// host facts and the roster (n3-D23), the record written with every joined handle, then each
+// bundle placed. A busy lock fails the phase (75).
 func (r *run) joins(ctx context.Context, team paths.TeamID) error {
 	var live []*member
 	for _, m := range r.members {
@@ -670,34 +895,73 @@ func (r *run) joins(ctx context.Context, team paths.TeamID) error {
 		r.failAll(live, "roster", err)
 		return nil
 	}
+	var joined []*member
 	for _, m := range live {
-		r.join(ctx, m, roster)
+		if r.join(ctx, m, roster) {
+			joined = append(joined, m)
+		}
+	}
+	if err := r.recordJoins(team, joined); err != nil {
+		r.failAll(joined, "record", err)
+		return nil
+	}
+	for _, m := range joined {
+		r.place(ctx, m)
 	}
 	return nil
 }
 
-// join is one member's join and placement.
-func (r *run) join(ctx context.Context, m *member, roster map[string]string) {
+// join is one seat's join; true is a join made.
+func (r *run) join(ctx context.Context, m *member, roster map[string]string) bool {
 	j, need, err := joinOf(m, roster)
 	if err != nil {
 		r.refuse(m, "roster", err)
-		return
+		return false
 	}
 	if !need {
 		m.settled = true
-		return
+		return false
 	}
 	got, err := r.d.Roster.Join(ctx, m.team.ID, j)
+	if errors.Is(err, apply.ErrRetired) {
+		why := "seat " + strconv.Itoa(m.decl.Seat) + whyDeactivated
+		m.done, m.status, m.why = true, lxcstate.StatusDeferred, why
+		r.line(m, Deferred, why)
+		r.changed[m.team.ID] = true
+		return false
+	}
 	if err == nil {
 		err = joinedAs(j, m, got)
 	}
 	if err != nil {
-		r.fail(m, &host.Error{Verb: verb, Step: "roster", Err: err})
-		return
+		r.fail(m, &host.Error{Verb: verb, Step: "roster", Err: fmt.Errorf("%s: %w", m.name(), err)})
+		return false
 	}
-	m.handle, m.joined = got.Handle, true
+	m.handle, m.joined, m.joinOp, m.bundle = got.Handle, true, j.Op, got.Bundle
 	r.changed[m.team.ID] = true
-	_, err = r.d.LXC.Guest(ctx, r.attach(m), guest.OpPlaceBundle, nil, got.Bundle)
+	return true
+}
+
+// recordJoins writes the team's record as soon as its joins return, before any bundle is
+// placed, each joined handle deferred: a join's handle is never unrecorded (n3-D12).
+func (r *run) recordJoins(team paths.TeamID, joined []*member) error {
+	if len(joined) == 0 {
+		return nil
+	}
+	rec, now := r.records[team], r.d.Clock.Now().UnixMilli()
+	for _, m := range joined {
+		rec = rec.Set(entryOf(m, lxcstate.StatusDeferred, whyBundleFailed), now)
+	}
+	if _, err := lxcstate.WriteRecord(r.d.Root, rec, r.d.OwnerGID); err != nil {
+		return err
+	}
+	r.records[team] = rec
+	return nil
+}
+
+// place is step 07 for one joined seat: its bundle placed; a held seat (75) is deferred.
+func (r *run) place(ctx context.Context, m *member) {
+	_, err := r.d.LXC.Guest(ctx, r.attach(m), guest.OpPlaceBundle, nil, m.bundle)
 	if ge, ok := errors.AsType[*lxccmd.GuestError](err); ok && ge.Exit == 75 {
 		m.done, m.heldSeat, m.status, m.why = true, true, lxcstate.StatusDeferred, whySeatHeld
 		r.line(m, Deferred, whySeatHeld)
@@ -708,133 +972,99 @@ func (r *run) join(ctx context.Context, m *member, roster map[string]string) {
 		return
 	}
 	m.settled = true
-	r.line(m, Changed, joinVerb[j.Op]+" "+m.handle)
+	r.line(m, Changed, joinVerb[m.joinOp]+" "+m.handle)
 }
 
 var joinVerb = map[string]string{
 	apply.OpMemberAdd: "joined as", apply.OpMemberReturn: "returned as", apply.OpMemberReissue: "reissued as",
 }
 
-// joinOf is the join a member needs from host facts only (n3-D23): none recorded is an add; a
-// parked handle returns; a lost one, or one whose bundle was never placed, is reissued; an
-// active, placed one is left alone. A retired handle is refused by name.
+// joinOf is the join a seat needs, chosen by the roster's state of its handle, the recorded one
+// or else the derived one (C 3.9.2 step 03): none, or a pending add, is an add of the entry's
+// seat; parked or lost returns; active is reissued unless the record holds it placed; a retired
+// handle is refused by name.
 func joinOf(m *member, roster map[string]string) (Join, bool, error) {
-	if m.handle == "" {
-		return Join{Op: apply.OpMemberAdd, Prefix: m.prefix, Seat: m.decl.Seat, HumanText: m.decl.HumanText}, true, nil
-	}
-	state, ok := roster[m.handle]
+	handle := cmp.Or(m.handle, m.want)
+	state, ok := roster[handle]
 	switch {
-	case !ok:
-		return Join{}, false, fmt.Errorf("%w: handle %s is not on the roster; retire and add the member", guestfacts.ErrRefused, m.handle)
-	case state == apply.MemberParked:
-		return Join{Op: apply.OpMemberReturn, Handle: m.handle}, true, nil
-	case state == apply.MemberLost, state == apply.MemberActive && m.needsReissue():
-		return Join{Op: apply.OpMemberReissue, Handle: m.handle}, true, nil
+	case !ok, state == apply.MemberClaimed:
+		return Join{Op: apply.OpMemberAdd, Prefix: m.prefix, Seat: m.decl.Seat, HumanText: m.decl.HumanText}, true, nil
+	case state == apply.MemberParked, state == apply.MemberLost:
+		return Join{Op: apply.OpMemberReturn, Handle: handle}, true, nil
+	case state == apply.MemberActive && (m.handle == "" || m.needsReissue()):
+		return Join{Op: apply.OpMemberReissue, Handle: handle}, true, nil
 	case state == apply.MemberActive:
 		return Join{}, false, nil
 	case state == apply.MemberRetired:
-		return Join{}, false, fmt.Errorf("%w: handle %s is retired; retire and add the member to join it again", guestfacts.ErrRefused, m.handle)
+		return Join{}, false, fmt.Errorf("%w: seat %d of %s is retired; give the entry another seat", guestfacts.ErrRefused, m.decl.Seat, m.prefix)
 	}
-	return Join{}, false, fmt.Errorf("%w: handle %s is in a roster state the apply does not join", guestfacts.ErrRefused, m.handle)
+	return Join{}, false, fmt.Errorf("%w: handle %s is in a roster state the apply does not join", guestfacts.ErrRefused, handle)
 }
 
-// joinedAs checks the child's answer: a new handle of the member's own prefix, or the same one.
+// joinedAs checks the child's answer: the seat's derived handle for an add, else the same one.
 func joinedAs(j Join, m *member, got Joined) error {
-	if j.Op != apply.OpMemberAdd {
-		if got.Handle != m.handle {
-			return fmt.Errorf("the child answered %s for handle %s with another handle", j.Op, m.handle)
-		}
-		return nil
+	want := j.Handle
+	if j.Op == apply.OpMemberAdd {
+		want = m.want
 	}
-	h, ok := proto.ParseHandle(got.Handle)
-	if !ok || h.Prefix() != m.prefix {
-		return fmt.Errorf("the child's %s answered a handle outside %s", j.Op, m.prefix)
+	if got.Handle != want {
+		return fmt.Errorf("the child answered %s for handle %s with another handle", j.Op, want)
 	}
 	return nil
 }
 
-// group is a box's members of one guest user.
-func group(g *guestBox, u paths.GuestUser) []*member {
-	var out []*member
-	for _, m := range g.members {
-		if m.decl.User == u {
-			out = append(out, m)
-		}
+// membership is step 08 for one seat: its host copy, holding the seat's own team once its bundle
+// is placed (none for a held seat), written first, then `guest membership`. A converged copy
+// writes nothing, but is written to a guest whose last membership did not land.
+func (r *run) membership(ctx context.Context, g *guestBox, m *member) {
+	if g.gone || !m.heldSeat && (m.done || !m.settled) {
+		return
 	}
-	return out
+	next, rerun, err := r.copyOf(m)
+	if err != nil {
+		r.fail(m, &host.Error{Verb: verb, Step: stepMembership, Err: fmt.Errorf("%s: %w", m.name(), err)})
+		return
+	}
+	if !rerun {
+		return
+	}
+	if err := r.desired(ctx, m, next); err != nil {
+		r.step(ctx, g, m, "guest membership", err)
+	}
 }
 
-// membership is step 08 for one guest user: the seats of every team it is joined to (a team
-// outside the scope taken from the host copy, n3-D13), less a held seat; the host copy
-// written first, then `guest membership`. A converged copy writes nothing, but is written to
-// a guest whose last membership did not land.
-func (r *run) membership(ctx context.Context, g *guestBox, u paths.GuestUser) {
-	ms := group(g, u)
-	var active []*member
-	rerun := false
-	for _, m := range ms {
-		if !m.done && m.settled || m.heldSeat {
-			active = append(active, m)
-			rerun = rerun || m.prior.Status != lxcstate.StatusJoined
-		}
-	}
-	if g.gone || len(active) == 0 {
-		return
-	}
-	cp, _, err := lxcstate.ReadCopy(r.d.Root, g.name, u)
+// copyOf is the seat's next host copy, written when it changed, and whether `guest membership`
+// runs: a change, or a seat whose last membership did not land.
+func (r *run) copyOf(m *member) (lxcstate.Copy, bool, error) {
+	cp, _, err := lxcstate.ReadCopy(r.d.Root, m.box, m.id)
 	if err != nil {
-		r.failAll(active, stepMembership, err)
-		return
+		return lxcstate.Copy{}, false, err
 	}
-	next, changed := cp.Next(seats(cp, ms), nil)
+	var seats []memberstate.DesiredSeat
+	if !m.heldSeat {
+		h, ok := proto.ParseHandle(m.handle)
+		if !ok {
+			return lxcstate.Copy{}, false, errors.New("the seat's handle is not a handle")
+		}
+		seats = []memberstate.DesiredSeat{{Team: m.team.ID, Seat: h.Seat}}
+	}
+	next, changed := cp.Next(seats, nil)
 	if changed {
-		if err := lxcstate.WriteCopy(r.d.Root, g.name, u, next); err != nil {
-			r.failAll(active, stepMembership, err)
-			return
+		if err := lxcstate.WriteCopy(r.d.Root, m.box, next); err != nil {
+			return lxcstate.Copy{}, false, err
 		}
 	}
-	if !changed && !rerun {
-		return
-	}
-	if err := r.desired(ctx, active[0], next); err != nil {
-		for _, m := range active {
-			r.step(ctx, g, m, "guest membership", err)
-		}
-	}
+	return next, changed || m.prior.Status != lxcstate.StatusJoined, nil
 }
 
 // desired is `guest membership` with the copy's desired.json on stdin.
 func (r *run) desired(ctx context.Context, m *member, cp lxcstate.Copy) error {
-	data, err := cp.Desired(m.decl.User, r.d.Clock.Now().UnixMilli()).Encode()
+	data, err := cp.Desired(r.d.Clock.Now().UnixMilli()).Encode()
 	if err != nil {
 		return err
 	}
 	_, err = r.d.LXC.Guest(ctx, r.attach(m), guest.OpMembership, nil, data)
 	return err
-}
-
-// seats is the user's desired seats: each acted team's settled handle, a held seat left out, a
-// member that took no step keeping the copy's seat, and every other team's seat as copied.
-func seats(cp lxcstate.Copy, ms []*member) []memberstate.DesiredSeat {
-	byTeam := map[paths.TeamID]*member{}
-	for _, m := range ms {
-		byTeam[m.team.ID] = m
-	}
-	var out []memberstate.DesiredSeat
-	for _, s := range cp.Seats {
-		if m, ok := byTeam[s.Team]; !ok || !m.settled && !m.heldSeat {
-			out = append(out, s)
-		}
-	}
-	for _, m := range ms {
-		if !m.settled || m.heldSeat {
-			continue
-		}
-		if h, ok := proto.ParseHandle(m.handle); ok {
-			out = append(out, memberstate.DesiredSeat{Team: m.team.ID, Seat: h.Seat})
-		}
-	}
-	return out
 }
 
 func (r *run) failAll(ms []*member, step string, err error) {
@@ -843,37 +1073,26 @@ func (r *run) failAll(ms []*member, step string, err error) {
 	}
 }
 
-// unit is step 09 for one guest user (SU1, SU2): the unit written with its wants link, then
-// Reload and Start (new or last found down) or Restart (changed); unchanged is left alone;
-// `service: false` stops and removes it. systemd refusing, or gone, is the unit down: offline, never a failure.
-func (r *run) unit(ctx context.Context, g *guestBox, u paths.GuestUser) {
-	var active []*member
-	for _, m := range group(g, u) {
-		if !m.done && m.settled {
-			active = append(active, m)
-		}
-	}
-	if g.gone || len(active) == 0 {
+// unit is step 09 for one seat (SU1, SU2): its unit written with its wants link, then Reload and
+// Start (new or last found down) or Restart (changed); unchanged is left alone; `service: false`
+// stops and removes it. systemd refusing, or gone, is the unit down: offline, never a failure.
+func (r *run) unit(ctx context.Context, g *guestBox, m *member) {
+	if g.gone || m.done || !m.settled {
 		return
 	}
-	m := active[0]
 	var err error
 	if m.decl.Service {
 		err = r.placeUnit(ctx, g, m)
 	} else {
-		err = r.removeUnit(ctx, g, u)
+		err = r.removeUnit(ctx, g, m)
 	}
-	if err == nil {
-		return
-	}
-	if !refused(err) && unitDown(err) && !r.gone(ctx, g.name, err) {
-		for _, a := range active {
-			r.offline(a, whyUnitDown)
-		}
-		return
-	}
-	for _, a := range active {
-		r.step(ctx, g, a, "unit", err)
+	switch {
+	case err == nil:
+		m.complete = true
+	case !refused(err) && unitDown(err) && !r.gone(ctx, g.name, err):
+		r.offline(m, whyUnitDown)
+	default:
+		r.step(ctx, g, m, "unit", err)
 	}
 }
 
@@ -886,12 +1105,13 @@ func unitDown(err error) bool {
 }
 
 func (r *run) placeUnit(ctx context.Context, g *guestBox, m *member) error {
-	u := m.decl.User
-	text, err := unit.Render(unit.Session{User: u, Group: m.group, Home: m.acct.Home, Checkout: m.decl.Checkout})
+	text, err := unit.Render(unit.Session{
+		User: m.decl.User, Group: m.group, Home: m.acct.Home, Checkout: m.decl.Checkout, Team: m.team.ID, Seat: m.decl.Seat,
+	})
 	if err != nil {
 		return fmt.Errorf("%w: %w", guestfacts.ErrRefused, err)
 	}
-	file, link := paths.GuestUnitFile(u), paths.GuestUnitWantsLink(u)
+	file, link := m.unitFile(), m.wantsLink()
 	_, _, existed, err := g.root.ReadFile(file, maxUnit)
 	if err != nil {
 		return err
@@ -920,7 +1140,7 @@ func (r *run) placeUnit(ctx context.Context, g *guestBox, m *member) error {
 		if reloadErr := s.Reload(ctx); reloadErr != nil {
 			return reloadErr
 		}
-		return start(s, ctx, u)
+		return start(s, ctx, m.unitName())
 	})
 	if err == nil {
 		r.line(m, Changed, how)
@@ -928,14 +1148,16 @@ func (r *run) placeUnit(ctx context.Context, g *guestBox, m *member) error {
 	return err
 }
 
-func (r *run) removeUnit(ctx context.Context, g *guestBox, u paths.GuestUser) error {
-	file, link := paths.GuestUnitFile(u), paths.GuestUnitWantsLink(u)
+// removeUnit stops and removes the seat's unit and its wants link, when it has one; no other
+// seat's unit is touched.
+func (r *run) removeUnit(ctx context.Context, g *guestBox, m *member) error {
+	file, link := m.unitFile(), m.wantsLink()
 	_, _, found, err := g.root.ReadFile(file, maxUnit)
 	if err != nil || !found {
 		return err
 	}
 	return r.systemd(ctx, g, func(s guestbus.Systemd) error {
-		if err := s.Stop(ctx, u); err != nil {
+		if err := s.Stop(ctx, m.unitName()); err != nil {
 			return err
 		}
 		w := g.root.Writer()
@@ -961,9 +1183,6 @@ func (r *run) systemd(ctx context.Context, g *guestBox, calls func(guestbus.Syst
 	return errors.Join(calls(s), s.Close())
 }
 
-// statusDrop marks a member whose record entry the phase removes.
-const statusDrop = "drop"
-
 // finish is step 10: each acted team's record, written only when it changed (LX9), and the
 // status record refreshed for a team whose roster changed.
 func (r *run) finish(ctx context.Context) {
@@ -987,17 +1206,31 @@ func (r *run) finish(ctx context.Context) {
 	}
 }
 
-// settle is one member's record entry after the phase.
-func settle(rec lxcstate.Record, m *member, now int64) lxcstate.Record {
-	if m.status == statusDrop {
-		return rec.Drop(m.box, m.decl.User)
+// entryOf is the seat's record entry with status and why.
+func entryOf(m *member, status, why string) lxcstate.Entry {
+	return lxcstate.Entry{
+		Container: m.box, Checkout: m.decl.Checkout, Seat: m.decl.Seat, User: m.decl.User, Handle: m.handle,
+		Status: status, Why: why,
 	}
-	e := lxcstate.Entry{Container: m.box, User: m.decl.User, Handle: m.handle, Status: m.status, Why: m.why}
-	if e.Status == "" {
-		if e.Handle == "" {
+}
+
+// settle is one seat's record entry after the phase. A seat that set no status is joined only
+// when it took every step; one whose steps the phase did not reach keeps its entry.
+func settle(rec lxcstate.Record, m *member, now int64) lxcstate.Record {
+	switch m.status {
+	case statusDrop:
+		return rec.Drop(m.box, m.decl.Checkout, m.decl.Seat)
+	case statusKeep:
+		return rec
+	case statusMove:
+		e := entryOf(m, lxcstate.StatusDeferred, whyMoved)
+		e.User = m.moveTo
+		return rec.Set(e, now)
+	case "":
+		if !m.complete || m.handle == "" {
 			return rec
 		}
-		e.Status, e.Why = lxcstate.StatusJoined, ""
+		return rec.Set(entryOf(m, lxcstate.StatusJoined, ""), now)
 	}
-	return rec.Set(e, now)
+	return rec.Set(entryOf(m, m.status, m.why), now)
 }

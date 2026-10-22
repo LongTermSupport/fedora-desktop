@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
@@ -24,6 +25,8 @@ const (
 	kitBytes    = 64 << 20
 	maxKitNames = 256
 	maxRuns     = 1024
+	maxRunNames = 4096
+	guestRun    = "/run"
 	binDir      = "bin"
 	tempPrefix  = ".new-"
 	currentName = "current"
@@ -210,28 +213,59 @@ func (r *run) sweepKits(g *guestBox) error {
 	return nil
 }
 
-// liveKits is the digests the box's live sessions name: each session.pid under the two runtime
-// parents of each of its users whose keeper's start time is the recorded one. all is a record
-// that cannot be read for sure, which keeps every digest.
+// liveKits is the digests the box's live sessions name: each session.pid under every runtime
+// parent of the guest whose keeper's start time is the recorded one. all is a record or a
+// listing that cannot be read for sure, which keeps every digest.
 func liveKits(g *guestBox) (map[string]bool, bool, error) {
+	parents, all, err := runParents(g)
+	if err != nil || all {
+		return nil, all, err
+	}
 	live := map[string]bool{}
-	for _, m := range g.members {
-		if m.acct.UID <= 0 {
-			continue
-		}
-		parents, err := paths.GuestRuntimeParents(m.decl.User, m.acct.UID)
-		if err != nil {
-			return nil, false, err
-		}
-		for _, parent := range parents {
-			all, err := runsOf(g.root, parent, live)
-			if err != nil || all {
-				return nil, all, err
-			}
+	for _, parent := range parents {
+		all, err := runsOf(g.root, parent, live)
+		if err != nil || all {
+			return nil, all, err
 		}
 	}
 	return live, false, nil
 }
+
+// runParents is every run root of the guest's sessions (LX5): each agent user's login one, and
+// one per unit runtime directory the guest's /run lists, so a seat the record no longer names
+// still keeps its digest (C 3.9.2 step 04). Only names of that grammar are taken from /run.
+func runParents(g *guestBox) ([]string, bool, error) {
+	var out []string
+	for _, m := range g.members {
+		if m.acct.UID <= 0 {
+			continue
+		}
+		p, err := paths.GuestLoginRunRoot(m.acct.UID)
+		if err != nil {
+			return nil, false, err
+		}
+		if !slices.Contains(out, p) {
+			out = append(out, p)
+		}
+	}
+	names, _, err := g.root.ReadDir(guestRun, anyName, maxRunNames)
+	if refused(err) {
+		return nil, true, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	for _, n := range names {
+		if k, keyErr := paths.ParseGuestRuntimeDirName(n); keyErr == nil {
+			out = append(out, paths.GuestUnitRunRoot(k))
+		}
+	}
+	return out, false, nil
+}
+
+// anyName takes every name of a listing: /run holds names of many grammars, and the caller
+// keeps only those its own grammar reads.
+func anyName(string) bool { return true }
 
 func isRunID(s string) bool {
 	_, err := paths.ParseRunID(s)

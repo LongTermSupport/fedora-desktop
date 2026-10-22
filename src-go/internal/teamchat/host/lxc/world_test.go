@@ -136,9 +136,9 @@ type box struct {
 }
 
 type guestCall struct {
-	Container, User, Verb string
-	Args                  []string
-	Stdin                 string
+	Container, User, Key, Verb string
+	Args                       []string
+	Stdin                      string
 }
 
 // fakeLXC is the containers: scripted states, and guest ops that record their calls and answer
@@ -216,7 +216,7 @@ func (f *fakeLXC) Config(_ context.Context, c string, keys ...string) (map[strin
 }
 
 func (f *fakeLXC) Guest(_ context.Context, a lxccmd.Attach, op guest.Op, args []string, stdin []byte) (lxccmd.GuestResult, error) {
-	c := guestCall{Container: a.Container, User: a.User.String(), Verb: op.Verb, Args: args, Stdin: string(stdin)}
+	c := guestCall{Container: a.Container, User: a.User.String(), Key: a.Key.String(), Verb: op.Verb, Args: args, Stdin: string(stdin)}
 	f.mu.Lock()
 	f.calls = append(f.calls, c)
 	if f.log != nil {
@@ -288,7 +288,7 @@ func (f *fakeRoster) Join(_ context.Context, team paths.TeamID, j Join) (Joined,
 	}
 	handle := j.Handle
 	if j.Op == apply.OpMemberAdd {
-		h, ok := j.Prefix.Numbered(1)
+		h, ok := j.Prefix.Numbered(j.Seat)
 		if !ok {
 			return Joined{}, errors.New("no handle")
 		}
@@ -336,26 +336,26 @@ type fakeBus struct {
 	log   *[]string
 }
 
-func (b *fakeBus) Reload(context.Context) error { return b.call("Reload", paths.GuestUser{}) }
+func (b *fakeBus) Reload(context.Context) error { return b.call("Reload", "") }
 
-func (b *fakeBus) Start(_ context.Context, u paths.GuestUser) error { return b.call("Start", u) }
+func (b *fakeBus) Start(_ context.Context, unit string) error { return b.call("Start", unit) }
 
-func (b *fakeBus) Restart(_ context.Context, u paths.GuestUser) error { return b.call("Restart", u) }
+func (b *fakeBus) Restart(_ context.Context, unit string) error { return b.call("Restart", unit) }
 
-func (b *fakeBus) Stop(_ context.Context, u paths.GuestUser) error { return b.call("Stop", u) }
+func (b *fakeBus) Stop(_ context.Context, unit string) error { return b.call("Stop", unit) }
 
-func (b *fakeBus) ResetFailed(_ context.Context, u paths.GuestUser) error {
-	return b.call("ResetFailed", u)
+func (b *fakeBus) ResetFailed(_ context.Context, unit string) error {
+	return b.call("ResetFailed", unit)
 }
 
 func (b *fakeBus) Close() error { return nil }
 
-func (b *fakeBus) call(name string, u paths.GuestUser) error {
+func (b *fakeBus) call(name, unit string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	s := name
-	if u.String() != "" {
-		s += " " + u.String()
+	if unit != "" {
+		s += " " + unit
 	}
 	b.calls = append(b.calls, s)
 	if b.log != nil {
@@ -465,10 +465,11 @@ func (w *world) team(id string) declare.Team {
 	}
 }
 
-// member declares agent1 of container c in team, present, with its service on.
+// member declares agent1's seat 1 of the fixture checkout in container c in team, present,
+// with its service on.
 func (w *world) member(team, c string) declare.LXCMember {
 	return declare.LXCMember{
-		Team: mustTeam(w.t, team), Container: c, User: agent1(w.t), Checkout: checkout,
+		Team: mustTeam(w.t, team), Container: c, User: agent1(w.t), Checkout: checkout, Seat: 1,
 		Service: true, State: declare.StatePresent,
 	}
 }
@@ -547,14 +548,48 @@ func (w *world) record() lxcstate.Record {
 	return r
 }
 
-// entry is the record entry of agent1 in c, in team t1.
+// entry is the record entry of seat 1 of the fixture checkout in c, in team t1.
 func (w *world) entry(c string) lxcstate.Entry {
 	w.t.Helper()
-	e, ok := w.record().Find(mustBox(w.t, c), agent1(w.t))
+	e, ok := w.record().Find(mustBox(w.t, c), checkout, 1)
 	if !ok {
 		w.t.Fatalf("no record entry for %s in t1", c)
 	}
 	return e
+}
+
+// seatID is seat 1 of the fixture checkout in team.
+func seatID(t *testing.T, team string) lxcstate.SeatID {
+	t.Helper()
+	return lxcstate.SeatID{Team: mustTeam(t, team), Checkout: checkout, Seat: 1}
+}
+
+// keyOf is seatID's key.
+func keyOf(t *testing.T, team string) paths.SeatKey {
+	t.Helper()
+	return seatID(t, team).Key()
+}
+
+// unitOf is seatID's unit name, and unitFileOf and wantsOf its file and wants link.
+func unitOf(t *testing.T, team string) string {
+	t.Helper()
+	return paths.SessionUnit(mustTeam(t, team), checkout, 1)
+}
+
+func unitFileOf(t *testing.T, team string) string {
+	t.Helper()
+	return paths.GuestUnitFile(mustTeam(t, team), checkout, 1)
+}
+
+func wantsOf(t *testing.T, team string) string {
+	t.Helper()
+	return paths.GuestUnitWantsLink(mustTeam(t, team), checkout, 1)
+}
+
+// lineOf is the output line of agent1's seat 1 of the fixture checkout in c and team.
+func lineOf(t *testing.T, kind, team, c, why string) string {
+	t.Helper()
+	return kind + "\t" + team + "\tagent1@" + c + "/repo-1-" + keyOf(t, team).String() + "\t" + why
 }
 
 // lines is the report's lines as text.

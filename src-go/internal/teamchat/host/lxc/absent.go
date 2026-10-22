@@ -19,7 +19,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 )
 
-// The absent phase's whys.
+// The absent phase's whys and lines.
 const (
 	whyPending   = "guest files pending"
 	whyHeldBy    = "seat still held by run "
@@ -28,6 +28,8 @@ const (
 	lineRemoved  = "parked and removed"
 	lineLeft     = "removed"
 	lineNoHandle = "entry removed; it never joined"
+	lineNoUser   = "; its user is not in the guest"
+	lineMovedTo  = "; the seat moves to "
 )
 
 // only keeps the entries the declaration gives state.
@@ -35,12 +37,18 @@ func (r *run) only(state declare.State) {
 	r.members = slices.DeleteFunc(r.members, func(m *member) bool { return m.decl.State != state })
 }
 
-// absent is C 3.9.2's absent phase (LX8): each member whose entry says absent, or that the
-// record names and no entry declares, leaves under its team's lock: park first, then the
-// desired file without the seat, the unit gone when the user holds no team, the L3 wait, and
-// `guest remove`. A container that is not running is parked from the host and never waited for.
+// absent is C 3.9.2's absent phase (LX8): each seat whose entry says absent, that the record
+// names and no entry declares, or whose record entry names another user (a user move), leaves
+// under its team's lock and under the record's user: park first, then the desired file without
+// the seat, the seat's unit removed, the L3 wait, and `guest remove`. A container that is not
+// running is parked from the host and never waited for.
 func (r *run) absent(ctx context.Context) {
 	r.only(declare.StateAbsent)
+	for _, m := range r.members {
+		if m.recorded {
+			m.decl.User = m.prior.User
+		}
+	}
 	r.undeclared()
 	for _, t := range r.teams {
 		var leavers []*member
@@ -59,28 +67,45 @@ func (r *run) absent(ctx context.Context) {
 	}
 }
 
-// undeclared adds each record entry no entry of its team declares.
+// undeclared adds each record entry of an acted team that no entry declares, and each whose
+// declared present entry names another user, as a leaver under the record's user.
 func (r *run) undeclared() {
 	for _, t := range r.teams {
-		declared := map[Target]bool{}
-		for _, m := range r.req.Decl.LXC {
-			if m.Team == t.ID {
-				if c, err := paths.ParseContainerName(m.Container); err == nil {
-					declared[Target{Container: c, User: m.User}] = true
-				}
-			}
-		}
-		for _, e := range r.records[t.ID].Members {
-			tg := Target{Container: e.Container, User: e.User}
-			if declared[tg] || r.req.Members != nil && !slices.Contains(r.req.Members, tg) {
+		rec := r.records[t.ID]
+		for _, e := range rec.Members {
+			id := rec.SeatOf(e)
+			tg := Target{Container: e.Container, Key: id.Key()}
+			if r.req.Members != nil && !slices.Contains(r.req.Members, tg) {
 				continue
 			}
-			r.members = append(r.members, &member{
-				decl: declare.LXCMember{Team: t.ID, Container: e.Container.String(), User: e.User, State: declare.StateAbsent},
-				team: t, box: e.Container, prior: e, handle: e.Handle, target: r.req.Members != nil,
-			})
+			decl, declared := r.declared(t.ID, e)
+			if declared && (decl.State != declare.StatePresent || decl.User == e.User) {
+				continue
+			}
+			m := &member{
+				decl: declare.LXCMember{
+					Team: t.ID, Container: e.Container.String(), User: e.User, Checkout: e.Checkout, Seat: e.Seat,
+					State: declare.StateAbsent,
+				},
+				team: t, box: e.Container, id: id, key: tg.Key, prior: e, recorded: true, handle: e.Handle,
+				target: r.req.Members != nil,
+			}
+			if declared {
+				m.moveTo = decl.User
+			}
+			r.members = append(r.members, m)
 		}
 	}
+}
+
+// declared is the team's entry of the record entry e's seat, in any state.
+func (r *run) declared(team paths.TeamID, e lxcstate.Entry) (declare.LXCMember, bool) {
+	for _, m := range r.req.Decl.LXC {
+		if m.Team == team && m.Container == e.Container.String() && m.Checkout == e.Checkout && m.Seat == e.Seat {
+			return m, true
+		}
+	}
+	return declare.LXCMember{}, false
 }
 
 func (r *run) leaveTeam(ctx context.Context, team paths.TeamID, leavers []*member) error {
@@ -94,7 +119,8 @@ func (r *run) leaveTeam(ctx context.Context, team paths.TeamID, leavers []*membe
 	return lock.Release()
 }
 
-// leave is one member's steps 1-5.
+// leave is one seat's steps 1-5. A left entry is never parked again: its handle may have joined
+// elsewhere since.
 func (r *run) leave(ctx context.Context, m *member) {
 	parked := false
 	if m.handle != "" && m.prior.Status != lxcstate.StatusLeft {
@@ -122,34 +148,27 @@ func (r *run) leave(ctx context.Context, m *member) {
 	r.leaveGuest(ctx, g, m, parked)
 }
 
-// dropSeat is step 2's host half: the host copy without the team's seat and with its farewell,
-// written first.
+// dropSeat is step 2's host half: the seat's host copy with no seat and its farewell, written
+// first.
 func (r *run) dropSeat(m *member) error {
 	h, ok := proto.ParseHandle(m.handle)
 	if !ok {
-		return &host.Error{Verb: verb, Step: stepMembership, Err: fmt.Errorf("the record's handle for %s@%s is not a handle", m.decl.User, m.box)}
+		return &host.Error{Verb: verb, Step: stepMembership, Err: fmt.Errorf("the record's handle for %s is not a handle", m.name())}
 	}
-	cp, _, err := lxcstate.ReadCopy(r.d.Root, m.box, m.decl.User)
+	cp, _, err := lxcstate.ReadCopy(r.d.Root, m.box, m.id)
 	if err != nil {
 		return &host.Error{Verb: verb, Step: stepMembership, Err: err}
 	}
-	next, changed := cp.Next(without(cp, m.team.ID, h.Seat))
+	next, changed := cp.Next(nil, []memberstate.Farewell{{Team: m.team.ID, Seat: h.Seat, Reason: memberstate.FarewellParked}})
 	if changed {
-		if err := lxcstate.WriteCopy(r.d.Root, m.box, m.decl.User, next); err != nil {
+		if err := lxcstate.WriteCopy(r.d.Root, m.box, next); err != nil {
 			return &host.Error{Verb: verb, Step: stepMembership, Err: err}
 		}
 	}
 	return nil
 }
 
-// without is the copy's seats less team's, and its farewells with team's parked one.
-func without(cp lxcstate.Copy, team paths.TeamID, seat string) ([]memberstate.DesiredSeat, []memberstate.Farewell) {
-	seats := slices.DeleteFunc(slices.Clone(cp.Seats), func(s memberstate.DesiredSeat) bool { return s.Team == team })
-	farewell := slices.DeleteFunc(slices.Clone(cp.Farewell), func(f memberstate.Farewell) bool { return f.Team == team })
-	return seats, append(farewell, memberstate.Farewell{Team: team, Seat: seat, Reason: memberstate.FarewellParked})
-}
-
-// leaveBox is the member's container, pinned once per phase, or why it is offline.
+// leaveBox is the seat's container, pinned once per phase, or why it is offline.
 func (r *run) leaveBox(ctx context.Context, c paths.ContainerName) (*guestBox, string) {
 	for _, g := range r.boxes {
 		if g.name == c {
@@ -188,14 +207,19 @@ func (g *guestBox) why() string {
 	return whyStopped
 }
 
-// leftOffline is a leaving member whose container is not running: parked from the host, its
-// entry kept left with the guest files pending, or dropped for a missing container (n3-D12).
+// leftOffline is a leaving seat whose container is not running: parked from the host, its entry
+// kept left with the guest files pending; a missing container's has no guest files left, so its
+// host copy and entry are dropped, a user move's entry rewritten instead (n3-D12).
 func (r *run) leftOffline(m *member, why string, parked bool) {
 	m.done, m.status, m.why = true, lxcstate.StatusLeft, why+"; "+whyPending
 	switch {
 	case why == whyMissing:
-		m.status = statusDrop
-		r.line(m, Changed, "parked; entry dropped ("+why+")")
+		if err := lxcstate.DeleteCopy(r.d.Root, m.box, m.key); err != nil {
+			r.errs = append(r.errs, &host.Error{Verb: verb, Step: stepMembership, Err: err})
+			return
+		}
+		m.status = r.removedStatus(m)
+		r.line(m, Changed, "parked; entry dropped ("+why+")"+r.movedTo(m))
 	case parked:
 		r.line(m, Changed, "parked; "+whyPending+" ("+why+")")
 	default:
@@ -206,27 +230,35 @@ func (r *run) leftOffline(m *member, why string, parked bool) {
 	}
 }
 
-// leaveGuest is steps 2-5 in a running guest.
+// leaveGuest is steps 2-5 in a running guest. A leaver whose user the guest's passwd no longer
+// names has no file the host can reach as that user: only its unit is removed.
 func (r *run) leaveGuest(ctx context.Context, g *guestBox, m *member, parked bool) {
 	passwd, err := readGuest(g.root, guestPasswd, guestfacts.MaxPasswd)
 	if err == nil {
 		m.acct, err = guestfacts.Passwd(passwd, m.decl.User, r.d.HostUIDs)
 	}
-	if err != nil {
-		r.leaveFailed(ctx, g, m, "reads", err)
+	if errors.Is(err, guestfacts.ErrNoAccount) {
+		if err = r.removeUnit(ctx, g, m); err != nil && !unitDown(err) {
+			r.leaveFailed(ctx, g, m, "unit", err)
+			return
+		}
+		r.removed(m, parked, lineNoUser)
 		return
 	}
-	cp, _, err := lxcstate.ReadCopy(r.d.Root, m.box, m.decl.User)
+	if err != nil {
+		r.leaveFailed(ctx, g, m, stepReads, err)
+		return
+	}
+	cp, _, err := lxcstate.ReadCopy(r.d.Root, m.box, m.id)
 	if err == nil {
 		err = r.desired(ctx, m, cp)
 	}
-	if err == nil && len(cp.Seats) == 0 {
-		if err = r.removeUnit(ctx, g, m.decl.User); unitDown(err) {
-			err = nil
-		}
-	}
 	if err != nil {
 		r.leaveFailed(ctx, g, m, stepMembership, err)
+		return
+	}
+	if err = r.removeUnit(ctx, g, m); err != nil && !unitDown(err) {
+		r.leaveFailed(ctx, g, m, "unit", err)
 		return
 	}
 	held, run, stopped := r.waitFree(ctx, g, m)
@@ -247,16 +279,42 @@ func (r *run) leaveGuest(ctx context.Context, g *guestBox, m *member, parked boo
 		r.leaveFailed(ctx, g, m, "guest remove", err)
 		return
 	}
-	m.done, m.status = true, statusDrop
+	r.removed(m, parked, "")
+}
+
+// removed is a seat whose guest files are gone: its host copy deleted, then its entry dropped,
+// or a user move's rewritten for the new user.
+func (r *run) removed(m *member, parked bool, note string) {
+	if err := lxcstate.DeleteCopy(r.d.Root, m.box, m.key); err != nil {
+		m.status, m.why = lxcstate.StatusLeft, whyPending
+		r.fail(m, &host.Error{Verb: verb, Step: stepMembership, Err: err})
+		return
+	}
+	m.done, m.status = true, r.removedStatus(m)
 	how := lineLeft
 	if parked {
 		how = lineRemoved
 	}
-	r.line(m, Changed, how)
+	r.line(m, Changed, how+note+r.movedTo(m))
+}
+
+// removedStatus is a removed seat's entry: dropped, or rewritten for a user move.
+func (r *run) removedStatus(m *member) string {
+	if m.moveTo.String() != "" {
+		return statusMove
+	}
+	return statusDrop
+}
+
+func (r *run) movedTo(m *member) string {
+	if m.moveTo.String() == "" {
+		return ""
+	}
+	return lineMovedTo + m.moveTo.String()
 }
 
 // leaveFailed is a guest step's failure in the absent phase: a container that stopped leaves the
-// member pending, anything else fails it with its entry left.
+// seat pending, anything else fails it with its entry left.
 func (r *run) leaveFailed(ctx context.Context, g *guestBox, m *member, step string, err error) {
 	if !refused(err) && r.gone(ctx, g.name, err) {
 		g.gone = true
@@ -264,7 +322,7 @@ func (r *run) leaveFailed(ctx context.Context, g *guestBox, m *member, step stri
 		return
 	}
 	m.status, m.why = lxcstate.StatusLeft, whyPending
-	r.fail(m, &host.Error{Verb: verb, Step: step, Drift: refused(err), Err: fmt.Errorf("%s@%s: %w", m.decl.User, m.box, err)})
+	r.fail(m, &host.Error{Verb: verb, Step: step, Drift: refused(err), Err: fmt.Errorf("%s: %w", m.name(), err)})
 }
 
 // heldSeat is a seat still held after the wait: deferred, the entry left, retried next apply.
@@ -278,10 +336,11 @@ func (r *run) heldSeat(m *member, run string) {
 	r.line(m, Deferred, why)
 }
 
-// waitFree is step 4, the L3 probe every SeatFreeGap for at most SeatFreeWait: held with the
-// lock's run id, or stopped when the container stops during the wait, which ends it at once.
+// waitFree is step 4, the L3 probe of the leaving seat's own key every SeatFreeGap for at most
+// SeatFreeWait: held with the lock's run id, or stopped when the container stops during the
+// wait, which ends it at once.
 func (r *run) waitFree(ctx context.Context, g *guestBox, m *member) (bool, string, bool) {
-	layout, err := paths.HomeLayout(m.acct.Home, paths.GuestRuntimeDir(m.decl.User))
+	layout, err := paths.LXCLayout(m.acct.Home, paths.GuestRuntimeDir(m.key), m.key)
 	if err != nil {
 		return false, "", false
 	}

@@ -73,8 +73,8 @@ func TestAbsentParksThenRemovesInOrder(t *testing.T) {
 	if !strings.Contains(w.lxc.calls[0].Stdin, `"farewell":[{"team":"t1","seat":"1","reason":"parked"}]`) || !strings.Contains(w.lxc.calls[0].Stdin, `"seats":[]`) {
 		t.Fatalf("desired %s", w.lxc.calls[0].Stdin)
 	}
-	hasLine(t, r, "CHANGED\tt1\tagent1@c1\tparked and removed")
-	if _, found := w.record().Find(mustBox(t, "c1"), agent1(t)); found {
+	hasLine(t, r, lineOf(t, "CHANGED", "t1", "c1", "parked and removed"))
+	if _, found := w.record().Find(mustBox(t, "c1"), checkout, 1); found {
 		t.Fatal("a removed member kept its entry")
 	}
 	if w.clock.sleeps != 0 {
@@ -101,7 +101,7 @@ func TestAbsentHeldSeatDeferredThenRetried(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hasLine(t, r, "DEFERRED\tt1\tagent1@c1\tseat still held by run "+runID+"; token revoked")
+	hasLine(t, r, lineOf(t, "DEFERRED", "t1", "c1", "seat still held by run ")+runID+"; token revoked")
 	if w.clock.sleeps != int(SeatFreeWait/SeatFreeGap) {
 		t.Fatalf("slept %d times", w.clock.sleeps)
 	}
@@ -119,7 +119,7 @@ func TestAbsentHeldSeatDeferredThenRetried(t *testing.T) {
 	if len(w.roster.parks) != 0 {
 		t.Fatalf("a left member was parked again: %v", w.roster.parks)
 	}
-	if _, found := w.record().Find(mustBox(t, "c1"), agent1(t)); found {
+	if _, found := w.record().Find(mustBox(t, "c1"), checkout, 1); found {
 		t.Fatal("the retry did not remove the member")
 	}
 }
@@ -131,7 +131,7 @@ func TestAbsentHeldSeatWithAForgedRecordNamesNoRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hasLine(t, r, "DEFERRED\tt1\tagent1@c1\tseat still held; token revoked")
+	hasLine(t, r, lineOf(t, "DEFERRED", "t1", "c1", "seat still held; token revoked"))
 }
 
 func TestAbsentStopsWaitingWhenTheContainerStops(t *testing.T) {
@@ -146,7 +146,7 @@ func TestAbsentStopsWaitingWhenTheContainerStops(t *testing.T) {
 	if w.clock.sleeps != 1 {
 		t.Fatalf("slept %d times after the container stopped", w.clock.sleeps)
 	}
-	hasLine(t, r, "SKIPPED\tt1\tagent1@c1\toffline: container stopped; guest files pending")
+	hasLine(t, r, lineOf(t, "SKIPPED", "t1", "c1", "offline: container stopped; guest files pending"))
 	if e := w.entry("c1"); e.Status != lxcstate.StatusLeft {
 		t.Fatalf("entry %+v", e)
 	}
@@ -160,14 +160,14 @@ func TestAbsentOfflineContainers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hasLine(t, r, "CHANGED\tt1\tagent1@c1\tparked; guest files pending (offline: container stopped)")
+	hasLine(t, r, lineOf(t, "CHANGED", "t1", "c1", "parked; guest files pending (offline: container stopped)"))
 	if e := w.entry("c1"); e.Status != lxcstate.StatusLeft {
 		t.Fatalf("entry %+v", e)
 	}
 	if w.clock.sleeps != 0 || len(w.lxc.calls) != 0 {
 		t.Fatalf("waited or attached for a stopped container: %d %v", w.clock.sleeps, w.lxc.verbs())
 	}
-	cp, _, err := lxcstate.ReadCopy(w.host, mustBox(t, "c1"), agent1(t))
+	cp, _, err := lxcstate.ReadCopy(w.host, mustBox(t, "c1"), seatID(t, "t1"))
 	if err != nil || len(cp.Seats) != 0 {
 		t.Fatalf("the host copy kept the seat: %+v %v", cp, err)
 	}
@@ -185,8 +185,8 @@ func TestAbsentOfflineContainers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hasLine(t, r, "CHANGED\tt1\tagent1@c1\tparked; entry dropped (offline: container missing)")
-	if _, found := w.record().Find(mustBox(t, "c1"), agent1(t)); found {
+	hasLine(t, r, lineOf(t, "CHANGED", "t1", "c1", "parked; entry dropped (offline: container missing)"))
+	if _, found := w.record().Find(mustBox(t, "c1"), checkout, 1); found {
 		t.Fatal("a missing container's member kept its entry")
 	}
 }
@@ -203,7 +203,7 @@ func TestAbsentHeldByOp75IsDeferred(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hasLine(t, r, "DEFERRED\tt1\tagent1@c1\tseat still held; token revoked")
+	hasLine(t, r, lineOf(t, "DEFERRED", "t1", "c1", "seat still held; token revoked"))
 }
 
 func TestAbsentKeepsTheUnitForAnotherTeam(t *testing.T) {
@@ -223,7 +223,7 @@ func TestAbsentKeepsTheUnitForAnotherTeam(t *testing.T) {
 	if len(w.bus.calls) != 0 {
 		t.Fatalf("the unit of a user still in t2 was touched: %v", w.bus.calls)
 	}
-	cp, _, err := lxcstate.ReadCopy(w.host, mustBox(t, "c1"), agent1(t))
+	cp, _, err := lxcstate.ReadCopy(w.host, mustBox(t, "c1"), seatID(t, "t1"))
 	if err != nil || len(cp.Seats) != 1 || cp.Seats[0].Team.String() != "t2" {
 		t.Fatalf("copy %+v %v", cp, err)
 	}

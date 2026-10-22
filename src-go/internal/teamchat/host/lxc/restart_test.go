@@ -26,7 +26,7 @@ func TestRestartResetsThenRestartsTheUnit(t *testing.T) {
 	if err := w.restart(); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(w.bus.calls, []string{"ResetFailed agent1", "Restart agent1"}) {
+	if !slices.Equal(w.bus.calls, []string{"ResetFailed "+unitOf(t, "t1"), "Restart "+unitOf(t, "t1")}) {
 		t.Fatalf("systemd %v", w.bus.calls)
 	}
 	if len(w.lxc.calls) != 0 || len(w.roster.joins) != 0 {
