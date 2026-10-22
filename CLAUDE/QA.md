@@ -982,9 +982,9 @@ proves each against its fixture first:
   `MEMBERS_JSON`), in an active plan folder, `files/` or `scripts/`, that reads a container's
   state itself (`lxc-info -s`, a `${LXC_INFO[@]}` call), or enters a container (`lxc-attach -n`,
   a `${LXC_ATTACH[@]}` call) when neither the file nor another bash file of its plan folder
-  calls `plan_lxc_online` on a code line. That exemption exists because a plan's scripts are
-  sourced together, so an entry in one file is of a container another file listed; a comment
-  or a document naming the helper does not count.
+  calls `plan_lxc_online` or `plan_lxc_online_named` (which calls it) on a code line. That
+  exemption exists because a plan's scripts are sourced together, so an entry in one file is
+  of a container another file listed; a comment or a document naming the helper does not count.
 - **B.** In team-member code (`helpers/agent_bus*`, `helpers/pingbus`, ccy-teams' packages,
   `declare`, `agentbus`, the `agent-bus-*` sbin tools, and the bash of A), a message that makes
   starting a member the way on: "start it, then ...", "restart that session, then ...",
@@ -1006,6 +1006,13 @@ that is ABORTING. Its base, `plan_lxc_online`, writes the offline names with the
 container list or the member record. Then judge only the online members. A check that needs an
 online member and has none says NOT JUDGED and does not fail the run. Do not weaken a check of
 a running member: a running member with the wrong binary still fails.
+
+**The one known instance it does not flag.** ccy-teams' role change
+(`src-go/internal/teams/roles/roles.go`, `isMember`) still stops when a declared LXC entry's
+checkout cannot be read and the team has no LXC member record at all, because nothing else says
+whether the handle is that entry's. It advises `ccy-teams apply <team>`, never a start. It is
+exactly one path, held under the method's allowance for a single recorded known instance, and
+Plan 00211 Task 2.9 narrows it (an entry giving `host`, `seat` and `repo` is decided by them).
 
 ---
 

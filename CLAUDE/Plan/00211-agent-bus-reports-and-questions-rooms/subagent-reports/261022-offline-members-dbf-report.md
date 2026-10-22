@@ -62,6 +62,15 @@ naming the helper no longer counts, with a fixture), and it is written in CLAUDE
 search confirms it: every plan folder it exempts (00211, 00213, 00203) was read, and each
 container entry there is of a container from `plan_lxc_online`.
 
+A second Narrowing, recorded. `1959e982d` made the exemption accept `plan_lxc_online_named` as
+well (`HELPER_CALL = \bplan_lxc_online(?:_named)?\b`), in the same commit as fixes, not in one
+of its own. What it lets through: a member-reading file whose only call is to the wrapper. It
+is sound because the wrapper calls `plan_lxc_online` itself (`CLAUDE/Plan/_members.inc.bash`)
+and adds only the report lines; its fixture `FIXTURE_BASH_WITH_NAMED_HELPER` proves the
+exemption, the comment-only fixture still fires, and `\b` keeps `plan_lxc_online_foo` out. The
+fixture was seen failing against the old regex in the working tree before the regex changed,
+but no commit holds that red, so it is not claimed from history. It is written in CLAUDE/QA.md.
+
 ## Proof
 
 Fixtures in the test file carry `# ruleid` marks and each detector is asserted to fire exactly
@@ -70,7 +79,10 @@ the red on its own.
 
 ## Independent search
 
-`261022-offline-members-independent-search.md`, dispatched before the rule, without its pattern.
+`261022-offline-members-independent-search.md`, without the rule's pattern (its header says
+the detector was not opened or run). The order is the practitioner's statement only: the search
+report and the rule landed in the same commit, `2e0c8aa6e`, and no separate dated record of the
+dispatch is kept in the repository.
 It found 11 instances. Text search found the "start it" / "Start container" messages; reading
 alone found shutdown's every-LXC-row-unreached (no offline wording at all) and 00211's
 unguarded `lxc-attach` in `lxc_sessions`, which led to detectors C and the attach half of A.
@@ -84,8 +96,11 @@ start it", with a fixture), went red on it alone, and the instance was fixed (`9
 Scope: first-party bash, Python and Go: active plan folders, `files/`, `scripts/`, `helpers/`,
 `src-go/internal/teams` and the member tools; vendored Go and completed plans excluded. Other
 Go under `src-go/internal` (freeze, vmtest, lab and camera tools) and Python outside the
-agent-bus and pingbus helpers handle no team member, so they cannot carry the hazard. 19
-findings in 10 files at the first red, 1 more at the second. Final: 0.
+agent-bus and pingbus helpers handle no team member, so they cannot carry the hazard.
+Completed plans are not runnable through meta-deploy, so their scripts cannot block a run.
+`JOURNAL/` and `subagent-reports/` hold prose and records, never run. `tests/`, `testdata/` and
+the rule's own fixtures are test inputs. Vendored Go is third-party code with no team member.
+19 findings in 10 files at the first red, 1 more (one more file) at the second. Final: 0.
 
 ## Fixes
 
@@ -107,7 +122,9 @@ the declared `service: true` entries only, each unit by name. `restart`: a ccy s
 stopped container is left as it is, named offline, not a failure, with the cleanup hint
 (ccy-sessions ends the leftover tmux session) and no restart asked for. No suppression; no instance
 satisfied by rewording alone where it still failed the run. No fix was applied by pattern: the
-20 findings are in 13 files of three languages with different shapes, and each was read.
+20 rule findings are in 11 files of three languages with different shapes, and each was read.
+The `admin.py` check_rooms and roles changes after review round 1 are over-corrections the
+adversarial review found, not rule findings.
 
 ## Decisions referred to the owner
 
@@ -120,7 +137,8 @@ satisfied by rewording alone where it still failed the run. No fix was applied b
    LXC entry's handle without its checkout or its record (the entry's own `host`/`seat`/`repo`,
    which the play already honours). The rule does not flag it; recorded in PLAN.md Task 2.8,
    and the follow-up that decides an entry giving `host`, `seat` and `repo` by its fields is
-   PLAN.md Task 2.9.
+   PLAN.md Task 2.9. It is held under the method's allowance for a single recorded known
+   instance: the count is exactly one, and it is recorded in the rule's CLAUDE/QA.md section.
 2. The board's record-based "container stopped at the last apply" is unchanged because Plan
    00209's acceptance-s1 compares `ccy-teams --list` bytes; recorded as Plan 00209 Task 7.4.
 
