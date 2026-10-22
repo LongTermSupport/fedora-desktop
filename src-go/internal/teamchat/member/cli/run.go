@@ -25,8 +25,9 @@ type runFunc func(Env, Invocation) term.ExitCode
 
 // runs are the verbs this binary builds.
 var runs = map[string]runFunc{
-	verbVersion: runVersion,
-	verbHelp:    runHelp,
+	verbVersion:   runVersion,
+	verbHelp:      runHelp,
+	"guest check": guestCheck,
 }
 
 // unbuilt are the verbs a later slice builds, each with its slice (CL2). The guest operations
@@ -36,7 +37,7 @@ var unbuilt = bySlice(map[string][]string{
 	"n3d":       {"reply", "say", "ping"},
 	"n3e":       {"hook", "status-line"},
 	"n3f":       {"report", verbAsk, "thread", verbQuestions},
-	"n3a guest": {"guest check", "guest place-bundle", "guest membership", "guest remove", "seat set-aside"},
+	"n3a guest": {"guest place-bundle", "guest membership", "guest remove", "seat set-aside"},
 })
 
 func bySlice(verbs map[string][]string) map[string]string {
