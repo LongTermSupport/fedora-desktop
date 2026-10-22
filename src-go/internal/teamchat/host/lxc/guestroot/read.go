@@ -25,44 +25,43 @@ const (
 // FIFO is only named. A link on the path is ErrRefused; a path that does not exist wraps
 // fs.ErrNotExist.
 func (r *Root) Stat(p string) (Info, error) {
-	var info Info
-	err := r.live(func() error {
-		fd, i, err := r.opath(p)
+	return bounded(r, p, func() (Info, error) {
+		fd, info, err := r.opath(p)
 		if err != nil {
-			return err
+			return Info{}, err
 		}
-		info = i
-		return r.closeFD(fd, p)
-	})
-	return info, err
+		return info, r.closeFD(fd, p)
+	}, nil)
 }
 
 // ReadFile is TB1's read of the regular file at path, at most limit bytes (over it is
 // ErrTooLarge): data, the inode it was read from, and found false for a path that does not
 // exist.
 func (r *Root) ReadFile(p string, limit int64) ([]byte, Info, bool, error) {
-	var (
+	type read struct {
 		data  []byte
 		info  Info
 		found bool
-	)
-	err := r.live(func() error {
+	}
+	got, err := bounded(r, p, func() (read, error) {
+		var info Info
 		fd, oerr := r.reopen(p, &info)
 		if errors.Is(oerr, fs.ErrNotExist) {
-			return nil
+			return read{}, nil
 		}
 		if oerr != nil {
-			return oerr
+			return read{}, oerr
 		}
-		var rerr error
-		data, rerr = r.readAll(fd, p, limit)
-		found = rerr == nil
-		return errors.Join(rerr, r.closeFD(fd, p))
-	})
-	if err != nil || !found {
+		data, rerr := r.readAll(fd, p, limit)
+		if err := errors.Join(rerr, r.closeFD(fd, p)); err != nil {
+			return read{}, err
+		}
+		return read{data, info, true}, nil
+	}, nil)
+	if err != nil || !got.found {
 		return nil, Info{}, false, err
 	}
-	return data, info, true, nil
+	return got.data, got.info, true, nil
 }
 
 // ReadProcStat is /proc/<pid>/stat in the guest's own /proc, by ReadFile (cap 4 KiB): the one
@@ -86,31 +85,34 @@ func (r *Root) ReadDir(p string, valid func(string) bool, limit int) ([]string, 
 	if limit <= 0 {
 		return nil, false, fmt.Errorf("guestroot: a listing of %s needs a positive limit", p)
 	}
-	var names []string
-	found := false
-	err := r.live(func() error {
+	type listing struct {
+		names []string
+		found bool
+	}
+	got, err := bounded(r, p, func() (listing, error) {
 		if perr := checkPath(p); perr != nil {
-			return perr
+			return listing{}, perr
 		}
 		fd, oerr := r.openBelow(r.fd, p, p, dirFlags, 0, readResolve)
 		if errors.Is(oerr, fs.ErrNotExist) {
-			return nil
+			return listing{}, nil
 		}
 		if oerr != nil {
-			return oerr
+			return listing{}, oerr
 		}
-		var lerr error
-		names, lerr = r.entries(fd, p, limit)
+		names, lerr := r.entries(fd, p, limit)
 		if lerr == nil && slices.ContainsFunc(names, func(n string) bool { return !valid(n) }) {
 			lerr = fmt.Errorf("%w: an entry of %s fails its grammar", ErrRefused, p)
 		}
-		found = lerr == nil
-		return errors.Join(lerr, r.closeFD(fd, p))
-	})
-	if err != nil || !found {
+		if err := errors.Join(lerr, r.closeFD(fd, p)); err != nil {
+			return listing{}, err
+		}
+		return listing{names, true}, nil
+	}, nil)
+	if err != nil || !got.found {
 		return nil, false, err
 	}
-	return names, true, nil
+	return got.names, true, nil
 }
 
 // ProbeLock is the L3 probe's open (LP1): TB1's read open of the lock at path, then
@@ -118,27 +120,30 @@ func (r *Root) ReadDir(p string, valid func(string) bool, limit int) ([]string, 
 // (held), and the content read, at most 4 KiB, in both states. A refused open is ErrRefused,
 // which the probe reads as free with no record; a missing lock wraps fs.ErrNotExist.
 func (r *Root) ProbeLock(p string) (bool, []byte, error) {
-	var (
+	type probe struct {
 		held   bool
 		record []byte
-	)
-	err := r.live(func() error {
+	}
+	got, err := bounded(r, p, func() (probe, error) {
 		var info Info
 		fd, oerr := r.reopen(p, &info)
 		if oerr != nil {
-			return oerr
+			return probe{}, oerr
 		}
-		var lerr error
-		held, lerr = r.tryShared(fd, p)
+		held, lerr := r.tryShared(fd, p)
+		var record []byte
 		if lerr == nil {
 			record, lerr = r.readAll(fd, p, lockCap)
 		}
-		return errors.Join(lerr, r.closeFD(fd, p))
-	})
+		if err := errors.Join(lerr, r.closeFD(fd, p)); err != nil {
+			return probe{}, err
+		}
+		return probe{held, record}, nil
+	}, nil)
 	if err != nil {
 		return false, nil, err
 	}
-	return held, record, nil
+	return got.held, got.record, nil
 }
 
 // tryShared is whether another description holds the lock on fd exclusively.
@@ -160,30 +165,24 @@ func (r *Root) tryShared(fd int, p string) (bool, error) {
 // socket owned by uid 0, then connected through /proc/self/fd/<n>, so no path is resolved in
 // the guest. Anything else is ErrRefused, and nothing is connected.
 func (r *Root) DialSocket(ctx context.Context, p string) (*net.UnixConn, error) {
-	var conn *net.UnixConn
-	err := r.live(func() error {
+	return bounded(r, p, func() (*net.UnixConn, error) {
 		fd, info, oerr := r.opath(p)
 		if oerr != nil {
-			return oerr
+			return nil, oerr
 		}
 		if info.Mode.Type() != fs.ModeSocket || info.UID != 0 {
 			refused := fmt.Errorf("%w: %s is %s of uid %d, not root's socket", ErrRefused, p, kind(info.Mode), info.UID)
-			return errors.Join(refused, r.closeFD(fd, p))
+			return nil, errors.Join(refused, r.closeFD(fd, p))
 		}
-		var derr error
-		conn, derr = r.sys.dial(ctx, "/proc/self/fd/"+strconv.Itoa(fd))
+		conn, derr := r.sys.dial(ctx, "/proc/self/fd/"+strconv.Itoa(fd))
 		if derr != nil {
-			derr = fmt.Errorf("guestroot: connect %s: %w", p, derr)
+			return nil, errors.Join(fmt.Errorf("guestroot: connect %s: %w", p, derr), r.closeFD(fd, p))
 		}
-		return errors.Join(derr, r.closeFD(fd, p))
-	})
-	if err != nil {
-		if conn != nil {
-			err = errors.Join(err, conn.Close())
+		if cerr := r.closeFD(fd, p); cerr != nil {
+			return nil, errors.Join(cerr, conn.Close())
 		}
-		return nil, err
-	}
-	return conn, nil
+		return conn, nil
+	}, func(c *net.UnixConn) error { return c.Close() })
 }
 
 // checkPath refuses a path that is not absolute and clean, or holds a ".." or a NUL (n3-D14).

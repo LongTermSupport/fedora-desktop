@@ -371,6 +371,10 @@ func TestReadDir(t *testing.T) {
 	if _, found, err := r.ReadDir("/run/none", valid, 3); err != nil || found {
 		t.Errorf("missing: %v %v", found, err)
 	}
+	g.mkdir("/run/empty")
+	if names, found, err := r.ReadDir("/run/empty", valid, 3); err != nil || !found || len(names) != 0 {
+		t.Errorf("empty: %v %v %v", names, found, err)
+	}
 	if _, _, err := r.ReadDir("/run/f", valid, 3); !errors.Is(err, ErrRefused) {
 		t.Errorf("a file: %v", err)
 	}
