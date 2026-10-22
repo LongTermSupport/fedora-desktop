@@ -32,14 +32,6 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-# Plan 00185 Task 1.1 (#60, wrong emoji glyphs): TRIAGE ONLY, READ-ONLY. The plan has only
-# triage.bash; it changes nothing on the host, needs no sudo and never prompts. It records the
-# terminal it runs in and every running terminal emulator (version, start time), the VTE
-# version, the emoji font packages and their install times, fc-match and fc-list for the
-# issue's code points, the fontconfig cache ages, which emoji font file each running terminal
-# has mapped, and the terminals' font and GPU settings. Start meta-deploy from the terminal that
-# draws the wrong emoji, and leave that window open while it runs.
-00185-terminal-emoji-glyphs
 # Plan 00213 Tasks 1.3, 1.4 and 2.3 (the bus status line in Go): deploy.bash runs the whole
 # play-agent-bus.yml again (it passed on its own at 67033c224; this run also installs the
 # rebuilt pingbus, whose wait and watch now hand their helpers a real text stream, Plan
@@ -174,27 +166,10 @@ playbooks/imports/play-agent-bus.yml
 # once; any other path in CCY_GH_TOKEN_HANDOFF is refused); --debug's log is 0600 with tokens
 # of a known prefix masked (the terminal still shows the raw trace). Container 2.79.7 (the guide in the image is corrected,
 # its pingbus has the room-ID fix, Plan 00217's team colours and a real text stream for wait and watch (Plan 00214), Plan 00201's declare.py is in it, its agent-bus check-rooms passes an offline coordinator, and opencode is added), built by the play itself. It also rebuilds ~/.local/bin/ccy-teams with
-# Plan 00209 stage 1 (the team, seat and declare reads in-process), which the check below
-# judges. Afterwards start a ccy session as usual: it
+# Plan 00209 stage 1 (the team, seat and declare reads in-process; its host check passed at
+# 22e599b3d). Afterwards start a ccy session as usual: it
 # must rebuild, start and attach as before, and gh must work inside it.
 playbooks/imports/play-claude-yolo.yml
-# Plan 00209 stage 1 host check, after the play-claude-yolo.yml entry above has installed the
-# ccy-teams that reads team, seat and declare state in-process. READ-ONLY: it changes nothing,
-# and keeps two builds and every output in its run directory. It checks the installed ccy-teams
-# is this checkout's build, builds the ccy-teams from before stage 1 from git, and runs each three
-# times in turn: `--list` must print the same bytes (a difference in every round rejects, one in
-# some rounds only is a live change and a note) and run faster (it took 9-23 s before), and an
-# open, drawn on this terminal from an empty folder under TMPDIR that is in no checkout and
-# answered with Esc at its first screen, must be faster and start exactly one declare status and
-# no agent-bus seat list. A member.json that sets report_per_hour must be listed, not refused:
-# on a fixture in the run directory (always, and the report says so) and on any live seat. Needs
-# sudo once (so both read the member rosters) and a terminal. A failure names the check, and a
-# --list diff is in the report. An open whose first screen is a question leaves S3 NOT JUDGED
-# (exit 2, COULD NOT ESTABLISH in the summary), and the run log names the question. It comes
-# back on every open: for a team limited to some folders or with no description, until that is
-# settled or never chosen; while teams are out of date, until they are applied; with no team,
-# until one is made. Settle it in ccy-teams and run again.
-00209-agent-bus-v2-in-go/acceptance-s1.bash
 # Plan 00214 acceptance (issue #110), LAST, with no changed-plays entry above it: it needs plays
 # still to run. Runs no play and needs no sudo. It checks that the health report's
 # play-freshness check and run.bash --changed's helper name the same plays (the report said 10
