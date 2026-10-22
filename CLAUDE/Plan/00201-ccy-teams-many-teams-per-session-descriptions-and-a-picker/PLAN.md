@@ -261,7 +261,7 @@ a repository is no longer offered for a checkout of it. Report:
   review round 2 a code handed on clears only the recovery whose block returns it
   unconditionally (red at 7e40c23a9 on a code handed on for an interrupt only); the shapes the
   rule still misses are listed in GoProjectRules.md and referred to the owner as a rule
-  narrower than the hazard. In declare.py a team not declared present is 78 (`ccy-teams apply`
+  narrower than the hazard; the merge of this branch is held for the owner's answer. In declare.py a team not declared present is 78 (`ccy-teams apply`
   and `lxc-add` of an absent team keep their own 64, `ops.go:160`, `adder.go:341`: a command-line
   argument, never asked again), `set` gives 78 only when the refusing rule reads no key the
   change sets (a table of the keys `exclude`, `humans` and `org` read), `add-repo` of a

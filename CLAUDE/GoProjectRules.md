@@ -430,7 +430,8 @@ recoverable input mistake).
   after `errors.As`, by a bool variable, folded into the Init's `ok` and declared beside the
   recovery in the Init; `good.go`: a retry on `ErrUsage` only, an exit with `.Code` bare,
   converted and inside a returned `&stop{...}`, after an assignment, after a negated `errors.As`
-  guard, under `ok && de.Code != 0` and from a type switch case, `.Is(declare.ErrUsage)`, a bare `errors.Is`). The stub
+  guard, under `ok && de.Code != 0`, `errors.As` in the Init with its `ok` alone and from a
+  type switch case, `.Is(declare.ErrUsage)`, a bare `errors.Is`). The stub
   `fix/internal/declare` has the real shape.
 - Red, real tree: `lxcadd.Adder.checked` (the owner's three "entries 5 and 6 both declare"
   refusals), and in `create`: `Wizard.checked`, `isRefusal` (any refusal read as "not

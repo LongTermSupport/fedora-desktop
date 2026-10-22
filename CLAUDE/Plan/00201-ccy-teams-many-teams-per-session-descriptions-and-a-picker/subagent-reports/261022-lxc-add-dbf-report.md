@@ -90,8 +90,9 @@ commit, e5ec1bab1 (bad.go:119, :128, :138 not reported; good.go:97 reported); tw
 filters (bad.go:148, :158) added with the rule change were red under the e5ec1bab1 rule too
 (checked by running it against the new fixture); all green at 92054fb44, driver clean. Fourth
 tightening (re-review 4, Opus round 4: any name the Init declared passed as the found result):
-`filtersInTheInit`, `filtersBesideTheInit`, `filtersByTheSecondName` and `asInTheInit` red in
-74d67de9d (bad.go:168, :188 not reported); the Cond's bare name now counts only as the last name
+`filtersInTheInit` and `filtersByTheSecondName` red in 74d67de9d (bad.go:168, :188 not
+reported), added there with two guards that already held, `filtersBesideTheInit` (bad.go, red
+through the `&&` path already) and `asInTheInit` (good.go, clean); the Cond's bare name now counts only as the last name
 of an Init that is one recovery and nothing else; green at the commit after, driver clean.
 Owner's symptom: red at 0ca99358c by
 `TestAMemberDeclaredAlreadyIsRecognisedAndTheTeamApplied` (lxcadd/declared_test.go), whose
