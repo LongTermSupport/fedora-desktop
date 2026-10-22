@@ -79,7 +79,7 @@ func run(e cli.Env, inv cli.Invocation, op string, d deps) term.ExitCode {
 	if err != nil {
 		return exits.Write(e.Stderr, err)
 	}
-	r, err := runOf(e.Getenv(paths.EnvRuntime), e.Getenv)
+	r, err := Runtime(e.Getenv)
 	if err != nil {
 		return exits.Write(e.Stderr, err)
 	}
@@ -138,14 +138,14 @@ func count(inv cli.Invocation, flag string, def, most int64, msg exits.Template)
 	return n, nil
 }
 
-// runOf is the run directory TEAMCHAT_RUNTIME names: a ccy session's, or the home member's
-// under $HOME and $XDG_RUNTIME_DIR; anything else is no session.
-func runOf(dir string, getenv func(string) string) (paths.Run, error) {
-	r, _, err := sessionOf(dir, getenv)
+// Runtime is the run directory TEAMCHAT_RUNTIME names: a ccy session's, or the home member's
+// under $HOME and $XDG_RUNTIME_DIR; anything else is 69 no-session.
+func Runtime(getenv func(string) string) (paths.Run, error) {
+	r, _, err := sessionOf(getenv(paths.EnvRuntime), getenv)
 	return r, err
 }
 
-// sessionOf is runOf's run directory and the layout it is in.
+// sessionOf is Runtime's run directory for dir and the layout it is in.
 func sessionOf(dir string, getenv func(string) string) (paths.Run, paths.Layout, error) {
 	none := exits.New(exits.CodeNoSession, nil, msgNoSession)
 	if dir == "" || !filepath.IsAbs(dir) || filepath.Clean(dir) != dir {
