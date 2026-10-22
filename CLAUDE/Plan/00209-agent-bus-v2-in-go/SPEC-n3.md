@@ -284,11 +284,16 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
   a held seat (LX8). An `lxc-attach` that fails or times out, an LX5 kit write or an SU2 call
   that fails, is followed by `lxc-info -sH`: a container no longer running is that entry's
   `DEFERRED` (OF1), the other entries carry on; only a failure in a container still running
-  fails the phase. An entry deferred mid-phase (here or by LX3) takes no further step: a handle
-  its step 06 join already made is kept in its record entry (`deferred` with the handle, so the
-  next apply rejoins it by `member return` or `reissue`, never a second `add`), and its seat is
-  left out of step 08's desired seats and the host copy's `seats`, as LX7's 75 case is. Tests:
-  a stop after step 06 and one during SU2.
+  fails the phase. An entry deferred mid-phase (here or by LX3) takes no further step. A handle
+  its step 06 join already made is recorded by C 3.9.3's split (a known handle on a container
+  not running is `SKIPPED`, status `stopped`, never a second `add`); when its bundle was not
+  placed (a deferral before step 07 completed), the roster member is marked `needs: reissue`
+  (C 3.6.1, shown on the board), and step 06 of the first apply that finds the container
+  running runs `member reissue` for that need. An entry deferred before step 08 is left out of
+  step 08's desired seats and the host copy's `seats`, as LX7's 75 case is; one deferred at
+  step 09 (SU2) keeps its seat, its bundle being placed. Tests: a stop after step 06, a second
+  apply while still stopped, then a third with it running (one reissue, the guest placed); and
+  a stop during SU2.
 - **LX7. Roster changes and membership** (steps 06, 08): demotions of every team, then joins
   (`member add|return|reissue --credential token`, `--seat next` for LXC only), then promotions,
   through the child under each team's lock; then, once per user after every placement, the host
@@ -327,9 +332,11 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
   container or one that stops between `lxc-info` and the open (LX3's dead pid) is `Stopped` too,
   and a running guest user with no seat directory yet is free with no record, never a probe
   error (OF1, B 2.11's "taken as not running"); an error is only a fault of the host's own
-  reads. Each probe is bounded (its `lxc-info` calls and opens, 5 s in all): past the bound it is
-  an error, which the tick records as that member's problem (HT6), so a container hanging
-  mid-stop never stalls the team's tick; test with a hanging fake. The lock file's
+  reads. Each probe is bounded (its `lxc-info` calls and opens, 5 s in all), and a team's probes
+  run in parallel (health's `probeGuests`, sequential today, changed in the same slice), so one
+  tick's probes take at most 5 s however many hang: past the bound a
+  probe is an error, which the tick records as that member's problem (HT6), so a container
+  hanging mid-stop never stalls the team's tick; tests with one and with many hanging fakes. The lock file's
   record is returned in both states, as `health.GuestProbe` carries it: while held, for the run
   id the tick keeps; when free, for `launch_failed_ms` (C 3.11.2 step 6). Its inputs: the init
   pid and pidfd by LX3's rule (`lxc-info` inside the health unit's sandbox), the user's home from
