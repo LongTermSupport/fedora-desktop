@@ -19,11 +19,11 @@ type Containers interface {
 	Containers(ctx context.Context) (running, stopped []string, err error)
 }
 
-// resolveLxc sorts the team's LXC member rows: one the record says the last apply held back, or
-// whose container is not running, is offline, which is normal lifecycle and never a failure
-// (CLAUDE/AgentNotes.md, "An offline team member never blocks anything"); one whose container
-// runs is online and out of reach of this host's tmux. sudo is asked for only when a row is
-// joined by the record, so only the container list can tell.
+// resolveLxc sorts the team's LXC member rows: one the record says the last apply deferred
+// (never joined), or whose container is not running now, is offline, which is normal lifecycle
+// and never a failure (CLAUDE/AgentNotes.md, "An offline team member never blocks anything");
+// one whose container runs is online and out of reach of this host's tmux. A row joined, or
+// held back as stopped at the last apply, is judged by the live container list, read as root.
 func (s *Shutdown) resolveLxc(ctx context.Context, team string, p *plan) {
 	rows := p.lxc
 	p.lxc = nil
@@ -42,7 +42,7 @@ func (s *Shutdown) resolveLxc(ctx context.Context, team string, p *plan) {
 		switch {
 		case i < 0:
 			p.notReached(whyLxc, row)
-		case rec.Members[i].Status == lxcrecord.StatusStopped || rec.Members[i].Status == lxcrecord.StatusDeferred:
+		case rec.Members[i].Status == lxcrecord.StatusDeferred:
 			p.offline = append(p.offline, unreached{row.Handle, "offline (container " + rec.Members[i].Container + " stopped at the last apply)"})
 		default:
 			items, joined = append(items, rec.Members[i]), append(joined, row)

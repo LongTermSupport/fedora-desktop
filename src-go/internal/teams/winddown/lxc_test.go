@@ -57,20 +57,40 @@ func TestAnLxcMemberWhoseContainerIsStoppedIsOfflineAndPassedOver(t *testing.T) 
 	m.errLacks(t, "not reached", "start it", "To wind them down by hand")
 }
 
-func TestAnLxcMemberTheRecordHeldBackAsStoppedIsOffline(t *testing.T) {
-	m := newMachine(t)
-	m.withLxc()
+// heldBackStopped is the record of a joined member the last apply skipped, its container stopped then.
+func (m *machine) heldBackStopped() {
 	teamtest.MustWrite(m.t, filepath.Join(m.Host.AppliedDir, "lxc", "alpha.json"),
 		`{"version": 1, "team": "alpha", "members": [{"container": "box", "user": "agent", "state": "present", `+
 			`"status": "stopped", "handle": "proj.box+role.lxc", "checkout": "/srv/proj", "why": "container not running", "since": 1}]}`)
+}
+
+// The record says the container was stopped at the last apply; whether it is offline now is
+// the live container list's to say: still stopped, offline.
+func TestAnLxcMemberTheRecordHeldBackAsStoppedIsOfflineWhileItsContainerIsStopped(t *testing.T) {
+	m := newMachine(t)
+	m.withLxc()
+	m.heldBackStopped()
+	m.lxcRunning = false
 	if got := m.run("alpha", "--yes"); got != term.ExitOK {
 		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
 	}
-	if m.Fake.Called("sudo -n lxc-attach") {
-		t.Fatal("lxc-attach ran for a member the play held back")
+	if len(m.lxcTyped()) != 0 {
+		t.Fatal("something was typed into a stopped container")
 	}
-	m.errHas(t, "- proj.box+role.lxc: not running: offline (container box stopped at the last apply)")
+	m.errHas(t, "- proj.box+role.lxc: not running: offline (container box stopped)")
 	m.errLacks(t, "not reached")
+}
+
+// Started since the last apply: its session runs, so it is wound down like a joined member.
+func TestAnLxcMemberTheRecordHeldBackWhoseContainerNowRunsIsWoundDown(t *testing.T) {
+	m := newMachine(t)
+	m.withLxc()
+	m.heldBackStopped()
+	if got := m.run("alpha", "--yes"); got != term.ExitOK {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+	m.errHas(t, "✓ agent@box: /goal clear and the wind-down typed", "alpha: 2 wound down, 0 failed, 2 not running.")
+	m.errLacks(t, "offline")
 }
 
 // A member the last apply deferred, never joined, is offline too: named, not a failure.

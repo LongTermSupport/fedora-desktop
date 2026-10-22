@@ -355,9 +355,9 @@ func (w *WindDown) reachLxc(ctx context.Context, team string, snap *board.Snapsh
 	}
 }
 
-// byRecord is the rows the record says joined, each with its item; a row whose container the
-// last apply found stopped is offline, named with nothing to wind down, and any other is not
-// reached.
+// byRecord is the rows the record says joined or held back as stopped (both have a handle and a
+// container, so the live container list decides whether each is offline now), each with its
+// item; a deferred row never joined, so it is offline, and any other is not reached.
 func (p *plan) byRecord(rec lxcrecord.Record, rows []board.Row) ([]lxcrecord.Item, []board.Row) {
 	var items []lxcrecord.Item
 	var reachable []board.Row
@@ -366,9 +366,9 @@ func (p *plan) byRecord(rec lxcrecord.Record, rows []board.Row) ([]lxcrecord.Ite
 		switch {
 		case i < 0:
 			p.unreached = append(p.unreached, member{row.Handle, whyLxcUnknown})
-		case rec.Members[i].Status == lxcrecord.StatusStopped || rec.Members[i].Status == lxcrecord.StatusDeferred:
+		case rec.Members[i].Status == lxcrecord.StatusDeferred:
 			p.idle = append(p.idle, member{row.Handle, "offline (container " + rec.Members[i].Container + " stopped at the last apply)"})
-		case rec.Members[i].Status != lxcrecord.StatusJoined:
+		case rec.Members[i].Status != lxcrecord.StatusJoined && rec.Members[i].Status != lxcrecord.StatusStopped:
 			p.unreached = append(p.unreached, member{row.Handle, "the last apply held it back (" + rec.Members[i].Words() + ")"})
 		default:
 			items, reachable = append(items, rec.Members[i]), append(reachable, row)

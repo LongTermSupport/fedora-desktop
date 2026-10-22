@@ -34,23 +34,34 @@ func (m *machine) withContainers(running bool) {
 }
 
 // An offline member is normal lifecycle (CLAUDE/AgentNotes.md, "An offline team member never
-// blocks anything"): one whose container the last apply found stopped is named and passed over.
+// blocks anything"): one the last apply held back as stopped, its container still stopped, is
+// named and passed over. The record alone does not say it is offline now: the list does.
 func TestAnLxcMemberTheRecordHeldBackIsOfflineAndDoesNotFail(t *testing.T) {
 	m := newMachine(t)
 	m.withRecord(lxcItem("stopped"))
+	m.withContainers(false)
 	if got := m.run("alpha", "--yes"); got != term.ExitOK {
 		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
 	}
-	if m.Fake.Called("sudo -n lxc-ls") {
-		t.Fatal("the containers were listed for a member the record already names offline")
-	}
 	m.errHas(t,
 		"Offline, nothing to shut down:",
-		"  proj.box+role.lxc   offline (container box stopped at the last apply)",
-		"proj.box+role.lxc: offline (container box stopped at the last apply), nothing to shut down",
+		"  proj.box+role.lxc   offline (container box stopped)",
+		"proj.box+role.lxc: offline (container box stopped), nothing to shut down",
 		"alpha: 1 exited cleanly, 0 stopped, 0 failed; 1 member offline.",
 	)
 	m.errLacks(t, "not reachable", "start it")
+}
+
+// Started since the last apply: its session runs out of this host's reach, so it still fails.
+func TestAnLxcMemberTheRecordHeldBackWhoseContainerNowRunsIsNotReached(t *testing.T) {
+	m := newMachine(t)
+	m.withRecord(lxcItem("stopped"))
+	m.withContainers(true)
+	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
+		t.Fatalf("exit %d", got)
+	}
+	m.errHas(t, "proj.box+role.lxc: not shut down: its session runs inside the LXC container")
+	m.errLacks(t, "offline")
 }
 
 func TestAJoinedLxcMemberWhoseContainerIsStoppedIsOffline(t *testing.T) {
