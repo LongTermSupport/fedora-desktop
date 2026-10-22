@@ -87,6 +87,19 @@ version_pins:
         characters of the hash; the play asserts that prefix at install time, so a separate
         host-side resolver would repeat that check.
 
+  - playbook: playbooks/imports/play-git-configure-and-tools.yml
+    var: bash_git_prompt_version
+    note: >-
+      A full commit hash on magicmonty/bash-git-prompt master (Plan 00183); its tags are years
+      behind master, so there is no release to compare with. Bump it to a newer master commit
+      by hand, after checking gitprompt.sh still calls async_run only for its git fetch: the
+      play's async_run override depends on that, and its assert fails the play otherwise.
+    installed:
+      kind: untracked
+      why: >-
+        The play checks ~/.bash-git-prompt out at the pin on every run and fails on local
+        changes, so the installed commit is the pin; a host-side resolver would repeat that.
+
   - playbook: playbooks/imports/optional/common/play-network-tools.yml
     var: ooklaSpeedtestVersion
     note: >-

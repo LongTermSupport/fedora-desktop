@@ -145,3 +145,14 @@ playbooks/imports/play-claude-yolo.yml
 # says the interpreter the daemon's venv was built from has no pytest, that venv was not built
 # from Fedora's python3.
 playbooks/imports/play-python.yml
+# play-git-configure-and-tools.yml, the whole play (Plan 00183, the qa-reviewer's fixes): moves
+# ~/.bash-git-prompt to the pinned upstream commit 4501746 (every run now fetches it from GitHub;
+# edited tracked files in that checkout stop the play, untracked ones do not), then stops the
+# play, naming the problem, if gitprompt.sh calls async_run for anything but its git fetch,
+# before the bashrc override is written. Makes ~/.cache itself, at 0700, for the prompt fetch's
+# log. The rest of the play is unchanged. Needs sudo once.
+playbooks/imports/play-git-configure-and-tools.yml
+# Plan 00183 acceptance, after the play above, read-only: its override and prompt legs judge the
+# pinned checkout. Afterwards, the owner's hand check (PLAN.md Task 2.3): the yellow mark in a
+# stale checkout's prompt.
+00183-prompt-shows-stale-tracking-ref/acceptance.bash
