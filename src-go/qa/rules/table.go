@@ -220,6 +220,11 @@ var dynamicNames = []allowance{
 		fn:     "start",
 		reason: "the test binary itself, re-run as a second process (SPEC-n3 gap 8)",
 	},
+	{
+		pkg:    "internal/teamchat/failpoint",
+		fn:     "runSelf",
+		reason: "the busfailpoints test binary itself, re-run so an armed point can SIGKILL it (SPEC-n3 gap 9)",
+	},
 }
 
 // shellStrings are the functions that may hand a shell a string with -c, because the program's
