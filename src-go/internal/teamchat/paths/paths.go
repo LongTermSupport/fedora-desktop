@@ -22,6 +22,7 @@ package paths
 import (
 	"fmt"
 	"path/filepath"
+	"strconv"
 )
 
 // Product is the product name every v2 name is formed from.
@@ -146,11 +147,21 @@ func FenceUnit(t TeamID) string { return Product + "-fence@" + t.text() + ".serv
 // FenceTable is the name of the team's nftables fence table, in family inet.
 func FenceTable(t TeamID) string { return Product + "_fence_" + t.text() }
 
-// SessionUnit is an LXC guest's supervised session unit.
-func SessionUnit(u GuestUser) string { return Product + "-session-" + u.text() + ".service" }
+// guestSessionPrefix starts an LXC seat's unit and runtime directory names (C 3.9.1).
+const guestSessionPrefix = Product + "-session-"
 
-// GuestRuntimeDir is the XDG_RUNTIME_DIR the guest's session unit gives the session (C 3.9.4).
-func GuestRuntimeDir(u GuestUser) string { return "/run/" + Product + "-session-" + u.text() }
+// SessionUnit is an LXC seat's supervised session unit,
+// `teamchat-session-<team>-<repo>-<seat>-<key>.service`, at most 94 bytes (C 3.9.1); checkout
+// and seat are declare's values, as LXCSeatKey takes them.
+func SessionUnit(team TeamID, checkout string, seat int) string {
+	key := LXCSeatKey(team, checkout, seat)
+	return guestSessionPrefix + team.text() + "-" + LXCRepoLabel(checkout) + "-" + strconv.Itoa(seat) + "-" +
+		key.text() + ".service"
+}
+
+// GuestRuntimeDir is the XDG_RUNTIME_DIR a seat's session unit gives the session, its
+// RuntimeDirectory= under /run: the key alone, so B's sockets below it stay short (C 3.9.1).
+func GuestRuntimeDir(k SeatKey) string { return "/run/" + guestSessionPrefix + k.text() }
 
 // ServerBinary is the pinned homeserver binary of a version.
 func ServerBinary(v ServerVersion) string { return ServerDir + "/tuwunel-" + v.text() }
@@ -348,8 +359,8 @@ func CCYLayout() Layout {
 	}
 }
 
-// HomeLayout is an LXC guest's or host member's layout, under the home and $XDG_RUNTIME_DIR the
-// process received.
+// HomeLayout is a host member's layout, under the home and $XDG_RUNTIME_DIR the process
+// received; an LXC seat's is LXCLayout.
 func HomeLayout(home, runtimeDir string) (Layout, error) {
 	if err := checkBase("home", home); err != nil {
 		return Layout{}, err
@@ -363,9 +374,13 @@ func HomeLayout(home, runtimeDir string) (Layout, error) {
 		currentKit: HostKitCurrent(),
 		state:      config + "/seats",
 		desired:    config + "/membership",
-		runRoot:    runtimeDir + "/" + Product + "/run",
+		runRoot:    runRootUnder(runtimeDir),
 	}, nil
 }
+
+// runRootUnder is the root of a member's per-session runtime directories under the
+// $XDG_RUNTIME_DIR it received.
+func runRootUnder(runtimeDir string) string { return runtimeDir + "/" + Product + "/run" }
 
 // DesiredFile is the session's desired membership.
 func (l Layout) DesiredFile() string { return l.Desired() + "/" + desiredFile }
