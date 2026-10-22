@@ -159,7 +159,7 @@ func (r *run) load(context.Context) error {
 		return &Error{Step: StepFiles, Err: err}
 	}
 	if p := r.files.roster.Pending; p != nil && p.Op != OpTeamApply {
-		return refused(StepFiles, fmt.Errorf("operation %s is pending at step %s; it is finished before the team is applied", p.Op, p.Step))
+		return refused(StepFiles, fmt.Errorf("operation %q is pending at step %q; the verb that started it, asked again, finishes it before the team is applied", p.Op, p.Step))
 	}
 	return nil
 }
@@ -212,7 +212,8 @@ func (r *run) humans(ctx context.Context) error {
 	return nil
 }
 
-// human creates the account (acct nil), or unlocks and re-activates one locked or removed.
+// human creates the account (acct nil), unlocks and re-activates one locked or removed, or
+// records one it did not make (adopted).
 func (r *run) human(ctx context.Context, name string, acct *matrix.Account) error {
 	f := &r.files.roster
 	id := proto.UserID(name, r.team.ServerName)
