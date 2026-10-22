@@ -39,34 +39,68 @@ func TestAnLxcMemberIsWoundDownInItsContainer(t *testing.T) {
 	}
 }
 
-// D4: a container that is not running is the one LXC case out of reach.
-func TestAnLxcMemberWhoseContainerIsStoppedIsNotReached(t *testing.T) {
+// D4: a member whose container is stopped is offline, which is normal lifecycle: it is named
+// with nothing to wind down and never fails the run (CLAUDE/AgentNotes.md, "An offline team
+// member never blocks anything").
+func TestAnLxcMemberWhoseContainerIsStoppedIsOfflineAndPassedOver(t *testing.T) {
 	m := newMachine(t)
 	m.withLxc()
 	m.lxcRunning = false
-	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
-		t.Fatalf("exit %d", got)
+	if got := m.run("alpha", "--yes"); got != term.ExitOK {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
 	}
 	if len(m.lxcTyped()) != 0 {
 		t.Fatal("something was typed into a stopped container")
 	}
-	m.errHas(t, "✗ proj.box+role.lxc: not reached: its container box is not running; start it, then run wind-down again",
-		"To wind them down by hand")
+	m.errHas(t, "- proj.box+role.lxc: not running: offline (container box stopped)",
+		"alpha: 1 wound down, 0 failed, 3 not running.")
+	m.errLacks(t, "not reached", "start it", "To wind them down by hand")
 }
 
-func TestAnLxcMemberTheRecordHeldBackIsNotReached(t *testing.T) {
+func TestAnLxcMemberTheRecordHeldBackAsStoppedIsOffline(t *testing.T) {
 	m := newMachine(t)
 	m.withLxc()
 	teamtest.MustWrite(m.t, filepath.Join(m.Host.AppliedDir, "lxc", "alpha.json"),
 		`{"version": 1, "team": "alpha", "members": [{"container": "box", "user": "agent", "state": "present", `+
 			`"status": "stopped", "handle": "proj.box+role.lxc", "checkout": "/srv/proj", "why": "container not running", "since": 1}]}`)
-	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
-		t.Fatalf("exit %d", got)
+	if got := m.run("alpha", "--yes"); got != term.ExitOK {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
 	}
 	if m.Fake.Called("sudo -n lxc-attach") {
 		t.Fatal("lxc-attach ran for a member the play held back")
 	}
-	m.errHas(t, "✗ proj.box+role.lxc: not reached: the last apply held it back (skipped (already a member): container not running)")
+	m.errHas(t, "- proj.box+role.lxc: not running: offline (container box stopped at the last apply)")
+	m.errLacks(t, "not reached")
+}
+
+// A member the last apply deferred, never joined, is offline too: named, not a failure.
+func TestAnLxcMemberTheRecordDeferredIsOffline(t *testing.T) {
+	m := newMachine(t)
+	m.withLxc()
+	teamtest.MustWrite(m.t, filepath.Join(m.Host.AppliedDir, "lxc", "alpha.json"),
+		`{"version": 1, "team": "alpha", "members": [{"container": "box", "user": "agent", "state": "present", `+
+			`"status": "joined", "handle": "proj.box+role.lxc", "checkout": "/srv/proj", "why": "", "since": 1}, `+
+			`{"container": "box2", "user": "agent", "state": "present", `+
+			`"status": "deferred", "handle": "", "checkout": "/srv/proj", "why": "container not running", "since": 1}]}`)
+	if got := m.run("alpha", "--yes"); got != term.ExitOK {
+		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
+	}
+	m.errHas(t, "- agent@box2: not running: offline (its container was not running at the last apply, so it has not joined yet)",
+		"✓ agent@box: /goal clear and the wind-down typed")
+	m.errLacks(t, "not reached", "start the container")
+}
+
+// A record status the play gives no offline meaning to stays out of reach and fails the run.
+func TestAnLxcMemberTheRecordGivesAnotherStatusIsNotReached(t *testing.T) {
+	m := newMachine(t)
+	m.withLxc()
+	teamtest.MustWrite(m.t, filepath.Join(m.Host.AppliedDir, "lxc", "alpha.json"),
+		`{"version": 1, "team": "alpha", "members": [{"container": "box", "user": "agent", "state": "absent", `+
+			`"status": "left", "handle": "proj.box+role.lxc", "checkout": "/srv/proj", "why": "taken off the team", "since": 1}]}`)
+	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
+		t.Fatalf("exit %d", got)
+	}
+	m.errHas(t, "✗ proj.box+role.lxc: not reached: the last apply held it back (left: taken off the team)")
 }
 
 // D4: an LXC member no record of this host names is a container elsewhere, or joined by hand.

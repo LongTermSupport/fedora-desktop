@@ -72,8 +72,14 @@ are ccy-teams' own: 0, 1 refusal or failure, 64 usage, 130 cancelled.
   - a seat that `agent-bus seat list` says is held but that no live session's record names:
     "held by a session ccy-teams cannot name (a cc session started with --teams <team>
     alone, or one outside ccy's tmux); attach it (ccy-sessions) and type /exit";
-  - a roster member of type `lxc`: "its session runs inside the LXC container, out of reach
-    of this host's tmux; in the container, type /exit in its session";
+  - a roster member of type `lxc` whose container runs, or that the LXC member record does not
+    name, or whose container cannot be listed (sudo not ready): "its session runs inside the
+    LXC container, out of reach of this host's tmux; in the container, type /exit in its
+    session" (or why it could not be told). One whose container is stopped, or that the last
+    apply held back (record status `stopped` or `deferred`), is **offline**: listed under
+    "Offline, nothing to shut down" and counted as offline, never as not reachable, so it does
+    not fail the run (Plan 00211, rule `offline-member-blocks`). This departs from the first
+    version of SD5, under which every LXC member failed the run;
   - any other roster member that is not a seat of a checkout known here (`host`, `docker`,
     `vm`, or `ccy` with no checkout): "not a session on this host's ccy tmux (another
     machine, or a checkout ccy-teams does not know); end it where it runs";

@@ -8,10 +8,11 @@
 //
 // An LXC member in a running container is reached the same way, in its own session: the tmux
 // server play-agent-bus.yml's service unit starts in the container, through `sudo lxc-attach` as
-// the member's user (lxcfreeze.Lister.InContainer). Members this host cannot type into (a
-// stopped or held-back container, a session on another machine, a held seat no record names)
-// are named as not reached and fail the run, with the text to give them by hand. Nothing is
-// ended, killed or changed: it is local only.
+// the member's user (lxcfreeze.Lister.InContainer). A member whose container is stopped, or
+// that the last apply held back for it, is offline: named, with nothing to wind down, and never
+// a failure. Members this host cannot type into for any other reason (a session on another
+// machine, a held seat no record names) are named as not reached and fail the run, with the
+// text to give them by hand. Nothing is ended, killed or changed: it is local only.
 package winddown
 
 import (
@@ -55,10 +56,9 @@ const (
 		"or one outside ccy's tmux); attach it and type /goal clear, then the text below"
 	whyLxcUnknown = "no LXC member record of this host names it (a container on another machine, or one " +
 		"joined by hand): type /goal clear in its session where it runs, then the text below"
-	whyLxcDeferred = "the last apply deferred it (its container was not running): start the container, " +
-		"run ccy-teams apply, then wind-down again"
-	whyNoSudo    = "lxc-attach needs sudo, which is not ready"
-	whyElsewhere = "not a session on this host's ccy tmux (another machine, or a checkout ccy-teams " +
+	whyLxcDeferred = "offline (its container was not running at the last apply, so it has not joined yet)"
+	whyNoSudo      = "lxc-attach needs sudo, which is not ready"
+	whyElsewhere   = "not a session on this host's ccy tmux (another machine, or a checkout ccy-teams " +
 		"does not know); type /goal clear in its session where it runs, then the text below"
 	whyFree    = "no session holds it"
 	wordParked = "parked"
@@ -122,12 +122,12 @@ types /goal clear and then that instruction, as if you typed them: it is your tu
 session, not a team message. Nothing is ended; ccy-teams shutdown <team> does that afterwards.
 An LXC member in a running container is reached in its session there (the agent-bus-claude
 tmux session of its service unit), through sudo lxc-attach as its user. A member whose container
-is stopped or was held back, or one on another machine, is named, with the text to give it by
-hand. Without --yes it asks first.
+is stopped or was held back is offline: it is named, with nothing to wind down. One on another
+machine is named, with the text to give it by hand. Without --yes it asks first.
 
 Exit codes:
-  0   every running session was wound down, and no member was out of reach
-  1   a session failed, or a member is not reachable from here (a stopped container, another machine)
+  0   every running session was wound down, and no member was out of reach (offline ones included)
+  1   a session failed, or a member is not reachable from here (another machine)
   64  usage error
 `
 
@@ -247,7 +247,7 @@ func planFor(snap *board.Snapshot, team string) plan {
 		case row.Kind == board.KindCcy && row.Dir != "-":
 			p.addSeat(snap, team, row)
 		case row.Kind == kindLxc && row.State == lxcrecord.StatusDeferred:
-			p.unreached = append(p.unreached, member{row.Member, whyLxcDeferred})
+			p.idle = append(p.idle, member{row.Member, whyLxcDeferred})
 		case row.Kind == kindLxc:
 			p.lxc = append(p.lxc, row)
 		default:
@@ -319,19 +319,7 @@ func (w *WindDown) reachLxc(ctx context.Context, team string, snap *board.Snapsh
 		notReached(err.Error(), rows...)
 		return
 	}
-	var items []lxcrecord.Item
-	var reachable []board.Row
-	for _, row := range rows {
-		i := slices.IndexFunc(rec.Members, func(it lxcrecord.Item) bool { return it.Handle == row.Handle })
-		switch {
-		case i < 0:
-			notReached(whyLxcUnknown, row)
-		case rec.Members[i].Status != lxcrecord.StatusJoined:
-			notReached("the last apply held it back ("+rec.Members[i].Words()+")", row)
-		default:
-			items, reachable = append(items, rec.Members[i]), append(reachable, row)
-		}
-	}
+	items, reachable := p.byRecord(rec, rows)
 	if len(reachable) == 0 {
 		return
 	}
@@ -352,7 +340,7 @@ func (w *WindDown) reachLxc(ctx context.Context, team string, snap *board.Snapsh
 	for i, row := range reachable {
 		it := items[i]
 		if !slices.Contains(running, it.Container) {
-			notReached("its container "+it.Container+" is not running; start it, then run wind-down again", row)
+			p.idle = append(p.idle, member{row.Handle, "offline (container " + it.Container + " stopped)"})
 			continue
 		}
 		p.jobs = append(p.jobs, &job{
@@ -365,6 +353,28 @@ func (w *WindDown) reachLxc(ctx context.Context, team string, snap *board.Snapsh
 				" (a member started by hand, not with service: true, or its session has stopped); nothing was typed",
 		})
 	}
+}
+
+// byRecord is the rows the record says joined, each with its item; a row whose container the
+// last apply found stopped is offline, named with nothing to wind down, and any other is not
+// reached.
+func (p *plan) byRecord(rec lxcrecord.Record, rows []board.Row) ([]lxcrecord.Item, []board.Row) {
+	var items []lxcrecord.Item
+	var reachable []board.Row
+	for _, row := range rows {
+		i := slices.IndexFunc(rec.Members, func(it lxcrecord.Item) bool { return it.Handle == row.Handle })
+		switch {
+		case i < 0:
+			p.unreached = append(p.unreached, member{row.Handle, whyLxcUnknown})
+		case rec.Members[i].Status == lxcrecord.StatusStopped || rec.Members[i].Status == lxcrecord.StatusDeferred:
+			p.idle = append(p.idle, member{row.Handle, "offline (container " + rec.Members[i].Container + " stopped at the last apply)"})
+		case rec.Members[i].Status != lxcrecord.StatusJoined:
+			p.unreached = append(p.unreached, member{row.Handle, "the last apply held it back (" + rec.Members[i].Words() + ")"})
+		default:
+			items, reachable = append(items, rec.Members[i]), append(reachable, row)
+		}
+	}
+	return items, reachable
 }
 
 // othersOf is every seat the session names on teams other than team, by team.
