@@ -37,17 +37,26 @@ joins each new server admin to it, so every team's side-room discovery stopped w
 - Scope: in `helpers/` and `CLAUDE/Plan/` Python, a list drawn from a homeserver answer (a call
   to a `HOMESERVER_CALLS` method: `.call`, `.transport`, `._request`, `.sync`, `.messages`,
   `.get_state`, `.get_event`, `.state`, `.room_state`, `.members`, `.joined_rooms`, `.account`;
-  or a local name bound from one, followed through assignments) and checked with `is_room_id` or
+  or a name bound from one, followed through assignments, loop targets and the parameters of a
+  same-module function it is passed to) and checked with `is_room_id` or
   `is_event_id` so that one item refuses it all. That means inside `all()`/`any()`, or in a
   loop's `if` that raises.
 - Widened after review round 1 (Opus). The first cut knew only `.call`/`.transport`/`._request`,
   never examined the syncer, and missed the loop-and-raise form. The widened cut first flagged
   `pingbus/cli.py:1189`, which loops over `--re` CLI arguments, not a homeserver answer, so it
-  does not carry the hazard. That is why the rule follows the data from the call. It still finds
-  `admin.py:417` at F44 and nothing in F44's `syncer.py`.
+  does not carry the hazard. That is why the rule follows the data from the call.
+- Widened again after review round 2. The data was followed only within one function, so
+  `syncer._take_invites(self, rooms)` was missed, since it gets the sync answer as a parameter.
+  The rule now carries the taint into same-module callees' parameters, and the fixture has that
+  shape. Checks:
+  - It finds `admin.py:417` at F44.
+  - It finds `syncer.py:659` when that `continue` is mutated to `raise`.
+  - It finds nothing at HEAD.
+  - It does not flag `cli.py`'s `--re` loop.
+  - Its limit: data passed across modules is not followed.
 - Excluded, because it does not carry the hazard: a list that does not come from a homeserver
   answer.
-  `protocol.py:1265` (the `agent_bus.rooms` index) and `:1452` (an agent text's `re`) check
+  `protocol.py:1289` (the `agent_bus.rooms` index) and `:1476` (an agent text's `re`), line numbers at HEAD, check
   content the bus itself wrote, and the bus's grammar is that content's specification. Also
   excluded: a single-value check, such as a `createRoom` answer for a room the bus asked to be
   version 12.

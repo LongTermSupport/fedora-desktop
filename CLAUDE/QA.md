@@ -913,7 +913,8 @@ instructions hung such a batch on a question nobody knew was owed.
 
 **What it is.** In first-party Python under `helpers/` and `CLAUDE/Plan/`, a list drawn
 from a homeserver answer (a call to a method the rule's `HOMESERVER_CALLS` names, such as
-`.call(`, `.sync(` or `.state(`, or a local name bound from one) that is checked with
+`.call(`, `.sync(` or `.state(`, or a name bound from one, followed through assignments, loop
+targets and into the parameters of a same-module function it is passed to) that is checked with
 `protocol.is_room_id` or `protocol.is_event_id` so that one item refuses it all: inside
 `all(...)` or `any(...)`, or in a loop whose `if` on the check raises. Run by
 `tests/helpers/pingbus/test_identifier_grammar.py` (in `qa-helper-tests.bash`), which

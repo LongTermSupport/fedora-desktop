@@ -60,12 +60,14 @@ def _from_homeserver(tree: ast.AST, tainted: set[str]) -> bool:
     return any(_is_homeserver_call(n) or (isinstance(n, ast.Name) and n.id in tainted) for n in ast.walk(tree))
 
 
-def _homeserver_names(func: ast.AST) -> set[str]:
-    """Every local name bound, directly or through other bindings, from a homeserver answer."""
+def _homeserver_names(func: ast.AST, params: set[str]) -> set[str]:
+    """Every local name bound, directly or through other bindings, from a homeserver answer,
+    starting from the parameters a caller in the module passes one in."""
     bindings = [(t, n.value) for n in ast.walk(func) if isinstance(n, ast.Assign) for t in n.targets]
     bindings += [(n.target, n.value) for n in ast.walk(func) if isinstance(n, (ast.AnnAssign, ast.NamedExpr))
                  and n.value is not None]
-    tainted: set[str] = set()
+    bindings += [(n.target, n.iter) for n in ast.walk(func) if isinstance(n, (ast.For, ast.AsyncFor))]
+    tainted = set(params)
     while True:
         found = {name.id for target, value in bindings if _from_homeserver(value, tainted)
                  for name in ast.walk(target) if isinstance(name, ast.Name)}
@@ -83,14 +85,45 @@ def _raises_in_loop(loop: ast.For | ast.AsyncFor) -> int | None:
     return None
 
 
+FuncDef = ast.FunctionDef | ast.AsyncFunctionDef
+
+
+def _passed_params(call: ast.Call, callee: FuncDef, tainted: set[str]) -> set[str]:
+    """The callee's parameters this call fills with homeserver data (`self` skipped for a method call)."""
+    names = [a.arg for a in callee.args.posonlyargs + callee.args.args]
+    if isinstance(call.func, ast.Attribute) and names[:1] in (["self"], ["cls"]):
+        names = names[1:]
+    passed = {names[i] for i, arg in enumerate(call.args) if i < len(names) and _from_homeserver(arg, tainted)}
+    return passed | {k.arg for k in call.keywords if k.arg is not None and _from_homeserver(k.value, tainted)}
+
+
+def _module_taint(tree: ast.AST) -> list[tuple[FuncDef, set[str]]]:
+    """Each function with its homeserver-data names, followed into same-module callees through
+    their parameters (by function name; two of one name share theirs)."""
+    funcs = [f for f in ast.walk(tree) if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    by_name: dict[str, list[FuncDef]] = {}
+    for f in funcs:
+        by_name.setdefault(f.name, []).append(f)
+    params: dict[int, set[str]] = {id(f): set() for f in funcs}
+    while True:
+        grew = False
+        for f in funcs:
+            tainted = _homeserver_names(f, params[id(f)])
+            for call in _calls(f):
+                for callee in by_name.get(_called_name(call) or "", []):
+                    new = _passed_params(call, callee, tainted) - params[id(callee)]
+                    if new:
+                        params[id(callee)] |= new
+                        grew = True
+        if not grew:
+            return [(f, _homeserver_names(f, params[id(f)])) for f in funcs]
+
+
 def findings(source: str, filename: str) -> list[int]:
-    """The line of every whole-list refusal by a bus-grammar check in a homeserver-calling function:
+    """The line of every whole-list refusal by a bus-grammar check of homeserver data:
     `all()`/`any()` over the check, or a loop whose check raises."""
     lines: list[int] = []
-    for func in ast.walk(ast.parse(source, filename)):
-        if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        tainted = _homeserver_names(func)
+    for func, tainted in _module_taint(ast.parse(source, filename)):
         for call in _calls(func):
             if (_called_name(call) in WHOLE_LIST_REDUCERS and isinstance(call.func, ast.Name)
                     and any(isinstance(arg, (ast.GeneratorExp, ast.ListComp, ast.SetComp))
@@ -133,6 +166,20 @@ FIXTURE = textwrap.dedent('''
             if not protocol.is_room_id(room_id):  # ruleid
                 raise ValueError("bad invite")
 
+    def poll(self):
+        batch = self.client.sync(since=None)
+        self._take_invites(batch["rooms"])
+
+    def _take_invites(self, rooms):
+        for room_id, invite in _section(rooms, "invite").items():
+            if not protocol.is_room_id(room_id):  # ruleid
+                raise ValueError("bad invite")
+
+    def _check_args(self, names):
+        for event_id in names.split(","):
+            if not protocol.is_event_id(event_id):  # ok: a CLI argument, not homeserver data
+                raise ValueError("bad --re")
+
     def invites_per_item(self):
         rooms = self.client.sync(since=None)["rooms"]["invite"]
         for room_id in rooms:
@@ -166,7 +213,7 @@ class RuleProof(unittest.TestCase):
 
     def test_the_rule_fires_on_exactly_the_marked_lines(self) -> None:
         expected = marked(FIXTURE, "ruleid")
-        self.assertEqual(len(expected), 3)
+        self.assertEqual(len(expected), 4)
         self.assertEqual(findings(FIXTURE, "<fixture>"), expected)
 
 
