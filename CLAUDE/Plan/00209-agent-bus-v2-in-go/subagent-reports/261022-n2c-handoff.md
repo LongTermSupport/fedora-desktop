@@ -1,86 +1,71 @@
-# N2 slice n2c: handoff 1
+# N2 slice n2c: handoff 2
 
-The builder stopped at its context budget. Worktree `/workspace/untracked/worktrees/bus-v2-n2c`,
-branch `feat/bus-v2-n2c` (stacked on `feat/bus-v2-n2a` at f3aa1bb0). Read the brief
+The second builder stopped at its context budget. Worktree
+`/workspace/untracked/worktrees/bus-v2-n2c`, branch `feat/bus-v2-n2c`. Read the brief
 (`untracked/scratch/n1-common.txt` in the main checkout, task name "n2c"), then
-[SPEC-n2c.md](../SPEC-n2c.md), which is the slice's contract.
+[SPEC-n2c.md](../SPEC-n2c.md), the slice's contract.
 
-## Done and committed (tip 88f467ae)
+## Done and committed (tip cdfa1d27), each step green under -race and golangci-lint
 
-- `SPEC-n2c.md`: SN1, SR1-SR3, SW1-SW3, SL1, SC1-SC3, ST1-ST7, SX1-SX6, SD1-SD4, SP1-SP4, and
-  decisions n2c-D1 to n2c-D7.
-- `teamchat/paths` (SN1), green at 100% coverage: `SeatName` (the whole handle, n2c-D1),
-  `ClaimID`, `SeatDevice`, `Store.PoolTeam`, `Store.PoolSeat` (type `PoolSeat`: `Password`,
-  `Token`, `Bundle`, `ReleasedRecord`, `Held`, `HeldRecord`, `HeldToken`, `HeldBundle`,
-  `HeldNotice`), `Store.PoolClaim` (a `PoolSeat`), `Store.SessionSeat` and
-  `Store.ReleasedSession` (each a `paths.Seat`, so `.Lock()`, `.Token()`, `.Bundle()` name the
-  files), `Store.ReleasedPool`, `Layout.SeatClaim` (a `Seat`), `GuestTokenCopy`.
-- `qa-changed.bash` was red only on GO-2026-6809.
+The package `src-go/internal/teamchat/seat`, one file pair per step:
 
-## Drafted, not committed: `src-go/internal/teamchat/seat`
+| Step                   | Files                                      | Spec                         |
+| ---------------------- | ------------------------------------------ | ---------------------------- |
+| records, issued bundle | `records.go`                               | SR1-SR3                      |
+| directory-fd layer     | `fs.go`                                    | SW1-SW3                      |
+| store, allocation lock | `seat.go` (package doc, Config), `lock.go` | SL1, n2c-D6                  |
+| credential seam        | `credential.go` (`Credential`, `Password`) | SC1-SC3, n2c-D7              |
+| take, L3 probe         | `take.go`, `lockprobe.go`                  | ST1-ST7, SX1's probe, n2c-D3 |
+| release, notice inputs | `release.go` (`Release`, `Announce`)       | SX1-SX6, SD1-SD4, D4, D5     |
+| placement              | `place.go` (`Claim`, `Fill`, leftovers)    | SP1, SP2                     |
 
-The drafts are in the worktree's ignored `untracked/scratch/n2c/`, each named `<file>.draft`.
-Move them back to `src-go/internal/teamchat/seat/<file>` (test files first, for the TDD hook).
+Test helpers: `helpers_test.go` (ids, bundles, file helpers), `world_test.go` (fake clock, a
+fakehs `homeserver` with `alive`/`stale`, fake `sessions` and `announcer`, the `world` with
+`seed`, `take`, `release`, `keep` for a keeper's seat lock), plus `place_test.go`'s
+`issued`/`place` and `take_test.go`'s `quarantined`. The lint config has the package's
+`tagliatelle` snake override and a gosec exclusion for its tests.
 
-- `records.go` + `records_test.go` (SR1-SR3): `Bundle` (pool seat.json), `HeldBundle` (embeds
-  it, adds `Claim`, `ReleasedMS *int64`), `HeldRecord`, `ReleasedRecord`, `NoticeRecord`,
-  `Secret` (redacted formatting, refuses marshalling), `Kind` (`password`, `token`), `Issued`
-  with `Encode`/`DecodeIssued`. `decodeStrict` = size cap, `proto.Parse`, required keys, then
-  `encoding/json` with `DisallowUnknownFields`.
-- `fs.go` + `fs_test.go` (SW1-SW3): `dir`, a root held by fd; every path opened by `openat2`
-  with `RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS`; `create`, `replace`, `read`,
-  `exists`, `mkdirAll`, `mkdirFresh`, `checkEmptyOwned`, `entries`, `unlink`, `rmdir`,
-  `rename(from, to, unix.RENAME_*)`.
-- `helpers_test.go` (basic helpers); `world_test.go.draft` is the fuller helper set the store
-  tests need (a fakehs world, a fake clock, fake `Sessions` and `Announcer`), and
-  `store_test.go.draft` the tests of `Open` and the allocation lock. Merge the two helper files
-  when the store lands.
+Coverage at the tip: **89.6%, under the 90% floor**. The gaps are error paths: `fs.go`
+(`replace`, `readRegular`, `checkEmptyOwned`, `closeQuietly`), `take.go` (`hold`,
+`copyToSession`, `moveToQuarantine`, `newClaim`), `place.go`, `lockprobe.go` `probeOpen`.
+Raise it first, in its own commit.
 
-Never compiled or run: the lint hook's last report on them, to fix first:
+qa-changed is red only on govulncheck GO-2026-6809 (Task 1.6), the accepted red; it does not
+check coverage, so measure with `go test -race -cover ./internal/teamchat/seat`.
 
-- `tagliatelle` wants camelCase json: add a `.golangci.yml` override for
-  `internal/teamchat/seat` (`json: snake`), as the matrix package has, with the reason "C 3.7.2's
-  records are snake_case files";
-- `gosec` G115 on `uint64(flags|...)` in `dir.open` (build the flags as `uint64` constants);
-  G304 on `os.ReadFile(path)` in a test helper; G301/G302 on the 0755 modes the tests set on
-  purpose (make the mode a named constant via `os.FileMode` arithmetic, or chmod through
-  `unix.Chmod`);
-- `govet` shadow of `err` in `records_test.go` (lines 78, 163, 173); `prealloc` (line 199);
-  `gocognit` 21 on `TestRecordsRoundTripAndRefuse` (split it);
-- `goconst` "claim"; `dupword` in the `rename` comment; a package comment (put the package doc in
-  `seat.go`, below); `unparam` on `testBundle`'s base (fixed once the world tests use it).
+## Left, in order, one commit each
 
-## Left to build (spec section in brackets)
+1. Coverage to at least 90%.
+2. `guest.go` (SP3, SP4): `PlaceGuest(layout paths.Layout, is Issued) error` (as the agent user:
+   `Layout.SeatClaim(team, claim)` 0700 with `token` then `seat.json` 0600, swapped in as
+   `Layout.Seat(team).Dir()`, the old directory removed by `os.RemoveAll`; a token bundle only),
+   and `KeepGuestToken(base string, team, seat, Secret) error` (`paths.GuestTokenCopy` under
+   `base`, written by `dir.replace`, its directory 0700). `openDir(root, true)` and the `dir`
+   methods serve both; the guest root is `Layout.State()`.
+3. `tuwunel_test.go` (`//go:build tuwunel`, ST6), modelled on `rooms/tuwunel_test.go` through
+   `matrix/tuwunelhs`, server name `paths.ServerName(team)`: register the admin, create the seat's
+   account, `place` it, keep a stale `LoginDevice` token, take, show the stale token dead,
+   release, show the take's token dead.
+4. The review loop (Opus, at most 3 rounds), `subagent-reports/261022-n2c-review.md` per round,
+   the report `subagent-reports/261022-n2c.md`, Task 2.4's progress line in PLAN.md.
 
-The API the drafts assume (from `world_test.go.draft` and `store_test.go.draft`):
+## Decisions taken while building (for the report)
 
-- `seat.go`: package doc; `Config{StateHome, RuntimeDir, Checkout, Clock, Credential, Sessions, Announcer}`; `Open(Config) (*Store, error)` (fields `store paths.Store`, `checkout`, a root
-  `*dir`), every missing part `ErrConfig`; `Clock{Now; Sleep(ctx, d)}`;
-  `Sessions{Restorable(paths.SessionName) (bool, error)}`; `Seat{Team, Name}`; errors `ErrBusy`,
-  `ErrNotLocked`, `ErrHeld`, `ErrReissue`, `ErrReturn`, `ErrRetired`, `ErrIncomplete`,
-  `ErrLeftover`.
-- `lock.go` (SL1): `Store.Lock(ctx) (*Alloc, error)`, `Alloc.Unlock`, `allocWait` 30 s,
-  `allocPoll` 100 ms, `flock(LOCK_EX|LOCK_NB)` on `paths.AllocLock`, the directory 0700.
-- `credential.go` (SC1-SC3): `Credential{Kind() Kind; Mint(ctx, Bundle, Secret) (Secret, error); Retire(ctx, Bundle, Secret) error}`; `Password{Clock matrix.Clock}`: login as `TCSEAT`, logout
-  with that token, login again (`M_FORBIDDEN` on the first is `ErrReissue`); `Retire` logs out,
-  `M_UNKNOWN_TOKEN` is done. A signed-out member client needs a placeholder token (login is
-  `noAuth` in the matrix client).
-- `take.go` (ST1-ST7): `Store.Take(ctx, *Alloc, Take{Seat, Session, State HandleState}) (Taken{Claim, ...}, error)`, `StateActive|Parked|Lost|NeedsReissue|Retired`.
-- `release.go` (SX1-SX6, SD1-SD4): `Store.Release(ctx, Release{Seat, Session, Leaving})`,
-  `Store.Announce(ctx, Seat, Session)`; `Announcer{Disconnected(ctx, Notice{Bundle string, SinceMS int64, Run paths.RunID}) (Outcome{Posted bool, Why string}, error)}`; the L3 probe of
-  `paths.Seat.Lock()` with `LOCK_SH|LOCK_NB` and B 2.5's lock content.
-- `place.go` (SP1, SP2): `Store.Claim(*Alloc, Seat) (*Claim, error)`, `Claim.Abandon`,
-  `Claim.Fill(Issued)`, `Store.QuarantineLeftovers`.
-- `guest.go` (SP3, SP4): `PlaceGuest(paths.Layout, Issued)`, `KeepGuestToken(base, team, seat, Secret)`.
-- `tuwunel_test.go` (`-tags tuwunel`, ST6): as `rooms/tuwunel_test.go` does, through
-  `matrix/tuwunelhs`, server name `paths.ServerName(team)`: register the admin, create the seat's
-  account, place, keep a stale `LoginDevice` token, take, show the stale token dead, release,
-  show the take's token dead.
+- The L3 probe and every path open from the store root's fd with
+  `RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS` (SW2), not from the fd of
+  `sessions/<session>/` as C 3.7.3 words it: the same refusal of a link on every component.
+- A free seat lock whose record is over 4 KiB names no run (SD1), as an undecodable one does.
+- Release step 1 stops waiting when the lock is free or the session is not restorable; a lock
+  still held by a session that is over gives no run id, so no notice is asked.
+- A `held/` with no complete `held.json` met by a release (not only a take) goes to quarantine
+  under the lock and the release is done. A release or `Announce` for a seat `held/` names
+  another session for is `ErrHeld`.
+- An `Outcome` neither posted nor with a one-line `why` is refused (`ErrInvalid`), not recorded.
+- Release step 4 retires with the pool's `seat.json`, since `held/token` is written before
+  `held/seat.json` and a take may die between them.
+- `Store.Close` releases the root fd (not in the drafts).
 
-Then the review loop (Opus, at most 3 rounds), the report `subagent-reports/261022-n2c.md`, and
-Task 2.4's progress line in PLAN.md (this slice: C 3.7.1-3.7.3's store, take, release, the
-notice's inputs and placement; not the hot reissue, 3.7.4, 3.7.5's control record, C 3.8, 3.10,
-3.11, 3.12). The report must say how 7.1 swaps in (n2c-D7) and list the design-text fixes: B's
-header for host `cc` against C 3.7.1 (n2c-D3), B 2.11's host `since` against `held.json`'s
-`since_ms`, `<seat>` collisions across member types (n2c-D1), and the release resume's run id
-(n2c-D5).
+Design-text fixes still to propose in the report: B's header for host `cc` against C 3.7.1
+(n2c-D3), B 2.11's host `since` against `held.json`'s `since_ms`, `<seat>` collisions across
+member types (n2c-D1), the release resume's run id (n2c-D5), and the probe's root-relative
+`openat2` above.
