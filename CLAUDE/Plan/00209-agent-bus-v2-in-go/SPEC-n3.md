@@ -239,7 +239,7 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
   (C 3.9.2 step 01).
 - **LX2. Containers.** `lxc-info -sH`: not running is held back (C 3.9.3: `SKIPPED` with a
   recorded handle, else `DEFERRED`), and so is missing, by the same split (OF1): the line says
-  `container missing`, the record entry's status is `missing` (LX9; C 3.9.3 gains it), the other
+  `container missing`, the record entry's status is `offline` as a stopped one's is (LX9), the other
   entries are applied and the phase is not failed, under every `--only-teams` scope. Test: one
   missing and one stopped container beside a running one, which is placed and joined as if
   alone. In the absent phase a stopped
@@ -286,7 +286,7 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
   `DEFERRED` (OF1), the other entries carry on; only a failure in a container still running
   fails the phase. An entry deferred mid-phase (here or by LX3) takes no further step. A handle
   its step 06 join already made is recorded by C 3.9.3's split (a known handle on a container
-  not running is `SKIPPED`, status `stopped`, never a second `add`); when its bundle was not
+  not running is `SKIPPED`, status `offline`, never a second `add`); when its bundle was not
   placed (a deferral before step 07 completed), the roster member is marked `needs: reissue`
   (C 3.6.1, shown on the board), and step 06 of the first apply that finds the container
   running runs `member reissue` for that need. An entry deferred before step 08 is left out of
@@ -311,8 +311,8 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
 - **LX9. Output and the record** (C 3.9.3): `CHANGED|SKIPPED|DEFERRED` lines and one
   `LXC-SUMMARY`, every field the host's own (TB2.4); `/var/lib/teamchat-status/lxc/<team>.json`
   0640 root:`<owner group>`, atomic, only on change, written by each phase that changed it
-  (n3-D12); `since_ms` kept while status and handle stay. Status is `joined`, `stopped`,
-  `deferred`, `missing` (LX2) or `left`.
+  (n3-D12); `since_ms` kept while status and handle stay. Status is `joined`, `offline`
+  (stopped, frozen or missing, LX2), `deferred` or `left`.
 - **SU1. The unit.** `teamchat-session-<user>.service` rendered from C 3.9.4's text exactly, its
   `<user>`, `<group>`, `<home>`, `<checkout>` grammar-checked; written to
   `/etc/systemd/system/` with its wants link in `multi-user.target.wants/` by LX5's rules (n3-D3);

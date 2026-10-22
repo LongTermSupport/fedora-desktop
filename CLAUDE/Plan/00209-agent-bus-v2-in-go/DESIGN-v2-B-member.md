@@ -78,7 +78,7 @@ requirement states the need and section 5 states the drop.
 - **B10.** Strict decoders: exact key sets, version checked, integers never booleans or floats,
   duplicate keys refused, an error never quotes a value read from a file [S1-S5; SB1, SB6; F6].
 - **B11.** The token is read by the link and, on the host, by `seat disconnected` from the
-  host-held copy of the bundle (2.11), and by nothing else; it is checked on every read (owner, mode 0600 or tighter, one printable line),
+  host-held copy of the bundle (2.11), and by nothing else; it is checked on every read (owner, mode 0600, one printable line),
   never logged, never in argv. Two bundles sharing a user id or a token are refused (exit 78). The
   Claude Code inbox socket token is never written to disk. New: v1 stored the socket token at rest
   in `socket.json` [R43; S41].
@@ -321,7 +321,7 @@ User-facing text says `teamchat`, never "bus", which is v1's word.
 
 What (2) gives up is working with no link. That case is a session whose link is restarting, which
 the keeper does at once and within a bound (2.4.2), or a human with no session, who runs
-`teamchat run --plain -- bash` to get the same runtime around a shell. There is no second code path
+`teamchat run --plain --kind other -- bash` to get the same runtime around a shell. There is no second code path
 that reads the store directly: a verb with no link to ask exits 69 and says why and what recovers it
 (2.4.4). That is the "no fallbacks" rule applied to the member.
 
@@ -459,8 +459,10 @@ prints them, so an agent (and acceptance A7, D 6.1) can read whether a ping was 
 as the last line of stderr, after any human-readable diagnostics:
 
 ```json
-{"v":1,"kind":"error","exit":11,"code":"role","team":"<team>","message":"only the coordinator of <team> asks its humans; ask the coordinator with teamchat say --to-coordinator --team <team>"}
+{"kind":"error","v":1,"exit":11,"code":"role","team":"<team>","message":"only the coordinator of <team> asks its humans; ask the coordinator with teamchat say --to-coordinator --team <team>"}
 ```
+
+The keys come in that order: `kind`, `v`, `exit`, `code`, `team`, `message`.
 
 `code` is from a closed set per exit code (the table below), so an agent can branch on it without
 reading prose. `message` is a fixed template filled with grammar-checked names only.
@@ -470,7 +472,8 @@ reading prose. `message` is a fixed template filled with grammar-checked names o
 `recv`, `wait`, `inbox`, `history`, `status` and `questions` (without `--team`) run over every active
 team. A team that fails produces one record on stdout, `{"v":1,"kind":"team-failed","team":"<t>", "exit":20,"code":"unreachable"}`, the other teams' records still print, and the verb exits 5. So an
 agent never mistakes a partial answer for a whole one, which v1's "exit 0 if anything printed"
-allowed (`helpers/pingbus/cli.py` recv's exit rule).
+allowed (`helpers/pingbus/cli.py` recv's exit rule). When every team fails, no team succeeded and
+the result is not partial: the verb exits with the first team's own error.
 
 #### 2.2.4 Exit codes
 
@@ -493,25 +496,25 @@ error's `message` names the next step, so the agent never needs the table itself
 | read         | read the records it printed (`team-failed`) and carry on     | 5                      |
 | tell a human | stop using teamchat for this and tell a human; start nothing | 1, 21, 22, 69, 78      |
 
-| Exit | Meaning                                                             | `code` values                                                              | Class        | The message's next step                                                                |
-| ---- | ------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------ | -------------------------------------------------------------------------------------- |
-| 0    | done (including "nothing pending")                                  | -                                                                          | -            | -                                                                                      |
-| 1    | internal error (a bug; never returned on purpose)                   | `internal`                                                                 | tell a human | tell a human                                                                           |
-| 4    | `wait` timed out with nothing                                       | `timed-out`                                                                | wait         | run `wait` again if you still wait                                                     |
-| 5    | a multi-team verb succeeded for some teams only                     | `partial`                                                                  | read         | read the `team-failed` records                                                         |
-| 10   | refused by the protocol rules                                       | `size`, `schema`, `secret`, `target`, `verb`, `ref`, `re`, `body`, `empty` | fix          | fix the message; do not retry it unchanged                                             |
-| 11   | refused by role                                                     | `role`                                                                     | fix          | ask the coordinator instead                                                            |
-| 13   | a reference did not resolve at the forge, or its provenance failed  | `forge`, `provenance`                                                      | fix          | push first, or reference what exists                                                   |
-| 14   | rate limited                                                        | `rate`, `server-rate`, `report-rate`                                       | wait         | wait; do not loop                                                                      |
-| 15   | the same message again within the duplicate window                  | `duplicate`                                                                | fix          | it was already sent; do not resend                                                     |
-| 20   | the homeserver did not answer                                       | `unreachable`                                                              | wait         | tell a human if it persists; the link keeps retrying on its own                        |
-| 21   | the member's token was refused                                      | `token`                                                                    | tell a human | tell a human                                                                           |
-| 22   | a room is missing or not trusted, or the homeserver forbade it      | `untrusted`, `forbidden`                                                   | tell a human | run `status`; tell a human                                                             |
-| 23   | the event or question named does not exist                          | `not-found`                                                                | fix          | check the id                                                                           |
-| 64   | usage error                                                         | `usage`, `ambiguous-team`, `unknown-member`, `ambiguous-member`            | fix          | read the message, which lists the choices                                              |
-| 69   | no runtime: not in a member session, or its link is not answering   | `no-session`, `no-link`, `link-failed`                                     | tell a human | pass the message, which names the recovery, to a human; do not start anything yourself |
-| 75   | busy: the seat is held by another session, or a keeper already runs | `seat-held`, `keeper-running`                                              | -            | (lifecycle verbs only)                                                                 |
-| 78   | configuration refused (bundle, desired membership, store)           | `bundle`, `membership`, `store`, `forge-login`, `runtime`                  | tell a human | run `status`; tell a human                                                             |
+| Exit | Meaning                                                                                        | `code` values                                                                                                                      | Class        | The message's next step                                                                |
+| ---- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------ | -------------------------------------------------------------------------------------- |
+| 0    | done (including "nothing pending")                                                             | -                                                                                                                                  | -            | -                                                                                      |
+| 1    | internal error (a bug; never returned on purpose)                                              | `internal`                                                                                                                         | tell a human | tell a human                                                                           |
+| 4    | `wait` timed out with nothing                                                                  | `timed-out`                                                                                                                        | wait         | run `wait` again if you still wait                                                     |
+| 5    | a multi-team verb succeeded for some teams only                                                | `partial`                                                                                                                          | read         | read the `team-failed` records                                                         |
+| 10   | refused by the protocol rules                                                                  | `size`, `schema`, `secret`, `target`, `verb`, `ref`, `re`, `body`, `empty`                                                         | fix          | fix the message; do not retry it unchanged                                             |
+| 11   | refused by role                                                                                | `role`                                                                                                                             | fix          | ask the coordinator instead                                                            |
+| 13   | a reference did not resolve at the forge, or its provenance failed                             | `forge`, `provenance`                                                                                                              | fix          | push first, or reference what exists                                                   |
+| 14   | rate limited                                                                                   | `rate`, `server-rate`, `report-rate`                                                                                               | wait         | wait; do not loop                                                                      |
+| 15   | the same message again within the duplicate window                                             | `duplicate`                                                                                                                        | fix          | it was already sent; do not resend                                                     |
+| 20   | the homeserver did not answer                                                                  | `unreachable`                                                                                                                      | wait         | tell a human if it persists; the link keeps retrying on its own                        |
+| 21   | the member's token was refused                                                                 | `token`                                                                                                                            | tell a human | tell a human                                                                           |
+| 22   | a room is missing or not trusted, or the homeserver forbade it                                 | `untrusted`, `forbidden`                                                                                                           | tell a human | run `status`; tell a human                                                             |
+| 23   | the event or question named does not exist                                                     | `not-found`                                                                                                                        | fix          | check the id                                                                           |
+| 64   | usage error                                                                                    | `usage`, `ambiguous-team`, `unknown-member`, `ambiguous-member`                                                                    | fix          | read the message, which lists the choices                                              |
+| 69   | no runtime: not in a member session, or its link is not answering                              | `no-session`, `no-link`, `link-failed`                                                                                             | tell a human | pass the message, which names the recovery, to a human; do not start anything yourself |
+| 75   | busy: the seat is held by another session, or a keeper already runs                            | `seat-held`, `keeper-running`                                                                                                      | -            | (lifecycle verbs only)                                                                 |
+| 78   | configuration refused (bundle, desired membership, store, launch, a guest's identity or check) | `bundle`, `membership`, `store`, `forge-login`, `runtime`, `launch`, `identity`, `home`, `gh`, `tmux`, `claude`, `kernel`, `reach` | tell a human | run `status`; tell a human                                                             |
 
 `hook` and `status-line` always exit 0 (2.8, 2.9), except the status line's 128+signal on cancel,
 which Claude Code expects. Exit 69 is answered at once, never after a wait: the link alone serves
@@ -613,7 +616,7 @@ at most. Its schema:
   "outbox": {
     "pings": [{"id": "$<43>", "verb": "review", "ref": "pr:<owner>/<repo>#12@<sha40>", "to": ["@<repo>.3+<site>.lxc:<server>"], "sent_ms": 1760000000000, "due_ms": 1760003600000, "answered": [], "reported": []}],
     "sending": [{"txn": "tc<32 hex>", "room": "main", "kind": "text", "since_ms": 1760000000000}],
-    "gate": {"credit": 9.5, "at_ms": 1760000000000, "recent": [{"key": "<sha256>", "at_ms": 1760000000000}]}
+    "gate": {"credit": 540000, "at_ms": 1760000000000, "recent": [{"key": "<sha256>", "at_ms": 1760000000000}]}
   },
   "run": {"id": "<16 hex>", "started_ms": 1760000000000, "ended": null}
 }
@@ -671,6 +674,7 @@ at most. Its schema:
   (M22; the durability of that across a homeserver restart is a risk, 4).
 - `gate` is the send gate (P§10): a send's token is charged in the same store write that records it
   in `sending`, before the network call, so a send that fails has still spent its token (RP 5.16).
+  `credit` is integer credit, one token being 60 000 (`proto.Bucket`, P61).
 - `answered` and `reported` in a ping are indexes into its `to`, and `reported` makes one TIMEOUT
   per silent target (RP 5.14).
 - `run.ended` is `null` while a session holds the seat; when its notice is decided it becomes
@@ -687,7 +691,7 @@ at most. Its schema:
   1024 ledger entries (320 bytes), 256 outbox pings (3 KiB, at most 16 targets), 1024 receipts (80
   bytes), 32 awaiting deliveries (2.2 KiB), 16 missed (640 bytes), 64 sends in flight (128 bytes), 64
   gate keys (96 bytes). The sizes assume A's event ids (`$` and 43 characters) and user ids of at
-  most 128 bytes (A4). The file cap is their sum, about 1.9 MiB, rounded up to **2 MiB**, so a list
+  most 128 bytes (A4) and 13-digit times. The file cap is their sum, about 1.9 MiB, rounded up to **2 MiB**, so a list
   cap is always the one that fires. `ledger` and `missed` are rolling (oldest dropped, by design).
   `pending` keeps room for HUMAN and TIMEOUT items however many agent items it holds (A 11.4):
   agent items may fill it only up to the cap less 256 entries, which only HUMAN and TIMEOUT items
@@ -729,7 +733,10 @@ reads it back and needs nothing handed over but the token. `told` is the one hom
 session has been told: the desired generation whose membership NOTICE reached it and each team's
 role last announced (2.10). The store holds none of it, because what was told belongs to the
 session, and a new session is told afresh by its SessionStart frame. `unusable` counts the inputs
-the link could not use (2.8, 2.7.2), which `status` reports.
+the link could not use (2.8, 2.7.2), which `status` reports. Until the first SessionStart,
+`session_id`, `source`, `transcript`, `socket` and `claude` are all `null`; afterwards all are set.
+`source` is SessionStart's (`startup`, `resume`, `clear`, `compact`). `socket` is
+`cc-socks/<claude.pid>.sock`, at most 107 bytes. The file is at most 8 KiB.
 
 `status.json` is section 2.9's, link-written. `keeper.json` (keeper-written, tmpfs, strict) is the
 keeper's view of the link, read by the status line and by a client only when the link does not
@@ -740,8 +747,10 @@ answer (2.4.4, 2.9):
  "kind": "ccy|lxc|host|other", "session": "<session name>|null", "desired": "applied|refused"}
 ```
 
-`why` is `null`, or for `failed` one of `crash-loop` or `config` (a final exit 78); `next_ms` is
-the `CLOCK_BOOTTIME` time of the next restart while `restarting`; `kind` and `session` choose the
+`why` is set exactly when `link` is `failed`, to one of `crash-loop` or `config` (a final exit
+78); `next_ms` is set exactly while `restarting`, to the `CLOCK_BOOTTIME` time of the next
+restart; `session` is the session's name for kind `ccy` or `lxc`, and `null` for `host` and
+`other`; `kind` and `session` choose the
 recovery the status line, the hooks and exit 69 name (2.4.2); `desired` is `refused` while the
 last read of the desired membership did not decode, which the keeper also tells the link for
 `status` and `status.json`. The keeper rewrites it on each change of these fields only, never on a
@@ -755,9 +764,12 @@ timer.
  "desired": {"generation": 3, "state": "applied|refused", "code": null}, "store": "ok|refused", "needs_relaunch": false}
 ```
 
+`last_sync_ok_ms` is `null` until the first sync succeeds; `seat`'s `<seat>` is the handle's seat.
 `desired.state` is `refused` when the last read of the desired membership did not decode; `code`
 names why from a closed set (`json`, `schema`, `version`, `seat`, and `missing` for a desired file
-deleted under a live keeper, 2.10), and the last good membership stays applied. `status`,
+deleted under a live keeper, 2.10), and the last good membership stays applied. `seat` names a seat
+rule: a seat off A 2.3's grammar, a team twice in `seats`, a farewell twice, or a farewell for a
+seat still desired (a farewell for the same team at another seat is allowed). `status`,
 `status.json` and one hook line show the same; with no seat held there is no `report.json`, and
 `keeper.json` and the link's `status.json` carry it (2.9).
 
@@ -875,7 +887,8 @@ starts it as its child and stays its parent for the session's life (2.1). `run`:
 goroutine and no heartbeat timer, writes `status.json` once with `"teams": []`, which the status
 line renders as no team segment (2.9), and serves the hooks and every verb, so the session's facts
 and its conversation record exist before any team does; a verb that needs a team says that none is
-held (2.2.4). The keeper passes it the first seat it takes with an `add`. **A launch with no v2 at
+held and exits 64 `usage` (2.2.4), as a `--team` that differs from the ledger's team for the event
+named does. The keeper passes it the first seat it takes with an `add`. **A launch with no v2 at
 all** (v1's `--no-bus`) is a launcher that does not wrap CMD with `run`: no v2 process runs, and the
 hooks, finding no `TEAMCHAT_RUNTIME`, answer `{}`.
 
@@ -1072,7 +1085,7 @@ line:
 
 ```json
 {"done":{"exit":0}}
-{"done":{"exit":23,"error":{"v":1,"kind":"error","exit":23,"code":"not-found","team":"<team>","message":"..."}}}
+{"done":{"exit":23,"error":{"kind":"error","v":1,"exit":23,"code":"not-found","team":"<team>","message":"..."}}}
 ```
 
 The CLI is a pass-through: it copies records to stdout, the error to stderr, and exits with `exit`.
@@ -1731,6 +1744,9 @@ on a change, and the status line does not judge its age.
  "teams": [{"team": "<team>", "role": "coordinator", "down": false, "failed": null, "delivery": "socket", "pending": 0, "missing": 0}]}
 ```
 
+`failed` is `null` or the permanent failure that stopped the team (B17): `unauthorized` (401),
+`forbidden` (403), `trust`, `bundle`.
+
 This file is the team segment's cache, separate from the hooks-daemon line, as Plan 00213 requires;
 it needs no TTL and no fingerprints because it is pushed on change instead of recomputed on render.
 The team part of a render is one exec of a static binary, one 1-2 KiB read and one `flock` probe
@@ -2107,7 +2123,10 @@ reading typed JSON on stdin. Each refuses to run as uid 0 or with any supplement
 agent user's own, refuses a `--user` that does not name the caller, sets umask 077 first and names
 every leaf mode (RL 6.02), opens with `O_NOFOLLOW`, places files with `O_EXCL` then renames,
 refuses a path owned by someone else, prints `CHANGED\t<what>` lines on stdout for what it changed
-and nothing otherwise, and exits 0, 64, 75 (`remove` and `place-bundle` only) or 78.
+and nothing otherwise, and exits 0, 64, 75 (`remove` and `place-bundle` only) or 78. A caller that
+is not the user named is 78 `identity`. A home that is not the user's own is 78 `home`. Each guest
+check miss is 78 with the check's name. An I/O failure inside an op is exit 1 `internal`, with its
+diagnostic line before the error object.
 
 | Op                         | Does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -2149,7 +2168,7 @@ beyond Go's forced GC (5 in 10 minutes); the SessionEnd hook under 300 ms agains
 unreachable homeserver. A miss is a finding the build reports, not a bar quietly moved.
 
 **Measured** by a plan-folder acceptance (`acceptance-member-cost.bash`, built on `_planlib`): it starts
-`teamchat run --plain -- sleep` against the fake homeserver and then against a real Tuwunel, with no team,
+`teamchat run --plain --kind other -- sleep` against the fake homeserver and then against a real Tuwunel, with no team,
 with one and with three teams, waits 10 idle minutes, and samples each resident process's `/proc/<pid>/stat` (user and
 system time), `/proc/<pid>/task/*/status` (VmRSS, voluntary and involuntary context switches of every thread) and `fd/`; it then runs 100
 status-line renders with a no-op inner command and sums their CPU, times 100 SessionEnd hooks, and
