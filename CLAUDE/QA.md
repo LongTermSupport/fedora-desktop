@@ -909,6 +909,25 @@ instructions hung such a batch on a question nobody knew was owed.
   Enter-or-Ctrl+C risk decision): annotate it `# PAUSE-OK: <why it has to wait>`. Prefer
   a check that fails with an actionable message over a wait, where one is possible.
 
+### homeserver-list-narrow-grammar
+
+**What it is.** In first-party Python under `helpers/` and `CLAUDE/Plan/`, a function
+that calls the homeserver (`.call(`, `.transport(`, `._request(`) and applies
+`protocol.is_room_id` or `protocol.is_event_id` inside `all(...)` or `any(...)`. Run by
+`tests/helpers/pingbus/test_identifier_grammar.py` (in `qa-helper-tests.bash`), which
+proves the rule against its fixture first.
+
+**Why it exists.** Those two checks are the bus's own grammar: the room-version-12 shape
+only. A list the homeserver answers with holds whatever the server holds, of any room
+version, so one legitimate foreign item refuses the whole answer. Tuwunel joins the first
+registered account to its own server admin room, which it creates as version 11
+(`!opaque:server`), and that one room stopped every team's side-room discovery.
+
+**How to fix a finding.** Check the list with the Matrix spec's grammar
+(`protocol.is_any_room_id`), so garbage is still refused, then select the entries the bus
+can use with `is_room_id` and name the rest where the caller can see them. Do not widen
+`is_room_id`: every room the bus creates or adopts is version 12.
+
 ---
 
 ## Changing a Gate
