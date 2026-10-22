@@ -83,7 +83,8 @@ const (
 	StateSent      = "sent"
 	StateSkipped   = "skipped"
 
-	ReasonRestart = "restart"
+	ReasonRestart      = "restart"
+	ReasonLaunchFailed = "launch-failed"
 )
 
 var (
@@ -91,6 +92,7 @@ var (
 	storeItems  = []string{records.KindHuman, records.KindPeer, records.KindPing, records.KindNotice, records.KindTimeout}
 	sendKinds   = []string{SendText, SendPing, SendNotice}
 	endReasons  = []string{"exit", "logout", "other"}
+	noneReasons = []string{ReasonRestart, ReasonLaunchFailed}
 	nonceRe     = regexp.MustCompile(`^[0-9a-f]{8}$`)
 	txnRe       = regexp.MustCompile(`^tc[0-9a-f]{32}$`)
 	sha256Re    = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -327,7 +329,7 @@ func (r *StoreRun) check(c *rules) {
 	}
 	c.need(validMS(e.AtMS), "run.ended.at_ms is not a time")
 	if e.Notice == NoticeNone {
-		c.need(e.Reason != nil && *e.Reason == ReasonRestart && e.State == StateSkipped && e.Txn == nil, "a run that posts nothing is a skipped restart with no txn")
+		c.need(e.Reason != nil && slices.Contains(noneReasons, *e.Reason) && e.State == StateSkipped && e.Txn == nil, "a run that posts nothing is a skipped restart or launch failure with no txn")
 		return
 	}
 	c.need(e.Notice == NoticeLeft || e.Notice == NoticeDisconnected, "run.ended.notice is not left, disconnected or none")

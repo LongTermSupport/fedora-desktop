@@ -364,3 +364,16 @@ func TestStoreListsRefuseOrRoll(t *testing.T) {
 		t.Fatalf("missed did not roll: %+v", s.Missed[0])
 	}
 }
+
+// A run that posts nothing is a skipped restart or launch failure (n3c-D20), never an exit.
+func TestRunEndedNone(t *testing.T) {
+	s := sampleStore(t)
+	s.Run.Ended = &RunEnd{Notice: NoticeNone, Reason: new(ReasonLaunchFailed), State: StateSkipped}
+	if _, err := s.encode(); err != nil {
+		t.Fatalf("a launch failure's run end: %v", err)
+	}
+	s.Run.Ended = &RunEnd{Notice: NoticeNone, Reason: new("exit"), State: StateSkipped}
+	if _, err := s.encode(); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("an exit that posts nothing: %v", err)
+	}
+}
