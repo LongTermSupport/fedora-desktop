@@ -61,9 +61,12 @@ loops judge a pure value (an empty name, a subnet) with no file behind it.
 
 The first draft cleared a function on any `Err*` name or any `.Code`/`.Is`; the conformance
 review proved two in-hazard shapes passed (cancel on `ErrInterrupted` then re-ask on all; print
-`.Code` then re-ask). Not caught now (recorded in the docs): a function that names `ErrUsage` but
-branches the wrong way round, a kind read of some other error, and a refusal re-wrapped in
-another error type before it is read.
+`.Code` then re-ask). The second draft cleared a function on any return that handed `.Code` on;
+conformance re-review 2 proved a code handed on for an interrupt only, every other kind re-asked,
+passed. Now a code handed on clears only the recovery whose block returns it unconditionally: a
+direct statement of the `if` body whose Init or Cond recovers, a later direct statement of the
+block whose assignment recovers, a direct statement of the type switch case. `ErrUsage` named
+anywhere still clears the function. Not caught now: see "Toolchain and detector gaps".
 
 ## Proof
 
@@ -73,7 +76,11 @@ real tree, 4 findings through the entry point (`scripts/qa-go-qa.bash -t analyze
 create/wizard.go:430, :600, :709, lxcadd/adder.go:548), reproduced by the conformance reviewer
 in a detached worktree. Tightening: three new `bad.go` shapes (cancels then re-asks, prints
 `.Code` then re-asks, `.Is(declare.ErrRefused)`) were red ("no diagnostic was reported" at
-bad.go:67, :76, :86) before the rule changed, green after. Owner's symptom: red at 0ca99358c by
+bad.go:67, :76, :86) before the rule changed, green after. Second tightening: the probe
+`stopsOnOneKindThenReasks` is red in a commit of its own, 7e40c23a9 (`TestRefusalKind`: "no
+diagnostic was reported" at bad.go:91), green at c47ad86d1 with three new hazard-free shapes in
+`good.go` (a code returned after an assignment, under `ok && de.Code != 0`, from a type switch
+case); the driver over both modules reports nothing there. Owner's symptom: red at 0ca99358c by
 `TestAMemberDeclaredAlreadyIsRecognisedAndTheTeamApplied` (lxcadd/declared_test.go), whose
 stderr held "entries 1 and 2 both declare agent@container-a in team alpha. Try again."; the
 capture is local (untracked/scratch), the test is the record.
@@ -88,18 +95,18 @@ maxTries, callers of every declare mutator, `ErrUsage`/`ErrRefused`) found the r
 which tell the kind apart; reading found what text cannot: declare.py gave file-state clashes
 exit 64, so even the loops that tell the kind apart would re-ask. Every outcome:
 
-| Candidate                                       | Outcome                                                                                                                                              |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A1 lxcadd `checked` (originating)               | Fixed, a0f763596; rule finding                                                                                                                       |
-| A2 lxcadd checkout loop via `LxcDerive`         | Fixed, a0f763596: `derive_lxc` gives a clash with the file's entries 78, and `checked` stops on it                                                   |
-| A3 create checkers                              | Fixed, 2bf348eab; rule findings `checked`, `isRefusal`, `askHumans`                                                                                  |
-| A4 settings `CheckSet` loop                     | Fixed in declare.py after the reviews: a team not declared present is 78; `set` gives 78 only for a key the change leaves alone                      |
-| A5 picker `inputDescription`                    | Not the hazard: its `Check` judges the description alone (field rules, 64), and it stops on any other kind                                           |
-| B1 `lxc-add` of a declared member (originating) | Fixed, a0f763596: UNCHANGED, or 78 naming the keys, `--update`                                                                                       |
-| B2 `create` of a declared team                  | Not the hazard: as asked it is UNCHANGED already; the name question is 64 (another name passes) and now names `ccy-teams apply <team>` as the way on |
-| B3 `add-repo` of a trusted repository           | Fixed, a0f763596: UNCHANGED                                                                                                                          |
-| B4 `drop-limit` re-run                          | Not the hazard: a removal, its only caller offers limited teams only and stops on the error                                                          |
-| B5 `admin.py add_member`                        | Not the hazard: registry and homeserver, no interactive retry                                                                                        |
+| Candidate                                       | Outcome                                                                                                                                                                         |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A1 lxcadd `checked` (originating)               | Fixed, a0f763596; rule finding                                                                                                                                                  |
+| A2 lxcadd checkout loop via `LxcDerive`         | Fixed, a0f763596: `derive_lxc` gives a clash with the file's entries 78, and `checked` stops on it                                                                              |
+| A3 create checkers                              | Fixed, 2bf348eab; rule findings `checked`, `isRefusal`, `askHumans`                                                                                                             |
+| A4 settings `CheckSet` loop                     | Fixed in declare.py after the reviews: a team not declared present is 78; `set` gives 78 only when the refusing rule reads no key the change sets (`_REFUSAL_READS`, 326d7e9b8) |
+| A5 picker `inputDescription`                    | Not the hazard: its `Check` judges the description alone (field rules, 64), and it stops on any other kind                                                                      |
+| B1 `lxc-add` of a declared member (originating) | Fixed, a0f763596: UNCHANGED, or 78 naming the keys, `--update`                                                                                                                  |
+| B2 `create` of a declared team                  | Not the hazard: as asked it is UNCHANGED already; the name question is 64 (another name passes) and now names `ccy-teams apply <team>` as the way on                            |
+| B3 `add-repo` of a trusted repository           | Fixed, a0f763596: UNCHANGED                                                                                                                                                     |
+| B4 `drop-limit` re-run                          | Not the hazard: a removal, its only caller offers limited teams only and stops on the error                                                                                     |
+| B5 `admin.py add_member`                        | Not the hazard: registry and homeserver, no interactive retry                                                                                                                   |
 
 The search's Go instances are all caught by the rule. The tightened rule found one more real-tree
 recovery, lxc-add's dry-run refusal in `summary` (adder.go:665), which stops with
@@ -121,7 +128,12 @@ All 4 examined individually. `lxcadd.Adder.checked`: re-asks only on `ErrUsage`,
 
 ## Decisions referred to the owner
 
-None.
+The rule is left narrower than the hazard: each shape under "Toolchain and detector gaps" still
+re-asks on a 78 and passes the rule. Closing them needs data flow (which branch re-asks, which
+error a kind is read of) or meaning (a re-ask told from another early return), which a
+syntactic `go/analysis` rule does not do; widening it to every retry loop would flag loops over
+values with no file behind them. What would close each is given with it below. The owner decides
+whether to keep the rule as it stands.
 
 ## Permanence
 
@@ -131,7 +143,15 @@ nothing; `qa-changed.bash` passes.
 
 ## Toolchain and detector gaps
 
-No manifest declaration for the Go toolchain. None in the detector.
+No manifest declaration for the Go toolchain. In the detector, each carrying the hazard (a 78
+asked again), listed in GoProjectRules.md "Not caught":
+
+| Shape                                                                                                      | Why the rule misses it                                             | What would close it                                                                  |
+| ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| `ErrUsage` named but branched the wrong way, or re-asked on with another kind (`ErrUsage \|\| ErrRefused`) | any use of `ErrUsage` clears; which branch re-asks needs data flow | an SSA pass: the re-ask's return reached only under `errors.Is(err, ErrUsage)` alone |
+| a kind read of some other error than the one recovered                                                     | error identity needs data flow                                     | the same pass, with the `errors.Is` operand tied to the recovered error              |
+| a re-ask in an earlier branch before the unconditional code return                                         | the return is direct, so it clears; a re-ask is meaning, not shape | a convention: re-asks only through one helper the rule can name                      |
+| a declare refusal re-wrapped in another error type before it is read                                       | the type is hidden behind the wrapper                              | `internal/declare` the only package that may wrap a `*declare.Error` (a seam rule)   |
 
 ## The original defect
 
