@@ -35,13 +35,18 @@ const (
 )
 
 var helpers = reexec.Helpers{
-	// flock holds LOCK_EX on its own description of the file Args[0] until released.
+	// flock holds a lock on its own description of the file Args[0] until released: LOCK_SH
+	// for Args[1] "sh", else LOCK_EX.
 	"flock": func(h *reexec.Helper) int {
 		f, err := os.OpenFile(h.Args[0], os.O_RDWR, 0)
 		if err != nil {
 			return 2
 		}
-		if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		how := unix.LOCK_EX
+		if h.Args[1] == "sh" {
+			how = unix.LOCK_SH
+		}
+		if err := unix.Flock(int(f.Fd()), how|unix.LOCK_NB); err != nil {
 			return 3
 		}
 		if err := h.Ready(); err != nil {
@@ -63,12 +68,19 @@ func check(t *testing.T, err error) {
 	}
 }
 
-type fakeClock struct{ sleeps []time.Duration }
+// fakeClock records each wait and runs onSleep, if set, in it.
+type fakeClock struct {
+	sleeps  []time.Duration
+	onSleep func()
+}
 
 func (c *fakeClock) Now() time.Time { return time.UnixMilli(nowMS) }
 
 func (c *fakeClock) Sleep(_ context.Context, d time.Duration) error {
 	c.sleeps = append(c.sleeps, d)
+	if c.onSleep != nil {
+		c.onSleep()
+	}
 	return nil
 }
 
@@ -247,11 +259,11 @@ func (w *world) pair() (bundle.Pair, error) {
 	return bundle.ReadPair(root, w.seat)
 }
 
-// hold holds seat.lock from a second real process until the test ends.
+// hold holds seat.lock LOCK_EX from a second real process until the test ends.
 func (w *world) hold() *reexec.Process {
 	w.t.Helper()
 	w.lockInode()
-	return reexec.Start(w.t, "flock", w.seat.Lock())
+	return reexec.Start(w.t, "flock", w.seat.Lock(), "ex")
 }
 
 // wantExit fails the test unless err is an error object with exit and code.
@@ -618,6 +630,25 @@ func TestRemoveUnderAHeldLock(t *testing.T) {
 	wantWhats(t, whats)
 	if !w.exists(w.seat.Token()) || w.lockInode() != ino {
 		t.Fatal("a held seat changed")
+	}
+}
+
+// LK1, GU5: a second process's momentary LOCK_SH, gone by the first wait, is waited out:
+// removal succeeds after one 50 ms wait, and seat.lock keeps its inode.
+func TestRemoveWaitsOutAMomentarySharedHold(t *testing.T) {
+	w := newWorld(t)
+	w.placed(1, loginOne)
+	ino := w.lockInode()
+	holder := reexec.Start(t, "flock", w.seat.Lock(), "sh")
+	w.clock.onSleep = holder.Release
+	whats, err := w.remove()
+	check(t, err)
+	wantWhats(t, whats, WhatSeat)
+	if !slices.Equal(w.clock.sleeps, []time.Duration{50 * time.Millisecond}) {
+		t.Errorf("sleeps %v, want one 50 ms wait", w.clock.sleeps)
+	}
+	if w.exists(w.seat.Token()) || w.exists(w.seat.Bundle()) || w.lockInode() != ino {
+		t.Fatal("the files were not removed, or seat.lock is a new inode")
 	}
 }
 
