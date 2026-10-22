@@ -308,6 +308,48 @@ func hasProblem(rec status.Record, prefix string) bool {
 	return slices.ContainsFunc(rec.Problems, func(p status.Problem) bool { return strings.HasPrefix(p.What, prefix) })
 }
 
+// membersProblem is a problem with prefix that names handle as its member: that member's own,
+// never the team's (FRAME, offline members never block).
+func membersProblem(rec status.Record, prefix, handle string) bool {
+	return slices.ContainsFunc(rec.Problems, func(p status.Problem) bool {
+		return strings.HasPrefix(p.What, prefix) && p.Member == handle
+	})
+}
+
+// teamProblems are the problems that name no member.
+func teamProblems(rec status.Record) []string {
+	var out []string
+	for _, p := range rec.Problems {
+		if p.Member == "" {
+			out = append(out, p.What)
+		}
+	}
+	return out
+}
+
+// An LXC member whose container is stopped, before and after its run ends, is shown offline and
+// adds no problem to the team (FRAME, offline members never block).
+func TestAStoppedMemberIsShownOfflineAndIsNoTeamProblem(t *testing.T) {
+	w := newWorld(t, "alpha")
+	w.run(t)
+	before := teamProblems(w.record(t, "alpha"))
+	w.guests.probes[lxcA] = GuestProbe{Stopped: true}
+	for range 3 {
+		w.clock.advance(time.Minute)
+		w.run(t)
+	}
+	rec := w.record(t, "alpha")
+	if rec.Members[1].Online == nil || *rec.Members[1].Online {
+		t.Fatalf("members %+v", rec.Members)
+	}
+	if got := teamProblems(rec); !slices.Equal(got, before) {
+		t.Fatalf("team problems %v, before %v", got, before)
+	}
+	if len(w.announcer.asked) != 1 {
+		t.Fatalf("asked %+v, want one notice", w.announcer.asked)
+	}
+}
+
 func TestNewRefusesAMissingPart(t *testing.T) {
 	if _, err := New(Config{}); err == nil {
 		t.Fatal("New with nothing succeeded")
@@ -835,7 +877,7 @@ func TestATransientFailureIsAskedAgain(t *testing.T) {
 	w.clock.advance(time.Minute)
 	w.run(t)
 	rec := w.record(t, "alpha")
-	if !hasProblem(rec, "the disconnected notice for "+lxcA+" is not posted yet") || lxcEntry(t, w).Posted {
+	if !membersProblem(rec, "the disconnected notice for "+lxcA+" is not posted yet", lxcA) || lxcEntry(t, w).Posted {
 		t.Fatalf("problems %v", whats(rec.Problems))
 	}
 	w.announcer.err = nil
@@ -860,7 +902,7 @@ func TestALaunchFailureIsNeverAnnounced(t *testing.T) {
 	}
 	rec := w.record(t, "alpha")
 	if !slices.ContainsFunc(rec.Problems, func(p status.Problem) bool {
-		return p.What == lxcA+" launch-failed" && p.Fix == "ccy-teams restart "+lxcA
+		return p.What == lxcA+" launch-failed" && p.Fix == "ccy-teams restart "+lxcA && p.Member == lxcA
 	}) {
 		t.Fatalf("problems %v", whats(rec.Problems))
 	}
@@ -907,7 +949,7 @@ func TestAGuestProbeThatFailsIsAProblem(t *testing.T) {
 	w.guests.err = errors.New("no pid")
 	w.run(t)
 	rec := w.record(t, "alpha")
-	if *rec.Members[1].Online || !hasProblem(rec, "the seat of "+lxcA+" could not be probed") {
+	if *rec.Members[1].Online || !membersProblem(rec, "the seat of "+lxcA+" could not be probed", lxcA) {
 		t.Fatalf("problems %v", whats(rec.Problems))
 	}
 }

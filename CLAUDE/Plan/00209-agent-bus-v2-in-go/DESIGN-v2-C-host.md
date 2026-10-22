@@ -100,14 +100,14 @@ fixes in section 6.
 
 ### 2.5 Declarations, the play, LXC
 
-| ID  | Requirement                                                                                                                                                                                                                                                                                                               | From                   |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| C28 | host_vars stays the IaC store; the play is the one route that turns a declaration into a running team. v2 keys are its own; v1's keys are never written by v2, and the one read is `agent_bus_teams[].port` by `declare check` (D §3.8).                                                                                  | D6, R2, FRAME          |
-| C29 | Every change that runs a play or writes host_vars takes the play lock first and writes host_vars only once it holds it.                                                                                                                                                                                                   | R34                    |
-| C30 | The declaration has one truth per fact: the team's coordinator is declared in one place, not in both a roster and a member entry, and a coordinator can be declared before its member exists.                                                                                                                             | LR 6 item 6, new       |
-| C31 | LXC members are applied by the play from the host. The container's checkout and accounts are read from the host side with no-follow walks and size caps. No container program runs as root, and no container needs Python.                                                                                                | R33, R48, LR 6 item 10 |
-| C32 | A stopped LXC container is ordinary (its member held back and recorded); only a missing container in the present phase, or a failure in a running one, fails the apply (the absent phase parks a missing container's member, 3.9.2). Everything checkable is checked for every running container before anything changes. | R33, R48, LR 1.5       |
-| C33 | Kits are versioned directories resolved once at launch, never replaced in place under a running session.                                                                                                                                                                                                                  | R49, DESIGN B9         |
+| ID  | Requirement                                                                                                                                                                                                                                                                                                                                                                                              | From                   |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| C28 | host_vars stays the IaC store; the play is the one route that turns a declaration into a running team. v2 keys are its own; v1's keys are never written by v2, and the one read is `agent_bus_teams[].port` by `declare check` (D §3.8).                                                                                                                                                                 | D6, R2, FRAME          |
+| C29 | Every change that runs a play or writes host_vars takes the play lock first and writes host_vars only once it holds it.                                                                                                                                                                                                                                                                                  | R34                    |
+| C30 | The declaration has one truth per fact: the team's coordinator is declared in one place, not in both a roster and a member entry, and a coordinator can be declared before its member exists.                                                                                                                                                                                                            | LR 6 item 6, new       |
+| C31 | LXC members are applied by the play from the host. The container's checkout and accounts are read from the host side with no-follow walks and size caps. No container program runs as root, and no container needs Python.                                                                                                                                                                               | R33, R48, LR 6 item 10 |
+| C32 | A stopped, frozen or missing LXC container is ordinary (its member held back and recorded `offline`, or `deferred` when it has no handle yet), and so is one that stops during the apply; only a failure in a container still running fails the apply (the absent phase parks a missing container's member, 3.9.2). Everything checkable is checked for every running container before anything changes. | R33, R48, LR 1.5       |
+| C33 | Kits are versioned directories resolved once at launch, never replaced in place under a running session.                                                                                                                                                                                                                                                                                                 | R49, DESIGN B9         |
 
 ### 2.6 Element, health, backups, the board
 
@@ -795,7 +795,8 @@ decoded strictly (unknown or duplicate keys refused, sizes capped, exit 78 namin
 - `counters` never go down, even when an account creation fails (R9).
 - `coordinator` is the role last applied; the truth is the declaration (3.8, DC6).
   `coordinator_wanted` is a declared coordinator whose handle is not yet in the roster, or is
-  `lost` (3.6.4): a recorded pending promotion, shown on the board as a problem with its fix.
+  `lost` (3.6.4): a recorded pending promotion, shown on the board as team state with its fix,
+  never as a problem.
 - `pending` is the one operation in progress, if any:
   `{"op": "member.add", "handle": "<h>", "step": "account", "since_ms": 0}`. It is written before
   the first homeserver call of an operation and cleared after the last.
@@ -969,9 +970,12 @@ exists (C30), and `role apply` handles it as follows:
 - A declared coordinator that is an `active` or `parked` handle is promoted now.
 - A declared coordinator that is not in the roster, or is `lost` (3.12.2), is recorded as
   `coordinator_wanted` (3.6.1),
-  and the status record lists it as a problem with its fix ("coordinator `<handle>` declared but
-  not yet a member: start its session, run the LXC apply, or `member return` it"). The team runs with no coordinator
-  meanwhile. This is a recorded pending state the board shows, not a skip.
+  and the status record shows it as team state (its `coordinator_wanted`, 3.11.3), not as a
+  problem, with its fix ("coordinator
+  `<handle>` declared but not yet a member: start its session, run the LXC apply, or
+  `member return` it"). It never makes the team's health bad or `status` exit 1: a member declared
+  but not created yet is offline (FRAME, "Offline members never block"). The team runs with no
+  coordinator meanwhile. This is a recorded pending state the board shows, not a skip.
 - The promotion is done at the end of the operation that creates that handle: `member add` or
   `member return` (3.6.3), or `lxc apply` (3.9.2 step 6), each under the team lock, demotion
   first as above. That operation clears `coordinator_wanted`.
@@ -1598,8 +1602,9 @@ lock and runs the play scoped to the team, as v1 does. The play stays the one ro
 
 The rules the apply keeps from v1 (R33, R48, LR 1, LR 6): the checkout is read from the host side;
 everything checkable is checked for every running container before anything changes; demotions
-before promotions; a stopped container is ordinary and a missing one is an error in the present
-phase (the absent phase parks its member, 3.9.2); a running and
+before promotions; a stopped container is ordinary, and so, unlike v1, is a missing one: its
+entry is held back and every other entry is applied (3.9.3; the absent phase parks its member,
+3.9.2); a running and
 correct member is left alone (no new token on every run).
 
 What changes: no container program ever runs as root, and no container needs Python. There are
@@ -1666,8 +1671,9 @@ any group but the agent user's own, and refuses to run as uid 0.
 
 01. Validate every entry (types, `(team, container, user)` unique, team declared present and its
     homeserver active) before touching any container.
-02. For each container: `lxc-info -sH`. Missing fails the present phase. Not `RUNNING` is held
-    back (3.9.3).
+02. For each container: `lxc-info -sH`. Not `RUNNING` (stopped or frozen) is held back, and so is
+    missing, its line saying `container missing` (3.9.3). Neither fails the phase, under any
+    `--only-teams` scope: the other entries are applied as if alone.
 03. For each running container, read from the host side and change nothing yet:
     - the container config (a host file, root-owned): network link, `lxc.start.auto`; an
       unprivileged (`lxc.idmap`) container is refused by name, as v1 does;
@@ -1685,7 +1691,11 @@ any group but the agent user's own, and refuses to run as uid 0.
       Every read opens `O_PATH` first and `fstat`s it: anything but a regular file is refused by
       name. Only then is that inode reopened `O_RDONLY|O_NONBLOCK` through `/proc/self/fd/<n>`
       (device and inode checked again) and read, up to its cap, so a FIFO is never opened and the
-      host never becomes its reader. A stopped container is not read at all (3.9.3);
+      host never becomes its reader. A stopped container is not read at all (3.9.3). The init
+      pid is held by a pidfd and asked again once the root fd is open: a container that stopped
+      or restarted meanwhile, or whose pid changed, is that entry's
+      `DEFERRED<TAB><team><TAB><user>@<container><TAB>container stopped during the apply`, retried at the next apply, never
+      the phase's failure;
     - the agent user from `/etc/passwd` (uid, gid, home), at most 1 MiB;
     - the checkout: `.git/config` (`origin`; `insteadOf` rewrites refused), and
       `.claude/ccy/ccy.env.local` (owned by the agent user's uid, else refused), each at most
@@ -1724,8 +1734,8 @@ any group but the agent user's own, and refuses to run as uid 0.
 05. Guest check: `teamchat guest check --user <user> --team <team>` as the agent user in each
     running container, with `{"v":1,"team","base_url","plain_http_hosts"}` from the team's
     declaration on stdin for `reach` (what the member needs to work, for example the forge CLI
-    signed in; area B defines the list, B 2.13). Any failure fails the phase before any roster
-    change.
+    signed in; area B defines the list, B 2.13). Any failure in a container still running fails
+    the phase before any roster change (but see "A container that stops during the phase" below).
 06. Roster changes, under each team's lock in turn: every demotion of every team first, then every
     join (`member add`, `return` or `reissue` with `--credential token`, as the state requires,
     3.6.3), then every promotion, including each team's `coordinator_wanted` that one of these
@@ -1755,6 +1765,18 @@ any group but the agent user's own, and refuses to run as uid 0.
     apply places the new one.
 09. Supervised session (`service: true`): see 3.9.4.
 10. Write the LXC record (3.9.3), only after the phase succeeded and only when it changed.
+
+**A container that stops during the phase** is offline, never the phase's failure. An
+`lxc-attach` that fails or times out (each has a 60 s bound), a step 04 kit write or a 3.9.4
+systemd call that fails, is followed by `lxc-info -sH`: a container no longer running prints that
+entry's `DEFERRED<TAB><team><TAB><user>@<container><TAB>container stopped during the apply`, and
+the other entries carry on; only a failure in a container still running fails the phase. An entry
+deferred mid-phase takes no further step. Its record status is `offline` when a handle exists,
+its step 06 join included (never a second `add`), else `deferred`; when
+its bundle was not placed, the roster member is marked `needs: reissue` (3.6.1), and step 06 of the
+first apply that finds the container running runs `member reissue` for it. An entry deferred
+before step 08 is left out of that step's `seats`, in the host copy and the guest's file alike;
+one deferred at step 09 keeps its seat, its bundle being placed.
 
 **The absent phase** runs first in the play, before any team is removed (3.5.1 step 10), so a
 leaving member is parked on a live server. A member leaves when its entry says `state: absent`,
@@ -1806,13 +1828,15 @@ in the play and which the health unit is given for this one purpose (3.11.1).
 
 #### 3.9.3 Stopped containers and the record
 
-A container that exists but is not running is never entered and never fails the apply (C32):
+A container that is not running (stopped or frozen), or is missing, is offline: it is never
+entered and never fails the apply (C32). A missing one's line says `container missing`:
 
-- present, with a handle the record knows: `SKIPPED` (its seat is still claimed, so no one else gets
-  the number);
+- present, with a handle the record knows: `SKIPPED`, status `offline` (its seat is still claimed,
+  so no one else gets the number);
 - present, with no known handle: `DEFERRED` (the team's seat choice then refuses to hand out a
   number that could be this member's, as v1's `unheld_ok` did);
-- absent: parked from the host side, `DEFERRED` for the guest's files.
+- absent: parked from the host side, `DEFERRED` for the guest's files (a missing container's
+  entry is dropped, 3.9.2).
 
 Output: `CHANGED|SKIPPED|DEFERRED<TAB><team><TAB><user>@<container><TAB><why>` lines and one
 `LXC-SUMMARY<TAB><text>`; the play shows the held-back lines in a task of their own, so they show
@@ -1825,7 +1849,7 @@ change:
 {"v": 1, "team": "<team>", "members": [{"container": "<c>", "user": "<u>", "handle": "<h>", "status": "joined", "since_ms": 0, "why": ""}]}
 ```
 
-`status` is `joined`, `stopped`, `deferred` or `left`; `since_ms` stays while status and handle stay.
+`status` is `joined`, `offline`, `deferred` or `left`; `since_ms` stays while status and handle stay.
 The record is the host's map from (container, user, team) to handle, so the guest's bundle is a copy
 of what the host knows, not the only place it is known (LR 7 item 4). A record ccy-teams cannot read
 fails `apply` and `lxc-add` and shows on the team row.
@@ -2001,7 +2025,8 @@ Step 3 also probes each LXC member's seat lock (3.9.2) for its `online` entry.
    The questions room is checked item by item, as Plan 00211 5.4 did: no worker is joined or
    invited to it, the coordinator (when the roster has one that is not parked) is joined, and the
    room has the form, open or closed, that A's specs give for the roster (A §4.3); each is its own
-   problem. The read-only child never completes a `pending` operation (3.6.3): it reports it as a
+   problem, and one about the coordinator's own membership (still only invited, say) carries its
+   `member` (3.11.3). The read-only child never completes a `pending` operation (3.6.3): it reports it as a
    problem whose fix is the verb that rolls it forward.
 4. Backups: the newest usable backup (both halves present) and its age; a backup older than 1.5 days,
    or a failed last run, is a problem. Free space on the filesystem of `/var/lib` (every team's
@@ -2059,7 +2084,8 @@ restore, so the board sees a change at once:
   "backup": {"newest": {"id": 7, "time_ms": 0}, "last_run": "ok"},
   "disk": {"free_bytes": 0, "free_pct": 0},
   "restore": null,
-  "problems": [{"what": "<what is wrong>", "fix": "<what to run>"}],
+  "coordinator_wanted": null,
+  "problems": [{"what": "<what is wrong>", "fix": "<what to run>"}, {"what": "<what is wrong>", "fix": "<what to run>", "member": "<handle>"}],
   "events": [{"at_ms": 0, "what": "restarted after three missed probes"}]
 }
 ```
@@ -2074,7 +2100,13 @@ restore, so the board sees a change at once:
 - `online` is present on LXC member entries only: the tick's probe of the member's seat lock
   (3.11.2), up to about 70 s old. An entry whose disconnected notice could not be posted carries
   it as a problem, and one whose last run's lock file records a launch failure carries
-  `launch-failed` as a problem (3.9.4).
+  `launch-failed` as a problem (3.9.4); each such problem names the entry's handle in `member`.
+- `coordinator_wanted` is null, or `{"handle": "<handle>", "fix": "<what to run>"}`: the roster's
+  `coordinator_wanted` (3.6.1) with 3.6.4's fix. It is team state the board shows, never a problem,
+  so it never makes the team's health bad.
+- A problem may carry `member`, the handle of one of `members`: a problem about that one member,
+  shown on its entry and never the team's health (`SPEC-n2e.md` SR1). A problem with no `member`
+  is a team problem.
 - `disk` is the free space of `/var/lib`'s filesystem at the tick (3.11.2 step 4).
 - `restore` is null, or `{"step": "<step>", "backup": N, "pre": M}` copied from `restore.json`
   (3.12.2), with the problem "restore staged" (fix: `restore --resume` or `--discard`) or
@@ -2089,7 +2121,10 @@ restore, so the board sees a change at once:
 - Room purposes are A's; the record carries whatever purposes A's specs name. The names `main`,
   `reports` and `questions` above are v1's, used as examples only.
 - No token, password or device ID is in it (device IDs stay behind `human devices`, DESIGN B2).
-- `teamchat-admin status [<team>...]` prints these records for a human, and exits 1 if any has a problem.
+- `teamchat-admin status [<team>...]` prints these records for a human, and exits 1 if any has a
+  team problem (one with no `member`). A member's problem is printed on that member's row and
+  never changes the exit code: an offline member never makes its team's health bad (FRAME,
+  "Offline members never block").
 
 This record replaces v1's NOPASSWD reader design (DC4). Checked against what the owner needs:
 
@@ -2207,7 +2242,7 @@ no revoked credential is ever served.
     the staging unit's network namespace and nothing else, run by `systemd-run --pipe --wait`, with
     `IPAddressDeny=any` and `IPAddressAllow=127.0.0.1/32 ::1/128`, so it reaches the
     staged instance on loopback and nothing else. Root sends it on stdin, in one `restore.secure` request, the tar's `admin.token` (the admin token
-    the restored database knows) and the merged roster. It waits for the staged instance to answer
+    the restored database knows), the tar's `rooms.json` and the merged roster. It waits for the staged instance to answer
     on its loopback and applies the merged roster's revocations to it: every handle `retired` is
     kicked from every room and deactivated; every handle `parked` and every member with
     `needs: reissue` is revoked (password reset with device logout), which includes every
@@ -2220,8 +2255,11 @@ no revoked credential is ever served.
     change only `password` and `token`, so every seat's `teamchat.floor` resume marker (B 2.3.2)
     stays as backup `N` holds it. A restore can therefore only move a seat's resume point back,
     never forward, and a held seat re-logged after it resumes store-less from that marker and
-    `released_ms` (B 2.6 steps 01 and 08, B 6 C13). Root stops the staging unit and records
-    `"step": "staged"`.
+    `released_ms` (B 2.6 steps 01 and 08, B 6 C13). The child's `restore.check` then reads the
+    roster event back from the staged copy and must find the merged `restore_epoch` and `rev`.
+    `restore.check` is given the tar's `rooms.json` too, as `restore.secure` and `restore.swap`
+    are, so both act on the main room the backup has, which may differ from today's. Root stops
+    the staging unit and records `"step": "staged"`.
 06. **Pre-restore backup.** Back up the team as it is, `M`, through the internal backup function
     under the held team lock (3.4), while the live homeserver serves (C36), and record `"pre": M`.
     The order matters: Tuwunel keeps `database_backups_to_keep` backups (3.2.4) and prunes the
@@ -2244,7 +2282,11 @@ no revoked credential is ever served.
     directly (3.2.2). Root's own state is not touched. Record `"step": "start"` (fsync), and only
     then remove the block. The block covers only the renames: the database now in place is the
     secured one, so a crash or a boot from here on serves no revoked credential.
-09. **Start.** Start, wait ready, assert listening, and run the normal bootstrap (3.6.2), which
+09. **Start.** Start, wait ready, assert listening, check the served roster event by
+    `restore.check` against the live homeserver with the rooms now in the control state (the
+    tar's, swapped in at step 8): its
+    `restore_epoch` is the merged one and its `rev` at least the merged one, since a bootstrap
+    run before a kill may have written the next; then run the normal bootstrap (3.6.2), which
     converges the rooms (a room created after `N` is gone from the database and is recreated or
     adopted).
 10. **Clean up.** Delete `db.previous`, `config.restore.toml` and the `*.previous` files
@@ -2276,7 +2318,10 @@ against the directory before it is made, so a second resume is harmless:
 - `"step": "swap"` (the block is there): go forward. Every rename not yet made is made, the
   control swap is repeated (the child's writer is idempotent), and steps 9-10 run. Going forward
   is safe because the staged copy was secured in step 5.
-- `"step": "start"` (the block is gone, the secured database in place): steps 9-10.
+- `"step": "start"` (the secured database in place): remove the block if it is still there (a kill
+  between step 8's `start` record and its removal leaves it), then steps 9-10. Removing it is safe
+  because `start` is recorded only after the renames and the control swap are done; otherwise the
+  start would fail on the block at every resume.
 
 The status record shows the team as "restore staged" or "restore interrupted", with the fix. So no
 crash leaves a team serving an empty database or a revoked credential, no failure loses `N`, and no

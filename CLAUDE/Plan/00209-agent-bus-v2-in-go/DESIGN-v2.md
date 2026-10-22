@@ -17,7 +17,9 @@ copied:
 The frame the four were written to is [DESIGN-v2-FRAME.md](DESIGN-v2-FRAME.md). This file holds what
 only the integration can say: how the chapters meet (section 3), the names (4), the contradictions
 found and how each was settled (5), the cost (6), the owner decisions (7), and the traceability of
-v1's requirements (8).
+v1's requirements (8). The frame's section
+[Offline members never block](DESIGN-v2-FRAME.md#offline-members-never-block-binding) binds every
+chapter and wins over any chapter text that makes an offline member block.
 
 ## 1. The owner's directions
 

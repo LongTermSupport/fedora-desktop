@@ -68,6 +68,73 @@ properly. Sources:
 Each area states, for every requirement it carries, where it came from. For every v1 behaviour
 it drops, it states why. For every new idea, it states what it fixes.
 
+## Offline members never block (binding)
+
+The owner's rule: a team supports members that are not running. Members go offline and come back
+as normal lifecycle. An offline member is shown clearly as offline, and it never blocks anything.
+Where a chapter or a spec says otherwise, this section wins until that text is amended.
+
+**Offline**, and so shown, is liveness as A R27 defines it (the seat lock; presence only displays
+it), for any member kind:
+
+- no session holds the seat: its seat lock is free, the ccy or host session is stopped, the LXC
+  container is stopped or missing, or the session unit is down;
+- a pool seat that no session holds;
+- a member declared but not created yet: `coordinator_wanted` (C 3.6.4), or an LXC entry
+  `deferred` because its container is not running (C 3.9.3).
+
+**Never blocked on** is that list and also these states of a member whose seat may be held, which
+are shown as what they are (B 2.9's marks, the member's row), never as offline: its link `failed`,
+its team `down` or stopped on a failure (B 2.4.2, B 2.6 step 08), a sync that has been quiet for
+any length of time, and a coordinator still only invited to the questions room.
+
+**The rule.** No play, deploy, `team apply` or `remove`, `lxc apply`, admin or ccy-teams verb,
+health tick, backup, restore, migration step, acceptance, QA check, send, ask, or another member's
+verb may fail, refuse, exit non-zero, or wait because a member is in any of these states. In
+particular:
+
+- an operation over many members takes each on its own: an offline member is skipped or deferred
+  and named in the output, never the end of the operation;
+- nothing waits for an offline member: no wait for its ack, receipt, answer, drain, presence or
+  restart, bounded or not; a ping to it is sent and its one TIMEOUT comes at the deadline (A 8.3);
+  a probe of one member (its seat lock, its container) is bounded, and past the bound it is that
+  member's own problem, never a stalled operation;
+- an offline member never makes its team's health bad: the team's status, its exit code and the
+  board's team row count only team faults (homeserver, backups, disk, drift, a pending operation,
+  an expired record, the security watch);
+- nothing repeats for it: one `disconnected` per run (A 7.4), one TIMEOUT per silent target, no
+  notice or problem re-raised per tick beyond the one entry that shows its state.
+
+**The one exception.** An operation that explicitly targets that one member may wait, bounded, or
+refuse, for that member alone and naming it: `member park|retire|return|reissue`, `lxc restart`,
+`ccy-teams restart <handle>`, a release or removal of its seat. A member's own verbs report its own link or team being down (exit 69 or 20, B BD2); that
+is the member reporting itself, not one member blocking another.
+
+**How an offline member is shown.**
+
+- The status record (C 3.11.3): each member entry, with `online` on an LXC entry from the tick's
+  probe; ccy and host members' seat locks probed live by the board (C 3.13). A problem about one
+  member's liveness (its launch failed, its seat cannot be probed, its `disconnected` notice is
+  not posted yet) carries `member` and is shown on that member's row, never as the team's
+  (`SPEC-n2e.md` SR1, HT6), and so is a coordinator still only invited (VW5). A team reader
+  judges the team by `status.View.TeamProblems()` alone.
+- `lxc apply`'s `SKIPPED` and `DEFERRED` lines and the LXC record's `offline` (a stopped,
+  frozen or missing container), `deferred` and `left` (C 3.9.3, `SPEC-n3.md` LX2 and LX9).
+- In the rooms: the one `disconnected` and the `back` that follows it (A 7.4), and Matrix
+  presence, which is display only (A 6.6).
+
+**Who must honour it** (the audit, `subagent-reports/261022-offline-members-audit.md`, lists each
+place and its fix): A 3.2 (a raise never refuses for an offline member's old kit; the roster
+change it makes is listed under `features`, so by A 3.1 a returning member whose kit does not know
+it treats its own team as untrusted, naming the upgrade, until its kit is upgraded); C 3.6.4 (`coordinator_wanted` is
+shown, not a team problem), C 3.9.1, 3.9.2 and 3.9.3 (a missing container, or one that stops during the
+phase, is deferred, not a phase failure), C 3.11.2 and 3.11.3 (member-scoped problems; `status`
+exits 1 only on team problems); D 5.4 (M0 treats an unreadable rootfs as `server-only`; M6
+restarts only the sessions running at M6), D 5.7 step 4 (rollback waits only for members whose
+process is up), D 6.1 A7 (the probe targets a live member, else `not run: no live member`, not a
+failure); `SPEC-n3.md` LX2, LX3, LX6 and LP1. Each area's tests carry the row: a team with one
+member stopped applies, sends, asks, backs up, restores, migrates and reports healthy.
+
 ## The four areas and their seams
 
 | Area                         | File                       | Owns                                                                                                                                                                                                                                                                                                                                                                                                          |

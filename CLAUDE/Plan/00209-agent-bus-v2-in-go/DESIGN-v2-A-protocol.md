@@ -300,12 +300,17 @@ same release:
    every major it knows (a roster without the key means 1, so old rosters stay valid);
 2. members that accept majors 1 and 2 and still send 1;
 3. C's raise operation, which derives what each non-removed member accepts from the `teamchat`
-   version it recorded for that seat (6.6) and refuses while any does not accept 2, naming it;
-4. then the admin rewrites the roster with `"send": 2`, and once no member sends 1, a later release
+   version it recorded for that seat (6.6) and refuses while any live member (its seat lock held,
+   R27) does not accept 2, naming it. An offline member on an old kit never holds the raise back:
+   it is named as lagging;
+4. then the admin rewrites the roster with `"send": 2`, listing `proto` under the roster's
+   `features`, so by 3.1 a returning member whose kit does not know it treats its own team as
+   untrusted, naming the upgrade, until its kit is upgraded; and once no member sends 1, a later release
    may stop accepting it.
 
-The first feature follows the same path: C adds it only when every non-removed member's version
-knows it.
+The first feature follows the same path: C adds it only when every live member's version knows it.
+An offline member whose kit does not know it is named as lagging, and on its return treats its own
+team as untrusted, naming the upgrade, until its kit is upgraded (3.1).
 
 ### 3.3 Why this design
 
@@ -746,7 +751,7 @@ which nothing trusts:
 and records the version each seat runs (R8, R49), so a raise operation, once a second major brings
 one (3.2), derives what each
 member accepts from that record: nothing is published on the wire for it, and an offline member does
-not block a raise by being silent.
+not block a raise, by being silent or by an old kit (3.2).
 
 **Why presence, and the alternative.** v1 published a `listening` state event per member every 300
 s. That needs a state type open to agents (an exception to I3), lets any member write it under a

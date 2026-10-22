@@ -416,6 +416,29 @@ func TestTheCoordinatorNotJoinedIsAProblem(t *testing.T) {
 	}
 }
 
+// VW5 and the offline rule (FRAME): a coordinator invited to questions whose session has not run
+// since is shown by its membership and by a problem of its own, never the team's.
+func TestAnOfflineCoordinatorInvitedIsNoTeamProblem(t *testing.T) {
+	w := newWorld(t)
+	if err := w.seat(t, coord).Leave(t.Context(), w.rooms.Questions); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.admin.Invite(t.Context(), w.rooms.Questions, user(coord)); err != nil {
+		t.Fatal(err)
+	}
+	v := w.read(t)
+	want := status.Problem{
+		What: "the coordinator " + coord + " has not joined the questions room yet", Fix: "ccy-teams restart " + coord, Member: coord,
+	}
+	if !slices.Equal(v.Problems, []status.Problem{want}) {
+		t.Fatalf("problems %+v", v.Problems)
+	}
+	i := slices.IndexFunc(v.Members, func(m status.Member) bool { return m.Handle == coord })
+	if i < 0 || v.Members[i].Rooms[proto.PurposeQuestions] != "invite" {
+		t.Fatalf("members %+v", v.Members)
+	}
+}
+
 // VW5: the questions room's form is not the roster's.
 func TestTheQuestionsRoomsFormIsChecked(t *testing.T) {
 	w := newWorld(t)
