@@ -1,1 +1,1 @@
-GO-DEPS-OK 18 module(s) allowlisted (1 at a pseudo-version, 0 replaced); go.sum verified, tidy, vendor/ in sync (674 files)
+GO-DEPS-OK 20 module(s) allowlisted (1 at a pseudo-version, 0 replaced), 1 keepout(s) held; go.sum verified, tidy, vendor/ in sync (703 files)

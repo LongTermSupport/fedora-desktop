@@ -81,6 +81,9 @@ func TestAPackageClearOfItsKeptOutModulePasses(t *testing.T) {
 	if !slices.Equal(list, want) {
 		t.Fatalf("go list argv %q, want %q", list, want)
 	}
+	if line := r.out.String(); !strings.Contains(line, "), 1 keepout(s) held; go.sum verified") {
+		t.Fatalf("the pass line does not count the keepout row: %q", line)
+	}
 }
 
 func TestAPackageThatReachesItsKeptOutModuleFails(t *testing.T) {

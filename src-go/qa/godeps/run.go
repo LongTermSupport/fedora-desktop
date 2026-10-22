@@ -201,8 +201,8 @@ func deps(root string, env Env, out, errOut *emit.Emitter) ExitCode {
 	if len(v.unjudged) > 0 {
 		return ExitCannotRun
 	}
-	out.Line(fmt.Sprintf("GO-DEPS-OK %d module(s) allowlisted (%d at a pseudo-version, %d replaced); go.sum verified, tidy, vendor/ in sync (%d files)",
-		v.modules, v.pseudo, v.replaced, files))
+	out.Line(fmt.Sprintf("GO-DEPS-OK %d module(s) allowlisted (%d at a pseudo-version, %d replaced), %d keepout(s) held; go.sum verified, tidy, vendor/ in sync (%d files)",
+		v.modules, v.pseudo, v.replaced, len(v.keepouts), files))
 	return ExitOK
 }
 
