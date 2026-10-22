@@ -19,7 +19,8 @@ var errUnknown = errors.New("failpoint: " + envName + " names no known point")
 var known = map[Name]bool{
 	KeeperLinkWriting: true, LinkInRemove: true, LinkAfterRemoveAnswered: true, LinkAfterHandOut: true,
 	LinkWhileHanded: true, KeeperBeforeStoreDelete: true, LinkMidEndSends: true, KeeperBeforeEnd: true,
-	LinkAfterJudgeBeforePersist: true,
+	LinkAfterJudgeBeforePersist: true, LinkAfterAuth: true, LinkAfterAwaiting: true, LinkAfterUserLine: true,
+	LinkBetweenStoreWrites: true, LinkAfterMissing: true,
 }
 
 // armed is the process's armed points, read once.
