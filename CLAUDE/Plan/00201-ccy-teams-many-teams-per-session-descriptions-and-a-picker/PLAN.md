@@ -310,8 +310,9 @@ a repository is no longer offered for a checkout of it. Report:
     `ccy/membership/.../membership.json` at 109 and 315.
   - `_acceptance-m6.inc.bash`: the `✓`/`✗` marks at 281, 282, 341, 363 and 387;
     `membership.json` at 94.
-  - `m2-check.bash:25`: `HOME_IN=/tmp/pingbus-home`.
-  - `_triage-hs.inc.bash`: `/tmp/pingbus-home/watch.log` at 157, 161 and 171.
+  - `m2-check.bash`: `MOUNT=/run/ccy/membership` at 24, `HOME_IN=/tmp/pingbus-home` at 25,
+    `membership.json` at 86, 95, 116, 121 and 123.
+  - `_triage-hs.inc.bash`: `/tmp/pingbus-home/watch.log` at 157, 161, 162 and 171.
   - Also Plan 00161's `triage_probe.pinned_tuwunel_version`, which repeats
     `declare.declared_software`'s inline pin parse (round 2 F3). Both are strict, but they
     can drift, so declare.py should expose the reader.
