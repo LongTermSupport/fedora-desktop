@@ -1208,8 +1208,8 @@ class StoppedContainerTest(StoppedFixture):
         self.assertEqual(self.kinds(), [("DEFERRED", TEAM, "agent@box2")])
         why = self.reports[0].why
         self.assertIn("box2 is STOPPED", why)
-        self.assertIn("start it", why)
-        self.assertIn("not to declare it yet", why)
+        self.assertIn("it is offline", why)
+        self.assertNotIn("start it", why)
         self.assertEqual(sorted(self.bus.members), [HANDLE])
         self.assertEqual(self.item("box2")["status"], "deferred")
         self.assertEqual(self.guests["box2"].agent_runs, [])
@@ -1461,6 +1461,10 @@ class MarkerLinesTest(StoppedFixture):
         self.assertTrue(lines[-1].startswith("LXC-SUMMARY\t"), lines)
         self.assertIn("agent@devbox (team-a, skipped)", lines[-1])
         self.assertIn("agent@box2 (team-a, deferred)", lines[-1])
+        # An offline member is named offline, never a reason to start it (offline-member-blocks).
+        self.assertIn("it is offline, and joins on the first run", lines[1])
+        self.assertIn("LXC member(s) offline", lines[-1])
+        self.assertNotIn("start it", out.getvalue())
 
     def test_no_summary_when_nothing_was_held_back(self) -> None:
         out = io.StringIO()

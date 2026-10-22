@@ -696,8 +696,8 @@ def summary(reports: Sequence[Report]) -> str:
     """The one line after the members' lines that says what was held back (L7)."""
     words = {"SKIPPED": "skipped", "DEFERRED": "deferred"}
     named = ", ".join(f"{r.label} ({r.team}, {words[r.kind]})" for r in reports)
-    return (f"{len(reports)} LXC member(s) not reached, their containers not running: {named}. Nothing "
-            "failed; the first run with each container up brings it in line")
+    return (f"{len(reports)} LXC member(s) offline, their containers not running: {named}. Nothing "
+            "failed; the first run with each container online brings it in line")
 
 
 def record_item(record: Mapping | None, member: Member) -> Mapping | None:
@@ -742,8 +742,8 @@ def skipped_why(member: Member, state: str, handle: str) -> str:
 def deferred_why(member: Member, state: str, handle: str | None) -> str:
     known = (f"and this host has no record that it joined team {member.team}" if handle is None else
              f"and its handle {handle} is not an active member of team {member.team}")
-    return (f"LXC container {member.container} is {state}, {known}: start it, then run the play again "
-            f"(ccy-teams apply {member.team}) to join it, or choose not to declare it yet")
+    return (f"LXC container {member.container} is {state}, {known}: it is offline, and joins on the first "
+            f"run (ccy-teams apply {member.team}) with its container online")
 
 
 def merge_record(previous: Mapping | None, team: str, declared: Sequence[Member], seen: Sequence[Seen],
