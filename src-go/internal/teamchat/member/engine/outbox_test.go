@@ -146,6 +146,31 @@ func TestSD4_1OneTimeoutPerSilentAddresseePastTheGrace(t *testing.T) {
 	}
 }
 
+// A TIMEOUT is made by this member's clock, not fetched from the server, so B 2.3.2's floor rule
+// does not count it: owed, it does not pull main's floor down to itself on the next batch, and
+// acked, it does not raise the floor past what the server has handed (an outage's events, sent
+// before the TIMEOUT was made, would then fail the floor when the server returns).
+func TestATimeoutNeitherLowersNorRaisesTheFloor(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	ops := tid(t, "ops")
+	p := outPing(1, startWall, agent(ops, 2))
+	w.heldWith(ops, w.pingStore(ops, p))
+	w.persistBatch(team.Batch{Team: ops, Floors: map[string]int64{proto.PurposeMain: startWall}})
+	w.advanceTo(p.DueMS + timeoutGraceMS + 1)
+	if n := len(timeouts(w.store(ops))); n != 1 {
+		t.Fatalf("%d TIMEOUTs", n)
+	}
+	high := p.DueMS + timeoutGraceMS + 5000
+	if got := w.persistBatch(team.Batch{Team: ops, NextBatch: "s2", Floors: map[string]int64{proto.PurposeMain: high}}); got != high {
+		t.Fatalf("floor %d after a batch at %d with only a TIMEOUT owed", got, high)
+	}
+	w.persistBatch(team.Batch{Team: ops, NextBatch: "s3", Floors: map[string]int64{proto.PurposeMain: startWall}})
+	check(t, w.e.Ack(t.Context(), w.done(wire.OpRecv, wire.TeamsArgs{}).Ack))
+	if got := w.store(ops).Sync.FloorMS[proto.PurposeMain]; got != startWall {
+		t.Fatalf("floor %d after the TIMEOUT's ack, want the server's %d", got, startWall)
+	}
+}
+
 // SD4-2: an answer stamped at the deadline counts; 1 ms later it does not, the TIMEOUT is
 // made, and status shows the answer late.
 func TestSD4_2AnAnswerAtTheDeadlineCountsOneLaterDoesNot(t *testing.T) {

@@ -291,9 +291,12 @@ func apply(s *state.Store, b team.Batch) (map[string]proto.Verdict, error) {
 // the oldest of them, so each is newer than its floor and survives a restart (B44); a room it
 // owes none in keeps the batch's high-water. B 2.3.2 counts `awaiting` too, whose entries carry
 // ids only: whatever writes them must give them a sent time, or set the floor before moving
-// items there.
+// items there. A TIMEOUT is not counted (fromServer).
 func ownedFloors(s *state.Store) {
 	for _, p := range s.Pending {
+		if !fromServer(p) {
+			continue
+		}
 		if s.Sync.FloorMS == nil {
 			s.Sync.FloorMS = map[string]int64{}
 		}
@@ -306,17 +309,19 @@ func ownedFloors(s *state.Store) {
 // raiseFloors is B 2.3.2's floor rule after items left pending outside a sync answer (an ack,
 // a drop): each room they were in is raised to just below the oldest item it still owes, or,
 // owing none, to the newest that left; a floor is never lowered here. It is main's floor, and
-// whether that moved.
+// whether that moved. A TIMEOUT is not counted (fromServer).
 func raiseFloors(s *state.Store, left []state.Pending) (int64, bool) {
 	newest := map[string]int64{}
 	for _, p := range left {
-		newest[p.Room] = max(newest[p.Room], p.SentMS)
+		if fromServer(p) {
+			newest[p.Room] = max(newest[p.Room], p.SentMS)
+		}
 	}
 	before := s.Sync.FloorMS[proto.PurposeMain]
 	for room, to := range newest {
 		owes, oldest := false, int64(0)
 		for _, p := range s.Pending {
-			if p.Room == room && (!owes || p.SentMS < oldest) {
+			if p.Room == room && fromServer(p) && (!owes || p.SentMS < oldest) {
 				owes, oldest = true, p.SentMS
 			}
 		}
@@ -332,6 +337,13 @@ func raiseFloors(s *state.Store, left []state.Pending) (int64, bool) {
 	}
 	after := s.Sync.FloorMS[proto.PurposeMain]
 	return after, after != before
+}
+
+// fromServer is whether p is an event the server handed, which a floor must keep fetchable; a
+// TIMEOUT is made by this member's clock and kept by the store alone, so a floor set by its time
+// would refuse an outage's events, sent before it was made, when the server returns.
+func fromServer(p state.Pending) bool {
+	return p.Item != records.KindTimeout
 }
 
 func addCounts(a, b team.Counts) team.Counts {
