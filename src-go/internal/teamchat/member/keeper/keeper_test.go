@@ -1,6 +1,8 @@
 package keeper
 
 import (
+	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -72,6 +74,50 @@ func TestHeldSeatFailsTheLaunch(t *testing.T) {
 	if !w.runGone() {
 		t.Fatal("the run was left")
 	}
+}
+
+// A desired seat held by a session whose keeper is gone (its link still ending) is waited for,
+// up to the link's end bound and a margin, and taken once it is let go; one whose keeper
+// lives fails at once.
+func TestHeldSeatOfAnEndingSessionIsWaitedFor(t *testing.T) {
+	const holderRun = "1111222233334444"
+	t.Run("keeper gone", func(t *testing.T) {
+		w := newWorld(t, claudeLaunch...)
+		alpha := w.seat("alpha")
+		w.writeDesired(desiredJSON(1, state.InboundAccept, "alpha/1"))
+		holder := holdSeat(t, w, alpha, holderRun)
+		res := w.start()
+		w.eventually("the run is made", func() bool {
+			entries, err := os.ReadDir(w.layout.RunRoot())
+			return err == nil && slices.ContainsFunc(entries, func(e os.DirEntry) bool {
+				id, perr := paths.ParseRunID(e.Name())
+				return perr == nil && e.Name() != holderRun && exists(t, w.layout.Run(id).KeeperLog())
+			})
+		})
+		w.logged("waiting for it to end")
+		holder.release(t)
+		l := w.up(1)
+		c := w.cmd()
+		l.expect(t, wire.KindPID)
+		w.sessionStarted(l)
+		if !w.held(alpha) {
+			t.Fatal("the seat was not taken")
+		}
+		c.code(0)
+		ended(t, l, res, wire.EndExit, 0, 0)
+	})
+	t.Run("keeper alive", func(t *testing.T) {
+		w := newWorld(t, claudeLaunch...)
+		alpha := w.seat("alpha")
+		w.writeDesired(desiredJSON(1, state.InboundAccept, "alpha/1"))
+		holder := holdSeat(t, w, alpha, holderRun)
+		rr := w.layout.RunRoot()
+		mustDo(t, os.MkdirAll(rr+"/"+holderRun, 0o700))
+		keeper := holdFile(t, rr, rr+"/"+holderRun+"/keeper.lock")
+		exitOf(t, w.start(), exits.ExitBusy)
+		keeper.release(t)
+		holder.release(t)
+	})
 }
 
 // launched checks a running launch: CMD's argv and environment, keeper.json and the lock record.

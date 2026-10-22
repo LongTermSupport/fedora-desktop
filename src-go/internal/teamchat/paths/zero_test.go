@@ -178,6 +178,8 @@ func TestEveryMethodOfAZeroValuePanics(t *testing.T) {
 		reflect.TypeFor[ClaimID]():     reflect.ValueOf(sampleClaimID(t)),
 		// A set-aside time, whose zero panics as a zero id does.
 		reflect.TypeFor[int64](): reflect.ValueOf(int64(1760000000000)),
+		// A staging name's pid, whose zero panics too.
+		reflect.TypeFor[int](): reflect.ValueOf(4242),
 	}
 	for _, recv := range []struct{ zero, valid any }{
 		{PoolSeat{}, store.PoolSeat(sampleCheckoutKey(t), mustTeam(t, "ops"), sampleSeatName(t))},

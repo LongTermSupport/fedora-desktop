@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -109,6 +110,14 @@ func TestOtherKitIsReexecuted(t *testing.T) {
 }
 
 // A kit named by its digest must print that digest; a mismatch under --kit is 78, never a loop.
+// hangingRunner is a kit whose --version never answers: Run returns only when ctx ends.
+type hangingRunner struct{}
+
+func (hangingRunner) Run(ctx context.Context, _ execx.Cmd) (execx.Result, error) {
+	<-ctx.Done()
+	return execx.Result{ExitCode: -1}, ctx.Err()
+}
+
 func TestKitVersionChecks(t *testing.T) {
 	t.Run("named kit prints another", func(t *testing.T) {
 		w := newWorld(t, plainLaunch...)
@@ -138,6 +147,18 @@ func TestKitVersionChecks(t *testing.T) {
 		w := newWorld(t, plainLaunch...)
 		w.runner.On([]string{w.kit.Binary(), "--version"}, execx.Result{Stdout: []byte(digest + "\n"), ExitCode: 1})
 		w.refused(exits.CodeRuntime)
+	})
+	t.Run("version hangs", func(t *testing.T) {
+		w := newWorld(t, plainLaunch...)
+		cfg := w.config()
+		cfg.Runner = hangingRunner{}
+		res := w.startWith(cfg)
+		mustDo(t, w.clk.BlockUntil(t.Context(), 1))
+		w.clk.Advance(versionWait)
+		exitOf(t, res, exits.ExitConfig)
+		if !strings.Contains(w.stderr.String(), `"code":"`+exits.CodeRuntime+`"`) {
+			t.Fatalf("stderr %q", w.stderr.String())
+		}
 	})
 	t.Run("version cannot run", func(t *testing.T) {
 		w := newWorld(t, plainLaunch...)
@@ -268,7 +289,7 @@ func TestDesiredAtLaunch(t *testing.T) {
 	})
 	t.Run("watch fails", func(t *testing.T) {
 		w := newWorld(t, claudeLaunch...)
-		w.watch.err = errors.New("no inotify")
+		w.watch.fail(errors.New("no inotify"))
 		w.refused(exits.CodeRuntime)
 	})
 	for _, kind := range []string{"ccy", "lxc"} {
@@ -329,16 +350,27 @@ func TestLeftoverSweep(t *testing.T) {
 	keeperAlive := mk("ffffffffffffffff", spid("ffffffffffffffff", `{"pid":900,"start_ticks":90}`, "null"))
 	mustDo(t, os.WriteFile(rr+"/not-a-run", nil, 0o600))
 	mustDo(t, os.Mkdir(rr+"/not-a-run-id", 0o700))
+	// A run being built is a staging directory named by its keeper: removed once that keeper
+	// is gone, left while it lives.
+	buildGone := mk(".building-800-1", "")
+	buildAlive := mk(".building-901-91", "")
 	holder := holdFile(t, rr, held+"/keeper.lock")
 	p := w.startPlain(w.config())
 	holder.release(t)
-	for dir, want := range map[string]bool{gone: false, bare: false, alive: true, bad: true, held: true, keeperAlive: true} {
+	for dir, want := range map[string]bool{
+		gone: false, bare: false, alive: true, bad: true, held: true, keeperAlive: true,
+		buildGone: false, buildAlive: true,
+	} {
 		if exists(t, dir) != want {
 			t.Errorf("%s: exists %v, want %v", dir, !want, want)
 		}
 	}
 	if !strings.Contains(w.logOf(p.run), "dddddddddddddddd") {
 		t.Fatalf("keeper.log %q", w.logOf(p.run))
+	}
+	// The keeper's own run was built under its staging name and renamed into place whole.
+	if exists(t, w.layout.Staging(os.Getpid(), 7).Dir()) || !exists(t, p.run.PID()) {
+		t.Fatal("the run was not renamed into place with its session.pid")
 	}
 	p.finish(0)
 }

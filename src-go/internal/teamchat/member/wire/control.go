@@ -154,10 +154,11 @@ type State struct {
 	Store        string       `json:"store"`
 }
 
-// Removed is the answer to remove (LN8).
+// Removed is the answer to remove (LN8). With no user id the link could not remove the team
+// (it did not hold it, or never knew its user id), and the keeper deletes the store itself.
 type Removed struct {
 	Team   paths.TeamID `json:"team"`
-	UserID string       `json:"user_id"`
+	UserID string       `json:"user_id,omitempty"`
 }
 
 // Left is an owed notice posted, or its 30 s passed: the keeper closes the seat's fd.
@@ -404,7 +405,7 @@ func (r *Removed) check() string {
 	if rule := checkTeam(r.Team); rule != "" {
 		return rule
 	}
-	if !agentOf(r.Team, r.UserID) {
+	if r.UserID != "" && !agentOf(r.Team, r.UserID) {
 		return "user_id is not an agent's of the team"
 	}
 	return ""

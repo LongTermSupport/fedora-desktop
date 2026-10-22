@@ -3,9 +3,12 @@ package client
 import (
 	"net"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/cli"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/wire"
@@ -52,6 +55,24 @@ func TestNoLinkRunning(t *testing.T) {
 	w.keeper()
 	if e := w.noLink("status"); e.Code != exits.CodeNoLink {
 		t.Fatalf("no keeper.json: %+v", e)
+	}
+}
+
+// LN3: a link whose backlog is full (EAGAIN on connect) is no link, as one not yet listening is.
+func TestAFullBacklogIsNoLink(t *testing.T) {
+	w := newWorld(t)
+	w.keeper()
+	w.keeperJSON(state.LinkRunning, state.KindHost, nil)
+	inv, err := cli.Parse([]string{"inbox"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	full := func(string) (*net.UnixConn, error) { return nil, &net.OpError{Op: "dial", Err: syscall.EAGAIN} }
+	if code := run(w.cliEnv(), inv, inv.Verb.Name, deps{clock: w.clk, dial: full}); code != exits.ExitNoRuntime {
+		t.Fatalf("exit %d, stderr %q", code, w.stderr.String())
+	}
+	if e := w.errorObject(); e.Code != exits.CodeNoLink {
+		t.Fatalf("error %+v", e)
 	}
 }
 
@@ -137,23 +158,38 @@ func TestWaitAcrossARestart(t *testing.T) {
 	}
 }
 
-// LN3: no link for wait's whole timeout is no-link at the deadline, never a hang.
+// LN3, n3c-D7: no link for wait's whole timeout is timed-out at the deadline, never a hang, and
+// nothing is dialled once the deadline has passed (a running link would discard the request).
 func TestWaitWithNoLinkForItsTimeout(t *testing.T) {
 	w := newWorld(t)
 	w.keeper()
 	w.keeperJSON(state.LinkRunning, state.KindHost, nil)
-	exit := w.async("wait", "--timeout", "4")
+	inv, err := cli.Parse([]string{"wait", "--timeout", "4"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dials atomic.Int64
+	dial := func(path string) (*net.UnixConn, error) {
+		dials.Add(1)
+		return dialUnix(path)
+	}
+	e := w.cliEnv()
+	exit := make(chan term.ExitCode, 1)
+	go func() { exit <- run(e, inv, inv.Verb.Name, deps{clock: w.clk, dial: dial}) }()
 	for _, d := range []time.Duration{time.Second, 2 * time.Second, time.Second} {
 		if err := w.clk.BlockUntil(t.Context(), 1); err != nil {
 			t.Fatal(err)
 		}
 		w.clk.Advance(d)
 	}
-	if code := <-exit; code != exits.ExitNoRuntime {
-		t.Fatalf("exit %d", code)
+	if code := <-exit; code != exits.ExitTimedOut {
+		t.Fatalf("exit %d, stderr %q", code, w.stderr.String())
 	}
-	if e := w.errorObject(); e.Code != exits.CodeNoLink || w.clk.Boot() != boot0+4*time.Second {
+	if e := w.errorObject(); e.Code != exits.CodeTimedOut || w.clk.Boot() != boot0+4*time.Second {
 		t.Fatalf("error %+v at %v", e, w.clk.Boot())
+	}
+	if n := dials.Load(); n != 3 {
+		t.Fatalf("%d dials; one at 0, 1 and 3 s, none at the 4 s deadline", n)
 	}
 }
 

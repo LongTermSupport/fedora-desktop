@@ -109,6 +109,14 @@ const (
 	stableRun     = 10 * time.Minute
 	failedAfter   = 6
 	maxSettings   = 64 << 10
+	// versionWait bounds the kit's --version: a kit that does not answer is 78 runtime.
+	versionWait = 5 * time.Second
+	// endingTries of endingGap wait out a launch seat held by a session whose keeper is gone:
+	// its link lets the seat go within endWait, and the margin covers its exit.
+	endingGap   = 250 * time.Millisecond
+	endingTries = int((endWait + 2*time.Second) / endingGap)
+	// rewatchGap is how often a lost watch of the desired directory is tried again.
+	rewatchGap = 5 * time.Second
 )
 
 const (

@@ -219,6 +219,23 @@ func TestTheDeadlineEndsTheRequest(t *testing.T) {
 	}
 }
 
+func TestCloseEndsABlockedWaitAtOnce(t *testing.T) {
+	w := newServerWorld(t)
+	w.eng.block = true
+	c := w.dial(t)
+	_, err := c.Write(w.request(t, wire.OpWait, time.Hour))
+	check(t, err)
+	until(t, func() bool { return w.eng.requests() == 1 })
+	closed := make(chan error, 1)
+	go func() { closed <- w.srv.close() }()
+	select {
+	case err := <-closed:
+		check(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("close waited on a blocked wait")
+	}
+}
+
 func TestASilentClientIsClosed(t *testing.T) {
 	w := newServerWorld(t)
 	c := w.dial(t)

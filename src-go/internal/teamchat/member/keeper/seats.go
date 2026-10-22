@@ -134,16 +134,47 @@ func (k *keeper) onState(st wire.State) {
 	k.writeReport(s)
 }
 
-// onWatch is RC1: an event naming desired.json, or an overflow, re-reads it.
+// onWatch is RC1: an event naming desired.json, or an overflow, re-reads it; a watch that ends,
+// or whose directory goes, is watched again.
 func (k *keeper) onWatch(ev WatchEvent, ok bool) {
-	if !ok {
-		k.watch = nil
-		k.logf("the desired membership is no longer watched")
+	switch {
+	case !ok:
+		k.watchLost("the watch ended")
+	case ev.Op&(unix.IN_IGNORED|unix.IN_DELETE_SELF|unix.IN_MOVE_SELF) != 0:
+		k.watchLost("its directory went")
+	case ev.Name == filepath.Base(k.cfg.Layout.DesiredFile()) || ev.Op&unix.IN_Q_OVERFLOW != 0:
+		k.reread()
+	}
+}
+
+// watchLost stops following the old watch and watches the desired directory again, unless a
+// retry is already due.
+func (k *keeper) watchLost(why string) {
+	k.watch = nil
+	k.logf("the desired membership is no longer watched (%s): watching it again", why)
+	if k.rewatchTimer == nil {
+		k.rewatch()
+	}
+}
+
+// rewatch watches the desired directory and re-reads the file; while the directory cannot be
+// watched the membership is refused missing, and the watch is tried again every rewatchGap.
+func (k *keeper) rewatch() {
+	k.rewatchTimer = nil
+	if k.phase == ending {
 		return
 	}
-	if ev.Name != filepath.Base(k.cfg.Layout.DesiredFile()) && ev.Op&unix.IN_Q_OVERFLOW == 0 {
+	dir := k.cfg.Layout.Desired()
+	ch, err := k.cfg.Watcher.Watch(dir)
+	if err != nil {
+		k.logf("watch %s: %v", dir, err)
+		code := state.CodeMissing
+		k.desiredState, k.desiredCode = state.DesiredRefused, &code
+		k.publishDesired()
+		k.rewatchTimer = k.after(rewatchGap, k.rewatch)
 		return
 	}
+	k.watch = ch
 	k.reread()
 }
 
@@ -311,6 +342,11 @@ func (k *keeper) onRemoved(r wire.Removed) {
 		return
 	}
 	k.cancel(s.removing.timer)
+	if r.UserID == "" {
+		// The link could not make the removal (it did not hold the team, or never knew its user
+		// id): as with no link, the keeper deletes the store under the lock.
+		k.deleteStore(s)
+	}
 	k.removed(s, r.UserID)
 	k.reconcile()
 }

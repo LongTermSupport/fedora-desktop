@@ -65,6 +65,7 @@ type keeper struct {
 	nextMS       *int64
 	restartTimer *timer
 	endTimer     *timer
+	rewatchTimer *timer
 	timers       map[*timer]struct{}
 
 	cmd        execx.Started
@@ -205,7 +206,11 @@ func (k *keeper) currentKit() (paths.Kit, string, error) {
 // kitVersion is the digest the kit's binary prints: one line, a digest.
 func (k *keeper) kitVersion(ctx context.Context) (string, error) {
 	bin := k.kit.Binary()
-	res, err := k.cfg.Runner.Run(ctx, execx.Cmd{Name: bin, Args: []string{"--version"}})
+	bound, cancel := context.WithCancel(ctx)
+	stop := k.cfg.Clock.AfterFunc(versionWait, cancel)
+	res, err := k.cfg.Runner.Run(bound, execx.Cmd{Name: bin, Args: []string{"--version"}})
+	stop()
+	cancel()
 	if err != nil || res.ExitCode != 0 {
 		k.logf("%s --version: exit %d, %v", bin, res.ExitCode, err)
 		return "", fault(exits.CodeRuntime, msgKitVersion, exits.Name(k.kit.String()))
@@ -298,13 +303,31 @@ func (k *keeper) sweep(ctx context.Context) error {
 		return fault(exits.CodeRuntime, msgRunRoot, exits.Name(rr))
 	}
 	for _, e := range entries {
-		id, perr := paths.ParseRunID(e.Name)
-		if perr != nil || e.Type != fs.ModeDir {
+		if e.Type != fs.ModeDir {
 			continue
 		}
-		k.sweepOne(ctx, k.cfg.Layout.Run(id))
+		if pid, ticks, ok := paths.ParseStaging(e.Name); ok {
+			k.sweepStaging(k.cfg.Layout.Staging(pid, ticks), state.Process{PID: pid, StartTicks: ticks})
+			continue
+		}
+		if id, perr := paths.ParseRunID(e.Name); perr == nil {
+			k.sweepOne(ctx, k.cfg.Layout.Run(id))
+		}
 	}
 	return nil
+}
+
+// sweepStaging removes a run left half built: its name says which keeper built it, and that
+// keeper is gone.
+func (k *keeper) sweepStaging(stage paths.Run, builder state.Process) {
+	if !k.gone(builder) {
+		return
+	}
+	if err := k.runRoot.RemoveTree(stage.Dir()); err != nil {
+		k.logf("leftover %s: remove: %v", stage.Dir(), err)
+		return
+	}
+	k.logf("leftover %s removed", stage.Dir())
 }
 
 func (k *keeper) sweepOne(ctx context.Context, run paths.Run) {
@@ -342,7 +365,9 @@ func (k *keeper) gone(p state.Process) bool {
 	return err != nil || ticks != p.StartTicks
 }
 
-// makeRun is step 4: the run id, its directory, keeper.lock, keeper.log and session.pid.
+// makeRun is step 4: the run id, its directory, keeper.lock, keeper.log and session.pid. The
+// run is built under the keeper's staging name and renamed to its id whole, so a sibling's sweep
+// never meets it before its keeper.lock is held and its session.pid written.
 func (k *keeper) makeRun(ctx context.Context) error {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -352,25 +377,39 @@ func (k *keeper) makeRun(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	k.runID, k.run = id, k.cfg.Layout.Run(id)
+	ticks, err := k.cfg.Proc.StartTicks(os.Getpid())
+	if err != nil {
+		k.logf("read the keeper's start time: %v", err)
+		return fault(exits.CodeInternal, msgInternal, exits.Words("read its own start time"))
+	}
+	final := k.cfg.Layout.Run(id)
+	k.runID, k.run = id, k.cfg.Layout.Staging(os.Getpid(), ticks)
 	if merr := k.runRoot.Mkdir(k.run.Dir()); merr != nil {
 		k.logf("make %s: %v", k.run.Dir(), merr)
-		return fault(exits.CodeRuntime, msgRunDir, exits.Name(k.run.Dir()))
+		return fault(exits.CodeRuntime, msgRunDir, exits.Name(final.Dir()))
 	}
 	k.madeRun = true
 	if k.klock, err = lock.TakeKeeper(ctx, k.cfg.Locks, k.runRoot, k.run); err != nil {
 		k.logf("take %s: %v", k.run.KeeperLock(), err)
-		return fault(exits.CodeRuntime, msgRunDir, exits.Name(k.run.Dir()))
+		return fault(exits.CodeRuntime, msgRunDir, exits.Name(final.Dir()))
 	}
 	if k.log, err = openAppend(k.run.KeeperLog()); err != nil {
-		return fault(exits.CodeRuntime, msgRunDir, exits.Name(k.run.Dir()))
+		return fault(exits.CodeRuntime, msgRunDir, exits.Name(final.Dir()))
 	}
 	early := k.early
 	k.early = nil
 	for _, line := range early {
 		k.logf("%s", strings.TrimSuffix(line, "\n"))
 	}
-	return k.writeSessionPID(nil)
+	if err := k.writeSessionPID(nil); err != nil {
+		return err
+	}
+	if err := k.runRoot.Rename(k.run.Dir(), final.Dir()); err != nil {
+		k.logf("rename %s to %s: %v", k.run.Dir(), final.Dir(), err)
+		return fault(exits.CodeRuntime, msgRunDir, exits.Name(final.Dir()))
+	}
+	k.run = final
+	return nil
 }
 
 // openAppend opens a fresh log file of the run: made here, never through a link.
@@ -537,6 +576,14 @@ func (k *keeper) wanted() []want {
 func (k *keeper) takeLaunchSeats(ctx context.Context) error {
 	for _, w := range k.wanted() {
 		s, err := k.takeSeat(ctx, w)
+		for try := 0; errors.Is(err, lock.ErrBusy) && try < endingTries && k.holderEnding(w.team); try++ {
+			if try == 0 {
+				k.logf("seat %s is held by a session whose keeper is gone: waiting for it to end", w.team)
+			}
+			if err = k.cfg.Locks.Sleep(ctx, endingGap); err == nil {
+				s, err = k.takeSeat(ctx, w)
+			}
+		}
 		if errors.Is(err, lock.ErrBusy) {
 			return exits.New(exits.CodeSeatHeld, &w.team, msgSeatHeld, exits.Team(w.team))
 		}
@@ -545,6 +592,21 @@ func (k *keeper) takeLaunchSeats(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// holderEnding is whether the session holding team's seat has lost its keeper (its keeper.lock
+// is free, or its run is gone): only its link holds the seat, and lets it go within endWait.
+func (k *keeper) holderEnding(team paths.TeamID) bool {
+	f, err := k.stateRoot.Read(k.cfg.Layout.Seat(team).Lock(), state.MaxLockRecord)
+	var rec state.LockRecord
+	if err == nil {
+		rec, err = state.DecodeLockRecord(f.Data)
+	}
+	if err != nil || rec.Run == k.runID {
+		return false
+	}
+	held, err := lock.Probe(k.runRoot, k.cfg.Layout.Run(rec.Run).KeeperLock())
+	return errors.Is(err, fs.ErrNotExist) || err == nil && !held
 }
 
 // takeSeat takes w's seat lock and writes its record; a failure other than busy is logged.
