@@ -77,14 +77,16 @@ func (f *teams) Stamp(_ context.Context, team paths.TeamID) (bool, error) {
 }
 
 type units struct {
-	mu        sync.Mutex
-	states    []UnitState // answered in turn, the last one repeated
-	err       error
-	restarts  int
-	inflight  atomic.Int32
-	maxSeen   atomic.Int32
-	gate      chan struct{}
-	stateCall int
+	mu     sync.Mutex
+	states []UnitState // answered in turn, the last one repeated
+	err    error
+	// afterRestart becomes err once Restart is called, as a bus lost during the restart would.
+	afterRestart error
+	restarts     int
+	inflight     atomic.Int32
+	maxSeen      atomic.Int32
+	gate         chan struct{}
+	stateCall    int
 }
 
 func (u *units) State(context.Context, string) (UnitState, error) {
@@ -113,6 +115,9 @@ func (u *units) Restart(context.Context, string) error {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	u.restarts++
+	if u.afterRestart != nil {
+		u.err = u.afterRestart
+	}
 	return nil
 }
 
@@ -432,8 +437,43 @@ func TestANewInvocationIsNotRestarted(t *testing.T) {
 		{Active: "active", InvocationID: "inv2", ActiveSince: t0.Add(-time.Hour)},
 	}
 	w.run(t)
-	if w.units.restarts != 0 || w.record(t, "alpha").Homeserver.Probe != status.ProbeNotRun {
-		t.Fatalf("a unit restarted meanwhile was restarted again, or its probe was recorded as answered: %+v", w.record(t, "alpha").Homeserver)
+	rec := w.record(t, "alpha")
+	if w.units.restarts != 0 || rec.Homeserver.Probe != status.ProbeNotRun {
+		t.Fatalf("a unit restarted meanwhile was restarted again, or its probe was recorded as answered: %+v", rec.Homeserver)
+	}
+	if rec.Homeserver.Unit != "active" || len(rec.Problems) != 0 {
+		t.Fatalf("a new active invocation: %+v, problems %v", rec.Homeserver, whats(rec.Problems))
+	}
+}
+
+// HT2: a self-restart seen during the re-probes is an event, as one seen at step 1 is.
+func TestASelfRestartDuringTheReprobesIsAnEvent(t *testing.T) {
+	w := newWorld(t, "alpha")
+	w.units.states = []UnitState{{Active: "active", InvocationID: "inv1", NRestarts: 1, ActiveSince: t0.Add(-time.Hour)}}
+	w.run(t)
+	w.clock.advance(time.Minute)
+	w.prober.fails = 3
+	w.units.states, w.units.stateCall = []UnitState{
+		{Active: "active", InvocationID: "inv1", NRestarts: 1, ActiveSince: t0.Add(-time.Hour)},
+		{Active: "active", InvocationID: "inv2", NRestarts: 2, ActiveSince: w.clock.Now()},
+	}, 0
+	w.run(t)
+	rec := w.record(t, "alpha")
+	want := fmt.Sprintf(EventSelfRestart, 2)
+	if rec.Homeserver.NRestarts != 2 || !slices.ContainsFunc(rec.Events, func(e status.Event) bool { return e.What == want }) {
+		t.Fatalf("homeserver %+v, events %+v", rec.Homeserver, rec.Events)
+	}
+}
+
+// HT2: a unit whose state cannot be read after the tick's restart is a problem on the record.
+func TestAnUnreadStateAfterTheRestartIsAProblem(t *testing.T) {
+	w := newWorld(t, "alpha")
+	w.prober.fails = 3
+	w.units.afterRestart = errors.New("dbus down")
+	w.run(t)
+	rec := w.record(t, "alpha")
+	if w.units.restarts != 1 || !hasProblem(rec, "the homeserver unit's state cannot be read after its restart") {
+		t.Fatalf("restarts %d, problems %v", w.units.restarts, whats(rec.Problems))
 	}
 }
 
@@ -447,8 +487,12 @@ func TestAReprobeThatIsNotAnAnswer(t *testing.T) {
 		{Active: "deactivating", InvocationID: "inv1"},
 	}
 	w.run(t)
-	if w.units.restarts != 0 || w.record(t, "alpha").Homeserver.Probe != status.ProbeNotRun {
-		t.Fatalf("not active: %d restarts, %+v", w.units.restarts, w.record(t, "alpha").Homeserver)
+	rec := w.record(t, "alpha")
+	if w.units.restarts != 0 || rec.Homeserver.Probe != status.ProbeNotRun {
+		t.Fatalf("not active: %d restarts, %+v", w.units.restarts, rec.Homeserver)
+	}
+	if rec.Homeserver.Unit != "deactivating" || rec.Homeserver.SinceMS != 0 || !hasProblem(rec, "the homeserver unit is deactivating") {
+		t.Fatalf("the record keeps the first read beside not-run: %+v, problems %v", rec.Homeserver, whats(rec.Problems))
 	}
 	w = newWorld(t, "alpha")
 	w.prober.fails = 3
@@ -579,6 +623,31 @@ func TestAViewThatFailsIsAProblemAndTheRestIsWritten(t *testing.T) {
 		What: "the team's rooms could not be read: timed out", Fix: "teamchat-admin health alpha, then systemctl status teamchat-server@alpha.service",
 	}) || rec.Backup.Newest == nil {
 		t.Fatalf("problems %+v", rec.Problems)
+	}
+}
+
+// HT3: a view that fails on the team's own files, or whose child does not answer, is its own
+// class with its own fix, never sent to a healthy homeserver.
+func TestAViewFailureNamesItsOwnClass(t *testing.T) {
+	for _, c := range []struct {
+		err  error
+		want status.Problem
+	}{
+		{fmt.Errorf("%w: team.json is missing", ErrViewFiles), status.Problem{
+			What: "the team's rooms could not be read: the team's files could not be read",
+			Fix:  "teamchat-admin health alpha, then apply the team again (playbooks/imports/play-teamchat.yml)",
+		}},
+		{fmt.Errorf("%w: exit status 2", ErrViewChild), status.Problem{
+			What: "the team's rooms could not be read: the view's child did not answer",
+			Fix:  "teamchat-admin health alpha",
+		}},
+	} {
+		w := newWorld(t, "alpha")
+		w.viewer.err = c.err
+		w.run(t)
+		if rec := w.record(t, "alpha"); !slices.Contains(rec.Problems, c.want) {
+			t.Errorf("%v: problems %+v", c.err, rec.Problems)
+		}
 	}
 }
 

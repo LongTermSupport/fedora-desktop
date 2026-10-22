@@ -49,8 +49,17 @@ const maxFile = 1 << 20
 var ErrOtherTeam = errors.New("view: team.json is another team's")
 
 // Load reads the three files strictly; a missing roster file or rooms record is empty, as
-// `team apply` starts from them.
+// `team apply` starts from them. Every failure wraps health.ErrViewFiles.
 func Load(team paths.TeamID, teamFile, rosterFile, roomsFile string) (Input, error) {
+	in, err := load(team, teamFile, rosterFile, roomsFile)
+	if err != nil {
+		return Input{}, fmt.Errorf("%w: %w", health.ErrViewFiles, err)
+	}
+	return in, nil
+}
+
+// load is Load before its failure is classed.
+func load(team paths.TeamID, teamFile, rosterFile, roomsFile string) (Input, error) {
 	var in Input
 	raw, found, err := state.ReadFile(teamFile, maxFile)
 	if err == nil && !found {

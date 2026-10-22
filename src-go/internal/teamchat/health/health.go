@@ -60,9 +60,29 @@ type View struct {
 	Problems []status.Problem
 }
 
-// Viewer starts the child's read-only view of a team.
+// Viewer starts the child's read-only view of a team. A failure wraps ErrViewFiles when the
+// team's own files cannot be read, ErrViewChild when the child failed or gave no answer, and is
+// otherwise the homeserver's (a *matrix.Error or the context's).
 type Viewer interface {
 	View(ctx context.Context, team paths.TeamID) (View, error)
+}
+
+// The Viewer's own failure classes, whose texts a record carries.
+var (
+	ErrViewFiles = errors.New("the team's files could not be read")
+	ErrViewChild = errors.New("the view's child did not answer")
+)
+
+// viewProblem is HT3's problem for a view that failed, its class and the fix for that class.
+func viewProblem(team paths.TeamID, err error) status.Problem {
+	what, health := "the team's rooms could not be read: ", "teamchat-admin health "+team.String()
+	switch {
+	case errors.Is(err, ErrViewFiles):
+		return status.Problem{What: what + ErrViewFiles.Error(), Fix: health + ", then apply the team again (" + paths.PlayFile + ")"}
+	case errors.Is(err, ErrViewChild):
+		return status.Problem{What: what + ErrViewChild.Error(), Fix: health}
+	}
+	return status.Problem{What: what + matrix.Class(err), Fix: health + ", then systemctl status " + paths.ServerUnit(team)}
 }
 
 // BackupState is the newest usable backup (nil for none) and the last run's result.
@@ -193,10 +213,7 @@ func (t *Tick) gather(ctx context.Context, team Team) (*facts, error) {
 	view, err := t.cfg.Viewer.View(ctx, team.ID)
 	if err != nil {
 		f.viewFailed = true
-		f.problems = append(f.problems, status.Problem{
-			What: "the team's rooms could not be read: " + matrix.Class(err),
-			Fix:  "teamchat-admin health " + team.ID.String() + ", then systemctl status " + paths.ServerUnit(team.ID),
-		})
+		f.problems = append(f.problems, viewProblem(team.ID, err))
 	} else {
 		f.view = view
 		f.problems = append(f.problems, view.Problems...)

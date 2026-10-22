@@ -476,8 +476,8 @@ func TestLoad(t *testing.T) {
 	}
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "missing")
-	if _, err := Load(alphaID(t), missing, w.path(rosterName), w.path(roomsName)); err == nil {
-		t.Fatal("a missing team.json loaded")
+	if _, err := Load(alphaID(t), missing, w.path(rosterName), w.path(roomsName)); !errors.Is(err, health.ErrViewFiles) {
+		t.Fatalf("a missing team.json: %v, want health.ErrViewFiles", err)
 	}
 	in, err := Load(alphaID(t), w.path(teamName), missing, missing)
 	if err != nil || len(in.Roster.Members) != 0 || in.Rooms != (proto.RoomIDs{}) {
@@ -488,15 +488,15 @@ func TestLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, files := range [][3]string{{bad, missing, missing}, {w.path(teamName), bad, missing}, {w.path(teamName), missing, bad}} {
-		if _, err = Load(alphaID(t), files[0], files[1], files[2]); err == nil {
-			t.Fatalf("%v loaded", files)
+		if _, err = Load(alphaID(t), files[0], files[1], files[2]); !errors.Is(err, health.ErrViewFiles) {
+			t.Fatalf("%v: %v, want health.ErrViewFiles", files, err)
 		}
 	}
 	beta, err := paths.ParseTeamID("beta")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Load(beta, w.path(teamName), missing, missing); !errors.Is(err, ErrOtherTeam) {
+	if _, err := Load(beta, w.path(teamName), missing, missing); !errors.Is(err, ErrOtherTeam) || !errors.Is(err, health.ErrViewFiles) {
 		t.Fatalf("another team's team.json: %v", err)
 	}
 }
