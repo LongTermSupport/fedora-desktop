@@ -206,6 +206,7 @@ func (p placement) into(ctx context.Context, clock Clock, dir *homefs.Root, user
 // missing one, or one that does not decode, is another identity, and a seat.json or token
 // that cannot be read is the read's error.
 func (p placement) sameIdentity(dir *homefs.Root, userID string) (bool, error) {
+	// The token is read only as a probe, so it is refused (GU1) before anything changes.
 	if _, err := dir.Read(p.seat.Token(), seat.MaxSecret); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return false, err
 	}
