@@ -71,6 +71,7 @@ a repository is no longer offered for a checkout of it. Report:
   the picker's one-time offer, Quick Launch's `Team:` line, and an installer case proving a
   description-only change restarts nothing. Q1 (required at create, optional in the file) taken as
   the spec recommends. Report: `subagent-reports/261015-m1-m2-sonnet.md`.
+
 - [x] ✅ **Task 2.2**: M2, descriptions reach agents (S-A8 to S-A12), revised after review: the
   description travels as the admin-written room topic, read by the syncer into `about.json`
   (only from the admin, only if it passes the grammar, never the fixed sentence), NOT as a
@@ -78,14 +79,17 @@ a repository is no longer offered for a checkout of it. Report:
   `pingbus status` prints `ABOUT` and SessionStart says "team T is for: ...". Container 2.57 /
   CCY 3.97.4. No deploy-order hazard remains. Q2 and Q3 as the spec recommends. Report:
   `subagent-reports/261015-m1-m2-sonnet.md`.
+
 - [x] ✅ **Task 2.3**: M3, replying: `recv` prints a REPLY command; `--to` takes a seat's
   short name. Built test-first in `helpers/pingbus` (S-D1 to S-D6); Q8 taken as the spec
   recommends (REPLY after HUMAN and PEER only, not PING): taken, the owner may overrule.
   Report: `subagent-reports/261015-m3-reply-sonnet.md`.
+
 - [x] ✅ **Task 2.4**: M4, the shared chooser in Go (`ccy-teams choose-teams`), scope widening,
   ccy wired (CCY 3.97.6). Single team (S-B1 to S-B15 without multi-select): `declare.py choices`
   and `add-repo`, the Go chooser, the wizard's chooser mode, `for-checkout --choose` and
   `ccy_seats_resolve` deleted. Report: `subagent-reports/261015-m4-chooser-sonnet.md`.
+
 - [x] ✅ **Task 2.5**: M5, several teams per session (S-B3 `--multi`, S-C1 to S-C9), CCY 3.97.8 /
   container 2.58. `choose-teams` list is a multi-select with kept marks across rounds; `describe-seats --block` prints the launch block after `seat take`; SessionStart's first line names the teams; a
   status line shows `👥 A,B`; `pingbus send` infers the team from `--re` or `--to`, `say` from
@@ -95,6 +99,7 @@ a repository is no longer offered for a checkout of it. Report:
   block for `cc --teams`.
   Reports: `subagent-reports/261015-m5-many-teams-sonnet.md`, review
   `subagent-reports/261015-m5-review-fable.md`.
+
 - [x] ✅ **Task 2.6**: M6, `cc --teams` on the shared flow, its consent inside it (S-E1 to S-E6),
   CCY 3.97.10 / container 2.58 as first built, 3.97.11 / 2.59 after the M6 review fixes, and 3.98.2 / 2.60 once the integration merge joined the goodbye and relay line. `cc` takes ccy's list grammar and, on a terminal, calls
   `ccy-teams choose-teams --type=host`; the Element consent is Go (`chooser/consent.go`), asked after
@@ -104,6 +109,7 @@ a repository is no longer offered for a checkout of it. Report:
   `cc_teams_accept` (170 to 113 code lines). The kit plugin's SessionStart hook covers the status-line
   record on the host (pinned in `scripts/test-cc-teams.bash`). Report:
   `subagent-reports/261015-m6-cc-teams-sonnet.md`.
+
 - [ ] 🔄 **Task 2.7**: M7, host run through `meta-deploy.bash`; the owner launches a session on
   two teams from an uncovered checkout; the two-team acceptance leg. qa-reviewer over the
   plan. Automated part passed on the host at F44 6affbfec (D1-D3, M1-M4, R1-R2, P1, C1):
@@ -117,12 +123,14 @@ a repository is no longer offered for a checkout of it. Report:
   [ACCEPTANCE-owner.md](ACCEPTANCE-owner.md). Report:
   `subagent-reports/261015-m7-acceptance-opus.md`. M3 changed with Task 2.9, so the automated
   part must pass again after the host run.
+
 - [ ] ❌ **Task 2.8**: Superseded by Plan 00209 D4: relay mode is deferred to v2. (Was: S-D1 in relay mode: `_deliver` (`helpers/pingbus/cli.py`) writes a
   relay-delivered `HUMAN` or `PEER` to the spool with no `REPLY` line, so the session never
   gets the ready reply command. Expected to be carried by the structured-injection work of
   [Plan 00194](../00194-agent-bus-live-delivery-supervisor-plugin/PLAN.md) on branch
   `feat/bus-inject-message`; check the reply line is there when it merges, else add it here
   (tests first). Found in `subagent-reports/261015-bus-bugs-opus.md`.)
+
 - [x] ✅ **Task 2.9**: the final qa-reviewer's findings
   (`subagent-reports/261015-final-qa-reviewer.md`), CCY 3.98.7 / container 2.62. The `👥 A,B`
   status line works in any checkout: the member kit's `settings.json` makes `pingbus status-line`
@@ -132,6 +140,7 @@ a repository is no longer offered for a checkout of it. Report:
   (`👥 no record ...`), never as nothing. S-C6, S-C8 and Q6/Q7 match what was built; `cc --teams`
   makes `.claude/ccy/` only after the consent (S-E4). Report:
   `subagent-reports/261015-qa-review-fixes-opus.md`.
+
 - [x] ✅ **Task 2.10**: UX fixes before the owner's first day with teams (branch
   `fix/teams-ux`), CCY 3.98.9 / container 2.64 / plugin 1.2.1: a read receipt for each
   delivered human message, `say --re` threading replies (the `reply:` command carries it), a
@@ -140,6 +149,7 @@ a repository is no longer offered for a checkout of it. Report:
   Element, "Talking to agents from Element" in docs/agent-bus.md, and
   [ACCEPTANCE-owner.md](ACCEPTANCE-owner.md) matched to the code with a Morning start and the
   00194 H1-H7 checks. Report: `subagent-reports/261015-ux-fixes-opus.md`.
+
 - [x] ✅ **Task 2.11**: the client-side findings of the end-to-end security audit, CCY 3.98.10 /
   container 2.65, plugin 1.2.2, branch `fix/teams-security-client`. H1: `agent-bus seat take` and
   `seat remove` end with `sudo -k` however they end, and a `ccy-teams` run that made sudo ready
@@ -150,6 +160,7 @@ a repository is no longer offered for a checkout of it. Report:
   L1 in the docs' Limits. Deployed at F44 c3391ba9 (Plan 00194 journal, 2026-10-19 20:53). Report:
   `subagent-reports/261015-security-client-opus.md`.
   Plan 00209 carries this as an expectation ("Requirements carried from other plans").
+
 - [ ] 🔄 **Task 2.12**: the final release security review's findings
   (`subagent-reports/261015-final-release-security-fable.md`), branch `fix/teams-final-review`,
   CCY 3.98.11 / container 2.66 / plugin 1.2.3. S1: no clipboard offer while Clipboard Indicator
@@ -160,12 +171,14 @@ a repository is no longer offered for a checkout of it. Report:
   (`helpers/agent_bus/config_restart.py`). Deployed at F44 c3391ba9; left: the owner's check 11. Report:
   `subagent-reports/261015-final-review-fixes.md`.
   Plan 00209 carries this as an expectation ("Requirements carried from other plans").
+
 - [x] ✅ **Task 2.13**: the Morning start dry run's ccy-teams defects (branch
   `fix/teams-signin-first-run`; ccy-teams only, no CCY or container bump). After a first
   password, Open in Element no longer says "Copy it now" (it said so with Clipboard Indicator
   on); the new-password question defaults to Yes for someone with no Element session, No
   otherwise; "Create a team for OWNER/REPO now?" defaults to No (S-B15). Deployed at F44
   c3391ba9 (play-claude-yolo.yml).
+
 - [ ] 🔄 **Task 2.14**: shut down every session of a team from ccy-teams (the owner: "pass /exit
   to all members of a team"), branch `feat/teams-shutdown`, ccy-teams only. Spec:
   [SPEC-shutdown.md](SPEC-shutdown.md) (SD1-SD16). `ccy-teams shutdown <team> [--yes]` and a
@@ -174,6 +187,7 @@ a repository is no longer offered for a checkout of it. Report:
   busy), stop one that has not ended in time, check each seat is released, and report each
   member. Local only: nothing on the bus. Deployed at F44 c3391ba9 (play-claude-yolo.yml);
   left: the owner's check in ACCEPTANCE-owner.md.
+
 - [ ] 🔄 **Task 2.15**: a team's settings from ccy-teams (the owner: "a single update config
   thing … that then opens a pane that then has all of the different things editable"), branch
   `feat/team-settings`, CCY 3.99.12.5 / container 2.77.4 (helpers/agent_bus is in the image). A removed person
@@ -189,6 +203,7 @@ a repository is no longer offered for a checkout of it. Report:
   c3391ba9 (play-claude-yolo.yml); left: the owner's check, ACCEPTANCE-owner.md step 13.
   Report: `subagent-reports/261016-team-settings-opus.md`.
   Plan 00209 carries this as an expectation ("Requirements carried from other plans").
+
 - [ ] ❌ **Task 2.16**: Folded into Plan 00209 (agent-bus v2), carried there as a requirement:
   a rename touches the homeserver, accounts, rooms, tokens and every seat, which v2 rebuilds,
   so a v1 rename would be built twice. v1 keeps the installer's refusal of a changed name.
@@ -198,6 +213,7 @@ a repository is no longer offered for a checkout of it. Report:
   token and bundle, move every seat and session record, re-point every running session, then
   take the old team down; today the installer refuses a changed name (`render.check_unchanged`).
   Needs its own research and spec first (SPEC-many-teams.md section F, "Rename").)
+
 - [x] ✅ **Task 2.17**: three picker defects the owner reported (branch `fix/teams-full-handles`,
   ccy-teams and ccy-sessions only, no CCY or container bump). (1) Every member is shown by its
   whole handle, the coordinator's with `(coordinator)` beside it, through one renderer
@@ -222,6 +238,7 @@ a repository is no longer offered for a checkout of it. Report:
   `subagent-reports/261019-teams-full-handles-final-fable.md`. Deployed at F44 c3391ba9
   (play-claude-yolo.yml). Report: `subagent-reports/261016-teams-full-handles-opus.md`.
   Plan 00209 carries this as an expectation ("Requirements carried from other plans").
+
 - [x] ✅ **Task 2.18**: ccy-teams waits for the play lock instead of dying on it (the owner:
   "hits the lock then just chokes and dies"; a description applied while a meta-deploy unit
   held the lock, exit 75). Branch `fix/teams-wait-play-lock`, ccy-teams only, no CCY or
@@ -238,11 +255,13 @@ a repository is no longer offered for a checkout of it. Report:
   `subagent-reports/261016-teams-wait-play-lock-opus.md`. Spec section G was written after the
   code (journal correction); Fable's review: `subagent-reports/` on `review/teams-wait-play-lock`.
   Plan 00209 carries this as an expectation ("Requirements carried from other plans").
+
 - [ ] ⬜ **Task 2.19**: run.bash waits on the play lock (`lock.py acquire --wait`, bounded,
   naming the holder) instead of exiting 75, so meta-deploy, the panel's run-play and a play run
   by hand wait for a ccy-teams hold as ccy-teams now waits for theirs. Pending the owner's
   decision: it changes how every caller of run.bash behaves, and run.bash is on the bash-limits
   ratchet, so the wait belongs in the Python helper.
+
 - [ ] 🔄 **Task 2.20**: `ccy-teams lxc-add` asked three times over "entries 5 and 6 both
   declare <user>@<container>" for a member an earlier run had declared (branch
   `fix/lxc-add-already-declared`, CCY 3.99.15.5 / container 2.78.18, the image's declare.py).
@@ -274,6 +293,7 @@ a repository is no longer offered for a checkout of it. Report:
   columns from its heading (64d5bc3b6). Left: the host run (meta-deploy, play-claude-yolo.yml
   entry) and the owner's `ccy-teams lxc-add` of the member refused before. Reports:
   `subagent-reports/261022-lxc-add-*.md`.
+
 - [ ] 🔄 **Task 2.21**: M7's host run stopped at M3: the checker still expected the Python
   `exec pingbus status-line` guard after Plan 00213 made it run `pingbus-status-line`. A
   checker defect: `m7_check.py` copied seat.py's value. It now expects exactly what this
@@ -300,11 +320,13 @@ a repository is no longer offered for a checkout of it. Report:
   as text inside a call, not a named value, so the checker can read it only once the product
   names it: deployed code changes with version bumps and host deploys, a product decision.
   Report: `subagent-reports/261022-m3-dbf-report.md`.
+
 - [ ] **Task 2.22**: Follow-up to Task 2.21, split off by the coordinator so that Task 2.21's
   branch could merge: the copies of product values that Task 2.21's search found in other
   plans' checkers and left unfixed. Each one reads its value through the `m7_check`
   commands Task 2.21 added (`session-paths`, `hot-marks`, `status-line-names`), as Plan
   00203's M3 already does in `m3_read_names`. The sites, all in Plan 00203:
+
   - `_acceptance-m4.inc.bash`: the `✓` step mark at 238, 239, 242, 251, 256, 284, 322, 330,
     346, 358 and 366; `/tmp/pingbus-home` and `PINGBUS_STATUS_LINE_INNER` at 306;
     `ccy/membership/.../membership.json` at 109 and 315.
@@ -318,6 +340,37 @@ a repository is no longer offered for a checkout of it. Report:
     can drift, so declare.py should expose the reader.
   - Also the inline-text copies Task 2.21 refers to the owner: the product has to name each
     text as a constant before a checker can read it.
+
+  Done in code; left: the host reruns (meta-deploy) and the referrals below. Defence:
+  `checker-copies-cited-constant` gained a second clause (an `OWNED` product value held by an
+  active plan checker), red `b0dd7c9e1`. Converted, each reading the product through
+  `m7_check` (`session-names`, `membership-dirs`, and `product-value FILE NAME [FILL...]` for
+  any named text of a `helpers/` module or a `src-go/` string const): every site listed above;
+  the value copies of Plans 00128, 00161, 00194, 00201, 00203, 00209, 00211 and 00213 (83
+  findings at the red for today's `OWNED`, 0 at the tip); the Tuwunel pin, which now has one
+  reader (`declare.pinned_tuwunel_version`, CCY 3.100.13, container 2.79.8); and the texts the
+  product names (hooks.py `TEMPLATES`, envelope.py `KIND_LINES`, remove.go
+  `removedHomeserverDown`, newly named). Each converted checker refuses a wrong product in a
+  scratch copy (23 cases). Report: `subagent-reports/261022-sweep-dbf-report.md`.
+  REFERRED TO THE OWNER (one line each; detail in the report):
+
+  - The ccy-teams hot-package texts (search b1-b7, b9-b19, b22, b23) and 00203 M4/M6
+    fragments: built by concatenation inside each call, so naming them is a format constant
+    per message in Go code, a product change.
+  - The pingbus and agent-bus inline texts (A4, A5, b25, b26, b31, b33, B10): naming them
+    changes the image (a container bump) and the agent-bus software digest.
+  - Inline values the product does not name either (`.config/pingbus`, the agent-bus install
+    paths, unit names, the `ccy-session=` label, `LAST_TOKEN=`, and the 00080, 00109, 00137,
+    00148 rows): the product has to name each before a checker can read it.
+  - Search rows 17, 21, 29, 30, b17 and b34: unsure, or not soundly a copy.
+  - B4's wire tags: the protocol specification (`docs/agent-bus-protocol.md` sections 13 and
+    15), which a checker may state; not a copy.
+  - No QA gate runs a plan folder's own `test_*.py` (the helper-test gate reads only
+    `tests/helpers/`), so Plan 00161's `test_acceptance_check` went red at `a5486643d` (the
+    HUMAN room field) unseen; its fixtures are fixed, the gate gap is the owner's.
+  - In bash, only the last command substitution of one assignment reaches errexit (00211
+    stage 2 hid a failed read this way; fixed). No rule detects the shape yet; it needs the
+    syntax tree (`src-go/qa/bashlimits` already parses every bash file).
 
 ## Success Criteria
 
