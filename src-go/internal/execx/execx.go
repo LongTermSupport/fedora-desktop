@@ -41,6 +41,12 @@ type Cmd struct {
 	// NewSession runs the child in a session of its own, for a command whose children must
 	// not outlive it (the status line's inner): see runSession. Interrupt is not used.
 	NewSession bool
+	// Credential, when set, runs the child as its uid, gid and exact supplementary group list
+	// (an empty list clears them); NoSetGroups is refused, as is a credential given to Exec.
+	Credential *syscall.Credential
+	// CleanEnv makes Env the child's whole environment: nothing of the parent's is inherited,
+	// an empty Env is an empty environment, and Unset beside it is refused.
+	CleanEnv bool
 }
 
 // Line is the argv as one space-joined string, for logs and test matching.
@@ -50,6 +56,39 @@ func (c Cmd) Line() string {
 
 func (c Cmd) argv() []string {
 	return append([]string{c.Name}, c.Args...)
+}
+
+// ErrBadCmd is a Cmd whose fields contradict each other; no runner starts it.
+var ErrBadCmd = errors.New("execx: contradictory command")
+
+// check refuses a Cmd no runner can honour as written.
+func (c Cmd) check() error {
+	if c.CleanEnv && len(c.Unset) > 0 {
+		return fmt.Errorf("%w: %s has CleanEnv and Unset", ErrBadCmd, c.Name)
+	}
+	if c.Credential != nil && c.Credential.NoSetGroups {
+		return fmt.Errorf("%w: %s has a credential that keeps the parent's groups", ErrBadCmd, c.Name)
+	}
+	return nil
+}
+
+// environ is the child's environment as exec.Cmd takes it: nil inherits the parent's.
+func (c Cmd) environ() []string {
+	switch {
+	case c.CleanEnv:
+		return append([]string{}, c.Env...)
+	case len(c.Env) > 0 || len(c.Unset) > 0:
+		return ChildEnv(os.Environ(), c.Env, c.Unset)
+	}
+	return nil
+}
+
+// sysProcAttr is the child's start attributes: a session of its own, the credential, or nil.
+func (c Cmd) sysProcAttr(setsid bool) *syscall.SysProcAttr {
+	if !setsid && c.Credential == nil {
+		return nil
+	}
+	return &syscall.SysProcAttr{Setsid: setsid, Credential: c.Credential}
 }
 
 // Result is what a finished command produced.
@@ -102,10 +141,14 @@ type OS struct {
 // Grace also bounds the drain of the pipes after a normal exit, so it must exceed the time
 // the copy takes on a loaded host; a Grace of milliseconds can cut a finished command short.
 func (o OS) Run(ctx context.Context, c Cmd) (Result, error) {
+	if err := c.check(); err != nil {
+		return Result{}, err
+	}
 	if c.NewSession {
 		return o.runSession(ctx, c)
 	}
 	cmd := exec.CommandContext(ctx, c.Name, c.Args...)
+	cmd.SysProcAttr = c.sysProcAttr(false)
 	interrupt := syscall.SIGTERM
 	if c.Interrupt != 0 {
 		interrupt = c.Interrupt
@@ -116,9 +159,7 @@ func (o OS) Run(ctx context.Context, c Cmd) (Result, error) {
 		cmd.WaitDelay = o.Grace
 	}
 	cmd.Dir = c.Dir
-	if len(c.Env) > 0 || len(c.Unset) > 0 {
-		cmd.Env = ChildEnv(os.Environ(), c.Env, c.Unset)
-	}
+	cmd.Env = c.environ()
 	cmd.Stdin = c.Stdin
 	cmd.ExtraFiles = c.ExtraFiles
 	var out, errBuf bytes.Buffer
@@ -197,6 +238,9 @@ func (f *Fake) OnFunc(prefix []string, fn func(Cmd) (Result, error)) {
 
 // Run implements Runner.
 func (f *Fake) Run(_ context.Context, c Cmd) (Result, error) {
+	if err := c.check(); err != nil {
+		return Result{}, err
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, c)

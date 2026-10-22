@@ -115,6 +115,9 @@ func newWorld(t *testing.T) *world {
 	if err := os.WriteFile(w.root+paths.ServerUnitTemplateFile, []byte("[Unit]\nDescription=v2 team homeserver %i\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(w.root+osRelease, []byte("NAME=Fedora Linux\nID=fedora\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	w.srv = fakehs.New(fakehs.Options{ServerName: server, Now: w.now, Quirks: fakehs.TuwunelQuirks()})
 	if err := w.srv.Start(); err != nil {
 		t.Fatal(err)
@@ -172,7 +175,10 @@ func (c inProcessChild) Ask(ctx context.Context, req Request) (Answer, error) {
 }
 
 // Bundle is the seat side's bundle as a test reads it: the handle and the credential.
-func (w *world) Bundle(_ context.Context, team declare.Team, handle string, c apply.Credential) (proto.Value, error) {
+func (w *world) Bundle(_ context.Context, team declare.Team, handle, mainRoom string, c apply.Credential) (proto.Value, error) {
+	if mainRoom != w.rooms(w.t).Main {
+		return proto.Value{}, errors.New("the bundle's main room is not the team's")
+	}
 	w.bundled = append(w.bundled, handle)
 	return proto.Obj(
 		proto.M("team", proto.Str(team.ID.String())), proto.M("handle", proto.Str(handle)),
@@ -249,10 +255,22 @@ func (w *world) open(_ context.Context, team paths.TeamID, port int, regKey stri
 		w.crash.Admin = w.admin
 		a = w.crash
 	}
-	return Opened{Deps: apply.Deps{
-		Admin: a, Now: w.now, RosterPath: w.root + paths.RosterFile(team), RoomsPath: w.root + paths.RoomsFile(team),
-		GuestDir: w.root + paths.GuestTokenDir(team),
-	}}, nil
+	return Opened{
+		Deps: apply.Deps{
+			Admin: a, Now: w.now, RosterPath: w.root + paths.RosterFile(team), RoomsPath: w.root + paths.RoomsFile(team),
+			GuestDir: w.root + paths.GuestTokenDir(team),
+		},
+		Member: w.member,
+	}, nil
+}
+
+// member is a member client of alpha's homeserver with token.
+func (w *world) member(token string) (*matrix.Client, error) {
+	c, err := matrix.NewMember(matrix.Config{BaseURL: w.srv.URL(), PlainHTTPHosts: []string{"127.0.0.1"}, Token: token, Clock: w})
+	if err == nil {
+		w.t.Cleanup(c.Close)
+	}
+	return c, err
 }
 
 type fakeSystemd struct{ w *world }

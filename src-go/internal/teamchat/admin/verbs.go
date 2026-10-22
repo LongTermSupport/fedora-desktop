@@ -36,9 +36,10 @@ type Child interface {
 	Ask(ctx context.Context, req Request) (Answer, error)
 }
 
-// Bundles is the seat side's bundle for a credential the child issued (C 3.7.2).
+// Bundles is the seat side's bundle for a credential the child issued (C 3.7.2), with the
+// team's main room the child answered beside it (BU1).
 type Bundles interface {
-	Bundle(ctx context.Context, team declare.Team, handle string, c apply.Credential) (proto.Value, error)
+	Bundle(ctx context.Context, team declare.Team, handle, mainRoom string, c apply.Credential) (proto.Value, error)
 }
 
 // SeatWait is how long a member or role verb waits for the team lock: a launcher's seat take
@@ -260,7 +261,7 @@ func underLock(ctx context.Context, sys *System, op string, team paths.TeamID, a
 		members = append(members, proto.M("notes", lineArray(a.Notes)))
 	}
 	if a.Credential != nil {
-		b, berr := sys.Bundles.Bundle(ctx, decl, a.Handle, *a.Credential)
+		b, berr := sys.Bundles.Bundle(ctx, decl, a.Handle, a.MainRoom, *a.Credential)
 		if berr != nil {
 			err = errors.Join(err, fmt.Errorf("the bundle of %s: %w; member reissue issues a new credential", a.Handle, berr))
 		} else {
@@ -289,12 +290,15 @@ func asked(op string, args []proto.Member, a Answer) error {
 	if !answeredHandle(req, a.Handle) {
 		return lie("handle " + strconv.Quote(a.Handle))
 	}
+	if err := answerFits(op, a); err != nil {
+		return lie("a view or a notice")
+	}
 	issues := op == apply.OpMemberAdd || op == apply.OpMemberReturn || op == apply.OpMemberReissue
 	switch {
-	case issues && a.Credential == nil:
-		return lie("no credential")
-	case !issues && a.Credential != nil:
-		return lie("a credential")
+	case issues && (a.Credential == nil || a.MainRoom == ""):
+		return lie("no credential or no main room")
+	case !issues && (a.Credential != nil || a.MainRoom != ""):
+		return lie("a credential or a main room")
 	case issues && a.Credential.Kind != req.Credential:
 		return lie("a " + a.Credential.Kind + " credential")
 	}
@@ -381,6 +385,13 @@ func teamApply(ctx context.Context, e Env, args []string) term.ExitCode {
 	}
 	if len(args) > 0 {
 		return fail(e.Stderr, term.ExitUsage, "team apply takes no arguments: its input is the team's declaration on stdin")
+	}
+	owner, err := rootOwner(sys.Host.Root)
+	if err == nil {
+		err = checkFedora(sys.Host.Root, owner)
+	}
+	if err != nil {
+		return failWith(e, err)
 	}
 	in, err := readInput(e.Stdin)
 	if err != nil {
