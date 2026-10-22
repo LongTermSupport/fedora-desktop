@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/colour"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
@@ -54,6 +55,26 @@ func (h *held) handle() string {
 	return hd.String()
 }
 
+// member is h's short member name for the status line (B27), nil while seat.json was never
+// read.
+func (h *held) member() *string {
+	hd, ok := proto.AgentHandle(h.userID, paths.ServerName(h.id))
+	if !ok {
+		return nil
+	}
+	short := hd.Short()
+	return &short
+}
+
+// teamColour is the colour the status line draws team t in: the admin's override held in
+// health, else the automatic colour of its name (B27, n3e-D2).
+func teamColour(t paths.TeamID, override *string) string {
+	if override != nil && colour.Stored(*override) {
+		return *override
+	}
+	return colour.Auto(t.String())
+}
+
 func (h *held) pending() int64 {
 	if h.store == nil {
 		return 0
@@ -89,7 +110,7 @@ func (e *Engine) publish() {
 		}
 	}
 	for _, id := range slices.SortedFunc(maps.Keys(e.refused), compareTeams) {
-		rows = append(rows, state.StatusTeam{Team: id, Down: true, Delivery: state.DeliveryNone})
+		rows = append(rows, state.StatusTeam{Team: id, Down: true, Delivery: state.DeliveryNone, Colour: teamColour(id, nil)})
 	}
 	st := state.Status{Run: e.cfg.Run, WrittenMS: e.cfg.Clock.WallMS(), Desired: e.desired, Teams: rows}
 	if err := state.Write(e.cfg.RunRoot, e.cfg.Layout.Run(e.cfg.Run).Status(), st); err != nil {
@@ -105,6 +126,7 @@ func sameState(a, b wire.State) bool {
 
 func (e *Engine) statusRow(h *held) state.StatusTeam {
 	row := state.StatusTeam{Team: h.id, Down: h.health.Down, Delivery: e.cfg.Delivery, Pending: h.pending()}
+	row.Member, row.Colour = h.member(), teamColour(h.id, h.health.Colour)
 	if h.health.Role != "" {
 		role := h.health.Role
 		row.Role = &role

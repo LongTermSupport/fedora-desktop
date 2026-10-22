@@ -124,6 +124,27 @@ func TestParseHandleGrammar(t *testing.T) {
 	}
 }
 
+// A short name is a handle's `<repo>.<seat>` and nothing more (A 2.3; status.json's member).
+func TestValidShortName(t *testing.T) {
+	for _, good := range []string{"myrepo.2", "my_repo-x.bob", "teamchat.probe", strings.Repeat("r", 48) + ".999999", "r." + strings.Repeat("a", 12)} {
+		if !ValidShortName(good) {
+			t.Errorf("ValidShortName(%q) refused", good)
+		}
+	}
+	for _, bad := range []string{
+		"", "myrepo.2+desk.podman", "myrepo", "myrepo.", ".2", "R.1", "r.0", "r.01", "r.1234567", "r.a_b",
+		strings.Repeat("r", 49) + ".1", "r." + strings.Repeat("a", 13), "r.1\n", "r..1", "r.1.2",
+	} {
+		if ValidShortName(bad) {
+			t.Errorf("ValidShortName(%q) accepted", bad)
+		}
+	}
+	h, ok := ParseHandle("my_repo-x.bob+site-1.lxc")
+	if !ok || !ValidShortName(h.Short()) {
+		t.Errorf("a handle's Short() %q is refused", h.Short())
+	}
+}
+
 func TestProbeHandle(t *testing.T) {
 	p := ProbeHandle("desk")
 	if p.String() != "teamchat.probe+desk.host" || !p.IsProbe() {
