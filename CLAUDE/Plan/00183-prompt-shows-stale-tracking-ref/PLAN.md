@@ -60,7 +60,9 @@ agent at all. The cause is unknown, so this plan triages first.
   on the host, and `qa-all.bash` passed on c4cab141. The `qa-reviewer` ran (round 1,
   FIX-FIRST, `subagent-reports/261022-qa-reviewer-round1.md`); its findings are fixed: the
   play pins bash-git-prompt to a commit and asserts the `async_run` override still holds.
-  Left: the owner's hand check, the yellow mark in a stale checkout's prompt. The hand
+  Left: the host run of `play-git-configure-and-tools.yml` and this plan's triage and
+  acceptance through meta-deploy (the pin and the assert have not run on a host yet), then
+  the owner's hand check, the yellow mark in a stale checkout's prompt. The hand
   check should expect
   `[fetch failed or running]` to show briefly on a prompt drawn during each five-minute
   background fetch; it lasting past the next prompt means the fetch failed

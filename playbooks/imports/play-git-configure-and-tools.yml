@@ -196,7 +196,8 @@
           .phpunit.result.cache
         path: "/home/{{ user_login }}/.config/git/ignore"
 
-    # An existing checkout moves to the pin; one with local changes stops the play (force: false).
+    # Every run fetches from GitHub. An existing checkout moves to the pin (a detached HEAD); an
+    # edit to a tracked file in it stops the play (force: false).
     - name: Check Out bash-git-prompt at Its Pinned Commit
       ansible.builtin.git:
         repo: https://github.com/magicmonty/bash-git-prompt.git
