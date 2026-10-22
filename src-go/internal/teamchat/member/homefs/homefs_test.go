@@ -383,6 +383,34 @@ func TestEntriesUnlinkRenameAndRemoveTree(t *testing.T) {
 	}
 }
 
+// SameFile is nil only for the regular file at the path that the open file is, by device and
+// inode; another file, a link to it, a directory or nothing is refused.
+func TestSameFile(t *testing.T) {
+	r, root := newRoot(t)
+	writeFile(t, root+"/a", "x")
+	writeFile(t, root+"/b", "x")
+	check(t, os.Symlink("a", root+"/link"))
+	mkdir(t, root+"/dir", 0o700)
+	a, err := os.Open(root + "/a")
+	check(t, err)
+	t.Cleanup(func() { check(t, a.Close()) })
+	check(t, r.SameFile(root+"/a", a))
+	for _, path := range []string{root + "/b", root + "/link", root + "/dir"} {
+		if err = r.SameFile(path, a); !errors.Is(err, ErrConfig) {
+			t.Errorf("%s: %v", path, err)
+		}
+	}
+	if err = r.SameFile(root+"/none", a); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("nothing there: %v", err)
+	}
+	dir, err := os.Open(root + "/dir")
+	check(t, err)
+	check(t, dir.Close())
+	if err = r.SameFile(root+"/a", dir); err == nil {
+		t.Error("a closed file was the same")
+	}
+}
+
 func TestExists(t *testing.T) {
 	r, root := newRoot(t)
 	check(t, os.Symlink("/nowhere", root+"/link"))

@@ -295,7 +295,7 @@ func TestTheSeatStaysHeldUntilEveryCopyIsClosed(t *testing.T) {
 	if _, err = HoldSeat(t.Context(), w.clock, w.root, w.seat); !errors.Is(err, ErrBusy) {
 		t.Fatalf("held by the link's copy: %v", err)
 	}
-	link, err := AdoptSeat(dup, w.seat)
+	link, err := AdoptSeat(w.root, dup, w.seat)
 	check(t, err)
 	if link.Seat() != w.seat {
 		t.Errorf("seat %v", link.Seat())
@@ -318,11 +318,65 @@ func TestAdoptSeatRefusesADescriptionThatDoesNotHoldTheSeat(t *testing.T) {
 	t.Cleanup(func() { check(t, s.Close()) })
 	other, err := os.OpenFile(w.seat.Lock(), os.O_RDWR, 0)
 	check(t, err)
-	if _, err = AdoptSeat(other, w.seat); !errors.Is(err, ErrBusy) {
+	if _, err = AdoptSeat(w.root, other, w.seat); !errors.Is(err, ErrBusy) {
 		t.Fatalf("got %v", err)
 	}
 	if err = other.Close(); !errors.Is(err, os.ErrClosed) {
 		t.Errorf("a refused description is closed: %v", err)
+	}
+}
+
+// LK2: AdoptSeat takes only a description of the seat's own seat.lock: a locked description of
+// another file, or of another seat's lock, is refused and closed, so no SeatLock (and so no store
+// writer) is made from a lock that does not hold the seat.
+func TestAdoptSeatRefusesADescriptionOfAnotherFile(t *testing.T) {
+	w := newWorld(t)
+	beta, err := paths.ParseTeamID("beta")
+	check(t, err)
+	layout, err := paths.HomeLayout(w.root.Path(), w.root.Path()+"/runtime")
+	check(t, err)
+	other := layout.Seat(beta)
+	check(t, w.root.MkdirAll(other.Dir()))
+	stray := w.seat.Dir() + "/stray"
+	touch(t, stray)
+	touch(t, w.seat.Lock())
+	for name, path := range map[string]string{"another file": stray, "another seat's lock": other.Lock(), "keeper.lock": w.run.KeeperLock()} {
+		t.Run(name, func(t *testing.T) {
+			touch(t, path)
+			f, err := os.OpenFile(path, os.O_RDWR, 0)
+			check(t, err)
+			if _, err = AdoptSeat(w.root, f, w.seat); !errors.Is(err, homefs.ErrConfig) {
+				t.Fatalf("got %v", err)
+			}
+			if err = f.Close(); !errors.Is(err, os.ErrClosed) {
+				t.Errorf("a refused description is closed: %v", err)
+			}
+		})
+	}
+}
+
+// LK2, MS2: LocksIn is nil only for the seat directory whose seat.lock this lock holds; a seat
+// directory replaced after the take is refused, and so is a released lock.
+func TestLocksInIsTheHeldSeatsDirectoryOnly(t *testing.T) {
+	w := newWorld(t)
+	s, err := w.keeper(t).TakeSeat(t.Context(), w.root, w.seat)
+	check(t, err)
+	dir, err := w.root.Sub(w.seat.Dir(), homefs.Private)
+	check(t, err)
+	check(t, s.LocksIn(dir))
+	check(t, dir.Close())
+	check(t, os.Rename(w.seat.Dir(), w.seat.Dir()+".old"))
+	check(t, w.root.MkdirAll(w.seat.Dir()))
+	touch(t, w.seat.Lock())
+	fresh, err := w.root.Sub(w.seat.Dir(), homefs.Private)
+	check(t, err)
+	t.Cleanup(func() { check(t, fresh.Close()) })
+	if err = s.LocksIn(fresh); !errors.Is(err, homefs.ErrConfig) {
+		t.Fatalf("a replaced seat directory: %v", err)
+	}
+	check(t, s.Close())
+	if err = s.LocksIn(fresh); !errors.Is(err, ErrReleased) {
+		t.Fatalf("a released lock: %v", err)
 	}
 }
 

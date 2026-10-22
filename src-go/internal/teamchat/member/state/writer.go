@@ -33,6 +33,9 @@ func NewStoreWriter(root *homefs.Root, l *lock.SeatLock) (*StoreWriter, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := l.LocksIn(dir); err != nil {
+		return nil, errors.Join(err, dir.Close())
+	}
 	return &StoreWriter{lock: l, dir: dir, team: filepath.Base(seat.Dir())}, nil
 }
 
