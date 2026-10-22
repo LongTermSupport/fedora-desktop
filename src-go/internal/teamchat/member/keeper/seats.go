@@ -342,11 +342,9 @@ func (k *keeper) onRemoved(r wire.Removed) {
 		return
 	}
 	k.cancel(s.removing.timer)
-	if r.UserID == "" {
-		// The link could not make the removal (it did not hold the team, or never knew its user
-		// id): as with no link, the keeper deletes the store under the lock.
-		k.deleteStore(s)
-	}
+	// The link may not have deleted the store (it did not hold the team, or its delete failed),
+	// so the keeper deletes it under the lock every time; a store already gone is no error.
+	k.deleteStore(s)
 	k.removed(s, r.UserID)
 	k.reconcile()
 }

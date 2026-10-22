@@ -281,8 +281,9 @@ func TestFailpointKeeperLinkWriting(t *testing.T) {
 	}
 }
 
-// A relaunch of the same seat at once after a keeper crash, while the crashed session's link
-// still ends and holds the seat, waits for that link and is seated.
+// A relaunch of the same seat at once after a keeper crash is seated: a guard of the relaunch.
+// Against fakehs the seat is free by the time it is reached, so the wait for a link that still
+// holds it is proven by keeper's TestHeldSeatOfAnEndingSessionIsWaitedFor, not here.
 func TestFailpointRelaunchWhileTheLinkEnds(t *testing.T) {
 	w := armed(t, arm("run", failpoint.KeeperLinkWriting))
 	s := w.start("--state", w.state, "--seat", teamName+"/"+mySeat)

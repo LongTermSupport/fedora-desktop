@@ -238,6 +238,25 @@ func TestRemovedWithoutUserID(t *testing.T) {
 	ended(t, l, res, wire.EndExit, 0, 0)
 }
 
+// N2: a removed with a user id whose store the link could not delete still leaves no store,
+// so a later add of the team does not load the old one.
+func TestRemovedWithAStoreLeftBehind(t *testing.T) {
+	w, l, c, res := claudeWorld(t, "alpha/1")
+	alpha := w.layout.Seat(mustTeam(t, "alpha"))
+	mustDo(t, os.WriteFile(alpha.Store(), []byte("store"), 0o600))
+	w.writeDesired(desiredJSON(2, state.InboundAccept))
+	w.changed()
+	l.expect(t, wire.KindDesired)
+	rm := l.expect(t, wire.KindRemove).Remove
+	l.send(t, wire.Msg{Kind: wire.KindRemoved, Removed: &wire.Removed{Team: rm.Team, UserID: agentOf(t, "alpha")}})
+	w.logged("seat alpha released")
+	if exists(t, alpha.Store()) || w.held(alpha) {
+		t.Fatal("the store or the seat outlived the removal")
+	}
+	c.code(0)
+	ended(t, l, res, wire.EndExit, 0, 0)
+}
+
 // LN8: a remove unanswered in 10 s kills the link; the keeper deletes the store under the lock
 // and restarts the link at once, uncounted.
 func TestRemoveTimeout(t *testing.T) {

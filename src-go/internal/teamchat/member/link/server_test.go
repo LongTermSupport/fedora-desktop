@@ -33,15 +33,20 @@ type fakeServed struct {
 	back    []string
 	settled chan struct{}
 	block   bool
+	// cancelled, if set, runs when a blocked request's context ends.
+	cancelled func()
 }
 
 func (f *fakeServed) Serve(ctx context.Context, req wire.Request, out engine.RecordWriter) wire.Done {
 	f.mu.Lock()
 	f.served = append(f.served, req)
-	recs, done, block := f.recs, f.done, f.block
+	recs, done, block, cancelled := f.recs, f.done, f.block, f.cancelled
 	f.mu.Unlock()
 	if block {
 		<-ctx.Done()
+		if cancelled != nil {
+			cancelled()
+		}
 		return wire.Done{}
 	}
 	for _, r := range recs {
@@ -233,6 +238,36 @@ func TestCloseEndsABlockedWaitAtOnce(t *testing.T) {
 		check(t, err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("close waited on a blocked wait")
+	}
+}
+
+// N3: close cancels a request only once its connection is closed, so the client sees the link
+// gone (a wait retries across the restart), never the cancel's answer (exit 4 before its
+// deadline).
+func TestCloseClosesTheConnectionBeforeTheCancel(t *testing.T) {
+	w := newServerWorld(t)
+	cancelled := make(chan struct{})
+	w.eng.block = true
+	w.eng.cancelled = func() { close(cancelled) }
+	c := w.dial(t)
+	_, err := c.Write(w.request(t, wire.OpWait, time.Hour))
+	check(t, err)
+	until(t, func() bool { return w.eng.requests() == 1 })
+	// Holding the server's lock holds close before it closes the connections: no cancel may
+	// come while it is held.
+	w.srv.mu.Lock()
+	closed := make(chan error, 1)
+	go func() { closed <- w.srv.close() }()
+	select {
+	case <-cancelled:
+		w.srv.mu.Unlock()
+		t.Fatal("the request was cancelled before its connection was closed")
+	case <-time.After(100 * time.Millisecond):
+	}
+	w.srv.mu.Unlock()
+	check(t, <-closed)
+	if lines := readAll(t, c); lines != nil {
+		t.Fatalf("the client was answered %q", lines)
 	}
 }
 
