@@ -425,14 +425,19 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
   addressed-to-self, addressed-to-a-roster-agent) from the store's ledger and outbox, then from
   the member's own sent events (each own send, `say`, `reply`, `ping` and notices, recorded at
   its send, n3d), then from a bounded in-memory cache (1024 entries, oldest evicted; n3-D20).
-  On a miss, and only for a main-room human event carrying a reply, thread or edit relation, one
-  `matrix.GetEvent` under the team's request deadline, on the team's kept-alive connection; its
-  answer is cached, and its own addressing is judged from its mentions, `@room` and relations
-  answered without a second fetch. One such request per uncached related event is added to
+  **Resolved before judging** (gap 14): before `Judge` runs on a sync answer, the team goroutine
+  collects the relation ids (reply, thread root, edit original) of the answer's main-room human
+  events and resolves each through the ledger, the outbox, the own sends and the cache, and on a
+  miss by one `matrix.GetEvent` under the team's request deadline, on the team's kept-alive
+  connection; its answer is cached, and its own addressing is judged from its mentions, `@room`
+  and relations answered without a second fetch. `Judge` then runs over a `Lookup` that answers
+  from memory only, so `proto` stays network-free and its interface keeps no error; the sender
+  side's `Lookup` stays memory-only too. One such request per uncached related event is added to
   2.14's homeserver connections line (Task 3.4's cost acceptance counts it). A transient failure
-  of the fetch is SY8's transient path: the batch is held unpersisted and re-judged, never
-  guessed as `not-addressed`. A 404 or 403 is an unknown sender: not addressed to this member and
-  not counted unheard (it undercounts rather than miscounts, n3-D20). Tests, with a store holding
+  of any fetch is SY8's transient path: the whole answer is held before `Judge`, SY6 and SY5 run,
+  and re-fetched, never guessed as `not-addressed`. A 404 or 403 is cached as an unknown sender
+  for the link's life: not addressed to this member and not counted unheard (it undercounts
+  rather than miscounts, n3-D20). Tests, with a store holding
   no record of the event: a human's "Reply in thread" under this member's own `say` is
   delivered; a human's reply to agent X's post is not counted unheard at Y; the fetch failing
   transiently persists nothing; a second event with the same relation is a cache hit (no second
@@ -746,6 +751,12 @@ later slice adding its own failpoints.
     seam's D-Bus adapter in the wiring slice too (LP2). godbus offers no read cap that
     n3b relies on: the transport is wrapped in a capped reader (SU2), tested with an oversized
     message.
+14. `proto.Lookup` has no context and no error, and `Related` no field for "addressed to a roster
+    agent", so a fetch inside `Event(id)` could only report a miss as an ignore or a drop: SY4a
+    resolves the related events before `Judge` runs (n3c), `Related` gains the addressees the
+    predicate of gap 11 reads, filled by the ledger, outbox and own-send records by the rule SY4a
+    states, and `Lookup` keeps its signature. Test: a fetch error injected for one relation id
+    leaves the answer unpersisted, and `Judge` is never called for that batch.
 
 ## 10. Decisions where the design is silent or wrong
 

@@ -340,17 +340,40 @@ its first caller.
 
 ### Phase 3: N3, the member client, LXC members first
 
-- [ ] ⬜ **Task 3.1**: The N3 spec from area B. It says that net/http may resend a dropped `/sync`
+- [x] ✅ **Task 3.1**: The N3 spec from area B. It says that net/http may resend a dropped `/sync`
   (a GET retried on some connection errors), and that this is safe because a sync with a since
   token is idempotent within one database, and across a restore because no answer is persisted
   before B 2.6 step 08's epoch check (H-C14); and it carries 00194's 2.0e and 2.0g
   (Requirements carried).
+  Done: [SPEC-n3.md](SPEC-n3.md), three Opus review rounds (`subagent-reports/261022-n3-spec-review*.md`,
+  fix logs `-fixes-1.md`, `-fixes-2.md`); round 3's one major is applied as the reviewer wrote it
+  (report `subagent-reports/261022-n3-spec.md`). The slices, in order (n3b and n3c may be built at
+  once after n3a):
+
+  - **n3a**: `cmd/teamchat`, the CLI, the member files' codecs, the locks, the kit's layout and
+    the guest operations: an LXC guest's side;
+  - **n3b**: `teamchat-admin lxc apply` and `lxc restart` (C 3.9), the session unit as code, the
+    L3 probe and the LXC disconnected notice's child op: an LXC member placed by `lxc apply`;
+  - **n3c**: `run`, the keeper, the link, the store, the sync engine (SY7 is the resent `/sync`
+    and its restore tests on fakehs), receiving, the ends and hot control;
+  - **n3d**: the sends, the outbox, TIMEOUTs and the forge check: a whole LXC exchange with
+    `--plain`;
+  - **n3e**: delivery into Claude Code, the hooks, the status line, the skill: an LXC Claude Code
+    member end to end;
+  - **n3f**: the side rooms of Plan 00211, from a SPEC-n3 addendum reviewed before it starts.
+
+  2.0e: the switch (RS2) waits on hooks-daemon #127 and its host half on Task 4.2; 2.0g: `empty`
+  counts as unheard (UH1). Gate A binds the play, kit and unit placement; N3's LXC seats are
+  token seats, so gate B binds only the ccy hot reissue's host run (Task 4.4).
+
 - [ ] ⬜ **Task 3.2**: The `teamchat` binary: CLI, member state, the keeper (`run`) and the link, locks, sync,
   delivery, hooks, status line, plugin and skill (B 2.1-2.12).
+
 - [ ] ⬜ **Task 3.3**: LXC members: guest operations (B 2.13), LXC apply from the host (C 3.9),
   `teamchat-session-<user>.service`; the container's own config stays with its own play (seam 52).
   **Gate A** (Task 0.5): its play tasks and units merge to F44 only after the owner's
   confirmation.
+
 - [ ] ⬜ **Task 3.4**: Acceptance: B 2.15's tests, the resident-cost bars by
   `acceptance-member-cost.bash` (B 2.14), an LXC member on a real team in the VM lab;
   `teamchat-coexist` at its N3 stage, which adds the LXC member and its exchange (D 4.3).
