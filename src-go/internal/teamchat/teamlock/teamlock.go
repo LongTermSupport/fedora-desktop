@@ -200,8 +200,8 @@ func holderOf(f *os.File) string {
 	return line
 }
 
-// writeHolder writes the line over the old one and then cuts what is left, so a waiter never
-// reads an empty file between the two.
+// writeHolder writes the line over the old one and then cuts what is left, so a crashed
+// holder's leftover line is never emptied before the new one is in.
 func writeHolder(f *os.File, line string) error {
 	if _, err := f.WriteAt([]byte(line), 0); err != nil {
 		return err
