@@ -32,7 +32,7 @@ func failedAt(t *testing.T, err error, step string) {
 // breakCopy plants a host copy of agent1 in c that does not decode.
 func breakCopy(t *testing.T, w *world, c string) {
 	t.Helper()
-	writeTree(t, w.host, map[string]string{paths.LXCDesiredCopy(mustBox(t, c), agent1(t))[1:]: "{not json"})
+	writeTree(t, w.host, map[string]string{paths.LXCDesiredCopy(mustBox(t, c), keyOf(t, "t1"))[1:]: "{not json"})
 }
 
 type failingApprovals struct{}
@@ -176,7 +176,7 @@ func TestAbsentGuestStepFailures(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				hasLine(t, r, lineOf(t, "SKIPPED", "t1", "c1", "offline: container stopped; guest files pending"))
+				hasLine(t, r, lineOf(t, "SKIPPED", "c1", "offline: container stopped; guest files pending"))
 			} else {
 				failedAt(t, err, tc.step)
 			}
@@ -187,11 +187,35 @@ func TestAbsentGuestStepFailures(t *testing.T) {
 	}
 }
 
-func TestAbsentWrongPasswdFailsTheMember(t *testing.T) {
+func TestAbsentWrongUIDFailsTheMember(t *testing.T) {
 	w := leaving(t)
-	writeTree(t, w.lxc.boxes["c1"].dir, map[string]string{"etc/passwd": "root:x:0:0:root:/root:/bin/bash\n"})
+	writeTree(t, w.lxc.boxes["c1"].dir, map[string]string{"etc/passwd": "root:x:0:0:root:/root:/bin/bash\nagent1:x:1000:1000::/srv/agent1:/bin/bash\n"})
 	_, err := w.apply(PhaseAbsent)
 	failedAt(t, err, "reads")
+}
+
+func TestAbsentDeletedUserIsCleanedUp(t *testing.T) {
+	w := leaving(t)
+	b := w.lxc.boxes["c1"]
+	writeTree(t, b.dir, map[string]string{"etc/passwd": "root:x:0:0:root:/root:/bin/bash\n"})
+	if _, err := w.apply(PhaseAbsent); err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(w.lxc.verbs(), "c1 guest membership") || slices.Contains(w.lxc.verbs(), "c1 guest remove") {
+		t.Fatalf("attached as a deleted user: %v", w.lxc.verbs())
+	}
+	if _, ok := guestFile(t, b, unitFileOf(t, "t1")); ok {
+		t.Fatal("a deleted user's unit was kept")
+	}
+	if _, found, err := lxcstate.ReadCopy(w.host, mustBox(t, "c1"), seatID(t, "t1")); err != nil || found {
+		t.Fatalf("a deleted user's copy was kept: %v %v", found, err)
+	}
+	if _, found := w.record().Find(mustBox(t, "c1"), checkout, 1); found {
+		t.Fatal("a deleted user's entry was kept")
+	}
+	if !slices.Contains(w.roster.parks, "t1 "+firstHandle) {
+		t.Fatalf("parks %v", w.roster.parks)
+	}
 }
 
 func TestAbsentMemberThatNeverJoinedIsDropped(t *testing.T) {
@@ -210,7 +234,7 @@ func TestAbsentMemberThatNeverJoinedIsDropped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hasLine(t, r, lineOf(t, "CHANGED", "t1", "c1", "")+lineNoHandle)
+	hasLine(t, r, lineOf(t, "CHANGED", "c1", "")+lineNoHandle)
 	if _, found := w.record().Find(mustBox(t, "c1"), checkout, 1); found {
 		t.Fatal("a member that never joined kept its entry")
 	}
@@ -227,7 +251,7 @@ func TestAbsentOfflineTargetIs69(t *testing.T) {
 	if off, ok := errors.AsType[*OfflineError](err); !ok || off.Container.String() != "c1" {
 		t.Fatalf("err %v", err)
 	}
-	hasLine(t, r, lineOf(t, "CHANGED", "t1", "c1", "parked; guest files pending (offline: container stopped)"))
+	hasLine(t, r, lineOf(t, "CHANGED", "c1", "parked; guest files pending (offline: container stopped)"))
 }
 
 func TestAbsentContainerListFailingIsOffline(t *testing.T) {
@@ -237,7 +261,7 @@ func TestAbsentContainerListFailingIsOffline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hasLine(t, r, lineOf(t, "CHANGED", "t1", "c1", "parked; guest files pending (offline: container stopped)"))
+	hasLine(t, r, lineOf(t, "CHANGED", "c1", "parked; guest files pending (offline: container stopped)"))
 }
 
 func TestHostKitWithAFifoIsRefused(t *testing.T) {
@@ -263,7 +287,7 @@ func TestUnreachableSystemdIsTheUnitDown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hasLine(t, r, lineOf(t, "SKIPPED", "t1", "c1", "")+whyUnitDown)
+	hasLine(t, r, lineOf(t, "SKIPPED", "c1", "")+whyUnitDown)
 	if e := w.entry("c1"); e.Status != lxcstate.StatusOffline || e.Why != whyUnitDown {
 		t.Fatalf("entry %+v", e)
 	}
@@ -271,7 +295,7 @@ func TestUnreachableSystemdIsTheUnitDown(t *testing.T) {
 	if _, err = w.apply(PhasePresent); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(w.bus.calls, []string{"Reload", "Start "+unitOf(t, "t1")}) {
+	if !slices.Equal(w.bus.calls, []string{"Reload", "Start " + unitOf(t, "t1")}) {
 		t.Fatalf("an unchanged unit last found down was not started: %v", w.bus.calls)
 	}
 }

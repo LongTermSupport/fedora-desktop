@@ -77,13 +77,13 @@ func Restart(ctx context.Context, d Deps, container paths.ContainerName, key pat
 func restartSeat(d Deps, container paths.ContainerName, key paths.SeatKey) (lxcstate.SeatID, error) {
 	teams, err := recordTeams(d.Root)
 	if err != nil {
-		return lxcstate.SeatID{}, &host.Error{Verb: restartVerb, Step: "record", Err: err}
+		return lxcstate.SeatID{}, &host.Error{Verb: restartVerb, Step: stepRecord, Err: err}
 	}
 	var seats []lxcstate.SeatID
 	for _, team := range teams {
 		rec, _, err := lxcstate.ReadRecord(d.Root, team)
 		if err != nil {
-			return lxcstate.SeatID{}, &host.Error{Verb: restartVerb, Step: "record", Err: err}
+			return lxcstate.SeatID{}, &host.Error{Verb: restartVerb, Step: stepRecord, Err: err}
 		}
 		for _, e := range rec.Members {
 			if e.Container == container && e.Status != lxcstate.StatusLeft && rec.SeatOf(e).Key() == key {
@@ -96,11 +96,15 @@ func restartSeat(d Deps, container paths.ContainerName, key paths.SeatKey) (lxcs
 	case 1:
 		return seats[0], nil
 	case 0:
-		return lxcstate.SeatID{}, &host.Error{Verb: restartVerb, Step: "record", Drift: true,
-			Err: fmt.Errorf("--member %s names no seat of any team's LXC record; lxc apply places it", seat)}
+		return lxcstate.SeatID{}, &host.Error{
+			Verb: restartVerb, Step: stepRecord, Drift: true,
+			Err: fmt.Errorf("--member %s names no seat of any team's LXC record; lxc apply places it", seat),
+		}
 	}
-	return lxcstate.SeatID{}, &host.Error{Verb: restartVerb, Step: "record", Drift: true,
-		Err: fmt.Errorf("--member %s names a seat key two records hold; lxc apply refuses it", seat)}
+	return lxcstate.SeatID{}, &host.Error{
+		Verb: restartVerb, Step: stepRecord, Drift: true,
+		Err: fmt.Errorf("--member %s names a seat key two records hold; lxc apply refuses it", seat),
+	}
 }
 
 // recordTeams is every team with an LXC record under the host root: each name of the record

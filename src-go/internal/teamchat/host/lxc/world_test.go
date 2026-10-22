@@ -27,6 +27,7 @@ import (
 // The fixture guest's facts: one agent user in a guest whose /bin is a link to usr/bin (EL9).
 const (
 	agentUID  = 1001
+	agent2UID = 1002
 	agentGID  = 1001
 	checkout  = "/srv/agent1/src/repo"
 	kitDigest = "0123456789abcdef"
@@ -93,8 +94,8 @@ func writeTree(t *testing.T, dir string, files map[string]string) {
 	}
 }
 
-// newGuest is a fixture guest root tree with the agent user agent1, its checkout, systemd and an
-// EL9-shaped tmux.
+// newGuest is a fixture guest root tree with the agent users agent1 and agent2, agent1's
+// checkout, systemd and an EL9-shaped tmux.
 func newGuest(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -102,7 +103,7 @@ func newGuest(t *testing.T) string {
 		t.Fatal(err)
 	}
 	writeTree(t, dir, map[string]string{
-		"etc/passwd":                      "root:x:0:0:root:/root:/bin/bash\nagent1:x:1001:1001::/srv/agent1:/bin/bash\n",
+		"etc/passwd":                      "root:x:0:0:root:/root:/bin/bash\nagent1:x:1001:1001::/srv/agent1:/bin/bash\nagent2:x:1002:1001::/srv/agent2:/bin/bash\n",
 		"etc/group":                       "root:x:0:\nagents:x:1001:\n",
 		"usr/lib/systemd/systemd":         "systemd",
 		"usr/bin/tmux":                    "tmux",
@@ -224,7 +225,11 @@ func (f *fakeLXC) Guest(_ context.Context, a lxccmd.Attach, op guest.Op, args []
 	}
 	answer := f.answer
 	f.mu.Unlock()
-	if a.Kit.String() != paths.HostKitDir(mustDigest(kitDigest)).String() || a.UID != agentUID || a.Home != "/srv/agent1" {
+	uid, home := agentUID, "/srv/agent1"
+	if a.User.String() == "agent2" {
+		uid, home = agent2UID, "/srv/agent2"
+	}
+	if a.Kit.String() != paths.HostKitDir(mustDigest(kitDigest)).String() || a.UID != uid || a.Home != home {
 		return lxccmd.GuestResult{}, fmt.Errorf("attach with kit %s uid %d home %s", a.Kit, a.UID, a.Home)
 	}
 	if answer != nil {
@@ -467,9 +472,12 @@ func (w *world) team(id string) declare.Team {
 
 // member declares agent1's seat 1 of the fixture checkout in container c in team, present,
 // with its service on.
-func (w *world) member(team, c string) declare.LXCMember {
+func (w *world) member(team, c string) declare.LXCMember { return w.memberAt(team, c, 1) }
+
+// memberAt is member at seat.
+func (w *world) memberAt(team, c string, seat int) declare.LXCMember {
 	return declare.LXCMember{
-		Team: mustTeam(w.t, team), Container: c, User: agent1(w.t), Checkout: checkout, Seat: 1,
+		Team: mustTeam(w.t, team), Container: c, User: agent1(w.t), Checkout: checkout, Seat: seat,
 		Service: true, State: declare.StatePresent,
 	}
 }
@@ -561,7 +569,13 @@ func (w *world) entry(c string) lxcstate.Entry {
 // seatID is seat 1 of the fixture checkout in team.
 func seatID(t *testing.T, team string) lxcstate.SeatID {
 	t.Helper()
-	return lxcstate.SeatID{Team: mustTeam(t, team), Checkout: checkout, Seat: 1}
+	return seatAt(t, team, 1)
+}
+
+// seatAt is seat of the fixture checkout in team.
+func seatAt(t *testing.T, team string, seat int) lxcstate.SeatID {
+	t.Helper()
+	return lxcstate.SeatID{Team: mustTeam(t, team), Checkout: checkout, Seat: seat}
 }
 
 // keyOf is seatID's key.
@@ -586,10 +600,16 @@ func wantsOf(t *testing.T, team string) string {
 	return paths.GuestUnitWantsLink(mustTeam(t, team), checkout, 1)
 }
 
-// lineOf is the output line of agent1's seat 1 of the fixture checkout in c and team.
-func lineOf(t *testing.T, kind, team, c, why string) string {
+// lineOf is the output line of agent1's seat 1 of the fixture checkout in c and team t1.
+func lineOf(t *testing.T, kind, c, why string) string {
 	t.Helper()
-	return kind + "\t" + team + "\tagent1@" + c + "/repo-1-" + keyOf(t, team).String() + "\t" + why
+	return lineAt(t, kind, "t1", "agent1", c, 1, why)
+}
+
+// lineAt is the output line of user's seat of the fixture checkout in c and team.
+func lineAt(t *testing.T, kind, team, user, c string, seat int, why string) string {
+	t.Helper()
+	return fmt.Sprintf("%s\t%s\t%s@%s/repo-%d-%s\t%s", kind, team, user, c, seat, seatAt(t, team, seat).Key(), why)
 }
 
 // lines is the report's lines as text.

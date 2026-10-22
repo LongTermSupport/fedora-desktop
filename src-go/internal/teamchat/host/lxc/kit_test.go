@@ -15,11 +15,17 @@ import (
 // recordedTicks is the keeper start time every planted session.pid records.
 const recordedTicks = 77
 
-// sessionPID plants a session.pid naming the old digest, for a keeper of pid 4242 whose guest
-// /proc/4242/stat starts at ticks.
+// sessionPID plants a session.pid naming the old digest under t1's unit run root, for a keeper
+// of pid 4242 whose guest /proc/4242/stat starts at ticks.
 func sessionPID(t *testing.T, b *box, ticks int64) {
 	t.Helper()
-	run := "run/teamchat-session-agent1/teamchat/run/" + runID + "/session.pid"
+	sessionPIDUnder(t, b, paths.GuestUnitRunRoot(keyOf(t, "t1")), ticks)
+}
+
+// sessionPIDUnder is sessionPID under the run root dir.
+func sessionPIDUnder(t *testing.T, b *box, dir string, ticks int64) {
+	t.Helper()
+	run := dir[1:] + "/" + runID + "/session.pid"
 	writeTree(t, b.dir, map[string]string{
 		run: `{"v":1,"run":"` + runID + `","keeper":{"pid":4242,"start_ticks":` + strconv.Itoa(recordedTicks) +
 			`},"session":null,"kit":"` + oldDigest + `","launch":"claude","inbound":"accept","kind":"lxc"}`,
@@ -42,6 +48,26 @@ func TestOldKitRemovedUnlessALiveSessionNamesIt(t *testing.T) {
 	}{
 		{"no session", func(*testing.T, *box) {}, false},
 		{"live session", func(t *testing.T, b *box) { t.Helper(); sessionPID(t, b, 77) }, true},
+		{"live session of a seat this apply does not act on", func(t *testing.T, b *box) {
+			t.Helper()
+			sessionPIDUnder(t, b, paths.GuestUnitRunRoot(keyOf(t, "t2")), 77)
+		}, true},
+		{"live login session", func(t *testing.T, b *box) {
+			t.Helper()
+			root, err := paths.GuestLoginRunRoot(agentUID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sessionPIDUnder(t, b, root, 77)
+		}, true},
+		{"live session under a name /run's grammar refuses", func(t *testing.T, b *box) {
+			t.Helper()
+			sessionPIDUnder(t, b, "/run/other/teamchat/run", 77)
+		}, false},
+		{"/run cannot be listed", func(t *testing.T, b *box) {
+			t.Helper()
+			writeTree(t, b.dir, map[string]string{"run": "->tmp"})
+		}, true},
 		{"start time differs", func(t *testing.T, b *box) { t.Helper(); sessionPID(t, b, 78) }, false},
 		{"keeper gone", func(t *testing.T, b *box) {
 			t.Helper()
@@ -57,7 +83,7 @@ func TestOldKitRemovedUnlessALiveSessionNamesIt(t *testing.T) {
 		}, true},
 		{"forged record", func(t *testing.T, b *box) {
 			t.Helper()
-			writeTree(t, b.dir, map[string]string{"run/teamchat-session-agent1/teamchat/run/" + runID + "/session.pid": "{not json"})
+			writeTree(t, b.dir, map[string]string{paths.GuestUnitRunRoot(keyOf(t, "t1"))[1:] + "/" + runID + "/session.pid": "{not json"})
 		}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

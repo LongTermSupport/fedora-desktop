@@ -28,8 +28,8 @@ func leaving(t *testing.T) *world {
 // seatLock is the guest path of agent1's seat lock for team.
 func seatLock(t *testing.T, team string) string {
 	t.Helper()
-	u := agent1(t)
-	l, err := paths.HomeLayout("/srv/agent1", paths.GuestRuntimeDir(u))
+	k := keyOf(t, team)
+	l, err := paths.LXCLayout("/srv/agent1", paths.GuestRuntimeDir(k), k)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,14 +66,14 @@ func TestAbsentParksThenRemovesInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"park " + firstHandle, "guest membership", "systemd Stop agent1", "systemd Reload", "guest remove"}
+	want := []string{"park " + firstHandle, "guest membership", "systemd Stop " + unitOf(t, "t1"), "systemd Reload", "guest remove"}
 	if !slices.Equal(w.log, want) {
 		t.Fatalf("order %v, want %v", w.log, want)
 	}
 	if !strings.Contains(w.lxc.calls[0].Stdin, `"farewell":[{"team":"t1","seat":"1","reason":"parked"}]`) || !strings.Contains(w.lxc.calls[0].Stdin, `"seats":[]`) {
 		t.Fatalf("desired %s", w.lxc.calls[0].Stdin)
 	}
-	hasLine(t, r, lineOf(t, "CHANGED", "t1", "c1", "parked and removed"))
+	hasLine(t, r, lineOf(t, "CHANGED", "c1", "parked and removed"))
 	if _, found := w.record().Find(mustBox(t, "c1"), checkout, 1); found {
 		t.Fatal("a removed member kept its entry")
 	}
@@ -101,7 +101,7 @@ func TestAbsentHeldSeatDeferredThenRetried(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hasLine(t, r, lineOf(t, "DEFERRED", "t1", "c1", "seat still held by run ")+runID+"; token revoked")
+	hasLine(t, r, lineOf(t, "DEFERRED", "c1", "seat still held by run ")+runID+"; token revoked")
 	if w.clock.sleeps != int(SeatFreeWait/SeatFreeGap) {
 		t.Fatalf("slept %d times", w.clock.sleeps)
 	}
@@ -131,7 +131,7 @@ func TestAbsentHeldSeatWithAForgedRecordNamesNoRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hasLine(t, r, lineOf(t, "DEFERRED", "t1", "c1", "seat still held; token revoked"))
+	hasLine(t, r, lineOf(t, "DEFERRED", "c1", "seat still held; token revoked"))
 }
 
 func TestAbsentStopsWaitingWhenTheContainerStops(t *testing.T) {
@@ -146,7 +146,7 @@ func TestAbsentStopsWaitingWhenTheContainerStops(t *testing.T) {
 	if w.clock.sleeps != 1 {
 		t.Fatalf("slept %d times after the container stopped", w.clock.sleeps)
 	}
-	hasLine(t, r, lineOf(t, "SKIPPED", "t1", "c1", "offline: container stopped; guest files pending"))
+	hasLine(t, r, lineOf(t, "SKIPPED", "c1", "offline: container stopped; guest files pending"))
 	if e := w.entry("c1"); e.Status != lxcstate.StatusLeft {
 		t.Fatalf("entry %+v", e)
 	}
@@ -160,7 +160,7 @@ func TestAbsentOfflineContainers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hasLine(t, r, lineOf(t, "CHANGED", "t1", "c1", "parked; guest files pending (offline: container stopped)"))
+	hasLine(t, r, lineOf(t, "CHANGED", "c1", "parked; guest files pending (offline: container stopped)"))
 	if e := w.entry("c1"); e.Status != lxcstate.StatusLeft {
 		t.Fatalf("entry %+v", e)
 	}
@@ -185,7 +185,7 @@ func TestAbsentOfflineContainers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hasLine(t, r, lineOf(t, "CHANGED", "t1", "c1", "parked; entry dropped (offline: container missing)"))
+	hasLine(t, r, lineOf(t, "CHANGED", "c1", "parked; entry dropped (offline: container missing)"))
 	if _, found := w.record().Find(mustBox(t, "c1"), checkout, 1); found {
 		t.Fatal("a missing container's member kept its entry")
 	}
@@ -203,16 +203,18 @@ func TestAbsentHeldByOp75IsDeferred(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hasLine(t, r, lineOf(t, "DEFERRED", "t1", "c1", "seat still held; token revoked"))
+	hasLine(t, r, lineOf(t, "DEFERRED", "c1", "seat still held; token revoked"))
 }
 
-func TestAbsentKeepsTheUnitForAnotherTeam(t *testing.T) {
+func TestAbsentStopsOnlyItsOwnSeatsUnit(t *testing.T) {
 	w := newWorld(t)
-	w.addBox("c1")
+	b := w.addBox("c1")
 	w.declare([]string{"t1", "t2"}, w.member("t1", "c1"), w.member("t2", "c1"))
-	if _, err := w.apply(PhasePresent); err != nil {
-		t.Fatal(err)
+	joined, joinErr := w.apply(PhasePresent)
+	if joinErr != nil {
+		t.Fatal(joinErr)
 	}
+	hasLine(t, joined, lineAt(t, "CHANGED", "t2", "agent1", "c1", 1, "joined as "+firstHandle))
 	w.bus.calls = nil
 	m := w.member("t1", "c1")
 	m.State = declare.StateAbsent
@@ -220,11 +222,17 @@ func TestAbsentKeepsTheUnitForAnotherTeam(t *testing.T) {
 	if _, err := w.apply(PhaseAbsent); err != nil {
 		t.Fatal(err)
 	}
-	if len(w.bus.calls) != 0 {
-		t.Fatalf("the unit of a user still in t2 was touched: %v", w.bus.calls)
+	if !slices.Equal(w.bus.calls, []string{"Stop " + unitOf(t, "t1"), "Reload"}) {
+		t.Fatalf("systemd %v, want only t1's unit stopped", w.bus.calls)
 	}
-	cp, _, err := lxcstate.ReadCopy(w.host, mustBox(t, "c1"), seatID(t, "t1"))
+	if _, ok := guestFile(t, b, unitFileOf(t, "t2")); !ok {
+		t.Fatal("t2's unit was removed")
+	}
+	if _, found, err := lxcstate.ReadCopy(w.host, mustBox(t, "c1"), seatID(t, "t1")); err != nil || found {
+		t.Fatalf("t1's copy kept: %v %v", found, err)
+	}
+	cp, _, err := lxcstate.ReadCopy(w.host, mustBox(t, "c1"), seatID(t, "t2"))
 	if err != nil || len(cp.Seats) != 1 || cp.Seats[0].Team.String() != "t2" {
-		t.Fatalf("copy %+v %v", cp, err)
+		t.Fatalf("t2's copy %+v %v", cp, err)
 	}
 }

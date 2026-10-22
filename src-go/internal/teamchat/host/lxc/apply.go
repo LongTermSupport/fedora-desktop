@@ -54,6 +54,7 @@ const (
 	stepValidate   = "validate"
 	stepReads      = "reads"
 	stepMembership = "membership"
+	stepRecord     = "record"
 )
 
 // The guest files the reads take (C 3.9.2 step 03).
@@ -741,12 +742,7 @@ func (r *run) owners(g *guestBox, dir string, passwd []byte) map[int]bool {
 // the handle for one of them, the other is the wrong one.
 func (r *run) equalHandles() {
 	for _, t := range r.teams {
-		holder := map[string]lxcstate.Entry{}
-		for _, e := range r.records[t.ID].Members {
-			if e.Handle != "" && e.Status != lxcstate.StatusLeft {
-				holder[e.Handle] = e
-			}
-		}
+		holder := liveHandles(r.records[t.ID])
 		first := map[string]*member{}
 		for _, m := range r.members {
 			if m.team.ID != t.ID || m.done || m.want == "" {
@@ -766,6 +762,17 @@ func (r *run) equalHandles() {
 			first[m.want] = m
 		}
 	}
+}
+
+// liveHandles is each handle a record entry not left holds, with its entry.
+func liveHandles(rec lxcstate.Record) map[string]lxcstate.Entry {
+	holder := map[string]lxcstate.Entry{}
+	for _, e := range rec.Members {
+		if e.Handle != "" && e.Status != lxcstate.StatusLeft {
+			holder[e.Handle] = e
+		}
+	}
+	return holder
 }
 
 // service is the facts a session unit needs (SU1): start.auto, systemd as init (n3-D17), tmux
@@ -902,7 +909,7 @@ func (r *run) joins(ctx context.Context, team paths.TeamID) error {
 		}
 	}
 	if err := r.recordJoins(team, joined); err != nil {
-		r.failAll(joined, "record", err)
+		r.failAll(joined, stepRecord, err)
 		return nil
 	}
 	for _, m := range joined {
@@ -1196,7 +1203,7 @@ func (r *run) finish(ctx context.Context) {
 			rec = settle(rec, m, now)
 		}
 		if _, err := lxcstate.WriteRecord(r.d.Root, rec, r.d.OwnerGID); err != nil {
-			r.errs = append(r.errs, &host.Error{Verb: verb, Step: "record", Err: err})
+			r.errs = append(r.errs, &host.Error{Verb: verb, Step: stepRecord, Err: err})
 		}
 		if r.changed[t.ID] {
 			if err := r.d.Refresh(ctx, t.ID); err != nil {
