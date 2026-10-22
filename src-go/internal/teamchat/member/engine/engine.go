@@ -18,9 +18,11 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/homefs"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/inbox"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/lock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
@@ -55,6 +57,13 @@ type Config struct {
 	OnState func(wire.State)
 	// Runtime is the session's resident cost, for status.
 	Runtime func() (records.Runtime, error)
+	// Inbox dials the session's inbox socket; nil: no socket delivery.
+	Inbox inbox.Dialer
+	// Unusable is session.json's counts at the link's start.
+	Unusable state.Unusable
+	// OnUnusable is told the counts whenever a slot that fails to render is dropped, on the
+	// state goroutine; it must not block, and nothing it reaches calls the engine. Nil allowed.
+	OnUnusable func(state.Unusable)
 }
 
 // EndsConfig is what the session's ends are made from: the engine they record into (EN1), and
@@ -105,6 +114,13 @@ type Engine struct {
 	logMu   sync.Mutex
 	logLost int
 
+	// kick pokes the delivery loop; members carries SendMembership's notices into it; hit is
+	// hitPoint; idles counts the loop's idle waits.
+	kick    chan struct{}
+	members chan memberReq
+	hit     func(point)
+	idles   atomic.Int64
+
 	// Everything below is the state goroutine's alone.
 	teams   map[paths.TeamID]*held
 	refused map[paths.TeamID]paths.RunID
@@ -112,6 +128,10 @@ type Engine struct {
 	waiters []chan struct{}
 	acks    map[string]bool
 	sent    map[paths.TeamID]wire.State
+	// sess is the session's facts, stall the delivery's failures, unusable the counts.
+	sess     sessionFacts
+	stall    stall
+	unusable state.Unusable
 }
 
 // New is an engine over cfg; its goroutine runs from Run.
@@ -135,6 +155,7 @@ func New(cfg Config) (*Engine, error) {
 		cfg: cfg, ops: make(chan func()), done: make(chan struct{}),
 		teams: map[paths.TeamID]*held{}, refused: map[paths.TeamID]paths.RunID{},
 		desired: state.DesiredApplied, acks: map[string]bool{}, sent: map[paths.TeamID]wire.State{},
+		kick: make(chan struct{}, 1), members: make(chan memberReq), hit: hitPoint, unusable: cfg.Unusable,
 	}
 	e.ends = cfg.NewEnds(EndsConfig{Engine: e, Run: cfg.Run, Clock: cfg.Clock, Log: cfg.Log})
 	return e, nil
@@ -143,9 +164,15 @@ func New(cfg Config) (*Engine, error) {
 // Ends is the ends the engine was built with.
 func (e *Engine) Ends() team.Ends { return e.ends }
 
-// Run is the state goroutine, until ctx ends. Every call made after it returns is ErrStopped.
+// Run is the state goroutine, until ctx ends, and in socket mode the delivery loop beside it;
+// it returns once both have ended. Every call made after it returns is ErrStopped.
 func (e *Engine) Run(ctx context.Context) error {
+	var loop sync.WaitGroup
 	defer close(e.done)
+	defer loop.Wait()
+	if e.delivers() {
+		loop.Go(func() { e.deliverLoop(ctx) })
+	}
 	for {
 		select {
 		case op := <-e.ops:

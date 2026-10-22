@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/failpoint"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
@@ -290,7 +289,10 @@ func (e *Engine) render(cand candidate, names map[paths.TeamID]namer, c *copies)
 // failed, whose items stay pending.
 func (e *Engine) commit(stores map[paths.TeamID]*state.Store) map[paths.TeamID]bool {
 	failed := map[paths.TeamID]bool{}
-	for _, id := range slices.SortedFunc(maps.Keys(stores), compareTeams) {
+	for i, id := range slices.SortedFunc(maps.Keys(stores), compareTeams) {
+		if i > 0 {
+			e.hit(pointBetweenStoreWrite)
+		}
 		s, h := stores[id], e.teams[id]
 		if err := h.writer.Write(*s); err != nil {
 			e.logf("team %s: the hand-out was not persisted, its items stay pending: %v", id, err)
@@ -351,7 +353,7 @@ func (e *Engine) recv(ctx context.Context, only *paths.TeamID, out RecordWriter)
 	if len(h.recs) == 0 {
 		return wire.Done{}
 	}
-	failpoint.Hit(failpoint.LinkAfterHandOut)
+	e.hit(pointAfterHandOut)
 	if err := e.write(out, h); err != nil {
 		return internal(errors.Join(err, e.Return(context.WithoutCancel(ctx), ack.Ack)))
 	}
@@ -481,26 +483,14 @@ func (e *Engine) settle(ctx context.Context, ack string, deliver func(*state.Sto
 	var errs []error
 	if err := e.do(ctx, func() {
 		now := e.cfg.Clock.WallMS()
-		returned := false
+		returned, wrote := false, false
 		for _, id := range e.order() {
 			if !eligible(e.teams[id], nil) {
 				continue
 			}
-			var (
-				floor int64
-				moved bool
-				back  bool
-			)
-			err := e.changeLocked(id, func(h *held, s *state.Store) (bool, error) {
-				var left []state.Pending
-				left, back = settleStore(h, s, ack, now, deliver)
-				floor, moved = raiseFloors(s, left)
-				return len(left) > 0 || back, nil
-			})
-			if err == nil && moved {
-				e.floorRaised(id, floor)
-			}
-			returned = returned || (err == nil && back)
+			changed, back, err := e.settleTeam(id, ack, now, wrote, deliver)
+			wrote = wrote || changed
+			returned = returned || back
 			errs = append(errs, err)
 		}
 		// A wait that found every item handed sleeps until woken (N1).
@@ -513,14 +503,44 @@ func (e *Engine) settle(ctx context.Context, ack string, deliver func(*state.Sto
 	return errors.Join(errs...)
 }
 
+// settleTeam is settle's one write of team id's store, the failpoint between two stores'
+// writes hit before it when an earlier store was written; it is whether it wrote, and whether
+// an item went back to pending.
+func (e *Engine) settleTeam(id paths.TeamID, ack string, now int64, wrote bool, deliver func(*state.Store, state.Pending, int64) bool) (bool, bool, error) {
+	var (
+		floor          int64
+		moved, changed bool
+		back           bool
+	)
+	err := e.changeLocked(id, func(h *held, s *state.Store) (bool, error) {
+		var left []state.Pending
+		left, back = settleStore(h, s, ack, now, deliver)
+		floor, moved = raiseFloors(s, left)
+		changed = len(left) > 0 || back
+		if changed && wrote {
+			e.hit(pointBetweenStoreWrite)
+		}
+		return changed, nil
+	})
+	if err != nil {
+		return false, false, err
+	}
+	if moved {
+		e.floorRaised(id, floor)
+	}
+	return changed, back, nil
+}
+
 // settleStore is settle in one store's copy; it is the items that left pending, and whether
 // any went back to pending.
 func settleStore(h *held, s *state.Store, ack string, now int64, deliver func(*state.Store, state.Pending, int64) bool) ([]state.Pending, bool) {
 	var left []state.Pending
 	back := false
+	// An item awaiting proof is handed to its delivery's nonce; only its proof settles it.
+	awaiting := awaitingIDs(s)
 	kept := s.Pending[:0]
 	for _, it := range s.Pending {
-		if it.Handed == nil || *it.Handed != ack {
+		if it.Handed == nil || *it.Handed != ack || awaiting[it.ID] {
 			kept = append(kept, it)
 			continue
 		}

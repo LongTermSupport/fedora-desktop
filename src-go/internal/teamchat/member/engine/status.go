@@ -75,11 +75,19 @@ func teamColour(t paths.TeamID, override *string) string {
 	return colour.Auto(t.String())
 }
 
+// pending is how many items the store owes, those awaiting a delivery's proof not counted.
 func (h *held) pending() int64 {
 	if h.store == nil {
 		return 0
 	}
-	return int64(len(h.store.Pending))
+	awaiting := awaitingIDs(h.store)
+	n := int64(0)
+	for _, p := range h.store.Pending {
+		if !awaiting[p.ID] {
+			n++
+		}
+	}
+	return n
 }
 
 // publish tells the keeper each held team's report that changed and rewrites status.json; on
@@ -126,6 +134,7 @@ func sameState(a, b wire.State) bool {
 
 func (e *Engine) statusRow(h *held) state.StatusTeam {
 	row := state.StatusTeam{Team: h.id, Down: h.health.Down, Delivery: e.cfg.Delivery, Pending: h.pending()}
+	row.Stalled = e.stall.stalled && row.Pending > 0
 	row.Member, row.Colour = h.member(), teamColour(h.id, h.health.Colour)
 	if h.health.Role != "" {
 		role := h.health.Role

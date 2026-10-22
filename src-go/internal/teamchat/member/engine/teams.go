@@ -43,6 +43,8 @@ type held struct {
 	health  team.Health
 	counts  team.Counts
 	removed bool
+	// delivery is what the delivery loop holds of the team: its trailing facts and backoff.
+	delivery deliveryState
 }
 
 // Removed is a removal's answer: the team's user id (n3c-D13), "" when the link never read
@@ -140,11 +142,13 @@ func (e *Engine) readBundle(h *held) (seat.Bundle, error) {
 const maxBundle = 16 << 10
 
 // restoreHanded returns every handed item to pending, marked repeat and restored (B 2.4.4: a
-// link that crashed while items were handed), and is how many it returned.
+// link that crashed while items were handed), and is how many it returned. An item awaiting
+// proof stays: its delivery's proof settles it.
 func restoreHanded(s *state.Store) int {
 	n := 0
+	awaiting := awaitingIDs(s)
 	for i := range s.Pending {
-		if s.Pending[i].Handed != nil {
+		if s.Pending[i].Handed != nil && !awaiting[s.Pending[i].ID] {
 			s.Pending[i].Handed = nil
 			s.Pending[i].Repeat = true
 			s.Pending[i].Restored = true

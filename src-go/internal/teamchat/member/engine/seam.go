@@ -210,10 +210,14 @@ func (e *Engine) Persist(ctx context.Context, b team.Batch) (int64, error) {
 		// Memory follows the disk: only a written batch's content and counts are kept.
 		h := e.teams[b.Team]
 		maps.Copy(h.content, added)
+		awaiting := awaitingIDs(h.store)
 		for _, id := range b.Redacts {
-			delete(h.content, id)
+			if !awaiting[id] {
+				delete(h.content, id)
+			}
 		}
 		h.counts = addCounts(h.counts, b.Counts)
+		h.delivery.hold(b)
 		e.wake()
 	}); err != nil {
 		return 0, err
@@ -246,7 +250,11 @@ func apply(s *state.Store, b team.Batch) (map[string]proto.Verdict, error) {
 		known[it.Pending.ID] = true
 		added[it.Pending.ID] = it.Verdict
 	}
-	s.Pending = slices.DeleteFunc(s.Pending, func(p state.Pending) bool { return slices.Contains(b.Redacts, p.ID) })
+	// An item awaiting proof was shown already; its proof, not a redaction, settles it.
+	awaiting := awaitingIDs(s)
+	s.Pending = slices.DeleteFunc(s.Pending, func(p state.Pending) bool {
+		return slices.Contains(b.Redacts, p.ID) && !awaiting[p.ID]
+	})
 	ownedFloors(s)
 	return added, nil
 }
@@ -305,12 +313,13 @@ func addCounts(a, b team.Counts) team.Counts {
 	}
 }
 
-// wake ends every wait's sleep; on the state goroutine.
+// wake ends every wait's sleep and pokes the delivery loop; on the state goroutine.
 func (e *Engine) wake() {
 	for _, w := range e.waiters {
 		close(w)
 	}
 	e.waiters = nil
+	e.poke()
 }
 
 // ResetPosition is SY6: the position dropped and the new restore epoch stored.
@@ -346,7 +355,12 @@ func (e *Engine) SetHealth(t paths.TeamID, hl team.Health) {
 	if err := e.do(context.Background(), func() {
 		if h := e.teams[t]; h != nil && !h.removed {
 			h.health = hl
+			// A stop told is told again only once the team has run and stopped anew (n3e-D13).
+			if hl.Stopped == "" {
+				h.delivery.stopTold = ""
+			}
 			e.publish()
+			e.poke()
 		}
 	}); err != nil {
 		e.logf("team %s: health not recorded: %v", t, err)
