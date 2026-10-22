@@ -65,7 +65,7 @@ func mode(t *testing.T, path string) os.FileMode {
 
 func lockIsFree(t *testing.T, w *world) {
 	t.Helper()
-	l, err := teamlock.Take(t.Context(), w.at(paths.AdminRunDir), ops(t), "check", 0, w.clock)
+	l, err := teamlock.Take(t.Context(), w.at(paths.AdminRunDir), ops(t), "check", 0, w.clock, teamlock.Unguarded)
 	if err != nil {
 		t.Errorf("the lock was not released: %v", err)
 		return
@@ -96,7 +96,7 @@ func TestFirstApply(t *testing.T) {
 		t.Errorf("server-name %q", got)
 	}
 	key := strings.Repeat("ab", 64)
-	if got := regKeyOf([]byte(w.read(paths.ServerConfig(team)))); got != key {
+	if got := RegKeyOf([]byte(w.read(paths.ServerConfig(team)))); got != key {
 		t.Errorf("config key %q", got)
 	}
 	firstApplyModes(t, w, team)
@@ -330,7 +330,7 @@ func TestBootstrapFailureKeepsItsLines(t *testing.T) {
 // HS2: a team lock held by another verb is busy, with the holder named.
 func TestApplyBusy(t *testing.T) {
 	w := newWorld(t)
-	held, err := teamlock.Take(t.Context(), w.at(paths.AdminRunDir), ops(t), "backup", 0, w.clock)
+	held, err := teamlock.Take(t.Context(), w.at(paths.AdminRunDir), ops(t), "backup", 0, w.clock, teamlock.Unguarded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -712,5 +712,28 @@ func TestDecide(t *testing.T) {
 		if got := decide(c.dropIn, c.units, c.r, c.teamFile); got != c.want {
 			t.Errorf("%s: %v, want %v", name, got, c.want)
 		}
+	}
+}
+
+// RG3: Apply runs Deps.Guard under the lock; its refusal stops every step and frees the lock.
+func TestApplyIsRefusedByTheGuard(t *testing.T) {
+	w := newWorld(t)
+	refused := errors.New("a restore is under way")
+	w.guardErr = refused
+	lines, err := w.apply(approved(w, teamDoc()))
+	if !errors.Is(err, refused) || stepOf(t, err).Step != StepLock || len(lines) != 0 {
+		t.Fatalf("lines %q, err %v", lines, err)
+	}
+	if len(w.log) != 0 || !slices.Equal(w.guarded, []paths.TeamID{ops(t)}) {
+		t.Errorf("log %q, guarded %v", w.log, w.guarded)
+	}
+	lockIsFree(t, w)
+}
+
+// An apply refreshes the status record with no events of its own: the tick writes its own.
+func TestApplyRefreshesTheStatusWithNoEvents(t *testing.T) {
+	w := applied(t)
+	if len(w.status.refreshed) == 0 || len(w.status.events) != 0 {
+		t.Fatalf("refreshed %v, events %q", w.status.refreshed, w.status.events)
 	}
 }

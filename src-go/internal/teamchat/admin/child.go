@@ -18,6 +18,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/health"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -73,7 +74,9 @@ func accountID(id int) (uint32, error) {
 	return uint32(id), nil
 }
 
-// checkStarted is the child's check that root started it by the spec (CC2).
+// checkStarted is the child's check that root started it by the spec (CC2). Its own gid as the
+// one supplementary group is the secure unit's start, which systemd's initgroups for User= gives
+// (RC7, n2g-D16).
 func checkStarted(p Process) error {
 	if env := p.Environ(); !slices.Equal(env, []string{"PATH=" + childPath}) {
 		return fmt.Errorf("its environment holds %d variables, not PATH=%s alone", len(env), childPath)
@@ -89,8 +92,8 @@ func checkStarted(p Process) error {
 	if err != nil {
 		return fmt.Errorf("its groups: %w", err)
 	}
-	if len(groups) > 0 {
-		return fmt.Errorf("it has %d supplementary groups", len(groups))
+	if len(groups) > 0 && !slices.Equal(groups, []int{p.Getgid()}) {
+		return fmt.Errorf("it has %d supplementary groups, not none or its own gid alone", len(groups))
 	}
 	return nil
 }
@@ -275,8 +278,9 @@ var classExit = map[ErrorClass]term.ExitCode{
 
 // Answer is the child's one answer (CC5, CV2, CO1-CO3, BU1): what changed, and for a member
 // verb its handle, the credential the caller asked for with the team's main room, and notes for
-// the status record; for team.view the view, for member.disconnected the notice; or the
-// failure, with the lines that changed before it.
+// the status record; for team.view the view, for member.disconnected the notice, for
+// restore.export the export and for restore.check the epoch (RC6); or the failure, with the
+// lines that changed before it.
 type Answer struct {
 	OK         bool
 	Changed    []string
@@ -286,6 +290,8 @@ type Answer struct {
 	Notes      []string
 	View       *health.View
 	Notice     *health.Notice
+	Export     *restore.Export
+	Epoch      *restore.Epoch
 	Error      *AnswerError
 }
 
@@ -328,8 +334,9 @@ func (a Answer) validate() error {
 }
 
 func (a Answer) validateFailure() error {
-	if a.Handle != "" || a.Credential != nil || a.MainRoom != "" || len(a.Notes) > 0 || a.View != nil || a.Notice != nil {
-		return errors.New("a failed answer carries no handle, credential, main room, notes, view or notice")
+	if a.Handle != "" || a.Credential != nil || a.MainRoom != "" || len(a.Notes) > 0 || a.View != nil || a.Notice != nil ||
+		a.Export != nil || a.Epoch != nil {
+		return errors.New("a failed answer carries no handle, credential, main room, notes, view, notice, export or epoch")
 	}
 	if _, ok := classExit[a.Error.Class]; !ok {
 		return fmt.Errorf("error class %s", strconv.Quote(string(a.Error.Class)))
@@ -427,7 +434,7 @@ func DecodeAnswer(raw []byte) (Answer, error) {
 }
 
 func decodeDone(v proto.Value) (Answer, error) {
-	obj, err := keys(v, []string{"v", "ok", "changed"}, "handle", "credential", "notes", keyMainRoom, keyView, keyNotice)
+	obj, err := keys(v, []string{"v", "ok", "changed"}, "handle", "credential", "notes", keyMainRoom, keyView, keyNotice, keyExport, keyEpoch)
 	if err != nil {
 		return Answer{}, err
 	}

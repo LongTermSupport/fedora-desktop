@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/backup"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -22,8 +23,10 @@ import (
 
 // System is what the verbs reach beyond the process, each a seam (CV3-CV5): the host's
 // (host.Deps; Bootstrap and LockWait are the verb's, and Pin, CtlUID and CtlGID team apply's
-// from Pin and CtlIDs), the child, the seat side's bundles, the owner group, the health tick
-// and the account database's homes; for the child, its Opener. A seam that reads a host file
+// from Pin and CtlIDs), the child, the seat side's bundles, the owner group, the health tick,
+// the account database's homes and the backups' effects, built when a backup verb runs, as it
+// reads the teamchat-ctl account (nil while unwired); for the child,
+// its Opener. A seam that reads a host file
 // reads it when a verb calls it, so a verb fails only on what it needs (n2f-W1).
 type System struct {
 	Host       host.Deps
@@ -35,6 +38,9 @@ type System struct {
 	CtlIDs     func() (User, error)
 	Health     func() (HealthTick, error)
 	Home       func(uid int) (string, error)
+	Backup     func() (backup.Deps, error)
+	// Restore is the restore engine; production answers restore's refusal until DC8 (RW2).
+	Restore func() (Restorer, error)
 }
 
 // Child asks the teamchat-ctl child one request (CC1); its start is the seam's (n2a-D6).
@@ -88,6 +94,7 @@ func rootRuns() map[string]func(context.Context, Env, []string) term.ExitCode {
 		"team apply": teamApply, "team approve": teamApprove, "team remove": teamRemove,
 		"role apply": memberVerb(apply.OpRoleApply),
 		"health":     healthVerb, "element check": elementVerb(false), "element apply": elementVerb(true),
+		"backup": backupVerb, "backups": backupsVerb, "restore": restoreVerb,
 	}
 	for _, op := range []string{apply.OpMemberAdd, apply.OpMemberReturn, apply.OpMemberReissue, apply.OpMemberPark, apply.OpMemberRetire, apply.OpMemberSet} {
 		runs["member "+strings.TrimPrefix(op, "member.")] = memberVerb(op)
@@ -153,7 +160,7 @@ func memberVerb(op string) func(context.Context, Env, []string) term.ExitCode {
 		if err != nil {
 			return failWith(e, err)
 		}
-		lock, err := teamlock.Take(ctx, sys.Host.LockDir, team, op, SeatWait, sys.Host.Clock)
+		lock, err := teamlock.Take(ctx, sys.Host.LockDir, team, op, SeatWait, sys.Host.Clock, sys.Host.Guard)
 		if err != nil {
 			return failWith(e, err)
 		}
@@ -278,7 +285,7 @@ func underLock(ctx context.Context, sys *System, op string, team paths.TeamID, a
 			return nil, lie
 		}
 	}
-	if serr := sys.Host.Status.Refresh(ctx, team, false); serr != nil {
+	if serr := sys.Host.Status.Refresh(ctx, team, false, nil); serr != nil {
 		err = errors.Join(err, fmt.Errorf("the status record: %w", serr))
 	}
 	members := []proto.Member{proto.M("v", proto.Int(wireMajor)), proto.M("changed", lineArray(a.Changed))}
@@ -447,7 +454,7 @@ func teamApply(ctx context.Context, e Env, args []string) term.ExitCode {
 		return failWith(e, err)
 	}
 	d.LockWait = host.PlayWait
-	d.Bootstrap = func(ctx context.Context, b host.Bootstrap) ([]string, error) { return bootstrap(ctx, sys, b) }
+	d.Bootstrap = Bootstrapper(sys)
 	lines, err := host.Apply(ctx, d, in)
 	return printChanged(e, lines, err)
 }

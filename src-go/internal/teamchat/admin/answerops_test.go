@@ -6,6 +6,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/health"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
 )
 
@@ -174,6 +175,119 @@ func TestAnswerFitsItsOp(t *testing.T) {
 		{apply.OpMemberPark, view, false},
 		{apply.OpMemberPark, notice, false},
 		{apply.OpTeamApply, view, false},
+	}
+	for _, c := range cases {
+		if err := answerFits(c.op, c.a); (err == nil) != c.fits {
+			t.Errorf("%s %+v: %v", c.op, c.a, err)
+		}
+	}
+}
+
+// TestAnswerCarriesAnExportAndAnEpoch is RC3 and RC8 on the wire (RC6).
+func TestAnswerCarriesAnExportAndAnEpoch(t *testing.T) {
+	cases := map[string]struct {
+		answer Answer
+		wire   string
+	}{
+		"export": {
+			Answer{OK: true, Changed: []string{"lost events written"}, Export: &restore.Export{Count: 3, FirstMS: 10, EndMS: 30, Truncated: true}},
+			`{"v":1,"ok":true,"changed":["lost events written"],"export":{"count":3,"first_ms":10,"end_ms":30,"truncated":true}}`,
+		},
+		"empty export": {
+			Answer{OK: true, Export: &restore.Export{EndMS: 30}},
+			`{"v":1,"ok":true,"changed":[],"export":{"count":0,"first_ms":0,"end_ms":30,"truncated":false}}`,
+		},
+		"epoch": {
+			Answer{OK: true, Epoch: &restore.Epoch{RestoreEpoch: 4, Rev: 9}},
+			`{"v":1,"ok":true,"changed":[],"epoch":{"restore_epoch":4,"rev":9}}`,
+		},
+	}
+	for name, c := range cases {
+		raw, err := EncodeAnswer(c.answer)
+		if err != nil || string(raw) != c.wire {
+			t.Errorf("%s: encode = %s, %v\nwant %s", name, raw, err, c.wire)
+			continue
+		}
+		back, err := DecodeAnswer(raw)
+		if err != nil {
+			t.Errorf("%s: decode: %v", name, err)
+			continue
+		}
+		if again, err := EncodeAnswer(back); err != nil || string(again) != c.wire {
+			t.Errorf("%s: again = %s, %v", name, again, err)
+		}
+	}
+}
+
+// TestRestoreAnswersAreOfTheirOwn is RC6's value rules: an export or an epoch carries no
+// handle, credential, main room, notes, view or notice, and holds sane numbers.
+func TestRestoreAnswersAreOfTheirOwn(t *testing.T) {
+	cred := &apply.Credential{Kind: apply.CredToken, Secret: "s"}
+	ex := func() *restore.Export { return &restore.Export{Count: 1, FirstMS: 5, EndMS: 9} }
+	ep := &restore.Epoch{RestoreEpoch: 1, Rev: 2}
+	for name, a := range map[string]Answer{
+		"export and epoch":     {OK: true, Export: ex(), Epoch: ep},
+		"export and handle":    {OK: true, Export: ex(), Handle: sampleHandle},
+		"epoch and credential": {OK: true, Epoch: ep, Handle: sampleHandle, Credential: cred, MainRoom: sampleRoom},
+		"epoch and notes":      {OK: true, Epoch: ep, Notes: []string{"n"}},
+		"export and view":      {OK: true, Export: ex(), View: &health.View{}},
+		"epoch and notice":     {OK: true, Epoch: ep, Notice: &health.Notice{Posted: true}},
+		"export on a failure":  {Export: ex(), Error: &AnswerError{Class: ClassFailed, Message: "x"}},
+		"epoch on a failure":   {Epoch: ep, Error: &AnswerError{Class: ClassFailed, Message: "x"}},
+		"negative count":       {OK: true, Export: &restore.Export{Count: -1}},
+		"first after end":      {OK: true, Export: &restore.Export{Count: 1, FirstMS: 10, EndMS: 9}},
+		"first with no events": {OK: true, Export: &restore.Export{FirstMS: 1, EndMS: 9}},
+		"negative epoch":       {OK: true, Epoch: &restore.Epoch{RestoreEpoch: -1, Rev: 1}},
+		"rev zero":             {OK: true, Epoch: &restore.Epoch{}},
+	} {
+		if _, err := EncodeAnswer(a); err == nil {
+			t.Errorf("%s: encoded", name)
+		}
+	}
+}
+
+// TestDecodeAnswerReadsAnExportAndAnEpochStrictly is RC6: exact keys and kinds.
+func TestDecodeAnswerReadsAnExportAndAnEpochStrictly(t *testing.T) {
+	ok := `{"v":1,"ok":true,"changed":[],`
+	for name, raw := range map[string]string{
+		"export extra key":    ok + `"export":{"count":0,"first_ms":0,"end_ms":0,"truncated":false,"x":1}}`,
+		"export missing key":  ok + `"export":{"count":0,"first_ms":0,"end_ms":0}}`,
+		"export count string": ok + `"export":{"count":"0","first_ms":0,"end_ms":0,"truncated":false}}`,
+		"truncated a number":  ok + `"export":{"count":0,"first_ms":0,"end_ms":0,"truncated":0}}`,
+		"export an array":     ok + `"export":[]}`,
+		"epoch extra key":     ok + `"epoch":{"restore_epoch":0,"rev":1,"x":1}}`,
+		"epoch rev string":    ok + `"epoch":{"restore_epoch":0,"rev":"1"}}`,
+		"epoch on a failure":  `{"v":1,"ok":false,"epoch":{"restore_epoch":0,"rev":1},"error":{"class":"failed","message":"x"}}`,
+	} {
+		if _, err := DecodeAnswer([]byte(raw)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+// TestRestoreAnswersFitTheirOps is RC6's op rule: an export answers restore.export only and an
+// epoch restore.check only, each always.
+func TestRestoreAnswersFitTheirOps(t *testing.T) {
+	export, epoch := Answer{OK: true, Export: &restore.Export{}}, Answer{OK: true, Epoch: &restore.Epoch{Rev: 1}}
+	plain := Answer{OK: true}
+	cases := []struct {
+		op   string
+		a    Answer
+		fits bool
+	}{
+		{OpRestoreExport, export, true},
+		{OpRestoreExport, plain, false},
+		{OpRestoreExport, epoch, false},
+		{OpRestoreCheck, epoch, true},
+		{OpRestoreCheck, plain, false},
+		{OpRestoreCheck, export, false},
+		{OpRestoreSecure, plain, true},
+		{OpRestoreSecure, export, false},
+		{OpRestoreSwap, epoch, false},
+		{OpTeamView, export, false},
+		{apply.OpMemberPark, epoch, false},
+		{OpRestoreFinish, Answer{OK: true, Handle: sampleHandle}, false},
+		{OpRestoreRevert, Answer{OK: true, Notes: []string{"n"}}, false},
 	}
 	for _, c := range cases {
 		if err := answerFits(c.op, c.a); (err == nil) != c.fits {

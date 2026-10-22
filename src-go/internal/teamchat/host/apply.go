@@ -3,7 +3,8 @@
 // lock taken through teamlock, the refusals before any change, the in-memory render of a
 // team's homeserver config, unit drop-in and `team.json` with the five-way answer, the first
 // apply's files, the firewall, the backup, the unit, readiness, the bound addresses, and the
-// records written last. Every host effect (systemd, firewalld, the network, the readiness
+// records written last; Serve, the start and readiness of a team already applied, and the base
+// unit's sandbox lines (SPEC-n2g SM3, n2g-D17). Every host effect (systemd, firewalld, the network, the readiness
 // probe, the backup, the status record, bootstrap) is a seam in Deps; the files are written
 // under Deps.Root.
 package host
@@ -62,6 +63,7 @@ const (
 const (
 	verbApply  = "team apply"
 	verbRemove = "team remove"
+	verbServe  = "serve"
 )
 
 // The readiness wait (C 3.5.2 step 8).
@@ -133,10 +135,10 @@ type Readiness interface {
 
 // Status is the team's status record (C 3.11.3), whose writer is not this package's. Refresh
 // rewrites it after an apply, first when the team had no stamp before (the record's origin is
-// set then). Remove deletes it, or rewrites a migration-origin record to its pointer alone, and
+// set then), with the caller's events, nil for none. Remove deletes it, or rewrites a migration-origin record to its pointer alone, and
 // answers the CHANGED line, "" for none.
 type Status interface {
-	Refresh(ctx context.Context, team paths.TeamID, first bool) error
+	Refresh(ctx context.Context, team paths.TeamID, first bool, events []string) error
 	Remove(ctx context.Context, team paths.TeamID) (string, error)
 }
 
@@ -150,7 +152,7 @@ type Bootstrap struct {
 
 // Deps is what `team apply` and `team remove` use. Root prefixes every host path ("" on a
 // host); LockDir is paths.AdminRunDir on a host; the owner ids are teamchat-ctl's, for
-// ctl/<team>/. Backup takes the team's backup under the held lock; Bootstrap runs step 10 in
+// ctl/<team>/. Guard is judged under the lock before any step (restore.Guard, RG3). Backup takes the team's backup under the held lock; Bootstrap runs step 10 in
 // the teamchat-ctl child and answers its CHANGED lines.
 type Deps struct {
 	Root, LockDir  string
@@ -166,6 +168,7 @@ type Deps struct {
 	Network        Network
 	Ready          Readiness
 	Status         Status
+	Guard          teamlock.Guard
 	Backup         func(ctx context.Context, held *teamlock.Lock) error
 	Bootstrap      func(ctx context.Context, b Bootstrap) ([]string, error)
 }
@@ -238,7 +241,7 @@ type applying struct {
 // Deps.Bootstrap. It answers the CHANGED lines, those before a failure included.
 func Apply(ctx context.Context, d Deps, in declare.Input) ([]string, error) {
 	a := &applying{d: d, in: in, team: in.ID(), unit: paths.ServerUnit(in.ID())}
-	lock, err := teamlock.Take(ctx, d.LockDir, a.team, "team.apply", d.LockWait, d.Clock)
+	lock, err := teamlock.Take(ctx, d.LockDir, a.team, "team.apply", d.LockWait, d.Clock, d.Guard)
 	if err != nil {
 		return nil, a.fail(StepLock, err)
 	}
@@ -426,7 +429,7 @@ func (a *applying) readInstalled() error {
 		return err
 	}
 	if found {
-		if a.regKey = regKeyOf(a.config); a.regKey == "" {
+		if a.regKey = RegKeyOf(a.config); a.regKey == "" {
 			return errors.New("the installed config holds no registration key")
 		}
 	} else {
@@ -756,32 +759,34 @@ func (a *applying) waitReady(ctx context.Context) error {
 // ready waits up to 60 s for the unit to be active and its server_version to answer. A unit
 // that is neither active nor activating fails at once; its journal tail is only explanation,
 // the verdict is the state (H 7.13).
-func (a *applying) ready(ctx context.Context, port int) error {
-	start := a.d.Clock.Now()
+func (a *applying) ready(ctx context.Context, port int) error { return ready(ctx, a.d, a.unit, port) }
+
+func ready(ctx context.Context, d Deps, unit string, port int) error {
+	start := d.Clock.Now()
 	var last error
 	for {
-		st, err := a.d.Systemd.State(ctx, a.unit)
+		st, err := d.Systemd.State(ctx, unit)
 		if err != nil {
 			return err
 		}
 		switch st.Active {
 		case active:
-			if last = a.d.Ready.ServerVersion(ctx, port); last == nil {
+			if last = d.Ready.ServerVersion(ctx, port); last == nil {
 				return nil
 			}
 		case "activating", "reloading":
-			last = fmt.Errorf("%s is %s", a.unit, st.Active)
+			last = fmt.Errorf("%s is %s", unit, st.Active)
 		default:
-			tail, jerr := a.d.Systemd.JournalTail(ctx, a.unit)
+			tail, jerr := d.Systemd.JournalTail(ctx, unit)
 			if jerr != nil {
-				return fmt.Errorf("%s is %s; its journal cannot be read: %w", a.unit, st.Active, jerr)
+				return fmt.Errorf("%s is %s; its journal cannot be read: %w", unit, st.Active, jerr)
 			}
-			return fmt.Errorf("%s is %s; the journal's last lines, as explanation only:\n%s", a.unit, st.Active, tail)
+			return fmt.Errorf("%s is %s; the journal's last lines, as explanation only:\n%s", unit, st.Active, tail)
 		}
-		if a.d.Clock.Now().Sub(start) >= readyWait {
-			return fmt.Errorf("%s is not ready within %v: %w", a.unit, readyWait, last)
+		if d.Clock.Now().Sub(start) >= readyWait {
+			return fmt.Errorf("%s is not ready within %v: %w", unit, readyWait, last)
 		}
-		if err := a.d.Clock.Sleep(ctx, readyPoll); err != nil {
+		if err := d.Clock.Sleep(ctx, readyPoll); err != nil {
 			return err
 		}
 	}
@@ -789,26 +794,34 @@ func (a *applying) ready(ctx context.Context, port int) error {
 
 // addresses is step 9: the bound address set is loopback and listen exactly (H 7.21).
 func (a *applying) addresses(_ context.Context) error {
-	listeners, err := a.d.Network.Listeners()
-	if err != nil {
+	if err := boundAs(a.d, a.unit, a.in.Team.Port, a.in.Team.Listen); err != nil {
 		return a.fail(StepAddresses, err)
 	}
+	return nil
+}
+
+// boundAs holds the unit's bound addresses on port to loopback and listen exactly.
+func boundAs(d Deps, unit string, port int, listen []string) error {
+	listeners, err := d.Network.Listeners()
+	if err != nil {
+		return err
+	}
 	want := []string{loopbackListen}
-	for _, l := range a.in.Team.Listen {
+	for _, l := range listen {
 		if !slices.Contains(want, l) {
 			want = append(want, l)
 		}
 	}
 	var got []string
 	for _, l := range listeners {
-		if l.Unit == a.unit && int(l.Addr.Port()) == a.in.Team.Port && !slices.Contains(got, l.Addr.Addr().String()) {
+		if l.Unit == unit && int(l.Addr.Port()) == port && !slices.Contains(got, l.Addr.Addr().String()) {
 			got = append(got, l.Addr.Addr().String())
 		}
 	}
 	slices.Sort(want)
 	slices.Sort(got)
 	if !slices.Equal(got, want) {
-		return a.fail(StepAddresses, fmt.Errorf("%s is bound to %q, not %q", a.unit, got, want))
+		return fmt.Errorf("%s is bound to %q, not %q", unit, got, want)
 	}
 	return nil
 }
@@ -828,7 +841,7 @@ func (a *applying) records(ctx context.Context) error {
 	if err := a.writeRecords(); err != nil {
 		return a.fail(StepRecords, err)
 	}
-	if err := a.d.Status.Refresh(ctx, a.team, !a.stamped); err != nil {
+	if err := a.d.Status.Refresh(ctx, a.team, !a.stamped, nil); err != nil {
 		return a.fail(StepRecords, err)
 	}
 	return nil

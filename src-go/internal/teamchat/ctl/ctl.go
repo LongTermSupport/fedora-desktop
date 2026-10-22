@@ -55,10 +55,11 @@ const (
 var geteuid = os.Geteuid
 
 // Config is what Open reads and writes with: the state root's prefix (paths.CtlStateRoot under
-// it; "" on a host), the clock, the random source, and the admin client maker.
+// it; "" on a host), the clock and its sleep, the random source, and the admin client maker.
 type Config struct {
 	Root  string
 	Now   func() time.Time
+	Sleep func(ctx context.Context, d time.Duration) error
 	Rand  io.Reader
 	Admin func(baseURL string) (*matrix.Admin, error)
 }
@@ -73,6 +74,9 @@ func (cfg Config) Opener() admin.Opener {
 func (cfg Config) withDefaults() Config {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
+	}
+	if cfg.Sleep == nil {
+		cfg.Sleep = sleep
 	}
 	if cfg.Rand == nil {
 		cfg.Rand = rand.Reader
@@ -123,6 +127,8 @@ func Open(ctx context.Context, cfg Config, team paths.TeamID, port int, regKey s
 		Member: func(token string) (*matrix.Client, error) {
 			return matrix.NewMember(matrix.Config{BaseURL: base, PlainHTTPHosts: []string{loopback}, Token: token})
 		},
+		Restore: restoreFiles{path: d.path, team: team, rand: cfg.Rand},
+		Staged:  cfg.staged,
 	}, nil
 }
 

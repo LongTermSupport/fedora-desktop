@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
@@ -24,6 +25,29 @@ type Opened struct {
 	apply.Deps
 
 	Member func(token string) (*matrix.Client, error)
+
+	// Restore is the files under `ctl/<team>/` a restore swaps (RC2-RC5).
+	Restore RestoreFiles
+	// Staged is an admin client of the staging server on 127.0.0.1:port with token, the tar's,
+	// given once the server answers versions, waiting up to StagedWait (RC1, RC8).
+	Staged func(ctx context.Context, port int, token string) (*matrix.Admin, error)
+}
+
+// StagedWait is how long Staged waits for the staging server to answer versions (RC1).
+const StagedWait = 60 * time.Second
+
+// RestoreFiles is the child's files a restore swaps under `ctl/<team>/` (RC2-RC5), each op
+// through the directory opened again by the child's own trust rule (OP1).
+type RestoreFiles interface {
+	// Swap links admin.token, rooms.json and roster.json each to its `.previous` when that is
+	// absent, then writes the new content over it atomically; a repeat is idempotent (RC2).
+	Swap(token, rooms, roster []byte) error
+	// Finish removes every `.previous` file, answering the names removed (RC4).
+	Finish() ([]string, error)
+	// Revert renames every `.previous` file over its name, answering the names put back (RC5).
+	Revert() ([]string, error)
+	// WriteLost writes `restore-<n>-lost.jsonl` atomically, 0600 (RC3).
+	WriteLost(n int64, data []byte) error
 }
 
 // argKeys are the exact args of each op the child serves (CV1, n2d-D7).
@@ -58,6 +82,9 @@ const (
 func Serve(ctx context.Context, open Opener, req Request) Answer {
 	want, served := argKeys[req.Op]
 	if !served {
+		want, served = restoreArgKeys[req.Op]
+	}
+	if !served {
 		return failure(ClassFailed, "op "+req.Op+" is not served by this build")
 	}
 	args, err := exactKeys(req.Args, want...)
@@ -76,6 +103,8 @@ func Serve(ctx context.Context, open Opener, req Request) Answer {
 		return serveView(ctx, open, team)
 	case OpMemberDisconnected:
 		return serveDisconnected(ctx, open, team, args)
+	case OpRestoreSecure, OpRestoreCheck, OpRestoreSwap, OpRestoreExport, OpRestoreFinish, OpRestoreRevert:
+		return serveRestore(ctx, open, req.Op, team, args)
 	}
 	var mr apply.MemberRequest
 	if req.Op != apply.OpRoleApply {

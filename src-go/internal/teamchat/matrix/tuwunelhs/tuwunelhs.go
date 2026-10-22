@@ -7,6 +7,7 @@
 package tuwunelhs
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -17,10 +18,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
@@ -42,10 +46,23 @@ const (
 )
 
 // Server is a running homeserver on a loopback port, stopped when the test ends; RegKey is its
-// registration shared secret.
+// registration shared secret, and config the file its environment names, which finds its
+// process for Signal.
 type Server struct {
 	Base   string
+	Port   int
 	RegKey string
+	config string
+	run    *running
+}
+
+// Options are a run's departures from the default: where the database goes (the test's own
+// directory when empty), extra top-level settings, one `key = value` per line, and arguments
+// after the command (`--restore-backup N`).
+type Options struct {
+	DatabasePath string
+	Extra        string
+	Args         []string
 }
 
 // served is how the server's run ended: its error and everything it printed.
@@ -54,8 +71,38 @@ type served struct {
 	output string
 }
 
+// running is one run's end: the channel it arrives on, the end once read, and whether the test
+// killed the run itself (Stop with SIGKILL), which the cleanup then accepts.
+type running struct {
+	ended  chan served
+	end    *served
+	killed bool
+}
+
+// wait reads the run's end once, within limit.
+func (r *running) wait(limit time.Duration) error {
+	if r.end != nil {
+		return nil
+	}
+	timer := time.NewTimer(limit)
+	defer timer.Stop()
+	select {
+	case got := <-r.ended:
+		r.end = &got
+		return nil
+	case <-timer.C:
+		return fmt.Errorf("tuwunel: still running %v after the stop", limit)
+	}
+}
+
 // Start runs the binary BinEnv names for serverName and waits until it answers.
 func Start(ctx context.Context, t *testing.T, serverName string) Server {
+	t.Helper()
+	return StartWith(ctx, t, serverName, Options{})
+}
+
+// StartWith is Start with the options o.
+func StartWith(ctx context.Context, t *testing.T, serverName string, o Options) Server {
 	t.Helper()
 	bin := os.Getenv(BinEnv)
 	if bin == "" {
@@ -66,50 +113,94 @@ func Start(ctx context.Context, t *testing.T, serverName string) Server {
 		t.Fatalf("%s=%q: %v", BinEnv, bin, err)
 	}
 	dir := t.TempDir()
-	hs := Server{RegKey: RandomKey(t)}
-	port := freePort(t)
-	hs.Base = "http://" + net.JoinHostPort(Loopback, strconv.Itoa(port))
-	config := writeConfig(t, dir, serverName, port, hs.RegKey)
+	hs := Server{RegKey: RandomKey(t), Port: freePort(t)}
+	hs.Base = "http://" + net.JoinHostPort(Loopback, strconv.Itoa(hs.Port))
+	if o.DatabasePath == "" {
+		o.DatabasePath = filepath.Join(dir, "db")
+	}
+	config := writeConfig(t, dir, serverName, hs.Port, hs.RegKey, o)
+	hs.config = config
 
 	runCtx, stop := context.WithCancel(ctx)
-	ended := make(chan served, 1)
+	hs.run = &running{ended: make(chan served, 1)}
 	go func() {
 		res, runErr := execx.OS{Grace: stopLimit}.Run(runCtx, execx.Cmd{
-			Name: path, Env: []string{"TUWUNEL_CONFIG=" + config}, Interrupt: syscall.SIGTERM,
+			Name: path, Args: slices.Clone(o.Args), Env: []string{"TUWUNEL_CONFIG=" + config}, Interrupt: syscall.SIGTERM,
 		})
-		ended <- served{err: runErr, output: string(res.Stdout) + string(res.Stderr)}
+		hs.run.ended <- served{err: runErr, output: string(res.Stdout) + string(res.Stderr)}
 	}()
-	var end *served
 	t.Cleanup(func() {
 		stop()
-		if end == nil {
-			got := <-ended
-			end = &got
+		if hs.run.end == nil {
+			got := <-hs.run.ended
+			hs.run.end = &got
 		}
-		if !stoppedCleanly(end.err) {
-			t.Errorf("tuwunel: %v\n%s", end.err, end.output)
+		if !stoppedCleanly(hs.run.end.err, hs.run.killed) {
+			t.Errorf("tuwunel: %v\n%s", hs.run.end.err, hs.run.end.output)
 		}
 	})
 
-	if awaitErr := hs.await(ctx, ended, &end); awaitErr != nil {
+	if awaitErr := hs.await(ctx, hs.run.ended, &hs.run.end); awaitErr != nil {
 		output := ""
-		if end != nil {
-			output = end.output
+		if hs.run.end != nil {
+			output = hs.run.end.output
 		}
 		t.Fatalf("tuwunel: %v\n%s", awaitErr, output)
 	}
 	return hs
 }
 
+// Stop sends sig (SIGTERM or SIGKILL) to the server and waits for its run to end, so a later
+// run can open the same database. A run already ended is an error.
+func (hs Server) Stop(sig syscall.Signal) error {
+	if hs.run.end != nil {
+		return errors.New("tuwunel: the server has already stopped")
+	}
+	if err := hs.Signal(sig); err != nil {
+		return err
+	}
+	hs.run.killed = sig == syscall.SIGKILL
+	return hs.run.wait(stopLimit)
+}
+
+// Signal sends sig to the server's own process, the one process whose environment names its
+// config file (exec gives no pid, and the binary's name alone would match another test's). A
+// process whose environment cannot be read is another user's, or gone, so it is not the one.
+func (hs Server) Signal(sig syscall.Signal) error {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return err
+	}
+	want := []byte("TUWUNEL_CONFIG=" + hs.config)
+	var found []int
+	for _, e := range entries {
+		pid, perr := strconv.Atoi(e.Name())
+		if perr != nil || !e.IsDir() {
+			continue
+		}
+		env, rerr := os.ReadFile(filepath.Join("/proc", e.Name(), "environ"))
+		if rerr != nil {
+			continue
+		}
+		if slices.ContainsFunc(bytes.Split(env, []byte{0}), func(v []byte) bool { return bytes.Equal(v, want) }) {
+			found = append(found, pid)
+		}
+	}
+	if len(found) != 1 {
+		return fmt.Errorf("tuwunel: %d processes have the config %s, want 1", len(found), hs.config)
+	}
+	return unix.Kill(found[0], sig)
+}
+
 // stoppedCleanly is a run that ended on the test's SIGTERM: exit 0 after the cancel (which
 // exec reports as context.Canceled; the test's deadline is DeadlineExceeded and fails), or the
-// signal itself.
-func stoppedCleanly(err error) bool {
+// signal itself; or on the test's own SIGKILL when killed.
+func stoppedCleanly(err error, killed bool) bool {
 	if err == nil || errors.Is(err, context.Canceled) {
 		return true
 	}
 	exitErr, ok := errors.AsType[*execx.ExitError](err)
-	return ok && exitErr.Signal == syscall.SIGTERM
+	return ok && (exitErr.Signal == syscall.SIGTERM || killed && exitErr.Signal == syscall.SIGKILL)
 }
 
 // await polls the versions endpoint until the server answers 200, it exits (recorded in *end),
@@ -178,8 +269,9 @@ func freePort(t *testing.T) int {
 // v2 team gets (C 3.2.4: a seat's takes are password logins, which the client's seat cycle
 // makes six of). Two keys differ from a team's, for the tests alone: db_pool_workers is fixed
 // small, as Tuwunel's default pool, sized to the host's cores, hits EAGAIN under a container's
-// pids limit (host check run, Task 1.4); and the presence timers are short.
-func writeConfig(t *testing.T, dir, serverName string, port int, regKey string) string {
+// pids limit (host check run, Task 1.4); and the presence timers are short. o's extra settings
+// go before the first table, so they stay top-level.
+func writeConfig(t *testing.T, dir, serverName string, port int, regKey string, o Options) string {
 	t.Helper()
 	keyFile := filepath.Join(dir, "registration-key")
 	if err := os.WriteFile(keyFile, []byte(regKey), 0o600); err != nil {
@@ -203,7 +295,7 @@ db_pool_workers = 4
 presence_idle_timeout_s = %d
 presence_offline_timeout_s = %d
 log = "warn"
-
+%s
 [rate_limiting.login.failed]
 per_second = 0.0033
 burst_count = 3
@@ -211,10 +303,28 @@ burst_count = 3
 [rate_limiting.login.account]
 per_second = 0.006
 burst_count = 10
-`, serverName, Loopback, port, filepath.Join(dir, "db"), keyFile, PresenceIdleS, PresenceOfflineS)
+`, serverName, Loopback, port, o.DatabasePath, keyFile, PresenceIdleS, PresenceOfflineS, o.Extra)
 	path := filepath.Join(dir, "tuwunel.toml")
 	if err := os.WriteFile(path, []byte(config), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	return path
+}
+
+// Clock is the wall clock and a sleep that ends with its context, for a real server's waits.
+type Clock struct{}
+
+// Now is the wall clock's time.
+func (Clock) Now() time.Time { return time.Now() }
+
+// Sleep waits d, or until ctx ends.
+func (Clock) Sleep(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }

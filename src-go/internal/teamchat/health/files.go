@@ -108,8 +108,8 @@ type StatusFiles struct {
 
 // Refresh is Tick.Refresh. first is not needed: a team with no record is given its origin
 // whether or not it had a stamp before (n2f-H1).
-func (s StatusFiles) Refresh(ctx context.Context, team paths.TeamID, _ bool) error {
-	return s.Tick.Refresh(ctx, team)
+func (s StatusFiles) Refresh(ctx context.Context, team paths.TeamID, _ bool, events []string) error {
+	return s.Tick.Refresh(ctx, team, events)
 }
 
 // LineStatusRemoved is Remove's CHANGED line.
@@ -144,15 +144,6 @@ func removeFile(path string) (bool, error) {
 		return false, nil
 	}
 	return err == nil, err
-}
-
-// NoBackups is Backups until C 3.12 is built (HR4, n2f-D6): no backup and no run, so 36 h
-// after the apply the record says the backup has not run.
-type NoBackups struct{}
-
-// State is no backup and the last run none.
-func (NoBackups) State(context.Context, paths.TeamID) (BackupState, error) {
-	return BackupState{LastRun: status.RunNone}, nil
 }
 
 // ErrGuestProbeNotBuilt is every guest probe until C 3.9.2 is built (HR5, n2f-D7).

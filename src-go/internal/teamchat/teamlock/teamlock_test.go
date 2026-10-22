@@ -71,7 +71,7 @@ func holderLine(verb string, ms int64) string {
 // Release clears the line and keeps the file.
 func TestTakeWritesTheHolderLineAndReleaseClearsIt(t *testing.T) {
 	dir := lockDir(t)
-	l, err := Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock())
+	l, err := Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock(), Unguarded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,13 +101,13 @@ func TestTakeWritesTheHolderLineAndReleaseClearsIt(t *testing.T) {
 // holder's line.
 func TestTakeBusyCarriesTheHolder(t *testing.T) {
 	dir := lockDir(t)
-	first, err := Take(t.Context(), dir, mustTeam(t, "ops"), "member.add", 0, newClock())
+	first, err := Take(t.Context(), dir, mustTeam(t, "ops"), "member.add", 0, newClock(), Unguarded)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer releaseOrFail(t, first)
 	clock := newClock()
-	_, err = Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, clock)
+	_, err = Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, clock, Unguarded)
 	if !errors.Is(err, ErrBusy) {
 		t.Fatalf("got %v, want ErrBusy", err)
 	}
@@ -133,13 +133,13 @@ func TestTakeBusyCarriesTheHolder(t *testing.T) {
 // TL1: a wait is bounded by the clock it is given.
 func TestTakeWaitIsBounded(t *testing.T) {
 	dir := lockDir(t)
-	first, err := Take(t.Context(), dir, mustTeam(t, "ops"), "backup", 0, newClock())
+	first, err := Take(t.Context(), dir, mustTeam(t, "ops"), "backup", 0, newClock(), Unguarded)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer releaseOrFail(t, first)
 	clock := newClock()
-	_, err = Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", longWait, clock)
+	_, err = Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", longWait, clock, Unguarded)
 	if busy, ok := errors.AsType[*BusyError](err); !ok || busy.Holder == unknownHolder {
 		t.Fatalf("got %v, want a BusyError naming the holder", err)
 	}
@@ -151,7 +151,7 @@ func TestTakeWaitIsBounded(t *testing.T) {
 // TL1: a holder that lets go during the wait hands the lock over.
 func TestTakeWaitsForTheHolder(t *testing.T) {
 	dir := lockDir(t)
-	first, err := Take(t.Context(), dir, mustTeam(t, "ops"), "backup", 0, newClock())
+	first, err := Take(t.Context(), dir, mustTeam(t, "ops"), "backup", 0, newClock(), Unguarded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestTakeWaitsForTheHolder(t *testing.T) {
 			releaseOrFail(t, first)
 		}
 	}
-	second, err := Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", longWait, clock)
+	second, err := Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", longWait, clock, Unguarded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,12 +178,12 @@ func TestTakeWaitsForTheHolder(t *testing.T) {
 // TL1: two teams' locks are independent.
 func TestTeamLocksAreIndependent(t *testing.T) {
 	dir := lockDir(t)
-	a, err := Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock())
+	a, err := Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock(), Unguarded)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer releaseOrFail(t, a)
-	b, err := Take(t.Context(), dir, mustTeam(t, "dev"), "team.apply", 0, newClock())
+	b, err := Take(t.Context(), dir, mustTeam(t, "dev"), "team.apply", 0, newClock(), Unguarded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,14 +192,14 @@ func TestTeamLocksAreIndependent(t *testing.T) {
 
 func TestTakeStopsWhenTheContextEnds(t *testing.T) {
 	dir := lockDir(t)
-	first, err := Take(t.Context(), dir, mustTeam(t, "ops"), "backup", 0, newClock())
+	first, err := Take(t.Context(), dir, mustTeam(t, "ops"), "backup", 0, newClock(), Unguarded)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer releaseOrFail(t, first)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := Take(ctx, dir, mustTeam(t, "ops"), "team.apply", longWait, newClock()); !errors.Is(err, context.Canceled) {
+	if _, err := Take(ctx, dir, mustTeam(t, "ops"), "team.apply", longWait, newClock(), Unguarded); !errors.Is(err, context.Canceled) {
 		t.Errorf("got %v, want context.Canceled", err)
 	}
 }
@@ -240,7 +240,7 @@ func TestTakeRefusals(t *testing.T) {
 		"verb in capitals":        {lockDir(t), "Apply", "verb"},
 		"verb too long":           {lockDir(t), strings.Repeat("a", 33), "verb"},
 	} {
-		l, err := Take(t.Context(), c.dir, team, c.verb, 0, newClock())
+		l, err := Take(t.Context(), c.dir, team, c.verb, 0, newClock(), Unguarded)
 		switch {
 		case err == nil:
 			releaseOrFail(t, l)
@@ -262,7 +262,7 @@ func TestTakeRefusesAChownedDirectory(t *testing.T) {
 	if err := os.Chown(dir, 65534, 65534); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock()); err == nil || !strings.Contains(err.Error(), "owned by uid 65534, not by uid 0") {
+	if _, err := Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock(), Unguarded); err == nil || !strings.Contains(err.Error(), "owned by uid 65534, not by uid 0") {
 		t.Errorf("got %v, want the owner refused", err)
 	}
 }
@@ -272,13 +272,13 @@ func TestTakeRefusesAnEndedContextOnAFreeLock(t *testing.T) {
 	dir := lockDir(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if l, err := Take(ctx, dir, mustTeam(t, "ops"), "team.apply", 0, newClock()); !errors.Is(err, context.Canceled) {
+	if l, err := Take(ctx, dir, mustTeam(t, "ops"), "team.apply", 0, newClock(), Unguarded); !errors.Is(err, context.Canceled) {
 		if err == nil {
 			releaseOrFail(t, l)
 		}
 		t.Fatalf("got %v, want context.Canceled", err)
 	}
-	l, err := Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock())
+	l, err := Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock(), Unguarded)
 	if err != nil {
 		t.Fatalf("the lock was left held: %v", err)
 	}
@@ -288,12 +288,12 @@ func TestTakeRefusesAnEndedContextOnAFreeLock(t *testing.T) {
 // TL1: the busy error is the *BusyError itself, not wrapped, so a plain assertion sees it.
 func TestTakeBusyIsTheBusyErrorItself(t *testing.T) {
 	dir := lockDir(t)
-	first, err := Take(t.Context(), dir, mustTeam(t, "ops"), "backup", 0, newClock())
+	first, err := Take(t.Context(), dir, mustTeam(t, "ops"), "backup", 0, newClock(), Unguarded)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer releaseOrFail(t, first)
-	_, err = Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock())
+	_, err = Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock(), Unguarded)
 	if got := fmt.Sprintf("%T", err); got != "*teamlock.BusyError" {
 		t.Errorf("busy error is a %s", got)
 	}
@@ -307,7 +307,7 @@ func TestTakeReplacesAStaleLongerLine(t *testing.T) {
 	if err := os.WriteFile(path, []byte(strings.Repeat("s", 300)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	l, err := Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock())
+	l, err := Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock(), Unguarded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +321,7 @@ func TestTakeReplacesAStaleLongerLine(t *testing.T) {
 // made first cannot hold or spoof the lock.
 func TestTakeRefusesADirectoryOfAnotherOwner(t *testing.T) {
 	dir := lockDir(t)
-	if _, err := take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock(), os.Geteuid()+1); err == nil || !strings.Contains(err.Error(), "owned") {
+	if _, err := take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock(), Unguarded, os.Geteuid()+1); err == nil || !strings.Contains(err.Error(), "owned") {
 		t.Errorf("got %v, want the owner refused", err)
 	}
 	if _, err := os.Lstat(filepath.Join(dir, "team-ops.lock")); !errors.Is(err, os.ErrNotExist) {
@@ -332,7 +332,7 @@ func TestTakeRefusesADirectoryOfAnotherOwner(t *testing.T) {
 // TL1: a missing lock directory is made, 0700.
 func TestTakeMakesTheDirectory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "teamchat-admin")
-	l, err := Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock())
+	l, err := Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock(), Unguarded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,21 +357,21 @@ func TestBusyHolderLineIsSanitised(t *testing.T) {
 		"no end of line": strings.Repeat("y", 300),
 	} {
 		dir := lockDir(t)
-		held, err := Take(t.Context(), dir, mustTeam(t, "ops"), "backup", 0, newClock())
+		held, err := Take(t.Context(), dir, mustTeam(t, "ops"), "backup", 0, newClock(), Unguarded)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if err = os.WriteFile(filepath.Join(dir, "team-ops.lock"), []byte(content), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		_, err = Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock())
+		_, err = Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock(), Unguarded)
 		if busy, ok := errors.AsType[*BusyError](err); !ok || busy.Holder != unknownHolder {
 			t.Errorf("%s: got %v, want the unreadable holder", name, err)
 		}
 		releaseOrFail(t, held)
 	}
 	dir := lockDir(t)
-	held, err := Take(t.Context(), dir, mustTeam(t, "ops"), "backup", 0, newClock())
+	held, err := Take(t.Context(), dir, mustTeam(t, "ops"), "backup", 0, newClock(), Unguarded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,7 +380,7 @@ func TestBusyHolderLineIsSanitised(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "team-ops.lock"), []byte(longest+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock()); err == nil || !strings.HasSuffix(err.Error(), ": "+longest) {
+	if _, err := Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock(), Unguarded); err == nil || !strings.HasSuffix(err.Error(), ": "+longest) {
 		t.Errorf("a 256-byte line was not named: %v", err)
 	}
 }
@@ -412,5 +412,70 @@ func releaseOrFail(t *testing.T, l *Lock) {
 	t.Helper()
 	if err := l.Release(); err != nil {
 		t.Error(err)
+	}
+}
+
+// RG1: a nil guard is refused before anything is opened.
+func TestTakeRefusesANilGuard(t *testing.T) {
+	dir := lockDir(t)
+	if _, err := Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock(), nil); !errors.Is(err, ErrNoGuard) {
+		t.Fatalf("Take with a nil guard = %v, want ErrNoGuard", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "team-ops.lock")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a refused take made the lock file: %v", err)
+	}
+}
+
+// RG1: the guard runs once the flock is held, and is given the team.
+func TestTheGuardRunsUnderTheFlock(t *testing.T) {
+	dir := lockDir(t)
+	var ran bool
+	guard := func(team paths.TeamID) error {
+		ran = true
+		if team != mustTeam(t, "ops") {
+			t.Errorf("the guard was given %v", team)
+		}
+		if _, err := Take(t.Context(), dir, mustTeam(t, "ops"), "other", 0, newClock(), Unguarded); !errors.Is(err, ErrBusy) {
+			t.Errorf("a take inside the guard = %v, want busy: the flock is not held", err)
+		}
+		return nil
+	}
+	l, err := Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock(), guard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ran {
+		t.Fatal("the guard did not run")
+	}
+	if err := l.Release(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// RG1: the guard's error is returned after the lock is released, so the next take succeeds and
+// the holder line is cleared.
+func TestTheGuardsRefusalReleasesTheLock(t *testing.T) {
+	dir := lockDir(t)
+	refused := errors.New("a restore is under way")
+	l, err := Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock(), func(paths.TeamID) error { return refused })
+	if !errors.Is(err, refused) || l != nil {
+		t.Fatalf("Take = %v, %v, want the guard's error and no lock", l, err)
+	}
+	if data := readFile(t, filepath.Join(dir, "team-ops.lock")); len(data) != 0 {
+		t.Errorf("a refused take left the holder line %q", data)
+	}
+	again, err := Take(t.Context(), dir, mustTeam(t, "ops"), "team.apply", 0, newClock(), Unguarded)
+	if err != nil {
+		t.Fatalf("the lock was not released after the guard refused: %v", err)
+	}
+	if err := again.Release(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Unguarded refuses nothing.
+func TestUnguardedRefusesNothing(t *testing.T) {
+	if err := Unguarded(mustTeam(t, "ops")); err != nil {
+		t.Fatal(err)
 	}
 }

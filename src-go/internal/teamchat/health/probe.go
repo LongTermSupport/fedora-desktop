@@ -68,7 +68,7 @@ func (t *Tick) homeserver(ctx context.Context, team Team, f *facts) error {
 		return nil
 	}
 	f.probe = status.ProbeMissed
-	if f.held || t.cfg.Clock.Now().Sub(state.ActiveSince) < StartGrace {
+	if f.held || f.restore != nil || t.cfg.Clock.Now().Sub(state.ActiveSince) < StartGrace {
 		return nil
 	}
 	probe, now, stop, err := t.probeAgain(ctx, team.ID, unit, state)
@@ -163,8 +163,9 @@ func (t *Tick) restart(ctx context.Context, team Team, unit string, f *facts) er
 }
 
 // restartLocked re-checks the stamp first, so a team removed during the re-probes is neither
-// restarted nor written (errRemoved), then restarts the unit and reads its state again, so the
-// record keeps the NRestarts after the restart and the next tick sees no fall (n2e-D4).
+// restarted nor written (errRemoved), and the restore record, so a restore recorded meanwhile
+// is shown and not restarted over (HB3); then restarts the unit and reads its state again, so
+// the record keeps the NRestarts after the restart and the next tick sees no fall (n2e-D4).
 func (t *Tick) restartLocked(ctx context.Context, team Team, unit string, f *facts) error {
 	stamped, err := t.cfg.Teams.Stamp(ctx, team.ID)
 	if err != nil {
@@ -172,6 +173,9 @@ func (t *Tick) restartLocked(ctx context.Context, team Team, unit string, f *fac
 	}
 	if !stamped {
 		return errRemoved
+	}
+	if err = t.restore(ctx, team.ID, f); err != nil || f.restore != nil {
+		return err
 	}
 	if err = t.cfg.Units.Restart(ctx, unit); err != nil {
 		return fmt.Errorf("health: restarting %s: %w", unit, err)

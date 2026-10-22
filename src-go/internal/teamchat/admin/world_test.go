@@ -21,6 +21,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix/fakehs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
 )
 
@@ -96,28 +97,19 @@ type world struct {
 	regKeys []string
 	ports   []int
 	gidErr  error
+
+	files       memFiles
+	stagedPorts []int
+	stagedErr   error
+
+	// base is a real homeserver's URL, set instead of srv (the tagged tests); the staged
+	// server is then reached on its own loopback port.
+	base string
 }
 
 func newWorld(t *testing.T) *world {
 	t.Helper()
-	w := &world{
-		t: t, root: t.TempDir(), at: time.UnixMilli(t0ms).UTC(), units: map[string]*host.UnitState{},
-		rules: map[bool]map[string]bool{true: {}, false: {}},
-	}
-	for _, dir := range []string{
-		"/etc/systemd/system", "/run", paths.AdminStateRoot, paths.CtlStateRoot, paths.StatusRoot,
-		paths.HomeserverPrivateStateRoot,
-	} {
-		if err := os.MkdirAll(w.root+dir, 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.WriteFile(w.root+paths.ServerUnitTemplateFile, []byte("[Unit]\nDescription=v2 team homeserver %i\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(w.root+osRelease, []byte("NAME=Fedora Linux\nID=fedora\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	w := bareWorld(t)
 	w.srv = fakehs.New(fakehs.Options{ServerName: server, Now: w.now, Quirks: fakehs.TuwunelQuirks()})
 	if err := w.srv.Start(); err != nil {
 		t.Fatal(err)
@@ -142,6 +134,30 @@ func newWorld(t *testing.T) *world {
 		t.Fatal(err)
 	}
 	t.Cleanup(w.admin.Close)
+	return w
+}
+
+// bareWorld is the host tree under a temporary root, with no homeserver yet.
+func bareWorld(t *testing.T) *world {
+	t.Helper()
+	w := &world{
+		t: t, root: t.TempDir(), at: time.UnixMilli(t0ms).UTC(), units: map[string]*host.UnitState{},
+		rules: map[bool]map[string]bool{true: {}, false: {}},
+	}
+	for _, dir := range []string{
+		"/etc/systemd/system", "/run", paths.AdminStateRoot, paths.CtlStateRoot, paths.StatusRoot,
+		paths.HomeserverPrivateStateRoot,
+	} {
+		if err := os.MkdirAll(w.root+dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(w.root+paths.ServerUnitTemplateFile, []byte("[Unit]\nDescription=v2 team homeserver %i\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(w.root+osRelease, []byte("NAME=Fedora Linux\nID=fedora\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	return w
 }
 
@@ -210,6 +226,22 @@ func (w *world) Bridge() (netip.Prefix, error) { return netip.MustParsePrefix("1
 
 func (w *world) ServerVersion(context.Context, int) error { return nil }
 
+// url is alpha's homeserver: the real one when set, else fakehs.
+func (w *world) url() string {
+	if w.base != "" {
+		return w.base
+	}
+	return w.srv.URL()
+}
+
+// stagedURL is the staging server: on its own port beside a real server, else fakehs.
+func (w *world) stagedURL(port int) string {
+	if w.base != "" {
+		return "http://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	}
+	return w.srv.URL()
+}
+
 // now moves one millisecond on every read, so each operation's since_ms is its own.
 func (w *world) now() time.Time {
 	w.mu.Lock()
@@ -225,6 +257,7 @@ func (w *world) sys() *System {
 			Rand: bytes.NewReader(bytes.Repeat([]byte{0xab}, 64)), Software: digest,
 			Approvals: declare.FileApprovals{Path: func(id paths.TeamID) string { return w.root + paths.ApprovedFile(id) }, GID: -1},
 			Systemd:   &fakeSystemd{w: w}, Firewall: &fakeFirewall{w: w}, Network: w, Ready: w, Status: &fakeStatus{w: w},
+			Guard:  restore.Guard(w.root),
 			Backup: func(context.Context, *teamlock.Lock) error { return nil },
 		},
 		Child:      inProcessChild{w: w},
@@ -261,13 +294,55 @@ func (w *world) open(_ context.Context, team paths.TeamID, port int, regKey stri
 			Admin: a, Now: w.now, RosterPath: w.root + paths.RosterFile(team), RoomsPath: w.root + paths.RoomsFile(team),
 			GuestDir: w.root + paths.GuestTokenDir(team),
 		},
-		Member: w.member,
+		Member:  w.member,
+		Restore: &w.files,
+		Staged:  w.staged,
 	}, nil
+}
+
+// staged is the staging server as the child reaches it: alpha's own homeserver, with the token
+// given, the port remembered.
+func (w *world) staged(_ context.Context, port int, token string) (*matrix.Admin, error) {
+	w.stagedPorts = append(w.stagedPorts, port)
+	if w.stagedErr != nil {
+		return nil, w.stagedErr
+	}
+	a, err := matrix.NewAdmin(matrix.Config{BaseURL: w.stagedURL(port), Token: token, Clock: w})
+	if err == nil {
+		w.t.Cleanup(a.Close)
+	}
+	return a, err
+}
+
+// memFiles is the child's restore files as a test reads them: what each op was given, the
+// names Finish and Revert answer, and a failure for every op.
+type memFiles struct {
+	token, rooms, roster []byte
+	lost                 map[int64][]byte
+	previous             []string
+	err                  error
+}
+
+func (f *memFiles) Swap(token, rooms, roster []byte) error {
+	f.token, f.rooms, f.roster = token, rooms, roster
+	return f.err
+}
+
+func (f *memFiles) Finish() ([]string, error) { return f.previous, f.err }
+
+func (f *memFiles) Revert() ([]string, error) { return f.previous, f.err }
+
+func (f *memFiles) WriteLost(n int64, data []byte) error {
+	if f.lost == nil {
+		f.lost = map[int64][]byte{}
+	}
+	f.lost[n] = data
+	return f.err
 }
 
 // member is a member client of alpha's homeserver with token.
 func (w *world) member(token string) (*matrix.Client, error) {
-	c, err := matrix.NewMember(matrix.Config{BaseURL: w.srv.URL(), PlainHTTPHosts: []string{"127.0.0.1"}, Token: token, Clock: w})
+	c, err := matrix.NewMember(matrix.Config{BaseURL: w.url(), PlainHTTPHosts: []string{"127.0.0.1"}, Token: token, Clock: w})
 	if err == nil {
 		w.t.Cleanup(c.Close)
 	}
@@ -335,7 +410,7 @@ func (f *fakeFirewall) Remove(_ context.Context, permanent bool, r host.Rule) er
 
 type fakeStatus struct{ w *world }
 
-func (s *fakeStatus) Refresh(_ context.Context, _ paths.TeamID, first bool) error {
+func (s *fakeStatus) Refresh(_ context.Context, _ paths.TeamID, first bool, _ []string) error {
 	s.w.status = append(s.w.status, first)
 	return s.w.statErr
 }
