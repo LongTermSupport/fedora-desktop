@@ -102,7 +102,7 @@ func (e *Engine) Add(ctx context.Context, t paths.TeamID, l *lock.SeatLock, remo
 	tm, err := e.cfg.NewTeam(TeamConfig{
 		Team: t, Seat: l.Seat(), Run: e.cfg.Run, Lock: l, RemovedUserIDs: removedUserIDs, Engine: e, Ends: e.ends,
 		Root: e.cfg.Root, Plain: e.cfg.Plain, FirstSessionStart: e.cfg.FirstSessionStart,
-		Clock: e.cfg.Clock, Log: e.cfg.Log,
+		Clock: e.cfg.Clock, Log: e.cfg.Log, Forge: e.cfg.Forge,
 	})
 	if err != nil {
 		e.logf("team %s: no team goroutine: %v", t, err)

@@ -33,12 +33,13 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/clock"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
 // Proven is the outcome of a reference the forge proves; the others are proto's reasons
 // (ReasonProvenance, ReasonUnresolved, ReasonForgeRate).
-const Proven = "proven"
+const Proven = team.ForgeProven
 
 const (
 	cacheEntries    = 1024
@@ -57,13 +58,16 @@ const (
 
 // Result is one check's outcome: Proven or one of proto's forge reasons. Its trust, when
 // proven, is the class's (proto.ForgeCheck.Trust).
-type Result struct{ Outcome string }
+type Result = team.ForgeResult
+
+// A Checker is the engine's and teamsync's forge.
+var _ team.Forge = (*Checker)(nil)
 
 var (
 	// ErrLogin is a missing or logged-out gh: a configuration failure of the forge only.
-	ErrLogin = errors.New("forge: no forge login")
+	ErrLogin = team.ErrForgeLogin
 	// ErrDown is a forge that did not answer.
-	ErrDown = errors.New("forge: the forge did not answer")
+	ErrDown = team.ErrForgeDown
 
 	errOffOrigin = errors.New("forge: a redirect off the forge's origin")
 	errRedirects = errors.New("forge: too many redirects")

@@ -602,6 +602,31 @@ func TestAnEngineThatCannotBeMadeIs78(t *testing.T) {
 	}
 }
 
+// n3d W: the engine is given the link's one forge checker (n3d-D20), which it hands each team.
+func TestTheEngineIsGivenTheLinksForge(t *testing.T) {
+	w := newLinkWorld(t)
+	w.cfg.Forge = stubForge{}
+	given := make(chan team.Forge, 1)
+	w.cfg.Engine = func(c engine.Config) (*engine.Engine, error) {
+		given <- c.Forge
+		return nil, errors.New("no engine")
+	}
+	w.start()
+	w.launch(0)
+	if f := <-given; f != w.cfg.Forge {
+		t.Fatalf("the engine's forge = %#v", f)
+	}
+	if code := w.exited(); code != int(exits.ExitConfig) {
+		t.Fatalf("exit %d", code)
+	}
+}
+
+type stubForge struct{}
+
+func (stubForge) Check(context.Context, proto.ForgeCheck, proto.Forge) (team.ForgeResult, error) {
+	return team.ForgeResult{Outcome: team.ForgeProven}, nil
+}
+
 func TestAHeldLinkLockIs78(t *testing.T) {
 	w := newLinkWorld(t)
 	l, err := lock.TakeLink(t.Context(), w.clk, w.root, w.layout.Run(w.run))

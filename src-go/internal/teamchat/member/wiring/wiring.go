@@ -20,7 +20,7 @@ import (
 )
 
 // clientVerbs are the link.sock verbs, each client.Main's.
-var clientVerbs = []string{"recv", "wait", "inbox", "status", "verify", "history"}
+var clientVerbs = []string{"recv", "wait", "inbox", "status", "verify", "history", "reply", "say", "ping"}
 
 // Verbs are the verbs cmd/teamchat passes in cli.Env.Verbs: every name of cli.Outside.
 func Verbs() map[string]cli.RunFunc {
@@ -46,15 +46,20 @@ func NewEnds(c engine.EndsConfig) team.Ends {
 // watch.
 func NewTeam(c engine.TeamConfig) (team.Team, error) {
 	ch := &seatChanges{}
-	t, err := teamsync.New(teamsync.Config{
-		Team: c.Team, Seat: c.Seat, Root: c.Root, Run: c.Run, Engine: c.Engine, Ends: c.Ends,
-		Clock: c.Clock, Watcher: ch, RemovedUserIDs: c.RemovedUserIDs, Plain: c.Plain,
-		FirstSessionStart: c.FirstSessionStart, Log: c.Log,
-	})
+	t, err := teamsync.New(teamsyncConfig(c, ch))
 	if err != nil {
 		return nil, err
 	}
 	return &watched{Team: t, seat: c.Seat, changes: ch}, nil
+}
+
+// teamsyncConfig is the engine's config for a team, as teamsync takes it, watched by w.
+func teamsyncConfig(c engine.TeamConfig, w teamsync.Watcher) teamsync.Config {
+	return teamsync.Config{
+		Team: c.Team, Seat: c.Seat, Root: c.Root, Run: c.Run, Engine: c.Engine, Ends: c.Ends,
+		Clock: c.Clock, Watcher: w, RemovedUserIDs: c.RemovedUserIDs, Plain: c.Plain,
+		FirstSessionStart: c.FirstSessionStart, Log: c.Log, Forge: c.Forge,
+	}
 }
 
 // watched is a team goroutine whose seat watch lives as long as its Run.
