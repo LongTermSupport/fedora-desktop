@@ -36,6 +36,8 @@ type Config struct {
 	Credential Credential
 	// Sessions answers whether a session is restorable (its record exists, 00203 H5).
 	Sessions Sessions
+	// Announcer posts a disconnected notice (C 3.7.5).
+	Announcer Announcer
 }
 
 // Sessions is the session records, which the store asks and never writes.
@@ -58,13 +60,14 @@ type Store struct {
 	clock      Clock
 	credential Credential
 	sessions   Sessions
+	announcer  Announcer
 }
 
 // Open opens the seat store, making its root 0700 when missing. A config that lacks a part, or
 // a root that is not the owner's 0700 directory, is ErrConfig.
 func Open(cfg Config) (*Store, error) {
-	if cfg.Clock == nil || cfg.Credential == nil || cfg.Sessions == nil || cfg.Checkout.String() == "" {
-		return nil, fmt.Errorf("%w: a clock, a credential, the session records and a checkout are required", ErrConfig)
+	if cfg.Clock == nil || cfg.Credential == nil || cfg.Sessions == nil || cfg.Announcer == nil || cfg.Checkout.String() == "" {
+		return nil, fmt.Errorf("%w: a clock, a credential, the session records, an announcer and a checkout are required", ErrConfig)
 	}
 	if !filepath.IsAbs(cfg.StateHome) || !filepath.IsAbs(cfg.RuntimeDir) {
 		return nil, fmt.Errorf("%w: the state home and the runtime directory must be absolute", ErrConfig)
@@ -83,7 +86,7 @@ func Open(cfg Config) (*Store, error) {
 	}
 	return &Store{
 		store: store, checkout: cfg.Checkout, root: root, allocLock: allocLock, clock: cfg.Clock,
-		credential: cfg.Credential, sessions: cfg.Sessions,
+		credential: cfg.Credential, sessions: cfg.Sessions, announcer: cfg.Announcer,
 	}, nil
 }
 

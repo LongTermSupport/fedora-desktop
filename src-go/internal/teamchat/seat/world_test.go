@@ -150,6 +150,33 @@ func (s *sessions) fail(err error) {
 	s.err = err
 }
 
+// announcer records each notice it is asked for and answers what the test set.
+type announcer struct {
+	mu      sync.Mutex
+	asked   []Notice
+	outcome Outcome
+	err     error
+}
+
+func (a *announcer) Disconnected(_ context.Context, n Notice) (Outcome, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.asked = append(a.asked, n)
+	return a.outcome, a.err
+}
+
+func (a *announcer) calls() []Notice {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]Notice(nil), a.asked...)
+}
+
+func (a *announcer) answer(o Outcome, err error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.outcome, a.err = o, err
+}
+
 // world is one owner's seat store under a temporary home, over a homeserver.
 type world struct {
 	*homeserver
@@ -158,6 +185,7 @@ type world struct {
 	key      paths.CheckoutKey
 	store    *Store
 	sessions *sessions
+	notices  *announcer
 	seat     Seat
 }
 
@@ -166,7 +194,8 @@ func newWorld(t *testing.T) *world {
 	clock := newClock()
 	w := &world{
 		homeserver: newHomeserver(t, clock), home: t.TempDir(), key: mustKey(t, "c0"),
-		sessions: &sessions{}, seat: Seat{Team: mustTeam(t), Name: mustSeatName(t, testHandle)},
+		sessions: &sessions{}, notices: &announcer{outcome: Outcome{Posted: true}},
+		seat: Seat{Team: mustTeam(t), Name: mustSeatName(t, testHandle)},
 	}
 	w.store = w.open()
 	return w
@@ -176,7 +205,13 @@ func (w *world) config() Config {
 	return Config{
 		StateHome: filepath.Join(w.home, "state"), RuntimeDir: filepath.Join(w.home, "run"),
 		Checkout: w.key, Clock: w.clock, Credential: Password{Clock: w.clock}, Sessions: w.sessions,
+		Announcer: w.notices,
 	}
+}
+
+func (w *world) release(session string, leaving bool) error {
+	w.t.Helper()
+	return w.store.Release(w.t.Context(), Release{Seat: w.seat, Session: mustSession(w.t, session), Leaving: leaving})
 }
 
 // pool is the world's pool seat.

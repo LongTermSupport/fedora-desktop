@@ -15,6 +15,7 @@ func TestOpenNeedsEveryPart(t *testing.T) {
 		"no clock":      func(c *Config) { c.Clock = nil },
 		"no credential": func(c *Config) { c.Credential = nil },
 		"no sessions":   func(c *Config) { c.Sessions = nil },
+		"no announcer":  func(c *Config) { c.Announcer = nil },
 		"relative home": func(c *Config) { c.StateHome = "state" },
 		"relative run":  func(c *Config) { c.RuntimeDir = "run" },
 		"no checkout":   func(c *Config) { c.Checkout = paths.CheckoutKey{} },

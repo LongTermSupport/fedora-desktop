@@ -67,7 +67,7 @@ func (s *Store) Take(ctx context.Context, a *Alloc, t Take) (Taken, error) {
 	if err != nil {
 		return Taken{}, err
 	}
-	if err = s.clearHeld(t.Seat, pool); err != nil {
+	if err = s.clearHeld(ctx, t.Seat, pool); err != nil {
 		return Taken{}, err
 	}
 	claim, err := newClaim()
@@ -165,19 +165,12 @@ func (s *Store) leftovers(seat Seat) ([]string, error) {
 }
 
 // clearHeld is step 1's held/: none goes on; one with no complete held.json goes to
-// quarantine; one naming a live or restorable session is ErrHeld.
-func (s *Store) clearHeld(seat Seat, pool paths.PoolSeat) error {
-	found, err := s.root.exists(pool.Held())
+// quarantine; one naming a live or restorable session is ErrHeld; one naming a session that
+// is over is released first, under the lock this take holds (n2c-D4).
+func (s *Store) clearHeld(ctx context.Context, seat Seat, pool paths.PoolSeat) error {
+	rec, found, err := s.heldRecord(ctx, seat, pool, alreadyLocked)
 	if err != nil || !found {
 		return err
-	}
-	data, err := s.root.read(pool.HeldRecord(), maxRecord)
-	if err != nil && !errors.Is(err, unix.ENOENT) {
-		return err
-	}
-	rec, decErr := decodeHeldRecord(data)
-	if err != nil || decErr != nil {
-		return s.quarantine(seat, pool.Held(), "")
 	}
 	held, err := s.sessionHolds(rec.Session, seat.Team)
 	if err != nil {
@@ -186,7 +179,7 @@ func (s *Store) clearHeld(seat Seat, pool paths.PoolSeat) error {
 	if held {
 		return fmt.Errorf("%w: by session %s", ErrHeld, rec.Session)
 	}
-	return fmt.Errorf("%w: by session %s, which is over and is released first", ErrHeld, rec.Session)
+	return s.release(ctx, Release{Seat: seat, Session: rec.Session}, alreadyLocked)
 }
 
 // sessionHolds is whether a session holds its seat: its seat lock is held, or it is restorable.
