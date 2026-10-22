@@ -289,12 +289,15 @@ func asked(op string, args []proto.Member, a Answer) error {
 	if !answeredHandle(req, a.Handle) {
 		return lie("handle " + strconv.Quote(a.Handle))
 	}
+	if err := answerFits(op, a); err != nil {
+		return lie("a view or a notice")
+	}
 	issues := op == apply.OpMemberAdd || op == apply.OpMemberReturn || op == apply.OpMemberReissue
 	switch {
-	case issues && a.Credential == nil:
-		return lie("no credential")
-	case !issues && a.Credential != nil:
-		return lie("a credential")
+	case issues && (a.Credential == nil || a.MainRoom == ""):
+		return lie("no credential or no main room")
+	case !issues && (a.Credential != nil || a.MainRoom != ""):
+		return lie("a credential or a main room")
 	case issues && a.Credential.Kind != req.Credential:
 		return lie("a " + a.Credential.Kind + " credential")
 	}

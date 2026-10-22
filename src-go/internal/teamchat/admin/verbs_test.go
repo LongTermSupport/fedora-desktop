@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/health"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -548,6 +549,10 @@ func TestAChildsAnswerIsCheckedAgainstTheRequest(t *testing.T) {
 		"no credential for an add": {addArgs("4", "password"), func(a *Answer) { a.Credential = nil }},
 		"a credential for a park":  {on("park"), func(a *Answer) { a.Credential = &apply.Credential{Kind: apply.CredPassword, Secret: "x"} }},
 		"a handle for role apply":  {[]string{"role", "apply", "--team", "alpha"}, func(a *Answer) { a.Handle = coord }},
+		"no main room for an add":  {addArgs("4", "password"), func(a *Answer) { a.MainRoom = "" }},
+		"a main room for a park":   {on("park"), func(a *Answer) { a.MainRoom = sampleRoom }},
+		"a view for a park":        {on("park"), func(a *Answer) { a.View = &health.View{} }},
+		"a notice for role apply":  {[]string{"role", "apply", "--team", "alpha"}, func(a *Answer) { a.Notice = &health.Notice{Posted: true} }},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {

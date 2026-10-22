@@ -154,6 +154,3 @@ func selfPath(readlink func(string) (string, error)) (string, error) {
 	}
 	return p, nil
 }
-
-// answerFits is whether a decoded answer is one the op can give.
-func answerFits(string, Answer) error { return nil }

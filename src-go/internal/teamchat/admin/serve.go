@@ -94,7 +94,11 @@ func answerOf(res apply.Result, err error) Answer {
 		a.Changed = res.Changed
 		return a
 	}
-	return Answer{OK: true, Changed: res.Changed, Handle: res.Handle, Credential: res.Credential, Notes: res.Notes}
+	a := Answer{OK: true, Changed: res.Changed, Handle: res.Handle, Credential: res.Credential, Notes: res.Notes}
+	if a.Credential != nil {
+		a.MainRoom = res.Rooms.Main
+	}
+	return a
 }
 
 // errorClass is the class whose exit code is C 3.3's for err.
