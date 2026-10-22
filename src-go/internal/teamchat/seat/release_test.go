@@ -3,6 +3,7 @@ package seat
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"testing"
@@ -110,39 +111,52 @@ func TestReleaseRetriesATransientNotice(t *testing.T) {
 	}
 }
 
-// NT3 (n2e-D7): a transient notice failure is recorded with until_ms ten minutes on; a retry
-// before it asks again and keeps it, one at or after it records the notice not posted in time
-// and the release retires the token.
+// NT3 (n2e-D7): a transient notice failure is recorded with its class and until_ms ten minutes
+// on; a retry before it asks again and keeps it, whatever run the member's lock names by then;
+// one at or after it records the notice not posted in time and the release retires the token.
 func TestATransientNoticeHoldsAReleaseTenMinutesAtMost(t *testing.T) {
 	w := newWorld(t)
 	w.seed()
 	taken := w.take("s1")
 	w.keep("s1", lockRecord)()
-	w.notices.answer(Outcome{}, errors.New("rate limited"))
+	w.notices.answer(Outcome{}, fmt.Errorf("posting: %w", context.DeadlineExceeded))
 	until := w.clock.Now().Add(noticeBound).UnixMilli()
 	if err := w.release("s1", false); err == nil {
 		t.Fatal("a transient notice failure completed the release")
 	}
-	if rec := w.heldNotice(); rec.Posted || rec.Why != whyTransient || rec.UntilMS != until {
+	if rec := w.heldNotice(); rec.Posted || rec.Why != "timed out"+whyRetried || rec.UntilMS != until {
 		t.Fatalf("notice.json after the first failure: %+v", rec)
 	}
-	w.sleep(noticeBound - time.Millisecond)
-	if err := w.release("s1", false); err == nil {
-		t.Fatal("a retry before until_ms completed the release")
-	}
-	if rec := w.heldNotice(); rec.UntilMS != until || len(w.notices.calls()) != 2 {
-		t.Fatalf("a retry moved until_ms or did not ask: %+v, %d calls", rec, len(w.notices.calls()))
-	}
+	// The quarantined seat directory is still the container's, through its mount.
+	lock := w.releasedSession(taken) + "/seat.lock"
+	w.sleep(noticeBound / 2)
+	writeFile(t, lock, `{"v":1,"run":"fedcba9876543210","started_ms":2}`)
+	w.retryHeld(until, "fedcba9876543210", 2)
+	w.sleep(noticeBound/2 - time.Millisecond)
+	writeFile(t, lock, lockRecord)
+	w.retryHeld(until, testRun, 3)
 	w.sleep(time.Millisecond)
 	if err := w.release("s1", false); err != nil {
 		t.Fatalf("the release at until_ms: %v", err)
 	}
-	if len(w.notices.calls()) != 2 || exists(t, w.pool().HeldToken()) {
+	if len(w.notices.calls()) != 3 || exists(t, w.pool().HeldToken()) {
 		t.Errorf("at until_ms: %d calls, token kept %v", len(w.notices.calls()), exists(t, w.pool().HeldToken()))
 	}
 	rec, err := decodeNoticeRecord([]byte(readFile(t, w.releasedPool(taken)+"/notice.json")))
 	if err != nil || rec.Posted || rec.Why != whyNotInTime || rec.UntilMS != 0 {
 		t.Errorf("notice.json %+v, %v", rec, err)
+	}
+}
+
+// retryHeld is a retried release of s1 still held by the transient bound: it asks again (calls
+// in all), records run, and keeps until.
+func (w *world) retryHeld(until int64, run string, calls int) {
+	w.t.Helper()
+	if err := w.release("s1", false); err == nil {
+		w.t.Fatal("a retry before until_ms completed the release")
+	}
+	if rec := w.heldNotice(); rec.UntilMS != until || rec.Run.String() != run || len(w.notices.calls()) != calls {
+		w.t.Fatalf("a retry moved until_ms or did not ask: %+v, %d calls", rec, len(w.notices.calls()))
 	}
 }
 

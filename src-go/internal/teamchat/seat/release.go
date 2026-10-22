@@ -9,6 +9,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
@@ -260,9 +261,10 @@ func (s *Store) announceHeld(ctx context.Context, seat Seat, session paths.Sessi
 // at most.
 const noticeBound = 10 * time.Minute
 
-// The why of a notice not posted because of transient failures: still retried, and given up.
+// The why of a notice not posted because of transient failures: still retried after the
+// failure's class, and given up.
 const (
-	whyTransient = "a transient failure; asked again until until_ms"
+	whyRetried   = "; asked again until until_ms"
 	whyNotInTime = "not posted in time"
 )
 
@@ -270,7 +272,8 @@ const (
 // already settled for this claim, is asked of the announcer and its outcome recorded in the
 // holding h, which is this claim's whatever has happened to held/ since. A transient failure is
 // recorded with until_ms and stops for the retry; at until_ms the notice is given up and the
-// caller goes on.
+// caller goes on. The bound is the claim's, whatever run the member's lock names by then, so a
+// member that rewrites its run id cannot start the bound again.
 func (s *Store) announce(ctx context.Context, h *dir, pool paths.PoolSeat, rec HeldRecord, lock lockProbe) error {
 	run, ok := runOf(lock)
 	if !ok {
@@ -280,12 +283,13 @@ func (s *Store) announce(ctx context.Context, h *dir, pool paths.PoolSeat, rec H
 	until := s.clock.Now().Add(noticeBound).UnixMilli()
 	if err == nil {
 		prev, decErr := decodeNoticeRecord(data)
-		switch thisRun := decErr == nil && prev.Claim == rec.Claim && prev.Run == run; {
-		case thisRun && prev.UntilMS == 0:
+		thisClaim := decErr == nil && prev.Claim == rec.Claim
+		switch {
+		case thisClaim && prev.UntilMS == 0 && prev.Run == run:
 			return nil
-		case thisRun && s.clock.Now().UnixMilli() >= prev.UntilMS:
+		case thisClaim && prev.UntilMS != 0 && s.clock.Now().UnixMilli() >= prev.UntilMS:
 			return s.recordNotice(h, pool, NoticeRecord{V: recordVersion, Claim: rec.Claim, Run: run, Why: whyNotInTime})
-		case thisRun:
+		case thisClaim && prev.UntilMS != 0:
 			until = prev.UntilMS
 		}
 	} else if !errors.Is(err, unix.ENOENT) {
@@ -293,7 +297,7 @@ func (s *Store) announce(ctx context.Context, h *dir, pool paths.PoolSeat, rec H
 	}
 	out, err := s.announcer.Disconnected(ctx, Notice{Bundle: pool.Held(), SinceMS: rec.SinceMS, Run: run})
 	if err != nil {
-		pending := NoticeRecord{V: recordVersion, Claim: rec.Claim, Run: run, Why: whyTransient, UntilMS: until}
+		pending := NoticeRecord{V: recordVersion, Claim: rec.Claim, Run: run, Why: matrix.Class(err) + whyRetried, UntilMS: until}
 		return errors.Join(fmt.Errorf("seat: the disconnected notice for %s: %w", pool.Dir(), err), s.recordNotice(h, pool, pending))
 	}
 	return s.recordNotice(h, pool, NoticeRecord{V: recordVersion, Claim: rec.Claim, Run: run, Posted: out.Posted, Why: out.Why})
