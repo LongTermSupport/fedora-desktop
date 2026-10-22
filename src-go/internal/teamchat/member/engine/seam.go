@@ -159,31 +159,41 @@ func view(h *held, ids, relations []string, r proto.Roster) team.View {
 			v.SeenIDs[l.ID] = true
 		}
 		if related[l.ID] {
-			rel := proto.Related{Sender: l.From, RoomID: roomID(h, r, l.Room), AddressedToSelf: true, AddressedToRosterAgent: true}
-			if l.Verb != nil {
-				rel.Verb = *l.Verb
-			}
-			v.Events[l.ID] = rel
+			v.Events[l.ID] = ledgerRelated(l, h.anchors.MainRoom, r)
 		}
 	}
 	for _, p := range s.Outbox.Pings {
 		v.OwnPings[p.ID] = proto.OwnPing{Verb: p.Verb, To: slices.Clone(p.To), OriginTs: p.SentMS}
 		if related[p.ID] {
-			v.Events[p.ID] = proto.Related{
-				Sender: s.UserID, RoomID: h.anchors.MainRoom, Verb: p.Verb,
-				AddressedToRosterAgent: slices.ContainsFunc(p.To, r.HumanReader),
-			}
+			v.Events[p.ID] = pingRelated(p, s.UserID, h.anchors.MainRoom, r)
 		}
 	}
 	return v
 }
 
+// ledgerRelated is a delivered item as a later event's relation reads it.
+func ledgerRelated(l state.Ledger, main string, r proto.Roster) proto.Related {
+	rel := proto.Related{Sender: l.From, RoomID: roomID(main, r, l.Room), AddressedToSelf: true, AddressedToRosterAgent: true}
+	if l.Verb != nil {
+		rel.Verb = *l.Verb
+	}
+	return rel
+}
+
+// pingRelated is one of this member's outbox pings as a later event's relation reads it.
+func pingRelated(p state.Ping, self, main string, r proto.Roster) proto.Related {
+	return proto.Related{
+		Sender: self, RoomID: main, Verb: p.Verb,
+		AddressedToRosterAgent: slices.ContainsFunc(p.To, r.HumanReader),
+	}
+}
+
 // roomID is the room id of a store's room purpose: main from the bundle, the side rooms from
 // the roster; "" for a room neither names.
-func roomID(h *held, r proto.Roster, purpose string) string {
+func roomID(main string, r proto.Roster, purpose string) string {
 	switch purpose {
 	case proto.PurposeMain:
-		return h.anchors.MainRoom
+		return main
 	case proto.PurposeQuestions:
 		return r.Rooms.Questions
 	case proto.PurposeReports:
@@ -317,19 +327,16 @@ func (e *Engine) BeginRun(ctx context.Context, t paths.TeamID) error {
 
 // SetHealth is a team goroutine's state, for status, status.json and the keeper's report. It
 // re-arms the TIMEOUT timer too, so one that slept through a suspend is corrected by the first
-// sync after it (n3d-D7).
+// sync after it (n3d-D7), and wakes the team's sender, which posts once the team is up.
 func (e *Engine) SetHealth(t paths.TeamID, hl team.Health) {
 	if err := e.do(context.Background(), func() {
 		if h := e.teams[t]; h != nil && !h.removed {
 			h.health = hl
 			e.publish()
+			h.pokeSender()
 		}
 		e.arm()
 	}); err != nil {
 		e.logf("team %s: health not recorded: %v", t, err)
 	}
 }
-
-// RecoverSends finds a restarted link's tried sends among its own events (n3d-D4): D6a's; D1
-// gives the seam alone.
-func (e *Engine) RecoverSends(context.Context, paths.TeamID, team.Notices) error { return nil }

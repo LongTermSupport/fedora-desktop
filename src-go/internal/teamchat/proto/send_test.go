@@ -316,3 +316,16 @@ func TestSendRefusalOrder(t *testing.T) {
 		refusedWith(t, name, err, tc.reason)
 	}
 }
+
+// A sender that keeps its duplicate window in a store reads each composed event's duplicate
+// identity; an event exempt from the window (a notice) has none (A 11.2).
+func TestOutgoingDuplicateKey(t *testing.T) {
+	c := composer(t, workerID)
+	out := mustSend(t)(c.Text(Text{To: []string{coordID}, Text: "Ready."}, "", "ready"))
+	if got, want := out.DuplicateKey(), DuplicateKey("text", "", "", []string{coordID}, "Ready."); got != want {
+		t.Errorf("text key %q, want %q", got, want)
+	}
+	if key := (Outgoing{dupKey: "k"}).DuplicateKey(); key != "" {
+		t.Errorf("an event exempt from the window has the key %q", key)
+	}
+}

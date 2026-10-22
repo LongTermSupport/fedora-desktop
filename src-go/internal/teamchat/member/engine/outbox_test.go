@@ -424,7 +424,7 @@ func TestARemovalDropsTheOutboxAndItsTimer(t *testing.T) {
 	if _, err := w.e.Remove(t.Context(), ops); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(w.log.String(), "and 1 outbox pings") {
+	if !strings.Contains(w.log.String(), "1 outbox pings and 0 queued sends") {
 		t.Fatalf("link.log = %q", w.log.String())
 	}
 	if w.clk.Waiters() != 0 {

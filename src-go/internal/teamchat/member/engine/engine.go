@@ -55,6 +55,9 @@ type Config struct {
 	OnState func(wire.State)
 	// Runtime is the session's resident cost, for status.
 	Runtime func() (records.Runtime, error)
+	// Forge checks a send's reference at the forge (n3d-D11); nil refuses a referenced ping as
+	// forge-down.
+	Forge team.Forge
 }
 
 // TeamConfig is what one team goroutine is made from.
