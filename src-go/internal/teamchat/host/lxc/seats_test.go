@@ -337,6 +337,35 @@ func TestKeyOwnersClaim(t *testing.T) {
 	}
 }
 
+// The key rule reads every team's record under the host root: a team dropped from the
+// declaration keeps its live seats, whose keys are claimed, and a record of it that cannot be
+// read refuses the run.
+func TestKeysReadEveryTeamsRecord(t *testing.T) {
+	w := placed(t)
+	two := w.member("t1", "c1")
+	two.Team = mustTeam(t, "t2")
+	w.declare([]string{"t1", "t2"}, w.member("t1", "c1"), two)
+	if _, err := w.apply(PhasePresent); err != nil {
+		t.Fatal(err)
+	}
+	w.declare([]string{"t1"}, w.member("t1", "c1"))
+	r, err := validate(t.Context(), w.deps(), Request{Phase: PhasePresent, Decl: w.decl})
+	if err != nil {
+		t.Fatal(err)
+	}
+	owners, err := r.keys()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := owners[Target{Container: mustBox(t, "c1"), Key: keyOf(t, "t2")}]; got != seatID(t, "t2") {
+		t.Fatalf("the dropped team's live seat was not claimed: %+v", got)
+	}
+	writeTree(t, w.host, map[string]string{paths.LXCRecord(mustTeam(t, "t2"))[1:]: "{not json"})
+	if _, err := w.apply(PhasePresent); err == nil {
+		t.Fatal("an unreadable record of a dropped team was not refused")
+	}
+}
+
 func TestBadSeatsRefusedBeforeAKeyIsMade(t *testing.T) {
 	for name, bad := range map[string]func(m *declare.LXCMember){
 		"seat 0":              func(m *declare.LXCMember) { m.Seat = 0 },

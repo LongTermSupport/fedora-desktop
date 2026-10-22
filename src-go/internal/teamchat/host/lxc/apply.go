@@ -245,7 +245,7 @@ func validate(ctx context.Context, d Deps, req Request) (*run, error) {
 			return nil, invalid(fmt.Errorf("--member %s/%s names no seat of the acted teams", t.Container, t.Key))
 		}
 	}
-	if err := r.keys(); err != nil {
+	if _, err := r.keys(); err != nil {
 		return nil, err
 	}
 	return r, nil
@@ -335,8 +335,9 @@ func (o keyOwners) claim(c paths.ContainerName, id lxcstate.SeatID) error {
 }
 
 // keys checks the key rule across every team's entries and record entries not left, whatever
-// --only-teams says (C 3.9.2 step 01).
-func (r *run) keys() error {
+// --only-teams says (C 3.9.2 step 01): the declared teams' records and every other record under
+// the host root, since a team dropped from the declaration keeps its live seats.
+func (r *run) keys() (keyOwners, error) {
 	owners := keyOwners{}
 	for _, m := range r.req.Decl.LXC {
 		c, err := paths.ParseContainerName(m.Container)
@@ -348,21 +349,38 @@ func (r *run) keys() error {
 			continue
 		}
 		if err := owners.claim(c, id); err != nil {
-			return err
+			return nil, err
 		}
 	}
+	teams, err := recordTeams(r.d.Root)
+	if err != nil {
+		return nil, &host.Error{Verb: verb, Step: stepValidate, Err: err}
+	}
 	for _, t := range r.req.Decl.Teams {
-		rec, err := r.record(t.ID)
-		if err != nil {
-			return err
+		if !slices.Contains(teams, t.ID) {
+			teams = append(teams, t.ID)
 		}
-		for _, e := range rec.Members {
-			if e.Status == lxcstate.StatusLeft {
-				continue
-			}
-			if err := owners.claim(e.Container, rec.SeatOf(e)); err != nil {
-				return err
-			}
+	}
+	for _, team := range teams {
+		if err := r.claimRecord(owners, team); err != nil {
+			return nil, err
+		}
+	}
+	return owners, nil
+}
+
+// claimRecord claims the key of each of team's record entries not left.
+func (r *run) claimRecord(owners keyOwners, team paths.TeamID) error {
+	rec, err := r.record(team)
+	if err != nil {
+		return err
+	}
+	for _, e := range rec.Members {
+		if e.Status == lxcstate.StatusLeft {
+			continue
+		}
+		if err := owners.claim(e.Container, rec.SeatOf(e)); err != nil {
+			return err
 		}
 	}
 	return nil
