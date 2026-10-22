@@ -144,21 +144,29 @@ type guestBox struct {
 	missing   bool
 	// fault is lxc-ls or lxc-info failing for the box (the absent phase): the host's, not offline.
 	fault error
-	// memos is each guest user's stalls this run.
-	memos map[paths.GuestUser]*guestroot.Memo
+	// memos is each seat's stalls this run.
+	memos map[boxSeat]*guestroot.Memo
 }
 
-// rootOf is the box's root scoped to m's guest user for this run: once a call for that user
-// stalls, the user's later calls, any seat's, answer at once instead of waiting out the bound
-// again (R2-3). A guest user's mount is what stalls, so the user is the scope.
+// boxSeat is a seat within its container: its checkout and seat number.
+type boxSeat struct {
+	checkout string
+	seat     int
+}
+
+// rootOf is the box's root scoped to m's seat for this run: once a call for that seat stalls,
+// the seat's later calls answer at once instead of waiting out the bound again (R2-3). The seat,
+// not its guest user, is the scope (C2): a stall under one checkout fails that seat alone, never
+// the same user's seat on a healthy checkout.
 func (g *guestBox) rootOf(m *member) Root {
 	if g.memos == nil {
-		g.memos = map[paths.GuestUser]*guestroot.Memo{}
+		g.memos = map[boxSeat]*guestroot.Memo{}
 	}
-	memo, ok := g.memos[m.decl.User]
+	at := boxSeat{checkout: m.id.Checkout, seat: m.id.Seat}
+	memo, ok := g.memos[at]
 	if !ok {
 		memo = &guestroot.Memo{}
-		g.memos[m.decl.User] = memo
+		g.memos[at] = memo
 	}
 	return g.root.Scoped(memo)
 }
