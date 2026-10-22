@@ -33,16 +33,17 @@ and the per-rule pages are not written; this catalogue stands in for them.
 
 ## The rules
 
-| Rule                      | Defect class                                                                                                                              | Found in                                                                        |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `project_seam_exec`       | a process started outside the runner, so no fake sees it                                                                                  | `teams`: `syscall.Exec` in the launcher hand-over                               |
-| `project_seam_commands`   | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`)       | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style`  |
-| `project_tmux_targets`    | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                                  | the bash library, before the port                                               |
-| `project_testclock`       | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                        | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                    |
-| `project_waitdelay`       | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped                  | `qa/internal/proc`: bug B25 of the qa-all port                                  |
-| `project_package_tests`   | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                       | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it |
-| `project_homeabbrev`      | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                              | `teams` tests: `strings.Replace(..., "~", 1)` twice                             |
-| `project_hidden_bindings` | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`) | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N      |
+| Rule                      | Defect class                                                                                                                                    | Found in                                                                        |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `project_seam_exec`       | a process started outside the runner, so no fake sees it                                                                                        | `teams`: `syscall.Exec` in the launcher hand-over                               |
+| `project_seam_commands`   | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`)             | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style`  |
+| `project_tmux_targets`    | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                                        | the bash library, before the port                                               |
+| `project_testclock`       | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                              | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                    |
+| `project_waitdelay`       | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped                        | `qa/internal/proc`: bug B25 of the qa-all port                                  |
+| `project_package_tests`   | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                             | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it |
+| `project_homeabbrev`      | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                                    | `teams` tests: `strings.Replace(..., "~", 1)` twice                             |
+| `project_hidden_bindings` | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`)       | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N      |
+| `project_refusal_kind`    | a declare.py refusal recovered by its type and never by its kind, so a refusal of the host_vars file is asked again as if the answer were wrong | `teams lxc-add`: "entries 5 and 6 both declare" asked three times (Plan 00201)  |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -393,6 +394,68 @@ hint on the same screen rather than to the package. Not built yet: it needs the 
 one model read together, and `internal/ui/pathinput` is its only case; Plan 00204 Task 2.4
 tracks it.
 
+### project_refusal_kind
+
+A function (each function literal judged on its own) that recovers a `*declare.Error` of
+`internal/declare` by its type (`errors.AsType`, `errors.As`, a type assertion, a type switch
+case) and never tells the one kind asking again can fix from the rest: it names no
+`declare.ErrUsage` (`errors.Is(err, declare.ErrUsage)`, `.Is(declare.ErrUsage)`) and does not
+hand the exit code on whole (a returned `.Code`, converted or not, alone or as a field of a
+returned literal such as `&stop{term.ExitCode(de.Code)}`) whatever the recovery finds. `ErrUsage`
+named anywhere in the function clears every recovery in it; a code handed on clears only the
+recovery whose block returns it unconditionally: a direct statement of the `if` body whose Init
+or Cond recovers (`if de, ok := ...; ok { return de.Code }`, the real tree's `create.Wizard.run`,
+`lxcadd.Adder.Run` and `summary`, `chooser.failed`, `ops.childExit`) when the Cond is the bare
+recovery result (the found result of an Init that is one recovery and nothing else, `de, ok := errors.AsType[...](err)` or `ok := errors.As(err, &de)`; or the `errors.As` call) or that `&& de.Code != 0`; a later direct statement
+after an assignment that recovers (`de, ok := ...; if !ok {...}; return de.Code`) or after an
+`if` whose Cond is the negated bare result (`if !errors.As(err, &de) {...}; return de.Code`); or
+a direct statement of the type switch case. A code handed on for one kind inside a branch of its
+own, or under a Cond that tests a kind or a particular code (`ok && de.Code == 130`), leaves the
+others asked again, and is a finding. Naming another kind (`ErrInterrupted`,
+`ErrRefused`) or reading `.Code` to print it does not count: the rest are still asked again.
+declare.py refuses in kinds: exit 64 (`declare.ErrUsage`) is the value just given, which another
+answer can fix; exit 78 (`declare.ErrRefused`) is the host_vars file, its entries, or the answer
+against them, which no answer to the question can fix (a team the file does not declare present
+is one). A question
+that reads every refusal as one verdict asks again when the file is at fault, and retyping can
+never succeed. Re-ask only on `declare.ErrUsage`; stop on the rest, saying the refusal and the
+file it is about ([InteractiveScripts.md](InteractiveScripts.md): re-prompting is for a
+recoverable input mistake).
+
+- Red, fixture: `testdata/src/fix/internal/badrefusal` (`bad.go`: lxc-add's original `checked`,
+  the create wizard's `isRefusal`, a type assertion, a type switch, a checker literal, a kind
+  read of a different error, an interrupt cancelled then every other kind re-asked, `.Code`
+  only printed, `.Is(declare.ErrRefused)`, the code handed on for an interrupt only and every
+  other kind re-asked, the same filtered in the recovering `if`'s Cond by a kind, by a code,
+  after `errors.As`, by a bool variable, folded into the Init's `ok` and declared beside the
+  recovery in the Init; `good.go`: a retry on `ErrUsage` only, an exit with `.Code` bare,
+  converted and inside a returned `&stop{...}`, after an assignment, after a negated `errors.As`
+  guard, under `ok && de.Code != 0`, `errors.As` in the Init with its `ok` alone and from a
+  type switch case, `.Is(declare.ErrUsage)`, a bare `errors.Is`). The stub
+  `fix/internal/declare` has the real shape.
+- Red, real tree: `lxcadd.Adder.checked` (the owner's three "entries 5 and 6 both declare"
+  refusals), and in `create`: `Wizard.checked`, `isRefusal` (any refusal read as "not
+  OWNER/REPO") and `askHumans` (any refusal read as "your login cannot be an account name").
+- Green: each re-asks on `declare.ErrUsage` only, cancels on an interrupt, stops on a refusal of
+  the file naming it, and says any other failure as declare.py failing.
+- Not caught, each still carrying the hazard (a 78 asked again), and referred to the owner as a
+  rule left narrower than the hazard (Plan 00201 Task 2.20):
+  - `ErrUsage` named but branched on the wrong way round, or re-asked on together with another
+    kind (`errors.Is(err, declare.ErrUsage) || errors.Is(err, declare.ErrRefused)`, then a
+    re-ask). Which branch re-asks needs data flow the syntactic rule does not do.
+  - A kind read of some other error than the one recovered (`errors.Is(other, declare.ErrUsage)`):
+    error identity needs data flow too.
+  - A re-ask in an earlier branch of the block before the unconditional code return
+    (`if !errors.Is(err, declare.ErrInterrupted) { ...; return false, nil }; return de.Code`):
+    the return is direct, so it clears; telling a re-ask from any other early return is meaning.
+  - A declare refusal re-wrapped in another error type before it is read: the type is hidden.
+- Not caught, hazard-free as far as found: `ok && other.Code != 0` counts the `Code` of any
+  `*declare.Error`, not only the one recovered.
+- Flagged though hazard-free: a code handed on through a local (`code := de.Code; return code`);
+  return the field itself.
+- The other half of the class, declare.py giving a refusal the right kind, is in
+  [Defect classes that cannot be a rule](#defect-classes-that-cannot-be-a-rule).
+
 ## Defect classes that cannot be a rule
 
 A class is listed here, with what holds it instead, when no analyzer can judge it without
@@ -410,6 +473,31 @@ guessing; the catalogue claims no more than the code does.
   check against a real sudoers file. A known gap: a passing `sudo -n true` shows that `true` runs
   unprompted, not the commands after it, so a host whose NOPASSWD entries cover `true` but not
   the tools would skip the prompt and then fail.
+  A second instance, fixed in `teams/create` (Plan 00201): `ccy-teams create` read any failing
+  `gh api users/<owner>` or `gh api repos/<repo>` as "GitHub has no such name", so no network,
+  bad credentials or a rate limit asked the person for another name. Only gh's `(HTTP 404)` is
+  not found now (`ghNotFound`); any other failure ends the run with gh's own words. What holds
+  it: the wizard's tests, which run a 404 against no network, a 401, a 403 and a 502.
+- **A declare.py refusal given the wrong kind** (the other half of `project_refusal_kind`, Plan
+  00201): `check_lxc` and `derive_lxc` raised a clash with an entry already in the file as a
+  usage error (64), as did a team the file does not declare present, and `set` gave 78 to a value
+  another answer could fix; so a question that read the kind still asked again, or stopped where
+  it should ask. Which refusals another answer can fix is a fact about what the question asks,
+  not a shape in the syntax tree: semgrep runs over Python here, but no pattern can tell
+  `UsageError` from `DeclareError` by meaning. What holds it: `tests/helpers/agent_bus/test_declare.py`
+  pins the kind of each refusal (a value alone 64; the file's entries, an answer against them, a
+  team not declared present, an entry refused as it stands by a rule that reads no key the
+  change sets, 78; `declare.py`'s `_REFUSAL_READS` says which keys a rule reads beyond its own).
+- **An add that refuses what is already there** (Plan 00201): `lxc-add` of a member the file
+  declares as given was refused as a duplicate of itself, so a run after a failed play could never
+  get on. Whether a second add of the same thing is "nothing to do" or a conflict depends on what
+  the entry means, not on a shape: an analyzer could pin that an add prints UNCHANGED somewhere,
+  and would then say nothing about one that prints it on the wrong comparison. What holds it:
+  `test_declare.py` (`LxcAlreadyDeclaredTest`: identical is UNCHANGED, differing is 78 naming the
+  keys, `--update` replaces) and `lxcadd/declared_test.go`, which runs the real declare.py. The
+  other adds were read: `create` of a team declared as asked is UNCHANGED, and its name question
+  says `ccy-teams apply <team>` is the way on; `add-repo` of a repository the team trusts is
+  UNCHANGED; `drop-limit` and `admin.py add_member` are not adds of the same entry.
 
 ## Control
 

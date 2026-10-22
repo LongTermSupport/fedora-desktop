@@ -142,6 +142,7 @@ func newRig(t *testing.T) *rig {
 	w.OnDeclare("lxc-checkouts", "CHECKOUT\t/srv/agent/one\texample-org/one\t-\n")
 	w.OnDeclare("lxc-derive", derivedLine)
 	w.OnDeclare("lxc-check", "")
+	w.OnDeclare("lxc-compare", "")
 	w.OnDeclare("lxc-add", "CHANGED\tLXC member agent@container-a in team alpha, in "+w.Host.HostVars+"\n")
 	return r
 }

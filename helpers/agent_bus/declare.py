@@ -74,17 +74,27 @@ trusted reference may name any path in the team's repositories (a team narrows i
     python3 -m helpers.agent_bus.declare remove --file <localhost.yml> --team T [--purge] [--dry-run]
         sets the team's state: absent and purge: false (true with --purge); CHANGED<TAB>...
     python3 -m helpers.agent_bus.declare lxc-add --file <localhost.yml> --team T --container C
-            --user U --checkout PATH [--role worker|coordinator] [--host H] [--seat S] [--dry-run]
+            --user U --checkout PATH [--role worker|coordinator] [--host H] [--seat S] [--update] [--dry-run]
         adds an agent_bus_lxc_members entry (an agent user of an existing LXC container joins a
         team, play-agent-bus.yml applies it): CHANGED<TAB>...; --dry-run prints the entry's
         lines. --host and --seat are overrides; left out, the play derives them from the
-        checkout (derive.py) and the entry does not carry them. The entry is judged by the play's own rules (`members.parse_members`) together
-        with the entries already there: a duplicate (team, container, user), a team not
-        declared present, a bad role, a second coordinator are refused (64)
+        checkout (derive.py) and the entry does not carry them. A member (team, container, user)
+        already declared as given is UNCHANGED<TAB>... (exit 0); declared otherwise, it is
+        refused naming each key that differs (78), and --update makes its entry the one given.
+        The entry is judged by the play's own rules (`members.parse_members`): a value refused
+        alone (a bad role) is 64; a team the file does not declare present, an entry refused
+        among the entries already there (a second coordinator, two hosts), or the file's entries
+        refused as they stand, 78
+    python3 -m helpers.agent_bus.declare lxc-compare --file <localhost.yml> --team T --container C
+            --user U [--checkout PATH] [--role R] [--host H] [--seat S]
+        DECLARED<TAB><entry number> when the file declares the member, then
+        DIFFERS<TAB><key><TAB><the file's value><TAB><the given value> (JSON, - for none) per key
+        the two differ on, as the play reads them; nothing when it is not declared
     python3 -m helpers.agent_bus.declare lxc-check --file <localhost.yml> [--team T] [--container C]
             [--user U] [--host H] [--checkout PATH] [--role R] [--seat S]
         nothing when every value given is valid (team, container and user together are also
-        judged against the entries there); exit 64 naming the first that is not
+        judged against the entries there, as the entry the member's own would be replaced by);
+        exit 64 naming the first value that is not, 78 when the file's entries refuse it
     python3 -m helpers.agent_bus.declare lxc-role --file <localhost.yml> --team T --container C
             --user U --role worker|coordinator [--dry-run]
         sets the member's role in its entry (ccy-teams lxc-add's takeover makes the declared
@@ -155,6 +165,17 @@ EXIT_USAGE = 64
 EXIT_REFUSED = 78
 EXIT_INTERRUPTED = 130
 
+# The key a team-file refusal names, as teamfile._fail writes it: "team file: <key>: <rule>".
+_REFUSED_KEY_RE = re.compile(r"team file: (?P<key>[a-z_]+): ")
+# The keys a refusal naming one key may read, where that is more than the key itself:
+# teamfile._exclude reads org and repos, _removed_humans refuses a name in humans by
+# removed_humans, and parse_team_file requires org only when repos is empty. Changing any of
+# them may clear the refusal, so it is not the file's alone.
+_REFUSAL_READS = {
+    "exclude": {"exclude", "org", "repos"},
+    "humans": {"humans", "removed_humans"},
+    "org": {"org", "repos"},
+}
 _KEY_LINE_RE = re.compile(r"(?P<key>[a-z_]+):(?P<rest>(?:\s.*)?)")
 _ADDRESS_RE = re.compile(rf"{ADDRESS_KEY}\s*:(?P<rest>.*)")
 
@@ -757,7 +778,8 @@ def _check_flags(hv: HostVars, args: argparse.Namespace) -> None:
     """Every value the flags give, by the team file's rules; UsageError names the first bad one."""
     if args.team is not None:
         if any(t.team == args.team for t in hv.teams):
-            raise UsageError(f"--team: team {args.team} is already declared in {TEAMS_KEY}")
+            raise UsageError(f"--team: team {args.team} is already declared in {TEAMS_KEY}: choose another name, "
+                             f"or ccy-teams apply {args.team} installs it as declared")
         problem = field_error("team", args.team)
         if problem:
             raise UsageError(f"--team: {problem}")
@@ -811,9 +833,11 @@ def create(args: argparse.Namespace, ss_output: Callable[[], str], out: TextIO, 
 
 
 def _present(hv: HostVars, name: str) -> Declared:
+    """The team of that name declared present, with a port. A team the file does not declare so
+    is the file's state, refused (78): no value given for the team's keys can pass."""
     team = next((t for t in hv.teams if t.team == name and t.state == "present"), None)
     if team is None or team.port is None:
-        raise UsageError(f"--team: team {name} is not declared present, with a port, in {TEAMS_KEY}")
+        raise DeclareError(f"--team: team {name} is not declared present, with a port, in {TEAMS_KEY}")
     return team
 
 
@@ -939,16 +963,17 @@ def choices(hv: HostVars, repo: str) -> list[tuple[str, str, str]]:
     return out
 
 
-def add_repo(text: str, name: str, repo: str) -> str:
+def add_repo(text: str, name: str, repo: str) -> str | None:
     """The file's text with the present team's `repos` extended by `repo` (any branch), every
-    other line as it was. UsageError when the team already trusts it; DeclareError (nothing
-    written) when it excludes it, is at the repos limit, or the entry cannot be edited safely."""
+    other line as it was; None when the team already trusts it (the add is done). DeclareError
+    (nothing written) when it excludes it, is at the repos limit, or the entry cannot be edited
+    safely."""
     ref = _checked_repo(repo)
     hv = parse(text)
     team = _present(hv, name)
     standing = _standing(team, ref)
     if standing == COVERS:
-        raise UsageError(f"--repo: team {name} already trusts {repo}")
+        return None
     if standing == EXCLUDED:
         raise DeclareError(f"team {name} excludes {repo} on purpose; edit its exclude in {TEAMS_KEY} to change that")
     repos = _raw_value(team, "repos") or []
@@ -1119,10 +1144,26 @@ def set_values(text: str, name: str, changes: Mapping[str, object | None]) -> st
             after[key] = value
     if after == before:
         return None
-    try:
-        teamfile.parse_team_file({k: v for k, v in after.items() if k != "purge"} | {"state": "present"})
-    except teamfile.TeamFileError as exc:
-        raise UsageError(str(exc)) from None
+
+    def refusal(entry: dict) -> str | None:
+        try:
+            teamfile.parse_team_file({k: v for k, v in entry.items() if k != "purge"} | {"state": "present"})
+        except teamfile.TeamFileError as exc:
+            return str(exc)
+        return None
+
+    problem = refusal(after)
+    if problem is not None:
+        named = _REFUSED_KEY_RE.match(problem)
+        reads = set() if named is None else _REFUSAL_READS.get(named["key"], {named["key"]})
+        if problem == refusal(before) and reads and reads.isdisjoint(changes):
+            # The entry is refused as it stands, by a rule reading only keys the change leaves
+            # alone: the file is at fault, and no value given for these keys could pass (exit
+            # 78). A refusal whose rule reads a changed key, or names no key, may pass with
+            # another value (64).
+            raise DeclareError(f"team {name}'s entry in {TEAMS_KEY} is refused as it stands ({problem}); "
+                               "fix it in the file first")
+        raise UsageError(problem)
     lines = list(hv.lines)
     edits: list[tuple[int, int, list[str]]] = []
     inserted: list[str] = []
@@ -1209,9 +1250,10 @@ def check_lxc(text: str, given: dict) -> None:
     """UsageError naming the first value of `given` the play would not accept. Each field is
     judged by `members.parse_members`, the play's own validator, as a one-entry list with the
     rest filled in; with team, container and user all given, the entry is judged among the
-    entries already there, which is where a duplicate or a second coordinator shows."""
+    entries already there, which is where a duplicate or a second coordinator shows. A team the
+    file does not declare present is DeclareError (78), the file's state."""
     if "team" in given and not any(t.team == given["team"] and t.state == "present" for t in parse(text).teams):
-        raise UsageError(f"--team: team {given['team']} is not declared present in {TEAMS_KEY}")
+        raise DeclareError(f"--team: team {given['team']} is not declared present in {TEAMS_KEY}")
     if "host" in given:
         try:
             resolved = registry.resolve_host(given["host"], None)
@@ -1222,12 +1264,83 @@ def check_lxc(text: str, given: dict) -> None:
     if "checkout" in given and not _CHECKOUT_RE.fullmatch(given["checkout"]):
         raise UsageError("--checkout: an absolute path of letters, digits and . _ / + @ : - only")
     context = all(key in given for key in ("team", "container", "user"))
-    existing = _lxc_existing(text) if context else []
-    template = dict(_LXC_TEMPLATE, **given)
+    _judge_lxc(_lxc_existing(text) if context else [], dict(_LXC_TEMPLATE, **given))
+
+
+def _lxc_member(entry: dict) -> tuple[object, object, object]:
+    return entry.get("team"), entry.get("container"), entry.get("user")
+
+
+def _declared_at(existing: Sequence[dict], entry: dict) -> int | None:
+    """The index of the entry already declaring the entry's member (team, container, user)."""
+    return next((i for i, e in enumerate(existing) if _lxc_member(e) == _lxc_member(entry)), None)
+
+
+def _among(existing: Sequence[dict], entry: dict) -> tuple[list[dict], int]:
+    """The entries with the entry in its place (the one it replaces, or appended) and its position."""
+    merged, at = list(existing), _declared_at(existing, entry)
+    if at is None:
+        return [*merged, entry], len(merged) + 1
+    merged[at] = entry
+    return merged, at + 1
+
+
+def _judge_lxc(existing: Sequence[dict], entry: dict) -> None:
+    """The entry by the play's own validator: refused alone, the value given is wrong
+    (UsageError, exit 64: asking again can help); refused among the file's entries, or the file's
+    entries refused before it is added, the file is at fault, or the answer against it
+    (DeclareError, exit 78: the same answer can never pass, so nothing should ask again)."""
     try:
-        members.parse_members([*existing, template])
+        members.parse_members([entry])
     except members.MemberError as exc:
         raise UsageError(_ENTRY_PREFIX_RE.sub("", str(exc))) from None
+    try:
+        members.parse_members(list(existing))
+    except members.MemberError as exc:
+        raise DeclareError(str(exc)) from None
+    merged, position = _among(existing, entry)
+    try:
+        members.parse_members(merged)
+    except members.MemberError as exc:
+        raise DeclareError(f"{exc} (entry {position} is the one given)") from None
+
+
+#: An entry's keys as the play reads them when they are left out.
+_LXC_DEFAULTS = {"role": protocol.ROLE_WORKER, "state": "present", "human_text": True, "service": False}
+
+
+def _lxc_value(entry: dict, key: str) -> object | None:
+    value = entry.get(key, _LXC_DEFAULTS.get(key))
+    if key == "role" and isinstance(value, str):
+        return protocol.normalise_role(value)
+    return str(value) if key == "seat" and type(value) is int else value
+
+
+def lxc_differences(declared: dict, given: dict) -> list[tuple[str, object | None, object | None]]:
+    """(key, the file's value, the given value; None for a key not set) for each key on which
+    the declared entry and the given one differ, as the play reads them, in a fixed order."""
+    keys = [*_LXC_FIELDS, *sorted(set(declared) - {"team", *_LXC_FIELDS})]
+    return [(key, _lxc_value(declared, key), _lxc_value(given, key)) for key in keys
+            if _lxc_value(declared, key) != _lxc_value(given, key)]
+
+
+def _shown(value: object | None) -> str:
+    return "-" if value is None else json.dumps(value)
+
+
+def _described(differences: Sequence[tuple[str, object | None, object | None]]) -> str:
+    return ", ".join(f"{key} (the file: {_shown(was)}, given: {'none' if now is None else _shown(now)})"
+                     for key, was, now in differences)
+
+
+def compare_lxc(text: str, given: dict) -> tuple[int, list[tuple[str, object | None, object | None]]] | None:
+    """The position of the entry already declaring the given member and how it differs from
+    the given entry; None when the file declares no such member."""
+    existing = _lxc_existing(text)
+    at = _declared_at(existing, given)
+    if at is None:
+        return None
+    return at + 1, lxc_differences(existing[at], given)
 
 
 def parse_roster(text: str) -> dict[str, bool]:
@@ -1246,22 +1359,36 @@ def derive_lxc(text: str, args: argparse.Namespace) -> tuple[str, str, str, str]
     the caller read it (`--probe`), the team's members (`--roster`), and the entries already
     declared, by derive.py's rule. This is a PREVIEW of the handle, not the handle: entries
     still to be derived are not counted, and bundles are not read, so a seat an active member
-    holds is skipped here where the play, which sees the bundles, may claim or refuse it."""
+    holds is skipped here where the play, which sees the bundles, may claim or refuse it.
+    Refused alone, the checkout or a flag is wrong (UsageError); refused only among the file's
+    entries, the file is at fault, or the checkout against it (DeclareError), as _judge_lxc."""
     try:
         probe = derive.parse_probe(args.probe)
         identity = derive.identity_of(probe)
-        new = {key: value for key, value in (("team", args.team), ("container", args.container), ("user", args.user),
-                                             ("checkout", probe.top), ("host", args.host), ("seat", args.seat))
-               if value is not None}
-        kept = [e for e in _lxc_existing(text) if e.get("state") == "absent" or (e.get("host") and e.get("seat"))]
-        roster = parse_roster(args.roster)
-        resolved = members.resolve_members(members.parse_members([*kept, new]), identify=lambda member: identity,
+    except derive.DeriveError as exc:
+        raise UsageError(str(exc)) from None
+    new = {key: value for key, value in (("team", args.team), ("container", args.container), ("user", args.user),
+                                         ("checkout", probe.top), ("host", args.host), ("seat", args.seat))
+           if value is not None}
+    kept = [e for e in _lxc_existing(text) if e.get("state") == "absent" or (e.get("host") and e.get("seat"))]
+    kept = [e for e in kept if _lxc_member(e) != _lxc_member(new)]
+    roster = parse_roster(args.roster)
+
+    def resolve(entries: list[dict]) -> members.Member:
+        resolved = members.resolve_members(members.parse_members(entries), identify=lambda member: identity,
                                            roster=lambda team: roster, bundle=lambda member: None,
                                            unheld_ok=True)
-        member = resolved[-1]
-        return identity.repo, member.host, member.seat, member.handle(identity.repo)
+        return resolved[-1]
+
+    try:
+        resolve([new]).handle(identity.repo)
     except (derive.DeriveError, members.MemberError) as exc:
         raise UsageError(_ENTRY_PREFIX_RE.sub("", str(exc))) from None
+    try:
+        member = resolve([*kept, new])
+        return identity.repo, member.host, member.seat, member.handle(identity.repo)
+    except (derive.DeriveError, members.MemberError) as exc:
+        raise DeclareError(str(exc)) from None
 
 
 def render_lxc_entry(entry: dict, item_indent: int, key_indent: int) -> list[str]:
@@ -1271,19 +1398,63 @@ def render_lxc_entry(entry: dict, item_indent: int, key_indent: int) -> list[str
     return lines
 
 
-def add_lxc(text: str, given: dict) -> tuple[str, dict]:
-    """The file's text with the entry added at the end of the list, and the entry; the rest
-    of the file byte for byte as it was."""
+def add_lxc(text: str, given: dict, *, update: bool = False) -> str | None:
+    """The file's text with the entry added at the end of the list, the rest of the file byte
+    for byte as it was; None when the file declares the member already, as given. A member
+    declared otherwise is refused naming the keys that differ (DeclareError), unless `update`,
+    which makes its entry the given one in place."""
     missing = [f"--{key}" for key in ("team", "container", "user", "checkout") if key not in given]
     if missing:
         raise UsageError(f"lxc-add needs {', '.join(missing)} (ccy-teams lxc-add asks for them on a terminal)")
     check_lxc(text, given)
     existing = _lxc_existing(text)
     lxc = parse(text, LXC_KEY)
+    found = compare_lxc(text, given)
+    if found is not None:
+        position, differences = found
+        if not differences:
+            return None
+        if not update:
+            raise DeclareError(f"{LXC_KEY} entry {position} already declares {given['user']}@{given['container']} "
+                               f"in team {given['team']}, and differs on {_described(differences)}; "
+                               "--update replaces the entry")
+        return _replace_lxc(lxc, position, existing, given, [key for key, _, _ in differences])
     new = _append(lxc, LXC_KEY, render_lxc_entry(given, lxc.item_indent, lxc.key_indent))
     if _lxc_existing(new) != [*existing, given]:
         raise DeclareError("the edited file does not read back with the new member last; nothing was written")
-    return new, given
+    return new
+
+
+def _replace_lxc(lxc: HostVars, position: int, existing: Sequence[dict], given: dict, differing: Sequence[str]) -> str:
+    """The file's text with entry `position` made the given entry, every other line as it was:
+    each differing key the entry gives is set where it is, or added after the entry's last key;
+    each one it does not give is removed. A key with lines nested under it or a comment the edit
+    would lose, or an entry whose first line is not its team, is left to a hand (DeclareError)."""
+    item = lxc.teams[position - 1]
+    keys = {key: (index, more) for key, _, index, more in item.raw}
+    label = f"{given['user']}@{given['container']}"
+    if item.raw[0][0] != "team":
+        raise DeclareError(f"{label}'s entry does not begin with its team; update it by hand")
+    lines: list[str | None] = list(lxc.lines)
+    inserted: list[str] = []
+    for key in differing:
+        index, more = keys.get(key, (None, ()))
+        if more:
+            raise DeclareError(f"{label}'s {key} has nested lines; update the entry by hand")
+        line = f"{' ' * lxc.key_indent}{key}: {json.dumps(given[key])}\n" if key in given else None
+        if index is None:
+            inserted.extend([line] if line else [])
+            continue
+        if _has_comment(lxc.lines, index, index + 1):
+            raise DeclareError(f"{label}'s {key} on line {index + 1} carries a comment, which this edit would lose; "
+                               "update the entry by hand")
+        lines[index] = line
+    last, nested = max((index, more) for index, more in keys.values())
+    at = (last if not nested else keys["team"][0]) + 1
+    new = "".join(line for line in (*lines[:at], *inserted, *lines[at:]) if line is not None)
+    if _lxc_existing(new) != [given if i == position - 1 else e for i, e in enumerate(existing)]:
+        raise DeclareError("the edited file does not read back with only the member's entry changed; nothing was written")
+    return new
 
 
 def set_lxc_role(text: str, team: str, container: str, user: str, role: str) -> str | None:
@@ -1377,14 +1548,25 @@ def lxc_command(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
     if args.command == "lxc-derive":
         out.write("DERIVED\t" + "\t".join(derive_lxc(text, args)) + "\n")
         return EXIT_OK
+    if args.command == "lxc-compare":
+        found = compare_lxc(text, _lxc_values(args))
+        if found is not None:
+            out.write(f"DECLARED\t{found[0]}\n")
+            out.writelines(f"DIFFERS\t{key}\t{_shown(was)}\t{_shown(now)}\n" for key, was, now in found[1])
+        return EXIT_OK
     if args.command == "lxc-add":
-        new, entry = add_lxc(text, _lxc_values(args))
+        entry = _lxc_values(args)
+        new = add_lxc(text, entry, update=args.update)
         label = f"{entry['user']}@{entry['container']} in team {entry['team']}"
+        if new is None:
+            out.write(f"UNCHANGED\tLXC member {entry['user']}@{entry['container']} is already declared in team "
+                      f"{entry['team']}, in {path}\n")
+            return EXIT_OK
         if args.dry_run:
             lxc = parse(text, LXC_KEY)
             out.writelines(render_lxc_entry(entry, lxc.item_indent, lxc.key_indent))
             return EXIT_OK
-        said = f"LXC member {label}"
+        said = f"LXC member {label}" + (" updated" if compare_lxc(text, entry) else "")
     elif args.command == "lxc-role":
         label = f"{args.user}@{args.container} in team {args.team}"
         new = set_lxc_role(text, args.team, args.container, args.user, args.role)
@@ -1497,7 +1679,11 @@ def _listing_or_edit(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
             out.write(f"CHOICE\t{name}\t{standing}\t{about}\n")
         return EXIT_OK
     if args.command == "add-repo":
-        backup = write(path, add_repo(text, args.team, args.repo))
+        new = add_repo(text, args.team, args.repo)
+        if new is None:
+            out.write(f"UNCHANGED\tteam {args.team} already trusts {args.repo}\n")
+            return EXIT_OK
+        backup = write(path, new)
         out.write(f"CHANGED\tteam {args.team} trusts {args.repo}\n")
         err.write(f"The file as it was is kept at {backup}.\n")
         return EXIT_OK
@@ -1609,13 +1795,16 @@ def build_parser() -> argparse.ArgumentParser:
 def _lxc_parsers(commands: argparse._SubParsersAction) -> None:
     """The agent_bus_lxc_members subcommands."""
     for name, help_text in (("lxc-add", "add an LXC container's agent user to a team"),
-                            ("lxc-check", "validate the member values given")):
+                            ("lxc-check", "validate the member values given"),
+                            ("lxc-compare", "the entry already declaring the member, and the keys that differ")):
         sub = commands.add_parser(name, help=help_text)
         sub.add_argument("--file", required=True)
         for flag in ("team", "container", "user", "host", "checkout", "role", "seat"):
-            sub.add_argument(f"--{flag}")
+            sub.add_argument(f"--{flag}", required=name == "lxc-compare" and flag in ("team", "container", "user"))
         if name == "lxc-add":
             sub.add_argument("--dry-run", action="store_true", help="print the entry; write nothing")
+            sub.add_argument("--update", action="store_true",
+                             help="make the entry already declaring the member the one given")
     commands.add_parser("lxc-members", help="one LXCMEMBER line per entry").add_argument("--file", required=True)
     gone = commands.add_parser("lxc-remove", help="declare an LXC member absent")
     gone.add_argument("--file", required=True)

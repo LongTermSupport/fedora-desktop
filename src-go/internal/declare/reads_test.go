@@ -254,7 +254,7 @@ func TestPlainValueReads(t *testing.T) {
 	}
 	noProcess(t, f)
 	_, err := c.NextSteps(ctx, "beta")
-	refusal(t, err, ErrUsage, 64, "declare: --team: team beta is not declared present, with a port, in agent_bus_teams")
+	refusal(t, err, ErrRefused, 78, "declare: --team: team beta is not declared present, with a port, in agent_bus_teams")
 }
 
 func TestNoAddressIsNothing(t *testing.T) {
