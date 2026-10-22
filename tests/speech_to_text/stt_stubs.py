@@ -1,6 +1,7 @@
 """Shared stubs for the speech-to-text stop tests: script loader and a fake pw-record.
 
-The fake pw-record writes 2048-byte chunks of 16 kHz s16 audio every 20 ms. On SIGTERM
+The fake pw-record writes `pw-record.ready` in the events directory once its stop
+handler is installed, then 2048-byte chunks of 16 kHz s16 audio every 20 ms. On SIGTERM
 it writes one extra 32 KiB burst - standing in for the audio a real recorder still had
 in its pipe - records its stop time and total bytes written, and exits. A stop path
 that stops reading before EOF loses that burst, so "bytes fed == bytes written" proves
@@ -31,6 +32,8 @@ def stopped(signum, frame):
     stop_requested = True
 signal.signal(signal.SIGTERM, stopped)
 signal.signal(signal.SIGINT, stopped)
+# From here a stop is handled: a test that signals on a timer starts it from this file
+open(os.path.join(events, "pw-record.ready"), "w").close()
 def finish():
     global written
     burst = b"\x01\x00" * 16384

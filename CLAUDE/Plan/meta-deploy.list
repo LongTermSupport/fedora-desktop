@@ -181,7 +181,11 @@ playbooks/imports/play-claude-yolo.yml
 # needs them still stale: ./run.bash --changed --yes, in playbook-main.yml order, stopping at
 # the first failure. It is expected to pick up play-host-health-login-report.yml (Plan 00214
 # changed fedora-desktop-health's --help) and play-fedora-desktop-panel.yml (the panel's
-# "Re-run a play…" count now leaves out plays --changed does not run), plus every other play
-# the acceptance listed as changed or failed. Needs sudo. Afterwards log out and back in so
-# the panel loads its new code (Wayland), and fedora-desktop-health should list no play.
+# "Re-run a play…" count now leaves out plays --changed does not run), and
+# play-speech-to-text.yml (wsi-claude-process now measures the run limit's elapsed time in
+# microseconds, so a run that crossed a whole second of the clock no longer counts as 1 s
+# and a short limit is not used up at random; wsi-stream-server removes the file-job marker
+# before it reports the job ended), plus every other play the acceptance listed as changed
+# or failed. Needs sudo. Afterwards log out and back in so the panel loads its new code
+# (Wayland), and fedora-desktop-health should list no play.
 changed-plays

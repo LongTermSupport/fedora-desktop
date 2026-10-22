@@ -960,9 +960,10 @@ class FileJob:
         except Exception as e:
             state, error = "failed", f"{type(e).__name__}: {e}"
             log(f"File transcription failed: {error}", "ERROR")
+        # The marker goes first: a client told the job has ended must not still find it
+        FILE_JOB_MARKER.unlink(missing_ok=True)
         with self._lock:
             self._state, self._error = state, error
-        FILE_JOB_MARKER.unlink(missing_ok=True)
         update_activity()
         log(f"File transcription {state}: {len(self._segments)} segments from {len(self._paths)} files")
 

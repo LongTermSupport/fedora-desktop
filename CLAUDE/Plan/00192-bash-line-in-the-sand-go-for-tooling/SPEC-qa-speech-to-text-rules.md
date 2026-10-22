@@ -11,8 +11,10 @@ tree at cut-over.
 ## 1. Role
 
 The gate for the rules in `.semgrep/speech-to-text.yml` (Plan 00156, CLAUDE/QA.md):
-`model-present-without-weights` (a model judged present from its cache snapshot) and
-`dropdown-label-carries-explanation` (a dropdown option that explains itself). The rules are
+`model-present-without-weights` (a model judged present from its cache snapshot),
+`dropdown-label-carries-explanation` (a dropdown option that explains itself), and two rules
+added later for tests timed too tightly for a loaded host,
+`test-wall-clock-ceiling-under-a-second` and `test-deadline-under-ten-steps`. The rules are
 semgrep data in two languages, proven against `.semgrep/speech-to-text.js` and
 `.semgrep/speech-to-text.py`. semgrep stays the engine; the Go tool owns what is scanned, the proof
 that every rule still matches, and the refusal to pass over a file the analyser did not read.

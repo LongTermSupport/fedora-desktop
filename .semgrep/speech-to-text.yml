@@ -95,3 +95,91 @@ rules:
     severity: ERROR
     metadata:
       dbf-class: a dropdown option label that carries explanation instead of a short name
+
+  # Rules: a test's pass must not hang on a wall-clock margin a loaded host can eat
+  # (Defence Before Fix; CLAUDE/QA.md "test-wall-clock-ceiling-under-a-second" and
+  # "test-deadline-under-ten-steps").
+  #
+  # The full QA gate runs beside other agents' builds and tests. A test that passes alone
+  # fails there when what it waits on (a stub process, a thread, a timer) must happen
+  # inside a margin the scheduler can use up: the keepalive test sent a keepalive every
+  # 0.1 s against a 0.3 s heartbeat, and lost the session mid-test.
+  #
+  # WRONG: self.assertLess(time.monotonic() - started, 0.5)    a sub-second ceiling
+  # WRONG: heartbeat_seconds=0.3 ... for _: time.sleep(0.1)    a deadline of 3 steps
+  # RIGHT: a ceiling of a second or more, about ten times what it bounds; a deadline at
+  #        least ten of the steps that race it; better, wait on the event itself.
+  #
+  # The first rule reports an upper bound under 1 s on a difference (an elapsed time),
+  # directly or through a variable holding one. The second reports, in a test function, a
+  # sleep inside a loop whose step is more than a tenth of a deadline-like keyword argument
+  # given earlier in the same function. Margins split across places (a stub script's
+  # sleep against a constant patched in setUp, a production constant) are not seen.
+  - id: test-wall-clock-ceiling-under-a-second
+    languages: [python]
+    patterns:
+      - pattern-either:
+          - pattern: $T.assertLess($A - $B, $N, ...)
+          - pattern: $T.assertLessEqual($A - $B, $N, ...)
+          - pattern: assert $A - $B < $N
+          - pattern: assert $A - $B <= $N
+          - patterns:
+              - pattern-inside: |
+                  $G = $A - $B
+                  ...
+              - pattern-either:
+                  - pattern: $T.assertLess($G, $N, ...)
+                  - pattern: $T.assertLessEqual($G, $N, ...)
+                  - pattern: assert $G < $N
+                  - pattern: assert $G <= $N
+      - metavariable-regex:
+          metavariable: $N
+          regex: '^[0-9]*\.?[0-9]+$'
+      - metavariable-comparison:
+          metavariable: $N
+          comparison: $N < 1
+    message: >
+      test-wall-clock-ceiling-under-a-second: an elapsed time bounded under 1 s fails on
+      a loaded host. Bound it at a second or more, about ten times what it measures. See
+      CLAUDE/QA.md "test-wall-clock-ceiling-under-a-second".
+    severity: ERROR
+    metadata:
+      dbf-class: a test whose pass depends on a wall-clock margin too tight for a loaded host
+  - id: test-deadline-under-ten-steps
+    languages: [python]
+    patterns:
+      - pattern-inside: |
+          def $TEST(...):
+            ...
+      - metavariable-regex:
+          metavariable: $TEST
+          regex: '^test'
+      - pattern-inside: |
+          $F(..., $K=$H, ...)
+          ...
+      - metavariable-regex:
+          metavariable: $K
+          regex: '(?i)(heartbeat|timeout|deadline|grace|limit|attempt|confirm|budget|wait|silence|max)'
+      - pattern-either:
+          - pattern-inside: |
+              for $X in $Y:
+                ...
+          - pattern-inside: |
+              while $C:
+                ...
+      - pattern: time.sleep($S)
+      - metavariable-regex:
+          metavariable: $H
+          regex: '^[0-9]*\.?[0-9]+$'
+      - metavariable-regex:
+          metavariable: $S
+          regex: '^[0-9]*\.?[0-9]+$'
+      - metavariable-comparison:
+          comparison: $H < 10 * $S
+    message: >
+      test-deadline-under-ten-steps: a loop step more than a tenth of the deadline it
+      races; a loaded host's delay crosses it. Give the deadline ten steps or more. See
+      CLAUDE/QA.md "test-deadline-under-ten-steps".
+    severity: ERROR
+    metadata:
+      dbf-class: a test whose pass depends on a wall-clock margin too tight for a loaded host

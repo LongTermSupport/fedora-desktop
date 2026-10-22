@@ -35,6 +35,12 @@ wsi_stream = stt_stubs.load_script("wsi-stream", "wsi_stream_clipboard_confirm")
 PREVIOUS = "The previous dictation, which must never be pasted again.\n"
 TEXT = "This dictation."
 CTRL, SHIFT, V = 29, 42, 47
+# The fake's "late" copy takes LATE_SECONDS (its `sleep` below), a tenth of one attempt, and
+# the deadline leaves a second attempt a second more, so a loaded host's delay cannot turn
+# a late copy into a retried one (test-wall-clock-ceiling-under-a-second in CLAUDE/QA.md).
+LATE_SECONDS = 0.15
+ATTEMPT_SECONDS = 1.5
+CONFIRM_SECONDS = 2.5
 
 FAKE_WL_COPY = r"""#!/usr/bin/bash
 set -euo pipefail
@@ -46,12 +52,12 @@ data=${data%x}
 mode=$(cat "$FAKE_CLIP/mode")
 case "$mode:$runs" in
     never:* | first-never:1) exec sleep 600 ;;
-    late:*) sleep 0.3 ;;
+    late:*) sleep @LATE_SECONDS@ ;;
 esac
 if [ "$mode" = newline ]; then data="$data"$'\n'; fi
 printf '%s' "$data" > "$FAKE_CLIP/selection.tmp"
 mv "$FAKE_CLIP/selection.tmp" "$FAKE_CLIP/selection"
-"""
+""".replace("@LATE_SECONDS@", f"{LATE_SECONDS:g}")
 
 FAKE_WL_PASTE = r"""#!/usr/bin/bash
 set -euo pipefail
@@ -93,8 +99,8 @@ class FakeClipboardCase(unittest.TestCase):
             self.addCleanup(patcher.stop)
         for name, value in {
             "log": lambda message, level="INFO": self.logged.append((level, message)),
-            "CLIPBOARD_CONFIRM_SECONDS": 1.5,
-            "CLIPBOARD_COPY_ATTEMPT_SECONDS": 0.6,
+            "CLIPBOARD_CONFIRM_SECONDS": CONFIRM_SECONDS,
+            "CLIPBOARD_COPY_ATTEMPT_SECONDS": ATTEMPT_SECONDS,
         }.items():
             patcher = mock.patch.object(wsi_stream, name, value)
             patcher.start()
@@ -124,7 +130,7 @@ class CopyConfirmedTest(FakeClipboardCase):
         self.mode("late")
         started = time.monotonic()
         wsi_stream.copy_confirmed(TEXT, use_clipboard=True)
-        self.assertGreaterEqual(time.monotonic() - started, 0.3)
+        self.assertGreaterEqual(time.monotonic() - started, LATE_SECONDS)
         self.assertEqual(self.selection(), TEXT)
         self.assertEqual(len(self.pids()), 1, "one copy, read back until it took")
 
@@ -146,7 +152,10 @@ class CopyConfirmedTest(FakeClipboardCase):
         started = time.monotonic()
         with self.assertRaises(wsi_stream.ClipboardNotTaken) as raised:
             wsi_stream.copy_confirmed(TEXT, use_clipboard=True)
-        self.assertLess(time.monotonic() - started, 1.5 + 1.0, "the deadline is hard")
+        # Under the deadline and less than one attempt more: stopping the copies takes
+        # milliseconds, so a deadline that let another attempt start would show
+        self.assertLess(time.monotonic() - started, CONFIRM_SECONDS + ATTEMPT_SECONDS,
+                        "the deadline is hard")
         self.assertGreaterEqual(len(self.pids()), 2, "copied again before giving up")
         self.assertEqual([p for p in self.pids() if alive(p)], [], "every copy it started is killed")
         self.assertIn("still held other text", str(raised.exception))
@@ -174,7 +183,9 @@ class CopyConfirmedTest(FakeClipboardCase):
                 mock.patch.dict(os.environ, {"PATH": str(self.dir / "bin")}), \
                 self.assertRaises(wsi_stream.ClipboardNotTaken) as raised:
             wsi_stream.copy_confirmed(TEXT, use_clipboard=True)
-        self.assertLess(time.monotonic() - started, 0.5, "no wait for the deadline")
+        # A second, under one attempt (1.5 s) and the deadline (2.5 s): the failure to start
+        # takes milliseconds
+        self.assertLess(time.monotonic() - started, 1.0, "no wait for the deadline")
         self.assertEqual(len(starts), 1, "one start, no retry")
         self.assertIn("could not run", str(raised.exception))
         self.assertFalse(any("copying again" in m for _, m in self.logged), self.logged)
