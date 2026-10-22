@@ -190,7 +190,7 @@ its first caller.
   Built and reviewed on `feat/bus-v2-n1-matrix` (9f42a773; review MERGE in round 3, `261021-n1-matrix.md`):
   the move, `LoginDevice`, `Logout`, `DeleteDevice`, room account data, `Redact` and presence, with fakehs
   following the Task 1.4 facts. M44, the tagged test, was run in the container against the
-  pinned Tuwunel 1.9.4 binary (`-race`, three runs) and passes, HC-A1's presence case included,
+  pinned Tuwunel 1.9.4 binary (`-race`, with `-count=3`) and passes, HC-A1's presence case included,
   once its config carried v2's login limits and `db_pool_workers = 4` (`261021-n1-matrix.md`,
   section "The M44 run"; review in `261021-n1-m44-review.md`). Its only red check is GO-2026-6809 (Task 1.6). It stays on the
   N1 branch until its first caller (N2 or N3) is ready to merge with it.
