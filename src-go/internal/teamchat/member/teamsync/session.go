@@ -70,35 +70,45 @@ func (t *Team) session(ctx context.Context, wg *sync.WaitGroup) error {
 	if err := s.epochCheck(ctx); err != nil {
 		return err
 	}
+	defer s.startReceipts(ctx)()
 	return s.poll(ctx, since)
 }
 
 // verify is A 6.4 over main's full state; a 403 is tried once more after a join.
 func (s *sess) verify(ctx context.Context) error {
-	r, err := verifyMain(ctx, s.c, s.a)
+	r, st, err := mainState(ctx, s.c, s.a)
 	if errors.Is(err, matrix.ErrForbidden) {
 		if _, jerr := s.c.Join(ctx, s.a.MainRoom); jerr != nil {
 			return jerr
 		}
-		r, err = verifyMain(ctx, s.c, s.a)
+		r, st, err = mainState(ctx, s.c, s.a)
 	}
 	if err != nil {
 		return err
 	}
 	s.roster = r
 	s.t.setRoster(r, s.a.Self)
+	s.t.setFacts(readFacts(st, r, s.a))
 	return nil
 }
 
 func verifyMain(ctx context.Context, c *matrix.Client, a proto.Anchors) (proto.Roster, error) {
+	r, _, err := mainState(ctx, c, a)
+	return r, err
+}
+
+// mainState is main's roster as A 6.4 verifies it, and the state it was read from.
+func mainState(ctx context.Context, c *matrix.Client, a proto.Anchors) (proto.Roster, []proto.StateEvent, error) {
 	raw, err := c.RoomState(ctx, a.MainRoom)
 	if errors.Is(err, matrix.ErrNotFound) {
-		return proto.Roster{}, fmt.Errorf("%w: main's state", errUntrusted)
+		return proto.Roster{}, nil, fmt.Errorf("%w: main's state", errUntrusted)
 	}
 	if err != nil {
-		return proto.Roster{}, err
+		return proto.Roster{}, nil, err
 	}
-	return proto.VerifyMain(proto.StateEvents(raw), a)
+	st := proto.StateEvents(raw)
+	r, err := proto.VerifyMain(st, a)
+	return r, st, err
 }
 
 // start is SY1: (a) a position of the roster's epoch is kept; (c) a fresh store of a removed
@@ -485,6 +495,8 @@ func (s *sess) eventsOf(ctx context.Context, since string, a answer, main matrix
 func (s *sess) commit(j judged, f int64) {
 	t := s.t
 	t.flood = j.flood
+	t.budget = j.budget
+	t.budget.Prune(proto.DeliveryWindowMs, j.now)
 	for _, id := range j.unheard {
 		t.unheard.put(id, struct{}{})
 	}
@@ -498,7 +510,7 @@ func (s *sess) commit(j judged, f int64) {
 }
 
 func empty(b team.Batch) bool {
-	return len(b.Items) == 0 && len(b.Redacts) == 0 && len(b.Floors) == 0 && !b.Gap && b.Counts == team.Counts{}
+	return len(b.Items) == 0 && len(b.Redacts) == 0 && len(b.Floors) == 0 && !b.Gap && b.Counts == team.Counts{} && len(b.HeldBack) == 0
 }
 
 // persist is SY5's one store write, after which the team's position is the batch's; a failed
@@ -585,6 +597,10 @@ type judged struct {
 	lines   []string
 	unheard []string
 	flood   proto.Window
+	// budget is the delivery budget's window with this answer's admissions, committed as
+	// flood is; now is the judging's wall time.
+	budget proto.Window
+	now    int64
 }
 
 // judgeAll is SY4 with SY4a's resolve first: main's events judged oldest first over a Lookup
@@ -592,7 +608,7 @@ type judged struct {
 // verdict.
 func (s *sess) judgeAll(ctx context.Context, events []json.RawMessage, restored func(int64) bool) (judged, error) {
 	t := s.t
-	j := judged{flood: copyWindow(t.flood)}
+	j := judged{flood: copyWindow(t.flood), budget: copyWindow(t.budget), now: t.cfg.Clock.WallMS()}
 	type parsed struct {
 		v  proto.Value
 		id string
@@ -634,7 +650,7 @@ func (s *sess) judgeAll(ctx context.Context, events []json.RawMessage, restored 
 	lk := &memLookup{view: view, resolved: resolved, judged: map[string]bool{}}
 	judge := proto.Judge{
 		Server: s.a.Server, Self: s.a.Self, RoomID: s.a.MainRoom, Purpose: proto.PurposeMain,
-		Roster: s.roster, NowMs: t.cfg.Clock.WallMS(), Lookup: lk, Flood: &j.flood,
+		Roster: s.roster, NowMs: j.now, Lookup: lk, Flood: &j.flood,
 	}
 	floor := s.floor
 	counted := map[string]bool{}
@@ -665,6 +681,9 @@ func (s *sess) resolveInput(view team.View) resolveInput {
 func (s *sess) take(j *judged, v proto.Verdict, id string, restored func(int64) bool, lk proto.Lookup, counted map[string]bool) {
 	switch v.Outcome {
 	case proto.Deliver:
+		if !s.admit(j, v) {
+			return
+		}
 		p := state.Pending{
 			ID: v.Event.ID, Room: proto.PurposeMain, Item: itemKind(v.Kind), SentMS: v.Event.OriginTs,
 			From: v.Event.Sender, Restored: restored != nil && restored(v.Event.OriginTs),

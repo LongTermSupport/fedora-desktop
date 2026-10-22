@@ -49,7 +49,7 @@ func NewTeam(c engine.TeamConfig) (team.Team, error) {
 	t, err := teamsync.New(teamsync.Config{
 		Team: c.Team, Seat: c.Seat, Root: c.Root, Run: c.Run, Engine: c.Engine, Ends: c.Ends,
 		Clock: c.Clock, Watcher: ch, RemovedUserIDs: c.RemovedUserIDs, Plain: c.Plain,
-		FirstSessionStart: c.FirstSessionStart, Log: c.Log,
+		FirstSessionStart: c.FirstSessionStart, Log: c.Log, Receipts: c.Receipts,
 	})
 	if err != nil {
 		return nil, err

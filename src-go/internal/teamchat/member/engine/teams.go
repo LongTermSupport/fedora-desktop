@@ -45,6 +45,8 @@ type held struct {
 	removed bool
 	// delivery is what the delivery loop holds of the team: its trailing facts and backoff.
 	delivery deliveryState
+	// receipts is closed at the next change of the store's receipts; nil while none waits.
+	receipts chan struct{}
 }
 
 // Removed is a removal's answer: the team's user id (n3c-D13), "" when the link never read
@@ -76,7 +78,7 @@ func (e *Engine) Add(ctx context.Context, t paths.TeamID, l *lock.SeatLock, remo
 	tm, err := e.cfg.NewTeam(TeamConfig{
 		Team: t, Seat: l.Seat(), Run: e.cfg.Run, Lock: l, RemovedUserIDs: removedUserIDs, Engine: e, Ends: e.ends,
 		Root: e.cfg.Root, Plain: e.cfg.Plain, FirstSessionStart: e.cfg.FirstSessionStart,
-		Clock: e.cfg.Clock, Log: e.cfg.Log,
+		Clock: e.cfg.Clock, Log: e.cfg.Log, Receipts: e,
 	})
 	if err != nil {
 		e.logf("team %s: no team goroutine: %v", t, err)
@@ -264,6 +266,7 @@ func (e *Engine) drop(h *held) error {
 	}
 	delete(e.teams, h.id)
 	delete(e.sent, h.id)
+	h.tellReceipts(nil)
 	e.publish()
 	return errors.Join(err, h.writer.Close(), h.lock.Close())
 }

@@ -79,9 +79,32 @@ func TestAnAuthLineNobodyReadsIsRetry(t *testing.T) {
 		_, err := d.Dial(t.Context(), target)
 		done <- err
 	}()
-	expire(t, clk)
-	if err := <-done; !errors.Is(err, ErrRetry) {
+	if err := expireUntil(t, clk, done); !errors.Is(err, ErrRetry) {
 		t.Fatalf("got %v, want ErrRetry", err)
+	}
+}
+
+// expireUntil moves clk past each phase bound armed until done answers. The connect phase arms
+// a bound of its own just before the auth line's, so the bound one expire sees may be the
+// connect's, already stopped, and the auth line's armed after the clock moved.
+func expireUntil(t *testing.T, clk *clock.Fake, done <-chan error) error {
+	t.Helper()
+	for {
+		ctx, cancel := context.WithCancel(t.Context())
+		armed := make(chan error, 1)
+		go func() { armed <- clk.BlockUntil(ctx, 1) }()
+		select {
+		case err := <-done:
+			cancel()
+			<-armed
+			return err
+		case err := <-armed:
+			cancel()
+			if err != nil {
+				t.Fatal(err)
+			}
+			clk.Advance(PhaseTimeout)
+		}
 	}
 }
 

@@ -93,6 +93,8 @@ type TeamConfig struct {
 	FirstSessionStart <-chan struct{}
 	Clock             clock.Clock
 	Log               io.Writer
+	// Receipts is the engine's read receipts, which the team sends (B 2.7.5).
+	Receipts team.Receipts
 }
 
 // RecordWriter is where a request's records go, in order.
