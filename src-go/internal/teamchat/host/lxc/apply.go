@@ -758,10 +758,11 @@ func (r *run) owners(g *guestBox, dir string, passwd []byte) map[int]bool {
 
 // equalHandles is step 03's handle rule for each acted team: two seats whose handles are equal,
 // derived here or held by a record entry not left, are refused by name; when the record holds
-// the handle for one of them, the other is the wrong one.
+// the handle for one of them, the other is the wrong one. A seat held back for a user move holds
+// its recorded handle even when its old entry is left: it returns that handle once it moves.
 func (r *run) equalHandles() {
 	for _, t := range r.teams {
-		holder := liveHandles(r.records[t.ID])
+		holder := r.heldHandles(t.ID)
 		first := map[string]*member{}
 		for _, m := range r.members {
 			if m.team.ID != t.ID || m.done || m.want == "" {
@@ -783,12 +784,18 @@ func (r *run) equalHandles() {
 	}
 }
 
-// liveHandles is each handle a record entry not left holds, with its entry.
-func liveHandles(rec lxcstate.Record) map[string]lxcstate.Entry {
+// heldHandles is each handle the team's record entries not left hold, and each a seat held back
+// for a user move holds, with its entry.
+func (r *run) heldHandles(team paths.TeamID) map[string]lxcstate.Entry {
 	holder := map[string]lxcstate.Entry{}
-	for _, e := range rec.Members {
+	for _, e := range r.records[team].Members {
 		if e.Handle != "" && e.Status != lxcstate.StatusLeft {
 			holder[e.Handle] = e
+		}
+	}
+	for _, m := range r.members {
+		if m.team.ID == team && m.status == statusKeep && m.handle != "" {
+			holder[m.handle] = m.prior
 		}
 	}
 	return holder

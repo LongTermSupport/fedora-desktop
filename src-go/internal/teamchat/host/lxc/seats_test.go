@@ -317,6 +317,34 @@ func TestEqualHandlesRefused(t *testing.T) {
 	}
 }
 
+// A seat held back for a user move still holds its recorded handle, though its old entry is
+// left: another seat of the team that derives that handle is refused, and never returns it.
+func TestEqualHandleOfAHeldMoveRefused(t *testing.T) {
+	w := moved(t)
+	w.lxc.boxes["c1"].state = lxccmd.Stopped
+	if _, err := w.apply(PhaseAbsent); err != nil {
+		t.Fatal(err)
+	}
+	if e := w.entry("c1"); e.Status != lxcstate.StatusLeft || e.User.String() != "agent1" {
+		t.Fatalf("the old entry %+v", e)
+	}
+	w.addBox("c2")
+	m := w.member("t1", "c1")
+	m.User = agent2(t)
+	w.declare([]string{"t1"}, m, w.member("t1", "c2"))
+	w.roster.joins = nil
+	_, err := w.apply(PhasePresent)
+	if err == nil || !strings.Contains(err.Error(), "its handle "+firstHandle+" is held by agent1@c1/") {
+		t.Fatalf("err %v", err)
+	}
+	if len(w.roster.joins) != 0 {
+		t.Fatalf("joins %v", w.roster.joins)
+	}
+	if _, ok := w.record().Find(mustBox(t, "c2"), checkout, 1); ok {
+		t.Fatal("the refused seat was recorded")
+	}
+}
+
 func TestKeyOwnersClaim(t *testing.T) {
 	c := mustBox(t, "c1")
 	one, two := seatID(t, "t1"), seatID(t, "t2")
