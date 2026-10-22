@@ -14,6 +14,8 @@ const storeAsidePrefix = storeFile + ".aside-"
 
 const storeFile = "store.json"
 
+const passwordFile = "password"
+
 // StoreAside is the name the seat's store is set aside as at ms, a positive time.
 func (s Seat) StoreAside(ms int64) string {
 	if ms <= 0 {
@@ -21,6 +23,11 @@ func (s Seat) StoreAside(ms int64) string {
 	}
 	return s.Dir() + "/" + storeAsidePrefix + strconv.FormatInt(ms, 10)
 }
+
+// Password is where a password credential would sit in a member's seat directory, beside
+// seat.json, as it sits in a pool seat. No member file is ever written there: a password
+// bundle in a member's seat directory is refused (SPEC-n3 MS3).
+func (s Seat) Password() string { return s.Dir() + "/" + passwordFile }
 
 // InboxSocket is Claude Code's per-session inbox socket for the session process pid, under the
 // runtime directory it was started with: `<runtime>/cc-socks/<pid>.sock` (B 2.4.4, 2.7.1).

@@ -544,7 +544,7 @@ type PoolSeat struct{ dir string }
 func (p PoolSeat) Dir() string { return must("pool seat", p.dir) }
 
 // Password is the seat account's password (DC16 (c')), never copied out of the pool.
-func (p PoolSeat) Password() string { return p.Dir() + "/password" }
+func (p PoolSeat) Password() string { return p.Dir() + "/" + passwordFile }
 
 // Token is the pool's token in place of the password, should the owner choose DESIGN-v2.md 7.1.
 func (p PoolSeat) Token() string { return p.Dir() + "/token" }

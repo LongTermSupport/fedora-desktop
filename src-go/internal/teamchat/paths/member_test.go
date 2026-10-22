@@ -31,6 +31,7 @@ func memberNames(t *testing.T) map[string][]string {
 	}
 	for _, l := range []Layout{CCYLayout(), home} {
 		names["Seat.StoreAside"] = append(names["Seat.StoreAside"], l.Seat(mustTeam(t, "ops")).StoreAside(1760000000000))
+		names["Seat.Password"] = append(names["Seat.Password"], l.Seat(mustTeam(t, "ops")).Password())
 	}
 	return names
 }
@@ -71,6 +72,7 @@ func TestMemberNames(t *testing.T) {
 		parents[0]:               "/run/user/1001/teamchat/run",
 		parents[1]:               "/run/teamchat-session-" + user.String() + "/teamchat/run",
 		CCYLayout().Seat(mustTeam(t, "ops")).StoreAside(1760000000000): "/run/teamchat/seats/ops/store.json.aside-1760000000000",
+		CCYLayout().Seat(mustTeam(t, "ops")).Password():                "/run/teamchat/seats/ops/password",
 	} {
 		if got != want {
 			t.Errorf("got %s, want %s", got, want)

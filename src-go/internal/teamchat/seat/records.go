@@ -28,6 +28,13 @@ const (
 	keyClaim   = "claim"
 )
 
+const (
+	// MaxBundle is the cap on a seat.json a reader takes, every record's.
+	MaxBundle = maxRecord
+	// MaxSecret is the cap on a credential ParseSecret takes.
+	MaxSecret = maxSecret
+)
+
 // Bundle is a seat's seat.json in the pool's form (C 3.7.2): no claim and no release time.
 type Bundle struct {
 	V              int          `json:"v"`
