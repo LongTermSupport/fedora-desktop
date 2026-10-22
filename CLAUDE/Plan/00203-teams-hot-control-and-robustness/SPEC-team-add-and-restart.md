@@ -127,7 +127,8 @@ the facts in section 3 show `--continue` picks the wrong conversation or refuses
   plugin says "the owner restarted its team" for this request.
 - B4a. A ccy session whose tmux session is open but whose container is stopped is offline: left
   as it is and said ("-", not a failure): "offline: its container is stopped (its tmux session
-  is still open), so there is nothing to restart in place". Departure (Plan 00211 Task 2.8, the
+  is still open), so there is nothing to restart in place; ccy-sessions ends the leftover tmux
+  session". The cleanup hint is advice, never a way on: the run does not need it. Departure (Plan 00211 Task 2.8, the
   owner's rule that an offline member never blocks): this was a ✗ telling the owner to end it
   and run restart again.
 - B5. A running cc session is left running and said ("-", not a failure; Decision 9): cc has

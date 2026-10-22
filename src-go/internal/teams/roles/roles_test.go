@@ -35,9 +35,16 @@ var (
 
 // reader is the host-side reader of a container's checkout, by container.
 type reader struct {
-	probes map[string]string
-	errs   map[string]error
-	reads  []string
+	probes  map[string]string
+	errs    map[string]error
+	reads   []string
+	running []string
+	stopped []string
+	listErr error
+}
+
+func (r *reader) Containers(context.Context) ([]string, []string, error) {
+	return r.running, r.stopped, r.listErr
 }
 
 func (r *reader) ReadCheckout(_ context.Context, script, mode, container, user, path string) (string, error) {
@@ -268,12 +275,14 @@ func TestAnEntryTheRecordDeferredUnjoinedIsPassedOverAsOffline(t *testing.T) {
 }
 
 // With a record, an entry it does not name was not joined by the last apply, so it is not the
-// member: a checkout that cannot be read passes it over, named offline, and the change goes on.
+// member: a checkout that cannot be read passes it over and the change goes on. It is named
+// offline only when the container list says its container is stopped.
 func TestAnEntryTheRecordDoesNotNameAndCannotBeReadIsPassedOverAsOffline(t *testing.T) {
 	g := newRig(t)
 	g.WriteHostVars(t, teamtest.HostVarsWithLxc(entryA))
 	g.record(t, item("container-z", "joined", "other.1+worker.lxc"))
 	g.r.errs = map[string]error{"container-a": errors.New("not running")}
+	g.r.stopped = []string{"container-a"}
 	done, err := g.s.Set(t.Context(), "alpha", g.say, Step{Handle: lxcHandle, From: agentbus.RoleWorker, To: agentbus.RoleCoordinator})
 	if err != nil || done.Declared {
 		t.Fatalf("%+v %v", done, err)
@@ -282,9 +291,38 @@ func TestAnEntryTheRecordDoesNotNameAndCannotBeReadIsPassedOverAsOffline(t *test
 		t.Fatalf("changes %q", got)
 	}
 	if !slices.ContainsFunc(g.said, func(s string) bool {
-		return strings.HasPrefix(s, "agent@container-a is offline") && strings.Contains(s, "not running")
+		return strings.HasPrefix(s, "agent@container-a is offline (container container-a stopped") && strings.Contains(s, "not running")
 	}) {
 		t.Fatalf("said %q", g.said)
+	}
+}
+
+// A checkout that cannot be read in a container that runs is not offline: it is passed over
+// all the same (the last apply did not join it), and said as a failed read, never as offline.
+func TestAnUnreadableCheckoutInARunningContainerIsNotCalledOffline(t *testing.T) {
+	for name, set := range map[string]func(r *reader){
+		"running":           func(r *reader) { r.running = []string{"container-a"} },
+		"no container list": func(r *reader) { r.listErr = errors.New("lxc-ls failed") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			g := newRig(t)
+			g.WriteHostVars(t, teamtest.HostVarsWithLxc(entryA))
+			g.record(t, item("container-z", "joined", "other.1+worker.lxc"))
+			g.r.errs = map[string]error{"container-a": errors.New("timed out")}
+			set(g.r)
+			done, err := g.s.Set(t.Context(), "alpha", g.say, Step{Handle: lxcHandle, From: agentbus.RoleWorker, To: agentbus.RoleCoordinator})
+			if err != nil || done.Declared {
+				t.Fatalf("%+v %v", done, err)
+			}
+			if slices.ContainsFunc(g.said, func(s string) bool { return strings.Contains(s, "offline") }) {
+				t.Fatalf("called offline: %q", g.said)
+			}
+			if !slices.ContainsFunc(g.said, func(s string) bool {
+				return strings.HasPrefix(s, "agent@container-a: its checkout could not be read (timed out)")
+			}) {
+				t.Fatalf("said %q", g.said)
+			}
+		})
 	}
 }
 

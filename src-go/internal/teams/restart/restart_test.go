@@ -213,7 +213,7 @@ func TestASessionWhoseContainerIsStoppedIsOfflineNotAFailure(t *testing.T) {
 		t.Fatalf("exit %d\n%s", got, m.ErrOut.String())
 	}
 	m.errHas(t,
-		"- ccy-proj: offline: its container is stopped (its tmux session is still open), so there is nothing to restart in place",
+		"- ccy-proj: offline: its container is stopped (its tmux session is still open), so there is nothing to restart in place; ccy-sessions ends the leftover tmux session",
 		"alpha: 0 restarted, 0 failed, 1 left as it is.",
 	)
 	m.errLacks(t, "to start it")

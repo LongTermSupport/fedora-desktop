@@ -50,9 +50,11 @@ const readTimeout = 20 * time.Second
 // lxcKind is the type word of an LXC container's agent's handle.
 const lxcKind = "lxc"
 
-// Reader reads a container's checkout from the host's side; *lxcfreeze.Lister is the real one.
+// Reader reads a container's checkout from the host's side, and lists the host's containers
+// (running, then stopped); *lxcfreeze.Lister is the real one.
 type Reader interface {
 	ReadCheckout(ctx context.Context, script, mode, container, user, path string) (string, error)
+	Containers(ctx context.Context) ([]string, []string, error)
 }
 
 // Setter changes roles. Every dependency is a field so a test stands in for each.
@@ -368,8 +370,8 @@ func (e *entries) load(ctx context.Context) error {
 // isMember is whether m is the member h, whose handle is handle. The record's handle for m decides it
 // with nothing read; an entry the record holds back with no handle never joined, so it is not h
 // and is passed over, named offline. Otherwise m's checkout is read: one that cannot be read is
-// passed over, named offline, when the record exists (the last apply did not join it), and
-// stops the change when there is none. A checkout read that does not tell its identity is a
+// passed over when the record exists (the last apply did not join it), named offline only when
+// the container list says its container is stopped, and stops the change when there is none. A checkout read that does not tell its identity is a
 // running member that is wrong, and always stops the change.
 func (e *entries) isMember(ctx context.Context, m declare.LxcMember, h parsed, handle string) (bool, error) {
 	label := m.User + "@" + m.Container
@@ -392,7 +394,13 @@ func (e *entries) isMember(ctx context.Context, m declare.LxcMember, h parsed, h
 	probe, err := e.s.Reader.ReadCheckout(bounded, e.script, "probe", m.Container, m.User, m.Checkout)
 	switch {
 	case err != nil && e.recorded:
-		e.said(label + " is offline (its checkout could not be read: " + err.Error() + "); the last apply did not join it, " +
+		_, stopped, listErr := e.s.Reader.Containers(ctx)
+		if listErr == nil && slices.Contains(stopped, m.Container) {
+			e.said(label + " is offline (container " + m.Container + " stopped; its checkout could not be read: " +
+				err.Error() + "); the last apply did not join it, so its entry is passed over")
+			return false, nil
+		}
+		e.said(label + ": its checkout could not be read (" + err.Error() + "); the last apply did not join it, " +
 			"so its entry is passed over")
 		return false, nil
 	case err != nil:
