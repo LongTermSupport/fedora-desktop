@@ -165,6 +165,12 @@ func TestDeliveryFit(t *testing.T) {
 	if fit := mustFit(t, Delivery{Nonce: envNonce, Team: envTeam, Gap: true}); len(fit.Entries) != 0 || !fit.Gap {
 		t.Errorf("no entries: %+v", fit)
 	}
+	if _, err := (Delivery{Nonce: envNonce, Team: envTeam, Entries: []Entry{peerEntry(), humanEntry()}}).Fit(); slotOf(err) != "order" {
+		t.Errorf("entries out of order fit: %v", err)
+	}
+	if fit := mustFit(t, Delivery{Nonce: envNonce, Team: envTeam, Entries: many, Pending: maxCount}); fit.Pending != maxCount {
+		t.Errorf("pending past the cap: %d", fit.Pending)
+	}
 	bad := humanEntry()
 	bad.EventID = ""
 	if _, err := (Delivery{Nonce: envNonce, Team: envTeam, Entries: []Entry{bad}}).Fit(); slotOf(err) != "id" {
@@ -177,6 +183,8 @@ func TestDeliveryRenderHoldsTheCapsAndOrder(t *testing.T) {
 	big.Body = strings.Repeat(string(rune(0xE9)), 1000)
 	older, newer := peerEntry(), pingEntry()
 	older.SentMs, newer.SentMs = envSent-1, envSent
+	olderHuman := humanEntry()
+	olderHuman.SentMs = envSent - 1
 	cases := map[string]struct {
 		entries []Entry
 		slot    string
@@ -186,6 +194,7 @@ func TestDeliveryRenderHoldsTheCapsAndOrder(t *testing.T) {
 		"peer before human": {[]Entry{peerEntry(), humanEntry()}, "order"},
 		"notice first":      {[]Entry{noticeEntry(EventParked), timeoutEntry()}, "order"},
 		"newer first":       {[]Entry{newer, older}, "order"},
+		"newer human first": {[]Entry{humanEntry(), olderHuman}, "order"},
 		"in order":          {[]Entry{humanEntry(), older, newer, timeoutEntry(), noticeEntry(EventParked)}, ""},
 	}
 	for name, tc := range cases {
@@ -228,8 +237,15 @@ func TestFactsThatCrowdOutAnEntryAreSummarised(t *testing.T) {
 		"stopped: this team stopped on a failure that does not clear by itself; run teamchat status --team "+e.Team+" and tell a human",
 		"999999992 more pending: they follow in the next delivery",
 	)
+	again := Delivery{
+		Nonce: fit.Nonce, Team: fit.Team, Entries: fit.Entries, Answered: fit.Answered, HeldBack: fit.HeldBack,
+		NotShown: fit.NotShown, Gap: fit.Gap, Stopped: fit.Stopped, Pending: fit.Pending, Summarised: fit.Summarised,
+	}
+	if got, err := again.Render(); err != nil || got != text {
+		t.Errorf("the fitted delivery stored by its fields renders otherwise: %v", err)
+	}
 	d.Entries, d.Team = []Entry{humanEntry()}, envTeam
-	if fit := mustFit(t, d); len(fit.Entries) != 1 || fit.summarised {
+	if fit := mustFit(t, d); len(fit.Entries) != 1 || fit.Summarised {
 		t.Errorf("a small entry is summarised needlessly: %d", len(fit.Entries))
 	}
 }

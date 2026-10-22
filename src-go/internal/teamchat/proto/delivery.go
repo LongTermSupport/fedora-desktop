@@ -50,9 +50,10 @@ type Delivery struct {
 	NotShown     []string
 	Gap, Stopped bool
 	Pending      int
-	// summarised gives each kind of answered, held back and not shown as its summary line
-	// alone (Fit sets it when the facts crowd out the first entry).
-	summarised bool
+	// Summarised gives each kind of answered, held back and not shown as its summary line
+	// alone. Fit sets it when the facts crowd out the first entry; it is part of the delivery,
+	// so a delivery stored by its fields renders the same text again.
+	Summarised bool
 }
 
 // Render is the delivery's text, lines joined by a newline, or the first slot that failed;
@@ -120,7 +121,8 @@ func outOfOrder(prev, next Entry) bool {
 }
 
 // Fit is the delivery to send: the most of the entries, in order, that render within the caps
-// (at most MaxDeliveryEntries and MaxDeliveryBytes), the rest added to Pending. When the facts
+// (at most MaxDeliveryEntries and MaxDeliveryBytes), the rest added to Pending (held at its
+// most, 999999999). When the facts
 // (the trailing lines) leave no room for the first entry, they are summarised and the entries
 // fitted again; the largest entry fits beside the summaries (a test renders it), so an error
 // is a slot that failed, never the size of the entries.
@@ -130,8 +132,8 @@ func (d Delivery) Fit() (Delivery, error) {
 		return d, err
 	}
 	best, err := d.fitted()
-	if err != nil && slotOf(err) == slotSize && !d.summarised {
-		d.summarised = true
+	if err != nil && slotOf(err) == slotSize && !d.Summarised {
+		d.Summarised = true
 		best, err = d.fitted()
 	}
 	return best, err
@@ -142,7 +144,7 @@ func (d Delivery) fitted() (Delivery, error) {
 	var best Delivery
 	for count := 1; count <= min(len(d.Entries), MaxDeliveryEntries); count++ {
 		part := d
-		part.Entries, part.Pending = d.Entries[:count], d.Pending+len(d.Entries)-count
+		part.Entries, part.Pending = d.Entries[:count], min(d.Pending+len(d.Entries)-count, maxCount)
 		if _, err := part.Render(); err != nil {
 			if count > 1 && slotOf(err) == slotSize {
 				break
@@ -201,7 +203,7 @@ func (d Delivery) trailingLines() ([]string, error) {
 		}
 	}
 	shown := MaxTrailingLines
-	if d.summarised {
+	if d.Summarised {
 		shown = 0
 	}
 	var out []string

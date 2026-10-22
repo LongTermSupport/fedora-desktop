@@ -182,13 +182,14 @@ func TestTheFixedWindowsAreA11(t *testing.T) {
 			t.Errorf("%s window %d ms, want %d", name, w[0], w[1])
 		}
 	}
+	budget := DefaultLimits().DeliverPerSender
 	var w Window
-	for i := range int64(10) {
-		if !w.Admit("sender", 10, DeliveryWindowMs, i) {
+	for i := range budget {
+		if !w.Admit("sender", budget, DeliveryWindowMs, i) {
 			t.Fatalf("delivery %d refused", i)
 		}
 	}
-	if w.Admit("sender", 10, DeliveryWindowMs, DeliveryWindowMs-1) || !w.Admit("sender", 10, DeliveryWindowMs, DeliveryWindowMs) {
-		t.Fatal("the delivery budget is not 10 per 600 s")
+	if w.Admit("sender", budget, DeliveryWindowMs, DeliveryWindowMs-1) || !w.Admit("sender", budget, DeliveryWindowMs, DeliveryWindowMs) {
+		t.Fatalf("the delivery budget is not %d per 600 s", budget)
 	}
 }

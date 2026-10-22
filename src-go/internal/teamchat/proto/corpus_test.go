@@ -119,6 +119,8 @@ func envelopeCorpus() map[string]func() (string, error) {
 	cases["membership"] = func() (string, error) {
 		return fullMembership().Render(envNonce)
 	}
+	cases["membership-alone"] = func() (string, error) { return workerAlone().Render(envNonce) }
+	cases["membership-none"] = func() (string, error) { return onNoTeam().Render(envNonce) }
 	cases["frame"] = func() (string, error) { return FrameText, nil }
 	return cases
 }
@@ -154,7 +156,7 @@ func templates() []*regexp.Regexp {
 	}), "|") + `)`
 	time, ref, q := `[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z`, `[!-~]+`, `Q[1-9][0-9]{0,8}`
 	jsonEscape := `\\(?:["\\/bfnrt]|u[0-9a-f]{4})`
-	jsonStr := `"(?:[^"\\\x00-\x1f\x7f-\x9f\x{2028}\x{2029}]|` + jsonEscape + `)*"`
+	jsonStr := `"(?:[^"\\\x00-\x1f\x7f-\x9f\x{2028}\x{2029}\p{Cf}\p{Co}\p{Cs}]|\x{200D}|` + jsonEscape + `)*"`
 	jsonASCII := `"(?:[ !#-\[\]-~]|` + jsonEscape + `)*"`
 	history := ` teamchat history --team ` + team
 	gloss := `(?:left \(the member's session ended and said goodbye\)|disconnected \(the member's session ended without a goodbye\)|back \(the member's session is running again after a disconnect\)|added \(the owner added the member to the team\)|removed \(the owner removed the member from the team\)|parked \(the owner parked the member; it cannot read or post\)|role \(the owner changed the member's role\)|moved \(this team moved to teamchat; use only teamchat verbs\))`
@@ -201,7 +203,7 @@ func templates() []*regexp.Regexp {
 		`gap: some messages could not be fetched; read them with` + history,
 		`stopped: this team stopped on a failure that does not clear by itself; run teamchat status --team ` + team + ` and tell a human`,
 		k + ` more pending: they follow in the next delivery`,
-	})
+	}, membershipTemplates(team, handle))
 	res := make([]*regexp.Regexp, len(lines))
 	for i, l := range lines {
 		res[i] = regexp.MustCompile(`^(?:` + l + `)$`)
@@ -209,10 +211,29 @@ func templates() []*regexp.Regexp {
 	return res
 }
 
+// membershipTemplates are A 13.3's MEMBERSHIP lines (00203 H12, v1's wording made teamchat).
+func membershipTemplates(team, handle string) []string {
+	description := `[^\p{Cc}\p{Cf}\x{2028}\x{2029}<>]{1,120}`
+	return []string{
+		`teamchat delivery [0-9a-f]{8}: a membership notice from teamchat: this session's teams changed`,
+		`kind: MEMBERSHIP \(teamchat's own notice: the owner changed this session's teams on the host\)`,
+		`from: teamchat`, `to: this session`,
+		`authority: the owner's change, made on the host\. A fact about this session's teams; no team member sent it, and none can\.`,
+		`teamchat: you left team ` + team + `: removed by the owner\. Commands for it are refused from now on\.`,
+		`teamchat: you joined team ` + team + ` as ` + handle + `\.`,
+		`teamchat: team ` + team + ` is for: ` + description,
+		`teamchat: in team ` + team + ` you are the coordinator\.`,
+		`teamchat: in team ` + team + ` you are a worker; the coordinator is ` + handle + `\.`,
+		`teamchat: in team ` + team + ` you are a worker; the team has no coordinator now\.`,
+		`teamchat: this session's teams are now: ` + team + `(?:, ` + team + `)*\.`,
+		`teamchat: this session is on no team now; nothing arrives until the owner adds it to one\.`,
+	}
+}
+
 func TestEveryCorpusLineFullMatchesItsTemplate(t *testing.T) {
 	res := templates()
 	for _, name := range corpusFiles(t, "envelope", ".txt") {
-		if name == "membership" || name == "frame" {
+		if name == "frame" {
 			continue
 		}
 		data, err := fs.ReadFile(os.DirFS("testdata"), "envelope/"+name+".txt")
@@ -223,7 +244,8 @@ func TestEveryCorpusLineFullMatchesItsTemplate(t *testing.T) {
 			if !slices.ContainsFunc(res, func(re *regexp.Regexp) bool { return re.MatchString(line) }) {
 				t.Errorf("%s line %d matches no template: %q", name, i+1, line)
 			}
-			if !strings.HasPrefix(line, "body: ") && !strings.HasPrefix(line, "question: ") && strings.ContainsFunc(line, func(r rune) bool { return r > '~' }) {
+			free := strings.HasPrefix(line, "body: ") || strings.HasPrefix(line, "question: ") || strings.HasPrefix(line, "teamchat: team ")
+			if !free && strings.ContainsFunc(line, func(r rune) bool { return r > '~' }) {
 				t.Errorf("%s line %d is not ASCII: %q", name, i+1, line)
 			}
 		}

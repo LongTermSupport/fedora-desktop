@@ -21,7 +21,9 @@ type MembershipLeft struct{ Team, Reason string }
 type MembershipTeam struct{ Team, Handle, Role, Coordinator, Description string }
 
 // Membership is B's MEMBERSHIP notice (A 13.3, 00203 H12): what changed in this session's
-// teams, and Teams, the teams it is on now. B says what changed; proto writes every line.
+// teams, and Teams, the teams it is on now: each once, every joined team and every team whose
+// role changed among them, no left team. B says what changed; proto writes every line. A role
+// change's Handle and Description are not shown.
 type Membership struct {
 	Left          []MembershipLeft
 	Joined, Roles []MembershipTeam
@@ -43,10 +45,8 @@ func (m Membership) Render(nonce string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	for _, team := range m.Teams {
-		if !ValidTeamID(team) {
-			return "", &SlotError{Slot: "teams"}
-		}
+	if !m.teamsAgree() {
+		return "", &SlotError{Slot: "teams"}
 	}
 	if len(m.Teams) == 0 {
 		lines = append(lines, "teamchat: this session is on no team now; nothing arrives until the owner adds it to one.")
@@ -101,6 +101,29 @@ func (m Membership) changeLines() ([]string, error) {
 		lines = append(lines, role)
 	}
 	return lines, nil
+}
+
+// teamsAgree is whether Teams are team IDs, each once, holding every joined team and every
+// role change's and no left team.
+func (m Membership) teamsAgree() bool {
+	on := map[string]bool{}
+	for _, team := range m.Teams {
+		if !ValidTeamID(team) || on[team] {
+			return false
+		}
+		on[team] = true
+	}
+	for _, l := range m.Left {
+		if on[l.Team] {
+			return false
+		}
+	}
+	for _, t := range slices.Concat(m.Joined, m.Roles) {
+		if !on[t.Team] {
+			return false
+		}
+	}
+	return true
 }
 
 // roleLine is a team's role line: the coordinator's, or a worker's naming its coordinator.

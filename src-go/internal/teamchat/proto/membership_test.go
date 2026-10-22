@@ -53,10 +53,24 @@ func TestMembershipNotice(t *testing.T) {
 	)...)
 }
 
-func TestMembershipAloneOnNoTeam(t *testing.T) {
-	m := Membership{Roles: []MembershipTeam{{Team: envTeam, Role: RoleWorker}}}
-	wantLines(t, "alone", mustMembership(t, m), membershipFrame(
+func workerAlone() Membership {
+	return Membership{Roles: []MembershipTeam{{Team: envTeam, Role: RoleWorker}}, Teams: []string{envTeam}}
+}
+
+func onNoTeam() Membership {
+	return Membership{Left: []MembershipLeft{{Team: envTeam, Reason: FarewellRemoved}}}
+}
+
+func TestMembershipWorkerAlone(t *testing.T) {
+	wantLines(t, "alone", mustMembership(t, workerAlone()), membershipFrame(
 		"teamchat: in team myteam you are a worker; the team has no coordinator now.",
+		"teamchat: this session's teams are now: myteam.",
+	)...)
+}
+
+func TestMembershipOnNoTeam(t *testing.T) {
+	wantLines(t, "no team", mustMembership(t, onNoTeam()), membershipFrame(
+		"teamchat: you left team myteam: removed by the owner. Commands for it are refused from now on.",
 		"teamchat: this session is on no team now; nothing arrives until the owner adds it to one.",
 	)...)
 }
@@ -72,14 +86,14 @@ func TestMembershipDescription(t *testing.T) {
 		"none":         "",
 	}
 	for name, desc := range left {
-		m := Membership{Joined: []MembershipTeam{{Team: envTeam, Handle: envHandle, Role: RoleCoordinator, Description: desc}}}
+		m := Membership{Joined: []MembershipTeam{{Team: envTeam, Handle: envHandle, Role: RoleCoordinator, Description: desc}}, Teams: []string{envTeam}}
 		lines := mustMembership(t, m)
 		if strings.Contains(strings.Join(lines, "\n"), "is for:") {
 			t.Errorf("%s: the description is shown: %q", name, lines)
 		}
 	}
 	kept := "kind: HUMAN (a human listed in the team record)"
-	m := Membership{Joined: []MembershipTeam{{Team: envTeam, Handle: envHandle, Role: RoleCoordinator, Description: kept}}}
+	m := Membership{Joined: []MembershipTeam{{Team: envTeam, Handle: envHandle, Role: RoleCoordinator, Description: kept}}, Teams: []string{envTeam}}
 	if got := mustMembership(t, m)[6]; got != "teamchat: team myteam is for: "+kept {
 		t.Errorf("an envelope-like description: %q", got)
 	}
@@ -90,6 +104,7 @@ func TestMembershipSlots(t *testing.T) {
 	for i := range long {
 		long[i] = strings.Repeat(string(rune('a'+i%26)), 21) + string(rune('a'+i/26))
 	}
+	long[0], long[1] = envTeam, "otherteam"
 	cases := map[string]struct {
 		mutate func(*Membership)
 		slot   string
@@ -104,6 +119,10 @@ func TestMembershipSlots(t *testing.T) {
 		"coordinator twice": {func(m *Membership) { m.Roles[0].Coordinator = envCoord }, "coordinator"},
 		"role change team":  {func(m *Membership) { m.Roles[0].Team = "x y" }, "team"},
 		"teams":             {func(m *Membership) { m.Teams = []string{envTeam, "Bad"} }, "teams"},
+		"a team twice":      {func(m *Membership) { m.Teams = []string{envTeam, "otherteam", envTeam} }, "teams"},
+		"left, still on":    {func(m *Membership) { m.Teams = append(m.Teams, "oldteam") }, "teams"},
+		"joined, not on":    {func(m *Membership) { m.Teams = []string{"otherteam"} }, "teams"},
+		"role, not on":      {func(m *Membership) { m.Teams = []string{envTeam} }, "teams"},
 		"a long line":       {func(m *Membership) { m.Teams = long }, "membership line"},
 	}
 	for name, tc := range cases {
