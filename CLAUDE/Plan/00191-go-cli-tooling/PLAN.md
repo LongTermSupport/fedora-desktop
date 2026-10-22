@@ -613,6 +613,19 @@ today; rewriting them is out of scope.
       bash judges the quoted listing; a leading-nought version number is handed over (matches the
       bash's printing, no new divergence). Red: five new cases answered instead of handing over;
       green after the fix, real temporary git repositories including `café/README.md`.
+    - Defect in this task's play change (0390d976), fixed by Defence Before Fix on
+      `fix/regex-group-block-scalar`: "Read CCY_VERSION for the Go Front's Build" failed on the
+      host (`'NoneType' object has no attribute 'group'`). Its `regex_search` group was `'\\1'`
+      in a `>-` `{{ }}`. YAML keeps both backslashes there, and Ansible's lexer cancels Jinja's
+      unescape inside `{{ }}`, so the filter got two. It is now `'\1'`. The `claude_channel_sync`
+      `changed_when` keeps `'\\1'`: a bare conditional is unescaped by Jinja, so `'\1'` there
+      would fail with "Unknown argument". Both were proven with Ansible's own Templar. The
+      defence is the rule `regex-backref-escape` in `qa-ansible` (`CLAUDE/QA.md`, fixtures in
+      `tests/fixtures/ansible-regex-backref/`). The sweep found 1 instance in 7 backreference
+      sites, and the independent search agreed
+      (`subagent-reports/261022-regex-group-independent-search.md`). Open for the owner: the
+      rule reads YAML only, so `.j2` templates (which unescape) are undefended. None uses a
+      regex filter today.
     - The failing project handler test is Task 4.6.
 
 - [ ] 🔄 **Task 4.6**: The project hook handler tests were run by no gate. Now
