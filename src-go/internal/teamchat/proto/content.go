@@ -493,7 +493,7 @@ type Human struct {
 var replyFallbackRe = regexp.MustCompile(`^> <@[^\s>:]+:[^\s>]+> `)
 
 // DecodeHuman reads a human's message: `m.text` only (else ignore `type`), a string body of at
-// most MaxHumanBody bytes (else `schema`, `size`), and nothing left after the reply fallback
+// most MaxHumanBody bytes as sent (else `schema`, `size`), and nothing left after the reply fallback
 // (ignore `empty`). An edit without a well-formed original ID or new content is `edit`. A
 // human's mentions and relation are read leniently: a malformed part is no mention, no relation.
 func DecodeHuman(content Value) (Human, string) {
@@ -502,8 +502,11 @@ func DecodeHuman(content Value) (Human, string) {
 	}
 	f := readFields(content, ReasonSchema)
 	body := f.str("body", true, ReasonSchema)
-	if f.rule != "" {
+	switch {
+	case f.rule != "":
 		return Human{}, ReasonSchema
+	case len(body) > MaxHumanBody:
+		return Human{}, ReasonSize
 	}
 	if relType(content) == relReplace {
 		return decodeEdit(content)

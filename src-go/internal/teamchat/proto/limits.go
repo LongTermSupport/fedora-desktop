@@ -80,7 +80,8 @@ func (l Limits) Encode() Value {
 	return Obj(members...)
 }
 
-// The fixed windows of A 11.2 and 11.1, in milliseconds.
+// The fixed windows of A 11.2 and 11.1, in milliseconds. DeliveryWindowMs is the window of B's
+// delivery budget, deliver_per_sender items per sender per 600 s (A 11.1, 11.4).
 const (
 	msPerMinute       = 60_000
 	DuplicateWindowMs = 60_000

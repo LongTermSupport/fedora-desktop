@@ -122,6 +122,9 @@ func humanContent(extra string) string {
 	return `{"msgtype":"m.text","body":"please stop"` + extra + `}`
 }
 
+// humanCarried is a teamchat.carried key a human's client could add (A 7.6 rule 05, 7.7).
+const humanCarried = `,"teamchat.carried":{"v":1}`
+
 func mention(id string) string { return `,"m.mentions":{"user_ids":["` + id + `"]}` }
 
 func carriedContent(fields, to string) string {
@@ -141,49 +144,77 @@ type verdictCase struct {
 
 func checkVerdicts(t *testing.T, cases map[string]verdictCase) {
 	t.Helper()
+	checkFloodedVerdicts(t, cases, nil)
+}
+
+// senderOf is an event's sender, "" when it has none.
+func senderOf(ev Value) string {
+	if s, ok := ev.Get("sender"); ok {
+		return s.s
+	}
+	return ""
+}
+
+// floodedJudge is judge with floodBefore admissions of sender recorded at now.
+func floodedJudge(t *testing.T, self, purpose, sender string, floodBefore int) Judge {
+	t.Helper()
+	j := judge(t, self, purpose)
+	for range floodBefore {
+		j.Flood.Admit(sender, int64(floodBefore), ReceiveWindowMs, j.NowMs)
+	}
+	return j
+}
+
+// checkFloodedVerdicts is checkVerdicts where a case named in floodBefore is judged after that
+// many admissions of its event's sender.
+func checkFloodedVerdicts(t *testing.T, cases map[string]verdictCase, floodBefore map[string]int) {
+	t.Helper()
 	for name, tc := range cases {
 		purpose := tc.purpose
 		if purpose == "" {
 			purpose = PurposeMain
 		}
-		v := judge(t, tc.self, purpose).Judge(mustParse(t, tc.event))
+		ev := mustParse(t, tc.event)
+		v := floodedJudge(t, tc.self, purpose, senderOf(ev), floodBefore[name]).Judge(ev)
 		if v.Outcome != tc.outcome || v.Reason != tc.reason || v.Kind != tc.kind {
 			t.Errorf("%s: verdict %v %q %q, want %v %q %q", name, v.Outcome, v.Reason, v.Kind, tc.outcome, tc.reason, tc.kind)
 		}
 	}
-	pinRouting(t, cases)
+	pinRouting(t, cases, floodBefore)
 }
 
 func TestVerdictRulesOneToFive(t *testing.T) {
 	msg := humanContent(mention(workerID))
 	checkVerdicts(t, map[string]verdictCase{
-		"state":                 {workerID, "", `{"type":"m.room.topic","event_id":"` + replyEvent + `","sender":"` + adminID + `","state_key":"","content":{}}`, Ignore, IgnoreType, ""},
-		"no type":               {workerID, "", `{"event_id":"` + replyEvent + `"}`, Ignore, IgnoreType, ""},
-		"worker redaction":      {workerID, "", `{"type":"m.room.redaction","event_id":"` + replyEvent + `","sender":"` + coordID + `","content":{"redacts":"` + otherEvent + `"}}`, Ignore, IgnoreType, ""},
-		"admin redaction bad":   {workerID, "", `{"type":"m.room.redaction","event_id":"` + replyEvent + `","sender":"` + adminID + `","content":{"redacts":"$x"}}`, Ignore, IgnoreType, ""},
-		"event id":              {workerID, "", strings.Replace(event(aliceID, 0, msg), replyEvent, "$x", 1), Drop, ReasonSchema, ""},
-		"state key":             {workerID, "", strings.Replace(event(aliceID, 0, msg), `"content"`, `"state_key":"","content"`, 1), Drop, ReasonSchema, ""},
-		"redacted":              {workerID, "", strings.Replace(event(aliceID, 0, msg), `"content"`, `"unsigned":{"redacted_because":{}},"content"`, 1), Drop, ReasonSchema, ""},
-		"content not object":    {workerID, "", `{"type":"m.room.message","event_id":"` + replyEvent + `","sender":"` + aliceID + `","origin_server_ts":1,"content":"x"}`, Drop, ReasonSchema, ""},
-		"negative ts":           {workerID, "", `{"type":"m.room.message","event_id":"` + replyEvent + `","sender":"` + aliceID + `","origin_server_ts":-1,"content":{}}`, Drop, ReasonSchema, ""},
-		"no sender":             {workerID, "", `{"type":"m.room.message","event_id":"` + replyEvent + `","origin_server_ts":1,"content":{}}`, Drop, ReasonSchema, ""},
-		"seen":                  {workerID, "", strings.Replace(event(aliceID, 0, msg), replyEvent, judgedEvent, 1), Ignore, IgnoreSeen, ""},
-		"self":                  {workerID, "", event(workerID, 0, msg), Ignore, IgnoreSelf, ""},
-		"parked":                {workerID, "", event(parkedID, 0, msg), Drop, ReasonSender, ""},
-		"unknown":               {workerID, "", event(UserID("bob", testServer), 0, msg), Drop, ReasonSender, ""},
-		"reports":               {workerID, PurposeReports, event(coordID, 0, msg), Fault, "", ""},
-		"questions, worker":     {workerID, PurposeQuestions, event(aliceID, 0, msg), Ignore, IgnoreNotCoordinator, ""},
-		"questions, human":      {coordID, PurposeQuestions, event(aliceID, 0, humanContent("")), Deliver, "", KindHuman},
-		"questions, human old":  {coordID, PurposeQuestions, event(aliceID, 90_000_000, humanContent("")), Deliver, "", KindHuman},
-		"questions, agent text": {coordID, PurposeQuestions, event(workerID, 0, textContent([]string{coordID}, "")), Drop, ReasonSender, ""},
-		"questions, admin":      {coordID, PurposeQuestions, event(adminID, 0, noticeContent(EventAdded, workerID, []string{aliceID})), Drop, ReasonSender, ""},
-		"questions, carried":    {coordID, PurposeQuestions, event(adminID, 0, carriedContent(`"kind":"text","from":"`+aliceID+`"`, coordID)), Drop, ReasonSender, ""},
+		"state":                    {workerID, "", `{"type":"m.room.topic","event_id":"` + replyEvent + `","sender":"` + adminID + `","state_key":"","content":{}}`, Ignore, IgnoreType, ""},
+		"no type":                  {workerID, "", `{"event_id":"` + replyEvent + `"}`, Ignore, IgnoreType, ""},
+		"worker redaction":         {workerID, "", `{"type":"m.room.redaction","event_id":"` + replyEvent + `","sender":"` + coordID + `","content":{"redacts":"` + otherEvent + `"}}`, Ignore, IgnoreType, ""},
+		"admin redaction bad":      {workerID, "", `{"type":"m.room.redaction","event_id":"` + replyEvent + `","sender":"` + adminID + `","content":{"redacts":"$x"}}`, Ignore, IgnoreType, ""},
+		"event id":                 {workerID, "", strings.Replace(event(aliceID, 0, msg), replyEvent, "$x", 1), Drop, ReasonSchema, ""},
+		"state key":                {workerID, "", strings.Replace(event(aliceID, 0, msg), `"content"`, `"state_key":"","content"`, 1), Drop, ReasonSchema, ""},
+		"redacted":                 {workerID, "", strings.Replace(event(aliceID, 0, msg), `"content"`, `"unsigned":{"redacted_because":{}},"content"`, 1), Drop, ReasonSchema, ""},
+		"content not object":       {workerID, "", `{"type":"m.room.message","event_id":"` + replyEvent + `","sender":"` + aliceID + `","origin_server_ts":1,"content":"x"}`, Drop, ReasonSchema, ""},
+		"negative ts":              {workerID, "", `{"type":"m.room.message","event_id":"` + replyEvent + `","sender":"` + aliceID + `","origin_server_ts":-1,"content":{}}`, Drop, ReasonSchema, ""},
+		"no sender":                {workerID, "", `{"type":"m.room.message","event_id":"` + replyEvent + `","origin_server_ts":1,"content":{}}`, Drop, ReasonSchema, ""},
+		"seen":                     {workerID, "", strings.Replace(event(aliceID, 0, msg), replyEvent, judgedEvent, 1), Ignore, IgnoreSeen, ""},
+		"self":                     {workerID, "", event(workerID, 0, msg), Ignore, IgnoreSelf, ""},
+		"parked":                   {workerID, "", event(parkedID, 0, msg), Drop, ReasonSender, ""},
+		"unknown":                  {workerID, "", event(UserID("bob", testServer), 0, msg), Drop, ReasonSender, ""},
+		"reports":                  {workerID, PurposeReports, event(coordID, 0, msg), Fault, "", ""},
+		"questions, worker":        {workerID, PurposeQuestions, event(aliceID, 0, msg), Ignore, IgnoreNotCoordinator, ""},
+		"questions, human":         {coordID, PurposeQuestions, event(aliceID, 0, humanContent("")), Deliver, "", KindHuman},
+		"questions, human old":     {coordID, PurposeQuestions, event(aliceID, 90_000_000, humanContent("")), Deliver, "", KindHuman},
+		"questions, agent text":    {coordID, PurposeQuestions, event(workerID, 0, textContent([]string{coordID}, "")), Drop, ReasonSender, ""},
+		"questions, admin":         {coordID, PurposeQuestions, event(adminID, 0, noticeContent(EventAdded, workerID, []string{aliceID})), Drop, ReasonSender, ""},
+		"questions, human carried": {coordID, PurposeQuestions, event(aliceID, 0, humanContent(humanCarried)), Drop, ReasonSender, ""},
+		"admin redaction":          {workerID, "", `{"type":"m.room.redaction","event_id":"` + replyEvent + `","sender":"` + adminID + `","content":{"redacts":"` + otherEvent + `"}}`, Redact, "", ""},
+		"questions, carried":       {coordID, PurposeQuestions, event(adminID, 0, carriedContent(`"kind":"text","from":"`+aliceID+`"`, coordID)), Drop, ReasonSender, ""},
 	})
 }
 
 func TestVerdictRedaction(t *testing.T) {
 	v := judge(t, workerID, PurposeMain).Judge(mustParse(t, `{"type":"m.room.redaction","event_id":"`+replyEvent+`","sender":"`+adminID+`","content":{"redacts":"`+otherEvent+`"}}`))
-	if v.Outcome != Redact || v.Redacts != otherEvent {
+	if v.Redacts != otherEvent {
 		t.Fatalf("admin redaction = %+v", v)
 	}
 }
@@ -242,6 +273,8 @@ func TestVerdictHuman(t *testing.T) {
 	}
 	checkVerdicts(t, map[string]verdictCase{
 		"mention":          {workerID, "", event(aliceID, 0, humanContent(mention(workerID))), Deliver, "", KindHuman},
+		"human carried":    {workerID, "", event(aliceID, 0, humanContent(mention(workerID)+humanCarried)), Drop, ReasonSender, ""},
+		"too big quoted":   {workerID, "", event(aliceID, 0, `{"msgtype":"m.text","body":"> `+strings.Repeat("a", MaxHumanBody)+`\n\nhi"`+reply(otherEvent)+`}`), Drop, ReasonSize, ""},
 		"room":             {workerID, "", event(aliceID, 0, humanContent(`,"m.mentions":{"room":true}`)), Deliver, "", KindHuman},
 		"other mention":    {workerID, "", event(aliceID, 0, humanContent(mention(coordID))), Ignore, IgnoreNotAddressed, ""},
 		"reply to self":    {workerID, "", event(aliceID, 0, humanContent(reply(selfEvent))), Deliver, "", KindHuman},
@@ -361,12 +394,21 @@ func TestVerdictBranchAndPathRules(t *testing.T) {
 }
 
 func TestVerdictAnswers(t *testing.T) {
-	answer := func(verb string, sender string, ageMs int64) Verdict {
+	answerEvent := func(verb string, sender string, ageMs int64) string {
 		ref := ""
 		if verb == VerbDone {
 			ref = commitRef
 		}
-		return judge(t, coordID, PurposeMain).Judge(mustParse(t, event(sender, ageMs, pingContent(verb, []string{coordID}, ref, answerRel(pingEvent)))))
+		return event(sender, ageMs, pingContent(verb, []string{coordID}, ref, answerRel(pingEvent)))
+	}
+	checkVerdicts(t, map[string]verdictCase{
+		"ack":                    {coordID, "", answerEvent(VerbAck, workerID, 0), Record, "", ""},
+		"done":                   {coordID, "", answerEvent(VerbDone, workerID, 0), Deliver, "", KindPing},
+		"stale done":             {coordID, "", answerEvent(VerbDone, workerID, 900_001), Record, "", ""},
+		"ack, not the addressee": {coordID, "", answerEvent(VerbAck, lxcWorkerID, 0), Deliver, "", KindPing},
+	})
+	answer := func(verb string, sender string, ageMs int64) Verdict {
+		return judge(t, coordID, PurposeMain).Judge(mustParse(t, answerEvent(verb, sender, ageMs)))
 	}
 	v := answer(VerbAck, workerID, 0)
 	if v.Outcome != Record || v.Answer == nil || v.Answer.Ping != pingEvent || v.Answer.Verb != VerbAck || !v.Answer.OnTime {
@@ -396,6 +438,15 @@ func TestVerdictFloodedAnswers(t *testing.T) {
 	if v = j.Judge(mustParse(t, event(workerID, 0, pingContent(VerbAck, []string{coordID}, "", answerRel(pingEvent))))); v.Outcome != Record {
 		t.Fatalf("a flooded ack is still recorded: %+v", v)
 	}
+}
+
+func TestVerdictRate(t *testing.T) {
+	text := event(workerID, 0, textContent([]string{coordID}, ""))
+	checkFloodedVerdicts(t, map[string]verdictCase{
+		"the 60th":      {coordID, "", text, Deliver, "", KindPeer},
+		"the 61st":      {coordID, "", text, Drop, ReasonRate, ""},
+		"human flooded": {workerID, "", event(aliceID, 0, humanContent(mention(workerID))), Drop, ReasonRate, ""},
+	}, map[string]int{"the 60th": 59, "the 61st": 60, "human flooded": 60})
 }
 
 func TestVerdictReceiveFlood(t *testing.T) {

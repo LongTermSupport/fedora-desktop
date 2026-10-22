@@ -1,5 +1,12 @@
 [
   {
+    "name": "admin redaction",
+    "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"type\":\"m.room.redaction\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@admin:myteam.teamchat.internal\",\"content\":{\"redacts\":\"$ooooooooooooooooooooooooooooooooooooooooooo\"}}",
+    "outcome": "redact"
+  },
+  {
     "name": "admin redaction bad",
     "receiver": "@myrepo.2+desk.podman:myteam.teamchat.internal",
     "room": "main",
@@ -86,6 +93,14 @@
     "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@alice:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.text\",\"body\":\"please stop\"}}",
     "outcome": "deliver",
     "kind": "HUMAN"
+  },
+  {
+    "name": "questions, human carried",
+    "receiver": "@myrepo.1+desk.podman:myteam.teamchat.internal",
+    "room": "questions",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@alice:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.text\",\"body\":\"please stop\",\"teamchat.carried\":{\"v\":1}}}",
+    "outcome": "drop",
+    "reason": "sender"
   },
   {
     "name": "questions, human old",

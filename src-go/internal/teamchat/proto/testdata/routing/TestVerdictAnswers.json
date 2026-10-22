@@ -1,0 +1,32 @@
+[
+  {
+    "name": "ack",
+    "receiver": "@myrepo.1+desk.podman:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@myrepo.2+desk.podman:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.notice\",\"body\":\"x\",\"teamchat.ping\":{\"v\":1,\"verb\":\"ack\",\"to\":[\"@myrepo.1+desk.podman:myteam.teamchat.internal\"]},\"m.relates_to\":{\"rel_type\":\"m.thread\",\"event_id\":\"$ppppppppppppppppppppppppppppppppppppppppppp\",\"is_falling_back\":true,\"m.in_reply_to\":{\"event_id\":\"$ppppppppppppppppppppppppppppppppppppppppppp\"}}}}",
+    "outcome": "record"
+  },
+  {
+    "name": "ack, not the addressee",
+    "receiver": "@myrepo.1+desk.podman:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@myrepo.3+desk.lxc:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.notice\",\"body\":\"x\",\"teamchat.ping\":{\"v\":1,\"verb\":\"ack\",\"to\":[\"@myrepo.1+desk.podman:myteam.teamchat.internal\"]},\"m.relates_to\":{\"rel_type\":\"m.thread\",\"event_id\":\"$ppppppppppppppppppppppppppppppppppppppppppp\",\"is_falling_back\":true,\"m.in_reply_to\":{\"event_id\":\"$ppppppppppppppppppppppppppppppppppppppppppp\"}}}}",
+    "outcome": "deliver",
+    "kind": "PING"
+  },
+  {
+    "name": "done",
+    "receiver": "@myrepo.1+desk.podman:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@myrepo.2+desk.podman:myteam.teamchat.internal\",\"origin_server_ts\":1800000000000,\"content\":{\"msgtype\":\"m.notice\",\"body\":\"x\",\"teamchat.ping\":{\"v\":1,\"verb\":\"done\",\"to\":[\"@myrepo.1+desk.podman:myteam.teamchat.internal\"],\"ref\":\"commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567\"},\"m.relates_to\":{\"rel_type\":\"m.thread\",\"event_id\":\"$ppppppppppppppppppppppppppppppppppppppppppp\",\"is_falling_back\":true,\"m.in_reply_to\":{\"event_id\":\"$ppppppppppppppppppppppppppppppppppppppppppp\"}}}}",
+    "outcome": "deliver",
+    "kind": "PING"
+  },
+  {
+    "name": "stale done",
+    "receiver": "@myrepo.1+desk.podman:myteam.teamchat.internal",
+    "room": "main",
+    "event": "{\"type\":\"m.room.message\",\"event_id\":\"$rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"sender\":\"@myrepo.2+desk.podman:myteam.teamchat.internal\",\"origin_server_ts\":1799999099999,\"content\":{\"msgtype\":\"m.notice\",\"body\":\"x\",\"teamchat.ping\":{\"v\":1,\"verb\":\"done\",\"to\":[\"@myrepo.1+desk.podman:myteam.teamchat.internal\"],\"ref\":\"commit:example-org/myrepo@0123456789abcdef0123456789abcdef01234567\"},\"m.relates_to\":{\"rel_type\":\"m.thread\",\"event_id\":\"$ppppppppppppppppppppppppppppppppppppppppppp\",\"is_falling_back\":true,\"m.in_reply_to\":{\"event_id\":\"$ppppppppppppppppppppppppppppppppppppppppppp\"}}}}",
+    "outcome": "record"
+  }
+]

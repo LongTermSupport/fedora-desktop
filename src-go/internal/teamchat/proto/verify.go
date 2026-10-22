@@ -77,6 +77,9 @@ func VerifySide(purpose, roomID string, state []StateEvent, r Roster, a Anchors)
 // verifyCommon is the create, join-rule and power-level checks every room shares: the broken
 // check's name, or "". The join rule must equal join exactly.
 func verifyCommon(roomID string, state []StateEvent, a Anchors, join Value) string {
+	if !ValidRoomID(roomID) {
+		return "create"
+	}
 	create, ok := adminState(state, CreateType, a.Server)
 	cf := readFields(create.Content, "create")
 	if !ok || cf.str("room_version", true, "create") != RoomVersion || cf.has("additional_creators") || cf.rule != "" ||
@@ -90,7 +93,7 @@ func verifyCommon(roomID string, state []StateEvent, a Anchors, join Value) stri
 	if !found {
 		return powerLevelsCheck
 	}
-	return powerLevelsBroken(power.Content)
+	return powerLevelsBroken(power.Content, a.Server)
 }
 
 // adminState is the one state event of a type under key "" sent by the admin; false when it is
@@ -110,22 +113,24 @@ func adminState(state []StateEvent, typ, server string) (StateEvent, bool) {
 // CheckPowerLevels holds a power-levels content to A 6.4's invariants I1-I4 over top, the
 // highest level of any user but the creator. Absent keys take Matrix's defaults; a level that
 // is not an integer fails.
-func CheckPowerLevels(content Value) error {
-	if check := powerLevelsBroken(content); check != "" {
+func CheckPowerLevels(content Value, server string) error {
+	if check := powerLevelsBroken(content, server); check != "" {
 		return &TrustError{Purpose: "", Check: check}
 	}
 	return nil
 }
 
 // powerLevelsBroken is the name of the invariant broken, or "".
-func powerLevelsBroken(content Value) string {
+func powerLevelsBroken(content Value, server string) string {
 	f := readFields(content, powerLevelsCheck)
 	top := f.integer("users_default", false, 0, powerLevelsCheck)
 	for _, m := range f.optObject("users", powerLevelsCheck).members {
 		if m.Val.kind != KindInt {
 			f.fail(powerLevelsCheck)
 		}
-		top = max(top, m.Val.i)
+		if m.Key != AdminID(server) {
+			top = max(top, m.Val.i)
+		}
 	}
 	state := f.integer("state_default", false, defaultStateLevel, powerLevelsCheck)
 	ops := []int64{

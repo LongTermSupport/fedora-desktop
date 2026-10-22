@@ -95,6 +95,11 @@ func TestVerifyMainRefuses(t *testing.T) {
 			}
 		})
 	}
+	empty := anchors(workerID)
+	empty.MainRoom = ""
+	if _, err := VerifyMain(roomState(t, PurposeMain, mainRoom), empty); trustCheck(err) != "create" {
+		t.Fatalf("an empty main room anchor gave %v", err)
+	}
 	dup := append(roomState(t, PurposeMain, mainRoom), StateEvent{Type: JoinRulesType, Sender: AdminID(testServer), Content: Obj(M("join_rule", Str("invite")))})
 	if _, err := VerifyMain(dup, anchors(workerID)); trustCheck(err) != "join rule" {
 		t.Fatalf("a repeated state event gave %v", err)
@@ -169,7 +174,7 @@ func TestPowerLevelInvariants(t *testing.T) {
 			M("redact", Int(100)), M("events", Obj(M(MessageType, Int(0)), M("m.reaction", Int(51)))),
 		}, extra...)...)
 	}
-	if err := CheckPowerLevels(base()); err != nil {
+	if err := CheckPowerLevels(base(), testServer); err != nil {
 		t.Fatalf("a safe room failed: %v", err)
 	}
 	cases := map[string]Value{
@@ -180,18 +185,21 @@ func TestPowerLevelInvariants(t *testing.T) {
 		"power levels":    replaceMember(base(), "kick", Str("100")),
 	}
 	for want, content := range cases {
-		if got := trustCheck(CheckPowerLevels(content)); got != want {
+		if got := trustCheck(CheckPowerLevels(content, testServer)); got != want {
 			t.Errorf("%s: got %q", want, got)
 		}
 	}
-	if trustCheck(CheckPowerLevels(Obj())) != "power levels I2" {
+	if trustCheck(CheckPowerLevels(Obj(), testServer)) != "power levels I2" {
 		t.Fatal("Matrix defaults (invite 0) must fail I2")
 	}
-	if trustCheck(CheckPowerLevels(replaceMember(base(), "users", Obj(M(workerID, Int(100)))))) != "power levels I1" {
+	if trustCheck(CheckPowerLevels(replaceMember(base(), "users", Obj(M(workerID, Int(100)))), testServer)) != "power levels I1" {
 		t.Fatal("a user at 100 must break I1")
 	}
-	if trustCheck(CheckPowerLevels(replaceMember(base(), "users", Obj(M(workerID, Str("1")))))) != "power levels" {
+	if trustCheck(CheckPowerLevels(replaceMember(base(), "users", Obj(M(workerID, Str("1")))), testServer)) != "power levels" {
 		t.Fatal("a string level accepted")
+	}
+	if err := CheckPowerLevels(replaceMember(base(), "users", Obj(M(AdminID(testServer), Int(100)), M(aliceID, Int(50)))), testServer); err != nil {
+		t.Fatalf("the creator in users counts toward top (A 6.4 'other than the creator'): %v", err)
 	}
 }
 

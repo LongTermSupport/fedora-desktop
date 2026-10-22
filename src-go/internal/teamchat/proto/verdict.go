@@ -314,8 +314,11 @@ func (j Judge) main(v Verdict) Verdict {
 }
 
 // human is the human path (A 7.5) to rule 10; in questions every message is addressed and
-// none is stale.
+// none is stale. A carried item is the admin's alone (A 7.6 rule 05, 7.7).
 func (j Judge) human(v Verdict, main bool) Verdict {
+	if _, carried := v.Event.Content.Get(KeyCarried); carried {
+		return drop(v, ReasonSender)
+	}
 	h, reason := DecodeHuman(v.Event.Content)
 	if reason != "" {
 		return refuse(v, reason)

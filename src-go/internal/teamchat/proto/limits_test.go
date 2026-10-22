@@ -171,3 +171,24 @@ func TestRetryWait(t *testing.T) {
 		t.Fatal("tries")
 	}
 }
+
+func TestTheFixedWindowsAreA11(t *testing.T) {
+	windows := map[string][2]int64{
+		"duplicate": {DuplicateWindowMs, 60_000}, "report_per_hour": {ReportWindowMs, 3_600_000},
+		"recv_per_sender_minute": {ReceiveWindowMs, 60_000}, "deliver_per_sender": {DeliveryWindowMs, 600_000},
+	}
+	for name, w := range windows {
+		if w[0] != w[1] {
+			t.Errorf("%s window %d ms, want %d", name, w[0], w[1])
+		}
+	}
+	var w Window
+	for i := range int64(10) {
+		if !w.Admit("sender", 10, DeliveryWindowMs, i) {
+			t.Fatalf("delivery %d refused", i)
+		}
+	}
+	if w.Admit("sender", 10, DeliveryWindowMs, DeliveryWindowMs-1) || !w.Admit("sender", 10, DeliveryWindowMs, DeliveryWindowMs) {
+		t.Fatal("the delivery budget is not 10 per 600 s")
+	}
+}

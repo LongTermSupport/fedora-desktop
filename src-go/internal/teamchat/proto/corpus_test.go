@@ -153,7 +153,9 @@ func templates() []*regexp.Regexp {
 		}
 	}), "|") + `)`
 	time, ref, q := `[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z`, `[!-~]+`, `Q[1-9][0-9]{0,8}`
-	jsonStr, jsonASCII := `"(?:[^"\\\x00-\x1f]|\\.)*"`, `"(?:[ !#-\[\]-~]|\\.)*"`
+	jsonEscape := `\\(?:["\\/bfnrt]|u[0-9a-f]{4})`
+	jsonStr := `"(?:[^"\\\x00-\x1f\x7f-\x9f\x{2028}\x{2029}]|` + jsonEscape + `)*"`
+	jsonASCII := `"(?:[ !#-\[\]-~]|` + jsonEscape + `)*"`
 	history := ` teamchat history --team ` + team
 	gloss := `(?:left \(the member's session ended and said goodbye\)|disconnected \(the member's session ended without a goodbye\)|back \(the member's session is running again after a disconnect\)|added \(the owner added the member to the team\)|removed \(the owner removed the member from the team\)|parked \(the owner parked the member; it cannot read or post\)|role \(the owner changed the member's role\)|moved \(this team moved to teamchat; use only teamchat verbs\))`
 	sentences := []string{
@@ -295,12 +297,14 @@ type routingCase struct {
 	Outcome  string `json:"outcome"`
 	Reason   string `json:"reason,omitempty"`
 	Kind     string `json:"kind,omitempty"`
+	// FloodBefore is the admissions of the event's sender in the receive window before it.
+	FloodBefore int `json:"floodBefore,omitempty"`
 }
 
 var outcomeNames = map[Outcome]string{Deliver: "deliver", Ignore: "ignore", Drop: "drop", Record: "record", Index: "index", Redact: "redact", Fault: "fault"}
 
 // pinRouting pins a verdict table as testdata/routing/<test>.json.
-func pinRouting(t *testing.T, cases map[string]verdictCase) {
+func pinRouting(t *testing.T, cases map[string]verdictCase, floodBefore map[string]int) {
 	t.Helper()
 	out := make([]routingCase, 0, len(cases))
 	for name, tc := range cases {
@@ -308,7 +312,7 @@ func pinRouting(t *testing.T, cases map[string]verdictCase) {
 		if room == "" {
 			room = PurposeMain
 		}
-		out = append(out, routingCase{name, tc.self, room, tc.event, outcomeNames[tc.outcome], tc.reason, tc.kind})
+		out = append(out, routingCase{name, tc.self, room, tc.event, outcomeNames[tc.outcome], tc.reason, tc.kind, floodBefore[name]})
 	}
 	slices.SortFunc(out, func(a, b routingCase) int { return strings.Compare(a.Name, b.Name) })
 	pinCorpus(t, "routing/"+t.Name()+".json", indented(t, out))
@@ -340,7 +344,8 @@ func TestRoutingCorpus(t *testing.T) {
 			t.Fatalf("%s: %v", file, err)
 		}
 		for _, c := range cases {
-			v := judge(t, c.Receiver, c.Room).Judge(mustParse(t, c.Event))
+			ev := mustParse(t, c.Event)
+			v := floodedJudge(t, c.Receiver, c.Room, senderOf(ev), c.FloodBefore).Judge(ev)
 			if outcomeNames[v.Outcome] != c.Outcome || v.Reason != c.Reason || v.Kind != c.Kind {
 				t.Errorf("%s %s: %s %q %q, the corpus says %s %q %q", file, c.Name, outcomeNames[v.Outcome], v.Reason, v.Kind, c.Outcome, c.Reason, c.Kind)
 			}
