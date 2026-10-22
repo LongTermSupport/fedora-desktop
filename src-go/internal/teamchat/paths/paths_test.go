@@ -287,6 +287,7 @@ func TestSeatFiles(t *testing.T) {
 		{s.Store(), "store.json"},
 		{s.Report(), "report.json"},
 		{s.LastLog(), "last.log"},
+		{s.RosterCache(), "roster.json"},
 	} {
 		if want := "/run/teamchat/seats/ops/" + c.want; c.got != want {
 			t.Errorf("got %q, want %q", c.got, want)
