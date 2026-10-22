@@ -71,8 +71,14 @@ func offline(err error) bool {
 }
 
 // decisive is n3b-D3's error of a join: the first, depth first, that is not offline, or err when
-// every one is.
+// every one is. A wrap is followed down to the join it holds.
 func decisive(err error) error {
+	if w, ok := err.(interface{ Unwrap() error }); ok {
+		if inner := w.Unwrap(); offline(inner) {
+			return decisive(inner)
+		}
+		return err
+	}
 	j, ok := err.(interface{ Unwrap() []error })
 	if !ok {
 		return err

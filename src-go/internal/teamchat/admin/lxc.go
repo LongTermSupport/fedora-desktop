@@ -145,25 +145,24 @@ func readDeclaration(stdin io.Reader) (declare.Declaration, error) {
 	return declare.Decode(raw)
 }
 
-// lxcRestart is `lxc restart --container C --key K` (SU3): lxc.Restart, nothing on stdin or
-// stdout.
+// lxcRestart is `lxc restart --member C/K` (SU3), the target form `lxc apply` takes, given
+// once: lxc.Restart, nothing on stdin or stdout.
 func lxcRestart(ctx context.Context, e Env, args []string) term.ExitCode {
 	sys, code := e.system()
 	if code != term.ExitOK {
 		return code
 	}
-	flags, err := parseFlags(args, []string{"container", "key"})
+	members, rest, err := targetFlags(args)
+	if err == nil {
+		_, err = parseFlags(rest, nil)
+	}
 	if err != nil {
 		return failWith(e, err)
 	}
-	c, k := flags["container"], flags["key"]
-	if c == "" || k == "" {
-		return fail(e.Stderr, term.ExitUsage, "lxc restart takes --container and --key")
+	if len(members) != 1 {
+		return fail(e.Stderr, term.ExitUsage, "lxc restart takes one --member <container>/<seat key>")
 	}
-	t, err := parseTarget(c + "/" + k)
-	if err != nil {
-		return failWith(e, err)
-	}
+	t := members[0]
 	d, code := lxcDeps(e, sys)
 	if code != term.ExitOK {
 		return code

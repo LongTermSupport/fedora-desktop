@@ -333,6 +333,24 @@ func TestChangedOriginRefused(t *testing.T) {
 	}
 }
 
+// The holdback failing for one seat (until N6, every migration seat) fails that seat alone: the
+// container's other seats still apply.
+func TestMigrationHoldbackFailingFailsThatSeatAlone(t *testing.T) {
+	w := newWorld(t)
+	w.addBox("c1")
+	w.declare([]string{"t1", "t2"}, w.member("t1", "c1"), w.memberAt("t2", "c1", 2))
+	w.origin = "migration"
+	w.v1.errTeam = "t1"
+	r, err := w.apply(PhasePresent)
+	if !errors.Is(err, errFault) {
+		t.Fatalf("err %v", err)
+	}
+	hasLine(t, r, lineAt(t, "CHANGED", "t2", "agent1", "c1", 2, "joined as repo.2+local.lxc"))
+	if !slices.Equal(w.roster.joins, []string{"member.add repo.2+local.lxc"}) {
+		t.Fatalf("joins %v", w.roster.joins)
+	}
+}
+
 func TestMigrationHoldback(t *testing.T) {
 	w := newWorld(t)
 	w.addBox("c1")
@@ -469,11 +487,14 @@ func TestStopAfterJoinThenReissueOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hasLine(t, r, lineOf(t, "SKIPPED", "c1", "offline: bundle not placed"))
+	// LX6: a handle this phase's join made is recorded offline, its line still DEFERRED.
+	hasLine(t, r, lineOf(t, "DEFERRED", "c1", "offline: bundle not placed"))
 	w.lxc.answer = nil
-	if _, err := w.apply(PhasePresent); err != nil {
+	r, err = w.apply(PhasePresent)
+	if err != nil {
 		t.Fatal(err)
 	}
+	hasLine(t, r, lineOf(t, "SKIPPED", "c1", "offline: bundle not placed"))
 	if e := w.entry("c1"); e.Status != lxcstate.StatusOffline || e.Why != "offline: bundle not placed" {
 		t.Fatalf("a still-stopped container lost its pending reissue: %+v", e)
 	}
@@ -619,6 +640,37 @@ func TestUnitRefusedIsOffline(t *testing.T) {
 	w.bus.err = guestbus.ErrMalformed
 	if _, err := w.apply(PhasePresent); err == nil {
 		t.Fatal("a malformed systemd answer did not fail the member")
+	}
+}
+
+// A unit start that failed is started again by the next apply, though its file and link are
+// unchanged, and only then is the seat recorded joined; a joined seat's unit is left alone.
+func TestUnitStartFailedIsRetried(t *testing.T) {
+	w := newWorld(t)
+	w.addBox("c1")
+	w.declare([]string{"t1"}, w.member("t1", "c1"))
+	w.bus.err = context.DeadlineExceeded
+	if _, err := w.apply(PhasePresent); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err %v", err)
+	}
+	if e := w.entry("c1"); e.Status == lxcstate.StatusJoined {
+		t.Fatalf("a seat whose unit did not start was recorded %+v", e)
+	}
+	w.bus.err, w.bus.calls = nil, nil
+	r, err := w.apply(PhasePresent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(w.bus.calls, []string{"Reload", "Start " + unitOf(t, "t1")}) {
+		t.Fatalf("systemd %v", w.bus.calls)
+	}
+	hasLine(t, r, lineOf(t, "CHANGED", "c1", "unit started"))
+	if e := w.entry("c1"); e.Status != lxcstate.StatusJoined {
+		t.Fatalf("entry %+v", e)
+	}
+	w.bus.calls = nil
+	if _, err := w.apply(PhasePresent); err != nil || len(w.bus.calls) != 0 {
+		t.Fatalf("a joined seat's unit was started again: %v %v", w.bus.calls, err)
 	}
 }
 

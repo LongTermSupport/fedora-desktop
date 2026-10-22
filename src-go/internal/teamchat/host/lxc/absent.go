@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"slices"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestfacts"
@@ -44,10 +45,11 @@ func (r *run) only(state declare.State) {
 // running is parked from the host and never waited for.
 func (r *run) absent(ctx context.Context) {
 	r.only(declare.StateAbsent)
+	// An absent entry the record does not hold has already gone: it takes no step and prints
+	// nothing, so the phase converges.
+	r.members = slices.DeleteFunc(r.members, func(m *member) bool { return !m.recorded })
 	for _, m := range r.members {
-		if m.recorded {
-			m.decl.User = m.prior.User
-		}
+		m.decl.User = m.prior.User
 	}
 	r.undeclared()
 	for _, t := range r.teams {
@@ -108,29 +110,78 @@ func (r *run) declared(team paths.TeamID, e lxcstate.Entry) (declare.LXCMember, 
 	return declare.LXCMember{}, false
 }
 
+// leaveTeam is the team's leavers under its lock: every park first, recorded left before any
+// guest step, then each seat's remaining steps.
 func (r *run) leaveTeam(ctx context.Context, team paths.TeamID, leavers []*member) error {
 	lock, err := teamlock.Take(ctx, r.d.LockDir, team, lockVerb, host.PlayWait, r.d.Clock)
 	if err != nil {
 		return &host.Error{Verb: verb, Step: host.StepLock, Err: err}
 	}
+	defer func() {
+		if releaseErr := lock.Release(); releaseErr != nil {
+			r.errs = append(r.errs, releaseErr)
+		}
+	}()
+	parked := r.parks(ctx, team, leavers)
 	for _, m := range leavers {
-		r.leave(ctx, m)
+		if !m.done {
+			r.leave(ctx, m, slices.Contains(parked, m))
+		}
 	}
-	return lock.Release()
+	return nil
 }
 
-// leave is one seat's steps 1-5. A left entry is never parked again: its handle may have joined
-// elsewhere since.
-func (r *run) leave(ctx context.Context, m *member) {
-	parked := false
-	if m.handle != "" && m.prior.Status != lxcstate.StatusLeft {
-		if err := r.d.Roster.Park(ctx, m.team.ID, m.handle); err != nil {
-			r.fail(m, &host.Error{Verb: verb, Step: "park", Err: err})
-			return
+// parks is step 1 for the team's leavers: each handle the roster has active parked (the child
+// parks no other; parked, lost and retired are parked already). A left entry is never parked
+// again: its handle may have joined elsewhere since. Each park is recorded left at once, so a
+// crash after it cannot leave the entry over a parked handle. A seat whose park, or its record,
+// fails is failed; the other leavers go on.
+func (r *run) parks(ctx context.Context, team paths.TeamID, leavers []*member) []*member {
+	var parkable []*member
+	for _, m := range leavers {
+		if m.handle != "" && m.prior.Status != lxcstate.StatusLeft {
+			parkable = append(parkable, m)
 		}
-		parked = true
-		r.changed[m.team.ID] = true
 	}
+	if len(parkable) == 0 {
+		return nil
+	}
+	roster, err := r.d.Roster.Members(ctx, team)
+	if err != nil {
+		r.failAll(parkable, "roster", err)
+		return nil
+	}
+	var parked []*member
+	for _, m := range parkable {
+		if roster[m.handle] != apply.MemberActive {
+			continue
+		}
+		if err := r.d.Roster.Park(ctx, team, m.handle); err != nil {
+			r.fail(m, &host.Error{Verb: verb, Step: "park", Err: err})
+			continue
+		}
+		parked = append(parked, m)
+		r.changed[team] = true
+	}
+	if len(parked) == 0 {
+		return nil
+	}
+	rec, now := r.records[team], r.d.Clock.Now().UnixMilli()
+	for _, m := range parked {
+		e := m.prior
+		e.Status, e.Why = lxcstate.StatusLeft, whyPending
+		rec = rec.Set(e, now)
+	}
+	if _, err := lxcstate.WriteRecord(r.d.Root, rec, r.d.OwnerGID); err != nil {
+		r.failAll(parked, stepRecord, err)
+		return nil
+	}
+	r.records[team] = rec
+	return parked
+}
+
+// leave is one seat's steps 2-5, after its park.
+func (r *run) leave(ctx context.Context, m *member, parked bool) {
 	if m.handle == "" {
 		m.done, m.status = true, statusDrop
 		r.line(m, Changed, lineNoHandle)
@@ -140,7 +191,11 @@ func (r *run) leave(ctx context.Context, m *member) {
 		r.fail(m, err)
 		return
 	}
-	g, why := r.leaveBox(ctx, m.box)
+	g, why, err := r.leaveBox(ctx, m.box)
+	if err != nil {
+		r.fail(m, &host.Error{Verb: verb, Step: stepState, Err: fmt.Errorf("container %s: %w", m.box, err)})
+		return
+	}
 	if why != "" {
 		r.leftOffline(m, why, parked)
 		return
@@ -168,35 +223,43 @@ func (r *run) dropSeat(m *member) error {
 	return nil
 }
 
-// leaveBox is the seat's container, pinned once per phase, or why it is offline.
-func (r *run) leaveBox(ctx context.Context, c paths.ContainerName) (*guestBox, string) {
+// leaveBox is the seat's container, pinned once per phase, or why it is offline. lxc-ls or
+// lxc-info failing is the host's fault (the error), never an offline container; a pin that
+// fails after lxc-info answered running is taken as the container stopping.
+func (r *run) leaveBox(ctx context.Context, c paths.ContainerName) (*guestBox, string, error) {
 	for _, g := range r.boxes {
 		if g.name == c {
-			if g.gone {
-				return g, g.why()
-			}
-			return g, ""
+			return g, g.offlineWhy(), g.fault
 		}
 	}
 	g := &guestBox{name: c}
 	r.boxes = append(r.boxes, g)
 	names, err := r.d.LXC.Containers(ctx)
+	why := ""
+	if err == nil {
+		why, err = boxState(ctx, r.d.LXC, names, c)
+	}
 	switch {
-	case err == nil && !slices.Contains(names, c.String()):
-		g.gone, g.missing = true, true
 	case err != nil:
+		g.fault = err
+	case why == whyMissing:
+		g.gone, g.missing = true, true
+	case why != "":
 		g.gone = true
 	default:
-		if st, err := r.d.LXC.State(ctx, c.String()); err != nil || st != lxccmd.Running {
-			g.gone = true
-		} else if g.root, err = r.d.Pin(ctx, c.String()); err != nil {
+		if g.root, err = r.d.Pin(ctx, c.String()); err != nil {
 			g.gone = true
 		}
 	}
-	if g.gone {
-		return g, g.why()
+	return g, g.offlineWhy(), g.fault
+}
+
+// offlineWhy is a gone box's offline cause, "" for one running.
+func (g *guestBox) offlineWhy() string {
+	if !g.gone {
+		return ""
 	}
-	return g, ""
+	return g.why()
 }
 
 // why is a gone box's offline cause.
@@ -261,13 +324,22 @@ func (r *run) leaveGuest(ctx context.Context, g *guestBox, m *member, parked boo
 		r.leaveFailed(ctx, g, m, "unit", err)
 		return
 	}
-	held, run, stopped := r.waitFree(ctx, g, m)
+	r.removeGuest(ctx, g, m, parked)
+}
+
+// removeGuest is steps 4 and 5: the L3 wait, then `guest remove`.
+func (r *run) removeGuest(ctx context.Context, g *guestBox, m *member, parked bool) {
+	wait, err := r.waitFree(ctx, g, m)
 	switch {
-	case stopped:
+	case err != nil:
+		m.status, m.why = lxcstate.StatusLeft, whyPending
+		r.fail(m, &host.Error{Verb: verb, Step: "wait", Err: fmt.Errorf("%s: %w", m.name(), err)})
+		return
+	case wait.stopped:
 		r.leftOffline(m, whyStopped, false)
 		return
-	case held:
-		r.heldSeat(m, run)
+	case wait.held:
+		r.heldSeat(m, wait.run)
 		return
 	}
 	_, err = r.d.LXC.Guest(ctx, r.attach(m), guest.OpRemove, []string{"--team", m.team.ID.String()}, nil)
@@ -338,31 +410,64 @@ func (r *run) heldSeat(m *member, run string) {
 
 // waitFree is step 4, the L3 probe of the leaving seat's own key every SeatFreeGap for at most
 // SeatFreeWait: held with the lock's run id, or stopped when the container stops during the
-// wait, which ends it at once.
-func (r *run) waitFree(ctx context.Context, g *guestBox, m *member) (bool, string, bool) {
+// wait, which ends it at once. A probe that fails is stopped only when lxc-info then answers
+// that the container is not running; otherwise it, a layout that cannot be made, or lxc-info
+// failing is the error, as is a wait cut short by its context.
+func (r *run) waitFree(ctx context.Context, g *guestBox, m *member) (seatWait, error) {
 	layout, err := paths.LXCLayout(m.acct.Home, paths.GuestRuntimeDir(m.key), m.key)
 	if err != nil {
-		return false, "", false
+		return seatWait{}, err
 	}
 	lock := layout.Seat(m.team.ID).Lock()
 	deadline := r.d.Clock.Now().Add(SeatFreeWait)
 	for {
 		held, record, err := g.root.ProbeLock(lock)
+		if refused(err) || errors.Is(err, fs.ErrNotExist) {
+			return seatWait{}, nil
+		}
+		if err != nil {
+			return r.probeFailed(ctx, g, err)
+		}
 		switch {
-		case err != nil && !refused(err) && !errors.Is(err, fs.ErrNotExist):
-			return false, "", true
-		case err != nil || !held:
-			return false, "", false
+		case !held:
+			return seatWait{}, nil
 		case !r.d.Clock.Now().Before(deadline):
-			return true, runOf(record), false
+			return seatWait{held: true, run: runOf(record)}, nil
 		}
 		if err := r.d.Clock.Sleep(ctx, SeatFreeGap); err != nil {
-			return true, runOf(record), false
+			return seatWait{}, err
 		}
-		if st, err := r.d.LXC.State(ctx, g.name.String()); err != nil || st != lxccmd.Running {
-			return false, "", true
+		if stopped, err := r.stopped(ctx, g); err != nil || stopped {
+			return seatWait{stopped: stopped}, err
 		}
 	}
+}
+
+// seatWait is the L3 wait's answer: the seat still held (with the lock's run id, when it passes
+// its grammar), or its container stopped; neither is a free seat.
+type seatWait struct {
+	held    bool
+	run     string
+	stopped bool
+}
+
+// probeFailed is a lock probe's error: the container stopped when lxc-info answers so, else the
+// error (lxc-info's own first).
+func (r *run) probeFailed(ctx context.Context, g *guestBox, probeErr error) (seatWait, error) {
+	stopped, err := r.stopped(ctx, g)
+	switch {
+	case err != nil:
+		return seatWait{}, err
+	case stopped:
+		return seatWait{stopped: true}, nil
+	}
+	return seatWait{}, probeErr
+}
+
+// stopped is lxc-info's answer that g is not running.
+func (r *run) stopped(ctx context.Context, g *guestBox) (bool, error) {
+	st, err := r.d.LXC.State(ctx, g.name.String())
+	return err == nil && st != lxccmd.Running, err
 }
 
 // runOf is the lock record's run id when it decodes, else "".

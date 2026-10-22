@@ -6,14 +6,12 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"slices"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestfacts"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxccmd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
@@ -51,7 +49,8 @@ func Restart(ctx context.Context, d Deps, container paths.ContainerName, key pat
 	file := paths.GuestUnitFile(id.Team, id.Checkout, id.Seat)
 	_, _, found, err := root.ReadFile(file, maxUnit)
 	if err == nil && !found {
-		err = fmt.Errorf("%w: %s has no session unit %s; lxc apply places it", guestfacts.ErrRefused, seat, file)
+		err = fmt.Errorf("%w: %s has no session unit %s: the seat has service: false, or no apply has placed its unit yet",
+			guestfacts.ErrRefused, seat, file)
 	}
 	if err != nil {
 		return &host.Error{Verb: restartVerb, Step: "unit", Drift: refused(err), Err: err}
@@ -133,13 +132,14 @@ func restartRoot(ctx context.Context, d Deps, container paths.ContainerName) (Ro
 	c := container.String()
 	names, err := d.LXC.Containers(ctx)
 	if err != nil {
-		return nil, &host.Error{Verb: restartVerb, Step: "state", Err: err}
+		return nil, &host.Error{Verb: restartVerb, Step: stepState, Err: err}
 	}
-	if !slices.Contains(names, c) {
-		return nil, &OfflineError{Container: container, Why: whyMissing}
+	why, err := boxState(ctx, d.LXC, names, container)
+	if err != nil {
+		return nil, &host.Error{Verb: restartVerb, Step: stepState, Err: err}
 	}
-	if st, stateErr := d.LXC.State(ctx, c); stateErr != nil || st != lxccmd.Running {
-		return nil, &OfflineError{Container: container, Why: whyStopped}
+	if why != "" {
+		return nil, &OfflineError{Container: container, Why: why}
 	}
 	root, err := d.Pin(ctx, c)
 	if errors.Is(err, guestroot.ErrMoved) || errors.Is(err, guestroot.ErrGone) {

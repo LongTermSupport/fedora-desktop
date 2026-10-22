@@ -317,6 +317,34 @@ func TestEqualHandlesRefused(t *testing.T) {
 	}
 }
 
+// A seat held back for a user move still holds its recorded handle, though its old entry is
+// left: another seat of the team that derives that handle is refused, and never returns it.
+func TestEqualHandleOfAHeldMoveRefused(t *testing.T) {
+	w := moved(t)
+	w.lxc.boxes["c1"].state = lxccmd.Stopped
+	if _, err := w.apply(PhaseAbsent); err != nil {
+		t.Fatal(err)
+	}
+	if e := w.entry("c1"); e.Status != lxcstate.StatusLeft || e.User.String() != "agent1" {
+		t.Fatalf("the old entry %+v", e)
+	}
+	w.addBox("c2")
+	m := w.member("t1", "c1")
+	m.User = agent2(t)
+	w.declare([]string{"t1"}, m, w.member("t1", "c2"))
+	w.roster.joins = nil
+	_, err := w.apply(PhasePresent)
+	if err == nil || !strings.Contains(err.Error(), "its handle "+firstHandle+" is held by agent1@c1/") {
+		t.Fatalf("err %v", err)
+	}
+	if len(w.roster.joins) != 0 {
+		t.Fatalf("joins %v", w.roster.joins)
+	}
+	if _, ok := w.record().Find(mustBox(t, "c2"), checkout, 1); ok {
+		t.Fatal("the refused seat was recorded")
+	}
+}
+
 func TestKeyOwnersClaim(t *testing.T) {
 	c := mustBox(t, "c1")
 	one, two := seatID(t, "t1"), seatID(t, "t2")
@@ -334,6 +362,35 @@ func TestKeyOwnersClaim(t *testing.T) {
 	err := o.claim(c, two)
 	if err == nil || !strings.Contains(err.Error(), "have one seat key "+two.Key().String()) {
 		t.Fatalf("a planted collision was not refused: %v", err)
+	}
+}
+
+// The key rule reads every team's record under the host root: a team dropped from the
+// declaration keeps its live seats, whose keys are claimed, and a record of it that cannot be
+// read refuses the run.
+func TestKeysReadEveryTeamsRecord(t *testing.T) {
+	w := placed(t)
+	two := w.member("t1", "c1")
+	two.Team = mustTeam(t, "t2")
+	w.declare([]string{"t1", "t2"}, w.member("t1", "c1"), two)
+	if _, err := w.apply(PhasePresent); err != nil {
+		t.Fatal(err)
+	}
+	w.declare([]string{"t1"}, w.member("t1", "c1"))
+	r, err := validate(t.Context(), w.deps(), Request{Phase: PhasePresent, Decl: w.decl})
+	if err != nil {
+		t.Fatal(err)
+	}
+	owners, err := r.keys()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := owners[Target{Container: mustBox(t, "c1"), Key: keyOf(t, "t2")}]; got != seatID(t, "t2") {
+		t.Fatalf("the dropped team's live seat was not claimed: %+v", got)
+	}
+	writeTree(t, w.host, map[string]string{paths.LXCRecord(mustTeam(t, "t2"))[1:]: "{not json"})
+	if _, err := w.apply(PhasePresent); err == nil {
+		t.Fatal("an unreadable record of a dropped team was not refused")
 	}
 }
 

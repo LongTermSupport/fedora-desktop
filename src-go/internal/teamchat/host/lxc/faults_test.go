@@ -12,6 +12,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/apply"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestfacts"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxccmd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
@@ -254,14 +255,92 @@ func TestAbsentOfflineTargetIs69(t *testing.T) {
 	hasLine(t, r, lineOf(t, "CHANGED", "c1", "parked; guest files pending (offline: container stopped)"))
 }
 
-func TestAbsentContainerListFailingIsOffline(t *testing.T) {
-	w := leaving(t)
-	w.lxc.listErr = errFault
-	r, err := w.apply(PhaseAbsent)
-	if err != nil {
-		t.Fatal(err)
+// lxc-ls or lxc-info failing is the host's fault, never an offline container: the leaver fails,
+// its park already recorded, and the guest is not touched.
+func TestAbsentLXCToolsFailingFailTheLeaver(t *testing.T) {
+	for name, plant := range map[string]func(w *world){
+		"lxc-ls":   func(w *world) { w.lxc.listErr = errFault },
+		"lxc-info": func(w *world) { w.lxc.boxes["c1"].stateErr = errFault },
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := leaving(t)
+			plant(w)
+			r, err := w.apply(PhaseAbsent)
+			failedAt(t, err, "state")
+			if !errors.Is(err, errFault) || len(r.Lines) != 0 || len(w.lxc.calls) != 0 {
+				t.Fatalf("err %v, lines %v, calls %v", err, lines(r), w.lxc.verbs())
+			}
+			if e := w.entry("c1"); e.Status != lxcstate.StatusLeft || e.Handle != firstHandle {
+				t.Fatalf("entry %+v", e)
+			}
+		})
 	}
-	hasLine(t, r, lineOf(t, "CHANGED", "c1", "parked; guest files pending (offline: container stopped)"))
+}
+
+// The present phase: lxc-info failing for one container fails its seats, not as offline, and
+// the other container's seats still apply.
+func TestPresentLXCInfoFailingFailsThatContainer(t *testing.T) {
+	w := newWorld(t)
+	w.addBox("c1").stateErr = errFault
+	w.addBox("c2")
+	w.declare([]string{"t1"}, w.member("t1", "c1"), w.memberAt("t1", "c2", 2))
+	r, err := w.apply(PhasePresent)
+	failedAt(t, err, "state")
+	if off, ok := errors.AsType[*OfflineError](err); ok && off != nil {
+		t.Fatalf("an lxc-info fault was offline: %v", err)
+	}
+	hasLine(t, r, lineAt(t, "CHANGED", "t1", "agent1", "c2", 2, "joined as repo.2+local.lxc"))
+	if _, found := w.record().Find(mustBox(t, "c1"), checkout, 1); found {
+		t.Fatal("a seat whose container state was not known was recorded")
+	}
+}
+
+// After a guest op fails, lxc-info failing too is not a stopped container: the seat fails.
+func TestGoneAskedOfAFailingLXCInfoIsNotOffline(t *testing.T) {
+	w := newWorld(t)
+	b := w.addBox("c1")
+	w.declare([]string{"t1"}, w.member("t1", "c1"))
+	w.lxc.answer = func(c guestCall) error {
+		if c.Verb == "guest place-bundle" {
+			b.stateErr = errFault
+			return &lxccmd.AttachError{Op: c.Verb, Exit: -1}
+		}
+		return nil
+	}
+	_, err := w.apply(PhasePresent)
+	failedAt(t, err, "guest place-bundle")
+}
+
+// The L3 wait: a probe error in a running container fails the leaver, as does lxc-info failing
+// after one; only an answered stop is offline.
+func TestAbsentWaitProbeFailures(t *testing.T) {
+	w := leaving(t)
+	w.lxc.boxes["c1"].probeErr = errFault
+	_, err := w.apply(PhaseAbsent)
+	failedAt(t, err, "wait")
+	if slices.Contains(w.lxc.verbs(), "c1 guest remove") {
+		t.Fatal("a seat whose lock could not be probed was removed")
+	}
+
+	w = leaving(t)
+	b := w.lxc.boxes["c1"]
+	holdSeat(t, b, `{"v":1,"run":"`+runID+`","started_ms":1}`)
+	w.clock.onSleep = func() { b.stateErr = errFault }
+	_, err = w.apply(PhaseAbsent)
+	if !errors.Is(err, errFault) {
+		t.Fatalf("err %v", err)
+	}
+}
+
+// A seat whose layout cannot be made is an error of the wait, never a free seat.
+func TestWaitFreeLayoutError(t *testing.T) {
+	w := leaving(t)
+	r := &run{d: w.deps()}
+	m := &member{team: w.team("t1"), key: keyOf(t, "t1"), acct: guestfacts.Account{Home: "relative"}}
+	wait, err := r.waitFree(t.Context(), &guestBox{name: mustBox(t, "c1")}, m)
+	if err == nil {
+		t.Fatalf("a layout error was a free seat: %+v", wait)
+	}
 }
 
 func TestHostKitWithAFifoIsRefused(t *testing.T) {

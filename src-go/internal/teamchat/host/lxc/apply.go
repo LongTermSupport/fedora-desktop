@@ -53,6 +53,7 @@ const (
 	stepReads      = "reads"
 	stepMembership = "membership"
 	stepRecord     = "record"
+	stepState      = "state"
 )
 
 // The guest files the reads take (C 3.9.2 step 03).
@@ -141,6 +142,8 @@ type guestBox struct {
 	checkouts map[string]*checkoutFiles
 	gone      bool
 	missing   bool
+	// fault is lxc-ls or lxc-info failing for the box (the absent phase): the host's, not offline.
+	fault error
 }
 
 // checkoutFiles is one checkout's guest files, read once per container however many seats
@@ -242,7 +245,7 @@ func validate(ctx context.Context, d Deps, req Request) (*run, error) {
 			return nil, invalid(fmt.Errorf("--member %s/%s names no seat of the acted teams", t.Container, t.Key))
 		}
 	}
-	if err := r.keys(); err != nil {
+	if _, err := r.keys(); err != nil {
 		return nil, err
 	}
 	return r, nil
@@ -332,8 +335,9 @@ func (o keyOwners) claim(c paths.ContainerName, id lxcstate.SeatID) error {
 }
 
 // keys checks the key rule across every team's entries and record entries not left, whatever
-// --only-teams says (C 3.9.2 step 01).
-func (r *run) keys() error {
+// --only-teams says (C 3.9.2 step 01): the declared teams' records and every other record under
+// the host root, since a team dropped from the declaration keeps its live seats.
+func (r *run) keys() (keyOwners, error) {
 	owners := keyOwners{}
 	for _, m := range r.req.Decl.LXC {
 		c, err := paths.ParseContainerName(m.Container)
@@ -345,21 +349,38 @@ func (r *run) keys() error {
 			continue
 		}
 		if err := owners.claim(c, id); err != nil {
-			return err
+			return nil, err
 		}
 	}
+	teams, err := recordTeams(r.d.Root)
+	if err != nil {
+		return nil, &host.Error{Verb: verb, Step: stepValidate, Err: err}
+	}
 	for _, t := range r.req.Decl.Teams {
-		rec, err := r.record(t.ID)
-		if err != nil {
-			return err
+		if !slices.Contains(teams, t.ID) {
+			teams = append(teams, t.ID)
 		}
-		for _, e := range rec.Members {
-			if e.Status == lxcstate.StatusLeft {
-				continue
-			}
-			if err := owners.claim(e.Container, rec.SeatOf(e)); err != nil {
-				return err
-			}
+	}
+	for _, team := range teams {
+		if err := r.claimRecord(owners, team); err != nil {
+			return nil, err
+		}
+	}
+	return owners, nil
+}
+
+// claimRecord claims the key of each of team's record entries not left.
+func (r *run) claimRecord(owners keyOwners, team paths.TeamID) error {
+	rec, err := r.record(team)
+	if err != nil {
+		return err
+	}
+	for _, e := range rec.Members {
+		if e.Status == lxcstate.StatusLeft {
+			continue
+		}
+		if err := owners.claim(e.Container, rec.SeatOf(e)); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -384,8 +405,9 @@ func (r *run) line(m *member, kind LineKind, why string) {
 }
 
 // offline is n3b-D1 for one seat: no further step, the record offline with why, and a SKIPPED
-// line when the record knows a handle, else DEFERRED. A pending reissue keeps its why, so the
-// next apply that finds the container running still reissues.
+// line when the record knows a handle, else DEFERRED; a handle this phase joined whose bundle
+// was not placed stays DEFERRED (LX6). A pending reissue keeps its why, so the next apply that
+// finds the container running still reissues.
 func (r *run) offline(m *member, why string) {
 	if m.done {
 		return
@@ -395,7 +417,7 @@ func (r *run) offline(m *member, why string) {
 	}
 	m.done, m.status, m.why = true, lxcstate.StatusOffline, why
 	kind := Deferred
-	if m.handle != "" {
+	if m.handle != "" && (!m.joined || m.settled) {
 		kind = Skipped
 	}
 	r.line(m, kind, why)
@@ -446,7 +468,8 @@ func (r *run) refuse(m *member, step string, err error) {
 
 // gone is whether err, met in container c, means c has gone offline (n3b-D1): the pin moved
 // or the root died; or an attach, an lxc-info call or an op that timed out, after which
-// lxc-info says the container is no longer running. A guest op's own error object never is.
+// lxc-info answers that the container is no longer running. A guest op's own error object never
+// is, and nor is an lxc-info that fails: the host's fault leaves err to fail the seat.
 func (r *run) gone(ctx context.Context, c paths.ContainerName, err error) bool {
 	if errors.Is(err, guestroot.ErrMoved) || errors.Is(err, guestroot.ErrGone) {
 		return true
@@ -455,7 +478,7 @@ func (r *run) gone(ctx context.Context, c paths.ContainerName, err error) bool {
 		return false
 	}
 	st, serr := r.d.LXC.State(ctx, c.String())
-	return serr != nil || st != lxccmd.Running
+	return serr == nil && st != lxccmd.Running
 }
 
 // step is a failure of the steps after the reads, in a container: offline when the container
@@ -524,7 +547,8 @@ func (r *run) holdMoves() {
 }
 
 // containers is step 02: each seat's container listed and asked its state. A missing or not
-// running one is offline; the running ones become the phase's boxes. False is a host fault.
+// running one is offline; the running ones become the phase's boxes. An lxc-info that fails is
+// the host's fault for that container's seats; false is one for the phase.
 func (r *run) containers(ctx context.Context) bool {
 	byName := map[paths.ContainerName]*guestBox{}
 	for _, m := range r.members {
@@ -541,16 +565,16 @@ func (r *run) containers(ctx context.Context) bool {
 	}
 	names, err := r.d.LXC.Containers(ctx)
 	if err != nil {
-		r.errs = append(r.errs, &host.Error{Verb: verb, Step: "state", Err: err})
+		r.errs = append(r.errs, &host.Error{Verb: verb, Step: stepState, Err: err})
 		return false
 	}
 	slices.SortFunc(r.boxes, func(a, b *guestBox) int { return cmp.Compare(a.name.String(), b.name.String()) })
 	for _, g := range r.boxes {
-		why := ""
-		if !slices.Contains(names, g.name.String()) {
-			why = whyMissing
-		} else if st, err := r.d.LXC.State(ctx, g.name.String()); err != nil || st != lxccmd.Running {
-			why = whyStopped
+		why, err := boxState(ctx, r.d.LXC, names, g.name)
+		if err != nil {
+			g.gone = true
+			r.failAll(g.members, stepState, fmt.Errorf("container %s: %w", g.name, err))
+			continue
 		}
 		if why != "" {
 			g.gone = true
@@ -560,6 +584,22 @@ func (r *run) containers(ctx context.Context) bool {
 		}
 	}
 	return true
+}
+
+// boxState is why container c, among the listed names, is offline ("" when running): only an
+// answered state that is not running is stopped; lxc-info failing is its error.
+func boxState(ctx context.Context, lxc Containers, names []string, c paths.ContainerName) (string, error) {
+	if !slices.Contains(names, c.String()) {
+		return whyMissing, nil
+	}
+	st, err := lxc.State(ctx, c.String())
+	switch {
+	case err != nil:
+		return "", err
+	case st != lxccmd.Running:
+		return whyStopped, nil
+	}
+	return "", nil
 }
 
 // reads is step 03 for one running container: the pin, its settings and addresses, and each
@@ -646,7 +686,9 @@ func (r *run) member(ctx context.Context, g *guestBox, m *member, passwd []byte,
 	}
 	held, err := r.d.V1.Holds(ctx, g.root, m.decl.User, m.team.ID)
 	if err != nil {
-		return err
+		// The holdback answers for this seat alone: the container's other seats read on.
+		r.fail(m, &host.Error{Verb: verb, Step: stepReads, Err: fmt.Errorf("%s: v1 holdback: %w", m.name(), err)})
+		return nil
 	}
 	if held {
 		m.done, m.status, m.why = true, lxcstate.StatusDeferred, whyV1
@@ -736,10 +778,11 @@ func (r *run) owners(g *guestBox, dir string, passwd []byte) map[int]bool {
 
 // equalHandles is step 03's handle rule for each acted team: two seats whose handles are equal,
 // derived here or held by a record entry not left, are refused by name; when the record holds
-// the handle for one of them, the other is the wrong one.
+// the handle for one of them, the other is the wrong one. A seat held back for a user move holds
+// its recorded handle even when its old entry is left: it returns that handle once it moves.
 func (r *run) equalHandles() {
 	for _, t := range r.teams {
-		holder := liveHandles(r.records[t.ID])
+		holder := r.heldHandles(t.ID)
 		first := map[string]*member{}
 		for _, m := range r.members {
 			if m.team.ID != t.ID || m.done || m.want == "" {
@@ -761,12 +804,18 @@ func (r *run) equalHandles() {
 	}
 }
 
-// liveHandles is each handle a record entry not left holds, with its entry.
-func liveHandles(rec lxcstate.Record) map[string]lxcstate.Entry {
+// heldHandles is each handle the team's record entries not left hold, and each a seat held back
+// for a user move holds, with its entry.
+func (r *run) heldHandles(team paths.TeamID) map[string]lxcstate.Entry {
 	holder := map[string]lxcstate.Entry{}
-	for _, e := range rec.Members {
+	for _, e := range r.records[team].Members {
 		if e.Handle != "" && e.Status != lxcstate.StatusLeft {
 			holder[e.Handle] = e
+		}
+	}
+	for _, m := range r.members {
+		if m.team.ID == team && m.status == statusKeep && m.handle != "" {
+			holder[m.handle] = m.prior
 		}
 	}
 	return holder
@@ -1072,7 +1121,8 @@ func (r *run) failAll(ms []*member, step string, err error) {
 }
 
 // unit is step 09 for one seat (SU1, SU2): its unit written with its wants link, then Reload and
-// Start (new or last found down) or Restart (changed); unchanged is left alone; `service: false`
+// Start (new, or the seat not recorded joined) or Restart (changed); a joined seat's unchanged
+// unit is left alone; `service: false`
 // stops and removes it. systemd refusing, or gone, is the unit down: offline, never a failure.
 func (r *run) unit(ctx context.Context, g *guestBox, m *member) {
 	if g.gone || m.done || !m.settled {
@@ -1126,7 +1176,8 @@ func (r *run) placeUnit(ctx context.Context, g *guestBox, m *member) error {
 		return err
 	}
 	linked, err := w.Symlink(path.Dir(link), path.Base(link), file)
-	retry := m.prior.Why == whyUnitDown
+	// Only a joined seat's unit is known started; any other's start is made again.
+	retry := m.prior.Status != lxcstate.StatusJoined
 	if err != nil || !wrote && !linked && !retry {
 		return err
 	}

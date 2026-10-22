@@ -991,6 +991,28 @@ func TestATeamsGuestProbesRunTogether(t *testing.T) {
 	}
 }
 
+// LP1 at the tick: probes that hang to their bound all hang at once, and each that ends at it is
+// that member's problem, never the team's failure.
+func TestATeamsHangingGuestProbesEndTogether(t *testing.T) {
+	w := newWorld(t, "alpha")
+	handles := []string{lxcA, "web.3+box.lxc", "web.4+box.lxc", "web.5+box.lxc"}
+	w.viewer.view.Members = w.viewer.view.Members[:1]
+	w.guests.together, w.guests.need = make(chan struct{}), len(handles)
+	w.guests.err = fmt.Errorf("the probe: %w", context.DeadlineExceeded)
+	for _, h := range handles {
+		w.viewer.view.Members = append(w.viewer.view.Members, status.Member{Handle: h, Kind: status.KindLXC, Role: "worker", State: "active", Rooms: map[string]string{"main": "join"}})
+	}
+	if out := w.run(t); out[0].Result != ResultWritten {
+		t.Fatalf("outcome %+v", out[0])
+	}
+	rec := w.record(t, "alpha")
+	for i, h := range handles {
+		if m := rec.Members[i+1]; m.Handle != h || *m.Online || !membersProblem(rec, "the seat of "+h+" could not be probed", h) {
+			t.Fatalf("member %d %+v; problems %v", i+1, m, whats(rec.Problems))
+		}
+	}
+}
+
 func TestABrokenOnlineRecordFailsTheTeam(t *testing.T) {
 	w := newWorld(t, "alpha")
 	if err := os.WriteFile(filepath.Join(w.dir, "alpha", "lxc-online.json"), []byte(`{"v":1}`), 0o600); err != nil {

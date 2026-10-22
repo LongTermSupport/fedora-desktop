@@ -8,7 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
@@ -21,15 +21,16 @@ import (
 
 // The host kit's walk bounds (n3-D27) and the guest listings' caps.
 const (
-	kitDepth    = 6
-	kitBytes    = 64 << 20
-	maxKitNames = 256
-	maxRuns     = 1024
-	maxRunNames = 4096
-	guestRun    = "/run"
-	binDir      = "bin"
-	tempPrefix  = ".new-"
-	currentName = "current"
+	kitDepth     = 6
+	kitBytes     = 64 << 20
+	maxKitNames  = 256
+	maxRuns      = 1024
+	maxRunNames  = 4096
+	guestRun     = "/run"
+	guestRunUser = "/run/user"
+	binDir       = "bin"
+	tempPrefix   = ".new-"
+	currentName  = "current"
 )
 
 // hostKit is the host kit's tree, read once per phase: directories and regular files in walk
@@ -231,20 +232,22 @@ func liveKits(g *guestBox) (map[string]bool, bool, error) {
 	return live, false, nil
 }
 
-// runParents is every run root of the guest's sessions (LX5): each agent user's login one, and
-// one per unit runtime directory the guest's /run lists, so a seat the record no longer names
-// still keeps its digest (C 3.9.2 step 04). Only names of that grammar are taken from /run.
+// runParents is every run root of the guest's sessions (LX5): the login one of each uid the
+// guest's /run/user lists, and one per unit runtime directory its /run lists, so a seat this
+// phase does not act on (another team's, a hand-run one, one the record no longer names) still
+// keeps its digest (C 3.9.2 step 04). Only names of those grammars are taken; a listing TB1
+// refuses keeps every digest.
 func runParents(g *guestBox) ([]string, bool, error) {
 	var out []string
-	for _, m := range g.members {
-		if m.acct.UID <= 0 {
-			continue
-		}
-		p, err := paths.GuestLoginRunRoot(m.acct.UID)
-		if err != nil {
-			return nil, false, err
-		}
-		if !slices.Contains(out, p) {
+	uids, _, err := g.root.ReadDir(guestRunUser, anyName, maxRunNames)
+	if refused(err) {
+		return nil, true, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	for _, n := range uids {
+		if p, uidErr := loginRunRoot(n); uidErr == nil {
 			out = append(out, p)
 		}
 	}
@@ -261,6 +264,16 @@ func runParents(g *guestBox) ([]string, bool, error) {
 		}
 	}
 	return out, false, nil
+}
+
+// loginRunRoot is the login run root of a /run/user name that is a uid in its canonical decimal
+// form.
+func loginRunRoot(name string) (string, error) {
+	uid, err := strconv.Atoi(name)
+	if err != nil || strconv.Itoa(uid) != name {
+		return "", fmt.Errorf("%q is not a uid", name)
+	}
+	return paths.GuestLoginRunRoot(uid)
 }
 
 // anyName takes every name of a listing: /run holds names of many grammars, and the caller

@@ -16,7 +16,8 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
 
-// ProbeBound is each L3 probe's bound: its lxc-info calls, its pin and its opens, in all (LP1).
+// ProbeBound is each L3 probe's bound by default: its lxc-info calls, its pin and its opens, in
+// all (LP1).
 const ProbeBound = 5 * time.Second
 
 // Guests is the L3 probe as the health tick's health.Guests (LP1): a handle to the seat of the
@@ -33,6 +34,8 @@ type Guests struct {
 		State(ctx context.Context, c string) (lxccmd.State, error)
 	}
 	Pin func(ctx context.Context, container string) (Root, error)
+	// Bound is each probe's bound; 0 is ProbeBound.
+	Bound time.Duration
 }
 
 var (
@@ -40,10 +43,10 @@ var (
 	probeFree    = health.GuestProbe{}
 )
 
-// Probe is handle's seat in team, within ProbeBound. A read that hangs past it is left to
-// finish on its own, and its answer is dropped.
+// Probe is handle's seat in team, within the bound. A read that hangs past it is left to finish
+// on its own, and its answer is dropped.
 func (g Guests) Probe(ctx context.Context, team paths.TeamID, handle string) (health.GuestProbe, error) {
-	ctx, cancel := context.WithTimeout(ctx, ProbeBound)
+	ctx, cancel := context.WithTimeout(ctx, g.bound())
 	defer cancel()
 	type result struct {
 		probe health.GuestProbe
@@ -104,6 +107,13 @@ func (g Guests) probe(ctx context.Context, team paths.TeamID, handle string) (_ 
 		return health.GuestProbe{}, fmt.Errorf("lxc: the probe of %s in %s: %w", handle, c, err)
 	}
 	return probe, nil
+}
+
+func (g Guests) bound() time.Duration {
+	if g.Bound > 0 {
+		return g.Bound
+	}
+	return ProbeBound
 }
 
 func (g Guests) running(ctx context.Context, c string) bool {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
@@ -150,6 +151,9 @@ func TestRestartRecordedSeatWithNoUnitIsRefusedByName(t *testing.T) {
 	if !ok || !herr.Drift || herr.Verb != restartVerb || herr.Step != "unit" {
 		t.Fatalf("err %v", err)
 	}
+	if msg := err.Error(); !strings.Contains(msg, "service: false") || strings.Contains(msg, "lxc apply places it") {
+		t.Fatalf("the cause is not named: %v", err)
+	}
 	if len(w.bus.calls) != 0 {
 		t.Fatalf("systemd called for a seat with no unit: %v", w.bus.calls)
 	}
@@ -163,6 +167,7 @@ func TestRestartFailures(t *testing.T) {
 		drift bool
 	}{
 		{"listing fails", func(w *world) { w.lxc.listErr = errFault }, "state", false},
+		{"lxc-info fails", func(w *world) { w.lxc.boxes["c1"].stateErr = errFault }, "state", false},
 		{"pin fails", func(w *world) { w.pinErr = errFault }, "pin", false},
 		{"systemd refuses", func(w *world) { w.bus.err = guestbus.ErrSystemd }, "restart", false},
 		{"the socket is refused", func(w *world) { w.busErr = guestroot.ErrRefused }, "restart", true},

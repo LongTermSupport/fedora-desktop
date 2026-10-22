@@ -113,11 +113,20 @@ func newGuest(t *testing.T) string {
 	return dir
 }
 
-// fakeRoot is a fixture guest root whose init is its own systemd, or exe when set.
+// fakeRoot is a fixture guest root whose init is its own systemd, or exe when set, and whose
+// lock probes fail with probeErr when set.
 type fakeRoot struct {
 	*guestroot.Root
 
-	exe *guestroot.Info
+	exe      *guestroot.Info
+	probeErr error
+}
+
+func (r fakeRoot) ProbeLock(p string) (bool, []byte, error) {
+	if r.probeErr != nil {
+		return false, nil, r.probeErr
+	}
+	return r.Root.ProbeLock(p)
 }
 
 func (r fakeRoot) InitExe() (guestroot.Info, error) {
@@ -134,6 +143,8 @@ type box struct {
 	addrs []netip.Addr
 	cfg   map[string]string
 	exe   *guestroot.Info
+	// stateErr fails lxc-info's state of the box, and probeErr its root's lock probes.
+	stateErr, probeErr error
 }
 
 type guestCall struct {
@@ -181,6 +192,9 @@ func (f *fakeLXC) State(_ context.Context, c string) (lxccmd.State, error) {
 	b, err := f.get(c)
 	if err != nil {
 		return "", err
+	}
+	if b.stateErr != nil {
+		return "", b.stateErr
 	}
 	return b.state, nil
 }
@@ -317,6 +331,9 @@ func (f *fakeRoster) Park(_ context.Context, team paths.TeamID, handle string) e
 	if f.parkErr != nil {
 		return f.parkErr
 	}
+	if f.roster[team][handle] != apply.MemberActive {
+		return fmt.Errorf("member.park refused: %s is %q, not active", handle, f.roster[team][handle])
+	}
 	f.parks = append(f.parks, team.String()+" "+handle)
 	f.roster[team][handle] = apply.MemberParked
 	f.note("park " + handle)
@@ -401,13 +418,18 @@ type fakeApprovals map[paths.TeamID]*declare.Gated
 
 func (a fakeApprovals) Load(team paths.TeamID) (*declare.Gated, error) { return a[team], nil }
 
+// fakeV1 is the v1 holdback: held for every member, or failing for one team's.
 type fakeV1 struct {
-	held  bool
-	calls int
+	held    bool
+	calls   int
+	errTeam string
 }
 
-func (v *fakeV1) Holds(context.Context, Root, paths.GuestUser, paths.TeamID) (bool, error) {
+func (v *fakeV1) Holds(_ context.Context, _ Root, _ paths.GuestUser, team paths.TeamID) (bool, error) {
 	v.calls++
+	if team.String() == v.errTeam {
+		return false, errFault
+	}
 	return v.held, nil
 }
 
@@ -534,7 +556,7 @@ func (w *world) pin(_ context.Context, c string) (Root, error) {
 	if err != nil {
 		return nil, err
 	}
-	return fakeRoot{Root: r, exe: b.exe}, nil
+	return fakeRoot{Root: r, exe: b.exe, probeErr: b.probeErr}, nil
 }
 
 func (w *world) apply(phase Phase, only ...string) (Report, error) {
