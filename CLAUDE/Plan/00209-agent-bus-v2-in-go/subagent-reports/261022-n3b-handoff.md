@@ -431,6 +431,13 @@ it byte for byte from that text, with `<user>`, `<group>`, `<home>` and `<checko
 
 ## 2a. The offline rule (n3b-D1, the owner's, non-negotiable)
 
+> **CORRECTION**: this section is superseded by SPEC-n3.md section 3.1, which holds the rule per
+> step with the code's why strings. The table below predates n3b-D2 and the amended n3-D12: the
+> targets are `lxc apply --member C/K` and `lxc restart --member C/K` (the seat key), not
+> `--member C/U` and `--container C --user U`; the record is also written after each team's step
+> 06 joins and at the end of a failed phase, not only after a phase that succeeded; and every
+> offline why carries the `offline: ` prefix. Read SPEC-n3 section 3.1, not this table.
+
 A member that is not running is the normal lifecycle, not a fault. An offline member is shown
 clearly as offline. It never makes a play, a deploy, an acceptance or a tool fail, refuse or
 wait. `lxc apply` applies every member it can reach, marks each one it cannot reach offline, and
