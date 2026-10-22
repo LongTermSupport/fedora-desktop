@@ -82,7 +82,9 @@ interface its caller implements; the team lock; bootstrap steps 1-3 and 5; every
 - **CC5.** The answer is one JSON document on stdout:
   `{"v": 1, "ok": true, "changed": ["..."]}` or
   `{"v": 1, "ok": false, "error": {"class": "<class>", "message": "<text>"}}`, `class` one of
-  `failed`, `refused`, `unreachable`, `config`. Decision n2a-D4.
+  `failed`, `refused`, `retired`, `unreachable`, `config`. Decision n2a-D4. `retired` is a
+  refusal that recorded the handle `retired` (SPEC-n2d MO4, since SPEC-n3 n3b-D2), so a caller
+  can tell it from every other refusal; root maps it to 70, as `refused`.
 - **CC6.** Root decodes the answer strictly, because it is the one thing root parses that a
   less-privileged process wrote: at most 1 MiB, no repeated or unknown key, `v` exactly 1, `ok`
   a boolean, `changed` (only with `ok` true) an array of at most 4096 one-line strings, `error`
