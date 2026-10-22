@@ -8,8 +8,8 @@ in their APIs and how it is closed. v2 shares nothing with v1: v1's Python is a 
 nothing here is a parity rule against it.
 
 Each expectation is numbered and gets a Go test written first and seen to fail (B 2.15), on the
-fakes of B 2.15 with an injected clock; no test sleeps, fakehs's long-poll hold included (section
-9, gap 12). A test against a second real process re-runs the test binary (section 9, gap 8).
+fakes of B 2.15 with an injected clock; no test sleeps, fakehs's long-poll hold and the client's
+per-try deadline included (section 9, gap 12). A test against a second real process re-runs the test binary (section 9, gap 8).
 `-race` throughout, 90% coverage per package.
 
 **Gates** (PLAN.md Task 0.5). Everything in N3 is inert code until the owner confirms: nothing
@@ -26,7 +26,7 @@ expectation here is the hot reissue's host run for a ccy seat (LN9), which is Ta
 | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------- |
 | n3a   | `cmd/teamchat`; `member/cli` (the whole verb table, the parser, records, errors, exit codes, `version`, `help`, the launch-line parser); `member/state` (every member file's codec and the store writer); `member/lock`; `member/kit` (KT1); the guest operations; `seat set-aside`                 | the guest side of an LXC member: bundles and desired membership placed and removed through `lxc-attach` as the agent user; a kit directory assembled from a build                    | N1, N2                    |
 | n3b   | `teamchat-admin lxc apply` and `lxc restart` (`host/lxc`): the guest root, the kit and unit writes, the attach, the guest's systemd over its private socket, the LXC record, the host's desired copy; `health.Guests`'s production probe; the child's `member.disconnected` and its announcer (LP2) | an LXC member placed end to end by `lxc apply` in the VM lab: kit, bundle, desired file and unit placed, the unit's start accepted (or `service: false`); a running session is n3c's | n3a                       |
-| n3c   | `run` (the keeper), the link, the link socket, the store engine, the sync engine, `recv`, `wait`, `inbox`, `status`, `verify`, `history`, the ends and their notices, `seat disconnected`, hot control, the `RestartRecord` seam (RS2)                                                              | an LXC member under `run --plain` receives a human's and a peer's items end to end (VM lab, with n3b)                                                                                | n3a                       |
+| n3c   | `run` (the keeper), the link, the link socket, the store engine, the sync engine, `recv`, `wait`, `inbox`, `status`, `verify`, `history`, the ends and their notices, `seat disconnected`, hot control, the `RestartRecord` seam (RS2)                                                              | an LXC member under `run --plain` receives a human's and a peer's items end to end (VM lab, run once n3b has merged; n3c's unit tests do not need n3b)                               | n3a                       |
 | n3d   | the sends: `reply`, `say`, `ping`, the send gate, the outbox and TIMEOUTs, the forge check                                                                                                                                                                                                          | the LXC member answers and starts conversations: a whole exchange with `--plain`                                                                                                     | n3c                       |
 | n3e   | delivery into Claude Code (inbox socket, envelope, transcript proof, read receipts, membership notices), the hooks, the status line, the skill added to the kit, the interleaving harness (PT1)                                                                                                     | an LXC Claude Code session under `teamchat-session-<user>.service`, woken by deliveries: Task 3.4's LXC member on a real team                                                        | n3d; n3b for the unit     |
 | n3f   | the side rooms of Plan 00211 as verbs: `report`, `ask`, `thread`, `questions`, the questions room's sync rules                                                                                                                                                                                      | the full verb set                                                                                                                                                                    | n3d; SPEC-n3f (section 7) |
@@ -82,8 +82,10 @@ Section 7 is the scope list the addendum must cover, not its expectations.
      for the play, an ANSI escape, an over-long line, an error object with an unknown `code` or
      extra keys.
      The agent's desired file is never read by the host (the host copy is the authority, C 3.9.3).
-     No member-written value names a path the host opens, a uid it attaches as, a unit's text, or
-     another member.
+     No member-written value names a path the host opens, beyond a grammar-checked pid or run id
+     joined below a fixed, host-chosen directory and opened by TB1 (LX5), nor a uid it attaches as,
+     a unit's text, or another member. Hostile rows for those two: pid 0, pid 1, a pid over
+     `pid_max`, a run directory that is a symbolic link, an entry name that fails its grammar.
 - **TB3. Root never runs a guest program and never writes under a home.** A guest operation is
   `lxc-attach -u <uid> -g <gid> --clear-env` with uid and gid nonzero and the uid not the desktop
   user's (C 3.9.1, K15), the program the host-written `kit/<digest>/bin/teamchat`.
@@ -100,9 +102,9 @@ Section 7 is the scope list the addendum must cover, not its expectations.
 - **CL1. One binary.** `cmd/teamchat/main.go` is thin over `member/cli`; built `CGO_ENABLED=0`
   through the build task's existing `go_command_static: true` (no build-task change; the play
   task that builds and places it is Task 3.3's, **[A]**); `teamchat --version` and
-  `teamchat version` print the source digest. The binary links no YAML and no D-Bus module (a
-  go-deps `keepout` row for `./cmd/teamchat`, as n2b's for `teamchat-admin`; godbus, which SU2
-  adds to `teamchat-admin`, is gap 13).
+  `teamchat version` print the source digest. The binary links no YAML and no D-Bus module: two
+  go-deps `keepout` rows for `./cmd/teamchat` (a row names one module), YAML's now as n2b's for
+  `teamchat-admin`, and godbus's when gap 13 allowlists it.
 - **CL2. The verb table** is B 2.2.1's, every verb and flag, flags only after the verb (a flag
   before it is 64), no global flags, no v1 alias. A verb not yet built exits 1 `internal` naming
   the slice; every slice that builds one removes it from that list. This is a build-time
@@ -151,26 +153,30 @@ Section 7 is the scope list the addendum must cover, not its expectations.
   whose `user_id` differs from the one the seat's store was written for (`store.json`'s identity
   under GU3's rule). The token never reaches argv, a log or an error.
 - **LK1. Three locks** (B 2.5): `flock` on files opened `O_NOFOLLOW|O_CLOEXEC|O_CREAT` 0600, each
-  acquire on its own description, `LOCK_EX|LOCK_NB`; `keeper.lock` and `link.lock` tried three
-  times 50 ms apart; held is a typed `Busy`; released by `LOCK_UN` then close (seat: close only).
+  acquire on its own description, `LOCK_EX|LOCK_NB`; every acquire, the seat lock's included, is
+  tried three times 50 ms apart (B 2.5 L1, L3: the status line and clients probe `keeper.lock`
+  and `link.lock`, and the host's L3 probe, LP1 and LX8, holds a momentary `LOCK_SH` on the seat
+  lock); held after the third is a typed `Busy`; released by `LOCK_UN` then close (seat: close
+  only). Tests with a second process holding `LOCK_SH`: for 60 ms, the acquire succeeds; past all
+  three tries, it is `Busy`; each for `TakeSeat` and for `guest remove`.
 - **LK2. Order by type.** `KeeperLock.TakeSeat(team, seat)` is the only way to a `SeatLock`; its
   description can be duplicated for the link and is never `LOCK_UN`ed.
 - **LK3. Never unlinked.** No code path unlinks or renames `seat.lock`; every deletion of seat
   state (removal, the keeper's timed-out deletion, `guest remove`, `seat set-aside`, GU3's
-  identity change) holds or takes the seat lock first (75 if held) and touches only the other
+  identity change) holds or takes the seat lock first (LK1's tries, 75 if held) and touches only the other
   files. Tests against a second real process, including a `SIGKILL`ed holder; `guest remove`
   and `seat set-aside` against a held seat leave `seat.lock` the same inode (T1). This is P6.
 - **LK4. The record.** After `TakeSeat`, `{"v":1,"run":..,"started_ms":..}` is written through
   the held description; on a launch failure it is rewritten with `launch_failed_ms`, still held.
-- **SA1. `seat set-aside --team T`**: takes the seat lock, renames `store.json` to
+- **SA1. `seat set-aside --team T`**: takes the seat lock (LK1's tries), renames `store.json` to
   `store.json.aside-<ms>`, releases; a held seat is 75; no store is a success with no line.
 - **GU1. Every guest operation** (B 2.13): refuses uid 0, any supplementary group but the user's
   own (`getgroups`), a `--user` that is not the caller (by uid and passwd name); sets umask 077
   first; names every leaf mode; opens through no link from the home's directory fd; places files
   `O_EXCL` then rename; refuses a path owned by another uid; prints `CHANGED<TAB><what>` per
   change, `what` from the op's fixed set (TB2.4), and nothing else on stdout; exits 0, 64, 75
-  (`remove` and `place-bundle` only) or 78. Each through `execx.Fake` for `gh`, then in the VM
-  lab from nothing (T15).
+  (`remove` and `place-bundle` only) or 78. Each through `execx.Fake` for `gh` in n3a; the VM-lab
+  run from nothing (T15) is n3b's, once LX5 places the binary in the guest.
 - **GU2. `guest check --user U --team T`**, stdin `{"v":1,"team":..,"base_url":..,"plain_http_hosts":[..]}`
   (n3-D6): a home; `gh`, `tmux` and `claude` executable files on exactly the unit's
   `PATH`, `<home>/.local/bin:/usr/local/bin:/usr/bin:/bin` (never the attach's own `PATH`); that
@@ -184,7 +190,7 @@ Section 7 is the scope list the addendum must cover, not its expectations.
   `user_id` and seat, it keeps its `store.json` and `seat.lock`, and `token` then `seat.json`
   are each replaced by `O_EXCL` temp and rename inside it (n3-D1). When it decodes to a
   different `user_id` or seat (a retire and add, a new seat number), the op takes the seat lock
-  (75 if held), sets the store aside as SA1 does, then places the files the same way, releasing
+  (LK1's tries, 75 if held), sets the store aside as SA1 does, then places the files the same way, releasing
   the lock last; an undecodable `seat.json` is treated as a different identity. `seat.PlaceGuest`'s
   directory exchange is replaced by this. A password bundle is 78. Tests: same identity (store
   kept, same `seat.lock` inode); a different `user_id`; a different seat; a different identity
@@ -193,7 +199,7 @@ Section 7 is the scope list the addendum must cover, not its expectations.
 - **GU4. `guest membership --user U`** writes `desired.json` (MS1's codec, `session` `lxc-<user>`)
   into `~/.config/teamchat/membership/` (0700, file 0600) atomically; the same bytes again print
   nothing.
-- **GU5. `guest remove --user U --team T`** takes the seat lock (75 if held), removes every file
+- **GU5. `guest remove --user U --team T`** takes the seat lock (LK1's tries, 75 if held), removes every file
   of the seat directory but `seat.lock`, releases; nothing to remove prints nothing.
 - **KT1. The kit** (`member/kit`, n3-D4): assembles a kit directory for a given absolute kit path
   from a built `teamchat`: `bin/teamchat`; `plugin/teamchat/` with `.claude-plugin/plugin.json`
@@ -237,7 +243,11 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
   home by their grammars); the checkout's `.git/config` (`origin`, `insteadOf` refused) and
   `.claude/ccy/ccy.env.local` (owned by the agent uid), 64 KiB each; the handle (TB2.3); the
   source address against `allow_from` on a host bridge; a migration-origin team's v1 holdback
-  through D's adapter (a seam until N6). "Systemd as init" is decided without resolving a magic
+  through D's adapter (a seam until N6), which the seam hands TB1's opener, never the bare root
+  fd (a test plants a FIFO at the v1 env-file path). `tmux` on the guest `PATH` is looked for in
+  each entry by TB1: `ELOOP` or not a regular file at one entry is "not here", the next is tried,
+  and a `tmux` reachable only through a link is a miss naming the path (EL9's `/bin` is a link to
+  `usr/bin`; tested on an EL9-shaped fixture tree). "Systemd as init" is decided without resolving a magic
   link inside the guest: the host's `/proc/<pid>/exe` (a host path) is opened `O_PATH`, and its
   device and inode are compared with the guest's `/usr/lib/systemd/systemd` opened by TB1
   (n3-D17). Any refusal fails the phase before any change.
@@ -262,6 +272,9 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
   through the child under each team's lock; then, once per user after every placement, the host
   copy `/var/lib/teamchat-admin/_lxc/<container>/<user>.json` written first (generation one up),
   then `guest membership`. A user's seats include its teams outside `--only-teams` (n3-D13). A
+  seat whose `place-bundle` was `DEFERRED` this phase (LX6) is left out of that apply's desired
+  seats and the host copy's `seats`, so the running keeper releases the old identity's seat
+  (LN8) and the next apply places the new one; test: the deferred case through step 08. A
   converged apply writes nothing and attaches for nothing but `check`.
 - **LX8. The absent phase** (C 3.9.2): under the team lock, `member park` first; then the desired
   file rewritten with a `farewell` `parked`; the unit stopped, disabled and removed if the user
@@ -289,7 +302,11 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
   record; the seat lock under the user's seat directory through the guest root, by TB1's open,
   `LOCK_SH|LOCK_NB` on the reopened fd; a stopped container's seat is not held. The lock file's
   record is returned in both states, as `health.GuestProbe` carries it: while held, for the run
-  id the tick keeps; when free, for `launch_failed_ms` (C 3.11.2 step 6). H-C10 (inside the
+  id the tick keeps; when free, for `launch_failed_ms` (C 3.11.2 step 6). Its inputs: the init
+  pid and pidfd by LX3's rule (`lxc-info` inside the health unit's sandbox), the user's home from
+  the guest's `/etc/passwd` read by TB1 and grammar-checked. A refused open (a symbolic link on
+  the path, a FIFO or other non-regular `seat.lock`) is free with no record, so no run id is held
+  and no notice asked (n2c-D14's rule); tests for those rows. H-C10 (inside the
   health unit's sandbox, refused without `CAP_SYS_PTRACE`) in the VM lab, **[A]** on the host.
 - **LP2. The LXC disconnected notice** (C 3.11.2 step 6): the child gains the
   `member.disconnected` op (handle, run id, `since_ms`), which calls `notice.Disconnected` as a
@@ -298,8 +315,11 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
   since `since_ms` (none posted when it is `left` or `disconnected`); and the production
   `health.Announcer` behind `health`'s seam, which asks the child for it. Tests on fakehs: one
   post for a run however often asked, none after a `left`, a transient failure posting nothing
-  and answering an error. The rest of the health tick's production wiring (`health --all`, the
-  units seam's D-Bus adapter, the timer unit) is N2's later wiring slice, under gate A; T22's
+  and answering an error. LP2 owns the announcer adapter, which PLAN.md's N2 caller list gives
+  to the production wiring: the commit that lands LP2 updates that list's `notice` line, and the
+  wiring slice consumes LP2's adapter. The godbus decision is made once, in n3b (gap 13), for
+  SU2 and the units seam both. The rest of the health tick's production wiring (`health --all`,
+  the units seam's D-Bus adapter, the timer unit) is N2's later wiring slice, under gate A; T22's
   `lxc-stop -k` row and E2's next-start disconnected notice depend on it (section 11).
 
 ## 4. n3c: the keeper, the link and receiving
@@ -400,6 +420,23 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
   logs one line; an answer to an own ping updates the outbox by its `origin_server_ts` (n3d).
   The flood budget is applied at admission (T19); an admin redaction removes a pending or handed
   item. Nothing is written by these steps but counters and log lines.
+- **SY4a. The verdict's `proto.Lookup`** (A 7.5 rules 3 and 4, its edit rule, UH1). `Event(id)`
+  answers a replied-to event, a thread root or an edit's original (sender, room, verb,
+  addressed-to-self, addressed-to-a-roster-agent) from the store's ledger and outbox, then from
+  the member's own sent events (each own send, `say`, `reply`, `ping` and notices, recorded at
+  its send, n3d), then from a bounded in-memory cache (1024 entries, oldest evicted; n3-D20).
+  On a miss, and only for a main-room human event carrying a reply, thread or edit relation, one
+  `matrix.GetEvent` under the team's request deadline, on the team's kept-alive connection; its
+  answer is cached, and its own addressing is judged from its mentions, `@room` and relations
+  answered without a second fetch. One such request per uncached related event is added to
+  2.14's homeserver connections line (Task 3.4's cost acceptance counts it). A transient failure
+  of the fetch is SY8's transient path: the batch is held unpersisted and re-judged, never
+  guessed as `not-addressed`. A 404 or 403 is an unknown sender: not addressed to this member and
+  not counted unheard (it undercounts rather than miscounts, n3-D20). Tests, with a store holding
+  no record of the event: a human's "Reply in thread" under this member's own `say` is
+  delivered; a human's reply to agent X's post is not counted unheard at Y; the fetch failing
+  transiently persists nothing; a second event with the same relation is a cache hit (no second
+  fetch); a 404 counts nothing.
 - **SY5. Persist, then announce**: once the answer passed SY6's check, one store write holds its
   items, `next_batch`, the floors and the outbox changes, then the delivery goroutine is woken. A
   crash before it re-fetches from the old position; ids pending or in the ledger are skipped.
@@ -414,8 +451,9 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
 - **SY7. A resent `/sync` is safe** (Task 3.1). Go's transport may resend a `/sync` GET on a fresh
   connection when a reused kept-alive one closed before the first byte of the answer (an
   idempotent request), and the client's 429 loop resends with the same `since`; the link neither
-  prevents nor relies on either. Each resend inherits what is left of the one 45 s deadline
-  (`matrix/client.go`'s `once`). Within one database a sync from one `since` is idempotent: the
+  prevents nor relies on either. The 45 s deadline is per try (`matrix/client.go`'s `once`): the
+  transport's own resend is inside one try and shares it; a 429 retry is a new try with its own,
+  bounded by `maxTries` and `maxRateWait`. Within one database a sync from one `since` is idempotent: the
   resend brings the same events from the same position or later, and SY5 skips every id already
   pending or in the ledger, so no item is doubled and the position is persisted once. Across a
   restore, the resend may reach the restored database, which holds a `since` ahead of it to its
@@ -433,7 +471,8 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
      resent answer, the lower `next_batch` after the wait, is discarded; a late drop, whose
      resend times out against the 45 s deadline and is followed by SY6's read. In both the stored
      position is never overwritten by the restored server's answer, the seat resumes from its
-     marker and `released_ms`, and a post made after the restore is delivered;
+     marker alone (an LXC `Bundle` has no `released_ms`, B 2.15's resume-bound row), and a post
+     made after the restore is delivered; the 45 s runs on CK1's clock (gap 12);
   4. a ping's reply that only the discarded answer held leaves the ping unanswered and its
      TIMEOUT is made;
   5. a restore landing between the epoch read and the long-poll; a team paused on a full queue
@@ -442,8 +481,8 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
   6. the epoch read failing transiently: nothing persisted, no long-poll sent;
   7. a restarted LXC store whose `restore_epoch` differs from the roster's resumes as a seat
      with no store before its first sync;
-  8. a 429 answered to a `/sync` and a restore before its retry: the retry's answer is checked
-     like any other and discarded.
+  8. a 429 answered to a `/sync` and a restore before its retry: the retry, a new try, has its
+     answer checked like any other and discarded.
      Task 3.4's `-tags tuwunel` suite runs case 3 against the pinned Tuwunel with its database
      restored from a copy taken earlier in the test.
 - **SY8. Failures** (B 2.6 step 08): transient (unreachable, timeout, 5xx, 429 past retries)
@@ -637,7 +676,7 @@ supervisor), so the switch needs hooks-daemon #127's record too.
 
   - ignored with `not-addressed`: counted only when no agent of the verified roster is
     addressed, that is no roster agent in `m.mentions.user_ids`, no `@room`, no reply or
-    thread root sent by a roster agent, and no edit of a message addressed to one (proto's "reached no agent" predicate, gap 11). A
+    thread root sent by a roster agent, and no edit of a message addressed to one (proto's "reached no agent" predicate, fed by SY4a's Lookup, gap 11). A
     message addressed to agent X is not unheard at Y, which ignores it as not addressed to Y;
   - ignored with `type` or `empty`: counted at every member, because `proto.DecodeHuman`
     refuses them before any addressing rule runs (`verdict.go` `human`), so their addressing is
@@ -646,10 +685,16 @@ supervisor), so the switch needs hooks-daemon #127's record too.
 
   Tests: an `m.emote`, an unaddressed message and a fallback-only reply to this member each count
   once and log without the body; a message mentioning only agent X is not counted at Y (nor at
-  X, which delivers it); a reply to an event sent by agent X is not counted at Y; a reply with
+  X, which delivers it); a reply to an event sent by agent X, and a reply inside X's thread, are
+  not counted at Y through the production Lookup with a store holding no record of X's event
+  (SY4a); a reply with
   text after the fallback is delivered and not counted.
 
 ## 9. Gaps in the built APIs, and how each is closed
+
+Each is closed in the slice that first needs it: n3a gaps 1-4 and 8 (MS3, LK3, LK4 and LK3's
+second-process tests); n3b gaps 10 and 13; n3c gaps 5-7, 11 and 12; gap 9 from n3c on, each
+later slice adding its own failpoints.
 
 01. `paths` has `GuestRuntimeDir` and `SessionUnit`, but no inbox socket form, aside name, floor
     type, guest unit file path or wants-link path, or the second guest runtime parent: PA1 adds
@@ -686,41 +731,46 @@ supervisor), so the switch needs hooks-daemon #127's record too.
 11. `proto` has no unheard count, and its ignore path keeps only "not addressed to me": proto
     gains a "reached no agent" predicate over a `Human` and the verified roster (no roster agent
     mentioned, no `@room`, no reply or thread root sent by a roster agent, no edit of a message
-    addressed to one), which the link calls
-    on the `not-addressed` ignore path; the count itself is the member's (UH1).
+    addressed to one), which the link calls on the `not-addressed` ignore path; the count itself
+    is the member's (UH1). The predicate and rules 3 and 4 read the related event through
+    `proto.Lookup`, whose production form, ledger, own sends, cache and fetch, is SY4a's.
 12. fakehs's long-poll holds on a real `time.NewTimer(timeoutMS)` (`sync.go`), so a hold to the
     link's 30 s timeout (H-C14) costs real seconds per case: fakehs takes an injected timer for
     the long-poll hold, driven by the test's fake clock, so SY7's restore cases and every other
-    hold run without sleeping.
+    hold run without sleeping. `matrix.Client`'s per-try deadline (`once`'s
+    `context.WithTimeout`) is real time too: it is taken from the client's clock seam (the one its
+    429 wait already sleeps on), so SY7 case 3's late drop times out on CK1's clock.
 13. godbus, which SU2 needs, is not in `go.mod` or `go-deps.allowlist`: adding it is a module
     decision (src-go/CLAUDE.md), made in n3b with its allowlist row and reason, `teamchat-admin`
-    only (CL1's `keepout` row keeps it out of `./cmd/teamchat`). godbus offers no read cap that
+    only (CL1's second `keepout` row keeps it out of `./cmd/teamchat`), and serves the units
+    seam's D-Bus adapter in the wiring slice too (LP2). godbus offers no read cap that
     n3b relies on: the transport is wrapped in a capped reader (SU2), tested with an oversized
     message.
 
 ## 10. Decisions where the design is silent or wrong
 
-| ID     | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| n3-D1  | A guest bundle is placed into an existing seat directory file by file (`token`, then `seat.json`), keeping `store.json` and `seat.lock` when the identity is the same, and setting the store aside under the seat lock first when it is not (GU3); the directory swap is for a seat that has none. C 3.9.2 step 7's "swapped in" and B 2.13's `place-bundle` row ("a new directory swapped into place") would delete the store and unlink a held lock, against B 2.5 and B 2.6 step 01 (a). |
-| n3-D2  | `run.ended.notice` gains `none` (with `reason` `restart`, `state` `skipped`, `txn` null) for RS2; closing a run acts only on `attempted` and `null`, so nothing else changes.                                                                                                                                                                                                                                                                                                               |
-| n3-D3  | The guest unit is `/etc/systemd/system/teamchat-session-<user>.service`; its wants link is an absolute link in `/etc/systemd/system/multi-user.target.wants/`, made by `symlinkat` to a temporary name and `renameat2`; the host writes both (C 3.9.4), so DC13 (b) still starts the unit at the next boot.                                                                                                                                                                                 |
-| n3-D4  | The kit (plugin, settings, binary) is assembled by `member/kit` for the kit's absolute path (KT1); the host kit's files are valid in a guest unchanged because the guest path is the same; ccy's image kit is rendered for its own path (N4).                                                                                                                                                                                                                                               |
-| n3-D5  | The sync filter is sent inline on every long-poll, not uploaded (B 2.6 step 02 says uploaded and kept by id): a filter id uploaded after a backup is unknown after a restore, and inline needs no state; a resend carries the same filter, so it is idempotent by construction. The largest roster's filter (16 humans and 64 members) is pinned as a URL against Tuwunel in Task 3.4's `-tags tuwunel` suite.                                                                              |
-| n3-D6  | `guest check` reads `{"v":1,"team","base_url","plain_http_hosts"}` on stdin for `reach`, from the team's declaration; `gh` is checked by `gh auth status --hostname github.com` exiting 0 as the user, `gh` found on the unit's `PATH`.                                                                                                                                                                                                                                                     |
-| n3-D7  | The guest's init is pinned by a pidfd: open it, open `/proc/<pid>/root`, then check the pidfd alive and `lxc-info -pH` unchanged; K10's before-and-after pid check is kept and the pidfd closes the reuse window.                                                                                                                                                                                                                                                                           |
-| n3-D8  | Kit collection reads both runtime parents, `/run/user/<uid>/teamchat/run/*/` and the unit's `/run/teamchat-session-<user>/teamchat/run/*/`; an absent parent is no session.                                                                                                                                                                                                                                                                                                                 |
-| n3-D9  | The seat lock record's `launch_failed_ms` and run id stay member-written: they can only stop the host speaking about that member, which its own token can do; the host never acts on them otherwise (TB2.1).                                                                                                                                                                                                                                                                                |
-| n3-D10 | The handle derived from a guest checkout is used for the first join only; afterwards the LXC record's handle is kept and a different derivation is refused by name ("the checkout's origin changed; retire and add the member to change its handle"), so a member's file never makes a new account.                                                                                                                                                                                         |
-| n3-D11 | `lxc apply`'s stdin is the declared members in `declare.LXCMember`'s shape, read by `declare`'s strict reader and held by its gate.                                                                                                                                                                                                                                                                                                                                                         |
-| n3-D12 | The absent phase parks a missing container's member from the host and drops its record entry; a stopped container's member is parked from the host too, but its entry stays (`left`, guest files pending) until a phase finds the container running and cleans its files (C 3.9.2). Each phase writes the record when it changed it, the present phase only after it succeeded.                                                                                                             |
-| n3-D13 | `--only-teams` limits which entries a phase acts on; a user's desired file still lists every team the user is placed in, from the host copy.                                                                                                                                                                                                                                                                                                                                                |
-| n3-D14 | One open rule below a guest root: `RESOLVE_IN_ROOT` (C 3.9.1, 3.9.2, K10, H-C10), not the `RESOLVE_BENEATH` of C 3.11.1's text. The code passes the clean absolute guest path, which `RESOLVE_IN_ROOT` resolves against the root fd; `RESOLVE_BENEATH` would refuse an absolute path (`EXDEV`) and needs it made relative, which is the only form in which the two resolve the same. One rule is one test.                                                                                  |
-| n3-D15 | A unit stop signals every process (default `KillMode`), so Claude Code may get `SIGTERM` from systemd and from the keeper; the keeper forwards once whatever it received, and the second signal changes nothing. T22's LXC rows prove it.                                                                                                                                                                                                                                                   |
-| n3-D16 | A missing `desired.json` under a given `--desired` is 78 `membership`: the host writes it for every launch (C 3.7.5), so its absence is a fault, not "no team".                                                                                                                                                                                                                                                                                                                             |
-| n3-D17 | TB1 departs from C 3.9.2 step 03 and the L3 probe, which open read-only and non-blocking and then `fstat`: on a FIFO that open succeeds and makes the host a reader. TB1 opens `O_PATH` first and reopens only a regular file. C 3.9.2's "`/proc/<init pid>/exe` resolved in the guest" is a magic link TB1 refuses, so systemd as init is checked by device and inode against the guest's systemd binary (LX4).                                                                            |
-| n3-D18 | B37 gives no numbers for a freeze: SY12 takes a deadline overdue by more than 10 s, or a growth of more than 2 s in `CLOCK_BOOTTIME` minus `CLOCK_MONOTONIC` between readings. Both are far above scheduling noise and far below a real suspend.                                                                                                                                                                                                                                            |
-| n3-D19 | B 2.3.3's closed set of desired `code`s (`json`, `schema`, `version`, `seat`) gains `missing` for a desired file deleted under a live keeper (RC1), so the deletion is said by its own name; launch-time absence stays 78 `membership` (n3-D16).                                                                                                                                                                                                                                            |
+| ID     | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| n3-D1  | A guest bundle is placed into an existing seat directory file by file (`token`, then `seat.json`), keeping `store.json` and `seat.lock` when the identity is the same, and setting the store aside under the seat lock first when it is not (GU3); the directory swap is for a seat that has none. C 3.9.2 step 7's "swapped in" and B 2.13's `place-bundle` row ("a new directory swapped into place") would delete the store and unlink a held lock, against B 2.5 and B 2.6 step 01 (a). So `place-bundle` gains exit 75, which B 2.13 gives to `remove` only (GU1). |
+| n3-D2  | `run.ended.notice` gains `none` (with `reason` `restart`, `state` `skipped`, `txn` null) for RS2; closing a run acts only on `attempted` and `null`, so nothing else changes.                                                                                                                                                                                                                                                                                                                                                                                           |
+| n3-D3  | The guest unit is `/etc/systemd/system/teamchat-session-<user>.service`; its wants link is an absolute link in `/etc/systemd/system/multi-user.target.wants/`, made by `symlinkat` to a temporary name and `renameat2`; the host writes both (C 3.9.4), so DC13 (b) still starts the unit at the next boot.                                                                                                                                                                                                                                                             |
+| n3-D4  | The kit (plugin, settings, binary) is assembled by `member/kit` for the kit's absolute path (KT1); the host kit's files are valid in a guest unchanged because the guest path is the same; ccy's image kit is rendered for its own path (N4).                                                                                                                                                                                                                                                                                                                           |
+| n3-D5  | The sync filter is sent inline on every long-poll, not uploaded (B 2.6 step 02 says uploaded and kept by id): a filter id uploaded after a backup is unknown after a restore, and inline needs no state; a resend carries the same filter, so it is idempotent by construction. The largest roster's filter (16 humans and 64 members) is pinned as a URL against Tuwunel in Task 3.4's `-tags tuwunel` suite.                                                                                                                                                          |
+| n3-D6  | `guest check` reads `{"v":1,"team","base_url","plain_http_hosts"}` on stdin for `reach`, from the team's declaration; `gh` is checked by `gh auth status --hostname github.com` exiting 0 as the user, `gh` found on the unit's `PATH`.                                                                                                                                                                                                                                                                                                                                 |
+| n3-D7  | The guest's init is pinned by a pidfd: open it, open `/proc/<pid>/root`, then check the pidfd alive and `lxc-info -pH` unchanged; K10's before-and-after pid check is kept and the pidfd closes the reuse window.                                                                                                                                                                                                                                                                                                                                                       |
+| n3-D8  | Kit collection reads both runtime parents, `/run/user/<uid>/teamchat/run/*/` and the unit's `/run/teamchat-session-<user>/teamchat/run/*/`; an absent parent is no session.                                                                                                                                                                                                                                                                                                                                                                                             |
+| n3-D9  | The seat lock record's `launch_failed_ms` and run id stay member-written: they can only stop the host speaking about that member, which its own token can do; the host never acts on them otherwise (TB2.1).                                                                                                                                                                                                                                                                                                                                                            |
+| n3-D10 | The handle derived from a guest checkout is used for the first join only; afterwards the LXC record's handle is kept and a different derivation is refused by name ("the checkout's origin changed; retire and add the member to change its handle"), so a member's file never makes a new account.                                                                                                                                                                                                                                                                     |
+| n3-D11 | `lxc apply`'s stdin is the declared members in `declare.LXCMember`'s shape, read by `declare`'s strict reader and held by its gate.                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| n3-D12 | The absent phase parks a missing container's member from the host and drops its record entry; a stopped container's member is parked from the host too, but its entry stays (`left`, guest files pending) until a phase finds the container running and cleans its files (C 3.9.2). Each phase writes the record when it changed it, the present phase only after it succeeded.                                                                                                                                                                                         |
+| n3-D13 | `--only-teams` limits which entries a phase acts on; a user's desired file still lists every team the user is placed in, from the host copy.                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| n3-D14 | One open rule below a guest root: `RESOLVE_IN_ROOT` (C 3.9.1, 3.9.2, K10, H-C10), not the `RESOLVE_BENEATH` of C 3.11.1's text. The code passes the clean absolute guest path, which `RESOLVE_IN_ROOT` resolves against the root fd; `RESOLVE_BENEATH` would refuse an absolute path (`EXDEV`) and needs it made relative, which is the only form in which the two resolve the same. One rule is one test.                                                                                                                                                              |
+| n3-D15 | A unit stop signals every process (default `KillMode`), so Claude Code may get `SIGTERM` from systemd and from the keeper; the keeper forwards once whatever it received, and the second signal changes nothing. T22's LXC rows prove it.                                                                                                                                                                                                                                                                                                                               |
+| n3-D16 | A missing `desired.json` under a given `--desired` is 78 `membership`: the host writes it for every launch (C 3.7.5), so its absence is a fault, not "no team".                                                                                                                                                                                                                                                                                                                                                                                                         |
+| n3-D17 | TB1 departs from C 3.9.2 step 03 and the L3 probe, which open read-only and non-blocking and then `fstat`: on a FIFO that open succeeds and makes the host a reader. TB1 opens `O_PATH` first and reopens only a regular file. C 3.9.2's "`/proc/<init pid>/exe` resolved in the guest" is a magic link TB1 refuses, so systemd as init is checked by device and inode against the guest's systemd binary (LX4).                                                                                                                                                        |
+| n3-D18 | B37 gives no numbers for a freeze: SY12 takes a deadline overdue by more than 10 s, or a growth of more than 2 s in `CLOCK_BOOTTIME` minus `CLOCK_MONOTONIC` between readings. Both are far above scheduling noise and far below a real suspend.                                                                                                                                                                                                                                                                                                                        |
+| n3-D19 | B 2.3.3's closed set of desired `code`s (`json`, `schema`, `version`, `seat`) gains `missing` for a desired file deleted under a live keeper (RC1), so the deletion is said by its own name; launch-time absence stays 78 `membership` (n3-D16).                                                                                                                                                                                                                                                                                                                        |
+| n3-D20 | A 7.5's "one event fetch, which B caches" is unspecified in B: SY4a's cache holds 1024 entries in memory, oldest evicted, lost at a link restart (a miss is one more fetch). A related event the server answers 404 or 403 for has an unknown sender: not addressed to this member and not counted unheard, so the count may undercount and never miscounts. A transient failure holds the batch, never a guess.                                                                                                                                                        |
 
 ## 11. B 2.15's tests, where each lives
 
@@ -762,7 +812,7 @@ Each is checked by PT1 after every interleaved run, and by the expectation named
 | T1 single writer                                            | LK3, LN8                                                                                                                                                                                                                                                                         |
 | T2 `recv`, T3 `wait`, T4 no listener                        | LN4, LN3, LN2                                                                                                                                                                                                                                                                    |
 | T5 hook peers                                               | LN7                                                                                                                                                                                                                                                                              |
-| T6 no team, T7 kit upgrade, T8 leftovers                    | RN2, RN1, LN7 (the conversation record)                                                                                                                                                                                                                                          |
+| T6 no team, T7 kit upgrade, T8 leftovers                    | T6: RN2 and LN7 (the conversation record); T7: RN1 (`--kit`); T8: RN1 (leftover runtimes)                                                                                                                                                                                        |
 | T9 reconcile                                                | RC1                                                                                                                                                                                                                                                                              |
 | T10 permanent failure                                       | SY8                                                                                                                                                                                                                                                                              |
 | T11 replay and restore                                      | SY1, SY5, SY6, SY7; B44's floors in MS1/DV3                                                                                                                                                                                                                                      |
@@ -773,7 +823,7 @@ Each is checked by PT1 after every interleaved run, and by the expectation named
 | T16 removal                                                 | LN8                                                                                                                                                                                                                                                                              |
 | T17 per-launch settings                                     | RN1, CL5                                                                                                                                                                                                                                                                         |
 | T18 one team per delivery, T19 flood budget                 | DV3, SY4                                                                                                                                                                                                                                                                         |
-| T20 keeper lost, T21 the end, T23 crash loop                | LN1, KP1, KP3, KP2                                                                                                                                                                                                                                                               |
+| T20 keeper lost, T21 the end, T23 crash loop                | LN1, KP1, KP3, KP2; T23's host tick posting one `disconnected` per LXC seat on `failed` is LP1 and LP2                                                                                                                                                                           |
 | T22 every member kind's ends                                | VM lab, Task 3.4 (LXC rows) and Task 4.4 (ccy rows); the LXC `lxc-stop -k` row needs LP2 and the health tick's production wiring (N2's later wiring slice, gate A)                                                                                                               |
 | T24 resume bound                                            | SY1                                                                                                                                                                                                                                                                              |
 | T25 runtime wakeups, 2.14's bars                            | KP1; `acceptance-member-cost.bash`, Task 3.4                                                                                                                                                                                                                                     |
