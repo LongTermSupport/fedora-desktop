@@ -9,7 +9,9 @@
 #   gum        a question (confirm, input, choose, write, filter, file) is a screen as fzf is;
 #              anything else (style, spin) runs the real gum
 #
-# The caller sets S1_SHIM_LOG, S1_UI_MARK, S1_REAL_AGENT_BUS and S1_REAL_GUM.
+# The first screen's arguments (a gum question's heading and words) go to S1_UI_MARK.argv, one
+# a line, so a question asked before the table can be named. The caller sets S1_SHIM_LOG,
+# S1_UI_MARK, S1_REAL_AGENT_BUS and S1_REAL_GUM.
 set -euo pipefail
 
 name="${0##*/}"
@@ -17,6 +19,7 @@ name="${0##*/}"
 stamp_screen() {
     printf 'ui %s%s\n' "${name}" "${1:+ $1}" >>"${S1_SHIM_LOG}"
     if [[ ! -e "${S1_UI_MARK}" ]]; then
+        printf '%s\n' "${@:2}" >"${S1_UI_MARK}.argv"
         printf '%s %s%s\n' "${EPOCHREALTIME}" "${name}" "${1:+ $1}" >"${S1_UI_MARK}"
     fi
 }
@@ -37,13 +40,13 @@ agent-bus)
     exec "${S1_REAL_AGENT_BUS}" "$@"
     ;;
 fzf)
-    stamp_screen
+    stamp_screen "" "$@"
     exit 130
     ;;
 gum)
     case "${1:-}" in
     confirm | input | choose | write | filter | file)
-        stamp_screen "$1"
+        stamp_screen "$@"
         exit 130
         ;;
     esac
