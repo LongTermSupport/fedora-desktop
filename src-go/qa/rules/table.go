@@ -148,6 +148,11 @@ var dynamicNames = []allowance{
 		reason: "teamchat-admin itself, run as the teamchat-ctl child: the running binary resolved from /proc/self/exe (SPEC-n2f CS2)",
 	},
 	{
+		pkg:    "internal/teamchat/admin",
+		fn:     "UnitChild.Ask",
+		reason: "/usr/bin/systemd-run of the restore's secure unit (it refuses any other argv[0]), argv from restore.SecureArgv (SPEC-n2g RU2); the program inside is teamchat-admin itself, a run-time path",
+	},
+	{
 		pkg:    "internal/wsi",
 		fn:     "run.sibling",
 		reason: "wsi-stop-grace, wsi-setting or wsi-resolve-model, run from the directory the wsi binary is in",
