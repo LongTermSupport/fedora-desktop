@@ -58,6 +58,34 @@ func inALiteral() func(string) (bool, error) {
 	}
 }
 
+// cancelsThenReasks reads one kind, the interrupt, and still asks again on every other one, a
+// refusal of the file included.
+func cancelsThenReasks(err error) (bool, error) {
+	if errors.Is(err, declare.ErrInterrupted) {
+		return false, err
+	}
+	if de, ok := errors.AsType[*declare.Error](err); ok { // want `a \*declare.Error is read without its kind`
+		fmt.Printf("  %s. Try again.\n", de.Error())
+		return false, nil
+	}
+	return false, err
+}
+
+// printsCodeThenReasks reads the code only to say it, and asks again whatever it is.
+func printsCodeThenReasks(err error) (bool, error) {
+	if de, ok := errors.AsType[*declare.Error](err); ok { // want `a \*declare.Error is read without its kind`
+		fmt.Printf("  exit %d: %s. Try again.\n", de.Code, de.Error())
+		return false, nil
+	}
+	return false, err
+}
+
+// asksTheWrongKind asks whether the file refused, so a crash of declare.py is asked again too.
+func asksTheWrongKind(err error) bool {
+	var de *declare.Error
+	return errors.As(err, &de) && !de.Is(declare.ErrRefused) // want `a \*declare.Error is read without its kind`
+}
+
 // isUsageOfAnother reads a kind, but of a different error than the one it recovered.
 func isUsageOfAnother(err, other error) bool {
 	if _, ok := errors.AsType[*declare.Error](err); ok { // want `a \*declare.Error is read without its kind`

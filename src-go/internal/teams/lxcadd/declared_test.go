@@ -116,7 +116,8 @@ func TestAMemberDeclaredOtherwiseNamesTheKeysAndUpdatesOnlyWhenChosen(t *testing
 			t.Fatalf("%s: the differences are not named:\n%s", choice, said)
 		}
 		if choice == stopChoice {
-			if code != term.ExitFailure || r.hostVars(t) != before || len(r.applied) != 0 || !strings.Contains(said, "Nothing was changed.") {
+			if code != term.ExitFailure || r.hostVars(t) != before || len(r.applied) != 0 || !strings.Contains(said, "Nothing was changed.") ||
+				!strings.Contains(said, "ccy-teams apply alpha joins it as declared") {
 				t.Fatalf("stop: exit %d, applied %v: %s", code, r.applied, said)
 			}
 			continue
@@ -154,6 +155,23 @@ func TestARefusalOfTheFileStopsAtOnceNamingItNotAskedAgain(t *testing.T) {
 	}
 	if r.addLine() != "" || len(r.applied) != 0 {
 		t.Fatalf("add %q applied %v", r.addLine(), r.applied)
+	}
+}
+
+// A declare.py that crashes is said as a failure of declare.py, not as a refusal of the file,
+// and is not asked again.
+func TestACheckThatCrashesIsAFailureNotARefusalOfTheFile(t *testing.T) {
+	r := newRig(t)
+	r.answers(choose("container-a"), choose("agent"), choose("agent"), choose("agent"))
+	r.OnErr(r.DeclarePrefix("lxc-check"), "Traceback (most recent call last):\n", 1)
+	code := r.run("alpha")
+	said := r.ErrOut.String()
+	if code != term.ExitFailure || strings.Contains(said, "refusal of") || strings.Contains(said, "Try again") ||
+		!strings.Contains(said, "declare.py failed (exit 1)") || !strings.Contains(said, "Traceback") {
+		t.Fatalf("exit %d:\n%s", code, said)
+	}
+	if n := strings.Count(strings.Join(r.Script.GumLog, "\n"), "User in container-a"); n != 1 {
+		t.Fatalf("the user was asked %d times", n)
 	}
 }
 

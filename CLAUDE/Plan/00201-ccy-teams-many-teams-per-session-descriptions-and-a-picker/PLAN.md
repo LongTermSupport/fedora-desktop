@@ -245,7 +245,7 @@ a repository is no longer offered for a checkout of it. Report:
   ratchet, so the wait belongs in the Python helper.
 - [ ] 🔄 **Task 2.20**: `ccy-teams lxc-add` asked three times over "entries 5 and 6 both
   declare <user>@<container>" for a member an earlier run had declared (branch
-  `fix/lxc-add-already-declared`, CCY 3.99.14.13 / container 2.78.16, the image's declare.py).
+  `fix/lxc-add-already-declared`, CCY 3.99.14.14 / container 2.78.17, the image's declare.py).
   DBF class: a declare.py refusal read by its type and not its kind, so a refusal of the
   host_vars file is asked again as a wrong answer; defence `project_refusal_kind`
   ([GoProjectRules.md](../../GoProjectRules.md)), red at 0ca99358c with 4 findings (lxcadd
@@ -253,14 +253,19 @@ a repository is no longer offered for a checkout of it. Report:
   fix. declare.py now gives a value alone 64 and an entry against the file 78; lxc-add says a
   member declared as given is declared already and applies after one yes, names each key that
   differs and offers to update, and stops at once on a refusal of the file, naming it. The
-  create wizard stops the same way, and an interrupt cancels. Found and fixed with it: the
+  create wizard stops the same way, an interrupt cancels, and a declare.py that crashes is said
+  as a failure, not a refusal of the file. After the DBF conformance review and Opus round 1 the
+  rule clears a function only on `ErrUsage` or the exit code handed on whole (red on three new
+  fixture shapes; its one new real-tree finding, lxc-add's dry-run refusal, stops with the code
+  in `&stop{...}`, so the rule now counts a code handed on inside a returned literal); in declare.py a team not declared present is 78, `set` gives 78 only for a key the
+  change leaves alone, `lxc-add --update` refuses to lose a comment, and `create`'s "already
+  declared" names `ccy-teams apply`. lxc-add's Stop on a member declared otherwise names
+  `ccy-teams apply <team>`. Found and fixed with it: the
   wizard read any failing `gh api` as "no such name" (a probe read as a verdict, the class in
   GoProjectRules.md "cannot be a rule"): only gh's `(HTTP 404)` is not found, any other failure
   ends the run with gh's words. Also D1 of the M7 acceptance (`m7_check.py`) reads the list's
   columns from its heading (64d5bc3b6). Left: the host run (meta-deploy, play-claude-yolo.yml
-  entry) and the owner's `ccy-teams lxc-add` of the member refused before. Not changed, recorded:
-  `declare.py create`'s "team X is already declared" stays a 64 (another name can pass); its
-  message could name `ccy-teams apply <team>` as the way on. Reports:
+  entry) and the owner's `ccy-teams lxc-add` of the member refused before. Reports:
   `subagent-reports/261022-lxc-add-*.md`.
 
 ## Success Criteria

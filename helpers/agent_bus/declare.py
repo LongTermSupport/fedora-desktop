@@ -82,8 +82,9 @@ trusted reference may name any path in the team's repositories (a team narrows i
         already declared as given is UNCHANGED<TAB>... (exit 0); declared otherwise, it is
         refused naming each key that differs (78), and --update makes its entry the one given.
         The entry is judged by the play's own rules (`members.parse_members`): a value refused
-        alone (a bad role, a team not declared present) is 64; refused among the entries already
-        there (a second coordinator, two hosts), or the file's entries refused as they stand, 78
+        alone (a bad role) is 64; a team the file does not declare present, an entry refused
+        among the entries already there (a second coordinator, two hosts), or the file's entries
+        refused as they stand, 78
     python3 -m helpers.agent_bus.declare lxc-compare --file <localhost.yml> --team T --container C
             --user U [--checkout PATH] [--role R] [--host H] [--seat S]
         DECLARED<TAB><entry number> when the file declares the member, then
@@ -164,6 +165,8 @@ EXIT_USAGE = 64
 EXIT_REFUSED = 78
 EXIT_INTERRUPTED = 130
 
+# The key a team-file refusal names, as teamfile._fail writes it: "team file: <key>: <rule>".
+_REFUSED_KEY_RE = re.compile(r"team file: (?P<key>[a-z_]+): ")
 _KEY_LINE_RE = re.compile(r"(?P<key>[a-z_]+):(?P<rest>(?:\s.*)?)")
 _ADDRESS_RE = re.compile(rf"{ADDRESS_KEY}\s*:(?P<rest>.*)")
 
@@ -766,7 +769,8 @@ def _check_flags(hv: HostVars, args: argparse.Namespace) -> None:
     """Every value the flags give, by the team file's rules; UsageError names the first bad one."""
     if args.team is not None:
         if any(t.team == args.team for t in hv.teams):
-            raise UsageError(f"--team: team {args.team} is already declared in {TEAMS_KEY}")
+            raise UsageError(f"--team: team {args.team} is already declared in {TEAMS_KEY}: choose another name, "
+                             f"or ccy-teams apply {args.team} installs it as declared")
         problem = field_error("team", args.team)
         if problem:
             raise UsageError(f"--team: {problem}")
@@ -820,9 +824,11 @@ def create(args: argparse.Namespace, ss_output: Callable[[], str], out: TextIO, 
 
 
 def _present(hv: HostVars, name: str) -> Declared:
+    """The team of that name declared present, with a port. A team the file does not declare so
+    is the file's state, refused (78): no value given for the team's keys can pass."""
     team = next((t for t in hv.teams if t.team == name and t.state == "present"), None)
     if team is None or team.port is None:
-        raise UsageError(f"--team: team {name} is not declared present, with a port, in {TEAMS_KEY}")
+        raise DeclareError(f"--team: team {name} is not declared present, with a port, in {TEAMS_KEY}")
     return team
 
 
@@ -1139,9 +1145,11 @@ def set_values(text: str, name: str, changes: Mapping[str, object | None]) -> st
 
     problem = refusal(after)
     if problem is not None:
-        if problem == refusal(before):
+        named = _REFUSED_KEY_RE.match(problem)
+        if problem == refusal(before) and named is not None and named["key"] not in changes:
             # The entry is refused as it stands, for a key the change leaves alone: the file is
-            # at fault, and no value given for these keys could pass (exit 78).
+            # at fault, and no value given for these keys could pass (exit 78). A refusal that
+            # names a changed key, or no key, may pass with another value (64).
             raise DeclareError(f"team {name}'s entry in {TEAMS_KEY} is refused as it stands ({problem}); "
                                "fix it in the file first")
         raise UsageError(problem)
@@ -1231,9 +1239,10 @@ def check_lxc(text: str, given: dict) -> None:
     """UsageError naming the first value of `given` the play would not accept. Each field is
     judged by `members.parse_members`, the play's own validator, as a one-entry list with the
     rest filled in; with team, container and user all given, the entry is judged among the
-    entries already there, which is where a duplicate or a second coordinator shows."""
+    entries already there, which is where a duplicate or a second coordinator shows. A team the
+    file does not declare present is DeclareError (78), the file's state."""
     if "team" in given and not any(t.team == given["team"] and t.state == "present" for t in parse(text).teams):
-        raise UsageError(f"--team: team {given['team']} is not declared present in {TEAMS_KEY}")
+        raise DeclareError(f"--team: team {given['team']} is not declared present in {TEAMS_KEY}")
     if "host" in given:
         try:
             resolved = registry.resolve_host(given["host"], None)
@@ -1408,8 +1417,8 @@ def add_lxc(text: str, given: dict, *, update: bool = False) -> str | None:
 def _replace_lxc(lxc: HostVars, position: int, existing: Sequence[dict], given: dict, differing: Sequence[str]) -> str:
     """The file's text with entry `position` made the given entry, every other line as it was:
     each differing key the entry gives is set where it is, or added after the entry's last key;
-    each one it does not give is removed. A key with lines nested under it, or an entry whose
-    first line is not its team, is left to a hand (DeclareError)."""
+    each one it does not give is removed. A key with lines nested under it or a comment the edit
+    would lose, or an entry whose first line is not its team, is left to a hand (DeclareError)."""
     item = lxc.teams[position - 1]
     keys = {key: (index, more) for key, _, index, more in item.raw}
     label = f"{given['user']}@{given['container']}"
@@ -1424,8 +1433,11 @@ def _replace_lxc(lxc: HostVars, position: int, existing: Sequence[dict], given: 
         line = f"{' ' * lxc.key_indent}{key}: {json.dumps(given[key])}\n" if key in given else None
         if index is None:
             inserted.extend([line] if line else [])
-        else:
-            lines[index] = line
+            continue
+        if _has_comment(lxc.lines, index, index + 1):
+            raise DeclareError(f"{label}'s {key} on line {index + 1} carries a comment, which this edit would lose; "
+                               "update the entry by hand")
+        lines[index] = line
     last, nested = max((index, more) for index, more in keys.values())
     at = (last if not nested else keys["team"][0]) + 1
     new = "".join(line for line in (*lines[:at], *inserted, *lines[at:]) if line is not None)

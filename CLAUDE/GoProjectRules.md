@@ -398,9 +398,15 @@ tracks it.
 
 A function (each function literal judged on its own) that recovers a `*declare.Error` of
 `internal/declare` by its type (`errors.AsType`, `errors.As`, a type assertion, a type switch
-case) and never reads its kind: no `errors.Is` against a `declare.Err*` kind, no `.Is` call, no
-`.Code`. declare.py refuses in kinds: exit 64 (`declare.ErrUsage`) is the value just given, exit
-78 (`declare.ErrRefused`) the host_vars file, its entries, or the answer against them. A question
+case) and never tells the one kind asking again can fix from the rest: it names no
+`declare.ErrUsage` (`errors.Is(err, declare.ErrUsage)`, `.Is(declare.ErrUsage)`) and does not
+hand the exit code on whole (a returned `.Code`, converted or not, alone or as a field of a
+returned literal such as `&stop{term.ExitCode(de.Code)}`). Naming another kind (`ErrInterrupted`,
+`ErrRefused`) or reading `.Code` to print it does not count: the rest are still asked again.
+declare.py refuses in kinds: exit 64 (`declare.ErrUsage`) is the value just given, which another
+answer can fix; exit 78 (`declare.ErrRefused`) is the host_vars file, its entries, or the answer
+against them, which no answer to the question can fix (a team the file does not declare present
+is one). A question
 that reads every refusal as one verdict asks again when the file is at fault, and retyping can
 never succeed. Re-ask only on `declare.ErrUsage`; stop on the rest, saying the refusal and the
 file it is about ([InteractiveScripts.md](InteractiveScripts.md): re-prompting is for a
@@ -408,19 +414,19 @@ recoverable input mistake).
 
 - Red, fixture: `testdata/src/fix/internal/badrefusal` (`bad.go`: lxc-add's original `checked`,
   the create wizard's `isRefusal`, a type assertion, a type switch, a checker literal, a kind
-  read of a different error; `good.go`: a retry on `ErrUsage` only, an exit with `.Code`, an
-  `.Is` call, a bare `errors.Is`, clean). The stub `fix/internal/declare` has the real shape.
+  read of a different error, an interrupt cancelled then every other kind re-asked, `.Code`
+  only printed, `.Is(declare.ErrRefused)`; `good.go`: a retry on `ErrUsage` only, an exit with
+  `.Code` bare, converted and inside a returned `&stop{...}`, `.Is(declare.ErrUsage)`, a bare
+  `errors.Is`). The stub `fix/internal/declare` has the real shape.
 - Red, real tree: `lxcadd.Adder.checked` (the owner's three "entries 5 and 6 both declare"
   refusals), and in `create`: `Wizard.checked`, `isRefusal` (any refusal read as "not
   OWNER/REPO") and `askHumans` (any refusal read as "your login cannot be an account name").
-- Green: each re-asks on `declare.ErrUsage` only, and stops on any other kind naming the file.
-- The other half of the class is declare.py's: a refusal must carry the right kind. `check_lxc`
-  and `derive_lxc` re-raised a clash with an existing entry as a usage error (64), so even a
-  question that read the kind would have asked again. They now refuse a value alone with 64 and
-  an entry against the file's entries with 78; `tests/helpers/agent_bus/test_declare.py` holds
-  it (no Python rule gate exists for `helpers/`, so this half is held by tests, not a rule).
-- Not caught: a kind read of some other error in the same function (the function names a kind,
-  so it passes), and a declare refusal re-wrapped in another error type before it is read.
+- Green: each re-asks on `declare.ErrUsage` only, cancels on an interrupt, stops on a refusal of
+  the file naming it, and says any other failure as declare.py failing.
+- Not caught: a function that names `ErrUsage` but branches on it the wrong way round, a kind
+  read of some other error in the same function, and a declare refusal re-wrapped in another
+  error type before it is read. The other half of the class, declare.py giving a refusal the
+  right kind, is in [Defect classes that cannot be a rule](#defect-classes-that-cannot-be-a-rule).
 
 ## Defect classes that cannot be a rule
 
@@ -444,6 +450,26 @@ guessing; the catalogue claims no more than the code does.
   bad credentials or a rate limit asked the person for another name. Only gh's `(HTTP 404)` is
   not found now (`ghNotFound`); any other failure ends the run with gh's own words. What holds
   it: the wizard's tests, which run a 404 against no network, a 401, a 403 and a 502.
+- **A declare.py refusal given the wrong kind** (the other half of `project_refusal_kind`, Plan
+  00201): `check_lxc` and `derive_lxc` raised a clash with an entry already in the file as a
+  usage error (64), as did a team the file does not declare present, and `set` gave 78 to a value
+  another answer could fix; so a question that read the kind still asked again, or stopped where
+  it should ask. Which refusals another answer can fix is a fact about what the question asks,
+  not a shape in the syntax tree: semgrep runs over Python here, but no pattern can tell
+  `UsageError` from `DeclareError` by meaning. What holds it: `tests/helpers/agent_bus/test_declare.py`
+  pins the kind of each refusal (a value alone 64; the file's entries, an answer against them, a
+  team not declared present, an entry refused as it stands for a key the change leaves alone,
+  78).
+- **An add that refuses what is already there** (Plan 00201): `lxc-add` of a member the file
+  declares as given was refused as a duplicate of itself, so a run after a failed play could never
+  get on. Whether a second add of the same thing is "nothing to do" or a conflict depends on what
+  the entry means, not on a shape: an analyzer could pin that an add prints UNCHANGED somewhere,
+  and would then say nothing about one that prints it on the wrong comparison. What holds it:
+  `test_declare.py` (`LxcAlreadyDeclaredTest`: identical is UNCHANGED, differing is 78 naming the
+  keys, `--update` replaces) and `lxcadd/declared_test.go`, which runs the real declare.py. The
+  other adds were read: `create` of a team declared as asked is UNCHANGED, and its name question
+  says `ccy-teams apply <team>` is the way on; `add-repo` of a repository the team trusts is
+  UNCHANGED; `drop-limit` and `admin.py add_member` are not adds of the same entry.
 
 ## Control
 

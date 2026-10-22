@@ -260,7 +260,7 @@ func TestSettings(t *testing.T) {
 	}
 	for _, team := range []string{"gamma", "old", "nobody"} {
 		_, err = HostVars(board).Settings(team)
-		if !errors.Is(err, ErrUsage) || err.Error() != "--team: team "+team+" is not declared present, with a port, in agent_bus_teams" {
+		if !errors.Is(err, ErrRefused) || err.Error() != "--team: team "+team+" is not declared present, with a port, in agent_bus_teams" {
 			t.Errorf("%s: %v", team, err)
 		}
 	}
@@ -287,7 +287,7 @@ func TestNextSteps(t *testing.T) {
 	if got != want {
 		t.Fatalf("got %q", got)
 	}
-	if _, err := HostVars(board).NextSteps("gamma"); !errors.Is(err, ErrUsage) {
+	if _, err := HostVars(board).NextSteps("gamma"); !errors.Is(err, ErrRefused) {
 		t.Errorf("gamma has no port: %v", err)
 	}
 	text := "agent_bus_teams:\n  - team: a\n    port: 1\n    org: !vault x\n"

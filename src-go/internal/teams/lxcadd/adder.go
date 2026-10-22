@@ -318,7 +318,7 @@ func (a *Adder) sayDeclared(ctx context.Context, ans answers) error {
 		return a.gumErr(err)
 	}
 	if choice != update {
-		a.term.Printf("Nothing was changed.\n")
+		a.term.Printf("Nothing was changed. ccy-teams apply %s joins it as declared.\n", ans.team)
 		return &stop{term.ExitFailure}
 	}
 	return nil
@@ -642,6 +642,10 @@ func (a *Adder) checked(err error) (bool, error) {
 	}
 	if errors.Is(err, declare.ErrInterrupted) {
 		return false, a.cancelled()
+	}
+	if !errors.Is(err, declare.ErrRefused) {
+		a.term.Printf("declare.py failed (exit %d): %s\nNothing was changed.\n", de.Code, de.Error())
+		return false, &stop{term.ExitCode(de.Code)}
 	}
 	file := term.AbbrevHome(a.HostVars, a.Home)
 	a.problem(de.Error(), false)

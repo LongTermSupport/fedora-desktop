@@ -4,7 +4,6 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
-	"strings"
 
 	"golang.org/x/tools/go/analysis"
 )
@@ -16,8 +15,11 @@ const declarePkg = "internal/declare"
 var RefusalKind = &analysis.Analyzer{
 	Name: "project_refusal_kind",
 	Doc: `project_refusal_kind flags a function that recovers a *declare.Error (errors.AsType,
-errors.As, a type assertion or a type switch) and never reads its kind: no errors.Is against a
-declare.Err* kind, no .Is method call, no .Code.
+errors.As, a type assertion or a type switch) and never tells the one kind asking again can fix
+from the rest: it names no declare.ErrUsage (errors.Is(err, declare.ErrUsage), .Is(declare.ErrUsage))
+and does not hand the exit code on whole (a return of .Code, or of .Code converted). Naming
+another kind (ErrInterrupted, ErrRefused) or reading .Code to print it does not count: either way
+the rest are still asked again.
 
 declare.py refuses in kinds, and its exit code says which: 64 (declare.ErrUsage) is the value
 just given; 78 (declare.ErrRefused) is the file, its existing entries, or the answer against
@@ -59,10 +61,12 @@ func checkRefusalKind(pass *analysis.Pass, body *ast.BlockStmt) {
 		case *ast.FuncLit:
 			checkRefusalKind(pass, n.Body)
 			return false
-		case *ast.SelectorExpr:
-			kindRead = kindRead || readsKind(pass, n)
+		case *ast.ReturnStmt:
+			for _, r := range n.Results {
+				kindRead = kindRead || handsCodeOn(pass, r)
+			}
 		case *ast.Ident:
-			kindRead = kindRead || isKindVar(pass.TypesInfo.Uses[n])
+			kindRead = kindRead || isUsageKind(pass.TypesInfo.Uses[n])
 		default:
 			recovered = append(recovered, refusalsAt(pass, n)...)
 		}
@@ -148,28 +152,52 @@ func isRefusalType(t types.Type) bool {
 	return obj.Name() == "Error" && obj.Pkg() != nil && ownedBy(obj.Pkg().Path(), declarePkg)
 }
 
-// readsKind is sel the Code field or the Is method of a declare.Error.
-func readsKind(pass *analysis.Pass, sel *ast.SelectorExpr) bool {
-	s, ok := pass.TypesInfo.Selections[sel]
-	if !ok {
+// handsCodeOn is a returned value that is a declare.Error's Code whole, so the caller gets the
+// kind itself: Code, Code converted to another type (an exit code), or either as a field of a
+// returned composite literal or its address (&stop{term.ExitCode(de.Code)}). Code inside any
+// other call (a Printf) is not handed on.
+func handsCodeOn(pass *analysis.Pass, e ast.Expr) bool {
+	switch n := ast.Unparen(e).(type) {
+	case *ast.UnaryExpr:
+		return n.Op == token.AND && handsCodeOn(pass, n.X)
+	case *ast.CompositeLit:
+		for _, elt := range n.Elts {
+			if kv, ok := elt.(*ast.KeyValueExpr); ok {
+				elt = kv.Value
+			}
+			if handsCodeOn(pass, elt) {
+				return true
+			}
+		}
+		return false
+	case *ast.CallExpr:
+		tv, found := pass.TypesInfo.Types[n.Fun]
+		return found && tv.IsType() && len(n.Args) == 1 && handsCodeOn(pass, n.Args[0])
+	case *ast.SelectorExpr:
+		return isCodeField(pass, n)
+	}
+	return false
+}
+
+// isCodeField is sel the Code field of a declare.Error.
+func isCodeField(pass *analysis.Pass, sel *ast.SelectorExpr) bool {
+	s, found := pass.TypesInfo.Selections[sel]
+	if !found || s.Kind() != types.FieldVal || s.Obj().Name() != "Code" {
 		return false
 	}
 	recv := s.Recv()
 	if ptr, isPtr := recv.(*types.Pointer); isPtr {
 		recv = ptr.Elem()
 	}
-	if !isRefusalType(recv) {
-		return false
-	}
-	name := s.Obj().Name()
-	return (s.Kind() == types.FieldVal && name == "Code") || (s.Kind() == types.MethodVal && name == "Is")
+	return isRefusalType(recv)
 }
 
-// isKindVar is obj one of declare's kinds, a package-level Err* variable of internal/declare.
-func isKindVar(obj types.Object) bool {
+// isUsageKind is obj declare.ErrUsage, the package-level kind of internal/declare that says the
+// value just given is at fault.
+func isUsageKind(obj types.Object) bool {
 	v, ok := obj.(*types.Var)
 	if !ok || v.Pkg() == nil || !ownedBy(v.Pkg().Path(), declarePkg) || v.Parent() != v.Pkg().Scope() {
 		return false
 	}
-	return strings.HasPrefix(v.Name(), "Err")
+	return v.Name() == "ErrUsage"
 }

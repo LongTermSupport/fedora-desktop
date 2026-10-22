@@ -380,7 +380,9 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(self.check("--repo", "example-org/one", "--repo", "other/tool"), (0, ""))
 
     def test_each_bad_value_is_named(self) -> None:
-        for flag, value, said in (("--team", "Bad_Name", "--team"), ("--team", "alpha", "already declared"),
+        for flag, value, said in (("--team", "Bad_Name", "--team"),
+                                  ("--team", "alpha", "already declared in agent_bus_teams: choose another name, "
+                                                      "or ccy-teams apply alpha installs it as declared"),
                                   ("--human", "Not.Valid", "--human"),
                                   ("--allow-from", "198.51.100.1/24", "--allow-from"),
                                   ("--org", "-bad", "--org"),
@@ -827,8 +829,9 @@ class DescribeTest(CommandCase):
         self.assertEqual(declare.entry_of(declare.parse(text).teams[1])["description"], "Second")
 
     def test_refusals_write_nothing(self) -> None:
-        self.assertEqual(self.run_cmd("describe", "--team", "nosuch", "--description", "d")[0], 64)
-        self.assertEqual(self.run_cmd("describe", "--team", "gamma", "--description", "d")[0], 64)
+        # A team the file does not declare present is the file's state, not the value (78).
+        self.assertEqual(self.run_cmd("describe", "--team", "nosuch", "--description", "d")[0], 78)
+        self.assertEqual(self.run_cmd("describe", "--team", "gamma", "--description", "d")[0], 78)
         self.assertEqual(self.run_cmd("describe", "--team", "alpha", "--description", " bad")[0], 64)
         self.assertEqual(self.path.read_text(), STATUS_HV)
         self.assertEqual(list(self.tmp.glob("localhost.yml.backup.*")), [])
@@ -882,8 +885,15 @@ class SettingsTest(CommandCase):
         self.assertEqual(rows["org"], '"example-org"')
 
     def test_a_team_not_declared_present_is_refused(self) -> None:
-        self.assertEqual(self.run_cmd("settings", "--team", "gamma")[0], 64)
-        self.assertEqual(self.run_cmd("settings", "--team", "nosuch")[0], 64)
+        self.assertEqual(self.run_cmd("settings", "--team", "gamma")[0], 78)
+        self.assertEqual(self.run_cmd("settings", "--team", "nosuch")[0], 78)
+
+    def test_a_team_gone_from_the_file_refuses_every_value_as_the_files(self) -> None:
+        """The settings screen asks for a value with the team taken from the screen: a team the
+        file no longer declares present refuses every answer, so it is 78, never asked again."""
+        code, _, err = self.run_cmd("set", "--team", "nosuch", "--value", "description", '"Builds the site"', "--check")
+        self.assertEqual(code, 78, err)
+        self.assertIn("team nosuch is not declared present", err)
 
 
 class SetTest(CommandCase):
@@ -928,6 +938,16 @@ class SetTest(CommandCase):
         code, _, err = self.run_cmd("set", "--team", "alpha", "--value", "description", '"Builds the site"')
         self.assertEqual(code, 0, err)
 
+    def test_a_wrong_value_for_the_key_already_wrong_is_the_values_refusal(self) -> None:
+        """The key the file holds wrong is the one being set, and the new value is wrong the
+        same way: another value can pass, so it is a usage refusal (64), asked again."""
+        broken = STATUS_HV.replace('    org: "example-org"\n', '    org: "example-org"\n    description: "a\\tb"\n', 1)
+        self.path.write_text(broken, encoding="utf-8")
+        code, _, err = self.run_cmd("set", "--team", "alpha", "--value", "description", '"c\\td"')
+        self.assertEqual(code, 64, err)
+        self.assertNotIn("refused as it stands", err)
+        self.assertEqual(self.path.read_text(), broken)
+
     def test_a_block_list_is_replaced_whole(self) -> None:
         code, _, err = self.run_cmd("set", "--team", "beta", "--value", "humans", '["owner"]')
         self.assertEqual(code, 0, err)
@@ -971,7 +991,7 @@ class SetTest(CommandCase):
                            ("humans", '"owner"'), ("org", '["a"]'), ("repos", '[{"repo": "a/b"}]'), ("humans", "not json")):
             with self.subTest(key=key, value=value):
                 self.assertEqual(self.run_cmd("set", "--team", "alpha", "--value", key, value)[0], 64)
-        self.assertEqual(self.run_cmd("set", "--team", "gamma", "--value", "humans", '["owner"]')[0], 64)
+        self.assertEqual(self.run_cmd("set", "--team", "gamma", "--value", "humans", '["owner"]')[0], 78)
         self.assertEqual(self.run_cmd("set", "--team", "alpha", "--value", "humans", '["a"]', "--value", "humans", '["b"]')[0], 64)
         self.assertEqual(self.path.read_text(), STATUS_HV)
 
@@ -1035,8 +1055,8 @@ class ElementTest(CommandCase):
         self.assertIn('  - team: alpha\n    base_url: "http://192.0.2.10:6167"\n  - team: other\n', text)
 
     def test_a_team_not_declared_present_is_refused(self) -> None:
-        self.assertEqual(self.run_cmd("element", "--team", "nosuch")[0], 64)
-        self.assertEqual(self.run_cmd("element", "--team", "gamma")[0], 64)
+        self.assertEqual(self.run_cmd("element", "--team", "nosuch")[0], 78)
+        self.assertEqual(self.run_cmd("element", "--team", "gamma")[0], 78)
         self.assertEqual(self.path.read_text(), STATUS_HV)
 
 
@@ -1186,8 +1206,8 @@ class AddRepoTest(CommandCase):
         self.assertEqual(self.path.read_text(), text)
 
     def test_usage_refusals_write_nothing(self) -> None:
-        self.assertEqual(self.run_cmd("add-repo", "--team", "nosuch", "--repo", "other/tool")[0], 64)
-        self.assertEqual(self.run_cmd("add-repo", "--team", "gamma", "--repo", "other/tool")[0], 64)
+        self.assertEqual(self.run_cmd("add-repo", "--team", "nosuch", "--repo", "other/tool")[0], 78)
+        self.assertEqual(self.run_cmd("add-repo", "--team", "gamma", "--repo", "other/tool")[0], 78)
         self.assertEqual(self.run_cmd("add-repo", "--team", "alpha", "--repo", "Other/Tool")[0], 64)
         self.assertEqual(self.path.read_text(), STATUS_HV)
         self.assertEqual(list(self.tmp.glob("localhost.yml.backup.*")), [])
@@ -1382,13 +1402,13 @@ class LxcMemberTest(CommandCase):
 
         # Against the file's entries: the file is at fault, or the answer against it (exit 78).
         for name, argv in {"declared, and differs": flags(container="container-a"),
-                           "a second coordinator": flags(role="coordinator")}.items():
+                           "a second coordinator": flags(role="coordinator"),
+                           "unknown team": flags(team="nosuch"),
+                           "team declared absent": flags(team="gamma")}.items():
             code, out, err = self.run_cmd("lxc-add", *argv)
             self.assertEqual((code, out), (78, ""), f"{name}: {err}")
             self.assertEqual(self.path.read_text(), LXC_HV, name)
         cases = {
-            "unknown team": flags(team="nosuch"),
-            "team declared absent": flags(team="gamma"),
             "bad role": flags(role="boss"),
             "bad user": flags(user="Not A User"),
             "bad container": flags(container="-bad"),
@@ -1428,8 +1448,11 @@ class LxcMemberTest(CommandCase):
                      ("--team", "alpha", "--container", "container-a", "--user", "agent")):
             self.assertEqual(self.run_cmd("lxc-check", *argv)[:2], (0, ""), argv)
         for argv in (("--role", "boss"), ("--host", "My Host"), ("--user", "A"), ("--checkout", "x"),
-                     ("--container", "-x"), ("--team", "nosuch"), ("--team", "gamma")):
+                     ("--container", "-x")):
             self.assertEqual(self.run_cmd("lxc-check", *argv)[0], 64, argv)
+        # a team the file does not declare present is the file's state: no answer passes (78)
+        for argv in (("--team", "nosuch"), ("--team", "gamma")):
+            self.assertEqual(self.run_cmd("lxc-check", *argv)[0], 78, argv)
         second = ("--team", "alpha", "--role", "coordinator", "--container", "container-z", "--user", "agent")
         self.assertEqual(self.run_cmd("lxc-check", *second)[0], 78)
         self.assertEqual(self.path.read_text(), LXC_HV)
@@ -1599,6 +1622,17 @@ class LxcAlreadyDeclaredTest(CommandCase):
         code, _, err = self.run_cmd("lxc-add", *LXC_FLAGS, "--role", "coordinator", "--update")
         self.assertEqual(code, 78, err)
         self.assertIn("both declare the coordinator of team alpha", err)
+        self.assertEqual(self.path.read_text(), before)
+
+    def test_update_of_a_line_with_a_comment_is_left_to_a_hand(self) -> None:
+        self.path.write_text(DECLARED_HV.replace('    checkout: "/srv/agent/three"\n',
+                                                 '    checkout: "/srv/agent/three"  # main checkout\n'),
+                             encoding="utf-8")
+        before = self.path.read_text()
+        code, _, err = self.run_cmd("lxc-add", "--team", "alpha", "--container", "container-c", "--user", "agent",
+                                    "--checkout", "/srv/agent/four", "--update")
+        self.assertEqual(code, 78, err)
+        self.assertIn("carries a comment", err)
         self.assertEqual(self.path.read_text(), before)
 
     def test_update_with_nested_lines_under_a_key_is_left_to_a_hand(self) -> None:

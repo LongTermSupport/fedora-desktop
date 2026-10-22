@@ -1097,7 +1097,7 @@ func TestAFlagValueMayLookLikeAFlag(t *testing.T) {
 	// team named --yes, so the next steps, read from the file, cannot be read for it and the run
 	// ends there with the reader's refusal; the old fake answered them, which no file can.
 	h.createWrites = "  - team: proj\n    port: 6169\n"
-	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "--yes", "--human", "owner", "--org", "example-org"), 64, h)
+	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "--yes", "--human", "owner", "--org", "example-org"), 78, h)
 	wzContain(t, "create", strings.Join(h.run.matching("env "), "\n"), "--team --yes")
 	wzContain(t, "stderr", h.err(), "declare: --team: team --yes is not declared present, with a port, in agent_bus_teams")
 }
@@ -1477,6 +1477,19 @@ func TestAFileRefusalOfTheLoginEndsTheRunBeforeThePeopleQuestion(t *testing.T) {
 	wzLack(t, "stderr", h.err(), "cannot be an account name")
 	if h.run.called("gum input --header People") {
 		t.Error("asked for people after the file was refused")
+	}
+}
+
+func TestACheckThatCrashesEndsTheRunAsAFailureNotARefusalOfTheFile(t *testing.T) {
+	h := newWzHarness(t)
+	h.fake.On(wzDP("check", "--team", "proj"), execx.Result{ExitCode: 1, Stderr: []byte("Traceback (most recent call last):\n")})
+	h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("proj\n"))
+	wzCode(t, h.invoke(), 1, h)
+	wzContain(t, "stderr", h.err(), "declare.py failed (exit 1)", "Traceback")
+	wzLack(t, "stderr", h.err(), "refusal of", "Try again")
+	if n := len(h.run.matching("gum input --header Team name")); n != 1 {
+		t.Errorf("team name asked %d times", n)
 	}
 }
 

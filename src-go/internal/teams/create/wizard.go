@@ -744,6 +744,9 @@ func (c *Wizard) unanswerable(err error) (string, error) {
 		return de.Message(), nil
 	case errors.Is(err, declare.ErrInterrupted):
 		return "", c.cancelled()
+	case !errors.Is(err, declare.ErrRefused):
+		c.term.Printf("declare.py failed (exit %d): %s\nNothing was changed.\n", de.Code, de.Error())
+		return "", &stop{term.ExitCode(de.Code)}
 	}
 	file := term.AbbrevHome(c.HostVars, c.Home)
 	c.problem(de.Error(), false)
