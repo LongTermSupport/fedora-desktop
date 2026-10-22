@@ -17,6 +17,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccylaunch"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
@@ -101,6 +102,10 @@ type call struct {
 	// Carries names every variable in the call's environment that holds a secret, whether or
 	// not the program reads it. It is not in the golden; checkRun judges it (secretAllowed).
 	Carries []string `json:"carries,omitempty"`
+	// Front is whether the call's environment holds the front's hand-over variable
+	// (ccylaunch.FrontEnv), which the bash launcher must unset before it starts anything. Not in
+	// the golden; checkRun refuses it.
+	Front bool `json:"front,omitempty"`
 }
 
 func fakeTool() (string, bool) {
@@ -344,7 +349,8 @@ func recordCall(sandbox string, cfg fakeConfig, tool string, args []string) erro
 		}
 	}
 	slices.Sort(names)
-	line, err := json.Marshal(call{Tool: tool, Args: args, Env: names, Carries: carriers(cfg.Private)})
+	_, front := os.LookupEnv(ccylaunch.FrontEnv)
+	line, err := json.Marshal(call{Tool: tool, Args: args, Env: names, Carries: carriers(cfg.Private), Front: front})
 	if err != nil {
 		return err
 	}

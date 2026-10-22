@@ -1679,7 +1679,10 @@ banner prints it verbatim, so it must stay short.
 The launcher is being ported to Go one flag at a time (Plan 00191). `/var/local/claude-yolo/claude-yolo`
 is a Go program that answers `--version` and `--help` itself and runs the bash launcher,
 installed beside it as `claude-yolo.bash`, for everything else, with the same arguments and
-environment. Both carry the same `CCY_VERSION`; the Go program refuses `--version` and
+environment plus `CCY_LAUNCHER_FRONT`, its own path. The bash launcher reads that once and
+unsets it, so no program it starts inherits it; it is why the tmux pane, the session record (so
+a restore or a team restart), a restart and the custom-Dockerfile modes run the Go program
+again. Both carry the same `CCY_VERSION`; the Go program refuses `--version` and
 `--help` if they differ (re-run `play-claude-yolo.yml`), and `Hash:` is the bash launcher's own
 hash, the one Quick Launch files keep.
 
@@ -1688,7 +1691,10 @@ If the Go program misbehaves, run any `ccy` command with **`CCY_LEGACY=1`** (for
 straight to the bash launcher. If `claude-yolo.bash` is missing, `ccy` stops with an error
 naming its path rather than doing nothing. `CCY_LEGACY` is read by the Go program, so if the
 Go program itself will not start, run `/var/local/claude-yolo/claude-yolo.bash` directly, with
-the same arguments. Going back to a bash-only install is running
+the same arguments. Started that way, with no `CCY_LAUNCHER_FRONT`, the bash names itself: the
+tmux pane, the session record, a restart and the custom-Dockerfile modes all run
+`claude-yolo.bash`, never the Go program. A session started earlier through the Go program
+still has a record naming it, so restoring that session needs the Go program to start. Going back to a bash-only install is running
 `play-claude-yolo.yml` from a checkout before this change: it copies the bash launcher over
 `claude-yolo` again.
 

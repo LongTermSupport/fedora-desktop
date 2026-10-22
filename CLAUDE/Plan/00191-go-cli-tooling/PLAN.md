@@ -529,8 +529,26 @@ today; rewriting them is out of scope.
       read `claude-yolo` while it is a script, else `claude-yolo.bash`. `docs/ccy.md` gives the
       way past a front that will not start; `ContainerRules.md` states the gate's blind spot;
       the in-image guide names both files; the meta-deploy rollback note says what the
-      leftover `claude-yolo.bash` does. Left: the `system_paths` hook still maps the deployed
-      `claude-yolo` to the bash source.
+      leftover `claude-yolo.bash` does.
+    - Review round 2 (`subagent-reports/261022-launcher-phase2-review-2-opus.md`, FIX-FIRST)
+      fixed, CCY 3.99.14.3 (container unchanged): a direct run of `claude-yolo.bash`, the
+      documented way past a front that will not start, still opened a pane on that front. The
+      front now execs the bash with `CCY_LAUNCHER_FRONT=<its own path>` (F2); the new
+      `lib/launcher-path.bash`, sourced at the end of `lib/token-handoff.bash` (so the launcher
+      gains no line; the front's F4 checks it as it checks `common-pure`, and the play
+      installs it), reads it once into `CCY_LAUNCHER_PATH`, unsets it, and falls back to the
+      bash's own file, warning, on a value that is not an absolute executable file; the pane,
+      the record, the restart relaunch and both custom-Dockerfile modes use it.
+      `token-handoff.bash`'s drop lost two statements to stay within the bash limits. Red
+      then green: `ccylaunch` 33 failing (no variable on the exec), then ok;
+      `TestFrontParity` 45 failing on the new front-leak check (`getenforce`, `podman`, `gh`
+      inherited the variable from the old bash), then 82 of 82, with
+      `TestFrontLeakCheckCanFail` proving the check; `test-ccy-token-handoff.bash` 22 of 116
+      failing (front start, direct start, three invalid values, no tmux call given the
+      variable), then 116 of 116. `docs/ccy.md` says what each start records. The plan
+      scripts fail on a missing or unreadable `claude-yolo` instead of falling through. The
+      project-owned `system_paths` handler maps `claude-yolo.bash` to the bash source and
+      `claude-yolo` to `src-go` (its two new tests red, then green).
 
 ### Phase 5: Review
 

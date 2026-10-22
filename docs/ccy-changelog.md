@@ -17,6 +17,20 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.14.3 — container 2.78.14
+
+Follows 3.99.14.2. The image is unchanged, so there is no rebuild.
+
+- **Running `claude-yolo.bash` directly now stays clear of the Go front.** Under 3.99.14.1 and
+  3.99.14.2 the bash launcher always named the front beside it as the program a session runs,
+  so a direct run of `/var/local/claude-yolo/claude-yolo.bash`, the way round a front that will
+  not start, opened a tmux session whose pane ran that front. The front now hands its own path
+  to the bash in `CCY_LAUNCHER_FRONT`, which the bash reads once and unsets, so no program it
+  starts inherits it. The tmux pane, the session record, the restart relaunch and the
+  custom-Dockerfile modes name the front when the front started the launch, and
+  `claude-yolo.bash` itself when it was run directly. A value that is not an absolute path to
+  an executable file is warned of on stderr and not used.
+
 ## 3.99.14.2 — container 2.78.14
 
 Follows 3.99.14.1. The image changes only in its guide, which now lists `claude-yolo` (the Go

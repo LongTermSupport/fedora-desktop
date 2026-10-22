@@ -15,7 +15,8 @@
 # No line here expands the token where `set -x` (--debug) would trace it.
 #
 # Sourced by the launcher before every other library, common.bash included, so it prints
-# its own errors.
+# its own errors. It also sources lib/launcher-path.bash (at the end), which takes the Go
+# front's path, the other thing a starting program hands this launcher, before anything runs.
 
 # ccy_token_handoff_take — when CCY_GH_TOKEN_HANDOFF names a hand-off file, set GH_TOKEN
 # from it (the launcher's first line has taken the export off it) and delete the file and
@@ -75,8 +76,7 @@ ccy_token_handoff_give() {
 
 # ccy_token_handoff_drop — remove a hand-off file not yet taken.
 ccy_token_handoff_drop() {
-    [ -n "${CCY_GH_TOKEN_HANDOFF:-}" ] || return 0
-    rm -rf -- "$(dirname -- "$CCY_GH_TOKEN_HANDOFF")"
+    [ -z "${CCY_GH_TOKEN_HANDOFF:-}" ] || rm -rf -- "${CCY_GH_TOKEN_HANDOFF%/token}"
     unset CCY_GH_TOKEN_HANDOFF
 }
 
@@ -88,3 +88,8 @@ ccy_token_handoff_insulate() {
 }
 
 ccy_token_handoff_take || exit 1
+
+# The other hand-off: the Go front's path (lib/launcher-path.bash).
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=launcher-path.bash
+source "${BASH_SOURCE[0]%/*}/launcher-path.bash" || exit 1

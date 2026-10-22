@@ -26,6 +26,7 @@ readonly HOME_IN=/tmp/pingbus-home
 #: The deployed bash launcher, read as text: claude-yolo while it is a script (before CCY
 #: 3.99.14.0, or rolled back), else claude-yolo.bash beside the Go front that claude-yolo became.
 LAUNCHER=/var/local/claude-yolo/claude-yolo
+[[ -r "${LAUNCHER}" ]] || { echo "ERROR: ${LAUNCHER} is missing or unreadable: re-run play-claude-yolo.yml" >&2; exit 1; }
 [[ "$(head -c 2 "${LAUNCHER}")" == '#!' ]] || LAUNCHER=/var/local/claude-yolo/claude-yolo.bash
 readonly LAUNCHER
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

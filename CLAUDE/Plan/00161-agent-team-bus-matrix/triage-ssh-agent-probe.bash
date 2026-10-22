@@ -22,6 +22,7 @@ work="${3:?usage: triage-ssh-agent-probe.bash <probe> <repo-root> <work-dir>}"
 # The bash launcher, read as text: claude-yolo while it is a script (before CCY 3.99.14.0, or
 # rolled back), else claude-yolo.bash beside the Go front that claude-yolo became.
 CCY_LAUNCHER_TEXT="/var/local/claude-yolo/claude-yolo"
+[[ -r "${CCY_LAUNCHER_TEXT}" ]] || { echo "ERROR: ${CCY_LAUNCHER_TEXT} is missing or unreadable: re-run play-claude-yolo.yml" >&2; exit 1; }
 [[ "$(head -c 2 "${CCY_LAUNCHER_TEXT}")" == '#!' ]] || CCY_LAUNCHER_TEXT="/var/local/claude-yolo/claude-yolo.bash"
 readonly CCY_LAUNCHER_TEXT
 readonly FILTER="/var/local/claude-yolo/lib/ssh_agent_filter.py"

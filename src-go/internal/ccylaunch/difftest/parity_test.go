@@ -47,6 +47,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccylaunch"
 )
 
 var update = flag.Bool("update", false, "re-record testdata/golden/ from the launcher under test")
@@ -192,6 +194,20 @@ func checkRun(t *testing.T, m matrix, sc scenario, got outcome) {
 	for _, leak := range secretLeaks(got) {
 		t.Errorf("scenario %s: %s", sc.Name, leak)
 	}
+	for _, leak := range frontLeaks(got) {
+		t.Errorf("scenario %s: %s", sc.Name, leak)
+	}
+}
+
+// frontLeaks are the calls whose environment still held the front's hand-over variable.
+func frontLeaks(got outcome) []string {
+	var leaks []string
+	for _, c := range got.calls {
+		if c.Front {
+			leaks = append(leaks, c.Tool+" inherited "+ccylaunch.FrontEnv+": "+strings.Join(c.Args, " "))
+		}
+	}
+	return leaks
 }
 
 // secretLeaks are the calls that were given a secret in a variable they do not read.
@@ -274,6 +290,28 @@ func TestSecretCheckCanFail(t *testing.T) {
 	leaks := secretLeaks(got)
 	if !slices.ContainsFunc(leaks, func(l string) bool { return strings.HasPrefix(l, "getenforce was given the secret in GH_TOKEN") }) {
 		t.Errorf("with the caller's GH_TOKEN left exported, getenforce was not reported; leaks: %q", leaks)
+	}
+}
+
+// handoffSource is the launcher's line that takes what a starting program hands it, the front's
+// variable included (lib/token-handoff.bash unsets it).
+const handoffSource = "source \"$SCRIPT_DIR/lib/token-handoff.bash\" || exit 1\n"
+
+// TestFrontLeakCheckCanFail proves checkRun sees the front's variable reach a child: with the
+// bash beside the front exporting it again after the library unset it, getenforce has it.
+func TestFrontLeakCheckCanFail(t *testing.T) {
+	skipFront(t)
+	t.Parallel()
+	m := loadMatrix(t)
+	path := installFront(t, func(text string) string {
+		if strings.Count(text, handoffSource) != 1 {
+			t.Fatalf("%q is not in the launcher exactly once", handoffSource)
+		}
+		return strings.Replace(text, handoffSource, handoffSource+"export "+ccylaunch.FrontEnv+"=\"$CCY_LAUNCHER_PATH\"\n", 1)
+	})
+	leaks := frontLeaks(runScenario(t, m, probe(t, m, path), scenarioNamed(t, m, "launch-plain")))
+	if !slices.ContainsFunc(leaks, func(l string) bool { return strings.HasPrefix(l, "getenforce inherited "+ccylaunch.FrontEnv) }) {
+		t.Errorf("with %s exported again, getenforce was not reported; leaks: %q", ccylaunch.FrontEnv, leaks)
 	}
 }
 

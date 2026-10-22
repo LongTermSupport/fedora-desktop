@@ -458,7 +458,8 @@ handler_case() {
     fi
     [ "$body" = "-" ] || printf '%s' "$body" >"$proj/.claude/ccy/state/restart-request.json"
     local rc=0
-    SCRIPT_DIR="$work/stub" VERSION_CHECK_CACHE="$work/cache-$name" IMAGE_NAME="img:tag" \
+    SCRIPT_DIR="$work/stub" CCY_LAUNCHER_PATH="$work/stub/claude-yolo" \
+        VERSION_CHECK_CACHE="$work/cache-$name" IMAGE_NAME="img:tag" \
         CCY_RESTART_HISTORY_DIR="$hist_dir" PATH="$work/bin:$PATH" CCY_SESSION_NAME="ccy-named" \
         HC_BUILDER_FAILS="${HC_BUILDER_FAILS:-}" \
         HC_LIB_DIR="$LIB_DIR" HC_WORK="$work" HC_PROJ="$proj" \

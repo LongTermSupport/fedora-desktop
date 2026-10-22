@@ -93,6 +93,7 @@ readonly CCY_LAUNCHER="/var/local/claude-yolo/claude-yolo"
 # The deployed copy of the checkout's bash launcher: claude-yolo while it is a script (before
 # CCY 3.99.14.0, or rolled back), else claude-yolo.bash beside the Go front claude-yolo became.
 CCY_LAUNCHER_TEXT="${CCY_LAUNCHER}"
+[[ -r "${CCY_LAUNCHER}" ]] || { echo "ERROR: ${CCY_LAUNCHER} is missing or unreadable: re-run play-claude-yolo.yml" >&2; exit 1; }
 [[ "$(head -c 2 "${CCY_LAUNCHER}")" == '#!' ]] || CCY_LAUNCHER_TEXT="${CCY_LAUNCHER}.bash"
 readonly CCY_LAUNCHER_TEXT
 readonly ENTRYPOINT_DEPLOYED="/opt/claude-yolo/entrypoint.sh"

@@ -13,7 +13,11 @@
 //     Launch file the bash wrote holds the hash the front prints. Further arguments are ignored,
 //     as the bash ignored them.
 //   - F2. Every other run is the bash launcher's: claude-yolo.bash in the front's own directory
-//     is exec'd (no shell) with the arguments and the environment exactly as given.
+//     is exec'd (no shell) with the arguments and the environment as given, plus
+//     CCY_LAUNCHER_FRONT naming the front's own path (Self, os.Executable). The bash launcher
+//     re-runs and records that path (a tmux pane, a restart, a session record), so a restore
+//     runs the front; it unsets the variable before it starts anything, and run directly it
+//     names itself.
 //   - F3. CCY_LEGACY set to anything but empty or 0 sends every run to the bash launcher,
 //     the handled flags too: the way back while the port runs (assessment section 10).
 //   - F4. The front answers a flag only where the bash launcher would reach its own answer the
@@ -23,7 +27,7 @@
 //     GREP_OPTIONS is set, or a function is exported (BASH_FUNC_*), any of which changes what
 //     the bash runs; CCY_CONTAINER_ENGINE names neither podman nor docker, or the engine or a
 //     tool the bash runs first is not on PATH; the bash launcher or a library it loads
-//     (CCY_LIBS, read from the launcher, and common-pure) is missing or unreadable, its text
+//     (CCY_LIBS, read from the launcher, common-pure and launcher-path) is missing or unreadable, its text
 //     holds a NUL or is not UTF-8, or it has no CCY_VERSION or CCY_LIBS line; lib/ holds no
 //     .bash file; or an override of lib/host-paths.bash is one ccy_host_dir refuses.
 //   - F5. Where the bash would answer, the front does: either engine, an empty variable, an
@@ -64,6 +68,10 @@ const BashName = "claude-yolo.bash"
 // LegacyEnv is the variable that sends every run to the bash launcher (F3).
 const LegacyEnv = "CCY_LEGACY"
 
+// FrontEnv is the variable a hand-over names the front in (F2): the bash launcher re-runs and
+// records that path, and unsets the variable before it starts anything.
+const FrontEnv = "CCY_LAUNCHER_FRONT"
+
 const (
 	imageName    = "claude-yolo:latest"
 	handoffEnv   = "CCY_GH_TOKEN_HANDOFF"
@@ -87,8 +95,8 @@ var (
 )
 
 // extraLibs are loaded by a library rather than by the launcher: common.bash sources
-// common-pure.bash.
-var extraLibs = []string{"common-pure"}
+// common-pure.bash, and token-handoff.bash sources launcher-path.bash.
+var extraLibs = []string{"common-pure", "launcher-path"}
 
 // Front is one run of the claude-yolo program.
 type Front struct {
@@ -269,7 +277,7 @@ const helpRule = "════════════════════�
 
 // handOver is F2 and F7: the bash launcher, in place of this process.
 func (f Front) handOver(bash string) term.ExitCode {
-	err := f.Execer.Exec(execx.Cmd{Name: bash, Args: f.Args})
+	err := f.Execer.Exec(execx.Cmd{Name: bash, Args: f.Args, Env: []string{FrontEnv + "=" + f.Self}})
 	if err == nil {
 		// Only a test's Execer returns from a successful exec.
 		return term.ExitOK

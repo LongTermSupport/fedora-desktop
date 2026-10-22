@@ -30,6 +30,7 @@ func install(t *testing.T) string {
 		"lib/token-handoff.bash":    "handoff\n",
 		"lib/common.bash":           "common\n",
 		"lib/common-pure.bash":      "pure\n",
+		"lib/launcher-path.bash":    "path\n",
 		"lib/host-paths.bash":       "paths\n",
 		"lib/ssh_agent_filter.py":   "agent\n",
 		"lib/README-not-hashed.txt": "x\n",
@@ -73,7 +74,7 @@ func (r *run) start(t *testing.T) term.ExitCode {
 }
 
 // handedOver asserts the run exec'd the bash launcher beside the front with the arguments as
-// given and the environment untouched.
+// given and the environment untouched but for one variable naming the front.
 func (r *run) handedOver(t *testing.T, dir string) {
 	t.Helper()
 	execs := r.execer.Execs()
@@ -84,7 +85,10 @@ func (r *run) handedOver(t *testing.T, dir string) {
 	if c.Name != filepath.Join(dir, BashName) || !slices.Equal(c.Args, r.front.Args) {
 		t.Fatalf("exec'd %s %q, want %s %q", c.Name, c.Args, filepath.Join(dir, BashName), r.front.Args)
 	}
-	if c.Env != nil || c.Unset != nil || c.Secrets != nil || c.Dir != "" {
+	if want := []string{FrontEnv + "=" + r.front.Self}; !slices.Equal(c.Env, want) {
+		t.Fatalf("the hand-over set %q in the environment, want %q", c.Env, want)
+	}
+	if c.Unset != nil || c.Secrets != nil || c.Dir != "" {
 		t.Fatalf("the hand-over changed the environment or directory: %+v", c)
 	}
 	if r.stdout.Len() != 0 || len(r.runner.Calls()) != 0 {
@@ -193,6 +197,7 @@ func TestHandsOverWhereTheBashWouldNotAnswerAsModelled(t *testing.T) {
 		{"an override the library refuses", env("CCY_GPU_DEVICE_DIR=/dev")},
 		{"a library missing", remove("lib/host-paths.bash")},
 		{"common-pure missing", remove("lib/common-pure.bash")},
+		{"launcher-path missing", remove("lib/launcher-path.bash")},
 		{"the bash launcher missing", remove(BashName)},
 		{"no CCY_LIBS line", rewrite(strings.Replace(fixtureBash, "CCY_LIBS=", "LIBS=", 1))},
 		{"no CCY_VERSION line", rewrite(strings.Replace(fixtureBash, "CCY_VERSION=", "VERSION=", 1))},
