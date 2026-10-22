@@ -3,7 +3,7 @@
 // record lines and one done line, with the acknowledgement recv and wait end with. The control
 // socket between keeper and link: an AF_UNIX SOCK_SEQPACKET socketpair, so a message keeps its
 // boundaries and a seat lock's descriptor travels with the add that names it; each message is
-// one strict JSON object of at most 8 KiB, {"<kind>":{...}}.
+// one strict JSON object of at most 64 KiB, {"<kind>":{...}}.
 //
 // Every decoder is strict, as the member files are: proto's strict JSON (valid UTF-8, no
 // repeated key, integers only), decoded into its typed struct with no unknown key, and the
