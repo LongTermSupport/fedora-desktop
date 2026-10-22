@@ -1,6 +1,7 @@
 # Fixture for .semgrep/speech-to-text.yml (Python rules). `ruleid:` marks a line that must
 # fire, `ok:` a line that must stay silent.
 
+import contextlib
 import io
 import sys
 from typing import Protocol, TextIO
@@ -132,6 +133,19 @@ def direct(run):
     print("x", file=_Locked(sys.stdout))
 
 
+def over_an_optional_parameter(helper, err: TextIO | None = None):
+    # ruleid: stream-stand-in-not-a-text-stream
+    err = _Locked(err)
+    helper(err)
+
+
+def through_other_stream_names(run):
+    # ruleid: stream-stand-in-not-a-text-stream
+    run(out_stream=_Sink(), err_target=None)
+    # ruleid: stream-stand-in-not-a-text-stream
+    run(diagnostics=_Sink())
+
+
 def over_a_parameter(err: TextIO, helper):
     # ruleid: stream-stand-in-not-a-text-stream
     err = _Locked(err)
@@ -141,6 +155,26 @@ def over_a_parameter(err: TextIO, helper):
 def onto_sys():
     # ruleid: stream-stand-in-not-a-text-stream
     sys.stderr = _Sink()
+    # ruleid: stream-stand-in-not-a-text-stream
+    sys.stdout = _Sink()
+
+
+def redirected(work):
+    # ruleid: stream-stand-in-not-a-text-stream
+    with contextlib.redirect_stdout(_Sink()):
+        work()
+    # ruleid: stream-stand-in-not-a-text-stream
+    with contextlib.redirect_stderr(_Sink()):
+        work()
+
+
+def through_longer_tuples(run, first, second):
+    a, b, out = first, second, _Sink()
+    # ruleid: stream-stand-in-not-a-text-stream
+    run(a, b, stdout=out)
+    c, err = first, _Sink()
+    # ruleid: stream-stand-in-not-a-text-stream
+    run(c, stderr=err)
 
 
 def proper(run, err: TextIO):

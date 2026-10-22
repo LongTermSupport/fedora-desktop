@@ -27,7 +27,8 @@ not run the play rebuilds it once at its next launch.
   the first `writelines`, `flush` or `print(file=)` on it would have raised. It is now an
   `io.TextIOBase` that locks every write and flushes the stream it wraps. Nothing a user sees
   changes; no helper they reach calls those methods today (CLAUDE/QA.md
-  "stream-stand-in-not-a-text-stream").
+  "stream-stand-in-not-a-text-stream"). The same pingbus reaches the host, the kit and the LXC members
+  through `play-agent-bus.yml`.
 
 ## 3.100.8 — container 2.79.3
 

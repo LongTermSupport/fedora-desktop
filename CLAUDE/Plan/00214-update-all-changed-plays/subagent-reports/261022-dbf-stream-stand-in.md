@@ -55,7 +55,12 @@ reports when an instance of that class is handed over as a stream:
   included);
 - assigned to `sys.stdout` or `sys.stderr`;
 - given to `redirect_stdout` or `redirect_stderr`;
-- assigned over a parameter annotated `TextIO`.
+- assigned over a parameter whose annotation names `TextIO` (`TextIO | None` included).
+
+After the adversarial review (round 1) the stream-name list was widened to the names this
+repo uses (`log`, `diagnostics`, `errors`, `*_stream`, `*_sink`, `out_*`, `err_*`) and the
+parameter branch to optional annotations. The widened rule finds the same 3 sites on the
+pre-fix code and nothing else in the tree.
 
 **Excluded, as not carrying the hazard.** Classes that are real streams, and Protocols, which
 are interfaces rather than stand-ins.
@@ -71,7 +76,7 @@ case.
 
 ## Proof
 
-**Fixture.** `.semgrep/speech-to-text.py` has 6 `ruleid` and 3 `ok` lines.
+**Fixture.** `.semgrep/speech-to-text.py` has 11 `ruleid` and 3 `ok` lines, one or more for every branch of the rule (keyword, variable, 2-, 3- and 4-element tuples, `sys.stdout`/`sys.stderr`, `redirect_stdout`/`redirect_stderr`, a `TextIO` parameter); the branches beyond the first six were added after the conformance review.
 `semgrep --test` reported "All tests passed".
 
 **Red commit.** 804178386 contains the rule alone, before any fix.
@@ -88,7 +93,7 @@ out of `.semgrep/`. Its report is saved under `untracked/agent-reports/auto/`.
 
 **Text search** found:
 
-- every `def write(self` (13 hits);
+- every `def write(self` (14 hits outside `.semgrep/`; the searcher's report names the ones in `helpers/` and `tests/`, and the four in `.claude/ccy/claude-supervise.py`, the 00161 triage probe and its test, and the 00201 `test_m7_check.py` were read by the remediator: none is handed over as a stream);
 - `write=` lambdas;
 - the stream methods consumers call: `writelines` in `agent_bus/declare.py` and
   `check_freshness`, `flush` and `isatty` in `agent_bus/cli.py` and `agent_bus_lxc/members.py`.
@@ -130,7 +135,16 @@ No instance was suppressed and no hazard was left in place.
 
 ## Decisions referred to the owner
 
-None. Nothing was baselined, suppressed or left unfixed.
+Nothing was baselined, suppressed or left unfixed: 2 instances fixed, 0 remaining.
+
+One coverage gap is referred, not decided: the rule does not see a stand-in passed
+positionally, or defined in one module and handed over in another. Cross-module flow is a
+semgrep OSS limit. A positional form within one file could be written (any call taking an
+instance as an argument), but it would also match `DecisionLog` and `Report`, which carry no
+hazard, so it was not built. Both forms were covered by reading in this sweep (none found).
+Closing the gap for good would take a type checker (mypy or pyright with `TextIO`
+annotations), which helpers/CLAUDE.md's stdlib-only rule does not forbid for QA but which is
+a toolchain decision for the owner.
 
 ## Permanence
 

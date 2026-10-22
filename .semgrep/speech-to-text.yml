@@ -199,7 +199,8 @@ rules:
   # no io or Protocol base, when an instance is passed as a stream-named keyword argument
   # (directly or through a variable, tuple assignments included), assigned to sys.stdout
   # or sys.stderr, given to redirect_stdout/redirect_stderr, or assigned over a parameter
-  # annotated TextIO. A stand-in defined in one module and passed in another is not seen.
+  # whose annotation names TextIO (TextIO | None included). A stand-in defined in one
+  # module and handed over in another, or passed positionally, is not seen.
   - id: stream-stand-in-not-a-text-stream
     languages: [python]
     patterns:
@@ -243,7 +244,7 @@ rules:
               - pattern: $F(..., $K=$C(...), ...)
               - metavariable-regex:
                   metavariable: $K
-                  regex: '(?i)^(std(out|err)|out|err|output|stream|file|sink|unchecked)$'
+                  regex: '(?i)(^(std(out|err)|out|err|output|stream|file|sink|unchecked|log|diagnostics|errors)$|_stream|_sink|^out_|^err_)'
           - patterns:
               - pattern-either:
                   - pattern-inside: |
@@ -261,7 +262,7 @@ rules:
               - pattern: $F(..., $K=$V, ...)
               - metavariable-regex:
                   metavariable: $K
-                  regex: '(?i)^(std(out|err)|out|err|output|stream|file|sink|unchecked)$'
+                  regex: '(?i)(^(std(out|err)|out|err|output|stream|file|sink|unchecked|log|diagnostics|errors)$|_stream|_sink|^out_|^err_)'
           - pattern: sys.stdout = $C(...)
           - pattern: sys.stderr = $C(...)
           - pattern: contextlib.redirect_stdout($C(...))
@@ -269,9 +270,16 @@ rules:
           - pattern: redirect_stdout($C(...))
           - pattern: redirect_stderr($C(...))
           - patterns:
-              - pattern-inside: |
-                  def $FN(..., $P: TextIO, ...):
-                      ...
+              - pattern-either:
+                  - pattern-inside: |
+                      def $FN(..., $P: $ANN, ...):
+                          ...
+                  - pattern-inside: |
+                      def $FN(..., $P: $ANN = $D, ...):
+                          ...
+              - metavariable-regex:
+                  metavariable: $ANN
+                  regex: '\b(TextIO|TextIOBase|IO\[str\])\b'
               - pattern: $P = $C(...)
     message: >
       stream-stand-in-not-a-text-stream: an object with only write() is handed over as a

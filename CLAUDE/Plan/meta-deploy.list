@@ -41,7 +41,9 @@
 # draws the wrong emoji, and leave that window open while it runs.
 00185-terminal-emoji-glyphs
 # Plan 00213 Tasks 1.3, 1.4 and 2.3 (the bus status line in Go): deploy.bash runs the whole
-# play-agent-bus.yml again (it passed on its own at 67033c224, so no change), then the whole
+# play-agent-bus.yml again (it passed on its own at 67033c224; this run also installs the
+# rebuilt pingbus, whose wait and watch now hand their helpers a real text stream, Plan
+# 00214, on the host, in the kit and in every running LXC member), then the whole
 # play-claude-yolo.yml, then acceptance.bash. The kit's settings.json runs the static Go
 # pingbus-status-line, copied into every running LXC member. The ccy play gives the host CCY
 # 3.100.9 (the Go front, the image build lock and --opencode: see the play-claude-yolo.yml entry
