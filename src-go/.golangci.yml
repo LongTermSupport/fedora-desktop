@@ -263,6 +263,11 @@ linters:
       - path: internal/teamchat/state/state\.go
         linters: [gosec]
         text: "G304"
+      # The team lock is opened by the path its caller names (paths.TeamLock of a parsed team
+      # id), never following a link; its tests read back the holder line it wrote.
+      - path: internal/teamchat/teamlock/teamlock(_test)?\.go
+        linters: [gosec]
+        text: "G304"
       # The host_vars file is the one the owner's checkout names; ccy-teams reads it to show and
       # edit the owner's own declarations.
       - path: internal/teamchat/declare/hostvars/hostvars\.go
