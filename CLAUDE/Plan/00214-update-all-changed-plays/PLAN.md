@@ -58,12 +58,13 @@ one definition, read by both.
   `play_sha256_at_head`, `freshness.classify`, `freshness.retire`, the UNEXPLAINED state)
   is deleted. A finding's detail is the changed paths, the dirty run or the play a
   successor takes over. A failed last run is its own finding.
-- [ ] ⬜ **Task 1.3**: The report's coverage sentence (`check_freshness.coverage_sentence`)
+- [x] ✅ **Task 1.3**: The report's coverage sentence (`check_freshness.coverage_sentence`)
   reaches the status document's play-freshness section from `login_report`, naming the
   plays that hold a reference nobody can follow and the ledgered plays outside
-  `playbooks/imports/`.
-- [ ] ⬜ **Task 1.4**: The panel's "Re-run a play…" count counts the plays `--changed` runs
-  (states `stale` and `failed`), not every play that is not `fresh`.
+  `playbooks/imports/`. Only a run that judged states one, as with the pins.
+- [x] ✅ **Task 1.4**: The panel's "Re-run a play…" count counts the plays `--changed` runs:
+  every state but `fresh` and `unresolved`, so a state the panel has no words for still
+  counts.
 
 ### Phase 2: name the command (gap 1)
 

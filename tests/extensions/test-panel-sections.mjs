@@ -668,18 +668,21 @@ test('however many plays there are, the section is ONE clickable row', () => {
     const menu = renderPlays(withPlays([
         {play: PLAY, state: 'stale'},
         {play: 'playbooks/imports/play-comms.yml', state: 'fresh'},
-        {play: 'playbooks/imports/play-vpn.yml', state: 'unexplained'},
+        {play: 'playbooks/imports/play-vpn.yml', state: 'failed'},
     ]));
     assert.equal(menu.items.length, 1);
     assert.equal(rerunRow(menu).reactive, true);
     assert.ok(!menu.texts.some(text => text.includes('playbooks/')), 'no play is listed');
 });
 
-test('the label counts the plays that are not fresh', () => {
+test('the label counts the plays run.bash --changed runs: stale and failed ones', () => {
+    // An unresolved play holds a reference nobody can follow; --changed does not run it,
+    // so counting it made the panel's number disagree with the report's (Plan 00214).
     const menu = renderPlays(withPlays([
         {play: PLAY, state: 'stale'},
         {play: 'playbooks/imports/play-comms.yml', state: 'fresh'},
-        {play: 'playbooks/imports/play-vpn.yml', state: 'unexplained'},
+        {play: 'playbooks/imports/play-vpn.yml', state: 'failed'},
+        {play: 'playbooks/imports/play-lxc.yml', state: 'unresolved'},
     ]));
     assert.equal(rerunRow(menu).label.text, 'Re-run a play… (2 changed)');
 });

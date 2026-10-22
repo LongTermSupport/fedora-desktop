@@ -12,9 +12,9 @@
  * 1. **A person picks; nothing runs otherwise.** The row opens a menu and runs nothing on
  *    render, on refresh or in the background. The plays run only once the person names
  *    them in that terminal.
- * 2. **The count is the producer's.** Freshness is judged once, in `check_freshness`, and
- *    carried in the document; the label counts the plays it marked as not fresh and never
- *    re-judges them.
+ * 2. **The count is the producer's.** Freshness is judged once, by `changed_plays.judge`
+ *    (the judgement `run.bash --changed` acts on), and carried in the document; the label
+ *    counts the plays it marked stale or failed and never re-judges them.
  * 3. **It says what it launched, never that a play ran.** A spawn reports only that the
  *    terminal started. Whether a play did its work is the ledger's answer, read at the
  *    next refresh.
@@ -35,9 +35,13 @@ const RERUN_ARGS = ['--rerun', '--hold'];
 /** What to type if the terminal cannot start. */
 const BY_HAND = `${StatusDocument.ON_DEMAND_COMMAND} --rerun`;
 
-/** The row's text: the count of plays not known to be unchanged, when there are any. */
+/** States `run.bash --changed` does not run: unchanged, or holding a reference nobody can
+ * follow. Any other state counts, so a state this panel has no words for is not dropped. */
+const NOT_RUN = new Set(['fresh', 'unresolved']);
+
+/** The row's text: the count of plays `run.bash --changed` would run, when there are any. */
 export function rerunLabel(plays) {
-    const changed = plays.filter(entry => entry.state !== 'fresh').length;
+    const changed = plays.filter(entry => !NOT_RUN.has(entry.state)).length;
     return changed > 0 ? `Re-run a play… (${changed} changed)` : 'Re-run a play…';
 }
 

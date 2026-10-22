@@ -2,7 +2,7 @@
 (Plan 00109, Task 4.3).
 
 **The list** is the plays this host's ledger has seen, each with the state
-`check_freshness` judged for it — fresh, stale, or unexplained. It is derived from that
+`check_freshness` judged for it — fresh, stale, failed or unresolved. It is derived from that
 check's own verdicts, never recomputed: a freshness rule reimplemented here, or in the
 panel's JavaScript, would be a second check that drifts from the one under test
 (DESIGN-panel.md §8). A GONE play is left out, because there is nothing to run and the

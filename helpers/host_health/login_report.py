@@ -445,11 +445,13 @@ def freshness_findings(
     stderr: TextIO,
     run: Callable[..., int] = check_freshness.run,
     judged: list[freshness.Verdict] | None = None,
+    coverage: list[str] | None = None,
 ) -> list[probe_results.Finding]:
     """The freshness check's findings, via its real entry point.
 
-    `judged` is handed straight to the check, so the panel's play runner rows come from
-    the very run whose findings the freshness section shows.
+    `judged` and `coverage` are handed straight to the check, so the panel's play runner
+    rows and the section's statement of what it judged come from the very run whose
+    findings the freshness section shows.
 
     Its two channels are kept apart deliberately. Sharing one sink between them made
     every diagnostic a user-facing finding: "git fetch failed" was reported as a
@@ -472,6 +474,7 @@ def freshness_findings(
         stderr=diagnostics,
         unchecked=not_checked,
         judged=judged,
+        coverage=coverage,
     )
 
     # Diagnostics are not findings, and they are not discarded either — they go where
@@ -557,12 +560,20 @@ def main(
     # could not judge — so the panel's play runner offers nothing it did not judge.
     judged: list[freshness.Verdict] = []
 
+    def play_freshness_findings() -> list[probe_results.Finding]:
+        # Coverage the same way as the pins: only a run that judged states one.
+        coverage: list[str] = []
+        found = freshness_findings(
+            base, arguments.repo_root, stderr=diagnostics, judged=judged, coverage=coverage
+        )
+        if coverage:
+            stated_coverage[FRESHNESS] = coverage[0]
+        return found
+
     sections = collect_sections(
         health=lambda: probe.collect(running_kernel=probe.running_kernel()),
         ledger_present=lambda: ledger_presence.findings(base),
-        freshness=lambda: freshness_findings(
-            base, arguments.repo_root, stderr=diagnostics, judged=judged
-        ),
+        freshness=play_freshness_findings,
         pins=pins_findings,
         self_update=lambda: self_update_check.findings(
             published.DIRECTORY,
