@@ -115,6 +115,9 @@ func newWorld(t *testing.T) *world {
 	if err := os.WriteFile(w.root+paths.ServerUnitTemplateFile, []byte("[Unit]\nDescription=v2 team homeserver %i\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(w.root+osRelease, []byte("NAME=Fedora Linux\nID=fedora\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	w.srv = fakehs.New(fakehs.Options{ServerName: server, Now: w.now, Quirks: fakehs.TuwunelQuirks()})
 	if err := w.srv.Start(); err != nil {
 		t.Fatal(err)

@@ -386,6 +386,13 @@ func teamApply(ctx context.Context, e Env, args []string) term.ExitCode {
 	if len(args) > 0 {
 		return fail(e.Stderr, term.ExitUsage, "team apply takes no arguments: its input is the team's declaration on stdin")
 	}
+	owner, err := rootOwner(sys.Host.Root)
+	if err == nil {
+		err = checkFedora(sys.Host.Root, owner)
+	}
+	if err != nil {
+		return failWith(e, err)
+	}
 	in, err := readInput(e.Stdin)
 	if err != nil {
 		return failWith(e, err)
