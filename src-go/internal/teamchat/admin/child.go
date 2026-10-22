@@ -1,0 +1,358 @@
+package admin
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"math"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+)
+
+// The pipe's limits (CC3, CC6).
+const (
+	maxRequest = 64 << 10
+	maxAnswer  = 1 << 20
+	maxChanged = 4096
+	maxLine    = 4096
+	maxOp      = 64
+	wireMajor  = 1
+)
+
+// childPath is the child's whole environment's one variable (CC1).
+const childPath = "/usr/bin:/bin"
+
+var opRE = regexp.MustCompile(`^[a-z][a-z-]*(\.[a-z][a-z-]*)*$`)
+
+// ChildSpec is how root starts the `teamchat-ctl` child (CC1): the binary, its argument, the
+// account, no supplementary groups, `/`, and PATH alone.
+type ChildSpec struct {
+	Path     string
+	Args     []string
+	UID, GID uint32
+	Groups   []uint32
+	Dir      string
+	Env      []string
+}
+
+// NewChildSpec is the start of the child from self, the running binary's absolute path, as
+// the account u, which may not be root's.
+func NewChildSpec(self string, u User) (ChildSpec, error) {
+	if !filepath.IsAbs(self) || filepath.Clean(self) != self {
+		return ChildSpec{}, fmt.Errorf("the binary path %q is not absolute and clean", self)
+	}
+	uid, uerr := accountID(u.UID)
+	gid, gerr := accountID(u.GID)
+	if err := errors.Join(uerr, gerr); err != nil {
+		return ChildSpec{}, fmt.Errorf("the %s account: %w", paths.CtlUser, err)
+	}
+	return ChildSpec{
+		Path: self, Args: []string{"ctl-child"}, UID: uid, GID: gid, Groups: []uint32{}, Dir: "/",
+		Env: []string{"PATH=" + childPath},
+	}, nil
+}
+
+func accountID(id int) (uint32, error) {
+	if id <= 0 || id >= math.MaxUint32 {
+		return 0, fmt.Errorf("id %d is root's or out of range", id)
+	}
+	return uint32(id), nil
+}
+
+// checkStarted is the child's check that root started it by the spec (CC2).
+func checkStarted(p Process) error {
+	if env := p.Environ(); !slices.Equal(env, []string{"PATH=" + childPath}) {
+		return fmt.Errorf("its environment holds %d variables, not PATH=%s alone", len(env), childPath)
+	}
+	wd, err := p.Getwd()
+	if err != nil {
+		return fmt.Errorf("its working directory: %w", err)
+	}
+	if wd != "/" {
+		return errors.New("its working directory is not /")
+	}
+	groups, err := p.Getgroups()
+	if err != nil {
+		return fmt.Errorf("its groups: %w", err)
+	}
+	if len(groups) > 0 {
+		return fmt.Errorf("it has %d supplementary groups", len(groups))
+	}
+	return nil
+}
+
+// ctlChild is the child's side of the pipe: one request in, one answer out (CC2-CC5). This
+// build serves no operation.
+func ctlChild(e Env, args []string) term.ExitCode {
+	if len(args) > 0 {
+		return fail(e.Stderr, term.ExitUsage, "ctl-child takes no arguments")
+	}
+	if err := checkStarted(e.Proc); err != nil {
+		return fail(e.Stderr, ExitConfig, "ctl-child was not started by root's child spec: "+err.Error())
+	}
+	raw, err := io.ReadAll(io.LimitReader(e.Stdin, maxRequest+1))
+	if err != nil {
+		return childFailed(e, "cannot read the request: "+err.Error())
+	}
+	req, err := DecodeRequest(raw)
+	if err != nil {
+		return childFailed(e, "bad request: "+err.Error())
+	}
+	return childFailed(e, "op "+req.Op+" is not served by this build")
+}
+
+// childFailed answers a `failed` error and exits 1 (CC5).
+func childFailed(e Env, message string) term.ExitCode {
+	raw, err := EncodeAnswer(Answer{Error: &AnswerError{Class: ClassFailed, Message: oneLine(message)}})
+	if err != nil {
+		return fail(e.Stderr, term.ExitFailure, "cannot encode the answer: "+err.Error())
+	}
+	if code := answer(e, string(raw)+"\n"); code != term.ExitOK {
+		return code
+	}
+	return term.ExitFailure
+}
+
+// oneLine is s with every control character a space, so an error's text fits one line.
+func oneLine(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, s)
+}
+
+// Request is one operation asked of the child (CC3).
+type Request struct {
+	Op   string
+	Team paths.TeamID
+	Args proto.Value
+}
+
+// EncodeRequest is the request on the wire.
+func EncodeRequest(r Request) ([]byte, error) {
+	if !validOp(r.Op) || r.Team.String() == "" || r.Args.Kind() != proto.KindObject {
+		return nil, errors.New("the request needs an op, a team and object args")
+	}
+	return proto.Obj(
+		proto.M("v", proto.Int(wireMajor)), proto.M("op", proto.Str(r.Op)),
+		proto.M("team", proto.Str(r.Team.String())), proto.M("args", r.Args),
+	).Compact(), nil
+}
+
+func validOp(op string) bool { return len(op) <= maxOp && opRE.MatchString(op) }
+
+// DecodeRequest reads a request strictly (CC3).
+func DecodeRequest(raw []byte) (Request, error) {
+	if len(raw) > maxRequest {
+		return Request{}, fmt.Errorf("the request is over %d bytes", maxRequest)
+	}
+	obj, err := strictObject(raw, "v", "op", "team", "args")
+	if err != nil {
+		return Request{}, err
+	}
+	if v := obj["v"]; v.Kind() != proto.KindInt || v.Int() != wireMajor {
+		return Request{}, errors.New("v is not 1")
+	}
+	op := obj["op"]
+	if op.Kind() != proto.KindString || !validOp(op.Str()) {
+		return Request{}, errors.New("op is not a dotted lower-case word")
+	}
+	teamValue := obj["team"]
+	if teamValue.Kind() != proto.KindString {
+		return Request{}, errors.New("team is not a string")
+	}
+	team, err := paths.ParseTeamID(teamValue.Str())
+	if err != nil {
+		return Request{}, fmt.Errorf("team: %w", err)
+	}
+	if obj["args"].Kind() != proto.KindObject {
+		return Request{}, errors.New("args is not an object")
+	}
+	return Request{Op: op.Str(), Team: team, Args: obj["args"]}, nil
+}
+
+// strictObject is raw as one object whose keys are exactly want.
+func strictObject(raw []byte, want ...string) (map[string]proto.Value, error) {
+	v, err := proto.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	return exactKeys(v, want...)
+}
+
+func exactKeys(v proto.Value, want ...string) (map[string]proto.Value, error) {
+	if v.Kind() != proto.KindObject {
+		return nil, errors.New("not an object")
+	}
+	out := make(map[string]proto.Value, len(want))
+	for _, m := range v.Members() {
+		if !slices.Contains(want, m.Key) {
+			return nil, fmt.Errorf("unknown key %s", strconv.Quote(m.Key))
+		}
+		out[m.Key] = m.Val
+	}
+	for _, k := range want {
+		if _, ok := out[k]; !ok {
+			return nil, fmt.Errorf("no %s key", k)
+		}
+	}
+	return out, nil
+}
+
+// ErrorClass is the kind of a failure the child answers, which root maps to its exit code
+// (CC6).
+type ErrorClass string
+
+// The failure classes.
+const (
+	ClassFailed      ErrorClass = "failed"
+	ClassRefused     ErrorClass = "refused"
+	ClassUnreachable ErrorClass = "unreachable"
+	ClassConfig      ErrorClass = "config"
+)
+
+var classExit = map[ErrorClass]term.ExitCode{
+	ClassFailed: term.ExitFailure, ClassRefused: ExitRefused, ClassUnreachable: ExitUnreachable, ClassConfig: ExitConfig,
+}
+
+// Answer is the child's one answer (CC5): what changed, or the failure.
+type Answer struct {
+	OK      bool
+	Changed []string
+	Error   *AnswerError
+}
+
+// AnswerError is a failed answer's class and one-line message.
+type AnswerError struct {
+	Class   ErrorClass
+	Message string
+}
+
+// ExitCode is root's exit code for the answer; the child's own exit code is never used (CC6).
+func (a Answer) ExitCode() term.ExitCode {
+	if a.OK {
+		return term.ExitOK
+	}
+	return classExit[a.Error.Class]
+}
+
+func (a Answer) validate() error {
+	if a.OK != (a.Error == nil) {
+		return errors.New("an answer is ok or carries an error, not both or neither")
+	}
+	if a.OK {
+		if len(a.Changed) > maxChanged {
+			return fmt.Errorf("more than %d changed lines", maxChanged)
+		}
+		for _, line := range a.Changed {
+			if !validLine(line) {
+				return errors.New("a changed line is not one line")
+			}
+		}
+		return nil
+	}
+	if _, ok := classExit[a.Error.Class]; !ok {
+		return fmt.Errorf("error class %s", strconv.Quote(string(a.Error.Class)))
+	}
+	if !validLine(a.Error.Message) {
+		return errors.New("the error message is not one line")
+	}
+	return nil
+}
+
+func validLine(s string) bool {
+	return s != "" && len(s) <= maxLine && !strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f })
+}
+
+// EncodeAnswer is the answer on the wire.
+func EncodeAnswer(a Answer) ([]byte, error) {
+	if err := a.validate(); err != nil {
+		return nil, err
+	}
+	head := []proto.Member{proto.M("v", proto.Int(wireMajor)), proto.M("ok", proto.Bool(a.OK))}
+	if a.OK {
+		lines := make([]proto.Value, 0, len(a.Changed))
+		for _, line := range a.Changed {
+			lines = append(lines, proto.Str(line))
+		}
+		return proto.Obj(append(head, proto.M("changed", proto.Arr(lines...)))...).Compact(), nil
+	}
+	errValue := proto.Obj(proto.M("class", proto.Str(string(a.Error.Class))), proto.M("message", proto.Str(a.Error.Message)))
+	return proto.Obj(append(head, proto.M("error", errValue))...).Compact(), nil
+}
+
+// DecodeAnswer reads the child's answer strictly, the one thing root parses that a
+// less-privileged process wrote (CC6).
+func DecodeAnswer(raw []byte) (Answer, error) {
+	if len(raw) > maxAnswer {
+		return Answer{}, fmt.Errorf("the answer is over %d bytes", maxAnswer)
+	}
+	v, err := proto.Parse(raw)
+	if err != nil {
+		return Answer{}, err
+	}
+	ok, found := v.Get("ok")
+	if !found || ok.Kind() != proto.KindBool {
+		return Answer{}, errors.New("ok is not a boolean")
+	}
+	if ok.Bool() {
+		return decodeDone(v)
+	}
+	return decodeFailed(v)
+}
+
+func decodeDone(v proto.Value) (Answer, error) {
+	obj, err := exactKeys(v, "v", "ok", "changed")
+	if err != nil {
+		return Answer{}, err
+	}
+	if err = checkMajor(obj["v"]); err != nil {
+		return Answer{}, err
+	}
+	if obj["changed"].Kind() != proto.KindArray {
+		return Answer{}, errors.New("changed is not an array")
+	}
+	a := Answer{OK: true}
+	for _, item := range obj["changed"].Items() {
+		if item.Kind() != proto.KindString {
+			return Answer{}, errors.New("a changed line is not a string")
+		}
+		a.Changed = append(a.Changed, item.Str())
+	}
+	return a, a.validate()
+}
+
+func decodeFailed(v proto.Value) (Answer, error) {
+	obj, err := exactKeys(v, "v", "ok", "error")
+	if err != nil {
+		return Answer{}, err
+	}
+	if err = checkMajor(obj["v"]); err != nil {
+		return Answer{}, err
+	}
+	e, err := exactKeys(obj["error"], "class", "message")
+	if err != nil {
+		return Answer{}, fmt.Errorf("error: %w", err)
+	}
+	if e["class"].Kind() != proto.KindString || e["message"].Kind() != proto.KindString {
+		return Answer{}, errors.New("error class and message are not strings")
+	}
+	a := Answer{Error: &AnswerError{Class: ErrorClass(e["class"].Str()), Message: e["message"].Str()}}
+	return a, a.validate()
+}
+
+func checkMajor(v proto.Value) error {
+	if v.Kind() != proto.KindInt || v.Int() != wireMajor {
+		return errors.New("v is not 1")
+	}
+	return nil
+}
