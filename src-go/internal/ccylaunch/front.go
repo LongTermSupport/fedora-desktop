@@ -77,8 +77,9 @@
 //     colour boundary (15 days, 1 day) can be coloured one band otherwise.
 //   - D4. The local zone is Go's reading of TZ (an unknown zone is UTC; ZONEINFO, not TZDIR);
 //     the bash's date is glibc's. It changes only the printed zone of a reset and D3's count.
-//   - D5. Paths are printed as filepath.Join makes them (a doubled or trailing slash in HOME
-//     cleaned); the bash prints them as built.
+//   - D5. The listing's `File:` lines are printed as filepath.Join makes them (a doubled or
+//     trailing slash in HOME cleaned), where the bash prints them as built; its `Token
+//     storage:` line, and every other path, is printed as built, as the bash prints it.
 //   - D6. curl dumps its headers and body into os.CreateTemp files, tmp.<digits> in TMPDIR
 //     (else /tmp), not mktemp's tmp.<ten letters>; a TMPDIR that cannot hold one fails the run
 //     (exit 1, naming the error) where mktemp complains and curl writes nowhere.
@@ -165,6 +166,9 @@ type Front struct {
 	// IsTerminal reports whether a stream is a terminal (the listing's colour, T3);
 	// term.FileIsTerminal when nil.
 	IsTerminal func(any) bool
+	// CreateTemp makes a temporary file (curl's dumped headers and body, D6); os.CreateTemp
+	// when nil.
+	CreateTemp func(dir, pattern string) (*os.File, error)
 }
 
 // launcher is what the front read of the bash launcher beside it.

@@ -275,7 +275,7 @@ func (r *usageReport) readToken(n *usageName) string {
 	if token == "" {
 		return ""
 	}
-	start := filepath.Join(r.tmp, tempPrefix)
+	start := tempStart(r.tmp)
 	for _, word := range r.curlArgs(start, start) {
 		if strings.Contains(word, token) {
 			return "a curl argument would hold the token of " + n.file
@@ -388,24 +388,37 @@ func (r *usageReport) fetch(ctx context.Context, n usageName) error {
 }
 
 func (r *usageReport) fetchVia(ctx context.Context, n usageName) error {
-	hdr, err := makeTemp(r.tmp)
+	hdr, err := r.makeTemp()
 	if err != nil {
 		return err
 	}
-	body, err := makeTemp(r.tmp)
+	body, err := r.makeTemp()
 	if err != nil {
 		return errors.Join(err, fsx.RemoveIfPresent(hdr))
 	}
 	return errors.Join(r.ask(ctx, n, hdr, body), fsx.RemoveIfPresent(hdr), fsx.RemoveIfPresent(body))
 }
 
-// makeTemp is a new empty file of mode 0600 in dir, named tmp. and digits (D6).
-func makeTemp(dir string) (string, error) {
-	file, err := os.CreateTemp(dir, tempPrefix)
+// makeTemp is a new empty file of mode 0600 in TMPDIR, named tmp. and digits (D6).
+func (r *usageReport) makeTemp() (string, error) {
+	create := r.f.CreateTemp
+	if create == nil {
+		create = os.CreateTemp
+	}
+	file, err := create(r.tmp, tempPrefix)
 	if err != nil {
 		return "", err
 	}
 	return file.Name(), file.Close()
+}
+
+// tempStart is the start of every temporary name in dir: dir and the prefix joined as
+// os.CreateTemp joins them, uncleaned, so a check of the names holds for the names made.
+func tempStart(dir string) string {
+	if strings.HasSuffix(dir, "/") {
+		return dir + tempPrefix
+	}
+	return dir + "/" + tempPrefix
 }
 
 // curlArgs is curl's argv: the settings, the header and body files, and never the token.

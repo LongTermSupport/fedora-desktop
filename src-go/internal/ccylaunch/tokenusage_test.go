@@ -1,10 +1,12 @@
 package ccylaunch
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -490,21 +492,101 @@ func TestTokenUsageTMPDIRMissingFails(t *testing.T) {
 	}
 }
 
-// Finding 3 of the review: a temporary name that happens to hold the token is made again, so a
+// tempToken is a junk token that neither a fixed curl argument nor the temporary names' prefix
+// holds: only a temporary name the test hands out can hold it.
+const tempToken = "zq"
+
+// temps makes the front's temporary files under TMPDIR with the names name gives, in order,
+// and returns how many it made.
+func (r *run) temps(t *testing.T, name func(i int) string) func() int {
+	t.Helper()
+	var mu sync.Mutex
+	made := 0
+	tmp := r.front.getenv("TMPDIR")
+	r.front.CreateTemp = func(dir, pattern string) (*os.File, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if dir != tmp || pattern != tempPrefix {
+			t.Errorf("a temporary file in %q named %q*, want %q and %q", dir, pattern, tmp, tempPrefix)
+		}
+		path := filepath.Join(dir, name(made))
+		made++
+		return os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+	}
+	return func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return made
+	}
+}
+
+// Finding 2 of the review: a temporary name that happens to hold the token is made again, so a
 // short token is still fetched rather than failing the run.
 func TestTokenUsageRetriesATemporaryNameHoldingTheToken(t *testing.T) {
 	r := usageRun(t, []string{"work.2030-06-01.token"}, "200", usageHeaders, "--json")
-	// A digit neither a fixed argument nor /tmp/tmp. holds: only a random name can, and the
-	// two names of one try nearly always do.
-	const token = "7"
-	r.setenv("TMPDIR=/tmp")
-	r.tokenHolding(t, token)
+	r.tokenHolding(t, tempToken)
+	made := r.temps(t, func(i int) string {
+		if i == 0 {
+			return "tmp." + tempToken
+		}
+		return fmt.Sprintf("tmp.clean%d", i)
+	})
 	r.answered(t, term.ExitOK)
+	if made() != 4 {
+		t.Fatalf("%d temporary files made, want 4: one refused try, then one that ran", made())
+	}
 	if len(r.curls()) != 1 || !strings.Contains(r.stdout.String(), `"five_hour_pct": 25`) {
 		t.Fatalf("%d calls\n%s", len(r.curls()), r.stdout)
 	}
-	if args := strings.Join(r.curls()[0].Args, " "); strings.Contains(args, token) {
+	if args := strings.Join(r.curls()[0].Args, " "); strings.Contains(args, tempToken) {
 		t.Fatalf("curl's argv holds the token: %q", args)
+	}
+	r.noTemporaries(t)
+}
+
+// After maxTempTries names that each hold the token, the run fails, naming the file only.
+func TestTokenUsageFailsWhenEveryTemporaryNameHoldsTheToken(t *testing.T) {
+	r := usageRun(t, []string{"work.2030-06-01.token"}, "200", usageHeaders, "--json")
+	r.tokenHolding(t, tempToken)
+	made := r.temps(t, func(i int) string { return fmt.Sprintf("tmp.%s%d", tempToken, i) })
+	r.answered(t, term.ExitFailure)
+	if made() != 2*maxTempTries {
+		t.Fatalf("%d temporary files made, want %d", made(), 2*maxTempTries)
+	}
+	if len(r.curls()) != 0 || r.stdout.Len() != 0 {
+		t.Fatalf("%d calls, stdout %q", len(r.curls()), r.stdout)
+	}
+	if want := usagePrefix + "every temporary name held the token of work.2030-06-01.token\n"; r.stderr.String() != want {
+		t.Fatalf("stderr %q, want %q", r.stderr, want)
+	}
+	r.noTemporaries(t)
+}
+
+func (r *run) noTemporaries(t *testing.T) {
+	t.Helper()
+	entries, err := os.ReadDir(r.front.getenv("TMPDIR"))
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("the temporaries were left in TMPDIR: %v %v", entries, err)
+	}
+}
+
+// Finding 4 of the review: the names' prefix is held as os.CreateTemp builds it, uncleaned, so
+// a junk token an unclean TMPDIR's names hold hands over rather than failing every try.
+func TestTokenUsageHandsOverATokenAnUncleanTMPDIRHolds(t *testing.T) {
+	r := usageRun(t, []string{"work.2030-06-01.token"}, "200", usageHeaders, "--json")
+	r.setenv("TMPDIR=" + r.front.getenv("TMPDIR") + "/./")
+	r.tokenHolding(t, "/./")
+	r.start(t)
+	if len(r.execer.Execs()) != 1 || r.stdout.Len() != 0 || r.stderr.Len() != 0 {
+		t.Fatalf("answered: stdout %q stderr %q", r.stdout, r.stderr)
+	}
+}
+
+func TestTempPrefixIsAsCreateTempBuildsIt(t *testing.T) {
+	for dir, want := range map[string]string{"/tmp": "/tmp/tmp.", "/tmp/": "/tmp/tmp.", "/a//b": "/a//b/tmp.", "./x": "./x/tmp."} {
+		if got := tempStart(dir); got != want {
+			t.Errorf("tempStart(%q) = %q, want %q", dir, got, want)
+		}
 	}
 }
 
