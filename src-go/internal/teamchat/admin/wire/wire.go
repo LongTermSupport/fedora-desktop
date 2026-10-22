@@ -79,7 +79,7 @@ func (m machine) system(digest string) (*admin.System, error) {
 		return health.New(health.Config{
 			Clock: clock, Teams: health.Stamps{Root: root}, Units: systemd.Health(),
 			Prober: hostnet.Prober{Port: hostnet.TeamPort(root)}, Viewer: admin.ChildViewer{Child: child, Root: root},
-			Backups: health.NoBackups{}, Space: health.StatfsSpace{Path: root + "/var/lib"}, Guests: health.GuestsNotBuilt{},
+			Backups: health.NoBackups{}, Restores: restore.Records{Root: root}, Space: health.StatfsSpace{Path: root + "/var/lib"}, Guests: health.GuestsNotBuilt{},
 			Announcer: admin.ChildAnnouncer{Child: child, Root: root}, Locks: health.TeamLocks{Dir: run, Clock: clock},
 			StatusPath:    func(t paths.TeamID) string { return root + paths.StatusFile(t) },
 			LXCOnlinePath: func(t paths.TeamID) string { return root + paths.LXCOnlineFile(t) },
@@ -105,6 +105,7 @@ func (m machine) system(digest string) (*admin.System, error) {
 		CtlIDs:     m.ctlIDs,
 		Health:     func() (admin.HealthTick, error) { return tick() },
 		Home:       admin.LookupHome,
+		Restore:    func() (admin.Restorer, error) { return nil, restore.ErrUnproven },
 	}, nil
 }
 

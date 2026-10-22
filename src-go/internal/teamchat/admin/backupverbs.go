@@ -96,7 +96,7 @@ func backupOne(ctx context.Context, sys *System, team paths.TeamID) (backup.Resu
 	}
 	res, err := backup.Take(ctx, *sys.Backup, lock, nil)
 	taken := err == nil
-	if serr := sys.Host.Status.Refresh(ctx, team, false); serr != nil {
+	if serr := sys.Host.Status.Refresh(ctx, team, false, nil); serr != nil {
 		err = errors.Join(err, fmt.Errorf("the status record: %w", serr))
 	}
 	return res, taken, errors.Join(err, lock.Release())

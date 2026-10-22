@@ -44,7 +44,7 @@ var restoreArgKeys = map[string][]string{
 	OpRestoreRevert: {keyTeamFile},
 }
 
-// The export's cap (n2g-D15) and the page it reads (RC3).
+// The export's cap (n2g-D15), which --lost also reads under (RS14), and the page it reads (RC3).
 const (
 	maxLost    = 64 << 20
 	exportPage = 100

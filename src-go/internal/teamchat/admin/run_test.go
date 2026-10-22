@@ -236,9 +236,9 @@ func TestUsageNamesEveryVerb(t *testing.T) {
 }
 
 func TestFlagsBelongToTheVerb(t *testing.T) {
-	got := run(t, rootProc(), "", "restore", "--resume")
-	if got.code != term.ExitFailure || got.stderr != "teamchat-admin: restore is not built yet\n" {
-		t.Fatalf("restore --resume = %+v", got)
+	got := run(t, rootProc(), "", "redact", "--resume")
+	if got.code != term.ExitFailure || got.stderr != "teamchat-admin: redact is not built yet\n" {
+		t.Fatalf("redact --resume = %+v", got)
 	}
 }
 

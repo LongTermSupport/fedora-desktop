@@ -75,6 +75,14 @@ func nilFields(v reflect.Value, skip ...string) []string {
 	return out
 }
 
+// RW2, n2g-D8: production refuses the restore engine until H-C5 and H-C15 pass.
+func TestRestoreIsUnproven(t *testing.T) {
+	sys := build(t, &fakeMachine{root: t.TempDir()})
+	if engine, err := sys.Restore(); engine != nil || !errors.Is(err, restore.ErrUnproven) {
+		t.Fatalf("Restore = %v, %v", engine, err)
+	}
+}
+
 // WR2: every seam is set, and building the System reads nothing: no bus, no account, no group,
 // no pin.
 func TestEverySeamIsSetAndNothingIsRead(t *testing.T) {

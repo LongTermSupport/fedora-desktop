@@ -38,6 +38,8 @@ type System struct {
 	Health     func() (HealthTick, error)
 	Home       func(uid int) (string, error)
 	Backup     *backup.Deps
+	// Restore is the restore engine; production answers restore's refusal until DC8 (RW2).
+	Restore func() (Restorer, error)
 }
 
 // Child asks the teamchat-ctl child one request (CC1); its start is the seam's (n2a-D6).
@@ -91,7 +93,7 @@ func rootRuns() map[string]func(context.Context, Env, []string) term.ExitCode {
 		"team apply": teamApply, "team approve": teamApprove, "team remove": teamRemove,
 		"role apply": memberVerb(apply.OpRoleApply),
 		"health":     healthVerb, "element check": elementVerb(false), "element apply": elementVerb(true),
-		"backup": backupVerb, "backups": backupsVerb,
+		"backup": backupVerb, "backups": backupsVerb, "restore": restoreVerb,
 	}
 	for _, op := range []string{apply.OpMemberAdd, apply.OpMemberReturn, apply.OpMemberReissue, apply.OpMemberPark, apply.OpMemberRetire, apply.OpMemberSet} {
 		runs["member "+strings.TrimPrefix(op, "member.")] = memberVerb(op)
