@@ -24,7 +24,7 @@ import urllib.parse
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from helpers.pingbus import forge, protocol
+from helpers.pingbus import colours, forge, protocol
 
 DNS_LABEL_PATTERN = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
 
@@ -45,8 +45,9 @@ REQUIRED_KEYS = frozenset({"team", "port", "listen", "allow_from", "humans", "fo
 #: `exclude` names repositories of the `org` the team never trusts (spec §11).
 #: `removed_humans` names the people taken off the team: their accounts are deactivated for good,
 #: so none of them may be in `humans` again (Plan 00201 S-F14).
+#: `colour` is the team's colour on the status line (Plan 00217 C7), a palette name or #rrggbb.
 OPTIONAL_KEYS = frozenset({"state", "server_name", "org", "exclude", "repos", "path_prefixes", "description",
-                           "removed_humans"})
+                           "removed_humans", "colour"})
 REPO_ENTRY_KEYS = frozenset({"repo", "branches"})
 
 _DNS_LABEL_RE = re.compile(DNS_LABEL_PATTERN)
@@ -85,6 +86,8 @@ class TeamFile:
     description: str | None = None
     #: The people taken off the team, never to return (Plan 00201 S-F14); () when none.
     removed_humans: tuple[str, ...] = ()
+    #: The status line colour override as lower-case #rrggbb (Plan 00217 C7); None when unset.
+    colour: str | None = None
 
     def listen_addresses(self) -> tuple[str, ...]:
         """Every address the homeserver binds: loopback always, then `listen`."""
@@ -96,9 +99,11 @@ class TeamFile:
         prefixes = {"path_prefixes": list(self.path_prefixes)} if self.path_prefixes else {}
         description = {} if self.description is None else {"description": self.description}
         removed = {"removed_humans": list(self.removed_humans)} if self.removed_humans else {}
+        colour = {} if self.colour is None else {"colour": self.colour}
         return {
             **org,
             **description,
+            **colour,
             **exclude,
             "team": self.team,
             "state": self.state,
@@ -261,6 +266,15 @@ def _description(data: Mapping) -> str | None:
     return data["description"]
 
 
+def _colour(data: Mapping) -> str | None:
+    if "colour" not in data:
+        return None
+    try:
+        return colours.parse_colour(data["colour"])
+    except colours.ColourError as exc:
+        raise _fail("colour", str(exc)) from None
+
+
 def _repos(data: Mapping) -> tuple[RepoEntry, ...]:
     value = data.get("repos", [])
     if not isinstance(value, list) or not protocol.REPOS_MIN <= len(value) <= protocol.REPOS_MAX:
@@ -354,6 +368,7 @@ def parse_team_file(data: object) -> TeamFile:
         exclude=_exclude(data, org, repos),
         description=_description(data),
         removed_humans=_removed_humans(data, humans),
+        colour=_colour(data),
     )
 
 

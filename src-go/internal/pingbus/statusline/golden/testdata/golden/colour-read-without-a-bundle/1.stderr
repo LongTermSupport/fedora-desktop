@@ -1,0 +1,2 @@
+pingbus status-line: the role cannot be read (beta: team beta: {world}/pingbus/beta/member.json: no bundle (member.json is missing))
+pingbus status-line: the colour cannot be read (beta: the colour file is not {"v": 1, "colour": "#rrggbb"})

@@ -703,6 +703,38 @@ class AboutCacheTest(StateCase):
             self.state.about()
 
 
+class ColourCacheTest(StateCase):
+    """Plan 00217 C9: `colour.json`, the team's colour override as the syncer read it from the
+    admin's `agent_bus.colour` state, in the one shape the status line reads (C12)."""
+
+    def test_saved_read_and_cleared(self):
+        self.assertIsNone(self.state.colour())
+        self.state.save_colour("#60a5fa")
+        self.assertEqual(self.state.colour(), "#60a5fa")
+        path = self.state.path / inbox.COLOUR_FILE
+        self.assertEqual(json.loads(path.read_text()), {"v": 1, "colour": "#60a5fa"})
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        self.state.save_colour(None)
+        self.assertIsNone(self.state.colour())
+        self.state.save_colour(None)
+
+    def test_only_a_stored_colour_is_saved(self):
+        for bad in ("#60A5FA", "blue", "#60a5f", 7):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.state.save_colour(bad)
+
+    def test_forgotten_with_the_trust(self):
+        self.state.save_colour("#60a5fa")
+        self.state.mark_untrusted("the room's create event")
+        self.assertIsNone(self.state.colour())
+
+    def test_a_file_that_is_not_what_save_colour_writes_is_refused(self):
+        self.state.ensure_dirs()
+        (self.state.path / inbox.COLOUR_FILE).write_text('{"v": 1, "colour": "#60A5FA"}')
+        with self.assertRaises(inbox.StateError):
+            self.state.colour()
+
+
 class UntrustedReasonTest(StateCase):
     """§12 `untrusted.json`: why the room stopped being trusted, for an offline `status`."""
 

@@ -18,7 +18,7 @@ import (
 // in use, and the render must read each one as the Python does. testdata/write_formats.py runs
 // the Python writers from this checkout: the session record (hooks.record_session_teams), the
 // bundle (agent_bus.admin's bundle, unpacked by agent_bus.checkout.read_bundle), team.json
-// (inbox.TeamState.save_team_record), the down mark (statusline.set_team_down) and applied.json
+// (inbox.TeamState.save_team_record), colour.json (inbox.TeamState.save_colour), the down mark (statusline.set_team_down) and applied.json
 // (membership.write_applied). membership.json is written by the Go ccy-teams writer. A writer
 // that changes its format so the port no longer reads it fails this test.
 func TestReadsWhatTheRealWritersWrite(t *testing.T) {
@@ -43,8 +43,9 @@ func TestReadsWhatTheRealWritersWrite(t *testing.T) {
 
 	var stderr bytes.Buffer
 	out, code := Run(context.Background(), in, &stderr)
-	if want := "alpha (coordinator), beta (worker) (down)"; code != 0 || !strings.Contains(string(out), want) || stderr.Len() != 0 {
-		t.Errorf("the session record, bundles, team records and down mark: exit %d, %q, stderr %q; want %q",
+	want := "👥 " + sgr("#60a5fa") + "alpha: myrepo.1 (c)," + reset + " " + sgr(autoColour("beta")) + "beta: myrepo.1 (w) (down)" + reset
+	if code != 0 || !strings.Contains(string(out), want) || stderr.Len() != 0 {
+		t.Errorf("the session record, bundles, team records, colour and down mark: exit %d, %q, stderr %q; want %q",
 			code, out, stderr.String(), want)
 	}
 
@@ -52,7 +53,7 @@ func TestReadsWhatTheRealWritersWrite(t *testing.T) {
 	env[membershipVar] = filepath.Join(root, "ccy", "membership")
 	stderr.Reset()
 	out, code = Run(context.Background(), in, &stderr)
-	if code != 0 || !strings.Contains(string(out), "alpha (coordinator)") || strings.Contains(string(out), "beta") || stderr.Len() != 0 {
+	if code != 0 || !strings.Contains(string(out), "alpha: myrepo.1 (c)") || strings.Contains(string(out), "beta") || stderr.Len() != 0 {
 		t.Errorf("membership.json and applied.json: exit %d, %q, stderr %q; want alpha alone", code, out, stderr.String())
 	}
 }

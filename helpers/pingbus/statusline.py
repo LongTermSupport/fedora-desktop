@@ -27,20 +27,27 @@ instead. The inner command runs in its own process group, killed on a timeout an
 process is cancelled (Claude Code cancels an in-flight render when a new one starts), so nothing
 it started outlives the render.
 
-Each team shows this member's role in it, `👥 desktop (coordinator), other (worker)`, read on
-every render from the team record the hooks' role notice reads (`inbox.cached_role`), so a role
-change shows at the next refresh with no restart. A role that cannot be read is `(role?)`, never
-a guess, with one line on stderr naming the teams and why. A team's marks such as `(down)` come
-after its role: the team, its role, then each mark, in brackets of their own.
+Each team shows this session's member in it and its role, `👥 desktop: fedora-desktop.2 (c),
+other: fedora-desktop.2 (w)` (Plan 00217 SPEC-team-colours C15 to C18): the member's handle up to
+its `+`, from the bundle, and the role's letter, read on every render from the team record the
+hooks' role notice reads (`inbox.cached_role`), so a role change shows at the next refresh with
+no restart. What cannot be read is `member?` or `(role?)`, never a guess, with one line on stderr
+naming the teams and why. A team's marks such as `(down)` come after its role: the team, its
+member and role, then each mark, in brackets of their own.
+
+Each team piece is its own span of the team's colour (C10 to C12, `colours`): the override the
+syncer keeps in the team's `state/colour.json`, else the colour its name gives. An override that
+cannot be read is the automatic colour, the mark `(colour?)` and one more stderr line.
 
 It renders on every refresh, so loading it imports no other pingbus module (the zipapp's
 __main__ runs it without the cli): `read_roles` imports config and inbox only when there are
-teams to show. The few names it shares with hooks.py and protocol.py are copies a test keeps
+teams to show, and `read_colours` imports colours. The few names it shares with hooks.py and protocol.py are copies a test keeps
 equal.
 """
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import pathlib
@@ -70,7 +77,7 @@ MAX_RECORD_BYTES = 4096
 INNER_TIMEOUT_S = 10.0
 #: `run_command`'s status for an inner command that was killed at its timeout.
 TIMED_OUT = -1
-CYAN, RED, RESET = "\033[36m", "\033[31m", "\033[0m"
+RED, RESET = "\033[31m", "\033[0m"
 #: The segment's label, the team counterpart of the hooks daemon's 👤 account segment.
 LABEL = "👥"
 COLUMNS_VAR = "COLUMNS"
@@ -91,12 +98,22 @@ NO_MEMBERSHIP = "this session's membership is unreadable (pingbus status)"
 DOWN_DIR = "down"
 DOWN_FRESH_S = 300.0
 CANCEL_SIGNALS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
-#: Shown in place of a role that cannot be read.
+#: Shown in place of a role, and of this member's short name, that cannot be read (C16).
 ROLE_UNKNOWN = "role?"
+MEMBER_UNKNOWN = "member?"
+#: The role's letter on the status line (C15).
+ROLE_LETTERS = {"coordinator": "c", "worker": "w"}
+#: Plan 00217 C12: the override the syncer keeps (`inbox.COLOUR_FILE`), in each team's state.
+COLOUR_FILE = "colour.json"
+MAX_COLOUR_BYTES = 4096
+#: The mark of a team whose override cannot be read.
+COLOUR_UNKNOWN = "colour?"
 
 Runner = Callable[[str, bytes, Mapping[str, str], "pathlib.Path | None"], tuple[str, int]]
-#: Teams -> (each team's role, None where unreadable; one diagnostic line, None when all read).
-RoleReader = Callable[[Mapping[str, str], list[str]], tuple[dict[str, "str | None"], "str | None"]]
+#: (this member's short name, its role), either None where unreadable.
+MemberRole = tuple["str | None", "str | None"]
+#: Teams -> (each team's MemberRole; one diagnostic line, None when all read).
+RoleReader = Callable[[Mapping[str, str], list[str]], tuple[dict[str, MemberRole], "str | None"]]
 
 #: The inner command's process while it runs, for the cancel handler.
 _running: subprocess.Popen | None = None
@@ -303,15 +320,16 @@ def _is_down(environ: Mapping[str, str], team: str) -> bool:
     return stat.S_ISREG(found.st_mode) and time.time() - found.st_mtime < DOWN_FRESH_S
 
 
-def read_roles(environ: Mapping[str, str], teams: list[str]) -> tuple[dict[str, str | None], str | None]:
-    """This member's role in each team, from each bundle as `config.load_active` validates it
-    and its cached team record by `inbox.cached_role` (what the role notice reads), None where
-    it cannot be read; and one
-    diagnostic line naming every such team and why, None when every role was read. The bus
-    modules are imported here, not with this module, so a render with no teams stays cheap."""
+def read_roles(environ: Mapping[str, str], teams: list[str]) -> tuple[dict[str, MemberRole], str | None]:
+    """This member's short name and role in each team: the name from each bundle as
+    `config.load_active` validates it, the role from its cached team record by
+    `inbox.cached_role` (what the role notice reads), None where either cannot be read; and one
+    diagnostic line naming every team whose role was not read and why, None when every role was
+    read. The bus modules are imported here, not with this module, so a render with no teams
+    stays cheap."""
     from helpers.pingbus import config, inbox, protocol
 
-    roles: dict[str, str | None] = dict.fromkeys(teams)
+    roles: dict[str, MemberRole] = dict.fromkeys(teams, (None, None))
     failed: list[str] = []
     try:
         home = config.resolve_home(environ)
@@ -319,12 +337,75 @@ def read_roles(environ: Mapping[str, str], teams: list[str]) -> tuple[dict[str, 
         return roles, f"pingbus status-line: no team's role can be read: {exc}"
     for team in teams:
         try:
-            roles[team] = inbox.cached_role(config.load_bundle(home, team))
+            member = config.load_bundle(home, team)
         except (config.ConfigError, protocol.Untrusted) as exc:
+            failed.append(f"{team}: {exc}")
+            continue
+        short = member.handle.split(protocol.HANDLE_SEP, 1)[0]
+        try:
+            roles[team] = (short, inbox.cached_role(member))
+        except (config.ConfigError, protocol.Untrusted) as exc:
+            roles[team] = (short, None)
             failed.append(f"{team}: {exc}")
     if not failed:
         return roles, None
     return roles, f"pingbus status-line: the role cannot be read ({'; '.join(failed)})"
+
+
+def _colour_override(path: pathlib.Path) -> tuple[str | None, str | None]:
+    """C12: the override in `path` as #rrggbb, or None; and why it cannot be read, None when it
+    was read or is absent."""
+    from helpers.pingbus import colours
+
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except FileNotFoundError:
+        return None, None
+    except OSError as exc:
+        return None, "the colour file is a symlink" if exc.errno == errno.ELOOP else "the colour file cannot be read"
+    # fstat before fdopen: fdopen itself refuses a directory, with an exception of its own.
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        os.close(fd)
+        return None, "the colour file is not a regular file"
+    with os.fdopen(fd, "rb") as handle:
+        try:
+            raw = handle.read(MAX_COLOUR_BYTES + 1)
+        except OSError:
+            return None, "the colour file cannot be read"
+    if len(raw) > MAX_COLOUR_BYTES:
+        return None, "the colour file is too large"
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return None, "the colour file is not JSON"
+    if (not isinstance(data, dict) or data.keys() != {"v", "colour"} or type(data["v"]) is not int
+            or data["v"] != 1 or not colours.is_stored_colour(data["colour"])):
+        return None, 'the colour file is not {"v": 1, "colour": "#rrggbb"}'
+    return data["colour"], None
+
+
+def read_colours(environ: Mapping[str, str], teams: list[str]) -> tuple[dict[str, str], set[str], str | None]:
+    """C12: each team's colour as #rrggbb, its override or else its automatic colour; the teams
+    whose override cannot be read; and one diagnostic line naming them, None when there are none.
+    With no home every team is automatic: the role line already says why."""
+    from helpers.pingbus import colours, config
+
+    shown = {team: colours.auto_colour(team) for team in teams}
+    try:
+        home = config.resolve_home(environ)
+    except config.ConfigError:
+        return shown, set(), None
+    unknown: set[str] = set()
+    failed: list[str] = []
+    for team in teams:
+        override, reason = _colour_override(home / team / "state" / COLOUR_FILE)
+        if reason is not None:
+            unknown.add(team)
+            failed.append(f"{team}: {reason}")
+        shown[team] = override or shown[team]
+    if not failed:
+        return shown, unknown, None
+    return shown, unknown, f"pingbus status-line: the colour cannot be read ({'; '.join(failed)})"
 
 
 def display_width(text: str) -> int:
@@ -346,40 +427,61 @@ def terminal_columns(environ: Mapping[str, str]) -> int | None:
     return int(value) if COLUMNS_RE.fullmatch(value) and int(value) > 0 else None
 
 
-def _wrapped(colour: str, pieces: list[str], joiner: str, columns: int | None) -> str:
-    """`LABEL pieces` in rows no wider than `columns` (unbroken when None), each row its own
-    colour span. A row breaks only between pieces; a later row is indented under the first."""
-    indent = " " * display_width(f"{LABEL} ")
-    rows: list[str] = []
-    current = f"{LABEL} {pieces[0]}"
-    for piece in pieces[1:]:
-        candidate = f"{current}{joiner}{piece}"
-        if columns is None or display_width(candidate) <= columns:
-            current = candidate
+def _rows(pieces: list[str], columns: int | None) -> list[list[int]]:
+    """The pieces' indices on each row of `LABEL pieces`, no row wider than `columns` (unbroken
+    when None), measured on the plain texts. A row breaks only between pieces, joined by one
+    space; a later row is indented under the first, as wide as `LABEL `."""
+    rows = [[0]]
+    width = display_width(f"{LABEL} {pieces[0]}")
+    for index, piece in enumerate(pieces[1:], start=1):
+        candidate = width + 1 + display_width(piece)
+        if columns is None or candidate <= columns:
+            rows[-1].append(index)
+            width = candidate
         else:
-            rows.append(current)
-            current = f"{indent}{piece}"
-    rows.append(current)
-    return "\n".join(f"{colour}{row}{RESET}" for row in rows)
+            rows.append([index])
+            width = display_width(f"{LABEL} {piece}")
+    return rows
 
 
-def _team_piece(environ: Mapping[str, str], team: str, role: str | None) -> str:
-    """`team (role)`, then each of its marks: the one order every team is shown in."""
-    marks = " (down)" if _is_down(environ, team) else ""
-    return f"{team} ({role or ROLE_UNKNOWN}){marks}"
+def _lead(row: int) -> str:
+    """The label before the first row, an indent as wide before each later one."""
+    return f"{LABEL} " if row == 0 else " " * display_width(f"{LABEL} ")
+
+
+def _wrapped(colour: str, pieces: list[str], columns: int | None) -> str:
+    """The pieces wrapped (`_rows`), each row one colour span, label included."""
+    return "\n".join(f"{colour}{_lead(n)}{' '.join(pieces[i] for i in row)}{RESET}"
+                     for n, row in enumerate(_rows(pieces, columns)))
+
+
+def _team_piece(environ: Mapping[str, str], team: str, found: MemberRole, colour_unknown: bool) -> str:
+    """`team: member (r)`, then each of its marks: the one order every team is shown in."""
+    short, role = found
+    letter = ROLE_LETTERS.get(role, ROLE_UNKNOWN) if role is not None else ROLE_UNKNOWN
+    marks = (" (down)" if _is_down(environ, team) else "") + (f" ({COLOUR_UNKNOWN})" if colour_unknown else "")
+    return f"{team}: {short or MEMBER_UNKNOWN} ({letter}){marks}"
 
 
 def _teams_text(environ: Mapping[str, str], teams: list[str], read: RoleReader, err: TextIO) -> str:
+    """C10: the label and the indent plain, each team's piece (with its comma) in its own span
+    of the team's colour, the pieces joined by plain spaces."""
+    from helpers.pingbus import colours
+
     roles, problem = read(environ, teams)
-    if problem is not None:
-        err.write(problem + "\n")
-    shown = [_team_piece(environ, team, roles.get(team)) for team in teams]
-    pieces = [f"{piece}," for piece in shown[:-1]] + shown[-1:]
-    return _wrapped(CYAN, pieces, " ", terminal_columns(environ))
+    shown, unknown, colour_problem = read_colours(environ, teams)
+    for line in (problem, colour_problem):
+        if line is not None:
+            err.write(line + "\n")
+    texts = [_team_piece(environ, team, roles.get(team, (None, None)), team in unknown) for team in teams]
+    pieces = [f"{text}," for text in texts[:-1]] + texts[-1:]
+    spans = [f"{colours.sgr(shown[team])}{piece}{RESET}" for team, piece in zip(teams, pieces, strict=True)]
+    return "\n".join(_lead(n) + " ".join(spans[i] for i in row)
+                     for n, row in enumerate(_rows(pieces, terminal_columns(environ))))
 
 
 def _note(environ: Mapping[str, str], text: str) -> str:
-    return _wrapped(RED, text.split(" "), " ", terminal_columns(environ))
+    return _wrapped(RED, text.split(" "), terminal_columns(environ))
 
 
 def _segment(environ: Mapping[str, str], payload: dict, read: RoleReader, err: TextIO) -> str:

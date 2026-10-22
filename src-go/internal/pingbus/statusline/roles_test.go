@@ -69,7 +69,7 @@ func (rw rolesWorld) roles(homeErr error) (string, string) {
 	userHome := func(int) (string, error) { return rw.path("user"), homeErr }
 	w := newWorld(rw.root, time.Unix(0, 0), userHome)
 	roles, problem := w.readRoles(map[string]string{"PINGBUS_HOME": rw.path("pingbus")}, []string{"alpha"})
-	return roles["alpha"], problem
+	return roles["alpha"].role, problem
 }
 
 // S21: a linked bundle is read through its link only when the target is a real directory of

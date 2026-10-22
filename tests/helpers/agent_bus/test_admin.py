@@ -278,6 +278,28 @@ class BootstrapTest(AdminTestCase):
         self.assertIn("topic", self.bootstrap())
         self.assertEqual(self.topic(), admin.ROOM_TOPIC)
 
+    def test_the_colour_is_room_state_of_its_own_written_only_when_it_differs(self) -> None:
+        """Plan 00217 C8: `agent_bus.colour` at {"colour": hex}, or {} once set and taken away;
+        never created for a team that never set one, and never in the team record."""
+        self.bootstrap()
+        self.assertEqual(self.state(protocol.EVENT_COLOUR)[0], 404)
+        self.write_team(team_data(colour="blue"))
+        self.assertIn("colour", self.bootstrap())
+        _, event = self.state(protocol.EVENT_COLOUR, event=True)
+        self.assertEqual((event["sender"], event["state_key"], event["content"]), (ADMIN_ID, "", {"colour": "#60a5fa"}))
+        _, record_event = self.state(protocol.EVENT_TEAM, event=True)
+        self.assertLessEqual(set(record_event["content"]), self.OLD_RECORD_KEYS)
+        before = len(self.transport.calls)
+        self.assertEqual(self.bootstrap(), [])
+        self.assertEqual([c for c in self.transport.calls[before:] if c[0] != "GET"], [])
+        self.write_team(team_data(colour="#A78BFA"))
+        self.assertIn("colour", self.bootstrap())
+        self.assertEqual(self.state(protocol.EVENT_COLOUR)[1], {"colour": "#a78bfa"})
+        self.write_team(team_data())
+        self.assertIn("colour", self.bootstrap())
+        self.assertEqual(self.state(protocol.EVENT_COLOUR)[1], {})
+        self.assertEqual(self.bootstrap(), [])
+
     def test_a_new_room_starts_with_the_description_as_its_topic(self) -> None:
         self.write_team(team_data(description="Builds the example site"))
         self.assertIn("team room", self.bootstrap())
