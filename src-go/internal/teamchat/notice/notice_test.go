@@ -362,3 +362,67 @@ func TestTheDisplay(t *testing.T) {
 		t.Fatalf("txn %q", got)
 	}
 }
+
+// LatestOwn is the subject's latest own lifecycle notice since since_ms, whatever its event.
+func TestLatestOwn(t *testing.T) {
+	w := newWorld(t)
+	c := w.client(t, worker)
+	latest := func(sinceMS int64) (string, bool) {
+		t.Helper()
+		event, found, err := LatestOwn(t.Context(), c, w.notice(t, worker, sinceMS))
+		if err != nil {
+			t.Fatalf("LatestOwn: %v", err)
+		}
+		return event, found
+	}
+	if event, found := latest(0); found || event != "" {
+		t.Fatalf("none yet: %q %v", event, found)
+	}
+	w.clock.set(2_000)
+	w.post(t, worker, proto.EventDisconnected, "")
+	w.post(t, coord, proto.EventLeft, "exit")
+	if event, found := latest(0); !found || event != proto.EventDisconnected {
+		t.Fatalf("after disconnected: %q %v", event, found)
+	}
+	w.clock.set(3_000)
+	w.post(t, worker, proto.EventBack, "")
+	if event, found := latest(0); !found || event != proto.EventBack {
+		t.Fatalf("after back: %q %v", event, found)
+	}
+	if event, found := latest(3_001); found {
+		t.Fatalf("before since_ms: %q", event)
+	}
+	if _, _, err := LatestOwn(t.Context(), unread{c}, w.notice(t, worker, 0)); !errors.Is(err, errUnread) {
+		t.Fatalf("a failed page: %v", err)
+	}
+}
+
+var errUnread = errors.New("unread")
+
+// unread is a client whose pages fail.
+type unread struct{ Client }
+
+func (unread) Messages(context.Context, string, matrix.MessagesRequest) (matrix.MessagesPage, error) {
+	return matrix.MessagesPage{}, errUnread
+}
+
+// Roster is main verified as the subject sees it; Addressees are the humans and the open
+// coordinator, never the subject.
+func TestRosterAndAddressees(t *testing.T) {
+	w := newWorld(t)
+	a := proto.Anchors{Server: server, Team: team, MainRoom: w.main, Self: user(worker)}
+	r, err := Roster(t.Context(), w.client(t, worker), a)
+	if err != nil {
+		t.Fatalf("Roster: %v", err)
+	}
+	if got := Addressees(r, user(worker)); len(got) != 2 || got[0] != user("alice") || got[1] != user(coord) {
+		t.Fatalf("worker's addressees %v", got)
+	}
+	if got := Addressees(r, user(coord)); len(got) != 1 || got[0] != user("alice") {
+		t.Fatalf("coordinator's addressees %v", got)
+	}
+	a.MainRoom = "!nothere:" + server
+	if _, err := Roster(t.Context(), w.client(t, worker), a); err == nil {
+		t.Fatal("a room that does not verify has a roster")
+	}
+}

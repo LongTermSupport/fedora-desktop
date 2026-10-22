@@ -75,7 +75,7 @@ func Disconnected(ctx context.Context, c Client, n Notice) (Outcome, error) {
 	if why != "" {
 		return Outcome{Why: why}, nil
 	}
-	found, err := goodbye(ctx, c, n, self)
+	found, err := goodbye(ctx, c, n)
 	if err != nil {
 		return judged(ctx, err)
 	}
@@ -108,7 +108,7 @@ func verify(raw []json.RawMessage, n Notice, self string) (proto.Roster, string)
 // compose is the notice's content, built by A's composer, which refuses what a receiver drops.
 func compose(r proto.Roster, n Notice, self string) (json.RawMessage, bool) {
 	out, err := proto.Composer{Server: n.Server, Self: self, Token: n.Token, Roster: r}.Notice(
-		proto.Notice{Event: proto.EventDisconnected, Subject: self, To: addressees(r, self)}, display(n.Handle))
+		proto.Notice{Event: proto.EventDisconnected, Subject: self, To: Addressees(r, self)}, display(n.Handle))
 	if err != nil {
 		return nil, false
 	}
@@ -130,31 +130,39 @@ func judged(ctx context.Context, err error) (Outcome, error) {
 	return Outcome{Why: whyRefused}, nil
 }
 
-// goodbye reads main backwards, at most MaxPages of PageSize, for the subject's latest own
-// lifecycle notice since n.SinceMS: true when it is `left` or `disconnected`.
-func goodbye(ctx context.Context, c Client, n Notice, self string) (bool, error) {
+// goodbye is whether the subject's latest own lifecycle notice since n.SinceMS is `left` or
+// `disconnected`.
+func goodbye(ctx context.Context, c Client, n Notice) (bool, error) {
+	event, found, err := LatestOwn(ctx, c, n)
+	return found && (event == proto.EventLeft || event == proto.EventDisconnected), err
+}
+
+// LatestOwn reads main backwards, at most MaxPages of PageSize, for the subject's latest own
+// lifecycle notice since n.SinceMS: its event, and whether there is one.
+func LatestOwn(ctx context.Context, c Client, n Notice) (string, bool, error) {
+	self := proto.UserID(n.Handle, n.Server)
 	req := matrix.MessagesRequest{Dir: matrix.Backward, Limit: PageSize}
 	for range MaxPages {
 		page, err := c.Messages(ctx, n.MainRoom, req)
 		if err != nil {
-			return false, err
+			return "", false, err
 		}
 		for _, raw := range page.Chunk {
 			ev, ok := lifecycle(raw)
 			switch {
 			case !ok:
 			case ev.ts < n.SinceMS:
-				return false, nil
+				return "", false, nil
 			case ev.sender == self && ev.subject == self:
-				return ev.event == proto.EventLeft || ev.event == proto.EventDisconnected, nil
+				return ev.event, true, nil
 			}
 		}
 		if page.End == "" || len(page.Chunk) == 0 {
-			return false, nil
+			return "", false, nil
 		}
 		req.From = page.End
 	}
-	return false, nil
+	return "", false, nil
 }
 
 // event is a room event as the scan reads it; event and subject are set only for a lifecycle
@@ -188,9 +196,19 @@ func lifecycle(raw []byte) (event, bool) {
 	return ev, true
 }
 
-// addressees are A 7.4's `to`: the humans and the coordinator when it is not parked, never the
+// Roster is main's roster as a reads it, verified under A 6.4 (the ends' own check when the team
+// goroutine has not verified yet).
+func Roster(ctx context.Context, c Client, a proto.Anchors) (proto.Roster, error) {
+	raw, err := c.RoomState(ctx, a.MainRoom)
+	if err != nil {
+		return proto.Roster{}, err
+	}
+	return proto.VerifyMain(stateEvents(raw), a)
+}
+
+// Addressees are A 7.4's `to`: the humans and the coordinator when it is not parked, never the
 // subject.
-func addressees(r proto.Roster, self string) []string {
+func Addressees(r proto.Roster, self string) []string {
 	to := slices.Clone(r.Humans)
 	if coordinator, open := r.Coordinator(); open && coordinator != self {
 		to = append(to, coordinator)
