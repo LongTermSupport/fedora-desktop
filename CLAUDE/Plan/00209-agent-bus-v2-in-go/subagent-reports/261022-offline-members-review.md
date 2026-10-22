@@ -136,3 +136,66 @@ the n3b builder or contradict A. Fix them before n3b is built from it. Commits r
 - SPEC-n3 sections 4-6 (n3c, n3d, n3e) hold no blocking text: sends do not wait on receipts,
   TIMEOUTs are asynchronous (A 8.3), and `wait`, removal and Stop hooks are each the member's
   own.
+
+## Round 2
+
+FIX-FIRST
+
+Reviewed c88b3eacd and 21b29d2cd (`git diff a4a905368..21b29d2cd`). The code is sound. One
+medium defect is left in LX6's mid-phase deferral, which the n3b builder would build as written.
+
+Run: `go test -race -cover` on `status`, `health/...` and `admin`: all ok. Coverage: status
+94.8%, health 93.7%, health/view 93.1%, admin 96.0%.
+
+Round 1, finding by finding: 01, 02, 04, 05, 07, 08, 09, 10, 11 and 12 are resolved. 06 is
+resolved in the text (LP1; n3b is unbuilt). 03 is resolved only in part (R2-01, R2-02).
+
+Code, checked:
+
+- The new tests fail without the code. The `member's problem` wire case fails at encode
+  (`member` was dropped), and its round trip fails at decode (`exactKeys` refused it). The VW5 test
+  fails (no problem was raised). `TeamProblems` did not exist.
+- A member problem from the child naming a handle not in the view is refused. `decodeProblem`
+  accepts the key, then `validate` -> `validView` -> `checkLines` (status.go:383) refuses it. An
+  empty or non-string `member` is refused in `decodeProblem`.
+- VW5's handle is always among the view's members. `open` needs `f.Members[f.Coordinator]`, and
+  `memberList` (view.go:200) lists every roster member. `memberships` runs before `questions`.
+  The tick copies the view's members into the record, so `checkLines` holds.
+- The FRAME split is consistent with A 6.6/R27. B 2.9's `(down)` and `(failed)` marks are the
+  member's own status line, and the FRAME shows them "as what they are". There is no
+  contradiction. The A 3.1 `features` remedy matches DESIGN-v2-A-protocol.md:278-287.
+
+Findings:
+
+1. **medium: LX6's "`deferred` with the handle" contradicts C 3.9.3 and loses the unplaced
+   bundle.** In C 3.9.3 (DESIGN-v2-C-host.md:1811-1815), `deferred` means no known handle. A
+   known handle on a container that is not running is `SKIPPED`/`stopped`, and LX2 applies the
+   same split. So at the next apply, if the container is still stopped, the entry becomes
+   `SKIPPED` with status `stopped`. The fact that step 07 never placed the bundle is then gone.
+   Once the container runs, the member is `active` with a recorded handle, so step 06 "as the
+   state requires" (3.6.3 table, :871-873) does nothing. Nothing reissues, and the guest never
+   gets a token. `member return` cannot apply either: it takes only `parked`/`lost`.
+   Fix: record the fact somewhere that outlives the SKIPPED pass. Either mark the roster member
+   `needs: reissue`, which C 3.6.1 already has and the board already shows, or give the record
+   entry a `why` that survives status changes. Step 06 then runs `reissue` for that need. Say
+   `reissue` only, and add a test: a stop after 06, a second apply while still stopped, and a
+   third apply running.
+2. **low: the SU2 case cannot be "left out of step 08's seats".** SU2 is step 09, after
+   step 08 has written the host copy and the guest's `desired.json`. Fix: limit the
+   seats clause to entries deferred before step 08. A step-09 deferral keeps its seat, since
+   its bundle is placed.
+3. **low: the audit's B5 row still holds the removed fix.** Its Fix column says "Only `--only C`
+   for that container exits 1. `declare check` names it." That contradicts LX2 and the audit's
+   own "Review round 1" paragraph. Fix: replace it with LX2's current text.
+4. **low: LP1's 5 s bound is per probe, and `probeGuests` (online.go:55) runs the probes in
+   sequence.** k hanging containers add k x 5 s to one tick. Past 60 of them the 300 s
+   `Lifetime` (status.go:33) expires, and the team shows "health has not run". This is remote,
+   but the FRAME says "never a stalled operation". Fix: LP1 bounds the tick's probes in all
+   (or runs them in parallel), or the spec states the limit.
+5. **low: the decode refusal rows `problem member none` and `problem member empty` pass without
+   the code** (the old decoder refused the unknown key). They guard the new path but do not
+   prove it. The round trip does. Fix: none needed. Optionally assert the error text names
+   the member rule.
+
+Not found: no new blocking path. `TeamProblems` has no caller yet; SR1/SR5 point the unbuilt
+`status` verb and board at it. `teams/board/health.go` reads v1's health record, not this one.
