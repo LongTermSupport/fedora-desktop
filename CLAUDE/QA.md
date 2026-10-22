@@ -997,9 +997,12 @@ proves each against its fixture first:
 pre-flight that refused a stopped LXC member stopped the whole deploy, and the same refusal
 was copied into the next plan's acceptance.
 
-**How to fix a finding.** In bash, list the containers with `plan_lxc_online` (in
-`CLAUDE/Plan/_members.inc.bash`). It prints the running ones and names each other one as
-`<container> is offline (container stopped)`, never failing on it. In Go or Python, ask the
+**How to fix a finding.** In bash, list the containers with `plan_lxc_online_named <report>`
+(in `CLAUDE/Plan/_members.inc.bash`). It prints the running ones and names each other one,
+with its lxc-info state, as `<container> (container stopped): offline, not judged` on stderr
+and in the report, never failing on it; it fails on a container lxc-info cannot read or one
+that is ABORTING. Its base, `plan_lxc_online`, writes the offline names with the fixed prefix
+`offline: ` so a caller tells them from other stderr. In Go or Python, ask the
 container list or the member record. Then judge only the online members. A check that needs an
 online member and has none says NOT JUDGED and does not fail the run. Do not weaken a check of
 a running member: a running member with the wrong binary still fails.

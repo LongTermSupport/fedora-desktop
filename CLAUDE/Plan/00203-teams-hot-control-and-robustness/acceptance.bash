@@ -112,5 +112,10 @@ acceptance_m3
 acceptance_m4
 acceptance_m6
 acceptance_robust
-printf '\nACCEPTED: every milestone passed\n' | tee -a "${REPORT}"
+if [[ "${R9_NOT_JUDGED}" -eq 1 ]]; then
+    printf '\nACCEPTED, R9 NOT JUDGED (no container that declares a member unit is online): every other check passed\n' |
+        tee -a "${REPORT}"
+else
+    printf '\nACCEPTED: every milestone passed\n' | tee -a "${REPORT}"
+fi
 plan_finish

@@ -215,6 +215,8 @@ if [[ "${FAKE}" -eq 1 ]]; then
             fake_s2 "${TWO}" lxc-a=RUNNING:old lxc-b=STOPPED:new
         reject_leg "S2 (fake) a container lxc-info cannot read (no such container)" \
             fake_s2 '[{"team":"t1","container":"lxc-none","user":"u1"}]'
+        reject_leg "S2 (fake) a container lxc is ABORTING (broken, not offline)" \
+            fake_s2 "${TWO}" lxc-a=ABORTING:new lxc-b=RUNNING:new
         printf '\nFAKE ACCEPTED: the stage-1 verdicts accept new versions and pass over offline containers, and refuse old and missing ones\n' | tee -a "${REPORT}"
         plan_finish
     fi

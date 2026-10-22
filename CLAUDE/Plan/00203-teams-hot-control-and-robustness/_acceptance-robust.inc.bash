@@ -25,7 +25,9 @@
 #              status and on the team's row of ccy-teams --list
 #   R8 gap 3   agent-bus seat check waits for a homeserver that is starting, saying so
 #   R9 gap 9   every LXC member unit (service: true) is enabled, running, restarted on any
-#              exit, in a container that starts at boot; none declared is said, not passed
+#              exit, in a container that starts at boot; none declared is said, not passed;
+#              an offline declared container is named and not judged, and with every one
+#              offline the verdict names R9 NOT JUDGED
 
 readonly TEAM="acc-robust"
 readonly HS="agent-bus-hs@${TEAM}.service"
@@ -53,7 +55,7 @@ acceptance_robust() {
     check_leg "R8 agent-bus seat check waits for a starting homeserver, saying so" check_seat_check_waits
     check_leg "R9 LXC member units (service: true) enabled, running, Restart=always, autostarted" check_lxc_members
     plan_deploy_leg "remove the ${TEAM} team (--purge)" teardown
-    note "robustness: R1-R9 passed; nothing of ${TEAM} remains"
+    note "robustness: $(robust_said); nothing of ${TEAM} remains"
 }
 
 prop() {
@@ -231,43 +233,56 @@ check_seat_check_waits() {
     grep -F 'is up after' "${err}"
 }
 
-# check_lxc_members — each running container with systemd that holds an agent-bus-claude unit:
-# the unit enabled, active and Restart=always, and the container started at boot. A container
-# that is not running is offline (plan_lxc_online): named, not judged, never a failure.
+# check_lxc_members — the member unit of each present agent_bus_lxc_members entry with
+# service: true (members.py's agent-bus-claude-<user>.service), in its online container: enabled,
+# active and Restart=always, and the container started at boot. Only the declared containers
+# are asked, never every container lxc-ls lists. A container that is not running is offline
+# (plan_lxc_online_named): named, not judged, never a failure. With every declared one offline,
+# R9 judged nothing and sets R9_NOT_JUDGED=1 for the verdict.
+R9_NOT_JUDGED=0
 check_lxc_members() {
-    local listed online container unit units state autostart found=0 offline=0
-    local -a names all
-    listed="$(sudo -n lxc-ls -1)" || return 1
-    mapfile -t all < <(awk 'NF { print $1 }' <<<"${listed}")
-    online="$(plan_lxc_online "${all[@]+"${all[@]}"}")" || return 1
-    for container in "${all[@]+"${all[@]}"}"; do
+    local members="${PLAN_RUN_DIR}/lxc-members.json" args pairs containers online container user unit state autostart
+    local -a names
+    # agent_bus_lxc_members as the plays see it, through an ad-hoc Ansible copy (0600): the
+    # inventory and vault are Ansible's, so nothing here parses YAML.
+    args="$(jq -cn --arg dest "${members}" \
+        '{content: "{{ agent_bus_lxc_members | default([]) | to_json }}\n", dest: $dest, mode: "0600"}')" || return 1
+    plan_ansible_adhoc localhost -m ansible.builtin.copy -a "${args}" || return 1
+    pairs="$(jq -r '[.[] | select((.state // "present") == "present" and .service == true)
+        | "\(.container)\t\(.user)"] | unique | .[]' "${members}")" || return 1
+    if [[ -z "${pairs}" ]]; then
+        note "R9: no agent_bus_lxc_members entry declares service: true on this host, so there is no member unit to prove" || return 1
+        return 0
+    fi
+    containers="$(cut -f1 <<<"${pairs}" | sort -u)" || return 1
+    mapfile -t names <<<"${containers}"
+    online="$(plan_lxc_online_named "${REPORT}" "${names[@]}")" || return 1
+    if [[ -z "${online}" ]]; then
+        note "R9 NOT JUDGED: every container that declares a member unit is offline (named above)" || return 1
+        R9_NOT_JUDGED=1
+        return 0
+    fi
+    while IFS=$'\t' read -r container user; do
         if ! grep -qxF -- "${container}" <<<"${online}"; then
-            note "container ${container}: offline, so its member unit is not judged" || return 1
-            offline=$((offline + 1))
-        fi
-    done
-    for container in ${online}; do
-        if ! sudo -n lxc-attach -n "${container}" --clear-env -- test -d /run/systemd/system; then
-            note "container ${container}: no systemd, so no member unit" || return 1
             continue
         fi
-        units="$(sudo -n lxc-attach -n "${container}" --clear-env -- systemctl list-units --all --plain \
-            --no-legend 'agent-bus-claude-*.service')" || return 1
-        mapfile -t names < <(awk 'NF { print $1 }' <<<"${units}")
-        for unit in "${names[@]+"${names[@]}"}"; do
-            found=1
-            state="$(sudo -n lxc-attach -n "${container}" --clear-env -- systemctl show \
-                --property=ActiveState --property=UnitFileState --property=Restart "${unit}")" || return 1
-            state="$(sort <<<"${state}" | tr '\n' ' ')" || return 1
-            autostart="$(sudo -n lxc-info -n "${container}" -c lxc.start.auto)" || return 1
-            note "container ${container}: ${unit}: ${state}; ${autostart}" || return 1
-            [[ "${state}" == "ActiveState=active Restart=always UnitFileState=enabled " ]] || return 1
-            [[ "${autostart}" == *"= 1" ]] || return 1
-        done
-    done
-    if [[ "${found}" -eq 0 && "${offline}" -eq 0 ]]; then
-        note "R9: no agent_bus_lxc_members entry declares service: true on this host, so there is no member unit to prove" || return 1
-    elif [[ "${found}" -eq 0 ]]; then
-        note "R9: no running container holds a member unit; ${offline} container(s) offline (named above) are not judged" || return 1
+        unit="agent-bus-claude-${user}.service"
+        state="$(sudo -n lxc-attach -n "${container}" --clear-env -- systemctl show \
+            --property=ActiveState --property=UnitFileState --property=Restart "${unit}")" || return 1
+        state="$(sort <<<"${state}" | tr '\n' ' ')" || return 1
+        autostart="$(sudo -n lxc-info -n "${container}" -c lxc.start.auto)" || return 1
+        note "container ${container} (online): ${unit}: ${state}; ${autostart}" || return 1
+        [[ "${state}" == "ActiveState=active Restart=always UnitFileState=enabled " ]] || return 1
+        [[ "${autostart}" == *"= 1" ]] || return 1
+    done <<<"${pairs}"
+}
+
+# robust_said — what the robustness milestone judged, for the verdict: R9 is named NOT JUDGED
+# when no declared member unit's container was online.
+robust_said() {
+    if [[ "${R9_NOT_JUDGED}" -eq 1 ]]; then
+        printf 'R1-R8 passed, R9 NOT JUDGED (no container that declares a member unit is online)'
+        return 0
     fi
+    printf 'R1-R9 passed'
 }

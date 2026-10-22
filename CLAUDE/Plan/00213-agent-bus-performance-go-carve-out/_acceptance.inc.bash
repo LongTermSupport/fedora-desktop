@@ -86,10 +86,22 @@ read_members() {
 # c3_lxc — in every online container a present agent_bus_lxc_members entry names, its copy of
 # the kit (members.py copies the host kit in) holds the reference binary, which runs there. A
 # container that is not running is offline: named, not judged, never a failure
-# (CLAUDE/AgentNotes.md). Every online container is judged before the verdict, so one run
-# names all that are behind.
+# (CLAUDE/AgentNotes.md). With every declared container offline, C3 judged nothing and sets
+# C3_NOT_JUDGED=1 for the verdict. Every online container is judged before the verdict, so one
+# run names all that are behind.
+C3_NOT_JUDGED=0
+
+# accepted_line — the ACCEPTED verdict, naming C3 as NOT JUDGED when it judged nothing.
+accepted_line() {
+    if [[ "${C3_NOT_JUDGED}" -eq 1 ]]; then
+        printf 'ACCEPTED, C3 NOT JUDGED (no declared LXC member online): the Go status line is installed on the host and in the ccy build context, matches the Python and costs a fraction of it\n'
+        return 0
+    fi
+    printf 'ACCEPTED: the Go status line is installed everywhere, matches the Python and costs a fraction of it\n'
+}
+
 c3_lxc() {
-    local containers online err name got want line bad=0
+    local containers online name got want bad=0
     local -a names
     containers="$(jq -r '[.[] | select((.state // "present") == "present") | .container] | unique | .[]' "${MEMBERS_JSON}")" || return 1
     if [[ -z "${containers}" ]]; then
@@ -97,16 +109,10 @@ c3_lxc() {
         return 0
     fi
     mapfile -t names <<<"${containers}"
-    err="${PLAN_RUN_DIR}/lxc-online.err"
-    online="$(plan_lxc_online "${names[@]}" 2>"${err}")" || {
-        cat -- "${err}" >&2
-        return 1
-    }
-    while IFS= read -r line; do
-        say_report "- ${line}: not judged"
-    done <"${err}"
+    online="$(plan_lxc_online_named "${REPORT}" "${names[@]}")" || return 1
     if [[ -z "${online}" ]]; then
-        say_report "not judged: no declared LXC member is online"
+        say_report "C3 NOT JUDGED: no declared LXC member is online"
+        C3_NOT_JUDGED=1
         return 0
     fi
     want="$(sha256sum "${BUILT}" | cut -d' ' -f1)" || return 1

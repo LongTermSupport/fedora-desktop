@@ -21,9 +21,10 @@ C. Go under src-go/internal/teams: a flow that collects its LXC member rows into
    (`case row.Kind == kindLxc:` then `p.<list> = append(p.<list>, ...)`) and returns
    `term.ExitFailure` on that list being non-empty, so a stopped container fails the run.
 
-Fix a finding by asking `plan_lxc_online` (bash) or the container list or member record (Go,
-Python) which members are online, naming each offline one as "<member> is offline (container
-stopped)" and judging only the online ones; a check that needs an online member and has none
+Fix a finding by asking `plan_lxc_online` or `plan_lxc_online_named` (bash) or the container
+list or member record (Go, Python) which members are online, naming each offline one as offline
+with its container state ("<member> (container stopped): offline, not judged") and judging only
+the online ones; a check that needs an online member and has none
 says NOT JUDGED and does not fail. A running member's correctness is still checked in full.
 """
 
@@ -56,7 +57,7 @@ MEMBER_LIST = re.compile(r"agent_bus_lxc_members|MEMBERS_JSON")
 STATE_READ = re.compile(r"\blxc-info\b[^\n#]*\s-s|\$\{LXC_INFO\[@\]\}")
 #: A container entered: an lxc-attach run, not the word in a message or an array being set.
 CONTAINER_ENTRY = re.compile(r"\blxc-attach -n\b|\$\{LXC_ATTACH\[@\]\}")
-HELPER_CALL = re.compile(r"\bplan_lxc_online\b")
+HELPER_CALL = re.compile(r"\bplan_lxc_online(?:_named)?\b")
 #: The owner told to start a member, or restart its session, to go on ("restart it" alone is
 #: also what a supervisor does, so only a session object counts for restart).
 START_TO_GO_ON = re.compile(
@@ -88,7 +89,7 @@ def reads_members(path: str, source: str) -> bool:
 
 
 def calls_helper(source: str) -> bool:
-    """A code line names plan_lxc_online; a comment or a document that mentions it asks nothing."""
+    """A code line names plan_lxc_online (or plan_lxc_online_named, which asks it); a comment or a document that mentions it asks nothing."""
     return any(HELPER_CALL.search(line) for line in source.splitlines() if not _is_comment(line))
 
 
@@ -257,6 +258,12 @@ FIXTURE_BASH_WITH_HELPER = textwrap.dedent('''\
     got="$("${LXC_ATTACH[@]}" -n "${name}" -- pingbus version)"  # ok: the file asks plan_lxc_online
 ''')
 
+FIXTURE_BASH_WITH_NAMED_HELPER = textwrap.dedent('''\
+    # reads MEMBERS_JSON
+    online="$(plan_lxc_online_named "${REPORT}" "${names[@]}")" || return 1
+    got="$("${LXC_ATTACH[@]}" -n "${name}" -- pingbus version)"  # ok: plan_lxc_online_named asks it
+''')
+
 FIXTURE_BASH_HELPER_IN_A_COMMENT = textwrap.dedent('''\
     # reads MEMBERS_JSON; plan_lxc_online would list the running ones
     got="$("${LXC_ATTACH[@]}" -n "${name}" -- pingbus version)"  # ruleid
@@ -327,6 +334,7 @@ class RuleProof(unittest.TestCase):
 
     def test_a_is_satisfied_by_the_shared_helper(self) -> None:
         self.assertEqual(detector_a(FIXTURE_BASH_WITH_HELPER), [])
+        self.assertEqual(detector_a(FIXTURE_BASH_WITH_NAMED_HELPER), [])
         # A comment that names the helper asks nothing.
         self.assertFalse(calls_helper(FIXTURE_BASH_HELPER_IN_A_COMMENT))
         self.assertEqual(detector_a(FIXTURE_BASH_HELPER_IN_A_COMMENT), marked(FIXTURE_BASH_HELPER_IN_A_COMMENT))

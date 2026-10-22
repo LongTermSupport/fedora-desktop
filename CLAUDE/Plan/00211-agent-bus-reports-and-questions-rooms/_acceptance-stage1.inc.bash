@@ -42,23 +42,10 @@ s1_check() {
     done
 }
 
-# online_containers <container>... — the online ones, from plan_lxc_online, one per line; each
-# offline one is said and reported as not judged. An offline member is normal lifecycle and
-# never fails a check (CLAUDE/AgentNotes.md). Only lxc-info failing on a name fails.
-online_containers() {
-    local err="${PLAN_RUN_DIR}/lxc-online.err" online line
-    online="$(plan_lxc_online "$@" 2>"${err}")" || {
-        cat -- "${err}" >&2
-        return 1
-    }
-    while IFS= read -r line; do
-        printf '%s: not judged\n' "${line}" >&2
-        printf -- '- %s: not judged\n' "${line}" >>"${REPORT}"
-    done <"${err}"
-    if [[ -n "${online}" ]]; then
-        printf '%s\n' "${online}"
-    fi
-}
+# online_containers <container>... — the online ones, one per line; each offline one is said
+# and reported as not judged. An offline member is normal lifecycle and never fails a check
+# (CLAUDE/AgentNotes.md). Only a container lxc-info cannot read, or one ABORTING, fails.
+online_containers() { plan_lxc_online_named "${REPORT}" "$@"; }
 
 # declared_containers — the containers of the present agent_bus_lxc_members entries, once each.
 declared_containers() {
