@@ -26,7 +26,7 @@ expectation here is the hot reissue's host run for a ccy seat (LN9), which is Ta
 | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------- |
 | n3a   | `cmd/teamchat`; `member/cli` (the whole verb table, the parser, records, errors, exit codes, `version`, `help`, the launch-line parser); `member/state` (every member file's codec and the store writer); `member/lock`; `member/kit` (KT1); the guest operations; `seat set-aside`                 | the guest side of an LXC member: bundles and desired membership placed and removed through `lxc-attach` as the agent user; a kit directory assembled from a build                    | N1, N2                    |
 | n3b   | `teamchat-admin lxc apply` and `lxc restart` (`host/lxc`): the guest root, the kit and unit writes, the attach, the guest's systemd over its private socket, the LXC record, the host's desired copy; `health.Guests`'s production probe; the child's `member.disconnected` and its announcer (LP2) | an LXC member placed end to end by `lxc apply` in the VM lab: kit, bundle, desired file and unit placed, the unit's start accepted (or `service: false`); a running session is n3c's | n3a                       |
-| n3c   | `run` (the keeper), the link, the link socket, the store engine, the sync engine, `recv`, `wait`, `inbox`, `status`, `verify`, `history`, the ends and their notices, `seat disconnected`, hot control, the `RestartRecord` seam (RS2)                                                              | an LXC member under `run --plain` receives a human's and a peer's items end to end (VM lab, run once n3b has merged; n3c's unit tests do not need n3b)                               | n3a                       |
+| n3c   | `run` (the keeper), the link, the link socket, the store engine, the sync engine, `recv`, `wait`, `inbox`, `status`, `verify`, `history`, the ends and their notices, `seat disconnected`, hot control, the restart switch, off (RS2)                                                               | an LXC member under `run --plain` receives a human's and a peer's items end to end (VM lab, run once n3b has merged; n3c's unit tests do not need n3b)                               | n3a                       |
 | n3d   | the sends: `reply`, `say`, `ping`, the send gate, the outbox and TIMEOUTs, the forge check                                                                                                                                                                                                          | the LXC member answers and starts conversations: a whole exchange with `--plain`                                                                                                     | n3c                       |
 | n3e   | delivery into Claude Code (inbox socket, envelope, transcript proof, read receipts, membership notices), the hooks, the status line, the skill added to the kit, the interleaving harness (PT1)                                                                                                     | an LXC Claude Code session under `teamchat-session-<user>.service`, woken by deliveries: Task 3.4's LXC member on a real team                                                        | n3d; n3b for the unit     |
 | n3f   | the side rooms of Plan 00211 as verbs: `report`, `ask`, `thread`, `questions`, the questions room's sync rules                                                                                                                                                                                      | the full verb set                                                                                                                                                                    | n3d; SPEC-n3f (section 7) |
@@ -655,28 +655,25 @@ The expectations are `SPEC-n3f.md`'s (section 0). The addendum covers at least:
 
 **2.0e: a scheduled restart posts no goodbye.** In v2 the decision is made at the keeper's `end`,
 after CMD has exited, so CMD's status is known; ccy's supervisor exits 75 for a relaunch it acted
-on (B 2.11). That status alone is not proof (Claude Code's own status passes through the
-supervisor), so the switch needs hooks-daemon #127's record too.
+on (B 2.11). That status is the switch, trusted on its own: a Claude Code that itself exits 75
+through the supervisor is taken as a restart too, which is accepted.
 
-- **RS1. Until #127 ships**, a ccy relaunch posts `left exit` as any `/exit` does, and a test pins
-  it. So humans see a `left exit` with no following notice (`back` follows only `disconnected`)
-  for each relaunch: today's 2.0e harm, carried knowingly until RS2's adapter is wired.
-- **RS2. The switch.** `run` reads a `RestartRecord` seam at the end; n3c lands the seam with a
-  nil adapter and this table test. Its production adapter is written when #127 ships, to #127's
-  format, and is wired for `--kind ccy` only (LXC and host kinds run no supervisor). When CMD
-  exited 75 and the record names a restart recorded for this run's Claude Code (its pid and start
-  time equal `session.json`'s `claude`) and not cleared, the end is `restart`: the link posts
-  nothing and records
+- **RS1. Until RS2's switch is on**, a ccy relaunch posts `left exit` as any `/exit` does, and a
+  test pins it. So humans see a `left exit` with no following notice (`back` follows only
+  `disconnected`) for each relaunch: today's 2.0e harm, carried knowingly until RS3 lands.
+- **RS2. The switch.** For `--kind ccy` only (LXC and host kinds run no supervisor), when CMD
+  exited 75 the end is `restart`: the link posts nothing and records
   `run.ended = {"notice":"none","reason":"restart","state":"skipped","txn":null,"at_ms":N}`
-  (n3-D2); the next link on the seat closes it with no post and no `back`. A 75 with no record, a
-  record without 75, a cleared record, or one for another Claude Code posts `left exit`. Test: the
-  table of those cases with a fake seam.
+  (n3-D2); the next link on the seat closes it with no post and no `back`. Any other status, or a
+  75 from an LXC or host member, posts `left exit`. n3c lands the switch off, with this table
+  test; it is turned on with RS3. Test: the table of those cases. hooks-daemon #127's restart
+  record can be added as a second signal once a released hooks-daemon carries it.
 - **RS3. The host half is N4's** (Task 4.2): the ccy launcher, which performs the relaunch, skips
   its `seat disconnected` call for the run it relaunches and records it in `held/notice.json`, so
-  the owner's sweep skips it too. RS2's adapter is not wired before RS3 lands, since a member that
-  skips `left` while the host still posts `disconnected` would post a worse notice than today's.
-  **Dependency:** hooks-daemon #127 (upstream, unreleased) for RS2; Task 4.2 for RS3. PLAN.md's
-  "Requirements carried" 2.0e row stays open until the adapter is wired after RS3.
+  the owner's sweep skips it too. RS2's switch is not turned on before RS3 lands, since a member
+  that skips `left` while the host still posts `disconnected` would post a worse notice than
+  today's. **Dependency:** Task 4.2 for RS3. PLAN.md's "Requirements carried" 2.0e row stays open
+  until the switch is turned on with RS3.
 
 **2.0g: is `empty` unheard?** Yes, when it reached no agent.
 

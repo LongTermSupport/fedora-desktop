@@ -103,8 +103,8 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   `fix/watcher-survives-homeserver-restart` (container 2.67, CCY 3.98.12); waits on review,
   then `play-claude-yolo.yml` and `play-agent-bus.yml` (queued in meta-deploy) and the
   owner's check: restart a team's homeserver under an idle session, then post from Element.
-- [ ] ❌ **Task 2.0e**: Folded into Plan 00209 Task 3.1 (the Go SessionEnd hook), built there
-  once hooks-daemon #127 ships. (Was: A scheduled restart posts nothing (Fable's review of
+- [ ] ❌ **Task 2.0e**: Folded into Plan 00209 Task 3.1 (the Go SessionEnd hook), built there;
+  the switch is CMD's exit 75 alone (SPEC-n3 RS2), so hooks-daemon #127 no longer gates it. (Was: A scheduled restart posts nothing (Fable's review of
   `fix/goodbye-ctrl-c`, 3b). Today a lifecycle restart (maximum age, or the relaunch after a
   first join) posts `left the team: session ended (exit)` and the session re-joins seconds
   later, which a coordinator may act on. The gap: at SessionEnd nothing says "restart". The
