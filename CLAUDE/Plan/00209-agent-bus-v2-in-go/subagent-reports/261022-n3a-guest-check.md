@@ -5,6 +5,9 @@ Branch `feat/bus-v2-n3a-guest-check`, from `17bdc45f1`. Commits:
 - `6eba1bc87`: the shared types (`identity.go`, `output.go`) and exits' 78 codes. This is the
   early commit the place-bundle/desired/remove/set-aside builder writes against.
 - `a2d4f9628`: `guest check` (GU2), the cli wiring, the qa rules row and the suites row.
+- `6106edbc0`: `feat/bus-v2-n3a-guest-place` (tip `00261a332`: GU3-GU5, SA1, its report
+  `261022-n3a-guest-place.md`) merged with `--no-ff`, with the glue its report lists (see
+  "The merge" below). This branch now holds all of step 08.
 
 ## What was built
 
@@ -72,11 +75,49 @@ Other changes:
   without this row, and `qa/changed`'s real-tree test fails without it. That test runs on any
   `qa/` change.
 
+## The merge (both parts)
+
+These are the guest-place report's six glue items, in the same order:
+
+1. **Identity**: `cli.identify` is a seam whose default is `identifyCaller`. It reads
+   `--user` and calls `guest.Establish(guest.OS{}, u)`, which sets umask 077 first and runs
+   GU1's refusals. It returns `*guest.Identity`.
+   - `guest.Home` is gone. The ops take `*Identity`, whose home field is renamed `Home` to
+     `Root`, and `layout()`/`config()` are now methods on it.
+   - `guest check` keeps its own `Establish` inside `Checker.Check`, so its tests can drive a
+     fake `System`.
+2. **Output**: the ops' `changes` interface is now `Changed(what What) error`, which
+   `*guest.Output` satisfies. The `What*` constants are typed `What`. `changedLines` is gone.
+3. **Contracts**: one registry. places.go registers `OpPlaceBundle`, `OpRemove` and
+   `OpSetAside` (all Busy) and `OpMembership` (not Busy). Every cli verb ends through
+   `guest.Finish(stderr, op, err)`, and `asGuest` hands each op `guest.NewOutput(stdout, op)`.
+   - The four `[]string` sets are deleted. Their test now checks each what against
+     `ChangesOf` and checks Busy.
+4. **Package comment**: identity.go's is kept and places.go's is dropped.
+5. **unbuilt**: the `"n3a guest"` row is gone, with its entries in `run_test.go` and
+   `verbs_test.go`. `guest check` has a verb constant, `verbGuestCheck`, beside the others.
+   - Under `-tags teamchatrelease` 19 verbs remain unbuilt, none of them n3a's.
+6. **Claim id**: `seat.newClaim` is exported as `seat.NewClaim` and its callers in seat are
+   renamed. place-bundle uses it, so its copy is deleted.
+
+A note on the error objects: Finish turns an exit outside an op's contract into 1 `internal`.
+So guest-place's plain errors (an unreadable stdin, an unset `XDG_RUNTIME_DIR`) stay exit 1
+`internal`, as its report already says.
+
 ## Coverage
 
-guest 96.4%, exits 98.9%, cli 99.7% (`go test -race -cover`). `golangci-lint run` reports 0
-issues with and without `--build-tags tuwunel`. `qa-changed.bash` is green, govulncheck
-included.
+These are after the merge (`go test -race -cover ./internal/teamchat/...`, all passing):
+
+| package                       | coverage |
+| ----------------------------- | -------- |
+| guest                         | 93.9%    |
+| cli                           | 99.1%    |
+| exits                         | 98.9%    |
+| seat                          | 91.0%    |
+| paths (guest-place's, merged) | 100%     |
+
+`golangci-lint run` reports 0 issues with and without `--build-tags tuwunel`.
+`qa-changed.bash` is green: docs, go-qa on both modules, and teamchat-keeps-off-v1.
 
 ## Decisions, with proposed design text
 
@@ -108,17 +149,12 @@ included.
 
 ## Notes for the next parts
 
-- **The parallel builder (GU3-GU5, SA1)** reuses these:
-  - `Establish(guest.OS{}, user)`, then work only through `id.Home` (homefs).
-  - Declare `var OpPlaceBundle = register(Op{Verb: "guest place-bundle", Changes: []What{...}, Busy: true})`
-    in its own file, and the same for `guest membership` (not Busy), `guest remove` (Busy) and
-    `seat set-aside` (Busy). `TestOpsAreRegistered` accepts the `seat set-aside` verb.
-  - Print with `NewOutput(e.Stdout, OpX).Changed(...)`, end with `Finish(e.Stderr, OpX, err)`,
-    and refuse with `exits.New(code, &team, template, fills...)`. 75 is `exits.CodeSeatHeld`.
-  - Wire each verb as `cli/guest.go`'s `guestCheck` does: one `runs` line, and one name dropped
-    from the `"n3a guest"` row of `unbuilt` and from `verbs_test.go`'s want list.
-  - Note that Establish sets the real process umask. A cli test restores it, as
-    `TestGuestCheckIsBuilt` does.
+- **A new guest op** takes `*guest.Identity`, registers `var OpX = register(Op{...})` in its
+  own file, prints through `*Output`, and is wired in cli through `asGuest(e, inv, OpX, ...)`.
+  - Establish sets the real process umask. A cli test that reaches it restores the umask, as
+    `TestGuestCheckIsBuilt` and `TestDefaultGuestSeams` do.
+- **For the lead's review**: `paths.Layout.SeatClaim`'s comment still says "swapped in"
+  (guest-place's note).
 - **n3b**:
   - TB2.4's parser takes `guest.ChangesOf(verb)` and `exits.Decode` for the last stderr line.
   - The session unit's `PATH` must be `guest.UnitPath(home, guest.SystemDirs)`. If n3b wants
