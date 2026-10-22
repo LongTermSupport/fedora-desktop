@@ -13,7 +13,8 @@ set -euo pipefail
 # THE LIST IS WRITTEN BY HAND, on purpose. Deriving it from plan status made the schedule a
 # thing to reason about rather than read: plans stayed in it because nobody had closed
 # them, and the only way to know what a run would do was to run it. Editing one line of
-# meta-deploy.list is the whole interface.
+# meta-deploy.list is the whole interface. The one derived entry is changed-plays, which
+# hands run.bash --changed the question of which plays are stale, at its place in the list.
 #
 # There is no way to select a single plan either. To run one plan's deploy, run that
 # plan's deploy.bash — a flag for that is a worse way of typing one path.
@@ -63,7 +64,7 @@ PLAN_DIRS=()
 declare -A TRIAGE_ARGS=()
 lineNo=0
 ENTRY_RE='^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*$'
-UNIT_RE='^(playbooks/.+\.yml|[^/]+/[^/]+\.bash)$'
+UNIT_RE='^(playbooks/.+\.yml|[^/]+/[^/]+\.bash|changed-plays)$'
 while IFS= read -r planEntry || [[ -n "${planEntry}" ]]; do
     lineNo=$((lineNo + 1))
     if [[ "${planEntry}" =~ ^[[:space:]]*(#.*)?$ ]]; then
@@ -72,14 +73,17 @@ while IFS= read -r planEntry || [[ -n "${planEntry}" ]]; do
     read -r -a entryWords <<<"${planEntry}"
     planName="${entryWords[0]}"
     if [[ ! "${planName}" =~ ${ENTRY_RE} || "${planEntry}" == *'#'* ]] \
-        || [[ "${planName}" == */* && ( ! "${planName}" =~ ${UNIT_RE} || ${#entryWords[@]} -gt 1 ) ]]; then
-        printf '[FATAL] %s line %d is not an entry: %s (an entry is a plan folder with optional triage words, a playbooks/ path or <plan folder>/<script>.bash; a comment is a whole line starting with #)\n' "${LIST_FILE}" "${lineNo}" "${planEntry}" >&2
+        || [[ ( "${planName}" == */* || "${planName}" == changed-plays ) && ( ! "${planName}" =~ ${UNIT_RE} || ${#entryWords[@]} -gt 1 ) ]]; then
+        printf '[FATAL] %s line %d is not an entry: %s (an entry is a plan folder with optional triage words, a playbooks/ path, <plan folder>/<script>.bash or changed-plays alone; a comment is a whole line starting with #)\n' "${LIST_FILE}" "${lineNo}" "${planEntry}" >&2
         exit 1
     fi
+    # changed-plays is the checkout's own run.bash, asked for every play changed since it ran
+    # here; which plays is decided when the entry runs, after the entries above it.
     planDir="${PLAN_ROOT}/${planName}"
-    if [[ "${planName}" == playbooks/* ]]; then
-        planDir="${repoRoot}/${planName}"
-    fi
+    case "${planName}" in
+        playbooks/*) planDir="${repoRoot}/${planName}" ;;
+        changed-plays) planDir="${repoRoot}/run.bash"; entryWords+=(--changed --yes) ;;
+    esac
     TRIAGE_ARGS["${planDir}"]="${entryWords[*]:1}"
     if [[ ! -x "${planDir}" || ( -d "${planDir}" && ! -x "${planDir}/deploy.bash" && ! -x "${planDir}/acceptance.bash" && ! -x "${planDir}/triage.bash" ) ]]; then
         printf '[FATAL] nothing runnable at %s: a plan folder needs an executable triage.bash, deploy.bash or acceptance.bash (it may have been archived into Completed/ or renamed), an entry may also be an executable playbook or plan script. Fix %s.\n' "${planDir}" "${LIST_FILE}" >&2
@@ -140,19 +144,19 @@ for planDir in "${PLAN_DIRS[@]}"; do
     # did not run.
     unit=""
     status=0
+    # A plan's triage words, or run.bash's arguments for changed-plays; none for the rest.
+    triageArgs=()
+    read -r -a triageArgs <<<"${TRIAGE_ARGS["${planDir}"]}"
 
-    # A playbook or a single plan script: one unit, one log, one verdict.
+    # A playbook, a single plan script or changed-plays: one unit, one log, one verdict.
     if [[ "${planDir}" == *.yml || "${planDir}" == *.bash ]]; then
-        if [[ "${planDir}" == *.bash ]]; then
+        if [[ "${planDir}" == "${PLAN_ROOT}"/*.bash ]]; then
             planName="$(basename "$(dirname "${planDir}")")-${planName}"
         fi
-        printf '\n===> %s\n' "${planName}"
-        unit="${planName}"
-        status=0
-        "${planDir}" 2>&1 | tee "${CAPTURE_DIR}/${planName}.log" || status="${PIPESTATUS[0]}"
+        unit="${planName}${triageArgs[*]:+ ${triageArgs[*]}}"
+        printf '\n===> %s\n' "${unit}"
+        "${planDir}" "${triageArgs[@]}" 2>&1 | tee "${CAPTURE_DIR}/${planName}.log" || status="${PIPESTATUS[0]}"
     else
-        triageArgs=()
-        read -r -a triageArgs <<<"${TRIAGE_ARGS["${planDir}"]}"
 
         # ACCEPTANCE IS SKIPPED WHEN THE DEPLOY FAILED, and this is not tidiness.
         # acceptance.bash judges the machine's CURRENT state, so after a failed deploy it
@@ -214,7 +218,6 @@ for planDir in "${PLAN_DIRS[@]}"; do
             if [[ "${deployOk}" == "1" ]]; then
                 printf '\n===> %s / acceptance.bash\n' "${planName}"
                 unit="${planName}/acceptance.bash"
-                status=0
                 "${planDir}/acceptance.bash" 2>&1 | tee "${CAPTURE_DIR}/${planName}-acceptance.log" || status="${PIPESTATUS[0]}"
             else
                 printf '\n===> %s / acceptance.bash SKIPPED — its deploy failed\n' "${planName}"

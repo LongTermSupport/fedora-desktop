@@ -1,13 +1,16 @@
 """Tests for helpers.play_ledger.check_freshness — the play-freshness executor.
 
-The wiring between ledger, git and report. What is pinned here is the behaviour a
-human sees: silence when clean, the sentinel refusing to answer, and an exit
-status that distinguishes "nothing to say" from "I could not tell you".
+The wiring between ledger, the shared judgement (`changed_plays.judge`) and the report.
+What is pinned here is the behaviour a human sees: silence when clean, the sentinel
+refusing to answer, an exit status that distinguishes "nothing to say" from "I could not
+tell you", and (issue #110) the same plays `run.bash --changed` runs. Which plays have to
+run again is tested where it is decided, in test_changed_plays.py.
 """
 
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import os
 import subprocess
@@ -19,97 +22,149 @@ from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-from helpers.play_ledger import check_freshness, fetch_clock, ledger, repo, retired, store
+from helpers.play_ledger import changed_plays, check_freshness, fetch_clock, ledger, repo, store
 
 FORTY_HEX = "e" * 40
 SIXTY_FOUR_HEX = "1" * 64
-OTHER_SHA = "2" * 64
 STAMP = "2026-09-14T09:00:00Z"
 
+A = "playbooks/imports/play-a.yml"
+B = "playbooks/imports/play-b.yml"
+OLD = "playbooks/imports/play-old.yml"
 
-def _seed(base: str, plays: list[str], *, play_sha256: str = SIXTY_FOUR_HEX) -> None:
+#: The folded ledgers the fake judge of the last `_run` was handed.
+ASKED: list[dict] = []
+
+
+def _seed(base: str, plays: list[str]) -> None:
     store.ensure_ledger(base, commit=FORTY_HEX, at=STAMP)
     for play in plays:
         store.append_record(base, ledger.build_record(
             play=play, name=play, commit=FORTY_HEX, dirty=False,
-            play_sha256=play_sha256, outcome="ok", changed=0,
+            play_sha256=SIXTY_FOUR_HEX, outcome="ok", changed=0,
             started=STAMP, finished=STAMP,
         ))
 
 
+def _judgement(states: dict[str, str] | None = None, *, gone: tuple[str, ...] = (),
+               unresolved: dict[str, list[str]] | None = None,
+               changed: dict[str, list[str]] | None = None, dirty: frozenset[str] = frozenset(),
+               took_over: dict[str, list[str]] | None = None,
+               not_judged: tuple[str, ...] = ()) -> changed_plays.Judgement:
+    states = states or {}
+    return changed_plays.Judgement(
+        order=tuple(states) + gone, states=states, gone=gone, unresolved=unresolved or {},
+        changed_inputs=changed or {}, dirty=dirty, took_over=took_over or {},
+        not_judged=not_judged,
+    )
+
+
+def _run(base: str, judgement: changed_plays.Judgement | Exception | None = None,
+         **overrides: Any) -> tuple[int, str, str]:
+    """Run the check with no fetch and a judge that answers `judgement` (or raises it)."""
+    ASKED.clear()
+
+    def judge(latest: dict, root: str) -> changed_plays.Judgement:
+        ASKED.append(latest)
+        if isinstance(judgement, Exception):
+            raise judgement
+        return judgement if judgement is not None else _judgement()
+
+    arguments: dict[str, Any] = {"fetch": lambda root: None, "judge": judge}
+    arguments.update(overrides)
+    out, err = io.StringIO(), io.StringIO()
+    code = check_freshness.run(base=base, repo_root="/repo", stdout=out, stderr=err, **arguments)
+    return code, out.getvalue(), err.getvalue()
+
+
 class TestCleanRun(unittest.TestCase):
-    def test_a_fresh_ledger_says_nothing_on_stdout(self) -> None:
+    def test_a_current_play_says_nothing_on_stdout(self) -> None:
         """Silent when clean. A health check that always speaks gets muted, and then
         it is not a health check."""
         with tempfile.TemporaryDirectory() as base:
-            _seed(base, ["playbooks/a.yml"])
-            out, err = io.StringIO(), io.StringIO()
-            code = check_freshness.run(
-                base=base, repo_root="/repo", stdout=out, stderr=err,
-                fetch=lambda root: None,
-                changes_since=lambda root, commit, play: [],
-                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
-            )
-            self.assertEqual(out.getvalue(), "")
-            self.assertEqual(code, 0)
+            _seed(base, [A])
+            code, out, _ = _run(base, _judgement({A: changed_plays.STATE_CURRENT}))
+            self.assertEqual((code, out), (check_freshness.EXIT_OK, ""))
 
-    def test_an_empty_ledger_is_clean_and_asks_git_nothing(self) -> None:
+    def test_an_unresolved_play_is_not_a_fault(self) -> None:
+        """run.bash --changed does not run it either; the coverage sentence names it."""
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [A])
+            code, out, _ = _run(base, _judgement({A: changed_plays.STATE_UNRESOLVED},
+                                                 unresolved={A: ["somewhere"]}))
+            self.assertEqual((code, out), (check_freshness.EXIT_OK, ""))
+
+    def test_an_empty_ledger_is_clean_and_judges_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as base:
             store.ensure_ledger(base, commit=FORTY_HEX, at=STAMP)
-            asked = []
-            code = check_freshness.run(
-                base=base, repo_root="/repo", stdout=io.StringIO(), stderr=io.StringIO(),
-                fetch=lambda root: None,
-                changes_since=lambda root, commit, play: asked.append(play) or [],
-                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
-            )
-            self.assertEqual(asked, [])
-            self.assertEqual(code, 0)
+            code, _, _ = _run(base)
+            self.assertEqual(code, check_freshness.EXIT_OK)
+            self.assertEqual(ASKED, [])
 
     def test_an_absent_ledger_is_clean_not_an_error(self) -> None:
         """Nothing has been run here since it would have been created. That is a state
         to handle, not a failure."""
         with tempfile.TemporaryDirectory() as outer:
-            code = check_freshness.run(
-                base=os.path.join(outer, "never-made"), repo_root="/repo",
-                stdout=io.StringIO(), stderr=io.StringIO(),
-                fetch=lambda root: None,
-                changes_since=lambda root, commit, play: [],
-                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
-            )
-            self.assertEqual(code, 0)
+            code, _, _ = _run(os.path.join(outer, "never-made"))
+            self.assertEqual(code, check_freshness.EXIT_OK)
 
 
-class TestStaleRun(unittest.TestCase):
-    def test_a_stale_play_is_named_on_stdout_with_its_commits(self) -> None:
+class TestFindings(unittest.TestCase):
+    def test_a_stale_play_is_named_with_the_paths_that_changed(self) -> None:
         with tempfile.TemporaryDirectory() as base:
-            _seed(base, ["playbooks/a.yml"])
-            out = io.StringIO()
-            code = check_freshness.run(
-                base=base, repo_root="/repo", stdout=out, stderr=io.StringIO(),
-                fetch=lambda root: None,
-                changes_since=lambda root, commit, play: [("abc1234", "rework the play")],
-                play_sha256_at_head=lambda root, play: OTHER_SHA,
-            )
-            printed = out.getvalue()
-            self.assertIn("playbooks/a.yml", printed)
-            self.assertIn("abc1234", printed)
-            self.assertIn("rework the play", printed)
+            _seed(base, [A])
+            code, out, _ = _run(base, _judgement({A: changed_plays.STATE_STALE},
+                                                 changed={A: ["files/home/a.conf"]}))
             self.assertEqual(code, check_freshness.EXIT_FINDINGS)
+            self.assertEqual(out, f"{A} — changed since it was run here\n    changed: files/home/a.conf\n")
 
-    def test_a_fresh_play_is_not_named_alongside_a_stale_one(self) -> None:
+    def test_many_changed_paths_are_counted_past_the_first_few(self) -> None:
         with tempfile.TemporaryDirectory() as base:
-            _seed(base, ["playbooks/fresh.yml", "playbooks/stale.yml"])
-            out = io.StringIO()
-            check_freshness.run(
-                base=base, repo_root="/repo", stdout=out, stderr=io.StringIO(),
-                fetch=lambda root: None,
-                changes_since=lambda root, commit, play: (
-                    [("abc1234", "x")] if "stale" in play else []
-                ),
-                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
-            )
-            self.assertNotIn("playbooks/fresh.yml", out.getvalue())
+            _seed(base, [A])
+            paths = [f"files/{n}.conf" for n in range(5)]
+            _, out, _ = _run(base, _judgement({A: changed_plays.STATE_STALE}, changed={A: paths}))
+            self.assertIn("changed: files/0.conf, files/1.conf, files/2.conf and 2 more\n", out)
+
+    def test_a_dirty_run_says_so(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [A])
+            _, out, _ = _run(base, _judgement({A: changed_plays.STATE_STALE}, dirty=frozenset({A})))
+            self.assertEqual(out, f"{A} — changed since it was run here\n"
+                                  "    it last ran from a checkout with uncommitted changes\n")
+
+    def test_a_failed_last_run_is_a_finding_of_its_own_kind(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [A])
+            code, out, _ = _run(base, _judgement({A: changed_plays.STATE_FAILED}))
+            self.assertEqual(code, check_freshness.EXIT_FINDINGS)
+            self.assertEqual(out, f"{A} — its last run here did not succeed\n")
+
+    def test_a_successor_says_which_removed_play_it_takes_over(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [OLD])
+            _, out, _ = _run(base, _judgement({A: changed_plays.STATE_STALE}, took_over={A: [OLD]}))
+            self.assertEqual(out, f"{A} — changed since it was run here\n"
+                                  f"    it takes over {OLD}, which the checkout removed\n")
+
+    def test_a_gone_play_is_named(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [OLD])
+            code, out, _ = _run(base, _judgement(gone=(OLD,)))
+            self.assertEqual((code, out), (check_freshness.EXIT_FINDINGS, f"{OLD} — no longer in the checkout\n"))
+
+    def test_a_current_play_is_not_named_alongside_a_stale_one(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [A, B])
+            _, out, _ = _run(base, _judgement({A: changed_plays.STATE_CURRENT, B: changed_plays.STATE_STALE},
+                                              changed={B: [B]}))
+            self.assertNotIn(A, out)
+            self.assertIn(B, out)
+
+    def test_the_judge_is_handed_the_folded_ledger(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            _seed(base, [A, B])
+            _run(base)
+            self.assertEqual(sorted(ASKED[0]), [A, B])
 
 
 class TestBrokenLedger(unittest.TestCase):
@@ -117,45 +172,23 @@ class TestBrokenLedger(unittest.TestCase):
         """Not EXIT_FINDINGS: "I could not tell you" and "here is what is stale" are
         different outcomes and a caller must be able to tell them apart."""
         with tempfile.TemporaryDirectory() as base:
-            _seed(base, ["playbooks/a.yml"])
+            _seed(base, [A])
             store.mark_broken(base, error="disk full", at=STAMP)
-            err = io.StringIO()
-            code = check_freshness.run(
-                base=base, repo_root="/repo", stdout=io.StringIO(), stderr=err,
-                fetch=lambda root: None,
-                changes_since=lambda root, commit, play: [("a", "b")],
-                play_sha256_at_head=lambda root, play: OTHER_SHA,
-            )
+            code, out, err = _run(base, _judgement({A: changed_plays.STATE_STALE}))
             self.assertEqual(code, check_freshness.EXIT_UNTRUSTWORTHY)
-            self.assertIn("disk full", err.getvalue())
+            self.assertIn("disk full", err)
+            self.assertNotIn(A, out)
 
-    def test_no_per_play_verdict_is_printed_while_broken(self) -> None:
-        with tempfile.TemporaryDirectory() as base:
-            _seed(base, ["playbooks/a.yml"])
-            store.mark_broken(base, error="disk full", at=STAMP)
-            out = io.StringIO()
-            check_freshness.run(
-                base=base, repo_root="/repo", stdout=out, stderr=io.StringIO(),
-                fetch=lambda root: None,
-                changes_since=lambda root, commit, play: [("a", "b")],
-                play_sha256_at_head=lambda root, play: OTHER_SHA,
-            )
-            self.assertNotIn("playbooks/a.yml", out.getvalue())
-
-    def test_git_is_never_consulted_while_broken(self) -> None:
+    def test_nothing_is_fetched_or_judged_while_broken(self) -> None:
         """Answering nothing means doing nothing — a fetch at login costs the user
         time for a result that will be discarded."""
         with tempfile.TemporaryDirectory() as base:
-            _seed(base, ["playbooks/a.yml"])
+            _seed(base, [A])
             store.mark_broken(base, error="disk full", at=STAMP)
-            fetched = []
-            check_freshness.run(
-                base=base, repo_root="/repo", stdout=io.StringIO(), stderr=io.StringIO(),
-                fetch=lambda root: fetched.append(root),
-                changes_since=lambda root, commit, play: [],
-                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
-            )
+            fetched: list[str] = []
+            _run(base, fetch=fetched.append)
             self.assertEqual(fetched, [])
+            self.assertEqual(ASKED, [])
 
 
 class TestFailures(unittest.TestCase):
@@ -163,136 +196,91 @@ class TestFailures(unittest.TestCase):
         """fold_latest raises on a corrupt line rather than skipping it, and this must
         not soften that into a clean report."""
         with tempfile.TemporaryDirectory() as base:
-            _seed(base, ["playbooks/a.yml"])
+            _seed(base, [A])
             with open(ledger.runs_path(base), "a", encoding="utf-8") as handle:
                 handle.write("{not json\n")
-            code = check_freshness.run(
-                base=base, repo_root="/repo", stdout=io.StringIO(), stderr=io.StringIO(),
-                fetch=lambda root: None,
-                changes_since=lambda root, commit, play: [],
-                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
-            )
+            code, _, _ = _run(base)
             self.assertEqual(code, check_freshness.EXIT_UNTRUSTWORTHY)
 
-    def test_a_git_failure_is_untrustworthy_not_clean(self) -> None:
-        """An unresolvable ledgered commit must never read as 'nothing changed'."""
+    def test_no_answer_from_the_judgement_is_untrustworthy_not_clean(self) -> None:
+        """An unjudgeable play must never read as 'nothing changed'."""
         with tempfile.TemporaryDirectory() as base:
-            _seed(base, ["playbooks/a.yml"])
-            def boom(root, commit, play):
-                raise subprocess.CalledProcessError(128, ["git"])
-            err = io.StringIO()
-            code = check_freshness.run(
-                base=base, repo_root="/repo", stdout=io.StringIO(), stderr=err,
-                fetch=lambda root: None,
-                changes_since=boom,
-                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
-            )
-            self.assertEqual(code, check_freshness.EXIT_UNTRUSTWORTHY)
-            self.assertIn("playbooks/a.yml", err.getvalue())
+            _seed(base, [A])
+            code, out, err = _run(base, changed_plays.NoAnswer(
+                f"cannot judge {A}, which last ran from x: bad object",
+                f"run it by name instead: ./run.bash {A}"))
+            self.assertEqual((code, out), (check_freshness.EXIT_UNTRUSTWORTHY, ""))
+            self.assertEqual(err, f"play-freshness: cannot judge {A}, which last ran from x: bad object\n"
+                                  f"play-freshness: run it by name instead: ./run.bash {A}\n")
 
     def test_a_fetch_failure_alone_is_NOT_untrustworthy(self) -> None:
-        """Settled in DESIGN-host-health.md §8, and this test previously asserted the
-        opposite. Offline at login is ordinary — a train, a hotel — and reporting on
-        it every time is how the whole surface gets muted. What is reported instead
-        is how long it has been, which is a fact about this host rather than about
-        the network. Here the fetch has only just failed, so: silence."""
+        """Settled in DESIGN-host-health.md §8. Offline at login is ordinary — a train, a
+        hotel — and reporting on it every time is how the whole surface gets muted. What
+        is reported instead is how long it has been, which is a fact about this host
+        rather than about the network. Here the fetch has only just failed, so: silence."""
         with tempfile.TemporaryDirectory() as base:
-            _seed(base, ["playbooks/a.yml"])
+            _seed(base, [A])
             fetch_clock.record_success(base, at=repo.utc_now())
 
-            def boom(root):
+            def boom(root: str) -> None:
                 raise subprocess.CalledProcessError(128, ["git", "fetch"])
 
-            stdout = io.StringIO()
-            code = check_freshness.run(
-                base=base, repo_root="/repo", stdout=stdout, stderr=io.StringIO(),
-                fetch=boom,
-                changes_since=lambda root, commit, play: [],
-                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
-            )
-            self.assertEqual(code, check_freshness.EXIT_OK)
-            self.assertEqual(stdout.getvalue(), "")
+            code, out, _ = _run(base, fetch=boom)
+            self.assertEqual((code, out), (check_freshness.EXIT_OK, ""))
 
     def test_a_fetch_failure_after_a_LONG_gap_is_a_finding(self) -> None:
         """The other half. A host that has quietly stopped being checked at all is
         this plan's subject in its purest form."""
         with tempfile.TemporaryDirectory() as base:
-            _seed(base, ["playbooks/a.yml"])
+            _seed(base, [A])
             long_ago = fetch_clock.shift(
                 repo.utc_now(), days=-(fetch_clock.STALE_AFTER_DAYS + 30))
             fetch_clock.record_success(base, at=long_ago)
 
-            def boom(root):
+            def boom(root: str) -> None:
                 raise subprocess.CalledProcessError(128, ["git", "fetch"])
 
-            stdout = io.StringIO()
-            code = check_freshness.run(
-                base=base, repo_root="/repo", stdout=stdout, stderr=io.StringIO(),
-                fetch=boom,
-                changes_since=lambda root, commit, play: [],
-                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
-            )
+            code, out, _ = _run(base, fetch=boom)
             self.assertEqual(code, check_freshness.EXIT_FINDINGS)
-            self.assertIn("has not reached the remote", stdout.getvalue())
+            self.assertIn("has not reached the remote", out)
 
     def test_a_fetch_failure_with_NO_record_at_all_is_a_finding(self) -> None:
         """Nothing has ever been checked here, which is not the same as offline
         today and must not read the same."""
         with tempfile.TemporaryDirectory() as base:
-            _seed(base, ["playbooks/a.yml"])
+            _seed(base, [A])
 
-            def boom(root):
+            def boom(root: str) -> None:
                 raise subprocess.CalledProcessError(128, ["git", "fetch"])
 
-            stdout = io.StringIO()
-            code = check_freshness.run(
-                base=base, repo_root="/repo", stdout=stdout, stderr=io.StringIO(),
-                fetch=boom,
-                changes_since=lambda root, commit, play: [],
-                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
-            )
+            code, out, _ = _run(base, fetch=boom)
             self.assertEqual(code, check_freshness.EXIT_FINDINGS)
-            self.assertIn("never", stdout.getvalue())
+            self.assertIn("never", out)
 
     def test_a_STAMP_WRITE_failure_is_not_blamed_on_the_fetch(self) -> None:
-        """The stamp write used to live inside the fetch's own `try`, so a full disk
-        produced two confident statements about a fetch that had just succeeded:
-        "git fetch failed" on stderr, and "has never successfully reached the remote"
-        on stdout. Neither was true.
+        """A full disk must not produce "git fetch failed" on stderr and "has never
+        successfully reached the remote" on stdout about a fetch that had just succeeded.
 
         The failure is injected by putting a DIRECTORY where the stamp file belongs —
         a real `IsADirectoryError` from the real code path. Permissions would not do
         it here: these tests run as root, which bypasses the mode check.
         """
         with tempfile.TemporaryDirectory() as base:
-            _seed(base, ["playbooks/a.yml"])
+            _seed(base, [A])
             os.mkdir(os.path.join(base, fetch_clock.STAMP_NAME))
-
-            stdout, stderr = io.StringIO(), io.StringIO()
-            code = check_freshness.run(
-                base=base, repo_root="/repo", stdout=stdout, stderr=stderr,
-                fetch=lambda root: None,
-                changes_since=lambda root, commit, play: [],
-                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
-            )
-            self.assertEqual(code, check_freshness.EXIT_OK)
-            self.assertEqual(stdout.getvalue(), "")
-            self.assertNotIn("git fetch failed", stderr.getvalue())
-            self.assertNotIn("never", stderr.getvalue())
-            self.assertIn("the fetch succeeded", stderr.getvalue())
+            code, out, err = _run(base)
+            self.assertEqual((code, out), (check_freshness.EXIT_OK, ""))
+            self.assertNotIn("git fetch failed", err)
+            self.assertNotIn("never", err)
+            self.assertIn("the fetch succeeded", err)
 
     def test_a_SUCCESSFUL_fetch_stamps_the_clock(self) -> None:
         """Without this the bound never advances and every host eventually reports
         the long-gap finding for ever — a check that cries wolf, permanently."""
         with tempfile.TemporaryDirectory() as base:
-            _seed(base, ["playbooks/a.yml"])
+            _seed(base, [A])
             self.assertIsNone(fetch_clock.last_success(base))
-            check_freshness.run(
-                base=base, repo_root="/repo", stdout=io.StringIO(), stderr=io.StringIO(),
-                fetch=lambda root: None,
-                changes_since=lambda root, commit, play: [],
-                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
-            )
+            _run(base)
             self.assertIsNotNone(fetch_clock.last_success(base))
 
 
@@ -300,281 +288,89 @@ class TestStreams(unittest.TestCase):
     def test_findings_go_to_stdout_and_diagnostics_to_stderr(self) -> None:
         """stdout is the payload a caller captures; the sentinel warning is not it."""
         with tempfile.TemporaryDirectory() as base:
-            _seed(base, ["playbooks/a.yml"])
+            _seed(base, [A])
             store.mark_broken(base, error="disk full", at=STAMP)
-            out, err = io.StringIO(), io.StringIO()
-            check_freshness.run(
-                base=base, repo_root="/repo", stdout=out, stderr=err,
-                fetch=lambda root: None,
-                changes_since=lambda root, commit, play: [],
-                play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX,
-            )
-            self.assertEqual(out.getvalue(), "")
-            self.assertNotEqual(err.getvalue(), "")
-
-
-OLD_PLAY = "playbooks/imports/play-old.yml"
-NEW_PLAY = "playbooks/imports/play-new.yml"
-REMOVAL_COMMIT = "f" * 40
+            _, out, err = _run(base)
+            self.assertEqual(out, "")
+            self.assertNotEqual(err, "")
 
 
 class TestJudgedSink(unittest.TestCase):
-    """`judged` receives EVERY verdict, fresh included — the panel's play runner lists
-    plays with their state, and a fresh play is the commonest row in it."""
+    """`judged` receives EVERY verdict, current included — the panel's play runner lists
+    plays with their state, and a current play is the commonest row in it."""
 
-    def _run(self, base: str, judged: list, **overrides: Any) -> int:
-        arguments: dict[str, Any] = {
-            "fetch": lambda root: None,
-            "changes_since": lambda root, commit, play: (
-                [("abc1234", "x")] if "stale" in play else []
-            ),
-            "play_sha256_at_head": lambda root, play: SIXTY_FOUR_HEX,
-        }
-        arguments.update(overrides)
-        return check_freshness.run(
-            base=base, repo_root="/repo", stdout=io.StringIO(), stderr=io.StringIO(),
-            judged=judged, **arguments,
-        )
-
-    def test_fresh_and_stale_plays_both_arrive_with_their_states(self) -> None:
+    def test_every_play_arrives_with_its_state(self) -> None:
         with tempfile.TemporaryDirectory() as base:
-            _seed(base, ["playbooks/fresh.yml", "playbooks/stale.yml"])
+            _seed(base, [A, B])
             judged: list = []
-            self._run(base, judged)
+            _run(base, _judgement({A: changed_plays.STATE_CURRENT, B: changed_plays.STATE_FAILED,
+                                   OLD: changed_plays.STATE_UNRESOLVED}, gone=("playbooks/imports/x.yml",),
+                                  unresolved={OLD: ["y"]}), judged=judged)
             self.assertEqual(
                 [(verdict.play, verdict.state) for verdict in judged],
-                [("playbooks/fresh.yml", "fresh"), ("playbooks/stale.yml", "stale")],
+                [(A, "fresh"), (B, "failed"), (OLD, "unresolved"), ("playbooks/imports/x.yml", "gone")],
             )
 
     def test_a_broken_ledger_judges_nothing_into_the_sink(self) -> None:
         """No per-play state is known while the sentinel stands, so none is offered."""
         with tempfile.TemporaryDirectory() as base:
-            _seed(base, ["playbooks/fresh.yml"])
+            _seed(base, [A])
             store.mark_broken(base, error="a hole", at=STAMP)
             judged: list = []
-            self._run(base, judged)
+            _run(base, judged=judged)
             self.assertEqual(judged, [])
 
-    def test_an_unresolvable_commit_judges_nothing_into_the_sink(self) -> None:
+    def test_no_answer_judges_nothing_into_the_sink(self) -> None:
         """A partial list is not offered as the whole: the run answered untrustworthy."""
         with tempfile.TemporaryDirectory() as base:
-            _seed(base, ["playbooks/a.yml", "playbooks/b.yml"])
+            _seed(base, [A])
             judged: list = []
-
-            def changes(root: str, commit: str, play: str) -> list:
-                if play.endswith("b.yml"):
-                    raise RuntimeError("bad object")
-                return []
-
-            code = self._run(base, judged, changes_since=changes)
+            code, _, _ = _run(base, changed_plays.NoAnswer("bad object"), judged=judged)
             self.assertEqual(code, check_freshness.EXIT_UNTRUSTWORTHY)
             self.assertEqual(judged, [])
 
 
-class TestRetiredPlays(unittest.TestCase):
-    """A GONE play named in the retired-plays map says which play absorbed it, and
-    stops being reported once that play has run at a commit without the old one."""
+class TestCoverage(unittest.TestCase):
+    """What the section judged, and what it leaves out (issue #110)."""
 
-    def _run(self, base: str, *, retired_plays=None, exists=None, head_plays=(NEW_PLAY,)):
-        """`exists(commit, path)` answers path_exists_at; HEAD holds `head_plays`.
-
-        By default every seeded play was tracked at the commit it ran from
-        (FORTY_HEX), as a real play is: one that was not is TestNeverTrackedPlays'.
-        """
-        exists = exists or (lambda commit, path: path in head_plays or commit == FORTY_HEX)
-        out, err = io.StringIO(), io.StringIO()
-        code = check_freshness.run(
-            base=base, repo_root="/repo", stdout=out, stderr=err,
-            fetch=lambda root: None,
-            changes_since=lambda root, commit, play: [],
-            play_sha256_at_head=lambda root, play: SIXTY_FOUR_HEX if play in head_plays else None,
-            retired_plays=retired_plays or (lambda root: {OLD_PLAY: NEW_PLAY}),
-            path_exists_at=lambda root, commit, path: exists(commit, path),
-        )
-        return code, out.getvalue(), err.getvalue()
-
-    def _seed_successor(self, base: str, *, commit: str, outcome: str = "ok") -> None:
-        store.append_record(base, ledger.build_record(
-            play=NEW_PLAY, name=NEW_PLAY, commit=commit, dirty=False,
-            play_sha256=SIXTY_FOUR_HEX, outcome=outcome, changed=0,
-            started=STAMP, finished=STAMP,
-        ))
-
-    def test_a_failed_successor_run_after_the_removal_does_not_retire_it(self) -> None:
-        """A run that failed early may never have reached the absorbed tasks."""
-        for outcome in ("failed", "unreachable"):
-            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as base:
-                _seed(base, [OLD_PLAY])
-                self._seed_successor(base, commit=REMOVAL_COMMIT, outcome=outcome)
-                code, out, _ = self._run(
-                    base, exists=lambda commit, path: path == NEW_PLAY
-                    or (path == OLD_PLAY and commit != REMOVAL_COMMIT and commit != "HEAD"),
-                )
-                self.assertEqual(code, check_freshness.EXIT_FINDINGS)
-                self.assertIn(f"run {NEW_PLAY}", out)
-
-    def test_before_the_successor_has_run_it_is_reported_with_the_successor_named(self) -> None:
+    def _sentence(self, judgement: changed_plays.Judgement | Exception) -> list[str]:
         with tempfile.TemporaryDirectory() as base:
-            _seed(base, [OLD_PLAY])
-            code, out, _ = self._run(base)
-            self.assertEqual(code, check_freshness.EXIT_FINDINGS)
-            self.assertIn(OLD_PLAY, out)
-            self.assertIn(f"run {NEW_PLAY}", out)
+            _seed(base, [A])
+            coverage: list[str] = []
+            _run(base, judgement, coverage=coverage)
+            return coverage
 
-    def test_once_the_successor_ran_after_the_removal_it_is_silent(self) -> None:
-        with tempfile.TemporaryDirectory() as base:
-            _seed(base, [OLD_PLAY])
-            self._seed_successor(base, commit=REMOVAL_COMMIT)
-            code, out, _ = self._run(
-                base, exists=lambda commit, path: path == NEW_PLAY
-                or (path == OLD_PLAY and commit != REMOVAL_COMMIT and commit != "HEAD"),
-            )
-            self.assertEqual(out, "")
-            self.assertEqual(code, check_freshness.EXIT_OK)
+    def test_it_states_the_count_and_the_rule_it_judged_by(self) -> None:
+        coverage = self._sentence(_judgement({A: changed_plays.STATE_CURRENT}, gone=(OLD,)))
+        self.assertEqual(len(coverage), 1)
+        self.assertTrue(coverage[0].startswith("2 plays run here under playbooks/imports/, judged as "
+                                               "run.bash --changed judges them"), coverage[0])
+        self.assertNotIn("not judged", coverage[0])
 
-    def test_a_successor_run_from_before_the_removal_does_not_retire_it(self) -> None:
-        """That run did not yet carry what the old play deployed."""
-        with tempfile.TemporaryDirectory() as base:
-            _seed(base, [OLD_PLAY])
-            self._seed_successor(base, commit=FORTY_HEX)
-            code, out, _ = self._run(
-                base, exists=lambda commit, path: path == NEW_PLAY
-                or (path == OLD_PLAY and commit == FORTY_HEX),
-            )
-            self.assertEqual(code, check_freshness.EXIT_FINDINGS)
-            self.assertIn(f"run {NEW_PLAY}", out)
+    def test_it_names_what_it_cannot_see_and_what_it_does_not_judge(self) -> None:
+        dev = "playbooks/dev/play-tool.yml"
+        coverage = self._sentence(_judgement({A: changed_plays.STATE_UNRESOLVED},
+                                             unresolved={A: ["x"]}, not_judged=(dev,)))
+        self.assertIn(f"1 of them hold a reference that cannot be followed, so a change there is not seen: {A}",
+                      coverage[0])
+        self.assertIn(f"1 other ledgered plays are not host plays and are not judged: {dev}", coverage[0])
 
-    def test_an_unmapped_gone_play_reads_exactly_as_before(self) -> None:
-        with tempfile.TemporaryDirectory() as base:
-            _seed(base, ["playbooks/imports/play-other.yml"])
-            code, out, _ = self._run(base)
-            self.assertEqual(code, check_freshness.EXIT_FINDINGS)
-            self.assertEqual(out, "playbooks/imports/play-other.yml — no longer exists at HEAD\n")
-
-    def test_a_malformed_map_is_untrustworthy_not_ignored(self) -> None:
-        def broken(root):
-            raise ValueError("retired-plays map is not valid JSON")
-
-        with tempfile.TemporaryDirectory() as base:
-            _seed(base, [OLD_PLAY])
-            code, out, err = self._run(base, retired_plays=broken)
-            self.assertEqual(code, check_freshness.EXIT_UNTRUSTWORTHY)
-            self.assertIn("not valid JSON", err)
-            self.assertEqual(out, "")
-
-    def test_a_map_entry_whose_play_is_still_at_head_is_untrustworthy(self) -> None:
-        with tempfile.TemporaryDirectory() as base:
-            _seed(base, ["playbooks/imports/play-other.yml"])
-            code, _, err = self._run(base, head_plays=(OLD_PLAY, NEW_PLAY))
-            self.assertEqual(code, check_freshness.EXIT_UNTRUSTWORTHY)
-            self.assertIn(OLD_PLAY, err)
-
-    def test_the_map_is_not_read_when_nothing_is_gone(self) -> None:
-        """It can only change a GONE answer, so a login with none asks git nothing more."""
-        read = []
-        with tempfile.TemporaryDirectory() as base:
-            _seed(base, [NEW_PLAY])
-            code, _, _ = self._run(base, retired_plays=lambda root: read.append(root) or {})
-            self.assertEqual(code, check_freshness.EXIT_OK)
-            self.assertEqual(read, [])
-
-    def test_the_default_map_is_the_one_in_the_checkout(self) -> None:
-        with tempfile.TemporaryDirectory() as base, tempfile.TemporaryDirectory() as root:
-            path = os.path.join(root, retired.MAP_PATH)
-            os.makedirs(os.path.dirname(path))
-            with open(path, "w", encoding="utf-8") as handle:
-                handle.write(f'{{"{OLD_PLAY}": "{NEW_PLAY}"}}\n')
-            _seed(base, [OLD_PLAY])
-            out = io.StringIO()
-            check_freshness.run(
-                base=base, repo_root=root, stdout=out, stderr=io.StringIO(),
-                fetch=lambda r: None,
-                changes_since=lambda r, commit, play: [],
-                play_sha256_at_head=lambda r, play: SIXTY_FOUR_HEX if play == NEW_PLAY else None,
-                path_exists_at=lambda r, commit, p: p == NEW_PLAY or commit == FORTY_HEX,
-            )
-            self.assertIn(f"run {NEW_PLAY}", out.getvalue())
-
-
-class TestNeverTrackedPlays(unittest.TestCase):
-    """A play run from outside the repo's history (a scratch probe under untracked/) is
-    GONE at HEAD because it was never there. It is not the repo's play, so it is not a
-    finding. A tracked play that was deleted still is."""
-
-    SCRATCH_PLAY = "untracked/scratch/probe.yml"
-    REMOVED_PLAY = "playbooks/imports/play-removed.yml"
-
-    def _run(self, base: str, *, tracked_at_run: set, exists_error: Exception | None = None):
-        calls: list[tuple[str, str]] = []
-
-        def exists(root: str, commit: str, path: str) -> bool:
-            calls.append((commit, path))
-            if exists_error is not None:
-                raise exists_error
-            return commit == FORTY_HEX and path in tracked_at_run
-
-        out, err = io.StringIO(), io.StringIO()
-        code = check_freshness.run(
-            base=base, repo_root="/repo", stdout=out, stderr=err,
-            fetch=lambda root: None,
-            changes_since=lambda root, commit, play: [],
-            play_sha256_at_head=lambda root, play: None if play in (
-                self.SCRATCH_PLAY, self.REMOVED_PLAY) else SIXTY_FOUR_HEX,
-            retired_plays=lambda root: {},
-            path_exists_at=exists,
-        )
-        return code, out.getvalue(), err.getvalue(), calls
-
-    def test_a_play_never_tracked_at_its_run_is_not_reported(self) -> None:
-        with tempfile.TemporaryDirectory() as base:
-            _seed(base, [self.SCRATCH_PLAY])
-            code, out, _, _ = self._run(base, tracked_at_run=set())
-            self.assertEqual(out, "")
-            self.assertEqual(code, check_freshness.EXIT_OK)
-
-    def test_a_tracked_play_that_was_deleted_is_still_reported(self) -> None:
-        with tempfile.TemporaryDirectory() as base:
-            _seed(base, [self.SCRATCH_PLAY, self.REMOVED_PLAY])
-            code, out, _, _ = self._run(base, tracked_at_run={self.REMOVED_PLAY})
-            self.assertEqual(code, check_freshness.EXIT_FINDINGS)
-            self.assertEqual(out, f"{self.REMOVED_PLAY} — no longer exists at HEAD\n")
-
-    def test_the_question_is_asked_of_the_commit_the_play_ran_from(self) -> None:
-        with tempfile.TemporaryDirectory() as base:
-            _seed(base, [self.SCRATCH_PLAY])
-            _, _, _, calls = self._run(base, tracked_at_run=set())
-            self.assertIn((FORTY_HEX, self.SCRATCH_PLAY), calls)
-
-    def test_git_failing_on_the_question_is_untrustworthy_not_silent(self) -> None:
-        with tempfile.TemporaryDirectory() as base:
-            _seed(base, [self.SCRATCH_PLAY])
-            code, out, err, _ = self._run(base, tracked_at_run=set(),
-                                          exists_error=RuntimeError("bad object"))
-            self.assertEqual(code, check_freshness.EXIT_UNTRUSTWORTHY)
-            self.assertIn("bad object", err)
-            self.assertEqual(out, "")
-
-    def test_nothing_gone_asks_nothing(self) -> None:
-        with tempfile.TemporaryDirectory() as base:
-            _seed(base, ["playbooks/a.yml"])
-            code, _, _, calls = self._run(base, tracked_at_run=set())
-            self.assertEqual(code, check_freshness.EXIT_OK)
-            self.assertEqual(calls, [])
+    def test_no_answer_states_no_coverage(self) -> None:
+        self.assertEqual(self._sentence(changed_plays.NoAnswer("x")), [])
 
 
 class TestDefaultWiring(unittest.TestCase):
-    def test_run_defaults_to_the_real_git_functions(self) -> None:
+    def test_run_defaults_to_the_real_fetch_and_the_shared_judgement(self) -> None:
         """The injected seams are for tests; the executor must work with none supplied."""
         with tempfile.TemporaryDirectory() as base, \
              mock.patch("helpers.play_ledger.git_history.fetch") as fetch, \
-             mock.patch("helpers.play_ledger.git_history.changes_since", return_value=[]), \
-             mock.patch("helpers.play_ledger.git_history.play_sha256_at_head",
-                        return_value=SIXTY_FOUR_HEX):
-            _seed(base, ["playbooks/a.yml"])
+             mock.patch("helpers.play_ledger.changed_plays.judge", return_value=_judgement()) as judge:
+            _seed(base, [A])
             code = check_freshness.run(base=base, repo_root="/repo",
                                        stdout=io.StringIO(), stderr=io.StringIO())
             self.assertEqual(code, 0)
             fetch.assert_called_once_with("/repo")
+            self.assertEqual(judge.call_args.kwargs, {"repo_root": "/repo"})
 
 
 class TestClearBroken(unittest.TestCase):
@@ -830,6 +626,88 @@ class TestClearBroken(unittest.TestCase):
             rc = check_freshness.run(base=base, repo_root=base, stdout=out, stderr=err)
             self.assertEqual(rc, check_freshness.EXIT_UNTRUSTWORTHY)
             self.assertTrue(os.path.exists(ledger.sentinel_path(base)))
+
+
+def _isolated_git_env() -> dict[str, str]:
+    """The environment helpers/CLAUDE.md requires of a test that runs git."""
+    env = {key: value for key, value in os.environ.items()
+           if key not in ("GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS")}
+    env["GIT_CONFIG_GLOBAL"] = os.devnull
+    env["GIT_CONFIG_NOSYSTEM"] = "1"
+    return env
+
+
+class TestAgreesWithRunBashChanged(unittest.TestCase):
+    """Issue #110: on one host the report listed 10 changed plays and `run.bash --changed` 25.
+
+    The report and the runner must name the same plays, on a real repository and the real
+    ledger, for each way a play has to run again: a file it deploys changed (its own file
+    untouched), its last run failed, it ran from a dirty checkout, its own file changed in the
+    working tree and not yet committed. One play is current and must be in neither.
+    """
+
+    COPY_TASK = (
+        "- hosts: desktop\n  tasks:\n    - name: Copy\n      ansible.builtin.copy:\n"
+        '        src: "{{{{ root_dir }}}}/files/home/{name}.conf"\n        dest: /tmp/{name}.conf\n'
+    )
+    NAMES = ("deployed", "failed", "dirty", "uncommitted", "current")
+
+    def _git(self, root: str, *args: str) -> str:
+        return subprocess.run(["git", "-C", root, *args], check=True, capture_output=True,
+                              text=True, env=_isolated_git_env()).stdout
+
+    def _write(self, root: str, path: str, text: str) -> None:
+        full = os.path.join(root, path)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w", encoding="utf-8") as handle:
+            handle.write(text)
+
+    def test_the_report_names_exactly_the_plays_run_bash_changed_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as state:
+            self._git(root, "init", "-q")
+            self._git(root, "config", "user.email", "test@example.com")
+            self._git(root, "config", "user.name", "test")
+            self._git(root, "config", "commit.gpgsign", "false")
+            self._write(root, changed_plays.MAIN_PLAYBOOK, "".join(
+                f"- import_playbook: imports/play-{name}.yml\n" for name in self.NAMES))
+            for name in self.NAMES:
+                self._write(root, f"playbooks/imports/play-{name}.yml", self.COPY_TASK.format(name=name))
+                self._write(root, f"files/home/{name}.conf", "v1\n")
+            self._git(root, "add", ".")
+            self._git(root, "commit", "-q", "-m", "first")
+            first = self._git(root, "rev-parse", "HEAD").strip()
+
+            base = os.path.join(state, "ledger")
+            store.ensure_ledger(base, commit=first, at=STAMP)
+            for name in self.NAMES:
+                play = f"playbooks/imports/play-{name}.yml"
+                with open(os.path.join(root, play), "rb") as handle:
+                    digest = hashlib.sha256(handle.read()).hexdigest()
+                store.append_record(base, ledger.build_record(
+                    play=play, name=name, commit=first, dirty=name == "dirty",
+                    play_sha256=digest, outcome="failed" if name == "failed" else "ok",
+                    changed=0, started=STAMP, finished=STAMP,
+                ))
+            self._write(root, "files/home/deployed.conf", "v2\n")
+            self._git(root, "commit", "-q", "-am", "the deployed file changes")
+            with open(os.path.join(root, "playbooks/imports/play-uncommitted.yml"), "a",
+                      encoding="utf-8") as handle:
+                handle.write("# an edit not yet committed\n")
+
+            with mock.patch.dict(os.environ, _isolated_git_env(), clear=True):
+                runner_out = io.StringIO()
+                self.assertEqual(changed_plays.run(base=base, repo_root=root, stdout=runner_out,
+                                                   stderr=io.StringIO()), changed_plays.EXIT_OK)
+                report_out = io.StringIO()
+                check_freshness.run(base=base, repo_root=root, stdout=report_out,
+                                    stderr=io.StringIO(), fetch=lambda r: None)
+
+            runner = [line.removeprefix("RUN ") for line in runner_out.getvalue().splitlines()]
+            report = [line.split(" — ")[0] for line in report_out.getvalue().splitlines()
+                      if not line.startswith(" ")]
+            want = [f"playbooks/imports/play-{name}.yml" for name in self.NAMES if name != "current"]
+            self.assertEqual(runner, want)
+            self.assertEqual(report, runner)
 
 
 # Must stay LAST in the file. `unittest.main()` here collects only what is defined

@@ -112,6 +112,10 @@ entry below), is, at every commit, exactly what needs running **now**:
   [R8](PlanScriptStandards.md#r8--no-blanket-confirmation-prompt-running-the-script-is-the-consent)).
 - **Order by dependency:** deploys that others build on come first, and read-only triage
   that judges what the deploys left behind comes last.
+- **Stale plays are one `changed-plays` entry, not a hand-copied list.** It runs
+  `run.bash --changed --yes` at its place in the list, so put it above the plan entries that
+  expect those plays to have run. A `playbooks/` entry is for a play that must run at one
+  fixed point between two plan steps. The ordering rule is in `meta-deploy.list`'s header.
 
 Only what meta cannot do goes to the owner as a separate request: a reboot, a login, a
 look at the screen, a decision, or a different machine.

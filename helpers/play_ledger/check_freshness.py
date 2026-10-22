@@ -1,8 +1,10 @@
-"""Report plays that have changed since they were last run here (Plan 00109, Task 2.1).
+"""Report the plays that have to run again here (Plan 00109, Task 2.1; Plan 00214).
 
-Wires the ledger to git and prints the findings. Every decision it makes is in
-`freshness.py`; every git answer comes from `git_history.py`. What lives here is
-the order of operations and the exit status.
+Wires the ledger to the one judgement of which plays have to run again,
+`changed_plays.judge`, and prints the findings. That is the judgement `run.bash --changed`
+acts on, so the plays this reports as changed or failed are exactly the plays that command
+runs, and running it clears them. What lives here is the order of operations, the wording
+and the exit status.
 
 **Silent when clean.** Nothing reaches stdout unless there is something to act on.
 A health check that speaks on every login gets muted, and a muted check is not a
@@ -26,28 +28,38 @@ from collections.abc import Callable
 from typing import TextIO
 
 from helpers.play_ledger import (
+    changed_plays,
     fetch_clock,
     freshness,
     git_history,
     ledger,
     plugin_support,
     repo,
-    retired,
     store,
 )
 
 #: Clean: nothing the user must act on.
 EXIT_OK = 0
-#: Plays have changed since they were run here. Not an error — a finding.
+#: Plays have to run again here. Not an error — a finding.
 EXIT_FINDINGS = 1
 #: No answer could be given. Distinct from EXIT_FINDINGS on purpose.
 EXIT_UNTRUSTWORTHY = 2
 
 _STATE_LABEL = {
     freshness.STALE: "changed since it was run here",
-    freshness.GONE: "no longer exists at HEAD",
-    freshness.UNEXPLAINED: "differs from HEAD and no commit explains it",
+    freshness.FAILED: "its last run here did not succeed",
+    freshness.GONE: "no longer in the checkout",
 }
+
+_VERDICT_STATE = {
+    changed_plays.STATE_STALE: freshness.STALE,
+    changed_plays.STATE_FAILED: freshness.FAILED,
+    changed_plays.STATE_UNRESOLVED: freshness.UNRESOLVED,
+    changed_plays.STATE_CURRENT: freshness.FRESH,
+}
+
+#: How many changed paths a finding names before it counts the rest.
+_PATHS_SHOWN = 3
 
 
 def run(
@@ -58,21 +70,22 @@ def run(
     stderr: TextIO,
     unchecked: TextIO | None = None,
     fetch: Callable[[str], None] | None = None,
-    changes_since: Callable[[str, str, str], list[tuple[str, str]]] | None = None,
-    play_sha256_at_head: Callable[[str, str], str | None] | None = None,
-    retired_plays: Callable[[str], dict[str, str]] | None = None,
-    path_exists_at: Callable[[str, str, str], bool] | None = None,
+    judge: Callable[[dict[str, dict], str], changed_plays.Judgement] | None = None,
     judged: list[freshness.Verdict] | None = None,
+    coverage: list[str] | None = None,
 ) -> int:
-    """Print the freshness findings and return the exit status.
+    """Print the findings and return the exit status.
 
-    The git callables and the retired-plays loader are seams for testing; unsupplied,
-    the real ones are used.
+    `fetch` and `judge` are seams for testing; unsupplied, the real ones are used.
 
     `judged`, when given, receives every verdict of a COMPLETE judgement, fresh ones
     included — the panel's play runner lists each play with its state. It stays empty
     on every path that answers untrustworthy, so a partial list is never offered as
     the whole one.
+
+    `coverage`, when given, receives one sentence saying what was judged and what was not:
+    the plays outside `playbooks/imports/`, and the plays holding a reference nobody can
+    follow. Neither is a fault, and `run.bash --changed` runs neither.
 
     `unchecked` is where findings that mean *"nothing was checked against upstream"* go
     — the refs-are-old answer, which is a real finding but not a fault anybody has
@@ -81,12 +94,7 @@ def run(
     that has to tell them apart by wording gets it wrong.
     """
     fetch = fetch or git_history.fetch
-    changes_since = changes_since or (
-        lambda root, commit, play: git_history.changes_since(root, commit, play)
-    )
-    play_sha256_at_head = play_sha256_at_head or (
-        lambda root, play: git_history.play_sha256_at_head(root, play)
-    )
+    judge = judge or (lambda latest, root: changed_plays.judge(latest, repo_root=root))
 
     broken = store.broken_reason(base)
     if broken is not None:
@@ -103,8 +111,7 @@ def run(
         stderr.write(f"play-freshness: the ledger cannot be read: {error}\n")
         return EXIT_UNTRUSTWORTHY
 
-    plays = freshness.plays_to_query(latest)
-    if not plays:
+    if not latest:
         # Nothing has ever been run here. Silence is the correct output.
         return EXIT_OK
 
@@ -136,47 +143,18 @@ def run(
                 f"failed, so the next run will judge the gap from an older stamp: {error}\n"
             )
 
-    verdicts: list[freshness.Verdict] = []
-    for play in plays:
-        record = latest[play]
-        try:
-            changes = changes_since(repo_root, record["commit"], play)
-            head = play_sha256_at_head(repo_root, play)
-        except Exception as error:
-            # An unresolvable ledgered commit must never read as "nothing changed".
-            stderr.write(f"play-freshness: cannot judge {play}: {error}\n")
-            return EXIT_UNTRUSTWORTHY
-        verdicts.append(freshness.classify(record=record, changes=changes, head_sha256=head))
-
-    path_exists_at = path_exists_at or (
-        lambda root, commit, path: git_history.path_exists_at(root, commit, path)
-    )
     try:
-        verdicts = _drop_never_tracked(
-            verdicts, latest=latest, repo_root=repo_root, path_exists_at=path_exists_at
-        )
-    except Exception as error:
-        # Unanswered, a scratch play would be reported as removed, or a removed play
-        # dropped as never tracked, with nothing saying which.
-        stderr.write(f"play-freshness: cannot tell whether a removed play was ever tracked: {error}\n")
+        judgement = judge(latest, repo_root)
+    except changed_plays.NoAnswer as no_answer:
+        # An unjudgeable play must never read as "nothing changed".
+        stderr.writelines(f"play-freshness: {line}\n" for line in no_answer.lines)
         return EXIT_UNTRUSTWORTHY
 
-    try:
-        verdicts = _apply_retirements(
-            verdicts,
-            latest=latest,
-            repo_root=repo_root,
-            retired_plays=retired_plays or retired.load,
-            path_exists_at=path_exists_at,
-        )
-    except Exception as error:
-        # A map that cannot be applied would leave a GONE finding standing, or drop
-        # one, with nothing saying which. Neither is an answer.
-        stderr.write(f"play-freshness: the retired-plays map cannot be applied: {error}\n")
-        return EXIT_UNTRUSTWORTHY
-
+    verdicts = [_verdict(judgement, play) for play in judgement.order]
     if judged is not None:
         judged.extend(verdicts)
+    if coverage is not None:
+        coverage.append(coverage_sentence(judgement))
 
     status = _emit(freshness.build_report(verdicts=verdicts, broken_reason=None), stdout, stderr)
     if offline is not None:
@@ -189,75 +167,46 @@ def run(
     return status
 
 
-def _drop_never_tracked(
-    verdicts: list[freshness.Verdict],
-    *,
-    latest: dict[str, dict],
-    repo_root: str,
-    path_exists_at: Callable[[str, str, str], bool],
-) -> list[freshness.Verdict]:
-    """Drop each GONE play that was not in the tree of the commit it ran from.
-
-    Such a play was run from outside the repo's history, a probe under untracked/ for
-    instance. It is GONE at HEAD only because it was never there, and it is not the
-    repo's to report. Only GONE plays are asked about, so a login with nothing removed
-    costs no extra git call.
-    """
-    return [
-        verdict for verdict in verdicts
-        if verdict.state != freshness.GONE
-        or path_exists_at(repo_root, latest[verdict.play]["commit"], verdict.play)
+def _verdict(judgement: changed_plays.Judgement, play: str) -> freshness.Verdict:
+    """One play's verdict, with the reasons a reader acts on as its detail lines."""
+    if play in judgement.gone:
+        return freshness.Verdict(play, freshness.GONE)
+    state = _VERDICT_STATE[judgement.states[play]]
+    if state != freshness.STALE:
+        return freshness.Verdict(play, state)
+    detail = [
+        f"it takes over {old}, which the checkout removed"
+        for old in judgement.took_over.get(play, [])
     ]
+    paths = judgement.changed_inputs.get(play, [])
+    if paths:
+        shown = ", ".join(paths[:_PATHS_SHOWN])
+        more = len(paths) - _PATHS_SHOWN
+        detail.append(f"changed: {shown}" + (f" and {more} more" if more > 0 else ""))
+    if play in judgement.dirty:
+        detail.append("it last ran from a checkout with uncommitted changes")
+    return freshness.Verdict(play, state, tuple(detail))
 
 
-def _apply_retirements(
-    verdicts: list[freshness.Verdict],
-    *,
-    latest: dict[str, dict],
-    repo_root: str,
-    retired_plays: Callable[[str], dict[str, str]],
-    path_exists_at: Callable[[str, str, str], bool],
-) -> list[freshness.Verdict]:
-    """Name the successor of each mapped GONE play, and drop those it has absorbed.
-
-    The map is read only when something is GONE: it can change no other answer, so a
-    login with nothing removed costs no extra git call. When it is read it is checked
-    against HEAD in full, not just the entries this host happens to need.
-    """
-    if not any(verdict.state == freshness.GONE for verdict in verdicts):
-        return verdicts
-    mapping = retired_plays(repo_root)
-    retired.validate(mapping, exists_at_head=lambda path: path_exists_at(repo_root, "HEAD", path))
-
-    kept: list[freshness.Verdict] = []
-    for verdict in verdicts:
-        successor = mapping.get(verdict.play) if verdict.state == freshness.GONE else None
-        if successor is None:
-            kept.append(verdict)
-            continue
-        # The successor's LATEST run, and only a SUCCESSFUL one: a run that failed at
-        # its first task never reached what it absorbed. If that commit lacks the old
-        # play, the run carried everything the old play used to deploy — which holds
-        # only if the removal and the merge land in ONE commit (see retired.py).
-        record = latest.get(successor)
-        ran_after = (
-            record is not None
-            and record["outcome"] == "ok"
-            and not path_exists_at(repo_root, record["commit"], verdict.play)
+def coverage_sentence(judgement: changed_plays.Judgement) -> str:
+    """What the play-freshness section judged, and what it leaves out, in one sentence."""
+    judged_count = len(judgement.states) + len(judgement.gone)
+    sentence = (
+        f"{judged_count} plays run here under playbooks/imports/, judged as run.bash --changed "
+        "judges them: their own file and every checkout path they deploy, their last run's "
+        "outcome, and whether that run was from a dirty checkout"
+    )
+    if judgement.unresolved:
+        sentence += (
+            f"; {len(judgement.unresolved)} of them hold a reference that cannot be followed, "
+            f"so a change there is not seen: {', '.join(sorted(judgement.unresolved))}"
         )
-        remaining = freshness.retire(verdict, successor=successor, successor_ran_after_removal=ran_after)
-        if remaining is not None:
-            kept.append(remaining)
-    return kept
-
-
-def _label(verdict: freshness.Verdict) -> str:
-    if verdict.successor is not None:
-        return (
-            f"{_STATE_LABEL[verdict.state]}; merged into {verdict.successor} — "
-            f"run {verdict.successor} to retire this"
+    if judgement.not_judged:
+        sentence += (
+            f"; {len(judgement.not_judged)} other ledgered plays are not host plays and are "
+            f"not judged: {', '.join(judgement.not_judged)}"
         )
-    return _STATE_LABEL[verdict.state]
+    return sentence
 
 
 def _emit(report: freshness.Report, stdout: TextIO, stderr: TextIO) -> int:
@@ -279,9 +228,8 @@ def _emit(report: freshness.Report, stdout: TextIO, stderr: TextIO) -> int:
         return EXIT_OK
 
     for verdict in report.stale:
-        stdout.write(f"{verdict.play} — {_label(verdict)}\n")
-        for short, subject in verdict.changes:
-            stdout.write(f"    {short}  {subject}\n")
+        stdout.write(f"{verdict.play} — {_STATE_LABEL[verdict.state]}\n")
+        stdout.writelines(f"    {line}\n" for line in verdict.detail)
     return EXIT_FINDINGS
 
 

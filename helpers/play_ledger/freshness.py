@@ -1,8 +1,9 @@
-"""Play-freshness verdicts over the host ledger (Plan 00109, Task 2.1).
+"""Play-freshness verdicts over the host ledger (Plan 00109, Task 2.1; Plan 00214).
 
-Answers one question per play the ledger has actually seen: *has this play changed
-since it was last run here?* No I/O — git and the ledger are read by the executor
-and handed in, so every rule below is unit-testable.
+Answers one question per play the ledger has actually seen: *does this play have to run
+again here?* Which plays do is decided once, by `changed_plays.judge`, the judgement
+`run.bash --changed` acts on; this module holds the verdict shape the health report and
+the panel's play rows carry, and the report built from it. No I/O.
 
 Two rules carry the plan's weight and are easy to erode:
 
@@ -18,28 +19,29 @@ Design: CLAUDE/Plan/00109-desktop-drift-detection-and-fedora-desktop-panel/DESIG
 
 from __future__ import annotations
 
-from typing import Any, NamedTuple
+from typing import NamedTuple
 
-#: Unchanged since the ledgered run.
+#: Nothing it uses changed since its last run here, which succeeded from a clean checkout.
 FRESH = "fresh"
-#: Changed since the ledgered run — git says so, or a dirty run's bytes no longer match.
+#: Its own file or a checkout path it deploys changed since it ran, or it ran dirty.
 STALE = "stale"
-#: Ledgered, but no longer present at HEAD.
+#: Its last run here did not succeed.
+FAILED = "failed"
+#: Not changed as far as can be told, but it holds a reference that cannot be followed.
+#: Not a fault: `run.bash --changed` does not run it either. The report's coverage names it.
+UNRESOLVED = "unresolved"
+#: It ran here, and the checkout does not have it.
 GONE = "gone"
-#: The bytes differ and no commit explains it. Reported, never guessed at.
-UNEXPLAINED = "unexplained"
 
-#: Everything a reader needs to act on. FRESH is deliberately absent.
-REPORTABLE = (STALE, GONE, UNEXPLAINED)
+#: Faults: the plays `run.bash --changed` runs, and the ones the checkout does not have.
+REPORTABLE = (STALE, FAILED, GONE)
 
 
 class Verdict(NamedTuple):
     play: str
     state: str
-    #: `(short_sha, subject)` for each commit touching this play since the run.
-    changes: tuple[tuple[str, str], ...]
-    #: For a GONE play in the retired-plays map, the play that absorbed it.
-    successor: str | None = None
+    #: The reasons, one line each: changed paths, a dirty run, a play taken over.
+    detail: tuple[str, ...] = ()
 
 
 class Report(NamedTuple):
@@ -50,71 +52,6 @@ class Report(NamedTuple):
     def clean(self) -> bool:
         """Nothing to say. False while the ledger is known broken, findings or not."""
         return not self.stale and self.broken_reason is None
-
-
-def plays_to_query(latest: dict[str, dict[str, Any]]) -> list[str]:
-    """The plays git should be asked about — exactly those the ledger has seen.
-
-    Sorted so two runs of the report diff cleanly rather than by dict order.
-    """
-    return sorted(latest)
-
-
-def classify(
-    *,
-    record: dict[str, Any],
-    changes: list[tuple[str, str]],
-    head_sha256: str | None,
-) -> Verdict:
-    """One play's verdict.
-
-    `changes` is every commit touching this play *since the ledgered run*;
-    `head_sha256` is the play file's hash at HEAD, or None if it is no longer there.
-
-    **Git history is the authority, the hash is only the dirty-tree guard**
-    (DESIGN §1). So a commit that reverts the play to identical bytes still counts
-    as churn since the run — the play's history moved even though its content did
-    not, and a reader deciding whether to re-run wants to know.
-    """
-    play = record["play"]
-
-    if head_sha256 is None:
-        # Deleted, not merely changed. "Re-run this play" would be wrong advice, so
-        # this outranks STALE however many commits touched it on the way out.
-        return Verdict(play, GONE, tuple(changes))
-
-    if changes:
-        return Verdict(play, STALE, tuple(changes))
-
-    if record["play_sha256"] == head_sha256:
-        return Verdict(play, FRESH, ())
-
-    # The bytes differ with no commit to explain it. If the run was dirty, that IS
-    # the explanation — this play was among the uncommitted edits, which is exactly
-    # what play_sha256 was added to catch, and what ran here is not what HEAD has.
-    if record["dirty"]:
-        return Verdict(play, STALE, ())
-
-    # A clean tree, no commits, and different bytes: the ledger and the repo
-    # disagree and nothing here can say which is right. Guessing is how a check
-    # starts lying, so the disagreement itself is the finding.
-    return Verdict(play, UNEXPLAINED, ())
-
-
-def retire(
-    verdict: Verdict, *, successor: str, successor_ran_after_removal: bool
-) -> Verdict | None:
-    """A GONE verdict for a play the retired-plays map names (helpers/play_ledger/retired.py).
-
-    None once the successor has run at a commit without the old play: whatever the
-    old play deployed is the successor's now, and it has been applied. Until then the
-    finding stands, naming the successor, because running it is the remedy.
-    """
-    if verdict.state != GONE:
-        raise ValueError(f"only a GONE verdict can be retired, got {verdict.state!r} for {verdict.play}")
-    if successor_ran_after_removal:
-        return None
-    return verdict._replace(successor=successor)
 
 
 def build_report(

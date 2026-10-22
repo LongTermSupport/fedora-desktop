@@ -68,92 +68,6 @@ class TestFetch(unittest.TestCase):
             self.assertIn(name, environment)
 
 
-class TestChangesSince(unittest.TestCase):
-    def test_parses_short_sha_and_subject(self) -> None:
-        run = mock.Mock(return_value=_completed("abc1234\x1ffirst subject\ndef5678\x1fsecond\n"))
-        self.assertEqual(
-            git_history.changes_since("/repo", "a" * 40, "playbooks/a.yml", run=run),
-            [("abc1234", "first subject"), ("def5678", "second")],
-        )
-
-    def test_no_commits_is_an_empty_list_not_an_error(self) -> None:
-        run = mock.Mock(return_value=_completed(""))
-        self.assertEqual(git_history.changes_since("/repo", "a" * 40, "playbooks/a.yml", run=run), [])
-
-    def test_a_subject_containing_the_separator_is_not_split_twice(self) -> None:
-        """A commit subject is free text; splitting on every separator would truncate it."""
-        run = mock.Mock(return_value=_completed("abc1234\x1ffix: a\x1fb thing\n"))
-        self.assertEqual(
-            git_history.changes_since("/repo", "a" * 40, "playbooks/a.yml", run=run),
-            [("abc1234", "fix: a\x1fb thing")],
-        )
-
-    def test_scopes_the_log_to_the_one_play_path(self) -> None:
-        run = mock.Mock(return_value=_completed(""))
-        git_history.changes_since("/repo", "a" * 40, "playbooks/a.yml", run=run)
-        argv = run.call_args.args[0]
-        self.assertIn("--", argv)
-        self.assertEqual(argv[-1], "playbooks/a.yml")
-
-    def test_the_range_starts_at_the_ledgered_commit(self) -> None:
-        commit = "a" * 40
-        run = mock.Mock(return_value=_completed(""))
-        git_history.changes_since("/repo", commit, "playbooks/a.yml", run=run)
-        self.assertIn(f"{commit}..HEAD", run.call_args.args[0])
-
-    def test_a_blank_line_is_skipped_rather_than_yielding_an_empty_commit(self) -> None:
-        run = mock.Mock(return_value=_completed("abc1234\x1fone\n\n"))
-        self.assertEqual(
-            git_history.changes_since("/repo", "a" * 40, "playbooks/a.yml", run=run),
-            [("abc1234", "one")],
-        )
-
-    def test_a_line_without_a_separator_raises(self) -> None:
-        """Silently dropping it would under-report churn and call a stale play fresh."""
-        run = mock.Mock(return_value=_completed("no-separator-here\n"))
-        with self.assertRaises(ValueError):
-            git_history.changes_since("/repo", "a" * 40, "playbooks/a.yml", run=run)
-
-    def test_an_unknown_ledgered_commit_raises_rather_than_reporting_no_changes(self) -> None:
-        """A commit that is not in this clone (a dropped branch, a fresh shallow clone)
-        makes git exit non-zero. Treating that as 'no commits touched it' would report
-        every such play fresh for ever."""
-        run = mock.Mock(side_effect=subprocess.CalledProcessError(128, ["git"]))
-        with self.assertRaises(subprocess.CalledProcessError):
-            git_history.changes_since("/repo", "a" * 40, "playbooks/a.yml", run=run)
-
-
-class TestPlaySha256AtHead(unittest.TestCase):
-    def test_returns_the_blob_hash_of_the_file_at_head(self) -> None:
-        import hashlib
-
-        payload = b"- name: A Play\n"
-        run = mock.Mock(return_value=subprocess.CompletedProcess(
-            args=["git"], returncode=0, stdout=payload, stderr=b""))
-        self.assertEqual(
-            git_history.play_sha256_at_head("/repo", "playbooks/a.yml", run=run),
-            hashlib.sha256(payload).hexdigest(),
-        )
-
-    def test_reads_bytes_not_text_so_the_hash_matches_the_file_on_disk(self) -> None:
-        run = mock.Mock(return_value=subprocess.CompletedProcess(
-            args=["git"], returncode=0, stdout=b"x", stderr=b""))
-        git_history.play_sha256_at_head("/repo", "playbooks/a.yml", run=run)
-        self.assertNotIn("text", run.call_args.kwargs)
-
-    def test_a_play_absent_from_head_returns_None(self) -> None:
-        """None is the GONE signal freshness.classify expects — distinct from a hash
-        that merely differs."""
-        run = mock.Mock(side_effect=subprocess.CalledProcessError(128, ["git"]))
-        self.assertIsNone(git_history.play_sha256_at_head("/repo", "playbooks/a.yml", run=run))
-
-    def test_asks_for_the_path_at_HEAD(self) -> None:
-        run = mock.Mock(return_value=subprocess.CompletedProcess(
-            args=["git"], returncode=0, stdout=b"x", stderr=b""))
-        git_history.play_sha256_at_head("/repo", "playbooks/a.yml", run=run)
-        self.assertIn("HEAD:playbooks/a.yml", run.call_args.args[0])
-
-
 class TestPathExistsAt(unittest.TestCase):
     def test_a_path_git_lists_at_the_commit_exists(self) -> None:
         run = mock.Mock(return_value=_completed("playbooks/a.yml\n"))
@@ -165,7 +79,7 @@ class TestPathExistsAt(unittest.TestCase):
 
     def test_an_unresolvable_commit_raises_rather_than_reading_as_absent(self) -> None:
         """"Absent" would retire a finding on the strength of a commit git cannot even
-        find — the dead-clone trap play_sha256_at_head documents."""
+        find — a dead clone must not read as a removed play."""
         run = mock.Mock(side_effect=subprocess.CalledProcessError(128, ["git"]))
         with self.assertRaises(subprocess.CalledProcessError):
             git_history.path_exists_at("/repo", "abc", "playbooks/a.yml", run=run)

@@ -8,7 +8,7 @@
 # for the script to do. A triage-only plan is run once, read-only. Words after the folder
 # name are passed to that plan's triage.bash, both runs.
 #
-# One entry per line, three kinds:
+# One entry per line, four kinds:
 #   <plan folder>                  its triage, deploy and acceptance scripts, in order
 #   playbooks/<path>.yml           a change no plan owns; run as one unit through its own
 #                                  shebang, which goes through run.bash, exactly as
@@ -17,6 +17,17 @@
 #                                  fits; run as one unit, like a playbook entry, except
 #                                  that a script named *acceptance*.bash may exit 2 for
 #                                  COULD NOT ESTABLISH, as an acceptance.bash may
+#   changed-plays                  every play that has run here and has to run again, as
+#                                  one unit: the checkout's ./run.bash --changed --yes, in
+#                                  playbook-main.yml order, stopping at the first failure
+#
+# changed-plays runs WHERE IT STANDS in the list, like every other entry, and decides which
+# plays it runs when it starts, so the entries above it have already run (a play an entry
+# above ran is no longer changed, and is not run twice). Put it above the plan entries whose
+# deploy or acceptance expects the changed plays to have run, which is the usual case, and
+# below an entry it must follow. It replaces a hand-copied list of stale plays: name a
+# playbooks/ entry only for a play that must run at a fixed point between two plan steps.
+# Its description says which changed plays the agent expects it to pick up and why.
 #
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line

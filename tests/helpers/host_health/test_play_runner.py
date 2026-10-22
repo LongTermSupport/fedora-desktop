@@ -34,14 +34,14 @@ class TestRunnable(unittest.TestCase):
         verdicts = [
             _verdict("playbooks/imports/play-b.yml", freshness.STALE),
             _verdict("playbooks/imports/play-a.yml", freshness.FRESH),
-            _verdict("playbooks/imports/play-c.yml", freshness.UNEXPLAINED),
+            _verdict("playbooks/imports/play-c.yml", freshness.FAILED),
         ]
         self.assertEqual(
             play_runner.runnable(verdicts),
             [
                 {"play": "playbooks/imports/play-a.yml", "state": "fresh"},
                 {"play": "playbooks/imports/play-b.yml", "state": "stale"},
-                {"play": "playbooks/imports/play-c.yml", "state": "unexplained"},
+                {"play": "playbooks/imports/play-c.yml", "state": "failed"},
             ],
         )
 

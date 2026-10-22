@@ -52,6 +52,30 @@ run_case "parent traversal is malformed, names the line" 1 "line 2" $'00001-demo
 run_case "trailing comment is malformed, names the line" 1 "line 1" $'00001-demo # why\n'
 run_case "words after a script entry are malformed" 1 "line 1" $'00001-demo/deploy.bash extra\n'
 
+# changed-plays: every play changed since it ran here, through the checkout's own run.bash, at
+# the entry's place in the list. The fixture run.bash says what it was asked.
+printf '#!/usr/bin/env bash\nprintf "fixture run.bash %%s\\n" "$*"\n' >"${SCRATCH}/run.bash"
+chmod +x "${SCRATCH}/run.bash"
+run_case "changed-plays is listed as run.bash --changed --yes" 0 "run.bash --changed --yes" $'changed-plays\n'
+run_case "words after changed-plays are malformed" 1 "line 1" $'changed-plays --all\n'
+mkdir -p "${SCRATCH}/CLAUDE/Plan/00004-order"
+printf '#!/usr/bin/env bash\necho "STEP before"\n' >"${SCRATCH}/CLAUDE/Plan/00004-order/first.bash"
+printf '#!/usr/bin/env bash\necho "STEP after"\n' >"${SCRATCH}/CLAUDE/Plan/00004-order/second.bash"
+chmod +x "${SCRATCH}/CLAUDE/Plan/00004-order/first.bash" "${SCRATCH}/CLAUDE/Plan/00004-order/second.bash"
+printf '00004-order/first.bash\nchanged-plays\n00004-order/second.bash\n' >"${SCRATCH}/CLAUDE/Plan/meta-deploy.list"
+out="$("${SCRATCH}/CLAUDE/Plan/meta-deploy.bash" 2>&1)"
+status=$?
+order="out of order"
+if [[ "${out}" == *"STEP before"*"fixture run.bash --changed --yes"*"STEP after"* ]]; then
+    order="in list order"
+fi
+check "changed-plays runs run.bash --changed --yes at its place in the list" "0 in list order" "STEP before" "${status} ${order}" "${out}"
+check "changed-plays is named in the summary" 0 "PASS  run.bash --changed --yes" "${status}" "${out}"
+printf '#!/usr/bin/env bash\nexit 4\n' >"${SCRATCH}/run.bash"
+printf 'changed-plays\n' >"${SCRATCH}/CLAUDE/Plan/meta-deploy.list"
+out="$("${SCRATCH}/CLAUDE/Plan/meta-deploy.bash" 2>&1)"
+check "a failing changed-plays run fails the batch and is named" 1 "FAIL  run.bash --changed --yes (exit 4)" "$?" "${out}"
+
 # The run path, on harmless fixture scripts: a failing unit must fail the batch and be named.
 printf '#!/usr/bin/env bash\nexit 3\n' >"${SCRATCH}/CLAUDE/Plan/00001-demo/acceptance.bash"
 chmod +x "${SCRATCH}/CLAUDE/Plan/00001-demo/acceptance.bash"
