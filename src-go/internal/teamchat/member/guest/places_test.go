@@ -419,24 +419,43 @@ func TestPlaceBundleDifferentIdentityUnderAHeldLock(t *testing.T) {
 }
 
 // GU3, MS3: a link reading the pair between the token's rename and seat.json's never meets a
-// 78, in either case.
+// 78 or a mismatched pair: the same identity reads its own pair with the new token, another
+// reads no bundle, its old seat.json gone first.
 func TestALinkReadingBetweenTheRenames(t *testing.T) {
-	for name, n := range map[string]int{"same identity": 1, "another identity": 2} {
+	for name, c := range map[string]struct {
+		n     int
+		whats []What
+		read  func(t *testing.T, p bundle.Pair, err error)
+	}{
+		"same identity": {1, []What{WhatToken}, func(t *testing.T, p bundle.Pair, err error) {
+			t.Helper()
+			check(t, err)
+			if p.Token.Reveal() != loginTwo || p.Bundle.Bundle.UserID != userID(p.Bundle.Bundle.Team, 1) {
+				t.Errorf("a read between the renames is %+v", p)
+			}
+		}},
+		"another identity": {2, []What{WhatStore, WhatToken, WhatBundle}, func(t *testing.T, _ bundle.Pair, err error) {
+			t.Helper()
+			if !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("a read between the renames: %v, want no bundle", err)
+			}
+		}},
+	} {
 		t.Run(name, func(t *testing.T) {
 			w := newWorld(t)
 			w.placed(1, loginOne)
 			w.store()
 			called := false
-			whats, err := w.placeBetween(w.issued(w.bundle(n), seat.KindToken, loginTwo), func() {
+			whats, err := w.placeBetween(w.issued(w.bundle(c.n), seat.KindToken, loginTwo), func() {
 				called = true
-				if _, err := w.pair(); err != nil {
-					t.Errorf("a read between the renames: %v", err)
-				}
+				p, err := w.pair()
+				c.read(t, p, err)
 			})
 			check(t, err)
-			if !called || len(whats) == 0 {
-				t.Fatalf("between called %v, changes %q", called, whats)
+			if !called {
+				t.Fatal("between was not called")
 			}
+			wantWhats(t, whats, c.whats...)
 		})
 	}
 }

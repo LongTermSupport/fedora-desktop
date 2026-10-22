@@ -174,7 +174,8 @@ func (p placement) fresh(root *homefs.Root, l paths.Layout) error {
 
 // into places the files into the existing seat directory dir: in place for the same identity;
 // for another, or a seat.json that does not decode, under the seat lock with the store set
-// aside first, the lock released last.
+// aside and the old seat.json unlinked first, so a read between the renames finds no bundle
+// rather than the old user's with the new token; the lock released last.
 func (p placement) into(ctx context.Context, clock Clock, dir *homefs.Root, userID string) error {
 	if p.sameIdentity(dir, userID) {
 		return p.replace(dir)
@@ -184,6 +185,12 @@ func (p placement) into(ctx context.Context, clock Clock, dir *homefs.Root, user
 		return err
 	}
 	err = setAsideStore(dir, clock, p.seat, p.out)
+	if err == nil {
+		err = dir.Unlink(p.seat.Bundle())
+		if errors.Is(err, fs.ErrNotExist) {
+			err = nil
+		}
+	}
 	if err == nil {
 		err = p.replace(dir)
 	}
