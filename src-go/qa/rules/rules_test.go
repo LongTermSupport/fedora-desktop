@@ -65,6 +65,10 @@ func TestWaitDelay(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), WaitDelay, "fix/internal/badwait")
 }
 
+func TestRefusalKind(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), RefusalKind, "fix/internal/declare", "fix/internal/badrefusal")
+}
+
 func TestHiddenBindings(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), HiddenBindings, "fix/internal/ui", "fix/internal/ui/notab", "fix/internal/badbind", "fix/qa/rules",
 		"fix/qa/hiddenbindings", "fix/internal/badtea", "fix/internal/ui/frame")
@@ -80,8 +84,8 @@ func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 8 {
-		t.Fatalf("want 8 rules, got %d", got)
+	if got := len(All()); got != 9 {
+		t.Fatalf("want 9 rules, got %d", got)
 	}
 }
 

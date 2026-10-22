@@ -33,16 +33,17 @@ and the per-rule pages are not written; this catalogue stands in for them.
 
 ## The rules
 
-| Rule                      | Defect class                                                                                                                              | Found in                                                                        |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `project_seam_exec`       | a process started outside the runner, so no fake sees it                                                                                  | `teams`: `syscall.Exec` in the launcher hand-over                               |
-| `project_seam_commands`   | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`)       | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style`  |
-| `project_tmux_targets`    | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                                  | the bash library, before the port                                               |
-| `project_testclock`       | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                        | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                    |
-| `project_waitdelay`       | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped                  | `qa/internal/proc`: bug B25 of the qa-all port                                  |
-| `project_package_tests`   | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                       | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it |
-| `project_homeabbrev`      | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                              | `teams` tests: `strings.Replace(..., "~", 1)` twice                             |
-| `project_hidden_bindings` | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`) | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N      |
+| Rule                      | Defect class                                                                                                                                    | Found in                                                                        |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `project_seam_exec`       | a process started outside the runner, so no fake sees it                                                                                        | `teams`: `syscall.Exec` in the launcher hand-over                               |
+| `project_seam_commands`   | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`)             | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style`  |
+| `project_tmux_targets`    | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                                        | the bash library, before the port                                               |
+| `project_testclock`       | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                              | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                    |
+| `project_waitdelay`       | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped                        | `qa/internal/proc`: bug B25 of the qa-all port                                  |
+| `project_package_tests`   | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                             | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it |
+| `project_homeabbrev`      | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                                    | `teams` tests: `strings.Replace(..., "~", 1)` twice                             |
+| `project_hidden_bindings` | an action reachable only by a key, with no visible, named choice for it (also in shell fzf and Python Textual: `qa-hidden-bindings.bash`)       | `teams` picker: Ctrl-A/X/O on Running sessions; `ccy-sessions`: Ctrl-T/X/N      |
+| `project_refusal_kind`    | a declare.py refusal recovered by its type and never by its kind, so a refusal of the host_vars file is asked again as if the answer were wrong | `teams lxc-add`: "entries 5 and 6 both declare" asked three times (Plan 00201)  |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does
@@ -392,6 +393,34 @@ are the bindings handed to the help view in `View`), which would tie the Tab exc
 hint on the same screen rather than to the package. Not built yet: it needs the two methods of
 one model read together, and `internal/ui/pathinput` is its only case; Plan 00204 Task 2.4
 tracks it.
+
+### project_refusal_kind
+
+A function (each function literal judged on its own) that recovers a `*declare.Error` of
+`internal/declare` by its type (`errors.AsType`, `errors.As`, a type assertion, a type switch
+case) and never reads its kind: no `errors.Is` against a `declare.Err*` kind, no `.Is` call, no
+`.Code`. declare.py refuses in kinds: exit 64 (`declare.ErrUsage`) is the value just given, exit
+78 (`declare.ErrRefused`) the host_vars file, its entries, or the answer against them. A question
+that reads every refusal as one verdict asks again when the file is at fault, and retyping can
+never succeed. Re-ask only on `declare.ErrUsage`; stop on the rest, saying the refusal and the
+file it is about ([InteractiveScripts.md](InteractiveScripts.md): re-prompting is for a
+recoverable input mistake).
+
+- Red, fixture: `testdata/src/fix/internal/badrefusal` (`bad.go`: lxc-add's original `checked`,
+  the create wizard's `isRefusal`, a type assertion, a type switch, a checker literal, a kind
+  read of a different error; `good.go`: a retry on `ErrUsage` only, an exit with `.Code`, an
+  `.Is` call, a bare `errors.Is`, clean). The stub `fix/internal/declare` has the real shape.
+- Red, real tree: `lxcadd.Adder.checked` (the owner's three "entries 5 and 6 both declare"
+  refusals), and in `create`: `Wizard.checked`, `isRefusal` (any refusal read as "not
+  OWNER/REPO") and `askHumans` (any refusal read as "your login cannot be an account name").
+- Green: each re-asks on `declare.ErrUsage` only, and stops on any other kind naming the file.
+- The other half of the class is declare.py's: a refusal must carry the right kind. `check_lxc`
+  and `derive_lxc` re-raised a clash with an existing entry as a usage error (64), so even a
+  question that read the kind would have asked again. They now refuse a value alone with 64 and
+  an entry against the file's entries with 78; `tests/helpers/agent_bus/test_declare.py` holds
+  it (no Python rule gate exists for `helpers/`, so this half is held by tests, not a rule).
+- Not caught: a kind read of some other error in the same function (the function names a kind,
+  so it passes), and a declare refusal re-wrapped in another error type before it is read.
 
 ## Defect classes that cannot be a rule
 
