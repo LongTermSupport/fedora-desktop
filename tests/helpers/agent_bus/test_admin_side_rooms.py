@@ -337,13 +337,36 @@ class ListAndCheckTest(SideRoomsCase):
             f"ROOM\t{uid(worker)}\tquestions\t-",
         ])
 
-    def test_check_rooms_names_a_coordinator_not_joined_and_passes_once_it_is(self) -> None:
+    def test_check_rooms_names_an_invited_coordinator_offline_and_passes(self) -> None:
+        """An invited coordinator has not synced: its session is not running, which is offline,
+        never a problem (CLAUDE/AgentNotes.md, an offline team member never blocks anything)."""
         coordinator, token = self.member(role="coordinator")
-        problems = admin.check_rooms(self.ctx(), self.transport)
-        self.assertTrue(any(coordinator in p and "questions" in p and "invite" in p for p in problems), problems)
+        check = admin.check_rooms(self.ctx(), self.transport)
+        self.assertEqual(check.problems, [])
+        self.assertTrue(any(coordinator in o and "questions" in o and "offline" in o for o in check.offline),
+                        check.offline)
         for room in (self.room(), self.side(REPORTS), self.side(QUESTIONS)):
             self.assertEqual(self.join(room, token), 200)
-        self.assertEqual(admin.check_rooms(self.ctx(), self.transport), [])
+        self.assertEqual(admin.check_rooms(self.ctx(), self.transport), admin.RoomCheck([], []))
+
+    def test_check_rooms_names_a_coordinator_that_left_a_problem(self) -> None:
+        """`leave` is a running session whose pingbus left the room: wrong, so it still fails."""
+        coordinator, token = self.member(role="coordinator")
+        room = self.side(QUESTIONS)
+        self.assertEqual(self.fake.request("POST", f"/_matrix/client/v3/rooms/{q(room)}/leave",
+                                           body={}, token=token)[0], 200)
+        check = admin.check_rooms(self.ctx(), self.transport)
+        self.assertTrue(any(coordinator in p and "questions" in p and "(leave)" in p for p in check.problems),
+                        check.problems)
+        self.assertFalse(any("questions" in o for o in check.offline), check.offline)
+
+    def test_check_rooms_names_a_running_coordinator_not_in_reports_a_problem(self) -> None:
+        """It took the questions invite, so its session runs; reports not joined is wrong."""
+        coordinator, token = self.member(role="coordinator")
+        self.assertEqual(self.join(self.side(QUESTIONS), token), 200)
+        check = admin.check_rooms(self.ctx(), self.transport)
+        self.assertTrue(any(coordinator in p and "not reports (-)" in p for p in check.problems), check.problems)
+        self.assertEqual(check.offline, [])
 
     def test_check_rooms_reads_only(self) -> None:
         self.member(role="coordinator")
@@ -355,7 +378,7 @@ class ListAndCheckTest(SideRoomsCase):
         reports = self.side(REPORTS)
         self.assertEqual(self.as_admin("PUT", f"/_matrix/client/v3/rooms/{q(reports)}/state/m.room.join_rules/",
                                        {"join_rule": "invite"})[0], 200)
-        problems = admin.check_rooms(self.ctx(), self.transport)
+        problems = admin.check_rooms(self.ctx(), self.transport).problems
         self.assertTrue(any("reports" in p and "join rules" in p for p in problems), problems)
 
     def test_check_rooms_names_a_missing_room_and_a_worker_in_questions(self) -> None:
@@ -365,10 +388,10 @@ class ListAndCheckTest(SideRoomsCase):
         # The worker reached questions somehow (an invite by hand): check-rooms must say so.
         self.assertEqual(self.as_admin("POST", f"/_matrix/client/v3/rooms/{q(self.side(QUESTIONS))}/invite",
                                        {"user_id": uid(worker)})[0], 200)
-        problems = admin.check_rooms(self.ctx(), self.transport)
+        problems = admin.check_rooms(self.ctx(), self.transport).problems
         self.assertTrue(any(worker in p and "questions" in p for p in problems), problems)
         (self.team_dir / "room_id.reports").unlink()
-        problems = admin.check_rooms(self.ctx(), self.transport)
+        problems = admin.check_rooms(self.ctx(), self.transport).problems
         self.assertTrue(any("no reports room" in p for p in problems), problems)
 
 

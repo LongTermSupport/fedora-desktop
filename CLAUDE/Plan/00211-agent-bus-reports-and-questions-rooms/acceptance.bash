@@ -220,6 +220,7 @@ if [[ "${FAKE}" -eq 1 ]]; then
     fi
     plan_deploy_leg "write the stage-2 fixture commands" fake2_setup
     check_leg "A1/A2 (fake) every present team's rooms are sound" fake_a12 "${TEAMS2}" t1=0 t2=0
+    check_leg "A1/A2 (fake) an offline coordinator is named and passes" fake_a12 "${TEAMS2}" t1=offline t2=0
     reject_leg "A1/A2 (fake) a team with a problem" fake_a12 "${TEAMS2}" t1=0 t2=1
     reject_leg "A1/A2 (fake) check-rooms cannot run" fake_a12 "${TEAMS2}" t1=70 t2=0
     reject_leg "A1/A2 (fake) no present team" fake_a12 '[{"team":"t3","state":"absent"}]'

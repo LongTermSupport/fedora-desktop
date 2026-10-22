@@ -33,8 +33,8 @@
 # play-agent-bus.yml again (it passed on its own at 67033c224, so no change), then the whole
 # play-claude-yolo.yml, then acceptance.bash. The kit's settings.json runs the static Go
 # pingbus-status-line, copied into every running LXC member. The ccy play gives the host CCY
-# 3.99.14.12 (the Go front: see the play-claude-yolo.yml entry below) and puts the binary in the
-# image's build context (container 2.78.15, rebuilt once at the next ccy launch; the image
+# 3.99.14.13 (the Go front: see the play-claude-yolo.yml entry below) and puts the binary in the
+# image's build context (container 2.78.16, rebuilt once at the next ccy launch; the image
 # also carries the farewell-reason fix, the reports and questions admin tool and Go 1.26.10 in the project image): a seated session's status line is
 # the Go one and refreshes every 25 s. The acceptance checks the kit's, the image's and each
 # online declared LXC member's binary are this checkout's build (a member whose container is
@@ -52,9 +52,10 @@
 # member's pingbus is 0.2.0; an offline member is named, not judged). Then the
 # whole play-agent-bus.yml keeps each team's reports and questions rooms (created when
 # play-agent-bus.yml passed at 67033c224), the index and the invites; the whole play-claude-yolo.yml finds the ccy image already
-# at container 2.78.15. Then acceptance.bash --stage 2 waits up to 180 s for every online
+# at container 2.78.16. Then acceptance.bash --stage 2 waits up to 180 s for every online
 # coordinator to join its questions room and every running ccy seat its reports room, naming
-# any that has not (an offline coordinator is named, not waited for), and checks the rooms. It
+# any that has not (an offline coordinator is named, not waited for), and checks the rooms
+# (agent-bus check-rooms prints a coordinator still invited as OFFLINE and passes). It
 # finds the first team's coordinator in its running ccy session or LXC member; with no team
 # coordinator it is REJECTED, named, before it changes anything. It adds and removes one
 # throwaway worker that must be refused the questions room and whose test report must reach no
@@ -73,8 +74,8 @@
 # launched interactively in this checkout once (Quick Launch), and the hooks daemon installed.
 00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker
 # play-claude-yolo.yml, the whole play (Plan 00191 Tasks 4.3, 4.4, 4.4b and 4.5): the host's ccy
-# becomes CCY 3.99.14.12 (container 2.78.15: the next launch rebuilds the image once, for its
-# guide and the room-ID fix in its pingbus). /var/local/claude-yolo/claude-yolo becomes a Go program (built here from
+# becomes CCY 3.99.14.13 (container 2.78.16: the next launch rebuilds the image once, for its
+# guide, the room-ID fix in its pingbus, and agent-bus check-rooms passing an offline coordinator). /var/local/claude-yolo/claude-yolo becomes a Go program (built here from
 # src-go/cmd/claude-yolo, installed only when its checksum changes) that answers --version,
 # --help, --list-tokens, --token-usage [--json], --prevent and --export-token NAME itself
 # (everything else, --top and the interactive export included, stays in the bash) and execs
@@ -103,7 +104,7 @@
 # the container runs that need them; a GH_TOKEN you export reaches the session through the new
 # lib/token-handoff.bash (a private file whose path only goes to the tmux re-run, deleted at
 # once; any other path in CCY_GH_TOKEN_HANDOFF is refused); --debug's log is 0600 with tokens
-# of a known prefix masked (the terminal still shows the raw trace). Container 2.78.15 (the guide in the image is corrected, and its pingbus has the room-ID fix),
+# of a known prefix masked (the terminal still shows the raw trace). Container 2.78.16 (the guide in the image is corrected, its pingbus has the room-ID fix, and its agent-bus check-rooms passes an offline coordinator),
 # so the next launch rebuilds the image once. It also rebuilds ~/.local/bin/ccy-teams with
 # Plan 00209 stage 1 (the team, seat and declare reads in-process), which the check below
 # judges. Afterwards start a ccy session as usual: it

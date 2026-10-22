@@ -284,7 +284,8 @@ rooms_joined() {
 # a12_check — A1 and A2: `agent-bus check-rooms` passes for every team. It reads as admin that
 # each side room exists (questions once the team has a coordinator), the index and back-links
 # agree, power levels and join rules are exact, every human is joined or invited, no worker is
-# in questions, and every coordinator has joined both rooms. Every team is judged first.
+# in questions, and every running coordinator has joined both rooms; one still invited is
+# offline, printed as an OFFLINE line on a passing (rc 0) run. Every team is judged first.
 a12_check() {
     local team out rc bad=0
     while IFS= read -r team; do
@@ -636,7 +637,8 @@ EOF
     TEAMS_JSON="${FIX}/teams.json"
 }
 
-# fake_a12 <teams json> [<team>=<rc>...] — check-rooms answers rc (1 prints a PROBLEM line).
+# fake_a12 <teams json> [<team>=<rc>|offline...] — check-rooms answers rc (1 prints a PROBLEM
+# line); `offline` answers 0 with an OFFLINE line, as for a coordinator still invited.
 fake_a12() {
     printf '%s\n' "$1" >"${TEAMS_JSON}" || return 1
     shift
@@ -644,12 +646,14 @@ fake_a12() {
     for spec in "$@"; do
         team="${spec%%=*}"
         rc="${spec#*=}"
-        printf '%s\n' "${rc}" >"${FIX}/${team}.rc"
+        : >"${FIX}/${team}.out"
         if [[ "${rc}" == "1" ]]; then
-            printf 'PROBLEM\tteam %s: alpha has not joined questions (invite): restart\n' "${team}" >"${FIX}/${team}.out"
-        else
-            : >"${FIX}/${team}.out"
+            printf 'PROBLEM\tteam %s: alpha has not joined questions (leave): update pingbus\n' "${team}" >"${FIX}/${team}.out"
+        elif [[ "${rc}" == "offline" ]]; then
+            rc=0
+            printf 'OFFLINE\tteam %s: alpha is offline (invited to questions)\n' "${team}" >"${FIX}/${team}.out"
         fi
+        printf '%s\n' "${rc}" >"${FIX}/${team}.rc"
     done
     pick_teams && a12_check
 }

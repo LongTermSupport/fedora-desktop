@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.14.13 — container 2.78.16
+
+Follows 3.99.14.12. The image changes, so the next launch rebuilds it once.
+
+- **`agent-bus check-rooms` passes with an offline coordinator** (Plan 00211). A coordinator
+  still invited to the questions room has not run since it was made coordinator: its session
+  is not running, which is normal. It is printed as an `OFFLINE` line and the check exits 0.
+  A coordinator that left a side room, or took questions but not reports, is a running member
+  that is wrong, and still a `PROBLEM`.
+
 ## 3.99.14.12 — container 2.78.15
 
 Follows 3.99.14.11. The image changes, so the next launch rebuilds it once.

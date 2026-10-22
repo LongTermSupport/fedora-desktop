@@ -888,17 +888,27 @@ def _sync_questions_members(api: _Api, main: str, changes: list[str]) -> None:
     _invite(api, room, purpose, [*team.humans(), *coordinators], changes)
 
 
-def check_rooms(team: Team, transport: Transport) -> list[str]:
+@dataclass(frozen=True)
+class RoomCheck:
+    """`check_rooms`' answer: what is wrong, and each coordinator that is offline (invited, its
+    session not running), which is normal lifecycle and never a problem."""
+
+    problems: list[str]
+    offline: list[str]
+
+
+def check_rooms(team: Team, transport: Transport) -> RoomCheck:
     """SPEC §5.4, read-only: each side room that is missing or has drifted, each human not in
-    one, a worker in questions, and each coordinator not joined to both. Empty when sound."""
+    one, a worker in questions, and each coordinator not joined to both. A coordinator whose
+    session is not running is offline: named, never a problem. Both lists empty when sound."""
     api = _session(team, transport)
     main = _room_id(team)
     coordinators = _coordinators(team)
     repair = f"run the agent-bus play (agent-bus bootstrap {team.name})"
-    restart = ("restart that agent's session (`invite`: it is not running; `leave`: its pingbus is older "
-               "than 0.2.0), then run the agent-bus play")
     index = _current_index(api, main)
     problems: list[str] = []
+    offline: list[str] = []
+    seen: dict[str, Mapping[str, str]] = {}
     for purpose in protocol.PURPOSES:
         room = _side_room_id(team, purpose)
         if room is None:
@@ -925,11 +935,36 @@ def check_rooms(team: Team, transport: Transport) -> list[str]:
                     and protocol.is_agent_user_id(user_id, team.server_name) and user_id not in coordinators):
                 problems.append(f"team {team.name}: {_handle(user_id)} is not the coordinator but is in questions "
                                 f"({membership}): {repair}")
-        for user_id in coordinators:
-            if members.get(user_id) != "join":
-                problems.append(f"team {team.name}: {_handle(user_id)} has not joined {purpose} "
-                                f"({members.get(user_id) or '-'}): {restart}")
-    return problems
+        seen[purpose] = members
+    for user_id in coordinators:
+        _judge_coordinator(team, user_id, seen, problems, offline)
+    return RoomCheck(problems, offline)
+
+
+def _judge_coordinator(team: Team, user_id: str, seen: Mapping[str, Mapping[str, str]],
+                       problems: list[str], offline: list[str]) -> None:
+    """One coordinator against the side rooms `check_rooms` could read. Questions still an
+    invite means its syncer has not run since: offline, whatever reports holds (it joins both
+    on its next run). A `leave`, a questions room it was never invited to, or reports not joined
+    once it has taken questions, is a running or misdeployed member, so a problem."""
+    who = f"team {team.name}: {_handle(user_id)}"
+    pingbus = "its pingbus is older than 0.2.0: update it, then run the agent-bus play"
+    questions = seen.get(protocol.PURPOSE_QUESTIONS)
+    asked = None if questions is None else questions.get(user_id)
+    for purpose, members in seen.items():
+        if members.get(user_id) == "leave":
+            problems.append(f"{who} has not joined {purpose} (leave): {pingbus}")
+    if questions is not None and asked is None:
+        problems.append(f"{who} has not joined questions (-): run the agent-bus play "
+                        f"(agent-bus bootstrap {team.name})")
+    elif asked == "invite":
+        offline.append(f"{who} is offline (invited to questions, its session not running); "
+                       "it joins the side rooms when its session next runs")
+    elif asked == "join":
+        reports = seen.get(protocol.PURPOSE_REPORTS)
+        held = None if reports is None else reports.get(user_id)
+        if reports is not None and held not in ("join", "leave"):
+            problems.append(f"{who} has joined questions but not reports ({held or '-'}): {pingbus}")
 
 
 # ---------------------------------------------------------------- members

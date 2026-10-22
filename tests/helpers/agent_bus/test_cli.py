@@ -182,15 +182,23 @@ class MemberCommandsTest(CliTestCase):
         self.ok(["remove-member", "team-a", HANDLE])
         self.assertNotIn(HANDLE, self.ok(["list", "team-a"]).text)
 
-    def test_check_rooms_prints_each_problem_and_exits_1(self) -> None:
-        """Plan 00211 SPEC §5.4: the read-only side-room check."""
+    def test_check_rooms_prints_an_offline_coordinator_and_exits_0(self) -> None:
+        """Plan 00211 SPEC §5.4: the read-only side-room check. A coordinator invited but not
+        joined is offline: an OFFLINE line, exit 0."""
         self.assertEqual(self.ok(["check-rooms", "team-a"]).out, b"")
         self.ok([a if a != "--role=worker" else "--role=coordinator" for a in ADD])
+        run = self.ok(["check-rooms", "team-a"])
+        self.assertTrue(run.text)
+        self.assertTrue(all(line.startswith("OFFLINE\t") for line in run.text.splitlines()), run.text)
+        self.assertIn(HANDLE, run.text)
+
+    def test_check_rooms_prints_each_problem_and_exits_1(self) -> None:
+        (self.team_dir / "room_id.reports").unlink()
         run = self.run_cli(["check-rooms", "team-a"])
         self.assertEqual(run.code, 1, run.err)
         self.assertTrue(run.text)
         self.assertTrue(all(line.startswith("PROBLEM\t") for line in run.text.splitlines()), run.text)
-        self.assertIn(HANDLE, run.text)
+        self.assertIn("no reports room", run.text)
 
     def test_add_member_with_a_seat_then_park_and_return(self) -> None:
         seat_handle = "myrepo.dev1+local.podman"
