@@ -123,6 +123,8 @@ u20_poll() {
         esac
         u20_sessions_alive || return 1
         if [[ "${U20_BUILD_GRACE}" == 1 ]]; then
+            # The launch takes its seat with sudo -n after the build, however long that ran.
+            u20_refresh_sudo || return 1
             status=0
             plan_image_build_grace "${what}" "${timeout}" || status=$?
             case "${status}" in

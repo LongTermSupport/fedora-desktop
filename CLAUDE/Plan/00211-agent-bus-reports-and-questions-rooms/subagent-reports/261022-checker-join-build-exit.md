@@ -123,3 +123,9 @@ judged as `ccy --build-lock` judges them, held first), 3 (the tests drive the re
 00201 description says any build counts, and how to stop a hung one). Left: 5 (a recv whose
 sync is skipped for a busy lock still says joined), as the reviewer notes it cannot pass a
 check (the report then fails), and the state directory is A3's own.
+
+Round 2 (`261022-checker-fixes-review-round2.md`): MERGE. Its one should-fix is done: U20's
+launch waits keep sudo fresh on each poll (`u20_refresh_sudo`), as M7's do, since the launch
+takes its seat with `sudo -n` after a build of any length. Its notes (the three sweep callers
+have no own test, read correct; `ps` failing reads as a stale record, at worst the old timeout;
+one global spacing for the waiting line) are accepted as they stand.
