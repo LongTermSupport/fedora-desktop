@@ -102,7 +102,9 @@ Each has the default the design assumes.
   rewrites and reads outside the checkout, set by the play that provisions the worker.
 - **O4 The seam and its launch spelling.** Default: v2 defines the in-process adapter seam of
   design section 5 now, in n3e, and `teamchat run` gains an opencode launch mode beside
-  `--claude` and `--plain` (spelling, e.g. `--opencode`, put with v2's names).
+  `--claude` and `--plain` (spelling, e.g. `--opencode`, put with v2's names). An opencode
+  session keeps Claude Code's first-join relaunch for parity, though opencode itself would not
+  need it.
 - **O5 Role.** Default: opencode members are workers only, never a team's coordinator.
 - **O6 Claude Code files.** opencode reads `CLAUDE.md` and `.claude/skills/` by default.
   Default: keep it (the repo's rules reach the worker), knowing the Claude-specific skills,

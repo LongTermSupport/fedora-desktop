@@ -61,7 +61,9 @@ owner decision O4) and `--kind` for where it runs, then `-- opencode serve`. Fol
    only into CMD's environment as `OPENCODE_SERVER_PASSWORD`, upstream's own variable, and to
    the link with the launch facts (held in memory, never on disk, as the inbox token is,
    B 2.7.1). A CMD that already sets `--hostname`, `--port`, `--mdns` or `--cors`, or is not
-   `opencode serve`, is exit 64. **The port** is drawn at random from the ephemeral range and
+   `opencode serve`, is exit 64. The user's global `server.cors` setting still adds origins
+   whatever the command line says (upstream `cli/network.ts`), so the play that provisions a
+   worker writes its global config with no `server` key, and H-OC5 checks it. **The port** is drawn at random from the ephemeral range and
    checked free by a bind the keeper closes at once; opencode has no Unix-socket listener
    (upstream `server/server.ts` listens on TCP only), so the window between that check and
    opencode's own bind cannot be closed. Two rules make it safe: a port opencode cannot bind
@@ -73,19 +75,30 @@ owner decision O4) and `--kind` for where it runs, then `-- opencode serve`. Fol
    message.
 3. Step 7: CMD starts as the keeper's child. The link polls `GET /global/health` with basic
    auth until it answers (within the same 30 s bound as the link's own ready), checks the
-   reported `version` against the version the kind is pinned to, then **creates the member's
-   session** with `POST /session` (title: the session name from the desired membership). The
-   opencode session id is kept in `session.json` (B 2.3.3) for the live run and a link
-   restart, and written to `<v2-state>/conversation.json` as Claude Code's session id is, the
+   reported `version` against the version the member's play installs, then **creates the
+   member's session** with `POST /session` (title: the session name from the desired
+   membership). **An opencode launch failure** (step 7's `launch-failed`, exit 78, which B
+   defines only for `--claude`) is: CMD cannot be started, CMD exits before the session is
+   created, `/global/health` does not answer within 30 s, or it reports another version.
+4. **The conversation record.** The opencode session id is kept in `session.json` (B 2.3.3)
+   for the live run and a link restart, and written to `<v2-state>/conversation.json`, the
    hint that outlives the run (`<v2-run>` and its `session.json` are removed at the end,
-   B 2.4.2). A resume (`--resume-recorded`, B 2.4.1 step 5, B43) reads that hint and reuses the
-   opencode session when `GET /session/:id` finds it, else creates a new one and says so in
-   `keeper.log`, as Claude's resume does.
-4. **Inbound.** The launch's `inbound` decision (B 2.4.1 step 5) keeps its meaning: `accept`
+   B 2.4.2). That record (B 2.3.3) holds a Claude Code session id today and area C's relaunch
+   hands it to `claude --resume` (C9), so it gains the agent that wrote it (`launch`, as in
+   `session.pid`), and a resume uses it only when the agent matches: an opencode id never
+   reaches `claude --resume`, nor a Claude id `GET /session/:id`. For an opencode member,
+   `--resume-recorded` and C9's relaunch both mean the same thing: no CMD argument; the link
+   reuses the recorded session when `GET /session/:id` finds it, else creates a new one and
+   says so in `keeper.log`, as Claude's resume does.
+5. **Inbound.** The launch's `inbound` decision (B 2.4.1 step 5) keeps its meaning: `accept`
    allows push delivery; `refuse` (a launch with no team yet) means the link makes no
-   `prompt_async` push, so delivery mode is `wait` and items wait for `recv`/`wait` until the
-   first join relaunches the session, exactly as for Claude Code (B35, 2.10).
-5. The link subscribes to `GET /event` (server-sent events) for the session's status and
+   `prompt_async` push, so delivery mode is `wait` and items wait for `recv`/`wait`. Claude
+   Code needs the first join to relaunch the session because it reads `crossSessionInbound`
+   only at launch (B35, 2.10); opencode has no such setting, so the link could start pushing
+   at the first join with no relaunch. The design **keeps the relaunch for parity** (one
+   first-join rule for every agent, already built and tested for Claude Code); dropping it for
+   opencode is a later simplification, owner decision O4 carries it.
+6. The link subscribes to `GET /event` (server-sent events) for the session's status and
    messages. This replaces the hook ops of B 2.4.4: **the session's facts come from the link's
    own authenticated client, not from processes that call it**, so no peer-ancestry rule is
    needed for them. The HTTP and event-stream client runs in its own goroutine, beside the
@@ -109,8 +122,13 @@ assumed here.
   message list (`GET /session/:id/message`, or a `message.updated` event) holds a user message
   whose text contains the needle `teamchat delivery <nonce>:` (A 13). This is a documented
   interface, so the weakest part of the Claude Code path (B 2.7.4's dependence on the JSONL
-  shape) has no counterpart here. A `prompt_async` failure arrives as a `session.error` event:
-  the delivery is `missing` at once, with no 180 s wait.
+  shape) has no counterpart here. A `session.error` event is **only a reason to check**, never
+  a verdict: upstream publishes it for any failure of the forked prompt, including a model
+  error after the message is stored, and it names only the session (`handlers/session.ts`,
+  `promptAsync`). On one, the link reads the message list and settles each awaiting entry by
+  its own needle: found is `proven`; an entry whose needle is absent once the session is idle
+  again may be declared `missing` without the 180 s wait, its items returning as B 2.7.3
+  says. So a turn that fails after the message is stored never causes a second copy.
 - **Idle and busy** come from `session.status` and `session.idle` events instead of the Stop
   and UserPromptSubmit hooks, and drive the quiet clock and the 180 s and 1 h rules unchanged.
 - **The frame text** (A 13.5) and the skill text reach the model as a `noReply: true` message
@@ -256,7 +274,9 @@ accepts them (a hook op on an opencode run is refused).
 
 - B 2.4.1 step 5 and B 2.7 are re-worded as "the Claude Code adapter"; the behaviour of a
   Claude Code launch does not change by a byte, which the n3e tests prove.
-- `session.pid`'s `launch` field and `status`'s `delivery` value take the agent's values.
+- `session.pid`'s `launch` field and `status`'s `delivery` value take the agent's values, and
+  `conversation.json` (B 2.3.3) gains the same `launch` field, which every resume checks
+  (section 3.1 step 4).
 - A host check per pinned opencode version, as Claude Code has (H-OC1 to H-OC5, section 7).
 
 **Gate A is untouched.** The seam and the opencode kind add no binary, unit, path, plugin,
@@ -287,14 +307,17 @@ A host member is v2's seam 56 (Plan 00209 Task 5.1, N5), refused until defined a
 ## 7. Host checks an implementation must pass (per pinned opencode version)
 
 - **H-OC1** `opencode serve --hostname 127.0.0.1 --port <p>` with `OPENCODE_SERVER_PASSWORD`
-  refuses every request without the password and answers `/global/health` with it.
+  refuses every request without the password and answers `/global/health` with it; a `<p>`
+  already in use ends `opencode serve` with a non-zero exit (the launch-failure rule needs it).
 - **H-OC2** a `prompt_async` to a busy session stores the message at once and the session acts
   on it in the running turn or the next one; to an idle session, starts a turn.
-- **H-OC3** the needle written in a delivery appears verbatim in `GET /session/:id/message`, and
-  a `session.error` follows a failed `prompt_async`.
+- **H-OC3** the needle written in a delivery appears verbatim in `GET /session/:id/message`; a
+  turn that fails after the message is stored (a provider error) emits `session.error` and the
+  delivery is still proven, never redelivered.
 - **H-OC4** whether `OPENCODE_SERVER_PASSWORD` reaches the bash tool's environment.
 - **H-OC5** the managed `/etc/opencode/opencode.json` and a per-run permission policy are
-  applied to a `serve` session (permission rules hold without a TUI to answer `ask`).
+  applied to a `serve` session (permission rules hold without a TUI to answer `ask`), and the
+  worker's global config carries no `server` key, so no CORS origin is allowed.
 
 ## 8. Open decisions for the owner
 
