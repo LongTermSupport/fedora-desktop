@@ -180,6 +180,47 @@ func TestHomeLayout(t *testing.T) {
 
 // RN1's --state DIR replaces the state root, and with it every seat (so <v2-bundle>), and
 // nothing else.
+func TestWithDesiredAndKitRootReplaceTheirsAlone(t *testing.T) {
+	home, err := HomeLayout("/home/u", "/run/user/1000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved, err := home.WithDesired("/srv/probe/desired")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved, err = moved.WithKitRoot("/srv/kits"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ got, want string }{
+		{moved.Desired(), "/srv/probe/desired"},
+		{moved.DesiredFile(), "/srv/probe/desired/desired.json"},
+		{moved.KitRoot(), "/srv/kits"},
+		{moved.CurrentKit().String(), "/srv/kits/current"},
+		{moved.State(), home.State()},
+		{moved.RunRoot(), home.RunRoot()},
+	} {
+		if c.got != c.want {
+			t.Errorf("got %q, want %q", c.got, c.want)
+		}
+	}
+	for _, bad := range []string{"rel", "/a/../b", "/"} {
+		if _, derr := home.WithDesired(bad); !errors.Is(derr, ErrInvalid) {
+			t.Errorf("WithDesired(%q) = %v", bad, derr)
+		}
+		if _, kerr := home.WithKitRoot(bad); !errors.Is(kerr, ErrInvalid) {
+			t.Errorf("WithKitRoot(%q) = %v", bad, kerr)
+		}
+		if _, aerr := KitAt(bad); !errors.Is(aerr, ErrInvalid) {
+			t.Errorf("KitAt(%q) = %v", bad, aerr)
+		}
+	}
+	k, err := KitAt("/srv/kits/abc")
+	if err != nil || k.Binary() != "/srv/kits/abc/bin/teamchat" || k.String() != "/srv/kits/abc" {
+		t.Errorf("KitAt = %v, %v", k, err)
+	}
+}
+
 func TestWithStateReplacesTheStateRootAlone(t *testing.T) {
 	home, err := HomeLayout("/home/u", "/run/user/1000")
 	if err != nil {

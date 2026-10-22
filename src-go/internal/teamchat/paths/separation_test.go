@@ -217,8 +217,13 @@ func baseNames(t *testing.T) map[string][]string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	kitAt, err := KitAt("/srv/" + Product + "/kit")
+	if err != nil {
+		t.Fatal(err)
+	}
 	return map[string][]string{
 		"SeatAt":                   {seatAt.Dir()},
+		"KitAt":                    {kitAt.String()},
 		"StateHome":                {stateHome},
 		"SeatStore":                {store.Root()},
 		"Store.Root":               {store.Root()},
@@ -245,11 +250,19 @@ func layoutNames(t *testing.T) map[string][]string {
 	for ident, l := range map[string]Layout{"CCYLayout": CCYLayout(), "HomeLayout": home} {
 		r := l.Run(sampleRunID(t))
 		moved, err := l.WithState("/srv/" + Product + "/state")
+		if err == nil {
+			moved, err = moved.WithDesired("/srv/" + Product + "/desired")
+		}
+		if err == nil {
+			moved, err = moved.WithKitRoot("/srv/" + Product + "/kits")
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
 		for name, value := range map[string][]string{
 			"Layout.WithState":        {moved.State()},
+			"Layout.WithDesired":      {moved.Desired()},
+			"Layout.WithKitRoot":      {moved.KitRoot(), moved.CurrentKit().String()},
 			ident:                     {l.KitRoot(), l.CurrentKit().String(), l.State(), l.Desired(), l.RunRoot()},
 			"Layout.DesiredFile":      {l.DesiredFile()},
 			"Layout.ConversationFile": {l.ConversationFile()},
