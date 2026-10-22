@@ -43,6 +43,13 @@ func check(t *testing.T, err error) {
 
 func user(local string) string { return proto.UserID(local, server) }
 
+func runID(t *testing.T, s string) paths.RunID {
+	t.Helper()
+	r, err := paths.ParseRunID(s)
+	check(t, err)
+	return r
+}
+
 // syncBuffer is link.log, written by the team goroutine and read by the test.
 type syncBuffer struct {
 	mu  sync.Mutex

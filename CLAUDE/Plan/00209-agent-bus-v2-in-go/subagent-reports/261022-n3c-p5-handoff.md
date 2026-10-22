@@ -1,9 +1,93 @@
 # n3c P5 handoff: the sync engine (Plan 00209 N3, slice n3c)
 
-The first P5 builder reached its context budget during design. This file is everything it settled,
-so the next builder starts from the design and does not have to re-read the brief widely.
+The first P5 builder reached its context budget during design; the second built most of the
+package and reached its budget too. Read "Second builder" first; the design below still holds.
 
-## State
+## Second builder: where it stands
+
+**Committed, green:**
+
+- `cca490bf9` `matrix.StatusError(method, path string, status int, errcode string) *Error`: the one
+  classing of an answer status, which `call.judge` now calls; nil for a 200. This is the fix for
+  the draft's defect (a test could not build a classed `*matrix.Error`): a constructor in matrix
+  with its own test (`TestStatusError` in `class_test.go`), not a seam in teamsync.
+- `8a6816c15` `lookup.go` with `lookup_test.go` and `helpers_test.go` (the shared constants,
+  `syncBuffer`, `baseRoster`, `human`/`reply`/`inThread`, `runID`): the bounded LRU (own linked
+  list: `container/list` needs unchecked type assertions errcheck refuses), the resolver, the
+  poison bound, `relatedOf`, `memLookup` (with a `skip` id for Refetch), `newLogger` (a stdlib
+  `log.Logger`, prefix `teamsync <team>: `, nil writer discards).
+
+**Committed as work in progress, NOT green** (the last commit, "WIP"): every test passes with
+`-race`, but coverage is 73.0% and golangci reports findings in the test files only (cyclop on
+`TestDeliversAHumanMention`; unparam on `mustTeam`, `runID`, `world.say`; unused harness helpers
+not yet used: `writeRoster`, `pending`). The source files are lint-clean. Files:
+
+- `teamsync.go`: `Config` (as designed, plus nothing), `Watcher`, `Team`, `New`, `Wake`, `Run`,
+  `stopCode`/`isTrustError`, `retryAuth` (n3c-D12), `backoff`/`recovered` (SY8, down and back
+  lines), `current` (re-read the pair, `reflect.DeepEqual`, rebuild the client), `anchorsOf`,
+  `setRoster` (Role into Health), `freezeDetector` (SY12: `atStart`, `atAnswer(started)`).
+  Seams on `*Team`: `onPoll`, `onWait`, `readPair`, `judge`, and `pages pageBound{size, max}`
+  (default 100 and 20; a test lowers them to reach SY3's gap without 2000 sends).
+- `session.go`: `session`, `verify`/`verifyMain` (403 then one Join), `start` (SY1 a/b/c,
+  decided on `NextBatch != ""`, so it holds whether `ResetPosition` keeps `fresh` or not),
+  `readd` (c), `resume` (b) with `marker`/`decodeMarker`/`markerContent`, `passed`, `cut` and
+  `landmarks` (own join, own latest left/disconnected), `fill`, `ends` (Close, BeginRun, the
+  once-per-Team back goroutine on Run's WaitGroup), `epochCheck` (SY6), `poll`, `frozen`,
+  `handle` (invites, trust trigger, `eventsOf`, `judgeAll`, SY6, persist, `commit`, floor),
+  `persist` (SY13 said once), `invites`/`inviteSenders` (SY11), `trustTriggered` (SY14),
+  `judgeAll`/`take`/`unheard` (SY4, UH1), `itemKind`, `copyWindow`, the floor marker
+  (`knowFloor`, `floorMoved`, `putFloorIfDue`, `putFloor`, `FlushFloor`).
+- `ln6.go`: `readMessage`, `roomOf`, `rosterFor`, `Verify`, `History`/`historyOf`, `Refetch`,
+  `Notices`/`Roster` and the `notices` type.
+- `watch.go`: `SeatWatcher`, `WatchSeat`, `Changes`, `Close`, `relevant` (parses events with
+  `binary.NativeEndian`, no unsafe).
+- Tests: `world_test.go` (the draft harness, plus `startTeam`, `healthed`/`backed` channels,
+  `healths()`, `counts()`, `runs()`), `teamsync_test.go`, `session_test.go`, `run_test.go`
+  (the error table, backoff, SY13, removal, step 4, plain back, New), `ln6_test.go`,
+  `watch_test.go`.
+
+**Left, in order:**
+
+1. Make it green: the test lint above (split `TestDeliversAHumanMention`; use or drop the unused
+   helpers; give `mustTeam`/`runID`/`say` a second caller or fold them), then coverage to 90%+.
+   The uncovered paths are mostly session.go's: SY1 (b) with a marker and a `released_ms` (held
+   bundle, `w.place(token, &released)`) and the restored marks, an undecodable marker said once,
+   SY3's fill and its gap (lower `tm.pages`), invites (pending once, reject leaves, accept joins
+   and re-verifies), SY14's triggers and a failing one (a roster without me), a role change,
+   UH1 (an emote; a not-addressed human message reaching no agent; a reply to peer's post not
+   counted; the dedupe), Drop and Redact counts, SY4a's integration tests (a thread reply under
+   my own say is delivered; a transient GetEvent fault persists nothing and `judge` is never
+   called; a second event with the same relation costs no second fetch; a 404 counts nothing),
+   SY10 (the PUT after a floor move, coalesced within 10 s of `Boot`, `FlushFloor` at once, a
+   failed PUT one line), SY12 (unit test the detector at 2 s and 10 s and just below, then one
+   integration test with `clk.Suspend`), Refetch, the notices before Run, History of the
+   questions room and a ping and a notice.
+2. SY7 cases 1-8 on fakehs (`Snapshot`, `RestoreTo`, `Inject` `DropAfter` and 429, `Restart`).
+3. The tuwunel-tagged test (`tuwunelhs.Start(ctx, t, server)`, as `rooms/tuwunel_test.go`).
+4. golangci with and without `--build-tags tuwunel`; `qa-changed` green; commit.
+5. The SPEC-n3 sentence for n3-D20 (n3c-D11: own sends live in memory only, per team, inside the
+   resolver, bounded at 1024; a link restart loses them and the fetch backs them), in the same
+   commit as the code or the report.
+6. The report `subagent-reports/261022-n3c-p5.md`.
+
+**Decisions the second builder took** (add to the list below in the report):
+
+12. `matrix.StatusError` is the honest way to build a classed error in a test (the draft defect).
+13. Every batch is `Fresh: false`; SY1's step 01 answer is persisted even when empty, so a
+    restart does not run step 01 again.
+14. SY1 (b) judges the events after the earlier bound: an event is kept when it is after the
+    marker's floor (or, with no marker, after the member's own latest join) or after
+    `released_ms`.
+15. The failure streak (backoff, down) and the 401 flag reset once an answer is handled (not
+    merely received), so a full disk backs off instead of retrying each second.
+16. History shows a ping's reference with trust `external`: it proves nothing, so an unproven
+    reference is never shown trusted. `From` in History records is the sender's localpart
+    (`FromID` the user id for a human); `Pending.From` and `Verified.From` are the user id.
+17. History reads `main` or `questions` (the roster's room); Refetch reads `main` only (the
+    questions room is n3f's); another room is `exits` usage.
+18. A refused event parse in an answer counts as Dropped, with one log line.
+
+## State (first builder)
 
 - Branch `feat/bus-v2-n3c-p5`, worktree `untracked/worktrees/bus-v2-n3c-p5`.
 - **Committed:** `proto.StateEvents(raw []json.RawMessage) []proto.StateEvent` in
