@@ -112,3 +112,32 @@ func isUsageOfAnother(err, other error) bool {
 	}
 	return false
 }
+
+// filtersInTheCondition hands the code on for an interrupt only, the kind read in the
+// recovering if's condition, and asks again on every other kind.
+func filtersInTheCondition(err error) (bool, error) {
+	if de, ok := errors.AsType[*declare.Error](err); ok && errors.Is(err, declare.ErrInterrupted) { // want `a \*declare.Error is read without its kind`
+		return false, &stopCode{code: de.Code}
+	}
+	fmt.Println("Try again.")
+	return false, nil
+}
+
+// filtersByCode is the same, the kind told by its number.
+func filtersByCode(err error) (bool, error) {
+	if de, ok := errors.AsType[*declare.Error](err); ok && de.Code == 130 { // want `a \*declare.Error is read without its kind`
+		return false, &stopCode{code: de.Code}
+	}
+	fmt.Println("Try again.")
+	return false, nil
+}
+
+// filtersAfterAs is the same with errors.As in the condition.
+func filtersAfterAs(err error) (bool, error) {
+	var de *declare.Error
+	if errors.As(err, &de) && errors.Is(err, declare.ErrInterrupted) { // want `a \*declare.Error is read without its kind`
+		return false, &stopCode{code: de.Code}
+	}
+	fmt.Println("Try again.")
+	return false, nil
+}

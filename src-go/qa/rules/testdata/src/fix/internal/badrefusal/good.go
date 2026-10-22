@@ -90,3 +90,12 @@ func switchedThenExits(err error) int {
 	}
 	return 0
 }
+
+// guardsThenExits recovers in a negated if and hands the code on after it.
+func guardsThenExits(err error) int {
+	var de *declare.Error
+	if !errors.As(err, &de) {
+		return 1
+	}
+	return de.Code
+}
