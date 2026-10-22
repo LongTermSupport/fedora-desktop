@@ -10,9 +10,9 @@ import (
 	"maps"
 	"slices"
 
+	memberstate "github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/seat"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
 )
@@ -161,7 +161,7 @@ const memberActive = "active"
 
 // held is a held lock's entry: the run its record names (none for a record that does not decode
 // by B's grammar), since now when the run is new.
-func (t *Tick) held(entry onlineEntry, lock seat.LockRecord, lockErr error) onlineEntry {
+func (t *Tick) held(entry onlineEntry, lock memberstate.LockRecord, lockErr error) onlineEntry {
 	run := ""
 	if lockErr == nil {
 		run = lock.Run.String()
@@ -180,12 +180,12 @@ func (t *Tick) moveOn(ctx context.Context, team paths.TeamID, m status.Member, e
 		*problems = append(*problems, status.Problem{What: "the seat of " + m.Handle + " could not be probed", Fix: "journalctl -u teamchat-health.service"})
 		return entry, found
 	}
-	lock, lockErr := seat.DecodeLockRecord(seen.probe.Record)
+	lock, lockErr := memberstate.DecodeLockRecord(seen.probe.Record)
 	if seen.probe.Held && !seen.probe.Stopped {
 		return t.held(entry, lock, lockErr), true
 	}
 	entry.Held = false
-	if !seen.probe.Stopped && lockErr == nil && lock.LaunchFailed {
+	if !seen.probe.Stopped && lockErr == nil && lock.LaunchFailed() {
 		*problems = append(*problems, status.Problem{What: m.Handle + " launch-failed", Fix: "ccy-teams restart " + m.Handle})
 		if lock.Run.String() == entry.Run {
 			entry.Posted = true
