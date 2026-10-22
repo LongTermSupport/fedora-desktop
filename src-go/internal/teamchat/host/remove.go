@@ -126,7 +126,8 @@ func (r *removing) firewall(ctx context.Context) error {
 }
 
 // files deletes the drop-in, then its directory when nothing else is in it (another file there
-// is the owner's), reloads systemd, and deletes the stamp.
+// is the owner's), reloads systemd, and deletes the stamp. The reload runs on every remove of an
+// installed team, so one that failed, or a crash before it, is finished by the next.
 func (r *removing) files(ctx context.Context) error {
 	if err := r.removeDropIn(ctx); err != nil {
 		return err
@@ -142,17 +143,16 @@ func (r *removing) files(ctx context.Context) error {
 func (r *removing) removeDropIn(ctx context.Context) error {
 	dropIn := r.path(paths.ServerDropInFile(r.team))
 	gone, err := removeFile(dropIn)
-	if err != nil || !gone {
+	if err != nil {
 		return err
 	}
-	if err = os.Remove(filepath.Dir(dropIn)); err != nil && !errors.Is(err, syscall.ENOTEMPTY) {
-		return err
+	if gone {
+		r.note("drop-in removed")
+		if err = os.Remove(filepath.Dir(dropIn)); err != nil && !errors.Is(err, syscall.ENOTEMPTY) {
+			return err
+		}
 	}
-	if err = r.d.Systemd.DaemonReload(ctx); err != nil {
-		return err
-	}
-	r.note("drop-in removed")
-	return nil
+	return r.d.Systemd.DaemonReload(ctx)
 }
 
 func (r *removing) status(ctx context.Context) error {

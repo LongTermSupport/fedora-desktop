@@ -412,9 +412,6 @@ func TestRestartBacksUpFirst(t *testing.T) {
 		t.Errorf("lines %q, want %q", lines, want)
 	}
 	before(t, w.log, "backup", "restart")
-	if w.called("daemon-reload") {
-		t.Error("a base unit change alone reloaded")
-	}
 }
 
 // HS5: a changed restart set with no database restarts without a backup; a new version writes

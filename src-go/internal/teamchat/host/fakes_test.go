@@ -141,20 +141,35 @@ func (w *world) deps() Deps {
 	}
 }
 
+// fakeSystemd keeps, as systemd does, the drop-in it loaded at its last daemon-reload ("" for
+// none) apart from the one on disk, and runs the loaded one on a start or restart.
 type fakeSystemd struct {
-	w          *world
-	units      map[string]*UnitState
-	startTo    string
-	journal    string
-	activating int
+	w               *world
+	units           map[string]*UnitState
+	startTo         string
+	journal         string
+	activating      int
+	loaded, running string
 }
 
-func (s *fakeSystemd) DaemonReload(context.Context) error { return s.w.call("daemon-reload") }
+func (s *fakeSystemd) DaemonReload(context.Context) error {
+	if err := s.w.call("daemon-reload"); err != nil {
+		return err
+	}
+	raw, err := os.ReadFile(s.w.at(paths.ServerDropInFile(s.w.cur.ID())))
+	if errors.Is(err, fs.ErrNotExist) {
+		s.loaded = ""
+		return nil
+	}
+	s.loaded = string(raw)
+	return err
+}
 
 func (s *fakeSystemd) Start(_ context.Context, unit string) error {
 	if err := s.w.call("start"); err != nil {
 		return err
 	}
+	s.running = s.loaded
 	s.unit(unit).Active = "active"
 	if s.startTo != "" {
 		s.unit(unit).Active = s.startTo
@@ -166,6 +181,7 @@ func (s *fakeSystemd) Restart(_ context.Context, unit string) error {
 	if err := s.w.call("restart"); err != nil {
 		return err
 	}
+	s.running = s.loaded
 	s.unit(unit).Active = "active"
 	return nil
 }

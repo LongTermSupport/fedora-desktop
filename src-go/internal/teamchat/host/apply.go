@@ -206,8 +206,13 @@ type applying struct {
 	units          *unitsRecord
 	config, dropIn []byte
 	haveDropIn     bool
-	teamFile       []byte
-	allowFrom      []string
+	// loaded is whether systemd has the units on disk loaded. It starts true only when units.json
+	// records this render's digests, since units.json is written after a reload succeeded; how
+	// the drop-in's bytes compare says nothing of it, as a reload can fail or a crash come after
+	// the write.
+	loaded    bool
+	teamFile  []byte
+	allowFrom []string
 }
 
 // Apply is `team apply`'s steps 1 to 11 for one decoded input (C 3.5.2); step 10 is
@@ -389,6 +394,7 @@ func (a *applying) render(_ context.Context) error {
 		return a.fail(StepRender, err)
 	}
 	a.answer = decide(a.haveDropIn, a.units, a.r, a.teamFile)
+	a.loaded = a.answer == answerNothing || a.answer == answerWrite
 	return nil
 }
 
@@ -628,11 +634,14 @@ func (a *applying) startForBackup(ctx context.Context) error {
 			team: a.team, version: a.units.version, memoryHigh: a.d.Pin.MemoryHigh, port: a.units.port, listen: a.units.listen,
 		}
 		if !a.haveDropIn || !strings.Contains(string(a.dropIn), old.execStart()) {
-			if err := a.writeDropIn(ctx, old.text()); err != nil {
+			if err := a.writeDropIn(old.text()); err != nil {
 				return err
 			}
 			a.note("drop-in written for the backup, tuwunel " + a.units.version.String())
 		}
+	}
+	if err := a.reload(ctx); err != nil {
+		return err
 	}
 	if err := a.d.Systemd.Start(ctx, a.unit); err != nil {
 		return err
@@ -641,7 +650,7 @@ func (a *applying) startForBackup(ctx context.Context) error {
 	return a.ready(ctx, port)
 }
 
-func (a *applying) writeDropIn(ctx context.Context, text []byte) error {
+func (a *applying) writeDropIn(text []byte) error {
 	file := a.path(paths.ServerDropInFile(a.team))
 	if err := MkdirShared(filepath.Dir(file)); err != nil {
 		return err
@@ -649,8 +658,20 @@ func (a *applying) writeDropIn(ctx context.Context, text []byte) error {
 	if err := state.WriteFile(file, text, 0o644, -1); err != nil {
 		return err
 	}
-	a.dropIn, a.haveDropIn = text, true
-	return a.d.Systemd.DaemonReload(ctx)
+	a.dropIn, a.haveDropIn, a.loaded = text, true, false
+	return nil
+}
+
+// reload is the daemon-reload of units systemd has not loaded, before the unit is started.
+func (a *applying) reload(ctx context.Context) error {
+	if a.loaded {
+		return nil
+	}
+	if err := a.d.Systemd.DaemonReload(ctx); err != nil {
+		return err
+	}
+	a.loaded = true
+	return nil
 }
 
 // start is step 7: the config and drop-in written, then the unit started, restarted or left
@@ -670,10 +691,13 @@ func (a *applying) converge7(ctx context.Context) error {
 		a.note("config written")
 	}
 	if string(a.dropIn) != string(a.r.dropIn) {
-		if err := a.writeDropIn(ctx, a.r.dropIn); err != nil {
+		if err := a.writeDropIn(a.r.dropIn); err != nil {
 			return err
 		}
 		a.note("drop-in written")
+	}
+	if err := a.reload(ctx); err != nil {
+		return err
 	}
 	st, err := a.d.Systemd.State(ctx, a.unit)
 	if err != nil {

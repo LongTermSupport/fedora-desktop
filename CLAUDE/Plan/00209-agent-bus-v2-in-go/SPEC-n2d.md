@@ -234,6 +234,14 @@ and written under `Deps.Root`.
   seam's to keep). With `--purge` also the homeserver's state (`systemctl clean`, when there
   is one), `ctl/<team>/`, `approved.json` and `root/<team>/` last; the status directory stays.
   A failed remove is finished by the next.
+- **HS15. A reload is owed until it has succeeded.** Whether systemd must reload does not
+  depend on whether the drop-in's bytes on disk match the render: a reload can fail, or a
+  crash come, after the write. `team apply` reloads before it starts or restarts the unit
+  (for the backup in step 6 too) whenever it wrote a drop-in, or `units.json` does not record
+  this render's digests (a reload, restart or first start; a changed base unit included).
+  `units.json` and the stamp are written only after that reload succeeded, so neither is
+  current before it has. `team remove` reloads on every remove of an installed team, whether
+  or not the drop-in was still there.
 
 Decisions where the design is silent (n2d-H):
 
