@@ -86,7 +86,7 @@ DESIGN.md's D1-D20 belonged to the in-place design and are superseded with it.
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | --------- |
 | Plan 00201 Task 2.16                      | rename a team end to end                                                                                                                                                   | the stable team id (TID): a rename edits `name` and runs the play; nothing restarts, nothing is re-issued (C44, C 3.5.2) | N4        |
 | Plan 00211                                | reports, questions, threads and asking a human, the side rooms and their drift check (its [SPEC.md](../00211-agent-bus-reports-and-questions-rooms/SPEC.md), as behaviour) | A 4.3, 6.3, 10; B6                                                                                                       | N1-N3     |
-| Plan 00194 Task 2.0e                      | a scheduled restart posts no goodbye (waits on hooks-daemon #127)                                                                                                          | B28's goodbye: the N3 spec skips `left` for a restart the supervisor records, once #127 ships                            | N3        |
+| Plan 00194 Task 2.0e                      | a scheduled restart posts no goodbye                                                                                                                                       | B28's goodbye: the N3 spec skips `left` when ccy's CMD exits 75 (RS2), turned on with Task 4.2                           | N3        |
 | Plan 00194 Task 2.0g                      | an addressed reply that is only the quote fallback is ignored as `empty` and logged by no one                                                                              | A 7.5 (`empty`, the unheard count) and B18-B24: the N3 spec decides whether `empty` counts as unheard                    | N3        |
 | Plan 00194 Tasks 2.1, 2.1b, 2.2           | the supervisor-plugin delivery path                                                                                                                                        | specified on v2 when #119 ships (D4)                                                                                     | later     |
 | Plan 00194 SPEC-inject E1-E26, Plan 00203 | delivery into a session; hot control                                                                                                                                       | B18-B24, B31-B35                                                                                                         | N3        |
@@ -362,9 +362,9 @@ its first caller.
     member end to end;
   - **n3f**: the side rooms of Plan 00211, from a SPEC-n3 addendum reviewed before it starts.
 
-  2.0e: the switch (RS2) waits on hooks-daemon #127 and its host half on Task 4.2; 2.0g: `empty`
-  counts as unheard (UH1). Gate A binds the play, kit and unit placement; N3's LXC seats are
-  token seats, so gate B binds only the ccy hot reissue's host run (Task 4.4).
+  2.0e: the switch (RS2) is CMD exit 75 alone and is turned on with its host half (Task 4.2);
+  2.0g: `empty` counts as unheard (UH1). Gate A binds the play, kit and unit placement; N3's LXC
+  seats are token seats, so gate B binds only the ccy hot reissue's host run (Task 4.4).
 
 - [ ] ⬜ **Task 3.2**: The `teamchat` binary: CLI, member state, the keeper (`run`) and the link, locks, sync,
   delivery, hooks, status line, plugin and skill (B 2.1-2.12).
@@ -385,6 +385,8 @@ its first caller.
   the irreversible decisions, since any later CCY bump would deploy it.
 - [ ] ⬜ **Task 4.2**: The launcher: the session directory mounts, refusing a checkout that contains
   the seat store (seam 53); removing the session record before the release, which runs `teamchat seat disconnected` (seam 54, 27); resolving each team's system, OD-D2's refusal (seam 55).
+  For 00194's 2.0e (SPEC-n3 RS3), the launcher skips its `seat disconnected` for the run it
+  relaunches and records it in `held/notice.json`, and the same change turns RS2's switch on.
 - [ ] ⬜ **Task 4.3**: ccy-teams on both systems: the board from the status records (C 3.13, D 3.9),
   the flows (C45), creating a team and renaming it (00201 Task 2.16).
 - [ ] ⬜ **Task 4.4**: Acceptance: H-C7 and H-C8, and H-C15's held-ccy-session clause (Task 2.5); the v2-native pilot `teamchat-pilot` with one ccy

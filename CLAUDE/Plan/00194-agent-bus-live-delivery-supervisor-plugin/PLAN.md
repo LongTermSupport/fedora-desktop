@@ -103,8 +103,9 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   `fix/watcher-survives-homeserver-restart` (container 2.67, CCY 3.98.12); waits on review,
   then `play-claude-yolo.yml` and `play-agent-bus.yml` (queued in meta-deploy) and the
   owner's check: restart a team's homeserver under an idle session, then post from Element.
-- [ ] ❌ **Task 2.0e**: Folded into Plan 00209 Task 3.1 (the Go SessionEnd hook), built there
-  once hooks-daemon #127 ships. (Was: A scheduled restart posts nothing (Fable's review of
+- [ ] ❌ **Task 2.0e**: Specified in Plan 00209 Task 3.1 (SPEC-n3 RS1-RS3), built in Task 3.2
+  and turned on with Task 4.2; the switch is CMD's exit 75 alone, so hooks-daemon #127 no
+  longer gates it. (Was: A scheduled restart posts nothing (Fable's review of
   `fix/goodbye-ctrl-c`, 3b). Today a lifecycle restart (maximum age, or the relaunch after a
   first join) posts `left the team: session ended (exit)` and the session re-joins seconds
   later, which a coordinator may act on. The gap: at SessionEnd nothing says "restart". The
@@ -129,7 +130,8 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   check: post a plain-text `@room` from Element, then `pingbus status` in a member shows
   `ignored=1`. Report:
   [261019-ignored-human-visible-opus.md](subagent-reports/261019-ignored-human-visible-opus.md).
-- [ ] ❌ **Task 2.0g**: Folded into Plan 00209 Task 7.2 (6b); decided in its receive spec.
+- [ ] ❌ **Task 2.0g**: Folded into Plan 00209's N3 (Task 3.1); decided in SPEC-n3 UH1: `empty`
+  counts as unheard at every member.
   (Was: Follow-up to 2.0f (Fable review finding 3): an addressed reply whose
   body is only the quote fallback is ignored as `empty` at the addressee, and every other
   member sees a mention naming an agent, so no one logs it although it reached no agent.

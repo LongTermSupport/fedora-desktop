@@ -26,7 +26,7 @@ expectation here is the hot reissue's host run for a ccy seat (LN9), which is Ta
 | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------- |
 | n3a   | `cmd/teamchat`; `member/cli` (the whole verb table, the parser, records, errors, exit codes, `version`, `help`, the launch-line parser); `member/state` (every member file's codec and the store writer); `member/lock`; `member/kit` (KT1); the guest operations; `seat set-aside`                 | the guest side of an LXC member: bundles and desired membership placed and removed through `lxc-attach` as the agent user; a kit directory assembled from a build                    | N1, N2                    |
 | n3b   | `teamchat-admin lxc apply` and `lxc restart` (`host/lxc`): the guest root, the kit and unit writes, the attach, the guest's systemd over its private socket, the LXC record, the host's desired copy; `health.Guests`'s production probe; the child's `member.disconnected` and its announcer (LP2) | an LXC member placed end to end by `lxc apply` in the VM lab: kit, bundle, desired file and unit placed, the unit's start accepted (or `service: false`); a running session is n3c's | n3a                       |
-| n3c   | `run` (the keeper), the link, the link socket, the store engine, the sync engine, `recv`, `wait`, `inbox`, `status`, `verify`, `history`, the ends and their notices, `seat disconnected`, hot control, the `RestartRecord` seam (RS2)                                                              | an LXC member under `run --plain` receives a human's and a peer's items end to end (VM lab, run once n3b has merged; n3c's unit tests do not need n3b)                               | n3a                       |
+| n3c   | `run` (the keeper), the link, the link socket, the store engine, the sync engine, `recv`, `wait`, `inbox`, `status`, `verify`, `history`, the ends and their notices, `seat disconnected`, hot control, the restart switch, off (RS2)                                                               | an LXC member under `run --plain` receives a human's and a peer's items end to end (VM lab, run once n3b has merged; n3c's unit tests do not need n3b)                               | n3a                       |
 | n3d   | the sends: `reply`, `say`, `ping`, the send gate, the outbox and TIMEOUTs, the forge check                                                                                                                                                                                                          | the LXC member answers and starts conversations: a whole exchange with `--plain`                                                                                                     | n3c                       |
 | n3e   | delivery into Claude Code (inbox socket, envelope, transcript proof, read receipts, membership notices), the hooks, the status line, the skill added to the kit, the interleaving harness (PT1)                                                                                                     | an LXC Claude Code session under `teamchat-session-<user>.service`, woken by deliveries: Task 3.4's LXC member on a real team                                                        | n3d; n3b for the unit     |
 | n3f   | the side rooms of Plan 00211 as verbs: `report`, `ask`, `thread`, `questions`, the questions room's sync rules                                                                                                                                                                                      | the full verb set                                                                                                                                                                    | n3d; SPEC-n3f (section 7) |
@@ -432,7 +432,12 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
   connection; its answer is cached, and its own addressing is judged from its mentions, `@room`
   and relations answered without a second fetch. `Judge` then runs over a `Lookup` that answers
   from memory only, so `proto` stays network-free and its interface keeps no error; the sender
-  side's `Lookup` stays memory-only too. One such request per uncached related event is added to
+  side's `Lookup` stays memory-only too. `Related` gains `AddressedToRosterAgent` (gap 14),
+  filled thus: a ledger entry is an item delivered to this member, so both flags are true and
+  `Sender` is its `from`; an outbox entry or own send has this member as `Sender`, its verb,
+  `AddressedToSelf` false and `AddressedToRosterAgent` true when its `to` or mentions name a
+  roster agent; a fetched event fills both from its own mentions, `@room` and relations; `Verb`
+  is empty where the record holds none. One such request per uncached related event is added to
   2.14's homeserver connections line (Task 3.4's cost acceptance counts it). A transient failure
   of any fetch is SY8's transient path: the whole answer is held before `Judge`, SY6 and SY5 run,
   and re-fetched, never guessed as `not-addressed`. A 404 or 403 is cached as an unknown sender
@@ -650,28 +655,29 @@ The expectations are `SPEC-n3f.md`'s (section 0). The addendum covers at least:
 
 **2.0e: a scheduled restart posts no goodbye.** In v2 the decision is made at the keeper's `end`,
 after CMD has exited, so CMD's status is known; ccy's supervisor exits 75 for a relaunch it acted
-on (B 2.11). That status alone is not proof (Claude Code's own status passes through the
-supervisor), so the switch needs hooks-daemon #127's record too.
+on (B 2.11). That status is the switch, trusted on its own: a Claude Code that itself exits 75
+through the supervisor is taken as a restart too, which is accepted.
 
-- **RS1. Until #127 ships**, a ccy relaunch posts `left exit` as any `/exit` does, and a test pins
-  it. So humans see a `left exit` with no following notice (`back` follows only `disconnected`)
-  for each relaunch: today's 2.0e harm, carried knowingly until RS2's adapter is wired.
-- **RS2. The switch.** `run` reads a `RestartRecord` seam at the end; n3c lands the seam with a
-  nil adapter and this table test. Its production adapter is written when #127 ships, to #127's
-  format, and is wired for `--kind ccy` only (LXC and host kinds run no supervisor). When CMD
-  exited 75 and the record names a restart recorded for this run's Claude Code (its pid and start
-  time equal `session.json`'s `claude`) and not cleared, the end is `restart`: the link posts
+- **RS1. Until RS2's switch is on**, a ccy relaunch posts `left exit` as any `/exit` does, and a
+  test pins it. So humans see a `left exit` with no following notice (`back` follows only
+  `disconnected`) for each relaunch: today's 2.0e harm, carried knowingly until RS3 lands.
+- **RS2. The switch.** For `--kind ccy` only (LXC and host kinds run no supervisor), when CMD
+  exited 75 and no stop was forwarded (B 2.4.2's order), the end is `restart`: the link posts
   nothing and records
   `run.ended = {"notice":"none","reason":"restart","state":"skipped","txn":null,"at_ms":N}`
-  (n3-D2); the next link on the seat closes it with no post and no `back`. A 75 with no record, a
-  record without 75, a cleared record, or one for another Claude Code posts `left exit`. Test: the
-  table of those cases with a fake seam.
+  (n3-D2); the next link on the seat closes it with no post and no `back`. Any other status, or a
+  75 from an LXC or host member, is an ordinary `exit` end, decided by B 2.11's table (`left exit`
+  after an `/exit`). The switch is one constant in the link: while it is off, a `restart` end is
+  decided as `exit`. n3c ships it off; RS3's commit turns it on. Test: the table of those cases
+  run in both positions through a test seam, and RS1's test pins the shipped value off.
+  hooks-daemon #127's restart record can be added as a second signal once a released
+  hooks-daemon carries it.
 - **RS3. The host half is N4's** (Task 4.2): the ccy launcher, which performs the relaunch, skips
   its `seat disconnected` call for the run it relaunches and records it in `held/notice.json`, so
-  the owner's sweep skips it too. RS2's adapter is not wired before RS3 lands, since a member that
-  skips `left` while the host still posts `disconnected` would post a worse notice than today's.
-  **Dependency:** hooks-daemon #127 (upstream, unreleased) for RS2; Task 4.2 for RS3. PLAN.md's
-  "Requirements carried" 2.0e row stays open until the adapter is wired after RS3.
+  the owner's sweep skips it too. RS2's switch is not turned on before RS3 lands, since a member
+  that skips `left` while the host still posts `disconnected` would post a worse notice than
+  today's. **Dependency:** Task 4.2 for RS3. PLAN.md's "Requirements carried" 2.0e row stays open
+  until the switch is turned on with RS3.
 
 **2.0g: is `empty` unheard?** Yes, when it reached no agent.
 
@@ -698,7 +704,7 @@ supervisor), so the switch needs hooks-daemon #127's record too.
 ## 9. Gaps in the built APIs, and how each is closed
 
 Each is closed in the slice that first needs it: n3a gaps 1-4 and 8 (MS3, LK3, LK4 and LK3's
-second-process tests); n3b gaps 10 and 13; n3c gaps 5-7, 11 and 12; gap 9 from n3c on, each
+second-process tests); n3b gaps 10 and 13; n3c gaps 5-7, 11, 12 and 14; gap 9 from n3c on, each
 later slice adding its own failpoints.
 
 01. `paths` has `GuestRuntimeDir` and `SessionUnit`, but no inbox socket form, aside name, floor
@@ -738,7 +744,8 @@ later slice adding its own failpoints.
     mentioned, no `@room`, no reply or thread root sent by a roster agent, no edit of a message
     addressed to one), which the link calls on the `not-addressed` ignore path; the count itself
     is the member's (UH1). The predicate and rules 3 and 4 read the related event through
-    `proto.Lookup`, whose production form, ledger, own sends, cache and fetch, is SY4a's.
+    `proto.Lookup`, whose production form is SY4a's: memory only (ledger, outbox, own sends,
+    cache), the fetch done before `Judge` runs (gap 14).
 12. fakehs's long-poll holds on a real `time.NewTimer(timeoutMS)` (`sync.go`), so a hold to the
     link's 30 s timeout (H-C14) costs real seconds per case: fakehs takes an injected timer for
     the long-poll hold, driven by the test's fake clock, so SY7's restore cases and every other
@@ -753,9 +760,11 @@ later slice adding its own failpoints.
     message.
 14. `proto.Lookup` has no context and no error, and `Related` no field for "addressed to a roster
     agent", so a fetch inside `Event(id)` could only report a miss as an ignore or a drop: SY4a
-    resolves the related events before `Judge` runs (n3c), `Related` gains the addressees the
-    predicate of gap 11 reads, filled by the ledger, outbox and own-send records by the rule SY4a
-    states, and `Lookup` keeps its signature. Test: a fetch error injected for one relation id
+    resolves the related events before `Judge` runs (n3c), `Related` gains the
+    `AddressedToRosterAgent` flag the predicate of gap 11 reads, filled by the rule SY4a states,
+    and `Lookup` keeps its signature. Round 3's six build-time minors (deadline seam, LX7's
+    deferred seat, n3-D20's second fetch, a poison relation, UH1's dedupe, own sends' lifetime)
+    are in `subagent-reports/261022-n3-spec-review-3.md` and are fixed while building. Test: a fetch error injected for one relation id
     leaves the answer unpersisted, and `Judge` is never called for that batch.
 
 ## 10. Decisions where the design is silent or wrong
@@ -781,7 +790,7 @@ later slice adding its own failpoints.
 | n3-D17 | TB1 departs from C 3.9.2 step 03 and the L3 probe, which open read-only and non-blocking and then `fstat`: on a FIFO that open succeeds and makes the host a reader. TB1 opens `O_PATH` first and reopens only a regular file. C 3.9.2's "`/proc/<init pid>/exe` resolved in the guest" is a magic link TB1 refuses, so systemd as init is checked by device and inode against the guest's systemd binary (LX4).                                                                                                                                                        |
 | n3-D18 | B37 gives no numbers for a freeze: SY12 takes a deadline overdue by more than 10 s, or a growth of more than 2 s in `CLOCK_BOOTTIME` minus `CLOCK_MONOTONIC` between readings. Both are far above scheduling noise and far below a real suspend.                                                                                                                                                                                                                                                                                                                        |
 | n3-D19 | B 2.3.3's closed set of desired `code`s (`json`, `schema`, `version`, `seat`) gains `missing` for a desired file deleted under a live keeper (RC1), so the deletion is said by its own name; launch-time absence stays 78 `membership` (n3-D16).                                                                                                                                                                                                                                                                                                                        |
-| n3-D20 | A 7.5's "one event fetch, which B caches" is unspecified in B: SY4a's cache holds 1024 entries in memory, oldest evicted, lost at a link restart (a miss is one more fetch). A related event the server answers 404 or 403 for has an unknown sender: not addressed to this member and not counted unheard, so the count may undercount and never miscounts. A transient failure holds the batch, never a guess.                                                                                                                                                        |
+| n3-D20 | A 7.5's "one event fetch, which B caches" is unspecified in B: SY4a's cache holds 1024 entries in memory, oldest evicted, lost at a link restart (a miss is one more fetch). A related event the server answers 404 or 403 for has an unknown sender: not addressed to this member and not counted unheard, so the count may undercount and never miscounts. A transient failure holds the batch, never a guess. This departs from B 2.7.3's "That is the only re-fetch" (of a restored item): SY4a's related-event fetch is a second one, which B 2.7.3 now names.     |
 
 ## 11. B 2.15's tests, where each lives
 
