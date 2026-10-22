@@ -102,7 +102,10 @@ u20_seat_list() { u20_seat_cmd list >"$1"; }
 u20_member_list() { { sudo -n "${AGENT_BUS}" list "${TEAM}"; } >"$1"; }
 
 # u20_poll <timeout-s> <what> <cmd...> — run cmd every U20_POLL_S s until it returns 0. It
-# returns 3 for "not yet"; anything else, a session that ended, or the timeout is a FAIL.
+# returns 3 for "not yet"; anything else, a session that ended, or the timeout is a FAIL. With
+# U20_BUILD_GRACE=1 (u20_poll_launch), the timeout starts again while an image build runs
+# (plan_image_build_grace, CLAUDE/Plan/_image-build.inc.bash).
+U20_BUILD_GRACE=0
 u20_poll() {
     local timeout="$1" what="$2" status deadline
     shift 2
@@ -119,6 +122,15 @@ u20_poll() {
                 ;;
         esac
         u20_sessions_alive || return 1
+        if [[ "${U20_BUILD_GRACE}" == 1 ]]; then
+            status=0
+            plan_image_build_grace "${what}" "${timeout}" || status=$?
+            case "${status}" in
+                0) deadline=$((SECONDS + timeout)) ;;
+                3) ;;
+                *) return 1 ;;
+            esac
+        fi
         if ((SECONDS >= deadline)); then
             printf '[FAIL] %s: not within %d s (the sessions'\'' output, status and stdin: %s)\n' \
                 "${what}" "${timeout}" "${U20_EVIDENCE}" >&2
@@ -126,6 +138,15 @@ u20_poll() {
         fi
         sleep "${U20_POLL_S}"
     done
+}
+
+# u20_poll_launch <what> <cmd...> — u20_poll for what a launch does before its container runs:
+# U20_START_S, counted from the end of any image build. A launch rebuilds the project image
+# when the base image changed, and the build takes as long as it takes; a failed build ends
+# the launch, which u20_sessions_alive fails at once.
+u20_poll_launch() {
+    local U20_BUILD_GRACE=1
+    u20_poll "${U20_START_S}" "$@"
 }
 
 # u20_sessions_alive — every live session's ccy is still running; else FAIL with its stderr.
@@ -474,10 +495,10 @@ u20_start() {
         u20_ccy_containers >"$(u20_ev "${s}")/containers-before" || return 1
     fi
     u20_launch "$1" "$2" || return 1
-    u20_poll "${U20_START_S}" "session ${s}'s ccy container running" u20_container_up "${s}" || return 1
+    u20_poll_launch "session ${s}'s ccy container running" u20_container_up "${s}" || return 1
     printf '==> session %s: container %s\n' "${s}" "${U20_CTR[${s}]}"
     if [[ -n "$2" ]]; then
-        u20_poll "${U20_START_S}" "seat $2@${TEAM} held by session ${s}" u20_seat_held "$2" || return 1
+        u20_poll_launch "seat $2@${TEAM} held by session ${s}" u20_seat_held "$2" || return 1
     fi
 }
 
@@ -1241,8 +1262,8 @@ u20_check_named_seated() {
     local src seats
     u20_refresh_sudo || return 1
     u20_named_launch || return 1
-    u20_poll "${U20_START_S}" "the named session's container running" u20_named_up || return 1
-    u20_poll "${U20_START_S}" "seat accb@${TEAM} held by the named session" u20_seat_held accb || return 1
+    u20_poll_launch "the named session's container running" u20_named_up || return 1
+    u20_poll_launch "seat accb@${TEAM} held by the named session" u20_seat_held accb || return 1
     src="$(podman inspect --format '{{range .Mounts}}{{if eq .Destination "/run/ccy/membership"}}{{.Source}}{{end}}{{end}}' "${U20_CTR[named]}")" || return 1
     if [[ "${src}" != "${U20_NAMED_DIR}" ]]; then
         printf '[FAIL] the named session mounts %s, not its own membership directory %s\n' "${src:-nothing}" "${U20_NAMED_DIR}" >&2

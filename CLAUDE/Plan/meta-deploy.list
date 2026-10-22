@@ -99,10 +99,12 @@ playbooks/imports/play-agent-bus.yml
 # that status line the Go one. The last run (at b0eb800fa) stopped before any check, at
 # "session multi's container running: not within 600 s": the base image had just been rebuilt,
 # so the headless launch first rebuilt the project image (a 24-step build), and the wait
-# counted the build. The launch's waits now start their 600 s again while an image build runs
-# (the build lock `ccy --build-lock` reads), with no cap on the build itself; a build that
-# fails ends the launch, which still fails at once (Plan 00201 Task 2.23). So a first launch
-# after the ccy play may sit through one project image build before the checks start. The run
+# counted the build. The launch's waits now start their 600 s again while any ccy image build
+# runs (a held build lock, judged as `ccy --build-lock` judges it), with no cap on the build
+# itself; a build that fails ends the launch, which still fails at once (Plan 00201 Task
+# 2.23). So a first launch after the ccy play may sit through one project image build before
+# the checks start, saying once a minute whose build it waits for; if one has hung, see it and
+# stop it with `ccy --build-lock` in another terminal. The run
 # before that stopped at M3 because the checker still expected
 # the Python `exec pingbus status-line`; it now expects exactly what this checkout's seat.py
 # writes for a seated session, whose guard runs the kit's pingbus-status-line, and the teams

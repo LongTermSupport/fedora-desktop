@@ -746,31 +746,32 @@ class ReviewFixesTest(TempDir):
         self.assertEqual(run("say-outcome", "0", other)[0], 0)
 
 
-#: Sources _acceptance-m7.inc.bash and runs one wait of it ($1: grace, timeout or launch).
-#: $2 is the lock record's kind: live (a build that ends after BUILD_S), stale (its process has
-#: gone), reused (its pid was started after the build began) or none. $3: the session ends
-#: (exit 1) after 1 s, or lives. The check passes once the build has ended.
+#: Sources CLAUDE/Plan/_image-build.inc.bash and _acceptance-m7.inc.bash, as acceptance.bash
+#: does, and runs one wait ($3: grace, timeout or launch). $4 is the build: live (the launcher's
+#: own ccy_image_build_locked, lib/image-build-lock.bash, building for 5 s), record (a record
+#: that looks live, but nothing holds its lock) or none. $5: the session ends (exit 1) after
+#: 1 s, or lives. The check passes once the build has ended.
 WAIT_DRIVER = r"""
 set -u
-here="$1" tmp="$2" mode="$3" kind="$4" session="$5"
+here="$1" tmp="$2" mode="$3" kind="$4" session="$5" repo="$6"
 PLAN_RUN_DIR="${tmp}/run" PLAN_REPO_ROOT="${tmp}" PLAN_SCRIPT_DIR="${here}" TEAM_A=a TEAM_B=b
+REPORT="${tmp}/report.md"
 export XDG_RUNTIME_DIR="${tmp}/rt"
 mkdir -p -- "${PLAN_RUN_DIR}/s" "${XDG_RUNTIME_DIR}/ccy/image-builds"
 : >"${PLAN_RUN_DIR}/s/session.err"
+source "${repo}/CLAUDE/Plan/_image-build.inc.bash"
 source "${here}/_acceptance-m7.inc.bash"
 m7_sudo_alive() { :; }
 lock="${XDG_RUNTIME_DIR}/ccy/image-builds/claude-yolo_latest.lock"
-: >"${lock}"
 case "${kind}" in
     live)
-        bash -c 'sleep "$1"; : >"$2"; : >"$3"' _ 5 "${lock}" "${tmp}/built" &
-        printf '%s %s claude-yolo:latest\n' "$!" "${EPOCHSECONDS}" >"${lock}" ;;
-    stale)
-        bash -c 'exit 0' & wait "$!"
-        printf '%s %s claude-yolo:latest\n' "$!" "${EPOCHSECONDS}" >"${lock}" ;;
-    reused)
-        sleep 8 &
-        printf '%s %s claude-yolo:latest\n' "$!" "$((EPOCHSECONDS - 100))" >"${lock}" ;;
+        bash -c 'source "$1" && ccy_image_build_locked claude-yolo:latest false -- sleep 5 && : >"$2"' \
+            _ "${repo}/files/var/local/claude-yolo/lib/image-build-lock.bash" "${tmp}/built" &
+        for _ in 1 2 3 4 5 6 7 8 9 10; do
+            [[ -s "${lock}" ]] && break
+            sleep 0.2
+        done ;;
+    record) printf '%s %s claude-yolo:latest\n' "$$" "${EPOCHSECONDS}" >"${lock}" ;;
     none) ;;
 esac
 SESSION_NAME=s SESSION_PID=""
@@ -786,28 +787,29 @@ case "${mode}" in
 esac
 """
 
-
 class LaunchWaitTest(TempDir):
     """The launch's waits allow for an image build (the host run that failed at 600 s had
-    rebuilt the project image for 16 minutes) and still fail fast when the launch ends."""
+    rebuilt the project image first) and still fail fast when the launch ends."""
 
     def wait(self, mode: str, kind: str, session: str = "lives") -> tuple[int, str, str]:
-        done = subprocess.run(["bash", "-c", WAIT_DRIVER, "driver", str(_HERE), str(self.dir), mode, kind, session],
+        done = subprocess.run(["bash", "-c", WAIT_DRIVER, "driver", str(_HERE), str(self.dir), mode, kind, session,
+                               str(_repo_root())],
                               capture_output=True, text=True, timeout=60, check=False)
         return done.returncode, done.stdout, done.stderr
 
     def test_a_live_build_restarts_the_wait_until_it_ends(self) -> None:
-        status, out, err = self.wait("grace", "live")
+        status, _out, err = self.wait("grace", "live")
         self.assertEqual(status, 0, err)
-        self.assertIn("waiting for the image build of claude-yolo:latest", out)
+        self.assertIn("waiting for the image build of claude-yolo:latest", err)
+        self.assertIn("waited for an image build first", (self.dir / "report.md").read_text(encoding="utf-8"))
 
     def test_a_launch_that_ends_during_the_build_fails_at_once(self) -> None:
         status, _out, err = self.wait("grace", "live", "ends")
         self.assertEqual(status, 1)
         self.assertIn("the ccy session s ended", err)
 
-    def test_no_build_or_a_stale_record_keeps_the_timeout(self) -> None:
-        for kind in ("none", "stale", "reused"):
+    def test_no_build_or_a_record_whose_lock_nothing_holds_keeps_the_timeout(self) -> None:
+        for kind in ("none", "record"):
             with self.subTest(kind=kind):
                 status, _out, err = self.wait("grace", kind)
                 self.assertEqual(status, 1)

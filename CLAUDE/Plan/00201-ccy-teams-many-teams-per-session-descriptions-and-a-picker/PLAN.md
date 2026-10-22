@@ -322,11 +322,14 @@ a repository is no longer offered for a checkout of it. Report:
   run failed "session multi's container running: not within 600 s". The base image had just
   been rebuilt, so the launch first rebuilt the project image (a 24-step build). A checker
   defect: the container wait counted the build. The launch's two start waits are now
-  `m7_poll_launch`: while an image build runs (a live record in
-  `$XDG_RUNTIME_DIR/ccy/image-builds/*.lock`, judged as `ccy --build-lock` judges it) the
-  wait starts again, with no cap on the build; a failed build ends the launch, which still
-  fails at once. Tests in `test_m7_check.py` (`LaunchWaitTest`), red first against the old
-  waits. Report: `subagent-reports/261022-launch-waits-for-image-build.md`.
+  `m7_poll_launch`: while an image build runs (a held lock in
+  `$XDG_RUNTIME_DIR/ccy/image-builds/`, judged as `ccy --build-lock` judges it, by
+  `plan_image_build` in `CLAUDE/Plan/_image-build.inc.bash`) the wait starts again, with no
+  cap on the build; a failed build ends the launch, which still fails at once. Tests, red
+  first: `LaunchWaitTest` in `test_m7_check.py` and the library's in
+  `scripts/test-planlib.bash`, both driving the launcher's own `ccy_image_build_locked`. The
+  sweep found the same wait in Plans 00161 (U20), 00194 (goodbye) and 00203 (M2), now on the
+  same library. Report: `subagent-reports/261022-launch-waits-for-image-build.md`.
 
 ## Success Criteria
 

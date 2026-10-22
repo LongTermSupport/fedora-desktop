@@ -395,18 +395,24 @@ a3_failed() {
 
 # a3_join — the worker joins the team room it was invited to, by one `pingbus recv`: the sync a
 # keeper runs for a real seat (Syncer.sync_once), which takes the invite, joins and verifies the
-# room, or fails. A first sync delivers nothing, so 3 (nothing pending) is its usual exit; 0
-# (items printed) passes too; any other is the failure it names.
+# room, or fails. A first sync delivers nothing, so EXIT_NOTHING is its usual exit; EXIT_OK
+# (items printed) passes too; any other is the failure it names. Both codes are read from this
+# checkout's helpers/pingbus/cli.py, the pingbus stage 1 found installed.
 a3_join() {
-    local rc=0
+    local rc=0 codes
+    codes="$(python3 -I -c 'import sys
+sys.path.insert(0, sys.argv[1])
+from helpers.pingbus import cli
+print(cli.EXIT_OK, cli.EXIT_NOTHING)' "${PLAN_REPO_ROOT}")" || {
+        printf 'A3: cannot read EXIT_OK and EXIT_NOTHING from helpers/pingbus/cli.py (above)\n' >&2
+        return 1
+    }
     a3_pingbus recv --team "${QTEAM}" </dev/null >"${A3_DIR}/recv.out" || rc=$?
-    case "${rc}" in
-        0 | 3) printf 'A3 worker: joined the team room by its first sync\n' | tee -a "${REPORT}" ;;
-        *)
-            a3_failed recv
-            return 1
-            ;;
-    esac
+    if [[ " ${codes} " != *" ${rc} "* ]]; then
+        a3_failed recv
+        return 1
+    fi
+    printf 'A3 worker: joined the team room by its first sync (pingbus recv exit %d)\n' "${rc}" | tee -a "${REPORT}"
 }
 
 # a3_release — the throwaway worker out of the registry and deactivated. With no member.json,
