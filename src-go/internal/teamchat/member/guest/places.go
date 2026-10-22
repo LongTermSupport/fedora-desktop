@@ -315,7 +315,7 @@ func SetAside(ctx context.Context, clock Clock, stateDir string, team paths.Team
 	if err != nil {
 		return exits.New(exits.CodeBundle, &team, msgSeatFault, exits.Team(team))
 	}
-	root, err := homefs.Open(stateDir, homefs.Owned)
+	root, err := homefs.Open(stateDir, homefs.Private)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}

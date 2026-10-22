@@ -665,6 +665,20 @@ func TestSetAsideRefusesALinkedSeat(t *testing.T) {
 	wantExit(t, SetAside(t.Context(), w.clock, "relative", w.team, &r), 78, exits.CodeBundle)
 }
 
+// SA1: a state root others may read (0755) is 78 bundle and leaves the store untouched.
+func TestSetAsideRefusesAStateRootOthersMayRead(t *testing.T) {
+	w := newWorld(t)
+	w.placed(1, loginOne)
+	store := w.store()
+	check(t, os.Chmod(w.layout.State(), 0o755))
+	whats, err := w.setAside()
+	wantExit(t, err, 78, exits.CodeBundle)
+	wantWhats(t, whats)
+	if !bytes.Equal(w.read(w.seat.Store()), store) || w.exists(w.seat.StoreAside(nowMS)) {
+		t.Fatal("a refused set-aside moved the store")
+	}
+}
+
 // The fixed sets hold every what an op prints (TB2.4), and the lock-taking ops may exit 75.
 func TestEveryOpsWhatIsInItsSet(t *testing.T) {
 	for _, c := range []struct {
