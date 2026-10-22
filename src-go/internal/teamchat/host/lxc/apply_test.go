@@ -258,18 +258,25 @@ type refusedFact struct {
 	plant func(t *testing.T, b *box)
 }
 
+// tmuxOnlyAt plants a box whose tmux is not at /usr/bin/tmux, the path the unit runs, but at
+// /usr/local/bin/tmux as content (a writeTree value: "->" for a link).
+func tmuxOnlyAt(content string) func(t *testing.T, b *box) {
+	return func(t *testing.T, b *box) {
+		t.Helper()
+		if err := os.Remove(filepath.Join(b.dir, "usr/bin/tmux")); err != nil {
+			t.Fatal(err)
+		}
+		writeTree(t, b.dir, map[string]string{"usr/local/bin/tmux": content})
+	}
+}
+
 func TestRunningWrongFactsFailThatMemberAlone(t *testing.T) {
 	for _, tc := range []refusedFact{
 		{"idmap", func(_ *testing.T, b *box) { b.cfg["lxc.idmap"] = "u 0 100000 65536" }},
 		{"start.auto", func(_ *testing.T, b *box) { b.cfg["lxc.start.auto"] = "0" }},
 		{"init not systemd", func(_ *testing.T, b *box) { b.exe = &guestroot.Info{Dev: 1, Ino: 1} }},
-		{"tmux only through a link", func(t *testing.T, b *box) {
-			t.Helper()
-			if err := os.Remove(filepath.Join(b.dir, "usr/bin/tmux")); err != nil {
-				t.Fatal(err)
-			}
-			writeTree(t, b.dir, map[string]string{"usr/local/bin/tmux": "->/usr/bin/tmux"})
-		}},
+		{"tmux only through a link", tmuxOnlyAt("->/usr/bin/tmux")},
+		{"tmux only where the unit does not run it", tmuxOnlyAt("tmux")},
 		{"uid 0", func(t *testing.T, b *box) {
 			t.Helper()
 			writeTree(t, b.dir, map[string]string{"etc/passwd": "agent1:x:0:1001::/srv/agent1:/bin/bash\n"})

@@ -776,7 +776,7 @@ func liveHandles(rec lxcstate.Record) map[string]lxcstate.Entry {
 }
 
 // service is the facts a session unit needs (SU1): start.auto, systemd as init (n3-D17), tmux
-// on the guest PATH, and the unit's group.
+// where the unit runs it, and the unit's group.
 func (r *run) service(g *guestBox, m *member) error {
 	if !g.cfg.StartAuto {
 		return fmt.Errorf("%w: %s is not 1; the container's own play owns its config", guestfacts.ErrRefused, guestfacts.KeyStartAuto)
@@ -803,23 +803,17 @@ func (r *run) service(g *guestBox, m *member) error {
 	return err
 }
 
-// tmux finds tmux in a guest PATH directory by TB1: a link or a non-regular file at one entry is
-// not there, and the next is tried.
+// tmux checks the tmux the unit runs (unit.Tmux) by TB1: a link or a non-regular file
+// there is refused, and a tmux elsewhere on the guest PATH does not count.
 func tmux(root Root) error {
-	var tried []string
-	for _, dir := range guest.SystemDirs {
-		p := dir + "/tmux"
-		info, err := root.Stat(p)
-		switch {
-		case err == nil && info.Mode.IsRegular():
-			return nil
-		case err == nil, errors.Is(err, guestroot.ErrRefused), errors.Is(err, fs.ErrNotExist):
-			tried = append(tried, p)
-		default:
-			return err
-		}
+	info, err := root.Stat(unit.Tmux)
+	switch {
+	case err == nil && info.Mode.IsRegular():
+		return nil
+	case err == nil, errors.Is(err, guestroot.ErrRefused), errors.Is(err, fs.ErrNotExist):
+		return fmt.Errorf("%w: %s is not a regular file; the container's own play installs it", guestfacts.ErrRefused, unit.Tmux)
 	}
-	return fmt.Errorf("%w: tmux is not a regular file at %v; the container's own play installs it", guestfacts.ErrRefused, tried)
+	return err
 }
 
 // attach is the seat's lxc-attach identity, the digest kit's binary (never current).

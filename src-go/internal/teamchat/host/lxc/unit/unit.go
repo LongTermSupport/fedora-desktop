@@ -34,6 +34,9 @@ type Session struct {
 // maxSeat is declare's highest seat number (DR4).
 const maxSeat = 9999
 
+// Tmux is the tmux the unit runs, the one path the LX4 check requires of the guest.
+const Tmux = "/usr/bin/tmux"
+
 // pathGrammar is the characters a home or checkout may hold in the unit text.
 var pathGrammar = regexp.MustCompile(`^[A-Za-z0-9/._-]+$`)
 
@@ -67,7 +70,7 @@ func Render(s Session) ([]byte, error) {
 	runtimeDir := paths.GuestRuntimeDir(key)
 	seat := strconv.Itoa(s.Seat)
 	execStart := strings.Join([]string{
-		"/usr/bin/tmux", "-S", paths.GuestTmuxSocket(key), "new-session", "-d", "-s",
+		Tmux, "-S", paths.GuestTmuxSocket(key), "new-session", "-d", "-s",
 		paths.GuestTmuxSession(s.Team, s.Checkout, s.Seat),
 		paths.MemberBinaryPath, "run", "--claude", "--kind", "lxc", "--key", key.String(),
 		"--resume-recorded", "--", "claude",
