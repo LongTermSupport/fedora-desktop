@@ -115,6 +115,9 @@ acceptance_robust
 if [[ "${R9_NOT_JUDGED}" -eq 1 ]]; then
     printf '\nACCEPTED, R9 NOT JUDGED (no container that declares a member unit is online): every other check passed\n' |
         tee -a "${REPORT}"
+elif [[ "${R9_OFFLINE}" -gt 0 ]]; then
+    printf '\nACCEPTED: every milestone passed; R9 judged the online containers (%s offline, named above, not judged)\n' \
+        "${R9_OFFLINE}" | tee -a "${REPORT}"
 else
     printf '\nACCEPTED: every milestone passed\n' | tee -a "${REPORT}"
 fi

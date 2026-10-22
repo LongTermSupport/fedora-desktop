@@ -891,8 +891,8 @@ def _sync_questions_members(api: _Api, main: str, changes: list[str]) -> None:
 
 @dataclass(frozen=True)
 class RoomCheck:
-    """`check_rooms`' answer: what is wrong, and each coordinator that is offline (invited, its
-    session not running), which is normal lifecycle and never a problem."""
+    """`check_rooms`' answer: what is wrong, and each coordinator that is offline (no live
+    `agent_bus.status` in the team room), which is normal lifecycle and never a problem."""
 
     problems: list[str]
     offline: list[str]
@@ -901,7 +901,7 @@ class RoomCheck:
 def check_rooms(team: Team, transport: Transport, *, now_ms: int | None = None) -> RoomCheck:
     """SPEC §5.4, read-only: each side room that is missing or has drifted, each human not in
     one, a worker in questions, and each coordinator not joined to both. A coordinator with no
-    live `agent_bus.status` (its session not running) is offline: named, never a problem. Both
+    live `agent_bus.status` (no session of it is on the bus) is offline: named, never a problem. Both
     lists empty when sound. `now_ms` is the clock (Unix ms) a status is judged against."""
     api = _session(team, transport)
     main = _room_id(team)

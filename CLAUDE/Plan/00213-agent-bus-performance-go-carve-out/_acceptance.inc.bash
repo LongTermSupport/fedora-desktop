@@ -87,14 +87,20 @@ read_members() {
 # the kit (members.py copies the host kit in) holds the reference binary, which runs there. A
 # container that is not running is offline: named, not judged, never a failure
 # (CLAUDE/AgentNotes.md). With every declared container offline, C3 judged nothing and sets
-# C3_NOT_JUDGED=1 for the verdict. Every online container is judged before the verdict, so one
-# run names all that are behind.
+# C3_NOT_JUDGED=1 for the verdict; with some offline, C3_OFFLINE counts them. Every online
+# container is judged before the verdict, so one run names all that are behind.
 C3_NOT_JUDGED=0
+C3_OFFLINE=0
 
-# accepted_line — the ACCEPTED verdict, naming C3 as NOT JUDGED when it judged nothing.
+# accepted_line — the ACCEPTED verdict, naming C3 as NOT JUDGED when it judged nothing, and the
+# offline count when it judged only some.
 accepted_line() {
     if [[ "${C3_NOT_JUDGED}" -eq 1 ]]; then
         printf 'ACCEPTED, C3 NOT JUDGED (no declared LXC member online): the Go status line is installed on the host and in the ccy build context, matches the Python and costs a fraction of it\n'
+        return 0
+    fi
+    if [[ "${C3_OFFLINE}" -gt 0 ]]; then
+        printf 'ACCEPTED: the Go status line is installed on the host, in the ccy build context and in every online LXC member (%s offline, named above, not judged), matches the Python and costs a fraction of it\n' "${C3_OFFLINE}"
         return 0
     fi
     printf 'ACCEPTED: the Go status line is installed everywhere, matches the Python and costs a fraction of it\n'
@@ -115,6 +121,7 @@ c3_lxc() {
         C3_NOT_JUDGED=1
         return 0
     fi
+    C3_OFFLINE=$((${#names[@]} - $(wc -l <<<"${online}")))
     want="$(sha256sum "${BUILT}" | cut -d' ' -f1)" || return 1
     while IFS= read -r name; do
         got="$(sudo -n lxc-attach -n "${name}" --clear-env -- env -i PATH=/usr/bin:/bin \

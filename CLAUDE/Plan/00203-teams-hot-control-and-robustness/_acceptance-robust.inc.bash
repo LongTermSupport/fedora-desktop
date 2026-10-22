@@ -238,8 +238,10 @@ check_seat_check_waits() {
 # active and Restart=always, and the container started at boot. Only the declared containers
 # are asked, never every container lxc-ls lists. A container that is not running is offline
 # (plan_lxc_online_named): named, not judged, never a failure. With every declared one offline,
-# R9 judged nothing and sets R9_NOT_JUDGED=1 for the verdict.
+# R9 judged nothing and sets R9_NOT_JUDGED=1 for the verdict; with some offline, R9_OFFLINE
+# counts them.
 R9_NOT_JUDGED=0
+R9_OFFLINE=0
 check_lxc_members() {
     local members="${PLAN_RUN_DIR}/lxc-members.json" args pairs containers online container user unit state autostart
     local -a names
@@ -262,6 +264,7 @@ check_lxc_members() {
         R9_NOT_JUDGED=1
         return 0
     fi
+    R9_OFFLINE=$((${#names[@]} - $(wc -l <<<"${online}")))
     while IFS=$'\t' read -r container user; do
         if ! grep -qxF -- "${container}" <<<"${online}"; then
             continue
@@ -278,10 +281,14 @@ check_lxc_members() {
 }
 
 # robust_said — what the robustness milestone judged, for the verdict: R9 is named NOT JUDGED
-# when no declared member unit's container was online.
+# when no declared member unit's container was online, and its offline count when some were not.
 robust_said() {
     if [[ "${R9_NOT_JUDGED}" -eq 1 ]]; then
         printf 'R1-R8 passed, R9 NOT JUDGED (no container that declares a member unit is online)'
+        return 0
+    fi
+    if [[ "${R9_OFFLINE}" -gt 0 ]]; then
+        printf 'R1-R9 passed (R9 judged the online containers; %s offline, named above, not judged)' "${R9_OFFLINE}"
         return 0
     fi
     printf 'R1-R9 passed'

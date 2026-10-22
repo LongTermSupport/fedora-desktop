@@ -183,8 +183,8 @@ class MemberCommandsTest(CliTestCase):
         self.assertNotIn(HANDLE, self.ok(["list", "team-a"]).text)
 
     def test_check_rooms_prints_an_offline_coordinator_and_exits_0(self) -> None:
-        """Plan 00211 SPEC §5.4: the read-only side-room check. A coordinator invited but not
-        joined is offline: an OFFLINE line, exit 0."""
+        """Plan 00211 SPEC §5.4: the read-only side-room check. A coordinator not joined and
+        with no live status is offline: an OFFLINE line, exit 0."""
         self.assertEqual(self.ok(["check-rooms", "team-a"]).out, b"")
         self.ok([a if a != "--role=worker" else "--role=coordinator" for a in ADD])
         run = self.ok(["check-rooms", "team-a"])

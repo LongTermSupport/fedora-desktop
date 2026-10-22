@@ -17,13 +17,13 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.15.5 — container 2.78.17
+## 3.99.15.6 — container 2.78.18
 
 Follows 3.99.15.4. The image changes, so the next launch rebuilds it once.
 
 - **`agent-bus check-rooms` passes with an offline coordinator, judged by its live status**
-  (Plan 00211). A coordinator with no live status in the team room (its session is not
-  running) that has not joined the side rooms is an `OFFLINE` line, and the check exits 0. One
+  (Plan 00211). A coordinator with no live status in the team room (no session of it is on
+  the bus) that has not joined the side rooms is an `OFFLINE` line, and the check exits 0. One
   whose session is listening but has not joined, one that left a side room, and any other
   membership (`ban`) are a `PROBLEM`.
 

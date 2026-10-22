@@ -111,7 +111,7 @@ unreadable container fail. A check that judged no member prints `ACCEPTED, <chec
 (00211 S2, the test question, A3's inbox half, A4, A5; 00213 C3; 00203 R9). `admin.py check_rooms`: a coordinator not joined is judged by its live `agent_bus.status` in the team
 room: none is an `OFFLINE` line, exit 0; a listening one not joined, `leave`, `ban` or any
 other membership is a `PROBLEM` (tests in `test_admin_side_rooms.py`, `test_cli.py`); CCY
-3.99.15.5 (3.99.14.14 before F44's 3.99.15.4 was merged in), container 2.78.17. `members.py` deferred and summary wording,
+3.99.15.6 (3.99.14.14 before F44's 3.99.15.4 was merged in), container 2.78.18. `members.py` deferred and summary wording,
 `derive.py` unmounted-store wording. Go (sub-agent, `261022-offline-members-go-report.md`):
 roles judges an entry by its record handle with no checkout read, and names an unreadable
 entry offline only when the container list says stopped; wind-down and shutdown list offline

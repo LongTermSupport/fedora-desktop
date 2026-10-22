@@ -342,7 +342,7 @@ class ListAndCheckTest(SideRoomsCase):
         ])
 
     def test_check_rooms_names_an_invited_coordinator_offline_and_passes(self) -> None:
-        """An invited coordinator has not synced: its session is not running, which is offline,
+        """An invited coordinator with no live status is not on the bus, which is offline,
         never a problem (CLAUDE/AgentNotes.md, an offline team member never blocks anything)."""
         coordinator, token = self.member(role="coordinator")
         check = admin.check_rooms(self.ctx(), self.transport)

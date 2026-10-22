@@ -207,7 +207,7 @@ pick_coordinator() {
     fi
     COORD="$(find_session "${QTEAM}" "${QHANDLE}")" || return 1
     if [[ -z "${COORD}" ]]; then
-        printf 'the questions room is judged in team %s; its coordinator %s is offline, so the test question is not judged\n' \
+        printf 'the questions room is judged in team %s; its coordinator %s is not driven from here (offline, or a host member), so the test question is NOT JUDGED\n' \
             "${QTEAM}" "${QHANDLE}" | tee -a "${REPORT}"
         return 0
     fi
@@ -269,8 +269,13 @@ rooms_joined() {
         fi
         if [[ "${SECONDS}" -ge "${deadline}" ]]; then
             while IFS=$'\t' read -r team user room membership; do
-                printf 'team %s: %s is online and has not joined %s (%s; invite or -: its pingbus has not synced since deploy 2, so its session started before deploy 1; leave: its running pingbus is older than deploy 1): a session started before deploy 1 runs the old pingbus, and joins once it is relaunched\n' \
-                    "${team}" "${user}" "${room}" "${membership}" >&2
+                if [[ "${membership}" == "leave" ]]; then
+                    printf 'team %s: %s is online and left %s (leave): a pingbus older than deploy 1 rejected the invite; relaunch that session, then run meta-deploy again, whose play invites it again\n' \
+                        "${team}" "${user}" "${room}" >&2
+                else
+                    printf 'team %s: %s is online and has not joined %s (%s): pingbus status in that session names why (a session started before deploy 1 runs the old pingbus and joins once relaunched; a bundle with human_text false refuses questions)\n' \
+                        "${team}" "${user}" "${room}" "${membership}" >&2
+                fi
             done <<<"${pending}"
             return 1
         fi
@@ -579,7 +584,7 @@ a5_find() {
         dirs=("${runs}"/*/test-question)
     fi
     if [[ "${#dirs[@]}" -eq 0 ]] || [[ ! -f "${dirs[0]}" ]]; then
-        printf 'no stage-2 run asked a test question (under %s): run deploy 2 until its acceptance is ACCEPTED\n' \
+        printf 'no stage-2 run asked a test question (under %s): run deploy-stage-2.bash with the coordinator online (an earlier run had it offline, or not driven from here, and asked none)\n' \
             "${runs}" >&2
         return 1
     fi
@@ -652,7 +657,7 @@ fake_a12() {
             printf 'PROBLEM\tteam %s: alpha has not joined questions (leave): update pingbus\n' "${team}" >"${FIX}/${team}.out"
         elif [[ "${rc}" == "offline" ]]; then
             rc=0
-            printf 'OFFLINE\tteam %s: alpha is offline (invited to questions)\n' "${team}" >"${FIX}/${team}.out"
+            printf 'OFFLINE\tteam %s: alpha is offline (no live status in the team room)\n' "${team}" >"${FIX}/${team}.out"
         fi
         printf '%s\n' "${rc}" >"${FIX}/${team}.rc"
     done

@@ -222,11 +222,14 @@ any Phase 2 code is merged. Phase 2's admin code must never be on F44 at deploy 
   and 00213 acceptances (`CLAUDE/Plan/_members.inc.bash`), `agent-bus check-rooms` (a
   coordinator not joined with no live `agent_bus.status` is an `OFFLINE` line, exit 0; with a
   live one it is a `PROBLEM`), the LXC play's deferred wording, and ccy-teams'
-  roles, wind-down, shutdown and restart; Plan 00203's R9. CCY 3.99.15.5, container 2.78.17.
+  roles, wind-down, shutdown and restart; Plan 00203's R9. CCY 3.99.15.6, container 2.78.18.
   Done in code, on `fix/offline-members-never-block`; reports
   `subagent-reports/261022-offline-members-*`. For the owner: a role change still stops when a
   declared LXC entry's checkout cannot be read and the team has no member record at all
   (nothing else names that entry's handle); it advises `ccy-teams apply`, never a start.
+  Known and accepted: stage 2 waits 180 s only for coordinators it drives; a host-member
+  coordinator that is listening but has not synced yet gets no grace and is a `PROBLEM` at
+  A1/A2 (loud, never a pass; the ccy play's image rebuild runs between the invite and the check).
 - [ ] ⬜ **Task 2.9** (follow-up to 2.8): ccy-teams roles decides an LXC entry that gives
   `host`, `seat` and `repo` by those fields, before the member record or the checkout, as
   `members.py` already does. Needs `Repo` on `declare.LxcMember`; test first. This narrows the

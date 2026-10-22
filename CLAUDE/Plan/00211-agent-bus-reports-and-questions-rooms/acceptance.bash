@@ -329,32 +329,39 @@ check_leg "A1/A2 every team's side rooms are sound (agent-bus check-rooms)" a12_
 check_leg "the coordinator: a team has one (offline is named)" pick_coordinator
 plan_deploy_leg "A3 add a throwaway worker (removed on cleanup)" a3_take
 check_leg "A3 a worker reports, and is refused the questions room" a3_check
+# unjudged — the checks this run had nothing to run on, `, `-joined, for the verdict's
+# `ACCEPTED, <check> NOT JUDGED: ...` form (SPEC §11.2); each one's reason is its NOT JUDGED line.
+unjudged=""
 if [[ -n "$(qteam_sessions)" ]]; then
     check_leg "A3 the worker's report is in no inbox of its team" a3_inbox_check
 else
     not_judged "A3 the worker's report is in no inbox of its team" "no member of team ${QTEAM} is online"
+    unjudged="A3 inbox"
 fi
-a4_said="took an LXC member's report"
 if [[ -n "$(a4_member)" ]]; then
     check_leg "A4 an LXC member reports from inside its container" a4_check
 elif [[ -n "$(declared_containers)" ]]; then
     not_judged "A4 an LXC member reports from inside its container" "no online LXC member"
-    a4_said="did not judge A4 (no LXC member is online)"
+    unjudged="${unjudged:+${unjudged}, }A4"
 else
     not_judged "A4 an LXC member reports from inside its container" \
         "no agent_bus_lxc_members entry is present, so this host has no LXC member to report"
-    a4_said="did not judge A4 (no LXC member is declared)"
+    unjudged="${unjudged:+${unjudged}, }A4"
 fi
-asked="asked the test question"
 if [[ -n "${COORD}" ]]; then
     check_leg "the test question, asked by the coordinator in its own session" ask_test_question
 else
     not_judged "the test question, asked by the coordinator in its own session" \
-        "the coordinator ${QHANDLE} of team ${QTEAM} is offline"
-    asked="did not ask the test question (the coordinator is offline)"
+        "the coordinator ${QHANDLE} of team ${QTEAM} is not driven from here (offline, or a host member)"
+    unjudged="${unjudged:+${unjudged}, }the test question"
 fi
-printf '\nACCEPTED: deploy 2 made every team'\''s side rooms, kept a worker out of questions and every online inbox, %s, and %s\n' \
-    "${a4_said}" "${asked}" | tee -a "${REPORT}"
+if [[ -n "${unjudged}" ]]; then
+    printf '\nACCEPTED, %s NOT JUDGED (each named above): every other check passed; deploy 2 made every team'\''s side rooms and kept a worker out of questions\n' \
+        "${unjudged}" | tee -a "${REPORT}"
+else
+    printf '\nACCEPTED: deploy 2 made every team'\''s side rooms, kept a worker out of questions and every inbox, took an LXC member'\''s report, and asked the test question\n' |
+        tee -a "${REPORT}"
+fi
 if [[ -n "${COORD}" ]]; then
     printf '\n==> NEXT (the owner): the Element steps in ACCEPTANCE-owner.md, then meta-deploy runs\n'
     printf '    acceptance-after-owner.bash (A5).\n'
