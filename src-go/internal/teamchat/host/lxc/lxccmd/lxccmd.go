@@ -37,8 +37,6 @@ var (
 // LXC is the lxc programs as root (no sudo: teamchat-admin is root), through Runner.
 type LXC struct {
 	Runner execx.Runner
-	// DesktopUID is the desktop account's uid, which no attach may run as (TB3).
-	DesktopUID int
 }
 
 // State is a container's state as lxc-info prints it.

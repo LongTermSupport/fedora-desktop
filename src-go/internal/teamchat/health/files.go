@@ -167,15 +167,3 @@ type NoBackups struct{}
 func (NoBackups) State(context.Context, paths.TeamID) (BackupState, error) {
 	return BackupState{LastRun: status.RunNone}, nil
 }
-
-// ErrGuestProbeNotBuilt is every guest probe until C 3.9.2 is built (HR5, n2f-D7).
-var ErrGuestProbeNotBuilt = errors.New("the LXC guest probe is not built yet")
-
-// GuestsNotBuilt is Guests until C 3.9.2 is built: every probe fails, which the tick records as
-// that member's problem with online false.
-type GuestsNotBuilt struct{}
-
-// Probe fails with ErrGuestProbeNotBuilt.
-func (GuestsNotBuilt) Probe(context.Context, paths.TeamID, string) (GuestProbe, error) {
-	return GuestProbe{}, ErrGuestProbeNotBuilt
-}
