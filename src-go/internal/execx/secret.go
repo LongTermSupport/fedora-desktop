@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -67,9 +68,45 @@ func (s Secret) String() string { return s.name + "=<redacted>" }
 // GoString is String, so %#v cannot show the value either.
 func (s Secret) GoString() string { return s.String() }
 
-// checkSecrets refuses a command whose name or arguments hold a secret's value.
+// Feed is a secret given to a child on its standard input, inside a line of text (curl's
+// `--config -`), so it is in neither the child's argv nor its environment. Only Run feeds a
+// child; Foreground and Exec refuse a command with a Feed (ErrFeedUnsupported).
+type Feed struct {
+	Secret        Secret
+	Before, After string // the text around the secret's value
+}
+
+// ErrFeedUnsupported is a Feed given to a runner that cannot write a child's standard input.
+var ErrFeedUnsupported = errors.New("a secret fed on stdin needs Run")
+
+// fed is the command with its Feed made its Stdin; an error when it has a Stdin as well.
+func (c Cmd) fed() (Cmd, error) {
+	if c.Feed == nil {
+		return c, nil
+	}
+	if c.Stdin != nil {
+		return c, fmt.Errorf("run %s: a command is given both a Feed and a Stdin", c.Name)
+	}
+	c.Stdin = strings.NewReader(c.Feed.Before + c.Feed.Secret.value + c.Feed.After)
+	c.Feed = nil
+	return c, nil
+}
+
+// refuseFeed is the error of a runner that cannot feed a child.
+func (c Cmd) refuseFeed() error {
+	if c.Feed != nil {
+		return fmt.Errorf("run %s: %w", c.Name, ErrFeedUnsupported)
+	}
+	return nil
+}
+
+// checkSecrets refuses a command whose name or arguments hold a secret's value, a fed one too.
 func (c Cmd) checkSecrets() error {
-	for _, s := range c.Secrets {
+	secrets := c.Secrets
+	if c.Feed != nil {
+		secrets = append(slices.Clone(secrets), c.Feed.Secret)
+	}
+	for _, s := range secrets {
 		for _, word := range c.argv() {
 			if s.value != "" && strings.Contains(word, s.value) {
 				return fmt.Errorf("run %s: %w: the value of %s", c.Name, ErrSecretInArgv, s.name)

@@ -148,3 +148,54 @@ func TestASessionRunPassesTheSecret(t *testing.T) {
 		t.Fatalf("a session child got %q, %v", res.Stdout, err)
 	}
 }
+
+// A fed secret reaches the child on its stdin, inside its text, and neither its environment
+// nor its argv; a session run feeds it too.
+func TestRunFeedsASecretOnStdin(t *testing.T) {
+	s := mustSecret(t, "CCY_TEST_TOKEN")
+	script := `cat; printf '|%s|' "${CCY_TEST_TOKEN-unset}"; tr '\0' ' ' </proc/$$/cmdline`
+	for _, session := range []bool{false, true} {
+		c := Cmd{Name: "sh", Args: []string{"-c", script}, Feed: &Feed{Secret: s, Before: "header = \"", After: "\"\n"}, NewSession: session}
+		res, err := OS{}.Run(context.Background(), c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		parts := strings.SplitN(string(res.Stdout), "|", 3)
+		if len(parts) != 3 || parts[0] != "header = \""+placeholder+"\"\n" || parts[1] != "unset" || strings.Contains(parts[2], placeholder) {
+			t.Fatalf("session %v: the child saw %q", session, parts)
+		}
+	}
+}
+
+// A fed secret is held to the argv check, a Feed and a Stdin together are refused, and the
+// runners that cannot write a child's stdin refuse a Feed.
+func TestAFeedIsCheckedAndRefusedWhereItCannotBeFed(t *testing.T) {
+	s := mustSecret(t, "CCY_TEST_TOKEN")
+	feed := &Feed{Secret: s}
+	leak := Cmd{Name: "curl", Args: []string{placeholder}, Feed: feed}
+	if _, err := (OS{}).Run(context.Background(), leak); !errors.Is(err, ErrSecretInArgv) {
+		t.Errorf("OS.Run of a fed secret in argv: %v, want ErrSecretInArgv", err)
+	}
+	f := &Fake{}
+	f.On(nil, Result{})
+	if _, err := f.Run(context.Background(), leak); !errors.Is(err, ErrSecretInArgv) {
+		t.Errorf("Fake.Run of a fed secret in argv: %v, want ErrSecretInArgv", err)
+	}
+	both := Cmd{Name: "true", Feed: feed, Stdin: strings.NewReader("x")}
+	if _, err := (OS{}).Run(context.Background(), both); err == nil {
+		t.Error("OS.Run accepted a Feed and a Stdin together")
+	}
+	fed := Cmd{Name: "true", Feed: feed}
+	if err := (OS{}).Exec(fed); !errors.Is(err, ErrFeedUnsupported) {
+		t.Errorf("OS.Exec of a Feed: %v, want ErrFeedUnsupported", err)
+	}
+	if _, err := (OS{}).Foreground(fed); !errors.Is(err, ErrFeedUnsupported) {
+		t.Errorf("OS.Foreground of a Feed: %v, want ErrFeedUnsupported", err)
+	}
+	if _, err := f.Foreground(fed); !errors.Is(err, ErrFeedUnsupported) {
+		t.Errorf("Fake.Foreground of a Feed: %v, want ErrFeedUnsupported", err)
+	}
+	if strings.Contains(fmt.Sprintf("%v %+v %#v", fed, fed, fed), placeholder) {
+		t.Error("a Cmd with a Feed printed the secret")
+	}
+}

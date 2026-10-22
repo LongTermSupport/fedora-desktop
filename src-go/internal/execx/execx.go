@@ -30,10 +30,12 @@ type Cmd struct {
 	// Secrets are added to this child's environment alone, by name; a command whose argv
 	// holds one's value is refused (ErrSecretInArgv).
 	Secrets []Secret
-	Dir     string
-	Stdin   io.Reader
-	Stdout  io.Writer
-	Stderr  io.Writer
+	// Feed, when set, is the child's Stdin: a secret inside a line of text (see Feed).
+	Feed   *Feed
+	Dir    string
+	Stdin  io.Reader
+	Stdout io.Writer
+	Stderr io.Writer
 	// Interrupt is the signal a cancelled context sends the child; SIGTERM when zero. A
 	// recorder that flushes its buffers on SIGINT (pw-record) is stopped with SIGINT.
 	Interrupt syscall.Signal
@@ -106,6 +108,10 @@ type OS struct {
 func (o OS) Run(ctx context.Context, c Cmd) (Result, error) {
 	if err := c.checkSecrets(); err != nil {
 		return Result{}, err
+	}
+	c, feedErr := c.fed()
+	if feedErr != nil {
+		return Result{}, feedErr
 	}
 	if c.NewSession {
 		return o.runSession(ctx, c)

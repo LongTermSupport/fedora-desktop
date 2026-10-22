@@ -43,6 +43,7 @@ type run struct {
 	stdout, stderr *bytes.Buffer
 	runner         *execx.Fake
 	execer         *execx.Fake
+	home           string // HOME, for a run that reads the token pool
 }
 
 // newRun is the front of the install in dir, given args, with podman and every tool the bash
@@ -130,7 +131,7 @@ func TestVersionIsAnswered(t *testing.T) {
 // F2: everything else is the bash launcher's, with the same arguments and environment.
 func TestEverythingElseIsHandedOver(t *testing.T) {
 	dir := install(t)
-	for _, args := range [][]string{nil, {"--token", "work"}, {"--list-tokens"}, {"fix --version"}, {"-V"}, {"--", "--help"}} {
+	for _, args := range [][]string{nil, {"--token", "work"}, {"--list-tokens", "--no-ssh"}, {"--top"}, {"fix --version"}, {"-V"}, {"--", "--help"}} {
 		r := newRun(dir, args...)
 		if code := r.start(t); code != term.ExitOK {
 			t.Fatalf("%q: exit %d", args, code)

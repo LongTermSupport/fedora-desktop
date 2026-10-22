@@ -558,6 +558,19 @@ today; rewriting them is out of scope.
       before tmux, the engine and claude start (a few system tools run earlier and never read
       it), and the meta-deploy rollback note says a session started by running
       `claude-yolo.bash` directly restores onto the stale copy.
+    - Phase 2 standalone flags (spec: `subagent-reports/261022-launcher-flags-handoff.md`).
+      CCY 3.99.14.5, `--list-tokens` alone (F10): the front tells the time by a `Clock`, the
+      harness's pinned one only in `-tags difftest` builds; expiry colours match the bash.
+      CCY 3.99.14.6, `--token-usage [--json]` (F11, `tokenusage.go`): table, JSON, exit
+      codes, cache and one curl call per account as the bash's, the token fed to curl's stdin
+      through the new `execx.Feed` (a Secret, checked against argv; `Foreground` and `Exec`
+      refuse it); hands over wherever the pool, a setting, a cache entry or the API's headers
+      could read otherwise (F11 lists them). Difftest: `TestLauncherParity` 82/82 against
+      bash and against `LAUNCHER=` a `-tags difftest` build; `TestFrontParity` 82/82;
+      `TestFrontAnswersItself` covers the seven `token-usage-*` scenarios the front answers
+      (`token-usage-not-first` stays the bash's). Left: `--prevent` and the named
+      `--export-token NAME` (they need the in-repo prelude). Stay in bash: `--top` and the
+      interactive `--export-token` (read loops that need a terminal).
     - Follow-up, not fixed: the project handler test
       `test_matches_write_to_root_claude_projects_returns_false` in
       `.claude/hooks/handlers/pre_tool_use/tests/test_system_paths.py` already fails on F44

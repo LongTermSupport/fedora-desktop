@@ -31,6 +31,10 @@
 // launcher's pid, its version and its hash written as {sandbox}, {pid}, {ccy_version} and
 // {ccy_hash}. A launcher passes when every scenario's text is byte for byte its golden.
 //
+// A Go launcher tells the time by the matrix's clock only when built for the harness: the
+// in-process front reads it (pinclock), and a built claude-yolo needs `go build -tags difftest`
+// (cmd/claude-yolo/clock_difftest.go), a build that refuses to run outside a sandbox.
+//
 // LAUNCHER=<path> runs the matrix against that program; unset, it runs the checkout's bash
 // launcher, installed into a scratch directory as the play lays it out. `-update` re-records
 // the goldens from the bash launcher, and refuses with LAUNCHER set: the goldens are the bash's
@@ -130,19 +134,29 @@ func TestFrontParity(t *testing.T) {
 }
 
 // frontAnswers are the scenarios the front answers itself.
-var frontAnswers = []string{"version", "version-short", "help-no-image", "help-image", "help-short-image-broken"}
+var frontAnswers = []string{
+	"version", "version-short", "help-no-image", "help-image", "help-short-image-broken",
+	"list-tokens-bare", "list-tokens-one", "list-tokens-states",
+	"token-usage-no-tokens", "token-usage-expired-only", "token-usage-disabled", "token-usage-bad-option",
+	"token-usage-table", "token-usage-json", "token-usage-api-down",
+}
+
+// frontAnswerLines are the bash launcher's lines that answer frontAnswers, each in its text once:
+// TestFrontAnswersItself replaces each, so a scenario the bash answered no longer matches.
+var frontAnswerLines = []string{
+	`printf 'ccy version %s\nHash: %s\n' "$CCY_VERSION" "$CCY_HASH"`,
+	"Claude Code YOLO Mode (ccy) - Container-based execution with --dangerously-skip-permissions",
+	"if [ \"$#\" -eq 1 ] && [ \"$1\" = \"--list-tokens\" ]; then\n    list_tokens \"$TOKEN_DIR\" \"ccy\"",
+	`usage_report "$TOKEN_DIR" "$@" || ccy_token_usage_rc=$?`,
+}
 
 // TestFrontAnswersItself proves the front's answers are its own: with the bash launcher's
 // --version and --help answers broken, those scenarios still match, so the bash never ran them.
 func TestFrontAnswersItself(t *testing.T) {
 	skipFront(t)
 	m := loadMatrix(t)
-	breaks := []string{
-		`printf 'ccy version %s\nHash: %s\n' "$CCY_VERSION" "$CCY_HASH"`,
-		"Claude Code YOLO Mode (ccy) - Container-based execution with --dangerously-skip-permissions",
-	}
 	path := installFront(t, func(text string) string {
-		for _, from := range breaks {
+		for _, from := range frontAnswerLines {
 			if strings.Count(text, from) != 1 {
 				t.Fatalf("%q is not in the launcher exactly once", from)
 			}

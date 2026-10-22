@@ -42,6 +42,28 @@
 //     build it; present, claude --help from the image, or the engine's own words when that
 //     fails ("no output" when it said none). Exit 0, as the bash.
 //   - F9. Output that could not be written is exit 1.
+//   - F10. `--list-tokens` as the only argument prints the token pool as the bash's list_tokens
+//     does (tokens.List), expiry coloured whatever the output is, as the bash colours it; exit 1
+//     for an empty pool. It hands over wherever the bash could read the pool otherwise
+//     (poolWhy: an unclean path, a zone Go reads otherwise, an entry that is not a regular
+//     file, a collation that could sort it otherwise, a name the bash dates otherwise (T1), a
+//     day the clocks change), and, for this flag and every later one, to a bash of another
+//     version (F6 refuses only --version and --help).
+//   - F11. `--token-usage` first, with nothing after it but `--json`, prints every token's usage
+//     as the bash's usage_report does (tokenusage.go): a table, or one JSON document; exit 0
+//     when any token's usage was read, 1 when none was, 64 for another option. A token a launch
+//     could use is asked of the API once, by curl with the token fed on its stdin (execx.Feed),
+//     unless the cache holds a fresh answer from that very file; the answer is cached as the
+//     bash caches it. It hands over wherever the bash could read the pool, a setting, a cache
+//     entry or the API's headers otherwise: poolWhy's reasons, an undated file, a name, HOME,
+//     TMPDIR or setting outside printable ASCII, a TTL that is not a plain decimal above
+//     nought, an unreadable token or one holding a NUL, a setting holding a token, a cache that
+//     is not a directory or an entry that is not a regular file, and, once the API has
+//     answered, a rate-limit header outside printable ASCII (not cached) or a reset time the
+//     bash's arithmetic or date reads otherwise.
+//
+// The front tells the time by its Clock: the machine's (SystemClock) in the installed program;
+// the differential harness's pinned clock only in a build with the difftest tag.
 package ccylaunch
 
 import (
@@ -109,6 +131,8 @@ type Front struct {
 	Execer   execx.Execer
 	Stdout   io.Writer
 	Stderr   io.Writer
+	Clock    Clock  // the time it answers by; the system's when nil
+	Dir      string // the directory the run started in; "" is this process's
 }
 
 // launcher is what the front read of the bash launcher beside it.
@@ -120,9 +144,21 @@ type launcher struct {
 // Run answers the run or hands it to the bash launcher.
 func (f Front) Run(ctx context.Context) term.ExitCode {
 	bash := filepath.Join(filepath.Dir(f.Self), BashName)
-	kind, l, why := f.plan(bash)
+	kind, l, flag, why := f.plan(bash)
 	if why != "" {
 		return f.handOver(bash)
+	}
+	if flag != flagVersion && flag != flagHelp {
+		// F6 for the other flags: the bash beside a front of another version is the one that
+		// knows its own answer.
+		if f.Version == "" || l.version != f.Version {
+			return f.handOver(bash)
+		}
+		code, why := f.answer(ctx, flag)
+		if why != "" {
+			return f.handOver(bash)
+		}
+		return code
 	}
 	if f.Version == "" {
 		return f.fail("ccy: this claude-yolo was built without its version (-X main.Version); re-run play-claude-yolo.yml, or set " + LegacyEnv + "=1 to run the bash launcher")
@@ -143,31 +179,82 @@ func (f Front) Run(ctx context.Context) term.ExitCode {
 	return term.ExitOK
 }
 
-// plan is the engine and the launcher the front answers with, or why it hands over instead.
-func (f Front) plan(bash string) (engine.Kind, launcher, string) {
-	if v := f.getenv(LegacyEnv); v != "" && v != "0" {
-		return "", launcher{}, LegacyEnv
+// flagKind is the run the front answers itself, or flagNone.
+type flagKind int
+
+const (
+	flagNone flagKind = iota
+	flagVersion
+	flagHelp
+	flagListTokens
+	flagTokenUsage
+)
+
+// flagOf is the run the arguments ask for, among those the front answers.
+func flagOf(args []string) flagKind {
+	if len(args) == 0 {
+		return flagNone
 	}
-	if len(f.Args) == 0 || !slices.Contains([]string{"--version", "-v", "--help", "-h"}, f.Args[0]) {
-		return "", launcher{}, "not a flag the front answers"
+	switch args[0] {
+	case "--version", "-v":
+		return flagVersion
+	case "--help", "-h":
+		return flagHelp
+	case "--list-tokens":
+		if len(args) == 1 {
+			return flagListTokens
+		}
+	case "--token-usage":
+		return flagTokenUsage
+	}
+	return flagNone
+}
+
+// flagTools are the programs the bash launcher runs to answer the flag, beyond bashTools.
+var flagTools = map[flagKind][]string{
+	flagListTokens: {"date", "ls", "basename"},
+	flagTokenUsage: {"date", "stat", "mktemp", "cat", "mv", "rm", "chmod", "mkdir", "dirname", "awk", "basename"},
+}
+
+// answer runs a flag the front answers past --version and --help: its exit code, or why the
+// bash should answer it instead, decided before anything is written.
+func (f Front) answer(ctx context.Context, flag flagKind) (term.ExitCode, string) {
+	switch flag {
+	case flagListTokens:
+		return f.listTokens()
+	case flagTokenUsage:
+		return f.tokenUsage(ctx)
+	case flagNone, flagVersion, flagHelp:
+	}
+	return term.ExitFailure, "not a flag the front answers"
+}
+
+// plan is the engine and the launcher the front answers with, or why it hands over instead.
+func (f Front) plan(bash string) (engine.Kind, launcher, flagKind, string) {
+	if v := f.getenv(LegacyEnv); v != "" && v != "0" {
+		return "", launcher{}, flagNone, LegacyEnv
+	}
+	flag := flagOf(f.Args)
+	if flag == flagNone {
+		return "", launcher{}, flagNone, "not a flag the front answers"
 	}
 	if why := f.shellChanged(); why != "" {
-		return "", launcher{}, why
+		return "", launcher{}, flag, why
 	}
 	kind, why := f.engine()
 	if why == "" {
-		why = f.toolsMissing()
+		why = f.toolsMissing(flag)
 	}
 	if why != "" {
-		return "", launcher{}, why
+		return "", launcher{}, flag, why
 	}
 	for _, d := range hostDirs {
 		if !hostDirOK(f.getenv(d.env), d.def, d.absentOK) {
-			return "", launcher{}, d.env + " is refused by the library"
+			return "", launcher{}, flag, d.env + " is refused by the library"
 		}
 	}
 	l, why := readLauncher(bash)
-	return kind, l, why
+	return kind, l, flag, why
 }
 
 // shellChanged names what would make the bash run other than as modelled.
@@ -203,8 +290,8 @@ func (f Front) engine() (engine.Kind, string) {
 	return kind, ""
 }
 
-func (f Front) toolsMissing() string {
-	tools := bashTools
+func (f Front) toolsMissing(flag flagKind) string {
+	tools := slices.Concat(bashTools, flagTools[flag])
 	if slices.ContainsFunc(hostDirs, func(d hostDir) bool { return f.getenv(d.env) != "" }) {
 		tools = append(slices.Clone(tools), "realpath")
 	}

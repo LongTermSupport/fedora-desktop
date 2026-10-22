@@ -18,6 +18,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccylaunch"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccylaunch/difftest/pinclock"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
@@ -26,11 +27,11 @@ import (
 // any test runs. A fake finds its sandbox through sandboxEnv, which the runner puts in the
 // launcher's environment and the launcher passes on to whatever it starts.
 const (
-	sandboxEnv  = "CCY_DIFFTEST_SANDBOX"
+	sandboxEnv  = pinclock.SandboxEnv
 	starterName = "ccy-difftest-start"
 	dateName    = "date"
 	statName    = "stat"
-	fakesFile   = "fakes.json"
+	fakesFile   = pinclock.FakesFile
 	callsFile   = "calls.jsonl"
 	pidFile     = "launcher.pid"
 	fakeBroken  = 97 // a fake that cannot read its sandbox: never an answer a rule gives
@@ -234,17 +235,9 @@ func shiftedStat(cfg fakeConfig, args []string) int {
 	return res.ExitCode
 }
 
-// runWindow bounds one run: a time the machine gave a file during it reads as the pinned now,
-// so how long the run took never shows.
-const runWindow = 300
-
-// pinnedTime is a machine time on the pinned clock.
+// pinnedTime is a machine time on the pinned clock, as a Go launcher under test reads it too.
 func pinnedTime(machine int64, cfg fakeConfig) int64 {
-	pinned := machine - cfg.Shift
-	if pinned >= cfg.Epoch && pinned < cfg.Epoch+runWindow {
-		return cfg.Epoch
-	}
-	return pinned
+	return pinclock.Clock{Epoch: cfg.Epoch, Shift: cfg.Shift}.Pinned(machine)
 }
 
 // relativeDate is a -d value counted from now ("+90 days", "3 days ago", "tomorrow").
