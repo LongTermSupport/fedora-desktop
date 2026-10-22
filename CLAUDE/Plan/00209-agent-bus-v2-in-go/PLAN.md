@@ -168,8 +168,10 @@ its first caller.
   sha256 is the pin's) by the plan-folder probe `hca_probe.py`: HC-A1 and H-C13 fail on one fact
   each, with design-text fixes proposed (`261021-n1-hostchecks.md`, the run in
   `261021-n1-hostchecks-run.md`). The Element checks (HC-A2's display, HC-A3, HC-A5) are owner
-  steps in A 14's Element row, after gate A. The regression form is the `tuwunel`-tagged Go
-  test once the matrix client merges. **Gate A** (Task 0.5): a check that would leave the
+  steps in A 14's Element row, after gate A. The lasting regression form of HC-A1 and H-C13 is
+  the `tuwunel`-tagged Go test (SPEC-matrix M44, `internal/teamchat/matrix/tuwunel_test.go`),
+  which runs in the container against the same binary; `hca_probe.py` stays the record of the
+  run that decided the design. **Gate A** (Task 0.5): a check that would leave the
   `teamchat` name in a unit or path on the host runs in the VM lab until the owner has confirmed
   the irreversible decisions.
 - [x] ✅ **Task 1.4a**: The design-text fixes Task 1.4's checks call for, for the design pass
@@ -187,7 +189,10 @@ its first caller.
   `internal/teamchat/` (D 3.3), merged with its first caller (N2 or N3), not alone.
   Built and reviewed on `feat/bus-v2-n1-matrix` (9f42a773; review MERGE in round 3, `261021-n1-matrix.md`):
   the move, `LoginDevice`, `Logout`, `DeleteDevice`, room account data, `Redact` and presence, with fakehs
-  following the Task 1.4 facts. Its only red check is GO-2026-6809 (Task 1.6). It stays on the
+  following the Task 1.4 facts. M44, the tagged test, was run in the container against the
+  pinned Tuwunel 1.9.4 binary (`-race`, three runs) and passes, HC-A1's presence case included,
+  once its config carried v2's login limits and `db_pool_workers = 4` (`261021-n1-matrix.md`,
+  the M44 run; review in `261021-n1-m44-review.md`). Its only red check is GO-2026-6809 (Task 1.6). It stays on the
   N1 branch until its first caller (N2 or N3) is ready to merge with it.
 - [ ] ⬜ **Task 1.6**: GO-2026-6809: the Go toolchain bump, with the coordinator, before the matrix
   client merges.
