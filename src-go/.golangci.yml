@@ -345,6 +345,10 @@ linters:
           - pkg: internal/teamchat/member/state
             rules:
               json: snake
+          # C 3.9.3's LXC record (since_ms) is a snake_case host file, as every teamchat record is.
+          - pkg: internal/teamchat/host/lxc/lxcstate
+            rules:
+              json: snake
     cyclop:
       max-complexity: 15
     funlen:
