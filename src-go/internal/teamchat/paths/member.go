@@ -24,6 +24,15 @@ func (s Seat) StoreAside(ms int64) string {
 	return s.Dir() + "/" + storeAsidePrefix + strconv.FormatInt(ms, 10)
 }
 
+// StateSeat is team t's seat under the state root state, given whole: the directory a
+// `seat set-aside --state` acts on, such as a ccy session's seats on the host (SPEC-n3 SA1).
+func StateSeat(state string, t TeamID) (Seat, error) {
+	if err := checkBase("state", state); err != nil {
+		return Seat{}, err
+	}
+	return Seat{dir: state + "/" + t.text()}, nil
+}
+
 // Password is where a password credential would sit in a member's seat directory, beside
 // seat.json, as it sits in a pool seat. No member file is ever written there: a password
 // bundle in a member's seat directory is refused (SPEC-n3 MS3).
