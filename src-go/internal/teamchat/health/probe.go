@@ -2,6 +2,7 @@ package health
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -66,11 +67,9 @@ func (t *Tick) homeserver(ctx context.Context, team Team, f *facts) error {
 	if t.cfg.Clock.Now().Sub(state.ActiveSince) < StartGrace {
 		return nil
 	}
-	answered, err := t.probeAgain(ctx, team.ID, unit, state)
-	if err != nil || answered {
-		if answered {
-			f.probe = status.ProbeOK
-		}
+	probe, stop, err := t.probeAgain(ctx, team.ID, unit, state)
+	if err != nil || stop {
+		f.probe = probe
 		return err
 	}
 	return t.restart(ctx, team, unit, f)
@@ -102,22 +101,29 @@ func (t *Tick) restarts(f *facts) {
 }
 
 // probeAgain is the second and third probe, ProbeGap apart, each while the same invocation is
-// still active; answered is any of them answering, and a changed invocation counts as one.
-func (t *Tick) probeAgain(ctx context.Context, team paths.TeamID, unit string, first UnitState) (bool, error) {
+// still active. stop is the miss count ended without a restart, with the probe to record: ok for
+// an answer, not-run for a unit no longer active or a new invocation (its own start grace), and
+// missed for a state that cannot be read.
+func (t *Tick) probeAgain(ctx context.Context, team paths.TeamID, unit string, first UnitState) (string, bool, error) {
 	for range Misses - 1 {
 		if err := t.cfg.Clock.Sleep(ctx, ProbeGap); err != nil {
-			return false, err
+			return status.ProbeMissed, false, err
 		}
 		now, read := t.unitState(ctx, unit)
-		if !read || now.Active != unitActive || now.InvocationID != first.InvocationID {
-			return true, nil
-		}
-		if t.cfg.Prober.Probe(ctx, team) == nil {
-			return true, nil
+		switch {
+		case !read:
+			return status.ProbeMissed, true, nil
+		case now.Active != unitActive || now.InvocationID != first.InvocationID:
+			return status.ProbeNotRun, true, nil
+		case t.cfg.Prober.Probe(ctx, team) == nil:
+			return status.ProbeOK, true, nil
 		}
 	}
-	return false, nil
+	return status.ProbeMissed, false, nil
 }
+
+// errRemoved is a team whose stamp was gone when the tick took its lock: nothing more is done.
+var errRemoved = errors.New("the team was removed")
 
 // restart restarts the unit under the team lock taken without waiting, and writes its event
 // at once with seq raised; a busy lock means the holder owns the team, so nothing is done.
@@ -136,9 +142,22 @@ func (t *Tick) restart(ctx context.Context, team Team, unit string, f *facts) er
 	return err
 }
 
+// restartLocked re-checks the stamp first, so a team removed during the re-probes is neither
+// restarted nor written (errRemoved), then restarts the unit and reads its state again, so the
+// record keeps the NRestarts after the restart and the next tick sees no fall (n2e-D4).
 func (t *Tick) restartLocked(ctx context.Context, team Team, unit string, f *facts) error {
-	if err := t.cfg.Units.Restart(ctx, unit); err != nil {
+	stamped, err := t.cfg.Teams.Stamp(ctx, team.ID)
+	if err != nil {
+		return err
+	}
+	if !stamped {
+		return errRemoved
+	}
+	if err = t.cfg.Units.Restart(ctx, unit); err != nil {
 		return fmt.Errorf("health: restarting %s: %w", unit, err)
+	}
+	if after, read := t.unitState(ctx, unit); read {
+		f.unit = after
 	}
 	path := t.cfg.StatusPath(team.ID)
 	var prev *status.Record
@@ -150,6 +169,7 @@ func (t *Tick) restartLocked(ctx context.Context, team Team, unit string, f *fac
 		rec.Homeserver = status.Homeserver{Unit: f.unit.Active, Probe: status.ProbeMissed}
 		rec.Backup.LastRun = status.RunNone
 	}
+	rec.Homeserver.NRestarts = f.unit.NRestarts
 	rec.Events = status.KeepEvents(append(rec.Events, status.Event{AtMS: t.cfg.Clock.Now().UnixMilli(), What: EventRestarted}), t.cfg.Clock.Now())
 	if err := status.Write(path, rec, t.cfg.GID); err != nil {
 		return err

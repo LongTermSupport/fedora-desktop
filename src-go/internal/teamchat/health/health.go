@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/teamlock"
@@ -151,22 +152,28 @@ func (t *Tick) RunAll(ctx context.Context) ([]Outcome, error) {
 
 // facts is what steps 1 to 4 found, before the lock.
 type facts struct {
-	prev      *status.Record
-	seq       int64
-	unit      UnitState
-	probe     string
-	events    []status.Event
-	view      View
-	guests    map[string]guestSeen
-	problems  []status.Problem
-	backup    status.Backup
-	disk      status.Disk
-	restarted bool
+	prev   *status.Record
+	seq    int64
+	unit   UnitState
+	probe  string
+	events []status.Event
+	view   View
+	// viewFailed leaves step 6 alone: with no view there is no member to move on, and
+	// lxc-online.json is kept as it was for the next tick.
+	viewFailed bool
+	guests     map[string]guestSeen
+	problems   []status.Problem
+	backup     status.Backup
+	disk       status.Disk
+	restarted  bool
 }
 
 // Team ticks one team (C 3.11.2).
 func (t *Tick) Team(ctx context.Context, team Team) Outcome {
 	f, err := t.gather(ctx, team)
+	if errors.Is(err, errRemoved) {
+		return Outcome{Team: team.ID, Result: ResultDropped, Why: errRemoved.Error()}
+	}
 	if err != nil {
 		return Outcome{Team: team.ID, Result: ResultFailed, Err: err}
 	}
@@ -185,7 +192,11 @@ func (t *Tick) gather(ctx context.Context, team Team) (*facts, error) {
 	}
 	view, err := t.cfg.Viewer.View(ctx, team.ID)
 	if err != nil {
-		f.problems = append(f.problems, status.Problem{What: "the team's rooms could not be read", Fix: "journalctl -u teamchat-health.service"})
+		f.viewFailed = true
+		f.problems = append(f.problems, status.Problem{
+			What: "the team's rooms could not be read: " + matrix.Class(err),
+			Fix:  "teamchat-admin health " + team.ID.String() + ", then systemctl status " + paths.ServerUnit(team.ID),
+		})
 	} else {
 		f.view = view
 		f.problems = append(f.problems, view.Problems...)
@@ -279,9 +290,12 @@ func (t *Tick) locked(ctx context.Context, team Team, f *facts) Outcome {
 	if current != f.seq {
 		return Outcome{Team: team.ID, Result: ResultDropped, Why: "another writer wrote the record"}
 	}
-	members, problems, err := t.online(ctx, team.ID, f)
-	if err != nil {
-		return Outcome{Team: team.ID, Result: ResultFailed, Err: err}
+	var members []status.Member
+	var problems []status.Problem
+	if !f.viewFailed {
+		if members, problems, err = t.online(ctx, team.ID, f); err != nil {
+			return Outcome{Team: team.ID, Result: ResultFailed, Err: err}
+		}
 	}
 	rec := t.record(team, f, members, problems)
 	if err := status.Write(path, rec, t.cfg.GID); err != nil {

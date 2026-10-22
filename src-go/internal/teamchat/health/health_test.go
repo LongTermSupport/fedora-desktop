@@ -120,12 +120,17 @@ type prober struct {
 	mu    sync.Mutex
 	fails int // how many probes fail, from the first
 	calls int
+	// on runs at each call with its number, as a team remove meanwhile would.
+	on func(call int)
 }
 
 func (p *prober) Probe(context.Context, paths.TeamID) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.calls++
+	if p.on != nil {
+		p.on(p.calls)
+	}
 	if p.calls <= p.fails {
 		return errors.New("connection refused")
 	}
@@ -427,8 +432,77 @@ func TestANewInvocationIsNotRestarted(t *testing.T) {
 		{Active: "active", InvocationID: "inv2", ActiveSince: t0.Add(-time.Hour)},
 	}
 	w.run(t)
-	if w.units.restarts != 0 {
-		t.Fatal("a unit restarted meanwhile was restarted again")
+	if w.units.restarts != 0 || w.record(t, "alpha").Homeserver.Probe != status.ProbeNotRun {
+		t.Fatalf("a unit restarted meanwhile was restarted again, or its probe was recorded as answered: %+v", w.record(t, "alpha").Homeserver)
+	}
+}
+
+// HT2: a unit that stops being active during the re-probes is not-run; one whose state cannot
+// be read then is missed. Neither is restarted, and neither is recorded as answered.
+func TestAReprobeThatIsNotAnAnswer(t *testing.T) {
+	w := newWorld(t, "alpha")
+	w.prober.fails = 3
+	w.units.states = []UnitState{
+		{Active: "active", InvocationID: "inv1", ActiveSince: t0.Add(-time.Hour)},
+		{Active: "deactivating", InvocationID: "inv1"},
+	}
+	w.run(t)
+	if w.units.restarts != 0 || w.record(t, "alpha").Homeserver.Probe != status.ProbeNotRun {
+		t.Fatalf("not active: %d restarts, %+v", w.units.restarts, w.record(t, "alpha").Homeserver)
+	}
+	w = newWorld(t, "alpha")
+	w.prober.fails = 3
+	w.prober.on = func(call int) {
+		if call == 1 {
+			w.units.err = errors.New("dbus down")
+		}
+	}
+	w.run(t)
+	if w.units.restarts != 0 || w.record(t, "alpha").Homeserver.Probe != status.ProbeMissed {
+		t.Fatalf("unread: %d restarts, %+v", w.units.restarts, w.record(t, "alpha").Homeserver)
+	}
+}
+
+// HT2, HT5: the restart re-checks the stamp under the lock, so a team removed during the
+// re-probes is neither restarted nor written.
+func TestARestartRechecksTheStamp(t *testing.T) {
+	w := newWorld(t, "alpha")
+	w.prober.fails = 3
+	w.prober.on = func(call int) {
+		if call == 3 {
+			w.teams.removed[id(t, "alpha")] = true
+		}
+	}
+	out := w.run(t)
+	if w.units.restarts != 0 || out[0].Result != ResultDropped || out[0].Why != "the team was removed" {
+		t.Fatalf("restarts %d outcome %+v", w.units.restarts, out[0])
+	}
+	if _, err := os.Stat(filepath.Join(w.dir, "alpha", "status.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("a removed team's record was written")
+	}
+}
+
+// HT2, n2e-D4: the tick's own restart records the unit's NRestarts after it, so a counter the
+// restart reset is not the next tick's "restarted by hand".
+func TestTheTicksRestartIsNotRestartedByHand(t *testing.T) {
+	w := newWorld(t, "alpha")
+	w.units.states = []UnitState{{Active: "active", InvocationID: "inv1", NRestarts: 3, ActiveSince: t0.Add(-time.Hour)}}
+	w.run(t)
+	w.clock.advance(time.Minute)
+	before := UnitState{Active: "active", InvocationID: "inv1", NRestarts: 3, ActiveSince: t0.Add(-time.Hour)}
+	after := UnitState{Active: "active", InvocationID: "inv2", ActiveSince: w.clock.Now()}
+	w.units.states, w.units.stateCall = []UnitState{before, before, before, after}, 0
+	w.prober.fails = 4
+	w.run(t)
+	if w.units.restarts != 1 || w.record(t, "alpha").Homeserver.NRestarts != 0 {
+		t.Fatalf("restarts %d, homeserver %+v", w.units.restarts, w.record(t, "alpha").Homeserver)
+	}
+	w.clock.advance(time.Minute)
+	w.run(t)
+	for _, e := range w.record(t, "alpha").Events {
+		if e.What == EventByHand {
+			t.Fatalf("events %+v", w.record(t, "alpha").Events)
+		}
 	}
 }
 
@@ -498,11 +572,34 @@ func TestAUnitStateThatCannotBeReadIsAProblem(t *testing.T) {
 
 func TestAViewThatFailsIsAProblemAndTheRestIsWritten(t *testing.T) {
 	w := newWorld(t, "alpha")
-	w.viewer.err = errors.New("child failed")
+	w.viewer.err = fmt.Errorf("the child: %w", context.DeadlineExceeded)
 	w.run(t)
 	rec := w.record(t, "alpha")
-	if !hasProblem(rec, "the team's rooms could not be read") || rec.Backup.Newest == nil {
-		t.Fatalf("problems %v", whats(rec.Problems))
+	if !slices.Contains(rec.Problems, status.Problem{
+		What: "the team's rooms could not be read: timed out", Fix: "teamchat-admin health alpha, then systemctl status teamchat-server@alpha.service",
+	}) || rec.Backup.Newest == nil {
+		t.Fatalf("problems %+v", rec.Problems)
+	}
+}
+
+// HT3, HT6: a view that fails leaves step 6 alone: lxc-online.json is kept as it was, so a run
+// that ended meanwhile is announced once the view is back.
+func TestAViewThatFailsKeepsTheOnlineRecord(t *testing.T) {
+	w := newWorld(t, "alpha")
+	w.run(t)
+	was := lxcEntry(t, w)
+	w.viewer.err = errors.New("child failed")
+	w.guests.probes[lxcA] = GuestProbe{Record: lockRecord(runA, false)}
+	w.clock.advance(time.Minute)
+	w.run(t)
+	if got := lxcEntry(t, w); got != was || len(w.announcer.asked) != 0 {
+		t.Fatalf("entry %+v, asked %+v", got, w.announcer.asked)
+	}
+	w.viewer.err = nil
+	w.clock.advance(time.Minute)
+	w.run(t)
+	if len(w.announcer.asked) != 1 || w.announcer.asked[0] != (asked{lxcA, runA, t0.UnixMilli()}) {
+		t.Fatalf("asked %+v", w.announcer.asked)
 	}
 }
 
