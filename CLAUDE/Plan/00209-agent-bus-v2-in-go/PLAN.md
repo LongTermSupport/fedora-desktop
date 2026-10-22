@@ -209,11 +209,20 @@ its first caller.
   `subagent-reports/261021-n2a.md`) covers the command skeleton: C 3.3's verb table, the caller
   classes (exit 77), every unbuilt verb exiting 1, `version`, and the child's boundary as a typed
   start spec with its self-check and strict request and answer codecs. Not covered: starting the
-  child (it waits for `execx` to carry a credential and a replaced environment, n2a-D6), and
-  DC17's dependencies, which this slice does not need.
+  child (it waits for `execx` to carry a credential and a replaced environment, n2a-D6).
+  DC17's dependencies: the YAML module (`go.yaml.in/yaml/v3`) has landed with slice n2b, with its
+  go-deps allowlist row and the `keepout` row that holds it out of `teamchat-admin` (Task 2.4).
+  `godbus/dbus/v5` has not: nothing uses D-Bus yet, and it lands with the first D-Bus adapter
+  (the health tick's units seam, n2e).
 
-- [ ] ⬜ **Task 2.2**: The homeserver instance per team (C 3.2): the pinned Tuwunel, the hardened
+- [ ] 🔄 **Task 2.2**: The homeserver instance per team (C 3.2): the pinned Tuwunel, the hardened
   `teamchat-server@<team>` unit carrying D's `InaccessiblePaths=`, checked by D's gate (seam 49).
+  Done, as inert code: each team's `config.toml` (C 3.2.3) and its drop-in (C 3.2.4) are
+  rendered by `host/render.go` (slice n2d, `SPEC-n2d.md` HS4, report
+  `subagent-reports/261022-n2d.md`), and `team apply` writes them (Task 2.3). Not done: the
+  pinned Tuwunel's install, the `teamchat-server@<team>` unit template with D's
+  `InaccessiblePaths=`, and D's gate over it (seam 49). These are play tasks and a unit, so
+  they wait for gate A (Task 2.5).
 
 - [ ] 🔄 **Task 2.3**: Install and apply (C 3.5), the rooms engine from A's specs (C 3.6), the
   roster, members, humans and roles; the service-account localparts `conduit` (HC-A6) and
@@ -272,15 +281,45 @@ its first caller.
   - the quarantine prune;
   - C 3.10, 3.11 and 3.12 (n2b covers C 3.8).
 
-  One low finding of the last review round is open, with its fix, in the report.
+  The last review round's open low (a session seat directory that two holdings of one session
+  name) is fixed by the n2c-D12 addendum in `SPEC-n2c.md`: a take refuses a session whose
+  `<team>` seat directory is already there, and a release leaves a directory that a newer
+  holding of the team owns (`subagent-reports/261022-n2-qafix.md`).
   Slice n2e (`feat/bus-v2-n2e`, `SPEC-n2e.md`, report `subagent-reports/261022-n2e.md`) covers, as
   inert code: the status records and the team lock (TL1); the health tick of C 3.11 with the
   view (`health`, `health/view`), the disconnected notice (`notice`), and NT3's bound and
   `Holdings` in `seat`; the owner's seat sweep (`sweep`, DC21, INT7); and Element profiles of
   C 3.10 (`element`). Not covered: the D-Bus, probe, child and announcer adapters (DC17); the
   units and timers; backups and restore (C 3.12).
+  Real-server evidence: every `tuwunel`-tagged test was run with `-race -tags tuwunel -v` in the
+  container against the pinned Tuwunel 1.9.4 binary, and none skipped. That covers `matrix`
+  (`TestTuwunel`), `matrix/tuwunelhs`, `rooms` (`TestTuwunelConverge`), `apply`
+  (`TestTuwunelApply`), `seat` (`TestTuwunelTakeAndRelease`) and `health/view`
+  (`TestTuwunelSeatWatch`), and each passed (`subagent-reports/261022-n2-qafix.md`).
   The team lock is one package, `teamchat/teamlock` (TL1), used by host, admin and health
   (`subagent-reports/261022-n2-lock.md`).
+
+  **Six N2 packages have no caller yet, so the N2 stack stays on the plan branch, off F44, until
+  their callers land** (a Go package merges to F44 with its first caller, above). Each one's
+  caller-to-come:
+
+  - `declare/hostvars`: ccy-teams, its only importer, when its flows read and write the v2
+    declarations in host_vars (HV4's writer; Task 4.3).
+  - `health`: the `teamchat-admin health --all` verb, in `teamchat-admin`'s production wiring
+    (the `teamchat-ctl` child, the units seam's D-Bus adapter with godbus, the opener, bundles
+    and owner group), run by `teamchat-health.{service,timer}` (C 3.11; the units are play
+    tasks under gate A, Task 2.5).
+  - `health/view`: the `teamchat-ctl` child's view op (n2a-D6's child start, the same
+    production wiring), which `health` reads through its `Viewer` seam.
+  - `notice`: the announcer adapter behind `seat.Announcer`, in the same production wiring for
+    the health tick's LXC notices, and in ccy-teams' `seats sweep` for the owner's seats.
+  - `sweep`: ccy-teams' `seats sweep` (Task 4.3), run by the owner's
+    `teamchat-seats.{service,timer}` (C 3.7.5; user units under gate A, Task 2.5).
+  - `element`: the `teamchat-admin element check|apply` verb in the production wiring, run as
+    the desktop user by the optional Element play (C 3.10; gate A).
+
+  None of this wiring is in N2: it is the later slices named above, and its host parts are
+  owner-gated.
 
 - [ ] ⬜ **Task 2.5**: Acceptance: C 3.14's tests; the M44 real-Tuwunel test, and Tuwunel's answers
   for a locked and a deactivated account recorded into `fakehs` (host or VM lab); VM-lab scenario

@@ -1,6 +1,6 @@
 // Package hostvars reads the v2 declarations from an Ansible host_vars file (Plan 00209,
 // DESIGN-v2-C-host.md 3.8, DC17; SPEC-n2b.md HV1-HV3). It is the one importer of the YAML
-// library, and only ccy-teams imports it: `teamchat-admin` reads JSON alone (the go-deps
+// library, and ccy-teams alone is to import it: `teamchat-admin` reads JSON alone (the go-deps
 // keepout row holds it). Only the v2 top-level keys are read, and inside them YAML is held to
 // what JSON can say: strings, integers, true and false, lists and mappings, with no tag, anchor,
 // alias, merge key or scalar YAML 1.1 or 1.2 would read as anything else. The result goes
