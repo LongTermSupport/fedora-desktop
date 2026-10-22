@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
 
@@ -23,7 +24,6 @@ var (
 	dnsLabel      = `[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?`
 	dnsNameRe     = regexp.MustCompile(`^` + dnsLabel + `(\.` + dnsLabel + `)+$`)
 	dnsHostRe     = regexp.MustCompile(`^` + dnsLabel + `(\.` + dnsLabel + `)*$`)
-	containerRe   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 	urlPortDigits = regexp.MustCompile(`^[1-9][0-9]{0,4}$`)
 )
 
@@ -78,7 +78,10 @@ func validHandle(s string) bool {
 	return ok && !h.IsProbe() && h.String() == s
 }
 
-func validContainer(s string) bool { return containerRe.MatchString(s) }
+func validContainer(s string) bool {
+	_, err := paths.ParseContainerName(s)
+	return err == nil
+}
 
 func validCheckout(s string) bool { return filepath.IsAbs(s) && filepath.Clean(s) == s && s != "/" }
 

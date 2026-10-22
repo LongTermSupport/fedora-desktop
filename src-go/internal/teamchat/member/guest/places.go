@@ -261,7 +261,7 @@ func Membership(h *Identity, stdin io.Reader, out changes) error {
 		return err
 	}
 	d, err := state.DecodeDesired(data)
-	if err != nil || d.Session.String() != "lxc-"+h.User.String() {
+	if err != nil || d.Session != paths.LXCSession(h.User) {
 		return exits.New(exits.CodeMembership, nil, msgDesired)
 	}
 	canonical, err := d.Encode()

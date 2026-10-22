@@ -20,6 +20,7 @@ import (
 var guarded = []string{
 	"TeamID", "RunID", "CheckoutKey", "GuestUser", "SetID", "SessionName", "Digest", "DisplayName",
 	"ServerVersion", "Kit", "Layout", "Seat", "Run", "Store", "SeatName", "ClaimID", "PoolSeat",
+	"ContainerName",
 }
 
 // zeroDerivations is every exported function that takes a guarded type, given the zero value
@@ -85,6 +86,7 @@ func zeroDerivations() map[string]func() string {
 	}
 	maps.Copy(derivations, hostZeroDerivations())
 	maps.Copy(derivations, memberZeroDerivations())
+	maps.Copy(derivations, lxcZeroDerivations())
 	return derivations
 }
 
@@ -177,7 +179,8 @@ func TestEveryMethodOfAZeroValuePanics(t *testing.T) {
 		reflect.TypeFor[SeatName]():    reflect.ValueOf(sampleSeatName(t)),
 		reflect.TypeFor[ClaimID]():     reflect.ValueOf(sampleClaimID(t)),
 		// A set-aside time, whose zero panics as a zero id does.
-		reflect.TypeFor[int64](): reflect.ValueOf(int64(1760000000000)),
+		reflect.TypeFor[int64]():         reflect.ValueOf(int64(1760000000000)),
+		reflect.TypeFor[ContainerName](): reflect.ValueOf(sampleContainer(t)),
 	}
 	for _, recv := range []struct{ zero, valid any }{
 		{PoolSeat{}, store.PoolSeat(sampleCheckoutKey(t), mustTeam(t, "ops"), sampleSeatName(t))},
