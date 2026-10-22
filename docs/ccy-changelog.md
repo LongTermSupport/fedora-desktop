@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.14.1 — container 2.78.13
+
+Follows 3.99.14.0. The image is unchanged, so there is no rebuild.
+
+- **Session records name the Go front again.** Under 3.99.14.0 the bash launcher recorded its
+  own path, `claude-yolo.bash`, as the session's launcher, so restores and team restarts ran
+  the bash directly and skipped the front. It now records `/var/local/claude-yolo/claude-yolo`,
+  as the restart relaunch already did, and the custom-Dockerfile modes re-run the front too. A
+  record written by 3.99.14.0 still names `claude-yolo.bash`, which runs the same launcher
+  without the front; a session started afresh from a terminal records the front.
+
 ## 3.99.14.0 — container 2.78.13
 
 Follows 3.99.13.19. The image is unchanged, so there is no rebuild.

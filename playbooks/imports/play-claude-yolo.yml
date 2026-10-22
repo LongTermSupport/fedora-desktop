@@ -555,9 +555,10 @@
         - cleanup
 
     # The launcher is two programs (Plan 00191 Task 4.5, the strangler of decision D1): the Go
-    # front (src-go/cmd/claude-yolo) at /var/local/claude-yolo/claude-yolo, the path the ccy
-    # alias, session records and restores name, and the bash launcher beside it as
-    # claude-yolo.bash. The front answers --version and --help and execs the bash for every
+    # front (src-go/cmd/claude-yolo) at /var/local/claude-yolo/claude-yolo, which the ccy alias
+    # runs, and the bash launcher beside it as claude-yolo.bash. The bash names the front, not
+    # its own $0, in every session record and every re-run (restores, restarts, the Dockerfile
+    # modes), so nothing replayed later skips the front. The front answers --version and --help and execs the bash for every
     # other run; CCY_LEGACY=1 sends every run to the bash (docs/ccy.md). The bash goes in first,
     # so the claude-yolo already there keeps working until the front replaces it; a failed
     # build stops the play before that.

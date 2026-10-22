@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.99.14.0"  # Container 2.78.13: ccy is a Go front that answers --version and --help and runs this launcher, installed as claude-yolo.bash, for the rest; CCY_LEGACY=1 runs it for everything (Plan 00191). See docs/ccy-changelog.md.
+CCY_VERSION="3.99.14.1"  # Container 2.78.13: session records and every re-run name the Go front, never claude-yolo.bash (Plan 00191). See docs/ccy-changelog.md.
 
 # Secrets are never exported for the whole script: every program it starts (getenforce, curl,
 # timedatectl, tmux, whose server would give them to every pane) would get them. A token the
@@ -1156,13 +1156,13 @@ fi
 
 # Handle custom mode (doesn't need SSH/GH setup)
 if [ "$CUSTOM_MODE" = true ]; then
-    custom_dockerfile "$0" ".claude/ccy" "ccy"
+    custom_dockerfile "$SCRIPT_DIR/claude-yolo" ".claude/ccy" "ccy"
     exit 0
 fi
 
 # Handle custom-docker mode (AI-guided Dockerfile creation)
 if [ "$CUSTOM_DOCKER_MODE" = true ]; then
-    create_dockerfile_guided "$0" ".claude/ccy" "ccy"
+    create_dockerfile_guided "$SCRIPT_DIR/claude-yolo" ".claude/ccy" "ccy"
     exit 0
 fi
 
@@ -1174,9 +1174,11 @@ fi
 # create/renew modes, which prompt but exit without a session. On the way back in (TMUX
 # set to the ccy server) ccy_tmux_insulate is a no-op and the banner says how to detach
 # and return. A GitHub token the caller exported is handed to the re-run launcher through a
-# private file, never tmux's environment (lib/token-handoff.bash).
+# private file, never tmux's environment (lib/token-handoff.bash). The session runs, and its
+# record names, the Go front beside this file, never $0: deployed, this bash is claude-yolo.bash,
+# and a record naming it would have every restore and team restart skip the front.
 if [ "$HEADLESS_MODE" != true ] && [ "$CREATE_TOKEN_MODE" != true ] && [ "$UPDATE_TOKEN_MODE" != true ]; then
-    ccy_token_handoff_insulate "$PROJECT_NAME" "$SCRIPT_DIR/$(basename "$0")" "$@" || exit 1
+    ccy_token_handoff_insulate "$PROJECT_NAME" "$SCRIPT_DIR/claude-yolo" "$@" || exit 1
     ccy_tmux_banner || exit 1
 fi
 # The session this launch IS, or none (lib/tmux-session.bash): the one answer every record

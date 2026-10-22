@@ -59,7 +59,7 @@ TOKEN="handoff-test-token-$$-not-a-real-one"
 
 echo "=== the launcher's entry point ==="
 # The call the launcher wraps a session with, and whether it loads the hand-off library.
-ENTRY_CALL=" \"\$PROJECT_NAME\" \"\$SCRIPT_DIR/\$(basename \"\$0\")\" \"\$@\" || exit 1"
+ENTRY_CALL=" \"\$PROJECT_NAME\" \"\$SCRIPT_DIR/claude-yolo\" \"\$@\" || exit 1"
 ENTRY="$(grep -F -- "$ENTRY_CALL" "$LAUNCHER" | awk '{ print $1 }')"
 check "the launcher has one terminal-insulation entry point" "1" "$(grep -c . <<<"$ENTRY")"
 LIBS=(common-pure session-registry tmux-session)
@@ -220,6 +220,42 @@ echo "=== no token: nothing is written, and the inner launcher asks gh as before
 drive terminal ""
 check "the inner launcher has no GH_TOKEN" "INNER GH_TOKEN=unset HANDOFF=unset CHILD=unset/unset" "$(line INNER)"
 check "no hand-off file was named" "" "$(line MODES)"
+
+echo ""
+echo "=== the session record names the Go front, not the bash it hands over to ==="
+# Deployed, /var/local/claude-yolo/claude-yolo is the Go front and the bash is claude-yolo.bash
+# beside it, run by the front with its own path as $0. A record, and the pane, must name the
+# front, or every restore and team restart would skip it. The launcher's own SCRIPT_DIR line
+# and insulation line run here from a file called claude-yolo.bash, with a front beside it.
+INSTALL="$SCRATCH/install"
+mkdir -p "$INSTALL"
+{
+    printf '#!/usr/bin/env bash\n'
+    grep -m1 '^SCRIPT_DIR=' "$LAUNCHER"
+    cat <<'EOF'
+for lib in $T_LIBS; do source "$T_LIB/$lib.bash" || exit 1; done
+PROJECT_NAME=proj
+set -- --no-ssh
+EOF
+    grep -E '^ +ccy_token_handoff_insulate ' "$LAUNCHER"
+} >"$INSTALL/claude-yolo.bash"
+cat >"$INSTALL/claude-yolo" <<'EOF'
+#!/usr/bin/env bash
+for lib in $T_LIBS; do
+    # shellcheck source=/dev/null
+    source "$T_LIB/$lib.bash" || exit 1
+done
+printf 'FRONT %s\n' "$(grep -h '^launcher=' "$CCY_STATE_DIR"/sessions/*)"
+EOF
+chmod 755 "$INSTALL/claude-yolo" "$INSTALL/claude-yolo.bash"
+rm -f "$T_STATE"
+: >"$T_LOG"
+OUT="$(cd "$PROJ" && env -u TMUX -u TMUX_PANE -u GH_TOKEN PATH="$BIN:$PATH" XDG_RUNTIME_DIR="$RUNTIME" \
+    CCY_STATE_DIR="$SCRATCH/front-state" \
+    script -qec "bash $(printf '%q' "$INSTALL/claude-yolo.bash")" /dev/null </dev/null 2>&1)"
+check "the record's launcher is the front" "FRONT launcher=$INSTALL/claude-yolo" "$(line FRONT)"
+check "and the pane runs the front" "1" \
+    "$(grep '^ARGV.* new-session ' "$T_LOG" | grep -cF -- "ccy-tmux $INSTALL/claude-yolo --no-ssh")"
 
 echo ""
 echo "=== a runtime directory that is not there fails the launch, starting nothing ==="
@@ -459,6 +495,15 @@ GH_TOKEN="${GH_TOKEN:-}" exec "$script_path"
 EOF
 check "dockerfile-custom.bash re-runs the launcher by exec four times" "4" "$(grep -cF -- "$EXEC_CALL" "$DFC")"
 check "and every one is given the caller's GH_TOKEN" "4" "$(grep -cF -- "$EXEC_GIVEN" "$DFC")"
+# What they re-run is the Go front beside the launcher, never $0 (deployed, claude-yolo.bash).
+read -r FRONT_ARG <<'EOF'
+"$SCRIPT_DIR/claude-yolo" ".claude/ccy" "ccy"
+EOF
+read -r DOLLAR0_ARG <<'EOF'
+"$0" ".claude/ccy" "ccy"
+EOF
+check "the launcher gives both modes the front to re-run, not \$0" "2 0" \
+    "$(grep -cF -- "$FRONT_ARG" "$LAUNCHER") $(grep -cF -- "$DOLLAR0_ARG" "$LAUNCHER")"
 cat >"$SCRATCH/show-token" <<'EOF'
 #!/usr/bin/env bash
 printf '%s' "${GH_TOKEN-unset}"
