@@ -201,14 +201,9 @@ func (e *Engine) Remove(ctx context.Context, t paths.TeamID) (Removed, error) {
 		return Removed{}, fmt.Errorf("%w: %s", errNotHeld, t)
 	}
 	failpoint.Hit(failpoint.LinkInRemove)
-	e.stop(t, cancel, h.stopped)
+	e.stopAndFlush(ctx, t, tm, cancel, h.stopped, "before the removal")
 	var notices team.Notices
 	if tm != nil {
-		fctx, cancelFlush := context.WithTimeout(ctx, flushWait)
-		if err := tm.FlushFloor(fctx); err != nil {
-			e.logf("team %s: the floor marker was not put before the removal: %v", t, err)
-		}
-		cancelFlush()
 		notices = tm.Notices()
 	}
 	var removeErr error
@@ -230,6 +225,20 @@ func (e *Engine) stop(t paths.TeamID, cancel context.CancelFunc, stopped <-chan 
 	case <-stopped:
 	case <-timeout:
 		e.logf("team %s: the team goroutine did not stop within %s", t, stopWait)
+	}
+}
+
+// stopAndFlush stops t's team goroutine and puts its floor marker within flushWait, logging a
+// marker not put (when says at what end). The put is bounded by flushWait alone, not by ctx.
+func (e *Engine) stopAndFlush(ctx context.Context, t paths.TeamID, tm team.Team, cancel context.CancelFunc, stopped <-chan struct{}, when string) {
+	e.stop(t, cancel, stopped)
+	if tm == nil {
+		return
+	}
+	fctx, cancelFlush := context.WithTimeout(context.WithoutCancel(ctx), flushWait)
+	defer cancelFlush()
+	if err := tm.FlushFloor(fctx); err != nil {
+		e.logf("team %s: the floor marker was not put %s: %v", t, when, err)
 	}
 }
 
@@ -257,8 +266,10 @@ func (e *Engine) drop(h *held) error {
 
 // Shutdown stops every team goroutine, puts each running team's floor marker (SY10's clean
 // end; the teams in parallel, each bounded as a removal's is, so an offline homeserver delays
-// the exit by about 4 s at most), and closes every store writer and seat descriptor: the link's
-// last act before it exits.
+// the link's exit by about 4 s at most), and closes every store writer and seat descriptor: the
+// link's last act before it exits. The 4 s add to the link's time in finish, and the keeper
+// kills the link 5 s after End, so on a slow homeserver this put can be killed; the put at the
+// next session's start (A2) covers it, and only a seat taken with no store between replays.
 func (e *Engine) Shutdown(ctx context.Context) error {
 	type running struct {
 		id      paths.TeamID
@@ -278,14 +289,7 @@ func (e *Engine) Shutdown(ctx context.Context) error {
 	}
 	var wg sync.WaitGroup
 	for _, r := range live {
-		wg.Go(func() {
-			e.stop(r.id, r.cancel, r.stopped)
-			fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), flushWait)
-			defer cancel()
-			if err := r.tm.FlushFloor(fctx); err != nil {
-				e.logf("team %s: the floor marker was not put at the shutdown: %v", r.id, err)
-			}
-		})
+		wg.Go(func() { e.stopAndFlush(ctx, r.id, r.tm, r.cancel, r.stopped, "at the shutdown") })
 	}
 	wg.Wait()
 	var errs []error

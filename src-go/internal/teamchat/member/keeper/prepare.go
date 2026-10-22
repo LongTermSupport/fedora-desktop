@@ -578,7 +578,7 @@ func (k *keeper) takeLaunchSeats(ctx context.Context) error {
 		s, err := k.takeSeat(ctx, w)
 		for try := 0; errors.Is(err, lock.ErrBusy) && try < endingTries && k.holderEnding(w.team); try++ {
 			if try == 0 {
-				k.logf("seat %s is held by a session whose keeper is gone: waiting for it to end", w.team)
+				k.logf("seat %s is held by a session whose keeper is gone or whose run is not seen from here: waiting for it to end", w.team)
 			}
 			if err = k.cfg.Locks.Sleep(ctx, endingGap); err == nil {
 				s, err = k.takeSeat(ctx, w)
@@ -595,7 +595,8 @@ func (k *keeper) takeLaunchSeats(ctx context.Context) error {
 }
 
 // holderEnding is whether the session holding team's seat has lost its keeper (its keeper.lock
-// is free, or its run is gone): only its link holds the seat, and lets it go within endWait.
+// is free, or its run is gone): only its link holds the seat, and lets it go within endWait. A
+// run this run root cannot see reads as gone too, which costs at most the bounded wait.
 func (k *keeper) holderEnding(team paths.TeamID) bool {
 	f, err := k.stateRoot.Read(k.cfg.Layout.Seat(team).Lock(), state.MaxLockRecord)
 	var rec state.LockRecord
