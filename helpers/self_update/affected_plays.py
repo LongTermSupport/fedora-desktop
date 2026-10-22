@@ -1,8 +1,10 @@
 """Which plays a set of changed paths touches, split by the unattended allowlist (Plan 00137).
 
-The play ledger watches only each play's OWN file, so a commit that changes the ccy lib or
-the `cc` launcher leaves `play-claude-yolo.yml` reading as up to date. This maps changed
-paths to the plays that deploy them, from the play text itself.
+A play's own file is not all it deploys: a commit that changes the ccy lib or the `cc`
+launcher changes what `play-claude-yolo.yml` puts on the host. This maps changed paths to
+the plays that deploy them, from the play text itself. `changed_plays.judge`, the one
+judgement of which plays have to run again (for `run.bash --changed` and the health
+report), reads its inputs from here.
 
 **No YAML parser.** Helpers are stdlib-only (helpers/CLAUDE.md), so references are read
 with regexes over the play text. The idioms recognised are the ones this repo uses:

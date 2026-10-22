@@ -501,6 +501,29 @@ def freshness_findings(
     ] + [probe_results.unchecked(text) for text in not_checked.lines()]
 
 
+def freshness_section(
+    base: str,
+    repo_root: str,
+    *,
+    stderr: TextIO,
+    judged: list[freshness.Verdict],
+    stated_coverage: dict[str, str],
+    run: Callable[..., int] = check_freshness.run,
+) -> list[probe_results.Finding]:
+    """The play-freshness section's findings, with its coverage stated under its id.
+
+    Only a run that judged states a coverage, the same way the pins do: a run that could
+    not judge has examined nothing, and a zero would claim it had.
+    """
+    coverage: list[str] = []
+    found = freshness_findings(
+        base, repo_root, stderr=stderr, run=run, judged=judged, coverage=coverage
+    )
+    if coverage:
+        stated_coverage[FRESHNESS] = coverage[0]
+    return found
+
+
 def main(
     argv: list[str] | None = None,
     *,
@@ -560,20 +583,13 @@ def main(
     # could not judge — so the panel's play runner offers nothing it did not judge.
     judged: list[freshness.Verdict] = []
 
-    def play_freshness_findings() -> list[probe_results.Finding]:
-        # Coverage the same way as the pins: only a run that judged states one.
-        coverage: list[str] = []
-        found = freshness_findings(
-            base, arguments.repo_root, stderr=diagnostics, judged=judged, coverage=coverage
-        )
-        if coverage:
-            stated_coverage[FRESHNESS] = coverage[0]
-        return found
-
     sections = collect_sections(
         health=lambda: probe.collect(running_kernel=probe.running_kernel()),
         ledger_present=lambda: ledger_presence.findings(base),
-        freshness=play_freshness_findings,
+        freshness=lambda: freshness_section(
+            base, arguments.repo_root, stderr=diagnostics, judged=judged,
+            stated_coverage=stated_coverage,
+        ),
         pins=pins_findings,
         self_update=lambda: self_update_check.findings(
             published.DIRECTORY,

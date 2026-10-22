@@ -958,8 +958,9 @@ below):
   names up to three changed paths), whose last run failed, or which last ran from a
   checkout with uncommitted changes. Below them the report prints the command that runs
   them all, ready to paste: this checkout's full path, found where the code runs, plus
-  `run.bash --changed`. The section's coverage names the plays it cannot judge (a
-  reference it cannot follow) and the ledgered plays outside `playbooks/imports/`
+  `run.bash --changed`. Only plays under `playbooks/imports/` are judged, as by
+  `--changed`; the status document's coverage for the section names the plays it cannot
+  judge (a reference it cannot follow) and the ledgered plays outside that directory
 - A play that was run here and has since been deleted is reported as "no longer in the
   checkout". When a play is merged into another, add it to
   `helpers/play_ledger/retired-plays.json` (`{"<removed play>": "<successor>"}`): the

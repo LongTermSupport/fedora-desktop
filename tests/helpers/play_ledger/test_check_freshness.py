@@ -699,8 +699,10 @@ class TestAgreesWithRunBashChanged(unittest.TestCase):
                 self.assertEqual(changed_plays.run(base=base, repo_root=root, stdout=runner_out,
                                                    stderr=io.StringIO()), changed_plays.EXIT_OK)
                 report_out = io.StringIO()
-                check_freshness.run(base=base, repo_root=root, stdout=report_out,
-                                    stderr=io.StringIO(), fetch=lambda r: None)
+                self.assertEqual(
+                    check_freshness.run(base=base, repo_root=root, stdout=report_out,
+                                        stderr=io.StringIO(), fetch=lambda r: None),
+                    check_freshness.EXIT_FINDINGS)
 
             runner = [line.removeprefix("RUN ") for line in runner_out.getvalue().splitlines()]
             report = [line.split(" — ")[0] for line in report_out.getvalue().splitlines()

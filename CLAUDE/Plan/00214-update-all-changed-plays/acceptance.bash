@@ -65,6 +65,7 @@ plan_start_log auto
 checker="${PLAN_SCRIPT_DIR}/check-changed-plays.bash"
 plan_gather_leg "the report and run.bash --changed name the same plays" bash "${checker}" same "${PLAN_REPO_ROOT}" "${PLAN_RUN_DIR}"
 plan_gather_leg "fedora-desktop-health prints this checkout's run.bash --changed" bash "${checker}" report "${PLAN_REPO_ROOT}" "${PLAN_RUN_DIR}"
+# Reads the status document the collection in the leg above wrote, so it comes after it.
 plan_gather_leg "the login reminder names the same command" bash "${checker}" reminder "${PLAN_REPO_ROOT}" "${PLAN_RUN_DIR}"
 
 if [[ -z "${PLAN_FAILED_LEGS}" && -s "${PLAN_RUN_DIR}/not-judged" ]]; then

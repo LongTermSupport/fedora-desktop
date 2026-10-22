@@ -61,7 +61,10 @@ one definition, read by both.
 - [x] ✅ **Task 1.3**: The report's coverage sentence (`check_freshness.coverage_sentence`)
   reaches the status document's play-freshness section from `login_report`, naming the
   plays that hold a reference nobody can follow and the ledgered plays outside
-  `playbooks/imports/`. Only a run that judged states one, as with the pins.
+  `playbooks/imports/`. Only a run that judged states one, as with the pins
+  (`login_report.freshness_section`). Like the pins' coverage it is recorded in the
+  document, not shown. A ledgered play outside `playbooks/imports/` (a `playbooks/dev/`
+  play) is no longer a finding, because `--changed` does not run it.
 - [x] ✅ **Task 1.4**: The panel's "Re-run a play…" count counts the plays `--changed` runs:
   every state but `fresh` and `unresolved`, so a state the panel has no words for still
   counts.
