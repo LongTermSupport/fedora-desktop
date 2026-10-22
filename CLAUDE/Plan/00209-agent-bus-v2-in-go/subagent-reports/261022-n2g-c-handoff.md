@@ -51,14 +51,19 @@ Coverage of `restore` is 95.7%.
 - `Answer.Encode() []byte` (RS9; a discard is `{"v":1,"team","backup","discarded":true,"notes"}`)
   and `Answer.Printed bool`: with an error, the verb prints the answer on stdout and the error
   (exit 1) — RS8's "restored; clean-up failed" and "status refresh failed".
-- Exits: `ErrRefused` 70; teamlock busy 75; else 1. I also promised `ErrServerLost` (69); on
-  reflection the 69 comes from admin's `ChildError` class (A's comment on `Child`), so either
-  add the sentinel and wrap child failures of `Export`/`Check(live)` with it, or tell the lead
-  the promise is withdrawn and 69 is the ChildError's.
-- `NeedRecord(root) teamlock.Guard`, promised for the verb's `--resume`/`--discard`: refuses
-  (`refusedf`, 70) when `restore.json` is absent (Lstat). Not written yet: write it, in
-  `guard.go`'s style, beside `Guard` (guard.go is A1's file; put it in `engine.go` to avoid a
-  conflict).
+- Exits: `ErrRefused` 70; teamlock busy 75; else 1. For RS15's 69, wrap `matrix.ErrUnreachable`
+  (n2g-c-verb's instruction); define no `ErrServerLost`.
+- **The C6 builder (n2g-c-verb, feat/bus-v2-n2g-restore-verb, tip c0e776694) already owns these
+  names in package restore; do NOT define them:** `Records{Root, OwnerUID}` (HB2),
+  `Recorded(root) teamlock.Guard` (refuses `--resume`/`--discard` with no record; this replaces
+  my `NeedRecord`) and `ErrUnproven` (a `*RefusedError`, RW2), in `restore/records.go` and
+  `restore/unproven.go`.
+- **admin's side:** the verb calls the engine through `admin.Restorer`: `Run(ctx, held, admin.RestoreRequest{Team, Backup, Offline, RosterFromBackup}) ([]byte, error)`, and
+  `Resume(ctx, held, team)` and `Discard(ctx, held, team)` with the same returns. Each returns
+  the answer JSON (nil when there is none) beside its error, and the verb prints any answer
+  before it maps the error. The verb takes the lock, so the engine never takes it. So
+  `Discard` takes `held` too, and the wire adapter turns `Answer` into `Encode()` bytes (nil
+  when there is no answer), which makes `Printed` unnecessary.
 
 ## C5, the engine: the design worked out (write `engine_test.go` first, then `engine.go`)
 
