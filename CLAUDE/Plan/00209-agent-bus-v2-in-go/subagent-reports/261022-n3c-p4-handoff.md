@@ -164,13 +164,30 @@ func (e *Engine) Shutdown(ctx) error                                     // canc
   `single()` resolves a single-team verb's team through `cli.ResolveTeam`, the ledger being the
   team whose store holds the event id. A history limit outside 1-100 is 64.
 
-## Open question sent to the lead (no answer yet when I stopped)
+## Decision n3c-D24 (the lead's answer): Launch carries the count of adds
 
-Control order: nothing tells the link when the adds that follow `launch` are over. The plan is to
-send `ready` right after `launch`, once `link.sock` listens, and to treat each add as it comes. A
-request that lands before a late add sees no items for that team, and `--team T` gives 64. The
-alternative is `Launch` carrying the count of adds. **Check the lead's reply before you build the
-link start.**
+`wire.Launch` gains `Seats int` (`json:"seats"`, >= 0): the number of `add` messages that follow
+`launch`. The link sends `ready` once that many adds are handled. This is a wire change on P2's
+types: add the field, its rule and its test in `wire/control.go`, in its own hunk. The lead is
+telling P3 to send it. Why: the keeper starts CMD on `ready`, and the first SessionStart request
+must see every team's backlog.
+
+The offline rule's constraints:
+
+1. An add is complete once its store is loaded and its handed items are put back. It never
+   waits on the network: a team whose homeserver is down still completes its add, and shows
+   offline. `Engine.Add` already works this way: `NewTeam` must not dial, and `Run` starts in
+   its own goroutine.
+2. An add that fails (an unreadable store, a bad bundle, a refused `AdoptSeat`) still counts
+   toward Seats. It is reported for that team (78, or offline in status) and never holds back
+   `ready` for the others.
+3. A Seats mismatch is a protocol error, reported, and never waited on for ever: the socket
+   closing before Seats adds, or another kind arriving before them. Bound the wait for the adds
+   with the clock seam, say 10 s on `clock.Hold`, and record the bound. Then send `ready` with
+   what was added, log the shortfall, and treat a later add as a hot add. An add beyond Seats
+   after `ready` is an ordinary hot add, not an error.
+
+Record n3c-D24 in the part report.
 
 ## Left to do
 
