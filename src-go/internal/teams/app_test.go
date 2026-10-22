@@ -115,9 +115,8 @@ func TestDispatchForCheckoutIsTheFindFlow(t *testing.T) {
 	h := world(t)
 	h.On("git rev-parse --is-inside-work-tree", "true\n", 0)
 	h.On("git rev-parse --show-toplevel", h.Checkout()+"\n", 0)
-	h.On("git remote get-url origin", "git@example.com:example-org/proj.git\n", 0)
-	h.OnDeclare("github-remote", "example-org/proj\n")
-	h.OnDeclare("teams-for", "TEAM\talpha\n")
+	h.On("git remote get-url origin", "git@github.com:example-org/proj.git\n", 0)
+	h.WriteHostVars(t, teamtest.HostVarsAlpha+"    org: example-org\n")
 	if code := h.app.Run([]string{"for-checkout"}); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
@@ -172,7 +171,8 @@ func TestDispatchChooseSeatAndDescribeSeatsAreTheChooseFlow(t *testing.T) {
 		t.Fatalf("choose-seat: exit %d: %s", code, h.ErrOut.String())
 	}
 	h = world(t)
-	h.On("agent-bus seat list", "SEAT\talpha\t1\theld\tself\tproj.1+local.podman\n", 0)
+	h.RemoveSeat(t, h.Checkout(), "alpha", "dev")
+	h.On("git rev-parse --show-toplevel", h.Checkout()+"\n", 0)
 	h.On(teamtest.SudoBus+"list alpha", "MEMBER\tproj.1+local.podman\tcoordinator\tjoin\tactive\n", 0)
 	if code := h.app.Run([]string{"describe-seats", "1@alpha"}); code != term.ExitOK {
 		t.Fatalf("describe-seats: exit %d: %s", code, h.ErrOut.String())

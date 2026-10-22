@@ -1,0 +1,93 @@
+=== exit 1
+=== stdout
+✓ Creating .claude/ccy/.gitignore for security
+
+════════════════════════════════════════════════════════════════════════════════
+⚠  WARNING: No SSH Keys Available
+════════════════════════════════════════════════════════════════════════════════
+
+No github_ SSH key in ~/.ssh/, no ssh-agent holding a key, and the project
+remote does not use an ssh-config alias bound to GitHub.
+Git push operations will NOT work without SSH keys.
+
+To set up GitHub SSH keys, run:
+  ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml
+
+Or specify a key manually:
+  ccy --ssh-key ~/.ssh/<your-key>
+
+Or log in with agent forwarding (ssh -A) and pass:
+  ccy --ssh-agent
+
+Nobody to ask (a restore, a restart or no terminal): continuing WITHOUT an SSH key.
+
+════════════════════════════════════════════════════════════════════════════════
+
+
+════════════════════════════════════════════════════════════════════════════════
+⚠  TOKEN EXPIRED OR EXPIRING TODAY
+════════════════════════════════════════════════════════════════════════════════
+
+Token: old.2030-01-14.token
+
+This token cannot be used. You must create a new token.
+
+=== stderr
+✓ Writing .claude/ccy/ccy.env.local.dist (version 3); commit it
+[0;31mERROR:[0m ccy stopped at its token-expired question: nobody can answer it here (a --headless launch, or stdin is not a terminal).
+  Renew it where a person can use a browser: ccy --update-token=old
+=== calls
+getenforce
+podman info --format '{{.Host.Security.SELinuxEnabled}}'
+gh auth token
+=== files
+dir  home/.claude-tokens 0700
+dir  home/.claude-tokens/ccy 0700
+dir  home/.claude-tokens/ccy/projects 0700
+dir  home/.claude-tokens/ccy/tokens 0700
+file home/.claude-tokens/ccy/tokens/old.2030-01-14.token 0600
+     | {token:old}
+dir  project/.claude 0700
+dir  project/.claude/ccy 0700
+file project/.claude/ccy/.gitignore 0600
+     | # CCY session data - NEVER commit sensitive files
+     | # Only .gitignore, Dockerfile, allowed-hostnames, ccy.env, ccy.env.local.dist,
+     | # mounts and the claude-supervise* supervisor (any extension or none) are safe
+     | # to track. ccy.env.local is this checkout's own and is never tracked.
+     | *
+     | !.gitignore
+     | !Dockerfile
+     | !allowed-hostnames
+     | !ccy.env
+     | !ccy.env.local.dist
+     | !mounts
+     | !claude-supervise*
+file project/.claude/ccy/ccy.env.local.dist 0600
+     | # ccy.env.local.dist version 3
+     | #
+     | # Written by ccy on every launch: commit it, never edit it (ccy rewrites it).
+     | #
+     | # The template for ccy.env.local, this checkout's own settings: the role one install
+     | # plays, never secrets and never anything every clone should share (that goes in
+     | # ccy.env). ccy.env.local is never committed. It is placed by the install's own
+     | # infrastructure-as-code, not by hand and not by an agent working in the checkout.
+     | # ccy sources it inside the container, after ccy.env, so its values win.
+     | #
+     | # To make one: copy this file to ccy.env.local, change the line below to
+     | # "# based on ccy.env.local.dist version 3", and uncomment what this install needs.
+     | # When this dist's version moves on, ccy says so at launch: compare the two files.
+     | #
+     | # based on ccy.env.local.dist version 3
+     | 
+     | # ── Hooks daemon host role ────────────────────────────────────────────────────
+     | # The name the hooks daemon matches this session's host against: persistent_crons
+     | # "hosts:" lists and the top-level "hosts:" block in .claude/hooks-daemon.yaml.
+     | # Order: HOOKS_DAEMON_HOSTNAME, then CCY_HOST_HOSTNAME (ccy sets it to the host
+     | # machine's name), then the container's hostname. Set it to give this install a
+     | # role, e.g. the one install that runs a role-scoped cron job. Only matters in a
+     | # project that uses the hooks daemon.
+     | # It also names the host part of the handle of an agent team bus seat that
+     | # "ccy --teams <seat>@<team>" creates in this checkout; unset, that part is "local".
+     | # A team is chosen by each launch, never here: the container refuses to start when
+     | # this file sets a bus variable.
+     | #export HOOKS_DAEMON_HOSTNAME=<role-name>

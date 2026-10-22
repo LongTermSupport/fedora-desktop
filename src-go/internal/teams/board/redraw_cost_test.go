@@ -14,8 +14,9 @@ func bigWorld(t *testing.T) rig {
 	t.Helper()
 	h := populated(t)
 	var declared, units, status strings.Builder
+	declared.WriteString("agent_bus_address: 192.0.2.10\nagent_bus_teams:\n")
 	for _, team := range []string{"alpha", "beta", "gamma"} {
-		declared.WriteString("TEAM\t" + team + "\t6167\tpresent\t" + team + ".agent-bus.internal\thttp://192.0.2.10:6167\t-\n")
+		declared.WriteString("  - team: " + team + "\n    port: 6167\n")
 		units.WriteString("agent-bus-hs@" + team + ".service loaded active running Homeserver " + team + "\n")
 		status.WriteString("STATUS\t" + team + "\tcurrent\t-\n")
 		h.On(teamtest.SudoBus+"list "+team, teamtest.BusList, 0)
@@ -23,7 +24,7 @@ func bigWorld(t *testing.T) rig {
 			h.On(teamtest.SudoBus+"human devices "+team+" "+human, "DEVICE\ta\t-\n", 0)
 		}
 	}
-	h.OnDeclare("declared", declared.String())
+	h.WriteHostVars(t, declared.String())
 	h.OnDeclare("status", status.String())
 	h.On("systemctl list-units", units.String(), 0)
 	return h
@@ -33,15 +34,19 @@ func bigWorld(t *testing.T) rig {
 // the redraw was cut: 21 on every draw (declare.py declared and status, git, systemctl list-units
 // and one is-active per team, tmux, the user's agent-bus seat list, one sudo agent-bus list per
 // team and one sudo agent-bus human devices per person). A redraw happens after every key.
+// The seats and the declaration are read in-process, so no seat list process starts and
+// declare.py runs once, for status. Nothing the verdict is computed from changes between the
+// draws, so the redraw reuses the first draw's status answer and starts no declare.py
+// (SPEC-view.md V40).
 func TestARedrawStartsFewProcessesAndTheFirstDrawReadsEachPersonOnce(t *testing.T) {
 	h := bigWorld(t)
 	first := map[string]int{
-		"declare.py overview": 1, "systemctl": 1, "tmux": 1, "git": 1,
-		"agent-bus (user) seat list": 1, "agent-bus list": 3, "agent-bus human devices": 9,
+		"declare.py status": 1, "systemctl": 1, "tmux": 1, "git": 1,
+		"agent-bus list": 3, "agent-bus human devices": 9,
 	}
 	redraw := map[string]int{
-		"declare.py overview": 1, "systemctl": 1, "tmux": 1,
-		"agent-bus (user) seat list": 1, "agent-bus list": 3,
+		"systemctl": 1, "tmux": 1,
+		"agent-bus list": 3,
 	}
 	if _, err := h.c.Collect(t.Context()); err != nil {
 		t.Fatal(err)
