@@ -110,6 +110,74 @@ func TestReleaseRetriesATransientNotice(t *testing.T) {
 	}
 }
 
+// NT3 (n2e-D7): a transient notice failure is recorded with until_ms ten minutes on; a retry
+// before it asks again and keeps it, one at or after it records the notice not posted in time
+// and the release retires the token.
+func TestATransientNoticeHoldsAReleaseTenMinutesAtMost(t *testing.T) {
+	w := newWorld(t)
+	w.seed()
+	taken := w.take("s1")
+	w.keep("s1", lockRecord)()
+	w.notices.answer(Outcome{}, errors.New("rate limited"))
+	until := w.clock.Now().Add(noticeBound).UnixMilli()
+	if err := w.release("s1", false); err == nil {
+		t.Fatal("a transient notice failure completed the release")
+	}
+	if rec := w.heldNotice(); rec.Posted || rec.Why != whyTransient || rec.UntilMS != until {
+		t.Fatalf("notice.json after the first failure: %+v", rec)
+	}
+	w.sleep(noticeBound - time.Millisecond)
+	if err := w.release("s1", false); err == nil {
+		t.Fatal("a retry before until_ms completed the release")
+	}
+	if rec := w.heldNotice(); rec.UntilMS != until || len(w.notices.calls()) != 2 {
+		t.Fatalf("a retry moved until_ms or did not ask: %+v, %d calls", rec, len(w.notices.calls()))
+	}
+	w.sleep(time.Millisecond)
+	if err := w.release("s1", false); err != nil {
+		t.Fatalf("the release at until_ms: %v", err)
+	}
+	if len(w.notices.calls()) != 2 || exists(t, w.pool().HeldToken()) {
+		t.Errorf("at until_ms: %d calls, token kept %v", len(w.notices.calls()), exists(t, w.pool().HeldToken()))
+	}
+	rec, err := decodeNoticeRecord([]byte(readFile(t, w.releasedPool(taken)+"/notice.json")))
+	if err != nil || rec.Posted || rec.Why != whyNotInTime || rec.UntilMS != 0 {
+		t.Errorf("notice.json %+v, %v", rec, err)
+	}
+}
+
+func (w *world) heldNotice() NoticeRecord {
+	w.t.Helper()
+	rec, err := decodeNoticeRecord([]byte(readFile(w.t, w.pool().HeldNotice())))
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	return rec
+}
+
+func (w *world) sleep(d time.Duration) {
+	w.t.Helper()
+	if err := w.clock.Sleep(w.t.Context(), d); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+// NT3: until_ms is a not-posted record's only, and never negative.
+func TestNoticeRecordUntil(t *testing.T) {
+	for _, bad := range []string{
+		`{"v":1,"claim":"0123456789abcdef","run":"0123456789abcdef","posted":true,"until_ms":5}`,
+		`{"v":1,"claim":"0123456789abcdef","run":"0123456789abcdef","posted":false,"why":"x","until_ms":-1}`,
+	} {
+		if _, err := decodeNoticeRecord([]byte(bad)); err == nil {
+			t.Errorf("decoded %s", bad)
+		}
+	}
+	good := `{"v":1,"claim":"0123456789abcdef","run":"0123456789abcdef","posted":false,"why":"x","until_ms":5}`
+	if rec, err := decodeNoticeRecord([]byte(good)); err != nil || rec.UntilMS != 5 {
+		t.Errorf("%+v, %v", rec, err)
+	}
+}
+
 // SD1: a lock that names no run, or a run whose launch failed, asks no notice.
 func TestReleaseSkipsANoticeWithNoRun(t *testing.T) {
 	for name, content := range map[string]*string{
