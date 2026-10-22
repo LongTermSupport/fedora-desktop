@@ -233,7 +233,7 @@ func (r *run) leftOffline(m *member, why string, parked bool) {
 // leaveGuest is steps 2-5 in a running guest. A leaver whose user the guest's passwd no longer
 // names has no file the host can reach as that user: only its unit is removed.
 func (r *run) leaveGuest(ctx context.Context, g *guestBox, m *member, parked bool) {
-	passwd, err := readGuest(g.root, guestPasswd, guestfacts.MaxPasswd)
+	passwd, err := readGuest(g.root, guestPasswd)
 	if err == nil {
 		m.acct, err = guestfacts.Passwd(passwd, m.decl.User, r.d.HostUIDs)
 	}

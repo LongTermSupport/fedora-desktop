@@ -9,6 +9,7 @@ import (
 	"io"
 	"maps"
 	"slices"
+	"sync"
 
 	memberstate "github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/state"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
@@ -49,15 +50,25 @@ type guestSeen struct {
 	err   error
 }
 
-// probeGuests is step 3's probe of every LXC member's seat lock.
+// probeGuests is step 3's probe of every LXC member's seat lock, all at once (LP1): each probe
+// is bounded, so the team's take as long as its slowest.
 func (t *Tick) probeGuests(ctx context.Context, team paths.TeamID, f *facts) map[string]guestSeen {
-	seen := map[string]guestSeen{}
+	var (
+		mu   sync.Mutex
+		wg   sync.WaitGroup
+		seen = map[string]guestSeen{}
+	)
 	for _, m := range f.view.Members {
 		if m.Kind == status.KindLXC {
-			probe, err := t.cfg.Guests.Probe(ctx, team, m.Handle)
-			seen[m.Handle] = guestSeen{probe: probe, err: err}
+			wg.Go(func() {
+				probe, err := t.cfg.Guests.Probe(ctx, team, m.Handle)
+				mu.Lock()
+				defer mu.Unlock()
+				seen[m.Handle] = guestSeen{probe: probe, err: err}
+			})
 		}
 	}
+	wg.Wait()
 	return seen
 }
 

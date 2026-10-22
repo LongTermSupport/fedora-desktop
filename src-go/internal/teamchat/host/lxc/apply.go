@@ -591,7 +591,7 @@ func (r *run) reads(ctx context.Context, g *guestBox) {
 		r.readsFailed(ctx, g, "addresses", err)
 		return
 	}
-	passwd, err := readGuest(root, guestPasswd, guestfacts.MaxPasswd)
+	passwd, err := readGuest(root, guestPasswd)
 	if err != nil {
 		r.readsFailed(ctx, g, stepReads, err)
 		return
@@ -620,9 +620,9 @@ func (r *run) readsFailed(ctx context.Context, g *guestBox, step string, err err
 	}
 }
 
-// readGuest is a guest file that must be there.
-func readGuest(root Root, p string, limit int64) ([]byte, error) {
-	data, _, found, err := root.ReadFile(p, limit)
+// readGuest is a guest account file (passwd, group) that must be there.
+func readGuest(root Root, p string) ([]byte, error) {
+	data, _, found, err := root.ReadFile(p, guestfacts.MaxPasswd)
 	if err != nil {
 		return nil, err
 	}
@@ -795,7 +795,7 @@ func (r *run) service(g *guestBox, m *member) error {
 	if err = tmux(g.root); err != nil {
 		return err
 	}
-	group, err := readGuest(g.root, guestGroup, guestfacts.MaxPasswd)
+	group, err := readGuest(g.root, guestGroup)
 	if err != nil {
 		return err
 	}
