@@ -872,9 +872,9 @@ text stream is expected. Found and defended under Defence Before Fix.
 **How to fix a finding.** Use `io.StringIO` to collect output. For a wrapper (a lock, a
 filter), derive from `io.TextIOBase`, which supplies `writelines` and `print(file=)`
 support through `write`, and delegate `flush` to the wrapped stream. Where several
-threads share the stream, write each line with one `write` call: `print(file=)` makes two writes, so
-another thread's line can land between them. Never add the one
-missing method: the next consumer calls another.
+threads share the stream, write each line with one `write` call: `print(file=)` makes two
+writes, so another thread's line can land between them. Never add the one missing method:
+the next consumer calls another.
 
 **What it does not see.** A stand-in defined in one module and handed over in another, or
 passed positionally. Those are found by reading; the sweep that defended this rule found

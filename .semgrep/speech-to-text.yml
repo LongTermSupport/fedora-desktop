@@ -200,8 +200,9 @@ rules:
   # (directly or through a variable, tuple assignments included), assigned to sys.stdout
   # or sys.stderr, given to redirect_stdout/redirect_stderr, or assigned over a parameter
   # whose annotation names TextIO or IO[str] anywhere in it. semgrep anchors a
-  # metavariable-regex at the start of the value, so each regex spans the whole of it. A stand-in defined in one
-  # module and handed over in another, or passed positionally, is not seen.
+  # metavariable-regex at the start of the value, so each regex spans the whole of it.
+  # A stand-in defined in one module and handed over in another, or passed
+  # positionally, is not seen.
   - id: stream-stand-in-not-a-text-stream
     languages: [python]
     patterns:
