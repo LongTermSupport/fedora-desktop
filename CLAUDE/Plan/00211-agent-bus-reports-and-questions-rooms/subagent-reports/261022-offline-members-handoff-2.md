@@ -19,14 +19,30 @@ F44 merged in (no change since c159e6626). The first handoff is `261022-offline-
 - `./scripts/qa-changed.bash --base F44` passed (rc 0) before `1d9951f0e`.
 - Opus review round 1: `261022-offline-members-review-round1.md`, VERDICT FIX-FIRST.
 
-## Left
+## Round 1 findings answered so far
 
-1. Round 1 findings 1-12 (in that file). In short: check-rooms must decide offline from the
-   member's `agent_bus.status` liveness (listening, `until` in the future) not from a pending
-   invite, and treat ban/knock/any other state as a PROBLEM; winddown `byRecord` and shutdown
-   `lxc.go` must send record `stopped` items through the live container check; 00211 stage 2
-   "not driven from here" wording and judging every coordinator's join; 00211 SPEC.md,
-   ACCEPTANCE-owner.md, PLAN.md Tasks 2.5/2.6 rewritten; 00213 and 00203 R9 "NOT JUDGED"
-   verdict text when nothing was judged; minors 7-12; a follow-up task in 00211 PLAN.md for
-   roles deciding an entry with host+seat+repo by its fields.
-2. Conformance round 2, then Opus review round 2+ until MERGE; rerun qa-changed --base F44.
+- 1, 2, 7, 4 (wording; A1/A2 judges joins), 9 (stage-2 wording): `521e97108`. check-rooms reads
+  each coordinator's `agent_bus.status` in the team room (`protocol.read_status`, `now_ms`
+  parameter): listening and not joined is a PROBLEM, no live status is OFFLINE, ban/other is a
+  PROBLEM. This needed CCY 3.99.14.14 / container 2.78.17 (changelog entry, meta-deploy.list,
+  00211 PLAN.md updated). The DBF report still says 3.99.14.13: fix it.
+- 3: `0be44b47f` (winddown `byRecord`, shutdown `lxc.go`: record `stopped` goes through the live
+  container list; tests first). `go test ./internal/teams/...` and golangci-lint green.
+
+## Left (round 1 findings in `261022-offline-members-review-round1.md`)
+
+1. Finding 5: rewrite 00211 SPEC.md (lines ~268-269, 340-355, 370-378, 742-744),
+   ACCEPTANCE-owner.md:6-7, PLAN.md Tasks 2.5/2.6 to the offline behaviour; record the §11.2
+   scope change (an offline coordinator leaves the test question and A5 NOT JUDGED).
+2. Finding 6: 00213 `acceptance.bash:110` / `c3_lxc` and 00203 R9 print a NOT JUDGED verdict
+   when no member was judged, not "installed everywhere" / a plain pass.
+3. Finding 8: roles.go ~394-397 says "its checkout could not be read (...)" unless the container
+   list says stopped. Finding 9b: restart/jobs.go give back the cleanup hint ("ccy-sessions ends
+   the leftover tmux session") without "then run restart again to start it".
+4. Finding 10: R9 lists only declared member containers (MEMBERS_JSON / host_vars), not `lxc-ls`.
+5. Nits 11-12 (`plan_lxc_online` offline names on a fixed prefix the callers filter; ABORTING
+   is a failure, FROZEN etc. named by raw state). Update scripts/test-planlib.bash.
+6. Follow-up task in 00211 PLAN.md: roles decides an entry giving host+seat+repo by its fields
+   (needs `Repo` on `declare.LxcMember`).
+7. Update the DBF report, run `./scripts/qa-changed.bash --base F44`, conformance round 2, then
+   Opus review round 2+ until MERGE (`261022-offline-members-review-roundN.md`).
