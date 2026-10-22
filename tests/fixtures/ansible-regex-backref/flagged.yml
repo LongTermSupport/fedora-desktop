@@ -78,3 +78,14 @@
   ansible.builtin.debug:
     msg: unreachable
   until: (s | regex_search('a(b)', '\1') | first) == 'b'  # EXPECT-FINDING
+
+- name: Loop break_when, one backslash
+  ansible.builtin.debug:
+    msg: unreachable
+  loop: [1]
+  loop_control:
+    break_when: (s | regex_search('a(b)', '\1') | first) == 'b'  # EXPECT-FINDING
+
+- name: Debug var is a bare expression, which Jinja unescapes, one backslash
+  ansible.builtin.debug:
+    var: s | regex_search('a(b)', '\1') | first  # EXPECT-FINDING

@@ -69,6 +69,17 @@
     that:
       - (s | regex_replace('a(b)', '\\1')) == 'b'
 
+- name: Loop break_when, two backslashes
+  ansible.builtin.debug:
+    msg: reached
+  loop: [1]
+  loop_control:
+    break_when: (s | regex_search('a(b)', '\\1') | first) == 'b'
+
+- name: Debug var is a bare expression, which Jinja unescapes, two backslashes
+  ansible.builtin.debug:
+    var: s | regex_search('a(b)', '\\1') | first
+
 - name: A conditional wholly in delimiters is a template, one backslash
   ansible.builtin.debug:
     msg: reached

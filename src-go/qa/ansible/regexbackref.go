@@ -20,9 +20,10 @@ import (
 //   - YAML, in a double-quoted scalar only: \\ becomes \. The YAML library decodes the scalar, so
 //     the check reads what Jinja reads, whatever the style.
 //   - Jinja, outside {{ }} only. Ansible's lexer doubles the backslashes of every string constant
-//     inside {{ }} in task data, which cancels Jinja's own escape processing there; conditionals
-//     (when, changed_when, failed_when, until, that, evaluated as bare expressions), {% %}
-//     statements and .j2 templates keep it: \\ becomes \, and \1 becomes the character 0x01.
+//     between {{ and }} in task data, which cancels Jinja's own escape processing there. A bare
+//     expression has no {{ }} (a conditional: when, changed_when, failed_when, until, that,
+//     break_when; the debug action's var), and neither has a {% %} statement, so Jinja unescapes
+//     those, as it does all of a .j2 template: \\ becomes \, and \1 becomes the character 0x01.
 //
 // A run of k backslashes before a digit or g< therefore reaches the filter as k in {{ }}, and as
 // k/2 (k even) or as a control character (k odd) in an unescaping context. A group argument of
@@ -34,8 +35,14 @@ import (
 // regexFilters are the filters whose string arguments the check reads, by their short name.
 var regexFilters = map[string]bool{"regex_search": true, "regex_replace": true, "regex_findall": true}
 
-// conditionalKeys are the task keys Ansible evaluates as a bare expression.
-var conditionalKeys = map[string]bool{"when": true, "changed_when": true, "failed_when": true, "until": true, "that": true}
+// conditionalKeys are the task keys Ansible evaluates as a conditional (loop_control's
+// break_when included).
+var conditionalKeys = map[string]bool{
+	"when": true, "changed_when": true, "failed_when": true, "until": true, "that": true, "break_when": true,
+}
+
+// debugModules are the names of the debug action, whose var argument is a bare expression.
+var debugModules = map[string]bool{"debug": true, "ansible.builtin.debug": true, "ansible.legacy.debug": true}
 
 // backrefRun is a run of backslashes followed by a group digit or a named group.
 var backrefRun = regexp.MustCompile(`\\+(?:[0-9]|g<)`)
@@ -51,6 +58,7 @@ const (
 	ctxTemplate    evalContext = iota // {{ }} in task data: backslashes reach the filter as written
 	ctxStatement                      // {% %}: Jinja unescapes
 	ctxConditional                    // a bare conditional: Jinja unescapes
+	ctxBare                           // another bare expression (debug's var): Jinja unescapes
 )
 
 func (c evalContext) String() string {
@@ -59,6 +67,8 @@ func (c evalContext) String() string {
 		return "{% %}"
 	case ctxConditional:
 		return "conditional"
+	case ctxBare:
+		return "bare expression"
 	case ctxTemplate:
 	}
 	return "{{ }}"
@@ -100,28 +110,40 @@ func regexBackrefs(rel string, data []byte) []string {
 			}
 			return append(findings, rel+":"+line+": cannot be parsed as YAML, so its backreferences cannot be judged: "+err.Error())
 		}
-		visit(&doc, false, func(n *yaml.Node, conditional bool) {
-			for _, why := range scalarFindings(n, conditional) {
+		visit(&doc, "", ctxTemplate, func(n *yaml.Node, bare evalContext) {
+			for _, why := range scalarFindings(n, bare) {
 				findings = append(findings, rel+":"+strconv.Itoa(n.Line)+": "+why)
 			}
 		})
 	}
 }
 
-// visit calls each for every string scalar under n, saying whether it is a conditional's value.
-func visit(n *yaml.Node, conditional bool, each func(*yaml.Node, bool)) {
+// visit calls each for every string scalar under n (held under the mapping key key), saying
+// whether it is a bare expression: ctxConditional or ctxBare, else ctxTemplate (a templated string).
+func visit(n *yaml.Node, key string, bare evalContext, each func(*yaml.Node, evalContext)) {
 	switch n.Kind {
 	case yaml.ScalarNode:
 		if n.Tag == "!!str" {
-			each(n, conditional)
+			each(n, bare)
 		}
 	case yaml.MappingNode:
 		for i := 0; i+1 < len(n.Content); i += 2 {
-			visit(n.Content[i+1], conditionalKeys[n.Content[i].Value], each)
+			child, ctx := n.Content[i].Value, ctxTemplate
+			switch {
+			case conditionalKeys[child]:
+				ctx = ctxConditional
+			case debugModules[key] && child == "var":
+				ctx = ctxBare
+			}
+			visit(n.Content[i+1], child, ctx, each)
 		}
-	case yaml.DocumentNode, yaml.SequenceNode:
+	case yaml.SequenceNode:
+		for _, item := range n.Content {
+			visit(item, key, bare, each)
+		}
+	case yaml.DocumentNode:
 		for _, child := range n.Content {
-			visit(child, conditional && n.Kind == yaml.SequenceNode, each)
+			visit(child, "", ctxTemplate, each)
 		}
 	case yaml.AliasNode:
 	}
@@ -134,13 +156,13 @@ type region struct {
 }
 
 // scalarFindings checks every regex filter call in one scalar's value.
-func scalarFindings(n *yaml.Node, conditional bool) []string {
+func scalarFindings(n *yaml.Node, bare evalContext) []string {
 	var regions []region
 	trimmed := strings.TrimSpace(n.Value)
 	allTemplate := (strings.HasPrefix(trimmed, "{{") || strings.HasPrefix(trimmed, "{%")) &&
 		(strings.HasSuffix(trimmed, "}}") || strings.HasSuffix(trimmed, "%}"))
-	if conditional && !allTemplate {
-		regions = []region{{n.Value, ctxConditional}}
+	if bare != ctxTemplate && !allTemplate {
+		regions = []region{{n.Value, bare}}
 	} else {
 		regions = templateRegions(n.Value)
 	}

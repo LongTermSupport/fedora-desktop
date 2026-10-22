@@ -623,7 +623,9 @@ today; rewriting them is out of scope.
       defence is the rule `regex-backref-escape` in `qa-ansible` (`CLAUDE/QA.md`, fixtures in
       `tests/fixtures/ansible-regex-backref/`). The sweep found 1 instance in 7 backreference
       sites, and the independent search agreed
-      (`subagent-reports/261022-regex-group-independent-search.md`). Open for the owner: the
+      (`subagent-reports/261022-regex-group-independent-search.md`). The real-Ansible proofs are
+      `regex-backref-proof/fixture_labels.py` and `regex-backref-proof/play_task.py`; the report
+      is `subagent-reports/261022-regex-group-dbf-report.md`. Open for the owner: the
       rule reads YAML only, so `.j2` templates (which unescape) are undefended. None uses a
       regex filter today.
     - The failing project handler test is Task 4.6.

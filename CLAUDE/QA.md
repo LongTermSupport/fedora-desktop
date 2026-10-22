@@ -924,20 +924,21 @@ fails. Two layers may strip backslashes before the filter sees them:
 
 - **YAML** unescapes only a double-quoted scalar (`"\\1"` becomes `\1`). Plain, single-quoted
   and block scalars (`|`, `>-`) keep every backslash.
-- **Jinja** unescapes everywhere except inside `{{ }}` in task data, where Ansible's lexer
-  cancels it. Conditionals evaluated as bare expressions (`when`, `changed_when`,
-  `failed_when`, `until`, assert `that`) and `{% %}` statements do unescape, so `'\1'` there
-  becomes the character 0x01.
+- **Jinja** unescapes everywhere except between `{{` and `}}` in task data, where Ansible's
+  lexer cancels it. A bare expression has no `{{ }}`, so it is unescaped. That covers the
+  conditionals (`when`, `changed_when`, `failed_when`, `until`, `loop_control.break_when`,
+  assert `that`) and the debug action's `var`. `{% %}` statements are unescaped too. In all
+  of these, `'\1'` becomes the character 0x01.
 
 So the same text is right in one place and wrong in another. `'\\1'` is correct in a
 `>-` `changed_when:` and fails in a `>-` `set_fact:` value.
 
 **How to fix a finding.** Write the spelling the message gives:
 
-| Where the expression sits            | Plain, single-quoted or block scalar | Double-quoted scalar |
-| ------------------------------------ | ------------------------------------ | -------------------- |
-| `{{ }}` in task data, vars, set_fact | `'\1'`                               | `'\\1'`              |
-| bare conditional, `{% %}` statement  | `'\\1'`                              | `'\\\\1'`            |
+| Where the expression sits              | Plain, single-quoted or block scalar | Double-quoted scalar |
+| -------------------------------------- | ------------------------------------ | -------------------- |
+| `{{ }}` in task data, vars, set_fact   | `'\1'`                               | `'\\1'`              |
+| bare conditional, debug `var`, `{% %}` | `'\\1'`                              | `'\\\\1'`            |
 
 A replacement that puts a literal backslash before the group (three backslashes in
 `{{ }}`) is allowed. To match a literal backslash before a digit in a pattern, write the

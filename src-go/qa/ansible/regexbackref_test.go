@@ -98,6 +98,18 @@ func TestRegexBackrefNamesTheReceivedCountAndTheFix(t *testing.T) {
 				`in a block scalar's conditional write '\\1'`,
 		},
 		{
+			"the debug action's var, a bare expression",
+			"- ansible.builtin.debug:\n    var: " + `s | regex_search('a(b)', '\1')` + "\n",
+			`t.yml:2: regex_search group argument '\1' reaches the filter as a control character, not a backslash; ` +
+				`in a plain scalar's bare expression write '\\1'`,
+		},
+		{
+			"a var that is not the debug action's is a templated string",
+			"- ansible.builtin.set_fact:\n    var: " + `x{{ s | regex_search('a(b)', '\\1') }}` + "\n",
+			`t.yml:2: regex_search group argument '\\1' reaches the filter as 2 backslashes, not 1; ` +
+				`in a plain scalar's {{ }} write '\1'`,
+		},
+		{
 			"a double-quoted template with four backslashes",
 			`v: "{{ s | regex_search('a(b)', '\\\\1') }}"` + "\n",
 			`t.yml:1: regex_search group argument '\\\\1' reaches the filter as 2 backslashes, not 1; ` +
