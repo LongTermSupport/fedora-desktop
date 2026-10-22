@@ -126,9 +126,16 @@ assumed here.
   a verdict: upstream publishes it for any failure of the forked prompt, including a model
   error after the message is stored, and it names only the session (`handlers/session.ts`,
   `promptAsync`). On one, the link reads the message list and settles each awaiting entry by
-  its own needle: found is `proven`; an entry whose needle is absent once the session is idle
-  again may be declared `missing` without the 180 s wait, its items returning as B 2.7.3
-  says. So a turn that fails after the message is stored never causes a second copy.
+  its own needle: found is `proven`; an entry whose needle is absent stays `awaiting` under
+  B 2.7.4's missing rule (180 s quiet once idle, or 1 h), unchanged, so the link's item rules
+  stay outside the seam. So a turn that fails after the message is stored never causes a
+  second copy. B 2.7.4's late find carries over as a re-read: each `missed` nonce is looked
+  for in the message list for 24 h, with B's late-find outcomes.
+- **Two implementation choices left open.** The link may set its own `messageID` on each
+  `prompt_async` (upstream `prompt.ts` takes a client-supplied id) and check that message as
+  well as the needle. And instead of the keeper choosing a port, CMD may be given `--port 0`
+  (upstream tries 4096, then any free port) and the link find CMD's listening port by the
+  same `/proc` ownership lookup, which removes the window between check and bind.
 - **Idle and busy** come from `session.status` and `session.idle` events instead of the Stop
   and UserPromptSubmit hooks, and drive the quiet clock and the 180 s and 1 h rules unchanged.
 - **The frame text** (A 13.5) and the skill text reach the model as a `noReply: true` message
