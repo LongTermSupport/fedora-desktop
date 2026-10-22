@@ -64,7 +64,8 @@ one definition, read by both.
   `playbooks/imports/`. Only a run that judged states one, as with the pins
   (`login_report.freshness_section`). Like the pins' coverage it is recorded in the
   document, not shown. A ledgered play outside `playbooks/imports/` (a `playbooks/dev/`
-  play) is no longer a finding, because `--changed` does not run it.
+  play) is no longer a finding, because `--changed` does not run it, and no longer a panel
+  row, so `fedora-desktop-health --run-play` refuses it.
 - [x] ✅ **Task 1.4**: The panel's "Re-run a play…" count counts the plays `--changed` runs:
   every state but `fresh` and `unresolved`, so a state the panel has no words for still
   counts.

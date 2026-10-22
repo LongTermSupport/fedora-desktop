@@ -103,8 +103,9 @@ class TestPlayPaths(unittest.TestCase):
 
     def test_a_play_under_untracked_inside_the_root_is_still_recorded(self):
         # The main-checkout case: inside the root, the row is answerable against
-        # this checkout (commit, dirty, play_sha256), and check_freshness drops it
-        # later as never tracked. The root, not git tracking, is the boundary.
+        # this checkout (commit, dirty, play_sha256), and changed_plays.judge never
+        # judges it (it is not under playbooks/imports/). The root, not git tracking,
+        # is the boundary.
         rc = _collector()
         rc.on_play_start(
             play_path="/repo/untracked/private/play-x.yml", name="X", at="2026-09-14T10:00:00Z"

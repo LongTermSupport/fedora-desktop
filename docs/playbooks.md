@@ -60,7 +60,9 @@ offers the same plays each time, and it warns about this before it asks. A remov
 that has a successor in `helpers/play_ledger/retired-plays.json` runs that successor
 instead. It also names any play it cannot judge (one holding a reference it cannot
 follow), and any other play that is no longer in the checkout. It runs neither.
-`./run.bash --changed --yes` runs the list without asking, for an unattended caller. The
+`./run.bash --changed --yes` runs the list without asking, for a caller nobody answers,
+such as meta-deploy's `changed-plays` entry; it still needs a terminal, because a headless
+run refuses `--changed`. The
 health report judges plays the same way, so the plays it lists as changed or failed are
 the plays `--changed` runs, and it prints this command with the checkout's full path.
 
