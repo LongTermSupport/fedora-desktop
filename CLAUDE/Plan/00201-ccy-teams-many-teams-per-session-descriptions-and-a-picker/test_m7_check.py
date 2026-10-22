@@ -461,6 +461,28 @@ class SegmentTest(TempDir):
             with self.subTest(name):
                 self.assertEqual(run("expect-segment", self.write(name, text), "a,b")[0], 1, why)
 
+    def test_expect_segment_rows_wants_the_teams_alone(self) -> None:
+        """Plan 00203 M3 draws the segment alone (the inner-only variable set): the same rows,
+        with no line before them."""
+        alone = self.write("alone", f"👥 {spans('a: repo.1 (w),', 'b: repo.1 (c)')}\n")
+        wrapped = self.write("wrapped", f"👥 {spans('a: repo.1 (w),')}\n   {spans('b: repo.1 (w) (down)')}\n")
+        refused = {
+            "inner": (f"model | dir\n👥 {spans('a: repo.1 (w),', 'b: repo.1 (c)')}\n", "a line before the rows"),
+            "pre-00217": ("\x1b[36m👥 a (worker), b (coordinator)\x1b[0m\n", "the `team (role)` form"),
+            "role-unknown": (f"👥 {spans('a: repo.1 (w),', 'b: repo.1 (role?)')}\n", "a role not read"),
+            "uncoloured": ("👥 a: repo.1 (w), b: repo.1 (c)\n", "each team in its own colour"),
+            "empty": ("", "no rows"),
+        }
+        self.assertEqual(run("expect-segment-rows", alone, "a,b")[0], 0)
+        self.assertEqual(run("expect-segment-rows", wrapped, "a,b")[0], 0)
+        self.assertEqual(run("expect-segment-rows", alone, "a")[0], 1)
+        for name, (text, why) in refused.items():
+            with self.subTest(name):
+                self.assertEqual(run("expect-segment-rows", self.write(name, text), "a,b")[0], 1, why)
+        golden = (_repo_root() / "src-go/internal/pingbus/statusline/golden/testdata/golden"
+                  / "bus-two-teams-with-roles/1.stdout").read_text(encoding="utf-8")
+        mc.expect_segment(golden, "alpha,beta", inner=False)
+
     def test_the_drawers_golden_two_teams_pass(self) -> None:
         """The golden the Go drawer and statusline.py are both held to: two teams with roles."""
         golden = (_repo_root() / "src-go/internal/pingbus/statusline/golden/testdata/golden"

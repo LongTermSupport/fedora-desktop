@@ -41,6 +41,7 @@ statusline.py). Commands
   expect-session-settings SETTINGS   a seated ccy session's own settings.json: inbound accepted, the seated status line this checkout's seat.py writes
   session-status-line PROC           IN THE SESSION'S CONTAINER: the status line its claude draws, the payload on stdin
   expect-segment OUT TEAMS           the status line printed the session's own line, then 👥 TEAMS on rows of its own
+  expect-segment-rows OUT TEAMS      the status line drawn alone (the inner-only variable set): only the 👥 TEAMS rows
   expect-plain LABELS_JSON ENV_JSON  a ccy session container with no seat label or PINGBUS_ variable but PINGBUS_MEMBERSHIP=off
 
 Exit codes: 0 ok; 1 an expectation failed or the input was malformed; 3 not there yet;
@@ -700,13 +701,14 @@ def _segment_teams(raw_rows: list[str], leads: list[str], piece_re: re.Pattern[s
     return ",".join(match["team"] for match in pieces)
 
 
-def expect_segment(text: str, teams: str, label: tuple[str, str] | None = None) -> None:
+def expect_segment(text: str, teams: str, label: tuple[str, str] | None = None, inner: bool = True) -> None:
     """`pingbus status-line` prints the session's own status line, then `👥 TEAMS` on rows of its
     own: the first row starts with the label, later rows are indented under it (it wraps after a
     comma at COLUMNS). Each team is drawn as segment_piece_re: `team: member (letter)`, then any
     marks, its role one that was read (Plan 00203 Task 3.8) and its member one that was read
     (Plan 00217 C16), each team in its own colour span (C10). TEAMS is the team names alone,
-    comma-separated. `label` is (head, indent), default segment_label()."""
+    comma-separated. `label` is (head, indent), default segment_label(). With `inner` False the
+    segment was drawn alone (the inner-only variable set): no line may come before its rows."""
     head, indent = segment_label() if label is None else label
     statusline = _statusline()
     piece_re = segment_piece_re(statusline)
@@ -714,16 +716,17 @@ def expect_segment(text: str, teams: str, label: tuple[str, str] | None = None) 
     lines = [statusline.ANSI_ESCAPE_RE.sub("", line) for line in raw]
     starts = [index for index, line in enumerate(lines) if line.startswith(head)]
     first = starts[-1] if starts else len(lines)
-    inner = lines[:first]
+    before = lines[:first]
     leads = [head, *(indent for _ in raw[first + 1:])]
     shown = _segment_teams(raw[first:], leads, piece_re, statusline) if first < len(raw) else None
-    if not any(line.strip() for line in inner) or shown != teams:
+    before_ok = any(line.strip() for line in before) if inner else not before
+    if not before_ok or shown != teams:
         letters = "|".join(statusline.ROLE_LETTERS.values())
         want = ", ".join(segment_piece(statusline).replace(_PIECE_TEAM, team)
                          .replace(_PIECE_MEMBER, "<member>").replace(_PIECE_LETTER, letters)
                          for team in teams.split(","))
-        raise Failed(f"the status line is {raw!r}, want the session's own line then {head}{want}, "
-                     "each team in its own colour")
+        lead = "the session's own line then " if inner else "nothing but "
+        raise Failed(f"the status line is {raw!r}, want {lead}{head}{want}, each team in its own colour")
 
 
 def expect_plain(labels: object, env: object) -> None:
@@ -835,6 +838,7 @@ COMMANDS: dict[str, tuple[int, Callable[[Sequence[str]], int | None]]] = {
         lambda a: _print(session_status_line(pathlib.Path(a[0]), sys.stdin.read().encode("utf-8"))),
     ),
     "expect-segment": (2, lambda a: expect_segment(_read(a[0]), a[1])),
+    "expect-segment-rows": (2, lambda a: expect_segment(_read(a[0]), a[1], inner=False)),
     "expect-plain": (2, lambda a: expect_plain(_json_file(a[0]), _json_file(a[1]))),
 }
 

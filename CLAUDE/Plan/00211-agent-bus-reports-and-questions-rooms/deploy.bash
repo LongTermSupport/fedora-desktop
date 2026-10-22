@@ -92,8 +92,10 @@ fi
 spike_passed() {
     local runs dirs report verdict
     # The PASS verdict is spike_probe.py's VERDICT_PASS, the line it writes, never a copy.
-    if ! verdict="$(env PYTHONPATH="${PLAN_REPO_ROOT}" python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import spike_probe; print(spike_probe.VERDICT_PASS)' \
-        "${PLAN_SCRIPT_DIR}")" || [[ -z "${verdict}" ]]; then
+    # -I keeps the caller's cwd and PYTHON* off the path; the repo root (for helpers.*) and the
+    # plan folder are put on it explicitly.
+    if ! verdict="$(python3 -I -c 'import sys; sys.path[:0] = sys.argv[1:3]; import spike_probe; print(spike_probe.VERDICT_PASS)' \
+        "${PLAN_SCRIPT_DIR}" "${PLAN_REPO_ROOT}")" || [[ -z "${verdict}" ]]; then
         printf '[FATAL] cannot read VERDICT_PASS from %s/spike_probe.py (above)\n' "${PLAN_SCRIPT_DIR}" >&2
         exit 1
     fi

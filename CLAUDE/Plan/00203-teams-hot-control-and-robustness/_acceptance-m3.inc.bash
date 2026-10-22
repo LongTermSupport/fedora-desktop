@@ -20,12 +20,13 @@
 #
 # THE TEAM FILES AND THE HUMAN'S CLIENT CALLS reuse Plan 00201's m7_check.py (team-file,
 # host-vars, bus-ports, github-owner, member-field, room-path, login-body, access-token,
-# user-line, turns, session-id), by path.
+# user-line, turns, session-id, expect-segment-rows), by path.
 #
 # CHECKS (each judged from what a tool printed or recorded, never from the model's prose)
 #   (a) `ccy-teams session add <s> acc-m3b --yes` exits 0, every step ✓ or -, no relaunch
 #   (b) the session's transcript has the MEMBERSHIP notice naming acc-m3b; its status line
-#       says 👥 acc-m3a (<role>), acc-m3b (<role>), each role worker or coordinator
+#       shows both teams, judged by m7_check expect-segment-rows in the form statusline.py draws
+#       (Plan 00217: `team: member (letter)`, each team in its own colour, a role that was read)
 #   (c) a message from the human in acc-m3b reaches the conversation (a HUMAN delivery)
 #   (d) `session remove <s> acc-m3b --yes` exits 0 with the re-baseline; the transcript has the
 #       notice that it left; the room has the goodbye; agent-bus seat list shows the seat free;
@@ -260,18 +261,27 @@ m3_check_add() {
     m3_human_login || return 1
 }
 
+# m3_status_line — the segment drawn alone (inner-only variable set), judged by m7_check
+# expect-segment-rows: the form statusline.py draws, never a copy here. Its failure is "not yet"
+# (3) while the poll runs, with the reason kept in the evidence; anything else stops the leg.
 m3_status_line() {
-    local line
-    line="$(podman exec -i -e "PINGBUS_HOME=${M3_PB_HOME}" -e "${M3_INNER_VAR}=1" "${M2_CTR[${M3_NAME}]}" \
-        pingbus status-line <<<'{}')" || return 1
-    printf '%s\n' "${line}" >"$(m3_ev status-line)"
-    [[ "${line}" =~ "${M3_SEG_HEAD}${M3_TEAM_A} ("(worker|coordinator)"), ${M3_TEAM_B} ("(worker|coordinator)")" ]] || return 3
+    local status=0
+    podman exec -i -e "PINGBUS_HOME=${M3_PB_HOME}" -e "${M3_INNER_VAR}=1" "${M2_CTR[${M3_NAME}]}" \
+        pingbus status-line <<<'{}' >"$(m3_ev status-line)" || return 1
+    "${M3_CHECK[@]}" expect-segment-rows "$(m3_ev status-line)" "${M3_TEAM_A},${M3_TEAM_B}" \
+        2>"$(m3_ev status-line.why)" || status=$?
+    [[ "${status}" -eq 0 ]] && return 0
+    [[ "${status}" -eq 1 ]] && return 3
+    return 1
 }
 
 m3_check_notice_and_status() {
     m3_poll "${M3_SEEN_S}" "the joined notice in the transcript" m3_seen "you joined team ${M3_TEAM_B}" || return 1
     m3_seen "kind: MEMBERSHIP" || { printf '[FAIL] the notice is not a MEMBERSHIP envelope\n' >&2; return 1; }
-    m3_poll 10 "the status line naming both teams" m3_status_line || return 1
+    m3_poll 10 "the status line naming both teams" m3_status_line || {
+        [[ ! -s "$(m3_ev status-line.why)" ]] || cat "$(m3_ev status-line.why)" >&2
+        return 1
+    }
 }
 
 m3_check_message() {

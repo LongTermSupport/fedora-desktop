@@ -287,15 +287,23 @@ a repository is no longer offered for a checkout of it. Report:
   read from the product, no product code changed (its A1-A3, A6-A14, A16-A19; A15's subject is
   a plan script): `subagent-reports/261022-m3-referred-fixes.md`. That includes the drifted
   Tuwunel pin in Plan 00161's `triage_probe.py` (v1.9.3, now read from `tuwunel.pin`, v1.9.4).
-  REFERRED TO THE OWNER: the 16 copies of inline message or command text (A4, A5, B2-B15; B9's
-  `DISCONNECT_TEXT` is fixed), and one added after that sweep: Plan 00211's
-  `_acceptance-stage2.inc.bash` fake A3 seat greps for `a host member must not run as a user with an Element profile`, inline in helpers/pingbus/config.py's `ConfigError` and roles.go's
-  refusal. M3's teams segment is read from statusline.py (`_team_piece`, `ROLE_LETTERS`) since
-  Plan 00217 changed it. The product holds each as text inside a call, not as a named
-  value, so the checker can read it only once the product names it. That changes deployed code
-  in pingbus, Go tools, run.bash and the speech-to-text extension, with their version bumps and
-  host deploys, which is a product decision, not a checker fix. Report:
-  `subagent-reports/261022-m3-dbf-report.md`.
+  Round 2 (`subagent-reports/261022-m3-round2-fixes.md`) read B3 (board table), B6 (removal
+  words), B13 (login words) and B7's ✓/✗ marks from the product; B9's `DISCONNECT_TEXT` was
+  already read. M7's and 00203 M3's teams segment is judged by `m7_check expect-segment` /
+  `expect-segment-rows`, read from statusline.py (`_team_piece`, `ROLE_LETTERS`) since Plan
+  00217 changed it.
+  LEFT, CHECKER FIXES: about 25 copies round 2 found and did not fix, in Plan 00203's
+  `_acceptance-m4/m6.inc.bash` (step marks, `/tmp/pingbus-home`, `PINGBUS_STATUS_LINE_INNER`,
+  `membership.json`), `m2-check.bash:25` and `_triage-hs.inc.bash` (`/tmp/pingbus-home`);
+  `m7_check session-paths`, `hot-marks` and `status-line-names` read each. And Plan 00161's
+  `triage_probe.pinned_tuwunel_version` repeats `declare.declared_software`'s inline pin
+  parse (round 2 F3): both strict, but they can drift; declare.py should expose the reader.
+  REFERRED TO THE OWNER: the inline message or command text (A4, A5, B2, B4, B5, B7's
+  "relaunches once"/"re-baseline", B8, B10-B12, B14, B15), and Plan 00211's
+  `_acceptance-stage2.inc.bash` fake A3 seat grep for `a host member must not run as a user with an Element profile` (inline in config.py's `ConfigError` and roles.go). The product holds each
+  as text inside a call, not a named value, so the checker can read it only once the product
+  names it: deployed code changes with version bumps and host deploys, a product decision.
+  Report: `subagent-reports/261022-m3-dbf-report.md`.
 
 ## Success Criteria
 
