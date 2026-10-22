@@ -236,3 +236,20 @@ func TestAMissingRelationIsFetchedOnce(t *testing.T) {
 		t.Errorf("%d fetches", n)
 	}
 }
+
+// SY4a (n3-D20): a human's unaddressed reply to an event the server answers 404 for counts
+// nothing: it may have reached the agent that sent it, so it is ignored and never unheard.
+func TestA404CountsNothing(t *testing.T) {
+	w := newWorld(t)
+	r, release := w.held(w.newTeam())
+	w.say(alice, reply("secret-to-a-lost-post", "$"+"nosucheventanywhere_aaaaaaaaaaaaaaaaaaaaaaa"))
+	release()
+	b := w.batch()
+	if b.Counts.Unheard != 0 || len(b.Items) != 0 {
+		t.Errorf("counts %+v, items %d", b.Counts, len(b.Items))
+	}
+	r.poll(t)
+	if l := w.log.String(); strings.Contains(l, "unheard ") {
+		t.Errorf("log %q", l)
+	}
+}
