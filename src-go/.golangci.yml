@@ -292,6 +292,14 @@ linters:
           - pkg: internal/teamchat/seat
             rules:
               json: snake
+          # C 3.11.3's status record and 3.11.2's lxc-online.json are snake_case host files, as
+          # every teamchat record is.
+          - pkg: internal/teamchat/status
+            rules:
+              json: snake
+          - pkg: internal/teamchat/health
+            rules:
+              json: snake
     cyclop:
       max-complexity: 15
     funlen:
