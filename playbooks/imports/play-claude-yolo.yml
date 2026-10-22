@@ -480,6 +480,8 @@
       loop:
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/common-pure.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/common.bash"
+        - "{{ root_dir }}/files/var/local/claude-yolo/lib/host-paths.bash"
+        - "{{ root_dir }}/files/var/local/claude-yolo/lib/token-handoff.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/ssh-handling.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/token-management.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/network-management.bash"
@@ -552,14 +554,58 @@
         - scripts
         - cleanup
 
-    - name: Copy Wrapper Script to /var/local/
+    # The launcher is two programs (Plan 00191 Task 4.5, the strangler of decision D1): the Go
+    # front (src-go/cmd/claude-yolo) at /var/local/claude-yolo/claude-yolo, which the ccy alias
+    # runs, and the bash launcher beside it as claude-yolo.bash. The bash names the front, not
+    # its own $0, in every session record and every re-run (restores, restarts, the Dockerfile
+    # modes), so nothing replayed later skips the front. The front answers --version and --help and execs the bash for every
+    # other run; CCY_LEGACY=1 sends every run to the bash (docs/ccy.md). The bash goes in first,
+    # so the claude-yolo already there keeps working until the front replaces it; a failed
+    # build stops the play before that.
+    - name: Copy the Bash Launcher Beside the Go Front
       become: true
       ansible.builtin.copy:
         src: "{{ root_dir }}/files/var/local/claude-yolo/claude-yolo"
-        dest: /var/local/claude-yolo/claude-yolo
+        dest: /var/local/claude-yolo/claude-yolo.bash
         owner: root
         group: root
         mode: "0755"
+      tags:
+        - scripts
+        - launchers
+
+    # The front carries CCY_VERSION from -ldflags and refuses --version and --help when it
+    # differs from the bash launcher's, so the build reads it from the same file the copy above
+    # installs.
+    - name: Read CCY_VERSION for the Go Front's Build
+      ansible.builtin.set_fact:
+        ccy_front_version: >-
+          {{ lookup('ansible.builtin.file', root_dir ~ '/files/var/local/claude-yolo/claude-yolo')
+          | regex_search('^CCY_VERSION="([0-9][0-9.]*)"', '\\1', multiline=True)
+          | default([], true) | first | default('') }}
+      tags:
+        - scripts
+        - launchers
+
+    - name: Assert CCY_VERSION Was Read for the Go Front
+      ansible.builtin.assert:
+        that:
+          - ccy_front_version is match('^[0-9][0-9.]*$')
+        fail_msg: >-
+          No CCY_VERSION="x.y.z" line was found in files/var/local/claude-yolo/claude-yolo; the
+          Go front cannot be built without its version.
+      tags:
+        - scripts
+        - launchers
+
+    - name: Build and Install the Go Front of the ccy Launcher
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: claude-yolo
+        go_command_dest: /var/local/claude-yolo/claude-yolo
+        go_command_mode: "0755"
+        go_command_ldflags: "-X main.Version={{ ccy_front_version }}"
+        go_command_owner: root
       tags:
         - scripts
         - launchers

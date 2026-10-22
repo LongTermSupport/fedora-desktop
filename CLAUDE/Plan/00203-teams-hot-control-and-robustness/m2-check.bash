@@ -23,7 +23,11 @@ set -euo pipefail
 
 readonly MOUNT=/run/ccy/membership
 readonly HOME_IN=/tmp/pingbus-home
-readonly LAUNCHER=/var/local/claude-yolo/claude-yolo
+#: The deployed bash launcher, read as text: claude-yolo while it is a script (before CCY
+#: 3.99.14.0, or rolled back), else claude-yolo.bash beside the Go front that claude-yolo became.
+LAUNCHER=/var/local/claude-yolo/claude-yolo
+[[ "$(head -c 2 "${LAUNCHER}")" == '#!' ]] || LAUNCHER=/var/local/claude-yolo/claude-yolo.bash
+readonly LAUNCHER
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #: The inbound probe, relative to the checkout, which a ccy container sees at /workspace.
 readonly PROBE_REL="CLAUDE/Plan/${HERE#*/CLAUDE/Plan/}/m2_inbound.py"
@@ -176,6 +180,7 @@ cmd_image() {
     image="$(podman inspect --format '{{.ImageName}}' "${ctr}")"
     label="$(podman image inspect --format '{{index .Labels "claude-yolo-version"}}' "${image}")"
     required="$(awk -F'"' '/^REQUIRED_CONTAINER_VERSION=/ { print $2; exit }' "${LAUNCHER}")"
+    [[ -n "${required}" ]] || fail "(d) ${LAUNCHER} names no REQUIRED_CONTAINER_VERSION"
     [[ "${label}" == "${required}" ]] || fail "(d) the image ${image} is ${label}, the launcher requires ${required}"
     podman exec "${ctr}" grep -q 'PINGBUS_MEMBERSHIP-' /usr/local/bin/entrypoint.sh \
         || fail "(d) the image's entrypoint does not read PINGBUS_MEMBERSHIP"

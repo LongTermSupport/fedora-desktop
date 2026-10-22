@@ -134,10 +134,13 @@ CCY_LIB_DIR="files/var/local/claude-yolo/lib"
 # (play-claude-yolo.yml) and covered by the runtime hash there (lib/*.py).
 CCY_HELPER_DIR="helpers/ssh_agent_filter"
 
+# The Go front installed as the launcher (src-go/cmd/claude-yolo, internal/ccylaunch: Plan 00191
+# Task 4.5) carries CCY_VERSION too, from -ldflags, so its own sources demand the same bump; its
+# tests and the differential harness under it do not change the program.
 CCY_STAGED=()
 for FILE in "${STAGED_CHANGE_LIST[@]}"; do
-    case "$FILE" in
-        "$CCY_SCRIPT" | "$CCY_LIB_DIR"/*.bash | "$CCY_HELPER_DIR"/*.py) CCY_STAGED+=("$FILE") ;;
+    case "$FILE" in src-go/internal/ccylaunch/difftest/* | src-go/*_test.go) ;;
+        "$CCY_SCRIPT" | "$CCY_LIB_DIR"/*.bash | "$CCY_HELPER_DIR"/*.py | src-go/cmd/claude-yolo/* | src-go/internal/ccylaunch/*) CCY_STAGED+=("$FILE") ;;
     esac
 done
 

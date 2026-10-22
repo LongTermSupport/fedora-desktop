@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
@@ -137,8 +138,6 @@ func newRig(t *testing.T) *rig {
 		r.events = append(r.events, "apply")
 		return nil
 	}
-	w.On(w.DeclarePrefix("declared"), teamtest.DeclaredAlpha, 0)
-	w.OnDeclare("lxc-members", "")
 	w.OnDeclare("lxc-script", theScript)
 	w.OnDeclare("lxc-checkouts", "CHECKOUT\t/srv/agent/one\texample-org/one\t-\n")
 	w.OnDeclare("lxc-derive", derivedLine)
@@ -483,14 +482,16 @@ func TestOnlyRunningContainersAreOfferedAndTheStoppedOnesAreNamed(t *testing.T) 
 // is offered one plainly; a team that has one offers the takeover as its own choice, which
 // names the coordinator and asks again, on No. The role is never changed silently.
 func TestTheCoordinatorIsOfferedPlainlyWhenTheTeamHasNone(t *testing.T) {
-	cases := map[string]string{
-		"none": "",
-		"coordinator declared absent does not count": "LXCMEMBER\talpha\tcontainer-b\tagent\tworker\tcoordinator\tabsent\t/srv/b\t-\n",
-		"another team's coordinator does not count":  "LXCMEMBER\tbeta\tcontainer-b\tagent\tworker\tcoordinator\tpresent\t/srv/b\t-\n",
+	absent, otherTeam := declaredCoordinator, declaredCoordinator
+	absent.State, otherTeam.Team = "absent", "beta"
+	cases := map[string][]declare.LxcMember{
+		"none": nil,
+		"coordinator declared absent does not count": {absent},
+		"another team's coordinator does not count":  {otherTeam},
 	}
 	for name, members := range cases {
 		r := newRig(t)
-		r.OnDeclare("lxc-members", members)
+		r.WriteHostVars(t, teamtest.HostVarsWithLxc(members...))
 		r.answers(choose("container-a"), choose("agent"), choose(coordinator.NoneChoice("alpha")), "YES")
 		if code := r.run("alpha"); code != term.ExitOK {
 			t.Fatalf("%s: exit %d: %s", name, code, r.ErrOut.String())
@@ -526,7 +527,9 @@ func (r *rig) lxcRoleLine() string {
 	return ""
 }
 
-const declaredCoordinator = "LXCMEMBER\talpha\tcontainer-b\tagent\tworker\tcoordinator\tpresent\t/srv/b\t-\n"
+var declaredCoordinator = declare.LxcMember{
+	Team: "alpha", Container: "container-b", User: "agent", Host: "worker", Role: "coordinator", State: "present", Checkout: "/srv/b",
+}
 
 func TestOnATeamWithACoordinatorWorkerIsTheOrdinaryChoiceAndNothingChangesSilently(t *testing.T) {
 	takeover := coordinator.TakeoverChoice(coordinator.Holder{Handle: "agent@container-b", Running: coordinator.Unknown})
@@ -536,7 +539,7 @@ func TestOnATeamWithACoordinatorWorkerIsTheOrdinaryChoiceAndNothingChangesSilent
 		"takeover, then Esc": {choose(takeover), "CANCEL", "YES"},
 	} {
 		r := newRig(t)
-		r.OnDeclare("lxc-members", declaredCoordinator)
+		r.WriteHostVars(t, teamtest.HostVarsWithLxc(declaredCoordinator))
 		r.answers(append([]string{choose("container-a"), choose("agent")}, answers...)...)
 		if code := r.run("alpha"); code != term.ExitOK {
 			t.Fatalf("%s: exit %d: %s", name, code, r.ErrOut.String())
@@ -552,7 +555,7 @@ func TestOnATeamWithACoordinatorWorkerIsTheOrdinaryChoiceAndNothingChangesSilent
 
 func TestTheTakeoverOfADeclaredCoordinatorMakesItsEntryAWorkerFirst(t *testing.T) {
 	r := newRig(t)
-	r.OnDeclare("lxc-members", declaredCoordinator)
+	r.WriteHostVars(t, teamtest.HostVarsWithLxc(declaredCoordinator))
 	r.OnDeclare("lxc-role", "CHANGED\tLXC member agent@container-b in team alpha is now worker, in "+r.Host.HostVars+"\n")
 	h := coordinator.Holder{Handle: "agent@container-b", Running: coordinator.Unknown}
 	r.answers(choose("container-a"), choose("agent"), choose(coordinator.TakeoverChoice(h)), "YES", "YES")
@@ -656,7 +659,9 @@ func TestAnUnreadableUserListIsSaidAndTheUserIsTyped(t *testing.T) {
 
 func TestAUserAlreadyInOneTeamIsAddedToASecond(t *testing.T) {
 	r := newRig(t)
-	r.OnDeclare("lxc-members", "LXCMEMBER\tbeta\tcontainer-a\tagent\tworker\tworker\tpresent\t/srv/a\t-\n")
+	r.WriteHostVars(t, teamtest.HostVarsWithLxc(declare.LxcMember{
+		Team: "beta", Container: "container-a", User: "agent", Host: "worker", Role: "worker", State: "present", Checkout: "/srv/a",
+	}))
 	r.happy()
 	if code := r.run("alpha"); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, r.ErrOut.String())

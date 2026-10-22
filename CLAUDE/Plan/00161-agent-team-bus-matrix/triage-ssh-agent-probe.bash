@@ -19,7 +19,11 @@ probe="${1:?usage: triage-ssh-agent-probe.bash <probe> <repo-root> <work-dir>}"
 repoRoot="${2:?usage: triage-ssh-agent-probe.bash <probe> <repo-root> <work-dir>}"
 work="${3:?usage: triage-ssh-agent-probe.bash <probe> <repo-root> <work-dir>}"
 
-readonly CCY_LAUNCHER="/var/local/claude-yolo/claude-yolo"
+# The bash launcher, read as text: claude-yolo while it is a script (before CCY 3.99.14.0, or
+# rolled back), else claude-yolo.bash beside the Go front that claude-yolo became.
+CCY_LAUNCHER_TEXT="/var/local/claude-yolo/claude-yolo"
+[[ "$(head -c 2 "${CCY_LAUNCHER_TEXT}")" == '#!' ]] || CCY_LAUNCHER_TEXT="/var/local/claude-yolo/claude-yolo.bash"
+readonly CCY_LAUNCHER_TEXT
 readonly FILTER="/var/local/claude-yolo/lib/ssh_agent_filter.py"
 readonly ATTEMPT_SECONDS=40
 scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -69,8 +73,9 @@ probe_agent() {
 # agent lists. Fails when there is none.
 collect_keys() {
     local config_version keys key fp listed
-    config_version="$(awk -F= '/^CONFIG_VERSION=/ { print $2; exit }' "${CCY_LAUNCHER}")"
-    printf 'ccy: %s\n' "$(grep -m1 '^CCY_VERSION=' "${CCY_LAUNCHER}")"
+    config_version="$(awk -F= '/^CONFIG_VERSION=/ { print $2; exit }' "${CCY_LAUNCHER_TEXT}")"
+    [[ -n "${config_version}" ]] || { printf 'FAIL: %s names no CONFIG_VERSION\n' "${CCY_LAUNCHER_TEXT}" >&2; exit 1; }
+    printf 'ccy: %s\n' "$(grep -m1 '^CCY_VERSION=' "${CCY_LAUNCHER_TEXT}")"
     keys="$("${U20[@]}" launch-keys "${repoRoot}" "${config_version}")"
     if [[ -z "${keys}" ]]; then
         printf 'Quick Launch saved no SSH key for this checkout\n'
