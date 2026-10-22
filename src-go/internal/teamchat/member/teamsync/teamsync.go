@@ -41,7 +41,10 @@ type Config struct {
 	Run    paths.RunID
 	Engine team.Engine
 	Ends   team.Ends
-	Clock  clock.Clock
+	// Forge checks a delivered ping's reference (SD5, A 9.3); nil drops every referenced ping
+	// unresolved, for tests only.
+	Forge team.Forge
+	Clock clock.Clock
 	// Watcher is the seat directory's changes, each a Wake; nil for none.
 	Watcher Watcher
 	// RemovedUserIDs are the accounts the keeper removed earlier, whose fresh store is a re-add
@@ -83,6 +86,10 @@ type Team struct {
 	roster   proto.Roster
 	verified bool
 	floor    floorMarker
+	// savedRev is the roster rev last given to the engine's roster cache (n3d-D3).
+	savedRev int64
+	// loginSaid is forge-login said, until a forge check next answers (n3d-D10).
+	loginSaid bool
 
 	// The team goroutine's own state.
 	health      team.Health
@@ -93,10 +100,12 @@ type Team struct {
 	persistSaid bool
 	backStarted bool
 	markerSaid  bool
-	pendingSaid map[string]bool
-	unheard     *bounded[struct{}]
-	flood       proto.Window
-	freeze      freezeDetector
+	// sendsRecovered is the restarted link's sends recovered, once per team goroutine (n3d-D4).
+	sendsRecovered bool
+	pendingSaid    map[string]bool
+	unheard        *bounded[struct{}]
+	flood          proto.Window
+	freeze         freezeDetector
 
 	// Test seams.
 	onPoll   func(since string)

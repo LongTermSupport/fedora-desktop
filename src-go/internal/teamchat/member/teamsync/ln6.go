@@ -89,13 +89,14 @@ func (t *Team) rosterFor(ctx context.Context, c *matrix.Client, a proto.Anchors)
 	if r, ok := t.Roster(); ok {
 		return r, nil
 	}
-	r, err := verifyMain(ctx, c, a)
+	r, content, err := verifyMain(ctx, c, a)
 	if err != nil {
 		return proto.Roster{}, err
 	}
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	t.roster, t.verified = r, true
+	t.mu.Unlock()
+	t.saveRoster(ctx, r.Rev, content)
 	return r, nil
 }
 
@@ -231,10 +232,17 @@ func (t *Team) Refetch(ctx context.Context, room, id string) (proto.Verdict, err
 		return proto.Verdict{}, err
 	}
 	flood := proto.Window{Times: map[string][]int64{}}
-	return t.judge(proto.Judge{
+	vs := []proto.Verdict{t.judge(proto.Judge{
 		Server: s.a.Server, Self: s.a.Self, RoomID: s.a.MainRoom, Purpose: proto.PurposeMain, Roster: s.roster,
 		NowMs: t.cfg.Clock.WallMS(), Lookup: &memLookup{view: view, resolved: resolved, judged: map[string]bool{}, skip: id}, Flood: &flood,
-	}, v), nil
+	}, v)}
+	// The same check as a sync's (n3d-D12): a restored ping that no longer proves is a drop.
+	news := t.forgeCheck(ctx, s.roster.Forge, vs)
+	if err := ctx.Err(); err != nil {
+		return proto.Verdict{}, err
+	}
+	t.noteForge(news)
+	return vs[0], nil
 }
 
 // Notices is the team's matrix calls for the ends; it works before Run and after it returns.
