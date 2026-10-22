@@ -1,0 +1,118 @@
+// Package unit is an LXC guest's session unit text (Plan 00209 SPEC-n3 SU1, C 3.9.4): the one
+// unit area C places in a guest, rendered from four values the host read. Each value is
+// grammar-checked before it reaches the text, so no value can carry a systemd specifier, a
+// variable, a space that splits ExecStart, or a newline that adds a directive.
+package unit
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"path"
+	"regexp"
+	"strings"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
+)
+
+// ErrInvalid is a value outside its grammar, or unit text with no single ExecStart.
+var ErrInvalid = errors.New("unit: invalid")
+
+// Session is a guest session unit's four host-read values, each grammar-checked by Render.
+type Session struct {
+	User     paths.GuestUser
+	Group    string
+	Home     string
+	Checkout string
+}
+
+// pathGrammar is the characters a home or checkout may hold in the unit text.
+var pathGrammar = regexp.MustCompile(`^[A-Za-z0-9/._-]+$`)
+
+const execStartKey = "ExecStart="
+
+// Render is C 3.9.4's unit text with the values filled in, byte for byte. A value outside its
+// grammar is refused by name: group by the user-name grammar; home and checkout absolute,
+// clean, not "/", and only [A-Za-z0-9/._-] (no space, no '%' specifier, no '$', no newline).
+func Render(s Session) ([]byte, error) {
+	if s.User.String() == "" {
+		return nil, fmt.Errorf("%w user: none", ErrInvalid)
+	}
+	if _, err := paths.ParseGuestUser(s.Group); err != nil {
+		return nil, fmt.Errorf("%w group %q: %w", ErrInvalid, s.Group, err)
+	}
+	if err := checkPath("home", s.Home); err != nil {
+		return nil, err
+	}
+	if err := checkPath("checkout", s.Checkout); err != nil {
+		return nil, err
+	}
+	user := s.User.String()
+	desired, err := paths.HomeLayout(s.Home, paths.GuestRuntimeDir(s.User))
+	if err != nil {
+		return nil, fmt.Errorf("%w home %q: %w", ErrInvalid, s.Home, err)
+	}
+	execStart := strings.Join([]string{
+		"/usr/bin/tmux", "-L", paths.TmuxSocket, "new-session", "-d", "-s", paths.TmuxSession,
+		paths.MemberBinaryPath, "run", "--claude", "--kind", "lxc", "--desired", desired.Desired(),
+		"--resume-recorded", "--", "claude",
+	}, " ")
+	var b bytes.Buffer
+	for _, line := range []string{
+		"[Unit]",
+		"Description=" + paths.Product + " session for " + user,
+		"After=network-online.target",
+		"Wants=network-online.target",
+		"StartLimitIntervalSec=600",
+		"StartLimitBurst=6",
+		"",
+		"[Service]",
+		"Type=forking",
+		"User=" + user,
+		"Group=" + s.Group,
+		"WorkingDirectory=" + s.Checkout,
+		"RuntimeDirectory=" + strings.TrimPrefix(paths.GuestRuntimeDir(s.User), "/run/"),
+		"RuntimeDirectoryMode=0700",
+		"Environment=XDG_RUNTIME_DIR=" + paths.GuestRuntimeDir(s.User) + " HOME=" + s.Home,
+		"Environment=PATH=" + s.Home + "/.local/bin:/usr/local/bin:/usr/bin:/bin",
+		execStartKey + execStart,
+		"TimeoutStopSec=30",
+		"Restart=always",
+		"RestartSec=10",
+		"",
+		"[Install]",
+		"WantedBy=multi-user.target",
+	} {
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.Bytes(), nil
+}
+
+// checkPath holds a home or checkout to an absolute, clean path of the unit's characters.
+func checkPath(name, p string) error {
+	if !pathGrammar.MatchString(p) || !path.IsAbs(p) || path.Clean(p) != p || p == "/" {
+		return fmt.Errorf("%w %s %q: not an absolute, clean path below / of [A-Za-z0-9/._-]", ErrInvalid, name, p)
+	}
+	return nil
+}
+
+// ExecStart is the unit's command line split on spaces (Render's grammar makes that exact).
+func ExecStart(text []byte) ([]string, error) {
+	var found []string
+	for line := range strings.Lines(string(text)) {
+		if v, ok := strings.CutPrefix(strings.TrimSuffix(line, "\n"), execStartKey); ok {
+			found = append(found, v)
+		}
+	}
+	if len(found) != 1 {
+		return nil, fmt.Errorf("%w: %d ExecStart lines, not one", ErrInvalid, len(found))
+	}
+	words := strings.Split(found[0], " ")
+	for _, w := range words {
+		if w == "" || strings.ContainsAny(w, "\t\r") {
+			return nil, fmt.Errorf("%w: ExecStart %q is not single-spaced words", ErrInvalid, found[0])
+		}
+	}
+	return words, nil
+}
