@@ -352,8 +352,10 @@ sent_ok() {
 # a seat directory of its own (add-member makes --out 0700, the user's), and a session home
 # whose team entry is an absolute link to it. pingbus runs a host member beside the owner's
 # Element profile only through that link (helpers/pingbus/config.py load_bundle), so a plain
-# bundle in the home is refused. a3_release is registered before add-member runs, so a failure
-# at any later step still removes it.
+# bundle in the home is refused. add-member only invites the worker to the team room, as it does
+# every member; a real seat joins by its first sync (Syncer._take_invites), so a3_join runs one.
+# a3_release is registered before add-member runs, so a failure at any later step still
+# removes it.
 a3_take() {
     A3_HOME="${PLAN_RUN_DIR}/a3-pingbus"
     A3_DIR="${PLAN_RUN_DIR}/a3-seats/${QTEAM}/${RUN_TAG}"
@@ -366,6 +368,45 @@ a3_take() {
     A3_BASE="$(jq -r '.base_url' "${A3_DIR}/member.json")" || return 1
     (umask 077 && printf 'Authorization: Bearer %s\n' "$(cat -- "${A3_DIR}/token")" >"${A3_DIR}/auth.header") || return 1
     printf 'A3 worker: %s in team %s\n' "${A3_HANDLE}" "${QTEAM}" | tee -a "${REPORT}"
+    a3_join
+}
+
+# a3_pingbus <pingbus args...> — the host pingbus as the A3 worker, from A3_HOME alone. Its
+# stderr is shown and kept in pingbus.err for a3_failed; stdin and stdout pass through.
+a3_pingbus() {
+    local rc=0
+    env -i PATH="${GUEST_PATH}" HOME="${HOME}" PINGBUS_HOME="${A3_HOME}" PINGBUS_TEAMS="${QTEAM}" \
+        "${HOST_PINGBUS}" "$@" 2>"${A3_DIR}/pingbus.err" || rc=$?
+    cat -- "${A3_DIR}/pingbus.err" >&2
+    return "${rc}"
+}
+
+# a3_failed <command> — why the worker's `pingbus <command>` failed: the error shown above, and
+# the owner's step only when that error is pingbus refusing a host seat beside an Element
+# profile (config._refuse_beside_element), which a linked seat meets until the user accepts.
+a3_failed() {
+    if grep -qF 'a host member must not run as a user with an Element profile' "${A3_DIR}/pingbus.err"; then
+        printf 'A3: pingbus %s refused %s beside an Element profile: this user has not accepted a host seat beside it yet: run cc --teams once from a terminal and accept, then run meta-deploy again\n' \
+            "$1" "${A3_HANDLE}" >&2
+        return 0
+    fi
+    printf 'A3: pingbus %s failed for %s, for the reason above\n' "$1" "${A3_HANDLE}" >&2
+}
+
+# a3_join — the worker joins the team room it was invited to, by one `pingbus recv`: the sync a
+# keeper runs for a real seat (Syncer.sync_once), which takes the invite, joins and verifies the
+# room, or fails. A first sync delivers nothing, so 3 (nothing pending) is its usual exit; 0
+# (items printed) passes too; any other is the failure it names.
+a3_join() {
+    local rc=0
+    a3_pingbus recv --team "${QTEAM}" </dev/null >"${A3_DIR}/recv.out" || rc=$?
+    case "${rc}" in
+        0 | 3) printf 'A3 worker: joined the team room by its first sync\n' | tee -a "${REPORT}" ;;
+        *)
+            a3_failed recv
+            return 1
+            ;;
+    esac
 }
 
 # a3_release — the throwaway worker out of the registry and deactivated. With no member.json,
@@ -395,20 +436,24 @@ a3_status() {
     "${CURL[@]}" "${args[@]}" "${A3_BASE}$2"
 }
 
-# a3_check — A3: the worker's `pingbus report` lands in reports; with its token, reading,
-# joining and posting in questions are each refused. The team has a coordinator by
-# pick_coordinator, so it has a questions room to be kept out of.
-a3_check() {
-    local out main questions code bad=0
+# a3_report — the worker's `pingbus report`, which the homeserver took: A3_EVENT is its event.
+a3_report() {
+    local out
     out="$(printf 'Plan 00211 acceptance %s: a worker report\n\nA3 checks that a worker posts here and wakes nobody. Nothing to do.\n' \
-        "${RUN_TAG}" | env -i PATH="${GUEST_PATH}" HOME="${HOME}" PINGBUS_HOME="${A3_HOME}" PINGBUS_TEAMS="${QTEAM}" \
-        "${HOST_PINGBUS}" report --team "${QTEAM}")" || {
-        printf 'A3: pingbus report failed for %s, for the reason above (a refusal to run a host member beside an Element profile means this user has not accepted that yet: run cc --teams once from a terminal and accept, then run meta-deploy again)\n' \
-            "${A3_HANDLE}" >&2
+        "${RUN_TAG}" | a3_pingbus report --team "${QTEAM}")" || {
+        a3_failed report
         return 1
     }
     sent_ok "A3 a worker's pingbus report" "${out}" || return 1
     A3_EVENT="$(sent_event "${out}")"
+}
+
+# a3_check — A3: the worker's `pingbus report` lands in reports; with its token, reading,
+# joining and posting in questions are each refused. The team has a coordinator by
+# pick_coordinator, so it has a questions room to be kept out of.
+a3_check() {
+    local main questions code bad=0
+    a3_report || return 1
     main="$(jq -r '.room' "${A3_DIR}/member.json")" || return 1
     code="$(a3_status GET "/_matrix/client/v3/rooms/%21${main#!}/state/agent_bus.rooms/")" || return 1
     questions="$(jq -r '.questions // empty' "${A3_DIR}/answer.json")" || return 1
@@ -777,17 +822,46 @@ attached_are() {
     fi
 }
 
-# fake_a3_seat <accepted|unaccepted> — a3_take over a fake agent-bus whose add-member places a
-# host bundle under --out as the wrapper does (0700 directory, 0600 token), then this
-# checkout's pingbus loads the team from A3_HOME as `pingbus report` does, for a user with an
-# Element profile who has (or has not) accepted a seat beside it.
-readonly FAKE_A3_LOAD='import pathlib, sys
-sys.path.insert(0, sys.argv[1])
+# fake_a3_seat <accepted|unaccepted> <ok|join-refused|report-refused> — a3_take, then
+# a3_report, over a fake agent-bus whose add-member places a host bundle under --out as the
+# wrapper does (0700 directory, 0600 token) and, like the real one, only invites it; and a fake
+# pingbus that loads the team from A3_HOME through this checkout's config.load_bundle, as
+# pingbus does, for a user with an Element profile who has (or has not) accepted a seat beside
+# it. Like the homeserver, the fake refuses a report from a worker that never synced (invited,
+# so not joined) in verify_room's words; join-refused fails that sync, report-refused the
+# report itself. It passes when the case has its one right outcome: a sound seat reports, and
+# each failure prints its own cause, with the owner's Element step only for that refusal.
+readonly FAKE_A3_PINGBUS='import os, pathlib, sys
+here = pathlib.Path(sys.argv[0]).resolve().parent
+sys.path.insert(0, (here / "a3-repo").read_text().strip())
 from helpers.pingbus import config
-member = config.load_bundle(pathlib.Path(sys.argv[2]), sys.argv[3], user_home=pathlib.Path(sys.argv[4]))
-print(member.member_type)'
+mode = (here / "a3-mode").read_text().strip()
+team = sys.argv[sys.argv.index("--team") + 1]
+try:
+    member = config.load_bundle(pathlib.Path(os.environ["PINGBUS_HOME"]), team, user_home=pathlib.Path(os.environ["HOME"]))
+except config.ConfigError as exc:
+    sys.exit(f"pingbus: team {team}: {exc}")
+joined = member.bundle_dir / "fake-joined"
+untrusted = f"pingbus: team {team}: the team room is not trusted: not joined, or the room or its team record is missing"
+if sys.argv[1] == "recv":
+    if mode == "join-refused":
+        print(untrusted, file=sys.stderr)
+        sys.exit(10)
+    joined.touch()
+    sys.exit(3)
+if sys.argv[1] == "report":
+    sys.stdin.read()
+    if not joined.exists():
+        print(untrusted, file=sys.stderr)
+        sys.exit(10)
+    if mode == "report-refused":
+        print(f"pingbus: team {team}: refused: the reports room is not known yet", file=sys.stderr)
+        sys.exit(4)
+    print(f"SENT\t1\t{team}\t\x24Abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG")
+    sys.exit(0)
+sys.exit(64)'
 fake_a3_seat() {
-    local user="${FIX}/a3-user-$1" type
+    local user="${FIX}/a3-user-$1-$2" rc=0
     cat >"${FIX}/a3-agent-bus" <<'EOF' || return 1
 #!/usr/bin/env bash
 set -euo pipefail
@@ -806,32 +880,53 @@ printf '{"protocol": 1, "team": "%s", "user_id": "@fedora-desktop.a1+acceptance.
     "$2" "${sn}" "${sn}" "${sn}" >"${out}/member.json"
 (umask 077 && printf 'syt_ZXhhbXBsZQ_notarealtoken_0123' >"${out}/token")
 EOF
-    chmod 0755 "${FIX}/a3-agent-bus" || return 1
+    printf '#!/usr/bin/python3 -I\n%s\n' "${FAKE_A3_PINGBUS}" >"${FIX}/a3-pingbus" || return 1
+    chmod 0755 "${FIX}/a3-agent-bus" "${FIX}/a3-pingbus" || return 1
+    printf '%s\n' "${PLAN_REPO_ROOT}" >"${FIX}/a3-repo" || return 1
+    printf '%s\n' "$2" >"${FIX}/a3-mode" || return 1
+    # Global, as a3_release reads it at cleanup, after this function has returned.
     AGENT_BUS=("${FIX}/a3-agent-bus")
     QTEAM=t1
-    local PLAN_RUN_DIR="${FIX}/a3-run-$1"
+    local HOST_PINGBUS="${FIX}/a3-pingbus" HOME="${user}" PLAN_RUN_DIR="${FIX}/a3-run-$1-$2"
     mkdir -p -- "${PLAN_RUN_DIR}" "${user}/.var/app/im.riot.Riot" || return 1
     if [[ "$1" == "accepted" ]]; then
         mkdir -p -- "${user}/.config/pingbus" || return 1
         (umask 077 && printf 'accepted\n' >"${user}/.config/pingbus/element-accepted") || return 1
     fi
-    a3_take || return 1
-    if [[ "$1" != "accepted" ]]; then
-        # Never accepted: refused, and for the Element profile, not for any other reason.
-        if python3 -I -c "${FAKE_A3_LOAD}" "${PLAN_REPO_ROOT}" "${A3_HOME}" "${QTEAM}" "${user}" 2>"${FIX}/a3-refusal"; then
-            printf 'the A3 seat loaded beside an Element profile never accepted\n' >&2
-            return 1
-        fi
-        grep -qF 'a host member must not run as a user with an Element profile' "${FIX}/a3-refusal" || {
-            printf 'the A3 seat was refused, but not for the Element profile:\n' >&2
-            cat -- "${FIX}/a3-refusal" >&2
-            return 1
-        }
-        return 0
+    { a3_take && a3_report; } 2>"${FIX}/a3-stderr" || rc=$?
+    cat -- "${FIX}/a3-stderr" >&2
+    case "$1 $2" in
+        "accepted ok") return "${rc}" ;;
+        "unaccepted ok")
+            fake_a3_said "${rc}" 'a host member must not run as a user with an Element profile' 'has not accepted'
+            ;;
+        "accepted join-refused")
+            fake_a3_said "${rc}" 'the team room is not trusted: not joined' '' 'has not accepted'
+            ;;
+        "accepted report-refused")
+            fake_a3_said "${rc}" 'refused: the reports room is not known yet' '' 'has not accepted'
+            ;;
+        *) return 64 ;;
+    esac
+}
+
+# fake_a3_said <rc> <cause> <owner's step, or ''> [<text it must not print>] — A3 failed, and its
+# stderr names the cause and, when there is one, the owner's step; never another case's step.
+fake_a3_said() {
+    if [[ "$1" -eq 0 ]]; then
+        printf 'A3 passed where it must fail\n' >&2
+        return 1
     fi
-    type="$(python3 -I -c "${FAKE_A3_LOAD}" "${PLAN_REPO_ROOT}" "${A3_HOME}" "${QTEAM}" "${user}")" || return 1
-    if [[ "${type}" != "host" ]]; then
-        printf 'the A3 worker loaded as a %s member, not host\n' "${type}" >&2
+    if ! grep -qF -- "$2" "${FIX}/a3-stderr"; then
+        printf 'A3 failed without naming its cause (%s)\n' "$2" >&2
+        return 1
+    fi
+    if [[ -n "$3" ]] && ! grep -qF -- "$3" "${FIX}/a3-stderr"; then
+        printf 'A3 failed without the owner'\''s step (%s)\n' "$3" >&2
+        return 1
+    fi
+    if [[ -n "${4:-}" ]] && grep -qF -- "$4" "${FIX}/a3-stderr"; then
+        printf 'A3 failed and blamed the wrong cause (%s)\n' "$4" >&2
         return 1
     fi
 }
