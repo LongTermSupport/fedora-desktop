@@ -71,7 +71,7 @@ func (e *Engine) Add(ctx context.Context, t paths.TeamID, l *lock.SeatLock, remo
 		return errors.Join(addErr, l.Close())
 	}
 	tm, err := e.cfg.NewTeam(TeamConfig{
-		Team: t, Seat: l.Seat(), Lock: l, RemovedUserIDs: removedUserIDs, Engine: e, Ends: e.ends,
+		Team: t, Seat: l.Seat(), Run: e.cfg.Run, Lock: l, RemovedUserIDs: removedUserIDs, Engine: e, Ends: e.ends,
 		Root: e.cfg.Root, Plain: e.cfg.Plain, FirstSessionStart: e.cfg.FirstSessionStart,
 		Clock: e.cfg.Clock, Log: e.cfg.Log,
 	})

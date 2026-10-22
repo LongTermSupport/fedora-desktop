@@ -290,7 +290,7 @@ func newWorld(t *testing.T, delivery string) *world {
 func (w *world) config(delivery string) Config {
 	return Config{
 		Root: w.root, RunRoot: w.root, Layout: w.layout, Run: w.run, Clock: w.clk, Log: w.log,
-		NewTeam: w.newTeam, NewEnds: func(team.Engine) team.Ends { return fakeEnds{} },
+		NewTeam: w.newTeam, NewEnds: func(EndsConfig) team.Ends { return fakeEnds{} },
 		Delivery: delivery, OnState: w.onState, Runtime: w.readRuntime,
 	}
 }
@@ -500,6 +500,28 @@ func TestNewRefusesAnIncompleteConfig(t *testing.T) {
 	}
 	if w.e.Ends() == nil {
 		t.Fatal("the engine has no ends")
+	}
+}
+
+// The ends record into the engine for this link's run (EN1, 8a P6), and a team is told the run
+// so a store of this run is not closed again (8a P5).
+func TestTheEndsAndEachTeamAreMadeForThisRun(t *testing.T) {
+	w := newWorld(t, state.DeliverySocket)
+	cfg := w.config(state.DeliverySocket)
+	var got EndsConfig
+	cfg.NewEnds = func(c EndsConfig) team.Ends {
+		got = c
+		return fakeEnds{}
+	}
+	e, err := New(cfg)
+	check(t, err)
+	if got.Engine != e || got.Run != w.run || got.Clock != w.clk || got.Log != w.log {
+		t.Fatalf("the ends were made with %+v", got)
+	}
+	ops := tid(t, "ops")
+	w.add(ops, encodeStore(t, w.newStore(ops)))
+	if r := w.fake(ops).cfg.Run; r != w.run {
+		t.Fatalf("the team was made for run %v, not %v", r, w.run)
 	}
 }
 

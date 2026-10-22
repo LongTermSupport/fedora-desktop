@@ -68,6 +68,7 @@ func (n *fakeNotices) presences() []string {
 type fakeTeam struct {
 	notices *fakeNotices
 	deliver bool
+	madeFor paths.RunID
 	mu      sync.Mutex
 	ran     bool
 }
@@ -201,7 +202,7 @@ func newLinkWorld(t *testing.T) *linkWorld {
 		StateRoot: w.root, RunRoot: w.root, Layout: w.layout, Run: w.run, Control: linkConn,
 		Clock: w.clk, Proc: w.proc, Parent: func() (Parent, error) { return w.parent, nil },
 		UID: os.Getuid(), Kit: kit, RuntimeDir: w.dir + "/xdg", Home: w.dir, Log: w.log,
-		Engine: engine.New, NewTeam: w.newTeam, NewEnds: func(team.Engine) team.Ends { return w.ends },
+		Engine: engine.New, NewTeam: w.newTeam, NewEnds: func(engine.EndsConfig) team.Ends { return w.ends },
 		started: func(l *link) {
 			w.mu.Lock()
 			defer w.mu.Unlock()
@@ -257,7 +258,7 @@ func (w *linkWorld) connect() *os.File {
 func (w *linkWorld) newTeam(cfg engine.TeamConfig) (team.Team, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	f := &fakeTeam{notices: &fakeNotices{self: agent(cfg.Team)}}
+	f := &fakeTeam{notices: &fakeNotices{self: agent(cfg.Team)}, madeFor: cfg.Run}
 	w.teams[cfg.Team] = f
 	return f, nil
 }
@@ -707,6 +708,9 @@ func TestOwedLeavesWithoutRunning(t *testing.T) {
 	}
 	if leave := w.ends.leaveCalls(); len(leave) != 1 || leave[0] != a.String()+" "+txn {
 		t.Fatalf("leave %q", leave)
+	}
+	if w.team(a).madeFor != w.run {
+		t.Fatalf("the owed team was made for run %v", w.team(a).madeFor)
 	}
 	if w.team(a).didRun() {
 		t.Fatal("an owed team was run")

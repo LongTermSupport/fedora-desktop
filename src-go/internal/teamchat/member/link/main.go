@@ -29,7 +29,7 @@ const msgRunDir exits.Template = "teamchat link --run takes a session's runtime 
 // session's ends.
 type Wiring struct {
 	NewTeam func(engine.TeamConfig) (team.Team, error)
-	NewEnds func(team.Engine) team.Ends
+	NewEnds func(engine.EndsConfig) team.Ends
 }
 
 // Main is `teamchat link --run DIR`, started by the keeper only: its control socket on fd 3,
