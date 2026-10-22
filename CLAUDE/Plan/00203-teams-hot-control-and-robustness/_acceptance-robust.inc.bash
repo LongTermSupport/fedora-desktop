@@ -232,12 +232,21 @@ check_seat_check_waits() {
 }
 
 # check_lxc_members — each running container with systemd that holds an agent-bus-claude unit:
-# the unit enabled, active and Restart=always, and the container started at boot.
+# the unit enabled, active and Restart=always, and the container started at boot. A container
+# that is not running is offline (plan_lxc_online): named, not judged, never a failure.
 check_lxc_members() {
-    local containers container unit units state autostart found=0
-    local -a names
-    containers="$(sudo -n lxc-ls --running -1)" || return 1
-    for container in ${containers}; do
+    local listed online container unit units state autostart found=0 offline=0
+    local -a names all
+    listed="$(sudo -n lxc-ls -1)" || return 1
+    mapfile -t all < <(awk 'NF { print $1 }' <<<"${listed}")
+    online="$(plan_lxc_online "${all[@]+"${all[@]}"}")" || return 1
+    for container in "${all[@]+"${all[@]}"}"; do
+        if ! grep -qxF -- "${container}" <<<"${online}"; then
+            note "container ${container}: offline, so its member unit is not judged" || return 1
+            offline=$((offline + 1))
+        fi
+    done
+    for container in ${online}; do
         if ! sudo -n lxc-attach -n "${container}" --clear-env -- test -d /run/systemd/system; then
             note "container ${container}: no systemd, so no member unit" || return 1
             continue
@@ -256,7 +265,9 @@ check_lxc_members() {
             [[ "${autostart}" == *"= 1" ]] || return 1
         done
     done
-    if [[ "${found}" -eq 0 ]]; then
+    if [[ "${found}" -eq 0 && "${offline}" -eq 0 ]]; then
         note "R9: no agent_bus_lxc_members entry declares service: true on this host, so there is no member unit to prove" || return 1
+    elif [[ "${found}" -eq 0 ]]; then
+        note "R9: no running container holds a member unit; ${offline} container(s) offline (named above) are not judged" || return 1
     fi
 }
