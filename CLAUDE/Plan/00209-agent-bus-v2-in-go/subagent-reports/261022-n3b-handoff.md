@@ -261,9 +261,11 @@ with the declaration on stdin (n3-D21):
     The rules of `declare` already refuse two entries of one `(container, user)` that differ in
     `service` or checkout.
 
-02. For each container, check its state. A missing container fails the phase. One that is not
-    `RUNNING`, frozen included, is held back (3.9.3). The output line for it is `SKIPPED` when
-    the record holds a handle, else `DEFERRED`.
+02. For each container, check its state. A container that is missing or not `RUNNING` (frozen
+    included) is **offline** (n3b-D1, section 2a): it is held back, never an error, unless the
+    run targets that one member with `--member`. The output line for it is `SKIPPED` when the
+    record holds a handle, else `DEFERRED`, with why `offline: container stopped` or
+    `offline: container missing`.
 
 03. For each running container, read without changing anything:
 
@@ -401,7 +403,7 @@ copied in (TB2.4).
 The record is `/var/lib/teamchat-status/lxc/<team>.json`, 0640 root:`<owner group>`, written
 atomically and only on change. Its form is
 `{"v":1,"team":..,"members":[{"container","user","handle","status","since_ms","why"}]}`, where
-`status` is one of `joined|stopped|deferred|left`. `since_ms` stays the same while the status
+`status` is one of `joined|offline|deferred|left` (n3b-D1 renames C's `stopped`). `since_ms` stays the same while the status
 and the handle stay.
 
 **The L3 probe** (C 3.9.2, LP1):
@@ -426,6 +428,90 @@ copy and transaction id `tc-disc-<run>`. A transient failure leaves the entry un
 
 **The unit text** (C 3.9.4) is quoted whole in DESIGN-v2-C-host.md lines 1863-1887. P2 renders
 it byte for byte from that text, with `<user>`, `<group>`, `<home>` and `<checkout>` filled in.
+
+## 2a. The offline rule (n3b-D1, the owner's, non-negotiable)
+
+A member that is not running is the normal lifecycle, not a fault. An offline member is shown
+clearly as offline. It never makes a play, a deploy, an acceptance or a tool fail, refuse or
+wait. `lxc apply` applies every member it can reach, marks each one it cannot reach offline, and
+exits 0 for the team.
+
+**Offline** means any of these:
+
+- the container is stopped, frozen or missing;
+- the container stops during the phase: the init pin moves (`guestroot.ErrMoved`), an attach
+  fails and `State` is no longer `RUNNING`, or the guest's private socket is gone;
+- the member's session unit is down (`failed`, start limit hit, or its start refused).
+
+An offline member is an error only when the operator targeted that one member explicitly:
+`lxc apply --member C/U` (new, repeatable, which scopes the phase to the named entries) or
+`lxc restart --container C --user U`. Then it is 69, naming the container. `--only-teams`
+targets teams, not members, so it never makes an offline member an error.
+
+What is **not** offline stays a failure. A running container's own facts that are wrong are
+configuration errors the owner must fix, not a member coming and going: `lxc.idmap`, no
+`start.auto`, systemd not init, no tmux, a uid of 0 or a host uid, `insteadOf`, a changed
+origin, the source address, the guest check's `home`, `tmux`, `claude`, `kernel` and `identity`.
+So are the host's own faults: an unapproved entry, an unreadable record, a homeserver that does
+not answer. Each still fails the phase by name, before any change, as C 3.9.2 says.
+
+The rule, step by step through C 3.9:
+
+| Step               | What could block                                                                                                               | The rule                                                                                                                                                                                                                   |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 01 validate        | nothing of a member's state is read                                                                                            | unchanged: declaration and approval only                                                                                                                                                                                   |
+| 02 state           | a stopped or missing container (C: "missing fails the present phase")                                                          | offline: `SKIPPED` (handle known) or `DEFERRED`, why `offline: container stopped` or `offline: container missing`; record `offline`; exit 0                                                                                |
+| 03 reads           | the container stops mid-read (pin moved, root gone)                                                                            | offline for that container, which then skips steps 04-09; the others go on. A wrong fact of a running container still fails the phase                                                                                      |
+| 03 v1 holdback     | not checked for an offline container                                                                                           | it is read only from a running one                                                                                                                                                                                         |
+| 04 kit             | the container stops mid-write                                                                                                  | offline; the temp directory is left for the next apply to remove (its `.new-` name is never a digest)                                                                                                                      |
+| 05 guest check     | `gh` or `reach` failing (the guest cannot reach GitHub or the homeserver), or the attach failing because the container stopped | offline (why `offline: guest check <code>`): that member is not joined this phase; the rest go on. The other codes fail the phase                                                                                          |
+| 06 roster          | the member is offline before its join                                                                                          | no join is made for it; a known handle keeps its seat (`SKIPPED`, C 3.9.3)                                                                                                                                                 |
+| 07 place-bundle    | the container stops after the join                                                                                             | offline, why `offline: bundle not placed`; the record entry is `offline` with that why, and the next apply that finds it running reissues (the new token is unplaced, so a `reissue` from host facts, n3-D23)              |
+| 07 place-bundle 75 | a held seat                                                                                                                    | `DEFERRED`, unchanged (LX6)                                                                                                                                                                                                |
+| 08 membership      | the container stops after the host copy is written                                                                             | offline, why `offline: membership pending`; an entry not `joined` reruns `guest membership` at the next apply even when the host copy is converged, so the guest is never left behind its copy                             |
+| 09 unit            | the guest's systemd unreachable, or `StartUnit`/`RestartUnit` refused (start limit, a failed unit)                             | offline, why `offline: unit down` with `ccy-teams restart` as the fix; never a failure. An unchanged unit that is `failed` is reported offline and left alone                                                              |
+| 10 record          | written only after the phase succeeded                                                                                         | the phase succeeds with offline members, so the record is written with them as `offline`                                                                                                                                   |
+| absent 1 park      | a stopped or missing container                                                                                                 | unchanged: parked from the host at once, so nothing waits                                                                                                                                                                  |
+| absent 3-5         | the 60 s L3 wait                                                                                                               | waits only for a running container whose seat is held; a container that stops mid-wait ends the wait at once (probe `Stopped`) and its guest files stay pending (`left`). A seat still held is `DEFERRED`, never a failure |
+| `lxc restart`      | a stopped container                                                                                                            | explicit target: 69, naming the container and `lxc-start`                                                                                                                                                                  |
+| LP1 probe          | a container stopped, missing, or stopping mid-probe (pin moved, root gone, `ESRCH`)                                            | `GuestProbe{Stopped: true}`, never an error. An error only for the host's own faults (an unreadable record)                                                                                                                |
+| LP1 handle         | a handle the record does not name (a member joined some other way)                                                             | `Stopped` with no record, so the tick shows it offline and asks nothing                                                                                                                                                    |
+| LP2 notice         | a stopped container                                                                                                            | unchanged: a notice, posted once per run; a transient failure is retried by the next tick and never fails the tick                                                                                                         |
+
+Places the spec or the design said otherwise, now overridden by n3b-D1:
+
+- C 3.9.1 and 3.9.2 step 02, and SPEC-n3 LX2: "a missing one is an error in the present phase".
+  It is offline now.
+- C 3.9.2 step 03 ("Any refusal here fails the phase") and SPEC-n3 LX4's last sentence: this now
+  holds for a running container's wrong facts only, and a container that stops mid-read is
+  offline.
+- C 3.9.2 step 05 ("Any failure fails the phase before any roster change") and SPEC-n3 GU2: `gh`
+  and `reach` are now offline for that member alone.
+- C 3.9.3: the record's `stopped` is renamed `offline` and widened to every offline cause; the
+  board (Task 4.3) shows it as offline.
+- C 3.9.4 and SPEC-n3 SU2: a unit whose start is refused is offline, not a failure.
+- SPEC-n3 LX6: "64 or 78 fails the phase" now excludes an attach that failed because the
+  container stopped.
+- SPEC-n3 LX8: the 60 s wait ends at once when the container stops.
+- SPEC-n3 LP1: a probe that cannot reach a guest is `Stopped`. Today's `GuestsNotBuilt`, whose
+  every probe is an error that the tick records as a problem, is replaced in P4.
+- C 3.14's VM-lab row "an LXC member running, then stopped, then started" gains the assertion
+  that the play with one member's container stopped exits 0 and places every other member.
+
+Consequences per part:
+
+- **P1:** `Pin` returns `ErrMoved` for a dead or changed init, and every `Root` call on a dead
+  root returns an error wrapping `guestroot.ErrGone` (new). `lxccmd.Guest` returns
+  `*lxccmd.AttachError` (new) when `lxc-attach` itself failed with no error object, so P4 can
+  ask `State` again. Neither type decides offline: P4 does.
+- **P2:** `guestbus` errors keep systemd's class (`ErrSystemd` with the D-Bus error name, or
+  `ErrGone` for a closed peer), so P4 can tell "unit down" from a malformed answer.
+- **P3:** `StatusOffline` replaces `StatusStopped`. `Entry.Why` carries the offline cause.
+- **P4:** an `offline(err) (why string, ok bool)` classifier and the per-step rows above. The
+  `--member` flag. Tests: one per row of the table, each asserting exit 0, the `SKIPPED` or
+  `DEFERRED` line, the record's `offline` entry, and that the other members were placed. The
+  `--member` and `lxc restart` rows assert 69. A test pins that no step sleeps or waits for an
+  offline member: the fake clock's `Sleep` is never called for one.
 
 ## 3. P1: the guest root and the lxc programs (TB1, TB3, LX3, gap 15)
 
@@ -904,7 +990,7 @@ Facts:
 ```go
 const (
 	StatusJoined   = "joined"
-	StatusStopped  = "stopped"
+	StatusOffline  = "offline" // n3b-D1: C 3.9.3's `stopped`, renamed and widened
 	StatusDeferred = "deferred"
 	StatusLeft     = "left"
 	MaxRecord      = 1 << 20
@@ -1111,8 +1197,9 @@ func (g Guests) Probe(ctx context.Context, team paths.TeamID, handle string) (he
 Errors map onto the admin exits through `admin.ExitCodeOf`. A `*declare.RefusedError` or a step
 03 refusal is 70: the refusals are `*host.Error{Verb: "lxc apply", Step: …, Drift: true}`, so the
 existing mapping applies. A busy team lock is 75. A guest op's 64 or 78, and a malformed guest
-answer, fail the phase as `*host.Error{Step: "guest " + op}`, which is 1. A missing container in
-the present phase is 70 (the declaration names it).
+answer, fail the phase as `*host.Error{Step: "guest " + op}`, which is 1. An offline member
+(n3b-D1) is never an error and the phase exits 0 for it, unless `--member C/U` targets it: then
+a stopped or missing container is 69, naming the container.
 
 ### The admin side
 
@@ -1247,34 +1334,46 @@ the present phase is 70 (the declaration names it).
 
   `teamchat run` exits 1 until n3c, so a running session is not asserted (SPEC-n3 section 3).
 
-## 7. Decisions n3b takes (now n3-D21 to n3-D30 in SPEC-n3 section 10)
+## 7. Decisions n3b takes (now n3-D21 to n3-D30 and n3b-D1 in SPEC-n3 section 10)
+
+- **n3b-D1** (the owner's rule): an offline member never makes anything fail, refuse or wait.
+  Section 2a defines offline, gives the rule step by step, and lists every place it overrides.
 
 - **n3-D21:** `lxc apply` reads the whole v2 declaration, by `declare.Decode`. That gives it the
   teams step 01 checks as well as the LXC entries. Each acted team's `Input` passes
   `declare.Hold`, else 70.
+
 - **n3-D22:** container facts come from `lxc-ls` and `lxc-info` (`-sH`, `-pH`, `-iH`, `-c`), not
   from reading the config file, so LXC's own `lxc.include` handling decides what `lxc.idmap`
   is. The VM lab checks `-c`.
+
 - **n3-D23:** whether a member needs a join is decided from host facts only: the LXC record and
   the child's `team.view`. The guest's bundle is never read for it (TB2). A guest that lost its
   bundle is healed by `ccy-teams reissue`.
+
 - **n3-D24:** the guest's systemd is spoken to peer to peer, with AUTH EXTERNAL as uid 0 and no
   Hello. A job call waits for its reply (the job accepted) and not for `JobRemoved`, each within
   30 s.
+
 - **n3-D25:** SU2's capped reader judges each message by its header (fixed part, fields and
   body) before godbus reads it. A message over 1 MiB closes the connection by name.
+
 - **n3-D26:** the kit digest is the host kit's `current` link, root-owned and checked by
   `paths.ParseDigest`. A guest's existing `<digest>/` is kept as it is: only a rename makes one,
   and it is checked root-owned and not group or other writable.
+
 - **n3-D27:** the kit is copied by a walk of the host kit (directories and regular files, at most
   6 deep, 64 MiB in total), so n3e's skill joins the kit with no change to n3b.
+
 - **n3-D28:** `lxc apply` runs no role verb. Team apply (play step 12) demotes and leaves the
   declared coordinator wanted. The child's `member add` and `return` promote a wanted
   coordinator as they join it (`apply`'s `promoteWanted`), so step 06's order (demotions, joins,
   promotions) holds by construction.
+
 - **n3-D29:** K15's refusal covers every uid that the host's own `/etc/passwd` names, not only
   the desktop user's. The host has no trusted record of which account is "the desktop user",
   and any host account that shares a kernel uid with a guest agent can reach its files.
+
 - **n3-D30:** `lxc-ls`, `lxc-info` and `lxc-attach` gain the second owner
   `internal/teamchat/host/lxc/lxccmd` (gap 15), because teamchat-admin may not link the TUI or
   sudo. The inner kit binary after `lxc-attach --` is excused by a `dynamicNames` row.
