@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/health"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/status"
 )
 
@@ -18,21 +20,40 @@ const (
 	OpMemberDisconnected = "member.disconnected"
 )
 
+// The child's restore operations (RC1-RC8).
+const (
+	OpRestoreSecure = "restore.secure"
+	OpRestoreCheck  = "restore.check"
+	OpRestoreSwap   = "restore.swap"
+	OpRestoreExport = "restore.export"
+	OpRestoreFinish = "restore.finish"
+	OpRestoreRevert = "restore.revert"
+)
+
 // The answer's keys for them, and for the main room beside a credential (BU1).
 const (
 	keyMainRoom = "main_room"
 	keyView     = "view"
 	keyNotice   = "notice"
+	keyExport   = "export"
+	keyEpoch    = "epoch"
 )
 
-// answerFits refuses an ok answer the op cannot give (CO3): a view answers team.view and a
-// notice member.disconnected, each always and only there. A failure fits any op.
+// answerFits refuses an ok answer the op cannot give (CO3, RC6): a view answers team.view, a
+// notice member.disconnected, an export restore.export and an epoch restore.check, each always
+// and only there; a restore op answers no handle, credential, main room or notes. A failure fits
+// any op.
 func answerFits(op string, a Answer) error {
 	if !a.OK {
 		return nil
 	}
-	if (a.View != nil) != (op == OpTeamView) || (a.Notice != nil) != (op == OpMemberDisconnected) {
-		return fmt.Errorf("its answer to %s does not fit the op (a view: %v, a notice: %v)", op, a.View != nil, a.Notice != nil)
+	if (a.View != nil) != (op == OpTeamView) || (a.Notice != nil) != (op == OpMemberDisconnected) ||
+		(a.Export != nil) != (op == OpRestoreExport) || (a.Epoch != nil) != (op == OpRestoreCheck) {
+		return fmt.Errorf("its answer to %s does not fit the op (a view: %v, a notice: %v, an export: %v, an epoch: %v)",
+			op, a.View != nil, a.Notice != nil, a.Export != nil, a.Epoch != nil)
+	}
+	if strings.HasPrefix(op, "restore.") && (a.Handle != "" || a.Credential != nil || a.MainRoom != "" || len(a.Notes) > 0) {
+		return fmt.Errorf("its answer to %s carries a handle, a credential, a main room or notes", op)
 	}
 	return nil
 }
@@ -45,6 +66,9 @@ func (a Answer) validateOps() error {
 	if a.MainRoom != "" && !proto.ValidRoomID(a.MainRoom) {
 		return errors.New("the main room is not a room ID")
 	}
+	if a.Export != nil || a.Epoch != nil {
+		return a.validateRestore()
+	}
 	if a.View == nil && a.Notice == nil {
 		return nil
 	}
@@ -55,6 +79,23 @@ func (a Answer) validateOps() error {
 		return validNotice(*a.Notice)
 	}
 	return validView(*a.View)
+}
+
+// validateRestore is an export's or an epoch's answer: of its own, with sane numbers (RC6).
+func (a Answer) validateRestore() error {
+	if a.Export != nil && a.Epoch != nil || a.Handle != "" || a.Credential != nil || len(a.Notes) > 0 || a.View != nil || a.Notice != nil {
+		return errors.New("an export or an epoch is an answer of its own")
+	}
+	if e := a.Export; e != nil {
+		if e.Count < 0 || e.FirstMS < 0 || e.FirstMS > e.EndMS || (e.Count == 0) != (e.FirstMS == 0) {
+			return errors.New("an export's count and times are not a count, the oldest event's time and an end time after it")
+		}
+		return nil
+	}
+	if a.Epoch.RestoreEpoch < 0 || a.Epoch.Rev < 1 {
+		return errors.New("an epoch is not a restore epoch of 0 or more and a rev of 1 or more")
+	}
+	return nil
 }
 
 // validNotice is a notice posted with no why, or not posted with a why of one line.
@@ -103,6 +144,15 @@ func (a Answer) encodeOps() []proto.Member {
 	}
 	if n := a.Notice; n != nil {
 		out = append(out, proto.M(keyNotice, proto.Obj(proto.M("posted", proto.Bool(n.Posted)), proto.M("why", proto.Str(n.Why)))))
+	}
+	if e := a.Export; e != nil {
+		out = append(out, proto.M(keyExport, proto.Obj(
+			proto.M("count", proto.Int(e.Count)), proto.M("first_ms", proto.Int(e.FirstMS)),
+			proto.M("end_ms", proto.Int(e.EndMS)), proto.M("truncated", proto.Bool(e.Truncated)),
+		)))
+	}
+	if e := a.Epoch; e != nil {
+		out = append(out, proto.M(keyEpoch, proto.Obj(proto.M("restore_epoch", proto.Int(e.RestoreEpoch)), proto.M("rev", proto.Int(e.Rev)))))
 	}
 	return out
 }
@@ -163,6 +213,33 @@ func decodeOps(a *Answer, obj map[string]proto.Value) error {
 		}
 		a.Notice = &health.Notice{Posted: n["posted"].Bool(), Why: n["why"].Str()}
 	}
+	return decodeRestore(a, obj)
+}
+
+// decodeRestore reads into a the export and epoch an ok answer's object holds (RC6).
+func decodeRestore(a *Answer, obj map[string]proto.Value) error {
+	if v, given := obj[keyExport]; given {
+		f, err := newFields(v, "count", "first_ms", "end_ms", "truncated")
+		if err != nil {
+			return fmt.Errorf("export: %w", err)
+		}
+		e := restore.Export{Count: f.int("count"), FirstMS: f.int("first_ms"), EndMS: f.int("end_ms"), Truncated: f.bool("truncated")}
+		if err := f.err(); err != nil {
+			return fmt.Errorf("export: %w", err)
+		}
+		a.Export = &e
+	}
+	if v, given := obj[keyEpoch]; given {
+		f, err := newFields(v, "restore_epoch", "rev")
+		if err != nil {
+			return fmt.Errorf("epoch: %w", err)
+		}
+		e := restore.Epoch{RestoreEpoch: f.int("restore_epoch"), Rev: f.int("rev")}
+		if err := f.err(); err != nil {
+			return fmt.Errorf("epoch: %w", err)
+		}
+		a.Epoch = &e
+	}
 	return nil
 }
 
@@ -218,6 +295,14 @@ func (f *fields) int(key string) int64 {
 	}
 	f.errs = append(f.errs, fmt.Errorf("%s is not an integer", key))
 	return 0
+}
+
+func (f *fields) bool(key string) bool {
+	if v := f.obj[key]; v.Kind() == proto.KindBool {
+		return v.Bool()
+	}
+	f.errs = append(f.errs, fmt.Errorf("%s is not a boolean", key))
+	return false
 }
 
 func (f *fields) rooms() map[string]string {
