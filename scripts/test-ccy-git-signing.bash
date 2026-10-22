@@ -649,7 +649,7 @@ else
     fail "not after 'trap cleanup EXIT' (trap line ${trap_line:-none}, call line ${cfg_line:-none})"
 fi
 # The session's one run site. Signing configured after it would reach no container.
-run_line="$(grep -n "^container_cmd run \\\$DOCKER_FLAGS --rm" "$LAUNCHER" | cut -d: -f1)"
+run_line="$(grep -n -F "CLAUDE_CODE_OAUTH_TOKEN=\"\$CLAUDE_OAUTH_TOKEN\" GH_TOKEN=\"\$GH_TOKEN\" container_cmd run \$DOCKER_FLAGS --rm" "$LAUNCHER" | cut -d: -f1)"
 if [ -n "$run_line" ] && [ -n "$cfg_line" ] && [ "$cfg_line" -lt "$run_line" ]; then
     pass "before the session's container run"
 else

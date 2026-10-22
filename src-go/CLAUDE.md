@@ -40,7 +40,11 @@ originals are gone.
   (exit codes, error printing), `ui` (gum and fzf prompts), `sudo`, `systemd`, `tmuxccy`,
   `gitx`, `registry`, `agentbus`, `declare`, `marker`, `screen`, `transcript`, `restore`,
   `sessprobe`, `fsx` (atomic file writes), `ccyenv` (is CCY installed, is this a container),
-  `shellword` (POSIX shell quoting for a command shown to a person or a value a shell reads).
+  `shellword` (POSIX shell quoting for a command shown to a person or a value a shell reads),
+  `engine` (the ccy launcher's container engine: selection, the questions it asks podman or
+  docker, the rootless and SELinux verdicts, the relabel preflight; E1-E9 in its package doc)
+  and `tokens` (the token pool ccy and cc share: file names, expiry, the listing, the pool
+  verdict; T1-T8).
 - `internal/watermark/` — the watermark command (spec `SPEC-wsi-watermark.md`, M1-M14): its
   config files read as `KEY=VALUE` data, the magick and exiftool argv, through `execx`.
 - `internal/wsi/` — the batch speech-to-text recorder the panel starts (same spec, W1-W35):
@@ -70,6 +74,11 @@ originals are gone.
   the session bus through `busctl`, their streams' volumes through `pactl --format=json`, held
   until the panel's TERM or the parent's end; a stream still at the volume it set is restored
   exactly, and a player with no stream found is paused and played again instead.
+- `internal/ccylaunch/` — `claude-yolo`, the ccy launcher's Go front (Plan 00191 Task 4.5,
+  F1-F9 in its package doc): installed as the launcher with the bash launcher beside it as
+  `claude-yolo.bash`, it answers `--version` and `--help` and execs the bash for every other
+  run, and for those two wherever the bash might answer otherwise; `CCY_LEGACY=1` sends every
+  run to the bash. Its `difftest` package is the launcher's differential harness.
 - `internal/ccproject/` — `cc-project-dir`, the directory host `cc` starts its session in
   (Plan 00167, P1-P7 in its package doc): the top of the git work tree, or outside one the
   fedora-desktop checkout baked in with `-X main.RootDir`, offered `[Y/n]` at a terminal.
@@ -96,7 +105,10 @@ originals are gone.
   every run function returns one and only a `main` turns it into the `int` for `os.Exit`;
   diagnostics go to stderr, the payload to stdout ([StderrHygiene.md](../CLAUDE/StderrHygiene.md)).
 
-- **Secrets never in argv.** A password goes to its consumer on stdin.
+- **Secrets never in argv.** A password goes to its consumer on stdin; a token a program reads
+  by name (`podman run -e NAME`, gh's `GH_TOKEN`) goes as an `execx.Secret` in `Cmd.Secrets`,
+  which refuses a command whose argv holds the value and prints as its name only. Take one
+  from the environment with `execx.TakeSecret`, so no unrelated child inherits it.
 
 - **Pickers and menus: visible choices, not magic keys.** Every action in a `ui` picker is
   a named row or menu line; a key is only an accelerator, printed beside its action
@@ -147,15 +159,22 @@ checkout, offline (`-mod=vendor`, Go's default when `vendor/` exists, and set ex
 
 ## How a port is built: spec first, tests first
 
-A new port is built to a spec of intended behaviour, not to a replay of the bash. The plan's
+A new port is built to a spec of intended behaviour, not to a replay of the old tool (bash or
+Python). The old tool is treated as a prototype: the Go version fixes and improves it. The plan's
 `SPEC-<tool>.md` states each behaviour as a numbered, testable expectation (inputs, output
-lines, exit codes, failure modes, all fail-fast); the old bash is read only to find the
+lines, exit codes, failure modes, all fail-fast); the old tool is read only to find the
 requirements, and is not assumed correct. Where it was wrong, the spec states the right
 behaviour and notes the departure. Each expectation gets a Go test written first and seen to
-fail, then the code (red and green recorded in the plan journal). Before cut-over, the Go tool
-runs on the live tree and any difference from the old tool's result is explained.
-`SPEC-qa-ansible.md` and `qa/ansible` are the model. Do not record the bash's output as an
-oracle for a new port.
+fail, then the code (red and green recorded in the plan journal). A port that replaces the old
+tool in place runs on the live tree before cut-over, and any difference from the old tool's
+result is explained. `SPEC-qa-ansible.md` and `qa/ansible` are the model. Do not record the old
+tool's output as an oracle of its behaviour. An oracle against the old tool is optional, and
+where there is one it checks only what the two must share while both run side by side: on-disk
+formats and locks, wire formats, and the output other programs parse. It never pins the old
+tool's internals, wording or process structure; where that shared contract is itself bad, the
+spec says so as a departure. A rebuild that runs beside the old tool as a separate system and
+shares none of these has no contract to check, so it has no oracle: its expectation tests stand
+alone.
 
 ## Parity oracles (earlier ports)
 
@@ -187,14 +206,27 @@ way. The spec, `SPEC-status-line.md`, comes first. The oracle is
 `golden/` is recorded from the Python zipapp by `go test ./internal/pingbus/statusline/golden -update`. The default run judges the Go `statusline.Run`; `-impl=python` judges the zipapp and
 `-impl=<binary>` any other command.
 
+The ccy launcher's differential harness, `internal/ccylaunch/difftest` (Plan 00191 Task 4.4),
+is a second recorded oracle on purpose: the launcher's main path had no black-box test, and its
+port at the same install path is gated on doing what the bash does. `testdata/scenarios.json`
+builds each scenario's sandbox (a scratch HOME and repository, fakes of podman, docker, tmux,
+gh, curl and the rest, which record argv and the names of the environment variables each
+program reads, so bash's leftover exports are not pinned);
+`testdata/golden/` is recorded from the bash launcher with `-update`. `LAUNCHER=<path>` runs the
+matrix against any other program, and `TestOracleCanFail` proves a one-flag change is caught.
+`TestFrontParity` runs the matrix against the Go front (`internal/ccylaunch`, the test binary
+copied in as `claude-yolo`, the bash launcher beside it), `TestFrontAnswersItself` proves its
+answers are not the bash's, and `TestFrontHandsOver` that every other run reaches the bash.
+
 ## Build and deploy
 
 `tasks/build-go-command.yml` builds a command on the host from the checkout
 (`go build -trimpath -buildvcs=false` with `GOFLAGS=-mod=vendor`, offline from `vendor/`, as
 the login user, into `~/.cache/ccy-go-build`) and
 installs it with a checksum-compared `copy`; it takes the command name, install path, mode and
-optional ldflags. `playbooks/imports/play-claude-yolo.yml` imports it for both ccy binaries
-and `cc-project-dir` (`ccy-teams` and `cc-project-dir` also get
+optional ldflags. `playbooks/imports/play-claude-yolo.yml` imports it for both ccy binaries,
+the launcher's front `claude-yolo` (root-owned at `/var/local/claude-yolo/claude-yolo`, with
+`-X main.Version=<CCY_VERSION>` read from the bash launcher) and `cc-project-dir` (`ccy-teams` and `cc-project-dir` also get
 `-ldflags "-X main.RootDir=<checkout>"` and refuse to run without it), and `tasks/deploy-freeze.yml` for the freeze tools, which `play-podfreeze.yml` and
 `play-lxcfreeze.yml` import (both import `play-golang.yml` first for the toolchain), and
 `play-vm-test-lab.yml` for `vmtest`, `play-ftp-camera.yml` for `ftp-camera`,

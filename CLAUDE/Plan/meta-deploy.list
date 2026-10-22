@@ -14,7 +14,9 @@
 #                                  shebang, which goes through run.bash, exactly as
 #                                  ./playbooks/imports/<play>.yml does by hand
 #   <plan folder>/<script>.bash    one plan script, for a step none of the three fixed names
-#                                  fits; run as one unit, like a playbook entry
+#                                  fits; run as one unit, like a playbook entry, except
+#                                  that a script named *acceptance*.bash may exit 2 for
+#                                  COULD NOT ESTABLISH, as an acceptance.bash may
 #
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
@@ -83,3 +85,57 @@ playbooks/imports/play-agent-bus.yml
 # judged), and has the coordinator ask a test question. Needs sudo once. Afterwards do the
 # Element steps of the plan's ACCEPTANCE-owner.md.
 00211-agent-bus-reports-and-questions-rooms/deploy-stage-2.bash
+# Plan 00201 Task 2.7 (M7): the automated two-team acceptance again, because its M3 check
+# (the session's status line) changed since it last passed, and Plan 00213's cut-over made
+# that status line the Go one. acceptance.bash only: it makes two throwaway teams declared
+# in a run-directory host_vars (your host_vars and teams are never touched), runs one headless
+# ccy session on both and a plain one (each one short turn on haiku), checks descriptions,
+# launch block, per-session record, status line, `say` and SessionEnd, then purges both teams
+# and checks their firewalld rules are gone, however the run ends. Needs sudo once, ccy
+# launched interactively in this checkout once (Quick Launch), and the hooks daemon installed.
+00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker
+# play-claude-yolo.yml, the whole play (Plan 00191 Tasks 4.3, 4.4, 4.4b and 4.5): the host's ccy
+# becomes CCY 3.99.14.3 (container 2.78.14: the next launch rebuilds the image once, for its
+# guide). /var/local/claude-yolo/claude-yolo becomes a Go program (built here from
+# src-go/cmd/claude-yolo, installed only when its checksum changes) that answers --version and
+# --help itself and execs the bash launcher, now installed beside it as claude-yolo.bash, for
+# every other run with the same arguments and environment plus CCY_LAUNCHER_FRONT, its own
+# path, which the bash takes and unsets so its sessions re-run the Go program. If it
+# misbehaves, CCY_LEGACY=1 ccy ... runs the bash launcher for everything; if it will not start,
+# /var/local/claude-yolo/claude-yolo.bash run directly keeps the whole session on the bash;
+# to go back entirely, run this play from the revision
+# before Task 4.5 (it copies the bash over claude-yolo again, and leaves this claude-yolo.bash
+# behind, stale but harmless: session records and re-runs name claude-yolo, and the plan
+# scripts that read the launcher as text read claude-yolo whenever it is a script, so nothing
+# runs or reads it; a session recorded by 3.99.14.0 before this fix would run it). Check after
+# the run:
+# `ccy --version` and `CCY_LEGACY=1 ccy --version` print the same two lines. lib/tmux-session.bash no longer carries the unused bash take-over
+# (taking a session over stays the ccy-sessions picker's Ctrl-T); the new lib/host-paths.bash
+# lets the launcher's differential harness point the build context, GPU directory and zone
+# database elsewhere (unset, nothing changes) and refuses a bad or relative override at
+# start; the launcher's temporary files follow TMPDIR when it is set; the GitHub and Claude
+# tokens are no longer exported to every program the launcher starts, only handed by name to
+# the container runs that need them; a GH_TOKEN you export reaches the session through the new
+# lib/token-handoff.bash (a private file whose path only goes to the tmux re-run, deleted at
+# once; any other path in CCY_GH_TOKEN_HANDOFF is refused); --debug's log is 0600 with tokens
+# of a known prefix masked (the terminal still shows the raw trace). Container 2.78.13 (the guide in the image is corrected),
+# so the next launch rebuilds the image once. It also rebuilds ~/.local/bin/ccy-teams with
+# Plan 00209 stage 1 (the team, seat and declare reads in-process), which the check below
+# judges. Afterwards start a ccy session as usual: it
+# must rebuild, start and attach as before, and gh must work inside it.
+playbooks/imports/play-claude-yolo.yml
+# Plan 00209 stage 1 host check, after the play-claude-yolo.yml entry above has installed the
+# ccy-teams that reads team, seat and declare state in-process. READ-ONLY: it changes nothing,
+# and keeps two builds and every output in its run directory. It checks the installed ccy-teams
+# is this checkout's build, builds the ccy-teams from before stage 1 from git, and runs each three
+# times in turn: `--list` must print the same bytes (a difference in every round rejects, one in
+# some rounds only is a live change and a note) and run faster (it took 9-23 s before), and an
+# open, drawn on this terminal and answered with Esc at its first screen, must be faster and
+# start exactly one declare status and no agent-bus seat list. A live member.json that sets
+# report_per_hour must be listed, not refused. Needs sudo once (so both read the member rosters)
+# and a terminal. A failure names the check, and a --list diff is in the report. An open that
+# asks a question first (a team to describe, an update) leaves S3 NOT JUDGED (exit 2, COULD NOT
+# ESTABLISH in the summary): answer it in ccy-teams and run again. An out-of-date team is offered
+# its update on every open, so it blocks S3 until play-agent-bus.yml has applied it; its entry
+# above normally has.
+00209-agent-bus-v2-in-go/acceptance-s1.bash
