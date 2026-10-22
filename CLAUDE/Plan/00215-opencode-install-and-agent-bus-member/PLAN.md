@@ -71,9 +71,13 @@ with sources) and [research/agent-bus-member-facts.md](research/agent-bus-member
   new launcher differential-harness scenarios; every existing scenario's golden is unchanged
   but the three `--help` ones. Documented in `docs/ccy.md` ("opencode").
 - [ ] 🔄 **Task 1.4**: Host run: the `play-claude-yolo.yml` entry in
-  `CLAUDE/Plan/meta-deploy.list`. Done when the image has rebuilt with opencode, a key file is in
-  place, and `ccy --opencode` starts opencode in its tmux session; hand check that ctrl+z in it
-  does not freeze the session.
+  `CLAUDE/Plan/meta-deploy.list` (the image itself is first built, with opencode, by the play
+  run inside the 00213 entry before it). Done when the image has rebuilt with opencode, a key
+  file is in place, and `ccy --opencode` starts opencode in its tmux session; hand check that
+  ctrl+z in it does not freeze the session. Check it in a project whose image is built on
+  `claude-yolo:latest` (the default): the play builds `:latest` only, so a project Dockerfile
+  that opts into `FROM claude-yolo:base` keeps the old base, without opencode, until `:base` is
+  rebuilt (a gap in the play's build from Plan 00216, raised with the coordinator).
 
 ### Phase 2: bus membership design (no code)
 

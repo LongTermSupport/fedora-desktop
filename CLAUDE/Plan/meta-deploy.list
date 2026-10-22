@@ -45,8 +45,9 @@
 # play-claude-yolo.yml, then acceptance.bash. The kit's settings.json runs the static Go
 # pingbus-status-line, copied into every running LXC member. The ccy play gives the host CCY
 # 3.100.6 (the Go front, the image build lock and --opencode: see the play-claude-yolo.yml entry
-# below) and puts the binary in the image's build context (container 2.79.1, rebuilt once at the
-# next ccy launch; the image
+# below) and puts the binary in the image's build context. That play run builds the image,
+# container 2.79.1: it downloads opencode 1.19.3 from github.com and stops this entry if its
+# sha256 is not the pinned one, so an opencode download failure shows here (the image
 # also carries the farewell-reason fix, the reports and questions admin tool and Go 1.26.10 in the project image): a seated session's status line is
 # the Go one and refreshes every 25 s. The acceptance checks the kit's, the image's and each
 # declared LXC member's binary are this checkout's build (a declared container that is down is
@@ -93,9 +94,10 @@
 # `ccy --rebuild=full` in two terminals at the same moment: the second prints the waiting line
 # and starts its own build only when the first has finished (an explicit rebuild always builds);
 # while one builds, `ccy --build-lock` in a third terminal names it, and `n` leaves it running.
-# Container 2.79.1: the next launch rebuilds the image once, for its guide, the room-ID fix in its
-# pingbus (Plan 00211) and opencode 1.19.3, the open-source coding agent, downloaded at build and
-# stopped unless its sha256 is the pinned one. Plan 00215: new flag `ccy --opencode` (or -oc) runs
+# The play builds the image every run, so it is already container 2.79.1 here (its guide, the
+# room-ID fix in its pingbus, Plan 00211, and opencode 1.19.3, the open-source coding agent,
+# checked against its pinned sha256 at build), built by the 00213 entry above; the next launch
+# rebuilds only a project's own image. Plan 00215: new flag `ccy --opencode` (or -oc) runs
 # opencode in the container instead of Claude Code, with no bus kit and no supervisor; it needs a
 # model provider key file first (docs/ccy.md, "opencode"; Plan 00215 Task 1.4), and without one it
 # stops before anything starts; an opencode session is not restored after a reboot, and a Quick
@@ -130,7 +132,7 @@
 # lib/token-handoff.bash (a private file whose path only goes to the tmux re-run, deleted at
 # once; any other path in CCY_GH_TOKEN_HANDOFF is refused); --debug's log is 0600 with tokens
 # of a known prefix masked (the terminal still shows the raw trace). Container 2.79.1 (the guide in the image is corrected,
-# its pingbus has the room-ID fix, and opencode is added), so the next launch rebuilds the image once. It also rebuilds ~/.local/bin/ccy-teams with
+# its pingbus has the room-ID fix, and opencode is added), built by the play itself. It also rebuilds ~/.local/bin/ccy-teams with
 # Plan 00209 stage 1 (the team, seat and declare reads in-process), which the check below
 # judges. Afterwards start a ccy session as usual: it
 # must rebuild, start and attach as before, and gh must work inside it.

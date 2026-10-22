@@ -901,7 +901,9 @@ provider is yours to choose. Each key is handed by name to that session's contai
 exported. With no key, or a file there that is not one, the launch stops before anything starts.
 
 An opencode session is on no agent team and has no supervisor, so `--teams`, `--supervise`,
-`--headless` and the session limits are refused with it. Claude Code's ctrl+z guard is the
+`--headless` and the session limits are refused with it. `--debug`'s third layer is Claude
+Code's own `--debug` and does nothing for opencode, though the chooser still ticks it; the CCY
+and entrypoint layers apply as usual. Claude Code's ctrl+z guard is the
 supervisor's; for opencode the image unbinds its suspend key instead (`/etc/opencode/tui.json`).
 The image's `/etc/opencode/opencode.json` turns sharing off. opencode reads the project's `CLAUDE.md`
 and `.claude/skills/` when there is no `AGENTS.md`; moving projects to `AGENTS.md` is later work
