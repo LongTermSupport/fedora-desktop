@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/matrix"
@@ -229,6 +230,9 @@ func (t *Team) historyOf(m message, room string, a proto.Anchors) records.Histor
 	return records.History{Team: t.cfg.Team, Dir: dir, Item: item}
 }
 
+// gone is err as a Refetch whose item can never be judged again.
+func gone(err error) error { return fmt.Errorf("%w: %w", team.ErrItemGone, err) }
+
 func optional(s string) *string {
 	if s == "" {
 		return nil
@@ -237,7 +241,9 @@ func optional(s string) *string {
 }
 
 // Refetch judges a restored item again (B 2.7.3): the event fetched, its relations resolved as
-// a sync's are, over a fresh flood window and a Lookup that does not count the item as seen.
+// a sync's are, over a fresh flood window and a Lookup that does not count the item as seen. An
+// event the server answers 404 or 403 for, one that does not parse, and a room other than main
+// are team.ErrItemGone: the item can never be judged again.
 func (t *Team) Refetch(ctx context.Context, room, id string) (proto.Verdict, error) {
 	c, pair, err := t.current()
 	if err != nil {
@@ -248,15 +254,18 @@ func (t *Team) Refetch(ctx context.Context, room, id string) (proto.Verdict, err
 		return proto.Verdict{}, err
 	}
 	if room != proto.PurposeMain {
-		return proto.Verdict{}, exits.New(exits.CodeUsage, &t.cfg.Team, notARoom, exits.Name(room))
+		return proto.Verdict{}, gone(exits.New(exits.CodeUsage, &t.cfg.Team, notARoom, exits.Name(room)))
 	}
 	raw, err := c.GetEvent(ctx, s.a.MainRoom, id)
+	if errors.Is(err, matrix.ErrNotFound) || errors.Is(err, matrix.ErrForbidden) {
+		return proto.Verdict{}, gone(err)
+	}
 	if err != nil {
 		return proto.Verdict{}, err
 	}
 	v, err := proto.Parse(raw)
 	if err != nil {
-		return proto.Verdict{}, exits.New(exits.CodeUntrusted, &t.cfg.Team, notAuthentic, exits.Name(id))
+		return proto.Verdict{}, gone(exits.New(exits.CodeUntrusted, &t.cfg.Team, notAuthentic, exits.Name(id)))
 	}
 	relIDs := proto.RelationIDs(v, s.roster)
 	view, err := t.cfg.Engine.View(t.cfg.Team, []string{id}, relIDs, s.roster)

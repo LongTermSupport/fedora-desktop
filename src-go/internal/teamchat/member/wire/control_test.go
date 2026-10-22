@@ -68,6 +68,7 @@ func sample(t *testing.T) []Msg {
 			Team: ops, Handle: "repo.2+site.podman", Delivery: state.DeliveryNone, Store: state.StoreRefused,
 		}},
 		{Kind: KindRemoved, Removed: &Removed{Team: ops, UserID: agentID(ops)}},
+		{Kind: KindRemoved, Removed: &Removed{Team: ops}},
 		{Kind: KindLeft, Left: &Left{Team: ops}},
 		{Kind: KindRefused, Refused: &Refused{Team: ops, HolderRun: runID(t)}},
 	}

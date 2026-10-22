@@ -133,14 +133,21 @@ type fakeTeam struct {
 
 	verdicts   map[string]proto.Verdict
 	refetchErr error
-	block      bool
-	refetched  []string
-	verified   records.Verified
-	verifyErr  error
-	history    []records.History
-	historyErr error
-	flushes    int
-	flushErr   error
+	// refetchErrs answers one id's re-fetch with its error, over refetchErr.
+	refetchErrs map[string]error
+	block       bool
+	refetched   []string
+	verified    records.Verified
+	verifyErr   error
+	history     []records.History
+	historyErr  error
+	flushes     int
+	flushErr    error
+	// raised are the floors FloorRaised was told, in order.
+	raised []int64
+	// ended is set once Run returns; flushedLive counts the flushes made while it ran.
+	ended       bool
+	flushedLive int
 }
 
 func (f *fakeTeam) Run(ctx context.Context) error {
@@ -154,6 +161,9 @@ func (f *fakeTeam) Run(ctx context.Context) error {
 		return errors.New("the team ended on its own")
 	}
 	<-ctx.Done()
+	f.mu.Lock()
+	f.ended = true
+	f.mu.Unlock()
 	return ctx.Err()
 }
 
@@ -161,6 +171,9 @@ func (f *fakeTeam) Refetch(ctx context.Context, _, id string) (proto.Verdict, er
 	f.mu.Lock()
 	f.refetched = append(f.refetched, id)
 	block, v, err := f.block, f.verdicts[id], f.refetchErr
+	if e, ok := f.refetchErrs[id]; ok {
+		err = e
+	}
 	f.mu.Unlock()
 	if block {
 		<-ctx.Done()
@@ -188,7 +201,16 @@ func (f *fakeTeam) FlushFloor(context.Context) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.flushes++
+	if !f.ended {
+		f.flushedLive++
+	}
 	return f.flushErr
+}
+
+func (f *fakeTeam) FloorRaised(floor int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.raised = append(f.raised, floor)
 }
 
 func (f *fakeTeam) setVerdict(id string, v proto.Verdict) {

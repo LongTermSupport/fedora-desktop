@@ -547,18 +547,48 @@ func (p *fakePidfd) Close() error            { return nil }
 
 func (p *fakePidfd) exit() { p.once.Do(func() { close(p.exited) }) }
 
+// fakeWatcher hands out events; the test sends on events from its own goroutine, and end and
+// fail change what Watch gives under mu.
 type fakeWatcher struct {
+	mu     sync.Mutex
 	events chan WatchEvent
 	dirs   []string
 	err    error
 }
 
 func (f *fakeWatcher) Watch(dir string) (<-chan WatchEvent, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.dirs = append(f.dirs, dir)
-	return f.events, f.err
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.events, nil
 }
 
 func (f *fakeWatcher) Close() error { return nil }
+
+// end closes the watch's channel, as a watch that ends does; a later Watch gets a fresh one.
+func (f *fakeWatcher) end() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	close(f.events)
+	f.events = make(chan WatchEvent, 16)
+}
+
+// fail makes Watch refuse with err, or watch again with nil.
+func (f *fakeWatcher) fail(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.err = err
+}
+
+// watches is how many times Watch was called.
+func (f *fakeWatcher) watches() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.dirs)
+}
 
 // syncBuffer is a buffer the keeper writes while the test reads.
 type syncBuffer struct {

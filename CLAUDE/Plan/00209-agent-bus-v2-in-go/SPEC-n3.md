@@ -543,7 +543,11 @@ the unit's `teamchat run` exits 1 (CL2), so a running session is not asserted be
   `set_presence=offline`; at a clean end and a removal `PUT /presence/<me>/status` offline.
 - **SY10. The resume marker** `teamchat.floor` `{"v":1,"floor_ms":N,"restore_epoch":N}` is put after
   a store write that moved a floor, at most once per room per 10 s coalesced, and at a clean end
-  and a removal before the store goes; a failed PUT blocks nothing.
+  and a removal before the store goes, at the start of a session, and on any move down; a failed
+  PUT blocks nothing. The marker carries the store's own floor, just below the oldest owed item.
+  The clean-end put is bounded by the link's own 4 s, inside the keeper's 5 s kill after End, so on
+  a slow homeserver it can be cut off; the start-of-session put repairs that, and only a seat taken
+  with no store in between can replay.
 - **SY11. Invites and roles** (B 2.6 step 10, main room): an invite only to a room the verified
   record names for this role, from the admin; one not named yet left pending and logged; any
   other rejected. A role change rebuilds the filter and the status row; its NOTICE is DV6's.

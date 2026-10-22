@@ -728,26 +728,45 @@ func copyWindow(w proto.Window) proto.Window {
 	return c
 }
 
-// knowFloor is the floor a session starts from, which FlushFloor puts.
+// knowFloor is the floor a session starts from, which FlushFloor puts. Unless this goroutine
+// already put that floor, it is owed: the last link may have ended, or been killed, before its
+// coalesced put, and the marker may lag the store (A2).
 func (t *Team) knowFloor(floor, epoch int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if floor > 0 {
-		t.floor.ms, t.floor.epoch, t.floor.known = floor, epoch, true
+		f := &t.floor
+		f.ms, f.epoch, f.known = floor, epoch, true
+		f.dirty = !f.sent || f.sentMS != floor || f.sentEpoch != epoch
 	}
 }
 
+// floorMoved is a persisted floor move; a move down is owed at once, never coalesced, so a
+// seat taken with no store never cuts the item it was lowered for.
 func (t *Team) floorMoved(floor, epoch int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.floor.ms, t.floor.epoch, t.floor.known, t.floor.dirty = floor, epoch, true, true
+	f := &t.floor
+	f.urgent = f.urgent || f.known && floor < f.ms
+	f.ms, f.epoch, f.known, f.dirty = floor, epoch, true, true
+}
+
+// FloorRaised is the store's main floor raised outside a sync answer (team.Team): the marker's
+// next put carries it, coalesced as any move up. A floor not above the one known, or with none
+// known (so no epoch), changes nothing.
+func (t *Team) FloorRaised(floor int64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.floor.known && floor > t.floor.ms {
+		t.floor.ms, t.floor.dirty = floor, true
+	}
 }
 
 // putFloorIfDue is SY10's coalescing without a timer: a moved floor is put after an answer once
-// floorPutGap has passed since the last put.
+// floorPutGap has passed since the last put, and a floor moved down at once.
 func (t *Team) putFloorIfDue(ctx context.Context, c *matrix.Client, a proto.Anchors) {
 	t.mu.Lock()
-	due := t.floor.dirty && (!t.floor.put || t.cfg.Clock.Boot()-t.floor.putAt >= floorPutGap)
+	due := t.floor.dirty && (t.floor.urgent || !t.floor.put || t.cfg.Clock.Boot()-t.floor.putAt >= floorPutGap)
 	t.mu.Unlock()
 	if due {
 		if err := t.putFloor(ctx, c, a); err != nil {
@@ -759,7 +778,9 @@ func (t *Team) putFloorIfDue(ctx context.Context, c *matrix.Client, a proto.Anch
 func (t *Team) putFloor(ctx context.Context, c *matrix.Client, a proto.Anchors) error {
 	t.mu.Lock()
 	f := t.floor
-	t.floor.put, t.floor.putAt = true, t.cfg.Clock.Boot()
+	if f.known {
+		t.floor.put, t.floor.putAt = true, t.cfg.Clock.Boot()
+	}
 	t.mu.Unlock()
 	if !f.known {
 		return nil
@@ -769,8 +790,9 @@ func (t *Team) putFloor(ctx context.Context, c *matrix.Client, a proto.Anchors) 
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.floor.ms == f.ms {
-		t.floor.dirty = false
+	t.floor.sent, t.floor.sentMS, t.floor.sentEpoch = true, f.ms, f.epoch
+	if t.floor.ms == f.ms && t.floor.epoch == f.epoch {
+		t.floor.dirty, t.floor.urgent = false, false
 	}
 	return nil
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/exits"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/homefs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/records"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/member/team"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/proto"
 )
@@ -115,6 +116,30 @@ func TestRefetch(t *testing.T) {
 	}
 	if _, err := tm.Refetch(t.Context(), proto.PurposeMain, "$"+"nosucheventanywhere_aaaaaaaaaaaaaaaaaaaaaaa"); err == nil {
 		t.Error("a missing event was judged")
+	}
+}
+
+// A restored item the server will never serve again (404, 403, a room other than main) is
+// team.ErrItemGone, which the engine drops; a transient failure is not (A1).
+func TestARefetchOfAnEventThatIsGoneSaysSo(t *testing.T) {
+	w := newWorld(t)
+	tm := w.newTeam()
+	id := w.say(alice, human("for me", user(me)))
+	missing := "$" + "nosucheventanywhere_aaaaaaaaaaaaaaaaaaaaaaa"
+	refetch := func(room, id string) error { _, err := tm.Refetch(t.Context(), room, id); return err }
+	if err := refetch(proto.PurposeMain, missing); !errors.Is(err, team.ErrItemGone) {
+		t.Errorf("404: %v", err)
+	}
+	if err := refetch(proto.PurposeQuestions, id); !errors.Is(err, team.ErrItemGone) || !isCode(err, exits.CodeUsage) {
+		t.Errorf("questions: %v", err)
+	}
+	w.srv.Inject(fakehs.Fault{Method: http.MethodGet, Path: "/event/", Status: http.StatusForbidden, Body: []byte(`{"errcode":"M_FORBIDDEN","error":"x"}`)})
+	if err := refetch(proto.PurposeMain, id); !errors.Is(err, team.ErrItemGone) {
+		t.Errorf("403: %v", err)
+	}
+	w.srv.Inject(fakehs.Fault{Method: http.MethodGet, Path: "/event/", Status: http.StatusBadGateway, Body: []byte(`{}`), Times: 10})
+	if err := refetch(proto.PurposeMain, id); err == nil || errors.Is(err, team.ErrItemGone) {
+		t.Errorf("502: %v", err)
 	}
 }
 

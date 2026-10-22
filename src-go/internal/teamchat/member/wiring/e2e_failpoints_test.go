@@ -281,6 +281,23 @@ func TestFailpointKeeperLinkWriting(t *testing.T) {
 	}
 }
 
+// A relaunch of the same seat at once after a keeper crash is seated: a guard of the relaunch.
+// Against fakehs the seat is free by the time it is reached, so the wait for a link that still
+// holds it is proven by keeper's TestHeldSeatOfAnEndingSessionIsWaitedFor, not here.
+func TestFailpointRelaunchWhileTheLinkEnds(t *testing.T) {
+	w := armed(t, arm("run", failpoint.KeeperLinkWriting))
+	s := w.start("--state", w.state, "--seat", teamName+"/"+mySeat)
+	s.wait()
+	st := <-s.ended
+	s.ended <- st
+	if st.Signal != syscall.SIGKILL || len(s.links()) != 1 {
+		t.Fatalf("the keeper ended %+v: %s", st, s.describe())
+	}
+	link := s.links()[0]
+	again := w.seated()
+	eventually(t, func() bool { return gone(link) }, again.describe)
+}
+
 // keeperKilled is a keeper's crash at its armed point: ended by SIGKILL, disconnected posted
 // once, and every link it started gone.
 func keeperKilled(t *testing.T, w *world, s *session) {
