@@ -88,7 +88,7 @@ type sendResult struct {
 
 // say is SD2's text: stdin to the resolved addressees in main.
 func (e *Engine) say(ctx context.Context, a wire.SayArgs, stdin *string, out RecordWriter) wire.Done {
-	text, err := sayText(a.Team, stdin)
+	text, err := stdinText(a.Team, stdin, msgNoText)
 	if err != nil {
 		return doneOf(err)
 	}
@@ -101,11 +101,12 @@ func (e *Engine) say(ctx context.Context, a wire.SayArgs, stdin *string, out Rec
 	}, out)
 }
 
-// sayText is say's stdin, checked (n3d-D28: the client removed one trailing newline).
-func sayText(t *paths.TeamID, stdin *string) (string, error) {
+// stdinText is the text of say or a plain reply, checked (n3d-D28: the client removed one
+// trailing newline); none is 64 with noText.
+func stdinText(t *paths.TeamID, stdin *string, noText exits.Template) (string, error) {
 	switch {
 	case stdin == nil:
-		return "", exits.New(exits.CodeUsage, t, msgNoText)
+		return "", exits.New(exits.CodeUsage, t, noText)
 	case *stdin == "":
 		return "", exits.New(exits.CodeEmpty, t, msgEmptyText)
 	case !utf8.ValidString(*stdin):
@@ -663,8 +664,10 @@ func lookupOf(h *held) storeLookup {
 		self: h.store.UserID, main: h.anchors.MainRoom, seen: map[string]bool{},
 		ledger: map[string]state.Ledger{}, pings: map[string]state.Ping{},
 	}
+	// A pending item is related as a delivered one, so a reply to it needs no fetch.
 	for _, p := range h.store.Pending {
 		l.seen[p.ID] = true
+		l.ledger[p.ID] = ledgerOfPending(p)
 	}
 	for _, x := range h.store.Ledger {
 		l.seen[x.ID] = true
