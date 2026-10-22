@@ -29,15 +29,6 @@
 # has mapped, and the terminals' font and GPU settings. Start meta-deploy from the terminal that
 # draws the wrong emoji, and leave that window open while it runs.
 00185-terminal-emoji-glyphs
-# play-basic-configs.yml (no plan owns it): fwupd now runs LAST in the play, so every task before
-# it applies even while LVFS's signature file (firmware.xml.zst.jcat) is unavailable; the fwupd
-# task itself still fails (after its retries) until LVFS recovers. The run also rebuilds and
-# installs the fetch-age command with Plan 00183's fix and applies the tasks that stopped behind
-# fwupd before (the ABRT policy onward). It imports play-golang.yml first, so this is also the
-# Go 1.26.10 toolchain run: golang is upgraded to Fedora's newest build (state latest) and the
-# play fails unless `go env GOVERSION` is at least 1.26.10. play-golang.yml has no entry of its
-# own: every play below imports it too.
-playbooks/imports/play-basic-configs.yml
 # play-agent-bus.yml, the whole play (Plan 00213's LXC fix, the farewell-reason fix, Plan 00211
 # Phase 2's admin tool). BEFORE starting meta-deploy, restart every team's agent sessions, ccy
 # and LXC alike, so each coordinator runs pingbus 0.2.0 (deploy 1 installed it; a running
@@ -57,9 +48,9 @@ playbooks/imports/play-agent-bus.yml
 # play-agent-bus.yml again (no change after the entry above), then the whole
 # play-claude-yolo.yml, then acceptance.bash. The kit's settings.json runs the static Go
 # pingbus-status-line, copied into every running LXC member. The ccy play gives the host CCY
-# 3.99.13.11 and puts the binary in the image's build context (container 2.78.11, rebuilt once
-# at the next ccy launch; the image also carries the farewell-reason fix, the reports and
-# questions admin tool and Go 1.26.10 in the project image): a seated session's status line is
+# 3.99.14.11 (the Go front: see the play-claude-yolo.yml entry below) and puts the binary in the
+# image's build context (container 2.78.14, rebuilt once at the next ccy launch; the image
+# also carries the farewell-reason fix, the reports and questions admin tool and Go 1.26.10 in the project image): a seated session's status line is
 # the Go one and refreshes every 25 s. The acceptance checks the kit's, the image's and each
 # declared LXC member's binary are this checkout's build (a declared container that is down is
 # refused, named), runs the recorded Python goldens against the installed Python and Go, and
@@ -75,7 +66,7 @@ playbooks/imports/play-agent-bus.yml
 # member's pingbus is 0.2.0, and a declared container that is down is refused, named). Then the
 # whole play-agent-bus.yml keeps each team's reports and questions rooms (created by the entry
 # above), the index and the invites; the whole play-claude-yolo.yml finds the ccy image already
-# at container 2.78.11. Then acceptance.bash --stage 2 waits up to 180 s for every coordinator
+# at container 2.78.14. Then acceptance.bash --stage 2 waits up to 180 s for every coordinator
 # to join its questions room and every running ccy seat its reports room, naming any that has
 # not, and checks the rooms. It finds the first team's coordinator in its running ccy session
 # or LXC member; with no team coordinator, or one whose session is not running, it is
