@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -193,6 +194,66 @@ func TestSweepNeverAnnouncesAStart(t *testing.T) {
 	w.sweep()
 	if w.notices.count() != 1 || !exists(t, w.pool().HeldNotice()) || !exists(t, w.pool().HeldRecord()) {
 		t.Errorf("an ended run: announced %d", w.notices.count())
+	}
+}
+
+// SW2, the n2c re-check's low 2: whatever a member writes as its seat lock is never the
+// sweep's error and never announced; the release of a session that is over still completes.
+func TestSweepTakesNoErrorFromTheMembersLock(t *testing.T) {
+	for name, set := range map[string]func(w *world){
+		"a run id off its grammar": func(w *world) { w.write(w.sessionSeat().Lock(), `{"v":1,"run":"../../x","started_ms":1}`) },
+		"an upper-case run id": func(w *world) {
+			w.write(w.sessionSeat().Lock(), `{"v":1,"run":"0123456789ABCDEF","started_ms":1}`)
+		},
+		"a run id too long": func(w *world) {
+			w.write(w.sessionSeat().Lock(), `{"v":1,"run":"0123456789abcdef0","started_ms":1}`)
+		},
+		"a number as the run": func(w *world) { w.write(w.sessionSeat().Lock(), `{"v":1,"run":7,"started_ms":1}`) },
+		"no run":              func(w *world) { w.write(w.sessionSeat().Lock(), `{"v":1,"started_ms":1}`) },
+		"a repeated run": func(w *world) {
+			w.write(w.sessionSeat().Lock(), `{"v":1,"run":"`+testRun+`","run":"`+testRun+`","started_ms":1}`)
+		},
+		"an unknown key":  func(w *world) { w.write(w.sessionSeat().Lock(), `{"v":1,"run":"`+testRun+`","started_ms":1,"x":1}`) },
+		"another version": func(w *world) { w.write(w.sessionSeat().Lock(), `{"v":2,"run":"`+testRun+`","started_ms":1}`) },
+		"not json":        func(w *world) { w.write(w.sessionSeat().Lock(), "run "+testRun) },
+		"over its cap":    func(w *world) { w.write(w.sessionSeat().Lock(), runRecord+strings.Repeat(" ", 8<<10)) },
+		"a directory":     func(w *world) { w.mkdir(w.sessionSeat().Lock()) },
+		"a link": func(w *world) {
+			w.write(w.sessionSeat().Dir()+"/real", runRecord)
+			w.link("real", w.sessionSeat().Lock())
+		},
+		"a linked seat directory": func(w *world) {
+			w.write(w.paths.Session(w.session)+"/elsewhere/seat.lock", runRecord)
+			w.link("elsewhere", w.sessionSeat().Dir())
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t)
+			set(w)
+			w.sweep()
+			w.sessions.live["s1"] = false
+			if got := w.sweep(); len(got) != 1 || got[0].Action != Released {
+				t.Errorf("released: %+v", got)
+			}
+			if w.notices.count() != 0 || exists(t, w.pool().Held()) {
+				t.Errorf("announced %d; held/ there %v", w.notices.count(), exists(t, w.pool().Held()))
+			}
+		})
+	}
+}
+
+func (w *world) mkdir(path string) {
+	w.t.Helper()
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+func (w *world) link(target, path string) {
+	w.t.Helper()
+	w.mkdir(filepath.Dir(path))
+	if err := os.Symlink(target, path); err != nil {
+		w.t.Fatal(err)
 	}
 }
 
