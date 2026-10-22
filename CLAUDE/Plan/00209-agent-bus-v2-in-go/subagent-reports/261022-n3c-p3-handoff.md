@@ -53,6 +53,16 @@ Deviations so far:
   names. `WithKitRoot` exists so a test can place a kit root with its `current` link; the system
   kit root is not writable by a test.
 
+## n3c-D24 (agreed by the lead with P4)
+
+`wire.Launch` gains `Seats int json:"seats"` (refused when negative): the number of `add`
+messages that follow the launch. The link sends `ready` only after it has handled that many,
+a failed add included, so CMD starts with every team's store loaded. P4 adds the same field
+with the same name and type, so the two merge identically. The keeper sets `Seats` to the
+number of adds it is about to send, sends exactly that many, then waits for `ready` within its
+30 s bound on the clock seam. An end-only start counts its adds the same way. Record this in
+the report.
+
 ## Left to build
 
 The whole `internal/teamchat/member/keeper` package, its tests, its failpoint tests, the

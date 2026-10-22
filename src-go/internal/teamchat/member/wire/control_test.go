@@ -229,6 +229,7 @@ func TestBodyRules(t *testing.T) {
 		"launch launch":        launchWith(t, func(l *Launch) { l.Launch = "both" }),
 		"launch inbound":       launchWith(t, func(l *Launch) { l.Inbound = "maybe" }),
 		"launch generation":    launchWith(t, func(l *Launch) { l.Generation = -1 }),
+		"launch seats":         launchWith(t, func(l *Launch) { l.Seats = -1 }),
 		"launch relative cwd":  launchWith(t, func(l *Launch) { l.Cwd = "work" }),
 		"launch unclean cwd":   launchWith(t, func(l *Launch) { l.Cwd = "/work/../etc" }),
 		"launch config dir":    launchWith(t, func(l *Launch) { l.ClaudeConfigDir = new("rel") }),

@@ -94,6 +94,9 @@ type Launch struct {
 	Generation      int64       `json:"generation"`
 	ClaudeConfigDir *string     `json:"claude_config_dir"`
 	Cwd             string      `json:"cwd"`
+	// Seats is how many add messages follow the launch; the link is ready only once it has
+	// handled that many, a failed add included (n3c-D24).
+	Seats int `json:"seats"`
 }
 
 // Add hands the link a seat, with the seat lock's descriptor; RemovedUserIDs are the team's
@@ -303,6 +306,8 @@ func (l *Launch) check() string {
 		return "inbound is not accept or refuse"
 	case l.Generation < 0:
 		return "generation is negative"
+	case l.Seats < 0:
+		return "seats is negative"
 	case !cleanAbs(l.Cwd) || l.ClaudeConfigDir != nil && !cleanAbs(*l.ClaudeConfigDir):
 		return "cwd or claude_config_dir is not an absolute clean path"
 	}
