@@ -358,7 +358,9 @@ func guestErrno(p string, errno syscall.Errno) error {
 	return fmt.Errorf("%w: guestroot: %s: %w", guestroot.ErrGuest, p, errno)
 }
 
-var guestErrnos = []syscall.Errno{syscall.EACCES, syscall.EIO}
+// guestErrnos are errnos a guest's FUSE server can answer, those that look like the host out of
+// descriptors or memory included (C1).
+var guestErrnos = []syscall.Errno{syscall.EACCES, syscall.EIO, syscall.EMFILE, syscall.ENFILE, syscall.ENOMEM}
 
 // R2-1: a guest user's run root that cannot be listed, whatever the errno, keeps every digest
 // and fails no seat; the kit sweep goes on for the rest.

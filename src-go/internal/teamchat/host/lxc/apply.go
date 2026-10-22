@@ -513,8 +513,8 @@ func (r *run) step(ctx context.Context, g *guestBox, m *member, name string, err
 
 // refused is the member's own failure: a guest fact TB1 or a grammar refused, or a call below
 // the guest root that the guest answered with an error, whatever its errno, a stall included
-// (R2-1). Only an error before the pin, the host out of descriptors or memory, and the host's
-// own /proc are the host's.
+// (R2-1), EMFILE, ENFILE and ENOMEM too (C1). Only an error before the pin, and the host's own
+// /proc, are the host's.
 func refused(err error) bool {
 	return badFact(err) || errors.Is(err, guestroot.ErrGuest)
 }

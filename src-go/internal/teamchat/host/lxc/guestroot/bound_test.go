@@ -161,9 +161,9 @@ func TestALateDialIsClosed(t *testing.T) {
 	}
 }
 
-// R2-1: an errno from any call below the root is the guest's, whatever it is (a FUSE mount a
-// guest user made answers EACCES or EIO to host root): ErrGuest, the errno kept. Only the host
-// running out of descriptors or memory stays the host's fault.
+// R2-1, C1: an errno from any call below the root is the guest's, whatever it is: ErrGuest, the
+// errno kept. A FUSE mount a guest user made chooses the errno of every reply, so EMFILE, ENFILE
+// and ENOMEM from there are no proof the host is out of descriptors or memory.
 func TestAnErrnoBelowTheRootIsTheGuests(t *testing.T) {
 	calls := map[string]func(*Root) error{
 		"Stat":      func(r *Root) error { return second(r.Stat("/f")) },
@@ -196,8 +196,7 @@ func TestAnErrnoBelowTheRootIsTheGuests(t *testing.T) {
 				rec.mu.Lock()
 				rec.failOp = ""
 				rec.mu.Unlock()
-				host := errno == unix.EMFILE || errno == unix.ENFILE || errno == unix.ENOMEM
-				if !errors.Is(err, errno) || errors.Is(err, ErrGuest) == host {
+				if !errors.Is(err, errno) || !errors.Is(err, ErrGuest) {
 					t.Errorf("%s with %s failing %v: %v", name, op, errno, err)
 				}
 				if errors.Is(err, ErrRefused) {
