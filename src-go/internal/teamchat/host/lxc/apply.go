@@ -387,8 +387,9 @@ func (r *run) line(m *member, kind LineKind, why string) {
 }
 
 // offline is n3b-D1 for one seat: no further step, the record offline with why, and a SKIPPED
-// line when the record knows a handle, else DEFERRED. A pending reissue keeps its why, so the
-// next apply that finds the container running still reissues.
+// line when the record knows a handle, else DEFERRED; a handle this phase joined whose bundle
+// was not placed stays DEFERRED (LX6). A pending reissue keeps its why, so the next apply that
+// finds the container running still reissues.
 func (r *run) offline(m *member, why string) {
 	if m.done {
 		return
@@ -398,7 +399,7 @@ func (r *run) offline(m *member, why string) {
 	}
 	m.done, m.status, m.why = true, lxcstate.StatusOffline, why
 	kind := Deferred
-	if m.handle != "" {
+	if m.handle != "" && (!m.joined || m.settled) {
 		kind = Skipped
 	}
 	r.line(m, kind, why)

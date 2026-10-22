@@ -462,11 +462,14 @@ func TestStopAfterJoinThenReissueOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hasLine(t, r, lineOf(t, "SKIPPED", "c1", "offline: bundle not placed"))
+	// LX6: a handle this phase's join made is recorded offline, its line still DEFERRED.
+	hasLine(t, r, lineOf(t, "DEFERRED", "c1", "offline: bundle not placed"))
 	w.lxc.answer = nil
-	if _, err := w.apply(PhasePresent); err != nil {
+	r, err = w.apply(PhasePresent)
+	if err != nil {
 		t.Fatal(err)
 	}
+	hasLine(t, r, lineOf(t, "SKIPPED", "c1", "offline: bundle not placed"))
 	if e := w.entry("c1"); e.Status != lxcstate.StatusOffline || e.Why != "offline: bundle not placed" {
 		t.Fatalf("a still-stopped container lost its pending reissue: %+v", e)
 	}
