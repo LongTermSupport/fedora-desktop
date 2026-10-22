@@ -92,9 +92,9 @@ otherwise. Doc paths are under `packages/web/src/content/docs/` in
 - **Upgrading is what to avoid.** `installation/index.ts` names the install method `curl` when
   the executable's path holds `.opencode/bin` or `.local/bin`, else, past the package-manager
   checks, `unknown`. For `curl`, `opencode upgrade` fetches `https://opencode.ai/install` and
-  runs it, and that script installs to `$HOME/.opencode/bin` (`install`, `INSTALL_DIR`). The
-  play neither manages nor checks that path, so an upgrade would leave a second, unpinned
-  copy beside the pinned one. Which method the play's symlinked binary reports is not
+  runs it, and that script installs to `$HOME/.opencode/bin` (`install`, `INSTALL_DIR`). An
+  upgrade would leave a second, unpinned copy beside the pinned one, so every run of the play
+  removes `~/.opencode/bin/opencode`. Which method the play's symlinked binary reports is not
   established here (it depends on how Bun resolves `process.execPath` through the link); the
   rule in `docs/playbooks.md` is not to run it.
 

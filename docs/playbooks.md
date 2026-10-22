@@ -1249,10 +1249,13 @@ opencode, the open-source terminal coding agent
   `~/.local/bin/opencode` links to `~/.local/lib/opencode-<version>/opencode`, and other
   versions there are removed
 - Writes `/etc/opencode/opencode.json`, the system managed config that no user or project
-  config can override: sessions are never shared to upstream's public share service, and
-  `autoupdate` is off. The version is the play's pin: bump it there (the `update-versions`
-  skill), never with `/update` or `opencode upgrade`, which can run upstream's `curl | bash`
-  installer into `~/.opencode/bin`, a second copy the play does not manage or check
+  config can override: sessions are never shared to upstream's public share service. It
+  also sets `autoupdate: false`, but opencode 1.19.3 reads that only from the user's own
+  config, so an update notice may still appear; nothing is installed unless someone runs
+  `/update` or `opencode upgrade`
+- The version is the play's pin: bump it there (the `update-versions` skill), never with
+  `/update` or `opencode upgrade`, which can run upstream's `curl | bash` installer into
+  `~/.opencode/bin`. Each run of the play removes `~/.opencode/bin/opencode` if it is there
 - Writes no provider credential. Sign in once with `opencode auth login`, which keeps the
   key in `~/.local/share/opencode/auth.json`; `opencode auth list` shows what is signed in
 - Joining opencode sessions to the agent bus is designed, not built: Plan 00215

@@ -49,8 +49,9 @@ with sources) and [research/agent-bus-member-facts.md](research/agent-bus-member
 - [x] ✅ **Task 1.2**: `playbooks/imports/optional/common/play-opencode.yml`: opencode 1.19.3,
   `opencode-linux-x64.tar.gz`, sha256 from the release API's digest, installed under
   `~/.local/lib/opencode-<version>/` and linked as `~/.local/bin/opencode`, other versions
-  removed, version asserted; `/etc/opencode/opencode.json` managed config with `share`
-  disabled and `autoupdate` off. No credential.
+  removed, any unpinned `~/.opencode/bin/opencode` removed, version asserted;
+  `/etc/opencode/opencode.json` managed config with `share` disabled and `autoupdate: false`
+  (which 1.19.3's update notice does not read). No credential.
 - [x] ✅ **Task 1.3**: Track the pin in `vars/version-pins.yml` (the manifest
   `scripts/check-pinned-versions.bash` reads), name the checksum in the `update-versions`
   skill, and document the play in `docs/playbooks.md`.

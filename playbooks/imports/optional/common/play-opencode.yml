@@ -131,9 +131,19 @@
         mode: "0755"
       become: true
 
+    # `opencode upgrade` and upstream's own installer put an unpinned copy here, which can
+    # come first on PATH and which nothing else checks. The pin is the only opencode.
+    - name: Remove an unpinned opencode left by upstream's installer or opencode upgrade
+      ansible.builtin.file:
+        path: "{{ opencodeHome }}/.opencode/bin/opencode"
+        state: absent
+      become: true
+      become_user: "{{ user_login }}"
+
     # share: disabled — a session is never uploaded to upstream's public share service,
-    # whatever a project config asks. autoupdate: false — the pin is the version; a bump is
-    # a commit to this play, never /update or `opencode upgrade`.
+    # whatever a project config asks. autoupdate: false records that the pin is the version;
+    # in 1.19.3 the update notice reads only the user's own config, so it may still appear,
+    # and nothing is installed unless someone runs /update or `opencode upgrade`.
     - name: Deploy the opencode managed config
       ansible.builtin.copy:
         dest: "{{ opencodeManagedDir }}/opencode.json"
@@ -170,4 +180,5 @@
           - "opencode {{ opencodeVersion }} installed at {{ opencodeBin }}"
           - "Sign in to a model provider once:  opencode auth login"
           - "Check it:                          opencode auth list ; opencode models"
-          - "Sessions are never shared and never self-update ({{ opencodeManagedDir }}/opencode.json)."
+          - "Sessions are never shared ({{ opencodeManagedDir }}/opencode.json)."
+          - "Never run /update or opencode upgrade: bump the pin in this play instead."
