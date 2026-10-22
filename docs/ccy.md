@@ -1679,8 +1679,9 @@ banner prints it verbatim, so it must stay short.
 The launcher is being ported to Go one flag at a time (Plan 00191). `/var/local/claude-yolo/claude-yolo`
 is a Go program that answers `--version` and `--help` itself and runs the bash launcher,
 installed beside it as `claude-yolo.bash`, for everything else, with the same arguments and
-environment plus `CCY_LAUNCHER_FRONT`, its own path. The bash launcher reads that once and
-unsets it, so no program it starts inherits it; it is why the tmux pane, the session record (so
+environment plus `CCY_LAUNCHER_FRONT`, its own path. The bash launcher reads that once, takes
+it only if it is the `claude-yolo` beside it, and unsets it before it starts tmux, the engine
+or claude; it is why the tmux pane, the session record (so
 a restore or a team restart), a restart and the custom-Dockerfile modes run the Go program
 again. Both carry the same `CCY_VERSION`; the Go program refuses `--version` and
 `--help` if they differ (re-run `play-claude-yolo.yml`), and `Hash:` is the bash launcher's own

@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.14.4 — container 2.78.14
+
+Follows 3.99.14.3. The image is unchanged, so there is no rebuild.
+
+- **`CCY_LAUNCHER_FRONT` is accepted only when it is the front beside the launcher.** Any
+  executable file was taken before, so a stray value would have run that program in the tmux
+  pane and in every later restore. The value must now resolve to the same file as
+  `claude-yolo` in the launcher's own directory; anything else is warned of on stderr, naming
+  the variable, and the launch records `claude-yolo.bash` instead. The variable is unset before
+  the launcher starts tmux, the engine or claude; a few system tools (`dirname`, `id`, `find`,
+  `rm`) run earlier and do not read it.
+
 ## 3.99.14.3 — container 2.78.14
 
 Follows 3.99.14.2. The image is unchanged, so there is no rebuild.

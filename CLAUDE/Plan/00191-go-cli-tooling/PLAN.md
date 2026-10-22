@@ -549,6 +549,21 @@ today; rewriting them is out of scope.
       scripts fail on a missing or unreadable `claude-yolo` instead of falling through. The
       project-owned `system_paths` handler maps `claude-yolo.bash` to the bash source and
       `claude-yolo` to `src-go` (its two new tests red, then green).
+    - Review round 3 (`subagent-reports/261022-launcher-phase2-review-3-opus.md`, FIX-FIRST)
+      fixed, CCY 3.99.14.4: `lib/launcher-path.bash` took any executable file as the front, so
+      a stray `CCY_LAUNCHER_FRONT` became the program every later restore ran; it now takes
+      only the file that resolves to `$SCRIPT_DIR/claude-yolo`, else warns naming the variable
+      and records the bash itself (`test-ccy-token-handoff.bash`, `/usr/bin/env` case: 3
+      failing, then 0). The "unset before anything runs" comments and `docs/ccy.md` now say
+      before tmux, the engine and claude start (a few system tools run earlier and never read
+      it), and the meta-deploy rollback note says a session started by running
+      `claude-yolo.bash` directly restores onto the stale copy.
+    - Follow-up, not fixed: the project handler test
+      `test_matches_write_to_root_claude_projects_returns_false` in
+      `.claude/hooks/handlers/pre_tool_use/tests/test_system_paths.py` already fails on F44
+      (identical on the base). `qa-all.bash` does not run the project handler tests:
+      `scripts/qa-helper-tests.bash` runs only `tests/helpers/**/test_*.py`, and no other
+      gate names `.claude/hooks`. Decide whether a gate should run them, then fix the test.
 
 ### Phase 5: Review
 

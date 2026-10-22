@@ -280,13 +280,14 @@ check "run directly: the record's launcher is claude-yolo.bash" \
     "RAN launcher=$INSTALL/claude-yolo.bash FRONTVAR=unset" "$(line RAN)"
 check "  and the pane runs claude-yolo.bash, never the front" "1 0" \
     "$(pane_runs "$INSTALL/claude-yolo.bash") $(grep -c '^FRONT' "$T_LOG")"
-for bad in claude-yolo "$INSTALL/not-executable" "$INSTALL"; do
+for bad in claude-yolo "$INSTALL/not-executable" "$INSTALL" /usr/bin/env; do
     started_as "$bad"
-    check "CCY_LAUNCHER_FRONT=${bad#"$SCRATCH"/} (not an absolute executable file): the launcher names itself" \
+    check "CCY_LAUNCHER_FRONT=${bad#"$SCRATCH"/} (not the sibling front): the launcher names itself" \
         "RAN launcher=$INSTALL/claude-yolo.bash FRONTVAR=unset" "$(line RAN)"
     check "  warning on stderr, naming the value" "1" \
         "$(grep -cF -- "WARNING: CCY_LAUNCHER_FRONT=$bad " <<<"$OUT")"
     check "  and no tmux call has the variable" "0" "$(front_given)"
+    check "  and the pane runs claude-yolo.bash, never $bad" "1" "$(pane_runs "$INSTALL/claude-yolo.bash")"
 done
 
 echo ""
