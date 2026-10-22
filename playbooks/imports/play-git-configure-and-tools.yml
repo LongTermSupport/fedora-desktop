@@ -12,6 +12,10 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    # A full commit on magicmonty/bash-git-prompt master, the one the async_run override in the
+    # Git Bash Prompt block was written against. Upstream tags are years behind master, so it is
+    # bumped by hand (vars/version-pins.yml); the play asserts the override still holds.
+    bash_git_prompt_version: "450174627cb479d918b4b8c8257de00a2b98b425"
   vars_files:
     - "{{ root_dir }}/vars/git-signing.yml"   # git_signing_key_path
   tasks:
@@ -192,10 +196,37 @@
           .phpunit.result.cache
         path: "/home/{{ user_login }}/.config/git/ignore"
 
-    - name: Enable Git Bash Prompt
-      ansible.builtin.shell: "git clone https://github.com/magicmonty/bash-git-prompt.git ~/.bash-git-prompt --depth=1"
-      args:
-        creates: /home/{{ user_login }}/.bash-git-prompt/.git/config
+    # An existing checkout moves to the pin; one with local changes stops the play (force: false).
+    - name: Check Out bash-git-prompt at Its Pinned Commit
+      ansible.builtin.git:
+        repo: https://github.com/magicmonty/bash-git-prompt.git
+        dest: "/home/{{ user_login }}/.bash-git-prompt"
+        version: "{{ bash_git_prompt_version }}"
+        update: true
+        force: false
+
+    # The Git Bash Prompt block below replaces async_run, which is right only while
+    # gitprompt.sh calls it for its remote fetch and nothing else.
+    - name: Read the Installed gitprompt.sh
+      ansible.builtin.slurp:
+        src: "/home/{{ user_login }}/.bash-git-prompt/gitprompt.sh"
+      register: bash_git_prompt_script
+
+    - name: Assert gitprompt.sh Calls async_run Only for Its Fetch
+      vars:
+        bash_git_prompt_async_calls: >-
+          {{ (bash_git_prompt_script.content | b64decode).splitlines()
+             | select('match', '[ \t]*async_run ') | list }}
+      ansible.builtin.assert:
+        that:
+          - bash_git_prompt_async_calls | length > 0
+          - bash_git_prompt_async_calls | reject('search', 'git fetch') | list | length == 0
+        fail_msg: >-
+          bash-git-prompt at {{ bash_git_prompt_version }} no longer calls async_run for its
+          git fetch alone (its calls: {{ bash_git_prompt_async_calls }}). The async_run the Git
+          Bash Prompt block defines would break it: rework that override for this commit, or
+          pin bash_git_prompt_version back to one it was written against.
+        quiet: true
 
     - name: Prompt to Start SSH Agent on SSH Sessions
       ansible.builtin.blockinfile:
@@ -234,13 +265,22 @@
         go_command_mode: "0755"
         go_command_owner: root
 
+    # Private: the fetch log below names the repository's remote.
+    - name: Ensure ~/.cache Exists for the Prompt Fetch Log
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.cache"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0700"
+
     # bash-git-prompt runs its remote fetch, and nothing else, through async_run, as
     # GIT_TERMINAL_PROMPT=0 git fetch, which still lets ssh ask for a key passphrase on the
     # terminal when the key is not in the agent (#52). The async_run defined after the source
-    # replaces it with git-prompt-fetch, which can ask for nothing; the acceptance of Plan 00183
-    # checks the installed copy still calls async_run only for that fetch. A failed fetch is
-    # shown by the prompt mark (git-fetch-age), and its words are kept, the last run only, in
-    # ~/.cache/git-prompt-fetch.log (the build task above makes ~/.cache).
+    # replaces it with git-prompt-fetch, which can ask for nothing; the assert after the
+    # checkout above stops the play if gitprompt.sh uses async_run for anything else. A failed
+    # fetch is shown by the prompt mark (git-fetch-age), and its words are kept, the last run
+    # only, in ~/.cache/git-prompt-fetch.log.
     - name: Update ~/.bashrc File for the Bash Git Prompt
       ansible.builtin.blockinfile:
         path: /home/{{ user_login }}/.bashrc

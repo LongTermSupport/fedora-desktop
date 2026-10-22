@@ -54,12 +54,14 @@ agent at all. The cause is unknown, so this plan triages first.
   `files/var/local/ps1-prompt` and built and installed root-owned to `/usr/local/bin` by
   `play-basic-configs.yml`, which now imports `play-golang.yml`. It reads files only, so a
   missing agent can neither block nor prompt.
-- [ ] 🔄 **Task 2.3**: `play-basic-configs.yml` ran on the host at F44 c3391ba9 (all 8 units
-  passed; `git-fetch-age` printed nothing in the checkout, which is right for a recent
-  fetch); docs (`docs/configuration.md`, `docs/playbooks.md`, `src-go/CLAUDE.md`) done.
-  Acceptance passed on the host. Left: `qa-all.bash`, the `qa-reviewer` agent, and the owner's
-  hand check, the yellow mark in a stale checkout's prompt. That "printed nothing" is no proof of a fresh fetch: before Task
-  2.4 a failed fetch read as fresh too. The hand check should expect
+- [ ] 🔄 **Task 2.3**: `play-basic-configs.yml` ran on the host at F44 c4cab141 (ok=68,
+  changed=3, failed=0; `git-fetch-age` rebuilt, Go 1.26.10 on the host); docs
+  (`docs/configuration.md`, `docs/playbooks.md`, `src-go/CLAUDE.md`) done. Acceptance passed
+  on the host, and `qa-all.bash` passed on c4cab141. The `qa-reviewer` ran (round 1,
+  FIX-FIRST, `subagent-reports/261022-qa-reviewer-round1.md`); its findings are fixed: the
+  play pins bash-git-prompt to a commit and asserts the `async_run` override still holds.
+  Left: the owner's hand check, the yellow mark in a stale checkout's prompt. The hand
+  check should expect
   `[fetch failed or running]` to show briefly on a prompt drawn during each five-minute
   background fetch; it lasting past the next prompt means the fetch failed
   (`~/.cache/git-prompt-fetch.log` has why).
@@ -141,15 +143,17 @@ when). bash-git-prompt runs that fetch, and nothing else, through its `async_run
 defines `async_run` after sourcing it to run `git-prompt-fetch`, which puts ssh in BatchMode
 on top of whatever ssh command git would use, so a per-account `core.sshCommand` key still
 works. A fetch that would need a passphrase now fails without a word on the terminal, and the
-mark shows it. The acceptance checks the installed `gitprompt.sh` still calls `async_run` only
-for the fetch, since a newer upstream could use it for more. The triage still records
+mark shows it. A newer upstream could use `async_run` for more, so the play checks
+bash-git-prompt out at a pinned commit (`bash_git_prompt_version`, the one this was written
+against) and asserts, before the override is written, that the installed `gitprompt.sh` calls
+`async_run` only for the fetch; the acceptance checks it too. The triage still records
 whether the host's agent holds the key.
 
 **Date**: 2026-10-21
 
 ## Success Criteria
 
-- [ ] A checkout behind its remote never shows the up-to-date marker without a fresh fetch.
+- [ ] A checkout whose tracking refs were not fetched recently is visibly marked stale.
 - [ ] With no agent, the prompt draws at once and asks for nothing.
 
 ## Delivery & Milestones
@@ -160,3 +164,7 @@ whether the host's agent holds the key.
 
 - Plan filed from #52.
 - Mark merged: 92ec019d; deployed at c3391ba9.
+- Failed-fetch mark and `git-prompt-fetch` (Tasks 2.4, 2.5) merged: e40671403.
+- Deployed at c4cab141 (`play-basic-configs.yml`, ok=68 changed=3 failed=0); `qa-all.bash`
+  passed on c4cab141.
+- qa-reviewer round 1: FIX-FIRST; answered on `fix/00183-review-findings`.
