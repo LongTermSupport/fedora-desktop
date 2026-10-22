@@ -1,6 +1,7 @@
 // Package units is systemd over D-Bus for teamchat-admin (Plan 00209 SPEC-n2f section 6, SD1
-// to SD9; DC17): the unit jobs and state of the teams' homeservers that apply, remove and the
-// health tick need. A Manager holds one system-bus connection, opened on first use and dialled
+// to SD9; DC17; SPEC-n2g SD10): the unit jobs and state of the teams' homeservers that apply,
+// remove and the health tick need, and the state, signal and jobs of the homeserver and the
+// restore's transient units that the backup and the restore need. A Manager holds one system-bus connection, opened on first use and dialled
 // again after it is lost; Host is its host.Systemd and Health its health.Units.
 //
 // Trust: root acts on what this package reports, so every value systemd returns is checked for
@@ -72,7 +73,7 @@ const JobWait = 10 * time.Minute
 
 // The classes of error a call ends in (SD7).
 var (
-	ErrUnitName     = errors.New("not a teamchat homeserver unit name")
+	ErrUnitName     = errors.New("not a teamchat homeserver or restore unit name")
 	ErrNoSuchUnit   = errors.New("no such unit")
 	ErrNotPermitted = errors.New("not permitted")
 	ErrMasked       = errors.New("the unit is masked")
@@ -82,9 +83,11 @@ var (
 	ErrSystemd      = errors.New("systemd refused")
 )
 
-// serverUnit is a homeserver unit built by paths.ServerUnit, in systemd's unit-name characters.
+// serverUnit is a homeserver unit built by paths.ServerUnit, or one of the restore's transient
+// units built by paths.RestoreUnit and paths.RestoreCtlUnit (SD10), in systemd's unit-name
+// characters.
 var (
-	serverUnit = regexp.MustCompile(`\A` + regexp.QuoteMeta(paths.Product+"-server@") + `[A-Za-z0-9:_.\\-]+\.service\z`)
+	serverUnit = regexp.MustCompile(`\A` + regexp.QuoteMeta(paths.Product) + `-(?:server|restore|restore-ctl)@[A-Za-z0-9:_.\\-]+\.service\z`)
 	stateToken = regexp.MustCompile(`\A[a-z][a-z-]{0,63}\z`)
 )
 
@@ -434,7 +437,7 @@ func reply[T any](body []any, what string) (T, error) {
 	return v, nil
 }
 
-// checkUnit refuses a unit that is not a homeserver unit name (SD8).
+// checkUnit refuses a unit that is not a homeserver or restore unit name (SD8, SD10).
 func checkUnit(unit string) error {
 	if len(unit) > maxUnitName || !serverUnit.MatchString(unit) {
 		return fmt.Errorf("%w: %q", ErrUnitName, unit)
