@@ -981,12 +981,14 @@ proves each against its fixture first:
 - **A.** Bash that reads the declared LXC members (it names `agent_bus_lxc_members` or
   `MEMBERS_JSON`), in an active plan folder, `files/` or `scripts/`, that reads a container's
   state itself (`lxc-info -s`, a `${LXC_INFO[@]}` call), or enters a container (`lxc-attach -n`,
-  a `${LXC_ATTACH[@]}` call) when neither the file nor another file of its plan folder calls
-  `plan_lxc_online`.
+  a `${LXC_ATTACH[@]}` call) when neither the file nor another bash file of its plan folder
+  calls `plan_lxc_online` on a code line. That exemption exists because a plan's scripts are
+  sourced together, so an entry in one file is of a container another file listed; a comment
+  or a document naming the helper does not count.
 - **B.** In team-member code (`helpers/agent_bus*`, `helpers/pingbus`, ccy-teams' packages,
   `declare`, `agentbus`, the `agent-bus-*` sbin tools, and the bash of A), a message that makes
   starting a member the way on: "start it, then ...", "restart that session, then ...",
-  "Start container ...", "... with the container running".
+  "Start container ...", "... with the container running", "then run <tool> again to start it".
 - **C.** A Go flow under `src-go/internal/teams` that collects its LXC member rows into a list
   and returns `term.ExitFailure` when that list is not empty.
 

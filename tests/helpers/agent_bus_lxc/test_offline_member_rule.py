@@ -63,6 +63,7 @@ START_TO_GO_ON = re.compile(
     r"\bstart (?:it|them|the container|its container|its session|the session)(?:,| \(| then\b)"
     r"|\brestart (?:that session|its session|that agent's session|the session)(?:,| \(| then\b)"
     r"|\bstart container\b"
+    r"|\bthen run [\w-]+ again to start it\b"
     r"|\b(?:with|while) (?:it|the container|its container) (?:is )?running\b",
     re.IGNORECASE)
 LXC_CASE = re.compile(r"case row\.Kind == kindLxc:")
@@ -86,6 +87,11 @@ def reads_members(path: str, source: str) -> bool:
     return _is_bash(path, source) and MEMBER_LIST.search(source) is not None
 
 
+def calls_helper(source: str) -> bool:
+    """A code line names plan_lxc_online; a comment or a document that mentions it asks nothing."""
+    return any(HELPER_CALL.search(line) for line in source.splitlines() if not _is_comment(line))
+
+
 def detector_a(source: str, program_asks: bool = False) -> list[int]:
     """`program_asks`: another file of the same program (a plan folder's scripts are sourced
     together) calls plan_lxc_online, so this file's entries are of containers it listed."""
@@ -98,7 +104,7 @@ def detector_a(source: str, program_asks: bool = False) -> list[int]:
             found.append(number)
         if first_entry is None and CONTAINER_ENTRY.search(line):
             first_entry = number
-    if first_entry is not None and not program_asks and HELPER_CALL.search(source) is None:
+    if first_entry is not None and not program_asks and not calls_helper(source):
         found.append(first_entry)
     return sorted(set(found))
 
@@ -199,13 +205,13 @@ def plan_folder(rel: str) -> str | None:
 
 
 def folders_asking() -> set[str]:
-    """The active plan folders one of whose files calls plan_lxc_online."""
+    """The active plan folders one of whose bash files calls plan_lxc_online in code."""
     asking: set[str] = set()
     for path in _walk(PLAN_DIR):
         rel = path.relative_to(REPO_ROOT).as_posix()
         folder = plan_folder(rel)
         source = _text(path)
-        if folder is not None and source is not None and HELPER_CALL.search(source):
+        if folder is not None and source is not None and _is_bash(rel, source) and calls_helper(source):
             asking.add(folder)
     return asking
 
@@ -251,6 +257,11 @@ FIXTURE_BASH_WITH_HELPER = textwrap.dedent('''\
     got="$("${LXC_ATTACH[@]}" -n "${name}" -- pingbus version)"  # ok: the file asks plan_lxc_online
 ''')
 
+FIXTURE_BASH_HELPER_IN_A_COMMENT = textwrap.dedent('''\
+    # reads MEMBERS_JSON; plan_lxc_online would list the running ones
+    got="$("${LXC_ATTACH[@]}" -n "${name}" -- pingbus version)"  # ruleid
+''')
+
 FIXTURE_PYTHON = textwrap.dedent('''\
     def deferred_why(member, state):
         return (f"LXC container {member.container} is {state}: start it, then run the play again")  # ruleid
@@ -269,6 +280,7 @@ FIXTURE_GO = {
             }
         }
         const advice = "Start container " + name // ruleid
+        const half = "its container is not running; end it in ccy-sessions, then run restart again to start it" // ruleid
     '''),
     "a/report.go": textwrap.dedent('''\
         package a
@@ -315,6 +327,9 @@ class RuleProof(unittest.TestCase):
 
     def test_a_is_satisfied_by_the_shared_helper(self) -> None:
         self.assertEqual(detector_a(FIXTURE_BASH_WITH_HELPER), [])
+        # A comment that names the helper asks nothing.
+        self.assertFalse(calls_helper(FIXTURE_BASH_HELPER_IN_A_COMMENT))
+        self.assertEqual(detector_a(FIXTURE_BASH_HELPER_IN_A_COMMENT), marked(FIXTURE_BASH_HELPER_IN_A_COMMENT))
         # Asked elsewhere in its plan folder: the entry is of a listed container; the state reads
         # are still findings.
         self.assertEqual(detector_a(FIXTURE_BASH, program_asks=True), [4, 5])
@@ -329,7 +344,7 @@ class RuleProof(unittest.TestCase):
         got = {name: sorted(set(detector_b(src)) | set(detector_c(FIXTURE_GO).get(name, [])))
                for name, src in FIXTURE_GO.items()}
         self.assertEqual(got, {name: marked(src) for name, src in FIXTURE_GO.items()})
-        self.assertEqual(sum(len(v) for v in got.values()), 2)
+        self.assertEqual(sum(len(v) for v in got.values()), 3)
 
     def test_c_passes_lxc_rows_that_are_only_left_out(self) -> None:
         self.assertEqual(detector_c(FIXTURE_GO_LEFT_OUT), {})
