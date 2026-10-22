@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,10 +17,13 @@ import (
 
 // call is one system call the recorder saw.
 type call struct {
-	op      string
-	path    string
+	op   string
+	path string
+	// flags and resolve are openat2's and renameat2's; oflags is the int flags of openat,
+	// flock and unlinkat.
 	flags   uint64
 	resolve uint64
+	oflags  int
 }
 
 // recorder is the opener seam TB1's tests name: it records every call around the real one,
@@ -74,11 +78,11 @@ func (r *recorder) step(c call) error {
 	return nil
 }
 
-func (r *recorder) opened(fd int, path string, flags uint64) {
+func (r *recorder) opened(fd int, path string, oPath bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.open[fd] = path
-	if flags&unix.O_PATH != 0 {
+	if oPath {
 		return
 	}
 	var st unix.Stat_t
@@ -95,10 +99,11 @@ func (r *recorder) opened(fd int, path string, flags uint64) {
 func (r *recorder) leaked() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	var out []string
+	out := make([]string, 0, len(r.open))
 	for fd, p := range r.open {
 		out = append(out, strconv.Itoa(fd)+" "+p)
 	}
+	slices.Sort(out)
 	return out
 }
 
@@ -120,13 +125,13 @@ func (r *recorder) openat2(dirfd int, path string, how *unix.OpenHow) (int, erro
 	}
 	fd, err := r.real.openat2(dirfd, path, how)
 	if err == nil {
-		r.opened(fd, path, how.Flags)
+		r.opened(fd, path, how.Flags&unix.O_PATH != 0)
 	}
 	return fd, err
 }
 
 func (r *recorder) openat(dirfd int, path string, flags int, mode uint32) (int, error) {
-	if err := r.step(call{op: "openat", path: path, flags: uint64(flags)}); err != nil {
+	if err := r.step(call{op: "openat", path: path, oflags: flags}); err != nil {
 		return -1, err
 	}
 	if r.swapReopen != "" && strings.HasPrefix(path, "/proc/self/fd/") {
@@ -134,7 +139,7 @@ func (r *recorder) openat(dirfd int, path string, flags int, mode uint32) (int, 
 	}
 	fd, err := r.real.openat(dirfd, path, flags, mode)
 	if err == nil {
-		r.opened(fd, path, uint64(flags))
+		r.opened(fd, path, flags&unix.O_PATH != 0)
 	}
 	return fd, err
 }
@@ -176,7 +181,7 @@ func (r *recorder) getdents(fd int, buf []byte) (int, error) {
 }
 
 func (r *recorder) flock(fd, how int) error {
-	if err := r.step(call{op: "flock", flags: uint64(how)}); err != nil {
+	if err := r.step(call{op: "flock", oflags: how}); err != nil {
 		return err
 	}
 	return r.real.flock(fd, how)
@@ -232,7 +237,7 @@ func (r *recorder) readlinkat(dirfd int, path string, buf []byte) (int, error) {
 }
 
 func (r *recorder) unlinkat(dirfd int, path string, flags int) error {
-	if err := r.step(call{op: "unlinkat", path: path, flags: uint64(flags)}); err != nil {
+	if err := r.step(call{op: "unlinkat", path: path, oflags: flags}); err != nil {
 		return err
 	}
 	return r.real.unlinkat(dirfd, path, flags)
@@ -340,8 +345,8 @@ func TestLinuxSysDialsAndReads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := conn.Close(); err != nil {
-		t.Fatal(err)
+	if cerr := conn.Close(); cerr != nil {
+		t.Fatal(cerr)
 	}
 	accepted, err := ln.Accept()
 	if err != nil {

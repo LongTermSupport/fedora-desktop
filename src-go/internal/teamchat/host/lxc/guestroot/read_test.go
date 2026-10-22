@@ -3,6 +3,7 @@ package guestroot
 import (
 	"errors"
 	"io/fs"
+	"net"
 	"os"
 	"slices"
 	"strings"
@@ -43,32 +44,35 @@ type fifoWriter struct {
 
 func startFIFOWriter(paths []string) *fifoWriter {
 	w := &fifoWriter{stop: make(chan struct{})}
-	w.done.Add(1)
-	go func() {
-		defer w.done.Done()
+	w.done.Go(func() {
+		// A round of polls comes before every look at stop, so a fast test still polls.
 		for {
+			w.pollRound(paths)
 			select {
 			case <-w.stop:
 				return
 			default:
 			}
-			for _, p := range paths {
-				fd, err := unix.Open(p, unix.O_WRONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
-				w.mu.Lock()
-				w.runs++
-				if !errors.Is(err, unix.ENXIO) {
-					w.bad = append(w.bad, p)
-				}
-				w.mu.Unlock()
-				if err == nil {
-					if cerr := unix.Close(fd); cerr != nil {
-						panic(cerr)
-					}
-				}
+		}
+	})
+	return w
+}
+
+func (w *fifoWriter) pollRound(paths []string) {
+	for _, p := range paths {
+		fd, err := unix.Open(p, unix.O_WRONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+		w.mu.Lock()
+		w.runs++
+		if !errors.Is(err, unix.ENXIO) {
+			w.bad = append(w.bad, p)
+		}
+		w.mu.Unlock()
+		if err == nil {
+			if cerr := unix.Close(fd); cerr != nil {
+				panic(cerr)
 			}
 		}
-	}()
-	return w
+	}
 }
 
 func (w *fifoWriter) finish(t *testing.T) {
@@ -110,54 +114,87 @@ func hostile() []planted {
 
 func TestTB1RefusesEveryNonRegularRead(t *testing.T) {
 	for _, h := range hostile() {
-		t.Run(h.name, func(t *testing.T) {
-			g := newTree(t)
-			all := append(slices.Clone(readPaths), lockPath)
-			all = append(all, dirPaths...)
-			all = append(all, socketPath)
-			for _, p := range all {
-				h.plant(g, p)
-			}
-			var fifos []string
-			if h.name == "a FIFO" {
-				for _, p := range all {
-					fifos = append(fifos, g.host(p))
-				}
-			}
-			w := startFIFOWriter(fifos)
-			rec := newRecorder()
-			r := g.root(rec)
-			refused := func(what, p string, err error) {
-				t.Helper()
-				if !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), p) {
-					t.Errorf("%s %s: %v, want a refusal naming the path", what, p, err)
-				}
-			}
-			for _, p := range readPaths {
-				_, _, _, err := r.ReadFile(p, 1<<20)
-				refused("ReadFile", p, err)
-			}
-			_, _, err := r.ProbeLock(lockPath)
-			refused("ProbeLock", lockPath, err)
-			for _, p := range dirPaths {
-				_, _, err := r.ReadDir(p, func(string) bool { return true }, 10)
-				refused("ReadDir", p, err)
-			}
-			if h.name != "a socket" {
-				_, err := r.DialSocket(t.Context(), socketPath)
-				refused("DialSocket", socketPath, err)
-			}
-			if h.name == "a FIFO" {
-				w.finish(t)
-			}
-			if len(rec.badOpens) != 0 {
-				t.Errorf("an open that was not O_PATH reached %v", rec.badOpens)
-			}
-			if d := rec.callsOf("dial"); h.name != "a socket" && len(d) != 0 {
-				t.Errorf("connected: %v", d)
-			}
-		})
+		t.Run(h.name, func(t *testing.T) { refusesPlanted(t, h) })
 	}
+}
+
+// refusesPlanted plants h at every path TB1 reads and checks that each read refuses it.
+func refusesPlanted(t *testing.T, h planted) {
+	t.Helper()
+	g := newTree(t)
+	all := append(slices.Clone(readPaths), lockPath)
+	all = append(all, dirPaths...)
+	all = append(all, socketPath)
+	for _, p := range all {
+		h.plant(g, p)
+	}
+	isFIFO := h.name == "a FIFO"
+	var w *fifoWriter
+	if isFIFO {
+		w = startFIFOWriter(hostPaths(g, all))
+	}
+	rec := newRecorder()
+	r := g.root(rec)
+	for _, p := range readPaths {
+		refused(t, "ReadFile", p, readFileErr(r, p))
+	}
+	refused(t, "ProbeLock", lockPath, probeLockErr(r, lockPath))
+	for _, p := range dirPaths {
+		refused(t, "ReadDir", p, readDirErr(r, p))
+	}
+	if h.name != "a socket" {
+		_, err := r.DialSocket(t.Context(), socketPath)
+		refused(t, "DialSocket", socketPath, err)
+		if d := rec.callsOf("dial"); len(d) != 0 {
+			t.Errorf("connected: %v", d)
+		}
+	}
+	if isFIFO {
+		w.finish(t)
+	}
+	if len(rec.badOpens) != 0 {
+		t.Errorf("an open that was not O_PATH reached %v", rec.badOpens)
+	}
+}
+
+func hostPaths(g tree, ps []string) []string {
+	out := make([]string, 0, len(ps))
+	for _, p := range ps {
+		out = append(out, g.host(p))
+	}
+	return out
+}
+
+func refused(t *testing.T, what, p string, err error) {
+	t.Helper()
+	if !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), p) {
+		t.Errorf("%s %s: %v, want a refusal naming the path", what, p, err)
+	}
+}
+
+// readResult is ReadFile's four results as one value.
+type readResult struct {
+	data  []byte
+	info  Info
+	found bool
+	err   error
+}
+
+func readFile(r *Root, p string, maxSize int64) readResult {
+	data, info, found, err := r.ReadFile(p, maxSize)
+	return readResult{data: data, info: info, found: found, err: err}
+}
+
+func readFileErr(r *Root, p string) error { return readFile(r, p, 1<<20).err }
+
+func probeLockErr(r *Root, p string) error {
+	_, _, err := r.ProbeLock(p)
+	return err
+}
+
+func readDirErr(r *Root, p string) error {
+	_, _, err := r.ReadDir(p, func(string) bool { return true }, 10)
+	return err
 }
 
 func TestStatDoesNotOpenAFIFOAndRefusesALink(t *testing.T) {
@@ -171,14 +208,14 @@ func TestStatDoesNotOpenAFIFOAndRefusesALink(t *testing.T) {
 	if err != nil || info.Mode.Type() != fs.ModeNamedPipe {
 		t.Fatalf("Stat of a FIFO: %+v %v", info, err)
 	}
-	if _, err := r.Stat("/bin/tmux"); !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "/bin/tmux") {
-		t.Fatalf("tmux reached only through a link: %v", err)
+	if _, serr := r.Stat("/bin/tmux"); !errors.Is(serr, ErrRefused) || !strings.Contains(serr.Error(), "/bin/tmux") {
+		t.Fatalf("tmux reached only through a link: %v", serr)
 	}
-	if _, err := r.Stat("/bin"); !errors.Is(err, ErrRefused) {
-		t.Fatalf("a link itself: %v", err)
+	if _, serr := r.Stat("/bin"); !errors.Is(serr, ErrRefused) {
+		t.Fatalf("a link itself: %v", serr)
 	}
-	if _, err := r.Stat("/usr/bin/none"); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("a missing file: %v", err)
+	if _, serr := r.Stat("/usr/bin/none"); !errors.Is(serr, fs.ErrNotExist) {
+		t.Fatalf("a missing file: %v", serr)
 	}
 	info, err = r.Stat("/usr/lib/systemd/systemd")
 	if err != nil || !info.Mode.IsRegular() || info.Mode.Perm() != 0o755 || info.Size != 3 || info.Ino == 0 {
@@ -237,44 +274,58 @@ func TestReadFile(t *testing.T) {
 	g.mkdir("/dir")
 	rec := newRecorder()
 	r := g.root(rec)
-	data, info, found, err := r.ReadFile("/etc/passwd", 1<<20)
-	if err != nil || !found || string(data) != "root:x:0:0::/root:/bin/sh\n" || info.Size != int64(len(data)) || info.Mode != 0o644 {
-		t.Fatalf("%q %+v %v %v", data, info, found, err)
+	got := readFile(r, "/etc/passwd", 1<<20)
+	if got.err != nil || !got.found || string(got.data) != "root:x:0:0::/root:/bin/sh\n" || got.info.Size != int64(len(got.data)) || got.info.Mode != 0o644 {
+		t.Fatalf("%+v", got)
 	}
-	if _, _, _, err := r.ReadFile("/big", 10); !errors.Is(err, ErrTooLarge) || !strings.Contains(err.Error(), "/big") {
-		t.Errorf("over the cap: %v", err)
+	if got := readFile(r, "/big", 10); !errors.Is(got.err, ErrTooLarge) || !strings.Contains(got.err.Error(), "/big") {
+		t.Errorf("over the cap: %v", got.err)
 	}
-	if data, _, _, err := r.ReadFile("/exact", 10); err != nil || len(data) != 10 {
-		t.Errorf("at the cap: %d %v", len(data), err)
+	if got := readFile(r, "/exact", 10); got.err != nil || len(got.data) != 10 {
+		t.Errorf("at the cap: %d %v", len(got.data), got.err)
 	}
+	checkReadFlags(t, rec)
+	rec.swapReopen = g.host("/other")
+	if _, _, _, err := r.ReadFile("/etc/passwd", 100); !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "changed") {
+		t.Errorf("an inode swapped at the reopen: %v", err)
+	}
+}
+
+func TestReadFileMissingOrNotAFile(t *testing.T) {
+	g := newTree(t)
+	g.file("/etc/passwd", "x", 0o644)
+	g.mkdir("/dir")
+	r := g.root(newRecorder())
 	for _, p := range []string{"/none", "/no/such/dir/file"} {
-		if _, _, found, err := r.ReadFile(p, 10); err != nil || found {
-			t.Errorf("%s: found %v, %v", p, found, err)
+		if got := readFile(r, p, 10); got.err != nil || got.found {
+			t.Errorf("%s: found %v, %v", p, got.found, got.err)
 		}
 	}
-	if _, _, _, err := r.ReadFile("/dir", 10); !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "a directory") {
-		t.Errorf("a directory: %v", err)
+	if got := readFile(r, "/dir", 10); !errors.Is(got.err, ErrRefused) || !strings.Contains(got.err.Error(), "a directory") {
+		t.Errorf("a directory: %v", got.err)
 	}
-	if _, _, _, err := r.ReadFile("/etc/passwd/x", 10); !errors.Is(err, ErrRefused) {
-		t.Errorf("a file used as a directory: %v", err)
+	if got := readFile(r, "/etc/passwd/x", 10); !errors.Is(got.err, ErrRefused) {
+		t.Errorf("a file used as a directory: %v", got.err)
 	}
+}
+
+// checkReadFlags checks that every reopen used TB1's reopen flags and every open below the
+// root was O_PATH with TB1's resolve flags.
+func checkReadFlags(t *testing.T, rec *recorder) {
+	t.Helper()
 	var reopens []call
 	for _, c := range rec.callsOf("openat") {
 		if strings.HasPrefix(c.path, "/proc/self/fd/") {
 			reopens = append(reopens, c)
 		}
 	}
-	if len(reopens) == 0 || slices.ContainsFunc(reopens, func(c call) bool { return c.flags != reopenFlags }) {
+	if len(reopens) == 0 || slices.ContainsFunc(reopens, func(c call) bool { return c.oflags != reopenFlags }) {
 		t.Errorf("the reopens: %+v", reopens)
 	}
 	for _, c := range rec.callsOf("openat2") {
 		if c.flags&unix.O_PATH == 0 || c.resolve != readResolve {
 			t.Errorf("an open below the root not by TB1's flags: %+v", c)
 		}
-	}
-	rec.swapReopen = g.host("/other")
-	if _, _, _, err := r.ReadFile("/etc/passwd", 100); !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "changed") {
-		t.Errorf("an inode swapped at the reopen: %v", err)
 	}
 }
 
@@ -310,8 +361,8 @@ func TestReadDir(t *testing.T) {
 	if err != nil || !found || !slices.Equal(names, []string{"a", "b", "c"}) {
 		t.Fatalf("%v %v %v", names, found, err)
 	}
-	if _, _, err := r.ReadDir("/run/x", valid, 2); !errors.Is(err, ErrTooLarge) {
-		t.Errorf("over max: %v", err)
+	if _, _, derr := r.ReadDir("/run/x", valid, 2); !errors.Is(derr, ErrTooLarge) {
+		t.Errorf("over max: %v", derr)
 	}
 	_, _, err = r.ReadDir("/run/bad", func(s string) bool { return s == "ok" }, 10)
 	if !errors.Is(err, ErrRefused) || strings.Contains(err.Error(), "evil") {
@@ -344,15 +395,11 @@ func TestProbeLock(t *testing.T) {
 		t.Fatalf("held: %v %q %v", held, record, err)
 	}
 	holder.Release()
-	if held, _, err := r.ProbeLock(lockPath); err != nil || held {
-		t.Fatalf("released: %v %v", held, err)
-	}
+	wantFree(t, r, "released")
 	reexec.Start(t, "flock", g.host(lockPath)).Kill()
-	if held, _, err := r.ProbeLock(lockPath); err != nil || held {
-		t.Fatalf("holder killed: %v %v", held, err)
-	}
+	wantFree(t, r, "holder killed")
 	for _, c := range rec.callsOf("flock") {
-		if c.flags != unix.LOCK_SH|unix.LOCK_NB && c.flags != unix.LOCK_UN {
+		if c.oflags != unix.LOCK_SH|unix.LOCK_NB && c.oflags != unix.LOCK_UN {
 			t.Errorf("a lock that is not LOCK_SH|LOCK_NB: %+v", c)
 		}
 	}
@@ -369,6 +416,13 @@ func TestProbeLock(t *testing.T) {
 	}
 }
 
+func wantFree(t *testing.T, r *Root, when string) {
+	t.Helper()
+	if held, _, err := r.ProbeLock(lockPath); err != nil || held {
+		t.Fatalf("%s: %v %v", when, held, err)
+	}
+}
+
 func TestDialSocket(t *testing.T) {
 	g := newTree(t)
 	ln := g.socket(socketPath)
@@ -378,20 +432,7 @@ func TestDialSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	accepted, err := ln.Accept()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := conn.Write([]byte("x")); err != nil {
-		t.Fatal(err)
-	}
-	buf := make([]byte, 1)
-	if _, err := accepted.Read(buf); err != nil || buf[0] != 'x' {
-		t.Fatalf("%q %v", buf, err)
-	}
-	if err := errors.Join(conn.Close(), accepted.Close()); err != nil {
-		t.Fatal(err)
-	}
+	echoOnce(t, conn, ln)
 	dials := rec.callsOf("dial")
 	if len(dials) != 1 || !strings.HasPrefix(dials[0].path, "/proc/self/fd/") {
 		t.Errorf("not connected through its own fd: %+v", dials)
@@ -412,33 +453,54 @@ func TestDialSocket(t *testing.T) {
 			t.Fatal("connected")
 		}
 	})
-	t.Run("links to a listening socket", func(t *testing.T) {
-		g2 := newTree(t)
-		g2.socket("/real.sock")
-		g2.link("/run/systemd/private", "../../real.sock")
-		g2.link("/run/abs", g2.host("/real.sock"))
-		rec2 := newRecorder()
-		r2 := g2.root(rec2)
-		for _, p := range []string{"/run/systemd/private", "/run/abs"} {
-			if _, err := r2.DialSocket(t.Context(), p); !errors.Is(err, ErrRefused) {
-				t.Errorf("%s: %v", p, err)
-			}
+}
+
+// echoOnce sends one byte over conn and reads it at the listener's end, then closes both.
+func echoOnce(t *testing.T, conn *net.UnixConn, ln *net.UnixListener) {
+	t.Helper()
+	accepted, err := ln.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, werr := conn.Write([]byte("x")); werr != nil {
+		t.Fatal(werr)
+	}
+	buf := make([]byte, 1)
+	if _, rerr := accepted.Read(buf); rerr != nil || buf[0] != 'x' {
+		t.Fatalf("%q %v", buf, rerr)
+	}
+	if cerr := errors.Join(conn.Close(), accepted.Close()); cerr != nil {
+		t.Fatal(cerr)
+	}
+}
+
+func TestDialSocketRefusesLinksToAListeningSocket(t *testing.T) {
+	g := newTree(t)
+	g.socket("/real.sock")
+	g.link("/run/systemd/private", "../../real.sock")
+	g.link("/run/abs", g.host("/real.sock"))
+	rec := newRecorder()
+	r := g.root(rec)
+	for _, p := range []string{"/run/systemd/private", "/run/abs"} {
+		if _, err := r.DialSocket(t.Context(), p); !errors.Is(err, ErrRefused) {
+			t.Errorf("%s: %v", p, err)
 		}
-		if d := rec2.callsOf("dial"); len(d) != 0 {
-			t.Errorf("connected: %v", d)
-		}
-	})
-	t.Run("no socket", func(t *testing.T) {
-		g3 := newTree(t)
-		g3.file("/regular", "x", 0o644)
-		r3 := g3.root(newRecorder())
-		if _, err := r3.DialSocket(t.Context(), "/missing"); !errors.Is(err, fs.ErrNotExist) {
-			t.Errorf("missing: %v", err)
-		}
-		if _, err := r3.DialSocket(t.Context(), "/regular"); !errors.Is(err, ErrRefused) {
-			t.Errorf("a regular file: %v", err)
-		}
-	})
+	}
+	if d := rec.callsOf("dial"); len(d) != 0 {
+		t.Errorf("connected: %v", d)
+	}
+}
+
+func TestDialSocketWithNoSocket(t *testing.T) {
+	g := newTree(t)
+	g.file("/regular", "x", 0o644)
+	r := g.root(newRecorder())
+	if _, err := r.DialSocket(t.Context(), "/missing"); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("missing: %v", err)
+	}
+	if _, err := r.DialSocket(t.Context(), "/regular"); !errors.Is(err, ErrRefused) {
+		t.Errorf("a regular file: %v", err)
+	}
 }
 
 // A root whose init dies during a read answers ErrGone, not what the torn-down mount said.
@@ -455,7 +517,7 @@ func TestReadsOnADeadRootAreGone(t *testing.T) {
 	}()
 	p.Kill()
 	checks := map[string]error{}
-	_, _, _, checks["ReadFile"] = r.ReadFile("/etc/hostname", 10)
+	checks["ReadFile"] = readFile(r, "/etc/hostname", 10).err
 	_, _, checks["ReadDir"] = r.ReadDir("/etc", func(string) bool { return true }, 10)
 	_, _, checks["ProbeLock"] = r.ProbeLock("/etc/hostname")
 	_, _, checks["ReadProcStat"] = r.ReadProcStat(1)

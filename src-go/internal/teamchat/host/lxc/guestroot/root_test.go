@@ -77,35 +77,21 @@ func TestPinHoldsALiveInit(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		if err := r.Close(); err != nil {
-			t.Error(err)
+		if cerr := r.Close(); cerr != nil {
+			t.Error(cerr)
 		}
 	}()
 	if r.PID() != p.Pid || r.Alive() != nil {
 		t.Fatalf("pid %d, alive %v", r.PID(), r.Alive())
 	}
-	if _, err := r.Stat("/etc"); err != nil {
-		t.Fatalf("Stat through a live root: %v", err)
+	if _, serr := r.Stat("/etc"); serr != nil {
+		t.Fatalf("Stat through a live root: %v", serr)
 	}
 	stat, found, err := r.ReadProcStat(p.Pid)
 	if err != nil || !found || len(stat) == 0 {
 		t.Fatalf("ReadProcStat: %q %v %v", stat, found, err)
 	}
-	exe, err := r.InitExe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var st unix.Stat_t
-	if err := unix.Stat(self, &st); err != nil {
-		t.Fatal(err)
-	}
-	if exe.Dev != st.Dev || exe.Ino != st.Ino {
-		t.Errorf("InitExe is %d:%d, the test binary %d:%d", exe.Dev, exe.Ino, st.Dev, st.Ino)
-	}
+	checkInitExeIsTheTestBinary(t, r)
 	p.Kill()
 	if err := r.Alive(); !errors.Is(err, ErrGone) {
 		t.Errorf("Alive after the init died: %v", err)
@@ -115,6 +101,27 @@ func TestPinHoldsALiveInit(t *testing.T) {
 	}
 	if _, err := r.InitExe(); !errors.Is(err, ErrGone) {
 		t.Errorf("InitExe after the init died: %v", err)
+	}
+}
+
+// checkInitExeIsTheTestBinary checks InitExe against the test binary, which is the pinned
+// process's executable.
+func checkInitExeIsTheTestBinary(t *testing.T, r *Root) {
+	t.Helper()
+	exe, err := r.InitExe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var st unix.Stat_t
+	if serr := unix.Stat(self, &st); serr != nil {
+		t.Fatal(serr)
+	}
+	if exe.Dev != st.Dev || exe.Ino != st.Ino {
+		t.Errorf("InitExe is %d:%d, the test binary %d:%d", exe.Dev, exe.Ino, st.Dev, st.Ino)
 	}
 }
 

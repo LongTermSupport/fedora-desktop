@@ -33,7 +33,7 @@ func names(t *testing.T, dir string) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var out []string
+	out := make([]string, 0, len(es))
 	for _, e := range es {
 		out = append(out, e.Name())
 	}
@@ -149,18 +149,18 @@ func TestWriteFile(t *testing.T) {
 		t.Errorf("mode %v uid %d", m, uid)
 	}
 	creates := len(rec.callsOf("renameat2"))
-	if changed, err := w.WriteFile(dir, name, []byte("one"), 0o640); err != nil || changed {
-		t.Fatalf("the same bytes: %v %v", changed, err)
+	if again, werr := w.WriteFile(dir, name, []byte("one"), 0o640); werr != nil || again {
+		t.Fatalf("the same bytes: %v %v", again, werr)
 	}
 	if len(rec.callsOf("renameat2")) != creates {
 		t.Error("the same bytes were rewritten")
 	}
-	if changed, err := w.WriteFile(dir, name, []byte("one"), 0o644); err != nil || !changed {
-		t.Fatalf("a new mode: %v %v", changed, err)
+	if remoded, werr := w.WriteFile(dir, name, []byte("one"), 0o644); werr != nil || !remoded {
+		t.Fatalf("a new mode: %v %v", remoded, werr)
 	}
 	g.file(dir+"/.new-"+name, "stale", 0o600)
-	if changed, err := w.WriteFile(dir, name, []byte("two"), 0o644); err != nil || !changed {
-		t.Fatalf("new bytes over a stale temporary: %v %v", changed, err)
+	if rewritten, werr := w.WriteFile(dir, name, []byte("two"), 0o644); werr != nil || !rewritten {
+		t.Fatalf("new bytes over a stale temporary: %v %v", rewritten, werr)
 	}
 	got, err := os.ReadFile(g.host(dir + "/" + name))
 	if err != nil || string(got) != "two" {
@@ -169,6 +169,13 @@ func TestWriteFile(t *testing.T) {
 	if n := names(t, g.host(dir)); !slices.Equal(n, []string{name}) {
 		t.Errorf("a temporary left behind: %v", n)
 	}
+}
+
+func TestWriteFileOverOtherTypesAndRefusals(t *testing.T) {
+	g := newTree(t)
+	const dir = "/etc/systemd/system"
+	g.mkdir(dir)
+	w := g.root(newRecorder()).Writer()
 	g.mkdir(dir + "/d")
 	if _, err := w.WriteFile(dir, "d", []byte("x"), 0o644); err == nil {
 		t.Error("a file over a directory")
@@ -201,6 +208,18 @@ func fillKit(d *Dir) error {
 	return d.WriteFile("settings.json", []byte("{}"), 0o644)
 }
 
+// checkKitModes checks the modes and owner of what fillKit placed at dir.
+func checkKitModes(t *testing.T, g tree, dir string) {
+	t.Helper()
+	for p, want := range map[string]fs.FileMode{
+		"": fs.ModeDir | 0o755, "/bin": fs.ModeDir | 0o755, "/bin/teamchat": 0o755, "/settings.json": 0o644,
+	} {
+		if m, uid := modeOf(t, g.host(dir+p)); m != want || uid != 0 {
+			t.Errorf("%s: %v uid %d", dir+p, m, uid)
+		}
+	}
+}
+
 func TestPlaceDir(t *testing.T) {
 	g := newTree(t)
 	g.mkdir(kitParent)
@@ -210,37 +229,42 @@ func TestPlaceDir(t *testing.T) {
 	if err != nil || !changed {
 		t.Fatalf("%v %v", changed, err)
 	}
-	for p, want := range map[string]fs.FileMode{
-		"/d1": fs.ModeDir | 0o755, "/d1/bin": fs.ModeDir | 0o755, "/d1/bin/teamchat": 0o755, "/d1/settings.json": 0o644,
-	} {
-		if m, uid := modeOf(t, g.host(kitParent+p)); m != want || uid != 0 {
-			t.Errorf("%s: %v uid %d", p, m, uid)
-		}
-	}
+	checkKitModes(t, g, kitParent+"/d1")
 	renames := rec.callsOf("renameat2")
 	if len(renames) != 1 || renames[0].flags != unix.RENAME_NOREPLACE {
 		t.Errorf("renames %+v", renames)
 	}
 	called := false
-	if changed, err := w.PlaceDir(kitParent, "d1", func(*Dir) error { called = true; return nil }); err != nil || changed || called {
-		t.Fatalf("a digest already there: %v %v %v", changed, err, called)
+	if again, perr := w.PlaceDir(kitParent, "d1", func(*Dir) error { called = true; return nil }); perr != nil || again || called {
+		t.Fatalf("a digest already there: %v %v %v", again, perr, called)
 	}
 	g.mkdir(kitParent + "/.new-d2/junk")
 	boom := errors.New("boom")
-	if _, err := w.PlaceDir(kitParent, "d2", func(d *Dir) error {
-		if err := fillKit(d); err != nil {
-			return err
+	if _, perr := w.PlaceDir(kitParent, "d2", func(d *Dir) error {
+		if ferr := fillKit(d); ferr != nil {
+			return ferr
 		}
 		return boom
-	}); !errors.Is(err, boom) {
-		t.Fatalf("a failed fill: %v", err)
+	}); !errors.Is(perr, boom) {
+		t.Fatalf("a failed fill: %v", perr)
 	}
 	if n := names(t, g.host(kitParent)); !slices.Equal(n, []string{"d1"}) {
 		t.Errorf("after a failed fill: %v", n)
 	}
-	if changed, err := w.PlaceDir(kitParent, "d2", fillKit); err != nil || !changed {
-		t.Fatalf("d2: %v %v", changed, err)
+	if placed, perr := w.PlaceDir(kitParent, "d2", fillKit); perr != nil || !placed {
+		t.Fatalf("d2: %v %v", placed, perr)
 	}
+	if l := rec.leaked(); len(l) != 1 {
+		t.Errorf("leaked %v", l)
+	}
+}
+
+func TestPlaceDirRefuses(t *testing.T) {
+	g := newTree(t)
+	g.mkdir(kitParent)
+	g.mkdir(kitParent + "/d1")
+	rec := newRecorder()
+	w := g.root(rec).Writer()
 	g.mkdir(kitParent + "/gw")
 	if err := os.Chmod(g.host(kitParent+"/gw"), 0o775); err != nil {
 		t.Fatal(err)
@@ -296,6 +320,13 @@ func TestSymlink(t *testing.T) {
 	if n := names(t, g.host(dir)); !slices.Equal(n, []string{"d", "plain", "teamchat"}) {
 		t.Errorf("%v", n)
 	}
+}
+
+func TestSymlinkRefusesABadTargetOrName(t *testing.T) {
+	g := newTree(t)
+	const dir = "/usr/local/bin"
+	g.mkdir(dir)
+	w := g.root(newRecorder()).Writer()
 	for _, bad := range []string{"", "a\x00b"} {
 		if _, err := w.Symlink(dir, "x", bad); !errors.Is(err, ErrRefused) {
 			t.Errorf("target %q: %v", bad, err)
@@ -365,12 +396,14 @@ func TestRemoveTree(t *testing.T) {
 
 // Every system call each operation makes fails in turn: the operation fails, and no
 // descriptor is left open.
+// faultScenario is one operation of the fault sweep, over the fixture its setup builds.
+type faultScenario struct {
+	name  string
+	setup func(g tree)
+	run   func(r *Root) error
+}
+
 func TestEveryFailingCallFailsItsOperationAndLeaksNothing(t *testing.T) {
-	type scenario struct {
-		name  string
-		setup func(g tree)
-		run   func(r *Root) error
-	}
 	kit := func(g tree) {
 		g.mkdir(kitParent)
 		g.file(kitParent+"/old/bin/teamchat", "x", 0o755)
@@ -382,7 +415,7 @@ func TestEveryFailingCallFailsItsOperationAndLeaksNothing(t *testing.T) {
 		g.mkdir("/proc/7")
 		g.file("/proc/7/stat", "7 (x)", 0o444)
 	}
-	scenarios := []scenario{
+	scenarios := []faultScenario{
 		{"Stat", kit, func(r *Root) error { _, err := r.Stat("/etc/u"); return err }},
 		{"ReadFile", kit, func(r *Root) error { _, _, _, err := r.ReadFile("/etc/u", 100); return err }},
 		{"ReadProcStat", kit, func(r *Root) error { _, _, err := r.ReadProcStat(7); return err }},
@@ -420,30 +453,38 @@ func TestEveryFailingCallFailsItsOperationAndLeaksNothing(t *testing.T) {
 		{"RemoveTree", kit, func(r *Root) error { _, err := r.Writer().RemoveTree(kitParent, "old"); return err }},
 	}
 	for _, s := range scenarios {
-		t.Run(s.name, func(t *testing.T) {
-			g := newTree(t)
-			s.setup(g)
-			rec := newRecorder()
-			r := g.root(rec)
-			rec.arm(-1, nil)
-			if err := s.run(r); err != nil {
-				t.Fatalf("with nothing failing: %v", err)
-			}
-			n := rec.count()
-			for i := range n {
-				g := newTree(t)
-				s.setup(g)
-				rec := newRecorder()
-				r := g.root(rec)
-				rec.arm(i, unix.EIO)
-				err := s.run(r)
-				if err == nil {
-					t.Errorf("call %d (%s) failing did not fail it", i, rec.calls[i].op)
-				}
-				if l := rec.leaked(); len(l) != 1 {
-					t.Errorf("call %d failing: open fds %v", i, l)
-				}
-			}
-		})
+		t.Run(s.name, func(t *testing.T) { sweepFaults(t, s) })
+	}
+}
+
+// sweepFaults counts the calls s makes with nothing failing, then fails each in turn on a
+// fresh fixture.
+func sweepFaults(t *testing.T, s faultScenario) {
+	t.Helper()
+	g := newTree(t)
+	s.setup(g)
+	rec := newRecorder()
+	r := g.root(rec)
+	rec.arm(-1, nil)
+	if err := s.run(r); err != nil {
+		t.Fatalf("with nothing failing: %v", err)
+	}
+	for i := range rec.count() {
+		failOne(t, s, i)
+	}
+}
+
+func failOne(t *testing.T, s faultScenario, i int) {
+	t.Helper()
+	g := newTree(t)
+	s.setup(g)
+	rec := newRecorder()
+	r := g.root(rec)
+	rec.arm(i, unix.EIO)
+	if err := s.run(r); err == nil {
+		t.Errorf("call %d (%s) failing did not fail it", i, rec.calls[i].op)
+	}
+	if l := rec.leaked(); len(l) != 1 {
+		t.Errorf("call %d failing: open fds %v", i, l)
 	}
 }
