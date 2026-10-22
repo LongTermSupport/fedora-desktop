@@ -174,6 +174,35 @@ type HistoryArgs struct {
 	Limit int           `json:"limit"`
 }
 
+// The send ops' args. Their text is Request.Stdin: required for say and a plain reply, null for
+// ping and reply --verb (n3d-D15).
+
+// ReplyArgs are reply's: the item replied to, and --verb, --ref and --to-coordinator.
+type ReplyArgs struct {
+	Team          *paths.TeamID `json:"team"`
+	ID            string        `json:"id"`
+	Verb          *string       `json:"verb"`
+	Ref           *string       `json:"ref"`
+	ToCoordinator bool          `json:"to_coordinator"`
+}
+
+// SayArgs are say's: the addressees' handles and --to-coordinator.
+type SayArgs struct {
+	Team          *paths.TeamID `json:"team"`
+	To            []string      `json:"to"`
+	ToCoordinator bool          `json:"to_coordinator"`
+}
+
+// PingArgs are ping's: the verb, --ref, the addressees, --to-coordinator and --branch.
+type PingArgs struct {
+	Team          *paths.TeamID `json:"team"`
+	Verb          string        `json:"verb"`
+	Ref           *string       `json:"ref"`
+	To            []string      `json:"to"`
+	ToCoordinator bool          `json:"to_coordinator"`
+	Branch        *string       `json:"branch"`
+}
+
 // TeamsArgs are recv's, inbox's and status's: the --team, null for every active team.
 type TeamsArgs struct {
 	Team *paths.TeamID `json:"team"`

@@ -96,8 +96,10 @@ const (
 	CodeRate            = "rate"
 	CodeServerRate      = "server-rate"
 	CodeReportRate      = "report-rate"
+	CodeForgeRate       = "forge-rate"
 	CodeDuplicate       = "duplicate"
 	CodeUnreachable     = "unreachable"
+	CodeForgeDown       = "forge-down"
 	CodeToken           = "token"
 	CodeUntrusted       = "untrusted"
 	CodeForbidden       = "forbidden"
@@ -148,9 +150,9 @@ var table = []Row{
 	{ExitRefused, "refused by the protocol rules", []string{CodeSize, CodeSchema, CodeSecret, CodeTarget, CodeVerb, CodeRef, CodeRe, CodeBody, CodeEmpty}, ClassFix, "fix the message; do not retry it unchanged"},
 	{ExitRole, "refused by role", []string{CodeRole}, ClassFix, "ask the coordinator instead"},
 	{ExitForge, "a reference did not resolve at the forge, or its provenance failed", []string{CodeForge, CodeProvenance}, ClassFix, "push first, or reference what exists"},
-	{ExitRate, "rate limited", []string{CodeRate, CodeServerRate, CodeReportRate}, ClassWait, "wait; do not loop"},
+	{ExitRate, "rate limited", []string{CodeRate, CodeServerRate, CodeReportRate, CodeForgeRate}, ClassWait, "wait; do not loop"},
 	{ExitDuplicate, "the same message again within the duplicate window", []string{CodeDuplicate}, ClassFix, "it was already sent; do not resend"},
-	{ExitUnreachable, "the homeserver did not answer", []string{CodeUnreachable}, ClassWait, "tell a human if it persists; the link keeps retrying on its own"},
+	{ExitUnreachable, "the homeserver or the forge did not answer", []string{CodeUnreachable, CodeForgeDown}, ClassWait, "tell a human if it persists; the link keeps retrying on its own"},
 	{ExitToken, "the member's token was refused", []string{CodeToken}, ClassTell, "tell a human"},
 	{ExitUntrusted, "a room is missing or not trusted, or the homeserver forbade it", []string{CodeUntrusted, CodeForbidden}, ClassTell, "run status; tell a human"},
 	{ExitNotFound, "the event or question named does not exist", []string{CodeNotFound}, ClassFix, "check the id"},

@@ -29,6 +29,7 @@ const (
 	KindFact       = "fact"
 	KindOutbox     = "outbox"
 	KindSent       = "sent"
+	KindQueued     = "queued"
 	KindPending    = "pending"
 	KindQuestion   = "question"
 	KindHistory    = "history"
@@ -45,7 +46,7 @@ const (
 // Kinds is every record kind.
 var Kinds = []string{
 	KindHuman, KindPeer, KindPing, KindTimeout, KindNotice, KindFact, KindOutbox, KindSent,
-	KindPending, KindQuestion, KindHistory, KindVerified, KindMore, KindTeam, KindMember, KindRoom,
+	KindQueued, KindPending, KindQuestion, KindHistory, KindVerified, KindMore, KindTeam, KindMember, KindRoom,
 	KindRuntime, KindTeamFailed, KindVersion,
 }
 
@@ -161,19 +162,46 @@ type Outbox struct {
 	TimedOut List[string] `json:"timed_out"`
 }
 
-// Answer is one answer recorded against an outbox ping.
+// Answer is one answer recorded against an outbox ping; Verb and ID are null for an answer
+// recorded before the link started (n3d-D8).
 type Answer struct {
-	From string `json:"from"`
-	Verb string `json:"verb"`
-	ID   string `json:"id"`
-	Late bool   `json:"late"`
+	From string  `json:"from"`
+	Verb *string `json:"verb"`
+	ID   *string `json:"id"`
+	Late bool    `json:"late"`
 }
 
-// Sent is a send's event.
+// Sent is a send's event; ID is null exactly when the send is Queued (n3d-D2, n3d-D21).
 type Sent struct {
-	Team paths.TeamID `json:"team"`
-	ID   string       `json:"id"`
-	Room string       `json:"room"`
+	Team   paths.TeamID
+	ID     *string
+	Room   string
+	Queued bool
+}
+
+// MarshalJSON writes the sent record, refused unless its id is null exactly when it is queued.
+func (s Sent) MarshalJSON() ([]byte, error) {
+	if (s.ID == nil) != s.Queued {
+		return nil, errors.New("a sent record whose id is not null exactly when it is queued")
+	}
+	return marshal(struct {
+		Team   paths.TeamID `json:"team"`
+		ID     *string      `json:"id"`
+		Room   string       `json:"room"`
+		Queued bool         `json:"queued"`
+	}{s.Team, s.ID, s.Room, s.Queued})
+}
+
+// Queued is a send the link holds until its homeserver answers (n3d-D21): Send is text or
+// ping, Verb the ping's, To the addressees' short names.
+type Queued struct {
+	Team    paths.TeamID `json:"team"`
+	Room    string       `json:"room"`
+	Send    string       `json:"send"`
+	Verb    *string      `json:"verb"`
+	To      List[string] `json:"to"`
+	SinceMS int64        `json:"since_ms"`
+	Tried   bool         `json:"tried"`
 }
 
 // Pending is one pending item, listed without its body.
@@ -266,6 +294,8 @@ type TeamCounts struct {
 	Gaps      int64 `json:"gaps"`
 	Redacted  int64 `json:"redacted"`
 	SeenTwice int64 `json:"seen_twice"`
+	// Unsent are queued sends the current roster refused at their post (n3d-D27).
+	Unsent int64 `json:"unsent"`
 }
 
 // Member is one member of a team.
@@ -355,6 +385,9 @@ func (Outbox) Kind() string { return KindOutbox }
 func (Sent) Kind() string { return KindSent }
 
 // Kind is the record kind.
+func (Queued) Kind() string { return KindQueued }
+
+// Kind is the record kind.
 func (Pending) Kind() string { return KindPending }
 
 // Kind is the record kind.
@@ -395,6 +428,7 @@ func (Notice) record()     {}
 func (Fact) record()       {}
 func (Outbox) record()     {}
 func (Sent) record()       {}
+func (Queued) record()     {}
 func (Pending) record()    {}
 func (Question) record()   {}
 func (History) record()    {}
