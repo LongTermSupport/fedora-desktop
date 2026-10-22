@@ -183,3 +183,101 @@ rules:
     severity: ERROR
     metadata:
       dbf-class: a test whose pass depends on a wall-clock margin too tight for a loaded host
+  # Rule: a text stream handed over is a real one (Defence Before Fix; CLAUDE/QA.md
+  # "stream-stand-in-not-a-text-stream").
+  #
+  # A class written with only write() is accepted wherever a TextIO is: Python checks
+  # nothing, and no type checker runs here. The consumer is free to call the rest of the
+  # stream interface, and the first writelines(), flush() or print(file=) raises
+  # AttributeError. That is how the login report's freshness check came to crash with
+  # "'_Sink' object has no attribute 'writelines'" on every stale play.
+  #
+  # WRONG: class _Sink:  def write(self, text): ...      run(stdout=_Sink())
+  # RIGHT: run(stdout=io.StringIO())   or   class _Locked(io.TextIOBase): ...
+  #
+  # The rule reports a class defined in the same file with a write(self, text) method and
+  # no io or Protocol base, when an instance is passed as a stream-named keyword argument
+  # (directly or through a variable, tuple assignments included), assigned to sys.stdout
+  # or sys.stderr, given to redirect_stdout/redirect_stderr, or assigned over a parameter
+  # annotated TextIO. A stand-in defined in one module and passed in another is not seen.
+  - id: stream-stand-in-not-a-text-stream
+    languages: [python]
+    patterns:
+      - pattern-inside: |
+          class $C(...):
+              ...
+              def write(self, $T, ...):
+                  ...
+              ...
+          ...
+      - pattern-not-inside: |
+          class $C(..., io.$B, ...):
+              ...
+          ...
+      - pattern-not-inside: |
+          class $C(..., TextIOBase, ...):
+              ...
+          ...
+      - pattern-not-inside: |
+          class $C(..., StringIO, ...):
+              ...
+          ...
+      - pattern-not-inside: |
+          class $C(..., IOBase, ...):
+              ...
+          ...
+      - pattern-not-inside: |
+          class $C(..., TextIOWrapper, ...):
+              ...
+          ...
+      - pattern-not-inside: |
+          class $C(..., Protocol, ...):
+              ...
+          ...
+      - pattern-not-inside: |
+          class $C(..., typing.Protocol, ...):
+              ...
+          ...
+      - pattern-either:
+          - patterns:
+              - pattern: $F(..., $K=$C(...), ...)
+              - metavariable-regex:
+                  metavariable: $K
+                  regex: '(?i)^(std(out|err)|out|err|output|stream|file|sink|unchecked)$'
+          - patterns:
+              - pattern-either:
+                  - pattern-inside: |
+                      $V = $C(...)
+                      ...
+                  - pattern-inside: |
+                      $V, ... = $C(...), ...
+                      ...
+                  - pattern-inside: |
+                      $V0, $V, ... = $X0, $C(...), ...
+                      ...
+                  - pattern-inside: |
+                      $V0, $V1, $V, ... = $X0, $X1, $C(...), ...
+                      ...
+              - pattern: $F(..., $K=$V, ...)
+              - metavariable-regex:
+                  metavariable: $K
+                  regex: '(?i)^(std(out|err)|out|err|output|stream|file|sink|unchecked)$'
+          - pattern: sys.stdout = $C(...)
+          - pattern: sys.stderr = $C(...)
+          - pattern: contextlib.redirect_stdout($C(...))
+          - pattern: contextlib.redirect_stderr($C(...))
+          - pattern: redirect_stdout($C(...))
+          - pattern: redirect_stderr($C(...))
+          - patterns:
+              - pattern-inside: |
+                  def $FN(..., $P: TextIO, ...):
+                      ...
+              - pattern: $P = $C(...)
+    message: >
+      stream-stand-in-not-a-text-stream: an object with only write() is handed over as a
+      text stream; the first writelines(), flush() or print(file=) on it raises. Use
+      io.StringIO, or derive from io.TextIOBase. See CLAUDE/QA.md
+      "stream-stand-in-not-a-text-stream".
+    severity: ERROR
+    metadata:
+      dbf-class: a hand-rolled text-stream stand-in passed where a real text stream is expected

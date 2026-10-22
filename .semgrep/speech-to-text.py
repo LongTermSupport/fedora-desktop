@@ -1,6 +1,10 @@
 # Fixture for .semgrep/speech-to-text.yml (Python rules). `ruleid:` marks a line that must
 # fire, `ok:` a line that must stay silent.
 
+import io
+import sys
+from typing import Protocol, TextIO
+
 
 def installed_by_directory(model_dir):
     # The originating instance in wsi-model-manager: any snapshot at all is "installed".
@@ -67,3 +71,87 @@ def wait_until(predicate, time, timeout=0.3):
     while not predicate():
         # ok: test-deadline-under-ten-steps
         time.sleep(0.1)
+
+
+# stream-stand-in-not-a-text-stream: the originating instance is login_report's _Sink,
+# handed to check_freshness as stdout and stderr; _Locked is pingbus's _LockedStream.
+class _Sink:
+    def __init__(self):
+        self._chunks = []
+
+    def write(self, text):
+        self._chunks.append(text)
+
+
+class _Locked:
+    def __init__(self, stream):
+        self._stream = stream
+
+    def write(self, text: str) -> None:
+        self._stream.write(text)
+
+
+class _Proper(io.TextIOBase):
+    def write(self, text: str) -> int:
+        return len(text)
+
+
+class _Buffer(io.StringIO):
+    def write(self, text: str) -> int:
+        return super().write(text)
+
+
+class Writer(Protocol):
+    def write(self, text: str) -> int: ...
+
+
+class Report:
+    def __init__(self, path):
+        self.path = path
+
+    def write(self, text: str) -> None:
+        self.path.write_text(text)
+
+
+def through_a_tuple(run):
+    out, err = _Sink(), _Sink()
+    # ruleid: stream-stand-in-not-a-text-stream
+    run(stdout=out, stderr=err)
+
+
+def through_a_name(run):
+    sink = _Sink()
+    # ruleid: stream-stand-in-not-a-text-stream
+    run(stderr=sink)
+
+
+def direct(run):
+    # ruleid: stream-stand-in-not-a-text-stream
+    run(stdout=_Sink())
+    # ruleid: stream-stand-in-not-a-text-stream
+    print("x", file=_Locked(sys.stdout))
+
+
+def over_a_parameter(err: TextIO, helper):
+    # ruleid: stream-stand-in-not-a-text-stream
+    err = _Locked(err)
+    helper(err)
+
+
+def onto_sys():
+    # ruleid: stream-stand-in-not-a-text-stream
+    sys.stderr = _Sink()
+
+
+def proper(run, err: TextIO):
+    # ok: stream-stand-in-not-a-text-stream
+    run(stdout=_Proper(), stderr=_Buffer())
+    # ok: stream-stand-in-not-a-text-stream
+    err = _Proper()
+    run(stderr=err)
+
+
+def not_a_stream(path, helper):
+    # ok: stream-stand-in-not-a-text-stream
+    report = Report(path)
+    helper(report)
