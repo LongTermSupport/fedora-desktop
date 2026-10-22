@@ -55,6 +55,7 @@ const (
 	stepReads      = "reads"
 	stepMembership = "membership"
 	stepRecord     = "record"
+	stepState      = "state"
 )
 
 // The guest files the reads take (C 3.9.2 step 03).
@@ -144,6 +145,8 @@ type guestBox struct {
 	checkouts map[string]*checkoutFiles
 	gone      bool
 	missing   bool
+	// fault is lxc-ls or lxc-info failing for the box (the absent phase): the host's, not offline.
+	fault error
 }
 
 // checkoutFiles is one checkout's guest files, read once per container however many seats
@@ -468,7 +471,8 @@ func (r *run) refuse(m *member, step string, err error) {
 
 // gone is whether err, met in container c, means c has gone offline (n3b-D1): the pin moved
 // or the root died; or an attach, an lxc-info call or an op that timed out, after which
-// lxc-info says the container is no longer running. A guest op's own error object never is.
+// lxc-info answers that the container is no longer running. A guest op's own error object never
+// is, and nor is an lxc-info that fails: the host's fault leaves err to fail the seat.
 func (r *run) gone(ctx context.Context, c paths.ContainerName, err error) bool {
 	if errors.Is(err, guestroot.ErrMoved) || errors.Is(err, guestroot.ErrGone) {
 		return true
@@ -477,7 +481,7 @@ func (r *run) gone(ctx context.Context, c paths.ContainerName, err error) bool {
 		return false
 	}
 	st, serr := r.d.LXC.State(ctx, c.String())
-	return serr != nil || st != lxccmd.Running
+	return serr == nil && st != lxccmd.Running
 }
 
 // step is a failure of the steps after the reads, in a container: offline when the container
@@ -546,7 +550,8 @@ func (r *run) holdMoves() {
 }
 
 // containers is step 02: each seat's container listed and asked its state. A missing or not
-// running one is offline; the running ones become the phase's boxes. False is a host fault.
+// running one is offline; the running ones become the phase's boxes. An lxc-info that fails is
+// the host's fault for that container's seats; false is one for the phase.
 func (r *run) containers(ctx context.Context) bool {
 	byName := map[paths.ContainerName]*guestBox{}
 	for _, m := range r.members {
@@ -563,16 +568,16 @@ func (r *run) containers(ctx context.Context) bool {
 	}
 	names, err := r.d.LXC.Containers(ctx)
 	if err != nil {
-		r.errs = append(r.errs, &host.Error{Verb: verb, Step: "state", Err: err})
+		r.errs = append(r.errs, &host.Error{Verb: verb, Step: stepState, Err: err})
 		return false
 	}
 	slices.SortFunc(r.boxes, func(a, b *guestBox) int { return cmp.Compare(a.name.String(), b.name.String()) })
 	for _, g := range r.boxes {
-		why := ""
-		if !slices.Contains(names, g.name.String()) {
-			why = whyMissing
-		} else if st, err := r.d.LXC.State(ctx, g.name.String()); err != nil || st != lxccmd.Running {
-			why = whyStopped
+		why, err := boxState(ctx, r.d.LXC, names, g.name)
+		if err != nil {
+			g.gone = true
+			r.failAll(g.members, stepState, fmt.Errorf("container %s: %w", g.name, err))
+			continue
 		}
 		if why != "" {
 			g.gone = true
@@ -582,6 +587,22 @@ func (r *run) containers(ctx context.Context) bool {
 		}
 	}
 	return true
+}
+
+// boxState is why container c, among the listed names, is offline ("" when running): only an
+// answered state that is not running is stopped; lxc-info failing is its error.
+func boxState(ctx context.Context, lxc Containers, names []string, c paths.ContainerName) (string, error) {
+	if !slices.Contains(names, c.String()) {
+		return whyMissing, nil
+	}
+	st, err := lxc.State(ctx, c.String())
+	switch {
+	case err != nil:
+		return "", err
+	case st != lxccmd.Running:
+		return whyStopped, nil
+	}
+	return "", nil
 }
 
 // reads is step 03 for one running container: the pin, its settings and addresses, and each

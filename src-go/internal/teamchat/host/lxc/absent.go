@@ -191,7 +191,11 @@ func (r *run) leave(ctx context.Context, m *member, parked bool) {
 		r.fail(m, err)
 		return
 	}
-	g, why := r.leaveBox(ctx, m.box)
+	g, why, err := r.leaveBox(ctx, m.box)
+	if err != nil {
+		r.fail(m, &host.Error{Verb: verb, Step: stepState, Err: fmt.Errorf("container %s: %w", m.box, err)})
+		return
+	}
 	if why != "" {
 		r.leftOffline(m, why, parked)
 		return
@@ -219,35 +223,43 @@ func (r *run) dropSeat(m *member) error {
 	return nil
 }
 
-// leaveBox is the seat's container, pinned once per phase, or why it is offline.
-func (r *run) leaveBox(ctx context.Context, c paths.ContainerName) (*guestBox, string) {
+// leaveBox is the seat's container, pinned once per phase, or why it is offline. lxc-ls or
+// lxc-info failing is the host's fault (the error), never an offline container; a pin that
+// fails after lxc-info answered running is taken as the container stopping.
+func (r *run) leaveBox(ctx context.Context, c paths.ContainerName) (*guestBox, string, error) {
 	for _, g := range r.boxes {
 		if g.name == c {
-			if g.gone {
-				return g, g.why()
-			}
-			return g, ""
+			return g, g.offlineWhy(), g.fault
 		}
 	}
 	g := &guestBox{name: c}
 	r.boxes = append(r.boxes, g)
 	names, err := r.d.LXC.Containers(ctx)
+	why := ""
+	if err == nil {
+		why, err = boxState(ctx, r.d.LXC, names, c)
+	}
 	switch {
-	case err == nil && !slices.Contains(names, c.String()):
-		g.gone, g.missing = true, true
 	case err != nil:
+		g.fault = err
+	case why == whyMissing:
+		g.gone, g.missing = true, true
+	case why != "":
 		g.gone = true
 	default:
-		if st, err := r.d.LXC.State(ctx, c.String()); err != nil || st != lxccmd.Running {
-			g.gone = true
-		} else if g.root, err = r.d.Pin(ctx, c.String()); err != nil {
+		if g.root, err = r.d.Pin(ctx, c.String()); err != nil {
 			g.gone = true
 		}
 	}
-	if g.gone {
-		return g, g.why()
+	return g, g.offlineWhy(), g.fault
+}
+
+// offlineWhy is a gone box's offline cause, "" for one running.
+func (g *guestBox) offlineWhy() string {
+	if !g.gone {
+		return ""
 	}
-	return g, ""
+	return g.why()
 }
 
 // why is a gone box's offline cause.
@@ -312,13 +324,22 @@ func (r *run) leaveGuest(ctx context.Context, g *guestBox, m *member, parked boo
 		r.leaveFailed(ctx, g, m, "unit", err)
 		return
 	}
-	held, run, stopped := r.waitFree(ctx, g, m)
+	r.removeGuest(ctx, g, m, parked)
+}
+
+// removeGuest is steps 4 and 5: the L3 wait, then `guest remove`.
+func (r *run) removeGuest(ctx context.Context, g *guestBox, m *member, parked bool) {
+	wait, err := r.waitFree(ctx, g, m)
 	switch {
-	case stopped:
+	case err != nil:
+		m.status, m.why = lxcstate.StatusLeft, whyPending
+		r.fail(m, &host.Error{Verb: verb, Step: "wait", Err: fmt.Errorf("%s: %w", m.name(), err)})
+		return
+	case wait.stopped:
 		r.leftOffline(m, whyStopped, false)
 		return
-	case held:
-		r.heldSeat(m, run)
+	case wait.held:
+		r.heldSeat(m, wait.run)
 		return
 	}
 	_, err = r.d.LXC.Guest(ctx, r.attach(m), guest.OpRemove, []string{"--team", m.team.ID.String()}, nil)
@@ -389,31 +410,64 @@ func (r *run) heldSeat(m *member, run string) {
 
 // waitFree is step 4, the L3 probe of the leaving seat's own key every SeatFreeGap for at most
 // SeatFreeWait: held with the lock's run id, or stopped when the container stops during the
-// wait, which ends it at once.
-func (r *run) waitFree(ctx context.Context, g *guestBox, m *member) (bool, string, bool) {
+// wait, which ends it at once. A probe that fails is stopped only when lxc-info then answers
+// that the container is not running; otherwise it, a layout that cannot be made, or lxc-info
+// failing is the error, as is a wait cut short by its context.
+func (r *run) waitFree(ctx context.Context, g *guestBox, m *member) (seatWait, error) {
 	layout, err := paths.LXCLayout(m.acct.Home, paths.GuestRuntimeDir(m.key), m.key)
 	if err != nil {
-		return false, "", false
+		return seatWait{}, err
 	}
 	lock := layout.Seat(m.team.ID).Lock()
 	deadline := r.d.Clock.Now().Add(SeatFreeWait)
 	for {
 		held, record, err := g.root.ProbeLock(lock)
+		if refused(err) || errors.Is(err, fs.ErrNotExist) {
+			return seatWait{}, nil
+		}
+		if err != nil {
+			return r.probeFailed(ctx, g, err)
+		}
 		switch {
-		case err != nil && !refused(err) && !errors.Is(err, fs.ErrNotExist):
-			return false, "", true
-		case err != nil || !held:
-			return false, "", false
+		case !held:
+			return seatWait{}, nil
 		case !r.d.Clock.Now().Before(deadline):
-			return true, runOf(record), false
+			return seatWait{held: true, run: runOf(record)}, nil
 		}
 		if err := r.d.Clock.Sleep(ctx, SeatFreeGap); err != nil {
-			return true, runOf(record), false
+			return seatWait{}, err
 		}
-		if st, err := r.d.LXC.State(ctx, g.name.String()); err != nil || st != lxccmd.Running {
-			return false, "", true
+		if stopped, err := r.stopped(ctx, g); err != nil || stopped {
+			return seatWait{stopped: stopped}, err
 		}
 	}
+}
+
+// seatWait is the L3 wait's answer: the seat still held (with the lock's run id, when it passes
+// its grammar), or its container stopped; neither is a free seat.
+type seatWait struct {
+	held    bool
+	run     string
+	stopped bool
+}
+
+// probeFailed is a lock probe's error: the container stopped when lxc-info answers so, else the
+// error (lxc-info's own first).
+func (r *run) probeFailed(ctx context.Context, g *guestBox, probeErr error) (seatWait, error) {
+	stopped, err := r.stopped(ctx, g)
+	switch {
+	case err != nil:
+		return seatWait{}, err
+	case stopped:
+		return seatWait{stopped: true}, nil
+	}
+	return seatWait{}, probeErr
+}
+
+// stopped is lxc-info's answer that g is not running.
+func (r *run) stopped(ctx context.Context, g *guestBox) (bool, error) {
+	st, err := r.d.LXC.State(ctx, g.name.String())
+	return err == nil && st != lxccmd.Running, err
 }
 
 // runOf is the lock record's run id when it decodes, else "".

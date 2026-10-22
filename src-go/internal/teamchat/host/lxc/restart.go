@@ -6,14 +6,12 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"slices"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestfacts"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/guestroot"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxccmd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/host/lxc/lxcstate"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teamchat/paths"
 )
@@ -133,13 +131,14 @@ func restartRoot(ctx context.Context, d Deps, container paths.ContainerName) (Ro
 	c := container.String()
 	names, err := d.LXC.Containers(ctx)
 	if err != nil {
-		return nil, &host.Error{Verb: restartVerb, Step: "state", Err: err}
+		return nil, &host.Error{Verb: restartVerb, Step: stepState, Err: err}
 	}
-	if !slices.Contains(names, c) {
-		return nil, &OfflineError{Container: container, Why: whyMissing}
+	why, err := boxState(ctx, d.LXC, names, container)
+	if err != nil {
+		return nil, &host.Error{Verb: restartVerb, Step: stepState, Err: err}
 	}
-	if st, stateErr := d.LXC.State(ctx, c); stateErr != nil || st != lxccmd.Running {
-		return nil, &OfflineError{Container: container, Why: whyStopped}
+	if why != "" {
+		return nil, &OfflineError{Container: container, Why: why}
 	}
 	root, err := d.Pin(ctx, c)
 	if errors.Is(err, guestroot.ErrMoved) || errors.Is(err, guestroot.ErrGone) {

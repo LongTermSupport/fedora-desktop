@@ -163,6 +163,7 @@ func TestRestartFailures(t *testing.T) {
 		drift bool
 	}{
 		{"listing fails", func(w *world) { w.lxc.listErr = errFault }, "state", false},
+		{"lxc-info fails", func(w *world) { w.lxc.boxes["c1"].stateErr = errFault }, "state", false},
 		{"pin fails", func(w *world) { w.pinErr = errFault }, "pin", false},
 		{"systemd refuses", func(w *world) { w.bus.err = guestbus.ErrSystemd }, "restart", false},
 		{"the socket is refused", func(w *world) { w.busErr = guestroot.ErrRefused }, "restart", true},

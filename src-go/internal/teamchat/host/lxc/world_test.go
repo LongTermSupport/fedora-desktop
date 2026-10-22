@@ -113,11 +113,20 @@ func newGuest(t *testing.T) string {
 	return dir
 }
 
-// fakeRoot is a fixture guest root whose init is its own systemd, or exe when set.
+// fakeRoot is a fixture guest root whose init is its own systemd, or exe when set, and whose
+// lock probes fail with probeErr when set.
 type fakeRoot struct {
 	*guestroot.Root
 
-	exe *guestroot.Info
+	exe      *guestroot.Info
+	probeErr error
+}
+
+func (r fakeRoot) ProbeLock(p string) (bool, []byte, error) {
+	if r.probeErr != nil {
+		return false, nil, r.probeErr
+	}
+	return r.Root.ProbeLock(p)
 }
 
 func (r fakeRoot) InitExe() (guestroot.Info, error) {
@@ -134,6 +143,8 @@ type box struct {
 	addrs []netip.Addr
 	cfg   map[string]string
 	exe   *guestroot.Info
+	// stateErr fails lxc-info's state of the box, and probeErr its root's lock probes.
+	stateErr, probeErr error
 }
 
 type guestCall struct {
@@ -181,6 +192,9 @@ func (f *fakeLXC) State(_ context.Context, c string) (lxccmd.State, error) {
 	b, err := f.get(c)
 	if err != nil {
 		return "", err
+	}
+	if b.stateErr != nil {
+		return "", b.stateErr
 	}
 	return b.state, nil
 }
@@ -537,7 +551,7 @@ func (w *world) pin(_ context.Context, c string) (Root, error) {
 	if err != nil {
 		return nil, err
 	}
-	return fakeRoot{Root: r, exe: b.exe}, nil
+	return fakeRoot{Root: r, exe: b.exe, probeErr: b.probeErr}, nil
 }
 
 func (w *world) apply(phase Phase, only ...string) (Report, error) {
