@@ -261,6 +261,30 @@ func TestShown(t *testing.T) {
 	}
 }
 
+// A member's own liveness problem names the member (FRAME, offline members never block): it
+// round-trips, and one naming no member entry of the record, or no handle, is refused.
+func TestAProblemNamesItsMember(t *testing.T) {
+	own := strings.Replace(example, `"fix":"ccy-teams apply alpha"}`, `"fix":"ccy-teams restart web.2+box.lxc","member":"web.2+box.lxc"}`, 1)
+	rec, err := Decode([]byte(own), team)
+	if err != nil || rec.Problems[0].Member != "web.2+box.lxc" {
+		t.Fatalf("Decode = %+v, %v", rec.Problems, err)
+	}
+	if out := mustEncode(t, rec); !strings.Contains(string(out), `"member":"web.2+box.lxc"`) {
+		t.Fatalf("encoded %s", out)
+	}
+	for name, doc := range map[string]string{
+		"no such member": strings.Replace(own, `"member":"web.2+box.lxc"`, `"member":"web.3+box.lxc"`, 1),
+		"not a handle":   strings.Replace(own, `"member":"web.2+box.lxc"`, `"member":"LX 1"`, 1),
+		"empty":          strings.Replace(own, `"member":"web.2+box.lxc"`, `"member":""`, 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Decode([]byte(doc), team); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("Decode = %v, want ErrInvalid", err)
+			}
+		})
+	}
+}
+
 func TestProblemAndEventChecks(t *testing.T) {
 	if _, err := NewProblem("two\nlines", "fix"); !errors.Is(err, ErrInvalid) {
 		t.Fatal("a two-line problem was made")

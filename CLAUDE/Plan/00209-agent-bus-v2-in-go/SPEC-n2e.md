@@ -23,7 +23,11 @@ and `element`, `desired.json` (C 3.7.5; the sweep asks it through a seam), and c
   is a systemd `ActiveState` word; `homeserver.probe` is `ok`, `missed` or `not-run` (n2e-D3).
   A room membership is `join`, `invite`, `leave`, `ban` or `knock` (a room the account is not in
   is absent from `rooms`). `backup.last_run` is `ok`, `failed` or `none`. `online` is on LXC
-  member entries only. Every `what` and `fix` is one printable line. No field can hold a token:
+  member entries only. Every `what` and `fix` is one printable line. A problem may carry
+  `member`, the handle of a member entry of the same record: a liveness problem of that one
+  member (HT6's three), shown on its entry and never the team's health. A reader that judges a
+  team (the `status` verb's exit, the board's team row) counts only the problems with no
+  `member` (DESIGN-v2-FRAME.md, offline members never block). No field can hold a token:
   the record has no free-form field but `what`, `fix`, `name` and the events' `what`, which the
   writer builds.
 - **SR2. Write.** `Write(path, rec, gid)` writes 0640 with the owner group through
@@ -93,7 +97,9 @@ and `element`, `desired.json` (C 3.7.5; the sweep asks it through a seam), and c
   possible for good, marks the entry posted; a transient failure leaves it unposted and asks
   again at the next tick, and the entry carries the problem "the disconnected notice for
   <handle> is not posted yet". A launch failure is the problem `launch-failed`, fix
-  `ccy-teams restart <handle>`. `online` is the probe: held is true.
+  `ccy-teams restart <handle>`. A probe that fails is the problem "the seat of <handle> could
+  not be probed". These three problems carry `member` (SR1). `online` is the probe: held is true. A member stopped, before
+  or after its run ends, is `online` false and adds no problem (one notice, nothing repeated).
 
 ## 4. The view (`teamchat/health/view`, C 3.11.2 step 3, DC16)
 

@@ -140,10 +140,14 @@ type Restore struct {
 	Pre    int64  `json:"pre"`
 }
 
-// Problem is one thing wrong and what to run.
+// Problem is one thing wrong and what to run. Member names the one member a liveness problem is
+// about (its launch failed, its seat cannot be probed, its disconnected notice is not posted):
+// that member's own, shown on its entry, never the team's health (DESIGN-v2-FRAME.md, offline
+// members never block). A problem with no member is the team's.
 type Problem struct {
-	What string `json:"what"`
-	Fix  string `json:"fix"`
+	What   string `json:"what"`
+	Fix    string `json:"fix"`
+	Member string `json:"member,omitempty"`
 }
 
 // Event is one thing that happened.
@@ -375,6 +379,9 @@ func (r Record) checkLines() error {
 	for _, p := range r.Problems {
 		if !OneLine(p.What) || !OneLine(p.Fix) {
 			return invalid("a problem is not two lines of text")
+		}
+		if p.Member != "" && !slices.ContainsFunc(r.Members, func(m Member) bool { return m.Handle == p.Member }) {
+			return invalid("a problem names no member of the record")
 		}
 	}
 	for _, e := range r.Events {

@@ -177,7 +177,7 @@ func (t *Tick) held(entry onlineEntry, lock memberstate.LockRecord, lockErr erro
 func (t *Tick) moveOn(ctx context.Context, team paths.TeamID, m status.Member, entry onlineEntry, seen guestSeen, problems *[]status.Problem) (onlineEntry, bool) {
 	found := entry != (onlineEntry{})
 	if seen.err != nil {
-		*problems = append(*problems, status.Problem{What: "the seat of " + m.Handle + " could not be probed", Fix: "journalctl -u teamchat-health.service"})
+		*problems = append(*problems, status.Problem{What: "the seat of " + m.Handle + " could not be probed", Fix: "journalctl -u teamchat-health.service", Member: m.Handle})
 		return entry, found
 	}
 	lock, lockErr := memberstate.DecodeLockRecord(seen.probe.Record)
@@ -186,7 +186,7 @@ func (t *Tick) moveOn(ctx context.Context, team paths.TeamID, m status.Member, e
 	}
 	entry.Held = false
 	if !seen.probe.Stopped && lockErr == nil && lock.LaunchFailed() {
-		*problems = append(*problems, status.Problem{What: m.Handle + " launch-failed", Fix: "ccy-teams restart " + m.Handle})
+		*problems = append(*problems, status.Problem{What: m.Handle + " launch-failed", Fix: "ccy-teams restart " + m.Handle, Member: m.Handle})
 		if lock.Run.String() == entry.Run {
 			entry.Posted = true
 		}
@@ -203,7 +203,7 @@ func (t *Tick) moveOn(ctx context.Context, team paths.TeamID, m status.Member, e
 		return entry, true
 	}
 	if _, err := t.cfg.Announcer.Disconnected(ctx, team, m.Handle, run, entry.SinceMS); err != nil {
-		*problems = append(*problems, status.Problem{What: "the disconnected notice for " + m.Handle + " is not posted yet", Fix: "the next health tick retries it"})
+		*problems = append(*problems, status.Problem{What: "the disconnected notice for " + m.Handle + " is not posted yet", Fix: "the next health tick retries it", Member: m.Handle})
 		return entry, true
 	}
 	entry.Posted = true
